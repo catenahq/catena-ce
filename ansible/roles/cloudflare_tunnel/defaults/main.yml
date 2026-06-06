@@ -1,0 +1,36 @@
+---
+# Cloudflare tunnel + DNS + cloudflared swarm service.
+#
+# Extracted from roles/infrastructure on 2026-05-08 because oauth2_proxy's
+# `wait for Keycloak public OIDC discovery to be reachable` task needs the
+# public auth.<zone> URL up before its compose deploys; that requires
+# cloudflared + the wildcard DNS record + tunnel ingress config to be in
+# place. Keeping cloudflared deployment inside `infrastructure` (which by
+# design runs AFTER oauth2_proxy in site.yml so the gated apps inherit
+# oauth2_proxy's forward-auth chain) made site.yml depend on a two-pass
+# converge for any fresh-target scenario (DR, migrate). With the tunnel
+# in its own role, site.yml runs cloudflare_tunnel BEFORE keycloak +
+# oauth2_proxy in a single pass.
+
+cloudflared_tunnel_name: "{{ inventory_hostname }}"
+
+# Traefik service URL inside dokploy-network -- the single destination for
+# every *.<zone> wildcard ingress rule.
+cloudflared_ingress_service: "http://dokploy-traefik:80"
+
+cloudflared_dokploy_env_key: "CLOUDFLARE_TUNNEL_TOKEN"
+
+# Pinned to a full semver so the managed-update engine handles bumps with
+# auto-rollback. cloudflared is the highest-blast-radius service in the
+# stack: a broken image kills the public path AND the operator's ability
+# to reach OliveTin. The managed engine bumps within YYYY.M.* by default
+# and uses `docker service update --rollback` (built-in swarm primitive)
+# on health regression. Resolved at policy-rollout time (2026-04) to what
+# was running on dev1.
+cloudflared_image_tag: "2026.5.2"
+cloudflared_image: "cloudflare/cloudflared:{{ cloudflared_image_tag }}"
+
+# `cloudflare_api_base` lives in group_vars/all/main.yml so playbooks
+# that hit the Cloudflare API without importing this role (e.g.
+# decommission.yml's tunnel-delete leg) can resolve it from the same
+# source.

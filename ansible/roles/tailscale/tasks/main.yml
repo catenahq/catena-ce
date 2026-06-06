@@ -1,0 +1,172 @@
+---
+# Install Tailscale on the target, then join it to the tailnet using an
+# auth key freshly minted via OAuth on the controller. The minted key has
+# a 10-minute TTL and is single-use -- no long-lived tailscale secret ever
+# lands on the VPS.
+
+# ─── install via Debian's codename-aware apt repo ────────────────────────
+- name: Install Tailscale apt keyring
+  ansible.builtin.get_url:
+    url: "{{ tailscale_apt_keyring_url }}"
+    dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install Tailscale apt source list
+  ansible.builtin.get_url:
+    url: "{{ tailscale_apt_source_url }}"
+    dest: /etc/apt/sources.list.d/tailscale.list
+    owner: root
+    group: root
+    mode: "0644"
+  register: tailscale_source
+
+- name: Update apt cache if sources changed
+  ansible.builtin.apt:
+    update_cache: true
+  when: tailscale_source.changed
+
+- name: Install tailscale package
+  ansible.builtin.apt:
+    name: tailscale
+    state: present
+
+- name: Ensure tailscaled is enabled and running
+  ansible.builtin.command:
+    cmd: systemctl enable --now tailscaled
+  changed_when: false
+
+# ─── determine whether we need to (re)authenticate ───────────────────────
+- name: Query current tailscale backend state
+  ansible.builtin.command: tailscale status --json
+  register: ts_status_raw
+  changed_when: false
+  failed_when: false
+
+# Split into two set_facts because Ansible-core 2.19's strict templating
+# eagerly evaluates both branches of the ternary -- passing an empty
+# stdout to `from_json` blows up even when rc != 0. The `when` guard on
+# the first set_fact keeps `from_json` away from empty input.
+- name: Parse tailscale backend state (JSON when non-empty)
+  ansible.builtin.set_fact:
+    _ts_status_parsed: "{{ ts_status_raw.stdout | from_json }}"
+  when:
+    - ts_status_raw.rc == 0
+    - (ts_status_raw.stdout | default('') | trim | length) > 0
+
+- name: Determine tailscale backend state
+  ansible.builtin.set_fact:
+    ts_backend_state: "{{ _ts_status_parsed.BackendState | default('NotRunning') }}"
+
+# ─── OAuth mint + tailscale up (controller runs the mint, VPS runs up) ───
+- name: Authenticate the node
+  when: ts_backend_state != 'Running' or tailscale_force_reauth | bool
+  block:
+    - name: Exchange OAuth client credentials for a bearer token
+      ansible.builtin.uri:
+        url: "{{ tailscale_api_base }}/oauth/token"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          grant_type: client_credentials
+        url_username: "{{ vault_tailscale_oauth_client_id }}"
+        url_password: "{{ vault_tailscale_oauth_client_secret }}"
+        force_basic_auth: true
+        status_code: 200
+        return_content: true
+      register: ts_oauth_token
+      delegate_to: localhost
+      become: false
+
+    - name: "Mint a single-use, tagged auth key (TTL: {{ tailscale_auth_key_ttl_seconds }})"
+      ansible.builtin.uri:
+        url: "{{ tailscale_api_base }}/tailnet/-/keys"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ ts_oauth_token.json.access_token }}"
+        body_format: json
+        body:
+          capabilities:
+            devices:
+              create:
+                reusable: false
+                ephemeral: "{{ tailscale_ephemeral | bool }}"
+                preauthorized: true
+                tags: "{{ tailscale_tags }}"
+          expirySeconds: "{{ tailscale_auth_key_ttl_seconds }}"
+        status_code: 200
+        return_content: true
+      register: ts_minted_key
+      delegate_to: localhost
+      become: false
+
+    - name: tailscale up with minted key
+      ansible.builtin.command:
+        argv:
+          - tailscale
+          - up
+          - "--authkey={{ ts_minted_key.json.key }}"
+          - "--advertise-tags={{ tailscale_tags | join(',') }}"
+          - "--hostname={{ tailscale_hostname }}"
+          - "--accept-dns={{ 'true' if tailscale_accept_dns | bool else 'false' }}"
+          - "--reset"
+      no_log: true # minted key is in argv; keep it out of logs
+      changed_when: true
+
+# ─── verify + expose facts ───────────────────────────────────────────────
+- name: Re-query tailscale status after join
+  ansible.builtin.command: tailscale status --json
+  register: ts_final_status
+  changed_when: false
+
+- name: Assert tailscale BackendState is Running
+  ansible.builtin.assert:
+    that:
+      - (ts_final_status.stdout | from_json).BackendState == 'Running'
+    fail_msg: "tailscale did not reach Running state after `tailscale up`"
+
+# `tailscale up` can return success a moment before the node is assigned a
+# CGNAT IP from the coordinator. Poll `tailscale ip -4` until it returns
+# something -- exits non-zero if no IP yet.
+- name: Wait for tailnet IPv4 assignment
+  ansible.builtin.command: tailscale ip -4
+  register: ts_ipv4_result
+  changed_when: false
+  failed_when: false
+  retries: 15
+  delay: 2
+  until: ts_ipv4_result.rc == 0 and (ts_ipv4_result.stdout | trim) | length > 0
+
+- name: Fail if no IPv4 assigned after wait
+  ansible.builtin.fail:
+    msg: >-
+      Tailscale is Running but no IPv4 was assigned within 30s.
+      Check the admin console for this node ({{ inventory_hostname }}) -- it
+      may be pending approval, or ACL may be blocking IP assignment.
+  when: ts_ipv4_result.rc != 0 or (ts_ipv4_result.stdout | trim) | length == 0
+
+- name: Expose node's tailnet IPv4 as a fact
+  ansible.builtin.set_fact:
+    tailscale_ipv4: "{{ ts_ipv4_result.stdout | trim }}"
+
+# Atomicity: Tailscale's `Running` state + an assigned IPv4 are necessary
+# but not sufficient -- the controller also needs to actually reach the
+# node at that IP. ACL mismatch, DERP-only routes, MagicDNS resolver
+# timing, or a stale tailnet route from a previous ephemeral node can
+# all leave the node technically "joined" but unreachable. bootstrap.yml
+# flips inventory_hostname to this IP immediately after this role runs;
+# if the flip lands before the route is live, every subsequent task
+# fails with a misleading SSH/connection error. Probe now so the
+# failure (if any) surfaces here with a clear message.
+- name: "Verify controller can reach node via tailnet IPv4"
+  ansible.builtin.wait_for:
+    host: "{{ tailscale_ipv4 }}"
+    port: 22
+    timeout: 30
+  delegate_to: localhost
+  become: false
+
+- name: Report tailnet identity
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }} joined tailnet at {{ tailscale_ipv4 }}"

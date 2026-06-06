@@ -1,0 +1,88 @@
+---
+# Regenerate the Cloudflare tunnel for this host. Used in two
+# scenarios: (a) routine rotation of the tunnel-token credential
+# (e.g. when the operator suspects compromise of a tunnel JSON),
+# (b) recovery after the tunnel was orphaned by an out-of-band
+# delete in the CF dashboard.
+#
+# Triggered from the catena-admin Actions tab "Regenerate Cloudflare
+# tunnel" entry, which feeds cf_api_token in via -e (the action
+# payload). The token is consumed once at API call time and is NEVER
+# persisted -- vault_cloudflare_api_token is intentionally NOT updated
+# by this role.
+#
+# Sequence:
+#   1. Resolve zone via CF API (using the supplied token).
+#   2. Delete the existing tunnel for this host (if any).
+#   3. Hand off to roles/cloudflare_tunnel's find-or-create logic with
+#      vault_cloudflare_api_token shadowed by the supplied token, which
+#      then mints a new tunnel + token, writes the JSON, and restarts
+#      cloudflared.
+#
+# This is INSTANT for the client (single-button flow); the rotation
+# is propagated to live state without an operator converge.
+
+- name: "CF regen: validate inputs"
+  ansible.builtin.assert:
+    that:
+      - cf_api_token is defined
+      - cf_api_token | length > 10
+      - cloudflare_zone | length > 0
+      - cloudflare_account_id | length > 0
+    fail_msg: >-
+      Missing inputs: cf_api_token (-e cf_api_token=...) and
+      CLOUDFLARE_ZONE + CLOUDFLARE_ACCOUNT_ID from inventory .env.
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: "CF regen: list existing tunnels matching this host"
+  ansible.builtin.uri:
+    url: "{{ cloudflare_api_base }}/accounts/{{ cloudflare_account_id }}/cfd_tunnel?name={{ cloudflared_tunnel_name }}&is_deleted=false"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ cf_api_token }}"
+    status_code: 200
+    return_content: true
+  register: _cf_regen_list
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: "CF regen: clean up stale connectors (refuses delete on tunnels with active connections)"
+  ansible.builtin.uri:
+    url: "{{ cloudflare_api_base }}/accounts/{{ cloudflare_account_id }}/cfd_tunnel/{{ item.id }}/connections"
+    method: DELETE
+    headers:
+      Authorization: "Bearer {{ cf_api_token }}"
+    status_code: [200, 204, 404]
+  loop: "{{ _cf_regen_list.json.result }}"
+  loop_control:
+    label: "{{ item.id }}"
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: "CF regen: delete existing tunnel(s)"
+  ansible.builtin.uri:
+    url: "{{ cloudflare_api_base }}/accounts/{{ cloudflare_account_id }}/cfd_tunnel/{{ item.id }}"
+    method: DELETE
+    headers:
+      Authorization: "Bearer {{ cf_api_token }}"
+    status_code: [200, 404]
+  loop: "{{ _cf_regen_list.json.result }}"
+  loop_control:
+    label: "{{ item.id }}"
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+# Hand off to the existing find-or-create + token write + restart
+# logic. Shadow vault_cloudflare_api_token with the supplied token
+# so the tunnel role uses it for all API calls. The shadow is scoped
+# to this play -- no vault file is rewritten.
+- name: "CF regen: re-create tunnel + restart cloudflared via existing role"
+  ansible.builtin.include_role:
+    name: cloudflare_tunnel
+  vars:
+    vault_cloudflare_api_token: "{{ cf_api_token }}"

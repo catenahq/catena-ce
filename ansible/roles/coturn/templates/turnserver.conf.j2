@@ -1,0 +1,112 @@
+# {{ ansible_managed }}
+# coturn config -- catena shared TURN/STUN server.
+#
+# Used by Nextcloud Talk + HPB and Rocket.Chat's bundled Jitsi for
+# restrictive-network media relay. Authentication is shared-secret
+# based: the apps mint short-lived (HMAC-SHA1) credentials from
+# `static-auth-secret` for each call. No per-user database.
+
+# ── Listening ──────────────────────────────────────────────────────
+listening-port={{ coturn_listen_port }}
+tls-listening-port={{ coturn_tls_port }}
+
+# `external-ip` MUST be the VPS public IP. coturn advertises this in
+# ICE candidates; without it, clients receive the container's bridge
+# IP and every call fails in confusing ways.
+external-ip={{ public_ip }}
+
+listening-ip=0.0.0.0
+relay-ip=0.0.0.0
+
+# Relay port range. Every port in this window must be ufw-permitted
+# (UDP). See roles/common/tasks/ufw_lockdown.yml.
+min-port={{ coturn_min_relay_port }}
+max-port={{ coturn_max_relay_port }}
+
+# ── Auth ───────────────────────────────────────────────────────────
+use-auth-secret
+static-auth-secret={{ vault_turn_static_auth_secret }}
+realm={{ coturn_realm }}
+
+# ── Quotas ─────────────────────────────────────────────────────────
+# Bounds the blast radius of a leaked credential and protects the
+# host's egress budget. Values tuned per defaults/main.yml.
+user-quota={{ coturn_user_quota }}
+total-quota={{ coturn_total_quota }}
+max-bps={{ coturn_max_bps }}
+{% if coturn_bps_capacity | int > 0 %}
+bps-capacity={{ coturn_bps_capacity }}
+{% endif %}
+stale-nonce={{ coturn_stale_nonce }}
+
+# ── TLS (TURN/TLS on tls-listening-port) ───────────────────────────
+cert={{ coturn_container_cert_path }}
+pkey={{ coturn_container_key_path }}
+
+# Lock to AEAD ciphers only. TLS 1.3 negotiates first when both
+# peers support it; TLS 1.2 stays available for older browsers /
+# legacy mobile WebRTC stacks but only with these GCM suites.
+# CBC ciphers (AES-CBC, 3DES) are refused, which closes BEAST /
+# Lucky13 / padding-oracle class issues without needing to disable
+# TLS 1.2 wholesale. TLS 1.0/1.1 are already default-off in coturn
+# 4.7.0+ so the previous no-tlsv1 / no-tlsv1_1 directives are
+# redundant on the pinned 4.10.0-alpine image.
+cipher-list="ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256"
+
+# ── Hardening ──────────────────────────────────────────────────────
+# Refuse to relay to RFC1918, link-local, loopback, multicast, and
+# every IANA special-purpose range. Without this, an authenticated
+# TURN client can SSRF into the dokploy-network or reach the cloud
+# metadata endpoint. List sourced from Enable Security's 2026 coturn
+# hardening guide and the EnableSecurity/coturn-secure-config
+# "recommended" profile.
+
+# IPv4 ranges
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=100.64.0.0-100.127.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.0.0.0-192.0.0.255
+denied-peer-ip=192.0.2.0-192.0.2.255
+denied-peer-ip=192.88.99.0-192.88.99.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=198.18.0.0-198.19.255.255
+denied-peer-ip=198.51.100.0-198.51.100.255
+denied-peer-ip=203.0.113.0-203.0.113.255
+denied-peer-ip=224.0.0.0-239.255.255.255
+denied-peer-ip=240.0.0.0-255.255.255.255
+
+# IPv6 ranges: loopback, ULA, link-local, documentation, NAT64,
+# discard, deprecated 6to4.
+denied-peer-ip=::1
+denied-peer-ip=64:ff9b::-64:ff9b::ffff:ffff
+denied-peer-ip=100::-100::ffff:ffff:ffff:ffff
+denied-peer-ip=2001:db8::-2001:db8:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=2002::-2002:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+
+# CVE-2026-27624 defense in depth: IPv4-mapped IPv6 bypass of the
+# above IPv4 denies. The image is already on 4.10.0 (patched), this
+# is belt-and-braces in case of a future downgrade or unpatched fork.
+denied-peer-ip=::ffff:0.0.0.0-::ffff:255.255.255.255
+
+no-multicast-peers
+no-loopback-peers
+
+# Disable CLI on telnet -- not needed and an extra attack surface.
+no-cli
+
+# Logs go to stderr -> docker logs -> journald. simple-log drops
+# ANSI colour codes so journalctl + fail2ban regexes parse the
+# stream cleanly. (Note: do NOT add the `fingerprint` directive --
+# it is default-on in coturn 4.7.0+ and the explicit directive on
+# older configs was sometimes accompanied by a misleading "drop
+# fingerprint" comment. The directive ENABLES the RFC 5389
+# FINGERPRINT attribute for protocol-level packet validation.)
+verbose
+simple-log
+no-stdout-log
+log-file=stdout

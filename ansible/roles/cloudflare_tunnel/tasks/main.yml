@@ -1,0 +1,390 @@
+---
+# Control-plane setup for the Cloudflare tunnel + wildcard DNS + ingress,
+# plus deployment of cloudflared itself as a swarm service on
+# dokploy-network. All CF API calls run from the controller
+# (delegate_to: localhost) -- the API token never lands on the VPS.
+#
+# Desired state this file enforces:
+#   - Tunnel named {{ cloudflared_tunnel_name }} exists in CF.
+#   - DNS record *.{{ cloudflare_zone }} CNAME -> <tunnel-id>.cfargotunnel.com.
+#   - Tunnel ingress config is exactly one rule:
+#       *.{{ cloudflare_zone }} -> {{ cloudflared_ingress_service }}
+#       + catch-all http_status:404.
+#     (Manual edits in CF dashboard get overwritten -- intentional.)
+#   - cloudflared swarm service exists, attached to dokploy-network, with
+#     the current TUNNEL_TOKEN. cloudflared stays a raw swarm service (NOT
+#     Dokploy-managed) because migrating it to Dokploy-managed would risk
+#     tunnel outage during swap, and the UI-visibility gain is low for a
+#     set-and-forget component.
+#
+# Access auth for the four UIs (admin/monitor/actions/dash) is handled
+# by self-hosted SSO + forward-auth: Keycloak (Phase Two distribution)
+# + oauth2-proxy (live since 2026-04-27). CF Access is not part of this
+# stack.
+
+# ─── preflight ───────────────────────────────────────────────────────────
+- name: Assert required config is present
+  ansible.builtin.assert:
+    that:
+      - vault_cloudflare_api_token is defined
+      - vault_cloudflare_api_token | length > 10
+      - cloudflare_zone | length > 0
+      - cloudflare_account_id | length > 0
+    fail_msg: >-
+      Missing config: need vault_cloudflare_api_token + vault_dokploy_api_key
+      in the vault, and CLOUDFLARE_ZONE + CLOUDFLARE_ACCOUNT_ID in inventory/<name>/.env.
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+# ─── resolve CF zone_id ──────────────────────────────────────────────────
+- name: "CF: look up zone_id for {{ cloudflare_zone }}"
+  ansible.builtin.uri:
+    url: "{{ cloudflare_api_base }}/zones?name={{ cloudflare_zone }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+    status_code: 200
+    return_content: true
+  register: _cf_zones
+  run_once: true
+  delegate_to: localhost
+  become: false
+  # CF API occasionally returns transient 5xx ("An unknown API error
+  # occurred"). Retry idempotent reads so a single hiccup doesn't fail
+  # the whole converge.
+  retries: 5
+  delay: 6
+  until: _cf_zones.status == 200
+
+- name: Assert the zone is visible to this token
+  ansible.builtin.assert:
+    that:
+      - _cf_zones.json.result | length == 1
+    fail_msg: >-
+      Zone '{{ cloudflare_zone }}' not found (or token lacks access). Check
+      that the API token has Zone:DNS:Edit scope on this zone.
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: Capture zone_id
+  ansible.builtin.set_fact:
+    cloudflare_zone_id: "{{ _cf_zones.json.result[0].id }}"
+  run_once: true
+
+# ─── find-or-create tunnel ───────────────────────────────────────────────
+- name: "CF: list existing tunnels with this name"
+  ansible.builtin.uri:
+    url: "{{ cloudflare_api_base }}/accounts/{{ cloudflare_account_id }}/cfd_tunnel?name={{ cloudflared_tunnel_name }}&is_deleted=false"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+    status_code: 200
+    return_content: true
+  register: _cf_tunnel_list
+  delegate_to: localhost
+  become: false
+  retries: 5
+  delay: 6
+  until: _cf_tunnel_list.status == 200
+
+# Find-or-create only. The migrate flow no longer force-deletes an
+# existing tunnel here -- during cutover both source and target keep
+# their tunnels registered so DNS re-point is a valid rollback.
+# Explicit source-tunnel deletion happens in decommission.yml after
+# the operator confirms production is on the new host.
+- name: Create tunnel if it doesn't exist
+  ansible.builtin.uri:
+    url: "{{ cloudflare_api_base }}/accounts/{{ cloudflare_account_id }}/cfd_tunnel"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+    body_format: json
+    body:
+      name: "{{ cloudflared_tunnel_name }}"
+      config_src: cloudflare # remotely-managed ingress (via API, not config.yml)
+    status_code: 200
+    return_content: true
+  register: _cf_tunnel_create
+  when: _cf_tunnel_list.json.result | length == 0
+  delegate_to: localhost
+  become: false
+
+- name: Resolve tunnel_id (existing or freshly created)
+  ansible.builtin.set_fact:
+    cloudflared_tunnel_id: >-
+      {{
+        (_cf_tunnel_list.json.result[0].id
+         if (_cf_tunnel_list.json.result | length) > 0
+         else _cf_tunnel_create.json.result.id)
+      }}
+
+# ─── fetch tunnel token (always -- the token is needed downstream) ────────
+# The token is regenerated each time it's requested? No -- `GET /token` returns
+# the current stable token for the tunnel. Safe to call on every run.
+- name: "CF: fetch tunnel token"
+  ansible.builtin.uri:
+    url: "{{ cloudflare_api_base }}/accounts/{{ cloudflare_account_id }}/cfd_tunnel/{{ cloudflared_tunnel_id }}/token"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+    status_code: 200
+    return_content: true
+  register: _cf_tunnel_token
+  delegate_to: localhost
+  become: false
+  retries: 5
+  delay: 6
+  until: _cf_tunnel_token.status == 200
+
+- name: Capture tunnel token
+  ansible.builtin.set_fact:
+    cloudflared_tunnel_token: "{{ _cf_tunnel_token.json.result }}"
+
+# ─── DNS: wildcard CNAME ─────────────────────────────────────────────────
+- name: "CF DNS: look up existing wildcard record"
+  ansible.builtin.uri:
+    url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records?type=CNAME&name=*.{{ cloudflare_zone }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+    status_code: 200
+    return_content: true
+  register: _cf_dns_existing
+  delegate_to: localhost
+  become: false
+  retries: 5
+  delay: 6
+  until: _cf_dns_existing.status == 200
+
+- name: "CF DNS: create wildcard CNAME if absent"
+  ansible.builtin.uri:
+    url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+    body_format: json
+    body:
+      type: CNAME
+      name: "*.{{ cloudflare_zone }}"
+      content: "{{ cloudflared_tunnel_id }}.cfargotunnel.com"
+      proxied: true
+      ttl: 1 # 1 = automatic
+      comment: "Managed by catena roles/infrastructure"
+    status_code: 200
+  register: _cf_dns_create
+  when: _cf_dns_existing.json.result | length == 0
+  delegate_to: localhost
+  become: false
+  # Match the lookup task above: CF returns code=1000 "There was an
+  # unknown error" / 503 intermittently and the create POST is just as
+  # exposed. Bench saw back-to-back 503s on this exact task on
+  # 2026-05-22 with the lookup succeeding right before. 5*6s = 30s of
+  # headroom, plenty for a transient hiccup, doesn't mask a real auth /
+  # quota failure (those return non-200 every retry).
+  retries: 5
+  delay: 6
+  until: _cf_dns_create is not failed
+
+- name: "CF DNS: update wildcard CNAME if content drifted"
+  ansible.builtin.uri:
+    url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records/{{ _cf_dns_existing.json.result[0].id }}"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+    body_format: json
+    body:
+      type: CNAME
+      name: "*.{{ cloudflare_zone }}"
+      content: "{{ cloudflared_tunnel_id }}.cfargotunnel.com"
+      proxied: true
+      ttl: 1
+    status_code: 200
+  register: _cf_dns_update
+  when:
+    - _cf_dns_existing.json.result | length > 0
+    - _cf_dns_existing.json.result[0].content != (cloudflared_tunnel_id ~ '.cfargotunnel.com')
+  delegate_to: localhost
+  become: false
+  retries: 5
+  delay: 6
+  until: _cf_dns_update is not failed
+
+# ─── enforce tunnel ingress config ───────────────────────────────────────
+# Always PUT the desired config -- operator drift in CF dashboard loses to
+# Ansible. Single wildcard rule pointing at Dokploy's Traefik, plus fallback.
+- name: "CF: enforce tunnel ingress (wildcard -> Traefik)"
+  ansible.builtin.uri:
+    url: "{{ cloudflare_api_base }}/accounts/{{ cloudflare_account_id }}/cfd_tunnel/{{ cloudflared_tunnel_id }}/configurations"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+    body_format: json
+    body:
+      config:
+        ingress:
+          - hostname: "*.{{ cloudflare_zone }}"
+            service: "{{ cloudflared_ingress_service }}"
+          - service: "http_status:404"
+    status_code: 200
+    timeout: 30
+  # Cloudflare's edge API occasionally drops connections mid-PUT; this
+  # is a single idempotent call so retrying is safe. Without retries
+  # one transient 504 / TCP timeout fails the whole converge.
+  register: _cf_tunnel_ingress
+  retries: 5
+  delay: 10
+  until: _cf_tunnel_ingress.status == 200
+  delegate_to: localhost
+  become: false
+
+# ─── deploy cloudflared as a swarm service ────────────────────────────────
+# Created as a direct swarm service (not via Dokploy's app API) because
+# cloudflared is infrastructure, not an operator-managed app. It just
+# needs to be on dokploy-network with the tunnel token. Dokploy's UI
+# won't show it, but `docker service ls` will.
+- name: Check if cloudflared swarm service exists
+  ansible.builtin.command: docker service inspect cloudflared --format '{{ "{{" }}.ID{{ "}}" }}'
+  register: _cloudflared_service
+  changed_when: false
+  failed_when: false
+
+- name: Create cloudflared swarm service (first run)
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - create
+      - --name=cloudflared
+      - --network=dokploy-network
+      - --restart-condition=any
+      - "--env=TUNNEL_TOKEN={{ cloudflared_tunnel_token }}"
+      - "{{ cloudflared_image }}"
+      - tunnel
+      - "--no-autoupdate"
+      - run
+  when: _cloudflared_service.rc != 0
+  no_log: true
+
+# Read the current TUNNEL_TOKEN from the swarm spec and compare with the
+# CF API value. `docker service update --env-add KEY=VALUE` bumps the
+# service spec version EVEN IF the value is identical, which triggers a
+# rolling task replacement on every site.yml converge. The replacement
+# briefly drops cloudflared's CF tunnel connections, and CF edge serves
+# 530/1033 for tunnel hostnames while the new connector registers. Any
+# container that does single-shot OIDC discovery in that window
+# (oauth2-proxy v7 has no retry) crashloops into Docker restart-backoff
+# and may never recover within the validate retry budget.
+#
+# Bench rollback Run 2026-05-09T15-32-56-9f17 reproduced this: the
+# unconditional --env-add fired during stage-3-rollback's site.yml
+# converge, swarm rolled cloudflared 3 times in 2 minutes, gatus
+# oauth2-proxy started fresh in the middle of that and never recovered
+# before /ping retries exhausted.
+- name: Read cloudflared current TUNNEL_TOKEN env from swarm spec
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - inspect
+      - cloudflared
+      - --format
+      - "{{ '{{' }}range .Spec.TaskTemplate.ContainerSpec.Env{{ '}}' }}{{ '{{' }}.{{ '}}' }}|{{ '{{' }}end{{ '}}' }}"
+  register: _cloudflared_current_env
+  when: _cloudflared_service.rc == 0
+  changed_when: false
+  no_log: true
+
+- name: Update cloudflared service token only if it actually drifted
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - update
+      - "--env-add=TUNNEL_TOKEN={{ cloudflared_tunnel_token }}"
+      - cloudflared
+  when:
+    - _cloudflared_service.rc == 0
+    - ('TUNNEL_TOKEN=' + cloudflared_tunnel_token) not in (_cloudflared_current_env.stdout | default('')).split('|')
+  no_log: true
+
+- name: Read cloudflared current image
+  ansible.builtin.command: docker service inspect cloudflared --format '{{ "{{" }}.Spec.TaskTemplate.ContainerSpec.Image{{ "}}" }}'
+  register: _cloudflared_current_image
+  changed_when: false
+  when: _cloudflared_service.rc == 0
+
+- name: Reconcile cloudflared image to configured pin
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - update
+      - "--image={{ cloudflared_image }}"
+      - cloudflared
+  when:
+    - _cloudflared_service.rc == 0
+    - (_cloudflared_current_image.stdout | default('')).split('@')[0] != cloudflared_image
+  changed_when: true
+
+# ─── atomicity: probe the full CF edge -> tunnel -> Traefik chain ──────────
+# Every previous step returned success individually -- CF API accepted
+# our tunnel config, cloudflared swarm service exists, DNS CNAME is in
+# place. None of that proves the full chain is actually routing public
+# traffic. A broken tunnel (bad token pushed via --env-add, wrong
+# ingress service alias, DNS not yet propagated, cloudflared connector
+# failed to register) silently surfaces MUCH later, when an operator
+# can't reach admin.<zone>. Probe here, at the source of the problem.
+#
+# The probe hits a deliberately unrouted hostname under the wildcard
+# DNS record. Traefik returns its default 404 immediately for any host
+# without a matching rule, no middleware chain invoked. That decouples
+# this probe from Keycloak's startup time (which would otherwise 500
+# / serve a "starting up" page while Keycloak warms, adding minutes
+# to the converge for no validation gain here -- Keycloak readiness
+# is checked by its own role's compose HEALTHCHECK).
+#
+# What a 404 from this URL actually proves:
+#   1. CF wildcard DNS resolved -> edge received the request.
+#   2. Edge forwarded to tunnel -> cloudflared connector is registered.
+#   3. Cloudflared reached origin -> dokploy-traefik is serving on :80.
+#
+# Real chain failures surface differently: CF-synthesized error pages
+# (1033/1016/530), connect timeouts (cloudflared connector broken),
+# DNS NXDOMAIN (DNS not yet propagated). Those we retry through.
+# 60 × 10s = 10 min, sized for the worst case observed on the bench:
+# a freshly-created CF tunnel (via API in the preceding task) needs
+# CF's edge to propagate the registration before cloudflared can
+# register with it ("Unauthorized: Tunnel not found"), AND swarm
+# restarts the cloudflared task once if the first registration hits
+# the CF edge during propagation. End-to-end this took ~4 minutes
+# in one bench run -- 30 retries (5 min) gave up too early.
+- name: "CF: probe full chain (edge -> tunnel -> Traefik)"
+  ansible.builtin.uri:
+    url: "https://cf-chain-probe.{{ cloudflare_zone }}/"
+    method: GET
+    status_code: [404]
+    follow_redirects: none
+    timeout: 10
+  register: _cf_chain_probe
+  retries: 60
+  delay: 10
+  until: _cf_chain_probe.status == 404
+  delegate_to: localhost
+  become: false
+
+# ─── summary ─────────────────────────────────────────────────────────────
+- name: Cloudflare tunnel ready
+  ansible.builtin.debug:
+    msg: |
+      Cloudflare tunnel ready:
+        tunnel name:    {{ cloudflared_tunnel_name }}
+        tunnel id:      {{ cloudflared_tunnel_id }}
+        wildcard DNS:   *.{{ cloudflare_zone }} -> {{ cloudflared_tunnel_id }}.cfargotunnel.com
+        wildcard route: *.{{ cloudflare_zone }} -> {{ cloudflared_ingress_service }}
+        container:      `docker service ls | grep cloudflared`
+        probed:         https://cf-chain-probe.{{ cloudflare_zone }}/ -> {{ _cf_chain_probe.status }}
+
+      DO NOT enable Let's Encrypt / HTTPS on Traefik -- Cloudflare terminates
+      TLS at the edge and LE conflicts with the tunnel.

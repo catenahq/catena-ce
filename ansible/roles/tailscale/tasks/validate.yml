@@ -1,0 +1,76 @@
+---
+# Validation tasks for roles/tailscale. Replaces tests/goss/tailscale.yaml.
+- name: "validate/tailscale: package_facts"
+  ansible.builtin.package_facts:
+    manager: apt
+
+- name: "validate/tailscale: tailscale apt package installed"
+  ansible.builtin.assert:
+    that:
+      - "'tailscale' in ansible_facts.packages"
+    fail_msg: "tailscale package not installed via apt"
+
+- name: "validate/tailscale: stat keyring + apt source"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: _ts_stats
+  loop:
+    - /usr/share/keyrings/tailscale-archive-keyring.gpg
+    - /etc/apt/sources.list.d/tailscale.list
+
+- name: "validate/tailscale: keyring + apt source exist"
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.pw_name == 'root'
+      - item.stat.gr_name == 'root'
+    fail_msg: "{{ item.item }}: missing or bad owner/group"
+  loop: "{{ _ts_stats.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: "validate/tailscale: service_facts"
+  ansible.builtin.service_facts:
+
+- name: "validate/tailscale: tailscaled active + enabled"
+  ansible.builtin.assert:
+    that:
+      - "ansible_facts.services['tailscaled.service'].state == 'running'"
+      - "ansible_facts.services['tailscaled.service'].status == 'enabled'"
+    fail_msg: "tailscaled service not running/enabled"
+
+- name: "validate/tailscale: tailscale0 interface exists"
+  ansible.builtin.command: ip -brief link show tailscale0
+  register: _ts_link
+  failed_when: false
+  changed_when: false
+
+- name: "validate/tailscale: tailscale0 present"
+  ansible.builtin.assert:
+    that:
+      - _ts_link.rc == 0
+    fail_msg: "tailscale0 interface missing (rc={{ _ts_link.rc }}, stderr={{ _ts_link.stderr }})"
+
+- name: "validate/tailscale: tailscale status --json"
+  ansible.builtin.command: tailscale status --json
+  register: _ts_status
+  failed_when: false
+  changed_when: false
+
+- name: "validate/tailscale: backend Running, online, tagged"
+  ansible.builtin.assert:
+    that:
+      - _ts_status.rc == 0
+      - "'\"BackendState\": \"Running\"' in _ts_status.stdout"
+      - "'\"Online\": true' in _ts_status.stdout"
+      # tailscale_tags comes from .env (TAILSCALE_TAGS) via the dotenv
+      # lookup in skel/group_vars/all/main.yml.example. Verify EACH
+      # configured tag is present in the VPS's live status JSON --
+      # hardcoding `tag:vps` here broke the test bench, which uses
+      # `tag:vps-test`. Any custom tag (tag:dev, tag:client-foo, ...)
+      # now validates automatically.
+      - item in _ts_status.stdout
+    fail_msg: >-
+      tailscale status JSON missing one of
+      BackendState=Running, Online=true, {{ item }}
+  loop: "{{ tailscale_tags }}"

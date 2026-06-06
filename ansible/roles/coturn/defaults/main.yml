@@ -1,0 +1,108 @@
+---
+# Shared TURN/STUN server. Used by:
+#   - Nextcloud Talk + HPB (when the HPB block in the Nextcloud compose
+#     is uncommented) for restrictive-network media relay.
+#   - Rocket.Chat's bundled Jitsi (jitsi-videobridge JVB_TURN_*) for the
+#     same reason.
+#
+# Coturn runs as a Dokploy-managed compose service so updates, logs,
+# and the dashboard panel match the rest of the stack. Its UDP ports
+# are published in `mode: host` so they bind directly to the VPS public
+# IP (Cloudflare Tunnel does not carry UDP).
+
+coturn_compose_name: "coturn"
+coturn_image_tag: "4.10.0-alpine"
+coturn_image: "coturn/coturn:{{ coturn_image_tag }}"
+
+# Public hostname for the TURN server. Resolves via a gray-cloud
+# (proxied: false) Cloudflare A record; UDP cannot ride the CF tunnel.
+coturn_hostname: "turn.{{ cloudflare_zone }}"
+
+# STUN + TURN listening ports.
+coturn_listen_port: 3478
+coturn_tls_port: 5349
+
+# Relay range -- coturn allocates ephemeral UDP ports in this window
+# when it relays media for restrictive-network clients. ufw must
+# permit the entire range. Narrowed to ~100 ports = ~50 simultaneous
+# relayed calls. Bump if a client outgrows it.
+coturn_min_relay_port: 50000
+coturn_max_relay_port: 50100
+
+# Realm advertised in TURN credentials. Matches the public hostname.
+coturn_realm: "{{ coturn_hostname }}"
+
+# ── Quotas ──
+# Per-credential allocation cap. Each call leg consumes one allocation;
+# 12 covers the worst observed "user joins, screen-shares, reconnects"
+# burst pattern with headroom. Bounds the blast radius of a leaked
+# credential.
+coturn_user_quota: 12
+
+# Server-wide allocation ceiling. 1200 = 12 x 100 concurrent users.
+# Tune up only when a client outgrows the 100-port relay range.
+coturn_total_quota: 1200
+
+# Per-session bandwidth ceiling (bytes/sec). 3 MB/s = ~24 Mbps,
+# enough for two-way 1080p video + audio + 20% headroom. Bounds the
+# cost of a credential that escapes the chat server's signaling
+# channel.
+coturn_max_bps: 3000000
+
+# Server-wide bandwidth ceiling (bytes/sec). 0 = unlimited. Operators
+# with a hard per-VPS bandwidth budget set this in inventory; otherwise
+# the provider's egress quota is the only ceiling.
+coturn_bps_capacity: 0
+
+# Credential nonce TTL (seconds). 600s = 10 min. Bounds the replay
+# window of a credential captured via signaling-channel leak. Coturn
+# defaults to 600 already; pinning here for explicitness.
+coturn_stale_nonce: 600
+
+# Cert path on the host. Renewed by the role's certbot timer; bind-
+# mounted into the coturn container at the SAME path (/etc/letsencrypt).
+# Why mount the whole /etc/letsencrypt rather than the leaf live/<host>/:
+# certbot writes the actual cert bytes to
+# /etc/letsencrypt/archive/<host>/<file>N.pem and creates RELATIVE
+# symlinks under /etc/letsencrypt/live/<host>/<file>.pem ->
+# ../../archive/<host>/<file>N.pem. A bind mount of just live/<host>
+# leaves those symlinks dangling inside the container -- coturn fails
+# to load the cert and silently skips the TLS listener (port 5349
+# never binds; STUN-only on 3478 still works, masking the failure
+# until the bench's validate.yml catches it).
+coturn_host_letsencrypt_dir: "/etc/letsencrypt"
+coturn_cert_dir: "{{ coturn_host_letsencrypt_dir }}/live/{{ coturn_hostname }}"
+coturn_cert_path: "{{ coturn_cert_dir }}/fullchain.pem"
+coturn_key_path: "{{ coturn_cert_dir }}/privkey.pem"
+
+# Container-side cert mount. Mirrors the host path so the relative
+# symlinks under live/<host>/ resolve correctly. Coturn re-reads
+# certs on SIGHUP; the certbot deploy hook (renewal_post_hook) sends
+# SIGHUP to the running coturn container.
+coturn_container_letsencrypt_dir: "/etc/letsencrypt"
+coturn_container_cert_dir: "{{ coturn_container_letsencrypt_dir }}/live/{{ coturn_hostname }}"
+coturn_container_cert_path: "{{ coturn_container_cert_dir }}/fullchain.pem"
+coturn_container_key_path: "{{ coturn_container_cert_dir }}/privkey.pem"
+
+# Host config path -- bind-mounted into the coturn container.
+coturn_host_config_dir: "/etc/coturn"
+coturn_host_config_path: "{{ coturn_host_config_dir }}/turnserver.conf"
+
+# Cloudflare credentials file used by certbot-dns-cloudflare.
+# Rendered at converge time from vault_cloudflare_api_token; mode
+# 0600, root-only.
+coturn_cloudflare_creds_path: "/etc/letsencrypt/cloudflare.ini"
+
+# Email used for the certbot ACME registration (Let's Encrypt sends
+# expiry warnings here). Falls back to admin_email from inventory.
+coturn_certbot_email: "{{ admin_email | default('hostmaster@' ~ cloudflare_zone) }}"
+
+# Use Let's Encrypt's STAGING CA when true. Bench-only: the production
+# CA enforces "5 certs / 168h / exact identifier" and the bench re-
+# issues turn.<zone> on every run, burning the limit in <2 days and
+# blocking subsequent runs for ~32h. The staging CA has no such limit
+# and the cert is functionally identical for coturn (which validates
+# presence + expiry, not trust chain). Production inventories MUST
+# leave this false -- browsers and TURN clients reject staging certs.
+coturn_certbot_use_staging: "{{ lookup('dotenv', 'COTURN_CERTBOT_STAGING', default='false') | bool }}"
+coturn_certbot_staging_server: "https://acme-staging-v02.api.letsencrypt.org/directory"

@@ -1,0 +1,121 @@
+---
+# Vantage 1 (on-host) validation for coturn. Invoked by
+# playbooks/validate.yml via include_role + tasks_from: validate.
+
+- name: "validate coturn: swarm service exists + healthy"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - ls
+      - --filter
+      - name=coturn
+      - --format
+      - '{{ "{{" }}.Replicas{{ "}}" }}'
+  register: _v_coturn_svc
+  changed_when: false
+
+- name: "validate coturn: assert at least one replica running"
+  ansible.builtin.assert:
+    that:
+      # Replicas format: "1/1" (running/desired) for global mode
+      # also returns the same shape on a single-node swarm.
+      - _v_coturn_svc.stdout | trim | length > 0
+      - "'/' in (_v_coturn_svc.stdout | trim)"
+    fail_msg: |
+      coturn swarm service not running. Output:
+      {{ _v_coturn_svc.stdout | default('(empty)') }}
+      Diagnose:
+        docker service ls --filter name=coturn
+        docker service ps coturn --no-trunc
+
+- name: "validate coturn: TLS cert is present + valid for at least 24h"
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - x509
+      - -in
+      - "{{ coturn_cert_path }}"
+      - -checkend
+      - "86400"
+      - -noout
+  register: _v_coturn_cert
+  changed_when: false
+  failed_when: _v_coturn_cert.rc != 0
+
+- name: "validate coturn: capture host listening sockets (UDP)"
+  ansible.builtin.command:
+    argv:
+      - ss
+      - -uln
+  register: _v_coturn_ss_udp
+  changed_when: false
+
+# Diag capture BEFORE the assert so a failed TLS-listener bind dumps
+# coturn's own logs (which print the cert load error) into the bench
+# log. Without this the only signal is "5349 missing in ss", which
+# isn't enough to root-cause from one round.
+- name: "validate coturn: dump container logs (diag)"
+  ansible.builtin.shell: |
+    set +e
+    for ct in $(docker ps --filter "name=coturn" --format '{{ "{{" }}.Names{{ "}}" }}'); do
+      echo "=== coturn container: $ct ==="
+      docker logs --tail 100 "$ct" 2>&1
+    done
+  args:
+    executable: /bin/bash
+  register: _v_coturn_logs
+  changed_when: false
+  when: _v_coturn_ss_udp.stdout is not search(':' ~ coturn_tls_port ~ '\s')
+
+- name: "validate coturn: assert UDP 3478 + 5349 are listening"
+  ansible.builtin.assert:
+    that:
+      - _v_coturn_ss_udp.stdout is search(':' ~ coturn_listen_port ~ '\s')
+      - _v_coturn_ss_udp.stdout is search(':' ~ coturn_tls_port ~ '\s')
+    fail_msg: |
+      coturn UDP listeners missing. Expected :{{ coturn_listen_port }}
+      and :{{ coturn_tls_port }} on UDP. Got:
+      {{ _v_coturn_ss_udp.stdout }}
+
+      Container logs (last 100 lines):
+      {{ _v_coturn_logs.stdout | default('(no coturn container running)') }}
+
+- name: "validate coturn: capture host listening sockets (TCP)"
+  ansible.builtin.command:
+    argv:
+      - ss
+      - -tln
+  register: _v_coturn_ss_tcp
+  changed_when: false
+
+- name: "validate coturn: assert TCP 5349 (TLS-TURN) is listening"
+  ansible.builtin.assert:
+    that:
+      - _v_coturn_ss_tcp.stdout is search(':' ~ coturn_tls_port ~ '\s')
+    fail_msg: |
+      coturn TCP TLS-TURN listener missing on port {{ coturn_tls_port }}.
+      Got:
+      {{ _v_coturn_ss_tcp.stdout }}
+
+- name: "validate coturn: capture ufw status"
+  ansible.builtin.command: ufw status verbose
+  register: _v_coturn_ufw
+  changed_when: false
+
+- name: "validate coturn: assert ufw permits the required ports"
+  ansible.builtin.assert:
+    that:
+      - _v_coturn_ufw.stdout is search(coturn_listen_port | string ~ '/udp\s+ALLOW')
+      - _v_coturn_ufw.stdout is search(coturn_tls_port | string ~ '/udp\s+ALLOW')
+      - _v_coturn_ufw.stdout is search(coturn_tls_port | string ~ '/tcp\s+ALLOW')
+      - _v_coturn_ufw.stdout is search(coturn_min_relay_port | string ~ ':' ~ coturn_max_relay_port | string ~ '/udp\s+ALLOW')
+    fail_msg: |
+      ufw is missing one or more coturn rules. Expected:
+        {{ coturn_listen_port }}/udp ALLOW
+        {{ coturn_tls_port }}/udp ALLOW
+        {{ coturn_tls_port }}/tcp ALLOW
+        {{ coturn_min_relay_port }}:{{ coturn_max_relay_port }}/udp ALLOW
+
+      Got:
+      {{ _v_coturn_ufw.stdout }}

@@ -1,0 +1,65 @@
+---
+# Render the gray-cloud (proxied: false) A record `turn.<zone>` ->
+# VPS public IP. Required because cloudflared cannot carry UDP, so
+# coturn lives directly on the VPS public IP -- the TURN hostname
+# must resolve there, NOT to Cloudflare's edge.
+#
+# Mirrors roles/cloudflare_tunnel/tasks/main.yml's wildcard CNAME
+# pattern (look up + create-if-absent + update-if-drift) but for an
+# A record with proxied=false.
+
+- name: "coturn DNS: look up existing A record for {{ coturn_hostname }}"
+  ansible.builtin.uri:
+    url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records?type=A&name={{ coturn_hostname }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+    status_code: 200
+    return_content: true
+  register: _coturn_dns_existing
+  delegate_to: localhost
+  become: false
+  retries: 5
+  delay: 6
+  until: _coturn_dns_existing.status == 200
+
+- name: "coturn DNS: create A record (gray-cloud) if absent"
+  ansible.builtin.uri:
+    url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+    body_format: json
+    body:
+      type: A
+      name: "{{ coturn_hostname }}"
+      content: "{{ public_ip }}"
+      proxied: false
+      ttl: 1 # 1 = automatic
+      comment: "Managed by catena roles/coturn -- MUST be gray-cloud (UDP)"
+    status_code: 200
+  when: _coturn_dns_existing.json.result | length == 0
+  delegate_to: localhost
+  become: false
+
+- name: "coturn DNS: update A record if content / proxy state drifted"
+  ansible.builtin.uri:
+    url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records/{{ _coturn_dns_existing.json.result[0].id }}"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+    body_format: json
+    body:
+      type: A
+      name: "{{ coturn_hostname }}"
+      content: "{{ public_ip }}"
+      proxied: false
+      ttl: 1
+    status_code: 200
+  when:
+    - _coturn_dns_existing.json.result | length > 0
+    - >-
+      _coturn_dns_existing.json.result[0].content != public_ip
+      or _coturn_dns_existing.json.result[0].proxied | default(false)
+  delegate_to: localhost
+  become: false

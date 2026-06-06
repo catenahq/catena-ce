@@ -1,0 +1,21 @@
+---
+tailscale_hostname: "{{ inventory_hostname }}"
+tailscale_tags:
+  - "tag:vps"
+tailscale_accept_dns: false # keep systemd-resolved in charge of DNS
+tailscale_force_reauth: false
+
+# Ephemeral nodes auto-evict from the tailnet shortly after `tailscale logout`
+# (or when the daemon stops). Production default is false - we want persistent
+# node identity surviving reboots. Test benches override to true so throwaway
+# VMs don't pollute the admin console.
+tailscale_ephemeral: false
+
+# Debian codename-aware repo path.
+tailscale_apt_codename: "{{ ansible_facts['distribution_release'] }}"
+tailscale_apt_keyring_url: "https://pkgs.tailscale.com/stable/debian/{{ tailscale_apt_codename }}.noarmor.gpg"
+tailscale_apt_source_url: "https://pkgs.tailscale.com/stable/debian/{{ tailscale_apt_codename }}.tailscale-keyring.list"
+
+# API endpoints (OAuth mint happens on the controller, not on the VPS).
+tailscale_api_base: "https://api.tailscale.com/api/v2"
+tailscale_auth_key_ttl_seconds: 600 # 10 minutes -- plenty for one `tailscale up`
