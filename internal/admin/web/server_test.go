@@ -227,6 +227,84 @@ func TestPluginActionDispatchesThroughSameRunner(t *testing.T) {
 	}
 }
 
+func auditPanelConfig() Config {
+	return Config{
+		Version: "t",
+		Panels: func() []PanelInfo {
+			return []PanelInfo{{
+				ID: "audit", Title: "Audit log",
+				Render: func(context.Context) (string, error) {
+					return "<p>recent administrative actions</p>", nil
+				},
+			}}
+		},
+	}
+}
+
+func TestPluginNavLinkRendersForEnabledPanel(t *testing.T) {
+	h, err := New(auditPanelConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, adminReq("GET", "/apps", ""))
+	body := rr.Body.String()
+	if !strings.Contains(body, `href="/plugin/audit"`) || !strings.Contains(body, "Audit log") {
+		t.Errorf("expected the enabled plugin nav link, got %q", firstLine(body))
+	}
+}
+
+func TestPluginNavLinkHiddenWhenNoPanels(t *testing.T) {
+	h := newTestHandler(t) // no Panels provider -> Community
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, adminReq("GET", "/apps", ""))
+	if strings.Contains(rr.Body.String(), `/plugin/`) {
+		t.Error("CE-only host must show no plugin nav links")
+	}
+}
+
+func TestPluginPanelRenders(t *testing.T) {
+	h, err := New(auditPanelConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, adminReq("GET", "/plugin/audit", ""))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("admin /plugin/audit = %d, want 200", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "recent administrative actions") {
+		t.Error("expected the plugin panel body to render")
+	}
+}
+
+func TestPluginPanelUnknownIs404(t *testing.T) {
+	h, err := New(auditPanelConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, adminReq("GET", "/plugin/ghost", ""))
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("unknown plugin panel = %d, want 404", rr.Code)
+	}
+}
+
+func TestPluginPanelRequiresAdmin(t *testing.T) {
+	h, err := New(auditPanelConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/plugin/audit", nil)
+	req.Header.Set("X-Forwarded-Email", "staff@example.com")
+	req.Header.Set("X-Forwarded-Groups", "staff")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("non-admin /plugin/audit = %d, want 403", rr.Code)
+	}
+}
+
 func TestSetLocaleCookieAndRedirect(t *testing.T) {
 	h := newTestHandler(t)
 	rr := httptest.NewRecorder()

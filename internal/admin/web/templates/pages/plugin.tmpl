@@ -1,0 +1,10 @@
+{{define "title"}}{{ .Data.Title }}{{end}}
+{{define "content"}}
+<section class="plugin-panel">
+  <header class="plugin-header">
+    <h1>{{ .Data.Title }}</h1>
+  </header>
+  {{/* Body is trusted HTML from the operator-authored, license-gated plugin. */}}
+  <div class="plugin-body">{{ .Data.Body | safeHTML }}</div>
+</section>
+{{end}}

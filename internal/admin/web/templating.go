@@ -34,6 +34,19 @@ type Templates struct {
 	pages     map[string]*template.Template
 	fragments map[string]*template.Template
 	globals   map[string]any
+	// panels returns the enabled license-gated plugin panels (nav links).
+	// Nil/empty in Community. Set by the server after construction.
+	panels func() []PanelInfo
+}
+
+// SetPanels wires the enabled-plugin provider used to render EE nav links.
+func (t *Templates) SetPanels(fn func() []PanelInfo) { t.panels = fn }
+
+func (t *Templates) navPanels() []PanelInfo {
+	if t.panels == nil {
+		return nil
+	}
+	return t.panels()
 }
 
 // NewTemplates parses the embedded layout + nav + every page template.
@@ -109,6 +122,9 @@ type renderData struct {
 	Globals  map[string]any
 	Path     string
 	Data     any
+	// Plugins are the enabled EE plugin panels, rendered as extra admin nav
+	// links. Empty in Community.
+	Plugins []PanelInfo
 
 	tr *i18n.Translations
 }
@@ -143,6 +159,7 @@ func (t *Templates) Render(w http.ResponseWriter, r *http.Request, page string, 
 		Globals:  t.globals,
 		Path:     r.URL.Path,
 		Data:     data,
+		Plugins:  t.navPanels(),
 		tr:       t.tr,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -172,6 +189,7 @@ func (t *Templates) RenderFragment(w http.ResponseWriter, r *http.Request, name 
 		Globals:  t.globals,
 		Path:     r.URL.Path,
 		Data:     data,
+		Plugins:  t.navPanels(),
 		tr:       t.tr,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

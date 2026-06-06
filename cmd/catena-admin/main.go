@@ -116,6 +116,18 @@ func main() {
 		return out
 	}
 
+	// Enabled EE plugins also contribute a nav tab + a /plugin/{id} panel page
+	// rendered from their Render(). Same live-license semantics as the actions
+	// closure: a lapse drops them from reg.Enabled and the tabs disappear.
+	panels := func() []web.PanelInfo {
+		var out []web.PanelInfo
+		for _, p := range reg.Enabled(lic, time.Now().UTC(), graceWindow) {
+			p := p
+			out = append(out, web.PanelInfo{ID: p.ID(), Title: p.Title(), Render: p.Render})
+		}
+		return out
+	}
+
 	// The shell web app (CE pages, i18n, theme, auth) serves everything
 	// except the license status probe below.
 	shell, err := web.New(web.Config{
@@ -135,6 +147,7 @@ func main() {
 		// actions reuse it (they never hold the key themselves).
 		Runner:        actions.NewSSHRunner(),
 		PluginActions: pluginActions,
+		Panels:        panels,
 	})
 	if err != nil {
 		log.Fatalf("catena-admin: build shell: %v", err)

@@ -20,5 +20,11 @@
 {{- if .Globals.clients_tab_enabled }}
 <a href="/clients"{{ if hasPrefix .Path "/clients" }} class="active"{{ end }}>{{ .T "tabs.clients" }}</a>
 {{- end }}
+{{- /* License-gated EE plugin panels contribute their own nav links at
+       runtime (M2.5): present only while a Business license is active and the
+       plugin binary is loaded, so a CE-only host shows none. */ -}}
+{{- range .Plugins }}
+<a href="/plugin/{{ .ID }}"{{ if hasPrefix $.Path (printf "/plugin/%s" .ID) }} class="active"{{ end }}>{{ .Title }}</a>
+{{- end }}
 {{- end }}
 {{ end }}

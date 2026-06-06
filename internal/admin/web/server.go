@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -61,6 +62,19 @@ type Config struct {
 	// state. Nil (Community, or no plugins) => no EE actions. The returned
 	// Actions carry their plugin id as Source.
 	PluginActions func() []actions.Action
+	// Panels returns the enabled license-gated plugin panels: each renders a
+	// nav link + a /plugin/{id} page. Recomputed per call so a lapsed license
+	// drops them. Nil/empty in Community.
+	Panels func() []PanelInfo
+}
+
+// PanelInfo describes one license-gated plugin panel the shell renders: its
+// nav id/title and a Render producing the panel body (trusted HTML from the
+// operator-authored, license-gated plugin). Built from the enabled plugins.
+type PanelInfo struct {
+	ID     string
+	Title  string
+	Render func(ctx context.Context) (string, error)
 }
 
 // New builds the shell HTTP handler: static mount, public routes, and the
@@ -91,8 +105,10 @@ func New(cfg Config) (http.Handler, error) {
 		recoveryURL:    cfg.RecoveryURL,
 		runner:         cfg.Runner,
 		pluginActions:  cfg.PluginActions,
+		panels:         cfg.Panels,
 		jobs:           actions.NewJobRegistry(),
 	}
+	tmpl.SetPanels(s.enabledPanels)
 
 	mux := http.NewServeMux()
 	staticSub, err := fs.Sub(staticFS, "static")
@@ -112,6 +128,7 @@ func New(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("GET /recovery/stream/{job_id}", RequireAdmin(s.recoveryStream))
 	mux.HandleFunc("GET /maintenance", RequireAdmin(s.maintenanceIndex))
 	mux.HandleFunc("GET /resources", RequireAdmin(s.resourcesIndex))
+	mux.HandleFunc("GET /plugin/{id}", RequireAdmin(s.pluginPanel))
 	mux.HandleFunc("GET /_/lang/{lang}", s.setLocale)
 	mux.HandleFunc("GET /_/theme/{name}", s.setTheme)
 
@@ -144,6 +161,7 @@ type server struct {
 	recoveryURL    string
 	runner         actions.Runner
 	pluginActions  func() []actions.Action
+	panels         func() []PanelInfo
 	jobs           *actions.JobRegistry
 }
 
@@ -153,6 +171,14 @@ func (s *server) eeActions() []actions.Action {
 		return nil
 	}
 	return s.pluginActions()
+}
+
+// enabledPanels returns the current EE plugin panels (nil-safe).
+func (s *server) enabledPanels() []PanelInfo {
+	if s.panels == nil {
+		return nil
+	}
+	return s.panels()
 }
 
 // actionsView is the Actions-tab render data: the catalog grouped into the
@@ -310,6 +336,32 @@ func (s *server) maintenanceIndex(w http.ResponseWriter, r *http.Request) {
 // Beszel hub (beszel_url global); empty global renders the disabled state.
 func (s *server) resourcesIndex(w http.ResponseWriter, r *http.Request) {
 	s.tmpl.Render(w, r, "resources", http.StatusOK, nil)
+}
+
+// pluginPanelView is the render data for a license-gated plugin panel page.
+type pluginPanelView struct {
+	Title string
+	Body  string
+}
+
+// pluginPanel renders an enabled EE plugin's panel at /plugin/{id}. A panel
+// whose plugin is not enabled (CE-only, lapsed license, or unknown id) is 404
+// -- the license gate holds even if someone hits the URL directly.
+func (s *server) pluginPanel(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	for _, p := range s.enabledPanels() {
+		if p.ID != id {
+			continue
+		}
+		body, err := p.Render(r.Context())
+		if err != nil {
+			http.Error(w, "panel error", http.StatusInternalServerError)
+			return
+		}
+		s.tmpl.Render(w, r, "plugin", http.StatusOK, pluginPanelView{Title: p.Title, Body: body})
+		return
+	}
+	http.NotFound(w, r)
 }
 
 func (s *server) health(w http.ResponseWriter, _ *http.Request) {
