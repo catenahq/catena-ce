@@ -65,6 +65,20 @@ func identityFrom(r *http.Request) auth.Identity {
 	return id
 }
 
+// RequireAdmin wraps an admin-only handler: a non-admin identity gets 403
+// before the handler runs. Every mutating + admin route is wrapped; public
+// routes are not. (The Python enforced this via a route-introspection test;
+// here the wrapper is the single explicit gate.)
+func RequireAdmin(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !identityFrom(r).IsAdmin() {
+			http.Error(w, "Admin group membership required.", http.StatusForbidden)
+			return
+		}
+		h(w, r)
+	}
+}
+
 // defaultCSP is strict same-origin plus the one external script source the
 // base layout needs (htmx + htmx-ext-sse on unpkg). Operators override
 // verbatim via CATENA_ADMIN_CSP (a typo turns the header off rather than

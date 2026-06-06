@@ -13,6 +13,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -20,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/catenahq/catena-ce/internal/admin/integrations"
 	"github.com/catenahq/catena-ce/internal/admin/web"
 	"github.com/catenahq/catena-ce/internal/registry"
 	"github.com/catenahq/catena-ce/license"
@@ -59,12 +61,21 @@ func main() {
 		}
 	}
 
+	// Read-only status clients the System (and later Apps) tab consume.
+	// Internal cluster URLs, same defaults as the Python shell.
+	gatusBase := fmt.Sprintf("http://%s:%s",
+		envOr("GATUS_COMPOSE_NAME", "gatus"), envOr("GATUS_INTERNAL_PORT", "80"))
+	hcBase := fmt.Sprintf("http://%s:%s",
+		envOr("HEALTHCHECKS_COMPOSE_NAME", "healthchecks"), envOr("HEALTHCHECKS_INTERNAL_PORT", "8000"))
+
 	// The shell web app (CE pages, i18n, theme, auth) serves everything
-	// except the two operator status probes below.
+	// except the license status probe below.
 	shell, err := web.New(web.Config{
 		Version:         version,
 		Globals:         web.GlobalsFromEnv(),
 		TranslationsDir: strings.TrimSpace(os.Getenv("CATENA_ADMIN_TRANSLATIONS_DIR")),
+		Gatus:           integrations.NewGatusClient(gatusBase),
+		Healthchecks:    integrations.NewHealthchecksClient(hcBase, os.Getenv("HEALTHCHECKS_API_KEY_READONLY")),
 	})
 	if err != nil {
 		log.Fatalf("catena-admin: build shell: %v", err)

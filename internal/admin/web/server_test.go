@@ -147,6 +147,33 @@ func TestSafeBack(t *testing.T) {
 	}
 }
 
+func TestSystemRequiresAdmin(t *testing.T) {
+	h := newTestHandler(t)
+
+	// Non-admin -> 403.
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/system", nil)
+	req.Header.Set("X-Forwarded-Email", "staff@example.com")
+	req.Header.Set("X-Forwarded-Groups", "staff")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("non-admin /system = %d, want 403", rr.Code)
+	}
+
+	// Admin -> 200, renders the snapshot (nil clients degrade gracefully).
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest("GET", "/system", nil)
+	req.Header.Set("X-Forwarded-Email", "op@example.com")
+	req.Header.Set("X-Forwarded-Groups", "admin")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("admin /system = %d, want 200", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "infra-list") {
+		t.Error("expected the System tab infra rollup to render")
+	}
+}
+
 func firstLine(s string) string {
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
 		return s[:i]

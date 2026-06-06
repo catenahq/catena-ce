@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/catenahq/catena-ce/internal/admin/i18n"
+	"github.com/catenahq/catena-ce/internal/admin/system"
 	"github.com/catenahq/catena-ce/internal/admin/theme"
 )
 
@@ -20,6 +21,12 @@ type Config struct {
 	Version         string
 	Globals         map[string]any
 	TranslationsDir string
+	// Gatus + Healthchecks feed the System tab (and Apps tile dots). Either
+	// may be nil on an unconfigured host -- the snapshot degrades gracefully.
+	Gatus        system.GatusLister
+	Healthchecks system.HCLister
+	// StatsDir overrides the host stats dir (default /var/lib/catena).
+	StatsDir string
 }
 
 // New builds the shell HTTP handler: static mount, public routes, and the
@@ -37,7 +44,13 @@ func New(cfg Config) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &server{tmpl: tmpl, version: cfg.Version}
+	s := &server{
+		tmpl:     tmpl,
+		version:  cfg.Version,
+		gatus:    cfg.Gatus,
+		hc:       cfg.Healthchecks,
+		statsDir: cfg.StatsDir,
+	}
 
 	mux := http.NewServeMux()
 	staticSub, err := fs.Sub(staticFS, "static")
@@ -48,6 +61,7 @@ func New(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /{$}", s.rootRedirect)
 	mux.HandleFunc("GET /apps", s.apps)
+	mux.HandleFunc("GET /system", RequireAdmin(s.systemIndex))
 	mux.HandleFunc("GET /_/lang/{lang}", s.setLocale)
 	mux.HandleFunc("GET /_/theme/{name}", s.setTheme)
 
@@ -68,8 +82,18 @@ func loadTranslations(dir string) (*i18n.Translations, error) {
 }
 
 type server struct {
-	tmpl    *Templates
-	version string
+	tmpl     *Templates
+	version  string
+	gatus    system.GatusLister
+	hc       system.HCLister
+	statsDir string
+}
+
+// systemIndex renders the admin-only System tab: the backup/disk/Healthchecks
+// gauges, current alerts, and the infrastructure rollup.
+func (s *server) systemIndex(w http.ResponseWriter, r *http.Request) {
+	snap := system.BuildSnapshot(s.gatus, s.hc, s.statsDir)
+	s.tmpl.Render(w, r, "system", http.StatusOK, snap)
 }
 
 func (s *server) health(w http.ResponseWriter, _ *http.Request) {

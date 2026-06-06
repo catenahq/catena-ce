@@ -1,0 +1,73 @@
+{{define "content"}}
+{{ if or .Globals.healthchecks_url .Globals.gatus_url }}
+<div class="external-links">
+  {{ if .Globals.healthchecks_url }}<a class="external-link" href="{{ .Globals.healthchecks_url }}" target="_blank" rel="noopener noreferrer">{{ .T "system.open_in_healthchecks" }}</a>{{ end }}
+  {{ if .Globals.gatus_url }}<a class="external-link" href="{{ .Globals.gatus_url }}" target="_blank" rel="noopener noreferrer">{{ .T "system.open_in_gatus" }}</a>{{ end }}
+</div>
+{{ end }}
+<section class="system-gauges" hx-get="/system" hx-trigger="every 30s" hx-target="closest .system-page" hx-select=".system-page" hx-swap="outerHTML">
+  <div class="system-page">
+    <div class="gauges">
+      <div class="gauge">
+        <h3>{{ .T "system.gauge.backup" }}</h3>
+        {{ if .Data.BackupSize }}
+          <p class="big-number">{{ .Data.BackupSize }}</p>
+          <p class="muted">
+            {{ .Data.BackupCount }} {{ .T "system.gauge.snapshots" }}
+            &middot; {{ if .Data.BackupLast }}{{ .Data.BackupLast }}{{ else }}{{ .T "system.gauge.never" }}{{ end }}
+          </p>
+        {{ else }}
+          <p class="muted">{{ .T "system.gauge.unavailable" }}</p>
+        {{ end }}
+      </div>
+      <div class="gauge">
+        <h3>{{ .T "system.gauge.disk" }}</h3>
+        {{ if .Data.DiskUsedPct }}
+          <p class="big-number">{{ .Data.DiskUsedPct }}%</p>
+          <p class="muted">{{ .Data.DiskDetail }}</p>
+        {{ else }}
+          <p class="muted">{{ .T "system.gauge.unavailable" }}</p>
+        {{ end }}
+      </div>
+      <div class="gauge">
+        <h3>{{ .T "system.gauge.healthchecks" }}</h3>
+        <p class="big-number">{{ .Data.HCUp }} / {{ .Data.HCTotal }}</p>
+        <p class="muted">
+          {{ if .Data.HCLate }}<span class="badge badge-late">{{ .Data.HCLate }} {{ .T "system.hc.late" }}</span>{{ end }}
+          {{ if .Data.HCDown }}<span class="badge badge-bad">{{ .Data.HCDown }} {{ .T "system.hc.down" }}</span>{{ end }}
+        </p>
+      </div>
+    </div>
+
+    <section class="alerts">
+      <h2>{{ .T "system.alerts.heading" }}</h2>
+      {{ if not .Data.Alerts }}
+        <p class="muted empty-state-inline">{{ .T "system.alerts.empty" }}</p>
+      {{ else }}
+        <ul class="alert-list">
+          {{ range .Data.Alerts }}
+            <li class="alert alert-{{ .Severity }}">
+              <span class="alert-source">{{ .Source }}</span>
+              <span class="alert-target">{{ .Target }}</span>
+              <span class="alert-detail muted">{{ .Detail }}</span>
+            </li>
+          {{ end }}
+        </ul>
+      {{ end }}
+    </section>
+
+    <section class="infra">
+      <h2>{{ .T "system.infra.heading" }}</h2>
+      <ul class="infra-list">
+        {{ range .Data.Infra }}
+          <li class="infra-item">
+            <span class="status-dot status-{{ .StatusClass }}"></span>
+            <span class="infra-name">{{ .Name }}</span>
+            <span class="muted">{{ .Detail }}</span>
+          </li>
+        {{ end }}
+      </ul>
+    </section>
+  </div>
+</section>
+{{end}}
