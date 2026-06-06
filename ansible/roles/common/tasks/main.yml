@@ -495,6 +495,74 @@
   changed_when: false
   failed_when: false # unit may not exist on minimal images
 
+# ─── journald: persistent + sealed audit log ─────────────────────────────
+# Community keeps an on-box audit trail of catena-admin actions in journald
+# (the Go shell emits structured entries under SYSLOG_IDENTIFIER=catena-admin
+# via internal/auditlog). Persistent storage survives reboots; Forward Secure
+# Sealing (FSS) makes after-the-fact tampering of the LOCAL journal detectable
+# (verify with `journalctl --verify` during an incident). The verification key
+# is printed ONCE below -- save it off-box; it is what proves the seal.
+# Shipping this journal to a central collector is a Business feature handled
+# elsewhere; CE keeps it local and the EE audit panel reads it back.
+- name: "journald: drop-in for persistent storage + sealing"
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/10-catena.conf
+    content: |
+      # Managed by catena common role.
+      [Journal]
+      Storage=persistent
+      Seal=yes
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart journald
+
+# Sealing keys live under the persistent journal dir, so it must exist (and
+# journald must be running persistent) before setup-keys can write them.
+- name: "journald: ensure persistent journal directory"
+  ansible.builtin.file:
+    path: /var/log/journal
+    state: directory
+    owner: root
+    group: systemd-journal
+    mode: "2755"
+
+# Apply the storage/seal change NOW (not at end-of-play) so the persistent
+# journal + machine-id dir exist before the FSS setup below.
+- name: "journald: apply storage/seal config before FSS setup"
+  ansible.builtin.meta: flush_handlers
+
+- name: "journald: read machine-id (FSS key path component)"
+  ansible.builtin.slurp:
+    src: /etc/machine-id
+  register: _journal_machine_id_raw
+
+- name: "journald: check whether FSS is already set up"
+  ansible.builtin.stat:
+    path: "/var/log/journal/{{ (_journal_machine_id_raw.content | b64decode | trim) }}/fss"
+  register: _journal_fss
+
+# Generate the sealing key exactly once. Re-running --setup-keys would rotate
+# the FSPRG seed and invalidate the verification key the operator saved, so it
+# is guarded on the fss file's absence. --setup-keys writes the sealing key to
+# the journal dir and prints the verification key to stdout.
+- name: "journald: set up Forward Secure Sealing (once)"
+  ansible.builtin.command:
+    cmd: journalctl --setup-keys
+  register: _journal_setup_keys
+  changed_when: true
+  when: not _journal_fss.stat.exists
+
+- name: "journald: SAVE THE FSS VERIFICATION KEY (shown once)"
+  ansible.builtin.debug:
+    msg: >-
+      {{ _journal_setup_keys.stdout_lines
+         + ['',
+            'SAVE the verification key above off-box (password manager).',
+            'It proves the local journal was not tampered with:',
+            '  journalctl --verify'] }}
+  when: _journal_setup_keys is not skipped
+
 # ─── ufw baseline ────────────────────────────────────────────────────────
 # Public SSH is allowed for the duration of bootstrap. ufw_lockdown.yml
 # (called from site.yml post_tasks, AFTER tailscale is up) swaps this rule

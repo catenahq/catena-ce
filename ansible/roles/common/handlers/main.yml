@@ -14,3 +14,11 @@
   ansible.builtin.command:
     cmd: systemctl reload ssh
   changed_when: false
+
+# journald: a restart (not reload) is needed to pick up Storage=persistent +
+# Seal=yes, and to start sealing the persistent journal.
+- name: Restart systemd-journald
+  listen: restart journald
+  ansible.builtin.systemd_service:
+    name: systemd-journald
+    state: restarted

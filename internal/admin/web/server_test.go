@@ -536,6 +536,39 @@ func TestActionsStartThenStream(t *testing.T) {
 	}
 }
 
+func TestDispatchEmitsAuditRow(t *testing.T) {
+	fr := &fakeRunner{stdout: []string{"done"}, rc: 0}
+	var got struct {
+		action, email, ip string
+		rc                int
+		calls             int
+	}
+	h, err := New(Config{
+		Version:     "t",
+		ActionsFile: writeActionsFile(t),
+		Runner:      fr,
+		AuditEmit: func(action, email, ip string, rc int) {
+			got.action, got.email, got.ip, got.rc = action, email, ip, rc
+			got.calls++
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, adminReq("POST", "/actions/start/backup-now", ""))
+	streamURL := extractStreamURL(t, rr.Body.String())
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, adminReq("GET", streamURL, ""))
+
+	if got.calls != 1 {
+		t.Fatalf("expected exactly one audit emit, got %d", got.calls)
+	}
+	if got.action != "backup-now" || got.email != "op@example.com" || got.rc != 0 {
+		t.Fatalf("unexpected audit row: %+v", got)
+	}
+}
+
 func TestActionsStreamUnknownJob(t *testing.T) {
 	h, err := New(Config{Version: "t", ActionsFile: writeActionsFile(t), Runner: &fakeRunner{}})
 	if err != nil {

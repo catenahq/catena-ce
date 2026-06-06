@@ -18,6 +18,7 @@ import (
 	"github.com/catenahq/catena-ce/internal/admin/recovery"
 	"github.com/catenahq/catena-ce/internal/admin/system"
 	"github.com/catenahq/catena-ce/internal/admin/theme"
+	"github.com/catenahq/catena-ce/internal/auditlog"
 )
 
 // GatusReader is the Gatus surface the shell needs: the System tab lists all
@@ -66,6 +67,9 @@ type Config struct {
 	// nav link + a /plugin/{id} page. Recomputed per call so a lapsed license
 	// drops them. Nil/empty in Community.
 	Panels func() []PanelInfo
+	// AuditEmit records a dispatched action to the audit trail (journald).
+	// Nil uses the default journald emitter; tests inject a capture func.
+	AuditEmit func(action, email, ip string, rc int)
 }
 
 // PanelInfo describes one license-gated plugin panel the shell renders: its
@@ -88,6 +92,9 @@ func New(cfg Config) (http.Handler, error) {
 	if cfg.Globals == nil {
 		cfg.Globals = map[string]any{}
 	}
+	if cfg.AuditEmit == nil {
+		cfg.AuditEmit = auditlog.Emit
+	}
 	tmpl, err := NewTemplates(tr, cfg.Globals)
 	if err != nil {
 		return nil, err
@@ -106,6 +113,7 @@ func New(cfg Config) (http.Handler, error) {
 		runner:         cfg.Runner,
 		pluginActions:  cfg.PluginActions,
 		panels:         cfg.Panels,
+		auditEmit:      cfg.AuditEmit,
 		jobs:           actions.NewJobRegistry(),
 	}
 	tmpl.SetPanels(s.enabledPanels)
@@ -162,6 +170,7 @@ type server struct {
 	runner         actions.Runner
 	pluginActions  func() []actions.Action
 	panels         func() []PanelInfo
+	auditEmit      func(action, email, ip string, rc int)
 	jobs           *actions.JobRegistry
 }
 
@@ -283,7 +292,10 @@ func (s *server) streamRun(w http.ResponseWriter, r *http.Request) {
 	// as they are produced, not at end-of-stream.
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
-	actions.StreamDispatch(w, flusher.Flush, s.runner, job.ActionName, job.Payload, job.Email)
+	rc := actions.StreamDispatch(w, flusher.Flush, s.runner, job.ActionName, job.Payload, job.Email)
+	// Record the action to the audit trail (journald). Covers both the
+	// Actions and Recovery tabs (both dispatch through here).
+	s.auditEmit(job.ActionName, job.Email, job.SourceIP, rc)
 }
 
 // clientIP extracts the best-effort source IP for the audit row: the
