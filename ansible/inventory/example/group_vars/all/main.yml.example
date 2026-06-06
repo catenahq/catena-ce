@@ -1,0 +1,134 @@
+---
+# inventory/<name>/group_vars/all/main.yml -- copy this file to main.yml
+# (drop the .example suffix). Ansible auto-loads every *.yml under
+# group_vars/all/ for the `all` group.
+#
+# Most values are read from inventory/<name>/.env via the dotenv lookup
+# plugin -- edit .env, not this file. This file's job is structure:
+# reconstructing complex types (lists, dicts) from dotenv strings.
+
+# --- Global ---
+ansible_managed: "Managed by catena -- do not edit directly; regenerate via the installer / site.yml."
+
+# --- Identity ---
+ops_user: "{{ lookup('dotenv', 'OPS_USER', default='ops') }}"
+ansible_ssh_private_key_file: "{{ lookup('dotenv', 'SSH_PRIVATE_KEY') }}"
+ops_ssh_public_keys:
+  - "{{ lookup('file', lookup('dotenv', 'SSH_PUBLIC_KEY_FILE')) }}"
+
+# --- Tailscale ---
+tailscale_hostname: "{{ inventory_hostname }}"
+tailscale_tags: >-
+  {{ lookup('dotenv', 'TAILSCALE_TAGS').split(',') | map('trim') | list }}
+tailscale_accept_dns: >-
+  {{ lookup('dotenv', 'TAILSCALE_ACCEPT_DNS', default='false') | bool }}
+
+# --- Cloudflare Tunnel ---
+cloudflare_api_base: "https://api.cloudflare.com/client/v4"
+cloudflare_account_id: "{{ lookup('dotenv', 'CLOUDFLARE_ACCOUNT_ID') }}"
+cloudflare_zone: "{{ lookup('dotenv', 'CLOUDFLARE_ZONE') }}"
+# Per-host tunnel name. Each host owns its own tunnel. The optional .env
+# prefix CLOUDFLARED_TUNNEL_NAME_PREFIX is prepended for environments that
+# need a recognizable string for prefix-filtered cleanup.
+cloudflared_tunnel_name: "{{ lookup('dotenv', 'CLOUDFLARED_TUNNEL_NAME_PREFIX', default='') }}{{ inventory_hostname }}"
+# Cloudflared runs as a swarm service on dokploy-network. Ingress target is
+# Dokploy's Traefik container, reachable by service name inside the network.
+cloudflared_ingress_service: "http://dokploy-traefik:80"
+cloudflared_dokploy_env_key: "CLOUDFLARE_TUNNEL_TOKEN"
+
+# --- Infrastructure subdomains ---
+# Public-facing hostnames, all gated by self-hosted SSO + forward-auth
+# (Keycloak + oauth2-proxy). SSO works across them via a shared auth.<zone>
+# session cookie.
+dokploy_admin_subdomain: "{{ lookup('dotenv', 'DOKPLOY_ADMIN_SUBDOMAIN', default='apps') }}"
+dokploy_admin_hostname: "{{ dokploy_admin_subdomain }}.{{ cloudflare_zone }}"
+
+infrastructure_monitor_subdomain: "{{ lookup('dotenv', 'DOKPLOY_MONITOR_SUBDOMAIN', default='monitor') }}"
+infrastructure_monitor_hostname: "{{ infrastructure_monitor_subdomain }}.{{ cloudflare_zone }}"
+# catena-admin (the Go shell) is served at dash.<zone>.
+infrastructure_dash_subdomain: "{{ lookup('dotenv', 'DOKPLOY_DASH_SUBDOMAIN', default='dash') }}"
+infrastructure_dash_hostname: "{{ infrastructure_dash_subdomain }}.{{ cloudflare_zone }}"
+
+healthchecks_subdomain: "{{ lookup('dotenv', 'HEARTBEAT_SUBDOMAIN', default='heartbeat') }}"
+healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
+
+# The SSO host (auth.<zone>) is the only subdomain NOT gated by forward-auth
+# (it IS the auth layer). keycloak_hostname / keycloak_subdomain are defined
+# in roles/keycloak/defaults (reading the same AUTH_SUBDOMAIN env key).
+admin_email: "{{ lookup('dotenv', 'ADMIN_EMAIL', default='') }}"
+
+# SMTP -- resolved by the SSO role's autofill. Set RESEND_SENDER_EMAIL or
+# BREVO_SENDER_EMAIL in .env (plus the SMTP password in vault_smtp_password)
+# and the role picks the right host/port/user automatically. Don't re-declare
+# smtp_host/smtp_port/etc. here -- doing so shadows the role default and
+# defeats the autofill.
+
+# --- ntfy (Gatus alerting) ---
+ntfy_server: "{{ lookup('dotenv', 'NTFY_SERVER', default='https://ntfy.sh') }}"
+ntfy_topic: "{{ lookup('dotenv', 'NTFY_TOPIC', default='') }}"
+
+# Auth is handled entirely by self-hosted SSO at auth.<zone> + forward-auth
+# middleware on each app router. User membership in the access groups controls
+# access to the gated subdomains.
+
+# --- Dokploy API ---
+dokploy_api_base: "http://{{ ansible_host }}:{{ dokploy_port }}/api"
+dokploy_project_name: "{{ lookup('dotenv', 'DOKPLOY_PROJECT_NAME', default='infrastructure') }}"
+
+# --- Storage ---
+storage_mode: "{{ lookup('dotenv', 'STORAGE_MODE', default='built_in') }}"
+storage_mount_point: "{{ lookup('dotenv', 'STORAGE_MOUNT_POINT', default='/mnt/data') }}"
+storage_block_device: "{{ lookup('dotenv', 'STORAGE_BLOCK_DEVICE', default='/dev/sdb') }}"
+storage_bulk_enabled: >-
+  {{ lookup('dotenv', 'STORAGE_BULK_ENABLED', default='false') | bool }}
+storage_bulk_mount_point: "{{ lookup('dotenv', 'STORAGE_BULK_MOUNT_POINT', default='/mnt/bulk') }}"
+
+# --- Dokploy ---
+# dokploy_version reads its .env override inside the role default
+# (roles/dokploy/defaults/main.yml). Uncomment + set to pin explicitly.
+# dokploy_version: "v0.29.0"
+dokploy_bind_interface: "{{ lookup('dotenv', 'DOKPLOY_BIND_INTERFACE', default='tailscale0') }}"
+dokploy_port: "{{ lookup('dotenv', 'DOKPLOY_PORT', default='3000') | int }}"
+
+# --- Backup ---
+# Community ships a MANUAL backup (no schedule). backup_restic_repo +
+# retention + the optional healthcheck ping apply whenever run-backup runs.
+backup_restic_repo: "{{ lookup('dotenv', 'BACKUP_RESTIC_REPO') }}"
+# Default: ping the local self-hosted Healthchecks at heartbeat.<zone> using
+# the per-project ping key. Override via .env to point elsewhere (e.g. an
+# off-host healthchecks.io for whole-host-outage coverage).
+backup_healthcheck_url: >-
+  {{
+    lookup('dotenv', 'BACKUP_HEALTHCHECK_URL', default='')
+    or ('https://' ~ healthchecks_hostname
+        ~ '/ping/' ~ vault_healthchecks_ping_key
+        ~ '/catena-backup?create=1')
+  }}
+backup_retention_policy:
+  keep_daily: "{{ lookup('dotenv', 'BACKUP_KEEP_DAILY', default='7') | int }}"
+  keep_weekly: "{{ lookup('dotenv', 'BACKUP_KEEP_WEEKLY', default='4') | int }}"
+  keep_monthly: "{{ lookup('dotenv', 'BACKUP_KEEP_MONTHLY', default='6') | int }}"
+
+# --- Locale ---
+common_timezone: "{{ lookup('dotenv', 'COMMON_TIMEZONE', default='America/Toronto') }}"
+common_locale: "{{ lookup('dotenv', 'COMMON_LOCALE', default='en_CA.UTF-8') }}"
+
+# --- Per-inventory / per-host customization -------------------------------
+# Universal defaults ship in roles/*/vars/ -- these hooks let an inventory
+# ADD to them without editing the role. Additive only; to REMOVE a universal
+# default, fork the repo.
+
+# Extra catena-admin action buttons for this inventory. Same shape as the
+# canonical catalog (roles/catena-admin/templates/actions.yml.j2). Each entry
+# becomes a dispatcher case + allow-list entry automatically.
+#
+# Required keys: `name`, `shell`.
+# Optional: `title` (defaults to name), `icon`, `timeout` (defaults to 10s).
+# Example:
+#   catena_admin_extra_actions:
+#     - name: acme-refresh-prices
+#       title: "Refresh ACME prices"
+#       icon: "&#128176;"   # 💰
+#       timeout: 60
+#       shell: "sudo -u acme /opt/acme/bin/refresh-prices"
+catena_admin_extra_actions: []

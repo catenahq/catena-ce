@@ -1,0 +1,35 @@
+---
+# inventory/<name>/hosts.yml -- bootstrap.yml auto-writes the steady-state
+# tailnet IP after a successful first run (via helpers/bootstrap_output.py).
+# This skeleton is here for reference and for manual edits.
+#
+# Two groups:
+#   vps:       steady-state -- targeted by every playbook except bootstrap.
+#              Uses the Tailscale network.
+#   bootstrap: public-IP entries used ONLY by playbooks/bootstrap.yml to bring
+#              up a fresh VPS. After site.yml closes public port 22, these
+#              become unreachable -- which is the point.
+
+all:
+  children:
+    # ── Steady-state group ────────────────────────────────────────────────
+    vps:
+      hosts:
+        # ansible_host: Tailscale IPv4 assigned when the VPS joined the
+        # tailnet. bootstrap.yml auto-writes this value after a successful
+        # first run; you normally don't hand-edit it.
+        host1:
+          ansible_host: 100.x.y.z           # Tailscale IPv4 (bootstrap fills this in)
+          ansible_user: ops
+          ansible_port: 22
+
+    # ── Bootstrap-only group ──────────────────────────────────────────────
+    # ansible_user is intentionally omitted -- bootstrap.yml forces the
+    # initial user via play vars, regardless of which user the provider exposes.
+    bootstrap:
+      hosts:
+        # ansible_host: VPS provider public IPv4. Update when provisioning a
+        # new or replacement VPS.
+        host1-bootstrap:
+          ansible_host: 203.0.113.10        # VPS provider public IPv4
+          ansible_port: 22

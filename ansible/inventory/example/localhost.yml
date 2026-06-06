@@ -1,0 +1,10 @@
+---
+# Anchors localhost to this inventory so playbooks that run on the controller
+# (notably preflight.yml) have a defined `inventory_dir` for this environment.
+# Committed as-is -- do not copy or rename. VPS hosts go in hosts.yml (gitignored).
+
+all:
+  hosts:
+    localhost:
+      ansible_connection: local
+      ansible_python_interpreter: "{{ ansible_playbook_python }}"

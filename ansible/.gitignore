@@ -3,9 +3,13 @@
 inventory/*
 !inventory/example/
 
-# Stale scratch copy of the old ops scaffold, kept locally until the CE-only
-# inventory example is written; not part of the repo.
-inventory-example/
+# Defense-in-depth: even inside the tracked example dir, never commit the
+# real secret-bearing files (only the .example templates are tracked). If
+# someone copies .env.example -> .env in place to test, it stays out of git.
+inventory/example/.env
+inventory/example/.bootstrap-output.yml
+inventory/example/**/vault.sops.yml
+inventory/example/**/vault.yml
 
 # Galaxy collections vendored by `ansible-galaxy collection install -r requirements.yml`.
 collections/

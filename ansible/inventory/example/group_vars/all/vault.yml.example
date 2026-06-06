@@ -1,0 +1,119 @@
+---
+# inventory/<name>/group_vars/all/vault.yml -- the secrets file. In practice
+# you encrypt it with SOPS+age (vault.sops.yml); this .example documents the
+# schema. This file MUST NOT be committed unencrypted. It is the crown jewels.
+#
+# The installer mints the auto-generated values on first install. To rotate a
+# value afterwards: edit the encrypted vault.sops.yml with `sops`.
+
+# --- Tailscale ---
+# OAuth client credentials from the Tailscale admin console.
+# Admin console -> Settings -> OAuth client -> Generate.
+# Scopes: Auth Keys -> Write ; Tags: tag:vps
+# See playbooks/preflight.yml output for step-by-step setup instructions.
+vault_tailscale_oauth_client_id: "REPLACE"
+vault_tailscale_oauth_client_secret: "REPLACE"
+
+# --- Cloudflare ---
+# API Token (not Global API Key) with these scopes on your account:
+#   Account -> Cloudflare Tunnel -> Edit
+#   Zone    -> DNS               -> Edit   (on the zone in CLOUDFLARE_ZONE)
+# Create at: https://dash.cloudflare.com/profile/api-tokens
+vault_cloudflare_api_token: "REPLACE"
+
+# --- Dokploy API ---
+# Generate in the Dokploy UI at Settings -> Profile -> API Keys.
+# Used by roles/infrastructure to provision the "infrastructure" project,
+# deploy Gatus / Healthchecks as compose apps, and by dashboard-sync. The
+# first site.yml run works without this key (it's skipped with a notice);
+# add it after creating the admin account and re-run the installer.
+vault_dokploy_api_key: "REPLACE"
+
+# Dokploy embedded-Postgres password. Pre-seeded as the
+# dokploy_postgres_password swarm secret by roles/dokploy BEFORE Dokploy's
+# install.sh runs, so install.sh reuses it instead of generating a new
+# random value. Keeping this stable is what makes restore-to-a-new-VPS work.
+vault_dokploy_postgres_password: "REPLACE-LONG-RANDOM-STRING"
+
+# --- Restic / backups ---
+# S3 credentials for the restic repo (on your own client-owned bucket).
+vault_backup_s3_access_key: "REPLACE"
+vault_backup_s3_secret_key: "REPLACE"
+
+# Restic repo encryption password (48 random bytes, base64). Minted by the
+# installer, shown once. Copy it to your password manager -- defense in depth
+# in case the vault itself is lost.
+vault_backup_restic_password: "REPLACE-LONG-RANDOM-STRING"
+
+# --- Admin credentials (shared by Dokploy + SSO) ---
+# One email + password identify you on both auth planes. vault_admin_password
+# is minted by the installer (20 chars) and shown ONCE.
+vault_admin_password: "REPLACE-LONG-RANDOM-STRING"
+
+# --- SSO (Keycloak) ---
+# Minted by the installer, never displayed; lives only in the encrypted vault.
+#   db_password -- credential keycloak-server passes via KC_DB_PASSWORD to
+#                  authenticate against the `keycloak` DB in dokploy-postgres.
+# The initial Keycloak admin password is vault_admin_password above.
+vault_keycloak_db_password: "REPLACE-LONG-RANDOM-STRING"
+
+# Minted by the installer. oauth2-proxy's cookie-signing secret (32-byte
+# url-safe base64, 43 chars) and the OIDC client secret it presents to
+# Keycloak. Both live only in the encrypted vault.
+vault_oauth2_proxy_cookie_secret: "REPLACE-LONG-RANDOM-STRING"
+vault_oauth2_proxy_client_secret: "REPLACE-LONG-RANDOM-STRING"
+
+# Nextcloud's native OIDC client secret. Nextcloud's user_oidc app handles
+# the OIDC flow itself; the converge runs `occ user_oidc:provider` to register
+# Keycloak as an IdP using this secret. Confidential client, separate from
+# oauth2-proxy's.
+vault_nextcloud_oidc_client_secret: "REPLACE-LONG-RANDOM-STRING"
+
+# --- SMTP password (optional) ---
+# Used by the SSO provider to send password-reset, invitation, and MFA
+# emails. Leave empty if SMTP is disabled in .env. For Resend: your API key.
+vault_smtp_password: ""
+
+# --- Healthchecks (self-hosted) ---
+# All minted by the installer; never shown. Format constraints:
+#   secret_key         -- Django secret; never rotate (invalidates sessions).
+#   superuser_password -- bootstrap admin (break-glass; you reach the app
+#                         through the SSO forward-auth gate).
+#   ping_key           -- per-project PING_KEY; appears in URL paths
+#                         (/ping/<key>/<slug>) so MUST be URL-path-safe.
+#   api_key_readonly   -- Healthchecks enforces EXACTLY 32-char API keys.
+#   api_key_readwrite  -- paired with readonly; gatus-sync uses it to pause
+#                         HC checks whose Gatus endpoint no longer exists.
+vault_healthchecks_secret_key: "REPLACE-LONG-RANDOM-STRING"
+vault_healthchecks_superuser_password: "REPLACE-LONG-RANDOM-STRING"
+vault_healthchecks_ping_key: "REPLACE-LONG-RANDOM-STRING"
+vault_healthchecks_api_key_readonly: "REPLACE-LONG-RANDOM-STRING"
+vault_healthchecks_api_key_readwrite: "REPLACE-LONG-RANDOM-STRING"
+
+# --- Nextcloud primary-S3 (optional) ---
+# Only set when deploying a Nextcloud app that uses S3 as its primary object
+# store. The compose template references these; leave blank otherwise.
+vault_nextcloud_s3_access_key: ""
+vault_nextcloud_s3_secret_key: ""
+
+# --- Beszel resource monitor (deployed only when BESZEL_ENABLED=true) ---
+#   admin_password  -- bootstraps the hub's PocketBase superuser (break-glass;
+#                      the hub sits behind the admin SSO gate).
+#   universal_token -- seeds the hub's universal_tokens so the agent auto-
+#                      registers on first connect. MUST be <= 64 chars.
+vault_beszel_admin_password: ""
+vault_beszel_universal_token: ""
+
+# --- Self-hosted mailserver (opt-in template) --------------------------
+# Only needed when the `mailserver` Dokploy template is deployed.
+#   relay_password    -- the SMTP smarthost password (Scaleway TEM / Maileroo
+#                        / SES / etc.). Re-injected into the template's
+#                        RELAY_PASSWORD on every converge. The relay also
+#                        signs DKIM (the mailserver does not sign locally).
+#   spamhaus_dqs_key  -- free Spamhaus Data Query Service key
+#                        (register at spamhaus.com). Used by the rspamd RBL
+#                        drop-in. Leave blank to run without the IP/domain
+#                        reputation layer (content + DKIM/SPF/DMARC +
+#                        antivirus still apply).
+vault_mailserver_relay_password: ""
+vault_mailserver_spamhaus_dqs_key: ""
