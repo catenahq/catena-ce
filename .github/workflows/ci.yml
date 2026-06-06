@@ -1,0 +1,31 @@
+name: CI
+
+# Go build/vet/test gate for the catena-admin shell + license/plugin libs.
+# Runs on the self-hosted laptop runner; Go comes from ~/.local/go (the
+# same toolchain used locally) rather than setup-go.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go build + vet + test
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Put Go on PATH
+        run: |
+          echo "$HOME/.local/go/bin" >> "$GITHUB_PATH"
+      - name: Toolchain
+        run: go version
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
