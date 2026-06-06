@@ -1,0 +1,34 @@
+---
+# External probe: each Cloudflare Tunnel hostname must return 200 (not 404/502/521/530).
+# 502/521/530 from Cloudflare typically mean the tunnel is down or misconfigured.
+# 404 usually means the tunnel is up but ingress rules don't match.
+
+- name: Probe each Cloudflare Tunnel hostname
+  ansible.builtin.uri:
+    url: "https://{{ item.hostname }}"
+    method: "{{ item.method | default('GET') }}"
+    status_code: "{{ item.expected_status | default(200) }}"
+    return_content: false
+    follow_redirects: safe
+    timeout: 10
+  register: probe
+  loop: "{{ cloudflared_ingress_rules }}"
+  loop_control:
+    label: "{{ item.hostname }}"
+  delegate_to: localhost
+  become: false
+  failed_when:
+    - probe.status not in (item.expected_status | default([200, 301, 302]) | list)
+
+- name: Assert direct HTTPS to public IP is refused (NOT served by anything)
+  ansible.builtin.uri:
+    url: "https://{{ public_ip }}"
+    validate_certs: false
+    timeout: 5
+    status_code: -1     # expect the connection to fail outright
+  register: direct_probe
+  delegate_to: localhost
+  become: false
+  failed_when: direct_probe.status in [200, 301, 302, 403, 404]
+  # A successful connection of any kind to the raw IP means something is listening
+  # publicly -- regression. We expect connect-refused / timeout.

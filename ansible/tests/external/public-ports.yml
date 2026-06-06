@@ -1,0 +1,49 @@
+---
+# External probe: the VPS's public IP MUST show zero unexpected listening ports.
+# Everything reaches the outside world via cloudflared egress; nothing should
+# be publicly bindable.
+#
+# Runs from the operator's laptop via delegate_to: localhost, using a pure-Python
+# scanner shipped in this repo -- no system nmap required.
+#
+# expected_public_ports: normally empty. If a client genuinely needs a public
+# port (rare -- CF Tunnel should cover it), declare it in group_vars.
+
+- name: Find the port scanner
+  ansible.builtin.set_fact:
+    _scanner: "{{ playbook_dir }}/../tests/external/scan_ports.py"
+
+- name: Scan public IP for listening ports
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python | default('python3') }}"
+      - "{{ _scanner }}"
+      - "--host"
+      - "{{ public_ip }}"
+      - "--ports"
+      - "1-65535"
+      - "--concurrency"
+      - "500"
+      - "--timeout"
+      - "1.0"
+  register: scan_raw
+  delegate_to: localhost
+  become: false
+  changed_when: false
+
+- name: Parse scanner output
+  ansible.builtin.set_fact:
+    scan_result: "{{ scan_raw.stdout | from_json }}"
+
+- name: Assert only expected ports are open publicly
+  ansible.builtin.assert:
+    that:
+      - (scan_result.open_ports | difference(expected_public_ports | default([]))) | length == 0
+    fail_msg: >-
+      SECURITY REGRESSION: public IP {{ public_ip }} has unexpected open ports:
+      {{ scan_result.open_ports | difference(expected_public_ports | default([])) }}.
+      Expected open: {{ expected_public_ports | default([]) }}.
+      Check ufw rules, docker's iptables interaction, and provider-level firewall.
+    success_msg: >-
+      Public IP {{ public_ip }} is sealed: {{ scan_result.scanned }} ports scanned,
+      {{ scan_result.open_ports | length }} open (all expected).

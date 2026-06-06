@@ -1,0 +1,813 @@
+---
+# Validation orchestrator. Three vantage points:
+#   1. On-host  -- per-role Ansible validate tasks (roles/<role>/tasks/validate.yml), executed on the target
+#   2. Tailnet  -- Ansible from operator's laptop, hitting tailnet addresses
+#   3. External -- Ansible from operator's laptop, hitting public IP / CF hostnames
+#
+# Runs standalone OR as the post-converge leg composed by the installer.
+#
+# Usage (cwd = ansible/):
+#   ansible-playbook -i inventory/example playbooks/validate.yml --limit host1
+
+- name: "Vantage 1 -- on-host checks via per-role validate.yml"
+  # Each role under test ships its own roles/<role>/tasks/validate.yml.
+  # Invoked via include_role + tasks_from so each role gets first-class
+  # Ansible diagnostics (named asserts, structured fail_msg) on its own
+  # fixtures. Replaces the previous Goss (.yaml DSL) approach which
+  # accumulated tooling bugs and runtime-template collisions; goss was
+  # 19 months stale at migration time, and its YAML files went through
+  # goss's own Go-template engine before YAML parse, so docker
+  # --format, bash ${#var}, and even literal {{ ... }} in comments all
+  # tripped it. First-party Ansible primitives (stat, slurp,
+  # package_facts, service_facts, command, assert) cover every check
+  # goss did, with no new runtime dependency.
+  hosts: "{{ stage_hosts | default('vps') }}"
+  become: true
+  gather_facts: true
+  tags: [validate_role, goss, vantage1]
+  vars:
+    # Source of truth for which roles have on-host validation tasks.
+    # Adding a role here without a companion roles/<role>/tasks/
+    # validate.yml file will fail loudly at include time -- good, means
+    # the list stays honest.
+    validate_roles:
+      - common
+      - host_hardening
+      - tailscale
+      - storage
+      - docker
+      - dokploy
+      - backup
+      - infrastructure
+      - keycloak
+      - oauth2_proxy
+      - coturn
+    # `cloudflared` intentionally absent -- it's not a standalone role;
+    # CF Tunnel lives inside roles/infrastructure and is covered by
+    # roles/infrastructure/tasks/validate.yml's cloudflared-swarm check.
+
+  tasks:
+    - name: "validate: run each role's validate.yml"
+      ansible.builtin.include_role:
+        name: "{{ _validate_role }}"
+        tasks_from: validate
+      loop: "{{ validate_roles }}"
+      loop_control:
+        # Rename the loop var so child role loops using `item` don't
+        # collide with the parent's binding (triggers a noisy warning
+        # from ansible-core 2.20).
+        loop_var: _validate_role
+        label: "{{ _validate_role }}"
+
+# Vantage 1b -- DR SMTP positive smoke test (Keycloak / Phase Two)
+#
+# Replaces the previous Authentik docker-exec + ak test_email path. The
+# new path uses kcadm.sh (the Keycloak Admin REST CLI shipped in the
+# server image) to:
+#   1. authenticate as the master-realm admin,
+#   2. trigger sendverifyemail against the bootstrap admin user in the
+#      `vps` realm.
+# Keycloak's worker reads the realm-level smtpServer config (rendered
+# by roles/keycloak's realm-config import), connects out, and dispatches
+# the email. Empty / missing SMTP config short-circuits to a "verifyEmail
+# requires email server" error which we catch as a fast-fail.
+#
+# Atomicity: gated on /health/ready -- the canonical "DB pool is up,
+# migrations done, admin REST is accepting tokens" signal. Per project
+# CLAUDE.md atomicity rule.
+#
+# Skip when the inventory has no SMTP configured at all (RESEND_SENDER_EMAIL,
+# BREVO_SENDER_EMAIL, and SMTP_HOST all blank in .env). Same opt-out
+# semantics as the previous Authentik block; the Vantage 1b contract
+# is "if SMTP is supposed to work, prove it works", not "demand SMTP."
+
+- name: "Vantage 1b -- Keycloak SMTP reachability (on-host)"
+  hosts: "{{ stage_hosts | default('vps') }}"
+  become: true
+  gather_facts: false
+  tags: [smtp, vantage1]
+  vars:
+    _smtp_enabled: >-
+      {{
+        (lookup('dotenv', 'RESEND_SENDER_EMAIL', default='') | length > 0)
+        or (lookup('dotenv', 'BREVO_SENDER_EMAIL', default='') | length > 0)
+        or (lookup('dotenv', 'SMTP_HOST', default='') | length > 0)
+      }}
+    _bootstrap_email: "{{ lookup('dotenv', 'ADMIN_EMAIL', default='') }}"
+
+  tasks:
+    - name: "Keycloak: find running server container"
+      ansible.builtin.shell: |
+        set -o pipefail
+        docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
+          | grep -E '{{ "keycloak" | dokploy_container_regex("server") }}' \
+          | head -n1 || true
+      args:
+        executable: /bin/bash
+      register: _keycloak_server_ct
+      changed_when: false
+      when: _smtp_enabled | bool
+
+    - name: "Keycloak: gate test on management port readiness"
+      # Phase Two image (quay.io/phasetwo/phasetwo-keycloak) ships
+      # without curl, and Keycloak 26 split health to management port
+      # 9000 (NOT 8080 -- 8080 only serves OIDC + admin REST). Probe
+      # readiness via bash /dev/tcp on 9000; if the management port
+      # accepts a TCP connection, /health/ready is up.
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ _keycloak_server_ct.stdout }}"
+          - bash
+          - -c
+          - "exec 3<>/dev/tcp/127.0.0.1/9000 && echo OK"
+      register: _keycloak_ready
+      changed_when: false
+      retries: 30
+      delay: 4
+      until:
+        - _keycloak_ready.rc == 0
+        - "'OK' in (_keycloak_ready.stdout | default(''))"
+      when:
+        - _smtp_enabled | bool
+        - (_keycloak_server_ct.stdout | default('') | length) > 0
+
+    - name: "Keycloak: kcadm login as master-realm admin"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ _keycloak_server_ct.stdout }}"
+          - /opt/keycloak/bin/kcadm.sh
+          - config
+          - credentials
+          - --server
+          - "http://localhost:8080"
+          - --realm
+          - master
+          - --user
+          - "{{ _bootstrap_email }}"
+          - --password
+          - "{{ vault_admin_password }}"
+      register: _kc_login
+      changed_when: false
+      no_log: true
+      when:
+        - _smtp_enabled | bool
+        - (_keycloak_server_ct.stdout | default('') | length) > 0
+
+    # The Phase Two kcadm.sh ships only 9 top-level commands (config,
+    # create, get, update, delete, get-roles, add-roles, remove-roles,
+    # set-password) -- no `sendverifyemail` convenience subcommand.
+    # The equivalent path uses the Admin REST endpoint directly:
+    # PUT /admin/realms/{realm}/users/{id}/send-verify-email, which
+    # kcadm exposes as `update users/{id}/send-verify-email -r {realm}`.
+    # That requires the user-id; we look it up by username first.
+    - name: "Keycloak: look up admin user-id in vps realm"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ _keycloak_server_ct.stdout }}"
+          - /opt/keycloak/bin/kcadm.sh
+          - get
+          - users
+          - -r
+          - "{{ keycloak_realm | default('vps') }}"
+          - -q
+          - "username={{ _bootstrap_email }}"
+          - --fields
+          - id
+      register: _kc_user_lookup
+      changed_when: false
+      when:
+        - _smtp_enabled | bool
+        - (_keycloak_server_ct.stdout | default('') | length) > 0
+        - _kc_login is succeeded
+
+    - name: "Keycloak: parse admin user-id"
+      ansible.builtin.set_fact:
+        _kc_admin_user_id: >-
+          {{
+            (_kc_user_lookup.stdout | default('[]') | from_json | first | default({})).get('id', '')
+          }}
+      when:
+        - _smtp_enabled | bool
+        - _kc_user_lookup is defined
+        - _kc_user_lookup is succeeded
+
+    - name: "Keycloak: send-verify-email to admin in vps realm"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ _keycloak_server_ct.stdout }}"
+          - /opt/keycloak/bin/kcadm.sh
+          - update
+          - "users/{{ _kc_admin_user_id }}/send-verify-email"
+          - -r
+          - "{{ keycloak_realm | default('vps') }}"
+      register: _kc_send_verify
+      changed_when: false
+      when:
+        - _smtp_enabled | bool
+        - (_keycloak_server_ct.stdout | default('') | length) > 0
+        - _kc_login is succeeded
+        - (_kc_admin_user_id | default('') | length) > 0
+      # kcadm update on send-verify-email returns 0 if the realm has
+      # SMTP wired AND the worker accepts the dispatch. A real SMTP
+      # failure surfaces in `docker logs <keycloak-server>` (the worker
+      # logs the SMTP exception) but that asynchronous path doesn't
+      # influence rc here. Treat any non-zero rc as a real failure.
+      failed_when: false
+
+    # Surface the actual SMTP exception from the keycloak worker on
+    # send-verify failure. The kcadm CLI returns a generic "Failed to
+    # send verify email" with rc=1; the real cause (rate limit, bad
+    # creds, sender domain not verified, network) is logged by the
+    # worker. Capture + emit so we don't have to SSH in to diagnose.
+    - name: "Keycloak: capture worker logs on SMTP failure"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - logs
+          - --tail
+          - "200"
+          - "{{ _keycloak_server_ct.stdout }}"
+      register: _kc_logs_on_smtp_fail
+      changed_when: false
+      failed_when: false
+      when:
+        - _smtp_enabled | bool
+        - _kc_send_verify is defined
+        - _kc_send_verify.rc | default(0) != 0
+
+    - name: "Keycloak: surface SMTP failure with worker logs"
+      ansible.builtin.fail:
+        msg: |
+          Keycloak send-verify-email to {{ _bootstrap_email }} failed
+          (kcadm rc={{ _kc_send_verify.rc }}, stderr={{ _kc_send_verify.stderr | default('') | trim }}).
+
+          Worker logs (last 200 lines, filtered for mail):
+          {{ (_kc_logs_on_smtp_fail.stdout_lines | default([]) +
+              _kc_logs_on_smtp_fail.stderr_lines | default([]))
+             | select('search', '(?i)mail|smtp|resend|brevo|verify')
+             | list | join('\n')
+             | default('(no mail-related lines in last 200)') }}
+      when:
+        - _smtp_enabled | bool
+        - _kc_send_verify is defined
+        - _kc_send_verify.rc | default(0) != 0
+
+    - name: "Keycloak: SMTP send dispatched (check inbox)"
+      ansible.builtin.debug:
+        msg: |
+          send-verify-email to {{ _bootstrap_email }} dispatched. If the
+          mail does not arrive within 2 minutes, inspect:
+
+              docker logs {{ _keycloak_server_ct.stdout }} --tail 200 | grep -i mail
+
+          Common real failure modes (bad creds, host unreachable, sender
+          domain not verified at the SMTP provider) surface there, not
+          in this CLI wrapper.
+      when:
+        - _smtp_enabled | bool
+        - _kc_send_verify is succeeded
+
+- name: "Vantage 2 -- tailnet checks from operator"
+  hosts: "{{ stage_hosts | default('vps') }}"
+  gather_facts: false
+  become: false
+  tags: [tailnet, vantage2]
+  tasks:
+    - name: Probe SSH over tailnet
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: 22
+        timeout: 10
+      delegate_to: localhost
+
+    - name: Probe Dokploy UI on tailnet
+      ansible.builtin.uri:
+        url: "http://{{ ansible_host }}:{{ dokploy_port | default(3000) }}"
+        status_code: [200, 301, 302]
+        timeout: 10
+      delegate_to: localhost
+      # Asserts Dokploy IS reachable over tailnet (positive).
+
+    - name: "Probe Keycloak (auth.<zone>) login page via CF"
+      ansible.builtin.uri:
+        url: "https://{{ keycloak_hostname | default('auth.' ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default('vps') }}/account"
+        status_code: [200, 302]
+        timeout: 15
+      delegate_to: localhost
+      when: keycloak_hostname is defined or cloudflare_zone is defined
+      # Keycloak's Account Console redirects unauth'd hits to the login
+      # page (302). Authenticated would be 200. Either is healthy.
+
+    - name: "Probe a gated app (Dokploy admin) requires auth when unauth'd"
+      ansible.builtin.uri:
+        url: "https://{{ dokploy_admin_hostname }}"
+        status_code: [302, 303, 307]
+        follow_redirects: none
+        timeout: 15
+      delegate_to: localhost
+      register: _auth_redirect
+      when: dokploy_admin_hostname is defined
+      failed_when:
+        - _auth_redirect.status not in [302, 303, 307]
+        # Reverse-proxy mode (Phase 1 of the oauth2-proxy migration):
+        # the per-app oauth2-proxy container in front of dokploy-admin
+        # emits a real 302 to Keycloak when the request lacks a session.
+        # The OLD forward-auth + errors-middleware pattern preserved
+        # 401 on the response while body-substituting /oauth2/start's
+        # 302; that workaround is gone. A 401 here now means the
+        # reverse-proxy path is broken; a 200 means the proxy is
+        # bypassed entirely (regression).
+
+    - name: "Probe Gatus health endpoint directly on tailnet (via Dokploy internal)"
+      ansible.builtin.uri:
+        url: "http://{{ ansible_host }}:{{ dokploy_port | default(3000) }}"
+        status_code: [200, 301, 302]
+        timeout: 10
+      delegate_to: localhost
+      # Proxy check -- proves the tailnet path still works. Real Gatus
+      # health lives at its own /health endpoint inside dokploy-network
+      # and isn't reachable from the controller; Gatus's own self-monitor
+      # in 00-base.yaml covers it.
+
+    # Assert the auth-redirect chain
+    # actually lands on Keycloak's login URL with state + redirect_uri +
+    # client_id query params -- not just "auth required" (status 302 with
+    # no further evidence). Failure modes this catches:
+    #   - oauth2-proxy realm misconfigured: redirect goes to wrong issuer
+    #   - state param missing: oauth2-proxy CSRF-defense failure
+    #   - redirect_uri param missing: callback would 4xx
+    # Hits oauth2-proxy's /oauth2/start endpoint on each gated host;
+    # follow_redirects: none so we capture the FIRST redirect's Location.
+    # _gated_hosts is filtered to ones whose hostname var is actually
+    # defined in the inventory (skips silently on partial deploys).
+    #
+    # Coverage:
+    #   - Static infrastructure apps (gatus, catena-admin at
+    #     dash.<zone>, healthchecks, recovery, dokploy-admin) are
+    #     always probed. The dash.<zone> entry reaches catena-admin
+    #     via infrastructure_dash_hostname.
+    #   - Dynamic Dokploy-managed composes are enumerated via the API
+    #     (project.all + compose.one) and any compose whose composeFile
+    #     does NOT carry `vps.auth.mode=public` is treated as gated.
+    #     Gated by default per catenahq/dokploy-templates source/compose/ convention
+    #     ("Default if unset = `private`").
+    #   - Operators can add ad-hoc gated hostnames via the
+    #     `validate_extra_gated_hosts` inventory variable.
+    #
+    # Native-OIDC hosts (vps.auth.mode=public + vps.auth.oidc=true)
+    # are EXCLUDED here. Native-OIDC apps run their own OAuth dance
+    # against Keycloak directly with no oauth2-proxy in the chain, so
+    # /oauth2/start does NOT exist at those hosts -- a probe there
+    # 200's against the app's own UI for that path. Their auth
+    # contract is verified separately:
+    #   - verify_gated_services.yml hits the root URL and accepts
+    #     200 (app's own SPA shell) or 302 (oauth2-proxy redirect).
+    # Native-OIDC apps (e.g. Nextcloud, Element) are excluded from the
+    # /oauth2/start probe set; the comment shape is retained for future
+    # client-deployed native-OIDC apps.
+    - name: "Enumerate Dokploy projects via API (dynamic gated apps)"
+      ansible.builtin.uri:
+        url: "{{ dokploy_api_base }}/project.all"
+        method: GET
+        headers:
+          x-api-key: "{{ vault_dokploy_api_key }}"
+        status_code: 200
+        return_content: true
+      register: _dyn_projects
+      delegate_to: localhost
+      become: false
+      when:
+        - vault_dokploy_api_key is defined
+        - vault_dokploy_api_key | length > 10
+        - cloudflare_zone is defined
+      failed_when: false
+
+    - name: "Collect compose IDs from project.all"
+      ansible.builtin.set_fact:
+        _r3_dyn_compose_ids: >-
+          {{
+            (_dyn_projects.json | default([]))
+            | map(attribute='environments', default=[]) | flatten
+            | map(attribute='compose', default=[]) | flatten
+            | map(attribute='composeId') | select('string') | list
+          }}
+      when: _dyn_projects.json is defined
+
+    - name: "Fetch each compose record (composeFile + domains)"
+      ansible.builtin.uri:
+        url: "{{ dokploy_api_base }}/compose.one?composeId={{ item }}"
+        method: GET
+        headers:
+          x-api-key: "{{ vault_dokploy_api_key }}"
+        status_code: 200
+        return_content: true
+      register: _r3_dyn_records
+      delegate_to: localhost
+      become: false
+      loop: "{{ _r3_dyn_compose_ids | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
+      when: (_r3_dyn_compose_ids | default([])) | length > 0
+      failed_when: false
+
+    - name: "Derive gated hosts (no vps.auth.mode=public label)"
+      ansible.builtin.set_fact:
+        # A compose is "gated" if its composeFile does NOT carry
+        # `vps.auth.mode=public`. The default per the convention
+        # (catenahq/dokploy-templates source/compose/ convention) is `private`,
+        # so unset == gated.
+        #
+        # Pattern note: the YAML single-quoted scalar does not process
+        # backslash escapes, so '\.' reaches Jinja's `search` test as
+        # literal '\.' -- the regex form of "match a dot". Doubling the
+        # backslashes here produces the regex '\\.', which requires a
+        # literal backslash in the input and silently never matches the
+        # composeFile labels.
+        _r3_dyn_gated_hosts: >-
+          {{
+            (_r3_dyn_records.results | default([]))
+            | selectattr('json', 'defined')
+            | selectattr('json.composeFile', 'defined')
+            | rejectattr('json.composeFile', 'search', 'vps\.auth\.mode=public')
+            | map(attribute='json.domains', default=[])
+            | flatten
+            | map(attribute='host')
+            | select('string')
+            | reject('equalto', '')
+            | list
+          }}
+      when: _r3_dyn_records.results is defined
+
+    - name: "Build gated-host probe set"
+      ansible.builtin.set_fact:
+        # Keycloak's own host (auth.<zone>) is the IdP, not an oauth2-
+        # proxy-gated client; the keycloak compose carries no
+        # `vps.auth.mode` label so the rejectattr above doesn't catch
+        # it. Drop it here unconditionally.
+        _gated_hosts: >-
+          {{
+            (
+              [
+                infrastructure_monitor_hostname | default(''),
+                infrastructure_dash_hostname | default(''),
+                healthchecks_hostname | default(''),
+                infrastructure_recovery_hostname | default(''),
+                dokploy_admin_hostname | default(''),
+              ]
+              + (_r3_dyn_gated_hosts | default([]))
+              + (validate_extra_gated_hosts | default([]))
+            )
+            | reject('equalto', '')
+            | reject('equalto', keycloak_hostname | default('auth.' ~ cloudflare_zone))
+            | unique
+            | list
+          }}
+        _r3_keycloak_login_prefix: >-
+          https://{{ keycloak_hostname | default('auth.' ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default('vps') }}/protocol/openid-connect/auth?
+      when: cloudflare_zone is defined
+
+    - name: "Probe /oauth2/start on each gated host (Location -> Keycloak)"
+      ansible.builtin.uri:
+        url: "https://{{ item }}/oauth2/start?rd=https%3A%2F%2F{{ item }}%2F"
+        method: GET
+        status_code: [302]
+        follow_redirects: none
+        timeout: 15
+      delegate_to: localhost
+      become: false
+      register: _r3_probes
+      loop: "{{ _gated_hosts | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
+      when: _gated_hosts | default([]) | length > 0
+
+    - name: "Assert each probe redirects to Keycloak login with state + redirect_uri"
+      ansible.builtin.assert:
+        that:
+          - _probe.location is defined
+          - _probe.location is string
+          - _probe.location.startswith(_r3_keycloak_login_prefix)
+          - "'state=' in _probe.location"
+          - "'redirect_uri=' in _probe.location"
+          - "'client_id=oauth2-proxy' in _probe.location"
+          - "'response_type=code' in _probe.location"
+        fail_msg: |
+          Gated host {{ _probe.item }} did NOT redirect /oauth2/start to
+          the Keycloak login URL with the expected query params.
+
+          Got Location: {{ _probe.location | default('<missing>') }}
+          Expected prefix: {{ _r3_keycloak_login_prefix }}
+          Required params: state, redirect_uri, client_id=oauth2-proxy,
+                           response_type=code
+
+          Likely causes:
+          - oauth2-proxy --oidc-issuer-url mismatch (check
+            roles/oauth2_proxy/defaults/main.yml: oauth2_proxy_oidc_issuer)
+          - Keycloak realm name drift (KEYCLOAK_REALM in .env vs
+            keycloak_realm role default)
+          - oauth2-proxy container restart-looping (check `docker logs`)
+        success_msg: "{{ _probe.item }} -> Keycloak login (state + redirect_uri OK)"
+      loop: "{{ _r3_probes.results | default([]) }}"
+      loop_control:
+        loop_var: _probe
+        label: "{{ _probe.item | default('?') }}"
+      when: _r3_probes.results is defined
+
+    # Catch host-published-port drift -- a
+    # client compose with `ports: ["8080:80"]` would expose its
+    # container directly to the tailnet, bypassing Traefik's
+    # forward-auth chain. Container IPs themselves aren't routable
+    # from tailnet (dokploy-network is host-internal), so the actual
+    # attack surface is host-published ports. Enumerate every
+    # listening TCP port on the host and assert the set matches the
+    # allowlist (Traefik 80/443, SSH 22, Dokploy admin 3000 on the
+    # tailnet alias, anything explicitly opted-in via .env).
+    #
+    # Runs ON the host (no delegate_to), so it sees the full ss(8)
+    # output including loopback-only binds. We filter to public-
+    # facing binds (0.0.0.0 / [::]); 127.0.0.1-bound ports
+    # (gatus_host_localhost_port, dokploy postgres internals, etc)
+    # never reach tailnet so they're skipped.
+    - name: "Enumerate listening TCP ports on host"
+      ansible.builtin.command:
+        argv:
+          - ss
+          - -H
+          - -tlnp4
+      register: _r4_listen
+      changed_when: false
+      become: true
+
+    # The host-port allowlist is DERIVED from the public-port registry
+    # (helpers/public_ports.py), not hand-maintained. The reconciler writes
+    # /etc/catena/public-ports.summary.json with precomputed integer port
+    # lists; we add the always-present infra ports (22 SSH, 80/443 Traefik
+    # via CF Tunnel) that are not registry-managed.
+    - name: "stat public-port registry summary"
+      ansible.builtin.stat:
+        path: /etc/catena/public-ports.summary.json
+      register: _pp_summary_stat
+      become: true
+
+    - name: "read public-port registry summary"
+      ansible.builtin.slurp:
+        src: /etc/catena/public-ports.summary.json
+      register: _pp_summary_raw
+      become: true
+      when: _pp_summary_stat.stat.exists | default(false)
+
+    - name: "Parse + filter to public-facing binds"
+      ansible.builtin.set_fact:
+        # Each ss line: State Recv-Q Send-Q LocalAddr:Port PeerAddr:Port users
+        # We want the column 4 LocalAddr:Port. Filter to lines whose local
+        # bind is 0.0.0.0:* or *:* (any-IPv4). Loopback (127.0.0.1) +
+        # tailnet-only binds (100.x.y.z) are NOT publicly reachable from
+        # tailnet hosts other than the host itself, so excluded here.
+        _r4_public_ports: >-
+          {{
+            (_r4_listen.stdout_lines | default([]))
+            | map('split')
+            | map('list')
+            | selectattr('3', 'defined')
+            | map(attribute='3')
+            | select('match', '^(0\\.0\\.0\\.0|\\*):')
+            | map('regex_replace', '^.*:(\\d+)$', '\\1')
+            | map('int')
+            | sort
+            | unique
+            | list
+          }}
+        # Allowlist = always-present infra ports + the registry's bound TCP
+        # ports (Dokploy 3000, coturn 5349, mailserver 25/465/587/993, ...).
+        #   22  - SSH (UFW limits ingress to tailnet)
+        #   80  - Traefik HTTP (CF Tunnel only; UFW blocks public)
+        #   443 - Traefik HTTPS (CF Tunnel only; UFW blocks public)
+        # The rest come from /etc/catena/public-ports.summary.json
+        # (all_tcp_bound). Fallback to the historical static set when the
+        # summary is absent (e.g. a partial converge before the reconciler
+        # ran), so this check never silently passes on an empty allowlist.
+        _r4_allowed_ports: >-
+          {{
+            ([22, 80, 443] +
+              ((_pp_summary_raw.content | b64decode | from_json).all_tcp_bound
+               if (_pp_summary_stat.stat.exists | default(false))
+               else [dokploy_port | default(3000) | int, 5349]))
+            | map('int') | unique | sort | list
+          }}
+
+    - name: "Assert no unexpected host-published ports (port-binding drift catch)"
+      ansible.builtin.assert:
+        that:
+          - (_r4_public_ports | difference(_r4_allowed_ports)) | length == 0
+        fail_msg: |
+          violation: host has unexpected publicly-bound TCP
+          listeners. A container with `ports: ["<host>:<container>"]`
+          binding bypasses Traefik's forward-auth chain and exposes
+          the service directly to the tailnet (and, depending on UFW,
+          to the public internet).
+
+          Allowed: {{ _r4_allowed_ports }}
+          Found:   {{ _r4_public_ports }}
+          Drift:   {{ _r4_public_ports | difference(_r4_allowed_ports) }}
+
+          Diagnostic:
+            ss -tlnp4 | grep -E '^(0\\.0\\.0\\.0|\\*):'
+            docker ps --format '{{ "{{" }}.Names{{ "}}" }}\t{{ "{{" }}.Ports{{ "}}" }}'
+
+          To fix: change the offending compose's `ports:` list to
+          omit the host-side mapping (drop the "<host>:" prefix), or
+          restrict the bind to 127.0.0.1 if loopback-only is needed.
+        success_msg: "Host port set OK ({{ _r4_public_ports | join(', ') }} - all in allowlist)"
+
+    # Direct-container-IP probe from a tailnet vantage.
+    # Asserts the dokploy-network bridge stays host-internal: container
+    # IPs (172.x.y.z by default) must NOT be reachable from the
+    # operator's controller. The host-port allowlist above catches the
+    # `ports: "8080:80"` shape; this catches the orthogonal case where
+    # someone adds a route or iptables exception that exposes the bridge
+    # itself. A successful TCP connect from controller -> container IP
+    # would mean the network isolation is broken (Traefik bypass: clients
+    # could hit the gated app's container directly).
+    - name: "tailnet: list container IPs on dokploy-network"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - network
+          - inspect
+          - "{{ dokploy_network_name | default('dokploy-network') }}"
+          - --format
+          - '{% raw %}{{range $k, $v := .Containers}}{{$v.IPv4Address}}{{"\n"}}{{end}}{% endraw %}'
+      register: _r4_ct_ips_raw
+      changed_when: false
+      become: true
+      failed_when: false
+
+    - name: "tailnet: parse container IPv4 list (strip CIDR suffix)"
+      ansible.builtin.set_fact:
+        _container_ips: >-
+          {{
+            (_r4_ct_ips_raw.stdout_lines | default([]))
+            | map('regex_replace', '/[0-9]+$', '')
+            | reject('equalto', '')
+            | unique
+            | list
+          }}
+
+    - name: "tailnet: probe each container IP from controller (must NOT connect)"
+      # state=stopped semantics: the task succeeds when the port is NOT
+      # listening within the timeout. A successful TCP connect = failure.
+      ansible.builtin.wait_for:
+        host: "{{ item }}"
+        port: 80
+        timeout: 3
+        state: stopped
+      delegate_to: localhost
+      become: false
+      loop: "{{ _container_ips | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
+      when: (_container_ips | default([])) | length > 0
+
+    - name: "tailnet: container-IP isolation OK"
+      ansible.builtin.debug:
+        msg: |
+          {{ (_container_ips | default([])) | length }} container IP(s)
+          on dokploy-network: none reachable from controller (good).
+      when: (_container_ips | default([])) | length > 0
+
+- name: "Vantage 3 -- external checks"
+  hosts: "{{ stage_hosts | default('vps') }}"
+  gather_facts: false
+  become: false
+  tags: [external, vantage3]
+  # The public-port invariant must run on every
+  # deployed host as a post-converge gate, not just on the dev1 test
+  # bench. Catches drift introduced by per-client compose
+  # customization (e.g. someone adding `ports: ["8080:80"]` to a
+  # one-off compose). The inventory's `public_ip` is the source of
+  # truth (set by `seed.py` at install time); when it is missing we
+  # try a host-egress fallback so a forgotten seed answer doesn't
+  # silently disable the external scan, then loud-skip with
+  # remediation if both fail.
+
+  vars:
+    _public_ip_inventory: "{{ hostvars[inventory_hostname].public_ip | default('') }}"
+    # Public TCP ports we deliberately permit -- DERIVED from the
+    # public-port registry (public_open_tcp in the reconciler summary), not
+    # hand-maintained. coturn's TLS-TURN binds tcp/5349; the mailserver
+    # template adds 25/465/587/993 when deployed. The UDP profile
+    # (3478/udp, 5349/udp, 50000-50100/udp, ...) is not enumerated here
+    # because the external scanner is TCP-only. Fallback to [5349] when the
+    # summary is absent (partial converge before the reconciler ran).
+    expected_public_ports: >-
+      {{
+        (_pp3_summary_raw.content | b64decode | from_json).public_open_tcp
+        if (_pp3_summary_stat.stat.exists | default(false))
+        else [5349]
+      }}
+
+  tasks:
+    - name: "stat public-port registry summary (external vantage)"
+      ansible.builtin.stat:
+        path: /etc/catena/public-ports.summary.json
+      register: _pp3_summary_stat
+      become: true
+
+    - name: "read public-port registry summary (external vantage)"
+      ansible.builtin.slurp:
+        src: /etc/catena/public-ports.summary.json
+      register: _pp3_summary_raw
+      become: true
+      when: _pp3_summary_stat.stat.exists | default(false)
+
+    - name: "Derive public_ip from host egress when inventory is silent"
+      # `ip route get 1.1.1.1` returns the source IPv4 used to reach
+      # 1.1.1.1; on a routable VPS (no carrier-grade NAT) that's the
+      # public IP. Falls back gracefully on hosts behind 1:1 NAT (rare
+      # in the supported provider set: OVH, Hetzner, DO, Linode, Vultr,
+      # AWS Lightsail) -- the egress src is then a private IP and the
+      # downstream skip task handles it.
+      ansible.builtin.command:
+        argv:
+          - sh
+          - -c
+          - "ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \\([0-9.]*\\).*/\\1/p' | head -n1"
+      register: _r2_egress_src
+      changed_when: false
+      become: true
+      failed_when: false
+      when: _public_ip_inventory | length == 0
+
+    - name: "Bind effective public_ip (reject RFC1918 / CGNAT / tailnet)"
+      # The egress fallback returns the routing src for 1.1.1.1, which on a
+      # bench / NATed VM is a private RFC1918 address (10/8, 172.16/12,
+      # 192.168/16) or CGNAT (100.64/10, also Tailscale's space). Scanning
+      # those from the controller succeeds even when the real public ports
+      # are correctly closed (the controller is on the same LAN), producing
+      # a false-positive SECURITY REGRESSION for ports that are actually
+      # tailnet- or LAN-only. The same false-positive applies when the
+      # INVENTORY supplies a private address (e.g. the bench seeds
+      # public_ip with the Incus bridge IP so coturn can advertise an
+      # ICE-candidate address that resolves on the same L2 segment). Apply
+      # the private-IP filter to BOTH sources so a bench-scoped public_ip
+      # falls through to the loud-skip path. Use an explicit
+      # string-yielding expression: a `>-` folded scalar whose Jinja body
+      # emits nothing parses as null (None) downstream and crashes
+      # `public_ip | length`.
+      ansible.builtin.set_fact:
+        public_ip: "{{ _r2_resolved_public_ip }}"
+      vars:
+        _r2_egress_stdout: "{{ _r2_egress_src.stdout | default('') | trim }}"
+        # Match RFC1918 (10/8, 192.168/16, 172.16/12), CGNAT (100.64/10),
+        # loopback (127/8), link-local (169.254/16), and 0/8.
+        _r2_private_re: >-
+          ^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.|127\.|169\.254\.|0\.)
+        _r2_egress_is_private: "{{ _r2_egress_stdout is match(_r2_private_re) }}"
+        _r2_egress_routable: "{{ (_r2_egress_stdout | length > 0) and (not _r2_egress_is_private) }}"
+        _r2_inventory_is_private: "{{ (_public_ip_inventory | length > 0) and (_public_ip_inventory is match(_r2_private_re)) }}"
+        _r2_inventory_routable: "{{ (_public_ip_inventory | length > 0) and (not _r2_inventory_is_private) }}"
+        _r2_resolved_public_ip: "{{ _public_ip_inventory if _r2_inventory_routable else (_r2_egress_stdout if _r2_egress_routable else '') }}"
+
+    - name: "Warn when public_ip is unknown (loud skip, not silent)"
+      ansible.builtin.debug:
+        msg: |
+          Vantage 3 external probe SKIPPED on {{ inventory_hostname }} --
+          no globally-routable public_ip was available. Either:
+            - public_ip unset in inventory AND host-egress detection
+              returned no IPv4 / a non-routable address, OR
+            - public_ip in inventory is RFC1918 / CGNAT / loopback
+              (e.g. an Incus bridge IP for the bench, where coturn
+              needs the bridge address as its ICE candidate but no
+              real WAN exists to scan).
+
+          Without a routable IP, drift in publicly bound ports goes
+          undetected post-converge.
+
+          Inventory public_ip:  {{ _public_ip_inventory | default('<unset>') }}
+          Egress src observed:  {{ _r2_egress_src.stdout | default('<none>') | trim }}
+
+          To re-enable on this host, set `public_ip` in your inventory's
+          group_vars/all/hosts.yml (or re-run the installer and answer the
+          "Public IPv4 (from provider)" prompt).
+      when: (public_ip | default('', true)) | length == 0
+
+    - name: Skip external checks if public_ip is unknown
+      ansible.builtin.meta: end_host
+      when: (public_ip | default('', true)) | length == 0
+
+    # Paths are relative to playbook_dir (ansible/playbooks/); the external
+    # test tasks live at ansible/tests/external/, so reach them via ../tests.
+    - name: Verify public IP has no unexpected open ports
+      ansible.builtin.include_tasks: ../tests/external/public-ports.yml
+
+    - name: Verify Cloudflare Tunnel hostnames serve 200, direct-IP is refused
+      ansible.builtin.include_tasks: ../tests/external/cloudflare-tunnel.yml
+      when: cloudflared_ingress_rules | default([]) | length > 0
