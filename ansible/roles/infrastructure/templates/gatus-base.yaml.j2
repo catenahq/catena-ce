@@ -13,8 +13,8 @@
 # PUBLIC URL with [STATUS] == 302 as healthy tests the full CF Tunnel ->
 # Traefik -> per-app oauth2-proxy chain (302 = oauth2-proxy redirecting
 # unauthed requests to Keycloak, which means every layer in front is
-# healthy). Olivetin is the exception: native-OIDC apps return 200 on /
-# (their own SPA shell), so its probe accepts 200 instead.
+# healthy). Native-OIDC apps are the exception: they return 200 on /
+# (their own SPA shell), so their probe accepts 200 instead.
 # Internal down + public up -> app broken. Internal up + public down ->
 # tunnel / Traefik / oauth2-proxy broken. Full diagnostic coverage,
 # zero credentials inside Gatus.

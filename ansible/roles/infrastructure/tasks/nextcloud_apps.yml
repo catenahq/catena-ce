@@ -14,7 +14,7 @@
 # Nextcloud container at wire time.
 #
 # Idempotency: ansible.builtin.copy is no-op when the source has not
-# changed (mode + content checksum). Each click of the OliveTin button
+# changed (mode + content checksum). Each run of the catena-admin action
 # is itself idempotent (probe-before-install on app:list, app:enable
 # is a no-op when already enabled); this task just keeps the script
 # binary up-to-date with the repo.

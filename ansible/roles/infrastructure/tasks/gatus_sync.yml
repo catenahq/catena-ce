@@ -1,7 +1,7 @@
 ---
 # Install /usr/local/bin/gatus-sync (stdlib-only Python) + its env file
 # + the systemd service and timer that runs it every {{ gatus_sync_interval }}.
-# Also exposed via the "Sync Gatus monitors" OliveTin button.
+# Also exposed via the catena-admin "Sync all (apps + monitors)" action.
 #
 # The script regenerates ONLY {{ gatus_host_config_dir }}/50-dokploy-apps.yaml
 # (two endpoints per gated Dokploy app: internal + public). 00-base.yaml

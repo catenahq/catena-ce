@@ -19,8 +19,8 @@
 # source as root:root 0755 and then roles/backup would flip it to 0750
 # on its next pass -- harmless but flappy and noisy on converge diffs.
 # Seed it here with the SAME attributes roles/backup uses so there's no
-# ownership/mode drift between roles. Matches the bind-mount-seeding
-# pattern already used by roles/infrastructure/tasks/homepage.yml.
+# ownership/mode drift between roles. Same bind-mount-seeding pattern
+# the other infrastructure app tasks use.
 - name: "recovery: seed backup-export dir ({{ recovery_source_dir }})"
   ansible.builtin.file:
     path: "{{ recovery_source_dir }}"

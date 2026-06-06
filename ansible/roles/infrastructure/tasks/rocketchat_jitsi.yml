@@ -10,7 +10,7 @@
 #      cloudflared wildcard CNAME, so no extra DNS task is needed --
 #      meet.<base> resolves through the existing wildcard CNAME).
 #
-#   2. POST-DEPLOY (OliveTin button "Wire Rocket.Chat Jitsi"). The
+#   2. POST-DEPLOY (catena-admin action "Wire Rocket.Chat Jitsi"). The
 #      RC REST API calls (POST /api/v1/settings/Jitsi_*) inside the
 #      running Rocket.Chat container, run on demand by the operator
 #      after a Dokploy deploy. Backed by

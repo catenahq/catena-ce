@@ -306,7 +306,7 @@ stack_update_managed_cve_gate_severity: "{{ lookup('dotenv', 'MANAGED_CVE_GATE_S
 stack_update_managed_cve_scan_max_candidates: "{{ lookup('dotenv', 'MANAGED_CVE_SCAN_MAX_CANDIDATES', default='4') }}"
 stack_update_managed_trivy_cache_dir: "{{ lookup('dotenv', 'MANAGED_TRIVY_CACHE_DIR', default='/var/cache/trivy') }}"
 
-# --- version-check (current vs. latest, surfaced on Homepage) ----------
+# --- version-check (current vs. latest, surfaced on catena-admin) ------
 # Stdlib script that queries GitHub releases / Docker Hub tags for each
 # pinned service + reads the running container's image tag, emits a JSON
 # report under /var/lib/catena/. Currently consumed by the catena-admin

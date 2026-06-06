@@ -8,7 +8,7 @@
 # Traefik via the catalog's extra_domains entry, so no host-side port
 # exposure either.
 #
-# POST-DEPLOY (OliveTin button "Wire Nextcloud Talk + HPB"): runs the
+# POST-DEPLOY (catena-admin action "Wire Nextcloud Talk + HPB"): runs the
 # `occ talk:turn:add` / `occ talk:stun:add` / `occ talk:signaling:add`
 # calls inside the running Nextcloud container, on demand after a
 # Dokploy deploy. Backed by /usr/local/bin/catena-wire-nextcloud-talk-hpb

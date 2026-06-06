@@ -1,6 +1,6 @@
 ---
-# Host-side wiring for the F12 "Generate recovery archive (encrypted)"
-# OliveTin button. Vendors three files into /usr/local/lib/catena/ +
+# Host-side wiring for the "Generate recovery archive (encrypted)"
+# catena-admin action. Vendors three files into /usr/local/lib/catena/ +
 # /usr/local/bin/, plus the apt dep (p7zip-full / 7zip) needed by the
 # 7z subprocess inside recovery_archive_core.pack_recovery_archive.
 #
@@ -17,13 +17,14 @@
 #                                                    into the recovery
 #                                                    archive's restore.sh
 #   /usr/local/bin/catena-generate-recovery-archive  host-side entry
-#                                                    invoked by OliveTin
-#                                                    via $PAYLOAD =
+#                                                    dispatched by
+#                                                    catena-admin via
+#                                                    $PAYLOAD = the
 #                                                    operator passphrase
 #
-# The OliveTin action manifest entry lives in vars/main.yml
-# (`olivetin_actions:` list) and gets picked up automatically by the
-# templates that iterate (olivetin_actions + olivetin_extra_actions).
+# The action's catalog entry lives in the catena-admin role
+# (roles/catena-admin/templates/actions.yml.j2) and is rendered into
+# the host dispatch table + allow-list by that role's catalog.yml.
 #
 # /var/backups/catena-export/ is created by the existing extract-
 # secrets task + the backup role; we do not duplicate that here.

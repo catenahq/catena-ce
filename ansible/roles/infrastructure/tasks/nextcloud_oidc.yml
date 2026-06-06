@@ -6,19 +6,19 @@
 #   1. CONVERGE (this file). Render realm-nextcloud.yaml + re-run
 #      keycloak-config-cli on change so the Keycloak side has a
 #      `nextcloud` client registered the moment the operator clicks
-#      Deploy in Dokploy. Mirrors the oauth2_proxy + olivetin patterns.
+#      Deploy in Dokploy. Mirrors the oauth2_proxy pattern.
 #
-#   2. POST-DEPLOY (OliveTin button "Wire Nextcloud OIDC"). The actual
-#      `occ user_oidc:provider` call inside the running Nextcloud
+#   2. POST-DEPLOY (catena-admin action "Wire Nextcloud OIDC"). The
+#      actual `occ user_oidc:provider` call inside the running Nextcloud
 #      container, run on demand by the operator after a Dokploy
 #      deploy. Backed by /usr/local/bin/catena-wire-nextcloud-oidc
-#      (installed below from vps-scripts/wire-nextcloud-oidc.sh).
+#      (installed below from scripts/wire-nextcloud-oidc.sh).
 #
 # Why split: per project policy, converge runs only at initial install
 # or full VPS repair -- NOT after every catalog template deploy.
 # Wiring an app's OIDC the first time it's deployed cannot depend on
 # the operator running a subsequent converge against an already-
-# running production VPS. The OliveTin button is the on-demand path;
+# running production VPS. The catena-admin action is the on-demand path;
 # the converge path stays focused on Keycloak-side state (which is
 # legitimately initial-setup territory).
 #
@@ -43,10 +43,10 @@
   tags: [nextcloud_realm]
 
 # ── Step 2: install the post-deploy wiring script ────────────────
-# Backs the "Wire Nextcloud OIDC" OliveTin button defined in
-# roles/infrastructure/vars/main.yml. The button entry is also
-# rendered into the dispatcher allow-list + olivetin.config.yaml,
-# both of which iterate (olivetin_actions + olivetin_extra_actions).
+# Backs the "Wire Nextcloud OIDC" catena-admin action defined in the
+# catalog at roles/catena-admin/templates/actions.yml.j2. That catalog
+# is rendered into the host dispatch table + allow-list by
+# roles/catena-admin/tasks/catalog.yml.
 - name: "Nextcloud OIDC: install host script (/usr/local/bin/catena-wire-nextcloud-oidc)"
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../scripts/wire-nextcloud-oidc.sh"

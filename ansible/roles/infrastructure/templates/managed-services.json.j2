@@ -39,12 +39,8 @@
       "tag_pattern": "^v?\\d+\\.\\d+\\.\\d+$"
     }
   },
-  {# OliveTin + Homepage retired during the 2026-05-15 post-migration
-     audit (catena-admin superseded both). Their task files
-     (olivetin.yml, homepage.yml) were removed from
-     roles/infrastructure/tasks/; the *_compose_name vars they relied on
-     no longer exist. Keeping their entries here broke first-converge
-     rendering with `'olivetin_compose_name' is undefined`. -#}
+  {# No OliveTin / Homepage entries: both are superseded by catena-admin
+     (the Go shell). -#}
   {
     "name": "healthchecks",
     "kind": "infra-compose",

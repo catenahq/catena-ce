@@ -30,8 +30,8 @@
 # container at wire time.
 #
 # Idempotency: ansible.builtin.copy is no-op when the source has not
-# changed (mode + content checksum). Each click of the OliveTin
-# button is itself idempotent; this task just keeps the script
+# changed (mode + content checksum). Each run of the catena-admin
+# action is itself idempotent; this task just keeps the script
 # binaries up-to-date with the repo.
 
 - name: "Nextcloud office: install Collabora wiring script (/usr/local/bin/catena-wire-nextcloud-collabora)"

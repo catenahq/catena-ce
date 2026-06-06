@@ -1,6 +1,6 @@
 # {{ ansible_managed }}
 [Unit]
-Description=Regenerate Homepage services.yaml from Dokploy API
+Description=Reconcile Traefik routes + SSO provider config from Dokploy API
 Wants=network-online.target
 After=network-online.target docker.service
 

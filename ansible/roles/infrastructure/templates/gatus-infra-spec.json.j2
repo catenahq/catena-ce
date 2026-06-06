@@ -29,20 +29,9 @@
     "alert_slug": "{{ infrastructure_monitor_hostname | lower | replace('.', '-') }}",
     "version_key": "Gatus"
   },
-{# OliveTin runs in native-OIDC mode (vps.auth.mode=public +
-   vps.auth.oidc=true) and serves its own SPA shell on / -- the
-   OIDC dance happens via JS, no top-level redirect. Other infra
-   apps still 302 because they're gated by oauth2-proxy in front. #}
-  {
-    "label": "{{ infrastructure_actions_hostname }}",
-    "url": "https://{{ infrastructure_actions_hostname }}",
-    "group": "Infrastructure",
-    "accepted": [200],
-    "ignore_redirect": true,
-    "interval": "120s",
-    "alert_slug": "{{ infrastructure_actions_hostname | lower | replace('.', '-') }}",
-    "version_key": "OliveTin"
-  },
+{# catena-admin (the Go shell) is the admin panel at dash.<zone>. It
+   sits behind the staff/admin oauth2-proxy slug, so an unauthenticated
+   probe gets a 302 to the auth flow. #}
   {
     "label": "{{ infrastructure_dash_hostname }}",
     "url": "https://{{ infrastructure_dash_hostname }}",
@@ -51,7 +40,7 @@
     "ignore_redirect": true,
     "interval": "120s",
     "alert_slug": "{{ infrastructure_dash_hostname | lower | replace('.', '-') }}",
-    "version_key": "Homepage"
+    "version_key": "catena-admin"
   },
   {
     "label": "{{ infrastructure_recovery_hostname }}",

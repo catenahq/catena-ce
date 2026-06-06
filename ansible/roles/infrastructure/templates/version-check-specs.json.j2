@@ -41,13 +41,9 @@
     "upstream": ["github", "TwiN/gatus"],
     "upstream_url": "https://github.com/TwiN/gatus/releases"
   },
-  {# OliveTin retired -- superseded by catena-admin (catalog/host folded
-     into roles/catena-admin/). Homepage retired -- catena-admin's Apps
-     tab is the operator dashboard. Both task files (olivetin.yml,
-     homepage.yml) were removed from roles/infrastructure/tasks/ during
-     the 2026-05-15 post-migration audit; their version-check entries
-     here referenced undefined *_compose_name vars and broke first-
-     converge rendering when STACK_UPDATE_ENABLED=true. -#}
+  {# No OliveTin / Homepage entries: both are superseded by catena-admin
+     (the Go shell), which is first-party and version-tracked via the
+     catena release, not a third-party upstream. -#}
   {
     "name": "Healthchecks",
     "current_source": ["container", "^{{ healthchecks_compose_name }}-[a-z0-9]+-app-1$"],
