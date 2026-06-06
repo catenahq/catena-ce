@@ -1,0 +1,219 @@
+app:
+  name: "Catena Admin"
+  tagline: "Panneau de l'opérateur par VPS"
+
+tabs:
+  apps: "Applications"
+  access: "Accès"
+  system: "Système"
+  daily: "Quotidien"
+  maintenance: "Maintenance"
+  resources: "Ressources"
+  actions: "Actions"
+  recovery: "Récupération"
+  clients: "Clients"
+
+resources:
+  heading: "Utilisation des ressources"
+  intro: "Historique CPU, mémoire, réseau, disque, température et charge par conteneur et pour l'hôte, avec alertes de seuil, fourni par le moniteur Beszel. La vue intégrée ci-dessous est le concentrateur complet; ouvrez-le dans un nouvel onglet pour les graphiques sur plusieurs jours."
+  open_hub: "Ouvrir le moniteur de ressources"
+  disabled: "La surveillance des ressources n'est pas activée sur cet hôte. Réglez BESZEL_ENABLED=true et lancez une convergence pour déployer le concentrateur et l'agent Beszel."
+
+daily:
+  heading: "Orchestrateur quotidien"
+  intro: "Chaîne de nuit séquencée : vérifications préalables, sauvegarde, vérification chaude, contrôle restic, miroir froid, vérification froide, mises à jour de sécurité, CVE résiduelles, contrôle des paquets, mise à jour des conteneurs."
+  current_state: "État actuel"
+  badges:
+    heading: "Badges par étape"
+  history:
+    heading: "Sept dernières exécutions"
+    empty: "Aucune exécution enregistrée pour l'instant."
+    col:
+      ts: "Horodatage"
+      terminal: "État terminal"
+      status: "Statut"
+
+maintenance:
+  heading: "Journal de maintenance"
+  intro: "Suivi chronologique des opérations effectuées pour garder la plateforme à jour et sécurisée : sauvegardes, mises à jour et décisions de sécurité."
+  empty: "Aucune activité de maintenance enregistrée pour le moment."
+  col:
+    ts: "Horodatage"
+    event: "Événement"
+  event:
+    backup_ok: "Sauvegarde terminée à {time}. Taille {size} ({delta})."
+    security_update_applied: "Mises à jour de sécurité installées."
+    packages_pending: "{count} mise(s) à jour non liée(s) à la sécurité disponible(s); prévue(s) pour la prochaine fenêtre de maintenance."
+    container_updated: "{app} mis à jour de {from_v} à {to_v}."
+    container_rolled_back: "La mise à jour de {app} vers {version} a échoué au contrôle de santé et a été annulée."
+    cve_detected_host: "{count} avis de sécurité signalé(s) dans les paquets de l'hôte; suivi(s) pour le prochain cycle de mise à jour."
+    cve_detected_image: "{count} avis de sécurité signalé(s) dans les images d'application; suivi(s) pour le prochain cycle de mise à jour."
+    cve_cleared_host: "Avis de sécurité dans les paquets de l'hôte corrigés."
+    cve_cleared_image: "Avis de sécurité dans les images d'application corrigés."
+    _unknown: "Activité de maintenance enregistrée."
+
+header:
+  user_anonymous: "(non connecté)"
+  toggle_locale: "Changer la langue"
+  toggle_theme: "Changer le thème"
+
+theme:
+  light: "Clair"
+  dark: "Sombre"
+  system: "Système"
+
+common:
+  apply: "Appliquer"
+  apply_and_deploy: "Appliquer et déployer"
+  cancel: "Annuler"
+  delete: "Supprimer"
+  download: "Télécharger"
+  back: "Retour"
+  loading: "Chargement…"
+  yes: "Oui"
+  no: "Non"
+  configure: "Configurer"
+
+status:
+  healthy: "Sain"
+  unhealthy: "Anormal"
+  unknown: "Inconnu"
+
+apps:
+  empty:
+    staff: "Aucune application disponible pour vos groupes."
+    admin: "Aucune application déployée dans Dokploy."
+  badge:
+    hidden: "caché"
+    admin-only: "admin seulement"
+    public: "public"
+    oidc: "OIDC"
+    extra: "manuel"
+  configure:
+    rollback: "Restaurer le compose précédent"
+    confirm_rollback: "Restaurer le compose précédent et redéployer. Continuer?"
+
+actions:
+  empty: "Aucune action configurée."
+  hint: "Cliquez sur Exécuter pour lancer l'action. La sortie s'affiche sous chaque bouton pendant l'exécution."
+  run: "Exécuter"
+  has_arguments: "saisie requise"
+  category:
+    upgrades: "Mises à jour"
+    backups: "Sauvegardes"
+    initial-apps-setup: "Configuration initiale"
+    ops: "Opérations"
+    recovery: "Récupération"
+
+system:
+  open_in_healthchecks: "Ouvrir dans Healthchecks"
+  open_in_gatus: "Ouvrir dans Gatus"
+  gauge:
+    backup: "Sauvegarde"
+    disk: "Disque"
+    healthchecks: "Healthchecks"
+    snapshots: "snapshots"
+    never: "jamais"
+    unavailable: "(données indisponibles)"
+  hc:
+    late: "en retard"
+    down: "tombé"
+  alerts:
+    heading: "Alertes actives"
+    empty: "Tous les systèmes sont sains."
+  infra:
+    heading: "Infrastructure"
+  connector_health:
+    heading: "Connecteurs vers les applications"
+    hint: "État de configuration et dernier appel réussi pour chaque connecteur de l'onglet Clients. À surveiller pour détecter une dérive silencieuse avant qu'elle se manifeste dans la vue 360 d'un client."
+    not_configured: "(non configuré)"
+    last_ok: "dernier succès"
+    never_called: "(jamais appelé)"
+
+recovery:
+  downloads:
+    heading: "Téléchargements disponibles"
+    empty: "Aucun artefact de récupération n'a encore été généré."
+    no_sidecar: "(téléchargeur non configuré)"
+  generate:
+    heading: "Générer un nouvel artefact"
+    hint: "Cliquez sur Exécuter pour démarrer l'action; la sortie s'affiche sous le bouton. Les nouveaux artefacts apparaissent ci-dessus une fois l'exécution terminée -- rafraîchissez la page pour mettre la liste à jour."
+    empty: "Aucune action de récupération n'est configurée."
+
+audit:
+  chain_ok: "Chaîne d'audit vérifiée."
+  chain_broken: "Vérification de la chaîne d'audit ÉCHOUÉE à la ligne id {id}."
+  empty: "Aucun événement enregistré."
+  col:
+    id: "ID"
+    ts: "Horodatage"
+    user: "Utilisateur"
+    event: "Événement"
+    target: "Cible"
+    status: "Statut"
+
+clients:
+  list:
+    heading: "Clients"
+    hint: "Cliquez sur un client pour ouvrir la vue 360 unifiée de la suite."
+    search_placeholder: "Rechercher par nom ou entreprise"
+    empty: "Aucun client à afficher pour l'instant."
+    no_matches: "Aucun client ne correspond à {query}."
+    anchor_not_configured: "EspoCRM (l'ancrage de l'onglet Clients) n'est pas configuré pour ce VPS. Voir internal_docs/operator/clients-tab-account-mapping.md."
+  account:
+    heading: "Vue 360 du client"
+    back: "Retour aux clients"
+    no_profile: "(profil EspoCRM indisponible)"
+  binding:
+    heading: "Liens entre applications"
+    found: "Trouvé"
+    missing: "Manquant"
+    not_configured: "Non configuré"
+    unknown: "En attente"
+  card:
+    loading: "Chargement…"
+    not_configured: "Non configuré."
+    no_data: "Aucune donnée pour ce client."
+    error: "Carte indisponible : {detail}"
+  connector:
+    espocrm: "EspoCRM"
+    nextcloud: "Nextcloud"
+    docuseal: "DocuSeal"
+    zammad: "Zammad"
+    chatwoot: "Chatwoot"
+    easyappointments: "Easy!Appointments"
+    plane: "Plane"
+    invoiceninja: "Invoice Ninja"
+    kimai: "Kimai"
+  scaffold:
+    placeholder: "Le branchement des applications arrive à l'étape 3 du plan catena-admin; cet onglet est actuellement une ébauche."
+
+footer:
+  audit_log: "Journal d'audit"
+
+access:
+  heading: "Accès"
+  hint: "Vue en lecture seule indiquant quel groupe peut atteindre quelle application. catena-admin affiche les accès; modifiez les utilisateurs et les groupes dans Keycloak. Une application est accessible à un groupe lorsque ce groupe figure dans son ensemble autorisé; admin atteint toujours tout; les applications publiques sont accessibles à tous, y compris les visiteurs anonymes."
+  edit_in_keycloak: "Modifier les utilisateurs et groupes dans Keycloak"
+  empty: "Aucune application détectée pour l'instant. Déployez des applications dans Dokploy et elles apparaîtront ici avec leur posture d'accès résolue."
+  col:
+    group: "Groupe"
+  cell:
+    reachable: "accessible"
+    unreachable: "non accessible"
+  tier:
+    visitor: "Visiteur (anonyme)"
+    client: "Client"
+    staff: "Personnel"
+    admin: "Admin"
+  posture:
+    public: "public"
+    restricted: "restreint"
+    admin-only: "admin seulement"
+    deny: "refusé"
+  badge:
+    protected: "protégé"
+  warnings:
+    heading: "Garde-fou"
+    public_protected: "Marqué vps.auth.protected=true mais résolu en PUBLIC -- accessible sans connexion. Ajoutez vps.auth.groups ou retirez le mode public."
+    public_sensitive: "Une surface sensible est résolue en PUBLIC -- elle devrait être protégée. Définissez vps.auth.mode=admin-only ou listez vps.auth.groups."

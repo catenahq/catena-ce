@@ -1,0 +1,49 @@
+{{define "base"}}<!DOCTYPE html>
+<html lang="{{ .Locale }}" class="theme-{{ .Theme }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ block "title" . }}{{ .T "app.name" }}{{ end }}</title>
+  <link rel="stylesheet" href="/_/static/app.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
+  <script src="https://unpkg.com/htmx-ext-sse@2.2.2" defer></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <a href="/">{{ .T "app.name" }}</a>
+    </div>
+    <nav class="tabs">
+      {{ template "nav" . }}
+    </nav>
+    <div class="header-widgets">
+      {{ if .Identity.IsAuthenticated }}
+        <span class="user-display">{{ if .Identity.DisplayName }}{{ .Identity.DisplayName }}{{ else }}{{ .Identity.Email }}{{ end }}</span>
+      {{ else }}
+        <span class="user-display">{{ .T "header.user_anonymous" }}</span>
+      {{ end }}
+      <a
+        class="toggle locale-toggle"
+        href="/_/lang/{{ if eq .Locale "en" }}fr{{ else }}en{{ end }}?back={{ .Path }}"
+        title="{{ .T "header.toggle_locale" }}"
+        aria-label="{{ .T "header.toggle_locale" }}"
+      >{{ upper .Locale }}</a>
+      <a
+        class="toggle theme-toggle"
+        href="/_/theme/cycle?back={{ .Path }}"
+        title="{{ .T "header.toggle_theme" }}"
+        aria-label="{{ .T "header.toggle_theme" }}"
+      >{{ .T (printf "theme.%s" .Theme) }}</a>
+    </div>
+  </header>
+  <main>
+    {{ block "content" . }}{{ end }}
+  </main>
+  <footer class="app-footer">
+    {{ if .IsAdmin }}
+      <a href="/audit">{{ .T "footer.audit_log" }}</a>
+    {{ end }}
+  </footer>
+</body>
+</html>
+{{ end }}

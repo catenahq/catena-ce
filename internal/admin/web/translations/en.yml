@@ -1,0 +1,219 @@
+app:
+  name: "Catena Admin"
+  tagline: "Per-VPS operator panel"
+
+tabs:
+  apps: "Apps"
+  access: "Access"
+  system: "System"
+  daily: "Daily"
+  maintenance: "Maintenance"
+  resources: "Resources"
+  actions: "Actions"
+  recovery: "Recovery"
+  clients: "Clients"
+
+resources:
+  heading: "Resource usage"
+  intro: "Per-container and per-host CPU, memory, network, disk, temperature and load history with threshold alerting, served by the Beszel monitor. The embedded view below is the full hub; open it in a new tab for the multi-day charts."
+  open_hub: "Open resource monitor"
+  disabled: "Resource monitoring is not enabled on this host. Set BESZEL_ENABLED=true and converge to deploy the Beszel hub + agent."
+
+daily:
+  heading: "Daily orchestrator"
+  intro: "Sequenced nightly chain: preflight, backup, verify hot, restic check, cold mirror, verify cold, security updates, CVE residual, package check, container update."
+  current_state: "Current state"
+  badges:
+    heading: "Per-stage badges"
+  history:
+    heading: "Last 7 runs"
+    empty: "No runs recorded yet."
+    col:
+      ts: "Timestamp"
+      terminal: "Terminal state"
+      status: "Status"
+
+maintenance:
+  heading: "Maintenance log"
+  intro: "Chronological record of the work done to keep the platform up to date and secure: backups, updates, and security decisions."
+  empty: "No maintenance activity recorded yet."
+  col:
+    ts: "Timestamp"
+    event: "Event"
+  event:
+    backup_ok: "Backup completed at {time}. Size {size} ({delta})."
+    security_update_applied: "Security updates installed."
+    packages_pending: "{count} non-security update(s) available; scheduled for the next maintenance window."
+    container_updated: "{app} updated from {from_v} to {to_v}."
+    container_rolled_back: "{app} update to {version} failed its health check and was rolled back."
+    cve_detected_host: "{count} security advisory(ies) flagged in host packages; tracked for the next update cycle."
+    cve_detected_image: "{count} security advisory(ies) flagged in application images; tracked for the next update cycle."
+    cve_cleared_host: "Security advisories in host packages cleared."
+    cve_cleared_image: "Security advisories in application images cleared."
+    _unknown: "Maintenance activity recorded."
+
+header:
+  user_anonymous: "(not signed in)"
+  toggle_locale: "Switch language"
+  toggle_theme: "Switch theme"
+
+theme:
+  light: "Light"
+  dark: "Dark"
+  system: "System"
+
+common:
+  apply: "Apply"
+  apply_and_deploy: "Apply and deploy"
+  cancel: "Cancel"
+  delete: "Delete"
+  download: "Download"
+  back: "Back"
+  loading: "Loading…"
+  yes: "Yes"
+  no: "No"
+  configure: "Configure"
+
+status:
+  healthy: "Healthy"
+  unhealthy: "Unhealthy"
+  unknown: "Unknown"
+
+apps:
+  empty:
+    staff: "No apps available for your groups yet."
+    admin: "No apps deployed in Dokploy yet."
+  badge:
+    hidden: "hidden"
+    admin-only: "admin-only"
+    public: "public"
+    oidc: "OIDC"
+    extra: "manual"
+  configure:
+    rollback: "Restore previous compose"
+    confirm_rollback: "Restore the previous compose and redeploy. Continue?"
+
+actions:
+  empty: "No actions configured yet."
+  hint: "Click Run to execute. Output streams below each button as it runs."
+  run: "Run"
+  has_arguments: "needs input"
+  category:
+    upgrades: "Upgrades"
+    backups: "Backups"
+    initial-apps-setup: "Initial apps setup"
+    ops: "Ops"
+    recovery: "Recovery"
+
+system:
+  open_in_healthchecks: "Open in Healthchecks"
+  open_in_gatus: "Open in Gatus"
+  gauge:
+    backup: "Backup"
+    disk: "Disk"
+    healthchecks: "Healthchecks"
+    snapshots: "snapshots"
+    never: "never"
+    unavailable: "(stats unavailable)"
+  hc:
+    late: "late"
+    down: "down"
+  alerts:
+    heading: "Active alerts"
+    empty: "All systems healthy."
+  infra:
+    heading: "Infrastructure"
+  connector_health:
+    heading: "Business-app connectors"
+    hint: "Each Clients-tab connector's configured-state and last successful call. Use this to catch silent integration drift before it surfaces on the per-client page."
+    not_configured: "(not configured)"
+    last_ok: "last ok"
+    never_called: "(never called yet)"
+
+recovery:
+  downloads:
+    heading: "Available downloads"
+    empty: "No recovery artifacts have been generated yet."
+    no_sidecar: "(download sidecar not configured)"
+  generate:
+    heading: "Generate new"
+    hint: "Click Run to start the action; output streams below the button. New artifacts appear above once the run completes -- reload the page to refresh the list."
+    empty: "No recovery actions are configured."
+
+audit:
+  chain_ok: "Audit chain verified."
+  chain_broken: "Audit chain integrity check FAILED at row id {id}."
+  empty: "No events recorded yet."
+  col:
+    id: "ID"
+    ts: "Timestamp"
+    user: "User"
+    event: "Event"
+    target: "Target"
+    status: "Status"
+
+clients:
+  list:
+    heading: "Clients"
+    hint: "Click a client to open the unified 360 view across the suite."
+    search_placeholder: "Search by name or company"
+    empty: "No clients to display yet."
+    no_matches: "No clients match {query}."
+    anchor_not_configured: "EspoCRM (the Clients-tab anchor) is not configured for this VPS. See internal_docs/operator/clients-tab-account-mapping.md."
+  account:
+    heading: "Client 360"
+    back: "Back to clients"
+    no_profile: "(EspoCRM profile unavailable)"
+  binding:
+    heading: "Connector bindings"
+    found: "Found"
+    missing: "Missing"
+    not_configured: "Not configured"
+    unknown: "Pending"
+  card:
+    loading: "Loading…"
+    not_configured: "Not configured."
+    no_data: "No data for this client."
+    error: "Card unavailable: {detail}"
+  connector:
+    espocrm: "EspoCRM"
+    nextcloud: "Nextcloud"
+    docuseal: "DocuSeal"
+    zammad: "Zammad"
+    chatwoot: "Chatwoot"
+    easyappointments: "Easy!Appointments"
+    plane: "Plane"
+    invoiceninja: "Invoice Ninja"
+    kimai: "Kimai"
+  scaffold:
+    placeholder: "Connector wiring lands in Step 3 of the catena-admin plan; this tab is currently a scaffold."
+
+footer:
+  audit_log: "Audit log"
+
+access:
+  heading: "Access"
+  hint: "Read-only view of which group can reach which app. catena-admin shows access; edit users and groups in Keycloak. An app reaches a group when that group is in its allowed set; admin always reaches everything; public apps reach everyone including anonymous visitors."
+  edit_in_keycloak: "Edit users & groups in Keycloak"
+  empty: "No apps discovered yet. Deploy apps in Dokploy and they appear here with their resolved access posture."
+  col:
+    group: "Group"
+  cell:
+    reachable: "reachable"
+    unreachable: "not reachable"
+  tier:
+    visitor: "Visitor (anonymous)"
+    client: "Client"
+    staff: "Staff"
+    admin: "Admin"
+  posture:
+    public: "public"
+    restricted: "restricted"
+    admin-only: "admin-only"
+    deny: "deny"
+  badge:
+    protected: "protected"
+  warnings:
+    heading: "Guardrail"
+    public_protected: "Marked vps.auth.protected=true but resolves to PUBLIC -- anyone can reach it without logging in. Add vps.auth.groups or remove the public mode."
+    public_sensitive: "A sensitive surface resolves to PUBLIC -- it should be gated. Set vps.auth.mode=admin-only or list vps.auth.groups."

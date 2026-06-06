@@ -1,0 +1,15 @@
+{{define "nav"}}
+<a href="/apps"{{ if or (eq .Path "/") (hasPrefix .Path "/apps") }} class="active"{{ end }}>{{ .T "tabs.apps" }}</a>
+{{- if .IsAdmin }}
+<a href="/access"{{ if hasPrefix .Path "/access" }} class="active"{{ end }}>{{ .T "tabs.access" }}</a>
+<a href="/system"{{ if or (hasPrefix .Path "/system") (hasPrefix .Path "/audit") }} class="active"{{ end }}>{{ .T "tabs.system" }}</a>
+<a href="/daily"{{ if hasPrefix .Path "/daily" }} class="active"{{ end }}>{{ .T "tabs.daily" }}</a>
+<a href="/maintenance"{{ if hasPrefix .Path "/maintenance" }} class="active"{{ end }}>{{ .T "tabs.maintenance" }}</a>
+<a href="/resources"{{ if hasPrefix .Path "/resources" }} class="active"{{ end }}>{{ .T "tabs.resources" }}</a>
+<a href="/actions"{{ if hasPrefix .Path "/actions" }} class="active"{{ end }}>{{ .T "tabs.actions" }}</a>
+<a href="/recovery"{{ if hasPrefix .Path "/recovery" }} class="active"{{ end }}>{{ .T "tabs.recovery" }}</a>
+{{- if .Globals.clients_tab_enabled }}
+<a href="/clients"{{ if hasPrefix .Path "/clients" }} class="active"{{ end }}>{{ .T "tabs.clients" }}</a>
+{{- end }}
+{{- end }}
+{{ end }}

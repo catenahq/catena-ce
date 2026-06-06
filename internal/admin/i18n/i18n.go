@@ -12,9 +12,9 @@ package i18n
 
 import (
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -46,24 +46,32 @@ type Translations struct {
 	tables map[string]map[string]string // locale -> dotted key -> value
 }
 
-// Load reads {locale}.yml for every supported locale from dir and flattens
-// each into a dotted-key table. A missing file yields an empty table for
-// that locale (matching the Python loader), not an error.
+// Load reads {locale}.yml for every supported locale from the directory dir.
+// Convenience wrapper over LoadFS for the bind-mount / override path.
 func Load(dir string) (*Translations, error) {
+	return LoadFS(os.DirFS(dir))
+}
+
+// LoadFS reads {locale}.yml for every supported locale from fsys (root) and
+// flattens each into a dotted-key table. A missing file yields an empty table
+// for that locale (matching the Python loader), not an error -- so an embedded
+// FS and a partial bind-mount both degrade to the EN fallback rather than
+// crashing the shell on boot.
+func LoadFS(fsys fs.FS) (*Translations, error) {
 	t := &Translations{tables: make(map[string]map[string]string)}
 	for _, locale := range SupportedLocales {
-		path := filepath.Join(dir, locale+".yml")
-		raw, err := os.ReadFile(path)
+		name := locale + ".yml"
+		raw, err := fs.ReadFile(fsys, name)
 		if err != nil {
 			if os.IsNotExist(err) {
 				t.tables[locale] = map[string]string{}
 				continue
 			}
-			return nil, fmt.Errorf("i18n: read %s: %w", path, err)
+			return nil, fmt.Errorf("i18n: read %s: %w", name, err)
 		}
 		var nested map[string]any
 		if err := yaml.Unmarshal(raw, &nested); err != nil {
-			return nil, fmt.Errorf("i18n: parse %s: %w", path, err)
+			return nil, fmt.Errorf("i18n: parse %s: %w", name, err)
 		}
 		t.tables[locale] = flatten(nested, "")
 	}

@@ -1,10 +1,11 @@
-// Command catena-admin is the Catena Community shell: an HTTP admin
-// surface that always hosts Community plugins and, when a Business license
-// validates, the license-gated EE plugins pulled from catena-enterprise.
+// Command catena-admin is the Catena Community shell: a server-rendered web
+// admin panel that always hosts Community pages and, when a Business license
+// validates, the license-gated EE plugins pulled from catena-ee.
 //
-// This is the foundation skeleton. The CE actions/panels and the
-// inline-SSH dispatch port over from the Python implementation in
-// catenahq/ops (services/catena-admin) as the rewrite proceeds.
+// The CE tab routes (Apps/System/Actions/Recovery) port over from the Python
+// implementation in catenahq/ops (services/catena-admin) as the rewrite
+// proceeds; this wires the shell server, the license check, and EE plugin
+// loading together.
 package main
 
 import (
@@ -19,10 +20,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/catenahq/catena-ce/internal/admin/web"
 	"github.com/catenahq/catena-ce/internal/registry"
 	"github.com/catenahq/catena-ce/license"
 	"github.com/catenahq/catena-ce/loader"
 )
+
+// version is the shell build version surfaced at /health. Stamped at release.
+const version = "0.0.0-dev"
 
 var errInvalidPubkey = errors.New("license: CATENA_LICENSE_PUBKEY is not a valid base64 ed25519 public key")
 
@@ -54,15 +59,23 @@ func main() {
 		}
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok\n"))
+	// The shell web app (CE pages, i18n, theme, auth) serves everything
+	// except the two operator status probes below.
+	shell, err := web.New(web.Config{
+		Version:         version,
+		Globals:         web.GlobalsFromEnv(),
+		TranslationsDir: strings.TrimSpace(os.Getenv("CATENA_ADMIN_TRANSLATIONS_DIR")),
 	})
+	if err != nil {
+		log.Fatalf("catena-admin: build shell: %v", err)
+	}
+
+	mux := http.NewServeMux()
 	mux.HandleFunc("/licensez", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(licenseStatus(lic, time.Now().UTC()))
 	})
+	mux.Handle("/", shell)
 
 	enabled := reg.Enabled(lic, now, graceWindow)
 	log.Printf("catena-admin on %s: edition=%s, %d plugin(s) enabled",
