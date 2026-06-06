@@ -1,5 +1,8 @@
 #!/bin/sh
-# Installed by roles/backup. Managed by systemd timer (catena-backup).
+# Installed by roles/backup. Run on demand: `systemctl start
+# catena-backup.service` or the catena-admin "Backup now" action.
+# Community edition ships no timer; wire your own cron if you want a
+# schedule.
 #
 # Outline:
 #   1. pg_dumpall every running postgres-ish container -> backup-staging/pg/
