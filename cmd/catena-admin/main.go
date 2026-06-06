@@ -15,11 +15,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/catenahq/catena-ce/internal/registry"
 	"github.com/catenahq/catena-ce/license"
+	"github.com/catenahq/catena-ce/loader"
 )
 
 var errInvalidPubkey = errors.New("license: CATENA_LICENSE_PUBKEY is not a valid base64 ed25519 public key")
@@ -32,6 +34,8 @@ const graceWindow = 72 * time.Hour
 func main() {
 	addr := envOr("CATENA_ADMIN_ADDR", ":8080")
 
+	now := time.Now().UTC()
+
 	reg := registry.New()
 	// CE plugins self-register here as they are ported. EE plugins, when
 	// present, register from the license-gated binaries loaded at runtime.
@@ -39,6 +43,15 @@ func main() {
 	lic, licErr := loadLicense()
 	if licErr != nil {
 		log.Printf("license: %v (running Community-only)", licErr)
+	}
+
+	// EE plugin binaries are only spawned behind an active license; CE-only
+	// hosts never launch them. The registry's edition gate is the backstop.
+	if lic.Active(now, graceWindow) {
+		dir := envOr("CATENA_PLUGINS_DIR", "/var/lib/catena/plugins")
+		if n := loadEEPlugins(reg, dir); n > 0 {
+			log.Printf("plugins: loaded %d EE plugin(s) from %s", n, dir)
+		}
 	}
 
 	mux := http.NewServeMux()
@@ -51,10 +64,43 @@ func main() {
 		_ = json.NewEncoder(w).Encode(licenseStatus(lic, time.Now().UTC()))
 	})
 
-	enabled := reg.Enabled(lic, time.Now().UTC(), graceWindow)
+	enabled := reg.Enabled(lic, now, graceWindow)
 	log.Printf("catena-admin on %s: edition=%s, %d plugin(s) enabled",
-		addr, editionLabel(lic, time.Now().UTC()), len(enabled))
+		addr, editionLabel(lic, now), len(enabled))
 	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+// loadEEPlugins launches every executable in dir as a go-plugin binary and
+// registers the ones that dispense cleanly. A missing dir is normal (no EE
+// plugins pulled yet) and returns 0. The child processes outlive this call
+// for the life of the server; the OS reaps them on exit.
+func loadEEPlugins(reg *registry.Registry, dir string) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("plugins: read %s: %v", dir, err)
+		}
+		return 0
+	}
+	count := 0
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || info.Mode()&0o111 == 0 {
+			continue // skip non-executables
+		}
+		path := filepath.Join(dir, e.Name())
+		p, _, err := loader.Load(path)
+		if err != nil {
+			log.Printf("plugins: %s: %v", e.Name(), err)
+			continue
+		}
+		reg.Register(p)
+		count++
+	}
+	return count
 }
 
 // loadLicense reads the token (CATENA_LICENSE) and operator public key
