@@ -1,0 +1,21 @@
+collections:
+  # Pinned exact versions: there are no running hosts to preserve compatibility
+  # with, so all collections are pinned to their latest stable as of 2026-05-08.
+  # Bumping a pin is a separate PR with bench coverage.
+  - name: community.general
+    version: "==13.0.1"
+  - name: ansible.posix
+    version: "==2.2.0"
+  - name: community.crypto
+    version: "==3.2.1"
+  - name: community.docker
+    version: "==5.2.1"
+  # community.sops -- replaces ansible-vault. The collection ships:
+  #   - vars plugin: auto-decrypts group_vars/host_vars/*.sops.yml files
+  #     (enabled via ansible.cfg `vars_plugins_enabled`)
+  #   - sops module / load_vars action plugin / lookup / filter
+  # Operator age key resolved via $SOPS_AGE_KEY env var (raw key
+  # content; paste into the calling shell once per session, no file
+  # on disk).
+  - name: community.sops
+    version: "==2.3.0"

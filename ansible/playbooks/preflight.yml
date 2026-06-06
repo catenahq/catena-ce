@@ -1,0 +1,201 @@
+---
+# Preflight for the Ansible controller (your machine).
+# Imported by the top-level playbooks ahead of any VPS work.
+#
+# Scope: verify the Tailscale OAuth client in vault is set up correctly.
+# Tailscale installation and login on the controller are out of scope --
+# install + `sudo tailscale up` are one-time manual steps, handled by the
+# operator outside this playbook.
+#
+# Verifies (in order):
+#   1. Inventory vault file exists.
+#   2. OAuth credentials are present and NOT placeholders.
+#   3. Tailscale OAuth token exchange actually works.
+#   4. OAuth client can mint a tagged auth key (proves scopes + ACL tag).
+#
+# On any failure, admin-console setup instructions are printed inline so the
+# operator sees the exact clicks needed. Validation runs BEFORE any VPS work.
+#
+# Skip controls:
+#   -e preflight_skip=true         skip entirely
+#   -e preflight_skip_oauth=true   skip OAuth API validation (offline dev)
+# Playbooks that do not mint Tailscale auth keys (e.g. backup_now, restore)
+# skip this play -- each asserts its own vault secrets.
+
+- name: "Preflight -- controller ready check"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    preflight_skip: false
+    preflight_skip_oauth: false
+    # Pick the first entry in the inventory's TAILSCALE_TAGS (.env),
+    # defaulting to `tag:vps` for compatibility with inventories that
+    # predate the .env-driven tag convention. The test bench sets
+    # TAILSCALE_TAGS=tag:vps-test so its preflight mints keys under
+    # tag:vps-test, matching its OAuth client's scope -- without this
+    # the bench's preflight would fail against a hardcoded tag:vps
+    # the bench's OAuth client is NOT authorized for.
+    oauth_test_tag: >-
+      {{ (lookup('dotenv', 'TAILSCALE_TAGS', default='tag:vps')
+          | default('tag:vps', true)).split(',')[0] | trim }}
+
+    tailscale_setup_instructions: |2
+
+      ─── Tailscale admin-console setup required ────────────────────────────────
+
+      One-time manual steps in https://login.tailscale.com/admin :
+
+      1. Define the {{ oauth_test_tag }} tag in your ACL.
+         -> Access controls -> edit the JSON. Merge:
+
+             "tagOwners": {
+               "{{ oauth_test_tag }}": ["autogroup:admin"]
+             }
+
+         Save.
+
+      2. Create an OAuth client.
+         -> Settings -> Trust Credentials -> Generate OAuth client.
+         - Description: catena-ansible
+         - Scopes: check  Auth Keys -> Write
+         - Tags:   check  {{ oauth_test_tag }}
+         Click generate. COPY client_id AND client_secret immediately -- the
+         secret is displayed once.
+
+      3. Put the credentials in vault.
+
+             # Make sure your age private key is in scope (paste hidden,
+             # no echo, no shell history):
+             HISTCONTROL=ignorespace
+              read -s SOPS_AGE_KEY && export SOPS_AGE_KEY
+
+             # Open the SOPS-encrypted vault in your editor; sops decrypts
+             # in-memory + re-encrypts on save.
+             sops ansible/inventory/dev/group_vars/all/vault.sops.yml
+             # set:
+             #   vault_tailscale_oauth_client_id: "k123..."
+             #   vault_tailscale_oauth_client_secret: "tskey-client-k123..."
+
+      4. Re-run your original command.
+
+      Operator's own Tailscale CLI + SSO login are assumed installed and
+      logged in separately -- preflight does not manage them.
+
+      ────────────────────────────────────────────────────────────────────────────
+
+  tasks:
+    - name: Skip preflight if explicitly requested
+      ansible.builtin.meta: end_play
+      when: preflight_skip | bool
+
+    - name: Skip OAuth validation if requested
+      ansible.builtin.meta: end_play
+      when: preflight_skip_oauth | bool
+
+    - name: Check vault.sops.yml exists
+      ansible.builtin.stat:
+        path: "{{ inventory_dir }}/group_vars/all/vault.sops.yml"
+      register: vault_file
+
+    - name: Show setup instructions if vault.sops.yml is missing
+      ansible.builtin.fail:
+        msg: "{{ tailscale_setup_instructions }}"
+      when: not vault_file.stat.exists
+
+    # The community.sops vars plugin auto-loads + decrypts
+    # vault.sops.yml under group_vars/all/ at inventory parse time
+    # (see ansible.cfg::vars_plugins_enabled), so vault_* keys are
+    # already in scope by the time preflight runs. The check above
+    # just confirms the vault file is on disk.
+
+    - name: Show setup instructions if OAuth credentials are missing or placeholder
+      ansible.builtin.fail:
+        msg: "{{ tailscale_setup_instructions }}"
+      when: >-
+        vault_tailscale_oauth_client_id is not defined
+        or vault_tailscale_oauth_client_secret is not defined
+        or vault_tailscale_oauth_client_id | length == 0
+        or vault_tailscale_oauth_client_secret | length == 0
+        or 'REPLACE' in vault_tailscale_oauth_client_id
+        or 'REPLACE' in vault_tailscale_oauth_client_secret
+
+    - name: Exchange OAuth client credentials for a bearer token
+      ansible.builtin.uri:
+        url: https://api.tailscale.com/api/v2/oauth/token
+        method: POST
+        body_format: form-urlencoded
+        body:
+          grant_type: client_credentials
+        url_username: "{{ vault_tailscale_oauth_client_id }}"
+        url_password: "{{ vault_tailscale_oauth_client_secret }}"
+        force_basic_auth: true
+        status_code: 200
+        return_content: true
+      register: oauth_token
+      no_log: true # never leak secret to logs
+      failed_when: false
+
+    - name: Show setup instructions if OAuth token exchange failed
+      ansible.builtin.fail:
+        msg: |
+          {{ tailscale_setup_instructions }}
+
+          Token exchange failed with status {{ oauth_token.status | default('unknown') }}.
+          Most likely causes:
+            - client_id / client_secret in vault is wrong or from a different tailnet
+            - OAuth client was revoked in the admin console
+            - OAuth client is missing the `Auth Keys -> Write` scope
+      when: oauth_token.status | default(0) != 200
+
+    - name: Mint a throwaway 60-second key to prove the OAuth client can create tagged keys
+      ansible.builtin.uri:
+        url: https://api.tailscale.com/api/v2/tailnet/-/keys
+        method: POST
+        headers:
+          Authorization: "Bearer {{ oauth_token.json.access_token }}"
+        body_format: json
+        body:
+          capabilities:
+            devices:
+              create:
+                reusable: false
+                ephemeral: true
+                preauthorized: true
+                tags: ["{{ oauth_test_tag }}"]
+          expirySeconds: 60
+        status_code: 200
+        return_content: true
+      register: test_key
+      no_log: true
+      failed_when: false
+
+    - name: Show setup instructions if test-key minting failed
+      ansible.builtin.fail:
+        msg: |
+          {{ tailscale_setup_instructions }}
+
+          OAuth token exchange succeeded, but minting a test key with {{ oauth_test_tag }}
+          failed (status {{ test_key.status | default('unknown') }}).
+          Most likely causes:
+            - OAuth client is not authorized to mint keys with {{ oauth_test_tag }}
+              (fix: Settings -> Trust Credentials -> edit the client -> add {{ oauth_test_tag }} to tags)
+            - {{ oauth_test_tag }} is not declared in the ACL
+              (fix: step 1 of the instructions above)
+      when: test_key.status | default(0) != 200
+
+    # The minted key has TTL=60s and is never used -- it self-expires.
+
+    - name: Preflight summary
+      ansible.builtin.debug:
+        msg: >-
+          Preflight OK -- Tailscale OAuth client validated
+          (token + test-mint with {{ oauth_test_tag }}).
+
+    # Version capture lives in roles/common (runs against VPS hosts with
+    # delegate_to: localhost) -- NOT here. Preflight's hosts: localhost play
+    # gets filtered out whenever --limit excludes localhost, which the
+    # operator uses on nearly every non-initial converge. Capturing in
+    # common guarantees the fact is set on the VPS hosts that actually
+    # consume it.

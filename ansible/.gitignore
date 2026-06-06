@@ -1,0 +1,16 @@
+# Real inventories carry a SOPS-encrypted vault.sops.yml (the crown jewels)
+# plus a .env -- never commit them. Only the shipped example is tracked.
+inventory/*
+!inventory/example/
+
+# Stale scratch copy of the old ops scaffold, kept locally until the CE-only
+# inventory example is written; not part of the repo.
+inventory-example/
+
+# Galaxy collections vendored by `ansible-galaxy collection install -r requirements.yml`.
+collections/
+
+# Controller-side ansible state + python bytecode from the filter/lookup plugins.
+.ansible/
+**/__pycache__/
+*.pyc

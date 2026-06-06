@@ -1,0 +1,33 @@
+---
+# ansible-lint config for the catena automation tree.
+#
+# skip_list documents intentional deviations from ansible-lint defaults.
+# Each entry must justify the call — these are not "noise we don't like",
+# they're deliberate project conventions.
+
+# Files in playbooks/ that are actually task lists (consumed via
+# include_tasks from another playbook), not real plays. Without this
+# override ansible-lint reports `ansible.builtin.assert is not a valid
+# attribute for a Play` because the parser's default kinds mapping
+# treats anything in playbooks/ as kind=playbook.
+kinds:
+  - tasks: '**/playbooks/post_restore_redeploy.yml'
+
+skip_list:
+  # Role tasks use a leading-underscore convention for scratch vars
+  # (register: _restic_current, set_fact: _au_stats). The underscore
+  # signals "private to this task file, not part of the role's public
+  # contract". Renaming all of them to <role>_<name> would (a) make
+  # those scratch vars visible as role outputs and (b) erase the
+  # private/public distinction. Convention is intentional and audited
+  # at code review; ansible-lint's default rule does not fit.
+  - var-naming[no-role-prefix]
+
+  # Tasks use a `<scope>: lowercase action description` naming
+  # convention (e.g. `auto_update: render env file`, `tailnet: probe
+  # container IP`). The scope prefix is a structured tag, not a
+  # sentence — capitalizing the first letter to satisfy name[casing]
+  # produces grammatically broken `Auto_update:` / `Tailnet:` strings.
+  # 290+ task names follow this convention; the rule's auto-fix makes
+  # the codebase strictly worse, so the rule is skipped repo-wide.
+  - name[casing]
