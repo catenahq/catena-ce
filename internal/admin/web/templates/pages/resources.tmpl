@@ -1,0 +1,22 @@
+{{define "content"}}
+<section class="resources-page">
+  <header class="resources-header">
+    <h1>{{ .T "resources.heading" }}</h1>
+    <p class="muted">{{ .T "resources.intro" }}</p>
+  </header>
+
+  {{ if .Globals.beszel_url }}
+    <p class="resources-openhub">
+      <a href="{{ .Globals.beszel_url }}" target="_blank" rel="noopener noreferrer"
+         class="button resources-openhub-link">
+        {{ .T "resources.open_hub" }}
+      </a>
+    </p>
+    <iframe class="resources-embed" src="{{ .Globals.beszel_url }}"
+            title="{{ .T "resources.heading" }}"
+            loading="lazy"></iframe>
+  {{ else }}
+    <p class="muted empty-state-inline">{{ .T "resources.disabled" }}</p>
+  {{ end }}
+</section>
+{{end}}

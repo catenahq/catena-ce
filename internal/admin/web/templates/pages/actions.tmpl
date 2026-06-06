@@ -15,7 +15,7 @@
             {{ range $action := $group.Actions }}
               <li class="action-card" data-action="{{ $action.Name }}">
                 <div class="action-header">
-                  <span class="action-icon" aria-hidden="true">{{ $action.Icon }}</span>
+                  <span class="action-icon" aria-hidden="true">{{ safeHTML $action.Icon }}</span>
                   <span class="action-title">{{ $action.LocalizedTitle $.Locale }}</span>
                   <span class="action-name muted">{{ $action.Name }}</span>
                 </div>

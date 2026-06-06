@@ -79,6 +79,10 @@ func main() {
 		Healthchecks:    integrations.NewHealthchecksClient(hcBase, os.Getenv("HEALTHCHECKS_API_KEY_READONLY")),
 		Dokploy: integrations.NewDokployClient(
 			envOr("DOKPLOY_API_BASE", "http://127.0.0.1:3000"), os.Getenv("DOKPLOY_API_KEY")),
+		// Recovery sidecar base URL: artifact Download links point here; the
+		// oauth2-proxy-gated nginx sidecar serves the bytes, not the shell.
+		// ExportsDir is left empty so the recovery package uses its env/default.
+		RecoveryURL: strings.TrimSpace(os.Getenv("CATENA_ADMIN_RECOVERY_URL")),
 		// The single host-dispatch seam: every Actions/Recovery click runs
 		// through this SSH runner to the forced-command host account. EE plugin
 		// actions reuse it (they never hold the key themselves).

@@ -401,6 +401,132 @@ func TestActionsStreamNilRunner(t *testing.T) {
 	}
 }
 
+func writeMixedActionsFile(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "admin-actions.yml")
+	body := "actions:\n" +
+		"  - name: backup-now\n" +
+		"    title: Backup now\n" +
+		"    category: Backups\n" +
+		"  - name: generate-recovery-archive\n" +
+		"    title: Generate recovery archive\n" +
+		"    category: Recovery\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestRecoveryRequiresAdminAndRenders(t *testing.T) {
+	h, err := New(Config{Version: "t", ActionsFile: writeMixedActionsFile(t), ExportsDir: "/nonexistent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Non-admin -> 403.
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/recovery", nil)
+	req.Header.Set("X-Forwarded-Email", "staff@example.com")
+	req.Header.Set("X-Forwarded-Groups", "staff")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("non-admin /recovery = %d, want 403", rr.Code)
+	}
+	// Admin -> 200, empty downloads + the Recovery generate button.
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, adminReq("GET", "/recovery", ""))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("admin /recovery = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "recovery-page") {
+		t.Error("expected the Recovery page to render")
+	}
+	if !strings.Contains(body, "/recovery/start/generate-recovery-archive") {
+		t.Error("expected the Recovery-category generate button")
+	}
+	// The Backups action must NOT appear on the Recovery tab.
+	if strings.Contains(body, "/recovery/start/backup-now") {
+		t.Error("a Backups action leaked onto the Recovery tab")
+	}
+}
+
+func TestRecoveryStartScopedToRecovery(t *testing.T) {
+	fr := &fakeRunner{stdout: []string{"archiving"}, rc: 0}
+	h, err := New(Config{Version: "t", ActionsFile: writeMixedActionsFile(t), Runner: fr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A Backups (Actions-tab) action cannot be fired from /recovery/start.
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, adminReq("POST", "/recovery/start/backup-now", ""))
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("cross-tab /recovery/start/backup-now = %d, want 404", rr.Code)
+	}
+	// The Recovery action starts and streams via the /recovery/stream prefix.
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, adminReq("POST", "/recovery/start/generate-recovery-archive", ""))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("recovery start = %d, want 200", rr.Code)
+	}
+	streamURL := extractStreamURL(t, rr.Body.String())
+	if !strings.HasPrefix(streamURL, "/recovery/stream/") {
+		t.Fatalf("stream URL = %q, want /recovery/stream/ prefix", streamURL)
+	}
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, adminReq("GET", streamURL, ""))
+	if !strings.Contains(rr.Body.String(), "data: archiving\n\n") {
+		t.Errorf("expected the dispatched stdout frame, got %q", rr.Body.String())
+	}
+}
+
+func TestMaintenanceRequiresAdminAndRenders(t *testing.T) {
+	h := newTestHandler(t)
+	// Non-admin -> 403.
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/maintenance", nil)
+	req.Header.Set("X-Forwarded-Email", "staff@example.com")
+	req.Header.Set("X-Forwarded-Groups", "staff")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("non-admin /maintenance = %d, want 403", rr.Code)
+	}
+	// Admin -> 200, empty state (no log file on the test host).
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, adminReq("GET", "/maintenance", ""))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("admin /maintenance = %d, want 200", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "maintenance-page") {
+		t.Error("expected the Maintenance page to render")
+	}
+}
+
+func TestResourcesDisabledAndEnabled(t *testing.T) {
+	// No beszel_url -> the disabled state.
+	h := newTestHandler(t)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, adminReq("GET", "/resources", ""))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("admin /resources = %d, want 200", rr.Code)
+	}
+	if strings.Contains(rr.Body.String(), "<iframe") {
+		t.Error("no beszel_url should render the disabled state, not an iframe")
+	}
+
+	// beszel_url set -> the embed.
+	h2, err := New(Config{Version: "t", Globals: map[string]any{"beszel_url": "https://hub.example.com"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr = httptest.NewRecorder()
+	h2.ServeHTTP(rr, adminReq("GET", "/resources", ""))
+	body := rr.Body.String()
+	if !strings.Contains(body, "<iframe") || !strings.Contains(body, "https://hub.example.com") {
+		t.Errorf("expected the Beszel embed, got %q", firstLine(body))
+	}
+}
+
 // extractStreamURL pulls the sse-connect URL out of the run-panel fragment.
 func extractStreamURL(t *testing.T, body string) string {
 	t.Helper()
@@ -415,7 +541,7 @@ func extractStreamURL(t *testing.T, body string) string {
 		t.Fatalf("unterminated sse-connect: %q", body)
 	}
 	url := rest[:j]
-	if !strings.HasPrefix(url, "/actions/stream/") {
+	if !strings.Contains(url, "/stream/") {
 		t.Fatalf("unexpected stream URL %q", url)
 	}
 	return url

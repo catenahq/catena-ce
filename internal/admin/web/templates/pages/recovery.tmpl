@@ -1,0 +1,75 @@
+{{define "content"}}
+<section class="recovery-page">
+
+  <section class="recovery-downloads">
+    <h2>{{ .T "recovery.downloads.heading" }}</h2>
+    {{ if not .Data.Artifacts }}
+      <p class="muted empty-state-inline">{{ .T "recovery.downloads.empty" }}</p>
+    {{ else }}
+      <ul class="artifact-list" role="list">
+        {{ range $a := .Data.Artifacts }}
+          <li class="artifact-row" data-kind="{{ $a.Kind }}">
+            <span class="artifact-icon" aria-hidden="true">{{ safeHTML $a.IconEntity }}</span>
+            <span class="artifact-name">{{ $a.Name }}</span>
+            <span class="artifact-size muted">{{ $a.HumanSize }}</span>
+            <span class="artifact-mtime muted">{{ $a.FormatModTime }}</span>
+            <span class="artifact-actions">
+              {{ if $a.DownloadURL }}
+                <a class="btn-download" href="{{ $a.DownloadURL }}" target="_blank" rel="noopener">{{ $.T "common.download" }}</a>
+              {{ else }}
+                <span class="muted">{{ $.T "recovery.downloads.no_sidecar" }}</span>
+              {{ end }}
+            </span>
+          </li>
+        {{ end }}
+      </ul>
+    {{ end }}
+  </section>
+
+  <section class="recovery-generate">
+    <h2>{{ .T "recovery.generate.heading" }}</h2>
+    <p class="muted hint">{{ .T "recovery.generate.hint" }}</p>
+    {{ if not .Data.Actions }}
+      <p class="muted">{{ .T "recovery.generate.empty" }}</p>
+    {{ else }}
+      <ul class="action-grid" role="list">
+        {{ range $action := .Data.Actions }}
+          <li class="action-card" data-action="{{ $action.Name }}">
+            <div class="action-header">
+              <span class="action-icon" aria-hidden="true">{{ safeHTML $action.Icon }}</span>
+              <span class="action-title">{{ $action.LocalizedTitle $.Locale }}</span>
+              <span class="action-name muted">{{ $action.Name }}</span>
+            </div>
+            <form
+              class="action-form"
+              method="post"
+              action="/recovery/start/{{ $action.Name }}"
+              hx-post="/recovery/start/{{ $action.Name }}"
+              hx-target="#out-{{ $action.Name }}"
+              hx-swap="innerHTML"
+            >
+              {{ if $action.Arguments }}
+                {{ range $arg := $action.Arguments }}
+                  <label class="action-arg">
+                    <span>{{ $arg.Name }}</span>
+                    <input
+                      type="{{ if eq $arg.Type "password" }}password{{ else }}text{{ end }}"
+                      name="payload"
+                      autocomplete="off"
+                    >
+                  </label>
+                {{ end }}
+              {{ else }}
+                <input type="hidden" name="payload" value="">
+              {{ end }}
+              <button type="submit" class="btn-run">{{ $.T "actions.run" }}</button>
+            </form>
+            <div id="out-{{ $action.Name }}" class="action-output" aria-live="polite"></div>
+          </li>
+        {{ end }}
+      </ul>
+    {{ end }}
+  </section>
+
+</section>
+{{end}}

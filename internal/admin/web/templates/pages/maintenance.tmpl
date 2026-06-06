@@ -1,0 +1,33 @@
+{{define "content"}}
+<section class="maintenance-page" hx-get="/maintenance" hx-trigger="every 30s"
+         hx-target="closest .maintenance-page" hx-select=".maintenance-page" hx-swap="outerHTML">
+  <header class="maintenance-header">
+    <h1>{{ .T "maintenance.heading" }}</h1>
+    <p class="muted">{{ .T "maintenance.intro" }}</p>
+  </header>
+
+  {{ if not .Data }}
+    <p class="muted empty-state-inline">{{ .T "maintenance.empty" }}</p>
+  {{ else }}
+    <table class="maintenance-table">
+      <thead>
+        <tr>
+          <th>{{ .T "maintenance.col.ts" }}</th>
+          <th>{{ .T "maintenance.col.event" }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ range $entry := .Data }}
+          <tr class="maintenance-row">
+            <td class="maintenance-ts">{{ $entry.TS }}</td>
+            <td>
+              <span class="badge maint-sev-{{ $entry.Severity }}">{{ $entry.Severity }}</span>
+              <span class="maintenance-message">{{ $entry.Message }}</span>
+            </td>
+          </tr>
+        {{ end }}
+      </tbody>
+    </table>
+  {{ end }}
+</section>
+{{end}}
