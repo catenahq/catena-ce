@@ -28,4 +28,32 @@ type Plugin interface {
 	// Render returns the panel body for the current request. Kept minimal
 	// here; richer request/response types arrive with the transport slice.
 	Render(ctx context.Context) (string, error)
+	// Actions returns the action buttons this plugin contributes to the
+	// shell's Actions/Recovery catalog. Static metadata (the merge happens
+	// in the shell); empty is fine. Plugin actions DISPATCH through the
+	// shell's own SSH runner -- a plugin never holds the host key; the Shell
+	// command runs on the host (typically invoking the plugin's downloaded
+	// EE binary).
+	Actions() []ActionSpec
+}
+
+// ActionSpec is one action button a plugin contributes. It mirrors the
+// shell's catalog row but lives in the public SDK so it crosses the plugin
+// transport; the shell maps it onto its internal Action type (stamping the
+// plugin id as the source). All fields are exported for net/rpc.
+type ActionSpec struct {
+	Name      string // stable dispatch key (also the host dispatcher key)
+	Title     string
+	TitleFR   string
+	Category  string // Upgrades | Backups | Initial apps setup | Ops | Recovery
+	Icon      string
+	Timeout   int // seconds; 0 = shell default
+	Shell     string
+	Arguments []ArgSpec
+}
+
+// ArgSpec declares one argument prompt on an action (e.g. a passphrase).
+type ArgSpec struct {
+	Name string
+	Type string // text | password | select | ...
 }

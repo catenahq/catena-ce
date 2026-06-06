@@ -117,6 +117,11 @@ func Load(path string) []Action {
 	return out
 }
 
+// NormalizeCategory maps a raw category onto the known set (unknown ->
+// "Ops", Recovery preserved). Exported so plugin-contributed actions get the
+// same normalization the YAML catalog gets before MergedCatalog.
+func NormalizeCategory(raw string) string { return normalizeCategory(raw) }
+
 func normalizeCategory(raw string) string {
 	v := strings.TrimSpace(raw)
 	if v == "" {

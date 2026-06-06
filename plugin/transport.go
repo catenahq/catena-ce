@@ -65,17 +65,24 @@ func (s *rpcServer) Render(_ struct{}, resp *string) error {
 	return nil
 }
 
+func (s *rpcServer) Actions(_ struct{}, resp *[]ActionSpec) error {
+	*resp = s.impl.Actions()
+	return nil
+}
+
 // rpcClient is the host side: it satisfies Plugin by issuing RPC calls to
-// the child process. meta is fetched once at dispense time so the cheap
-// accessors stay local.
+// the child process. meta + actions are fetched once at dispense time (both
+// static per plugin) so the cheap accessors stay local.
 type rpcClient struct {
-	client *rpc.Client
-	meta   PluginMeta
+	client  *rpc.Client
+	meta    PluginMeta
+	actions []ActionSpec
 }
 
 func (c *rpcClient) ID() string               { return c.meta.ID }
 func (c *rpcClient) Title() string            { return c.meta.Title }
 func (c *rpcClient) Edition() license.Edition { return license.Edition(c.meta.Edition) }
+func (c *rpcClient) Actions() []ActionSpec    { return c.actions }
 
 func (c *rpcClient) Render(_ context.Context) (string, error) {
 	var out string
@@ -97,6 +104,12 @@ func (p *adminPlugin) Server(*goplugin.MuxBroker) (interface{}, error) {
 func (*adminPlugin) Client(_ *goplugin.MuxBroker, c *rpc.Client) (interface{}, error) {
 	cl := &rpcClient{client: c}
 	if err := c.Call("Plugin.Meta", struct{}{}, &cl.meta); err != nil {
+		return nil, err
+	}
+	// Actions are static; fetch once so the host has the plugin's catalog
+	// contributions without a round trip per render. A plugin with none
+	// returns an empty slice.
+	if err := c.Call("Plugin.Actions", struct{}{}, &cl.actions); err != nil {
 		return nil, err
 	}
 	return cl, nil

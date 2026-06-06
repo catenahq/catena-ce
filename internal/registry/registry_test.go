@@ -22,6 +22,7 @@ func (s stubPlugin) ID() string                             { return s.id }
 func (s stubPlugin) Title() string                          { return s.id }
 func (s stubPlugin) Edition() license.Edition               { return s.edition }
 func (s stubPlugin) Render(context.Context) (string, error) { return s.id, nil }
+func (s stubPlugin) Actions() []plugin.ActionSpec           { return nil }
 
 func activeBusinessLicense(t *testing.T, now time.Time) *license.License {
 	t.Helper()

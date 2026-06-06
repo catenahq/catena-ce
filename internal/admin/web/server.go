@@ -56,6 +56,11 @@ type Config struct {
 	// dispatch -- the stream emits a "no dispatcher configured" frame rather
 	// than panicking, so the tab still renders on a host without SSH wired.
 	Runner actions.Runner
+	// PluginActions returns the EE actions contributed by license-gated
+	// plugins, recomputed per call so it reflects the live license/registry
+	// state. Nil (Community, or no plugins) => no EE actions. The returned
+	// Actions carry their plugin id as Source.
+	PluginActions func() []actions.Action
 }
 
 // New builds the shell HTTP handler: static mount, public routes, and the
@@ -85,6 +90,7 @@ func New(cfg Config) (http.Handler, error) {
 		exportsDir:     cfg.ExportsDir,
 		recoveryURL:    cfg.RecoveryURL,
 		runner:         cfg.Runner,
+		pluginActions:  cfg.PluginActions,
 		jobs:           actions.NewJobRegistry(),
 	}
 
@@ -137,7 +143,16 @@ type server struct {
 	exportsDir     string
 	recoveryURL    string
 	runner         actions.Runner
+	pluginActions  func() []actions.Action
 	jobs           *actions.JobRegistry
+}
+
+// eeActions returns the current EE plugin-contributed actions (nil-safe).
+func (s *server) eeActions() []actions.Action {
+	if s.pluginActions == nil {
+		return nil
+	}
+	return s.pluginActions()
 }
 
 // actionsView is the Actions-tab render data: the catalog grouped into the
@@ -153,7 +168,7 @@ type actionsView struct {
 // Actions() in M2.5), grouped by category. Recovery-category actions are
 // excluded (they render on the Recovery tab).
 func (s *server) actionsIndex(w http.ResponseWriter, r *http.Request) {
-	catalog := actions.MergedCatalog(actions.Load(s.actionsFile), nil)
+	catalog := actions.MergedCatalog(actions.Load(s.actionsFile), s.eeActions())
 	groups := actions.GroupByCategory(actions.ForActionsTab(catalog))
 	hasAny := false
 	for _, g := range groups {
@@ -193,7 +208,7 @@ func (s *server) recoveryStream(w http.ResponseWriter, r *http.Request) { s.stre
 // is 404 (no job created), so a stale/forged/cross-tab name cannot dispatch.
 func (s *server) startRun(w http.ResponseWriter, r *http.Request, allowed func([]actions.Action) []actions.Action, streamPrefix string) {
 	name := r.PathValue("name")
-	catalog := allowed(actions.MergedCatalog(actions.Load(s.actionsFile), nil))
+	catalog := allowed(actions.MergedCatalog(actions.Load(s.actionsFile), s.eeActions()))
 	var match *actions.Action
 	for i := range catalog {
 		if catalog[i].Name == name {
@@ -276,7 +291,7 @@ type recoveryView struct {
 // artifacts (each linking to the recovery sidecar) plus the Recovery-category
 // generate buttons, which dispatch through the same SSH runner as Actions.
 func (s *server) recoveryIndex(w http.ResponseWriter, r *http.Request) {
-	catalog := actions.MergedCatalog(actions.Load(s.actionsFile), nil)
+	catalog := actions.MergedCatalog(actions.Load(s.actionsFile), s.eeActions())
 	s.tmpl.Render(w, r, "recovery", http.StatusOK, recoveryView{
 		Artifacts: recovery.ListArtifacts(s.exportsDir, s.recoveryURL),
 		Actions:   actions.ForRecoveryTab(catalog),

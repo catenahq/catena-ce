@@ -167,6 +167,66 @@ func TestActionsRequiresAdminAndRenders(t *testing.T) {
 	}
 }
 
+func TestActionsIncludesPluginActions(t *testing.T) {
+	// CE catalog has backup-now (Backups); an EE plugin contributes audit-export (Ops).
+	h, err := New(Config{
+		Version:     "t",
+		ActionsFile: writeActionsFile(t),
+		PluginActions: func() []actions.Action {
+			return []actions.Action{{
+				Name: "audit-export", Title: "Export audit log",
+				Category: "Ops", Source: "audit",
+			}}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, adminReq("GET", "/actions", ""))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("admin /actions = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Export audit log") {
+		t.Error("expected the EE plugin action to render on the Actions tab")
+	}
+	if !strings.Contains(body, "Backup now") {
+		t.Error("expected the CE catalog action to still render alongside it")
+	}
+}
+
+func TestPluginActionDispatchesThroughSameRunner(t *testing.T) {
+	fr := &fakeRunner{stdout: []string{"exported"}, rc: 0}
+	h, err := New(Config{
+		Version:     "t",
+		ActionsFile: writeActionsFile(t),
+		Runner:      fr,
+		PluginActions: func() []actions.Action {
+			return []actions.Action{{
+				Name: "audit-export", Title: "Export audit log",
+				Category: "Ops", Source: "audit", Shell: "catena-audit export",
+			}}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A plugin-contributed action starts + streams through the shell's own
+	// runner -- the plugin never holds the key.
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, adminReq("POST", "/actions/start/audit-export", ""))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("plugin action start = %d, want 200", rr.Code)
+	}
+	streamURL := extractStreamURL(t, rr.Body.String())
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, adminReq("GET", streamURL, ""))
+	if !strings.Contains(rr.Body.String(), "data: exported\n\n") {
+		t.Errorf("expected the dispatched plugin-action output, got %q", rr.Body.String())
+	}
+}
+
 func TestSetLocaleCookieAndRedirect(t *testing.T) {
 	h := newTestHandler(t)
 	rr := httptest.NewRecorder()

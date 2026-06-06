@@ -89,6 +89,33 @@ func main() {
 	hcBase := fmt.Sprintf("http://%s:%s",
 		envOr("HEALTHCHECKS_COMPOSE_NAME", "healthchecks"), envOr("HEALTHCHECKS_INTERNAL_PORT", "8000"))
 
+	// EE plugin actions flow into the Actions/Recovery catalog. Recomputed per
+	// call so it tracks the live license + registry: a lapsed license drops
+	// the plugins from reg.Enabled, and their actions disappear with them.
+	pluginActions := func() []actions.Action {
+		var out []actions.Action
+		for _, p := range reg.Enabled(lic, time.Now().UTC(), graceWindow) {
+			for _, spec := range p.Actions() {
+				var args []actions.ActionArgument
+				for _, a := range spec.Arguments {
+					args = append(args, actions.ActionArgument{Name: a.Name, Type: a.Type})
+				}
+				out = append(out, actions.Action{
+					Name:      spec.Name,
+					Title:     spec.Title,
+					TitleFR:   spec.TitleFR,
+					Category:  actions.NormalizeCategory(spec.Category),
+					Icon:      spec.Icon,
+					Timeout:   spec.Timeout,
+					Shell:     spec.Shell,
+					Arguments: args,
+					Source:    p.ID(),
+				})
+			}
+		}
+		return out
+	}
+
 	// The shell web app (CE pages, i18n, theme, auth) serves everything
 	// except the license status probe below.
 	shell, err := web.New(web.Config{
@@ -106,7 +133,8 @@ func main() {
 		// The single host-dispatch seam: every Actions/Recovery click runs
 		// through this SSH runner to the forced-command host account. EE plugin
 		// actions reuse it (they never hold the key themselves).
-		Runner: actions.NewSSHRunner(),
+		Runner:        actions.NewSSHRunner(),
+		PluginActions: pluginActions,
 	})
 	if err != nil {
 		log.Fatalf("catena-admin: build shell: %v", err)
