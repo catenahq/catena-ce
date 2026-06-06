@@ -1,0 +1,13 @@
+---
+# Validation tasks for roles/storage. Replaces tests/goss/storage.yaml.
+- name: "validate/storage: data subdirs exist with correct owner/group/mode"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _assert_path_perms
+  vars:
+    _assert_paths:
+      - { path: /mnt/data, type: directory, owner: root, group: root, mode: "0755" }
+      - { path: /mnt/data/dokploy, type: directory, owner: root, group: root, mode: "0755" }
+      - { path: /mnt/data/apps, type: directory, owner: ops, group: ops, mode: "0755" }
+      - { path: /mnt/data/backup-staging, type: directory, owner: ops, group: ops, mode: "0750" }
+      - { path: /mnt/data/docker, type: directory, owner: root, group: root, mode: "0710" }

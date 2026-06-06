@@ -1,0 +1,289 @@
+---
+# Install the restic binary from GitHub releases into /usr/local/bin/restic,
+# with SHA256 verification against the release's SHA256SUMS file.
+#
+# Why not apt: Debian trixie pins restic at 0.18.0-1+b4 and doesn't
+# backport upstream patch releases -- 0.18.1 shipped 2026-01-17 but
+# hasn't made it into the repo. For a backup tool where a single bug
+# can mean unrecoverable data, tracking upstream is worth owning the
+# download pipeline ourselves. Matches our pattern for Dokploy +
+# cloudflared -- both direct GitHub/vendor downloads.
+#
+# Idempotent: skip download if /usr/local/bin/restic already reports the
+# pinned version. Controlled by backup_restic_version (role default).
+
+- name: "restic: inspect currently installed /usr/local/bin/restic"
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/restic
+      - version
+  register: _restic_current
+  changed_when: false
+  failed_when: false
+
+- name: "restic: set fact _restic_need_install"
+  ansible.builtin.set_fact:
+    _restic_need_install: >-
+      {{
+        _restic_current.rc != 0
+        or ('restic ' ~ backup_restic_version) not in (_restic_current.stdout | default(''))
+      }}
+
+- name: "restic: map ansible_architecture to restic release filename"
+  ansible.builtin.set_fact:
+    _restic_arch_suffix: >-
+      {{
+        {
+          'x86_64':  'linux_amd64',
+          'aarch64': 'linux_arm64',
+          'armv7l':  'linux_arm',
+        }[ansible_architecture]
+      }}
+  when: _restic_need_install | bool
+
+# Ansible's get_url uses Python urllib + the system OpenSSL; observed
+# TLSV1_ALERT_INTERNAL_ERROR against github.com's Fastly edge on
+# successive bench runs even with retries. curl's libcurl stack
+# negotiates a different cipher suite and tends to survive the same
+# transient flake. Fall through to curl when get_url exhausts its
+# retry budget.
+- name: "restic: download SHA256SUMS for v{{ backup_restic_version }} (get_url)"
+  ansible.builtin.get_url:
+    url: "https://github.com/restic/restic/releases/download/v{{ backup_restic_version }}/SHA256SUMS"
+    dest: "/tmp/restic-sha256sums-{{ backup_restic_version }}.txt"
+    mode: "0644"
+    force: true
+    timeout: 60
+  register: _restic_sha_dl
+  until: _restic_sha_dl is succeeded
+  retries: 5
+  delay: 10
+  failed_when: false
+  when: _restic_need_install | bool
+
+- name: "restic: download SHA256SUMS via curl fallback"
+  ansible.builtin.command:
+    argv:
+      - curl
+      - "--fail"
+      - "--silent"
+      - "--show-error"
+      - "--location"
+      - "--retry"
+      - "5"
+      - "--retry-delay"
+      - "10"
+      - "--retry-all-errors"
+      - "--max-time"
+      - "60"
+      - "--output"
+      - "/tmp/restic-sha256sums-{{ backup_restic_version }}.txt"
+      - "https://github.com/restic/restic/releases/download/v{{ backup_restic_version }}/SHA256SUMS"
+  register: _restic_sha_curl
+  changed_when: false
+  failed_when: false
+  when:
+    - _restic_need_install | bool
+    - (_restic_sha_dl is failed) or (_restic_sha_dl.status_code | default(0) != 200)
+
+# Decide whether github is reachable at all -- if BOTH the get_url AND
+# the curl fallback came back with no usable bytes, we fall through to
+# the apt fallback below. Otherwise we proceed with the github-verified
+# binary path.
+- name: "restic: set fact _restic_github_reachable"
+  ansible.builtin.set_fact:
+    _restic_github_reachable: >-
+      {{
+        ((_restic_sha_dl.status_code | default(0)) == 200)
+        or ((_restic_sha_curl is defined) and (_restic_sha_curl.rc | default(1) == 0))
+      }}
+  when: _restic_need_install | bool
+
+- name: "restic: github unreachable -- install from apt (graceful fallback)"
+  ansible.builtin.apt:
+    name: restic
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  when:
+    - _restic_need_install | bool
+    - not (_restic_github_reachable | default(false))
+
+- name: "restic: github unreachable -- mirror apt restic into /usr/local/bin"
+  ansible.builtin.copy:
+    src: "/usr/bin/restic"
+    dest: "/usr/local/bin/restic"
+    owner: root
+    group: root
+    mode: "0755"
+    remote_src: true
+  when:
+    - _restic_need_install | bool
+    - not (_restic_github_reachable | default(false))
+
+- name: "restic: github unreachable -- record version drift for operator review"
+  ansible.builtin.debug:
+    msg: >-
+      [restic] github.com release URL unreachable (TLS handshake refused).
+      Installed Debian apt restic into /usr/local/bin/restic instead;
+      the pinned version was {{ backup_restic_version }}, the apt
+      version is whatever Debian trixie currently ships (typically
+      0.18.0). Re-converge once github is reachable to upgrade to the
+      pinned release.
+  when:
+    - _restic_need_install | bool
+    - not (_restic_github_reachable | default(false))
+
+# All subsequent github-binary tasks gate on `_restic_github_reachable`
+# so an unreachable-github run short-circuits to the apt path without
+# running the verify / download / install sequence below.
+
+- name: "restic: extract expected sha256 for arch.bz2 ({{ _restic_arch_suffix | default('') }})"
+  ansible.builtin.slurp:
+    src: "/tmp/restic-sha256sums-{{ backup_restic_version }}.txt"
+  register: _restic_sha_blob
+  when:
+    - _restic_need_install | bool
+    - _restic_github_reachable | default(false)
+
+- name: "restic: parse matching hash line"
+  ansible.builtin.set_fact:
+    _restic_expected_sha256: >-
+      {{
+        (_restic_sha_blob.content | b64decode).splitlines()
+        | select('search', 'restic_' ~ backup_restic_version ~ '_' ~ _restic_arch_suffix ~ '\.bz2$')
+        | first
+        | regex_replace('\s+.*$', '')
+      }}
+  when:
+    - _restic_need_install | bool
+    - _restic_github_reachable | default(false)
+
+- name: "restic: assert we found a sha256 for this arch"
+  ansible.builtin.assert:
+    that:
+      - _restic_expected_sha256 is defined
+      - _restic_expected_sha256 | length == 64
+    fail_msg: >-
+      Could not locate a SHA256 entry for
+      restic_{{ backup_restic_version }}_{{ _restic_arch_suffix }}.bz2
+      in the upstream SHA256SUMS file. Check that the version exists and
+      that ansible_architecture={{ ansible_architecture }} maps to a
+      restic-published binary.
+  when:
+    - _restic_need_install | bool
+    - _restic_github_reachable | default(false)
+
+- name: "restic: download + verify binary (v{{ backup_restic_version }}) (get_url)"
+  ansible.builtin.get_url:
+    url: >-
+      https://github.com/restic/restic/releases/download/v{{ backup_restic_version }}/restic_{{ backup_restic_version }}_{{ _restic_arch_suffix }}.bz2
+    dest: "/tmp/restic_{{ backup_restic_version }}_{{ _restic_arch_suffix }}.bz2"
+    mode: "0644"
+    checksum: "sha256:{{ _restic_expected_sha256 }}"
+    force: true
+    timeout: 120
+  register: _restic_bin_dl
+  until: _restic_bin_dl is succeeded
+  retries: 5
+  delay: 10
+  failed_when: false
+  when:
+    - _restic_need_install | bool
+    - _restic_github_reachable | default(false)
+
+# curl fallback when get_url's urllib stack rejects github's edge TLS.
+# Verifies the same sha256 the get_url module would check natively.
+- name: "restic: download binary via curl fallback"
+  ansible.builtin.command:
+    argv:
+      - curl
+      - "--fail"
+      - "--silent"
+      - "--show-error"
+      - "--location"
+      - "--retry"
+      - "5"
+      - "--retry-delay"
+      - "10"
+      - "--retry-all-errors"
+      - "--max-time"
+      - "120"
+      - "--output"
+      - "/tmp/restic_{{ backup_restic_version }}_{{ _restic_arch_suffix }}.bz2"
+      - "https://github.com/restic/restic/releases/download/v{{ backup_restic_version }}/restic_{{ backup_restic_version }}_{{ _restic_arch_suffix }}.bz2"
+  register: _restic_bin_curl
+  changed_when: false
+  when:
+    - _restic_need_install | bool
+    - _restic_github_reachable | default(false)
+    - (_restic_bin_dl is failed) or (_restic_bin_dl.status_code | default(0) != 200)
+
+- name: "restic: verify sha256 after curl fallback"
+  ansible.builtin.command:
+    argv:
+      - sha256sum
+      - "--check"
+      - "--strict"
+      - "--status"
+    stdin: "{{ _restic_expected_sha256 }}  /tmp/restic_{{ backup_restic_version }}_{{ _restic_arch_suffix }}.bz2\n"
+  changed_when: false
+  when:
+    - _restic_need_install | bool
+    - _restic_github_reachable | default(false)
+    - _restic_bin_curl is not skipped
+
+- name: "restic: ensure bzip2 is installed (decompression)"
+  ansible.builtin.apt:
+    name: bzip2
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  when:
+    - _restic_need_install | bool
+    - _restic_github_reachable | default(false)
+
+- name: "restic: decompress into staging path"
+  ansible.builtin.command:
+    argv:
+      - bunzip2
+      - -kf
+      - "/tmp/restic_{{ backup_restic_version }}_{{ _restic_arch_suffix }}.bz2"
+  args:
+    creates: "/tmp/restic_{{ backup_restic_version }}_{{ _restic_arch_suffix }}"
+  when:
+    - _restic_need_install | bool
+    - _restic_github_reachable | default(false)
+
+- name: "restic: install to /usr/local/bin/restic via atomic copy+rename (v{{ backup_restic_version }})"
+  ansible.builtin.copy:
+    src: "/tmp/restic_{{ backup_restic_version }}_{{ _restic_arch_suffix }}"
+    dest: "/usr/local/bin/restic"
+    owner: root
+    group: root
+    mode: "0755"
+    remote_src: true
+  when:
+    - _restic_need_install | bool
+    - _restic_github_reachable | default(false)
+
+- name: "restic: purge apt-shipped /usr/bin/restic to avoid two-copy confusion"
+  ansible.builtin.apt:
+    name: restic
+    state: absent
+    purge: true
+  when:
+    - _restic_need_install | bool
+    - _restic_github_reachable | default(false)
+
+- name: "restic: cleanup staging files"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "/tmp/restic-sha256sums-{{ backup_restic_version }}.txt"
+    - "/tmp/restic_{{ backup_restic_version }}_{{ _restic_arch_suffix | default('') }}.bz2"
+    - "/tmp/restic_{{ backup_restic_version }}_{{ _restic_arch_suffix | default('') }}"
+  when:
+    - _restic_need_install | bool
+    - _restic_github_reachable | default(false)

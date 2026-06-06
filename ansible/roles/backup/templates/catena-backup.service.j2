@@ -1,0 +1,28 @@
+[Unit]
+Description=catena restic backup (manual oneshot -- no timer in CE)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# systemd services run without HOME by default. Restic needs it (or
+# XDG_CACHE_HOME) to keep a local metadata cache -- without a cache
+# it re-downloads repo indexes on every run, which is slow and burns
+# S3 egress. Point both at a persistent state dir so the cache
+# survives reboots.
+Environment=HOME=/var/lib/catena/restic-home
+Environment=XDG_CACHE_HOME=/var/lib/catena/restic-cache
+EnvironmentFile={{ backup_env_file }}
+ExecStartPre=/bin/mkdir -p /var/lib/catena/restic-home /var/lib/catena/restic-cache
+# R21: mutex with auto-update. Wait up to 2 hours for auto-update to finish
+# if it's already running (unlikely but protects against clock-skew or test
+# scenarios where both fire close together).
+ExecStartPre=/usr/local/bin/catena-acquire-lock.sh /run/catena.lock 7200 catena-backup
+ExecStart={{ backup_wrapper_script }}
+# Kill the run if it exceeds 4 hours -- better to fail loudly (and ping /fail)
+# than to silently run for days.
+TimeoutStartSec=4h
+# Nice the CPU + IO so backups don't starve foreground workloads.
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

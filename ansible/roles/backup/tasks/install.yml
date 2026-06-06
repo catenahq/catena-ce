@@ -1,0 +1,448 @@
+---
+# Install restic + its runtime deps, drop the wrapper + env files, enable the
+# systemd timer, initialize the restic repo on first run, and (optionally)
+# take an initial snapshot so the repo isn't empty the first time validate
+# or verify-backup runs against it.
+
+- name: Install postgresql-client + curl + fuse3 + rclone (restic comes from upstream -- ensure_restic.yml)
+  ansible.builtin.apt:
+    name:
+      - postgresql-client # pg_dumpall for DB dumps
+      - curl # healthcheck ping
+      - fuse3 # restic mount (per-app PITR recovery via FUSE)
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# Warn loudly + non-fatally when no external dead-man is set.
+# ANSI escape codes are rejected by PyYAML / Ansible's YAML parser as
+# non-printable; we use a plain-text visual block instead. The
+# leading WARNING line + horizontal rule make this stand out against
+# the one-line-per-task converge output without needing a callback
+# plugin or runtime escape construction.
+- name: "R13: warn if no external dead-man is configured"
+  ansible.builtin.debug:
+    msg: |
+      ============================================================
+      WARNING: no external dead-man configured for backups
+      ============================================================
+
+      Backup pings reach only the local Healthchecks instance on
+      this VPS. If the whole host goes down, no one will know -
+      the host that should alert is the host that is down.
+
+      Set ONE OR BOTH of these in inventory/<name>/.env:
+
+          BACKUP_HEALTHCHECK_URL_OPERATOR=https://...
+          BACKUP_HEALTHCHECK_URL_CLIENT=https://...
+
+      Either is fine; both is best. See docs/operator/backup.md.
+      Continuing without external dead-man.
+      ============================================================
+  when:
+    - (backup_healthcheck_url_client | length) == 0
+    - (backup_healthcheck_url_operator | length) == 0
+  run_once: true
+
+- name: "Install or refresh restic binary from upstream GitHub"
+  ansible.builtin.include_tasks: ensure_restic.yml
+
+- name: Ensure /etc/catena exists (root-only)
+  ansible.builtin.file:
+    path: /etc/catena
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# NOTE: backup_stats_file (dir + seed + stray-dir repair) is handled
+# by roles/infrastructure/tasks/dashboard_sync.yml -- the same role
+# that bind-mounts this path into catena-admin via /etc/catena/stats.
+# Seeding it here (backup runs AFTER infrastructure in site.yml) raced
+# Docker auto-creating a directory when the compose started; see
+# session 31 handoff.
+- name: "Ensure backup stats dir exists ({{ backup_stats_dir }})"
+  ansible.builtin.file:
+    path: "{{ backup_stats_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# Restic insists on a cache directory under $XDG_CACHE_HOME or $HOME.
+# Systemd services run without either by default, which makes restic
+# either fail outright or re-download repo indexes every run. The
+# backup unit (catena-backup.service.j2) declares
+# `Environment=HOME=...` + `Environment=XDG_CACHE_HOME=...` to point
+# at these paths, AND catena-restic-env defaults the same env vars
+# for non-systemd callers. Creating the directories up-front lets both
+# code paths use the cache without a per-service ExecStartPre mkdir.
+- name: "Ensure restic cache + home dirs exist"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  loop:
+    - /var/lib/catena/restic-home
+    - /var/lib/catena/restic-cache
+
+# Reconcile-not-overwrite: restic password is set ONCE at first
+# install and never re-written by converge. Operator-driven incident
+# rotation goes through the documented runbook (multi-step
+# add/verify/remove against the restic repo); silently re-templating
+# the password file on every converge would defeat that runbook by
+# pre-changing the file before the operator's add/verify cycle.
+- name: "Backup: probe existing restic password file"
+  ansible.builtin.stat:
+    path: "{{ backup_password_file }}"
+  register: _backup_pw_stat
+
+- name: "Backup: write restic password file (only if absent)"
+  ansible.builtin.copy:
+    dest: "{{ backup_password_file }}"
+    content: "{{ vault_backup_restic_password }}\n"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: not _backup_pw_stat.stat.exists
+
+# Same rule for backup.env (holds AWS_ACCESS_KEY_ID + SECRET for
+# restic). Set once; rotation goes through the operator-only runbook.
+- name: "Backup: probe existing backup env file"
+  ansible.builtin.stat:
+    path: "{{ backup_env_file }}"
+  register: _backup_env_stat
+
+- name: "Backup: write backup env file (only if absent)"
+  ansible.builtin.template:
+    src: backup.env.j2
+    dest: "{{ backup_env_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: not _backup_env_stat.stat.exists
+
+- name: Drop backup wrapper script
+  # Plain /bin/sh under scripts/; no Jinja. Per-host values come from
+  # {{ backup_env_file }} (scalars) and the paths/excludes files below.
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/run-backup.sh"
+    dest: "{{ backup_wrapper_script }}"
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Drop restic-env helper (single source of truth for sourcing backup.env)
+  # catena-restic-env loads backup.env with `set -a` and execs the
+  # command passed as args. Every caller outside the systemd-launched
+  # scripts (Ansible shell, catena-admin Actions tab, test bench,
+  # ad-hoc operator commands) goes through here so no one re-rolls the
+  # source pattern and forgets to export AWS creds. Mode 0755 so the
+  # binary is executable system-wide; reading backup.env still
+  # requires sudo because the env file itself is 0600.
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/restic-env.sh"
+    dest: "{{ backup_restic_env_script }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Drop disk-preflight helper (R16 -- shared across backup/restore/auto-update)
+  # Single source of truth for the "is there enough free disk to start"
+  # check. run-backup.sh, auto-update-two-phase.sh, and
+  # roles/backup/tasks/restore.yml all invoke this script with their own
+  # mountpoint + threshold. Plain /bin/sh, world-readable, 0755 so any
+  # caller (including root-only systemd-launched scripts and Ansible's
+  # `command:`) can exec it without sudo gymnastics.
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/disk-preflight.sh"
+    dest: "{{ backup_disk_preflight_script }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Drop restic-mount helper (per-app PITR recovery via FUSE)
+  # catena-restic-mount opens a read-only FUSE mount of the restic repo
+  # at /mnt/restic-browse so the operator can copy a single file or
+  # directory out of a past snapshot when in-app trash + soft-delete are
+  # not enough. Runs as a transient systemd unit + 1h auto-unmount timer.
+  # Plain /bin/sh, world-readable, 0755 so the catena-admin runner can
+  # exec it without sudo gymnastics (the script itself sudos as needed).
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/restic-mount.sh"
+    dest: "{{ backup_restic_mount_script }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Drop restic-unmount helper (counterpart to restic-mount)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/restic-unmount.sh"
+    dest: "{{ backup_restic_unmount_script }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Drop acquire-lock helper (R21 -- mutex between backup and auto-update)
+  # catena-acquire-lock.sh atomically creates a lock file and waits
+  # for it to become available if another process holds it. Both
+  # catena-backup.service and catena-auto-update.service invoke
+  # it as ExecStartPre to prevent concurrent runs. See vps-scripts/acquire-lock.sh
+  # for the full algorithm and timeout semantics.
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/acquire-lock.sh"
+    dest: /usr/local/bin/catena-acquire-lock.sh
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Drop restic-short-id helper (single short_id extractor for compact JSON)
+  # catena-restic-short-id reads `restic snapshots --json` output
+  # from stdin and prints the first snapshot's short_id. Replaces four
+  # duplicate awk-by-field-index extractors that all silently produced
+  # the wrong field on compact JSON (one record on one line lands the
+  # fixed index on `time` instead of `short_id`). Used by
+  # auto-update-two-phase.sh::do_snapshot + do_rollback AND by the
+  # test bench scenarios. World-readable because it does not touch
+  # secrets -- pure stdin/stdout text manipulation.
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/restic-short-id.sh"
+    dest: "{{ backup_restic_short_id_script }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Write backup paths data file
+  ansible.builtin.template:
+    src: backup-paths.j2
+    dest: /etc/catena/backup-paths
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Write backup exclude-patterns data file
+  ansible.builtin.template:
+    src: backup-exclude-patterns.j2
+    dest: /etc/catena/backup-exclude-patterns
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Drop backup coverage paths data file
+  # Plain-text one-path-per-line file consumed by backup-coverage.sh.
+  # Templating lives HERE (pure data, no shell code) so the script
+  # itself stays a .sh under scripts/ and never meets Jinja.
+  ansible.builtin.template:
+    src: backup-coverage.paths.j2
+    dest: /etc/catena/backup-coverage.paths
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Drop backup coverage checker
+  # Enumerates every bind-mount source across running containers and
+  # warns on any path not under backup_paths. Invoked by run-backup.sh
+  # at the end of each nightly run AND available as a standalone
+  # catena-admin Actions tab entry for on-demand verification.
+  # Ships via ansible.builtin.copy (plain script, no Jinja) -- the
+  # per-host data lives in backup-coverage.paths next door.
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/backup-coverage.sh"
+    dest: "{{ backup_coverage_script }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "Ensure snapshot export directory exists ({{ backup_export_dir }})"
+  ansible.builtin.file:
+    path: "{{ backup_export_dir }}"
+    state: directory
+    owner: root
+    # group=1000 so the catena-admin container (Dockerfile bakes
+    # UID/GID 1000) can list+stat the artifacts for the /recovery tab.
+    # The downloads themselves are served by the recovery nginx sidecar
+    # which runs as root and still has owner-rwx. Must match the
+    # matching chowns in roles/infrastructure/tasks/recovery_archive.yml
+    # and roles/infrastructure/tasks/recovery.yml.
+    group: "1000"
+    mode: "0750"
+
+- name: Drop snapshot-export helper script
+  # Plain bash under scripts/; per-host values (export dir, scp hint,
+  # retention count) all come from {{ backup_env_file }}.
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/snapshot-export.sh"
+    dest: "{{ backup_export_script }}"
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: "F6: drop snapshot-list helper script"
+  # Renders {{ backup_export_dir }}/index.html with a curated table of
+  # current restic snapshots + pre-exported tarballs. Invoked from
+  # run-backup.sh after forget+prune so the listing always matches the
+  # repo state. The recovery-downloads nginx sidecar serves index.html
+  # before falling through to autoindex, so client admins land on this
+  # page when they visit recovery.<zone>.
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/snapshot-list.sh"
+    dest: "{{ backup_snapshot_list_script }}"
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Drop systemd service unit
+  ansible.builtin.template:
+    src: catena-backup.service.j2
+    dest: "/etc/systemd/system/{{ backup_systemd_unit_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  register: _backup_service_unit
+
+# Community ships the backup as a manually-invoked oneshot service (the
+# "Backup now" admin button / a direct systemctl start), NOT a timer.
+# The scheduled backup timer + the cold/WORM mirror (restic + nextcloud
+# service/timer/scripts) are the Business managed lane and are not shipped
+# here -- a CE user who wants a schedule wires their own timer around
+# catena-backup.service.
+- name: Reload systemd if the backup service unit changed
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: _backup_service_unit.changed
+
+# ─── restic repo init (idempotent) ───────────────────────────────────────
+# `restic cat config` returns 0 iff the repo exists and the password is
+# correct. Anything else (incl. the "not initialized" error) triggers init.
+- name: Check whether restic repo is already initialized
+  ansible.builtin.command:
+    argv:
+      - restic
+      - cat
+      - config
+  environment: "{{ backup_restic_env }}"
+  register: _restic_repo_check
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Initialize restic repo (first run only)
+  ansible.builtin.command:
+    argv:
+      - restic
+      - init
+  environment: "{{ backup_restic_env }}"
+  when: _restic_repo_check.rc != 0
+  no_log: true
+
+# ─── initial snapshot ────────────────────────────────────────────────────
+# Take one snapshot inline so the repo has data before the first scheduled
+# run. Subsequent plays skip (checks for any snapshot). Set
+# backup_run_initial_snapshot=false to disable, e.g. when iterating.
+#
+# Use --no-lock so a concurrent backup (timer firing on the source host
+# of a migrate, lock left behind by a prior aborted run) doesn't make
+# us mis-classify the repo as empty and trigger a redundant first-
+# backup attempt that would itself fail on the same lock.
+- name: Check whether any snapshots exist
+  # `--latest 1` (not `--last 1`): restic 0.18 removed the legacy
+  # `--last` flag, which silently made the command exit non-zero on
+  # every run. That broke the idempotency gate below (the inline first-
+  # backup fired on every converge instead of only the first), tripping
+  # stage-2.5 of the bench. Every other caller in the repo already uses
+  # `--latest`; this was the lone holdout.
+  ansible.builtin.shell:
+    cmd: restic snapshots --no-lock --latest 1 --json | grep -q '"time"'
+  environment: "{{ backup_restic_env }}"
+  register: _restic_has_snapshot
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+# DR / migrate path: the post-restore marker means restore.yml has
+# extracted the source host's restic state into place. The repo
+# already has snapshots from before; an inline first-backup here
+# only races the source's own scheduled timer (lock contention) and
+# brings nothing the next scheduled run won't bring. Skip cleanly --
+# the timer keeps the cadence going on its own.
+- name: "Stat post-restore marker (gates inline first-backup skip)"
+  ansible.builtin.stat:
+    path: "{{ backup_stats_dir }}/post-restore.needed"
+  register: _backup_post_restore_marker
+
+- name: "Run first backup inline (sync) so verify-backup finds a snapshot"
+  when:
+    - not ansible_check_mode
+    - backup_run_initial_snapshot | bool
+    - _restic_has_snapshot.rc != 0
+    - not (_backup_post_restore_marker.stat.exists | default(false))
+  block:
+    # ansible.builtin.systemd_service has no `state: started --wait`
+    # equivalent; we need the synchronous block so verify-backup finds
+    # a snapshot as soon as the next task runs. `--wait` blocks until
+    # the oneshot unit's main process exits.
+    - name: "Start first backup (systemctl start --wait)"  # noqa: command-instead-of-module
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - start
+          - "--wait"
+          - "{{ backup_systemd_unit_name }}.service"
+  # On failure, dump the unit status + last journal entries so the
+  # operator doesn't have to shell in (and, on the test bench, the
+  # VM is torn down before they can anyway). The `systemctl start
+  # --wait` failure surfaces only "control process exited with error
+  # code" without the root cause -- restic network error, S3 auth
+  # failure, pg_dumpall failure, missing path, etc. `rescue:` runs
+  # on block failure, re-raises via ansible.builtin.fail so the task
+  # is still marked failed after the diag.
+  rescue:
+    - name: "diag -- systemctl status of the backup unit"
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - status
+          - "--no-pager"
+          - "--lines=80"
+          - "{{ backup_systemd_unit_name }}.service"
+      register: _backup_diag_status
+      changed_when: false
+      failed_when: false
+
+    - name: "diag -- last 120 journalctl lines for the backup unit"
+      ansible.builtin.command:
+        argv:
+          - journalctl
+          - "-u"
+          - "{{ backup_systemd_unit_name }}.service"
+          - "--no-pager"
+          - "--lines=120"
+      register: _backup_diag_journal
+      changed_when: false
+      failed_when: false
+
+    - name: "diag -- surface collected backup-unit state"
+      ansible.builtin.debug:
+        msg: |
+          ---- systemctl status {{ backup_systemd_unit_name }}.service ----
+          {{ _backup_diag_status.stdout | default('(empty)') }}
+          {{ _backup_diag_status.stderr | default('') }}
+
+          ---- journalctl -u {{ backup_systemd_unit_name }}.service (last 120 lines) ----
+          {{ _backup_diag_journal.stdout | default('(empty)') }}
+
+    - name: "Re-raise: first backup failed"
+      ansible.builtin.fail:
+        msg: |
+          First inline backup (systemctl start --wait
+          {{ backup_systemd_unit_name }}.service) exited non-zero.
+          Diagnostic output dumped above. Common causes:
+            - restic can't reach the S3 endpoint (DNS, ufw, creds).
+            - pg_dumpall failed (postgres down, auth mismatch).
+            - /mnt/data/backup-staging/pg is not writable.
+            - restic repo init race (another host reaching the
+              same bucket concurrently).

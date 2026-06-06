@@ -1,0 +1,143 @@
+---
+# Post-restore DB ↔ S3 consistency reconciliation.
+#
+# Some templates (Nextcloud objectstore, Outline attachments) store
+# primary file content in a customer-owned S3 bucket that is excluded
+# from restic by design (see docs/operator/storage-providers.md).
+# After a restore the DB is back to its snapshot-time state and still
+# indexes those files; if the S3 bucket has rotated, been recreated,
+# or is otherwise out of sync, end users see broken links instead of
+# their files.
+#
+# This task walks each catalog template that declares an `s3_reconcile`
+# block and runs the declared command inside the app's running
+# container. Output is captured to the journal for the operator to
+# review. Strictly report-only by default; opt into destructive
+# orphan cleanup per-template with `delete_orphans: true` (NOT a global
+# flag -- explicit per app).
+#
+# Caller:
+#   - playbooks/post_restore_redeploy.yml runs this once redeploy +
+#     poll loop have settled (gated on the post-restore marker).
+#   - Operator-callable via `./catena backup --tags s3_reconcile
+#       -e backup_mode=s3_reconcile` for an out-of-band re-run.
+
+- name: "s3_reconcile: load catenahq/templates catalog"
+  ansible.builtin.include_tasks: "{{ role_path }}/../../roles/infrastructure/tasks/_templates_catalog_load.yml"
+
+- name: "s3_reconcile: filter to entries with s3_reconcile block"
+  ansible.builtin.set_fact:
+    _s3_recon_targets: >-
+      {{
+        (dokploy_template_catalog | default([]))
+        | selectattr('s3_reconcile', 'defined')
+        | list
+      }}
+
+- name: "s3_reconcile: nothing to do"
+  ansible.builtin.debug:
+    msg: "No templates declare an s3_reconcile block; skipping (R19 no-op)."
+  when: _s3_recon_targets | length == 0
+
+# Retry loop: post_restore_redeploy.yml's "wait for each compose to
+# settle" returns as soon as Dokploy reports composeStatus in
+# {done, idle, running, error}, but `running` flips true the moment
+# `docker compose up` exits, NOT when containers stop their
+# install/restart cycles. Nextcloud in particular goes through 2-3
+# Apache SIGWINCH/recreate cycles after first boot (Nextcloud install
+# triggers internal config-rewrite restarts). If `docker ps` lands in
+# one of those recreate windows, grep finds no match, the run task
+# below silently skips on `stdout | length > 0`, and oc_filecache stays
+# empty -- bench worm_round_trip stage-7a then trips with
+# "oc_filecache returned no row for path=..." even though the S3
+# bucket was perfectly intact.
+#
+# Retries until the regex matches OR ~2 min elapses. NOT `|| true` +
+# single-shot anymore; we WANT the until-loop to keep polling.
+- name: "s3_reconcile: locate running containers per target"
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
+      | grep -E '{{ item.app_name | dokploy_container_regex(item.s3_reconcile.service | default("app")) }}' \
+      | head -n1
+  args:
+    executable: /bin/bash
+  register: _s3_recon_lookup
+  changed_when: false
+  failed_when: false
+  retries: 30
+  delay: 4
+  until: _s3_recon_lookup.stdout | default('') | length > 0
+  loop: "{{ _s3_recon_targets }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when: _s3_recon_targets | length > 0
+
+# `user` is honored via docker-exec's `-u` flag (no sudo / runuser
+# required inside the container). Nextcloud's `occ` MUST run as the
+# web user (www-data) so files-scan writes oc_filecache rows under
+# the right ownership; the official nextcloud:apache image does NOT
+# bundle sudo, so a `sudo -u www-data ...` argv inside the container
+# exits 127. Bench worm_round_trip Run 2026-05-09T18-26-00-4824
+# reproduced this: locate retried until container appeared, run task
+# fired, exit code 127 ("sudo: not found"), oc_filecache stayed
+# empty, stage-7a tripped.
+- name: "s3_reconcile: run declared command in each container"
+  ansible.builtin.command:
+    argv: >-
+      {{
+        ['docker', 'exec']
+        + (['-u', item.1.s3_reconcile.user] if (item.1.s3_reconcile.user | default('')) else [])
+        + [item.0.stdout]
+        + (item.1.s3_reconcile.command | default(['true']))
+      }}
+  register: _s3_recon_runs
+  changed_when: false
+  failed_when: false
+  loop: "{{ _s3_recon_lookup.results | zip(_s3_recon_targets) | list }}"
+  loop_control:
+    label: "{{ item.1.id }}"
+  when:
+    - item.0.stdout | default('') | length > 0
+    - item.1.s3_reconcile.command is defined
+
+- name: "s3_reconcile: parse orphan counts"
+  ansible.builtin.set_fact:
+    _s3_recon_summary: >-
+      {{
+        _s3_recon_summary | default([]) + [
+          {
+            'id': (item.0.item.1.id),
+            'container': (item.0.item.0.stdout),
+            'rc': (item.0.rc | default(-1)),
+            'orphan_count': (
+              (
+                item.0.stdout | default('')
+                | regex_findall(item.0.item.1.s3_reconcile.orphan_pattern | default('^$'))
+                | first | default('0')
+              ) | int
+            ),
+          }
+        ]
+      }}
+  loop: >-
+    {{
+      (_s3_recon_runs.results | default([]))
+      | zip([1] * (_s3_recon_runs.results | default([]) | length))
+      | list
+    }}
+  loop_control:
+    label: "{{ item.0.item.1.id }}"
+  when: _s3_recon_runs.results is defined
+
+- name: "s3_reconcile: report"
+  ansible.builtin.debug:
+    msg: |
+      DB ↔ S3 reconciliation report (post-restore):
+      {% for s in (_s3_recon_summary | default([])) %}
+        - {{ s.id }} ({{ s.container }}): rc={{ s.rc }}, orphans={{ s.orphan_count }}
+      {% endfor %}
+      Non-zero orphan_count = DB rows reference S3 keys that did not
+      respond to HEAD. Check the bucket lifecycle, prefix, region, and
+      credentials. Cleanup is opt-in per template (delete_orphans).
+  when: (_s3_recon_summary | default([])) | length > 0

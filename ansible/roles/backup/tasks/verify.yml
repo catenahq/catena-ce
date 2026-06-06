@@ -1,0 +1,277 @@
+---
+# Restore the latest snapshot into a scratch directory and assert that the
+# expected paths came back non-empty. This proves the backup is actually
+# restorable -- "restic snapshots" only proves the repo exists, not that it
+# works.
+#
+# Run via playbooks/verify-backup.yml. Cleanup of verify_scratch_dir is done
+# by that playbook's post_tasks, not here -- keeps this file focused.
+
+- name: Ensure scratch dir exists (empty)
+  ansible.builtin.file:
+    path: "{{ verify_scratch_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Restore latest snapshot into scratch dir
+  ansible.builtin.command:
+    argv:
+      - restic
+      - restore
+      - latest
+      - --target
+      - "{{ verify_scratch_dir }}"
+      - --quiet
+  environment: "{{ backup_restic_env }}"
+  register: _restic_verify_restore
+  changed_when: false
+  # Restic over S3 can hit transient 5xx / connection-reset from OVH / B2
+  # mid-restore. The verify path is a pure read so safe to retry; the
+  # operation is idempotent (restore into a pre-cleaned scratch dir).
+  # Drop the historic no_log: true so a real failure surfaces stderr
+  # (rate-limit, repo corruption, missing repo) instead of being hidden
+  # behind a censored message. Restic argv carries no secrets; the AWS
+  # creds live in backup_restic_env which ansible redacts from task
+  # output by default for environment dicts referenced via {{ }}.
+  retries: 3
+  delay: 30
+  until: _restic_verify_restore.rc == 0
+
+- name: Stat each expected path
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: "{{ verify_expected_paths }}"
+  register: _verify_path_stats
+
+- name: Assert expected paths exist after restore
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isdir or item.stat.size > 0
+    fail_msg: >-
+      Expected path {{ item.item }} missing or empty after restore.
+      The restic repo is not reliably restorable -- investigate before
+      trusting the backup.
+  loop: "{{ _verify_path_stats.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+# ─── Deep verify: pg_dumpall integrity + compose syntax + secrets ──────
+#
+# The path-stat checks above prove "files came back" but not "files are
+# usable". A pg_dumpall archive can be:
+#   - present but empty (e.g. earlier pg_dumpall failed silently and
+#     wrote a 20-byte gzip)
+#   - present + non-empty but missing user databases (POSTGRES_USER drift)
+#   - present + valid but truncated mid-write
+# A compose file can be present but unparseable (yaml damage). The
+# backup.env can be present but missing critical keys.
+#
+# Each block below is best-effort: a check that fails surfaces a hard
+# error, but a check that lacks its tool (docker-compose missing, no
+# postgres archives because no pg containers ran at backup time) emits
+# a debug + skips. Restore correctness is checked when verifiable, not
+# faked when not.
+
+- name: "Deep verify: locate restored pg_dump archives"
+  ansible.builtin.find:
+    paths: "{{ verify_scratch_dir }}{{ storage_mount_point }}/backup-staging/pg"
+    patterns: "*.sql.gz"
+    recurse: false
+    file_type: file
+  register: _verify_pg_archives
+  failed_when: false
+
+- name: "Deep verify: warn if no pg_dump archives in snapshot"
+  ansible.builtin.debug:
+    msg: |
+      No pg_dump archives under {{ verify_scratch_dir }}{{ storage_mount_point }}/backup-staging/pg
+      after restore. Either there were no Postgres containers at backup
+      time (clean fresh-host snapshot -- fine), or pg_dumpall failed
+      silently in an earlier catena version. Cross-check by listing
+      `docker ps --format '{{ '{{' }}.Names{{ '}}' }}|{{ '{{' }}.Image{{ '}}' }}' | grep postgres`
+      against the snapshot's run-backup.sh log if you expected dumps.
+  when: (_verify_pg_archives.matched | default(0)) == 0
+
+- name: "Deep verify: assert each pg_dump archive parses + has a user database"
+  # zcat the archive, look for the pg_dumpall cluster-header AND at
+  # least one per-db section that isn't postgres/template1. A 20-byte
+  # empty gzip (the silent-failure mode that motivated
+  # test_run_backup_does_not_pipe_pg_dumpall_into_gzip) survives the
+  # `find` above but fails this check loudly.
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      f="{{ item.path }}"
+      # 1. archive must zcat without error
+      if ! zcat "$f" >/dev/null 2>&1; then
+          echo "FAIL: $f does not zcat cleanly (corrupt gzip)" >&2
+          exit 1
+      fi
+      # 2. must have the pg_dumpall cluster-header
+      if ! zcat "$f" | head -100 | grep -q '^-- PostgreSQL database cluster dump'; then
+          echo "FAIL: $f missing pg_dumpall cluster header -- not a real dump" >&2
+          exit 1
+      fi
+      # 3. must have at least one user-db section (not just postgres/template1).
+      # Regex accepts backslash-escaped quotes in the DB name; same
+      # extraction logic as pg_replay.yml so the two stay in lockstep.
+      user_dbs=$(zcat "$f" \
+          | grep -E '^-- Database "([^"\\]|\\.)+" dump$' \
+          | sed -E 's/^-- Database "(([^"\\]|\\.)+)" dump$/\1/' \
+          | sed -E 's/\\"/"/g' \
+          | grep -vE '^(postgres|template1)$' \
+          || true)
+      if [ -z "$user_dbs" ]; then
+          echo "FAIL: $f has no user-db sections (only postgres/template1)" >&2
+          exit 1
+      fi
+      echo "OK: $f ($(echo "$user_dbs" | wc -l) user db section(s))"
+    executable: /bin/bash
+  loop: "{{ _verify_pg_archives.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  register: _verify_pg_lint
+  changed_when: false
+  when: (_verify_pg_archives.matched | default(0)) > 0
+
+- name: "Deep verify: locate restored Dokploy compose files"
+  ansible.builtin.find:
+    paths: "{{ verify_scratch_dir }}/etc/dokploy/compose"
+    patterns: "docker-compose.yml,compose.yml,docker-compose.yaml,compose.yaml"
+    recurse: true
+    file_type: file
+  register: _verify_compose_files
+  failed_when: false
+
+- name: "Deep verify: warn if no compose files in restored tree"
+  ansible.builtin.debug:
+    msg: |
+      No Dokploy compose files under {{ verify_scratch_dir }}/etc/dokploy/compose
+      after restore. Either Dokploy never seeded any composes (fresh
+      install pre-Templates-seed) or /etc/dokploy didn't make it into
+      the snapshot. The path-stat block above asserts /etc/ssh; if THAT
+      came back but compose did not, the backup_paths config has drifted.
+  when: (_verify_compose_files.matched | default(0)) == 0
+
+- name: "Deep verify: detect docker compose tool"
+  ansible.builtin.shell:
+    cmd: |
+      if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+          echo "docker-compose-v2"
+      elif command -v docker-compose >/dev/null 2>&1; then
+          echo "docker-compose-v1"
+      else
+          echo "missing"
+      fi
+  register: _verify_compose_tool
+  changed_when: false
+  failed_when: false
+
+- name: "Deep verify: parse-check each compose file"
+  # `docker compose config -q` reads + interpolates + validates without
+  # talking to the engine. Catches yaml damage, missing required fields,
+  # and unresolvable env vars. Best-effort interpolation: the restored
+  # tree won't have its .env files in the right relative position for
+  # every project, so we explicitly skip env-file resolution by passing
+  # /dev/null (an empty env file) to avoid false-positives caused by
+  # missing or wrong-path .env. `--no-env-file` is NOT a real flag in
+  # any docker compose version -- passing it earlier produced a hard
+  # failure on every restored compose file. Bare yaml syntax errors
+  # still surface; unresolvable ${VAR} references are reported as
+  # warnings, not failures.
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      f="{{ item.path }}"
+      cd "$(dirname "$f")"
+      if [ "{{ _verify_compose_tool.stdout | trim }}" = "docker-compose-v2" ]; then
+          docker compose --env-file /dev/null -f "$f" config -q 2>&1
+      else
+          docker-compose --env-file /dev/null -f "$f" config -q 2>&1
+      fi
+    executable: /bin/bash
+  loop: "{{ _verify_compose_files.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path | regex_replace('^' ~ verify_scratch_dir, '') }}"
+  register: _verify_compose_lint
+  changed_when: false
+  when:
+    - (_verify_compose_files.matched | default(0)) > 0
+    - (_verify_compose_tool.stdout | trim) != "missing"
+
+- name: "Deep verify: docker compose tool unavailable on the host"
+  ansible.builtin.debug:
+    msg: |
+      Neither `docker compose` (v2 plugin) nor `docker-compose` (v1) is
+      available on this host. Skipping compose-syntax verification of
+      the {{ _verify_compose_files.matched | default(0) }} restored
+      compose file(s). To re-enable, install docker-compose-plugin
+      (v2) or docker-compose (v1) on the verify host.
+  when:
+    - (_verify_compose_files.matched | default(0)) > 0
+    - (_verify_compose_tool.stdout | trim) == "missing"
+
+- name: "Deep verify: assert backup.env restored"
+  # backup.env carries RESTIC_REPOSITORY + AWS_ACCESS_KEY_ID +
+  # AWS_SECRET_ACCESS_KEY + BACKUP_HEALTHCHECK_URL -- without it, a
+  # restore-to-new-vps would have no way to hit the same S3 bucket on
+  # the next nightly backup. If the snapshot lacks it, the operator
+  # has to extract creds from vault by hand on the fresh host.
+  ansible.builtin.stat:
+    path: "{{ verify_scratch_dir }}/etc/catena/backup.env"
+  register: _verify_backup_env
+
+- name: "Deep verify: backup.env present in snapshot"
+  ansible.builtin.assert:
+    that:
+      - _verify_backup_env.stat.exists
+      - _verify_backup_env.stat.size > 0
+    fail_msg: >-
+      /etc/catena/backup.env is missing or empty in the restored
+      tree. A restore-to-new-vps from this snapshot would have no S3
+      credentials to push the next nightly backup with. Either
+      /etc/catena isn't in backup_paths or this snapshot predates
+      backup.env existing -- investigate before trusting it for DR.
+
+- name: "Deep verify: backup.env required keys are non-empty"
+  # `stat + size > 0` above only proves the file came back. A truncated
+  # or partially-written backup.env (e.g. `RESTIC_REPOSITORY=` with no
+  # value) still passes that check but breaks the NEXT nightly backup
+  # silently. Parse the file in a sandboxed subshell and assert each
+  # required key resolves to a non-empty value. No printing of the
+  # values themselves (no_log: true) -- this file holds the S3 keys.
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      missing=""
+      # set -a so sourced KEY=VALUE pairs are exported; subshell so we
+      # never pollute the Ansible env.
+      (
+          set -a
+          . "{{ verify_scratch_dir }}/etc/catena/backup.env"
+          set +a
+          for key in RESTIC_REPOSITORY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY BACKUP_HEALTHCHECK_URL; do
+              eval val="\${$key:-}"
+              if [ -z "$val" ]; then
+                  echo "$key" >&2
+              fi
+          done
+      ) 2>/tmp/.verify_backup_env_missing.$$
+      missing=$(cat /tmp/.verify_backup_env_missing.$$ || true)
+      rm -f /tmp/.verify_backup_env_missing.$$
+      if [ -n "$missing" ]; then
+          echo "FAIL: backup.env restored but missing/empty keys:" >&2
+          echo "$missing" >&2
+          exit 1
+      fi
+      echo "OK: backup.env has all 4 required keys"
+    executable: /bin/bash
+  register: _verify_backup_env_keys
+  changed_when: false
+  no_log: true
+  when:
+    - _verify_backup_env.stat.exists
+    - _verify_backup_env.stat.size > 0

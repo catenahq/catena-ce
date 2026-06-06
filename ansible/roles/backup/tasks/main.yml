@@ -1,0 +1,54 @@
+---
+# Dispatcher -- backup_mode picks which subfile to run.
+#   install   (default, site.yml path) -- install binaries, unit files, timer
+#   verify    (verify-backup.yml)      -- dry-restore + assert
+#   restore   (restore.yml, restore.yml playbook) -- filesystem restore from restic
+#   pg_replay (pg_replay.yml) -- replay pg_dumpall into running
+#             Dokploy-managed postgres containers. Auto-invoked from the
+#             dokploy role on a DR converge (post-restore-marker-gated,
+#             scope=dokploy). This dispatcher branch is the operator-
+#             callable entry point for incremental scenarios (single-
+#             client replay, stale-snapshot replay against a live host,
+#             "raw volume corrupt" recovery). Split from restore so
+#             restore.yml stays a pure data-restore step (no Docker);
+#             pg_replay runs only once Dokploy-managed postgres
+#             containers are live.
+
+- name: Assert backup_mode is valid
+  ansible.builtin.assert:
+    that:
+      - backup_mode in ['install', 'verify', 'restore', 'pg_replay', 's3_reconcile']
+    fail_msg: "backup_mode must be install | verify | restore | pg_replay | s3_reconcile (got: {{ backup_mode }})"
+
+- name: Assert restic credentials are in vault
+  ansible.builtin.assert:
+    that:
+      - vault_backup_restic_password is defined
+      - vault_backup_s3_access_key is defined
+      - vault_backup_s3_secret_key is defined
+      - backup_restic_repo | length > 0
+    fail_msg: >-
+      Restic credentials must be in vault and BACKUP_RESTIC_REPO must be set
+      in inventory/<name>/.env before the backup role can run.
+      See ansible/skel/group_vars/all/vault.yml.example for the schema
+      (the encrypted live file is at vault.sops.yml).
+
+- name: Install backup infrastructure
+  ansible.builtin.include_tasks: install.yml
+  when: backup_mode == 'install'
+
+- name: Verify restic repo is restorable (dry-restore drill)
+  ansible.builtin.include_tasks: verify.yml
+  when: backup_mode == 'verify'
+
+- name: Restore from backup
+  ansible.builtin.include_tasks: restore.yml
+  when: backup_mode == 'restore'
+
+- name: Replay pg_dumpall into running postgres containers
+  ansible.builtin.include_tasks: pg_replay.yml
+  when: backup_mode == 'pg_replay'
+
+- name: Reconcile DB ↔ S3 references
+  ansible.builtin.include_tasks: s3_reconcile.yml
+  when: backup_mode == 's3_reconcile'

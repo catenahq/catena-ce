@@ -1,0 +1,71 @@
+---
+# Trigger an on-demand snapshot run by starting catena-backup.service
+# synchronously, then polling until the Type=oneshot unit exits.
+#
+# Callers:
+#   - ansible/playbooks/backup_now.yml -- entry point used by
+#     flows.migrate's snapshot_source leg (and any operator escape
+#     hatch for "snapshot now").
+#   - ansible/playbooks/decommission.yml -- wrapped in a systemd
+#     drop-in lifecycle that adds BACKUP_RESTIC_TAG=decommission to
+#     the env, so the snapshot lands tagged.
+#
+# This file does NOT install the unit. The unit is installed by
+# install.yml (backup_mode=install) and is expected to exist by the
+# time anyone calls this. Failing fast (missing-unit -> systemctl rc
+# != 0 -> fail) is preferable to silently no-op'ing.
+
+# systemctl start on a Type=oneshot unit blocks until the unit exits, so
+# systemd_service(state: started) is the idiomatic form (ansible-lint
+# flags the raw `systemctl start --wait` command). The module reports
+# only "control process exited with error code" on failure -- it does NOT
+# surface the ExecStartPre/ExecStart stderr. Wrap in a rescue that slurps
+# the journal so a failure is self-diagnosing (the offending VM is often
+# torn down before an operator can `journalctl` it -- e.g. bench scenarios
+# like flows.migrate's snapshot_source leg).
+- name: "Start catena-backup.service (capture journal on failure)"
+  block:
+    - name: "Start catena-backup.service"
+      ansible.builtin.systemd_service:
+        name: "{{ backup_systemd_unit_name }}.service"
+        state: started
+      register: _backup_now
+      changed_when: true
+  rescue:
+    - name: "Capture catena-backup journal on start failure"
+      ansible.builtin.command:
+        argv:
+          - journalctl
+          - "--unit={{ backup_systemd_unit_name }}.service"
+          - --no-pager
+          - --lines=120
+      register: _backup_now_journal
+      changed_when: false
+      failed_when: false
+
+    - name: "Show catena-backup journal tail"
+      ansible.builtin.debug:
+        msg: "{{ (_backup_now_journal.stdout | default('')).splitlines() }}"
+
+    - name: "Re-raise catena-backup start failure"
+      ansible.builtin.fail:
+        msg: >-
+          catena-backup.service failed to start. The journal tail above
+          shows the ExecStartPre/ExecStart error (the systemd_service
+          module does not surface it).
+
+- name: "Poll until oneshot exits"
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-active
+      - "{{ backup_systemd_unit_name }}.service"
+  register: _backup_now_state
+  retries: 60
+  delay: 10
+  # `activating` = still running; `active`/`inactive` = oneshot done.
+  # `failed` = unit errored -- fail loudly so callers stop here rather
+  # than proceeding without a verified snapshot.
+  until: _backup_now_state.stdout not in ['activating']
+  changed_when: false
+  failed_when: _backup_now_state.stdout == 'failed'

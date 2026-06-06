@@ -1,0 +1,45 @@
+---
+# built_in mode: no filesystem, no fstab, no mount -- just a parent dir on the
+# root SSD and subdirs under it. All data lives on the VPS's single built-in
+# disk, which is the OVH-VPS / Hetzner-CX-line / DO-basic-droplet shape.
+#
+# Trade-off vs attached mode: cheaper and simpler, but the data disk and the
+# OS disk are the same disk -- a filesystem-level issue takes both. Restic
+# backups mitigate (disk-level corruption is rare in practice on modern SSDs),
+# but for production workloads storage_mode=attached is the stronger posture.
+
+- name: Ensure primary storage mount point exists
+  ansible.builtin.file:
+    path: "{{ storage_mount_point }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Ensure data subdirectories exist with correct ownership
+  ansible.builtin.file:
+    path: "{{ storage_mount_point }}/{{ item.name }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop: "{{ storage_data_subdirs }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+# Remove legacy /mnt/data/postgres that earlier versions created but never
+# used (real Postgres data lives in /mnt/data/docker/volumes/postgres_data/
+# via Dokploy's named-volume convention). rmdir refuses to delete non-empty
+# directories, so this cannot destroy data -- worst case it's a no-op.
+# `removes:` skips the task if the path doesn't exist (fresh hosts).
+- name: Remove legacy unused /mnt/data/postgres (no-op if missing or non-empty)
+  ansible.builtin.command:
+    cmd: "rmdir --ignore-fail-on-non-empty {{ storage_mount_point }}/postgres"
+    removes: "{{ storage_mount_point }}/postgres"
+  register: _rmdir_legacy_postgres
+  # `removes:` skips execution when the path is absent but Ansible still
+  # returns rc=0/changed=true. Distinguish a real rmdir (has `start` / `end`
+  # timestamps) from a skipped one to avoid lying about idempotency.
+  changed_when:
+    - _rmdir_legacy_postgres.rc == 0
+    - _rmdir_legacy_postgres.start is not none

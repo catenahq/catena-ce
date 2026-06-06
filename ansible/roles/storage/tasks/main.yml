@@ -1,0 +1,24 @@
+---
+# Dispatcher. Two exclusive modes for the primary data tier (built_in vs
+# attached), plus an independent optional bulk tier layered on top.
+
+- name: Assert storage_mode is valid
+  ansible.builtin.assert:
+    that:
+      - storage_mode in ['built_in', 'attached']
+    fail_msg: >-
+      storage_mode must be 'built_in' or 'attached' (got: {{ storage_mode }}).
+      built_in  -- carve directories on the root SSD (VPS default).
+      attached  -- format+mount a separate block device by UUID.
+
+- name: Set up primary storage (built_in mode -- directories on root FS)
+  ansible.builtin.include_tasks: built_in.yml
+  when: storage_mode == 'built_in'
+
+- name: Set up primary storage (attached mode -- block device mounted at storage_mount_point)
+  ansible.builtin.include_tasks: attached.yml
+  when: storage_mode == 'attached'
+
+- name: Set up optional bulk tier
+  ansible.builtin.include_tasks: bulk.yml
+  when: storage_bulk_enabled | bool

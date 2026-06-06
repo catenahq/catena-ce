@@ -1,0 +1,8 @@
+# {{ ansible_managed }}
+# One covered prefix per line. Read by vps-scripts/backup-coverage.sh to
+# classify bind-mount sources as covered / uncovered at backup time.
+# Kept in sync with backup_paths in roles/backup/defaults/main.yml --
+# if that list changes, re-run the backup role.
+{% for p in backup_paths %}
+{{ p }}
+{% endfor %}

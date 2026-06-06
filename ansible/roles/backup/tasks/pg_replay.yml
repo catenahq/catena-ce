@@ -1,0 +1,485 @@
+---
+# Scoped pg_dumpall replay tool. Three callers, same task file -- two
+# auto-invoked converge-path callers (one per scope; sequential, not
+# parallel) and one operator-callable out-of-band entry point.
+#
+#   1. Auto-invoked from roles/dokploy/tasks/main.yml on a DR converge.
+#      Gated on the post-restore marker (/var/lib/catena/post-
+#      restore.needed); scope=dokploy. Lives late in the dokploy role
+#      -- after pg_password_reconcile aligned vault -> secret ->
+#      pg_authid, after the reach + API-router probes confirm
+#      dokploy-postgres is responsive, before any role that hits the
+#      Dokploy API at role time (keycloak, infrastructure). Required
+#      placement: dokploy DB has to carry snapshot data BEFORE
+#      downstream roles authenticate against it.
+#
+#   2. Auto-invoked from playbooks/post_restore_redeploy.yml on a DR
+#      converge. scope=clients (every per-app DB EXCEPT dokploy).
+#      Lives AFTER the compose-redeploy + wait-to-settle (per-app
+#      postgres containers must be running for pg_isready to respond)
+#      and BEFORE s3_reconcile. Mirrors client-tools/restore.sh::
+#      step_replay_pg_dumps -- without it, per-app DBs depend on
+#      raw-volume survival across compose recreate, which broke worm-
+#      bucket DR (bench Run 2026-05-09T16-36-46-86f4).
+#
+#   Both auto-invocations are locked in by
+#   tests/unit/test_no_parallel_paths.py::
+#     test_pg_replay_yml_has_exactly_two_canonical_callers
+#   plus tests/unit/test_restore_sh_ansible_parity.py.
+#
+#   3. Operator-callable for the rare "raw volume corrupt" or
+#      "incremental replay" recovery path:
+#        uv run ansible-playbook -i inventory/<env> playbooks/backup.yml \
+#          --tags pg_replay --limit <host> \
+#          -e backup_mode=pg_replay \
+#          -e pg_replay_scope=<dokploy|clients|all>
+#      Dispatches via roles/backup/tasks/main.yml. Same task file,
+#      no parallel logic.
+#
+# Contract:
+#   - Dumps live under {{ storage_mount_point }}/backup-staging/pg/
+#     as `<basename>-<ISO>.sql.gz`. Written by run-backup.sh with
+#     `--clean --if-exists`.
+#   - Replay strategy: extract per-db sections (skipping the
+#     cluster-level globals AND the special postgres + template1
+#     sections that every cluster has). For each user db: kill
+#     sessions, DROP DATABASE, then apply the per-db section
+#     (which starts with `CREATE DATABASE` + `\connect`). The
+#     cluster-level role drops/creates from the dump are
+#     INTENTIONALLY skipped -- pg_password_reconcile owns the
+#     dokploy role's password. Replaying `DROP ROLE <user>` while
+#     connected as `<user>` would halt with ON_ERROR_STOP=1 and
+#     leave the target db dropped but not recreated.
+#   - If the operator runs this out-of-band against dokploy-postgres,
+#     follow up with `./catena site --tags dokploy` so
+#     pg_password_reconcile re-applies the vault password to
+#     pg_authid.
+#
+# Scope filter:
+#   - "dokploy"  -- only dokploy-postgres
+#   - "clients"  -- every matching container EXCEPT dokploy-postgres
+#   - "all"      -- every container that has a dump (default)
+
+- name: "pg_replay: assert scope is valid"
+  ansible.builtin.assert:
+    that:
+      - pg_replay_scope | default('all') in ['dokploy', 'clients', 'all']
+    fail_msg: "pg_replay_scope must be 'dokploy' | 'clients' | 'all'"
+
+- name: "pg_replay: find pg_dump archives in backup-staging/pg"
+  ansible.builtin.find:
+    paths: "{{ storage_mount_point }}/backup-staging/pg"
+    patterns: "*.sql.gz"
+    recurse: false
+  register: _available_pg_dumps
+
+# Distinguish DR-mode (caller 1: dokploy role on a post-restore converge)
+# from operator-mode (caller 2: out-of-band ./catena backup --tags
+# pg_replay). On a DR converge the post-restore.needed marker exists.
+# Missing dumps in DR-mode = silent data loss waiting to happen, so fail
+# loudly. Out-of-band, missing dumps = nothing to do, debug + continue.
+- name: "pg_replay: detect post-restore marker"
+  ansible.builtin.stat:
+    path: "{{ backup_stats_dir }}/post-restore.needed"
+  register: _pg_replay_post_restore_marker
+
+- name: "pg_replay: FATAL -- DR converge with no pg_dump archives"
+  ansible.builtin.fail:
+    msg: |
+      Post-restore marker exists at {{ backup_stats_dir }}/post-restore.needed
+      but NO pg_dump archives were found under
+      {{ storage_mount_point }}/backup-staging/pg.
+
+      Restoring without the logical dump would silently leave the Dokploy
+      database empty (raw dokploy-postgres volume is excluded from the
+      restic set by design). Refusing to proceed.
+
+      Possible causes:
+        - run-backup.sh failed silently in an older catena version
+          and the snapshot was taken with no dumps (check previous backup
+          runs in journalctl -u {{ backup_systemd_unit_name }}).
+        - The restic snapshot picked for restore predates the pg_dumpall
+          contract (Option A storage layout).
+        - storage_mount_point points at the wrong path on this host.
+
+      To override (dangerous; loses dokploy DB state):
+          rm {{ backup_stats_dir }}/post-restore.needed
+      then re-run the converge.
+  when:
+    - _available_pg_dumps.matched == 0
+    - _pg_replay_post_restore_marker.stat.exists | bool
+
+- name: "pg_replay: guard -- no pg dumps, operator-callable path"
+  ansible.builtin.debug:
+    msg: |
+      No pg_dump archives found under backup-staging/pg and no post-restore
+      marker present -- operator-callable invocation with nothing to replay.
+      Either there were no Postgres containers at backup time, or this is
+      a fresh host. Continuing.
+  when:
+    - _available_pg_dumps.matched == 0
+    - not (_pg_replay_post_restore_marker.stat.exists | bool)
+
+- name: "pg_replay: currently running containers"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - ps
+      - --format
+      - "{{ '{{' }}.Names{{ '}}' }}"
+  register: _running_containers
+  changed_when: false
+  when: _available_pg_dumps.matched > 0
+
+# Topological-sort the per-basename replay order. Without this,
+# the embedded shell script falls back to lex order, which can replay
+# a dependent app's DB before its dependency's, leaving cross-db
+# references pointing at not-yet-created rows. Catalog entries declare
+# `pg_replay_depends_on:` (basenames whose dumps must replay first);
+# the `pg_replay_order` filter (filter_plugins/topo_sort.py) computes
+# the topological order and we feed it to the shell as TOPO_ORDER.
+# An empty TOPO_ORDER means lex-sort fallback (catalog absent / no
+# deps declared) -- backward compatible.
+- name: "pg_replay: load catenahq/templates catalog (R18 deps)"
+  ansible.builtin.include_tasks: "{{ role_path }}/../../roles/infrastructure/tasks/_templates_catalog_load.yml"
+  when: _available_pg_dumps.matched > 0
+
+- name: "pg_replay: compute topological replay order from catalog"
+  ansible.builtin.set_fact:
+    _pg_replay_dump_basenames: >-
+      {{
+        (_available_pg_dumps.files | map(attribute='path') | list)
+        | map('basename')
+        | map('regex_replace', '-[0-9]+T[0-9]+Z[.]sql[.]gz$', '')
+        | unique | list
+      }}
+  when: _available_pg_dumps.matched > 0
+
+- name: "pg_replay: derive ordered basenames"
+  ansible.builtin.set_fact:
+    _pg_replay_topo_order: >-
+      {{
+        _pg_replay_dump_basenames
+        | pg_replay_order(dokploy_template_catalog | default([]))
+      }}
+  when: _available_pg_dumps.matched > 0
+
+- name: "pg_replay: log replay order"
+  ansible.builtin.debug:
+    msg: |
+      pg_replay basename order ({{ _pg_replay_topo_order | length }}):
+      {{ _pg_replay_topo_order | join(' -> ') }}
+  when:
+    - _available_pg_dumps.matched > 0
+    - _pg_replay_topo_order | default([]) | length > 0
+
+- name: "pg_replay: replay (scope={{ pg_replay_scope | default('all') }})"
+  ansible.builtin.shell:
+    cmd: |
+      {% raw %}
+      set -u
+      {% endraw %}
+      PG_DIR="{{ storage_mount_point }}/backup-staging/pg"
+      DEFAULT_PG_USER="{{ backup_pg_dump_user }}"
+      RUNNING="{{ _running_containers.stdout }}"
+      SCOPE="{{ pg_replay_scope | default('all') }}"
+      # R18: caller passes a space-separated topological order. Empty
+      # means lex-sort fallback. Space (not newline) because Jinja's
+      # join('\n') in this scalar context emits a literal backslash+n
+      # (2 chars), not LF -- and basenames cannot contain spaces.
+      TOPO_ORDER="{{ (_pg_replay_topo_order | default([])) | join(' ') }}"
+      {% raw %}
+      rc_any=0
+
+      log() { echo "[pg_replay] $*"; }
+
+      # Pause downstream postgres consumers so liquibase / app startup
+      # can't reconnect mid-section and race ADD PRIMARY KEY against
+      # COPY-loaded rows. Surfaced as databasechangeloglock_pkey
+      # duplicate-key error during rollback's keycloak-db replay -- the
+      # rolled-back stack still had keycloak compose running, and once
+      # CREATE DATABASE in the per-db section recreated the db, the
+      # keycloak role (db owner) reconnected and INSERTed its own
+      # liquibase id=1 row before the dump's COPY landed; ADD PRIMARY
+      # KEY then saw two rows with id=1.
+      #
+      # ALLOW_CONNECTIONS=false does NOT block db owners or superusers,
+      # so a SQL-level guard inside the section is insufficient. Pausing
+      # the consumer container is the only reliable block.
+      #
+      # Excludes: every postgres / db container (replay targets, must
+      # stay live), cloudflared (tunnel reachability), and core dokploy
+      # swarm services (swarm health checks would reschedule them on
+      # pause). Everything else is a candidate.
+      PAUSE_EXCLUDE_RE='^(dokploy|dokploy-postgres|dokploy-redis|dokploy-traefik|cloudflared)(\.[0-9]+\.[a-z0-9]+)?$|^[a-z0-9-]+-postgres(\.[0-9]+\.[a-z0-9]+)?$|^[a-z0-9-]+-db-[0-9]+$'
+      PAUSED_LIST=""
+      unpause_paused() {
+          for c in $PAUSED_LIST; do
+              docker unpause "$c" >/dev/null 2>&1 || true
+          done
+      }
+      trap unpause_paused EXIT
+
+      for r in $RUNNING; do
+          if ! printf '%s\n' "$r" | grep -qE "$PAUSE_EXCLUDE_RE"; then
+              if docker pause "$r" >/dev/null 2>&1; then
+                  PAUSED_LIST="$PAUSED_LIST $r"
+              fi
+          fi
+      done
+      if [ -n "$PAUSED_LIST" ]; then
+          log "PAUSED for replay:$PAUSED_LIST"
+      fi
+
+      # Iterate dump basenames (filename minus -<ISO>.sql.gz suffix).
+      # When TOPO_ORDER is non-empty, walk that order; otherwise fall
+      # back to lex-sorted directory listing (legacy behavior).
+      if [ -n "$TOPO_ORDER" ]; then
+          basename_iter="$TOPO_ORDER"
+      else
+          basename_iter=$(ls -1 "$PG_DIR" 2>/dev/null | sed -E 's/-[0-9]+T[0-9]+Z[.]sql[.]gz$//' | sort -u)
+      fi
+      for basename in $basename_iter; do
+
+          case "$SCOPE" in
+              dokploy)
+                  [ "$basename" = "dokploy-postgres" ] || continue
+                  ;;
+              clients)
+                  [ "$basename" = "dokploy-postgres" ] && continue
+                  ;;
+              all)
+                  : ;;
+          esac
+
+          # Resolve basename -> live container name (handles swarm
+          # `<basename>.<replica>.<task>` AND plain compose names).
+          # Retries for ~2 min: post_restore_redeploy.yml's
+          # "wait for each compose to settle" returns when Dokploy
+          # reports composeStatus=running, which flips true the moment
+          # `docker compose up` EXITS, NOT when individual non-app
+          # services (postgres, redis) finish starting. Bench
+          # worm_round_trip Run 2026-05-09T20-40-22 saw the nextcloud
+          # `app` container in docker ps several seconds before its
+          # `db` peer; the pg_replay basename `nextcloud-XXX-db-1`
+          # therefore missed in a single-shot resolve and
+          # `oc_filecache` stayed empty when the replay never ran.
+          # Retry the whole RUNNING re-read each pass so newly-started
+          # containers appear without re-invoking the outer loop.
+          container=""
+          for resolve_attempt in $(seq 1 30); do
+              RUNNING_NOW=$(docker ps --format '{{.Names}}' 2>/dev/null)
+              for r in $RUNNING_NOW; do
+                  if [ "$r" = "$basename" ]; then container="$r"; break; fi
+                  stripped=$(printf '%s' "$r" | sed -E 's/\.[0-9]+\.[a-z0-9]+$//')
+                  if [ "$stripped" = "$basename" ]; then container="$r"; break; fi
+              done
+              [ -n "$container" ] && break
+              sleep 4
+          done
+          if [ -z "$container" ]; then
+              log "SKIP: no running container matches basename '$basename' (scope=$SCOPE) after ~2min wait"
+              continue
+          fi
+
+          # Most recent dump (lex order = time order; ISO-basic UTC ts).
+          dump=$(ls -1 "$PG_DIR"/${basename}-*.sql.gz 2>/dev/null | tail -n1)
+          if [ -z "$dump" ]; then
+              log "SKIP: $basename -- no matching dump file"
+              continue
+          fi
+
+          # Per-container superuser (mirrors run-backup.sh detection).
+          PG_USER=$(timeout 5 docker exec "$container" sh -c 'printf %s "${POSTGRES_USER:-}"' 2>/dev/null | tr -d '\r\n')
+          [ -z "$PG_USER" ] && PG_USER="$DEFAULT_PG_USER"
+
+          # Wait for pg_isready (3 min cap). Post-DR redeploy, Keycloak +
+          # Nextcloud Postgres containers can take 2-3 min to settle past
+          # pg_isready (init scripts replay schemas, build pg_stat_*
+          # views, etc.). The previous 60 s cap silently dropped slow
+          # starters via `continue`, leaving the per-db replay loop
+          # skipping the DB and producing an empty target DB -- the
+          # operator only noticed when the app failed to authenticate.
+          # 90 iterations of 2 s = 180 s; mid-loop log at iteration 30
+          # surfaces the slow-settle case in the journal so an operator
+          # can correlate with the slow container.
+          ready=0
+          for i in $(seq 1 90); do
+              if timeout 5 docker exec "$container" pg_isready -U "$PG_USER" >/dev/null 2>&1; then
+                  ready=1; break
+              fi
+              if [ "$i" -eq 30 ]; then
+                  log "WAIT: $container not yet pg_isready after 60s; continuing up to 180s"
+              fi
+              sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+              log "FAIL: $container did not become pg_isready within 180s"
+              rc_any=1
+              continue
+          fi
+
+          # Extract the list of TARGET databases from the dump (per-db
+          # sections) -- skip postgres + template1 (system dbs that
+          # pg_dumpall always includes per-db sections for, but which
+          # we never want to drop here).
+          #
+          # The previous regex was `"[^"]+"` which silently dropped any
+          # DB name containing a literal quote (pg_dumpall escapes it
+          # in the dump section header as `\"`). The current regex
+          # accepts an escaped-quote sequence inside the name; the
+          # post-extraction `sed s/\\"/"/g` un-escapes for the DROP +
+          # CREATE that follow. Today no Dokploy-managed DB has a
+          # quote (slug-form names only), but a client manually
+          # creating `"prod-2026"` would hit the silent-skip without
+          # this fix.
+          target_dbs=$(zcat "$dump" 2>/dev/null \
+              | grep -E '^-- Database "([^"\\]|\\.)+" dump$' \
+              | sed -E 's/^-- Database "(([^"\\]|\\.)+)" dump$/\1/' \
+              | sed -E 's/\\"/"/g' \
+              | grep -vE '^(postgres|template1)$' \
+              || true)
+          if [ -z "$target_dbs" ]; then
+              log "WARN: dump $dump has no user-db per-db sections; skipping"
+              continue
+          fi
+
+          # DR path role recreation. The cluster-level role section at
+          # the top of the dump is intentionally skipped (DROP ROLE on
+          # the active dokploy session would kill us; pg_password_
+          # reconcile owns the dokploy password). But per-db sections
+          # contain ALTER DATABASE ... OWNER + ALTER TABLE ... OWNER
+          # statements that REFERENCE roles. On a fresh cluster the
+          # dokploy role exists (install.sh) but app-specific roles
+          # (keycloak, ...) live only in the dump. ON_ERROR_STOP=1 then
+          # halts on `role "keycloak" does not exist` and the per-db
+          # replay aborts.
+          #
+          # Fix: extract the dump's pre-database globals section, find
+          # CREATE ROLE statements, and replay only those for roles
+          # NOT already on the cluster. The existing-roles filter
+          # automatically excludes dokploy + postgres so their
+          # cluster-managed passwords are never overwritten by the
+          # dump's stale ALTER ROLE WITH PASSWORD lines.
+          first_db_lineno=$(zcat "$dump" 2>/dev/null | grep -nE '^-- Database "' | head -n1 | cut -d: -f1)
+          if [ -n "$first_db_lineno" ] && [ "$first_db_lineno" -gt 1 ]; then
+              pre_db=$(zcat "$dump" 2>/dev/null | sed -n "1,$((first_db_lineno - 1))p")
+              existing_roles=$(timeout 10 docker exec "$container" psql \
+                  -U "$PG_USER" -d postgres -tAc \
+                  "SELECT rolname FROM pg_roles" 2>/dev/null | tr -d '\r')
+              dump_roles=$(printf '%s\n' "$pre_db" | grep -E '^CREATE ROLE [a-zA-Z_][a-zA-Z0-9_]*;' \
+                  | sed -E 's/^CREATE ROLE ([a-zA-Z_][a-zA-Z0-9_]*);.*/\1/' | sort -u)
+              for role in $dump_roles; do
+                  if printf '%s\n' "$existing_roles" | grep -qxF "$role"; then
+                      continue
+                  fi
+                  log "DR ROLE: creating missing role '$role' from dump globals"
+                  role_sql=$(printf '%s\n' "$pre_db" \
+                      | grep -E "^(CREATE|ALTER) ROLE $role[[:space:];]")
+                  if [ -z "$role_sql" ]; then
+                      log "FAIL: no CREATE/ALTER ROLE statements found for '$role'"
+                      rc_any=1
+                      continue
+                  fi
+                  if ! printf '%s\n' "$role_sql" | timeout 30 docker exec -i "$container" psql \
+                      -U "$PG_USER" -d postgres -v ON_ERROR_STOP=1 >/dev/null 2>&1; then
+                      log "FAIL: applying role '$role' from dump globals"
+                      rc_any=1
+                      continue
+                  fi
+              done
+          fi
+
+          for db in $target_dbs; do
+              log "REPLAY: db='$db' from $dump into $container (user=$PG_USER)"
+
+              # Skip the DROP block if the db doesn't yet exist (DR path
+              # after a fresh dokploy-postgres bootstrap: only `dokploy`
+              # exists; `keycloak` and any client-app dbs live only in
+              # the dump). ALTER DATABASE has no IF EXISTS, so running
+              # the four-statement DROP block against a missing db
+              # fails on the first statement under ON_ERROR_STOP=1.
+              # The per-db replay section creates the db itself, so
+              # skipping straight to replay is correct here.
+              db_exists=$(timeout 10 docker exec "$container" psql \
+                  -U "$PG_USER" -d postgres -tAc \
+                  "SELECT 1 FROM pg_database WHERE datname='$db'" \
+                  2>/dev/null | tr -d '[:space:]')
+              if [ "$db_exists" = "1" ]; then
+                  # Drop the target db. Closing the reconnect race
+                  # needs both halves:
+                  #   1. ALTER DATABASE ... WITH ALLOW_CONNECTIONS =
+                  #      false blocks new sessions. Without this,
+                  #      swarm-managed clients (dokploy-app, etc.)
+                  #      reconnect within ms of pg_terminate_backend
+                  #      SIGTERMing them and DROP then fails with
+                  #      "database is being accessed by other users".
+                  #   2. DROP DATABASE ... WITH (FORCE) (PG13+)
+                  #      atomically terminates any backend still
+                  #      cleaning up after SIGTERM and drops the db in
+                  #      one statement. Plain DROP DATABASE has no
+                  #      internal retry.
+                  # Use four separate `-c` flags -- each runs as its
+                  # own implicit transaction on the same psql
+                  # connection. Combining them into one `-c` would
+                  # wrap them in a single transaction and
+                  # `DROP DATABASE` cannot run inside a transaction
+                  # block. ALLOW_CONNECTIONS=false is persisted in
+                  # pg_database after the first -c commits, so it
+                  # stays in effect for the later -c flags and
+                  # prevents the reconnect race. Connected to the
+                  # `postgres` db, not `$db`, so DROP can succeed.
+                  # Capture stderr so a failure surfaces the psql
+                  # error message instead of just an opaque rc.
+                  drop_out=$(timeout 60 docker exec "$container" psql \
+                      -U "$PG_USER" -d postgres -v ON_ERROR_STOP=1 \
+                      -c "ALTER DATABASE \"$db\" WITH ALLOW_CONNECTIONS = false" \
+                      -c "REVOKE CONNECT ON DATABASE \"$db\" FROM PUBLIC" \
+                      -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$db' AND pid <> pg_backend_pid()" \
+                      -c "DROP DATABASE IF EXISTS \"$db\" WITH (FORCE)" \
+                      2>&1)
+                  drop_rc=$?
+                  if [ "$drop_rc" -ne 0 ]; then
+                      log "FAIL: DROP DATABASE $db on $container (rc=$drop_rc)"
+                      printf '%s\n' "$drop_out" | sed 's/^/[pg_replay]   psql: /'
+                      rc_any=1
+                      continue
+                  fi
+              else
+                  log "SKIP DROP: db='$db' does not yet exist on $container (DR path)"
+              fi
+
+              # Apply ONLY this db's per-db section. The section
+              # starts with `-- Database "<db>" dump` and ends with
+              # `-- PostgreSQL database dump complete`. Inside it:
+              # CREATE DATABASE, ALTER DATABASE OWNER, \connect,
+              # then schema + data. The cluster-level
+              # DROP/CREATE/ALTER ROLE statements at the top of the
+              # dump are INTENTIONALLY skipped (they break replay
+              # against an already-populated cluster -- see file header).
+              section_extract='/^-- Database "'"$db"'" dump$/,/^-- PostgreSQL database dump complete$/p'
+              psql_cmd="docker exec -i '$container' psql -U '$PG_USER' -d postgres -v ON_ERROR_STOP=1 >/dev/null"
+              if ! timeout 900 bash -c "zcat '$dump' | sed -n '$section_extract' | $psql_cmd"; then
+                  log "FAIL: replay $db into $container (timeout, or see docker logs $container)"
+                  rc_any=1
+                  continue
+              fi
+              log "OK: replayed $db into $container"
+          done
+      done
+
+      if [ "$rc_any" -ne 0 ]; then
+          log "pg_replay: one or more replays failed -- see messages above" >&2
+          exit 1
+      fi
+      exit 0
+      {% endraw %}
+    executable: /bin/bash
+  register: _pg_replay
+  changed_when: "'REPLAY:' in (_pg_replay.stdout | default(''))"
+  when: _available_pg_dumps.matched > 0
+
+- name: "pg_replay: summary output"
+  ansible.builtin.debug:
+    var: _pg_replay.stdout_lines
+  when: _available_pg_dumps.matched > 0

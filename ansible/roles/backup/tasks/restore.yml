@@ -1,0 +1,326 @@
+---
+# Filesystem-level restore into real paths. Runs from restore.yml playbook
+# in two scenarios:
+#
+#   1. DR (fresh VPS): common -> storage -> backup(restore). Docker is
+#      NOT installed yet -- that happens later during site.yml.
+#   2. Rollback (same live VPS): docker + containers ARE running. We
+#      stop the daemon as a pre-task so restic doesn't overwrite state
+#      underneath live containers. site.yml (which follows restore in
+#      the rollback flow) starts docker back up and swarm reconciles.
+#
+# pg_replay (roles/backup/tasks/pg_replay.yml) is a separate mode that
+# replays pg_dumpall into running Dokploy-managed postgres containers.
+# It runs LATER in the same converge: from the dokploy role
+# (scope=dokploy, marker-gated) once dokploy-postgres is up.
+#
+# Contract with site.yml: on success, drop
+# /var/lib/catena/post-restore.needed as a marker. The marker
+# triggers two distinct hooks:
+#   - the dokploy role's pg_replay include (scope=dokploy), inside the
+#     dokploy role mid-converge so downstream roles see the replayed DB;
+#   - site.yml post_tasks include of post_restore_redeploy.yml (Dokploy
+#     compose redeploy via the API).
+# site.yml clears the marker after compose redeploy succeeds.
+
+# ─── Minimal prereqs for restore on a fresh VPS ─────────────────────────
+# A disaster-recovery restore runs on a host where install.yml has never
+# run, so restic isn't installed and the password file doesn't exist.
+# The full install.yml (timer, repo init, initial snapshot) runs later
+# during site.yml; here we only need the binary + creds to execute restic.
+
+# Resolve the effective snapshot id once at the top, so the rest of
+# the role can reference `_restic_snapshot_id` without each task
+# repeating the `default(backup_default_snapshot)` fallback. The
+# default fallback intentionally lives under a role-private name --
+# see roles/backup/defaults/main.yml for why naming it
+# `restore_snapshot` directly broke composed flows.
+- name: "Resolve effective restic snapshot id"
+  ansible.builtin.set_fact:
+    _restic_snapshot_id: "{{ restore_snapshot | default(backup_default_snapshot) }}"
+
+- name: "Prereq -- install restic from upstream GitHub"
+  # Matches roles/backup/tasks/install.yml: /usr/local/bin/restic, pinned
+  # to backup_restic_version, not apt's outdated trixie package.
+  ansible.builtin.include_tasks: ensure_restic.yml
+
+- name: "Prereq -- ensure /etc/catena exists"
+  ansible.builtin.file:
+    path: /etc/catena
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "Prereq -- write restic password file"
+  ansible.builtin.copy:
+    dest: "{{ backup_password_file }}"
+    content: "{{ vault_backup_restic_password }}\n"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+# Disk-space preflight. The DR path runs on a fresh VPS where
+# install.yml has never touched /usr/local/bin, so the helper must be
+# installed inline before the first call. Same source as install.yml.
+- name: "Prereq -- install disk-preflight helper"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../vps-scripts/disk-preflight.sh"
+    dest: "{{ backup_disk_preflight_script }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "Preflight -- verify / has enough free space for restic restore"
+  # Restic's tar-style extract can transiently exceed the snapshot's
+  # logical size; a sub-GB free / would leave a half-restored filesystem
+  # and corrupt the post-restore.needed marker semantics. Fail loudly
+  # before any data is written.
+  ansible.builtin.command:
+    argv:
+      - "{{ backup_disk_preflight_script }}"
+      - /
+      - "{{ restore_preflight_min_bytes | string }}"
+      - restore preflight
+  changed_when: false
+
+# Pre-restore clock-skew gate. restic verifies snapshot signatures
+# against current time (signature has a NotBefore field); a clock that
+# drifted backward refuses snapshots with "snapshot is from the future".
+# Catch the skew before docker is stopped, while the host can still
+# self-correct via systemd-timesyncd.
+- name: "Preflight -- clock is NTP-synchronized"
+  ansible.builtin.command:
+    argv:
+      - timedatectl
+      - show
+      - --property=NTPSynchronized
+      - --property=NTP
+  register: _restore_clock_pre
+  changed_when: false
+  failed_when: false
+
+- name: "Preflight -- assert NTP sync before restore"
+  ansible.builtin.assert:
+    that:
+      - "'NTP=yes' in _restore_clock_pre.stdout"
+      - "'NTPSynchronized=yes' in _restore_clock_pre.stdout"
+    fail_msg: >-
+      Host clock is not NTP-synchronized; restic snapshot signatures
+      and TLS for the S3 endpoint will reject. timedatectl:
+      {{ _restore_clock_pre.stdout | replace('\n', ' | ') }}.
+      Fix: `systemctl enable --now systemd-timesyncd` and wait for
+      NTPSynchronized=yes before re-running.
+
+# Restore is a cold operation -- restoring /mnt/data (and friends)
+# underneath live containers corrupts state. Operators can't stop
+# dokploy / cloudflared / dokploy-traefik by hand: they're swarm
+# services (auto-reconciled) or `restart=always` containers. So we
+# stop the docker daemon itself, which drops every container in one
+# shot. `docker_live_restore` is false for this project (swarm requires
+# it), so stopping docker really does kill containers.
+#
+# Restart: site.yml follows restore in the rollback flow; its docker
+# role starts docker back up, swarm reconciles the services, and
+# restart-policy containers come back. The post-restore.needed marker
+# additionally triggers a full Dokploy compose redeploy.
+
+- name: "Snapshot running containers before stopping docker (for the log)"
+  # Best-effort: if docker isn't installed (fresh-host DR path) this is
+  # a no-op. The captured names land in the play recap so an operator
+  # can eyeball "came up the same as it went down" post-converge.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - ps
+      - --format
+      - "{{ '{{.Names}}' }}"
+  register: _docker_running_before
+  changed_when: false
+  failed_when: false
+
+- name: "Report containers that will be stopped by docker shutdown"
+  ansible.builtin.debug:
+    msg: >-
+      {{ (_docker_running_before.stdout_lines | default([])) | length }}
+      running container(s) before restore:
+      {{ _docker_running_before.stdout_lines | default([]) | join(', ') or '(none)' }}
+  when: _docker_running_before.rc | default(1) == 0
+
+- name: "Stop docker.service + docker.socket (drops all containers atomically)"
+  # docker.socket must go down too, otherwise the first socket probe from
+  # this play (restic metrics scrape, etc.) socket-activates docker back
+  # up mid-restore. ignore_errors covers the fresh-host DR path where
+  # docker isn't installed yet.
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+  loop:
+    - docker.service
+    - docker.socket
+  failed_when: false
+
+- name: "Verify no containers are running after docker stop"
+  # If `docker ps` still returns running containers after stopping the
+  # daemon, something is socket-activating it or the stop didn't take.
+  # Hard-fail before restic writes underneath them.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - ps
+      - -q
+  register: _docker_running_after
+  changed_when: false
+  failed_when: false
+
+- name: "Assert docker is down before restic restore"
+  ansible.builtin.assert:
+    that:
+      - _docker_running_after.rc != 0 or (_docker_running_after.stdout | trim) | length == 0
+    fail_msg: >-
+      Stopped docker.service + docker.socket but `docker ps` still lists
+      running containers. Something is keeping the daemon up (socket
+      activation, watchdog, operator session). Investigate before
+      re-running restore -- writing into /mnt/data under live containers
+      corrupts state.
+
+- name: "Restic restore into / (snapshot {{ _restic_snapshot_id }})"
+  # /var/lib/dpkg is in the backup set so the auto-update two-phase
+  # rollback can downgrade packages in place (scripts/auto-update-
+  # two-phase.sh uses --include to pull it back on a live host). In
+  # the FULL-host restore flow (this task), restoring dpkg state on
+  # top of a fresh Debian creates a phantom-installed bug: dpkg says
+  # "docker-ce installed" from the snapshot, but the binaries in
+  # /usr/bin were never in the snapshot. The subsequent `./catena site`
+  # sees "already installed" and skips, leaving the host without the
+  # actual binaries. Skip /var/lib/dpkg here so site.yml reinstalls
+  # every package cleanly from apt.
+  ansible.builtin.command:
+    argv:
+      - restic
+      - restore
+      - "{{ _restic_snapshot_id }}"
+      - --target
+      - /
+      - --exclude
+      - /var/lib/dpkg
+      # `restic restore --target /` would try to overwrite the restic
+      # binary that's currently running from /usr/local/bin/restic --
+      # the kernel returns ETXTBSY (text file busy) on the open, restic
+      # logs each as "ignoring error" but exits 1 with "Fatal: There
+      # were N errors". The binary is install-time provisioned by the
+      # backup role's ensure_restic.yml; restoring it from snapshot
+      # serves no purpose and breaks the restore path on every DR.
+      - --exclude
+      - /usr/local/bin/restic
+      - --quiet
+  environment: "{{ backup_restic_env }}"
+  no_log: true # env dict carries S3 creds; censor on both paths
+  register: _restic_restore
+  failed_when: false
+  changed_when: _restic_restore.rc == 0
+
+- name: Surface restic stdout/stderr on failure (safe fields only -- no env)
+  ansible.builtin.fail:
+    msg: |
+      restic restore failed (rc={{ _restic_restore.rc | default('unknown') }}):
+
+      stdout:
+      {{ _restic_restore.stdout | default('(empty)') }}
+
+      stderr:
+      {{ _restic_restore.stderr | default('(empty)') }}
+  when: _restic_restore.rc | default(1) != 0
+
+# Post-restore clock-skew gate. Restic restored /etc, which can
+# include systemd-timesyncd state files / drop-ins from the source
+# host that disagree with the target clock. If sync got disturbed,
+# OIDC token validation against Keycloak (issued AFTER the restore)
+# will reject when site.yml reaches the post-restore-redeploy step.
+#
+# Two-step sequence:
+#   1. Restart systemd-timesyncd so the daemon picks up the restored
+#      /etc/systemd/timesyncd.conf + any drop-ins. Without the restart
+#      the running daemon still holds the PRE-restore config in memory
+#      and the NTPSynchronized check below would pass even though the
+#      restored config (e.g. `NTP=pool.invalid`) is broken. The
+#      drift would surface 1-2 days later when the cached clock skew
+#      grows past Keycloak's 60s OIDC tolerance, silently breaking
+#      auth. (Step 7 of the 2026-05-23 ops review).
+#   2. Poll NTPSynchronized=yes for up to 30 s so the restarted
+#      daemon has time to reach a peer + sync.
+# Fail loudly here so the operator fixes the timesyncd config before
+# the post-restore marker triggers downstream hooks.
+
+- name: "Post-restore -- restart systemd-timesyncd to load restored config"
+  # `systemctl restart` is the only way to force the daemon to re-read
+  # /etc/systemd/timesyncd.conf + /etc/systemd/timesyncd.conf.d/*. A
+  # `reload` is not implemented for this unit.
+  ansible.builtin.systemd:
+    name: systemd-timesyncd
+    state: restarted
+  register: _restore_timesyncd_restart
+  # changed=true on every run is expected and not a converge concern --
+  # this task only runs in restore.yml, not on every site.yml pass.
+  changed_when: false
+  failed_when: false
+
+- name: "Post-restore -- poll for NTP resync (up to 30 s)"
+  ansible.builtin.command:
+    argv:
+      - timedatectl
+      - show
+      - --property=NTPSynchronized
+      - --property=NTP
+  register: _restore_clock_post
+  changed_when: false
+  failed_when: false
+  retries: 10
+  delay: 3
+  until: >-
+    'NTPSynchronized=yes' in _restore_clock_post.stdout
+    and 'NTP=yes' in _restore_clock_post.stdout
+
+- name: "Post-restore -- assert NTP sync after restore"
+  ansible.builtin.assert:
+    that:
+      - "'NTP=yes' in _restore_clock_post.stdout"
+      - "'NTPSynchronized=yes' in _restore_clock_post.stdout"
+    fail_msg: >-
+      NTP sync was lost during restore AND did not recover within 30 s
+      of restarting systemd-timesyncd (likely a broken
+      /etc/systemd/timesyncd.conf drop-in from the source host:
+      pool.invalid, unreachable internal NTP server, etc.).
+      timedatectl now reports:
+      {{ _restore_clock_post.stdout | replace('\n', ' | ') }}.
+      Fix: inspect /etc/systemd/timesyncd.conf + /etc/systemd/
+      timesyncd.conf.d/, restore a working NTP server pool (e.g.
+      `NTP=pool.ntp.org`), `systemctl restart systemd-timesyncd`,
+      and wait for sync before letting site.yml's post-restore hooks
+      run (Keycloak OIDC will reject tokens issued under a skewed clock).
+
+# ─── Hand-off to site.yml ───────────────────────────────────────────────
+# Drop a marker so site.yml's post_tasks know to (a) redeploy every
+# Dokploy compose project (containers are stopped post-restore -- image
+# layers aren't in the backup) and (b) replay pg_dumpall into them.
+# Marker is cleared by site.yml after both hooks succeed; operator can
+# `touch` it manually to re-run hooks out-of-band.
+
+- name: "Ensure stats dir exists for post-restore marker ({{ backup_stats_dir }})"
+  ansible.builtin.file:
+    path: "{{ backup_stats_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "Drop post-restore marker for site.yml hooks"
+  ansible.builtin.copy:
+    dest: "{{ backup_stats_dir }}/post-restore.needed"
+    content: |
+      restored_at: {{ ansible_date_time.iso8601 }}
+      snapshot: {{ _restic_snapshot_id }}
+    owner: root
+    group: root
+    mode: "0644"

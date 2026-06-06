@@ -1,0 +1,60 @@
+---
+# attached mode: a second block device (provider volume, Hetzner Volume, DO
+# Block Storage, etc.) is formatted (once) and mounted at storage_mount_point.
+#
+# Idempotency notes:
+#   - community.general.filesystem with force:false is a no-op when the device
+#     already has the requested filesystem. It will REFUSE to reformat a
+#     device that has some other filesystem rather than silently wipe data.
+#   - /etc/fstab is populated BY UUID, not /dev/sdX -- device letters can
+#     reorder across reboots, especially when extra volumes are attached.
+#   - After the first successful run the device stays mounted across reboots;
+#     subsequent plays just verify the mount is still in place.
+
+- name: Assert block device path is set and exists
+  ansible.builtin.stat:
+    path: "{{ storage_block_device }}"
+  register: _storage_block_stat
+  failed_when: not _storage_block_stat.stat.exists or not _storage_block_stat.stat.isblk
+
+- name: Create filesystem on block device (skipped if one already exists)
+  community.general.filesystem:
+    dev: "{{ storage_block_device }}"
+    fstype: "{{ storage_filesystem }}"
+    force: false
+
+- name: Read block device UUID
+  ansible.builtin.command:
+    argv:
+      - blkid
+      - -s
+      - UUID
+      - -o
+      - value
+      - "{{ storage_block_device }}"
+  register: _storage_blkid
+  changed_when: false
+
+- name: Fail if no UUID was returned (filesystem not ready?)
+  ansible.builtin.fail:
+    msg: "blkid returned no UUID for {{ storage_block_device }} -- was the filesystem actually created?"
+  when: (_storage_blkid.stdout | trim) | length == 0
+
+- name: Ensure primary storage mount point exists
+  ansible.builtin.file:
+    path: "{{ storage_mount_point }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Mount block device at storage_mount_point (and persist in fstab by UUID)
+  ansible.posix.mount:
+    path: "{{ storage_mount_point }}"
+    src: "UUID={{ _storage_blkid.stdout | trim }}"
+    fstype: "{{ storage_filesystem }}"
+    opts: "{{ storage_mount_options }}"
+    state: mounted
+
+- name: Create data subdirectories on the freshly mounted volume
+  ansible.builtin.include_tasks: built_in.yml

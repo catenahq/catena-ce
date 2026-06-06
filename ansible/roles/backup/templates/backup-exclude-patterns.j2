@@ -1,0 +1,8 @@
+# {{ ansible_managed }}
+# restic --exclude patterns applied to absolute paths. One per line.
+# Kept in sync with backup_exclude_patterns in roles/backup/defaults/main.yml
+# (and any inventory overrides). See that file for pattern syntax notes
+# and common examples (Nextcloud, Paperless, caches, etc.).
+{% for e in backup_exclude_patterns %}
+{{ e }}
+{% endfor %}

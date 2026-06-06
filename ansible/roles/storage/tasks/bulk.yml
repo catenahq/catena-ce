@@ -1,0 +1,90 @@
+---
+# Optional secondary tier -- CIFS or NFS share mounted alongside the primary
+# storage. Intended for append-heavy, latency-tolerant data (media archives,
+# cold backup staging). DO NOT put databases, Docker data-root, or anything
+# latency-sensitive here -- network shares stall on link blips.
+#
+# Safety-critical mount options: _netdev,nofail. Without both of these a
+# missing or unreachable share at boot will hang systemd indefinitely, turning
+# a degraded-network incident into an unbootable-host incident.
+
+- name: Assert bulk remote is set
+  ansible.builtin.assert:
+    that:
+      - storage_bulk_remote | length > 0
+      - storage_bulk_type in ['cifs', 'nfs']
+    fail_msg: >-
+      storage_bulk_enabled=true but storage_bulk_remote is empty or
+      storage_bulk_type is not cifs|nfs. Fix STORAGE_BULK_* in inventory/<name>/.env.
+
+- name: Install filesystem client package
+  ansible.builtin.apt:
+    name: "{{ 'cifs-utils' if storage_bulk_type == 'cifs' else 'nfs-common' }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Ensure bulk mount point exists
+  ansible.builtin.file:
+    path: "{{ storage_bulk_mount_point }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# CIFS needs a credentials file; NFS does not (auth by source IP / sec=sys).
+- name: Configure CIFS credentials
+  when: storage_bulk_type == 'cifs'
+  block:
+    - name: Assert CIFS credentials are in vault
+      ansible.builtin.assert:
+        that:
+          - vault_storage_bulk_username is defined
+          - vault_storage_bulk_password is defined
+        fail_msg: >-
+          storage_bulk_type=cifs but vault_storage_bulk_username /
+          vault_storage_bulk_password are not defined in the vault.
+
+    - name: Ensure credentials directory exists
+      ansible.builtin.file:
+        path: /etc/catena
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Write CIFS credentials file (root-only)
+      ansible.builtin.copy:
+        dest: /etc/catena/bulk.cifs
+        content: |
+          username={{ vault_storage_bulk_username }}
+          password={{ vault_storage_bulk_password }}
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
+- name: Compute effective bulk mount options
+  ansible.builtin.set_fact:
+    _storage_bulk_effective_opts: >-
+      {%- if storage_bulk_mount_options | length > 0 -%}
+        {{ storage_bulk_mount_options }}
+      {%- elif storage_bulk_type == 'cifs' -%}
+        _netdev,nofail,credentials=/etc/catena/bulk.cifs,uid={{ ops_user }},gid={{ ops_user }},file_mode=0640,dir_mode=0750,iocharset=utf8
+      {%- else -%}
+        _netdev,nofail,soft,timeo=50,retrans=2
+      {%- endif -%}
+
+# Atomicity: ansible.posix.mount with `state: mounted` is the atomic
+# "ensure both mount + fstab" operation -- the module handles the
+# fstab write via temp-file + rename internally and only reports
+# changed when the combined state converged. No separate fstab task
+# needed; don't split this into mount + lineinfile (the split creates
+# a crash window between step 1 and step 2).
+- name: Mount bulk share (and persist in fstab)
+  ansible.posix.mount:
+    path: "{{ storage_bulk_mount_point }}"
+    src: "{{ storage_bulk_remote }}"
+    fstype: "{{ storage_bulk_type }}"
+    opts: "{{ _storage_bulk_effective_opts }}"
+    state: mounted

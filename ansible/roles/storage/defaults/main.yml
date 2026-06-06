@@ -1,0 +1,43 @@
+---
+# storage_mode determines how storage_mount_point is backed:
+#   built_in  -- carve a subdirectory out of the VPS's built-in SSD. No formatting,
+#               no fstab changes for the primary disk. This is the default for OVH VPS
+#               and any provider without attachable block volumes.
+#   attached  -- format and mount a separate block device (e.g. OVH Public Cloud volume,
+#               Hetzner Volume, DO Block Storage) at storage_mount_point. Persisted in
+#               fstab by UUID (device letters like /dev/sdb shift on reboot).
+storage_mode: built_in
+
+storage_mount_point: /mnt/data
+
+# Only used when storage_mode == attached:
+storage_block_device: /dev/sdb
+storage_filesystem: ext4
+storage_mount_options: "defaults,noatime"
+
+# Subdirectory layout under storage_mount_point. Consumed by both built_in and
+# attached modes. Ownership + mode chosen for the consumer:
+#   dokploy        -- Dokploy's own state (configs, deploy history).
+#   apps           -- per-app compose files, logs, bind-mounted app data.
+#   backup-staging -- pg_dumpall output + restic scratch. Ops-owned.
+#   docker         -- Docker daemon data-root. Named volumes live under
+#                    docker/volumes/ and are backed up; image layers under
+#                    docker/overlay2/ are not (reproducible). Mode 0710
+#                    matches what dockerd forces on first start -- we
+#                    create with the same mode so neither Ansible nor the
+#                    daemon fights the other on re-runs.
+storage_data_subdirs:
+  - { name: dokploy, owner: root, group: root, mode: "0755" }
+  - { name: apps, owner: "{{ ops_user }}", group: "{{ ops_user }}", mode: "0755" }
+  - { name: backup-staging, owner: "{{ ops_user }}", group: "{{ ops_user }}", mode: "0750" }
+  - { name: docker, owner: root, group: root, mode: "0710" }
+
+# Optional bulk tier (Hetzner Storage Box / NFS share / client NAS over tailnet).
+# Runs regardless of storage_mode. Use ONLY for append-only data (media,
+# archives) -- never as DB storage or Docker data-root; latency + availability
+# characteristics are wrong for those.
+storage_bulk_enabled: false
+storage_bulk_mount_point: /mnt/bulk
+storage_bulk_type: cifs # or nfs
+storage_bulk_remote: "" # e.g. //u123456.your-storagebox.de/backup, or server:/export
+storage_bulk_mount_options: "" # type-specific default applied when empty

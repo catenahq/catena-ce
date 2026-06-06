@@ -1,0 +1,7 @@
+# {{ ansible_managed }}
+# Paths restic walks recursively on the nightly run. One per line,
+# blank lines and `#` comments ignored. Kept in sync with backup_paths
+# in roles/backup/defaults/main.yml (and any inventory overrides).
+{% for p in backup_paths %}
+{{ p }}
+{% endfor %}
