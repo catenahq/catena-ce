@@ -1,0 +1,9 @@
+# Go build artifacts
+/bin/
+*.test
+*.out
+coverage.*
+
+# Editor / OS
+.DS_Store
+*.swp
