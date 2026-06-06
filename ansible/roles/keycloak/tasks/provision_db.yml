@@ -1,0 +1,89 @@
+---
+# Provision Keycloak's database + role inside dokploy-postgres.
+#
+# Why here and not via roles/dokploy: dokploy/postgres bootstrapping
+# is the swarm-secret + install.sh path, scoped to the `dokploy` DB.
+# Per-app DBs are app-role concerns.
+#
+# Idempotency: `CREATE ROLE` + `CREATE DATABASE` are not IF-NOT-EXISTS
+# in vanilla psql, so we render a SQL script that wraps the role
+# creation in a DO block and gates the DB creation on a pg_database
+# existence probe (run as a separate task because CREATE DATABASE
+# cannot run inside a transaction block).
+#
+# Atomicity: gated on dokploy-postgres being `running`. Per project
+# memory `feedback_pg_password_state_machine`, dokploy-postgres becoming
+# reachable AFTER this point is the dokploy role's invariant, not ours.
+#
+# SQL rendered to /root and piped via stdin instead of inlined in
+# `command:`/`shell:` argv -- ansible-core 2.20's stricter arg scanner
+# trips on Jinja-rendered SQL embedded in a shell heredoc (same root
+# cause as the Healthchecks seed-script-to-file refactor recorded in
+# memory `feedback_pg_password_state_machine`).
+
+- name: "Keycloak DB: find dokploy-postgres swarm task"
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
+      | grep -E '^dokploy-postgres\..*' \
+      | head -n1
+  args:
+    executable: /bin/bash
+  register: _kc_pg_container
+  changed_when: false
+  retries: 30
+  delay: 4
+  until: _kc_pg_container.stdout | length > 0
+
+# dokploy-postgres ships POSTGRES_USER=dokploy (no `postgres` superuser
+# exists). Detect the live superuser from the container env so this
+# role survives any future Dokploy default-user change. Mirrors the
+# pattern used in roles/backup/tasks/pg_replay.yml.
+- name: "Keycloak DB: detect POSTGRES_USER from dokploy-postgres env"
+  ansible.builtin.shell: >-
+    docker exec {{ _kc_pg_container.stdout | quote }}
+    sh -c 'printf %s "${POSTGRES_USER:-}"'
+  args:
+    executable: /bin/bash
+  register: _kc_pg_superuser_probe
+  changed_when: false
+
+- name: "Keycloak DB: set POSTGRES_USER fact (fallback to `postgres` if env unset)"
+  ansible.builtin.set_fact:
+    _kc_pg_superuser: "{{ (_kc_pg_superuser_probe.stdout | trim) or 'postgres' }}"
+
+- name: "Keycloak DB: probe whether `keycloak` database already exists"
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker exec -i {{ _kc_pg_container.stdout | quote }} \
+      psql -U {{ _kc_pg_superuser | quote }} -tAc "SELECT 1 FROM pg_database WHERE datname='{{ keycloak_db_name }}'"
+  args:
+    executable: /bin/bash
+  register: _kc_db_exists
+  changed_when: false
+
+- name: "Keycloak DB: render provisioner SQL to /root"
+  ansible.builtin.template:
+    src: provision-db.sql.j2
+    dest: /root/catena-keycloak-provision-db.sql
+    owner: root
+    group: root
+    mode: "0600"
+  vars:
+    keycloak_db_create: "{{ (_kc_db_exists.stdout | trim) != '1' }}"
+  changed_when: false # idempotent reconciliation; don't noisy-up the run
+  no_log: true # hides the rendered password embedded in the script
+
+- name: "Keycloak DB: apply provisioner SQL"
+  ansible.builtin.shell: >-
+    docker exec -i {{ _kc_pg_container.stdout | quote }}
+    psql -U {{ _kc_pg_superuser | quote }} -d postgres
+    < /root/catena-keycloak-provision-db.sql
+  args:
+    executable: /bin/bash
+  register: _kc_provision_apply
+  changed_when:
+    - _kc_provision_apply.rc == 0
+    - >-
+      'CREATE ROLE' in (_kc_provision_apply.stdout | default(''))
+      or 'CREATE DATABASE' in (_kc_provision_apply.stdout | default(''))

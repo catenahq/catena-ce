@@ -1,0 +1,77 @@
+# {{ ansible_managed }}
+# Static Keycloak clients for the self-hosted mailserver template.
+#
+# Two clients:
+#   1. `roundcube` -- confidential auth-code client for the Roundcube
+#      webmail browser login. Roundcube redeems the code for an access
+#      token and uses it (XOAUTH2) to authenticate to Dovecot/Postfix.
+#   2. `mailserver-introspect` -- confidential service client whose
+#      id/secret docker-mailserver uses to call Keycloak's token
+#      introspection endpoint (RFC 7662 requires the CALLER to
+#      authenticate; there is no anonymous introspection). ops drops
+#      these creds into dovecot-oauth2.conf.ext.
+#
+# Lives in the same /config dir as realm-vps.yaml so keycloak-config-cli's
+# IMPORT_FILES_LOCATIONS=/config/*.yaml glob picks it up. NO_DELETE merge
+# semantics (realm_bootstrap.yml) preserve the base realm and add these.
+#
+# Gotcha (roundcube #8178): Roundcube fails OAuth login when the token
+# exceeds 1024 chars. A fat `groups` claim is the usual cause, and
+# Roundcube does NOT need groups (it only needs the user identity to
+# log into the mailbox). So the `roundcube` client deliberately OMITS
+# the groups scope -- access control to a mailbox is "the mailbox
+# exists for this Keycloak user", enforced by docker-mailserver, not by
+# a groups claim.
+
+realm: {{ keycloak_realm }}
+
+clients:
+  - clientId: "roundcube"
+    name: "catena Roundcube webmail"
+    description: "OIDC auth-code login for Roundcube; token used as XOAUTH2 to Dovecot/Postfix."
+    enabled: true
+    publicClient: false
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    secret: "{{ vault_mailserver_oidc_client_secret }}"
+    redirectUris:
+      - "https://webmail.{{ cloudflare_zone }}/index.php/login/oauth"
+    webOrigins:
+      - "+"
+    # NOTE: groups intentionally excluded (see header -- token-size guard).
+    defaultClientScopes:
+      - profile
+      - email
+      - roles
+      - web-origins
+    optionalClientScopes:
+      - phone
+      - address
+      - microprofile-jwt
+    attributes:
+      access.token.lifespan: "3600"
+      # Roundcube's OAuth client does not send a PKCE challenge for a
+      # confidential client; clear any inherited attribute. Same posture
+      # as realm-nextcloud / realm-element.
+      pkce.code.challenge.method: ""
+      post.logout.redirect.uris: "https://webmail.{{ cloudflare_zone }}/*"
+
+  - clientId: "mailserver-introspect"
+    name: "catena mailserver token introspection"
+    description: "Service client; docker-mailserver authenticates to /token/introspect with these creds (RFC 7662)."
+    enabled: true
+    publicClient: false
+    standardFlowEnabled: false
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    # Service account so the client can authenticate itself to the
+    # introspection endpoint via client_credentials.
+    serviceAccountsEnabled: true
+    secret: "{{ vault_mailserver_introspect_client_secret }}"
+    # No browser redirect -- this client never does an auth-code flow.
+    redirectUris: []
+    webOrigins: []
+    attributes:
+      access.token.lifespan: "3600"

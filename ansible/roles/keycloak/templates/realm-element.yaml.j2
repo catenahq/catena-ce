@@ -1,0 +1,60 @@
+# {{ ansible_managed }}
+# Static Keycloak client for Element / Matrix Synapse's OIDC flow.
+#
+# Synapse reads the OIDC client_id + client_secret + issuer from its
+# homeserver.yaml at boot (rendered by the element template's
+# catena-synapse-init.py from env vars). The Dokploy template passes
+# OIDC_CLIENT_SECRET={{ '{{' }} vault_element_oidc_client_secret {{ '}}' }} into
+# the synapse service environment, so registering the matching client
+# here -- with the same secret -- lets the discovery URL work the
+# moment the operator clicks Deploy in the Dokploy UI.
+#
+# This file lives in the same /config dir as realm-vps.yaml so
+# keycloak-config-cli's IMPORT_FILES_LOCATIONS=/config/*.yaml glob
+# picks it up. NO_DELETE merge semantics (set in realm_bootstrap.yml)
+# preserve the base realm and add this client.
+#
+# Per-call REST credentials for TURN are HMAC-SHA1 over the shared
+# vault_turn_static_auth_secret -- not Keycloak's business. This file
+# governs only browser-to-homeserver login.
+
+realm: {{ keycloak_realm }}
+
+clients:
+  - clientId: "element"
+    name: "catena Element / Matrix"
+    description: "OIDC for Synapse (Matrix homeserver behind Element web)."
+    enabled: true
+    publicClient: false
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    secret: "{{ vault_element_oidc_client_secret }}"
+    # Synapse's OIDC callback path is well-known + version-stable.
+    redirectUris:
+      - "https://matrix.{{ cloudflare_zone }}/_synapse/client/oidc/callback"
+    webOrigins:
+      - "+"
+    defaultClientScopes:
+      - groups
+      - profile
+      - email
+      - roles
+      - web-origins
+    optionalClientScopes:
+      - phone
+      - address
+      - microprofile-jwt
+    attributes:
+      access.token.lifespan: "3600"
+      # Synapse's OIDC client does not send code_challenge by default
+      # for confidential clients. Explicit empty string clears any
+      # inherited attribute (config-cli merges, does not replace).
+      # Same posture as realm-nextcloud.yaml.j2.
+      pkce.code.challenge.method: ""
+      # Post-logout: Element web sends users back to the Element root
+      # after Keycloak signs them out. Wildcard covers any subpath the
+      # Synapse logout flow might land on without widening the security
+      # boundary -- same origin as the login redirectUri.
+      post.logout.redirect.uris: "https://element.{{ cloudflare_zone }}/*"

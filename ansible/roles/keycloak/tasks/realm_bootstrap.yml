@@ -1,0 +1,471 @@
+---
+# Realm bootstrap via keycloak-config-cli (adorsys/keycloak-config-cli).
+#
+# Idempotency: keycloak-config-cli's default import behavior is "merge"
+# (existing entities reconciled by identifier; new entities created;
+# absent entities NOT removed unless explicitly listed with
+# `state: absent`). Re-running this task on every converge is safe and
+# cheap.
+#
+# Atomicity: gated on Keycloak's /health/ready (set by tasks/validate.yml's
+# in-container probe -- which runs AFTER tasks/compose.yml). Per project
+# CLAUDE.md, the import MUST NOT race the server's own first-boot
+# migrate; /health/ready is the canonical "migrations are done" signal,
+# stronger than "container exists in docker ps".
+
+# DR detection: realm + clients + users come back via the
+# dokploy-postgres pg_dumpall replay. Re-importing on top of that
+# triggers Keycloak 500s on user-create (Phase Two image returns 500
+# instead of 409 on the duplicate-username path), so on a post-
+# restore converge we skip the entire keycloak-config-cli step. The
+# next operator-driven converge (after the marker is cleared by
+# site.yml's post_tasks) follows the normal idempotent path.
+- name: "Keycloak realm: probe post-restore marker"
+  ansible.builtin.stat:
+    path: "{{ backup_stats_dir }}/post-restore.needed"
+  register: _keycloak_realm_post_restore_marker
+
+- name: "Keycloak realm: ensure host-side realm dir"
+  ansible.builtin.file:
+    path: "{{ keycloak_realm_host_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# Reconcile-not-overwrite: the realm template renders the smtpServer
+# block ONLY on the first install. Subsequent re-imports omit it so
+# keycloak-config-cli's MERGE semantics preserve whatever the client
+# may have edited (admin UI -> Realm settings -> Email tab).
+# Operator-driven SMTP rotation goes through the runbook (rotate at
+# upstream provider, edit Dokploy env tab, optionally rm the marker
+# below to force a re-bootstrap from vault).
+# On a post-restore converge the marker doesn't exist on disk (it
+# lives under /var/lib/catena/, which is NOT in backup_paths -- only
+# /etc + /mnt/data + /var/lib/dpkg + /usr/local/bin are). But the
+# restored dokploy-postgres DB already carries the smtpServer config
+# from the source host (pg_dumpall replay path). Drop the marker
+# pre-import so the "render without smtpServer" + "skip mark" paths
+# below both behave the same way they would on a normal converge.
+# Without this, stage-2.5-idempotency-rerun reports one change (the
+# mark task firing for the first time post-DR).
+- name: "Keycloak realm: drop SMTP marker on post-restore converge"
+  ansible.builtin.file:
+    path: /var/lib/catena/keycloak-realm-smtp-bootstrapped
+    state: touch
+    owner: root
+    group: root
+    mode: "0644"
+  when: _keycloak_realm_post_restore_marker.stat.exists | default(false)
+  changed_when: false
+
+- name: "Keycloak realm: probe SMTP-bootstrap marker"
+  ansible.builtin.stat:
+    path: /var/lib/catena/keycloak-realm-smtp-bootstrapped
+  register: _kc_smtp_marker
+
+# realm_bootstrap.yml is included from BOTH roles/keycloak/tasks/main.yml
+# AND roles/oauth2_proxy/tasks/main.yml (the latter calls back here to
+# re-import the realm after rendering its own client. Mirrors the
+# pattern oauth2_proxy uses for realm-oauth2-proxy.yaml.j2). Ansible's
+# template lookup uses the CALLING role's templates/ dir, so when the
+# call comes from oauth2_proxy this template wouldn't resolve. Use an
+# explicit playbook_dir-relative path so it works from either caller.
+- name: "Keycloak realm: render realm config ({{ keycloak_realm }})"
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../roles/keycloak/templates/realm-vps.yaml.j2"
+    dest: "{{ keycloak_realm_host_dir }}/{{ keycloak_realm }}.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    smtp_render_password: "{{ not _kc_smtp_marker.stat.exists }}"
+  register: _keycloak_realm_render
+
+# Service-account client for the host-side dashboard-sync cron. Rendered
+# into the same /config dir so the keycloak-config-cli import below picks
+# it up. Gated on the vault secret being present so realms that predate
+# the per-app gating engine import cleanly (the client is simply absent
+# until the operator adds the key). The dashboard-sync redirect-URI sync
+# no-ops without the client.
+- name: "Keycloak realm: render dashboard-sync service-account client"
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../roles/keycloak/templates/realm-dashboard-sync.yaml.j2"
+    dest: "{{ keycloak_realm_host_dir }}/dashboard-sync.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  when: vault_dashboard_sync_client_secret | default('') | length > 0
+
+# In-container /health/ready re-probe immediately before the import.
+# tasks/validate.yml's probe is run AFTER this file (see main.yml
+# order); we duplicate the probe here so realm-bootstrap is safe to
+# invoke standalone (e.g. `--tags keycloak_realm` without re-running
+# the full role).
+- name: "Keycloak realm: find running server container"
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
+      | grep -E '{{ keycloak_compose_name | dokploy_container_regex(keycloak_server_service) }}' \
+      | head -n1
+  args:
+    executable: /bin/bash
+  register: _keycloak_realm_server_ct
+  changed_when: false
+  retries: 30
+  delay: 4
+  until: _keycloak_realm_server_ct.stdout | length > 0
+
+- name: "Keycloak realm: gate import on /health/ready"
+  # Phase Two image has no curl; use bash + /dev/tcp like validate.yml.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - "{{ _keycloak_realm_server_ct.stdout }}"
+      - bash
+      - -c
+      - >-
+        exec 3<>/dev/tcp/127.0.0.1/{{ keycloak_management_port }} &&
+        printf 'GET {{ keycloak_health_path }} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+        head -1 <&3 | grep -q '200' && echo 200
+  register: _keycloak_realm_health
+  changed_when: false
+  failed_when: false
+  retries: 30
+  delay: 4
+  until:
+    - _keycloak_realm_health.rc == 0
+    - "'200' in (_keycloak_realm_health.stdout | default(''))"
+
+# keycloak-config-cli runs as a one-shot Docker container against the
+# bind-mounted realm dir. We use `docker run --rm` directly rather than
+# Dokploy compose because:
+#   1. It must run to completion + exit, not stay alive (Dokploy's
+#      compose deploy expects long-running services).
+#   2. We need stdout/stderr inline in the Ansible run for diagnostics;
+#      Dokploy buffers logs into its own log surface.
+#   3. The image is operator-internal (not part of the customer-facing
+#      stack) -- no point cluttering the Dokploy app catalog with it.
+#
+# Network: dokploy-network so we can reach keycloak-server:8080 by
+# alias. Pull policy is the default (use cached image if present;
+# fall back to registry pull on first run).
+- name: "Keycloak realm: keycloak-config-cli import-update-merge"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - run
+      - --rm
+      - --network
+      - dokploy-network
+      - -e
+      - "KEYCLOAK_URL=http://{{ keycloak_server_alias }}:{{ keycloak_internal_port }}"
+      - -e
+      - "KEYCLOAK_USER={{ admin_email }}"
+      # KEYCLOAK_PASSWORD is forwarded from the task environment (set
+      # below) rather than spelled out as `KEY=value` on the argv. Argv
+      # is visible in `docker ps`, the host process tree, AND any Ansible
+      # log sink that captures the command line. Forwarding from env
+      # keeps the cleartext out of all three surfaces.
+      - -e
+      - KEYCLOAK_PASSWORD
+      - -e
+      - "KEYCLOAK_AVAILABILITYCHECK_ENABLED=true"
+      - -e
+      - "KEYCLOAK_AVAILABILITYCHECK_TIMEOUT=120s"
+      - -e
+      - "IMPORT_FILES_LOCATIONS=/config/*.yaml"
+      - -e
+      - "IMPORT_VAR_SUBSTITUTION_ENABLED=false"
+      # NO_DELETE for managed entities -- per-client YAMLs (nextcloud,
+      # oauth2-proxy, olivetin, etc.) each contain only THEIR one
+      # client. With the default FULL behavior, each import
+      # silently DELETES every other client because they're not in
+      # the file's `clients:` array. Result: only the last-imported
+      # client (alphabetically -- olivetin) survives, and the rest
+      # are gone -- the apps that depend on them then fail with
+      # "Client not found" at the OIDC auth endpoint.
+      #
+      # NO_DELETE flips merge semantics from "the file is the
+      # complete state" to "the file is a delta to apply". Since our
+      # per-client files are in fact deltas (one client each), this
+      # is the correct mode. The base realm (vps.yaml) does not
+      # declare any clients, so it is unaffected.
+      #
+      # Same reasoning applies to groups / users / etc. -- per-app
+      # files only declare their own group memberships and we want
+      # them merged, not used as a complete-state replacement.
+      - -e
+      - "IMPORT_MANAGED_CLIENT=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_GROUP=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_REQUIRED_ACTION=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_CLIENT_SCOPE=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_SCOPE_MAPPING=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_COMPONENT=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_SUB_COMPONENT=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_AUTHENTICATION_FLOW=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_IDENTITY_PROVIDER=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_IDENTITY_PROVIDER_MAPPER=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_ROLE=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_CLIENT_AUTHORIZATION_RESOURCES=NO_DELETE"
+      - -v
+      - "{{ keycloak_realm_host_dir }}:/config:ro"
+      - "{{ keycloak_config_cli_image }}"
+  environment:
+    KEYCLOAK_PASSWORD: "{{ vault_admin_password }}"
+  register: _keycloak_realm_import
+  # Tool reports its own changed/no-op state on stdout. Treat as
+  # `changed_when` true if the realm YAML was re-rendered OR the
+  # tool reports it created/updated entities. False positives here
+  # are cheap (idempotent re-import).
+  changed_when:
+    - _keycloak_realm_import.rc == 0
+    - >-
+      _keycloak_realm_render is changed
+      or 'Updated realm' in (_keycloak_realm_import.stdout | default(''))
+      or 'Created realm' in (_keycloak_realm_import.stdout | default(''))
+  # `failed_when: false` so the play doesn't abort BEFORE we get a
+  # chance to surface stdout/stderr through the debug + fail pair
+  # below. no_log: true on THIS task suppresses Ansible's default
+  # task-result log (which echoes the `environment:` block and would
+  # leak vault_admin_password); the registered variable still carries
+  # the stdout/stderr that the debug task explicitly emits next.
+  failed_when: false
+  when: not (_keycloak_realm_post_restore_marker.stat.exists | default(false))
+  no_log: true
+
+# Surface stdout + stderr from the kc-config-cli run. Restricted to
+# the two fields that are SAFE to log -- the env block (which holds
+# vault_admin_password) lives on the task definition above, not in
+# _keycloak_realm_import.* fields. Without this, no_log: true on the
+# parent task blackholes the actual error message and operators are
+# left guessing across the dozens of realm YAMLs that just rendered.
+- name: "Keycloak realm: surface kc-config-cli output on import failure"
+  ansible.builtin.debug:
+    msg:
+      - "kc-config-cli rc={{ _keycloak_realm_import.rc | default('?') }}"
+      - "stdout (last 60 lines):"
+      - "{{ (_keycloak_realm_import.stdout_lines | default([]))[-60:] }}"
+      - "stderr (last 60 lines):"
+      - "{{ (_keycloak_realm_import.stderr_lines | default([]))[-60:] }}"
+  when:
+    - not (_keycloak_realm_post_restore_marker.stat.exists | default(false))
+    - (_keycloak_realm_import.rc | default(0)) != 0
+
+- name: "Keycloak realm: abort the play when kc-config-cli import failed"
+  ansible.builtin.fail:
+    msg: >-
+      keycloak-config-cli import-update-merge failed with
+      rc={{ _keycloak_realm_import.rc | default('?') }}. See the
+      preceding debug task for stdout/stderr; common causes are an
+      invalid YAML in {{ keycloak_realm_host_dir }}/*.yaml, a missing
+      vault-derived value (e.g. vault_dashboard_sync_client_secret)
+      that left a Jinja placeholder un-substituted, or a Keycloak
+      Phase Two version drift that the import schema does not yet
+      handle.
+  when:
+    - not (_keycloak_realm_post_restore_marker.stat.exists | default(false))
+    - (_keycloak_realm_import.rc | default(0)) != 0
+
+# Reconcile-not-overwrite: write the SMTP marker after the FIRST
+# successful import, so subsequent runs render the realm template
+# without the smtpServer block. Operator can `rm` the marker to
+# force a re-bootstrap of SMTP from vault.
+- name: "Keycloak realm: mark SMTP as bootstrapped"
+  ansible.builtin.file:
+    path: /var/lib/catena/keycloak-realm-smtp-bootstrapped
+    state: touch
+    owner: root
+    group: root
+    mode: "0644"
+  when:
+    - smtp_enabled | bool
+    - not _kc_smtp_marker.stat.exists
+    - not (_keycloak_realm_post_restore_marker.stat.exists | default(false))
+    - (_keycloak_realm_import.rc | default(1)) == 0
+
+# ─── Clear the "temporary admin" marker on the master-realm bootstrap user ───
+#
+# Keycloak 26's `KC_BOOTSTRAP_ADMIN_*` env vars create the first master-
+# realm admin AND tag the user with `is_temporary_admin=true` (set in
+# ApplianceBootstrap.java via UserModel.IS_TEMP_ADMIN_ATTR_NAME). The
+# admin console reads this attribute via the WhoAmI endpoint
+# (AdminConsole.java) and renders a yellow banner urging the operator
+# to "create a permanent admin account and delete the temporary one".
+#
+# In our automated stack the bootstrap admin IS the permanent admin
+# (single-operator, password lives in vault, rotated via vault edit).
+# The banner is noise. Clear the attribute so the WhoAmI check
+# returns false and the banner stays hidden.
+#
+# Two-step because Keycloak 26's master realm has
+# `unmanagedAttributePolicy=DISABLED` by default: any attempt to
+# modify a user attribute that isn't in the declared user-profile
+# (`username`, `email`, `firstName`, `lastName`, etc.) is SILENTLY
+# DROPPED -- the kcadm update returns rc=0 but the value doesn't
+# change. Workaround: flip the policy to ENABLED, clear the attr,
+# flip back to DISABLED. Both transitions are idempotent.
+
+- name: "Keycloak realm: kcadm login to master (for temp-admin cleanup)"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - "{{ _keycloak_realm_server_ct.stdout }}"
+      - /opt/keycloak/bin/kcadm.sh
+      - config
+      - credentials
+      - --server
+      - "http://localhost:{{ keycloak_internal_port }}"
+      - --realm
+      - master
+      - --user
+      - "{{ admin_email }}"
+      - --password
+      - "{{ vault_admin_password }}"
+  changed_when: false
+  no_log: true
+
+- name: "Keycloak realm: look up bootstrap admin user-id in master"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - "{{ _keycloak_realm_server_ct.stdout }}"
+      - /opt/keycloak/bin/kcadm.sh
+      - get
+      - users
+      - -r
+      - master
+      - -q
+      - "username={{ admin_email }}"
+      - --fields
+      - id,attributes
+  register: _master_admin_lookup
+  changed_when: false
+  failed_when: false
+
+- name: "Keycloak realm: parse bootstrap admin id + temp-admin marker"
+  ansible.builtin.set_fact:
+    # `default('[]', true)` fires when stdout is falsy (undefined OR
+    # empty string), not just undefined. kcadm.sh get users (above) has
+    # failed_when:false so a transient master-realm hiccup yields an
+    # empty string; without the truthy-default, from_json('') raises
+    # and bombs the converge. The downstream clear-temp-admin block is
+    # already gated on `_master_admin_id | length > 0`, so falling
+    # through with id='' is the correct no-op.
+    _master_admin_id: >-
+      {{
+        ((_master_admin_lookup.stdout | default('[]', true) | from_json)
+         | first | default({})).get('id', '')
+      }}
+    _master_admin_is_temp: >-
+      {{
+        ((((_master_admin_lookup.stdout | default('[]', true) | from_json)
+           | first | default({})).get('attributes', {}) or {})
+         .get('is_temporary_admin', ['false'])
+         | first | default('false')) | lower == 'true'
+      }}
+
+- name: "Keycloak realm: clear is_temporary_admin marker (skip if already gone)"
+  when:
+    - (_master_admin_id | default('')) | length > 0
+    - _master_admin_is_temp | bool
+  block:
+    - name: "Keycloak realm: read master users-profile (capture current policy)"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ _keycloak_realm_server_ct.stdout }}"
+          - /opt/keycloak/bin/kcadm.sh
+          - get
+          - realms/master/users/profile
+      register: _master_profile_pre
+      changed_when: false
+
+    - name: "Keycloak realm: stage profile with unmanagedAttributePolicy=ENABLED"
+      ansible.builtin.copy:
+        dest: /tmp/master-profile-enabled.json
+        mode: "0600"
+        content: >-
+          {{ (_master_profile_pre.stdout | from_json)
+             | combine({'unmanagedAttributePolicy': 'ENABLED'})
+             | to_json }}
+
+    - name: "Keycloak realm: copy enabled-policy profile into KC container"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - cp
+          - /tmp/master-profile-enabled.json
+          - "{{ _keycloak_realm_server_ct.stdout }}:/tmp/master-profile-enabled.json"
+      changed_when: false
+
+    - name: "Keycloak realm: temporarily set master profile to ENABLED policy"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ _keycloak_realm_server_ct.stdout }}"
+          - /opt/keycloak/bin/kcadm.sh
+          - update
+          - realms/master/users/profile
+          - -f
+          - /tmp/master-profile-enabled.json
+      changed_when: true
+
+    - name: "Keycloak realm: clear is_temporary_admin attribute"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ _keycloak_realm_server_ct.stdout }}"
+          - /opt/keycloak/bin/kcadm.sh
+          - update
+          - "users/{{ _master_admin_id }}"
+          - -r
+          - master
+          - -s
+          - "attributes.is_temporary_admin=[]"
+      changed_when: true
+
+    - name: "Keycloak realm: stage profile with original policy (revert)"
+      ansible.builtin.copy:
+        dest: /tmp/master-profile-restored.json
+        mode: "0600"
+        content: "{{ _master_profile_pre.stdout }}"
+
+    - name: "Keycloak realm: copy restored-policy profile into KC container"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - cp
+          - /tmp/master-profile-restored.json
+          - "{{ _keycloak_realm_server_ct.stdout }}:/tmp/master-profile-restored.json"
+      changed_when: false
+
+    - name: "Keycloak realm: revert master profile to original policy"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ _keycloak_realm_server_ct.stdout }}"
+          - /opt/keycloak/bin/kcadm.sh
+          - update
+          - realms/master/users/profile
+          - -f
+          - /tmp/master-profile-restored.json
+      changed_when: true

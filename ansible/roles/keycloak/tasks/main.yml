@@ -1,0 +1,85 @@
+---
+# Orchestrator for roles/keycloak. Order:
+# 1. Preflight: vault keys + admin email + cloudflare_zone defined.
+# 2. Provision keycloak DB + user inside dokploy-postgres (idempotent
+#    via `CREATE ... IF NOT EXISTS`-equivalent guards).
+# 3. Render compose + deploy via Dokploy API. Health-gated readiness
+#    probe.
+# 4. Realm bootstrap (Phase Two extensions, groups, IdP wizards,
+#    default clients) via realm_bootstrap.yml -- calls keycloak-config-
+#    cli once /health/ready returns 200.
+#
+# Atomicity: per project CLAUDE.md "Ansible tasks must be idempotent
+# AND atomic w.r.t. concurrent service boot": the DB-provision step
+# (psql in dokploy-postgres) only runs once dokploy-postgres is
+# `running`, and the realm-config one-shot gates on Keycloak's
+# /health/ready (NOT on container-exists).
+
+- name: "Keycloak: preflight vault + env"
+  ansible.builtin.assert:
+    that:
+      - vault_keycloak_db_password is defined
+      - vault_keycloak_db_password | length > 20
+      - vault_admin_password is defined
+      - vault_admin_password | length >= 16
+      - admin_email | length > 0
+      - keycloak_hostname | length > 0
+      - cloudflare_zone | length > 0
+    fail_msg: >-
+      Missing Keycloak config. Expected vault_keycloak_db_password
+      (>= 20 chars), vault_admin_password (>= 16 chars), ADMIN_EMAIL,
+      AUTH_SUBDOMAIN, and CLOUDFLARE_ZONE in .env. The installer mints
+      vault_keycloak_db_password automatically on a fresh install.
+
+- name: "Keycloak: provision DB + user inside dokploy-postgres"
+  ansible.builtin.include_tasks: provision_db.yml
+  tags: [keycloak_db]
+
+
+# The compose-deploy + realm-bootstrap + post-deploy probe all hit the
+# Dokploy API. On a fresh install, vault_dokploy_api_key is undefined
+# during the FIRST site converge -- menu/flows.fresh_install runs site
+# once to bring Dokploy itself up, then bootstraps the API key, then
+# runs site again. Mirror the same gate roles/infrastructure uses, so
+# this role skips cleanly on pass 1 and converges on pass 2.
+- name: "Keycloak: Dokploy-API-gated steps (compose, validate, realm)"
+  when:
+    - vault_dokploy_api_key is defined
+    - vault_dokploy_api_key | length > 10
+  block:
+    - name: "Keycloak: deploy compose via Dokploy API"
+      ansible.builtin.include_tasks: compose.yml
+      tags: [keycloak_compose]
+
+    - name: "Keycloak: post-deploy /health/ready probe"
+      ansible.builtin.include_tasks: validate.yml
+      tags: [keycloak_health]
+
+    - name: "Keycloak: realm bootstrap (keycloak-config-cli)"
+      ansible.builtin.include_tasks: realm_bootstrap.yml
+      tags: [keycloak_realm]
+
+    # One-time membership migration for the four-tier group rename.
+    # Runs AFTER realm_bootstrap so the new admin/staff groups exist
+    # before members are moved into them. Marker-gated -- no-op on
+    # greenfield installs and on every converge after the first.
+    - name: "Keycloak: migrate legacy groups to four-tier model"
+      ansible.builtin.include_tasks: migrate_groups.yml
+      tags: [keycloak_realm, keycloak_group_migration]
+
+    # R22: dump the live realm + clients to backup-staging (so restic
+    # picks them up) AND install the nightly drift-export timer.
+    # Idempotent. Captures any operator UI edits that happened since
+    # the previous converge, then keeps running between converges.
+    - name: "Keycloak: realm export"
+      ansible.builtin.include_tasks: realm_export.yml
+      tags: [keycloak_realm_export]
+
+- name: "Keycloak: skipped Dokploy-API steps (no API key yet)"
+  ansible.builtin.debug:
+    msg: >-
+      Skipping Keycloak compose + realm bootstrap -- vault_dokploy_api_key
+      is not yet present. menu/flows.fresh_install bootstraps it after
+      the first site converge; the second converge will pick this back
+      up. On Converge, add the key to the vault and re-run.
+  when: vault_dokploy_api_key is not defined or (vault_dokploy_api_key | length) < 10

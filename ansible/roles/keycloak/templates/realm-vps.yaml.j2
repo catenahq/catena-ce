@@ -1,0 +1,166 @@
+# {{ ansible_managed }}
+# Realm definition for the per-VPS SSO tenant. keycloak-config-cli
+# import-update-merge semantics: re-running this against an existing
+# realm reconciles delta only (groups/users/clients/protocolMappers
+# merged by identifier). Safe to re-apply on every converge.
+#
+# Per-app OIDC clients are added to this realm AFTER bootstrap by
+# dashboard-sync (plan step 5) hitting Keycloak Admin REST. Static
+# clients owned by infrastructure (oauth2-proxy in plan step 4)
+# extend this file as additional `clients:` entries.
+
+realm: {{ keycloak_realm }}
+enabled: true
+displayName: "{{ keycloak_realm_display_name }}"
+displayNameHtml: "<b>{{ keycloak_realm_display_name }}</b>"
+
+# Login flow knobs. registrationAllowed=false: operator/admin invites
+# users via Magic Link (Phase Two extension) or by creating them
+# via the Admin Portal. resetPasswordAllowed=true: standard "forgot
+# password" flow available on the login page.
+registrationAllowed: false
+registrationEmailAsUsername: true
+resetPasswordAllowed: true
+rememberMe: true
+verifyEmail: true
+loginWithEmailAllowed: true
+duplicateEmailsAllowed: false
+editUsernameAllowed: false
+
+# Brute-force protection. Defaults are conservative; tune per-client
+# if a kiosk/shared-account scenario complains.
+bruteForceProtected: true
+permanentLockout: false
+maxFailureWaitSeconds: 900
+minimumQuickLoginWaitSeconds: 60
+waitIncrementSeconds: 60
+quickLoginCheckMilliSeconds: 1000
+maxDeltaTimeSeconds: 43200
+failureFactor: 30
+
+# Four-tier group model. Groups are realm-wide; per-app gating happens
+# at the per-app oauth2-proxy instance (`--allowed-group=<group>`,
+# set from the compose `vps.auth.groups` label). Tiers:
+#   admin    operator (full access; appended to every gated app)
+#   staff    the SMB's employees; departments are subgroups of /staff
+#   client   the SMB's external users (lowest authenticated tier)
+#   visitor  anonymous; see the note on the group below
+groups:
+  - name: admin
+    path: /admin
+  - name: staff
+    path: /staff
+    # Departments are subgroups of staff. Operators create real ones
+    # via the Keycloak admin UI; keycloak-config-cli MERGE preserves
+    # any pre-existing subgroups (never set keycloak_config_destroy).
+    # Examples (commented -- add your own or uncomment):
+    # subGroups:
+    #   - name: sales
+    #     path: /staff/sales
+    #   - name: accounting
+    #     path: /staff/accounting
+    #   - name: engineering
+    #     path: /staff/engineering
+  - name: client
+    path: /client
+  # `visitor` is seeded for documentation + the catena-admin Access
+  # matrix. It is a LABEL KEYWORD meaning "public" (vps.auth.groups:
+  # [visitor]); an anonymous visitor never logs in, so this group is
+  # never carried in a real OIDC token. Kept here so the tier set is
+  # complete and discoverable in the admin panel.
+  - name: visitor
+    path: /visitor
+
+defaultGroups:
+  # New / self-service accounts land in `client` (lowest authenticated
+  # tier). `staff` and `admin` are explicit-only promotions by an
+  # operator -- never auto-assigned.
+  - /client
+
+# Realm-wide group claim mapper. Every client in this realm inherits
+# it via `client-scope`s `roles`/`profile` defaults, so per-client
+# protocolMapper duplication is unnecessary.
+clientScopes:
+  - name: groups
+    description: "Group memberships (top-level path) for OIDC clients."
+    protocol: openid-connect
+    attributes:
+      include.in.token.scope: "true"
+      display.on.consent.screen: "false"
+    protocolMappers:
+      - name: groups
+        protocol: openid-connect
+        protocolMapper: oidc-group-membership-mapper
+        consentRequired: false
+        config:
+          claim.name: groups
+          full.path: "false"
+          id.token.claim: "true"
+          access.token.claim: "true"
+          userinfo.token.claim: "true"
+
+# Mark the groups scope as a default scope so every new client
+# auto-inherits it without per-client mapper config.
+defaultDefaultClientScopes:
+  - groups
+  - profile
+  - email
+  - roles
+  - web-origins
+
+# Bootstrap admin user. KC_BOOTSTRAP_ADMIN_PASSWORD env on the
+# server container creates the underlying account on first boot;
+# this entry puts the operator in `/admin`. `admin` is appended to
+# every gated app's allow-list by the auth engine (superuser), so a
+# single `/admin` membership reaches every app from day one --
+# no need to also list staff/client. keycloak-config-cli imports
+# users idempotently by username -- no password rotation happens
+# here (that's a UI/Account-Console concern after first login).
+users:
+  - username: "{{ admin_email }}"
+    email: "{{ admin_email }}"
+    enabled: true
+    emailVerified: true
+    groups:
+      - /admin
+    realmRoles:
+      - default-roles-{{ keycloak_realm }}
+
+{% if smtp_enabled and (smtp_render_password | default(true)) %}
+# Realm-level SMTP config. Auto-resolved from .env via the role's
+# autofill (Resend / Brevo / raw SMTP_HOST). Drives password reset,
+# invitations, MFA enrollment, and the verify-email send used by
+# validate.yml's Vantage 1b smoke test.
+#
+# Rendered ONLY on the FIRST realm import (gated by the
+# /var/lib/catena/keycloak-realm-smtp-bootstrapped marker, see
+# realm_bootstrap.yml). Subsequent imports omit this block; under
+# keycloak-config-cli's MERGE semantics the realm's existing
+# smtpServer config (which the client may have edited via Keycloak
+# admin UI / Dokploy env tab) is preserved untouched.
+smtpServer:
+  host: "{{ smtp_host }}"
+  port: "{{ smtp_port }}"
+  from: "{{ smtp_from }}"
+  fromDisplayName: "{{ keycloak_realm_display_name }}"
+  auth: "true"
+  user: "{{ smtp_user }}"
+  password: "{{ vault_smtp_password }}"
+  starttls: "{{ smtp_use_starttls | string | lower }}"
+  ssl: "false"
+  envelopeFrom: "{{ smtp_from }}"
+{% endif %}
+
+# Phase Two extension features that ship enabled in this realm:
+# - Magic Link  (separate authenticator type, exposed via the Admin
+#   Portal and the dedicated Phase Two REST endpoint).
+# - Organizations (multi-tenancy primitive; idle until an operator
+#   creates an organization, no extra resource cost).
+# - Events with webhook delivery (audit log surfaced to a sink the
+#   operator picks; we don't wire one by default).
+attributes:
+  # Surface the realm as multi-language ready -- Phase Two themes
+  # use this. EN + FR matches the project's bilingual stance.
+  internationalizationEnabled: "true"
+  supportedLocales: '["en","fr"]'
+  defaultLocale: "en"

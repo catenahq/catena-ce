@@ -1,0 +1,100 @@
+# {{ ansible_managed }}
+# Shared Traefik middleware definitions for oauth2-proxy. Reverse-proxy
+# mode keeps the surface tiny: only the X-Forwarded-Proto rewrite is
+# needed, and it's referenced both by the per-app route files and by
+# dashboard-sync's gate-route writer (legacy chain, retained until
+# Phase 2 of the migration).
+#
+# CF Tunnel terminates TLS at the edge and forwards HTTP to Traefik
+# without setting X-Forwarded-Proto. oauth2-proxy reads the proxy
+# headers to compute the redirect URL; without this rewrite, it builds
+# `http://<host>/oauth2/callback` and Keycloak rejects with a
+# redirect_uri mismatch. Same root cause as the Authentik
+# X-Forwarded-Proto rewrite recorded in the previous debugging.md.
+http:
+  middlewares:
+    oauth2-force-https-proto:
+      headers:
+        customRequestHeaders:
+          X-Forwarded-Proto: "https"
+{% if oauth2_proxy_keep_legacy_chain | default(true) %}
+
+    # --- Legacy forward-auth chain (retained for dashboard-sync's
+    # client-app gate-route writer until Phase 2) ---
+    # See defaults/main.yml `oauth2_proxy_keep_legacy_chain`. New gated
+    # apps SHOULD use the per-app reverse-proxy pattern instead -- this
+    # block stays only because dashboard-sync still emits routes
+    # referencing `oauth2-proxy-staff-chain@file` /
+    # `oauth2-proxy-admin-chain@file` for Dokploy-managed client apps.
+    oauth2-proxy-staff:
+      forwardAuth:
+        address: "http://{{ oauth2_proxy_staff_alias }}:{{ oauth2_proxy_internal_port }}/oauth2/auth"
+        trustForwardHeader: true
+        authResponseHeaders:
+          - X-Auth-Request-User
+          - X-Auth-Request-Email
+          - X-Auth-Request-Groups
+          - X-Auth-Request-Preferred-Username
+          - Authorization
+
+    oauth2-proxy-admin:
+      forwardAuth:
+        address: "http://{{ oauth2_proxy_admin_alias }}:{{ oauth2_proxy_internal_port }}/oauth2/auth"
+        trustForwardHeader: true
+        authResponseHeaders:
+          - X-Auth-Request-User
+          - X-Auth-Request-Email
+          - X-Auth-Request-Groups
+          - X-Auth-Request-Preferred-Username
+          - Authorization
+
+    oauth2-proxy-staff-redirect:
+      errors:
+        status:
+          - "401"
+          - "403"
+        service: oauth2-proxy-staff-svc
+        query: "/oauth2/start?rd={url}"
+
+    oauth2-proxy-admin-redirect:
+      errors:
+        status:
+          - "401"
+          - "403"
+        service: oauth2-proxy-admin-svc
+        query: "/oauth2/start?rd={url}"
+
+    oauth2-proxy-headers-rename:
+      headers:
+        customRequestHeaders:
+          X-Forwarded-User: "{X-Auth-Request-User}"
+          X-Forwarded-Email: "{X-Auth-Request-Email}"
+          X-Forwarded-Groups: "{X-Auth-Request-Groups}"
+
+    oauth2-proxy-staff-chain:
+      chain:
+        middlewares:
+          - oauth2-force-https-proto
+          - oauth2-proxy-staff-redirect
+          - oauth2-proxy-staff
+          - oauth2-proxy-headers-rename
+
+    oauth2-proxy-admin-chain:
+      chain:
+        middlewares:
+          - oauth2-force-https-proto
+          - oauth2-proxy-admin-redirect
+          - oauth2-proxy-admin
+          - oauth2-proxy-headers-rename
+
+  services:
+    oauth2-proxy-staff-svc:
+      loadBalancer:
+        servers:
+          - url: "http://{{ oauth2_proxy_staff_alias }}:{{ oauth2_proxy_internal_port }}"
+
+    oauth2-proxy-admin-svc:
+      loadBalancer:
+        servers:
+          - url: "http://{{ oauth2_proxy_admin_alias }}:{{ oauth2_proxy_internal_port }}"
+{% endif %}

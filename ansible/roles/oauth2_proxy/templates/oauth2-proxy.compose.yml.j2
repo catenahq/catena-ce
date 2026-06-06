@@ -1,0 +1,163 @@
+# {{ ansible_managed }}
+# One oauth2-proxy container per gated upstream (true reverse-proxy
+# mode). Traefik routes Host(<host>) -> http://oauth2-proxy-<slug>:4180
+# and the container itself proxies to its backend after auth, emitting
+# a clean 302 to Keycloak when the user is unauthenticated.
+#
+# Cookie + client secrets via env vars (oauth2-proxy reads
+# OAUTH2_PROXY_* env vars natively) so extract_secrets_core can
+# recover them from a running container via `docker inspect`.
+#
+# The legacy `staff:` / `admin:` services at the bottom are retained
+# while `oauth2_proxy_keep_legacy_chain` is true so dashboard-sync's
+# gate-route writer (which still emits forwardAuth-chain references
+# for client apps deployed via Dokploy) continues to work. They drop
+# out when Phase 2 of the migration switches dashboard-sync to provision
+# per-app instances itself.
+services:
+{% for _app in oauth2_proxy_apps %}
+  # NOTE: service name is `oauth2-proxy-<slug>`, NOT just <slug>.
+  # docker compose auto-aliases the service name on the network, and
+  # several backend apps (gatus, homepage, healthchecks, vps-docs,
+  # recovery) register their slug as their dokploy-network alias. If
+  # we used the bare slug here, both proxy + backend would share an
+  # alias and Docker DNS would round-robin between them -- randomly
+  # making the proxy proxy to itself instead of to the backend.
+  oauth2-proxy-{{ _app.slug }}:
+    image: "{{ oauth2_proxy_image }}"
+    environment:
+      OAUTH2_PROXY_CLIENT_SECRET: "{{ vault_oauth2_proxy_client_secret }}"
+      OAUTH2_PROXY_COOKIE_SECRET: "{{ vault_oauth2_proxy_cookie_secret }}"
+    command:
+      - "--http-address=0.0.0.0:{{ oauth2_proxy_internal_port }}"
+      - "--reverse-proxy=true"
+      - "--provider=keycloak-oidc"
+      - "--oidc-issuer-url={{ oauth2_proxy_oidc_issuer }}"
+      - "--client-id={{ oauth2_proxy_client_id }}"
+      - "--cookie-name={{ oauth2_proxy_cookie_name }}"
+      - "--cookie-domain=.{{ cloudflare_zone }}"
+      - "--cookie-secure=true"
+      - "--cookie-samesite=lax"
+      - "--whitelist-domain=.{{ cloudflare_zone }}"
+      - "--email-domain=*"
+      - "--scope=openid email profile groups"
+      - "--oidc-groups-claim=groups"
+      # Backend proxied by THIS instance. The dokploy-network alias
+      # of the upstream app is resolved by Docker's embedded DNS at
+      # request time; if the backend is down, oauth2-proxy returns
+      # 502 (not 401) so monitoring can distinguish auth failure
+      # from upstream failure.
+      - "--upstream=http://{{ _app.upstream_alias }}:{{ _app.upstream_port }}"
+      # Group names without leading slash. The realm's `groups`
+      # clientScope mapper has `full.path: false` (see
+      # realm-vps.yaml.j2), so the JWT's `groups` claim contains
+      # `["admin", "staff", "client"]` -- NOT the slash form.
+      # oauth2-proxy does an exact-string compare, so the slash form
+      # here causes 403 for users who ARE in the right groups.
+{% for _g in _app.allowed_groups %}
+      - "--allowed-group={{ _g }}"
+{% endfor %}
+      - "--set-xauthrequest=true"
+      - "--pass-user-headers=true"
+      - "--pass-access-token=false"
+      - "--silence-ping-logging=true"
+      - "--skip-provider-button=true"
+    networks:
+      dokploy-network:
+        aliases:
+          - "oauth2-proxy-{{ _app.slug }}"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:{{ oauth2_proxy_internal_port }}/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+{% endfor %}
+{% if oauth2_proxy_keep_legacy_chain | default(true) %}
+  # --- Legacy shared chain instances (Phase 2 will retire) ---
+  # These keep dashboard-sync's `vps.auth.mode=private|admin-only` route
+  # writer working for client apps deployed via Dokploy. The hosts they
+  # serve do NOT appear in `oauth2_proxy_apps` -- those use the new
+  # per-app pattern above.
+  staff:
+    image: "{{ oauth2_proxy_image }}"
+    environment:
+      OAUTH2_PROXY_CLIENT_SECRET: "{{ vault_oauth2_proxy_client_secret }}"
+      OAUTH2_PROXY_COOKIE_SECRET: "{{ vault_oauth2_proxy_cookie_secret }}"
+    command:
+      - "--http-address=0.0.0.0:{{ oauth2_proxy_internal_port }}"
+      - "--reverse-proxy=true"
+      - "--provider=keycloak-oidc"
+      - "--oidc-issuer-url={{ oauth2_proxy_oidc_issuer }}"
+      - "--client-id={{ oauth2_proxy_client_id }}"
+      - "--cookie-name={{ oauth2_proxy_staff_cookie_name }}"
+      - "--cookie-domain=.{{ cloudflare_zone }}"
+      - "--cookie-secure=true"
+      - "--cookie-samesite=lax"
+      - "--whitelist-domain=.{{ cloudflare_zone }}"
+      - "--email-domain=*"
+      - "--scope=openid email profile groups"
+      - "--oidc-groups-claim=groups"
+      - "--allowed-group=client"
+      - "--allowed-group=staff"
+      - "--allowed-group=admin"
+      - "--set-xauthrequest=true"
+      - "--pass-user-headers=true"
+      - "--pass-access-token=false"
+      - "--silence-ping-logging=true"
+      - "--skip-provider-button=true"
+    networks:
+      dokploy-network:
+        aliases:
+          - "{{ oauth2_proxy_staff_alias }}"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:{{ oauth2_proxy_internal_port }}/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  admin:
+    image: "{{ oauth2_proxy_image }}"
+    environment:
+      OAUTH2_PROXY_CLIENT_SECRET: "{{ vault_oauth2_proxy_client_secret }}"
+      OAUTH2_PROXY_COOKIE_SECRET: "{{ vault_oauth2_proxy_cookie_secret }}"
+    command:
+      - "--http-address=0.0.0.0:{{ oauth2_proxy_internal_port }}"
+      - "--reverse-proxy=true"
+      - "--provider=keycloak-oidc"
+      - "--oidc-issuer-url={{ oauth2_proxy_oidc_issuer }}"
+      - "--client-id={{ oauth2_proxy_client_id }}"
+      - "--cookie-name={{ oauth2_proxy_admin_cookie_name }}"
+      - "--cookie-domain=.{{ cloudflare_zone }}"
+      - "--cookie-secure=true"
+      - "--cookie-samesite=lax"
+      - "--whitelist-domain=.{{ cloudflare_zone }}"
+      - "--email-domain=*"
+      - "--scope=openid email profile groups"
+      - "--oidc-groups-claim=groups"
+      - "--allowed-group=admin"
+      - "--set-xauthrequest=true"
+      - "--pass-user-headers=true"
+      - "--pass-access-token=false"
+      - "--silence-ping-logging=true"
+      - "--skip-provider-button=true"
+    networks:
+      dokploy-network:
+        aliases:
+          - "{{ oauth2_proxy_admin_alias }}"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:{{ oauth2_proxy_internal_port }}/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+{% endif %}
+
+networks:
+  dokploy-network:
+    external: true

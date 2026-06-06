@@ -1,0 +1,27 @@
+---
+# Render compose + deploy via Dokploy API. Reuses the canonical
+# infrastructure helper. No public domain attached -- both oauth2-proxy
+# instances are reached via Traefik forwardAuth on dokploy-network only.
+
+# dokploy_compose.yml requires `_dokploy_project_id` + `_dokploy_environment_id`.
+# These are set by dokploy_project.yml, which the infrastructure role runs --
+# but oauth2_proxy runs BEFORE infrastructure (it must be up so gated apps'
+# forward-auth chain can resolve at infrastructure-role compose-deploy time).
+# Idempotent: find-or-create at the Dokploy API level. The keycloak role
+# also calls this helper; calling it again is a no-op API roundtrip.
+- name: "oauth2-proxy: ensure Dokploy project + environment IDs are captured"
+  ansible.builtin.include_tasks: ../../infrastructure/tasks/dokploy_project.yml
+
+- name: "oauth2-proxy: deploy per-app instance compose"
+  ansible.builtin.include_tasks: ../../infrastructure/tasks/dokploy_compose.yml
+  vars:
+    svc_name: "{{ oauth2_proxy_compose_name }}"
+    svc_compose_content: "{{ lookup('template', 'oauth2-proxy.compose.yml.j2') }}"
+    svc_env: []
+    # No svc_domain_host: the proxies are intra-cluster only.
+    svc_domain_host: ""
+    svc_domain_service: ""
+    svc_domain_port: 0
+    svc_readiness_skip_reason: >-
+      oauth2-proxy is not publicly routed; readiness is verified by
+      tasks/validate.yml's docker-exec /ping probe.

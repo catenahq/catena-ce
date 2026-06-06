@@ -1,0 +1,189 @@
+---
+# Validation tasks for roles/keycloak. One probe surface:
+#
+# In-container /health/ready -- proves the server booted, ran its
+# schema migrations against dokploy-postgres, and accepted the DB
+# credentials. This is the canonical "safe to issue admin API calls
+# now" gate (used by realm_bootstrap.yml's keycloak-config-cli one-
+# shot, and by playbooks/validate.yml Vantage 1b's DR SMTP smoke test).
+#
+# Public-URL reachability via the CF Tunnel is verified post-converge
+# by playbooks/validate.yml Vantage 2 ("Probe Keycloak login page via
+# CF"), NOT here. Reason: roles/keycloak runs BEFORE roles/infrastructure
+# in site.yml, so the cloudflared ingress + Traefik file route for
+# auth.<zone> do not exist when this role's validate runs on a fresh
+# install. Probing here would either fail spuriously (wrong) or be
+# best-effort and waste 60s of retries (what it used to do). The
+# end-to-end public probe runs once, after the whole converge, where
+# it can be fatal.
+#
+# Atomicity: per project CLAUDE.md, external invocation must gate
+# on a real readiness signal. /health/ready is exactly that for
+# Keycloak (returns 200 only after migrations completed + DB pool
+# is healthy).
+
+- name: "validate/keycloak: find running server container"
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
+      | grep -E '{{ keycloak_compose_name | dokploy_container_regex(keycloak_server_service) }}' \
+      | head -n1
+  args:
+    executable: /bin/bash
+  register: _keycloak_server_container
+  changed_when: false
+  failed_when: false
+  retries: 30
+  delay: 4
+  until: _keycloak_server_container.stdout | length > 0
+
+# When the container probe times out we have no diagnostic surface --
+# the bench tears the VM down and the Ansible output ends with 30
+# retries' worth of "FAILED - RETRYING". Dump the container state +
+# logs BEFORE asserting failure so the operator sees why Keycloak
+# crashed (image-pull failure, DB-auth, KC_HOSTNAME mismatch, etc.).
+- name: "validate/keycloak: dump diagnostic state when container missing"
+  when: _keycloak_server_container.stdout | length == 0
+  block:
+    - name: "validate/keycloak: docker ps -a (look for exited keycloak)"
+      ansible.builtin.shell: |
+        set -o pipefail
+        docker ps -a --filter "name=keycloak" \
+          --format 'table {{ "{{" }}.Names{{ "}}" }}\t{{ "{{" }}.Status{{ "}}" }}\t{{ "{{" }}.Image{{ "}}" }}'
+      args:
+        executable: /bin/bash
+      register: _kc_diag_ps
+      changed_when: false
+      failed_when: false
+
+    - name: "validate/keycloak: dump exited keycloak container logs"
+      ansible.builtin.shell: |
+        set -o pipefail
+        for c in $(docker ps -a --filter "name=keycloak" --format '{{ "{{" }}.Names{{ "}}" }}'); do
+          echo "=== logs for $c ==="
+          docker logs --tail 200 "$c" 2>&1 || true
+        done
+      args:
+        executable: /bin/bash
+      register: _kc_diag_logs
+      changed_when: false
+      failed_when: false
+
+    - name: "validate/keycloak: surface diagnostic dump"
+      ansible.builtin.fail:
+        msg: |
+          Keycloak server container did not appear after 30 retries
+          (~120s). Dokploy reported deploy=done but no container
+          matches '{{ keycloak_compose_name | dokploy_container_regex(keycloak_server_service) }}'.
+
+          docker ps -a (filter name=keycloak):
+          {{ _kc_diag_ps.stdout | default('(empty)') }}
+
+          --- container logs (last 200 lines per exited container) ---
+          {{ _kc_diag_logs.stdout | default('(no exited containers)') }}
+
+          Common causes:
+            1. Image pull failed for {{ keycloak_image }}.
+            2. KC_DB credentials / postgres connectivity broken.
+            3. KC_HOSTNAME refused (Phase Two image enforces strict mode).
+            4. start --optimized rejected because the image was not
+               pre-built with KC_DB=postgres provider config.
+
+- name: "validate/keycloak: keycloak-server container running"
+  ansible.builtin.assert:
+    that:
+      - _keycloak_server_container.stdout | length > 0
+    fail_msg: "no running container matches keycloak compose-app pattern"
+
+- name: "validate/keycloak: in-container /health/ready"
+  # First-boot budget: Phase Two image runs the augment/build phase
+  # on every container start (we don't use --optimized; see compose
+  # template comment). Build + Liquibase schema migration + master-
+  # realm init + Phase Two SPI registration was observed taking the
+  # full ~6 minutes on the bench's 7-GB-RAM VM (image pull + cold
+  # build cache + DB schema init). 120 retries x 4s = 480s adds
+  # headroom -- prior 90 x 4 = 360s budget hit the boundary right as
+  # Keycloak finished augmenting.
+  #
+  # Phase Two image ships WITHOUT curl/wget -- only bash. Use bash +
+  # /dev/tcp to issue an HTTP/1.1 GET and check for "200" in the
+  # status line. Returns rc=0 + stdout="200" on success.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - "{{ _keycloak_server_container.stdout }}"
+      - bash
+      - -c
+      - >-
+        exec 3<>/dev/tcp/127.0.0.1/{{ keycloak_management_port }} &&
+        printf 'GET {{ keycloak_health_path }} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+        head -1 <&3 | grep -q '200' && echo 200
+  register: _keycloak_health_local
+  changed_when: false
+  failed_when: false
+  retries: 120
+  delay: 4
+  until:
+    - _keycloak_health_local.rc == 0
+    - "'200' in (_keycloak_health_local.stdout | default(''))"
+
+# Probe never went green within the retry budget. Dump logs from the
+# (likely restart-looping) container BEFORE asserting failure -- same
+# motivation as the missing-container diagnostic block above.
+- name: "validate/keycloak: dump container logs when /health/ready never went 200"
+  when: >-
+    _keycloak_health_local.rc != 0
+    or '200' not in (_keycloak_health_local.stdout | default(''))
+  block:
+    - name: "validate/keycloak: docker inspect (restart count + last state)"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - inspect
+          - --format
+          - >-
+            {{ "{{" }}.RestartCount{{ "}}" }} restarts;
+            state={{ "{{" }}.State.Status{{ "}}" }};
+            exitcode={{ "{{" }}.State.ExitCode{{ "}}" }};
+            oom={{ "{{" }}.State.OOMKilled{{ "}}" }};
+            error={{ "{{" }}.State.Error{{ "}}" }}
+          - "{{ _keycloak_server_container.stdout }}"
+      register: _kc_health_inspect
+      changed_when: false
+      failed_when: false
+
+    - name: "validate/keycloak: docker logs --tail 200 (capture crash output)"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - logs
+          - --tail
+          - "200"
+          - "{{ _keycloak_server_container.stdout }}"
+      register: _kc_health_logs
+      changed_when: false
+      failed_when: false
+
+    - name: "validate/keycloak: surface health-probe failure"
+      ansible.builtin.fail:
+        msg: |
+          Keycloak in-container /health/ready never returned 200 after
+          120 retries (~480s). Container exists but isn't serving the
+          health endpoint -- typically a restart loop.
+
+          docker inspect: {{ _kc_health_inspect.stdout | default('(unavailable)') }}
+
+          --- docker logs --tail 200 ---
+          {{ _kc_health_logs.stdout | default('(no stdout)') }}
+          {% if _kc_health_logs.stderr | default('') | length > 0 %}
+          --- stderr ---
+          {{ _kc_health_logs.stderr }}
+          {% endif %}
+
+# Public-URL OIDC discovery probe used to live here, but it ran before
+# roles/infrastructure deployed the CF Tunnel + Traefik route, so on a
+# fresh install it always burned 60s of retries against a non-existent
+# ingress. The end-to-end public probe is now centralized in
+# playbooks/validate.yml Vantage 2 (post-converge), where it CAN be
+# fatal because the ingress is in place by then.

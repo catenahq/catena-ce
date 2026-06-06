@@ -1,0 +1,66 @@
+# {{ ansible_managed }}
+# Static Keycloak client for Nextcloud's NATIVE OIDC flow (EP3).
+#
+# Nextcloud's user_oidc app handles the authorization-code dance
+# itself. Operator's converge wires it via `occ user_oidc:provider`
+# (see roles/infrastructure/tasks/nextcloud_oidc.yml) on the running
+# Nextcloud container; this realm template just registers the
+# confidential client so the discovery URL works the moment the
+# operator clicks Deploy in the Dokploy UI.
+#
+# This file lives in the same /config dir as realm-vps.yaml so
+# keycloak-config-cli's IMPORT_FILES_LOCATIONS=/config/*.yaml glob
+# picks it up. Default merge semantics preserve the base realm and
+# add this client.
+#
+# Multivalued groups claim is fine here -- Nextcloud's user_oidc
+# parses the standard `groups` JSON-array claim correctly (unlike
+# OliveTin, which needed the EP-B single-valued workaround). The
+# realm-default `groups` clientScope already in defaultDefaultClientScopes
+# applies via `defaultClientScopes` below.
+
+realm: {{ keycloak_realm }}
+
+clients:
+  - clientId: "nextcloud"
+    name: "catena Nextcloud"
+    description: "Native OIDC for Nextcloud (user_oidc backend)."
+    enabled: true
+    publicClient: false
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    secret: "{{ vault_nextcloud_oidc_client_secret }}"
+    # user_oidc lands the post-login callback at /apps/user_oidc/code.
+    redirectUris:
+      - "https://nextcloud.{{ cloudflare_zone }}/apps/user_oidc/code"
+    webOrigins:
+      - "+"
+    defaultClientScopes:
+      - groups
+      - profile
+      - email
+      - roles
+      - web-origins
+    optionalClientScopes:
+      - phone
+      - address
+      - microprofile-jwt
+    attributes:
+      access.token.lifespan: "3600"
+      # Explicit empty string clears the attribute (config-cli merges,
+      # does not replace). See realm-oauth2-proxy.yaml.j2 for the full
+      # rationale; user_oidc Nextcloud plugin does not send
+      # code_challenge in its default config and this is a confidential
+      # client.
+      pkce.code.challenge.method: ""
+      # Post-logout: Nextcloud's user_oidc sends the user back to the
+      # Nextcloud root after Keycloak signs them out. Since Keycloak 18
+      # / 19, post-logout URIs are gated SEPARATELY from login
+      # redirectUris; without this attribute, Keycloak shows "Invalid
+      # redirect URI" on the logout page. Wildcard covers any Nextcloud
+      # path the user_oidc version might send (root, /index.php/login,
+      # etc.) without changing the security boundary -- it is the same
+      # origin as the login redirectUri above.
+      post.logout.redirect.uris: "https://nextcloud.{{ cloudflare_zone }}/*"

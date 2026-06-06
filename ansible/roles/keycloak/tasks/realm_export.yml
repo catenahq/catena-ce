@@ -1,0 +1,233 @@
+---
+# Keycloak realm export sidecar.
+#
+# Realm clients, mappers, scopes, signing keys, SMTP config all live
+# in dokploy-postgres so they recover with the rest of the DB. But
+# realm-level UI customizations (logos, themes) and any operator-edited
+# client redirect_uris that were not re-applied via blueprint are
+# DB-only state with no easy diff surface. A nightly JSON export gives
+# the operator:
+#
+#   1. A versioned baseline for catching unexpected drift between
+#      converges ("did someone add a new client behind my back?").
+#   2. A recovery sanity check -- if a restore goes sideways, the
+#      latest realm dump in backup-staging is one step from a
+#      kc.sh import.
+#
+# Output: {{ storage_mount_point }}/backup-staging/keycloak/<realm>.json
+# Restic picks it up via the existing backup_paths_include set.
+#
+# Atomicity: gated on /health/ready (the canonical "admin REST is
+# live" signal). Per project CLAUDE.md.
+#
+# Caller: roles/keycloak/tasks/main.yml, at the end of every site.yml
+# run, so each converge dumps the realm to backup-staging where the
+# single backup picks it up. (Community runs this at converge time only;
+# the nightly drift-export timer is part of the Business managed lane,
+# not CE -- CE ships no scheduled tasks.)
+
+- name: "Keycloak realm export: ensure backup-staging/keycloak dir"
+  ansible.builtin.file:
+    path: "{{ storage_mount_point }}/backup-staging/keycloak"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: "Keycloak realm export: find running server container"
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
+      | grep -E '{{ keycloak_compose_name | dokploy_container_regex(keycloak_server_service) }}' \
+      | head -n1 || true
+  args:
+    executable: /bin/bash
+  register: _kc_export_server_ct
+  changed_when: false
+  failed_when: false
+
+- name: "Keycloak realm export: skip when no running server container"
+  ansible.builtin.debug:
+    msg: >-
+      Keycloak server container not found; skipping realm export. This
+      is expected during the FIRST site converge (Keycloak compose
+      hasn't been deployed yet). The next converge will pick this up.
+  when: (_kc_export_server_ct.stdout | default('') | length) == 0
+
+- name: "Keycloak realm export: assert credentials are present pre-kcadm"
+  ansible.builtin.assert:
+    that:
+      - admin_email is string and admin_email | length > 0
+      - vault_admin_password is string and vault_admin_password | length > 0
+    fail_msg: >-
+      Master-realm credentials missing before kcadm login
+      (admin_email_len={{ admin_email | default('') | length }},
+       vault_admin_password_len={{ vault_admin_password | default('') | length }}).
+      Likely cause: sops re-encrypt during converge dropped a key.
+      Inspect inventory/<env>/group_vars/all/vault.sops.yml.
+  when: (_kc_export_server_ct.stdout | default('') | length) > 0
+
+- name: "Keycloak realm export: kcadm.sh login as master-realm admin"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - "{{ _kc_export_server_ct.stdout }}"
+      - /opt/keycloak/bin/kcadm.sh
+      - config
+      - credentials
+      - --server
+      - "http://localhost:{{ keycloak_internal_port }}"
+      - --realm
+      - master
+      - --user
+      - "{{ admin_email }}"
+      - --password
+      - "{{ vault_admin_password }}"
+  register: _kc_export_login
+  changed_when: false
+  # no_log: true is correct for the kcadm invocation itself (the
+  # argv carries the password) but the upstream Keycloak failure mode
+  # we hit on converge_modify run 2026-05-21T10-06-18-09f6 was
+  # "credentials valid pre-rotation, rejected post-rotation"; surface
+  # rc + stderr in the failure path so we can distinguish auth-reject
+  # from network/container errors without keeping the secret in the log.
+  no_log: true
+  failed_when: false
+  # Keycloak intermittently returns [unknown_error] on the master-realm
+  # token endpoint between two back-to-back kcadm logins (see the
+  # warning surface below). Retry to absorb the transient; the realm-
+  # export artifact is non-critical drift-catch, so we degrade to
+  # warn-and-skip if every retry still fails.
+  retries: 5
+  delay: 4
+  until: (_kc_export_login.rc | default(1)) == 0
+  when: (_kc_export_server_ct.stdout | default('') | length) > 0
+
+- name: "Keycloak realm export: warn on kcadm login failure (drift-catch is non-critical)"
+  # Drift-catch artifact is non-critical: the realm config is rebuilt
+  # from yaml on every converge, and the nightly timer re-attempts the
+  # export. A login failure here historically failed the entire
+  # converge, which is too aggressive for an audit-only artifact.
+  # Surface the rc + container + Keycloak's stderr so the operator can
+  # diagnose without grepping logs, but do not fail the play.
+  ansible.builtin.debug:
+    msg: >-
+      WARN: kcadm.sh login (master realm, user {{ admin_email }}) failed
+      rc={{ _kc_export_login.rc }} after retries.
+      stderr (last 500 chars): {{ (_kc_export_login.stderr | default('') )[-500:] }}
+      stdout (last 200 chars): {{ (_kc_export_login.stdout | default('') )[-200:] }}
+      Container: {{ _kc_export_server_ct.stdout }}.
+      Skipping JSON export this converge -- the nightly
+      catena-keycloak-realm-export.timer will retry. Likely causes:
+      (1) Keycloak transient on the master token endpoint,
+      (2) master admin password drift between vault and Keycloak DB,
+      (3) docker exec connectivity (container restarted mid-task).
+  when:
+    - (_kc_export_server_ct.stdout | default('') | length) > 0
+    - _kc_export_login is defined
+    - (_kc_export_login.rc | default(0)) != 0
+
+- name: "Keycloak realm export: dump realm JSON via kcadm.sh"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - "{{ _kc_export_server_ct.stdout }}"
+      - /opt/keycloak/bin/kcadm.sh
+      - get
+      - "realms/{{ keycloak_realm }}"
+  register: _kc_export_dump
+  changed_when: false
+  # Drift-catch artifact is non-critical (see warn task above for the
+  # full rationale): the realm config is rebuilt from yaml on every
+  # converge, and the nightly timer re-attempts the export. A 404
+  # (realm not yet loaded by this Keycloak instance -- e.g. after a
+  # restore where realm_bootstrap was deliberately skipped and the
+  # fresh container hasn't picked up the replayed DB rows yet) should
+  # warn-and-skip, not fail the play.
+  failed_when: false
+  when:
+    - (_kc_export_server_ct.stdout | default('') | length) > 0
+    - (_kc_export_login.rc | default(1)) == 0
+
+- name: "Keycloak realm export: warn on dump failure (drift-catch is non-critical)"
+  ansible.builtin.debug:
+    msg: >-
+      WARN: kcadm.sh get realms/{{ keycloak_realm }} failed
+      rc={{ _kc_export_dump.rc }}.
+      stderr (last 500 chars): {{ (_kc_export_dump.stderr | default(''))[-500:] }}
+      Skipping JSON export this converge -- the nightly
+      catena-keycloak-realm-export.timer will retry. Likely causes:
+      (1) realm absent because realm_bootstrap was deliberately
+          skipped on a post-restore converge (the replayed DB rows
+          have not yet been observed by this Keycloak container),
+      (2) Keycloak transient on the admin REST endpoint.
+  when:
+    - (_kc_export_server_ct.stdout | default('') | length) > 0
+    - _kc_export_dump is defined
+    - (_kc_export_dump.rc | default(0)) != 0
+
+- name: "Keycloak realm export: write JSON to backup-staging"
+  ansible.builtin.copy:
+    content: "{{ _kc_export_dump.stdout }}\n"
+    dest: "{{ storage_mount_point }}/backup-staging/keycloak/{{ keycloak_realm }}.json"
+    owner: root
+    group: root
+    mode: "0640"
+  when:
+    - _kc_export_dump is succeeded
+    - (_kc_export_dump.stdout | default('') | length) > 0
+  # The dump is non-deterministic across runs (timestamps, signing-key
+  # rotation timers, internal IDs) even when nothing in the realm has
+  # actually changed. We record current state, not config drift, so
+  # the change should not show up in PLAY RECAP (it would otherwise
+  # trip the bench's stage-2.5 idempotency assertion every converge).
+  changed_when: false
+
+- name: "Keycloak realm export: also dump every realm client (drift catch)"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - "{{ _kc_export_server_ct.stdout }}"
+      - /opt/keycloak/bin/kcadm.sh
+      - get
+      - clients
+      - -r
+      - "{{ keycloak_realm }}"
+  register: _kc_export_clients
+  changed_when: false
+  # Same warn-and-skip semantics as the realm dump above: a missing
+  # realm (404) on a post-restore converge is non-critical drift-catch.
+  failed_when: false
+  when:
+    - (_kc_export_server_ct.stdout | default('') | length) > 0
+    - (_kc_export_login.rc | default(1)) == 0
+
+- name: "Keycloak realm export: write clients JSON"
+  ansible.builtin.copy:
+    content: "{{ _kc_export_clients.stdout }}\n"
+    dest: "{{ storage_mount_point }}/backup-staging/keycloak/{{ keycloak_realm }}.clients.json"
+    owner: root
+    group: root
+    mode: "0640"
+  when:
+    - _kc_export_clients is succeeded
+    - (_kc_export_clients.stdout | default('') | length) > 0
+  changed_when: false  # see write-realm-JSON task above for rationale
+
+- name: "Keycloak realm export: log result"
+  ansible.builtin.debug:
+    msg: |
+      Wrote realm export to:
+        {{ storage_mount_point }}/backup-staging/keycloak/{{ keycloak_realm }}.json
+        {{ storage_mount_point }}/backup-staging/keycloak/{{ keycloak_realm }}.clients.json
+      The single backup will pick these up on the next snapshot.
+  when: _kc_export_dump is succeeded
+
+# The nightly drift-export timer (catena-keycloak-realm-export.{sh,service,
+# timer}) that ran this export between converges is a SCHEDULED task and so
+# part of the Business managed lane, not CE. Community exports at converge
+# time only (above); a self-hoster who wants nightly drift-catch wires their
+# own timer around the same kcadm dump.

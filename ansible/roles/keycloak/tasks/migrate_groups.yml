@@ -1,0 +1,78 @@
+---
+# One-time membership migration for the four-tier group rename
+# (administrators -> admin, client-staff -> staff).
+#
+# WHY a separate task and not keycloak-config-cli: the realm import runs
+# in MERGE / NO_DELETE mode (realm_bootstrap.yml), so it CREATES the new
+# `admin`/`staff` groups but never DELETES the old `administrators`/
+# `client-staff` ones, and never moves existing members across. This task
+# closes that gap on tenants provisioned before the rename: it copies
+# every member of an old group into its new counterpart, then deletes the
+# old group. Greenfield installs have no old groups, so every step here
+# is a clean no-op.
+#
+# Idempotency: gated on a host marker so the migration body runs at most
+# once. Each step is independently tolerant of a missing old group, so a
+# re-run before the marker is written (e.g. an aborted converge) also
+# converges cleanly.
+
+- name: "Keycloak groups: probe migration marker"
+  ansible.builtin.stat:
+    path: /var/lib/catena/keycloak-groups-migrated-v4tier
+  register: _kc_group_migration_marker
+
+- name: "Keycloak groups: migrate administrators/client-staff -> admin/staff"
+  when: not (_kc_group_migration_marker.stat.exists | default(false))
+  block:
+    - name: "Keycloak groups: find running server container"
+      ansible.builtin.shell: |
+        set -o pipefail
+        docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
+          | grep -E '{{ keycloak_compose_name | dokploy_container_regex(keycloak_server_service) }}' \
+          | head -n1
+      args:
+        executable: /bin/bash
+      register: _kc_group_server_ct
+      changed_when: false
+      retries: 30
+      delay: 4
+      until: _kc_group_server_ct.stdout | length > 0
+
+    - name: "Keycloak groups: kcadm login to master"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ _kc_group_server_ct.stdout }}"
+          - /opt/keycloak/bin/kcadm.sh
+          - config
+          - credentials
+          - --server
+          - "http://localhost:{{ keycloak_internal_port }}"
+          - --realm
+          - master
+          - --user
+          - "{{ admin_email }}"
+          - --password
+          - "{{ vault_admin_password }}"
+      changed_when: false
+      no_log: true
+
+    - name: "Keycloak groups: migrate each old group into its new tier"
+      ansible.builtin.include_tasks: _migrate_one_group.yml
+      loop:
+        - { old: "administrators", new: "admin" }
+        - { old: "client-staff", new: "staff" }
+      loop_control:
+        loop_var: _grp
+        label: "{{ _grp.old }} -> {{ _grp.new }}"
+      vars:
+        kc_ct: "{{ _kc_group_server_ct.stdout }}"
+
+    - name: "Keycloak groups: mark migration complete"
+      ansible.builtin.file:
+        path: /var/lib/catena/keycloak-groups-migrated-v4tier
+        state: touch
+        owner: root
+        group: root
+        mode: "0644"

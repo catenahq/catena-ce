@@ -1,0 +1,25 @@
+---
+# {{ ansible_managed }}
+# File-based Traefik route for {{ _app.slug }} -> {{ _app_hostname }}.
+# Native-OIDC apps (vps.auth.mode=public + vps.auth.oidc=true): the
+# app handles the OIDC dance itself, so Traefik only needs to force
+# https on the X-Forwarded-Proto header and point at the backend.
+# No forward-auth middleware, no /oauth2/* callback router.
+# Priority 100 wins over Dokploy's auto-generated default route on
+# the same Host() match.
+http:
+  routers:
+    {{ _app.slug }}-public-oidc:
+      rule: "Host(`{{ _app_hostname }}`)"
+      priority: 100
+      entryPoints:
+        - web
+      middlewares:
+        - oauth2-force-https-proto
+      service: {{ _app.slug }}-public-oidc-svc
+
+  services:
+    {{ _app.slug }}-public-oidc-svc:
+      loadBalancer:
+        servers:
+          - url: "http://{{ _app.network_alias }}:{{ _app.internal_port }}"

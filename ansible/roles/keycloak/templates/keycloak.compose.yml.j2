@@ -1,0 +1,102 @@
+# {{ ansible_managed }}
+# Keycloak (Phase Two distribution). One service: `server`. Postgres
+# lives inside the shared dokploy-postgres swarm task; we connect to
+# it by service name on dokploy-network.
+#
+# Networks:
+#   - dokploy-network (external): Traefik routes auth.<zone> to us via
+#     this network; oauth2-proxy (plan step 4) reaches us by the
+#     `keycloak-server` alias.
+#   - default (project-local): not currently used because Postgres is
+#     external. Kept declared for future local-only sidecars (e.g.
+#     keycloak-config-cli one-shot in plan step 3).
+services:
+  {{ keycloak_server_service }}:
+    image: "{{ keycloak_image }}"
+    # `start` (without --optimized) runs the augmentation/build step on
+    # every container boot, picking up env-var-driven build-time
+    # options (KC_DB, KC_FEATURES, etc.). The Phase Two distribution
+    # image is NOT pre-built with `kc.db=postgres`, so passing
+    # `--optimized` plus KC_DB: postgres puts Keycloak into a restart
+    # loop with the message: "build time options have values that
+    # differ from what is persisted -- the new values will NOT be
+    # used until another build is run: kc.db". Cost: ~5-10 s extra
+    # startup time per container restart. Acceptable trade for a
+    # zero-rebuild operator workflow.
+    command:
+      - "start"
+    environment:
+      # --- Build-time options preserved across `start`'s rebuild ---
+      # Without --optimized, every container start re-runs the
+      # augmentation/build phase. The Phase Two image was built with
+      # these options ON; if we don't re-pass them as envs, the
+      # rebuild silently turns them OFF, breaking Phase Two extensions
+      # and Keycloak observability. Match the Phase Two defaults
+      # baked into the image (verified by reading the rebuild log:
+      # "The previous optimized build will be overridden with the
+      # following build options: features=preview > features=<unset>").
+      KC_FEATURES: "preview"
+      KC_METRICS_ENABLED: "true"
+      KC_SPI_EMAIL_TEMPLATE_PROVIDER: "freemarker-plus-mustache"
+      KC_SPI_EMAIL_TEMPLATE_FREEMARKER_PLUS_MUSTACHE_ENABLED: "true"
+      # --- DB ---
+      KC_DB: postgres
+      KC_DB_URL: "jdbc:postgresql://dokploy-postgres:5432/{{ keycloak_db_name }}"
+      KC_DB_USERNAME: "{{ keycloak_db_user }}"
+      KC_DB_PASSWORD: "{{ vault_keycloak_db_password }}"
+      # --- HTTP / proxy ---
+      KC_HTTP_ENABLED: "{{ keycloak_http_enabled | string | lower }}"
+      KC_HOSTNAME: "https://{{ keycloak_hostname }}"
+      KC_HOSTNAME_STRICT: "true"
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_PROXY_HEADERS: "{{ keycloak_proxy_headers }}"
+      # --- Cache ---
+      # Single Keycloak replica per VPS (one `server` service, no
+      # deploy.replicas). `start` defaults to cache=ispn (clustered),
+      # which spins up JGroups + KEYCLOAK_JDBC_PING2 discovery and adds a
+      # "Keycloak cluster health check" to /health/ready. On a DR restore
+      # the restored Postgres carries a STALE JDBC_PING2 discovery row
+      # from the pre-restore instance; the fresh node tries to JOIN that
+      # ghost, times out 10x, "becomes singleton", and if the Postgres
+      # restart races the join the cluster check wedges DOWN permanently
+      # (DB check stays UP) -- /health/ready never returns 200 and the
+      # rollback health-wait fails. There is no second node to cluster
+      # with, so local caching is strictly correct here; user/client
+      # sessions persist to the DB (persistent-user-sessions) so nothing
+      # is lost on restart. `cache` is a runtime option, so this is safe
+      # under `start` without --optimized (no build-time rebuild loop).
+      KC_CACHE: "local"
+      # --- Health (probed by validate.yml + Gatus + Dokploy domain check) ---
+      KC_HEALTH_ENABLED: "true"
+      # --- Initial admin (idempotent: skipped after first boot) ---
+      # Keycloak 26 reads these envs ONLY when no admin user exists in
+      # the DB yet. On a DR converge the restored Postgres already has
+      # the admin row, so these envs are ignored. Same identity as
+      # Dokploy's admin per the shared-vault contract.
+      KC_BOOTSTRAP_ADMIN_USERNAME: "{{ admin_email }}"
+      KC_BOOTSTRAP_ADMIN_PASSWORD: "{{ vault_admin_password }}"
+    networks:
+      dokploy-network:
+        aliases:
+          - "{{ keycloak_server_alias }}"
+      default: {}
+    healthcheck:
+      # Keycloak 26 split /health/* off onto a separate "management" port
+      # (default 9000); probing 8080 would 404 even with KC_HEALTH_ENABLED.
+      # Phase Two's image (and upstream Keycloak 26.x base) ships WITHOUT
+      # curl/wget -- only bash. Use bash + /dev/tcp to issue a minimal
+      # HTTP/1.1 GET and grep for "200" in the status line. Avoids
+      # baking a curl install into the image just for healthchecks.
+      test:
+        - "CMD-SHELL"
+        - "exec 3<>/dev/tcp/127.0.0.1/{{ keycloak_management_port }} && printf 'GET {{ keycloak_health_path }} HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && head -1 <&3 | grep -q '200'"
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    restart: unless-stopped
+
+networks:
+  dokploy-network:
+    external: true
+  default: {}

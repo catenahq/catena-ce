@@ -1,0 +1,96 @@
+---
+# Move every member of `_grp.old` into `_grp.new` in the vps realm, then
+# delete `_grp.old`. Tolerant of a missing old group (no-op) and a
+# missing new group (skips -- realm_bootstrap seeds the new groups before
+# this runs, so a missing new group means the realm import has not landed
+# yet and we must not delete anything).
+#
+# Inputs: kc_ct (KC server container name), _grp.old, _grp.new.
+
+- name: "Keycloak groups [{{ _grp.old }}]: list top-level groups"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - "{{ kc_ct }}"
+      - /opt/keycloak/bin/kcadm.sh
+      - get
+      - groups
+      - -r
+      - "{{ keycloak_realm }}"
+      - --fields
+      - id,name
+  register: _kc_groups_raw
+  changed_when: false
+
+- name: "Keycloak groups [{{ _grp.old }}]: resolve old + new group ids"
+  ansible.builtin.set_fact:
+    # Exact name match -- kcadm `get groups` has no exact filter, and a
+    # substring search for "admin" would also match the new "admin"
+    # group, so we filter the full list by exact name here.
+    _kc_old_gid: >-
+      {{ (_kc_groups_raw.stdout | from_json
+          | selectattr('name', 'equalto', _grp.old) | map(attribute='id')
+          | list | first | default('')) }}
+    _kc_new_gid: >-
+      {{ (_kc_groups_raw.stdout | from_json
+          | selectattr('name', 'equalto', _grp.new) | map(attribute='id')
+          | list | first | default('')) }}
+
+- name: "Keycloak groups [{{ _grp.old }}]: migrate + delete (old group present)"
+  when:
+    - _kc_old_gid | length > 0
+    - _kc_new_gid | length > 0
+  block:
+    - name: "Keycloak groups [{{ _grp.old }}]: list members"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ kc_ct }}"
+          - /opt/keycloak/bin/kcadm.sh
+          - get
+          - "groups/{{ _kc_old_gid }}/members"
+          - -r
+          - "{{ keycloak_realm }}"
+          - --fields
+          - id
+      register: _kc_old_members
+      changed_when: false
+
+    - name: "Keycloak groups [{{ _grp.old }}]: join each member to {{ _grp.new }}"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ kc_ct }}"
+          - /opt/keycloak/bin/kcadm.sh
+          - update
+          - "users/{{ _member.id }}/groups/{{ _kc_new_gid }}"
+          - -r
+          - "{{ keycloak_realm }}"
+          - -s
+          - "realm={{ keycloak_realm }}"
+          - -s
+          - "userId={{ _member.id }}"
+          - -s
+          - "groupId={{ _kc_new_gid }}"
+          - -n
+      loop: "{{ _kc_old_members.stdout | from_json }}"
+      loop_control:
+        loop_var: _member
+        label: "{{ _member.id }}"
+      changed_when: true
+
+    - name: "Keycloak groups [{{ _grp.old }}]: delete old group"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ kc_ct }}"
+          - /opt/keycloak/bin/kcadm.sh
+          - delete
+          - "groups/{{ _kc_old_gid }}"
+          - -r
+          - "{{ keycloak_realm }}"
+      changed_when: true

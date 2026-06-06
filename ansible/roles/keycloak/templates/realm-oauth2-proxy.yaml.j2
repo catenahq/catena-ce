@@ -1,0 +1,79 @@
+# {{ ansible_managed }}
+# Static Keycloak client for every oauth2-proxy reverse-proxy
+# instance. All per-app instances share this client; they differ only
+# in `--allowed-group` filter and the `--upstream` they protect, NOT in
+# OIDC client_id / secret. Sharing the client means a user who signed
+# in for one gated host has an active Keycloak SSO session, so visiting
+# any other gated host re-prompts only at oauth2-proxy's session check
+# (silent Keycloak redirect, no credential entry).
+#
+# This file lives in the same /config directory as realm-vps.yaml so
+# keycloak-config-cli's `IMPORT_FILES_LOCATIONS=/config/*.yaml` glob
+# picks it up alongside the base realm. Default merge semantics
+# preserve the base realm's groups/users/etc and just add this
+# client.
+
+realm: {{ keycloak_realm }}
+
+clients:
+  - clientId: "{{ oauth2_proxy_client_id }}"
+    name: "catena oauth2-proxy"
+    description: "Reverse-proxy gateway for the gated infrastructure apps."
+    enabled: true
+    publicClient: false
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    secret: "{{ vault_oauth2_proxy_client_secret }}"
+    # All gated subdomains share the same /oauth2/callback path; in
+    # reverse-proxy mode each per-app oauth2-proxy container owns
+    # /oauth2/* on its own Host(), so the callback resolves to that
+    # container's `--upstream`-protected backend.
+    #
+    # Keycloak does NOT support host-level wildcards in
+    # redirectUris -- per the upstream docs, wildcards are allowed
+    # only at the END of the URL (path segment). The earlier
+    # `https://*.{{ cloudflare_zone }}/oauth2/callback` form was
+    # taken literally as a string and matched NOTHING, so every
+    # auth attempt failed with `invalid_redirect_uri`. List each
+    # gated host explicitly. Source for the host vars: the
+    # `oauth2_proxy_apps` list in roles/oauth2_proxy/defaults/main.yml.
+    # Any new gated app added there must also appear here -- the
+    # template loop below picks them up automatically.
+    redirectUris:
+{% for app in oauth2_proxy_apps %}
+{%   set host = hostvars[inventory_hostname][app.host_var] | default(lookup('vars', app.host_var, default='')) %}
+{%   if host | length > 0 %}
+      - "https://{{ host }}/oauth2/callback"
+{%   endif %}
+{% endfor %}
+    webOrigins:
+      - "+"
+    # Default scopes line up with the staff/admin command-line:
+    # `--scope=openid email profile groups`. Realm's default
+    # clientScope list (defaultDefaultClientScopes in realm-vps.yaml)
+    # already includes groups, so no per-client mapper override is
+    # necessary -- the base realm's `groups` clientScope owns the
+    # mapper.
+    defaultClientScopes:
+      - groups
+      - profile
+      - email
+      - roles
+      - web-origins
+    optionalClientScopes:
+      - phone
+      - address
+      - microprofile-jwt
+    attributes:
+      access.token.lifespan: "3600"
+      # Explicit empty string clears the attribute (keycloak-config-cli
+      # merges, does not replace -- omitting the key leaves the old
+      # value in the DB). Required because PKCE-required confidential
+      # clients reject auth with `invalid_request: Missing parameter:
+      # code_challenge_method`. oauth2-proxy v7 does not send
+      # code_challenge by default; the client_secret already protects
+      # against authorization-code interception (PKCE is for public
+      # clients without secrets).
+      pkce.code.challenge.method: ""

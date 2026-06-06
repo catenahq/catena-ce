@@ -1,0 +1,135 @@
+---
+# roles/keycloak deploys Keycloak (Phase Two distribution) as a
+# Dokploy-managed compose app. Phase Two extensions ship in the same
+# image: Admin Portal, Organizations (multi-tenancy), IdP Wizards,
+# Events (audit log + webhooks), Magic Link, themes.
+#
+# Database: Keycloak gets its own Postgres database (`keycloak`) and
+# user (`keycloak`) inside the existing dokploy-postgres swarm service.
+# Project convention is one Postgres per VPS, multiple DBs inside (see
+# the PLANNING.md sec 2 decision in the sibling catenahq/sales repo).
+# We do NOT spin up a dedicated postgres
+# container -- one less moving part, one less restic exclude, no
+# password skew between install.sh and a restored volume.
+
+# --- Hostname ---
+keycloak_subdomain: "{{ lookup('dotenv', 'AUTH_SUBDOMAIN', default='auth') }}"
+keycloak_hostname: "{{ keycloak_subdomain }}.{{ cloudflare_zone }}"
+
+# --- Image pin ---
+# Phase Two distribution image. Repo:
+#   https://github.com/p2-inc/phasetwo-containers
+#   quay.io/phasetwo/phasetwo-keycloak (rolling + timestamped tags).
+# Tag form: <kc-version>[.<unix-build-time>]. Use the rolling
+# semver-like tag (e.g. 26.5.7) for stability across patch builds; the
+# fully-qualified timestamp form (26.5.7.1777058166) is available when
+# operators need an immutable pin. As of 2026-04-27, Phase Two tracks
+# Keycloak 26.5.x; no 26.6.x build is published yet.
+keycloak_image_tag: "26.5.7"
+keycloak_image: "quay.io/phasetwo/phasetwo-keycloak:{{ keycloak_image_tag }}"
+
+# --- Compose ---
+keycloak_compose_name: "keycloak"
+keycloak_internal_port: 8080 # KC's HTTP port inside the container
+
+# Keycloak 26 split health/metrics off onto a separate "management"
+# port (default 9000). Probes against http://localhost:8080/health/*
+# return 404 even when KC_HEALTH_ENABLED=true. Used by validate.yml's
+# in-container probe + the compose healthcheck.
+keycloak_management_port: 9000
+
+# --- DB (inside dokploy-postgres) ---
+keycloak_db_name: "keycloak"
+keycloak_db_user: "keycloak"
+
+# --- Hostnames + reverse-proxy mode ---
+# Behind CF Tunnel + Traefik. CF terminates TLS, Traefik forwards on
+# the `web` entrypoint, KC sees plain HTTP. proxy_headers=xforwarded
+# tells KC to trust X-Forwarded-* so absolute URLs in the login flow
+# come out as https://auth.<zone>/...
+keycloak_proxy_headers: "xforwarded"
+keycloak_http_enabled: true
+
+# --- Health probe ---
+# Phase Two image enables /health/* endpoints by default. We probe
+# /health/ready post-deploy + during validate.yml.
+keycloak_health_path: "/health/ready"
+
+# --- Realm bootstrap (keycloak-config-cli) ---
+# adorsys' import-update-merge tool. Runs as a one-shot docker container
+# attached to dokploy-network so it can hit keycloak-server:8080. Image
+# tag must match Keycloak's major.minor (the tool's CRD parser breaks
+# across major-version drift). Track upstream:
+#   https://hub.docker.com/r/adorsys/keycloak-config-cli/tags
+# Tag form: `latest-<kc-major>.<kc-minor>.<kc-patch>`. Use the
+# specific patch when our Keycloak pin (keycloak_image_tag) is also
+# pinned to a specific patch. As of 2026-04-27, latest-26.5.4 tracks
+# Keycloak 26.5.x (closest match for our 26.5.7 pin).
+keycloak_config_cli_image_tag: "latest-26.5.4"
+keycloak_config_cli_image: "adorsys/keycloak-config-cli:{{ keycloak_config_cli_image_tag }}"
+
+# Host-side dir that holds rendered realm YAML files. Bind-mounted into
+# the keycloak-config-cli container at /config (RO).
+keycloak_realm_host_dir: "/etc/dokploy/keycloak/realms"
+
+# Realm name owning all per-VPS clients + groups + users. Single-realm
+# per VPS today; Phase Two Organizations (multi-tenancy inside one
+# realm) is the upgrade path when a client wants sub-tenants.
+keycloak_realm: "vps"
+
+# Display name surfaced on the login page. Operators can override per
+# inventory in inventory/<name>/.env via DISPLAY_NAME.
+keycloak_realm_display_name: >-
+  {{ lookup('dotenv', 'DISPLAY_NAME', default=cloudflare_zone) }}
+
+# Nightly realm-export OnCalendar. Default 03:30 host-local --
+# spaced from the backup window (default 02:00) and any auto-update
+# fire window. Override per inventory if the host has unusual
+# scheduling pressure.
+keycloak_realm_export_oncalendar: "*-*-* 03:30:00"
+
+# --- SMTP autofill -----------------------------------------------------
+# Operators set ONE of RESEND_SENDER_EMAIL / BREVO_SENDER_EMAIL /
+# SMTP_HOST in inventory/<name>/.env. The first two route through known
+# providers with hardcoded host/port/auth conventions; SMTP_HOST + raw
+# SMTP_* envs are the escape hatch for everything else. Whichever path
+# fires resolves into the same `smtp_*` vars that realm-vps.yaml.j2
+# reads.
+
+_resend_sender: "{{ lookup('dotenv', 'RESEND_SENDER_EMAIL', default='') }}"
+_brevo_sender: "{{ lookup('dotenv', 'BREVO_SENDER_EMAIL', default='') }}"
+_raw_smtp_host: "{{ lookup('dotenv', 'SMTP_HOST', default='') }}"
+
+smtp_enabled: >-
+  {{
+    (_resend_sender | length > 0)
+    or (_brevo_sender | length > 0)
+    or (_raw_smtp_host | length > 0)
+  }}
+
+# Resend takes precedence if both Resend + Brevo are set.
+smtp_host: >-
+  {{
+    'smtp.resend.com' if (_resend_sender | length > 0)
+    else ('smtp-relay.brevo.com' if (_brevo_sender | length > 0)
+    else _raw_smtp_host)
+  }}
+smtp_port: >-
+  {{
+    587 if ((_resend_sender | length > 0) or (_brevo_sender | length > 0))
+    else (lookup('dotenv', 'SMTP_PORT', default='587') | int)
+  }}
+smtp_user: >-
+  {{
+    'resend' if (_resend_sender | length > 0)
+    else (lookup('dotenv', 'BREVO_SMTP_USER', default='') if (_brevo_sender | length > 0)
+    else lookup('dotenv', 'SMTP_USER', default=''))
+  }}
+smtp_from: >-
+  {{
+    _resend_sender if (_resend_sender | length > 0)
+    else (_brevo_sender if (_brevo_sender | length > 0)
+    else lookup('dotenv', 'SMTP_FROM', default=admin_email))
+  }}
+smtp_use_tls: true
+smtp_use_starttls: true

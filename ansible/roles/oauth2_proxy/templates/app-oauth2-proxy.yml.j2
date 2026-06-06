@@ -1,0 +1,35 @@
+---
+# {{ ansible_managed }}
+# File-based Traefik route for {{ _app.slug }} -> {{ _app_hostname }}.
+#
+# Reverse-proxy mode: Traefik routes the entire host straight to the
+# per-app oauth2-proxy container, which authenticates the request and
+# (after auth) proxies to its `--upstream` backend itself. There is no
+# forwardAuth + errors middleware chain -- oauth2-proxy emits a clean
+# 302 to Keycloak when the user is unauthenticated, which the browser
+# follows automatically.
+#
+# Priority 100 wins over Dokploy's auto-generated default route on the
+# same Host() match, so this file-based route lands first.
+#
+# `oauth2-force-https-proto` rewrites X-Forwarded-Proto to https,
+# because cloudflared terminates TLS at the edge but does NOT set the
+# X-Forwarded-Proto header on the back-channel request to Traefik.
+# Without it, oauth2-proxy constructs an http:// callback URL and
+# Keycloak rejects with redirect_uri mismatch.
+http:
+  routers:
+    {{ _app.slug }}-oauth2-proxy:
+      rule: "Host(`{{ _app_hostname }}`)"
+      priority: 100
+      entryPoints:
+        - web
+      middlewares:
+        - oauth2-force-https-proto
+      service: {{ _app.slug }}-oauth2-proxy-svc
+
+  services:
+    {{ _app.slug }}-oauth2-proxy-svc:
+      loadBalancer:
+        servers:
+          - url: "http://oauth2-proxy-{{ _app.slug }}:{{ oauth2_proxy_internal_port }}"

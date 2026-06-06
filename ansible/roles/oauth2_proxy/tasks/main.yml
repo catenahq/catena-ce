@@ -1,0 +1,210 @@
+---
+# Orchestrator for roles/oauth2_proxy. Order:
+# 1. Preflight: vault keys + Keycloak realm exists.
+# 2. Render the Keycloak `oauth2-proxy` client into the keycloak realm
+#    config dir + re-run keycloak-config-cli (merge mode -- safe).
+# 3. Render the shared Traefik middleware definitions.
+# 4. Render the per-app Traefik route files (one per gated app).
+# 5. Deploy the two-instance compose via Dokploy API.
+# 6. Validate.
+#
+# This role MUST run AFTER roles/keycloak (the realm + admin user must
+# exist before keycloak-config-cli can add the client) and BEFORE
+# roles/infrastructure deploys gated apps (so the chain middleware is
+# in place when those apps' routes get registered with Traefik).
+
+- name: "oauth2-proxy: preflight vault + env"
+  ansible.builtin.assert:
+    that:
+      - vault_oauth2_proxy_client_secret is defined
+      - vault_oauth2_proxy_client_secret | length > 20
+      - vault_oauth2_proxy_cookie_secret is defined
+      # oauth2-proxy v7 decodes --cookie-secret with `base64.RawURLEncoding`
+      # (URL-safe alphabet `-_`, no padding) and rejects any decoded
+      # length other than 16/24/32 bytes (AES-128/192/256). Standard
+      # base64 with `+/` characters fails RawURLEncoding so oauth2-proxy
+      # falls back to the literal 44-char string -> "is 44 bytes" error
+      # -> restart loop. Validate by stripping any `=` padding and
+      # asserting the resulting length matches one of the three valid
+      # b64-of-{16,24,32}-bytes lengths. Works for both URL-safe and
+      # standard b64; the alphabet itself is enforced at oauth2-proxy
+      # boot, not here.
+      - (vault_oauth2_proxy_cookie_secret | regex_replace('=+$', '') | length) in [22, 32, 43]
+      - cloudflare_zone | length > 0
+      - keycloak_realm | length > 0
+      - keycloak_server_alias | length > 0
+    fail_msg: >-
+      Missing or invalid oauth2-proxy config. Expected
+      vault_oauth2_proxy_client_secret (>= 20 chars),
+      vault_oauth2_proxy_cookie_secret (URL-safe base64 of 16/24/32
+      raw bytes -- 32 raw bytes is the canonical choice -> 43 chars
+      no-pad / 44 chars with `=`; a 64-char b64 of 48 bytes WILL FAIL
+      oauth2-proxy preflight, AND standard base64 with `+/` characters
+      will silently decode to a 44-byte literal at oauth2-proxy boot),
+      CLOUDFLARE_ZONE, and a healthy roles/keycloak pass earlier in
+      the play. The installer mints both secrets correctly on a fresh
+      install; on existing inventories minted before this fix,
+      regenerate the cookie secret with:
+        python3 -c 'import os, base64; print(base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("="))'
+      then update vault.sops.yml via `sops --set`.
+
+# Realm-config render + middleware render + compose deploy + validate
+# all assume Keycloak is up (so keycloak-config-cli can reach it) AND
+# the Dokploy API is reachable (so compose.create + domain.create work).
+# On first site converge in fresh_install, vault_dokploy_api_key is
+# undefined; Keycloak's compose deploy was skipped, so reaching this
+# role would crash. Skip cleanly until pass 2 of fresh_install (when
+# the API key is bootstrapped) -- mirrors roles/keycloak's gate.
+- name: "oauth2-proxy: Dokploy-API-gated body (realm + middleware + compose + validate)"
+  when:
+    - vault_dokploy_api_key is defined
+    - vault_dokploy_api_key | length > 10
+  block:
+    - name: "oauth2-proxy: render Keycloak client into realm config dir"
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../roles/keycloak/templates/realm-oauth2-proxy.yaml.j2"
+        dest: "{{ keycloak_realm_host_dir }}/oauth2-proxy.yaml"
+        owner: root
+        group: root
+        mode: "0644"
+      register: _oauth2_realm_render
+
+    - name: "oauth2-proxy: re-import realm config with the new client"
+      ansible.builtin.include_tasks: ../../keycloak/tasks/realm_bootstrap.yml
+      when: _oauth2_realm_render is changed
+      tags: [oauth2_proxy_realm]
+
+    - name: "oauth2-proxy: render shared Traefik middlewares"
+      ansible.builtin.template:
+        src: oauth2-proxy-middlewares.yml.j2
+        dest: "{{ dokploy_traefik_dynamic_dir }}/oauth2-proxy-middlewares.yml"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: "oauth2-proxy: render per-app Traefik route files"
+      ansible.builtin.template:
+        src: app-oauth2-proxy.yml.j2
+        dest: "{{ dokploy_traefik_dynamic_dir }}/{{ _app.slug }}-oauth2-proxy.yml"
+        owner: root
+        group: root
+        mode: "0644"
+      loop: "{{ oauth2_proxy_apps }}"
+      loop_control:
+        loop_var: _app
+        label: "{{ _app.slug }}"
+      vars:
+        _app_hostname: "{{ hostvars[inventory_hostname][_app.host_var] | default(lookup('vars', _app.host_var, default='')) }}"
+      when: _app_hostname | length > 0
+
+    # Native-OIDC apps (EP-B): force-https + backend only, no chain.
+    # Different filename suffix (-public-oidc.yml) so the cleanup loop
+    # in dashboard-sync's gate-route writer (which only handles
+    # `-auto-gate.yml` + the legacy `-auto-authentik.yml`) leaves
+    # these alone; they're operator-managed via this role, not
+    # client-managed.
+    - name: "oauth2-proxy: render per-app Traefik route files (public OIDC)"
+      ansible.builtin.template:
+        src: app-public-oidc.yml.j2
+        dest: "{{ dokploy_traefik_dynamic_dir }}/{{ _app.slug }}-public-oidc.yml"
+        owner: root
+        group: root
+        mode: "0644"
+      loop: "{{ oauth2_proxy_public_oidc_apps | default([]) }}"
+      loop_control:
+        loop_var: _app
+        label: "{{ _app.slug }} (public-oidc)"
+      vars:
+        _app_hostname: "{{ hostvars[inventory_hostname][_app.host_var] | default(lookup('vars', _app.host_var, default='')) }}"
+      when: _app_hostname | length > 0
+
+    # Cleanup: remove the OLD `-oauth2-proxy.yml` route files for
+    # apps that have moved to the public-oidc list (e.g. olivetin in
+    # EP-B). Without this, the old admin-chain route would remain
+    # active alongside the new public-oidc route -- two routers
+    # claiming the same Host(), Traefik picks one undefined-ly.
+    - name: "oauth2-proxy: remove stale chain-route files for migrated public-oidc apps"
+      ansible.builtin.file:
+        path: "{{ dokploy_traefik_dynamic_dir }}/{{ _app.slug }}-oauth2-proxy.yml"
+        state: absent
+      loop: "{{ oauth2_proxy_public_oidc_apps | default([]) }}"
+      loop_control:
+        loop_var: _app
+        label: "{{ _app.slug }} (cleanup)"
+
+    # oauth2-proxy v7 fetches the OIDC discovery doc from
+    # `<oidc_issuer>/.well-known/openid-configuration` ONCE on
+    # container startup and exits the process on failure -- there is
+    # no built-in retry. The issuer URL is the public Keycloak
+    # hostname (auth.<zone>), which means the discovery fetch traverses
+    # the full edge path: container -> Docker DNS -> dokploy-network ->
+    # Traefik :443 -> back-channel to keycloak-server alias. If ANY
+    # link in that path is briefly unhealthy at boot -- in particular
+    # cloudflared's resolution of `keycloak-server` returning Cloudflare
+    # error 1033 / HTTP 530 during a same-converge Keycloak redeploy --
+    # every per-app oauth2-proxy crashloops on
+    #   `OIDC discovery: failed to discover OIDC configuration:
+    #    unexpected status "530": error code: 1033`.
+    #
+    # Bench surfaced this in stage-3-rollback: site re-converge after
+    # restic restore re-deploys both Keycloak and oauth2-proxy via the
+    # Dokploy API; oauth2-proxy's new containers raced Keycloak's
+    # restart window and never recovered (no retry loop in v7).
+    #
+    # Wait for the public OIDC discovery URL to answer 200 BEFORE
+    # asking Dokploy to redeploy. 30 retries x 5s = 150s budget, easily
+    # covers a Keycloak rolling restart. Hard-fail on timeout: a
+    # genuinely-down auth.<zone> is something the operator must see,
+    # not a silent crashloop.
+    - name: "oauth2-proxy: wait for Keycloak public OIDC discovery to be reachable"
+      ansible.builtin.uri:
+        url: "{{ oauth2_proxy_oidc_issuer }}/.well-known/openid-configuration"
+        method: GET
+        status_code: [200]
+        timeout: 10
+      delegate_to: localhost
+      become: false
+      register: _oauth2_kc_oidc_discovery
+      retries: 30
+      delay: 5
+      until: _oauth2_kc_oidc_discovery.status == 200
+
+    - name: "oauth2-proxy: deploy compose via Dokploy API"
+      ansible.builtin.include_tasks: compose.yml
+      tags: [oauth2_proxy_compose]
+
+    # The Dokploy redeploy above can churn the swarm stack (cloudflared
+    # included on rollback / DR converges where the cloudflared service
+    # gets re-created or its image reconciled). When cloudflared
+    # reconnects, CF edge briefly returns 1033/404 for tunnel routes
+    # until the new connection registers. oauth2-proxy v7 fetches OIDC
+    # discovery once at container start with no retry, so a /ping probe
+    # that lands in that window crashloops the container and trips the
+    # validate. Re-confirm discovery is reachable from the controller
+    # BEFORE asking the container for /ping; same uri probe as the
+    # pre-deploy wait above.
+    - name: "oauth2-proxy: re-confirm Keycloak public OIDC discovery is reachable post-deploy"
+      ansible.builtin.uri:
+        url: "{{ oauth2_proxy_oidc_issuer }}/.well-known/openid-configuration"
+        method: GET
+        status_code: [200]
+        timeout: 10
+      delegate_to: localhost
+      become: false
+      register: _oauth2_kc_oidc_discovery_post
+      retries: 60
+      delay: 5
+      until: _oauth2_kc_oidc_discovery_post.status == 200
+
+    - name: "oauth2-proxy: post-deploy /ping probe"
+      ansible.builtin.include_tasks: validate.yml
+      tags: [oauth2_proxy_health]
+
+- name: "oauth2-proxy: skipped Dokploy-API steps (no API key yet)"
+  ansible.builtin.debug:
+    msg: >-
+      Skipping oauth2-proxy realm + middleware + compose + validate --
+      vault_dokploy_api_key is not yet present. menu/flows.fresh_install
+      bootstraps it after the first site converge; the second converge
+      will pick this back up.
+  when: vault_dokploy_api_key is not defined or (vault_dokploy_api_key | length) < 10

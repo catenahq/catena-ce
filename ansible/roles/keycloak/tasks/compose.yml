@@ -1,0 +1,39 @@
+---
+# Render keycloak.compose.yml.j2 + deploy via Dokploy API. Reuses
+# roles/infrastructure/tasks/dokploy_compose.yml -- single canonical
+# helper for "compose.create + domain.create + compose.deploy + ready
+# probe" against Dokploy. See its header for contract details.
+#
+# The readiness probe is the public URL (auth.<zone>) which only
+# resolves once cloudflared + Traefik route this host AND Keycloak's
+# /health/ready returns 200. cloudflared is up by now (roles/
+# cloudflare_tunnel runs before this role since 2026-05-08), but the
+# Traefik route for auth.<zone> is the keycloak compose itself --
+# which we are deploying RIGHT NOW. Skip the public probe and let
+# the in-container healthcheck (defined in keycloak.compose.yml.j2)
+# gate readiness; the post-deploy probe in tasks/validate.yml handles
+# the cross-check once Traefik picks up the new compose.
+
+# dokploy_compose.yml requires `_dokploy_project_id` + `_dokploy_environment_id`.
+# Those facts are set by dokploy_project.yml, which is normally invoked by the
+# infrastructure role -- but keycloak runs BEFORE infrastructure (it must be
+# up so the gated apps' forward-auth middleware can resolve the issuer).
+# Invoke the project-bootstrap helper here so the facts are present.
+# Idempotent: find-or-create at the Dokploy API level.
+- name: "Keycloak: ensure Dokploy project + environment IDs are captured"
+  ansible.builtin.include_tasks: ../../infrastructure/tasks/dokploy_project.yml
+
+- name: "Keycloak: deploy via Dokploy API"
+  ansible.builtin.include_tasks: ../../infrastructure/tasks/dokploy_compose.yml
+  vars:
+    svc_name: "{{ keycloak_compose_name }}"
+    svc_compose_content: "{{ lookup('template', 'keycloak.compose.yml.j2') }}"
+    svc_env: []
+    svc_domain_host: "{{ keycloak_hostname }}"
+    svc_domain_service: "{{ keycloak_server_service }}"
+    svc_domain_port: "{{ keycloak_internal_port }}"
+    svc_readiness_skip_reason: >-
+      auth.<zone> only becomes reachable once roles/infrastructure
+      renders the cloudflared ingress + Traefik route. Verified by
+      tasks/validate.yml's /health/ready probe + the aggregate post-
+      role probe in roles/infrastructure.

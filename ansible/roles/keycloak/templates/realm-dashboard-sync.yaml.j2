@@ -1,0 +1,56 @@
+# {{ ansible_managed }}
+# Service-account client used by the host-side dashboard-sync cron to
+# register per-app /oauth2/callback redirect URIs on the shared
+# `oauth2-proxy` client as client apps are deployed via Dokploy.
+#
+# Scope: a confidential client with serviceAccountsEnabled and a SINGLE
+# realm-management role -- `manage-clients`. That is the least privilege
+# that lets dashboard-sync GET + PUT the oauth2-proxy client's
+# redirectUris. It canNOT manage users, groups, or other realm config,
+# so a leaked host token cannot escalate beyond client edits.
+#
+# dashboard-sync authenticates with the client-credentials grant
+# (client_id + client_secret -> token), then merges (UNIONs, never
+# removes) the discovered client-app callback URIs into the oauth2-proxy
+# client. A converge re-import of realm-oauth2-proxy.yaml.j2 resets that
+# list to the infra hosts only; the next dashboard-sync run (<= 5 min)
+# re-adds the client-app URIs. See automation/vps-scripts/dashboard-sync.py.
+#
+# Lives in the same /config dir as realm-vps.yaml so keycloak-config-cli's
+# IMPORT_FILES_LOCATIONS=/config/*.yaml glob picks it up. NO_DELETE merge
+# (set in realm_bootstrap.yml) preserves the base realm + other clients.
+
+realm: {{ keycloak_realm }}
+
+clients:
+  - clientId: "dashboard-sync"
+    name: "catena dashboard-sync"
+    description: "Host cron: registers per-app oauth2-proxy redirect URIs (manage-clients only)."
+    enabled: true
+    publicClient: false
+    standardFlowEnabled: false
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: true
+    secret: "{{ vault_dashboard_sync_client_secret }}"
+    attributes:
+      access.token.lifespan: "600"
+
+# Least-privilege role grant for the dashboard-sync service account.
+# kc-config-cli's `latest-26.5.4` schema does NOT recognise
+# `serviceAccountClientRoles` as a field on ClientRepresentation
+# (Jackson fails the import with "Unrecognized field" -- bench run
+# 2026-05-31T07-28-41-b870). The canonical kc-config-cli pattern is
+# to declare the service-account user explicitly and pin its
+# clientRoles via `serviceAccountClientId`. The user is auto-created
+# by Keycloak when serviceAccountsEnabled flips true on the client
+# above; this entry just decorates the existing user with the
+# manage-clients role on realm-management. NO_DELETE merge semantics
+# (set in realm_bootstrap.yml) preserve other users.
+users:
+  - username: "service-account-dashboard-sync"
+    enabled: true
+    serviceAccountClientId: "dashboard-sync"
+    clientRoles:
+      realm-management:
+        - manage-clients

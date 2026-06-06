@@ -1,0 +1,9 @@
+---
+# Internal compose service names. Match the keys in
+# templates/keycloak.compose.yml.j2's `services:` map.
+keycloak_server_service: "server"
+
+# Network alias on dokploy-network. Other composes reach Keycloak by
+# this name (e.g. oauth2-proxy in plan step 4 will set
+# `--oidc-issuer-url=http://keycloak-server:8080/realms/vps`).
+keycloak_server_alias: "keycloak-server"
