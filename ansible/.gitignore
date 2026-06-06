@@ -18,3 +18,7 @@ collections/
 .ansible/
 **/__pycache__/
 *.pyc
+
+# Installer Python tooling (uv-managed venv + pytest cache).
+.venv/
+.pytest_cache/

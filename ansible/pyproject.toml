@@ -1,0 +1,21 @@
+[project]
+name = "catena-ce-installer"
+version = "0.1.0"
+description = "Community Catena installer / CLI (seed + ansible wrapper)"
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6",
+    "ansible-core>=2.18",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit"]
+
+[tool.setuptools]
+# This is a runnable tool tree, not an importable package -- no build step.
+py-modules = []

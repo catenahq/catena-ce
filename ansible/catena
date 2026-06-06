@@ -1,0 +1,254 @@
+#!/usr/bin/env python3
+"""catena -- Community Catena installer / CLI.
+
+A thin wrapper over the Ansible base so self-hosters never touch raw
+ansible-playbook. Subcommands:
+
+  install    seed config + secrets (reuses seed.py), then run
+             preflight -> bootstrap -> site -> validate
+  converge   re-run site.yml (apply config changes / new app tags)
+  validate   run validate.yml (on-host + tailnet + external checks)
+  restore    run restore.yml (whole-host disaster recovery)
+  uninstall  hand control back to the OS: unmask + re-enable Debian's
+             apt-daily-upgrade.timer (the unattended-upgrades handback)
+             and print teardown guidance
+
+The vault is SOPS-encrypted to your own age key. seed.py mints it on first
+install and saves it to a key file; this CLI loads it into $SOPS_AGE_KEY
+automatically on every run so the Ansible community.sops vars plugin can
+decrypt. Run inside the catena-ce checkout:
+
+    uv run ./catena install --inventory prod
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+# This file lives at the root of the self-contained ansible/ tree.
+ANSIBLE_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(ANSIBLE_DIR))
+
+# The ordered converge chain a fresh install runs. preflight is a SEPARATE
+# invocation BEFORE bootstrap so a stray --limit can never skip it.
+INSTALL_CHAIN = ("preflight", "bootstrap", "site", "validate")
+
+# Host binaries the wrapper shells out to. age-keygen + sops handle the
+# vault; ansible-playbook/ansible run the base.
+REQUIRED_BINARIES = ("ansible-playbook", "ansible", "sops", "age-keygen")
+
+
+def _c(code: str, msg: str) -> str:
+    return f"\033[{code}m{msg}\033[0m"
+
+
+def banner(msg: str) -> None:
+    print(_c("1;34", f"\n== {msg}"), file=sys.stderr)
+
+
+def die(msg: str, code: int = 1) -> None:
+    print(_c("1;31", f"x {msg}"), file=sys.stderr)
+    raise SystemExit(code)
+
+
+def check_prereqs(binaries: tuple[str, ...] = REQUIRED_BINARIES) -> list[str]:
+    """Return the list of required binaries missing from PATH."""
+    return [b for b in binaries if shutil.which(b) is None]
+
+
+def ensure_age_key_env(key_file: Path | None = None) -> None:
+    """Make sure $SOPS_AGE_KEY is set so the community.sops vars plugin can
+    decrypt the vault. If it is unset, load it from the seed-written key
+    file. Best-effort: if neither is available, downstream ansible fails
+    with a clear sops error."""
+    import seed  # local import: shares ANSIBLE_DIR on sys.path
+
+    if os.environ.get("SOPS_AGE_KEY", "").strip():
+        return
+    key_file = key_file or seed.DEFAULT_AGE_KEY_FILE
+    if not key_file.is_file():
+        return
+    from helpers import age_key
+    secret = age_key.extract_secret(key_file.read_text())
+    if secret:
+        os.environ["SOPS_AGE_KEY"] = secret
+
+
+def inventory_path(inventory: str) -> Path:
+    return ANSIBLE_DIR / "inventory" / inventory
+
+
+def playbook_cmd(inventory: str, playbook: str, extra: list[str] | None = None) -> list[str]:
+    """Build the ansible-playbook argv for one stage. Pure (no side effects)
+    so it is unit-testable."""
+    cmd = [
+        "ansible-playbook",
+        "-i", str(inventory_path(inventory)),
+        str(ANSIBLE_DIR / "playbooks" / f"{playbook}.yml"),
+    ]
+    if extra:
+        cmd.extend(extra)
+    return cmd
+
+
+def _run(cmd: list[str]) -> None:
+    print(_c("1;30", "  $ " + " ".join(cmd)), file=sys.stderr)
+    result = subprocess.run(cmd)
+    if result.returncode != 0:
+        die(f"command failed (exit {result.returncode}): {' '.join(cmd)}",
+            code=result.returncode)
+
+
+def ensure_collections() -> None:
+    """Install the Galaxy collections (community.sops, community.general, ...)
+    on first run if collections/ is absent."""
+    req = ANSIBLE_DIR / "requirements.yml"
+    coll = ANSIBLE_DIR / "collections"
+    if coll.is_dir() or not req.is_file():
+        return
+    banner("Installing Ansible collections (first run)")
+    _run([
+        "ansible-galaxy", "collection", "install",
+        "-r", str(req), "-p", str(coll),
+    ])
+
+
+def _preflight_checks() -> None:
+    missing = check_prereqs()
+    if missing:
+        die(
+            "missing required tools on PATH: " + ", ".join(missing) + "\n"
+            "  - ansible-core: run this via `uv run ./catena ...`, or "
+            "`pipx install ansible-core`\n"
+            "  - sops + age: install from your package manager "
+            "(https://github.com/getsops/sops, https://github.com/FiloSottile/age)"
+        )
+
+
+def _require_inventory(inventory: str) -> None:
+    if not inventory_path(inventory).is_dir():
+        die(
+            f"inventory '{inventory}' not found at {inventory_path(inventory)}. "
+            "Run `./catena install --inventory " + inventory + "` first."
+        )
+
+
+def cmd_install(args: argparse.Namespace) -> int:
+    _preflight_checks()
+    inventory = args.inventory or input("Inventory name [prod]: ").strip() or "prod"
+
+    banner("Step 1/2 -- collect config + secrets (seed)")
+    seed_cmd = [sys.executable, str(ANSIBLE_DIR / "seed.py"), "--inventory", inventory]
+    if args.input:
+        seed_cmd += ["-i", args.input]
+    if args.no_confirm:
+        seed_cmd += ["--no-confirm"]
+    result = subprocess.run(seed_cmd)
+    if result.returncode != 0:
+        die(f"seed failed (exit {result.returncode}); nothing deployed.",
+            code=result.returncode)
+
+    # seed wrote / used the age key; load it so ansible can decrypt the vault.
+    ensure_age_key_env()
+    ensure_collections()
+
+    banner("Step 2/2 -- deploy (preflight -> bootstrap -> site -> validate)")
+    for stage in INSTALL_CHAIN:
+        banner(f"Stage: {stage}")
+        _run(playbook_cmd(inventory, stage))
+    banner("Install complete.")
+    return 0
+
+
+def cmd_converge(args: argparse.Namespace) -> int:
+    _preflight_checks()
+    _require_inventory(args.inventory)
+    ensure_age_key_env()
+    ensure_collections()
+    _run(playbook_cmd(args.inventory, "site"))
+    return 0
+
+
+def cmd_validate(args: argparse.Namespace) -> int:
+    _preflight_checks()
+    _require_inventory(args.inventory)
+    ensure_age_key_env()
+    ensure_collections()
+    _run(playbook_cmd(args.inventory, "validate"))
+    return 0
+
+
+def cmd_restore(args: argparse.Namespace) -> int:
+    _preflight_checks()
+    _require_inventory(args.inventory)
+    ensure_age_key_env()
+    ensure_collections()
+    _run(playbook_cmd(args.inventory, "restore"))
+    return 0
+
+
+def cmd_uninstall(args: argparse.Namespace) -> int:
+    _preflight_checks()
+    _require_inventory(args.inventory)
+    ensure_age_key_env()
+    ensure_collections()
+    banner("Uninstall -- hand unattended-upgrades back to Debian")
+    _run(playbook_cmd(args.inventory, "uninstall"))
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(
+        prog="catena",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sub = ap.add_subparsers(dest="command", required=True)
+
+    p_install = sub.add_parser("install", help="seed + preflight/bootstrap/site/validate")
+    p_install.add_argument("--inventory", help="inventory name (prompted if omitted)")
+    p_install.add_argument("-i", "--input", help="install.yaml for non-interactive values")
+    p_install.add_argument("--no-confirm", action="store_true",
+                           help="skip seed confirmation + one-shot secret prompts")
+    p_install.set_defaults(func=cmd_install)
+
+    p_conv = sub.add_parser("converge", help="re-run site.yml")
+    p_conv.add_argument("--inventory", required=True)
+    p_conv.set_defaults(func=cmd_converge)
+
+    p_val = sub.add_parser("validate", help="run validate.yml")
+    p_val.add_argument("--inventory", required=True)
+    p_val.set_defaults(func=cmd_validate)
+
+    p_res = sub.add_parser("restore", help="run restore.yml (disaster recovery)")
+    p_res.add_argument("--inventory", required=True)
+    p_res.set_defaults(func=cmd_restore)
+
+    p_uni = sub.add_parser(
+        "uninstall",
+        help="hand unattended-upgrades back to the OS + print teardown guidance",
+    )
+    p_uni.add_argument("--inventory", required=True)
+    p_uni.set_defaults(func=cmd_uninstall)
+
+    return ap
+
+
+def main(argv: list[str] | None = None) -> int:
+    # Run from the ansible/ dir so ansible.cfg + relative inventory/playbook
+    # paths resolve regardless of where the user invoked us.
+    os.chdir(ANSIBLE_DIR)
+    args = build_parser().parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        print("\nCancelled (interrupted).", file=sys.stderr)
+        raise SystemExit(130)

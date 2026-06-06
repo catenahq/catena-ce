@@ -1,0 +1,42 @@
+---
+# Hand control of this host back to the operating system.
+#
+# Community Catena never masks Debian unattended-upgrades. But if this host
+# was ever managed under a Business (EE) license, the auto-update module
+# masks apt-daily-upgrade.timer. This playbook unmasks and re-enables the
+# native apt timers so the box keeps receiving security patches after Catena
+# management stops -- the unattended-upgrades handback contract.
+#
+# It deliberately does NOT remove your apps, data, Dokploy, or the VPS from
+# Tailscale / Cloudflare. Those are yours; tear them down deliberately. See
+# the printed guidance at the end.
+#
+# Usage (via the installer):
+#   ./catena uninstall --inventory <name>
+# Or directly:
+#   ansible-playbook -i inventory/<name> playbooks/uninstall.yml
+- name: "Uninstall -- hand unattended-upgrades back to Debian"
+  hosts: "{{ stage_hosts | default('vps') }}"
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Unmask, enable, and start the native apt timers (security patching)
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        masked: false
+        enabled: true
+        state: started
+      loop:
+        - apt-daily.timer
+        - apt-daily-upgrade.timer
+
+    - name: Teardown guidance (Catena left your apps and data in place)
+      ansible.builtin.debug:
+        msg:
+          - "Done: apt-daily-upgrade.timer is unmasked + active -- the OS keeps patching itself."
+          - "Catena did NOT remove your apps, data, or accounts. You still own these steps:"
+          - "  - Dokploy + app containers: remove from the Dokploy UI, or with docker directly."
+          - "  - Cloudflare tunnel + DNS records: delete in the Cloudflare dashboard."
+          - "  - Tailscale node: remove in the Tailscale admin console."
+          - "  - Backups: your restic repo on your own S3 stays until you delete it (your data, your call)."
