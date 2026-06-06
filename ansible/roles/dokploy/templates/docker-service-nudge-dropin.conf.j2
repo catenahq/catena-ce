@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+# Installed at /etc/systemd/system/docker.service.d/10-dokploy-traefik-nudge.conf
+#
+# Fires dokploy-traefik-nudge on every docker.service start so the
+# plain-container traefik gets re-started once the swarm overlay
+# `dokploy-network` comes back. `systemd-run --no-block` dispatches
+# asynchronously so the nudge's polling (up to 60s) doesn't hold
+# docker.service in "activating" state. The leading `-` makes the
+# ExecStartPost failure non-fatal -- if systemd-run is unavailable for
+# any reason, docker still comes up clean.
+[Service]
+ExecStartPost=-/usr/bin/systemd-run --no-block --unit=dokploy-traefik-nudge-triggered /usr/local/bin/dokploy-traefik-nudge

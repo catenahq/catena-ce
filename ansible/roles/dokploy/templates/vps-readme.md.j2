@@ -1,0 +1,71 @@
+# VPS Architecture -- {{ inventory_hostname }}
+
+Managed by **catena** (Ansible). Do not edit system config files by hand
+unless you know the Ansible role that manages them -- your changes will be
+overwritten on the next converge.
+
+## How things connect
+
+```
+Internet -> Cloudflare edge (TLS terminates here)
+         -> Cloudflare Tunnel -> cloudflared container (dokploy-network)
+         -> dokploy-traefik:80 (container, no host port binding)
+         -> app containers (by Host header, via Traefik labels)
+```
+
+Operators and client staff reach the **Dokploy admin UI** at:
+  `https://{{ dokploy_admin_hostname }}`
+  Protected by self-hosted SSO (Keycloak + oauth2-proxy forward-auth).
+  No Tailscale required.
+
+Operators with Tailscale can **SSH** directly:
+  `ssh ops@{{ ansible_host }}`
+
+## Ports exposed on the host
+
+**Traefik**: does NOT bind :80/:443 on the host. All app traffic enters via
+the Cloudflare Tunnel, which connects to Traefik over Docker's
+`dokploy-network`.
+
+**Dokploy UI**: port 3000 is published in Swarm host mode (bound on all
+interfaces), but **UFW restricts it to tailscale0 only**. Operators can
+always reach `http://<tailnet-ip>:3000` over the tailnet, even if
+cloudflared or CF Access is broken. Public access to :3000 is blocked by
+UFW's default-deny + the tailscale0-only allow rule.
+
+**SSH**: port 22, tailscale0 only (ufw_lockdown).
+
+## Key paths
+
+| Path | What | Managed by |
+| --- | --- | --- |
+| `/etc/dokploy/` | Dokploy config + Traefik | Dokploy install + roles/dokploy |
+| `/etc/dokploy/traefik/dynamic/` | Traefik dynamic routes (admin, etc.) | roles/dokploy |
+| `/etc/catena/` | Backup env, restic password | roles/backup |
+| `{{ storage_mount_point }}/` | App data, Docker volumes, backups | roles/storage |
+| `{{ storage_mount_point }}/docker/volumes/` | Named Docker volumes (app persistent data) | Docker / Dokploy |
+| `{{ storage_mount_point }}/backup-staging/pg/` | pg_dumpall outputs | roles/backup wrapper |
+
+## Backups
+
+Nightly at {{ backup_schedule | default('03:30') }} via restic -> S3 (client-owned bucket).
+Includes: named Docker volumes, app data, Dokploy config, SSH keys, fstab.
+Excludes: Docker image layers (reproducible from registry).
+
+**DO NOT configure Dokploy's built-in backup feature** -- verify restores with
+the catena backup-verification flow instead. One backup tool, one restore path.
+
+## Upgrades
+
+**Dokploy**: `docker service update --image dokploy/dokploy:<new-version> dokploy`
+followed by a catena site converge to re-apply hardening.
+
+**System packages**: `unattended-upgrades` handles security patches automatically.
+Full upgrades are operator-initiated.
+
+## Do NOT
+
+- Enable Let's Encrypt / HTTPS on Traefik. Cloudflare terminates TLS.
+- Expose ports publicly via Docker `-p` flags. All public ingress is via the tunnel.
+- Configure Dokploy's built-in backup (conflicts with restic strategy).
+- Edit `/etc/ssh/sshd_config.d/10-catena.conf` by hand.

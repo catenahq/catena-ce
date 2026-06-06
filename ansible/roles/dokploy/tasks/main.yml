@@ -1,0 +1,948 @@
+---
+# Install Dokploy, then harden the deployment:
+#   - Remove host port bindings from Traefik (:80/:443) and Dokploy (:3000)
+#     so the ONLY path in is via Cloudflare Tunnel + dokploy-network.
+#   - Drop a Traefik dynamic route for admin.<zone> -> Dokploy UI.
+#   - Write /root/README.md with architecture notes for future operators.
+#
+# Dokploy uses Docker Swarm (single-node). The install script handles swarm
+# init, network creation, Postgres, Redis, Traefik, and the Dokploy service.
+# We run it once, then manage config post-install.
+
+# ─── preflight ───────────────────────────────────────────────────────────
+- name: Assert dokploy_version is pinned (non-empty)
+  ansible.builtin.assert:
+    that:
+      - dokploy_version | length > 0
+    fail_msg: >-
+      dokploy_version resolved to empty. Role default in
+      roles/dokploy/defaults/main.yml ships a known-good value -- an empty
+      resolve means an inventory override in
+      inventory/<name>/group_vars/all/main.yml is setting it to "".
+
+# ─── detect existing install ─────────────────────────────────────────────
+- name: Check if Dokploy config dir exists
+  ansible.builtin.stat:
+    path: /etc/dokploy
+  register: _dokploy_config_dir
+
+- name: Check if Docker swarm is active
+  ansible.builtin.command: docker info --format '{{ "{{" }}.Swarm.LocalNodeState{{ "}}" }}'
+  register: _swarm_state
+  changed_when: false
+  failed_when: false
+
+- name: Check if dokploy service exists in swarm
+  ansible.builtin.command: docker service inspect dokploy --format '{{ "{{" }}.ID{{ "}}" }}'
+  register: _dokploy_service
+  changed_when: false
+  failed_when: false
+
+# Detect version drift -- if the running service's image tag doesn't match
+# the pinned dokploy_version, upgrade via `docker service update` (the
+# canonical upgrade path; install.sh is fresh-install-only and refuses
+# to run when port 3000 is in use).
+- name: Read running Dokploy image tag (for version-drift check)
+  ansible.builtin.command: >-
+    docker service inspect dokploy
+    --format '{{ "{{" }}.Spec.TaskTemplate.ContainerSpec.Image{{ "}}" }}'
+  register: _dokploy_running_image
+  changed_when: false
+  failed_when: false
+  when: _dokploy_service.rc == 0
+
+- name: Set version-drift flag
+  ansible.builtin.set_fact:
+    _dokploy_version_drift: >-
+      {{
+        _dokploy_service.rc == 0
+        and _dokploy_running_image.stdout is defined
+        and dokploy_version not in (_dokploy_running_image.stdout | default(''))
+      }}
+
+- name: "Log version-drift status"
+  ansible.builtin.debug:
+    msg: >-
+      Running image: {{ _dokploy_running_image.stdout | default('(not installed)') }};
+      pinned version: {{ dokploy_version }};
+      drift: {{ _dokploy_version_drift }}
+
+- name: Set install-needed flag
+  ansible.builtin.set_fact:
+    _dokploy_needs_install: >-
+      {{
+        (not _dokploy_config_dir.stat.exists) or
+        (_swarm_state.stdout | trim) != 'active' or
+        _dokploy_service.rc != 0
+      }}
+
+# ─── precondition: vault postgres password must be set ──────────────────
+# Pure precondition check -- no state mutation. The actual swarm-secret
+# pre-seed + drift reconciliation lives in pg_password_reconcile.yml
+# (canonical writer, runs unconditionally after install + healthcheck).
+# Without an early assert here the operator finds out via a confusing
+# install.sh-then-reconciler-fails sequence at the bottom of the role;
+# fail fast at the top instead.
+- name: "pg-precondition: assert vault_dokploy_postgres_password is set"
+  ansible.builtin.assert:
+    that:
+      - vault_dokploy_postgres_password is defined
+      - vault_dokploy_postgres_password | length >= 12
+      - vault_dokploy_postgres_password not in ['REPLACE', 'REPLACE-LONG-RANDOM-STRING']
+    fail_msg: >-
+      vault_dokploy_postgres_password is missing or a placeholder. The
+      installer auto-generates it on a fresh install, or set it manually
+      in inventory/<name>/group_vars/all/vault.sops.yml.
+
+# Step 3 transition note (2026-04-23): the "pg-secret: ..." block that
+# pre-seeded the swarm secret + ran `docker swarm init` BEFORE
+# install.sh was deleted here. install.sh creates its own swarm secret
+# (random value) on first install, and pg_password_reconcile detects
+# the drift via the missing vault-hash label + rotates to the vault
+# value. Cost: ~60 s of dokploy downtime during the rotation on first
+# install only. Benefit: a single canonical writer of the swarm-secret
+# state, with no parallel-path concerns.
+
+# ─── install Dokploy (first run only) ───────────────────────────────────
+# Atomicity: if you're tempted to add crash-recovery logic around the
+# install script itself (retry mid-script, clean up partial swarm
+# state, etc.), read the diagnostic block below FIRST. On re-run
+# after an aborted install, the detection block at lines 24-77 sets
+# `_dokploy_needs_install = false` (because /etc/dokploy + swarm +
+# service exist in whatever state they were left in). The fallback
+# health probe at lines 173-181 catches a wedged-but-existing
+# service, and the "diagnose if service is defined but not
+# responding" block at lines 187-245 tells the operator exactly
+# what manual step unsticks it. That's the designed recovery path.
+# Don't duplicate it inline here -- the diagnostic is more honest
+# about what went wrong than anything we could re-run silently.
+# install.sh runs apt-install of docker.io as its first step. If
+# apt-daily.timer / unattended-upgrades / cloud-init still has the
+# dpkg lock when install.sh fires, the apt-get inside install.sh
+# either fails fast OR (with our 05-lock-timeout conf) waits up to
+# 300s. Pre-clear the lock here with a visible bounded loop so the
+# operator sees what's happening + which process is holding it,
+# instead of the lock-wait eating into install.sh's 15-min budget.
+#
+# 60 x 5s = 300s; consistent with the system-wide DPkg::Lock::Timeout
+# the common role wrote.
+- name: "Dokploy install: wait for apt lock to clear"
+  ansible.builtin.shell: |
+    set -e
+    for i in $(seq 1 60); do
+      if ! fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 \
+         && ! fuser /var/lib/dpkg/lock           >/dev/null 2>&1 \
+         && ! fuser /var/lib/apt/lists/lock      >/dev/null 2>&1; then
+        exit 0
+      fi
+      sleep 5
+    done
+    echo "ERROR: apt/dpkg lock still held after 300s. Holders:" >&2
+    fuser -v /var/lib/dpkg/lock-frontend 2>&1 || true
+    fuser -v /var/lib/dpkg/lock           2>&1 || true
+    fuser -v /var/lib/apt/lists/lock      2>&1 || true
+    echo "---- last 30 lines of unattended-upgrades.service journal ----" >&2
+    journalctl -u unattended-upgrades.service --no-pager --lines=30 2>&1 || true
+    echo "---- last 30 lines of apt-daily.service journal ----" >&2
+    journalctl -u apt-daily.service --no-pager --lines=30 2>&1 || true
+    exit 1
+  args:
+    executable: /bin/bash
+  changed_when: false
+  when: _dokploy_needs_install | bool
+
+# ─── pre-pull swarm bootstrap images (defeat the swarm-manager mirror
+#     bypass) ──────────────────────────────────────────────────────────
+# install.sh bootstraps Postgres + Redis via `docker service create`.
+# Swarm resolves each image digest on the MANAGER by querying the
+# registry directly -- it does NOT honor the daemon registry-mirrors
+# (those only cover the engine pull path). When many fresh installs share
+# one egress IP (the test bench), that anonymous, mirror-bypassed digest
+# lookup exhausts the docker.io pull quota and `service create` hangs to
+# the 15-min ceiling (rc=124, "image postgres:16 could not be accessed on
+# a registry to record its digest" -> nodes loop "No such image").
+#
+# Pre-pull the service-create images through the daemon (which DOES use
+# the authenticated mirror + persistent cache) so each is in the node
+# local store first; swarm then falls back to per-node tag resolution
+# against the local image and the digest warning is non-fatal. Refs are
+# EXTRACTED from the exact installer we are about to run (no hardcoded
+# list), so a Dokploy bump that changes the bootstrap images is picked up
+# automatically.
+- name: "Dokploy install: lib dir for installer + extractor exists"
+  ansible.builtin.file:
+    path: /usr/local/lib/catena
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: _dokploy_needs_install | bool
+
+- name: "Dokploy install: fetch installer to disk (run the bytes we scan)"
+  ansible.builtin.get_url:
+    url: "{{ dokploy_install_url }}"
+    dest: /usr/local/lib/catena/dokploy-install.sh
+    owner: root
+    group: root
+    mode: "0755"
+  when: _dokploy_needs_install | bool
+
+- name: "Dokploy install: ship bootstrap-image extractor"
+  ansible.builtin.copy:
+    src: extract_bootstrap_images.py
+    dest: /usr/local/lib/catena/extract_bootstrap_images.py
+    owner: root
+    group: root
+    mode: "0755"
+  when: _dokploy_needs_install | bool
+
+- name: "Dokploy install: extract swarm bootstrap image refs"
+  ansible.builtin.command:
+    argv:
+      - python3
+      - /usr/local/lib/catena/extract_bootstrap_images.py
+      - /usr/local/lib/catena/dokploy-install.sh
+  register: _dokploy_bootstrap_images
+  changed_when: false
+  when: _dokploy_needs_install | bool
+
+- name: "Dokploy install: pre-pull bootstrap images via mirror"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - pull
+      - "{{ item }}"
+  loop: "{{ _dokploy_bootstrap_images.stdout_lines | default([]) }}"
+  register: _dokploy_prepull
+  # Best-effort. A failed pre-pull (quota, transient) must not abort the
+  # install -- install.sh still attempts its own pulls. This only warms
+  # the node local store + mirror cache to make the digest warning moot.
+  failed_when: false
+  changed_when: "'Downloaded newer image' in (_dokploy_prepull.stdout | default(''))"
+  when: _dokploy_needs_install | bool
+
+# install.sh does apt-install of docker.io, swarm init, + several
+# `docker service create` pulls. Each of those can block indefinitely
+# on: apt lock contention (mitigated by the wait above + 05-lock-
+# timeout conf), docker pull upstream slowness / rate-limit, swarm
+# dispatch stall. Ansible's shell module only surfaces stdout when
+# the task finishes, so a hang presents as a silent freeze with no
+# diagnostic.
+#
+# Hard 15-minute ceiling (far above the ~3-min realistic cold run
+# including mirror-cached pulls). Output tee'd to
+# /var/log/catena-dokploy-install.log so the operator can
+# `ssh; tail -f` live, AND so the always-block below can slurp
+# + print the log when the task fails or times out.
+- name: Run Dokploy install script (pinned version, tailnet advertise addr)
+  when: _dokploy_needs_install | bool
+  block:
+    - name: "Dokploy install: run install.sh (bounded 15m, tee'd to log)"
+      ansible.builtin.shell:
+        # `executable: /bin/bash` is load-bearing: the body uses
+        # bash-only process substitution `>(tee ...)`. Default
+        # /bin/sh (dash on Debian) rejects it with a syntax error
+        # and the task exits rc=2 before writing anything to LOG,
+        # turning the rescue's diagnostic dump into an empty skip.
+        cmd: |
+          LOG=/var/log/catena-dokploy-install.log
+          exec > >(tee -a "$LOG") 2> >(tee -a "$LOG" >&2)
+          printf '\n=== %s dokploy install.sh ===\n' \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG"
+          timeout 900 sh /usr/local/lib/catena/dokploy-install.sh
+        executable: /bin/bash
+      environment:
+        DOKPLOY_VERSION: "{{ dokploy_version }}"
+        ADVERTISE_ADDR: "{{ dokploy_advertise_addr }}"
+      register: _dokploy_install_result
+  rescue:
+    - name: "Dokploy install: slurp install.log on failure"
+      ansible.builtin.slurp:
+        src: /var/log/catena-dokploy-install.log
+      register: _dokploy_install_log
+      failed_when: false
+
+    - name: "Dokploy install: print install.log tail"
+      ansible.builtin.debug:
+        msg: "{{ ((_dokploy_install_log.content | b64decode).splitlines())[-200:] }}"
+      when:
+        - _dokploy_install_log is defined
+        - _dokploy_install_log.content is defined
+
+    - name: "Dokploy install: re-raise"
+      ansible.builtin.fail:
+        msg: |
+          Dokploy install.sh failed (rc={{ _dokploy_install_result.rc | default('timeout/124') }}).
+          Full stdout/stderr dumped above (last 200 lines of
+          /var/log/catena-dokploy-install.log). Common causes:
+            - apt lock held by another process (unattended-upgrades,
+              cloud-init final stage).
+            - Docker Hub rate limit on uncached image pulls (set
+              TESTBENCH_DOCKERHUB_USER/_TOKEN on the bench host).
+            - Slow / flaky network to docker.io / github.com.
+
+- name: Wait for Dokploy service to become healthy (after install)
+  ansible.builtin.uri:
+    url: "http://localhost:{{ dokploy_port }}"
+    status_code: [200, 301, 302, 307]
+    timeout: 5
+  register: _dokploy_health
+  retries: 30
+  delay: 5
+  until: _dokploy_health is success
+  when: _dokploy_needs_install | bool
+
+# Unconditional health probe. A re-run after a partial/aborted install
+# sees /etc/dokploy + swarm + a dokploy service -- so
+# _dokploy_needs_install resolves false and the install block is
+# skipped. If Dokploy actually isn't responding (Ctrl-C'd install, hung
+# task, crash loop), every later API call in this role hits the wall
+# with `Connection refused` on localhost:3000. Probe cheaply here and
+# fail with a clear recovery path instead of a cryptic HTTP error two
+# roles later.
+- name: "Dokploy: verify service is reachable on localhost:{{ dokploy_port }}"
+  ansible.builtin.uri:
+    url: "http://localhost:{{ dokploy_port }}"
+    status_code: [200, 301, 302, 307]
+    timeout: 5
+  register: _dokploy_reach_probe
+  retries: 12
+  delay: 5
+  # `until: ... is success` is a no-op when paired with
+  # `failed_when: false` (ansible treats every attempt as success and
+  # the retry loop exits on the first try). Check the status code
+  # directly so retries actually happen.
+  until: _dokploy_reach_probe.status | default(-1) in [200, 301, 302, 307]
+  failed_when: false
+  when:
+    - not (_dokploy_needs_install | bool)
+    - not (_dokploy_version_drift | bool)
+
+# Post-restore gate for the wedge-detection assertion below.
+#
+# The wedge heuristic is "swarm has a `dokploy` service + /etc/dokploy
+# exists, but :3000 won't answer" -> assume a Ctrl-C'd install, tell the
+# operator to wipe and retry. That's correct in steady state. It is
+# NOT correct immediately after a restore: restore.yml stops docker
+# (so restic doesn't write under live containers), site.yml brings
+# docker back up, and swarm then reschedules dokploy-postgres,
+# dokploy-redis, dokploy in parallel. During that reconcile window
+# tasks get recycled (each with a new task ID), and :3000 has gaps
+# where nothing is bound. The reach probe above can hit every gap
+# and still time out even though nothing is actually wedged.
+#
+# Gate: if the post-restore marker exists, the probe result is
+# advisory -- we log it but don't fail the play. The downstream Dokploy
+# API calls in this role have their own retry loops, and the site-yml
+# post_tasks do the real post-restore work (compose redeploy,
+# pg_replay). If dokploy really is wedged, those will surface it with
+# accurate diagnostics.
+- name: "Dokploy: stat post-restore marker (gates wedge assertion)"
+  ansible.builtin.stat:
+    path: "{{ backup_stats_dir }}/post-restore.needed"
+  register: _dokploy_post_restore_marker
+
+# Atomicity: the reachability probe above only confirms "port is
+# listening" -- Dokploy's frontend can serve its landing page before
+# the tRPC API routes are loaded, so the immediate next infra task
+# (list projects / create API key / etc.) can race init. Probe an
+# actual API route: without an API key, /api/project.all returns 401;
+# with an invalid key it also returns 401. Either proves the router is
+# loaded. 5xx or connection refused = not ready.
+- name: "Dokploy: verify API router answers requests"
+  ansible.builtin.uri:
+    url: "http://localhost:{{ dokploy_port }}/api/project.all"
+    method: GET
+    status_code: [200, 401, 403]
+    timeout: 5
+  register: _dokploy_api_probe
+  retries: 12
+  delay: 5
+  until: _dokploy_api_probe.status in [200, 401, 403]
+  failed_when: false
+
+# ─── reconcile dokploy postgres password (vault -> secret -> pg_authid) ───
+# Single canonical writer for the dokploy postgres password. Vault is the
+# source of truth; the swarm secret `dokploy_postgres_password` AND the
+# postgres `dokploy` role's pg_authid hash are caches that this include
+# keeps in lockstep on every converge. Idempotent -- no-op when
+# everything is already aligned.
+#
+# Placement rationale: AFTER install + healthcheck + reach + API-router
+# probes (so dokploy-postgres + the dokploy-network overlay both
+# exist), BEFORE every downstream step that authenticates against the
+# DB (post-restore pg_replay, vault_dokploy_api_key probe, admin-domain
+# set). The end-to-end probe inside the reconciler is the load-bearing
+# assertion that the auth chain works.
+#
+# Step 2 transition note: the legacy `pg-secret: ...` block above
+# (lines ~79-141) still runs as the install-time pre-seed. After this
+# include lands cleanly on dev1, step 3 of the centralization plan
+# removes the legacy block and the reconciler becomes the sole writer.
+- name: "Reconcile dokploy postgres password (vault, swarm secret, pg_authid)"
+  ansible.builtin.include_tasks: pg_password_reconcile.yml
+
+# Re-probe after the reconciler: a `drifted` run rotates the swarm
+# secret on dokploy + dokploy-postgres, which swarm responds to with a
+# rolling task restart. The reconciler's internal wait_for_dokploy_http
+# verifies :3000 is reachable when it exits, but the OUTER
+# `_dokploy_reach_probe` register (from above) is still the pre-rotate
+# snapshot. Without this refresh the wedge evaluation below sees a
+# stale "probe failed" from before the secret swap converged and fails
+# the play even though dokploy is healthy. Same retry budget as the
+# initial probe.
+- name: "Dokploy: re-verify reachability after pg_password reconcile"
+  ansible.builtin.uri:
+    url: "http://localhost:{{ dokploy_port }}"
+    status_code: [200, 301, 302, 307]
+    timeout: 5
+  register: _dokploy_reach_probe
+  retries: 12
+  delay: 5
+  until: _dokploy_reach_probe.status | default(-1) in [200, 301, 302, 307]
+  failed_when: false
+  when:
+    - not (_dokploy_needs_install | bool)
+    - not (_dokploy_version_drift | bool)
+
+# Convenience: probe failed unless it got a success status code.
+- name: "Dokploy: evaluate reach-probe outcome"
+  ansible.builtin.set_fact:
+    _dokploy_reach_probe_failed: >-
+      {{
+        _dokploy_reach_probe is defined and (
+          (_dokploy_reach_probe.failed | default(false)) or
+          (_dokploy_reach_probe.status | default(-1) not in [200, 301, 302, 307])
+        )
+      }}
+  when:
+    - not (_dokploy_needs_install | bool)
+    - not (_dokploy_version_drift | bool)
+
+- name: "Dokploy: post-restore advisory -- probe failed but wedge check is gated"
+  # Surface-only. The post-restore marker means we just stopped +
+  # started docker as part of the rollback, so :3000 churn is expected.
+  # Downstream API calls in this role do their own retries.
+  ansible.builtin.debug:
+    msg: >-
+      Dokploy reach-probe did not return a success status inside the
+      retry budget, but the post-restore marker is present -- treating
+      as transient swarm reconcile, not wedge. If later Dokploy API
+      calls in this role also fail, that will surface the real problem.
+  when:
+    - _dokploy_reach_probe_failed | default(false)
+    - _dokploy_post_restore_marker.stat.exists | default(false)
+
+- name: "Dokploy: diagnose if service is defined but not responding"
+  # Plain human-readable output -- this only fires on the failure path
+  # and the operator reads it in the fail_msg below. Avoid --format
+  # Go-templates to keep the argv Jinja-free.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - ps
+      - dokploy
+      - --no-trunc
+  register: _dokploy_service_ps
+  changed_when: false
+  failed_when: false
+  when:
+    - _dokploy_reach_probe_failed | default(false)
+    - not (_dokploy_post_restore_marker.stat.exists | default(false))
+
+- name: "Dokploy: fail loudly with recovery steps when service is wedged"
+  ansible.builtin.fail:
+    msg: |
+      Dokploy's swarm service exists but localhost:{{ dokploy_port }} is
+      not responding (the role's detection heuristic saw /etc/dokploy +
+      an active swarm + a `dokploy` service and skipped install).
+
+      This almost always means a previous site converge was
+      interrupted during the "Run Dokploy install script" task -- swarm
+      was initialized, the service was created, but Dokploy never
+      finished its first boot.
+
+      Current swarm task state:
+      {{ _dokploy_service_ps.stdout | default('(could not read)') }}
+
+      Recovery (destructive -- only safe on a host that has NEVER
+      finished a successful converge or on an explicit fresh install):
+
+          # stop + wipe the partial install
+          docker service rm dokploy || true
+          docker service rm dokploy-postgres || true
+          docker service rm dokploy-redis || true
+          rm -rf /etc/dokploy
+          docker swarm leave --force || true
+
+          # re-run the converge
+          ansible-playbook playbooks/site.yml --limit {{ inventory_hostname }}
+
+      If this host HAS restore data (pg_dumpall replayed before the
+      first site.yml run), the restore playbook already handled
+      Dokploy's postgres volume -- running the recovery above keeps
+      that volume intact (the service wipe does not touch volumes).
+  when:
+    - _dokploy_reach_probe_failed | default(false)
+    - not (_dokploy_post_restore_marker.stat.exists | default(false))
+
+# ─── upgrade in place when version drifts ───────────────────────────────
+# Swarm-native upgrade path. `docker service update --image ...` performs
+# a rolling replace of the dokploy task: pulls the new image, starts a
+# new container, waits for it to be healthy, then stops the old one.
+# Zero-downtime in the common case. Separate from install.sh because
+# install.sh fails hard when port 3000 is already bound by the running
+# service -- it's a fresh-install bootstrap, not an upgrade tool.
+- name: "Upgrade Dokploy in place: docker service update --image"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - update
+      - --image
+      - "dokploy/dokploy:{{ dokploy_version }}"
+      - --with-registry-auth
+      - dokploy
+  register: _dokploy_upgrade
+  changed_when: _dokploy_upgrade.rc == 0
+  when:
+    - not (_dokploy_needs_install | bool)
+    - _dokploy_version_drift | bool
+
+- name: Wait for Dokploy service to become healthy (after upgrade)
+  ansible.builtin.uri:
+    url: "http://localhost:{{ dokploy_port }}"
+    status_code: [200, 301, 302, 307]
+    timeout: 5
+  register: _dokploy_health_post_upgrade
+  retries: 60
+  delay: 5
+  until: _dokploy_health_post_upgrade is success
+  when:
+    - not (_dokploy_needs_install | bool)
+    - _dokploy_version_drift | bool
+
+# ─── manage Traefik static config ────────────────────────────────────────
+# Replace Dokploy's stock /etc/dokploy/traefik/traefik.yml with our
+# template. The only structural delta is `entryPoints.<ep>.
+# forwardedHeaders.trustedIPs` -- without it Traefik rewrites
+# X-Forwarded-Proto on the :80 entrypoint to "http" and Keycloak
+# refuses Secure cookies (the account-console SPA loops on
+# cross-origin POSTs as a result; non-secure-context warnings spam
+# the logs).
+#
+# We OWN this file from converge onwards. Operators editing it
+# manually have their changes clobbered on the next site run -- the
+# template doc-string says so. Backup-rollback / auto-update-rollback
+# bench scenarios use this file as their canary; our template stays
+# constant so a restic restore correctly reverts a bench-injected
+# modification.
+- name: "dokploy-traefik: render static traefik.yml from template"
+  ansible.builtin.template:
+    src: traefik.yml.j2
+    dest: "{{ dokploy_traefik_config_dir }}/traefik.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  register: _dokploy_traefik_static_cfg
+
+# Dynamic-provider sibling for the X-Forwarded-Proto injector. Lives
+# in the dynamic/ directory Traefik watches; static config references
+# it by name (cf-forwarded-proto-https@file). Hot-reloaded on change
+# (no traefik restart needed for edits to this file alone), but the
+# static config edit ABOVE still requires a restart, so the explicit
+# restart task below covers both.
+- name: "dokploy-traefik: render X-Forwarded-Proto injector middleware"
+  ansible.builtin.template:
+    src: cf-forwarded-proto-https.yml.j2
+    dest: "{{ dokploy_traefik_dynamic_dir }}/cf-forwarded-proto-https.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  register: _dokploy_traefik_xfp_middleware
+
+# Traefik watches the dynamic/ directory live but does NOT hot-reload
+# the static config. A restart is the only way for a forwardedHeaders
+# change to take effect. Check that traefik is up first; the
+# re-launch block below is a separate code path for image / port
+# drift that does its own start.
+- name: "dokploy-traefik: inspect traefik state for restart decision"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - inspect
+      - --format
+      - "{{ '{{' }}.State.Running{{ '}}' }}"
+      - dokploy-traefik
+  register: _traefik_state_pre_restart
+  changed_when: false
+  failed_when: false
+
+- name: "dokploy-traefik: restart to pick up traefik.yml change"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - restart
+      - dokploy-traefik
+  when:
+    - _dokploy_traefik_static_cfg.changed
+    - (_traefik_state_pre_restart.stdout | trim) == "true"
+
+# ─── harden: remove Traefik host port bindings ──────────────────────────
+# Dokploy's install.sh runs Traefik as a standalone container with
+# `-p 80:80 -p 443:443`. We re-launch it without those flags so the only
+# path to Traefik is via dokploy-network (which cloudflared uses).
+#
+# Probe: check if the container currently has port bindings. If already
+# clean, skip the surgery -- makes subsequent plays idempotent.
+- name: Inspect dokploy-traefik container for port bindings
+  ansible.builtin.command: >
+    docker inspect dokploy-traefik
+    --format '{{ "{{" }} json .HostConfig.PortBindings {{ "}}" }}'
+  register: _traefik_ports
+  changed_when: false
+  failed_when: false
+
+- name: Check if Traefik has host port bindings to remove
+  ansible.builtin.set_fact:
+    _traefik_has_host_ports: >-
+      {{ _traefik_ports.rc == 0 and _traefik_ports.stdout | trim != '{}' and _traefik_ports.stdout | trim != 'null' }}
+
+# Image-drift check. Previously the re-launch block below was gated SOLELY
+# on host-port-binding removal, which fires exactly once per host (first
+# converge, right after Dokploy's installer leaves the container with
+# `-p 80:80 -p 443:443`). Every subsequent play skipped it -- so a bump
+# to dokploy_traefik_image was never picked up, and v3.6.7 lingered on
+# dev1 long after the pin was v3.6.13. Adding a drift check means future
+# Traefik bumps take effect on the next converge without manual surgery.
+- name: Inspect dokploy-traefik current image tag
+  ansible.builtin.command: >
+    docker inspect dokploy-traefik
+    --format '{{ "{{" }} .Config.Image {{ "}}" }}'
+  register: _traefik_running_image
+  changed_when: false
+  failed_when: false
+
+- name: Check if dokploy-traefik image drifts from the pin
+  ansible.builtin.set_fact:
+    _traefik_image_drift: >-
+      {{
+        _traefik_running_image.rc == 0 and
+        (_traefik_running_image.stdout | trim) != '' and
+        (_traefik_running_image.stdout | trim) != dokploy_traefik_image
+      }}
+
+- name: "Set fact: dokploy-traefik needs re-launch (ports OR image drift)"
+  ansible.builtin.set_fact:
+    _traefik_needs_relaunch: "{{ (_traefik_has_host_ports | bool) or (_traefik_image_drift | bool) }}"
+
+- name: Capture full dokploy-traefik container spec for re-launch
+  ansible.builtin.command: docker inspect dokploy-traefik
+  register: _traefik_inspect
+  when: _traefik_needs_relaunch | bool
+  changed_when: false
+
+- name: Stop dokploy-traefik for re-launch (port-binding surgery or image bump)
+  ansible.builtin.command: docker stop dokploy-traefik
+  when: _traefik_needs_relaunch | bool
+
+- name: Remove dokploy-traefik container
+  ansible.builtin.command: docker rm dokploy-traefik
+  when: _traefik_needs_relaunch | bool
+
+# Re-launch with the pinned image + no host-port publishing. Replicates
+# the essential flags from Dokploy's install.sh (network, volumes,
+# restart policy, docker socket + config mounts) and pins the image tag
+# so future drifts re-fire this block.
+- name: Re-launch dokploy-traefik with the pinned image, no host port bindings
+  ansible.builtin.command:
+    argv:
+      - docker
+      - run
+      - -d
+      - --name=dokploy-traefik
+      - --restart=always
+      - --network=dokploy-network
+      - -v
+      - /var/run/docker.sock:/var/run/docker.sock
+      - -v
+      - "{{ dokploy_traefik_config_dir }}/traefik.yml:/etc/traefik/traefik.yml"
+      - -v
+      - "{{ dokploy_traefik_dynamic_dir }}:/etc/dokploy/traefik/dynamic"
+      - -v
+      - /etc/dokploy/traefik/acme.json:/etc/traefik/acme.json
+      - "{{ dokploy_traefik_image }}"
+  when: _traefik_needs_relaunch | bool
+
+# ─── Dokploy UI: restrict port 3000 to tailnet only (registry) ───────────
+# Dokploy publishes port 3000 with `-p 3000:3000` (plain Docker mode --
+# the swarm service uses host-mode publish + a userspace docker-proxy
+# bound on 0.0.0.0:3000). We KEEP this binding so operators always have
+# a direct path to the UI over tailnet (http://<tailnet-ip>:3000), even
+# if cloudflared or CF Access is broken.
+#
+# The two-layer firewall (UFW INPUT for the docker-proxy listener +
+# DOCKER-USER for the DNAT path that bypasses INPUT) is now expressed as a
+# single registry declaration: tcp/3000, scope=tailnet, bind=docker. The
+# public-port reconciler (roles/common) derives BOTH layers from that one
+# entry -- ufw allow on tailscale0 + RFC1918, and the DOCKER-USER
+# RETURN/DROP guard -- replacing the bespoke dokploy-docker-firewall script.
+# (roles/common/tasks/public_ports.yml removes the retired script + units.)
+- name: "dokploy: ensure public-port fragment dir exists"
+  ansible.builtin.file:
+    path: "{{ public_ports_fragment_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "dokploy: declare UI port (registry fragment)"
+  ansible.builtin.copy:
+    dest: "{{ public_ports_fragment_dir }}/dokploy.json"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {{
+        [
+          {"proto": "tcp", "port": dokploy_port | default(3000),
+           "scope": "tailnet", "bind": "docker", "owner": "dokploy",
+           "comment": "Dokploy admin UI -- tailnet + RFC1918 only"}
+        ] | to_nice_json
+      }}
+  register: _dokploy_ports_fragment
+
+# Apply immediately so this converge does not leave a window where the UI
+# port is publicly reachable until the post_tasks reconcile. Idempotent.
+- name: "dokploy: reconcile public ports now (fragment changed)"
+  ansible.builtin.systemd_service:
+    name: catena-public-ports.service
+    state: started
+  changed_when: false
+  when: _dokploy_ports_fragment.changed
+
+# ─── dokploy-traefik restart resilience ──────────────────────────────────
+# dokploy-traefik is a plain container (not a swarm service) bound to the
+# swarm overlay `dokploy-network`. After a docker.service restart the
+# overlay only re-materializes once the swarm manager re-initializes,
+# which races traefik's own restart loop -- docker gives up, and the web
+# stack is down until an operator manually `docker start`s it. The
+# nudge unit waits for the network to come back and re-starts traefik.
+- name: "dokploy-traefik: drop nudge script"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/dokploy-traefik-nudge.sh"
+    dest: /usr/local/bin/dokploy-traefik-nudge
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "dokploy-traefik: render nudge systemd unit (static / on-demand)"
+  ansible.builtin.template:
+    src: dokploy-traefik-nudge.service.j2
+    dest: /etc/systemd/system/dokploy-traefik-nudge.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: _dokploy_nudge_unit
+
+- name: "dokploy-traefik: ensure docker.service drop-in dir exists"
+  ansible.builtin.file:
+    path: /etc/systemd/system/docker.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "dokploy-traefik: render docker.service drop-in that fires the nudge"
+  ansible.builtin.template:
+    src: docker-service-nudge-dropin.conf.j2
+    dest: /etc/systemd/system/docker.service.d/10-dokploy-traefik-nudge.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: _dokploy_nudge_dropin
+
+- name: "dokploy-traefik: daemon-reload if unit or drop-in changed"
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: _dokploy_nudge_unit.changed or _dokploy_nudge_dropin.changed
+
+# ─── Traefik dynamic config: admin route ─────────────────────────────────
+- name: Ensure Traefik dynamic config dir exists
+  ansible.builtin.file:
+    path: "{{ dokploy_traefik_dynamic_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# Legacy forwardAuth route for the admin UI used to live at
+# admin-dokploy.yml + middleware oauth2-proxy-admin-chain@file. The
+# Phase-2 migration moved dokploy-admin into oauth2_proxy_apps so the
+# per-app reverse-proxy route at dokploy-admin-oauth2-proxy.yml owns
+# Host(apps.<zone>) instead. Both files matched the same Host() with
+# the same priority -- Traefik picked the legacy one (alphabetical),
+# and it returned 401 + Location-to-Keycloak (the old forwardAuth
+# semantics) instead of the 302 the validate playbook expects.
+#
+# Remove the legacy file so the new reverse-proxy route wins
+# unambiguously. Idempotent on fresh installs (file never existed)
+# and on upgrades (file present, gets removed).
+- name: Remove legacy admin-dokploy.yml Traefik route (superseded by per-app reverse-proxy)
+  ansible.builtin.file:
+    path: "{{ dokploy_traefik_dynamic_dir }}/admin-dokploy.yml"
+    state: absent
+
+# ─── VPS README for future operators ─────────────────────────────────────
+- name: Write /root/README.md with architecture notes
+  ansible.builtin.template:
+    src: vps-readme.md.j2
+    dest: /root/README.md
+    owner: root
+    group: root
+    mode: "0644"
+
+# ─── post-restore: dokploy-postgres data ────────────────────────────────
+# dokploy-postgres data restores LOGICALLY, not via raw volume. The
+# named volume is excluded from the restic set (see
+# roles/backup/defaults/main.yml) so install.sh creates a fresh
+# empty dokploy-postgres on a DR converge -- same code path as a fresh
+# install, no install.sh-vs-restored-volume password skew.
+#
+# Replay placement: at the END of this role, gated on the post-
+# restore marker. Has to land here (not in site.yml post_tasks)
+# because downstream roles (keycloak, infrastructure) call
+# project.all on the Dokploy API at role time -- those calls 401 on
+# DR until the dump's API key rows are back in the cluster. Putting
+# the replay inside this role guarantees those callers see the
+# replayed DB.
+#
+# pg_replay extracts per-db sections only, intentionally skipping
+# cluster-level role drops, so the freshly vault-aligned `dokploy`
+# role survives the replay. dokploy-app's open connections get
+# terminated by `pg_terminate_backend` mid-replay; swarm restarts
+# the task, dokploy-app reconnects to the now-restored DB. The
+# disruption window is the same one a raw-volume restore would have
+# produced.
+#
+# pg_replay also remains callable via the backup playbook with
+# `--tags pg_replay` for incremental scenarios (single-client replay,
+# stale-snapshot replay against a live host).
+- name: "Post-restore: replay pg_dumpall into dokploy-postgres"
+  ansible.builtin.include_role:
+    name: backup
+    tasks_from: pg_replay.yml
+  vars:
+    pg_replay_scope: dokploy
+  when: _dokploy_post_restore_marker.stat.exists | default(false)
+
+# ─── heal vault_dokploy_api_key if Dokploy rejects it ────────────────────
+# pg_replay above restores the dump's `apikey` row(s) into the fresh
+# dokploy-postgres on a post-restore converge. The DR design assumed a
+# successful restore would also re-validate the operator's vault key
+# against the live Dokploy instance: same hash function, same secret
+# pepper, same row -> match.
+#
+# Dokploy 0.29.2 broke that assumption. Better-auth now verifies API
+# keys against a per-installation secret that lives outside the
+# postgres dump (regenerated by install.sh on every fresh box, and
+# also re-derived in subtle ways after pg_password_reconcile rotates
+# the postgres secret + bounces dokploy + dokploy-postgres). After
+# such a rotation, the apikey table still has the operator's hash but
+# better-auth's runtime secret no longer matches, so every downstream
+# Dokploy-API call (keycloak/oauth2_proxy/infrastructure roles'
+# project.all and friends) 401s.
+#
+# Surfaced by stage-1-disaster-recovery and converge_modify in the
+# bench: keycloak's first project.all call returns "Status code was
+# 401 and not [200]: HTTP Error 401: Unauthorized" even though the
+# vault key is present and well-formed.
+#
+# Repair shape: GET project.all with the vault key. If 401/403, re-
+# mint via bootstrap_dokploy_admin.py (signs in as admin with
+# vault_admin_password, mints a fresh key, writes it into
+# vault.sops.yml via sops --set), then community.sops.load_vars
+# brings the new key into the in-flight playbook scope. No-op when
+# the key validates.
+#
+# Ungated: previously this only fired post-restore (gated on the
+# marker). The 2026-05-25 bench surfaced the same 401 on
+# converge_modify (no restore, just a re-converge ~2h after fresh
+# install + pg_password rotation), so the validate+re-mint now runs
+# on every converge that has a vault_dokploy_api_key to test. The
+# validate is one cheap HTTP call; the re-mint only fires on the
+# rejected path.
+- name: "dokploy: validate vault_dokploy_api_key against Dokploy"
+  ansible.builtin.uri:
+    url: "{{ dokploy_api_base }}/project.all"
+    method: GET
+    headers:
+      x-api-key: "{{ vault_dokploy_api_key }}"
+    status_code: [200, 401, 403]
+    timeout: 10
+  register: _dokploy_apikey_validate
+  delegate_to: localhost
+  become: false
+  # Transient 5xx / connection refused (Dokploy mid-rolling-restart)
+  # must not bomb the converge -- the re-mint condition below only
+  # fires on an explicit 401/403, so any other status falls through
+  # to the downstream tasks which have their own retries.
+  failed_when: false
+  when:
+    - vault_dokploy_api_key is defined
+    - vault_dokploy_api_key | length > 10
+
+- name: "dokploy: re-mint Dokploy API key (vault key was rejected by live Dokploy)"
+  when:
+    - vault_dokploy_api_key is defined
+    - (_dokploy_apikey_validate.status | default(200)) in [401, 403]
+  block:
+    - name: "dokploy: pin the inventory vault.sops.yml path"
+      ansible.builtin.set_fact:
+        _dokploy_apikey_vault_file: "{{ inventory_dir }}/group_vars/all/vault.sops.yml"
+        _dokploy_admin_pw_vault_file: "{{ inventory_dir }}/group_vars/all/vault.sops.yml"
+
+    - name: "dokploy: invoke bootstrap_dokploy_admin.py to mint a fresh API key"
+      ansible.builtin.command:
+        # Stdlib-only helper -- skip the `uv` indirection so the
+        # Semaphore worker container (no uv, Alpine system python 3.12)
+        # can run it via `python3` directly. Same change as the
+        # fresh_install.yml site of this script.
+        argv:
+          - python3
+          - "{{ playbook_dir }}/../helpers/bootstrap_dokploy_admin.py"
+          - --vault
+          - "{{ _dokploy_apikey_vault_file }}"
+          - --admin-password-vault
+          - "{{ _dokploy_admin_pw_vault_file }}"
+          - --env-file
+          - "{{ inventory_dir }}/.env"
+          - --tailnet-ip
+          - "{{ ansible_host }}"
+        chdir: "{{ playbook_dir }}/../.."
+      delegate_to: localhost
+      become: false
+      changed_when: true
+
+    - name: "dokploy: reload the dokploy-api-key vault file so the freshly-minted key is in playbook scope"
+      community.sops.load_vars:
+        file: "{{ _dokploy_apikey_vault_file }}"
+
+# ─── set admin domain via Dokploy API ────────────────────────────────────
+# Lives in site.yml post_tasks (after the post-restore include +
+# marker clear). Single canonical caller; collapsing fresh install +
+# DR onto one post-replay-aware task.
+
+- name: Dokploy role complete
+  ansible.builtin.debug:
+    msg: |
+      Dokploy installed ({{ dokploy_version }}) and hardened:
+        - Traefik: no host port binding (80/443 not reachable from public internet)
+        - Dokploy UI: no host port binding (3000 not reachable directly)
+        - Admin route: {{ dokploy_admin_hostname }} -> Dokploy UI via Traefik
+        - Architecture notes: /root/README.md on the VPS
+
+      First-time setup (once, in a browser):
+        Visit https://{{ dokploy_admin_hostname }} (after infrastructure role runs)
+        and create your admin account.

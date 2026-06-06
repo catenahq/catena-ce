@@ -1,0 +1,74 @@
+# {{ ansible_managed }}
+#
+# Managed by roles/dokploy. Do NOT edit by hand -- changes are
+# clobbered on the next `./catena site` run.
+#
+# This file replaces the stock traefik.yml that Dokploy's install.sh
+# writes at first boot. Same content as upstream PLUS:
+#
+#   1. entryPoints.<entrypoint>.forwardedHeaders.trustedIPs
+#      Tells Traefik to trust X-Forwarded-* headers from the dokploy-
+#      network overlay (10/8) and Docker bridges (172.16/12, 127/8).
+#
+#   2. entryPoints.web.http.middlewares with a request-header
+#      injector that sets X-Forwarded-Proto: https.
+#      Required because cloudflared (the ONLY ingress on the :80
+#      entrypoint, given the UFW + DOCKER-USER lockdown) does NOT
+#      send X-Forwarded-Proto -- it sends Cf-Visitor:
+#      {"scheme":"https"} instead, which Keycloak (and most other
+#      backends) does not read. Without injection, Keycloak sees the
+#      :80 connection as a plain-HTTP request, logs "Non-secure
+#      context detected" twice per second, refuses Secure cookies,
+#      and the account-console SPA loops on cross-origin POSTs as
+#      a result.
+#
+# Lockdown invariant: ONLY cloudflared can reach :80. UFW blocks
+# public ingress on :80; DOCKER-USER drops port 3000 from
+# non-tailnet/non-RFC1918; cloudflared-network is the only path that
+# physically can hit :80 from outside the host. Therefore we can
+# safely declare the :80 entrypoint to be "always behind HTTPS at
+# the edge" and rewrite X-Forwarded-Proto unconditionally.
+global:
+  sendAnonymousUsage: false
+providers:
+  swarm:
+    exposedByDefault: false
+    watch: true
+  docker:
+    exposedByDefault: false
+    watch: true
+    network: dokploy-network
+  file:
+    directory: /etc/dokploy/traefik/dynamic
+    watch: true
+entryPoints:
+  web:
+    address: :80
+    forwardedHeaders:
+      trustedIPs: {{ dokploy_traefik_trusted_ips | to_yaml }}
+    # Inject X-Forwarded-Proto: https on every request because the
+    # only ingress on :80 is cloudflared, and cloudflared does NOT
+    # set the header itself (only Cf-Visitor). Middleware ref points
+    # at the file provider's `cf-forwarded-proto-https` definition
+    # in dynamic/cf-forwarded-proto-https.yml.
+    http:
+      middlewares:
+        - cf-forwarded-proto-https@file
+  websecure:
+    address: :443
+    http3:
+      advertisedPort: 443
+    http:
+      tls:
+        certResolver: letsencrypt
+    forwardedHeaders:
+      trustedIPs: {{ dokploy_traefik_trusted_ips | to_yaml }}
+api:
+  insecure: true
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: test@localhost.com
+      storage: /etc/dokploy/traefik/dynamic/acme.json
+      httpChallenge:
+        entryPoint: web

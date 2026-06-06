@@ -1,0 +1,199 @@
+---
+# Validation tasks for roles/dokploy. Replaces tests/goss/dokploy.yaml.
+- name: "validate/dokploy: stat fixture files"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: _dk_stats
+  loop:
+    - /etc/dokploy
+    - /etc/dokploy/traefik/dynamic/dokploy-admin-oauth2-proxy.yml
+    - /root/README.md
+
+- name: "validate/dokploy: fixture files exist"
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+    fail_msg: "{{ item.item }} missing"
+  loop: "{{ _dk_stats.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: "validate/dokploy: legacy admin-dokploy.yml route is gone"
+  # Two same-Host()/same-priority routes (the old forwardAuth file and
+  # the new per-app reverse-proxy file) both matched apps.<zone>. The
+  # legacy file is now removed in roles/dokploy/tasks/main.yml; assert
+  # that here so a partial upgrade can't silently re-introduce the
+  # 401-instead-of-302 regression.
+  ansible.builtin.stat:
+    path: /etc/dokploy/traefik/dynamic/admin-dokploy.yml
+  register: _dk_legacy_admin_route
+
+- name: "validate/dokploy: admin-dokploy.yml absent"
+  ansible.builtin.assert:
+    that:
+      - not _dk_legacy_admin_route.stat.exists
+    fail_msg: |
+      Legacy admin-dokploy.yml is still present. It conflicts with
+      dokploy-admin-oauth2-proxy.yml on Host(apps.<zone>) and makes
+      Traefik route to the forwardAuth chain (returns 401 + Location)
+      instead of the per-app reverse proxy (returns 302). Remove
+      manually or re-run the dokploy role.
+
+- name: "validate/dokploy: per-app oauth2-proxy admin route references dokploy-admin"
+  ansible.builtin.slurp:
+    src: /etc/dokploy/traefik/dynamic/dokploy-admin-oauth2-proxy.yml
+  register: _dk_admin_route
+
+- name: "validate/dokploy: admin route content"
+  ansible.builtin.assert:
+    that:
+      - "'dokploy-admin' in (_dk_admin_route.content | b64decode)"
+    fail_msg: "dokploy-admin-oauth2-proxy.yml missing 'dokploy-admin' identifier"
+
+- name: "validate/dokploy: /root/README.md references catena"
+  ansible.builtin.slurp:
+    src: /root/README.md
+  register: _dk_readme
+
+- name: "validate/dokploy: README content"
+  ansible.builtin.assert:
+    that:
+      - "'catena' in (_dk_readme.content | b64decode)"
+    fail_msg: "/root/README.md missing 'catena' marker"
+
+- name: "validate/dokploy: swarm service replicas"
+  ansible.builtin.command: docker service ls --filter name=dokploy --format '{% raw %}{{.Name}}|{{.Replicas}}{% endraw %}'
+  register: _dk_services
+  failed_when: false
+  changed_when: false
+
+- name: "validate/dokploy: dokploy service 1/1"
+  ansible.builtin.assert:
+    that:
+      - _dk_services.rc == 0
+      - _dk_services.stdout_lines | select('match', '^dokploy\\|1/1') | list | length > 0
+    fail_msg: "dokploy swarm service not 1/1: {{ _dk_services.stdout }}"
+
+- name: "validate/dokploy: traefik container running"
+  ansible.builtin.command: docker inspect --format '{% raw %}{{.State.Running}}{% endraw %}' dokploy-traefik
+  register: _dk_traefik_running
+  failed_when: false
+  changed_when: false
+
+- name: "validate/dokploy: dokploy-traefik State.Running == true"
+  ansible.builtin.assert:
+    that:
+      - _dk_traefik_running.rc == 0
+      - _dk_traefik_running.stdout | trim == 'true'
+    fail_msg: "dokploy-traefik not running (stdout={{ _dk_traefik_running.stdout | trim }})"
+
+- name: "validate/dokploy: traefik PortBindings empty (hardening)"
+  ansible.builtin.command: docker inspect --format '{% raw %}{{json .HostConfig.PortBindings}}{% endraw %}' dokploy-traefik
+  register: _dk_traefik_ports
+  failed_when: false
+  changed_when: false
+
+- name: "validate/dokploy: PortBindings is empty map"
+  ansible.builtin.assert:
+    that:
+      - _dk_traefik_ports.rc == 0
+      - (_dk_traefik_ports.stdout | trim) in ['{}', 'null']
+    fail_msg: "dokploy-traefik has host port bindings: {{ _dk_traefik_ports.stdout | trim }}"
+
+- name: "validate/dokploy: dokploy service target port 3000"
+  ansible.builtin.command: docker service inspect dokploy --format '{% raw %}{{range .Endpoint.Spec.Ports}}{{.TargetPort}}{{"\n"}}{{end}}{% endraw %}'
+  register: _dk_target_ports
+  failed_when: false
+  changed_when: false
+
+- name: "validate/dokploy: target port 3000 present"
+  ansible.builtin.assert:
+    that:
+      - _dk_target_ports.rc == 0
+      - "'3000' in _dk_target_ports.stdout_lines"
+    fail_msg: "dokploy service does not expose TargetPort 3000: {{ _dk_target_ports.stdout }}"
+
+- name: "validate/dokploy: ufw allows 3000 on tailscale0"
+  ansible.builtin.command: ufw status
+  register: _dk_ufw
+  failed_when: false
+  changed_when: false
+
+- name: "validate/dokploy: 3000 rule on tailscale0"
+  ansible.builtin.assert:
+    that:
+      - _dk_ufw.rc == 0
+      - _dk_ufw.stdout_lines | select('search', '3000') | select('search', 'tailscale0') | list | length > 0
+    fail_msg: "ufw has no rule allowing 3000 on tailscale0"
+
+- name: "validate/dokploy: DOCKER-USER guard rules in place (port 3000)"
+  # The UFW INPUT rule above is necessary but not sufficient: Docker
+  # DNATs port-3000 packets in PREROUTING, so they bypass INPUT and
+  # land in FORWARD. The DOCKER-USER chain is the only place to gate
+  # those. Assert all four rules are present and in the right order.
+  #
+  # -nvL (NOT -nL): the verbose form is required so the `in` interface
+  # column is included in stdout. Without -v the tailscale0 rule shows
+  # up identically to a rule with no interface filter, and the
+  # tailscale0 substring assertion below silently mis-matches.
+  ansible.builtin.command: iptables -nvL DOCKER-USER --line-numbers
+  register: _dk_docker_user
+  failed_when: false
+  changed_when: false
+
+- name: "validate/dokploy: DOCKER-USER has tailnet allow + RFC1918 allows + DROP for 3000"
+  ansible.builtin.assert:
+    that:
+      - _dk_docker_user.rc == 0
+      # Tailscale interface allow (RETURN)
+      - _dk_docker_user.stdout_lines | select('search', 'tailscale0') | select('search', 'tcp dpt:3000') | select('search', 'RETURN') | list | length > 0
+      # RFC1918 source allows (172.16/12 + 10/8)
+      - _dk_docker_user.stdout_lines | select('search', '172.16.0.0/12') | select('search', 'tcp dpt:3000') | select('search', 'RETURN') | list | length > 0
+      - _dk_docker_user.stdout_lines | select('search', '10.0.0.0/8') | select('search', 'tcp dpt:3000') | select('search', 'RETURN') | list | length > 0
+      # Catch-all DROP
+      - _dk_docker_user.stdout_lines | select('search', 'tcp dpt:3000') | select('search', 'DROP') | list | length > 0
+    fail_msg: |
+      DOCKER-USER chain is missing the port-3000 guard rules. The
+      Dokploy admin UI is reachable on the public IPv4 -- UFW alone
+      does not block this because Docker DNATs in PREROUTING. Re-run
+      `/usr/local/bin/dokploy-docker-firewall` or restart docker.service
+      so the drop-in (20-dokploy-docker-firewall.conf) re-applies.
+
+      Current DOCKER-USER:
+      {{ _dk_docker_user.stdout }}
+
+- name: "validate/dokploy: traefik.yml has forwardedHeaders.trustedIPs"
+  # Without this Traefik rewrites X-Forwarded-Proto to "http" on the
+  # :80 entrypoint (because cloudflared talks to it over plain HTTP),
+  # Keycloak sees "non-secure context", refuses Secure cookies, and
+  # the account-console SPA loops on cross-origin POSTs.
+  ansible.builtin.slurp:
+    src: "{{ dokploy_traefik_config_dir }}/traefik.yml"
+  register: _dk_traefik_static
+
+- name: "validate/dokploy: forwardedHeaders.trustedIPs covers RFC1918"
+  ansible.builtin.assert:
+    that:
+      # Both the :80 (web) and :443 (websecure) entrypoints need it
+      - "'forwardedHeaders' in (_dk_traefik_static.content | b64decode)"
+      - "'10.0.0.0/8' in (_dk_traefik_static.content | b64decode)"
+      - "'172.16.0.0/12' in (_dk_traefik_static.content | b64decode)"
+    fail_msg: |
+      traefik.yml is missing forwardedHeaders.trustedIPs covering
+      RFC1918. Keycloak will log "Non-secure context detected" on
+      every cross-origin POST and the account-console SPA will loop.
+      Re-render the template via `./catena site --tags dokploy`
+      and verify dokploy-traefik restarted.
+
+- name: "validate/dokploy: dokploy-network overlay driver"
+  ansible.builtin.command: docker network inspect dokploy-network --format '{% raw %}{{.Driver}}{% endraw %}'
+  register: _dk_net_driver
+  failed_when: false
+  changed_when: false
+
+- name: "validate/dokploy: dokploy-network driver == overlay"
+  ansible.builtin.assert:
+    that:
+      - _dk_net_driver.rc == 0
+      - _dk_net_driver.stdout | trim == 'overlay'
+    fail_msg: "dokploy-network driver is '{{ _dk_net_driver.stdout | trim }}', expected 'overlay'"

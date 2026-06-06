@@ -1,0 +1,22 @@
+# {{ ansible_managed }}
+#
+# Managed by roles/dokploy. Do NOT edit by hand -- changes are
+# clobbered on the next `./catena site` run.
+#
+# Traefik dynamic middleware that sets X-Forwarded-Proto: https on
+# every request hitting the :80 entrypoint. See traefik.yml's `web`
+# entrypoint for the static-side reference.
+#
+# Why we can hardcode `https`: the lockdown chain (UFW + DOCKER-USER +
+# cloudflared-only ingress) means the ONLY thing that can reach :80
+# is cloudflared, and cloudflared only fronts HTTPS edge traffic.
+# Therefore every request on :80 originated as HTTPS at the browser.
+# cloudflared itself does NOT send X-Forwarded-Proto (it uses
+# Cf-Visitor: {"scheme":"https"} which most backends ignore), so we
+# inject the header here.
+http:
+  middlewares:
+    cf-forwarded-proto-https:
+      headers:
+        customRequestHeaders:
+          X-Forwarded-Proto: "https"

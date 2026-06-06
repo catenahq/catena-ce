@@ -1,0 +1,62 @@
+---
+# Pinned Dokploy version (match a GitHub release tag). Matches the
+# Keycloak pattern: role-default hardcoded; override per-client by
+# setting dokploy_version in inventory/<name>/group_vars/all/main.yml.
+dokploy_version: "v0.29.6"
+
+# Upstream Dokploy installer. Fetched to disk before running so the exact
+# bytes we scan for bootstrap-image pre-pull are the bytes we execute.
+dokploy_install_url: "https://dokploy.com/install.sh"
+
+# Port Dokploy's web UI listens on (inside the container). Not published to
+# the host -- reachable only via apps.<zone> (CF tunnel) or by operators on
+# the tailnet via direct Traefik container routing.
+dokploy_port: 3000
+
+# On-disk root for Dokploy's own state.
+dokploy_data_root: "{{ storage_mount_point }}/dokploy"
+
+# Dokploy uses Docker Swarm. Advertise address is the tailnet IP so that
+# any future multi-node expansion uses the private tailnet path.
+dokploy_advertise_addr: "{{ ansible_host }}"
+
+# Traefik config directories -- populated by install.sh, managed by us
+# post-install for the LE-off + admin-route overlay.
+dokploy_traefik_config_dir: /etc/dokploy/traefik
+dokploy_traefik_dynamic_dir: "{{ dokploy_traefik_config_dir }}/dynamic"
+
+# Trusted upstream-proxy IPs for Traefik's forwardedHeaders. Only
+# sources in this list have their X-Forwarded-* headers honored;
+# anything else gets rewritten by Traefik with the local-edge values
+# (X-Forwarded-Proto: http for the :80 entrypoint), which makes
+# Keycloak treat HTTPS clients as "non-secure context" and refuse to
+# set Secure cookies, breaking the account-console SPA.
+#
+# RFC1918 is the right scope: UFW + DOCKER-USER + cloudflared-only
+# ingress mean only private sources (cloudflared on dokploy-network's
+# 10.x overlay, Docker bridges, anything inside Docker) reach :80 or
+# :443 in the first place. Public clients are physically blocked at
+# the firewall layer; this list governs what Traefik trusts among
+# the sources that DO reach it.
+dokploy_traefik_trusted_ips:
+  - "10.0.0.0/8"
+  - "172.16.0.0/12"
+  - "192.168.0.0/16"
+  - "127.0.0.0/8"
+
+# Pinned Traefik image for the standalone dokploy-traefik container.
+# Dokploy's installer picks whatever Traefik tag is current when it runs,
+# so without a pin the running version drifts from what operators expect
+# (v3.6.7 lingered on dev1 after Dokploy installed it, despite the code
+# pinning v3.6.13). The re-launch task below rebuilds the container when
+# the running image doesn't match this pin.
+dokploy_traefik_image_tag: "v3.6.17"
+dokploy_traefik_image: "traefik:{{ dokploy_traefik_image_tag }}"
+
+# The admin UI hostname -- must match cloudflared_ingress_rules and the
+# matching `dokploy-admin` entry in `oauth2_proxy_apps`. Set
+# DOKPLOY_ADMIN_SUBDOMAIN in inventory/<name>/.env
+# to override. Default is `apps` because the UI is the operator's app-deployment
+# surface; `admin` is available as an override for established clients already
+# trained on that name.
+dokploy_admin_hostname: "{{ lookup('dotenv', 'DOKPLOY_ADMIN_SUBDOMAIN', default='apps') }}.{{ cloudflare_zone }}"

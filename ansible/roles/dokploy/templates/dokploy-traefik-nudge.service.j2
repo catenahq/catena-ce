@@ -1,0 +1,18 @@
+# {{ ansible_managed }}
+#
+# Transient unit template -- actually invoked on every docker.service
+# start via a drop-in (see 10-dokploy-traefik-nudge.conf). This static
+# unit exists so the script can also be run manually via `systemctl
+# start dokploy-traefik-nudge.service` for diagnostics.
+#
+# The drop-in uses `systemd-run --no-block` to dispatch this unit
+# asynchronously so the nudge's overlay-network polling doesn't hold
+# docker.service in "activating" state.
+[Unit]
+Description=Recover dokploy-traefik after docker restart
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/dokploy-traefik-nudge
