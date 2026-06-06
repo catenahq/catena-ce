@@ -1,0 +1,19 @@
+# /etc/ssh/sshd_config.d/10-catena.conf
+# Managed by Ansible -- do not edit by hand.
+#
+# Drop-in overrides the distro default sshd_config. Debian 12+ includes
+# /etc/ssh/sshd_config.d/*.conf at the top of the main config, so directives
+# here take precedence.
+
+PermitRootLogin no
+PasswordAuthentication no
+PubkeyAuthentication yes
+ChallengeResponseAuthentication no
+KbdInteractiveAuthentication no
+X11Forwarding no
+# AllowUsers is NOT additive across sshd_config.d drop-ins -- OpenSSH
+# uses first-match, so a later file declaring `AllowUsers X` has no
+# effect once this one has set a value. All users that need shell or
+# forced-command access go on this single line, sourced from
+# ssh_allowed_users (common/defaults + optional per-role additions).
+AllowUsers {{ ssh_allowed_users | join(' ') }}

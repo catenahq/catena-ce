@@ -1,0 +1,17 @@
+---
+galaxy_info:
+  role_name: host_hardening
+  author: catena
+  description: |
+    Self-contained kernel-state hardening scoped to Docker container
+    escape. Drops /etc/sysctl.d/99-catena-hardening.conf and /etc/
+    modprobe.d/99-catena-hardening.conf; sole writer to those paths
+    in catena. Per-knob threat model in README.md.
+  license: proprietary
+  min_ansible_version: "2.20"
+  platforms:
+    - name: Debian
+      versions:
+        - trixie
+
+dependencies: []

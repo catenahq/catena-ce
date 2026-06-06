@@ -1,0 +1,211 @@
+---
+# Install Docker CE from the official apt repo (NOT distro's docker.io, which
+# lags upstream by months-to-years and occasionally ships broken containerd
+# combos).
+#
+# Order matters here: we write /etc/docker/daemon.json BEFORE installing the
+# packages, so dockerd's very first start already uses the custom data-root.
+# If we installed first, dockerd would auto-start with /var/lib/docker,
+# populate it with some base state, then need a restart to pick up the new
+# data-root -- leaving orphan cruft behind on the root FS.
+
+# ─── apt repo ────────────────────────────────────────────────────────────
+- name: Ensure apt keyring directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install Docker apt signing key
+  ansible.builtin.get_url:
+    url: "{{ docker_apt_key_url }}"
+    dest: /etc/apt/keyrings/docker.asc
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install Docker apt source list
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/docker.list
+    content: "{{ docker_apt_repo }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+  register: docker_source
+
+# Probe whether docker-ce is already indexed. The source-list task above
+# is `ok` (not changed) on a DR restore where restic brought back the
+# same docker.list from the backup; the apt cache on the fresh testvm-c
+# was populated by cloud-init BEFORE that file landed, so docker-ce is
+# absent from /var/lib/apt/lists. Without this probe the next task's
+# `when: docker_source.changed` skips, and `Install Docker CE` fails
+# with "No package matching docker-ce".
+- name: Check whether docker-ce is in the apt index
+  ansible.builtin.command:
+    cmd: apt-cache madison docker-ce
+  register: _docker_apt_indexed
+  changed_when: false
+  failed_when: false
+
+- name: Update apt cache if Docker source changed or docker-ce not indexed
+  ansible.builtin.apt:
+    update_cache: true
+  when: docker_source.changed or (_docker_apt_indexed.stdout | default('') | trim | length == 0)
+
+# ─── daemon.json BEFORE first install ────────────────────────────────────
+- name: Ensure /etc/docker exists
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Drop /etc/docker/daemon.json
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    content: "{{ _docker_daemon_config | to_nice_json }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    # Base daemon config every install gets.
+    _docker_daemon_base:
+      data-root: "{{ docker_data_root }}"
+      log-driver: "json-file"
+      log-opts:
+        max-size: "{{ docker_log_max_size }}"
+        max-file: "{{ docker_log_max_files | string }}"
+      live-restore: "{{ docker_live_restore | bool }}"
+    # When a pull-through mirror URL is configured, add registry-mirrors
+    # plus (for http:// mirrors) the matching insecure-registries entry.
+    # Splits the scheme off the URL because insecure-registries takes
+    # plain host:port -- feeding it the full http:// URL silently does
+    # nothing and the daemon falls through to direct docker.io pulls,
+    # which was the bug that made the test bench's mirror ineffective
+    # (the cloud-init-dropped daemon.json was overwritten here and the
+    # mirror config was lost entirely).
+    _docker_mirror_host: "{{ docker_registry_mirror_url | regex_replace('^https?://', '') }}"
+    _docker_mirror_extras:
+      registry-mirrors:
+        - "{{ docker_registry_mirror_url }}"
+      insecure-registries: "{{ [_docker_mirror_host] if docker_registry_mirror_url.startswith('http://') else [] }}"
+    _docker_daemon_config: "{{ _docker_daemon_base | combine(_docker_mirror_extras if docker_registry_mirror_url else {}) }}"
+  notify: restart docker
+
+# ─── install packages ────────────────────────────────────────────────────
+- name: Install Docker CE + compose plugin
+  ansible.builtin.apt:
+    name: "{{ docker_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: "Verify docker binary exists on disk (guard against phantom-installed dpkg state)"
+  # If /var/lib/dpkg says docker-ce is installed but /usr/bin/docker is
+  # missing, apt's idempotent install is a no-op and the failure only
+  # surfaces two roles later when something tries to run `docker`.
+  # Force a --reinstall when the binary is absent. This catches the
+  # class of bug where dpkg DB was restored without the package files
+  # (e.g. the restore.yml -> site.yml flow before commit that excluded
+  # /var/lib/dpkg from the full-host restore).
+  ansible.builtin.stat:
+    path: /usr/bin/docker
+  register: _docker_bin
+
+# Phantom-installed dpkg state recovery (DR convergence after restic
+# restore). When /var/lib/dpkg says docker-ce + friends are installed
+# but /usr/bin/docker is missing, plain `apt-get install --reinstall`
+# can fail under "Packages were downgraded and -y was used without
+# --allow-downgrades" if the catalog version on the host's apt index
+# differs from the dpkg-recorded version (e.g. dokploy's installer
+# pinned to a different docker-ce version). Mirror restore.sh's
+# stronger recovery: dpkg --purge --force-all the stale records
+# first, then re-install via apt module clean.
+#
+# --force-all skips dependency checks (the docker-ce-rootless-extras
+# / containerd.io / docker-buildx-plugin chain depends on each other
+# and can't be purged in isolation under default policy). Purging
+# stale records doesn't touch on-disk binaries (there are none --
+# that's the precondition), only the dpkg DB.
+#
+# Locked in against client-tools/restore.sh::step_install_dokploy by
+# tests/unit/test_restore_sh_ansible_parity.py.
+- name: "Purge stale docker dpkg state (DR phantom-installed recovery)"
+  ansible.builtin.command:
+    argv:
+      - dpkg
+      - --purge
+      - --force-all
+      - "{{ item }}"
+  loop:
+    - docker-ce
+    - docker-ce-cli
+    - docker-ce-rootless-extras
+    - docker-buildx-plugin
+    - docker-compose-plugin
+    - docker-model-plugin
+    - containerd.io
+  failed_when: false
+  changed_when: true
+  when: not _docker_bin.stat.exists
+
+- name: "Reinstall docker packages cleanly after purge"
+  ansible.builtin.apt:
+    name: "{{ docker_packages }}"
+    state: present
+    update_cache: true
+  when: not _docker_bin.stat.exists
+
+- name: Ensure docker.service is enabled and running
+  ansible.builtin.command:
+    cmd: systemctl enable --now docker
+  changed_when: false
+
+# Atomicity: prove the daemon actually serves API requests before any
+# downstream role (dokploy install, infra compose, backup's `docker
+# exec`) assumes it. `systemctl is-active` alone doesn't -- the unit
+# can be active while dockerd's socket is still initializing, or the
+# daemon.json validation is mid-parse. `docker info` round-trips the
+# UNIX socket and only returns 0 once the API is serving. Cheap,
+# local, ~1s typical; retries bound total wait to ~30s.
+- name: "Probe docker daemon is serving API requests"
+  ansible.builtin.command:
+    cmd: docker info
+  register: _docker_info_probe
+  retries: 15
+  delay: 2
+  until: _docker_info_probe.rc == 0
+  changed_when: false
+
+# ─── UFW FORWARD policy ──────────────────────────────────────────────────
+# /etc/default/ufw ships with DEFAULT_FORWARD_POLICY="DROP" by default
+# (Debian/Ubuntu OS-level setting; not devsec, not catena). With Docker
+# installed, every container's outbound traffic transits the host's
+# FORWARD chain, so a DROP policy blackholes ALL container egress to the
+# internet -- cloudflared cannot reach the CF edge, no container can pull
+# from external registries past the local mirror, etc.
+#
+# Flip to ACCEPT. Inbound is still default-deny via the INPUT chain
+# (roles/common). DOCKER-USER remains the per-container ingress filter
+# point if we ever need to constrain a specific bridge.
+- name: "ufw: set DEFAULT_FORWARD_POLICY=ACCEPT for Docker container egress"
+  ansible.builtin.lineinfile:
+    path: /etc/default/ufw
+    regexp: '^DEFAULT_FORWARD_POLICY='
+    line: 'DEFAULT_FORWARD_POLICY="ACCEPT"'
+    state: present
+  notify: cycle ufw to apply forward policy
+
+# ─── ops in docker group ─────────────────────────────────────────────────
+# Note: membership takes effect on the user's NEXT login. Ansible continues
+# using its existing SSH session which was authenticated before the group
+# change; operator interactive sessions need to log out + back in to get the
+# new group applied without sudo.
+- name: Add ops user to docker group
+  ansible.builtin.user:
+    name: "{{ ops_user }}"
+    groups: docker
+    append: true

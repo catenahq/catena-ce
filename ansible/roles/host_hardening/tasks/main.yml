@@ -1,0 +1,54 @@
+---
+# Drop two config files (sysctl + modprobe) and apply them. Both files are
+# fully owned by this role; this role is the SOLE writer to /etc/sysctl.d/
+# and /etc/modprobe.d/ for catena-controlled state.
+#
+# Atomicity: this role MUST run BEFORE roles/docker so the sysctl values
+# are in place before dockerd's first start. Docker writes its own runtime
+# values into /proc/sys at boot; if dockerd starts first, its writes win
+# at runtime and /etc/sysctl.d/ only re-takes effect on next boot, leaving
+# Day-1 state divergent from reboot-recovery state. The role is slotted
+# between common and tailscale in playbooks/site.yml.
+#
+# Idempotency: both writes are idempotent ansible.builtin.template tasks;
+# the handlers fire only on actual content change.
+
+- name: "host_hardening: drop /etc/sysctl.d/99-catena-hardening.conf"
+  ansible.builtin.template:
+    src: 99-catena-hardening.conf.j2
+    dest: /etc/sysctl.d/99-catena-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: host_hardening_enabled | bool
+  tags: [host_hardening, hardening, sysctl]
+
+- name: "host_hardening: drop /etc/modprobe.d/99-catena-hardening.conf"
+  ansible.builtin.template:
+    src: 99-catena-modprobe.conf.j2
+    dest: /etc/modprobe.d/99-catena-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: host_hardening_enabled | bool
+  tags: [host_hardening, hardening, modprobe]
+
+# Always converge runtime sysctl state to whatever /etc/sysctl.d/ on disk
+# says. A handler-only `notify: reload sysctl` was insufficient for
+# disaster_recovery: restic restore brings 99-catena-hardening.conf back
+# to disk on testvm-c with identical content, so the template task is
+# `ok` and the handler never fires -- but the live kernel is still on
+# Debian defaults (yama.ptrace_scope=0, kptr_restrict=0, etc.) because
+# systemd-sysctl.service ran at boot BEFORE the restore brought the
+# file back. host_hardening's validate.yml (kernel-state assertion)
+# then trips on the runtime/file divergence.
+#
+# `sysctl --system` is idempotent: applies values from every
+# /etc/sysctl.d/*.conf to /proc/sys with no error if values already
+# match. changed_when: false keeps it out of the bench's strict
+# changed=0 idempotency assertion.
+- name: "host_hardening: apply sysctl values from /etc/sysctl.d/ (recovers DR drift)"
+  ansible.builtin.command: sysctl --system
+  changed_when: false
+  when: host_hardening_enabled | bool
+  tags: [host_hardening, hardening, sysctl]

@@ -1,0 +1,12 @@
+---
+# host_hardening role-local handlers.
+#
+# `sysctl --system` re-reads every /etc/sysctl.d/*.conf and applies the
+# values to /proc/sys, in lexicographic order (so 99-catena-hardening.conf
+# wins over any lower-numbered file). This is the only runtime side-effect
+# of the role -- modprobe blacklists take effect on next module load and
+# need no reload (the validate task checks `lsmod` separately; on a
+# freshly-installed VPS none of the blacklisted modules are loaded).
+- name: reload sysctl
+  ansible.builtin.command: sysctl --system
+  changed_when: false

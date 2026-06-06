@@ -1,0 +1,17 @@
+{{ ansible_managed | comment }}
+# /etc/modprobe.d/99-catena-hardening.conf
+# Source of truth: roles/host_hardening/defaults/main.yml
+#
+# Each line below blocks loading of an unused FS or network protocol
+# module that has been an exploit primitive in past CVEs. We do NOT
+# blacklist vfat (EFI System Partition mount on UEFI VPS images) or
+# squashfs (some installers use it).
+#
+# Takes effect on next module load attempt; running converge does not
+# need to flush already-loaded modules (the validate task checks lsmod
+# separately and on a freshly-installed VPS none of these are loaded
+# in the first place).
+
+{% for module in host_hardening_modprobe_blacklist %}
+install {{ module }} /bin/true
+{% endfor %}

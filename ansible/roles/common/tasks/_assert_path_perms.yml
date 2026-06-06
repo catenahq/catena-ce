@@ -1,0 +1,50 @@
+---
+# Shared validation helper: stat a list of paths and assert each exists
+# with the expected type (file/directory) + owner + group + mode.
+# Factors the identical stat-loop + assert block that lived in
+# roles/{common,storage,docker,backup}/tasks/validate.yml.
+#
+# Read-only assertion helper -- no service interaction, so it introduces
+# no parallel path. Invoke via include_role (matches how validate.yml
+# itself is dispatched), passing `_assert_paths`:
+#
+#   - ansible.builtin.include_role:
+#       name: common
+#       tasks_from: _assert_path_perms
+#     vars:
+#       _assert_paths:
+#         - { path: /mnt/data, type: directory, owner: root, group: root, mode: "0755" }
+#         - { path: /usr/local/bin/restic, mode: "0755" }
+#
+# Each entry: path (required); type ('file'|'directory', optional --
+# omit to skip the type check); owner / group / mode (optional). Bundle
+# every predicate for one path into a single assert so the failure
+# output names the path, not the field.
+
+- name: "validate: stat fixture paths"
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+  register: _assert_path_stats
+  loop: "{{ _assert_paths }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: "validate: fixture paths meet expectations"
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - (item.item.type is not defined) or (item.stat.isdir if item.item.type == 'directory' else item.stat.isreg)
+      - (item.item.owner is not defined) or (item.stat.pw_name == item.item.owner)
+      - (item.item.group is not defined) or (item.stat.gr_name == item.item.group)
+      - (item.item.mode is not defined) or (item.stat.mode == item.item.mode)
+    fail_msg: >-
+      {{ item.item.path }}: exists={{ item.stat.exists }}
+      isdir={{ item.stat.isdir | default('n/a') }}
+      isreg={{ item.stat.isreg | default('n/a') }}
+      owner={{ item.stat.pw_name | default('n/a') }}
+      group={{ item.stat.gr_name | default('n/a') }}
+      mode={{ item.stat.mode | default('n/a') }}
+      -- expected {{ item.item }}
+  loop: "{{ _assert_path_stats.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"

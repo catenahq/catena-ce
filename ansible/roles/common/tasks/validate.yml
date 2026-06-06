@@ -1,0 +1,183 @@
+---
+# Validation tasks for roles/common. Replaces tests/goss/common.yaml.
+# Invoked by playbooks/validate.yml via `include_role: tasks_from: validate`.
+#
+# Conventions:
+#   - One logical check = one `ansible.builtin.assert`. Bundle related
+#     predicates (exists + mode + owner) into a single `that:` list so
+#     failure output names the fixture, not the field.
+#   - `command`/`shell` probes register `_check_<name>` fact and use
+#     `failed_when: false` + `changed_when: false` so the probe itself
+#     is never the cause of a failed run -- the assert is.
+#   - Run under `become: true` at the play level (validate.yml sets it).
+
+- name: "validate/common: ops user + home"
+  ansible.builtin.getent:
+    database: passwd
+    key: ops
+  register: _ops_passwd
+  failed_when: false
+  changed_when: false
+
+- name: "validate/common: ops user present with expected shell + home"
+  ansible.builtin.assert:
+    that:
+      - "'ops' in _ops_passwd.ansible_facts.getent_passwd"
+      - "_ops_passwd.ansible_facts.getent_passwd.ops[4] == '/home/ops'"
+      - "_ops_passwd.ansible_facts.getent_passwd.ops[5] == '/bin/bash'"
+    fail_msg: "ops user missing, or home != /home/ops, or shell != /bin/bash"
+
+- name: "validate/common: ops in sudo group"
+  ansible.builtin.command: id -nG ops
+  register: _ops_groups
+  failed_when: false
+  changed_when: false
+
+- name: "validate/common: ops ∈ sudo"
+  ansible.builtin.assert:
+    that:
+      - "'sudo' in _ops_groups.stdout.split()"
+    fail_msg: "ops user is not in sudo group (got: {{ _ops_groups.stdout }})"
+
+- name: "validate/common: fixture files exist + correct type/owner/perms"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _assert_path_perms
+  vars:
+    _assert_paths:
+      - { path: /home/ops, type: directory, owner: ops, group: ops }
+      - { path: /home/ops/.ssh/authorized_keys, type: file, owner: ops, group: ops, mode: "0600" }
+      - { path: /etc/ssh/sshd_config.d/10-catena.conf, type: file }
+      - { path: /etc/sudoers.d/010-ops, type: file, mode: "0440" }
+      - { path: /etc/apt/apt.conf.d/20auto-upgrades, type: file }
+      - { path: /etc/catena/version.txt, type: file, owner: root, group: root, mode: "0644" }
+
+- name: "validate/common: sshd drop-in content"
+  ansible.builtin.slurp:
+    src: /etc/ssh/sshd_config.d/10-catena.conf
+  register: _sshd_conf
+
+- name: "validate/common: sshd drop-in has hardening directives"
+  ansible.builtin.assert:
+    that:
+      - "'PermitRootLogin no' in (_sshd_conf.content | b64decode)"
+      - "'PasswordAuthentication no' in (_sshd_conf.content | b64decode)"
+      - "'PubkeyAuthentication yes' in (_sshd_conf.content | b64decode)"
+      - "'AllowUsers ops' in (_sshd_conf.content | b64decode)"
+    fail_msg: "sshd drop-in missing one of the four required hardening directives"
+
+- name: "validate/common: sudoers NOPASSWD content"
+  ansible.builtin.slurp:
+    src: /etc/sudoers.d/010-ops
+  register: _sudoers_conf
+
+- name: "validate/common: sudoers grants ops ALL NOPASSWD"
+  ansible.builtin.assert:
+    that:
+      - "'ops ALL=(ALL) NOPASSWD: ALL' in (_sudoers_conf.content | b64decode)"
+    fail_msg: "/etc/sudoers.d/010-ops missing the expected NOPASSWD line"
+
+- name: "validate/common: unattended-upgrades disabled (auto_update owns the lane)"
+  ansible.builtin.slurp:
+    src: /etc/apt/apt.conf.d/20auto-upgrades
+  register: _auto_upgrades_conf
+
+- name: "validate/common: 20auto-upgrades disables Unattended-Upgrade"
+  ansible.builtin.assert:
+    that:
+      - "'Unattended-Upgrade \"0\"' in (_auto_upgrades_conf.content | b64decode)"
+    fail_msg: "20auto-upgrades did NOT disable Unattended-Upgrade -- auto_update driver will race Debian's own timer"
+
+- name: "validate/common: required packages installed"
+  ansible.builtin.package_facts:
+    manager: apt
+
+- name: "validate/common: sudo + ufw + unattended-upgrades installed"
+  ansible.builtin.assert:
+    that:
+      - "'sudo' in ansible_facts.packages"
+      - "'ufw' in ansible_facts.packages"
+      - "'unattended-upgrades' in ansible_facts.packages"
+    fail_msg: "one of {sudo, ufw, unattended-upgrades} is missing from the apt package list"
+
+- name: "validate/common: systemd unit states"
+  ansible.builtin.service_facts:
+
+- name: "validate/common: ssh + unattended-upgrades + ufw enabled"
+  ansible.builtin.assert:
+    that:
+      # ssh listens AND is running
+      - "ansible_facts.services['ssh.service'].state == 'running'"
+      - "ansible_facts.services['ssh.service'].status == 'enabled'"
+      # unattended-upgrades: enabled only (it's a oneshot that runs on timer)
+      - "ansible_facts.services['unattended-upgrades.service'].status == 'enabled'"
+      # ufw: enabled only (it's a oneshot loading iptables rules; no live
+      # daemon process, so `running` is misleading -- see spec notes)
+      - "ansible_facts.services['ufw.service'].status == 'enabled'"
+    fail_msg: "one of ssh/unattended-upgrades/ufw has the wrong enable/run state"
+
+- name: "validate/common: sshd listens on 22/tcp"
+  ansible.builtin.wait_for:
+    port: 22
+    host: 127.0.0.1
+    timeout: 3
+  register: _ssh_listen
+  failed_when: _ssh_listen.failed | default(false)
+
+- name: "validate/common: sshd config parses cleanly (sshd -t)"
+  ansible.builtin.command: sshd -t
+  register: _sshd_t
+  failed_when: false
+  changed_when: false
+
+- name: "validate/common: sshd -t exits 0"
+  ansible.builtin.assert:
+    that:
+      - _sshd_t.rc == 0
+    fail_msg: "sshd -t rc={{ _sshd_t.rc }} stderr={{ _sshd_t.stderr }}"
+
+- name: "validate/common: ufw is actively enforcing (Status: active)"
+  ansible.builtin.command: ufw status
+  register: _ufw_status
+  failed_when: false
+  changed_when: false
+
+- name: "validate/common: ufw reports Status: active"
+  ansible.builtin.assert:
+    that:
+      - "'Status: active' in _ufw_status.stdout"
+    fail_msg: "ufw is enabled but not active -- rules are not loaded ({{ _ufw_status.stdout | trim | truncate(120) }})"
+
+# Clock-skew validation. Without an NTP-synced clock, TLS
+# certs reject as "not yet valid", OIDC tokens fail iat/exp checks,
+# Tailscale's auth handshake refuses to nonce-match, and restic
+# snapshot timestamps go non-monotonic. The failure modes are
+# downstream and look like other bugs -- surface the root cause here.
+#
+# `timedatectl show` exposes structured key=value output that survives
+# locale changes, unlike the human-readable `timedatectl status`.
+# NTPSynchronized=yes is set when systemd-timesyncd or chrony has
+# accepted at least one upstream sample.
+- name: "validate/common: clock sync status"
+  ansible.builtin.command:
+    argv:
+      - timedatectl
+      - show
+      - --property=NTPSynchronized
+      - --property=NTP
+      - --property=RTCTimeUSec
+  register: _clock_status
+  changed_when: false
+  failed_when: false
+
+- name: "validate/common: NTP enabled + clock synchronized"
+  ansible.builtin.assert:
+    that:
+      - "'NTP=yes' in _clock_status.stdout"
+      - "'NTPSynchronized=yes' in _clock_status.stdout"
+    fail_msg: >-
+      Host clock is not NTP-synchronized. TLS, OIDC, and Tailscale
+      auth all break under skew >5 min. timedatectl reported:
+      {{ _clock_status.stdout | replace('\n', ' | ') }}.
+      Fix: `systemctl enable --now systemd-timesyncd` (or chronyd)
+      and re-run.

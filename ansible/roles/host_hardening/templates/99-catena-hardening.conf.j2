@@ -1,0 +1,8 @@
+{{ ansible_managed | comment }}
+# /etc/sysctl.d/99-catena-hardening.conf
+# Source of truth: roles/host_hardening/defaults/main.yml
+# See README.md in the same role for the per-knob threat model.
+
+{% for key, value in host_hardening_sysctl.items() %}
+{{ key }} = {{ value }}
+{% endfor %}

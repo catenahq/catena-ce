@@ -1,0 +1,67 @@
+---
+ops_user: ops
+ops_ssh_public_keys: [] # filled from group_vars; usually a file lookup
+
+# Every user that sshd is allowed to let in. OpenSSH's AllowUsers is
+# NOT additive across sshd_config.d drop-ins (first-match wins), so the
+# full list lives here and is rendered by templates/sshd_hardening.conf.j2
+# into a single `AllowUsers` line in /etc/ssh/sshd_config.d/10-catena.conf.
+# Infrastructure-owned accounts (catena-admin-runner) default into the
+# list here because they're effectively always present on catena hosts;
+# a site using common WITHOUT catena-admin still ends up with a
+# harmless no-op entry (sshd allows the name, user doesn't exist).
+ssh_allowed_users:
+  - "{{ ops_user }}"
+  - "{{ catena_admin_runner_user | default('catena-admin-runner') }}"
+
+common_timezone: "America/Toronto"
+common_locale: "en_CA.UTF-8"
+
+# Client-facing surfaces (catena-admin, Keycloak login UI) default
+# to this language. Operator-facing surfaces (Ansible output,
+# Dokploy admin, Gatus) stay English regardless. Set via
+# CATENA_DEFAULT_LANGUAGE in inventory/<name>/.env to override.
+# Values: en | fr. French translations are upstream-provided for
+# Keycloak and bundled with catena-admin -- spot-check before
+# promising coverage to a client.
+catena_default_language: "{{ lookup('dotenv', 'CATENA_DEFAULT_LANGUAGE', default='en') }}"
+
+common_baseline_packages:
+  - sudo
+  - ufw
+  - unattended-upgrades
+  - curl
+  - ca-certificates
+  - gnupg
+  - python3-apt
+  - rsync
+  - systemd-timesyncd
+  # rclone is the WORM-mirror's transport (roles/backup ships
+  # restic-mirror-to-worm.sh); installing it at common/baseline
+  # means a freshly-bootstrapped recovery VPS already has the tool
+  # available for the operator's manual `rclone-copy WORM -> fresh
+  # mutable bucket` recovery step before roles/backup gets a chance
+  # to run. Backup role keeps it in its own apt list anyway -- both
+  # paths are idempotent.
+  - rclone
+
+# Optional apt HTTP proxy (e.g. apt-cacher-ng). Empty = apt pulls
+# direct. When set, the common role drops /etc/apt/apt.conf.d/01proxy
+# BEFORE the first dist-upgrade so the cache is active for every apt
+# operation that follows. HTTPS sources (docker-ce, tailscale) stay
+# DIRECT -- apt-cacher-ng's CONNECT passthrough has no cache benefit
+# and proxying HTTPS risks TLS middleboxing issues.
+common_apt_proxy_url: "{{ lookup('dotenv', 'APT_PROXY_URL', default='') }}"
+
+# ─── Declarative public-port registry ────────────────────────────────────
+# Reconciler + helper modules install side by side here (the reconciler
+# imports public_ports + labels_schema by bare name from its own dir).
+public_ports_lib_dir: /usr/local/lib/catena
+# conf.d-style fragment dir: each infra role (coturn, dokploy) drops
+# <owner>.json declaring its host-bound public ports. App ports arrive via
+# vps.expose.* labels and are NOT written here.
+public_ports_fragment_dir: /etc/catena/public-ports.d
+# Periodic reconcile cadence. App ports declared via labels open within one
+# interval of deploy; DOCKER-USER guards re-assert if flushed out-of-band.
+public_ports_timer_on_boot: "2min"
+public_ports_timer_interval: "5min"

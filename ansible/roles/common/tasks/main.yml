@@ -1,0 +1,571 @@
+---
+# Baseline host setup. Runs over the initial connection (root+password during
+# bootstrap; ops+key on all subsequent runs). Idempotent.
+
+# ─── Version capture ────────────────────────────────────────────────────
+# Delegated to localhost so it reads the CONTROLLER's git state, not the
+# VPS's (VPS doesn't have the repo). run_once because the value is the
+# same for every host in a run; the fact lands on the current host
+# (dev1) which is where later tasks + template renders resolve the bare
+# `catena_version` var. We don't write to hostvars['localhost']
+# because delegate_to alone doesn't pin facts there (would need
+# delegate_facts=true) AND because --limit can exclude localhost,
+# leaving that hostvar empty for subsequent plays.
+- name: "Version: capture git describe from controller repo"
+  ansible.builtin.command:
+    cmd: git describe --always --dirty --tags
+    chdir: "{{ playbook_dir }}/../.."
+  register: _catena_git_describe
+  changed_when: false
+  failed_when: false
+  delegate_to: localhost
+  run_once: true
+  become: false
+  tags: [always]
+
+- name: "Version: capture git commit date (UTC)"
+  ansible.builtin.command:
+    cmd: git log -1 --format=%cI
+    chdir: "{{ playbook_dir }}/../.."
+  register: _catena_git_commit_date
+  changed_when: false
+  failed_when: false
+  delegate_to: localhost
+  run_once: true
+  become: false
+  tags: [always]
+
+- name: "Version: refuse dirty tree unless allow_dirty=true"
+  ansible.builtin.fail:
+    msg: |
+      Controller git tree is dirty: {{ _catena_git_describe.stdout }}
+
+      Commit or stash local changes before converging, or pass
+      `-e allow_dirty=true` to ship an unreviewed build anyway (the
+      version stamp will keep the `-dirty` suffix so the drift
+      shows up in docs + /etc/catena/version.txt).
+      Also honored: CATENA_ALLOW_DIRTY=1 in the env (matches the
+      ./catena wrapper override; the bench sets this).
+  when:
+    - _catena_git_describe.rc == 0
+    - _catena_git_describe.stdout.endswith('-dirty')
+    - not (allow_dirty | default(false) | bool)
+    - lookup('ansible.builtin.env', 'CATENA_ALLOW_DIRTY') != '1'
+  run_once: true
+  tags: [always]
+
+- name: "Version: export catena_version fact"
+  ansible.builtin.set_fact:
+    catena_version: "{{ _catena_git_describe.stdout | default('unknown') or 'unknown' }}"
+    catena_version_date: "{{ _catena_git_commit_date.stdout | default('') }}"
+  tags: [always]
+
+- name: Wait for cloud-init to finish (if present)
+  ansible.builtin.command: cloud-init status --wait
+  changed_when: false
+  failed_when: false # some base images don't have cloud-init
+
+- name: Set hostname from inventory_hostname
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+    use: systemd
+
+# Atomicity: ansible.builtin.lineinfile writes via temp-file + atomic
+# rename (Ansible 2.13+), so a crash mid-write leaves /etc/hosts
+# intact with either the old content or the new. Dedupes by regexp.
+# Don't "upgrade" to a full ansible.builtin.template overwrite -- that
+# would clobber any operator-added entries further down /etc/hosts.
+- name: Ensure /etc/hosts maps the hostname to 127.0.1.1
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: "^127\\.0\\.1\\.1\\s"
+    line: "127.0.1.1\t{{ inventory_hostname }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+# Configure the apt HTTP proxy BEFORE the first dist-upgrade so every
+# apt operation in this role (and every subsequent role) routes HTTP
+# requests through the cache. The bench's cloud-init already wrote
+# the same file on first boot, but Ansible owns the steady-state
+# config so opt-in / opt-out across runs actually flips the file
+# (cloud-init only runs once). apt reads everything under
+# /etc/apt/apt.conf.d on each invocation, so no daemon restart is
+# needed. HTTPS stays DIRECT (see common_apt_proxy_url comment).
+- name: "Configure apt HTTP proxy (when APT_PROXY_URL is set)"
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/01proxy
+    content: |
+      Acquire::http::Proxy "{{ common_apt_proxy_url }}";
+      Acquire::https::Proxy "DIRECT";
+    owner: root
+    group: root
+    mode: "0644"
+  when: common_apt_proxy_url | length > 0
+
+- name: "Remove apt HTTP proxy (when APT_PROXY_URL is unset)"
+  ansible.builtin.file:
+    path: /etc/apt/apt.conf.d/01proxy
+    state: absent
+  when: common_apt_proxy_url | length == 0
+
+# Wait for apt instead of failing fast when the dpkg lock is held by
+# another process (typical: apt-daily.timer mid-fire, cloud-init's
+# package_update finishing in the background, unattended-upgrades).
+# Without this, ANY apt step in this role or downstream (dokploy
+# install.sh, tailscale install, backup install) loses a race and
+# fails with "Could not get lock" while the holder finishes in <5 min.
+# Applies system-wide via /etc/apt/apt.conf.d, so install.sh's apt
+# subprocesses (which don't go through Ansible's apt module) inherit
+# the same timeout. Five minutes is the longest plausible legit hold;
+# longer than that means something is wedged and we want loud failure.
+- name: "Configure system-wide apt dpkg lock timeout"
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/05catena-lock-timeout
+    content: |
+      # Managed by catena common role. Makes apt wait for the dpkg
+      # lock (held by apt-daily / unattended-upgrades / concurrent apt
+      # callers) instead of failing immediately. Applies to every apt
+      # invocation on the host, including non-Ansible ones such as
+      # `curl ... | sh` install scripts.
+      DPkg::Lock::Timeout "300";
+      Acquire::Retries "3";
+    owner: root
+    group: root
+    mode: "0644"
+
+# Post-restore apt-sources sanitize (DR-only). Restic-restored /etc
+# carries every /etc/apt/sources.list.d/*.list the source VPS had,
+# including ones (notably tailscale's) that reference signed-by=
+# keyrings under /usr/share/keyrings/. The restic snapshot covers
+# /etc + /var/lib/dpkg + /usr/local/bin but NOT /usr/share, so on a
+# fresh recovery target the keyring is absent and the next apt-get
+# update emits "repository is not signed", which can cascade into the
+# downstream apt steps failing.
+#
+# Marker-gated: only runs when /var/lib/catena/post-restore.needed
+# exists (drop-marker contract owned by roles/backup/tasks/restore.yml).
+# Idempotent on re-run: each *.list with a missing keyring is renamed
+# to *.list.disabled-by-restore, the next pass sees no *.list match.
+# Operator can re-enable post-recovery once the keyring is reinstalled
+# (e.g. tailscale role re-installs its archive keyring on every
+# converge, so the restored .list works again after the next site.yml).
+#
+# Mirrors client-tools/restore.sh::step_sanitize_apt_sources verbatim.
+# Locked in by tests/unit/test_restore_sh_ansible_parity.py. The
+# backup_stats_dir path is hardcoded /var/lib/catena rather than
+# templated against roles/backup/defaults to keep this role free of
+# a backup dependency; that path is the locked-in marker location
+# (test_restore_option_a guards it).
+- name: "Post-restore: detect marker for apt-sources sanitize"
+  ansible.builtin.stat:
+    path: /var/lib/catena/post-restore.needed
+  register: _common_post_restore_marker
+
+- name: "Post-restore: disable apt sources whose signed-by keyrings vanished"
+  ansible.builtin.shell: |
+    set -uo pipefail
+    shopt -s nullglob
+    disabled=0
+    for src in /etc/apt/sources.list.d/*.list; do
+        key=$(grep -oE 'signed-by=[^] ]+' "$src" 2>/dev/null \
+              | sed -E 's/^signed-by=//' \
+              | head -n1 || true)
+        if [ -n "$key" ] && [ ! -f "$key" ]; then
+            mv "$src" "$src.disabled-by-restore"
+            disabled=$((disabled + 1))
+            echo "disabled $src (signed-by=$key missing)"
+        fi
+    done
+    echo "TOTAL_DISABLED=$disabled"
+  args:
+    executable: /bin/bash
+  register: _common_apt_sanitize
+  changed_when: "'TOTAL_DISABLED=0' not in _common_apt_sanitize.stdout"
+  when: _common_post_restore_marker.stat.exists | bool
+
+# apt-cacher-ng (and any operator-supplied APT_PROXY_URL) is a single
+# failure point for every downstream apt operation. When it goes flaky
+# the apt module's `update_cache_retries` loop returns the unhelpful
+# "Failed to update cache after 10 retries: " message (empty stderr,
+# because the module folds individual retries into a summary string)
+# and every subsequent role that touches apt -- dokploy install.sh,
+# tailscale install, backup install -- cascades. The block-then-rescue
+# below: first tries via whatever proxy is configured; on failure,
+# captures the real apt-get error for the log, then if a proxy is in
+# play drops it, retries direct (slower but always available), and
+# restores the proxy file so later apt calls hit the cacher again
+# once /var/lib/apt/lists is warm. With no proxy configured, a
+# rescue here is a real network failure and we fail loudly with the
+# captured stderr instead of the empty module summary.
+- name: "Refresh apt cache (with proxy-bypass fallback)"
+  block:
+    - name: "apt update (honors APT_PROXY_URL if configured)"
+      ansible.builtin.apt:
+        update_cache: true
+        # Skip the refresh if /var/lib/apt/periodic/update-success-stamp
+        # is younger than this. Without it the bench's stage-2.5
+        # idempotency rerun flips to changed=true whenever any upstream
+        # security/translation feed rolls between the first converge
+        # and the rerun (~5-10 min later). One hour is comfortably
+        # longer than any single converge + rerun + the inter-stage
+        # gap, but short enough that a real flake (mirror going stale
+        # mid-day) still gets re-fetched.
+        cache_valid_time: 3600
+        # Belt-and-braces: the 05-lock-timeout conf above tells apt
+        # itself to wait, the module's own lock_timeout matches so
+        # the Ansible wrapper doesn't time out earlier than the
+        # underlying apt-get.
+        lock_timeout: 300
+        # Default is 5 retries with backoff capped at 12s (~27s total).
+        # Stretch that to ride out short mirror flakes.
+        update_cache_retries: 10
+        update_cache_retry_max_delay: 30
+  rescue:
+    - name: "apt update failed; capture diagnostic via raw apt-get update"
+      ansible.builtin.command:
+        cmd: apt-get update
+      register: _apt_update_diag
+      failed_when: false
+      changed_when: false
+
+    - name: "Report first-attempt failure (module's summary is empty)"
+      ansible.builtin.debug:
+        msg: |
+          apt update failed via the apt module (empty error is a known
+          retry-loop artifact). Real diagnostic from apt-get update:
+            rc={{ _apt_update_diag.rc }}
+            stderr={{ _apt_update_diag.stderr | default('') | trim }}
+          {% if common_apt_proxy_url | length > 0 %}
+          Retrying without HTTP proxy ({{ common_apt_proxy_url }}).
+          {% endif %}
+
+    - name: "No proxy to bypass; fail with the real error"
+      ansible.builtin.fail:
+        msg: |
+          apt update failed and no APT_PROXY_URL is configured, so
+          there is nothing to bypass. Real apt-get error:
+            rc={{ _apt_update_diag.rc }}
+            stderr={{ _apt_update_diag.stderr | default('') | trim }}
+      when: common_apt_proxy_url | length == 0
+
+    - name: "Temporarily drop proxy conf for direct retry"
+      ansible.builtin.file:
+        path: /etc/apt/apt.conf.d/01proxy
+        state: absent
+
+    - name: "apt update (direct, no proxy)"
+      ansible.builtin.apt:
+        update_cache: true
+        lock_timeout: 300
+        update_cache_retries: 5
+        update_cache_retry_max_delay: 30
+
+    - name: "Restore proxy conf so subsequent apt calls hit the cacher"
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/01proxy
+        content: |
+          Acquire::http::Proxy "{{ common_apt_proxy_url }}";
+          Acquire::https::Proxy "DIRECT";
+        owner: root
+        group: root
+        mode: "0644"
+
+# ── Keep host port 25 free for the mail server (MX) ──────────────────────
+# Debian's default-mta (exim4-daemon-light) binds 127.0.0.1:25 + [::1]:25
+# the moment it starts. That collides with the mailserver template's dms
+# container publishing 0.0.0.0:25 ("failed to bind host port 0.0.0.0:25/tcp:
+# address already in use"), leaving dms stuck in `Created` and failing the
+# deploy. exim4 is NOT in the base image or the baseline; it is pulled as an
+# apt Recommends by packages dragged in across the converge (cron Recommends
+# default-mta, and a bench probe proved cron is NOT the only path -- the full
+# common sequence pulls none, yet a later role does). Chasing every puller
+# with --no-install-recommends is whack-a-mole AND would strip recommends
+# that cron itself may legitimately want, so we do NOT suppress them.
+#
+# Catena drives every periodic job off systemd timers and routes mail
+# through the mailserver template (alerts go via ntfy / Healthchecks) -- a
+# host MTA is never wanted and is a spam-relay liability besides. So MASK
+# exim4 here, EARLY: masking shadows the unit even before the package
+# exists, so whichever later role drags exim4 in (with its full recommends
+# intact), its postinst start is a no-op (deb-systemd-invoke skips masked
+# units) and :25 stays free for the MX. Ordering-proof, no dependency
+# breakage (the package may still install, it just can never run); cron
+# still works, only its unused local-mail output is disabled. Worst case is
+# the loss of local system mail, which Catena does not consume.
+# Pinned by tests/unit/test_no_host_mta.py.
+- name: "Mask exim4 so it can never bind port 25 (reserved for the mail server MX)"
+  # `systemctl mask` works on a not-yet-installed unit (creates the
+  # /etc/systemd/system/exim4.service -> /dev/null shadow), so this holds
+  # even though exim4 is usually installed by a LATER role. Plain command
+  # (not the systemd_service module) because the module needs the unit to
+  # exist to manage state; mask must work before it does.
+  ansible.builtin.command:
+    argv: [systemctl, mask, exim4]
+  register: _mask_exim4
+  changed_when: "'Created symlink' in (_mask_exim4.stdout + _mask_exim4.stderr)"
+
+# Self-heal an existing host that already booted exim4 BEFORE the mask was
+# added (masking does not stop a running instance). Must be idempotent:
+# `systemctl stop` returns rc=0 even when nothing was running, so gating the
+# stop -- and the changed flag -- on `is-active` is the only way to avoid
+# reporting changed on every converge (which would fail the idempotency
+# rerun). On a fresh host exim4 is masked before it can ever start, so this
+# is a skip.
+- name: "Probe whether exim4 is currently active (for self-heal stop)"
+  ansible.builtin.command:
+    argv: [systemctl, is-active, exim4]
+  register: _exim4_active
+  changed_when: false
+  # is-active returns rc 3 for inactive/masked units; not a failure here.
+  failed_when: false
+
+- name: "Stop exim4 if a prior boot started it before the mask (self-heal)"
+  ansible.builtin.command:
+    argv: [systemctl, stop, exim4]
+  changed_when: true
+  when: (_exim4_active.stdout | default('') | trim) == 'active'
+
+- name: Full system upgrade (fresh VPS images ship stale)
+  ansible.builtin.apt:
+    upgrade: dist
+    lock_timeout: 300
+  register: _apt_upgrade
+
+- name: Remove packages no longer needed
+  ansible.builtin.apt:
+    autoremove: true
+    purge: true
+    lock_timeout: 300
+  when: _apt_upgrade.changed
+
+- name: Install baseline packages
+  ansible.builtin.apt:
+    name: "{{ common_baseline_packages }}"
+    state: present
+    cache_valid_time: 3600
+    lock_timeout: 300
+
+- name: Set timezone
+  community.general.timezone:
+    name: "{{ common_timezone }}"
+
+- name: Ensure locale is generated
+  community.general.locale_gen:
+    name: "{{ common_locale }}"
+    state: present
+
+# ─── ops user + SSH key ──────────────────────────────────────────────────
+- name: Create ops user
+  ansible.builtin.user:
+    name: "{{ ops_user }}"
+    shell: /bin/bash
+    create_home: true
+    groups: sudo
+    append: true
+    state: present
+    # Debian's useradd writes `!` in /etc/shadow for a password-less
+    # user, which OpenSSH 9.8+ (Debian 13) treats as "account locked"
+    # and refuses pubkey auth for (`User ops not allowed because
+    # account is locked`). OpenSSH 9.2 (Debian 12) did not do this
+    # check, which is why the issue never surfaced on older hosts.
+    # `*` means "no usable password" but NOT locked -- pubkey auth
+    # is permitted, password auth is permanently impossible (no hash
+    # could ever match). update_password: on_create keeps this a
+    # one-shot fix so rerunning the role on an already-created ops
+    # doesn't churn /etc/shadow.
+    password: "*"
+    update_password: on_create
+
+- name: Assert at least one ops SSH public key is configured
+  ansible.builtin.assert:
+    that:
+      - ops_ssh_public_keys | length > 0
+    fail_msg: >-
+      ops_ssh_public_keys is empty. Populate it in group_vars/all.yml before
+      running bootstrap -- otherwise the ops user would have no way to log in
+      after password auth is disabled.
+
+- name: Install SSH authorized keys for ops
+  ansible.posix.authorized_key:
+    user: "{{ ops_user }}"
+    key: "{{ item }}"
+    state: present
+    exclusive: false
+  loop: "{{ ops_ssh_public_keys }}"
+
+- name: Grant ops passwordless sudo
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/010-ops
+    content: "{{ ops_user }} ALL=(ALL) NOPASSWD: ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+
+# ─── console break-glass password ────────────────────────────────────────
+# ops carries password `*` (no usable password) by default, so once SSH is
+# key-only the operator has NO way back in if the tailnet path is lost --
+# the provider web console (KVM/serial) and an on-prem physical keyboard
+# both authenticate against the local TTY via PAM, which needs a real
+# password. Set one from the vault on the persistent ops account.
+#
+# This is console-ONLY: sshd_hardening.conf.j2 sets
+# PasswordAuthentication no, so the password is rejected over SSH and only
+# usable at a local console. The mechanism is provider-agnostic (cloud KVM
+# or on-prem physical) and does not depend on the provider default user,
+# which root-disable + AllowUsers already lock out of SSH.
+#
+# Deterministic salt (derived from the secret itself) keeps the sha512 hash
+# stable across converges so /etc/shadow does not churn -- update_password:
+# always then reports no change on a steady-state run. Gated on the key
+# being present so inventories that have not minted it yet are a safe no-op
+# (migrate_inventory.py auto-mints vault_console_recovery_password).
+- name: Set ops console break-glass password (key-only SSH keeps it console-only)
+  ansible.builtin.user:
+    name: "{{ ops_user }}"
+    password: >-
+      {{ vault_console_recovery_password
+         | password_hash('sha512', salt=(vault_console_recovery_password | hash('sha256'))[:16]) }}
+    update_password: always
+  no_log: true
+  when: vault_console_recovery_password | default('') | length > 0
+
+# ─── sshd hardening ──────────────────────────────────────────────────────
+# After this runs, root+password login stops working. The ops user with key
+# auth is the only remaining path in, which is why the assertion above is
+# mandatory -- no key on ops means locked out.
+- name: Drop sshd hardening config
+  ansible.builtin.template:
+    src: sshd_hardening.conf.j2
+    dest: /etc/ssh/sshd_config.d/10-catena.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload sshd
+
+# ─── unattended-upgrades (Debian-native security patching -- ON in CE) ───
+# Community leans on Debian's OWN unattended-upgrades for OS security
+# patches. This is the operating system's mechanism, NOT a Catena
+# scheduler: the default 50unattended-upgrades filter applies only the
+# Debian-Security suite, so most days it is a no-op, and it never
+# auto-reboots (Automatic-Reboot defaults off -- a new kernel waits for a
+# manual reboot). Community is otherwise manual; this is the one lane we
+# leave to the OS so a free host does not silently go unpatched.
+#
+# When a Business license activates, the auto_update driver MASKS
+# apt-daily-upgrade.timer and takes over the apply lane inside its
+# snapshot + health-baseline + rollback envelope. Until then (and on
+# every CE host), the OS lane stays ON.
+#
+# Config state we want:
+#   /etc/apt/apt.conf.d/50unattended-upgrades -- Debian-default filter,
+#       already shipped; leave alone.
+#   /etc/apt/apt.conf.d/20auto-upgrades       -- enable the apply lane.
+#   apt-daily.timer (apt-get update only)     -- leave ON.
+#   apt-daily-upgrade.timer (the APPLY lane)  -- unmasked + enabled.
+#   unattended-upgrades.service               -- enabled.
+- name: "Configure unattended-upgrades (Debian-native security patching ON)"
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      # Managed by catena common role. Community leans on Debian's own
+      # unattended-upgrades for OS security patches (security suite only).
+      # A Business license's auto_update driver masks the timer and takes
+      # over the apply lane with snapshot + rollback.
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Ensure unattended-upgrades service is enabled
+  ansible.builtin.command:
+    cmd: systemctl enable --now unattended-upgrades
+  changed_when: false
+
+# Unmask + enable the apply timer. A host whose Business license lapsed
+# (the EE driver had masked it) recovers Debian's native lane here, so a
+# downgraded host never ends up with NO autonomous security patching.
+- name: "Ensure apt-daily-upgrade.timer is unmasked + enabled (Debian-native apply lane)"
+  ansible.builtin.shell: |
+    systemctl unmask apt-daily-upgrade.timer || true
+    systemctl enable --now apt-daily-upgrade.timer || true
+  changed_when: false
+  failed_when: false # unit may not exist on minimal images
+
+# ─── ufw baseline ────────────────────────────────────────────────────────
+# Public SSH is allowed for the duration of bootstrap. ufw_lockdown.yml
+# (called from site.yml post_tasks, AFTER tailscale is up) swaps this rule
+# for "allow 22 on tailscale0 only" and closes public 22.
+- name: Set ufw default deny incoming
+  community.general.ufw:
+    default: deny
+    direction: incoming
+
+- name: Set ufw default allow outgoing
+  community.general.ufw:
+    default: allow
+    direction: outgoing
+
+# Detect whether tailscale0 is already up. On first boot it isn't, so we
+# need the public SSH rule to keep the operator reachable until tailscale
+# is installed + connected. On every subsequent converge it IS up, so
+# adding (then removing) public 22 each run is just a flap that logs
+# `changed=2` in PLAY RECAP and trips the bench's idempotency check.
+- name: "ufw bootstrap: probe tailscale0 to decide if public SSH is still needed"
+  ansible.builtin.command: ip link show tailscale0
+  register: _ufw_tailscale_iface
+  changed_when: false
+  failed_when: false
+
+- name: Allow public SSH (bootstrap only -- replaced by tailscale-only rule later)
+  community.general.ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+    comment: "bootstrap; replaced by ufw_lockdown.yml"
+  when: _ufw_tailscale_iface.rc != 0
+
+- name: Enable ufw
+  community.general.ufw:
+    state: enabled
+
+# ─── Version stamp ──────────────────────────────────────────────────────
+# /etc/catena/version.txt records the catena commit that produced
+# the last converge. Operator can diff this against the controller's
+# `git describe` to spot drift across a fleet. Captured on the controller
+# in preflight.yml; set_fact cacheable means it's readable via
+# hostvars['localhost']['catena_version'].
+- name: "/etc/catena exists"
+  ansible.builtin.file:
+    path: /etc/catena
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "/etc/catena/version.txt stamped with current converge"
+  ansible.builtin.copy:
+    dest: /etc/catena/version.txt
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {{ hostvars['localhost']['catena_version'] | default('unknown') }}
+      {{ hostvars['localhost']['catena_version_date'] | default('') }}
+      converged-at: {{ ansible_date_time.iso8601 | default('') }}
+  # The `converged-at` timestamp would force `changed` on every converge,
+  # which is noise: a fresh timestamp is the POINT of this file, not a
+  # configuration drift signal. Suppress the change report so real drift
+  # (version bumps, unexpected diffs elsewhere) stays visible in summary.
+  changed_when: false
+
+# ─── Declarative public-port registry ────────────────────────────────────
+# Install the reconciler + helper modules + systemd units. Infra roles drop
+# their port fragments during their own runs; site.yml post_tasks runs the
+# reconcile once at the end, after every fragment is present.
+- name: "common: install public-port reconciler"
+  ansible.builtin.import_tasks: public_ports.yml
+  tags: [public_ports]

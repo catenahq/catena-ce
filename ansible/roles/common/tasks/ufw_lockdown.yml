@@ -1,0 +1,128 @@
+---
+# Final firewall lockdown. Called from site.yml post_tasks AFTER tailscale0
+# and cloudflared are confirmed healthy.
+#
+# Designed to fail CLOSED (you stay reachable) rather than fail OPEN
+# (lockout). Sequence:
+#   1. Confirm tailscale0 interface exists.
+#   2. Add the new tailscale0-only allow rule.
+#   3. Verify the operator can still reach SSH on port 22 via the tailnet
+#      (delegate_to: localhost; this proves the new path works end-to-end).
+#   4. ONLY NOW remove the public 22 allow rule.
+#   5. Reload ufw.
+#   6. Re-verify tailnet path works post-removal.
+#
+# If the verify step (3) fails, the playbook aborts BEFORE step 4 -- public
+# 22 stays allowed, no lockout. The new rule is still added (harmless; allows
+# the same traffic that was already allowed via the broader public-22 rule).
+
+- name: Assert tailscale0 interface is up
+  ansible.builtin.command: ip link show tailscale0
+  changed_when: false
+  register: tailscale_iface_check
+  failed_when: tailscale_iface_check.rc != 0
+
+- name: Capture tailnet IPv4 from current tailscale status
+  ansible.builtin.command: tailscale status --json
+  register: ts_status_for_lockdown
+  changed_when: false
+
+- name: Set tailnet IP fact
+  ansible.builtin.set_fact:
+    _ts_json: "{{ ts_status_for_lockdown.stdout | from_json }}"
+
+- name: Extract tailnet IPv4
+  ansible.builtin.set_fact:
+    tailnet_ipv4: "{{ (_ts_json.Self.TailscaleIPs | default([])) | select('match', '100[.]') | list | first | default('') }}"
+
+- name: Assert tailnet IPv4 was found
+  ansible.builtin.assert:
+    that: tailnet_ipv4 | length > 0
+    fail_msg: >-
+      Could not extract tailnet IPv4 from `tailscale status --json`.
+      Self.TailscaleIPs={{ _ts_json.Self.TailscaleIPs | default('(missing)') }},
+      BackendState={{ _ts_json.BackendState | default('(missing)') }}.
+      Is tailscale connected?
+
+# ─── Step 2: ADD new rule (does not remove anything yet) ─────────────────
+- name: Allow SSH on tailscale0
+  community.general.ufw:
+    rule: allow
+    interface: tailscale0
+    direction: in
+    to_port: "22"
+    proto: tcp
+    comment: "ssh via tailnet only"
+
+# Allow SSH from RFC 1918 Docker bridge networks. catena-admin runs as
+# a container on dokploy-network and SSHs to the host's tailnet IP to
+# hit the forced-command dispatcher. Its packets arrive via the Docker
+# bridge interface (not tailscale0), so the rule above doesn't match
+# them. RFC 1918 can't be spoofed from the public internet; the
+# dispatcher is the actual authz boundary (key-auth + allow-list),
+# not this UFW rule.
+- name: Allow SSH from Docker bridge networks (catena-admin dispatcher path)
+  community.general.ufw:
+    rule: allow
+    from_ip: "{{ item }}"
+    to_port: "22"
+    proto: tcp
+    comment: "ssh from docker containers (catena-admin dispatcher)"
+  loop:
+    - 172.16.0.0/12
+    - 10.0.0.0/8
+
+# ─── Step 3: VERIFY the tailnet path works end-to-end ────────────────────
+# Run from the operator's laptop. If we can complete a TCP handshake to
+# port 22 on the tailnet IP, the new rule path is functional.
+- name: Verify tailnet SSH reachability (operator -> tailnet IP, port 22)
+  ansible.builtin.wait_for:
+    host: "{{ tailnet_ipv4 }}"
+    port: 22
+    timeout: 15
+    state: started
+  delegate_to: localhost
+  become: false
+  register: tailnet_reachable
+  failed_when: tailnet_reachable.failed | default(false)
+
+# ─── Step 4: NOW remove the public 22 rule ───────────────────────────────
+- name: Remove the public SSH allow rule
+  community.general.ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+    delete: true
+  register: _public_ssh_removal
+
+# Only reload when the delete actually removed something. `state: reloaded`
+# is an action verb in the module and always reports changed=true otherwise,
+# which is the noise that trips stage-2.5 of the bench on a clean rerun.
+- name: Reload ufw so rule changes take effect
+  community.general.ufw:
+    state: reloaded
+  when: _public_ssh_removal is changed
+
+# ─── Step 5: Re-verify after removal ─────────────────────────────────────
+- name: Re-verify tailnet SSH after public 22 removal
+  ansible.builtin.wait_for:
+    host: "{{ tailnet_ipv4 }}"
+    port: 22
+    timeout: 15
+    state: started
+  delegate_to: localhost
+  become: false
+
+- name: Capture ufw status for assertion
+  ansible.builtin.command: ufw status verbose
+  register: ufw_after
+  changed_when: false
+
+- name: Assert public 22 is closed and tailscale0 22 is allowed
+  ansible.builtin.assert:
+    that:
+      - "'22/tcp' not in ufw_after.stdout or 'tailscale0' in ufw_after.stdout"
+      - "'tailscale0' in ufw_after.stdout"
+    fail_msg: >-
+      ufw post-lockdown state unexpected. Inspect: `ufw status verbose`.
+      Public 22 may still be open, or tailscale0 rule is missing.

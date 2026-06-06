@@ -1,0 +1,20 @@
+---
+# daemon.json changes require a dockerd reload. With live-restore=true this
+# does NOT kill running containers -- dockerd exits, systemd restarts it, and
+# the containerd shims keep the containers alive across the gap.
+- name: restart docker
+  ansible.builtin.command:
+    cmd: systemctl restart docker
+  changed_when: false
+
+# /etc/default/ufw is only re-read on a full ufw disable+enable cycle.
+# `ufw reload` reloads user.rules but NOT DEFAULT_FORWARD_POLICY, so a
+# straight `state: reloaded` would leave the FORWARD chain at its previous
+# policy. Disable+enable is required. Connection tracking is briefly
+# dropped but the operator's tailnet SSH session has its own allow rule
+# and is re-established immediately on enable.
+- name: cycle ufw to apply forward policy
+  ansible.builtin.shell: |
+    ufw --force disable
+    ufw --force enable
+  changed_when: false

@@ -1,0 +1,190 @@
+---
+# Validation tasks for roles/host_hardening. Invoked by playbooks/validate.yml
+# via include_role: tasks_from: validate.
+#
+# Conventions match roles/common/tasks/validate.yml:
+#   - One logical check = one assert. Bundle related predicates so the
+#     failure message names the offending knob.
+#   - Probes register `_check_<name>` facts with failed_when: false +
+#     changed_when: false; the assert is the only thing that fails.
+#   - Negative assertions are LOAD-BEARING: they catch a future code
+#     change that flips a Docker-required default we relied on.
+
+# ─── sysctl: positive assertions (knobs we DO want set) ─────────────────
+- name: "validate/host_hardening: read positive-side sysctl values"
+  ansible.builtin.command: "sysctl -n {{ item }}"
+  register: _sysctl_pos
+  changed_when: false
+  failed_when: false
+  loop:
+    - kernel.yama.ptrace_scope
+    - kernel.unprivileged_bpf_disabled
+    - net.core.bpf_jit_harden
+    - kernel.kptr_restrict
+    - kernel.dmesg_restrict
+    - fs.protected_symlinks
+    - fs.protected_hardlinks
+    - fs.protected_fifos
+    - fs.protected_regular
+    - fs.suid_dumpable
+    - kernel.kexec_load_disabled
+    - kernel.sysrq
+    - kernel.perf_event_paranoid
+    - kernel.io_uring_disabled
+  loop_control:
+    label: "{{ item }}"
+
+- name: "validate/host_hardening: positive sysctl values match expected"
+  ansible.builtin.assert:
+    that:
+      - _sysctl_pos.results[0].stdout | int == 2   # yama.ptrace_scope
+      - _sysctl_pos.results[1].stdout | int == 1   # unprivileged_bpf_disabled
+      - _sysctl_pos.results[2].stdout | int == 2   # bpf_jit_harden
+      - _sysctl_pos.results[3].stdout | int == 2   # kptr_restrict
+      - _sysctl_pos.results[4].stdout | int == 1   # dmesg_restrict
+      - _sysctl_pos.results[5].stdout | int == 1   # protected_symlinks
+      - _sysctl_pos.results[6].stdout | int == 1   # protected_hardlinks
+      - _sysctl_pos.results[7].stdout | int == 2   # protected_fifos
+      - _sysctl_pos.results[8].stdout | int == 2   # protected_regular
+      - _sysctl_pos.results[9].stdout | int == 0   # suid_dumpable
+      - _sysctl_pos.results[10].stdout | int == 1  # kexec_load_disabled
+      - _sysctl_pos.results[11].stdout | int == 0  # sysrq
+      - _sysctl_pos.results[12].stdout | int == 3  # perf_event_paranoid
+      - _sysctl_pos.results[13].stdout | int == 1  # io_uring_disabled
+    fail_msg: >-
+      One or more anti-escape sysctls did not converge to expected values.
+      Per-knob actual values:
+      yama.ptrace_scope={{ _sysctl_pos.results[0].stdout }} (expect 2),
+      unprivileged_bpf_disabled={{ _sysctl_pos.results[1].stdout }} (expect 1),
+      bpf_jit_harden={{ _sysctl_pos.results[2].stdout }} (expect 2),
+      kptr_restrict={{ _sysctl_pos.results[3].stdout }} (expect 2),
+      dmesg_restrict={{ _sysctl_pos.results[4].stdout }} (expect 1),
+      protected_symlinks={{ _sysctl_pos.results[5].stdout }} (expect 1),
+      protected_hardlinks={{ _sysctl_pos.results[6].stdout }} (expect 1),
+      protected_fifos={{ _sysctl_pos.results[7].stdout }} (expect 2),
+      protected_regular={{ _sysctl_pos.results[8].stdout }} (expect 2),
+      suid_dumpable={{ _sysctl_pos.results[9].stdout }} (expect 0),
+      kexec_load_disabled={{ _sysctl_pos.results[10].stdout }} (expect 1),
+      sysrq={{ _sysctl_pos.results[11].stdout }} (expect 0),
+      perf_event_paranoid={{ _sysctl_pos.results[12].stdout }} (expect 3),
+      io_uring_disabled={{ _sysctl_pos.results[13].stdout }} (expect 1).
+
+# ─── sysctl: negative assertions (Docker requirements held at 1) ────────
+# These are not in the "positive" set above because they exist for a
+# different reason: NOT to harden, but to keep Docker working. A future
+# refactor that drops one of these from defaults/main.yml would silently
+# break container egress / overlay forwarding. Catch it here.
+- name: "validate/host_hardening: read Docker-requirement sysctl values"
+  ansible.builtin.command: "sysctl -n {{ item }}"
+  register: _sysctl_neg
+  changed_when: false
+  failed_when: false
+  loop:
+    - net.ipv4.ip_forward
+    - net.ipv6.conf.all.forwarding
+    - net.bridge.bridge-nf-call-iptables
+    - net.bridge.bridge-nf-call-ip6tables
+  loop_control:
+    label: "{{ item }}"
+
+- name: "validate/host_hardening: Docker requirements held at 1"
+  ansible.builtin.assert:
+    that:
+      - _sysctl_neg.results[0].stdout | int == 1
+      - _sysctl_neg.results[1].stdout | int == 1
+      - _sysctl_neg.results[2].stdout | int == 1
+      - _sysctl_neg.results[3].stdout | int == 1
+    fail_msg: >-
+      A Docker-required sysctl is NOT held at 1. Container networking
+      will break. Actual:
+      ip_forward={{ _sysctl_neg.results[0].stdout }},
+      ipv6.forwarding={{ _sysctl_neg.results[1].stdout }},
+      bridge-nf-call-iptables={{ _sysctl_neg.results[2].stdout }},
+      bridge-nf-call-ip6tables={{ _sysctl_neg.results[3].stdout }}.
+      Likely cause: the corresponding line in
+      roles/host_hardening/defaults/main.yml was deleted or renamed.
+
+# ─── module loading: must remain enabled (Docker autoloads modules) ─────
+- name: "validate/host_hardening: kernel.modules_disabled NOT set to 1"
+  ansible.builtin.command: "sysctl -n kernel.modules_disabled"
+  register: _modules_disabled
+  changed_when: false
+  failed_when: false
+
+- name: "validate/host_hardening: module loading remains enabled"
+  ansible.builtin.assert:
+    that:
+      - (_modules_disabled.stdout | default('0') | int) == 0
+    fail_msg: >-
+      kernel.modules_disabled = {{ _modules_disabled.stdout }}; expected 0.
+      Docker auto-loads br_netfilter / overlay / ip_vs at runtime; pinning
+      this to 1 breaks any swarm change requiring a new module.
+
+# ─── modprobe blacklist: file present + contains expected entries ───────
+- name: "validate/host_hardening: stat /etc/modprobe.d/99-catena-hardening.conf"
+  ansible.builtin.stat:
+    path: /etc/modprobe.d/99-catena-hardening.conf
+  register: _modprobe_file
+
+- name: "validate/host_hardening: catena modprobe blacklist file present"
+  ansible.builtin.assert:
+    that:
+      - _modprobe_file.stat.exists
+      - _modprobe_file.stat.isreg
+    fail_msg: >-
+      /etc/modprobe.d/99-catena-hardening.conf is missing. The
+      host_hardening role did not run, or its template path changed.
+
+- name: "validate/host_hardening: read modprobe blacklist content"
+  ansible.builtin.slurp:
+    src: /etc/modprobe.d/99-catena-hardening.conf
+  register: _modprobe_content
+
+- name: "validate/host_hardening: blacklist covers unused-FS exploit primitives"
+  ansible.builtin.assert:
+    that:
+      - "'install cramfs /bin/true' in (_modprobe_content.content | b64decode)"
+      - "'install freevxfs /bin/true' in (_modprobe_content.content | b64decode)"
+      - "'install jffs2 /bin/true' in (_modprobe_content.content | b64decode)"
+      - "'install hfs /bin/true' in (_modprobe_content.content | b64decode)"
+      - "'install hfsplus /bin/true' in (_modprobe_content.content | b64decode)"
+      - "'install udf /bin/true' in (_modprobe_content.content | b64decode)"
+      - "'install dccp /bin/true' in (_modprobe_content.content | b64decode)"
+      - "'install rds /bin/true' in (_modprobe_content.content | b64decode)"
+      - "'install sctp /bin/true' in (_modprobe_content.content | b64decode)"
+      - "'install tipc /bin/true' in (_modprobe_content.content | b64decode)"
+    fail_msg: >-
+      /etc/modprobe.d/99-catena-hardening.conf is missing one of the
+      expected "install <fs> /bin/true" entries. defaults/main.yml entry
+      removed without updating this assertion.
+
+# ─── modprobe whitelist: vfat MUST NOT be blacklisted (EFI requirement) ─
+- name: "validate/host_hardening: vfat is NOT blacklisted"
+  ansible.builtin.assert:
+    that:
+      - "'install vfat /bin/true' not in (_modprobe_content.content | b64decode)"
+    fail_msg: >-
+      /etc/modprobe.d/99-catena-hardening.conf blacklists vfat. EFI
+      System Partition mount on UEFI VPS images will fail. Remove vfat
+      from host_hardening_modprobe_blacklist in defaults/main.yml.
+
+# ─── auditd canary: prove no parallel hardening ran ─────────────────────
+# Earlier revisions of this role wrapped devsec.hardening.os_hardening
+# whose os_auditd_enabled subrole installed auditd despite our intent.
+# Now that the wrapper is gone, auditd should never be installed by
+# this role. If a future maintainer re-introduces a hardening collection
+# that ships auditd installation, this assertion catches it.
+- name: "validate/host_hardening: package_facts (auditd canary)"
+  ansible.builtin.package_facts:
+    manager: apt
+
+- name: "validate/host_hardening: auditd NOT installed"
+  ansible.builtin.assert:
+    that:
+      - "'auditd' not in ansible_facts.packages"
+    fail_msg: >-
+      auditd is installed on this host. host_hardening does not install
+      it; some other role or a re-introduced hardening collection did.
+      Audit-syscall logging is an explicit non-feature (see
+      internal_docs/operator/data-security-overview.md "Explicit
+      non-features").

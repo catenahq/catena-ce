@@ -1,0 +1,103 @@
+---
+# host_hardening -- kernel-state hardening scoped to Docker container escape.
+#
+# Self-contained: drops two files (one sysctl conf, one modprobe conf) and
+# applies them. NO upstream collection dependency. Earlier revisions of this
+# role were a thin wrapper over devsec.hardening.os_hardening; that wrapper
+# was removed (commit history) because:
+#   - 13 of 16 devsec subroles collided with roles/common and had to be
+#     disabled, and the disable-toggles silently failed to propagate via
+#     include_role (calling-role defaults do not override called-role
+#     defaults), so the host was getting full PAM rewrites, login_defs
+#     rewrites, auditd installation, etc.
+#   - devsec's sysctl set included net.ipv4.ip_forward=0 (router-paranoid
+#     mode), which black-holed every container's egress through any docker
+#     bridge / swarm overlay when our override didn't propagate.
+#   - net.ipv4.conf.{all,default}.log_martians flipped on every converge
+#     because docker swarm operations create interfaces that the kernel
+#     aggregator sees -- tripped the bench's idempotency assertion.
+# Owning the value list directly removes those failure modes.
+
+# ─── sysctl values written to /etc/sysctl.d/99-catena-hardening.conf ─────
+# Each block is annotated with the threat it closes or the requirement it
+# satisfies. These are the values catena requires; the template renders
+# them verbatim.
+
+host_hardening_sysctl:
+
+  # ── anti-container-escape ───────────────────────────────────────────────
+  # PTRACE outside parent/child blocked. Cuts the "shared pid ns -> ptrace
+  # a host process" pivot.
+  kernel.yama.ptrace_scope: 2
+  # Closes unprivileged-eBPF exploit family (DirtyCred, BPF JIT bugs).
+  # Docker daemon runs as root, so dockerd-managed networking unaffected.
+  kernel.unprivileged_bpf_disabled: 1
+  # Constant-blind JIT-ed BPF code for any privileged BPF that remains.
+  net.core.bpf_jit_harden: 2
+  # Hide kernel pointers from dmesg for non-CAP_SYSLOG. Closes one of the
+  # most common KASLR-bypass starting points.
+  kernel.dmesg_restrict: 1
+  # /proc/kallsyms returns zeros to non-CAP_SYSLOG. Same exploit family
+  # as dmesg_restrict.
+  kernel.kptr_restrict: 2
+  # Tighten FIFO follow rule (no-follow even for root in sticky world-
+  # writable dirs).
+  fs.protected_fifos: 2
+  # Same family for regular files.
+  fs.protected_regular: 2
+  # Bans cross-UID TOCTOU via symlink. Closes runc/CRI-O bind-mount class.
+  fs.protected_symlinks: 1
+  # Same family for hardlinks.
+  fs.protected_hardlinks: 1
+  # No core dumps from suid binaries.
+  fs.suid_dumpable: 0
+  # A --privileged container with CAP_SYS_BOOT could otherwise kexec into
+  # a hostile kernel.
+  kernel.kexec_load_disabled: 1
+  # SysRq triggers process-killing primitives; no operational use on a
+  # remote VPS.
+  kernel.sysrq: 0
+  # ASLR strict.
+  kernel.randomize_va_space: 2
+  # Block low-mmap (NULL-deref escalations).
+  vm.mmap_min_addr: 65536
+  # Closes perf_events as side-channel oracle for non-root.
+  kernel.perf_event_paranoid: 3
+  # io_uring has been a CVE-rich path; 1 disables for unprivileged tasks.
+  # We do NOT set 2 -- that would break Postgres + Node containers that
+  # opt into io_uring. Containers run their workload as non-root from the
+  # kernel's view, so io_uring is closed for those processes.
+  kernel.io_uring_disabled: 1
+
+  # ── Docker requirements (held at 1; not optional) ───────────────────────
+  # Required by Docker bridge networking. Without this, containers on
+  # docker0 / docker_gwbridge / overlay networks cannot egress to the
+  # internet -- traffic black-holes at the FORWARD chain.
+  net.ipv4.ip_forward: 1
+  net.ipv6.conf.all.forwarding: 1
+  # Required by Docker swarm overlay. Without bridge-nf, iptables FORWARD
+  # rules don't see bridged traffic and DOCKER-USER/DOCKER chains are
+  # bypassed.
+  net.bridge.bridge-nf-call-iptables: 1
+  net.bridge.bridge-nf-call-ip6tables: 1
+
+# ─── modprobe install-blocks for unused FS/proto modules ───────────────
+# Each entry below renders to:  install <module> /bin/true
+# Loading any of these modules has been an exploit primitive in past CVEs.
+# We do NOT blacklist vfat (EFI System Partition mount on UEFI VPS images
+# requires it) or squashfs (some installers use it).
+host_hardening_modprobe_blacklist:
+  - cramfs
+  - freevxfs
+  - jffs2
+  - hfs
+  - hfsplus
+  - udf
+  - dccp
+  - rds
+  - sctp
+  - tipc
+
+# Master toggle. Leave true; flip to false only when debugging something
+# that requires the role to be a no-op for one converge.
+host_hardening_enabled: true

@@ -1,0 +1,16 @@
+---
+# Reload pattern: always validate sshd config first. A syntax error in
+# sshd_config taken live = locked out. `sshd -t` parses the whole config
+# (main file + all drop-ins) and exits non-zero on error, aborting the
+# handler chain before the reload fires.
+
+- name: Validate full sshd config before reload
+  listen: reload sshd
+  ansible.builtin.command: /usr/sbin/sshd -t
+  changed_when: false
+
+- name: Reload ssh service
+  listen: reload sshd
+  ansible.builtin.command:
+    cmd: systemctl reload ssh
+  changed_when: false

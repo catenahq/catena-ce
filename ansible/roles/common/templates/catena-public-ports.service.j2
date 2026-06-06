@@ -1,0 +1,18 @@
+# {{ ansible_managed }}
+#
+# Oneshot reconcile of the declarative public-port registry. Reads the
+# infra fragments under /etc/catena/public-ports.d/ + live vps.expose.*
+# container labels, applies ufw + DOCKER-USER rules, and writes the
+# effective set. See {{ public_ports_lib_dir }}/catena-public-ports.py.
+#
+# Fired by catena-public-ports.timer, by the docker.service drop-in on
+# every docker start, and once at the end of a converge. Also runnable
+# by hand for diagnostics:  systemctl start catena-public-ports.service
+[Unit]
+Description=Reconcile catena public-port firewall rules
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 {{ public_ports_lib_dir }}/catena-public-ports.py

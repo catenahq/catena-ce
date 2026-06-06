@@ -1,0 +1,10 @@
+# {{ ansible_managed }}
+# Installed at /etc/systemd/system/docker.service.d/30-catena-public-ports.conf
+#
+# Re-applies the DOCKER-USER guards on every docker.service start (Docker
+# recreates the chain empty on boot/restart). systemd-run --no-block
+# dispatches async so iptables churn does NOT hold docker.service in
+# "activating". The leading - makes the dispatch non-fatal: if systemd-run
+# is unavailable, docker still comes up and the timer picks up the slack.
+[Service]
+ExecStartPost=-/usr/bin/systemd-run --no-block --unit=catena-public-ports-triggered /usr/bin/systemctl start catena-public-ports.service

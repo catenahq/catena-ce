@@ -1,0 +1,42 @@
+---
+# Where Docker stores containers/images/volumes. Points at the storage role's
+# /mnt/data/docker subdir so container layers + named volumes live on the
+# block volume (attached mode) or the pre-carved dir (built_in mode), not on
+# the root filesystem where they'd eat into the OS disk.
+docker_data_root: "{{ storage_mount_point }}/docker"
+
+# json-file log driver with rotation. Prevents a misbehaving container from
+# filling the disk with stdout. These values apply globally; per-container
+# overrides are still possible via compose.
+docker_log_max_size: "50m"
+docker_log_max_files: 5
+
+# live-restore lets dockerd restart without killing running containers.
+# HOWEVER: it is incompatible with Docker Swarm mode, which Dokploy
+# requires. Since this project always runs Dokploy, live-restore must
+# be false. Swarm's own orchestrator handles container lifecycle across
+# daemon restarts instead.
+docker_live_restore: false
+
+# Codename-aware apt repo. Matches the pattern used by roles/tailscale/.
+docker_apt_codename: "{{ ansible_facts['distribution_release'] }}"
+docker_apt_key_url: "https://download.docker.com/linux/debian/gpg"
+docker_apt_repo: "deb [arch={{ 'amd64' if ansible_facts['architecture'] == 'x86_64' else ansible_facts['architecture'] }} signed-by=/etc/apt/keyrings/docker.asc]
+  https://download.docker.com/linux/debian {{ docker_apt_codename }} stable"
+
+docker_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+  - docker-compose-plugin
+
+# Optional pull-through Docker Hub mirror. Empty string = no mirror
+# (direct docker.io pulls). Set to the mirror base URL
+# (e.g. http://10.72.185.1:5000) to route registry-mirrors entries
+# through it. The test bench sets this via its DOCKER_REGISTRY_MIRROR_URL
+# dotenv key so VMs cache docker.io pulls on the host. The matching
+# insecure-registries entry (plain host:port, no scheme) is derived
+# automatically when the URL is http:// (lab use); https:// mirrors
+# need no insecure-registries listing.
+docker_registry_mirror_url: "{{ lookup('dotenv', 'DOCKER_REGISTRY_MIRROR_URL', default='') }}"

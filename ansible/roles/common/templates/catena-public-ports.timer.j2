@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+#
+# Periodic reconcile so app ports declared via vps.expose.* labels open
+# within one interval of a template being deployed (and restricted-scope
+# DOCKER-USER guards re-assert if the chain was flushed out-of-band),
+# without waiting for the next converge.
+[Unit]
+Description=Periodic reconcile of catena public-port firewall rules
+
+[Timer]
+OnBootSec={{ public_ports_timer_on_boot }}
+OnUnitActiveSec={{ public_ports_timer_interval }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

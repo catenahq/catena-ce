@@ -1,0 +1,133 @@
+---
+# Install the declarative public-port reconciler. Single applier for every
+# direct public port the VPS exposes outside the Cloudflare Tunnel.
+#
+# Infra roles (coturn, dokploy) drop a JSON fragment into
+# /etc/catena/public-ports.d/<owner>.json declaring their ports; Dokploy
+# templates declare ports via vps.expose.* compose labels harvested live.
+# catena-public-ports.py merges both and applies ufw + DOCKER-USER rules.
+# See vps-scripts/catena-public-ports.py for the full rationale.
+#
+# Fired on every docker.service start (Docker recreates DOCKER-USER empty on
+# boot) via a drop-in, plus a periodic timer. site.yml post_tasks runs it
+# once at the end of a converge, after all roles have dropped their fragments.
+
+- name: "public-ports: lib + fragment dirs exist"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ public_ports_lib_dir }}"
+    - "{{ public_ports_fragment_dir }}"
+
+# The reconciler imports public_ports + labels_schema by bare name
+# (sys.path is pinned to its own dir), so all three install side by side.
+# Stdlib-only modules; no Jinja in executables (per project convention).
+- name: "public-ports: install reconciler + helper modules"
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ public_ports_lib_dir }}/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { src: "{{ playbook_dir }}/../scripts/catena-public-ports.py",
+        dest: "catena-public-ports.py", mode: "0755" }
+    - { src: "{{ playbook_dir }}/../helpers/public_ports.py",
+        dest: "public_ports.py", mode: "0644" }
+    - { src: "{{ playbook_dir }}/../helpers/labels_schema.py",
+        dest: "labels_schema.py", mode: "0644" }
+  loop_control:
+    label: "{{ item.dest }}"
+
+- name: "public-ports: systemd service unit (oneshot reconcile)"
+  ansible.builtin.template:
+    src: catena-public-ports.service.j2
+    dest: /etc/systemd/system/catena-public-ports.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: _pp_service_unit
+
+- name: "public-ports: systemd timer unit (periodic reconcile)"
+  ansible.builtin.template:
+    src: catena-public-ports.timer.j2
+    dest: /etc/systemd/system/catena-public-ports.timer
+    owner: root
+    group: root
+    mode: "0644"
+  register: _pp_timer_unit
+
+# Re-apply DOCKER-USER guards on every docker.service start -- Docker
+# flushes the chain on restart/reboot. Mirrors the (now-retired)
+# dokploy-docker-firewall drop-in. systemd-run --no-block dispatches async
+# so iptables churn does not hold docker.service in "activating"; the
+# leading - makes the dispatch non-fatal.
+#
+# common runs BEFORE the docker role installs Docker, so the drop-in dir
+# does not exist yet. Create it (harmless pre-Docker; systemd reads drop-ins
+# only once docker.service is defined). The old dokploy-firewall drop-in
+# avoided this because it lived in the post-Docker dokploy role.
+- name: "public-ports: ensure docker.service.d drop-in dir exists"
+  ansible.builtin.file:
+    path: /etc/systemd/system/docker.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "public-ports: docker.service.d drop-in (reconcile on docker start)"
+  ansible.builtin.template:
+    src: catena-public-ports-docker-dropin.conf.j2
+    dest: /etc/systemd/system/docker.service.d/30-catena-public-ports.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: _pp_docker_dropin
+
+- name: "public-ports: daemon-reload if any unit changed"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: >-
+    _pp_service_unit.changed or _pp_timer_unit.changed
+    or _pp_docker_dropin.changed
+
+- name: "public-ports: enable + start timer"
+  ansible.builtin.systemd_service:
+    name: catena-public-ports.timer
+    enabled: true
+    state: started
+  changed_when: false
+
+# ─── Retire the port-3000-only predecessor ───────────────────────────────
+# dokploy-docker-firewall (script + unit + drop-in) is superseded by the
+# registry. dokploy now declares port 3000 as a fragment and the reconciler
+# applies its DOCKER-USER guard. Remove the old units on already-provisioned
+# hosts so the two mechanisms never both manage the chain.
+- name: "public-ports: stop + disable retired dokploy-docker-firewall units"
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop:
+    - dokploy-docker-firewall.service
+  failed_when: false
+  changed_when: false
+
+- name: "public-ports: remove retired dokploy-docker-firewall files"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /usr/local/bin/dokploy-docker-firewall
+    - /etc/systemd/system/dokploy-docker-firewall.service
+    - /etc/systemd/system/docker.service.d/20-dokploy-docker-firewall.conf
+  register: _pp_retired_removed
+
+- name: "public-ports: daemon-reload after removing retired units"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: _pp_retired_removed.changed

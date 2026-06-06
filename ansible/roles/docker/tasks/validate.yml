@@ -1,0 +1,102 @@
+---
+# Validation tasks for roles/docker. Replaces tests/goss/docker.yaml.
+- name: "validate/docker: package_facts"
+  ansible.builtin.package_facts:
+    manager: apt
+
+- name: "validate/docker: docker packages installed"
+  ansible.builtin.assert:
+    that:
+      - "'docker-ce' in ansible_facts.packages"
+      - "'docker-ce-cli' in ansible_facts.packages"
+      - "'containerd.io' in ansible_facts.packages"
+      - "'docker-compose-plugin' in ansible_facts.packages"
+    fail_msg: "one of docker-ce/docker-ce-cli/containerd.io/docker-compose-plugin missing"
+
+- name: "validate/docker: service_facts"
+  ansible.builtin.service_facts:
+
+- name: "validate/docker: docker.service running + enabled"
+  ansible.builtin.assert:
+    that:
+      - "ansible_facts.services['docker.service'].state == 'running'"
+      - "ansible_facts.services['docker.service'].status == 'enabled'"
+    fail_msg: "docker.service not running/enabled"
+
+- name: "validate/docker: config files exist + correct perms"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _assert_path_perms
+  vars:
+    _assert_paths:
+      - { path: /etc/docker/daemon.json, owner: root, group: root, mode: "0644" }
+      - { path: /etc/apt/sources.list.d/docker.list }
+
+- name: "validate/docker: read daemon.json"
+  ansible.builtin.slurp:
+    src: /etc/docker/daemon.json
+  register: _docker_daemon_json
+
+- name: "validate/docker: daemon.json has required settings"
+  ansible.builtin.assert:
+    that:
+      - "'\"data-root\": \"/mnt/data/docker\"' in (_docker_daemon_json.content | b64decode)"
+      - "'\"log-driver\": \"json-file\"' in (_docker_daemon_json.content | b64decode)"
+      - "'\"max-size\": \"50m\"' in (_docker_daemon_json.content | b64decode)"
+      - "'\"live-restore\":' in (_docker_daemon_json.content | b64decode)"
+    fail_msg: "daemon.json missing required hardening settings"
+
+- name: "validate/docker: docker group exists"
+  ansible.builtin.getent:
+    database: group
+    key: docker
+  register: _docker_group
+  failed_when: false
+
+- name: "validate/docker: docker group present"
+  ansible.builtin.assert:
+    that:
+      - "'docker' in _docker_group.ansible_facts.getent_group"
+    fail_msg: "docker group missing"
+
+- name: "validate/docker: dockerd reports expected data-root"
+  ansible.builtin.command: docker info --format '{% raw %}{{.DockerRootDir}}{% endraw %}'
+  register: _docker_info_root
+  failed_when: false
+  changed_when: false
+
+- name: "validate/docker: data-root == /mnt/data/docker"
+  ansible.builtin.assert:
+    that:
+      - _docker_info_root.rc == 0
+      - _docker_info_root.stdout | trim == "/mnt/data/docker"
+    fail_msg: "dockerd DockerRootDir={{ _docker_info_root.stdout | trim }} (expected /mnt/data/docker)"
+
+- name: "validate/docker: ops in docker group"
+  ansible.builtin.command: id -nG ops
+  register: _ops_groups
+  failed_when: false
+  changed_when: false
+
+- name: "validate/docker: ops ∈ docker"
+  ansible.builtin.assert:
+    that:
+      - "'docker' in _ops_groups.stdout.split()"
+    fail_msg: "ops not in docker group"
+
+# Without DEFAULT_FORWARD_POLICY=ACCEPT, UFW drops every container's
+# outbound packet on the FORWARD chain, blackholing cloudflared and
+# anything else inside Docker that needs internet egress.
+- name: "validate/docker: read /etc/default/ufw"
+  ansible.builtin.slurp:
+    src: /etc/default/ufw
+  register: _ufw_defaults
+
+- name: "validate/docker: DEFAULT_FORWARD_POLICY is ACCEPT (Docker container egress)"
+  ansible.builtin.assert:
+    that:
+      - "'DEFAULT_FORWARD_POLICY=\"ACCEPT\"' in (_ufw_defaults.content | b64decode)"
+    fail_msg: >-
+      /etc/default/ufw still has the OS default DEFAULT_FORWARD_POLICY="DROP".
+      Docker containers cannot reach the internet through the host FORWARD
+      chain. Re-run roles/docker (it sets the line and cycles ufw).
