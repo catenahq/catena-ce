@@ -1,11 +1,15 @@
 package web
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/catenahq/catena-ce/internal/admin/actions"
 	"github.com/catenahq/catena-ce/internal/admin/integrations"
 )
 
@@ -243,6 +247,182 @@ func TestSystemRequiresAdmin(t *testing.T) {
 		t.Error("expected the System tab infra rollup to render")
 	}
 }
+
+type fakeRunner struct {
+	stdout []string
+	stderr []string
+	rc     int
+	gotCmd string
+	gotEnv map[string]string
+}
+
+func (f *fakeRunner) Run(_ context.Context, command string, env map[string]string, onStdout, onStderr func(string)) (int, error) {
+	f.gotCmd = command
+	f.gotEnv = env
+	for _, l := range f.stdout {
+		onStdout(l)
+	}
+	for _, l := range f.stderr {
+		onStderr(l)
+	}
+	return f.rc, nil
+}
+
+func writeActionsFile(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "admin-actions.yml")
+	body := "actions:\n" +
+		"  - name: backup-now\n" +
+		"    title: Backup now\n" +
+		"    category: Backups\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func adminReq(method, target string, body string) *http.Request {
+	var r *http.Request
+	if body != "" {
+		r = httptest.NewRequest(method, target, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	} else {
+		r = httptest.NewRequest(method, target, nil)
+	}
+	r.Header.Set("X-Forwarded-Email", "op@example.com")
+	r.Header.Set("X-Forwarded-Groups", "admin")
+	return r
+}
+
+func TestActionsStartRequiresAdmin(t *testing.T) {
+	fr := &fakeRunner{}
+	h, err := New(Config{Version: "t", ActionsFile: writeActionsFile(t), Runner: fr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/actions/start/backup-now", nil)
+	req.Header.Set("X-Forwarded-Email", "staff@example.com")
+	req.Header.Set("X-Forwarded-Groups", "staff")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("non-admin start = %d, want 403", rr.Code)
+	}
+}
+
+func TestActionsStartUnknownAction(t *testing.T) {
+	h, err := New(Config{Version: "t", ActionsFile: writeActionsFile(t), Runner: &fakeRunner{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, adminReq("POST", "/actions/start/does-not-exist", ""))
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("unknown action start = %d, want 404", rr.Code)
+	}
+}
+
+func TestActionsStartThenStream(t *testing.T) {
+	fr := &fakeRunner{stdout: []string{"line1", "line2"}, stderr: []string{"warn"}, rc: 0}
+	h, err := New(Config{Version: "t", ActionsFile: writeActionsFile(t), Runner: fr})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Start: returns the run-panel fragment with a stream URL.
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, adminReq("POST", "/actions/start/backup-now", "payload=arg1"))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("start = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `class="run-panel"`) {
+		t.Fatalf("expected the run-panel fragment, got %q", body)
+	}
+	streamURL := extractStreamURL(t, body)
+
+	// Stream: SSE frames, command + forwarded email reach the runner.
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, adminReq("GET", streamURL, ""))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("stream = %d, want 200", rr.Code)
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "text/event-stream" {
+		t.Errorf("Content-Type = %q, want text/event-stream", ct)
+	}
+	out := rr.Body.String()
+	for _, want := range []string{"data: line1\n\n", "data: line2\n\n", "event: stderr\ndata: warn\n\n", "event: end\ndata: 0\n\n"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in stream:\n%s", want, out)
+		}
+	}
+	if fr.gotCmd != "backup-now arg1" {
+		t.Errorf("command = %q, want 'backup-now arg1'", fr.gotCmd)
+	}
+	if fr.gotEnv["X_FORWARDED_EMAIL"] != "op@example.com" {
+		t.Errorf("X_FORWARDED_EMAIL = %q, want op@example.com", fr.gotEnv["X_FORWARDED_EMAIL"])
+	}
+
+	// One-shot: a second stream of the same job is 404.
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, adminReq("GET", streamURL, ""))
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("re-stream = %d, want 404 (one-shot)", rr.Code)
+	}
+}
+
+func TestActionsStreamUnknownJob(t *testing.T) {
+	h, err := New(Config{Version: "t", ActionsFile: writeActionsFile(t), Runner: &fakeRunner{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, adminReq("GET", "/actions/stream/nope", ""))
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("unknown job stream = %d, want 404", rr.Code)
+	}
+}
+
+func TestActionsStreamNilRunner(t *testing.T) {
+	// No runner configured: start still works, the stream emits an error frame.
+	h, err := New(Config{Version: "t", ActionsFile: writeActionsFile(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, adminReq("POST", "/actions/start/backup-now", ""))
+	streamURL := extractStreamURL(t, rr.Body.String())
+
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, adminReq("GET", streamURL, ""))
+	if !strings.Contains(rr.Body.String(), "no dispatcher configured") {
+		t.Errorf("expected a no-dispatcher frame, got %q", rr.Body.String())
+	}
+}
+
+// extractStreamURL pulls the sse-connect URL out of the run-panel fragment.
+func extractStreamURL(t *testing.T, body string) string {
+	t.Helper()
+	const marker = `sse-connect="`
+	i := strings.Index(body, marker)
+	if i < 0 {
+		t.Fatalf("no sse-connect in fragment: %q", body)
+	}
+	rest := body[i+len(marker):]
+	j := strings.IndexByte(rest, '"')
+	if j < 0 {
+		t.Fatalf("unterminated sse-connect: %q", body)
+	}
+	url := rest[:j]
+	if !strings.HasPrefix(url, "/actions/stream/") {
+		t.Fatalf("unexpected stream URL %q", url)
+	}
+	return url
+}
+
+// ensure the actions.Runner interface is what the fake satisfies.
+var _ actions.Runner = (*fakeRunner)(nil)
 
 func firstLine(s string) string {
 	if i := strings.IndexByte(s, '\n'); i >= 0 {

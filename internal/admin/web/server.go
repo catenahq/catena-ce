@@ -44,6 +44,10 @@ type Config struct {
 	ExtraTilesPath string
 	// ActionsFile overrides the host action catalog (admin-actions.yml).
 	ActionsFile string
+	// Runner dispatches Actions/Recovery commands to the host. Nil disables
+	// dispatch -- the stream emits a "no dispatcher configured" frame rather
+	// than panicking, so the tab still renders on a host without SSH wired.
+	Runner actions.Runner
 }
 
 // New builds the shell HTTP handler: static mount, public routes, and the
@@ -70,6 +74,8 @@ func New(cfg Config) (http.Handler, error) {
 		statsDir:       cfg.StatsDir,
 		extraTilesPath: cfg.ExtraTilesPath,
 		actionsFile:    cfg.ActionsFile,
+		runner:         cfg.Runner,
+		jobs:           actions.NewJobRegistry(),
 	}
 
 	mux := http.NewServeMux()
@@ -83,6 +89,8 @@ func New(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("GET /apps", s.apps)
 	mux.HandleFunc("GET /system", RequireAdmin(s.systemIndex))
 	mux.HandleFunc("GET /actions", RequireAdmin(s.actionsIndex))
+	mux.HandleFunc("POST /actions/start/{name}", RequireAdmin(s.actionsStart))
+	mux.HandleFunc("GET /actions/stream/{job_id}", RequireAdmin(s.actionsStream))
 	mux.HandleFunc("GET /_/lang/{lang}", s.setLocale)
 	mux.HandleFunc("GET /_/theme/{name}", s.setTheme)
 
@@ -111,6 +119,8 @@ type server struct {
 	statsDir       string
 	extraTilesPath string
 	actionsFile    string
+	runner         actions.Runner
+	jobs           *actions.JobRegistry
 }
 
 // actionsView is the Actions-tab render data: the catalog grouped into the
@@ -136,6 +146,84 @@ func (s *server) actionsIndex(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.tmpl.Render(w, r, "actions", http.StatusOK, actionsView{Groups: groups, HasAny: hasAny})
+}
+
+// runPanelView is the run-panel fragment render data: the action being run and
+// the SSE stream URL the panel connects to.
+type runPanelView struct {
+	ActionName string
+	StreamURL  string
+}
+
+// actionsStart resolves the named action from the merged catalog, creates a
+// one-shot job, and returns the run-panel fragment that connects to the SSE
+// stream. An unknown action is 404 (no job created), so a stale/forged name
+// cannot enqueue a dispatch.
+func (s *server) actionsStart(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	catalog := actions.MergedCatalog(actions.Load(s.actionsFile), nil)
+	var match *actions.Action
+	for i := range catalog {
+		if catalog[i].Name == name {
+			match = &catalog[i]
+			break
+		}
+	}
+	if match == nil {
+		http.Error(w, "unknown action", http.StatusNotFound)
+		return
+	}
+	_ = r.ParseForm()
+	id := identityFrom(r)
+	job := s.jobs.Create(actions.Job{
+		ActionName: match.Name,
+		Payload:    r.PostForm.Get("payload"),
+		Email:      id.Email,
+		SourceIP:   clientIP(r),
+		Category:   match.Category,
+	})
+	s.tmpl.RenderFragment(w, r, "run_panel", http.StatusOK, runPanelView{
+		ActionName: match.Name,
+		StreamURL:  "/actions/stream/" + job.ID,
+	})
+}
+
+// actionsStream pops the one-shot job and streams its dispatch as SSE. A
+// missing job (already streamed, expired, or forged id) is 404 -- a refresh of
+// the stream URL does not re-run the action. The response is text/event-stream;
+// StreamDispatch writes + flushes each frame.
+func (s *server) actionsStream(w http.ResponseWriter, r *http.Request) {
+	job, ok := s.jobs.Pop(r.PathValue("job_id"))
+	if !ok {
+		http.Error(w, "no such job", http.StatusNotFound)
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	// Defeat nginx/Cloudflare response buffering so frames reach the browser
+	// as they are produced, not at end-of-stream.
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	actions.StreamDispatch(w, flusher.Flush, s.runner, job.ActionName, job.Payload, job.Email)
+}
+
+// clientIP extracts the best-effort source IP for the audit row: the
+// left-most X-Forwarded-For hop if present (oauth2-proxy/CF set it), else the
+// transport peer.
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if i := strings.IndexByte(xff, ','); i >= 0 {
+			return strings.TrimSpace(xff[:i])
+		}
+		return strings.TrimSpace(xff)
+	}
+	return r.RemoteAddr
 }
 
 // systemIndex renders the admin-only System tab: the backup/disk/Healthchecks

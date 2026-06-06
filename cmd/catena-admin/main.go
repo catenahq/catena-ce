@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/catenahq/catena-ce/internal/admin/actions"
 	"github.com/catenahq/catena-ce/internal/admin/integrations"
 	"github.com/catenahq/catena-ce/internal/admin/web"
 	"github.com/catenahq/catena-ce/internal/registry"
@@ -78,6 +79,10 @@ func main() {
 		Healthchecks:    integrations.NewHealthchecksClient(hcBase, os.Getenv("HEALTHCHECKS_API_KEY_READONLY")),
 		Dokploy: integrations.NewDokployClient(
 			envOr("DOKPLOY_API_BASE", "http://127.0.0.1:3000"), os.Getenv("DOKPLOY_API_KEY")),
+		// The single host-dispatch seam: every Actions/Recovery click runs
+		// through this SSH runner to the forced-command host account. EE plugin
+		// actions reuse it (they never hold the key themselves).
+		Runner: actions.NewSSHRunner(),
 	})
 	if err != nil {
 		log.Fatalf("catena-admin: build shell: %v", err)
