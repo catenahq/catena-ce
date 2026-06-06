@@ -9,10 +9,20 @@ import (
 	"os"
 	"strings"
 
+	"github.com/catenahq/catena-ce/internal/admin/apps"
 	"github.com/catenahq/catena-ce/internal/admin/i18n"
+	"github.com/catenahq/catena-ce/internal/admin/integrations"
 	"github.com/catenahq/catena-ce/internal/admin/system"
 	"github.com/catenahq/catena-ce/internal/admin/theme"
 )
+
+// GatusReader is the Gatus surface the shell needs: the System tab lists all
+// statuses, the Apps tab looks one up by host. The concrete GatusClient
+// satisfies both.
+type GatusReader interface {
+	ListStatuses() []integrations.EndpointStatus
+	GetStatusByHost(host string) (integrations.EndpointStatus, bool)
+}
 
 // Config wires the shell server. Globals are exposed to every template
 // (feature gates + deep-link URLs); an empty TranslationsDir uses the
@@ -22,11 +32,15 @@ type Config struct {
 	Globals         map[string]any
 	TranslationsDir string
 	// Gatus + Healthchecks feed the System tab (and Apps tile dots). Either
-	// may be nil on an unconfigured host -- the snapshot degrades gracefully.
-	Gatus        system.GatusLister
+	// may be nil on an unconfigured host -- the panels degrade gracefully.
+	Gatus        GatusReader
 	Healthchecks system.HCLister
+	// Dokploy feeds the Apps tile grid; nil renders an empty grid.
+	Dokploy apps.DokployLister
 	// StatsDir overrides the host stats dir (default /var/lib/catena).
 	StatsDir string
+	// ExtraTilesPath overrides the operator extra-tiles.yml location.
+	ExtraTilesPath string
 }
 
 // New builds the shell HTTP handler: static mount, public routes, and the
@@ -45,11 +59,13 @@ func New(cfg Config) (http.Handler, error) {
 		return nil, err
 	}
 	s := &server{
-		tmpl:     tmpl,
-		version:  cfg.Version,
-		gatus:    cfg.Gatus,
-		hc:       cfg.Healthchecks,
-		statsDir: cfg.StatsDir,
+		tmpl:           tmpl,
+		version:        cfg.Version,
+		gatus:          cfg.Gatus,
+		hc:             cfg.Healthchecks,
+		dokploy:        cfg.Dokploy,
+		statsDir:       cfg.StatsDir,
+		extraTilesPath: cfg.ExtraTilesPath,
 	}
 
 	mux := http.NewServeMux()
@@ -82,11 +98,13 @@ func loadTranslations(dir string) (*i18n.Translations, error) {
 }
 
 type server struct {
-	tmpl     *Templates
-	version  string
-	gatus    system.GatusLister
-	hc       system.HCLister
-	statsDir string
+	tmpl           *Templates
+	version        string
+	gatus          GatusReader
+	hc             system.HCLister
+	dokploy        apps.DokployLister
+	statsDir       string
+	extraTilesPath string
 }
 
 // systemIndex renders the admin-only System tab: the backup/disk/Healthchecks
@@ -106,10 +124,11 @@ func (s *server) rootRedirect(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/apps", http.StatusSeeOther)
 }
 
-// apps is the landing tile grid. Placeholder until the Apps tab port lands;
-// renders the welcome page for now.
+// apps is the landing tile grid: every app/compose the current identity may
+// see, with live status dots. The canonical landing for everyone.
 func (s *server) apps(w http.ResponseWriter, r *http.Request) {
-	s.tmpl.Render(w, r, "index", http.StatusOK, nil)
+	tiles := apps.BuildTiles(s.dokploy, s.gatus, identityFrom(r), s.extraTilesPath)
+	s.tmpl.Render(w, r, "apps", http.StatusOK, tiles)
 }
 
 // setLocale cookie-sets the chosen language and redirects back. GET is
@@ -195,6 +214,9 @@ func GlobalsFromEnv() map[string]any {
 		"healthchecks_url":    httpsHost(os.Getenv("INFRA_HEARTBEAT_HOSTNAME")),
 		"gatus_url":           httpsHost(os.Getenv("INFRA_MONITOR_HOSTNAME")),
 		"beszel_url":          httpsHost(os.Getenv("INFRA_BESZEL_HOSTNAME")),
+		// The admin's own compose id -- the Apps tab hides the Configure
+		// button for the matching tile so an admin cannot lock themselves out.
+		"self_app_id": strings.TrimSpace(os.Getenv("CATENA_ADMIN_SELF_COMPOSE_ID")),
 	}
 }
 

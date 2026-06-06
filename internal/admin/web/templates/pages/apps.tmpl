@@ -1,0 +1,58 @@
+{{define "content"}}
+{{ if not .Data }}
+  <div class="empty-state">
+    {{ if .IsAdmin }}
+      <p>{{ .T "apps.empty.admin" }}</p>
+    {{ else }}
+      <p>{{ .T "apps.empty.staff" }}</p>
+    {{ end }}
+  </div>
+{{ else }}
+  <ul class="tile-grid" role="list">
+    {{ range $tile := .Data }}
+    <li class="tile-card{{ if $tile.Hidden }} tile-hidden{{ end }}"
+        id="tile-{{ $tile.Slug }}"
+        data-tile-id="{{ $tile.Slug }}">
+      <a class="tile-link" href="{{ $tile.URL }}" target="_blank" rel="noopener noreferrer">
+        <div class="tile-icon">
+          {{ if hasPrefix $tile.Icon "http" }}
+            <img src="{{ $tile.Icon }}" alt="" loading="lazy">
+          {{ else }}
+            <span class="icon-placeholder">{{ $tile.Icon }}</span>
+          {{ end }}
+        </div>
+        <div class="tile-meta">
+          <div class="tile-name">
+            <span class="status-dot status-{{ $tile.Health }}"
+                  aria-label="{{ $.T (printf "status.%s" $tile.Health) }}"
+                  title="{{ $.T (printf "status.%s" $tile.Health) }}"></span>
+            {{ $tile.LocalizedName $.Locale }}
+          </div>
+          {{ with $tile.LocalizedDescription $.Locale }}
+            <div class="tile-description">{{ . }}</div>
+          {{ end }}
+          {{ if $tile.Badges }}
+            <div class="tile-badges">
+              {{ range $badge := $tile.Badges }}
+                <span class="badge badge-{{ $badge }}">{{ $.T (printf "apps.badge.%s" $badge) }}</span>
+              {{ end }}
+            </div>
+          {{ end }}
+        </div>
+      </a>
+      {{ if and $.IsAdmin (eq $tile.Kind "compose") $tile.DokployID (ne $tile.DokployID $.Globals.self_app_id) }}
+        <div class="tile-actions">
+          <button
+            type="button"
+            class="btn-configure"
+            hx-get="/apps/{{ $tile.DokployID }}/configure"
+            hx-target="#tile-{{ $tile.Slug }}"
+            hx-swap="outerHTML"
+          >{{ $.T "common.configure" }}</button>
+        </div>
+      {{ end }}
+    </li>
+    {{ end }}
+  </ul>
+{{ end }}
+{{end}}

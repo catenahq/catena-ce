@@ -5,7 +5,20 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/catenahq/catena-ce/internal/admin/integrations"
 )
+
+type fakeDok struct{ items []integrations.DokployItem }
+
+func (f fakeDok) ListItems(bool) []integrations.DokployItem { return f.items }
+
+type fakeGatusReader struct{}
+
+func (fakeGatusReader) ListStatuses() []integrations.EndpointStatus { return nil }
+func (fakeGatusReader) GetStatusByHost(string) (integrations.EndpointStatus, bool) {
+	return integrations.EndpointStatus{}, false
+}
 
 func newTestHandler(t *testing.T) http.Handler {
 	t.Helper()
@@ -144,6 +157,36 @@ func TestSafeBack(t *testing.T) {
 		if got := safeBack(in); got != want {
 			t.Errorf("safeBack(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestAppsGridRendersTiles(t *testing.T) {
+	dok := fakeDok{items: []integrations.DokployItem{{
+		Kind: "compose", ItemID: "c1", AppName: "Nextcloud",
+		Domains: []integrations.Domain{{Host: "cloud.example.com"}},
+		ComposeBody: `    labels:
+      - "vps.auth.mode=public"
+      - "vps.homepage.name=Cloud"
+`,
+	}}}
+	h, err := New(Config{
+		Version:        "t",
+		Globals:        map[string]any{"self_app_id": ""},
+		Dokploy:        dok,
+		Gatus:          fakeGatusReader{},
+		ExtraTilesPath: "/nonexistent",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest("GET", "/apps", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "tile-grid") || !strings.Contains(body, "Cloud") {
+		t.Errorf("expected a tile grid with the public tile, got %q", firstLine(body))
 	}
 }
 

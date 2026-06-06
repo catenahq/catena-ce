@@ -76,6 +76,8 @@ func main() {
 		TranslationsDir: strings.TrimSpace(os.Getenv("CATENA_ADMIN_TRANSLATIONS_DIR")),
 		Gatus:           integrations.NewGatusClient(gatusBase),
 		Healthchecks:    integrations.NewHealthchecksClient(hcBase, os.Getenv("HEALTHCHECKS_API_KEY_READONLY")),
+		Dokploy: integrations.NewDokployClient(
+			envOr("DOKPLOY_API_BASE", "http://127.0.0.1:3000"), os.Getenv("DOKPLOY_API_KEY")),
 	})
 	if err != nil {
 		log.Fatalf("catena-admin: build shell: %v", err)

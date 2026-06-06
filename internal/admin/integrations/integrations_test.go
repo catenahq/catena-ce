@@ -98,6 +98,66 @@ func TestHealthchecksListChecks(t *testing.T) {
 	}
 }
 
+func TestDokployListItems(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("x-api-key") != "dk" {
+			t.Errorf("missing api key")
+		}
+		switch r.URL.Path {
+		case "/api/project.all":
+			_, _ = w.Write([]byte(`[
+				{"name":"client","environments":[{"compose":[{"composeId":"c1","appName":"Nextcloud","description":"files"}],"applications":[]}]}
+			]`))
+		case "/api/compose.one":
+			if r.URL.Query().Get("composeId") != "c1" {
+				t.Errorf("unexpected composeId %q", r.URL.Query().Get("composeId"))
+			}
+			_, _ = w.Write([]byte(`{"composeFile":"services:\n  app:\n    labels: [\"vps.auth.mode=public\"]\n"}`))
+		case "/api/domain.byComposeId":
+			_, _ = w.Write([]byte(`[{"host":"cloud.example.com","port":443}]`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := NewDokployClient(srv.URL, "dk", WithDokployHTTPClient(srv.Client()))
+	items := c.ListItems(false)
+	if len(items) != 1 {
+		t.Fatalf("ListItems = %d, want 1", len(items))
+	}
+	it := items[0]
+	if it.Kind != "compose" || it.ItemID != "c1" || it.AppName != "Nextcloud" {
+		t.Errorf("item = %+v", it)
+	}
+	if len(it.Domains) != 1 || it.Domains[0].Host != "cloud.example.com" || it.Domains[0].Port != 443 {
+		t.Errorf("domains = %+v", it.Domains)
+	}
+	if !contains(it.ComposeBody, "vps.auth.mode=public") {
+		t.Errorf("compose body not fetched: %q", it.ComposeBody)
+	}
+}
+
+func TestDokployBaseURLNormalizesApiSuffix(t *testing.T) {
+	c := NewDokployClient("http://dok:3000/api/", "k")
+	if c.baseURL != "http://dok:3000" {
+		t.Errorf("baseURL = %q, want http://dok:3000", c.baseURL)
+	}
+}
+
+func contains(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || indexOf(s, sub) >= 0)
+}
+
+func indexOf(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
+}
+
 func TestHealthchecksNoKeyNoFetch(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		t.Error("must not fetch without an api key")
