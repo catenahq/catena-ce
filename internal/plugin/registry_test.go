@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/catenahq/catena/internal/license"
+	"github.com/catenahq/catena-ce/internal/license"
 )
 
 type stubPlugin struct {

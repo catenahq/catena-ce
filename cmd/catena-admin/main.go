@@ -18,8 +18,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/catenahq/catena/internal/license"
-	"github.com/catenahq/catena/internal/plugin"
+	"github.com/catenahq/catena-ce/internal/license"
+	"github.com/catenahq/catena-ce/internal/plugin"
 )
 
 var errInvalidPubkey = errors.New("license: CATENA_LICENSE_PUBKEY is not a valid base64 ed25519 public key")

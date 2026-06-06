@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/catenahq/catena/internal/license"
+	"github.com/catenahq/catena-ce/internal/license"
 )
 
 // Plugin is a unit the shell can mount: an admin panel plus its actions.

@@ -1,4 +1,4 @@
-# catena
+# catena-ce
 
 The public, fair-code base of Catena: a self-hostable business suite you
 own. Run the **Community** edition yourself for free, or subscribe to the
@@ -9,7 +9,7 @@ This repository will hold:
 - **catena-admin (Go shell)** -- the community admin surface: a single
   binary hosting Community panels/actions and, when a Business license
   validates, the license-gated enterprise plugins pulled from
-  `catenahq/catena-enterprise`. One image; EE rides in as downloaded
+  `catenahq/catena-ee`. One image; EE rides in as downloaded
   plugin binaries gated at runtime (no second build).
 - **Base automation** -- the `preflight` / `bootstrap` / `site` /
   `validate` / `restore` flows + shared roles + the single-backup runner.
@@ -18,7 +18,7 @@ This repository will hold:
   raw Ansible.
 
 Enterprise (Business) code is NOT here: it lives privately in
-`catenahq/catena-enterprise` and ships as compiled, license-gated
+`catenahq/catena-ee` and ships as compiled, license-gated
 binaries. See [LICENSE.md](LICENSE.md).
 
 ## Layout (so far)

@@ -1,7 +1,7 @@
-# catena (public fair-code base)
+# catena-ce (public fair-code base)
 
 The public, fair-code base of Catena. Sibling repo under the workspace at
-`ma-lalonde.dev/catena/`; tracks `git@github.com:catenahq/catena.git` on
+`ma-lalonde.dev/catena/`; tracks `git@github.com:catenahq/catena-ce.git` on
 `main`. Commit on `main`, no per-feature branches (workspace convention).
 
 ## What lives here vs not
@@ -11,7 +11,7 @@ The public, fair-code base of Catena. Sibling repo under the workspace at
   (preflight/bootstrap/site/validate/restore + shared roles + single
   backup), and the installer/CLI. See [LICENSE.md](LICENSE.md).
 - **NOT here:** enterprise (Business) code. It is private in
-  `catenahq/catena-enterprise` and ships as compiled, license-gated
+  `catenahq/catena-ee` and ships as compiled, license-gated
   plugin binaries. Never paste EE source or operational/cross-host
   playbooks into this repo.
 - **Migration in progress:** code is moving out of `catenahq/ops`. `ops`
@@ -20,7 +20,7 @@ The public, fair-code base of Catena. Sibling repo under the workspace at
 
 ## Go
 
-- Module: `github.com/catenahq/catena`. Go 1.26+.
+- Module: `github.com/catenahq/catena-ce`. Go 1.26+.
 - `go build ./... && go vet ./... && go test ./...` must stay green.
 - `internal/license` is the single definition of the license-token wire
   format (ed25519, offline verify, grace window). The license endpoint in
