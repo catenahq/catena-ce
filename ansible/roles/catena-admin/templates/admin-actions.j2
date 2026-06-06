@@ -1,0 +1,28 @@
+# {{ ansible_managed }}
+# Bash dispatch table for {{ catena_admin_dispatcher_path }}.
+#
+# Defines catena_admin_dispatch() which the runner sources and invokes
+# with the parsed action name. Splitting the data out of the runner
+# keeps the runner plain bash (no Jinja) so the no-Jinja-in-executables
+# CI guard passes. The runner consumes this file at exec time; it is
+# 0644 root:root because the runner user only needs read access via
+# sourcing.
+#
+# All shell snippets below run with bash strict mode (set -euo pipefail)
+# inherited from the runner. $PAYLOAD is exported by the runner before
+# the dispatch call.
+
+catena_admin_dispatch() {
+    case "$1" in
+{% for a in _catena_admin_actions_merged %}
+        {{ a.name }})
+            {{ a.shell }}
+            ;;
+{% endfor %}
+        *)
+            echo "catena-admin-runner: unknown action '$1'" >&2
+            echo "Allowed: {{ _catena_admin_actions_merged | map(attribute='name') | join(', ') }}" >&2
+            exit 1
+            ;;
+    esac
+}

@@ -1,0 +1,68 @@
+---
+# roles/catena-admin -- per-VPS admin panel (the catena-admin Go shell).
+#
+# The role manages HOST-SIDE state for the catena-admin container.
+# The container itself is deployed via Dokploy's git-source compose
+# flow. See README.md.
+
+# --- Hostname ---------------------------------------------------------
+# The admin panel is served at dash.<zone> by default. Override the
+# subdomain via CATENA_ADMIN_SUBDOMAIN in the inventory's .env.
+catena_admin_subdomain: "{{ lookup('dotenv', 'CATENA_ADMIN_SUBDOMAIN', default='dash') }}"
+catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
+
+# --- Host-side runner -------------------------------------------------
+# Dedicated SSH account the admin container uses to dispatch actions on
+# the host. Forced-command pinned to the dispatcher script below; the
+# dispatcher's allow-list is rendered from the action catalog at
+# converge time.
+catena_admin_runner_user: "catena-admin-runner"
+catena_admin_runner_home: "/home/catena-admin-runner"
+
+# Host paths -- the bind-mount targets the admin compose expects. Keep
+# these in sync with the compose file when you rename either.
+catena_admin_host_ssh_dir: "/etc/catena/admin-ssh"
+catena_admin_dispatcher_path: "/usr/local/sbin/catena-admin-runner"
+catena_admin_allowed_actions_path: "/etc/catena/admin-allowed.yaml"
+catena_admin_dispatch_actions_path: "/etc/catena/admin-actions"
+catena_admin_actions_yml_path: "/etc/catena/admin-actions.yml"
+catena_admin_actions_extra_yml_path: "/etc/catena/admin-actions.extra.yml"
+catena_admin_extra_tiles_path: "/etc/catena/extra-tiles.yml"
+# Host dir where run-backup.sh + gatus-sync.py write their summary JSON
+# files (backup-stats.json, gatus-summary.json, healthchecks-summary.json).
+# Bind-mounted read-only into the admin container; the admin's stats
+# reader picks up the files unchanged. Matches roles/backup defaults'
+# backup_stats_dir; do not move without updating that role + the
+# post-restore.needed marker contract (test_restore_option_a).
+catena_admin_stats_dir: "/var/lib/catena"
+catena_admin_state_dir: "/var/lib/catena-admin"
+
+# The audit.db SQLite Online-Backup quiesce hooks that ride this role
+# in the Business edition are NOT part of Community: the audit module
+# is license-gated, so no audit.db exists here, and the quiesce.d hooks
+# are consumed by the (Business-only) catena-daily orchestrator.
+
+# Source-of-truth action catalog. Rendered by catalog.yml into the
+# host dispatch table + the catalog the Go shell reads at runtime.
+# Role-relative template; carries one Jinja placeholder
+# (recovery_archive_download_url).
+catena_admin_actions_source: "{{ role_path }}/templates/actions.yml.j2"
+
+# Public URL the recovery nginx sidecar serves /var/backups/catena-export
+# from. Embedded into the generate-recovery-archive action shell at
+# converge time so the host-side script can hand a real download URL
+# to the client. infrastructure_recovery_hostname comes from
+# roles/infrastructure/defaults/main.yml.
+recovery_archive_download_url: >-
+  https://{{ infrastructure_recovery_hostname | default('recovery.' ~ cloudflare_zone | default('example.com')) }}/
+
+# Default locale + theme rendered into the admin container's env.
+# Inventory overrides via catena_default_language / catena_default_theme.
+catena_admin_default_language: "{{ catena_default_language | default('en') }}"
+catena_admin_default_theme: "{{ catena_default_theme | default('system') }}"
+
+# Per-inventory action extras + tiles. Same shape as the canonical
+# `actions:` list in templates/actions.yml.j2 and the `tiles:` list the
+# Go shell's Apps tab consumes (internal/admin/apps).
+catena_admin_extra_actions: []
+catena_admin_extra_tiles: []

@@ -1,0 +1,35 @@
+# {{ ansible_managed }}
+# Per-inventory action extras. Same shape as the canonical catalog at
+# templates/actions.yml.j2. The admin container loads this file
+# alongside the canonical catalog and concatenates the two.
+#
+# Edit via `catena_admin_extra_actions` in the inventory's
+# group_vars/all/main.yml. Re-run the role to push changes.
+{% if catena_admin_extra_actions %}
+actions:
+{% for a in catena_admin_extra_actions %}
+  - name: {{ a.name }}
+    title: {{ a.title | default(a.name) | tojson }}
+{% if a.title_fr is defined %}
+    title_fr: {{ a.title_fr | tojson }}
+{% endif %}
+    category: {{ a.category | default('Ops') | tojson }}
+{% if a.icon is defined %}
+    icon: {{ a.icon | tojson }}
+{% endif %}
+{% if a.timeout is defined %}
+    timeout: {{ a.timeout }}
+{% endif %}
+    shell: |
+      {{ a.shell }}
+{% if a.arguments is defined %}
+    arguments:
+{% for arg in a.arguments %}
+      - name: {{ arg.name }}
+        type: {{ arg.type | default('text') }}
+{% endfor %}
+{% endif %}
+{% endfor %}
+{% else %}
+actions: []
+{% endif %}

@@ -1,0 +1,95 @@
+---
+# Action catalog + allow-list + dispatch table.
+#
+# The canonical catalog lives in this role at templates/actions.yml.j2
+# -- ONE source of truth that drives both the Actions/Recovery tab
+# buttons the Go shell reads at runtime AND the host-side allow-list
+# the dispatcher enforces. Per-inventory extras come from
+# `catena_admin_extra_actions` and are merged into the canonical list
+# at converge time.
+
+- name: "Catalog: load canonical actions.yml from catena-admin source"
+  # Use `template` rather than `file` so the YAML's `{{ ... }}`
+  # placeholders (currently just recovery_archive_download_url in
+  # generate-recovery-archive's shell) expand to the per-host values.
+  # Subsequent renders (admin-allowed.yaml, admin-actions dispatch
+  # table) inherit the substituted shells via _catena_admin_actions_merged.
+  ansible.builtin.set_fact:
+    _catena_admin_actions_canonical: >-
+      {{ (lookup('template', catena_admin_actions_source) | from_yaml).actions | default([]) }}
+
+- name: "Catalog: merge with per-inventory extras"
+  ansible.builtin.set_fact:
+    _catena_admin_actions_merged: >-
+      {{ _catena_admin_actions_canonical + (catena_admin_extra_actions | default([])) }}
+
+# --- Files the admin container bind-mounts ---------------------------
+
+- name: "Catalog: install canonical actions.yml ({{ catena_admin_actions_yml_path }})"
+  # Template-render so the same `{{ recovery_archive_download_url }}`
+  # placeholder used by the dispatch table also gets substituted on
+  # the container's read path. Source path is absolute
+  # ({{ '{{ role_path }}' }}/templates/actions.yml.j2), so `template`
+  # interprets it without searching templates/.
+  ansible.builtin.template:
+    src: "{{ catena_admin_actions_source }}"
+    dest: "{{ catena_admin_actions_yml_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: "Catalog: render per-inventory extras ({{ catena_admin_actions_extra_yml_path }})"
+  # Always-present file -- even when empty -- so the bind-mount target
+  # exists. The admin container concatenates this with the canonical
+  # catalog at startup.
+  ansible.builtin.template:
+    src: admin-actions.extra.yml.j2
+    dest: "{{ catena_admin_actions_extra_yml_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: "Catalog: render extra launcher tiles ({{ catena_admin_extra_tiles_path }})"
+  # Operator escape hatch for hand-authored Apps-tab tiles that are not
+  # derived from Dokploy. Replaces Homepage's 99-*.yaml mechanism.
+  ansible.builtin.template:
+    src: extra-tiles.yml.j2
+    dest: "{{ catena_admin_extra_tiles_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+# --- Files the host-side dispatcher consumes ------------------------
+
+- name: "Catalog: action allow-list ({{ catena_admin_allowed_actions_path }})"
+  # Documentation / audit artifact. The dispatcher's case block (below)
+  # is the actual enforcement point; both are rendered from the same
+  # merged list so they cannot drift.
+  ansible.builtin.template:
+    src: admin-allowed.yaml.j2
+    dest: "{{ catena_admin_allowed_actions_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: "Catalog: dispatch table ({{ catena_admin_dispatch_actions_path }})"
+  # Renders the bash case-arms from the merged catalog. The runner
+  # sources this at exec time. Keeping the data separate from the
+  # runner keeps catena-admin-runner.sh plain bash (no Jinja markers)
+  # so the no-Jinja-in-executables CI guard passes.
+  ansible.builtin.template:
+    src: admin-actions.j2
+    dest: "{{ catena_admin_dispatch_actions_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Catena-admin catalog summary
+  ansible.builtin.debug:
+    msg: |
+      catena-admin catalog:
+        canonical:  {{ _catena_admin_actions_canonical | length }} actions
+        extras:     {{ catena_admin_extra_actions | length }} actions
+        merged:     {{ _catena_admin_actions_merged | length }} actions
+        allow-list: {{ catena_admin_allowed_actions_path }}
+        dispatch:   {{ catena_admin_dispatch_actions_path }}

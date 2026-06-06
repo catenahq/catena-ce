@@ -1,0 +1,15 @@
+# {{ ansible_managed }}
+# SSH client config for the catena-admin container. Used by its
+# dispatcher client to reach the host runner account. StrictHostKeyChecking
+# is enforced because known_hosts is pre-populated by the role
+# (ssh-keyscan) -- if the host key rotates, the role re-runs and updates
+# this file.
+
+Host vps
+    HostName {{ ansible_host }}
+    User {{ catena_admin_runner_user }}
+    IdentityFile /etc/catena/admin-ssh/id_ed25519
+    UserKnownHostsFile /etc/catena/admin-ssh/known_hosts
+    StrictHostKeyChecking yes
+    IdentitiesOnly yes
+    BatchMode yes

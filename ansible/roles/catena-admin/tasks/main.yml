@@ -1,0 +1,23 @@
+---
+# Orchestrator for roles/catena-admin.
+#
+# Two task files:
+#   host.yml    -- runner user, dispatcher script, SSH keypair, dirs.
+#                  Runs on every converge.
+#   catalog.yml -- merges the source-of-truth action catalog with
+#                  per-inventory extras, renders the allow-list +
+#                  dispatch table on the host.
+#
+# This role manages host-side state only. The catena-admin Go shell
+# container is deployed via Dokploy's git-source flow (see README.md);
+# the host-side state here is its prerequisite. The audit.db quiesce
+# hooks that ride this role in the Business edition (audit is a
+# license-gated module) are NOT part of Community.
+
+- name: Catena-admin host-side state (runner, dirs, keypair)
+  ansible.builtin.import_tasks: host.yml
+  tags: [catena_admin, catena_admin_host]
+
+- name: Catena-admin action catalog + allow-list
+  ansible.builtin.import_tasks: catalog.yml
+  tags: [catena_admin, catena_admin_catalog]

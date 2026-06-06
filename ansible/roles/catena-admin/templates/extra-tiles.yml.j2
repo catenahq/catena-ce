@@ -1,0 +1,35 @@
+# {{ ansible_managed }}
+# Operator-authored extra launcher tiles for the catena-admin Apps tab.
+# Replaces Homepage's 99-*.yaml escape hatch. Tiles defined here render
+# alongside the Dokploy-derived tile grid; the admin filters them
+# against vps.auth.mode / groups the same way as Dokploy tiles.
+#
+# Edit via `catena_admin_extra_tiles` in the inventory's
+# group_vars/all/main.yml. Re-run the role to push changes.
+{% if catena_admin_extra_tiles %}
+tiles:
+{% for t in catena_admin_extra_tiles %}
+  - id: {{ t.id | tojson }}
+    name: {{ t.name | tojson }}
+{% if t.name_fr is defined %}
+    name_fr: {{ t.name_fr | tojson }}
+{% endif %}
+    description: {{ t.description | default("") | tojson }}
+{% if t.description_fr is defined %}
+    description_fr: {{ t.description_fr | tojson }}
+{% endif %}
+{% if t.icon is defined %}
+    icon: {{ t.icon | tojson }}
+{% endif %}
+    url: {{ t.url | tojson }}
+    mode: {{ t.mode | default('private') | tojson }}
+{% if t.groups is defined %}
+    groups: {{ t.groups | tojson }}
+{% endif %}
+{% if t.hidden is defined %}
+    hidden: {{ t.hidden | tojson }}
+{% endif %}
+{% endfor %}
+{% else %}
+tiles: []
+{% endif %}

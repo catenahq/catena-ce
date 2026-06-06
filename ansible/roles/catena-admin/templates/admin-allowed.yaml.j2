@@ -1,0 +1,19 @@
+# {{ ansible_managed }}
+# Allow-list for the catena-admin action dispatcher at
+# {{ catena_admin_dispatcher_path }}. Universal set = the canonical
+# catalog in this role (templates/actions.yml.j2); per-inventory
+# additions come from `catena_admin_extra_actions` in this inventory's
+# group_vars/all/main.yml.
+#
+# This file is documentation / audit artifact. The dispatch table at
+# {{ catena_admin_dispatch_actions_path }} is the actual enforcement
+# point; both are rendered from the same merged list above so they
+# cannot drift.
+actions:
+{% for a in _catena_admin_actions_merged %}
+  - name: {{ a.name }}
+    title: {{ a.title | default(a.name) }}
+    category: {{ a.category | default('Ops') }}
+    shell: |
+      {{ a.shell }}
+{% endfor %}

@@ -1,0 +1,217 @@
+---
+# Host-side state for catena-admin: the runner user + dispatcher +
+# SSH keypair the Go shell container uses to dispatch actions on the
+# host. A dedicated per-service runner account makes attribution
+# unambiguous: any command through this dispatcher is sourced from the
+# admin container, never anything else.
+
+# SSH dispatch passes the clicking admin's email as an env var
+# so audit-trail-bearing actions (e.g. managed-update-pause) record who
+# fired them. The container's paramiko client calls
+# channel.set_environment_variable("X_FORWARDED_EMAIL", ...); sshd
+# rejects the env var unless it's whitelisted via AcceptEnv. Match-User
+# scope so the rule only applies to the runner account and does not
+# leak to operator-shell sessions.
+- name: "sshd: AcceptEnv X_FORWARDED_EMAIL for catena-admin-runner"
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/30-catena-admin-runner-acceptenv.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # {{ ansible_managed }}
+      # Allow the catena-admin container's paramiko client to forward
+      # the clicking admin's email to the host dispatcher via env var.
+      # Scoped to the runner account; does not affect operator shells.
+      Match User {{ catena_admin_runner_user }}
+          AcceptEnv X_FORWARDED_EMAIL
+      Match all
+  notify: reload sshd
+
+- name: "Runner: ensure system account exists ({{ catena_admin_runner_user }})"
+  ansible.builtin.user:
+    name: "{{ catena_admin_runner_user }}"
+    system: true
+    shell: /bin/bash
+    home: "{{ catena_admin_runner_home }}"
+    create_home: true
+    # useradd --system leaves the shadow password as `!` (locked); sshd
+    # then rejects key auth with "User ... not allowed because account
+    # is locked" (the PAM `account` stack treats !-prefixed entries as
+    # locked, independent of PubkeyAuthentication). `*` means "no valid
+    # password" without locking the account, which is what we want for
+    # a key-only forced-command runner.
+    password: "*"
+    state: present
+
+- name: "Runner: ~/.ssh directory"
+  ansible.builtin.file:
+    path: "{{ catena_admin_runner_home }}/.ssh"
+    state: directory
+    owner: "{{ catena_admin_runner_user }}"
+    group: "{{ catena_admin_runner_user }}"
+    mode: "0700"
+
+- name: "Runner: sudoers drop-in pinned to dispatcher only"
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/catena-admin-runner"
+    owner: root
+    group: root
+    mode: "0440"
+    content: |
+      # {{ ansible_managed }}
+      # The runner user may NOPASSWD-sudo exactly one binary: the
+      # dispatcher at {{ catena_admin_dispatcher_path }}. The dispatcher
+      # (root-owned 0755, not writable by the runner) enforces its own
+      # allow-list of action names. !requiretty because SSH forced-
+      # command has no tty.
+      Defaults:{{ catena_admin_runner_user }} !requiretty
+      {{ catena_admin_runner_user }} ALL=(root) NOPASSWD: {{ catena_admin_dispatcher_path }}
+    validate: /usr/sbin/visudo -cf %s
+
+- name: "Runner: /etc/catena config dir"
+  ansible.builtin.file:
+    path: /etc/catena
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "Runner: dispatcher script ({{ catena_admin_dispatcher_path }})"
+  # Plain bash under vps-scripts/ -- the data file rendered by
+  # catalog.yml carries any per-action Jinja; the runner stays Jinja-
+  # free so the no-Jinja-in-executables CI guard passes.
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/catena-admin-runner.sh"
+    dest: "{{ catena_admin_dispatcher_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+# --- SSH keypair for the catena-admin container ----------------------
+# Generated on the VPS so the private key never leaves the host. We
+# bind-mount the dir read-only into the admin container; the container
+# uses the key to SSH back to {{ ansible_host }} as the runner user.
+
+- name: "SSH dir on host ({{ catena_admin_host_ssh_dir }})"
+  ansible.builtin.file:
+    path: "{{ catena_admin_host_ssh_dir }}"
+    state: directory
+    # Container runs as uid 1000 by default (non-root user baked into
+    # the Dockerfile). Mount is read-only but the container still
+    # needs to stat + read the files.
+    owner: "1000"
+    group: "1000"
+    mode: "0700"
+
+- name: "SSH dir: generate ed25519 keypair if missing"
+  community.crypto.openssh_keypair:
+    path: "{{ catena_admin_host_ssh_dir }}/id_ed25519"
+    type: ed25519
+    owner: "1000"
+    group: "1000"
+    mode: "0600"
+    regenerate: never
+
+- name: "SSH dir: read public key"
+  ansible.builtin.slurp:
+    src: "{{ catena_admin_host_ssh_dir }}/id_ed25519.pub"
+  register: _catena_admin_pubkey
+
+- name: "Runner: authorized_keys with forced-command pinned to dispatcher"
+  ansible.builtin.copy:
+    dest: "{{ catena_admin_runner_home }}/.ssh/authorized_keys"
+    owner: "{{ catena_admin_runner_user }}"
+    group: "{{ catena_admin_runner_user }}"
+    mode: "0600"
+    content: "{{ _runner_authorized_keys }}"
+  vars:
+    # Forced-command pipes $SSH_ORIGINAL_COMMAND through sudo into the
+    # dispatcher as a SINGLE quoted arg -- shell metacharacters in the
+    # client's requested command (e.g. `foo; rm -rf /`) cannot smuggle
+    # extra commands past sudo. The dispatcher matches arg $1 against
+    # its allow-list and rejects anything unknown.
+    _runner_options: >-
+      no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty
+    _runner_command: >-
+      command="/usr/bin/sudo -n {{ catena_admin_dispatcher_path }}
+      \"$SSH_ORIGINAL_COMMAND\""
+    _runner_pubkey: "{{ _catena_admin_pubkey.content | b64decode | trim }}"
+    _runner_authorized_keys: >
+      # {{ ansible_managed }}
+
+      {{ _runner_command }},{{ _runner_options }} {{ _runner_pubkey }}
+
+- name: "SSH dir: scan host key of {{ ansible_host }}"
+  ansible.builtin.command:
+    argv:
+      - ssh-keyscan
+      - -t
+      - ed25519
+      - "{{ ansible_host }}"
+  register: _catena_admin_keyscan
+  changed_when: false
+
+- name: "SSH dir: write known_hosts"
+  ansible.builtin.copy:
+    dest: "{{ catena_admin_host_ssh_dir }}/known_hosts"
+    owner: "1000"
+    group: "1000"
+    mode: "0644"
+    # ssh-keyscan emits "HOST keytype keydata"; the SSH client matches
+    # the connection hostname against the first field literally. From
+    # inside the container, the Go shell's SSH runner connects to
+    # host.docker.internal (resolved via the extra_hosts host-gateway
+    # mapping in the admin compose), so the entry must list that name as
+    # well. The `keyscan_alias` filter (Python; see
+    # playbooks/filter_plugins/keyscan_alias.py) rewrites each entry
+    # as "host.docker.internal,HOST keytype keydata" without the YAML
+    # folded-scalar + Jinja string-literal backref traps that broke an
+    # earlier regex_replace pass.
+    content: "{{ _catena_admin_keyscan.stdout_lines | keyscan_alias('host.docker.internal') }}"
+
+- name: "SSH dir: ssh client config (StrictHostKeyChecking yes)"
+  ansible.builtin.template:
+    src: admin-ssh-config.j2
+    dest: "{{ catena_admin_host_ssh_dir }}/config"
+    owner: "1000"
+    group: "1000"
+    mode: "0644"
+
+# --- Bind-mount targets the admin container expects -----------------
+# {{ catena_admin_stats_dir }} hosts the backup/gatus/healthchecks
+# summary JSON files written by run-backup.sh + gatus-sync.py (Phase 4a
+# fold). The backup role's install task creates this dir; we mirror
+# `state: directory` here as belt-and-braces in case catena-admin runs
+# on a host where backup is somehow disabled.
+- name: "Stats dir for admin gauges ({{ catena_admin_stats_dir }})"
+  ansible.builtin.file:
+    path: "{{ catena_admin_stats_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# Admin state volume (the container's persisted state lives here once
+# Dokploy mounts the named volume on first deploy; the host bind-mount
+# target is owned by uid 1000 so the container can write).
+- name: "State dir for admin container ({{ catena_admin_state_dir }})"
+  ansible.builtin.file:
+    path: "{{ catena_admin_state_dir }}"
+    state: directory
+    owner: "1000"
+    group: "1000"
+    mode: "0700"
+
+- name: Catena-admin host setup summary
+  ansible.builtin.debug:
+    msg: |
+      catena-admin host setup:
+        hostname:        {{ catena_admin_hostname }}
+        runner user:     {{ catena_admin_runner_user }} ({{ catena_admin_runner_home }})
+        dispatcher:      {{ catena_admin_dispatcher_path }}
+        ssh keys (host): {{ catena_admin_host_ssh_dir }}/
+        stats dir:       {{ catena_admin_stats_dir }}
+        state dir:       {{ catena_admin_state_dir }}
+        default locale:  {{ catena_admin_default_language }}
+        default theme:   {{ catena_admin_default_theme }}

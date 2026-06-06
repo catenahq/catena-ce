@@ -1,0 +1,309 @@
+# {{ ansible_managed }}
+# catena-admin action catalog -- Community edition, single source of truth.
+#
+# Each entry drives:
+#   1. The Actions/Recovery tab button (icon + title + optional argument
+#      form) the Go shell reads at runtime from /etc/catena/admin-actions.yml.
+#   2. The host-side allow-list at /etc/catena/admin-allowed.yaml
+#      (documentation + audit artifact).
+#   3. The bash dispatch table at /etc/catena/admin-actions the host
+#      runner sources to execute each action's `shell:` command.
+#
+# Categories drive tab placement + sub-nav within the Actions tab:
+#   - Upgrades / Backups / Initial apps setup / Ops -> Actions tab
+#   - Recovery -> Recovery tab (those buttons live alongside the
+#     download list because their output is a downloadable file)
+#
+# The Upgrades category is intentionally EMPTY in Community: managed
+# updates (apt two-phase, container managed-bump) and the catena-daily
+# orchestrator are Business-edition lanes. Their buttons are contributed
+# at runtime by license-gated plugins (the Go shell merges plugin
+# Actions() into this catalog), so an Upgrades / daily-chain button
+# cannot appear without an active license. Community = manual tag swap.
+#
+# Action names are stable identifiers; admin-allowed.yaml keys off them.
+# Bilingual `title_fr` falls back to `title` when missing.
+
+actions:
+  # ─── Backups ─────────────────────────────────────────────────────────
+  - name: backup-now
+    title: "Trigger backup now"
+    title_fr: "Lancer une sauvegarde"
+    category: Backups
+    icon: "&#128190;" # 💾
+    timeout: 10
+    # `--no-block` is REQUIRED for a Type=oneshot unit -- otherwise systemctl
+    # blocks until ExecStart finishes (minutes/hours for restic), which
+    # blows past the 10s timeout. With --no-block, systemctl returns
+    # as soon as the job is enqueued. Logs-panel output comes from the echo.
+    shell: "systemctl start --no-block catena-backup.service && echo 'Backup triggered (running in background). Follow progress with the Tail-last-backup-log button, or: journalctl -u catena-backup.service -f'"
+
+  - name: snapshots-list
+    title: "List restic snapshots"
+    title_fr: "Lister les snapshots restic"
+    category: Backups
+    icon: "&#128247;" # 📷
+    timeout: 30
+    # catena-restic-env loads backup.env with set -a then execs
+    # the command. Single source of truth for sourcing the env from
+    # outside the systemd-launched backup scripts; see
+    # scripts/restic-env.sh and tests/unit/test_restic_env_pattern.py.
+    shell: "catena-restic-env restic snapshots --latest 10"
+
+  - name: backup-coverage-check
+    title: "Check backup coverage"
+    title_fr: "Vérifier la couverture des sauvegardes"
+    category: Backups
+    icon: "&#128269;" # 🔍
+    timeout: 30
+    # Scans every running container's bind-mount sources and warns on
+    # any path outside backup_paths -- catches client composes that
+    # bind-mount to absolute paths (e.g. /srv/photos) where data would
+    # otherwise silently skip the snapshot. This button is the on-demand
+    # path.
+    shell: "/usr/local/bin/catena-backup-coverage"
+
+  - name: backup-log-tail
+    title: "Tail last backup log"
+    title_fr: "Dernier journal de sauvegarde"
+    category: Backups
+    icon: "&#128220;" # 📜
+    timeout: 5
+    shell: "journalctl -u catena-backup.service -n 100 --no-pager"
+
+  # Per-app point-in-time recovery via FUSE. When in-app trash +
+  # soft-delete are exhausted (e.g. Nextcloud trash purged after 30
+  # days), the operator mounts the restic repo read-only at
+  # /mnt/restic-browse, copies the single file or directory back out
+  # to /mnt/data/docker/volumes/<service>/, and unmounts. Auto-unmount
+  # after 1h so a forgotten browse session does not leave a FUSE mount
+  # behind.
+  - name: restic-mount-browse
+    title: "Browse past snapshots (read-only)"
+    title_fr: "Parcourir les snapshots passés (lecture seule)"
+    category: Backups
+    icon: "&#128269;" # 🔍
+    timeout: 30
+    shell: "/usr/local/bin/catena-restic-mount"
+
+  - name: restic-unmount-browse
+    title: "Unmount snapshot browser"
+    title_fr: "Démonter le navigateur de snapshots"
+    category: Backups
+    icon: "&#9989;" # ✅
+    timeout: 30
+    shell: "/usr/local/bin/catena-restic-unmount"
+
+  - name: restic-browse-status
+    title: "Snapshot browser -- status"
+    title_fr: "Navigateur de snapshots -- état"
+    category: Backups
+    icon: "&#9432;" # ℹ
+    timeout: 10
+    shell: "echo '=== mountpoint ==='; mountpoint /mnt/restic-browse 2>&1 || true; echo; echo '=== top-level entries ==='; ls /mnt/restic-browse 2>&1 | head -10 || true; echo; echo '=== service unit ==='; systemctl status catena-restic-browse.service --no-pager -n 5 2>&1 | head -10 || true; echo; echo '=== auto-unmount timer ==='; systemctl status catena-restic-browse-stop.timer --no-pager -n 5 2>&1 | head -10 || true"
+
+  # ─── Initial apps setup ──────────────────────────────────────────────
+  # One-shot wiring buttons that finish provisioning a Dokploy-deployed
+  # template the first time it comes up. Per project policy, converge
+  # runs only at initial install or full VPS repair -- these are the
+  # on-demand path operators take after `Deploy` in the Dokploy UI.
+  # All buttons in this section are idempotent: re-running after a secret
+  # rotation, image bump, or redeploy converges to the same state.
+
+  - name: wire-nextcloud-oidc
+    title: "Wire Nextcloud OIDC"
+    title_fr: "Câbler l'OIDC pour Nextcloud"
+    category: "Initial apps setup"
+    icon: "&#128273;" # 🔑
+    timeout: 60
+    shell: "/usr/local/bin/catena-wire-nextcloud-oidc"
+
+  - name: wire-nextcloud-talk-hpb
+    title: "Wire Nextcloud Talk + HPB"
+    title_fr: "Câbler Nextcloud Talk + HPB"
+    category: "Initial apps setup"
+    icon: "&#128222;" # 📞
+    timeout: 60
+    shell: "/usr/local/bin/catena-wire-nextcloud-talk-hpb"
+
+  # Office editors (Collabora / OnlyOffice). Mutually exclusive per
+  # client: operator deploys ONE of the two templates and runs the
+  # matching Wire button. The buttons are mutually reversing -- running
+  # one removes the OTHER editor's Nextcloud app + its residual
+  # oc_appconfig keys before installing its own. Probe-before-mutate
+  # refuses to run when the deployed editor does not match the button.
+  - name: wire-nextcloud-collabora
+    title: "Wire Nextcloud Collabora (LibreOffice editor)"
+    title_fr: "Câbler Collabora pour Nextcloud (éditeur LibreOffice)"
+    category: "Initial apps setup"
+    icon: "&#128221;" # 📝
+    timeout: 60
+    shell: "/usr/local/bin/catena-wire-nextcloud-collabora"
+
+  - name: wire-nextcloud-onlyoffice
+    title: "Wire Nextcloud OnlyOffice (MS Office editor)"
+    title_fr: "Câbler OnlyOffice pour Nextcloud (éditeur MS Office)"
+    category: "Initial apps setup"
+    icon: "&#128196;" # 📄
+    timeout: 60
+    shell: "/usr/local/bin/catena-wire-nextcloud-onlyoffice"
+
+  # Nextcloud Mail app -- users configure their own IMAP/SMTP/CalDAV/
+  # CardDAV credentials in the Mail UI. Idempotent: re-running is a no-op.
+  - name: wire-nextcloud-mail
+    title: "Wire Nextcloud Mail"
+    title_fr: "Câbler Mail pour Nextcloud"
+    category: "Initial apps setup"
+    icon: "&#9993;&#65039;" # ✉️
+    timeout: 60
+    shell: "/usr/local/bin/catena-wire-nextcloud-mail"
+
+  # Nextcloud antivirus -> shared clamd. Points files_antivirus (Daemon
+  # mode) at the shared clamd on the catena-clamav network (the same
+  # scanner the mail server uses). Idempotent: every occ config:set is
+  # an upsert, safe to re-run after a Nextcloud redeploy.
+  - name: wire-nextcloud-antivirus
+    title: "Wire Nextcloud Antivirus (shared ClamAV)"
+    title_fr: "Câbler l'antivirus Nextcloud (ClamAV partagé)"
+    category: "Initial apps setup"
+    icon: "&#129516;" # 🧪
+    timeout: 60
+    shell: "/usr/local/bin/catena-wire-nextcloud-antivirus"
+
+  # Rocket.Chat -> bundled Jitsi conferencing wiring. Calls RC's
+  # settings REST API as the bootstrap admin to flip Jitsi_Enabled
+  # + Jitsi_Domain. Idempotent.
+  - name: wire-rocketchat-jitsi
+    title: "Wire Rocket.Chat Jitsi"
+    title_fr: "Câbler Jitsi pour Rocket.Chat"
+    category: "Initial apps setup"
+    icon: "&#127909;" # 🎥
+    timeout: 60
+    shell: "/usr/local/bin/catena-wire-rocketchat-jitsi"
+
+  # ─── Ops ─────────────────────────────────────────────────────────────
+  # Universal catch-all; always visible. Diagnostics + restart-button
+  # primitives + status views that do not fit Backups / Initial apps setup.
+  - name: cloudflared-restart
+    title: "Restart cloudflared"
+    title_fr: "Redémarrer cloudflared"
+    category: Ops
+    icon: "&#128260;" # 🔄
+    timeout: 30
+    shell: "docker service update --force cloudflared"
+
+  - name: dokploy-restart
+    title: "Restart Dokploy"
+    title_fr: "Redémarrer Dokploy"
+    category: Ops
+    icon: "&#128260;" # 🔄
+    timeout: 60
+    shell: "docker service update --force dokploy"
+
+  - name: disk-usage
+    title: "Disk breakdown"
+    title_fr: "Utilisation du disque"
+    category: Ops
+    icon: "&#128190;" # 💾
+    timeout: 15
+    # The System tab shows the free/used gauge. This button answers the
+    # "WHERE is the space going?" question -- filesystems totals, Docker
+    # breakdown (images/containers/volumes/build cache), top dirs under
+    # /mnt/data. One-line form to keep dispatcher rendering predictable.
+    shell: "echo '=== filesystems ==='; df -h / /mnt/data 2>/dev/null; echo; echo '=== docker (images, containers, volumes, build cache) ==='; docker system df -v 2>/dev/null; echo; echo '=== top dirs in /mnt/data ==='; du -sh /mnt/data/*/ 2>/dev/null | sort -hr | head -15"
+
+  - name: apt-upgradable
+    title: "Pending apt updates"
+    title_fr: "Mises à jour apt en attente"
+    category: Ops
+    icon: "&#128230;" # 📦
+    timeout: 30
+    # `apt list --upgradable` prints a "Listing..." header even when
+    # nothing is upgradable, leaving operators wondering if the button
+    # worked. Strip that header and give an explicit "all up to date"
+    # message when there's no output after it.
+    shell: "out=$(apt list --upgradable 2>/dev/null | tail -n +2); if [ -z \"$out\" ]; then echo 'All packages up to date.'; else printf '%s\\n' \"$out\"; fi"
+
+  - name: apt-upgrade-log
+    title: "Recent auto-upgrade log"
+    title_fr: "Journal des mises à jour auto"
+    category: Ops
+    icon: "&#128203;" # 📋
+    timeout: 10
+    shell: 'tail -n 200 /var/log/unattended-upgrades/unattended-upgrades.log 2>/dev/null || echo "(no log yet -- unattended-upgrades has not run on this host)"'
+
+  - name: tailscale-status
+    title: "Tailscale status"
+    title_fr: "État de Tailscale"
+    category: Ops
+    icon: "&#127760;" # 🌐
+    timeout: 5
+    shell: "tailscale status"
+
+  - name: sync-all
+    title: "Sync all (apps + monitors)"
+    title_fr: "Synchroniser tout (apps + moniteurs)"
+    category: Ops
+    icon: "&#128257;" # 🔁
+    timeout: 45
+    # Single button, non-destructive by design -- safe to spam.
+    #
+    # Covers both sync paths operators actually need after a Dokploy
+    # compose change:
+    #   - dashboard-sync: Traefik routes + SSO-provider CRUD
+    #     (groups/providers/apps/bindings). The Apps-tab tile grid is
+    #     rendered live from the Dokploy API, so it does not need a
+    #     sync step.
+    #   - gatus-sync: Gatus endpoint catalog + restart Gatus if changed.
+    #
+    # Backgrounded + `wait` gives the union of runtimes (~10-15s), not
+    # the sum. Dispatcher runs with `set -euo pipefail`, so capturing
+    # non-zero `wait` exit codes requires `set +e` first -- a plain
+    # `wait; RC=$?` aborts on errexit before the assignment.
+    shell: |
+      set +e
+      systemctl start --wait dashboard-sync.service & PID_DASH=$!
+      systemctl start --wait gatus-sync.service & PID_GATUS=$!
+      wait "$PID_DASH"; RC_DASH=$?
+      wait "$PID_GATUS"; RC_GATUS=$?
+      journalctl -u dashboard-sync.service -u gatus-sync.service --since '60 seconds ago' --no-pager -n 80
+      echo
+      echo "exit codes: dashboard-sync=$RC_DASH gatus-sync=$RC_GATUS"
+      [ "$RC_DASH" -eq 0 ] && [ "$RC_GATUS" -eq 0 ]
+
+  # ─── Recovery ────────────────────────────────────────────────────────
+  # Recovery actions render on the Recovery tab (not the Actions tab),
+  # alongside the download list of the artifacts they produce.
+  - name: snapshot-export
+    title: "Export latest snapshot (tar.gz)"
+    title_fr: "Exporter le dernier snapshot (tar.gz)"
+    category: Recovery
+    icon: "&#128229;" # 📥
+    # Export can take 1-15 minutes on a multi-GB repo (restic dump walks
+    # every object, gzip streams through). Run non-blocking + point at
+    # the log tail so the operator can follow progress.
+    timeout: 5
+    shell: "systemd-run --unit=catena-snapshot-export --no-block -- /usr/local/bin/catena-snapshot-export && echo 'Snapshot export started in background. Tail progress: journalctl -u catena-snapshot-export -f' && echo && echo 'Completed exports available at /var/backups/catena-export/.'"
+
+  # Disaster-recovery archive. Builds a single AES-256 password-protected
+  # .zip containing the full client-recovery toolkit (recover.sh +
+  # restore.sh + envelope.env + vault.recovered.yml + EN/FR READMEs).
+  # The operator types a one-time passphrase into the dialog, the script
+  # writes recovery-<ts>.zip to /var/backups/catena-export/, and the
+  # operator hands the SAME passphrase to the recipient out-of-band
+  # (SMS / phone / encrypted message). One artifact, one secret, one
+  # recovery flow.
+  - name: generate-recovery-archive
+    title: "Generate recovery archive (encrypted)"
+    title_fr: "Générer l'archive de récupération (chiffrée)"
+    category: Recovery
+    icon: "&#128190;" # 💾
+    timeout: 90
+    arguments:
+      - name: passphrase
+        type: password
+    # RECOVERY_URL is the SSO-gated download surface to point the client
+    # at. The script falls back to the scp hint when this env is empty
+    # (keeps host-script unit tests simple and keeps the script usable
+    # on a host where the recovery sidecar isn't deployed).
+    shell: "RECOVERY_URL='{{ recovery_archive_download_url }}' /usr/local/bin/catena-generate-recovery-archive"
