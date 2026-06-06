@@ -3,8 +3,8 @@
 # docker-exec into dms (ports 25/993 listening + an EICAR rspamc scan).
 # The wrapper self-gates (no-op when no dms container), so installing it
 # unconditionally is harmless on non-mail hosts -- same posture as the
-# deadman + clamav watch timers. Reuses the self-hosted Healthchecks ->
-# ntfy escalation; no new alert plane.
+# clamav-watch timer. Reuses the self-hosted Healthchecks -> ntfy
+# escalation; no new alert plane.
 - name: "Mail canary: env file"
   ansible.builtin.template:
     src: mail-canary.env.j2

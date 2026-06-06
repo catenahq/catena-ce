@@ -210,115 +210,17 @@ recovery_source_dir: "{{ backup_export_dir | default('/var/backups/catena-export
 infrastructure_recovery_subdomain: "{{ lookup('dotenv', 'RECOVERY_SUBDOMAIN', default='recovery') }}"
 infrastructure_recovery_hostname: "{{ infrastructure_recovery_subdomain }}.{{ cloudflare_zone }}"
 
-# --- Semaphore (CI/Ansible runner -- runner.<zone>) ---------------------
-# Semaphore is the operator's CI surface: triggers Ansible playbooks
-# from a web UI + on a schedule. Per-environment Semaphore project
-# pointing at this repo's automation/ansible/ subfolder. Secrets are
-# decrypted by Semaphore's own age key (added to .sops.yaml as a
-# second recipient alongside the operator's key).
-#
-# Off by default. Set SEMAPHORE_ENABLED=true in inventory/<env>/.env
-# to deploy.
-semaphore_enabled: "{{ lookup('dotenv', 'SEMAPHORE_ENABLED', default='false') | bool }}"
-semaphore_image_tag: "v2.18.2"
-semaphore_image: "semaphoreui/semaphore:{{ semaphore_image_tag }}"
-semaphore_compose_name: "semaphore"
-semaphore_internal_port: 3000
-semaphore_subdomain: "{{ lookup('dotenv', 'SEMAPHORE_SUBDOMAIN', default='runner') }}"
-semaphore_hostname: "{{ semaphore_subdomain }}.{{ cloudflare_zone }}"
-semaphore_host_config_dir: "/etc/dokploy/semaphore"
-semaphore_host_data_dir: "/mnt/data/semaphore"
-# Bundled Postgres for Semaphore's own state (projects, runs, users).
-# Internal-only; not exposed beyond the dokploy-network.
-semaphore_db_image_tag: "16.13-alpine"
-semaphore_db_image: "postgres:{{ semaphore_db_image_tag }}"
-semaphore_db_name: "semaphore"
-semaphore_db_user: "semaphore"
-semaphore_db_volume: "semaphore-postgres"
+# Semaphore (the operator's CI/Ansible runner), stack-update (the weekly
+# managed container-bump engine), and version-check (the current-vs-latest
+# Versions report) are all Business-edition / operator-side capabilities,
+# not part of Community. Their roles/templates live in the private repos;
+# nothing here deploys them.
 
-# --- stack-update (weekly pull+redeploy of floating-tag infra) ----------
-# Complement to the auto-update role: auto-update bumps host packages
-# (apt upgrade + reboot + rollback on health regression); stack-update
-# bumps containers whose image tag is floating (not pinned to a specific
-# version). Pinned services (Keycloak, oauth2-proxy, Dokploy, Postgres,
-# Redis, Traefik) are NEVER touched by this -- bump their version vars
-# explicitly.
-#
-# ON by default alongside auto-update; same "servers stay current" posture.
-# Set STACK_UPDATE_ENABLED=false in .env to disable.
-stack_update_enabled: "{{ lookup('dotenv', 'STACK_UPDATE_ENABLED', default='true') | bool }}"
-
-# Compose appNames whose `docker compose pull` is triggered on each run.
-# All ship :latest (or equivalent floating) today; extend here if a client
-# wants a new low-risk app auto-pulled.
-stack_update_compose_apps:
-  - "{{ gatus_compose_name | default('gatus') }}"
-  - "{{ healthchecks_compose_name | default('healthchecks') }}"
-  - "{{ recovery_compose_name | default('recovery') }}"
-
-# Swarm services to refresh via `docker service update --force --image <same>`.
-# The redundant --image re-resolves the tag, pulling new if digest changed.
-stack_update_swarm_services:
-  - cloudflared
-
-# Weekly, staggered an hour after auto-update (Sun 04:15) so health
-# impact lands one event at a time.
-stack_update_schedule: "{{ lookup('dotenv', 'STACK_UPDATE_SCHEDULE', default='Sun 05:30') }}"
-
-# Seconds to wait after pull+restart before running the health-baseline
-# diff. 60s is the empirical settle time for SSO-flavored stacks.
-stack_update_stabilize_seconds: "{{ lookup('dotenv', 'STACK_UPDATE_STABILIZE_SECONDS', default='60') }}"
-
-# Dead-man URL. Defaults to the same Healthchecks instance the backup +
-# auto-update roles use. Distinct slug so a red stack-update check
-# surfaces in the UI independently.
-stack_update_healthcheck_url: >-
-  {{
-    lookup('dotenv', 'STACK_UPDATE_HEALTHCHECK_URL', default='')
-    or ('https://' ~ healthchecks_hostname
-        ~ '/ping/' ~ (vault_healthchecks_ping_key | default(''))
-        ~ '/catena-stack-update?create=1'
-        if vault_healthchecks_ping_key is defined else '')
-  }}
-
-stack_update_script_path: /usr/local/bin/catena-stack-update
-stack_update_env_file: /etc/catena/stack-update.env
-stack_update_systemd_unit_name: catena-stack-update
-stack_update_baseline_file: /var/lib/catena/stack-update-baseline.json
-
-# --- managed-bump engine (drives the weekly timer; see Phase 3 of the
-#     auto-update plan). Per-service bump + auto-rollback + quarantine.
-stack_update_managed_script_path: /usr/local/bin/catena-stack-update-managed
-stack_update_managed_specs_file: /etc/catena/managed-services.json
-stack_update_managed_state_file: /var/lib/catena/managed-versions.json
-stack_update_managed_failed_file: /var/lib/catena/managed-versions.failed.json
-stack_update_managed_pause_flag: /etc/catena/stack-update.disabled
-stack_update_post_bump_stabilize_seconds: 120
-
-# Selection gates for the managed-bump engine. Age gate soaks fresh
-# releases (compatibility); CVE gate refuses tags that introduce a new
-# HIGH/CRITICAL fixed-CVE vs the running image (vulnerability). A clean
-# tag that fixes a CVE in the running image bypasses the soak. CVE gate
-# soft-degrades to age-only when trivy is absent. Per-inventory override
-# in group_vars/all/main.yml or .env (MANAGED_MIN_TAG_AGE_DAYS etc.).
-stack_update_managed_min_tag_age_days: "{{ lookup('dotenv', 'MANAGED_MIN_TAG_AGE_DAYS', default='7') }}"
-stack_update_managed_cve_gate_severity: "{{ lookup('dotenv', 'MANAGED_CVE_GATE_SEVERITY', default='HIGH,CRITICAL') }}"
-stack_update_managed_cve_scan_max_candidates: "{{ lookup('dotenv', 'MANAGED_CVE_SCAN_MAX_CANDIDATES', default='4') }}"
-stack_update_managed_trivy_cache_dir: "{{ lookup('dotenv', 'MANAGED_TRIVY_CACHE_DIR', default='/var/cache/trivy') }}"
-
-# --- version-check (current vs. latest, surfaced on catena-admin) ------
-# Stdlib script that queries GitHub releases / Docker Hub tags for each
-# pinned service + reads the running container's image tag, emits a JSON
-# report under /var/lib/catena/. Currently consumed by the catena-admin
-# System tab (via the same /var/lib/catena bind-mount the backup +
-# gatus summaries land on). Invoked at the tail of the weekly
-# stack-update run so the report is refreshed alongside the pulls.
-version_check_script_path: /usr/local/bin/catena-version-check
+# version-check.json is a forward-compatible seam: when the Business
+# managed-update module is licensed it writes /var/lib/catena/version-check.json,
+# and gatus-sync best-effort enriches endpoint names from it. In Community
+# the file is simply absent and gatus skips the version suffix.
 version_check_output_file: /var/lib/catena/version-check.json
-# Per-host JSON registry of SERVICE_SPECS consumed by version-check.py.
-# Rendered at converge-time with compose-name regexes (which are variable)
-# so the Python script itself stays Jinja-free.
-version_check_specs_file: /etc/catena/version-check-specs.json
 
 # --- snapshot-before-converge -------------------------------------------
 # Before each converge that touches Dokploy state, dump every project's
@@ -393,26 +295,9 @@ catena_portal_keycloak_client_id: "catena-portal"
 # is the only place this should be on.
 catena_portal_test_users_enabled: "{{ lookup('dotenv', 'CATENA_PORTAL_TEST_USERS_ENABLED', default='false') | bool }}"
 
-# --- External dead-man watchdog (hourly liveness probe of the watchers) -
-# Closes the gap that BACKUP_HEALTHCHECK_URL only addresses on the nightly
-# cycle. An hourly timer probes the LOOPBACK endpoints of Gatus + the
-# self-hosted Healthchecks to confirm the WATCHERS themselves are alive
-# (operator-paused services are NOT errors here -- this only checks
-# Gatus + Healthchecks, not the apps they monitor). Pings off-host on
-# success; pings /fail + optionally pushes ntfy.sh on failure.
-#
-# OFF when HEALTHCHECKSIO_DEADMAN_URL is empty. The timer is not
-# installed at all in that case -- zero risk to existing deployments.
-deadman_healthcheck_url: "{{ lookup('dotenv', 'HEALTHCHECKSIO_DEADMAN_URL', default='') }}"
-deadman_ntfy_topic: "{{ lookup('dotenv', 'NTFYSH_DEADMAN_TOPIC', default='') }}"
-deadman_ntfy_url: "{{ lookup('dotenv', 'NTFYSH_DEADMAN_URL', default='https://ntfy.sh') }}"
-# OnCalendar expression. `hourly` is systemd shorthand for `*-*-* *:00:00`.
-deadman_schedule: "{{ lookup('dotenv', 'DEADMAN_TIMER', default='hourly') }}"
-deadman_enabled: "{{ deadman_healthcheck_url | length > 0 }}"
-
-deadman_script_path: /usr/local/bin/run-deadman
-deadman_env_file: /etc/catena/deadman.env
-deadman_systemd_unit_name: catena-deadman
+# The external dead-man watchdog (hourly off-host liveness probe of the
+# watchers) is a Business-edition lane and lives in the private repo;
+# Community ships no dead-man timer.
 
 # --- Shared ClamAV (clamd) --------------------------------------------
 # One clamd serves BOTH the mail server (rspamd antivirus over TCP) and

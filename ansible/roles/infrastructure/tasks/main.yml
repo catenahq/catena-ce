@@ -9,7 +9,7 @@
 #                              in Dokploy; capture project_id + env_id.
 #                              Gated on vault_dokploy_api_key -- skipped on
 #                              first run before operator creates API key.
-# 3. gatus.yml / healthchecks.yml / recovery.yml / semaphore.yml --
+# 3. gatus.yml / healthchecks.yml / recovery.yml --
 #    each calls dokploy_compose.yml with its own compose YAML, env,
 #    domain, port. All gated on vault_dokploy_api_key.
 # 4. dashboard_sync.yml + gatus_sync.yml -- sync scripts + systemd timers.
