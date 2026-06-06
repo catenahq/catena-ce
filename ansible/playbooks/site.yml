@@ -1,0 +1,130 @@
+---
+# Main converge. Safe to re-run. Runs over Tailscale.
+#
+# This file is a single atomic unit (one converge), with no cross-playbook
+# imports. Composition (preflight + site + validate) lives in the
+# installer/CLI, which runs preflight as its own invocation before this.
+# Direct invocation runs site alone.
+#
+# Usage (cwd = ansible/):
+#   ansible-playbook -i inventory/example playbooks/site.yml --limit host1
+
+- name: Converge VPS to desired state
+  # `stage_hosts` lets a wrapper target a specific host/group via
+  # import_playbook + vars. Direct invocation with `--limit` still uses
+  # the `vps:` group default.
+  hosts: "{{ stage_hosts | default('vps') }}"
+  become: true
+  gather_facts: true
+
+  # Tags allow iterating on a single role:
+  #   ansible-playbook -i inventory/example playbooks/site.yml --limit host1 --tags storage
+  # Preflight runs as its own ansible-playbook invocation (the installer
+  # runs it first); tag filters here never skip it.
+  # Each role's tag matches its name; ufw_lockdown has its own tag so it only
+  # runs in a full converge (otherwise it re-probes tailscale0 unnecessarily).
+  roles:
+    - { role: common, tags: [common] }
+    # Anti-container-escape kernel hardening. MUST run after common (needs
+    # python3-apt) and BEFORE docker (so /etc/sysctl.d/ files are in place
+    # before dockerd's first start; otherwise dockerd's runtime /proc/sys
+    # writes win until next boot, leaving Day-1 vs reboot-recovery state
+    # divergent). See roles/host_hardening/README.md for the full var-set
+    # rationale.
+    - { role: host_hardening, tags: [host_hardening, hardening] }
+    - { role: tailscale, tags: [tailscale] }
+    - { role: storage, tags: [storage] } # mount block volume at /mnt/data (+ optional bulk)
+    - { role: docker, tags: [docker] }
+    - { role: dokploy, tags: [dokploy] } # app platform, bound to tailscale0 only
+    # cloudflared swarm service + CF tunnel + wildcard DNS. Runs BEFORE
+    # keycloak + oauth2_proxy so the public auth.<zone> URL is reachable
+    # by the time oauth2_proxy waits for Keycloak's OIDC discovery doc.
+    # Without this ordering, a fresh-target converge would fail in a
+    # single-pass site.yml (CF 530 from oauth2_proxy's wait task).
+    # Idempotent: subsequent converges find the tunnel + DNS + service
+    # already in the desired state and no-op.
+    - { role: cloudflare_tunnel, tags: [cloudflare_tunnel, cloudflare] } # CF tunnel + DNS + cloudflared swarm service
+    # Keycloak MUST come before oauth2_proxy so its realm exists before
+    # oauth2_proxy registers its OIDC client via keycloak-config-cli. Both
+    # MUST come before infrastructure so the gated apps' forward-auth chain
+    # (rendered by oauth2_proxy) is in place when infrastructure deploys
+    # those apps with their Traefik routes.
+    - { role: keycloak, tags: [keycloak, auth] } # SSO IdP
+    - { role: oauth2_proxy, tags: [oauth2_proxy, auth] } # forward-auth gateway: staff + admin instances
+    - { role: infrastructure, tags: [infrastructure] } # recovery archive, gated apps (Gatus, Healthchecks, ...), dashboard-sync, gatus-sync
+    # catena-admin host-side state -- runner user, dispatcher, action
+    # catalog, bind-mount targets. The Go shell container is deployed via
+    # Dokploy's git-source flow; this role only manages the host
+    # prerequisites.
+    - { role: catena-admin, tags: [catena_admin] }
+    - { role: coturn, tags: [coturn] } # shared TURN/STUN for NC Talk HPB + RC Jitsi (UDP media plane, direct on VPS public IP)
+    - { role: backup, tags: [backup] } # restic + the manual oneshot catena-backup.service
+
+  post_tasks:
+    # ─── Dokploy admin-domain ────────────────────────────────────────────
+    # Configures Dokploy's "Web Server" domain so origin validation passes
+    # when accessing via admin.<zone>. Single canonical caller. Runs AFTER
+    # all roles so dokploy-postgres + the dokploy app are healthy.
+    # Idempotent: re-runs are no-ops once the host record matches.
+    - name: "Dokploy API: set admin domain"
+      ansible.builtin.uri:
+        url: "{{ dokploy_api_base }}/settings.assignDomainServer"
+        method: POST
+        headers:
+          x-api-key: "{{ vault_dokploy_api_key }}"
+        body_format: json
+        body:
+          host: "{{ dokploy_admin_hostname }}"
+          certificateType: "none"
+          https: false
+        status_code: 200
+      delegate_to: localhost
+      become: false
+      when:
+        - vault_dokploy_api_key is defined
+        - vault_dokploy_api_key | length > 10
+      tags: [post_admin_domain]
+
+    - name: "Note -- admin domain not set (no API key yet)"
+      ansible.builtin.debug:
+        msg: >-
+          Skipped setting admin domain -- vault_dokploy_api_key not in vault yet.
+          After creating your admin account at http://{{ ansible_host }}:{{ dokploy_port }},
+          generate an API key (Settings -> Profile), add it to the vault as
+          vault_dokploy_api_key, and re-run the installer (or:
+          ansible-playbook playbooks/site.yml --limit {{ inventory_hostname }}).
+      when: vault_dokploy_api_key is not defined or (vault_dokploy_api_key | length) < 10
+      tags: [post_admin_domain]
+
+    # Reconcile the declarative public-port registry. Runs AFTER every role
+    # has dropped its /etc/catena/public-ports.d/ fragment + deployed its
+    # containers (vps.expose.* labels), so the merged effective set is
+    # complete. Applies ufw + DOCKER-USER rules and writes the effective set
+    # read by validate.yml. The timer + docker drop-in keep it current at
+    # runtime; this is the converge-time anchor.
+    - name: "Public ports: reconcile firewall from registry"
+      ansible.builtin.systemd_service:
+        name: catena-public-ports.service
+        state: started
+      changed_when: false
+      tags: [public_ports]
+
+    # Final lockdown. Must come AFTER tailscale + infrastructure are healthy,
+    # otherwise we lock ourselves out.
+    - name: Lock ufw to tailscale-only ingress
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: ufw_lockdown.yml
+        # apply: propagates tags to every task inside ufw_lockdown.yml.
+        # Without it, `--tags lockdown` would fire the include but then
+        # filter out all the inner tasks (they have no "lockdown" tag).
+        apply:
+          tags: [lockdown]
+      tags: [lockdown]
+
+# Post-converge validation runs as its own ansible-playbook invocation
+# (playbooks/validate.yml), composed by the installer/CLI after this
+# converge. A failed validate still fails the overall run.
+#
+# The post-restore multi-app redeploy + pg-replay coupling is a
+# Business-edition lane and is not part of the Community converge.

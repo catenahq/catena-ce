@@ -1,0 +1,309 @@
+---
+# Initial bring-up of a fresh VPS (any provider).
+#
+# No manual pre-step required. The playbook prompts for the provider's initial
+# root password, installs your SSH key via pexpect (helpers/install_key.py),
+# then hardens the box. On re-runs (key already installed), leave the password
+# blank to skip Phase 0.5 and proceed directly to the Phase 1 idempotency check.
+#
+# Plays in order:
+#
+#   Phase 0   -- TOFU: keyscan host into known_hosts
+#   Phase 0.5 -- install your key via the provider password (skipped if blank)
+#   Phase 1   -- baseline + harden (initial_user + become): common role
+#   Phase 2   -- join tailnet (ops + key): tailscale role
+#
+# After Phase 2, the box is reachable over Tailscale. The steady-state host
+# entry (under the `vps:` inventory group) gets its ansible_host auto-updated
+# to the new tailnet IP by the post_tasks below. Run site.yml next -- it targets
+# the `vps:` group and closes public 22 via roles/common/tasks/ufw_lockdown.yml.
+#
+# Restoring to a different server (hardware upgrade, provider migration):
+#   1. Update ansible_host in inventory/<env>/hosts.yml for the *-bootstrap
+#      entry to the new VPS's public IP.
+#   2. Run this playbook as normal -- the password prompt accepts the new
+#      provider's initial root password.
+#   After bootstrap, run restore.yml then site.yml to bring services back up.
+#
+# Usage (cwd = ansible/):
+#   ansible-playbook -i inventory/example playbooks/bootstrap.yml
+#   ansible-playbook -i inventory/example playbooks/bootstrap.yml --limit host1-bootstrap
+#
+# Preflight must run as a SEPARATE invocation BEFORE this playbook (so that
+# --limit does not accidentally skip it). The installer chains it
+# automatically; standalone invocation needs:
+#   ansible-playbook -i inventory/example playbooks/preflight.yml
+
+# ssh-keyscan the host first, TOFU style. Any stale entry for the same IP
+# (from a previous re-provisioning) is cleared first so the new host's key
+# replaces it cleanly.
+#
+# IMPORTANT: tasks use `delegate_to: localhost` rather than play-level
+# `connection: local`. Play-level `connection: local` triggers Python
+# interpreter discovery for host1-bootstrap *against the controller*, caches
+# the controller's venv python as the host's interpreter, and breaks Phase 1
+# when it reconnects via SSH.
+- name: "Phase 0 -- TOFU: add bootstrap host SSH key to ~/.ssh/known_hosts"
+  hosts: "{{ stage_hosts | default('bootstrap') }}"
+  gather_facts: false
+  become: false
+
+  tasks:
+    - name: Ensure ~/.ssh exists on the controller
+      ansible.builtin.file:
+        path: "{{ lookup('env', 'HOME') }}/.ssh"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+
+    - name: Remove any stale known_hosts entry for this host
+      ansible.builtin.command:
+        cmd: "ssh-keygen -R {{ ansible_host }}"
+      register: _keygen_r
+      changed_when: _keygen_r.rc == 0
+      failed_when: false
+      delegate_to: localhost
+
+    # Atomicity: append with `>>` is neither atomic (crash mid-write can
+    # truncate known_hosts) nor idempotent (rerun produces duplicates). Run
+    # ssh-keyscan as a read-only capture, then hand each line to
+    # ansible.builtin.known_hosts which writes via temp-file + atomic rename
+    # and dedupes automatically. Re-runnable without guards.
+    - name: ssh-keyscan the host (controller-side)
+      ansible.builtin.command:
+        cmd: "ssh-keyscan -T 10 {{ ansible_host }}"
+      register: _keyscan
+      changed_when: false
+      delegate_to: localhost
+
+    - name: Add host keys to ~/.ssh/known_hosts (atomic, deduped)
+      ansible.builtin.known_hosts:
+        path: "{{ lookup('env', 'HOME') }}/.ssh/known_hosts"
+        name: "{{ ansible_host }}"
+        key: "{{ item }}"
+        hash_host: true
+        state: present
+      loop: "{{ _keyscan.stdout_lines }}"
+      loop_control:
+        label: "{{ (item.split() | length > 1) | ternary(item.split()[1] + ' key', 'skipped') }}"
+      when:
+        - item | length > 0
+        - not item.startswith('#')
+      delegate_to: localhost
+
+- name: "Phase 0.5 -- install operator SSH key via provider password"
+  hosts: "{{ stage_hosts | default('bootstrap') }}"
+  gather_facts: false
+  become: false
+
+  vars_prompt:
+    - name: bootstrap_initial_user
+      prompt: "Initial SSH user (OVH/Hetzner: root; OVH Debian images: debian; Ubuntu/AWS: ubuntu)"
+      private: false
+      default: "root"
+    - name: bootstrap_root_password
+      prompt: "Provider password for that user (leave blank if key already installed)"
+      private: true
+      default: ""
+
+  tasks:
+    - name: Skip key install -- no password provided
+      ansible.builtin.debug:
+        msg: "Password blank -- assuming key already installed, skipping Phase 0.5."
+      when: bootstrap_root_password | length == 0
+
+    - name: Install your public key (handles forced password change via pexpect)
+      ansible.builtin.command:
+        # helpers/install_key.py needs pexpect (its only third-party dep).
+        argv:
+          - python3
+          - helpers/install_key.py
+          - "{{ ansible_host }}"
+          - "--user={{ bootstrap_initial_user }}"
+          - "--pubkey={{ lookup('dotenv', 'SSH_PUBLIC_KEY_FILE') }}"
+          - "--privkey={{ ansible_ssh_private_key_file }}"
+        chdir: "{{ playbook_dir }}/.."
+      environment:
+        INSTALL_KEY_PASSWORD: "{{ bootstrap_root_password }}"
+      delegate_to: localhost
+      when: bootstrap_root_password | length > 0
+
+- name: "Phase 1 -- baseline + harden (connects as initial user, skipped if already done)"
+  hosts: "{{ stage_hosts | default('bootstrap') }}"
+  gather_facts: false
+  vars:
+    # Connect as the same initial user that Phase 0.5 installed the key for.
+    # When initial_user == root (OVH, Hetzner bare images), no become needed
+    # because we are root. When initial_user is a non-root cloud user (debian,
+    # ubuntu, ...), become: true lets the common role run as root via NOPASSWD
+    # sudo that cloud-init configured. Either way, root SSH is never opened
+    # on the host -- no PermitRootLogin hacks required.
+    ansible_user: "{{ bootstrap_initial_user }}"
+    # Defensive: make sure interpreter discovery happens against the REMOTE,
+    # not against any cached value from a prior play. Important after Phase 0
+    # which ran with delegate_to: localhost.
+    ansible_python_interpreter: auto_silent
+  become: "{{ bootstrap_initial_user != 'root' }}"
+  pre_tasks:
+    # ── Root-provider idempotency check ──────────────────────────────────────
+    # When initial_user == root: after Phase 1 the common role disables root
+    # login. A failed root-SSH probe means Phase 1 already ran -- skip.
+    - name: "Phase 1 idempotency (root path) -- can root still SSH in?"
+      ansible.builtin.command:
+        argv:
+          - ssh
+          - -o
+          - BatchMode=yes
+          - -o
+          - ConnectTimeout=5
+          - -o
+          - IdentitiesOnly=yes
+          - -o
+          - PreferredAuthentications=publickey
+          - -i
+          - "{{ ansible_ssh_private_key_file }}"
+          - "root@{{ ansible_host }}"
+          - "true"
+      register: root_probe
+      changed_when: false
+      failed_when: false
+      delegate_to: localhost
+      become: false
+      when: bootstrap_initial_user == 'root'
+
+    - name: Phase 1 already complete (root path) -- root login is disabled
+      ansible.builtin.debug:
+        msg: |
+          Root SSH no longer works -- Phase 1 has already run on this host.
+          Skipping to Phase 2 (tailscale).
+      when: bootstrap_initial_user == 'root' and (root_probe.rc | default(0)) != 0
+
+    - name: End Phase 1 (root path)
+      ansible.builtin.meta: end_play
+      when: bootstrap_initial_user == 'root' and (root_probe.rc | default(0)) != 0
+
+    # ── Non-root provider idempotency check ──────────────────────────────────
+    # When initial_user != root: after Phase 1 the common role creates the ops
+    # user. A successful `id <ops_user>` via the initial user means Phase 1
+    # already ran -- skip.
+    - name: "Phase 1 idempotency (non-root path) -- does ops user exist?"
+      ansible.builtin.command:
+        argv:
+          - ssh
+          - -o
+          - BatchMode=yes
+          - -o
+          - ConnectTimeout=5
+          - -o
+          - IdentitiesOnly=yes
+          - -o
+          - PreferredAuthentications=publickey
+          - -i
+          - "{{ ansible_ssh_private_key_file }}"
+          - "{{ bootstrap_initial_user }}@{{ ansible_host }}"
+          - "id {{ ops_user }}"
+      register: ops_probe
+      changed_when: false
+      failed_when: false
+      delegate_to: localhost
+      become: false
+      when: bootstrap_initial_user != 'root'
+
+    - name: Phase 1 already complete (non-root path) -- ops user exists
+      ansible.builtin.debug:
+        msg: |
+          Ops user already exists -- Phase 1 has already run on this host.
+          Skipping to Phase 2 (tailscale).
+      when: bootstrap_initial_user != 'root' and (ops_probe.rc | default(1)) == 0
+
+    - name: End Phase 1 (non-root path)
+      ansible.builtin.meta: end_play
+      when: bootstrap_initial_user != 'root' and (ops_probe.rc | default(1)) == 0
+
+    - name: Gather facts now that we know Phase 1 needs to run
+      ansible.builtin.setup:
+  roles:
+    - role: common
+
+- name: "Phase 2 -- join tailnet (ops + key)"
+  hosts: "{{ stage_hosts | default('bootstrap') }}"
+  gather_facts: true # tailscale role uses ansible_distribution_release for the apt repo URL
+  vars:
+    ansible_user: "{{ ops_user }}"
+    ansible_python_interpreter: auto_silent
+  become: true # ops uses NOPASSWD sudo (set up in Phase 1)
+  roles:
+    - role: tailscale
+
+  post_tasks:
+    # ─── Capture the steady-state tailnet IP ─────────────────────────────
+    # A fresh OS install produces a new Tailscale identity (and therefore a
+    # new tailnet IP) even on the same provider. We do NOT mutate
+    # inventory/<env>/hosts.yml here. Instead:
+    #   1. add_host overrides ansible_host on the steady-state hostname for
+    #      downstream plays in the SAME ansible-playbook invocation
+    #      (restore.yml + site.yml);
+    #   2. helpers/bootstrap_output.py merges the value into
+    #      <inventory_dir>/.bootstrap-output.yml (gitignored) so you can copy
+    #      it into your inventory before the next invocation.
+    - name: "Resolve tailnet IPv4 on target"
+      ansible.builtin.command:
+        argv:
+          - tailscale
+          - ip
+          - -4
+      register: _ts_ipv4
+      changed_when: false
+
+    - name: "Compute steady-state hostname (drop -bootstrap suffix)"
+      ansible.builtin.set_fact:
+        _steady_state_host: "{{ inventory_hostname | regex_replace('-bootstrap$', '') }}"
+        _steady_state_ip: "{{ _ts_ipv4.stdout_lines[0] | trim }}"
+
+    - name: "Inject steady-state tailnet IP into in-memory inventory"
+      ansible.builtin.add_host:
+        name: "{{ _steady_state_host }}"
+        ansible_host: "{{ _steady_state_ip }}"
+
+    - name: "Emit tailnet IP into <inventory_dir>/.bootstrap-output.yml"
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/../helpers/bootstrap_output.py"
+          - --inventory-dir
+          - "{{ inventory_dir }}"
+          - --section
+          - hosts
+          - --host
+          - "{{ _steady_state_host }}"
+          - --key
+          - ansible_host
+          - --value
+          - "{{ _steady_state_ip }}"
+      delegate_to: localhost
+      become: false
+      changed_when: true
+
+    - name: Bootstrap complete -- next steps
+      ansible.builtin.debug:
+        msg: |
+          Bootstrap complete for {{ inventory_hostname }}.
+
+          Tailnet IPv4: {{ _steady_state_ip }}
+          Steady-state host: {{ _steady_state_host }}
+
+          The value is live in this run's in-memory inventory (add_host),
+          so downstream plays in this invocation (restore.yml, site.yml)
+          target the correct IP.
+
+          To persist across invocations, copy from
+          {{ inventory_dir }}/.bootstrap-output.yml into your inventory's
+          hosts.yml.
+
+          Next (cwd = ansible/):
+            ansible-playbook playbooks/site.yml --limit {{ _steady_state_host }}
+            # (or, to also restore from backup first:)
+            ansible-playbook playbooks/restore.yml --limit {{ _steady_state_host }} -e restore_snapshot=latest
+            ansible-playbook playbooks/site.yml    --limit {{ _steady_state_host }}
+
+          At the end of site.yml, public port 22 is closed.
