@@ -9,6 +9,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
@@ -19,11 +20,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/catenahq/catena-ce/internal/admin/actions"
 	"github.com/catenahq/catena-ce/internal/admin/integrations"
 	"github.com/catenahq/catena-ce/internal/admin/web"
+	"github.com/catenahq/catena-ce/internal/pull"
 	"github.com/catenahq/catena-ce/internal/registry"
 	"github.com/catenahq/catena-ce/license"
 	"github.com/catenahq/catena-ce/loader"
@@ -53,12 +56,29 @@ func main() {
 		log.Printf("license: %v (running Community-only)", licErr)
 	}
 
-	// EE plugin binaries are only spawned behind an active license; CE-only
-	// hosts never launch them. The registry's edition gate is the backstop.
+	// pulls tracks the last successful plugin pull -- the "Last updated at Y"
+	// the shell shows under the license field.
+	pulls := &pullState{}
+	pluginsDir := envOr("CATENA_PLUGINS_DIR", "/var/lib/catena/plugins")
+	endpoint := strings.TrimSpace(os.Getenv("CATENA_LICENSE_ENDPOINT"))
+
+	// EE plugin binaries are only fetched + spawned behind an active license;
+	// CE-only hosts never reach the endpoint or launch a binary. The registry's
+	// edition gate is the backstop.
 	if lic.Active(now, graceWindow) {
-		dir := envOr("CATENA_PLUGINS_DIR", "/var/lib/catena/plugins")
-		if n := loadEEPlugins(reg, dir); n > 0 {
-			log.Printf("plugins: loaded %d EE plugin(s) from %s", n, dir)
+		if endpoint != "" {
+			puller := pull.New(endpoint, strings.TrimSpace(os.Getenv("CATENA_LICENSE")), pluginsDir)
+			if n, err := puller.Sync(context.Background()); err != nil {
+				log.Printf("plugins: initial pull from %s: %v", endpoint, err)
+			} else {
+				pulls.set(time.Now().UTC())
+				log.Printf("plugins: pulled %d binary(ies) from %s", n, endpoint)
+			}
+			// Re-validate + re-pull hourly; stops when the license lapses.
+			go pullLoop(context.Background(), puller, pulls, lic)
+		}
+		if n := loadEEPlugins(reg, pluginsDir); n > 0 {
+			log.Printf("plugins: loaded %d EE plugin(s) from %s", n, pluginsDir)
 		}
 	}
 
@@ -95,7 +115,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/licensez", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(licenseStatus(lic, time.Now().UTC()))
+		_ = json.NewEncoder(w).Encode(licenseStatus(lic, time.Now().UTC(), pulls.get()))
 	})
 	mux.Handle("/", shell)
 
@@ -103,6 +123,54 @@ func main() {
 	log.Printf("catena-admin on %s: edition=%s, %d plugin(s) enabled",
 		addr, editionLabel(lic, now), len(enabled))
 	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+// pullState tracks the last successful plugin pull, read by /licensez. Guarded
+// because the hourly pull loop writes it from a background goroutine.
+type pullState struct {
+	mu   sync.Mutex
+	last time.Time
+}
+
+func (s *pullState) set(t time.Time) {
+	s.mu.Lock()
+	s.last = t
+	s.mu.Unlock()
+}
+
+func (s *pullState) get() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.last
+}
+
+// pullLoop re-pulls plugin binaries hourly while the license is active, and
+// exits once it lapses (past grace) so a cancelled subscription stops pulling.
+// Newly pulled binaries take effect on the next shell restart; live hot-reload
+// of the registry arrives with the plugin-render wiring (M2.5).
+func pullLoop(ctx context.Context, puller *pull.Client, st *pullState, lic *license.License) {
+	t := time.NewTicker(time.Hour)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if !lic.Active(time.Now().UTC(), graceWindow) {
+				log.Printf("plugins: license lapsed; stopping hourly pull")
+				return
+			}
+			n, err := puller.Sync(ctx)
+			if err != nil {
+				log.Printf("plugins: hourly pull: %v", err)
+				continue
+			}
+			st.set(time.Now().UTC())
+			if n > 0 {
+				log.Printf("plugins: pulled %d updated binary(ies) (effective on restart)", n)
+			}
+		}
+	}
 }
 
 // loadEEPlugins launches every executable in dir as a go-plugin binary and
@@ -165,15 +233,22 @@ type status struct {
 	LastUpdated string `json:"last_updated,omitempty"`
 }
 
-func licenseStatus(lic *license.License, now time.Time) status {
+// licenseStatus builds the /licensez payload. lastPull is the moment the
+// shell last fetched plugin binaries; it is the "Last updated at Y" the label
+// shows. Before any pull (or CE-only) it falls back to the token check time.
+func licenseStatus(lic *license.License, now, lastPull time.Time) status {
 	if lic == nil {
 		return status{Edition: string(license.Community), Active: false}
+	}
+	updated := lastPull
+	if updated.IsZero() {
+		updated = lic.Checked
 	}
 	return status{
 		Edition:     string(lic.Claims.Edition),
 		Active:      lic.Active(now, graceWindow),
 		ValidUntil:  lic.Claims.ValidUntil.UTC().Format(time.RFC3339),
-		LastUpdated: lic.Checked.Format(time.RFC3339),
+		LastUpdated: updated.UTC().Format(time.RFC3339),
 	}
 }
 
