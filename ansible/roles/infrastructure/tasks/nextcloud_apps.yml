@@ -21,7 +21,7 @@
 
 - name: "Nextcloud apps: install Mail wiring script (/usr/local/bin/catena-wire-nextcloud-mail)"
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../vps-scripts/wire-nextcloud-mail.sh"
+    src: "{{ playbook_dir }}/../scripts/wire-nextcloud-mail.sh"
     dest: /usr/local/bin/catena-wire-nextcloud-mail
     owner: root
     group: root
@@ -32,7 +32,7 @@
 # Opens top-level (redirect, not iframe) so Roundcube's Keycloak OAuth works.
 - name: "Nextcloud apps: install Webmail-link script (/usr/local/bin/catena-wire-nextcloud-webmail-link)"
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../vps-scripts/wire-nextcloud-webmail-link.sh"
+    src: "{{ playbook_dir }}/../scripts/wire-nextcloud-webmail-link.sh"
     dest: /usr/local/bin/catena-wire-nextcloud-webmail-link
     owner: root
     group: root

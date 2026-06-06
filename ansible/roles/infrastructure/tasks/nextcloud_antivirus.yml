@@ -12,7 +12,7 @@
 # app + cron services join (see nextcloud-s3.compose.yml).
 - name: "Nextcloud antivirus: install host script (/usr/local/bin/catena-wire-nextcloud-antivirus)"
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../vps-scripts/wire-nextcloud-antivirus.sh"
+    src: "{{ playbook_dir }}/../scripts/wire-nextcloud-antivirus.sh"
     dest: /usr/local/bin/catena-wire-nextcloud-antivirus
     owner: root
     group: root

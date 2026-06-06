@@ -44,7 +44,7 @@
 # commit (the recovery zip subsumes that flow).
 - name: "recovery_archive: vault-recovery core module (/usr/local/lib/catena/extract_secrets_core.py)"
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../helpers/extract_secrets_core.py"
+    src: "{{ playbook_dir }}/../helpers/extract_secrets_core.py"
     dest: /usr/local/lib/catena/extract_secrets_core.py
     owner: root
     group: root
@@ -52,7 +52,7 @@
 
 - name: "recovery_archive: zip-archive core module (/usr/local/lib/catena/recovery_archive_core.py)"
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../helpers/recovery_archive_core.py"
+    src: "{{ playbook_dir }}/../helpers/recovery_archive_core.py"
     dest: /usr/local/lib/catena/recovery_archive_core.py
     owner: root
     group: root
@@ -68,7 +68,7 @@
 
 - name: "recovery_archive: host-side entry script (/usr/local/bin/catena-generate-recovery-archive)"
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../vps-scripts/generate-recovery-archive.py"
+    src: "{{ playbook_dir }}/../scripts/generate-recovery-archive.py"
     dest: /usr/local/bin/catena-generate-recovery-archive
     owner: root
     group: root

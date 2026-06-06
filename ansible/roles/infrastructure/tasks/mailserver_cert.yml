@@ -83,7 +83,7 @@
 
     - name: "Mailserver cert: install certbot deploy hook (plain script)"
       ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../../vps-scripts/mailserver-cert-reload.sh"
+        src: "{{ playbook_dir }}/../scripts/mailserver-cert-reload.sh"
         dest: /etc/letsencrypt/renewal-hooks/deploy/mailserver-reload.sh
         owner: root
         group: root

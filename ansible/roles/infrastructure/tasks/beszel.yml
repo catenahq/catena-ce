@@ -110,7 +110,7 @@
 # universal_tokens row (unique on user).
 - name: "Beszel: drop universal-token seed script to /root"
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../vps-scripts/beszel-seed.py"
+    src: "{{ playbook_dir }}/../scripts/beszel-seed.py"
     dest: /root/catena-beszel-seed.py
     owner: root
     group: root
@@ -164,7 +164,7 @@
 
 - name: "Beszel: drop alert-shim script"
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../vps-scripts/beszel-hc-shim.py"
+    src: "{{ playbook_dir }}/../scripts/beszel-hc-shim.py"
     dest: "{{ beszel_hc_shim_host_dir }}/beszel-hc-shim.py"
     owner: root
     group: root

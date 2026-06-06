@@ -159,7 +159,7 @@
 # regular file.
 - name: "Healthchecks: drop Django seed script to /root"
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../vps-scripts/healthchecks-seed.py"
+    src: "{{ playbook_dir }}/../scripts/healthchecks-seed.py"
     dest: /root/catena-healthchecks-seed.py
     owner: root
     group: root

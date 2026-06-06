@@ -15,7 +15,7 @@
   # (see EnvironmentFile= in dashboard-sync.service.j2) and is read
   # via os.environ throughout.
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../vps-scripts/dashboard-sync.py"
+    src: "{{ playbook_dir }}/../scripts/dashboard-sync.py"
     dest: "{{ dashboard_sync_script_path }}"
     owner: root
     group: root
@@ -37,13 +37,13 @@
     group: root
     mode: "0644"
   loop:
-    - { src: "{{ playbook_dir }}/../../vps-scripts/dokploy_api.py", dest: "dokploy_api.py" }
-    - { src: "{{ playbook_dir }}/../../vps-scripts/route_synth.py", dest: "route_synth.py" }
-    - { src: "{{ playbook_dir }}/../../vps-scripts/gate_routes.py", dest: "gate_routes.py" }
-    - { src: "{{ playbook_dir }}/../../vps-scripts/clients_provisioner.py", dest: "clients_provisioner.py" }
-    - { src: "{{ playbook_dir }}/../../vps-scripts/keycloak_client.py", dest: "keycloak_client.py" }
-    - { src: "{{ playbook_dir }}/../../vps-scripts/mailbox_sync.py", dest: "mailbox_sync.py" }
-    - { src: "{{ playbook_dir }}/../../helpers/labels_schema.py", dest: "labels_schema.py" }
+    - { src: "{{ playbook_dir }}/../scripts/dokploy_api.py", dest: "dokploy_api.py" }
+    - { src: "{{ playbook_dir }}/../scripts/route_synth.py", dest: "route_synth.py" }
+    - { src: "{{ playbook_dir }}/../scripts/gate_routes.py", dest: "gate_routes.py" }
+    - { src: "{{ playbook_dir }}/../scripts/clients_provisioner.py", dest: "clients_provisioner.py" }
+    - { src: "{{ playbook_dir }}/../scripts/keycloak_client.py", dest: "keycloak_client.py" }
+    - { src: "{{ playbook_dir }}/../scripts/mailbox_sync.py", dest: "mailbox_sync.py" }
+    - { src: "{{ playbook_dir }}/../helpers/labels_schema.py", dest: "labels_schema.py" }
   loop_control:
     label: "{{ item.dest }}"
 

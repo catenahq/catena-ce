@@ -16,7 +16,7 @@
 
 - name: "Mail canary: wrapper script"
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../vps-scripts/run-mail-canary.sh"
+    src: "{{ playbook_dir }}/../scripts/run-mail-canary.sh"
     dest: "{{ mail_canary_script_path }}"
     owner: root
     group: root

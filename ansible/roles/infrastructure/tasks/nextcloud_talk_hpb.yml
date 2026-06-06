@@ -18,7 +18,7 @@
 
 - name: "Nextcloud Talk HPB: install host script"
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../vps-scripts/nextcloud-talk-hpb-wire.sh"
+    src: "{{ playbook_dir }}/../scripts/nextcloud-talk-hpb-wire.sh"
     dest: /usr/local/bin/catena-wire-nextcloud-talk-hpb
     owner: root
     group: root

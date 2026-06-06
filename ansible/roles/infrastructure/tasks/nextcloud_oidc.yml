@@ -49,7 +49,7 @@
 # both of which iterate (olivetin_actions + olivetin_extra_actions).
 - name: "Nextcloud OIDC: install host script (/usr/local/bin/catena-wire-nextcloud-oidc)"
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../vps-scripts/wire-nextcloud-oidc.sh"
+    src: "{{ playbook_dir }}/../scripts/wire-nextcloud-oidc.sh"
     dest: /usr/local/bin/catena-wire-nextcloud-oidc
     owner: root
     group: root

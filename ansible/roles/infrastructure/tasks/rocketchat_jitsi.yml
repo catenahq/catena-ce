@@ -24,7 +24,7 @@
 
 - name: "RC Jitsi: install host script"
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../vps-scripts/rocketchat-jitsi-wire.sh"
+    src: "{{ playbook_dir }}/../scripts/rocketchat-jitsi-wire.sh"
     dest: /usr/local/bin/catena-wire-rocketchat-jitsi
     owner: root
     group: root

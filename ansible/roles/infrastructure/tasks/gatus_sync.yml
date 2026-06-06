@@ -13,7 +13,7 @@
   # --format Go templates like `{{.Names}}` inside the script's string
   # literals (see commit history for prior fragile `{{ '{{' }}` dance).
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../vps-scripts/gatus-sync.py"
+    src: "{{ playbook_dir }}/../scripts/gatus-sync.py"
     dest: "{{ gatus_sync_script_path }}"
     owner: root
     group: root

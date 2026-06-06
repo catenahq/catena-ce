@@ -36,7 +36,7 @@
 
 - name: "Nextcloud office: install Collabora wiring script (/usr/local/bin/catena-wire-nextcloud-collabora)"
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../vps-scripts/wire-nextcloud-collabora.sh"
+    src: "{{ playbook_dir }}/../scripts/wire-nextcloud-collabora.sh"
     dest: /usr/local/bin/catena-wire-nextcloud-collabora
     owner: root
     group: root
@@ -44,7 +44,7 @@
 
 - name: "Nextcloud office: install OnlyOffice wiring script (/usr/local/bin/catena-wire-nextcloud-onlyoffice)"
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../vps-scripts/wire-nextcloud-onlyoffice.sh"
+    src: "{{ playbook_dir }}/../scripts/wire-nextcloud-onlyoffice.sh"
     dest: /usr/local/bin/catena-wire-nextcloud-onlyoffice
     owner: root
     group: root
