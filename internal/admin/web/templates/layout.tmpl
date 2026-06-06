@@ -40,7 +40,7 @@
     {{ block "content" . }}{{ end }}
   </main>
   <footer class="app-footer">
-    {{ if .IsAdmin }}
+    {{ if and .IsAdmin .Globals.audit_tab_enabled }}
       <a href="/audit">{{ .T "footer.audit_log" }}</a>
     {{ end }}
   </footer>

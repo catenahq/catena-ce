@@ -103,14 +103,40 @@ func TestNavGatedByAdmin(t *testing.T) {
 		t.Error("non-admin must not see the System tab")
 	}
 
-	// Admin: the admin tabs render.
+	// Admin: the CE admin tabs render, but the EE tabs stay hidden in
+	// Community (no per-tab globals set).
 	rr = httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/apps", nil)
-	req.Header.Set("X-Forwarded-Email", "op@example.com")
-	req.Header.Set("X-Forwarded-Groups", "admin")
-	h.ServeHTTP(rr, req)
-	if !strings.Contains(rr.Body.String(), `href="/system"`) {
+	h.ServeHTTP(rr, adminReq("GET", "/apps", ""))
+	body := rr.Body.String()
+	if !strings.Contains(body, `href="/system"`) {
 		t.Error("admin must see the System tab")
+	}
+	for _, ee := range []string{`href="/access"`, `href="/daily"`, `href="/audit"`} {
+		if strings.Contains(body, ee) {
+			t.Errorf("CE-only nav must not show the EE link %s", ee)
+		}
+	}
+}
+
+func TestEETabsShownWhenGlobalsEnabled(t *testing.T) {
+	h, err := New(Config{
+		Version: "t",
+		Globals: map[string]any{
+			"access_tab_enabled": true,
+			"daily_tab_enabled":  true,
+			"audit_tab_enabled":  true,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, adminReq("GET", "/apps", ""))
+	body := rr.Body.String()
+	for _, ee := range []string{`href="/access"`, `href="/daily"`, `href="/audit"`} {
+		if !strings.Contains(body, ee) {
+			t.Errorf("enabled EE tab link %s should render", ee)
+		}
 	}
 }
 

@@ -1,9 +1,18 @@
+{{- /* CE renders only the CE tabs. The EE tabs (Access / Daily / Clients)
+       are gated behind per-tab globals that default false in Community --
+       a license-loaded EE plugin flips them on when it contributes the
+       tab (M2.5 plugin nav registry), so a CE-only host shows no dead
+       links. */ -}}
 {{define "nav"}}
 <a href="/apps"{{ if or (eq .Path "/") (hasPrefix .Path "/apps") }} class="active"{{ end }}>{{ .T "tabs.apps" }}</a>
 {{- if .IsAdmin }}
+{{- if .Globals.access_tab_enabled }}
 <a href="/access"{{ if hasPrefix .Path "/access" }} class="active"{{ end }}>{{ .T "tabs.access" }}</a>
+{{- end }}
 <a href="/system"{{ if or (hasPrefix .Path "/system") (hasPrefix .Path "/audit") }} class="active"{{ end }}>{{ .T "tabs.system" }}</a>
+{{- if .Globals.daily_tab_enabled }}
 <a href="/daily"{{ if hasPrefix .Path "/daily" }} class="active"{{ end }}>{{ .T "tabs.daily" }}</a>
+{{- end }}
 <a href="/maintenance"{{ if hasPrefix .Path "/maintenance" }} class="active"{{ end }}>{{ .T "tabs.maintenance" }}</a>
 <a href="/resources"{{ if hasPrefix .Path "/resources" }} class="active"{{ end }}>{{ .T "tabs.resources" }}</a>
 <a href="/actions"{{ if hasPrefix .Path "/actions" }} class="active"{{ end }}>{{ .T "tabs.actions" }}</a>
