@@ -1,8 +1,9 @@
 name: CI
 
-# Go build/vet/test gate for the catena-admin shell + license/plugin libs.
-# Runs on the self-hosted laptop runner; Go comes from ~/.local/go (the
-# same toolchain used locally) rather than setup-go.
+# Go build/vet/test gate for the catena-admin shell + license/plugin libs,
+# plus the Python installer (ansible/) unit tests. Runs on the self-hosted
+# laptop runner; Go comes from ~/.local/go (the same toolchain used locally)
+# rather than setup-go, and Python tooling comes from uv.
 
 on:
   push:
@@ -29,3 +30,15 @@ jobs:
         run: go vet ./...
       - name: Test
         run: go test ./...
+
+  installer:
+    name: Installer (Python) tests
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      # The installer tests import only seed.py + helpers (no ansible-core), so
+      # run them in a lightweight ephemeral env instead of syncing the project
+      # (which would pull ansible-core for nothing here).
+      - name: Unit tests
+        working-directory: ansible
+        run: uv run --no-project --with pytest --with pyyaml python -m pytest tests/unit -q
