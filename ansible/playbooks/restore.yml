@@ -1,0 +1,60 @@
+---
+# Narrow data-restoration playbook. Runs on a fresh-or-bare VPS where
+# bootstrap.yml has already joined the tailnet.
+#
+# Scope:
+#   - apt + base packages (common)
+#   - mount /mnt/data (storage)
+#   - install restic + write password file + restic restore into /
+#
+# NOT in scope (intentionally): docker / dokploy / infrastructure --
+# those are site.yml's job. After restore succeeds, run site.yml to bring
+# the apps back up on the restored data.
+#
+# Whole-host restic restore is the Community recovery path. The Business
+# edition layers a coupled multi-app post-restore reconcile (dependency-
+# ordered Dokploy redeploy + pg_dumpall replay); that lane is not part of
+# Community and is not invoked here.
+#
+# Usage (cwd = ansible/):
+#   ansible-playbook -i inventory/example playbooks/restore.yml \
+#       --limit host1 -e restore_snapshot=latest
+#   ansible-playbook -i inventory/example playbooks/site.yml --limit host1
+
+- name: Restore VPS filesystem from backup
+  # `stage_hosts` allows a wrapper to target source vs target explicitly;
+  # direct invocation with `--limit` still uses `vps:`.
+  hosts: "{{ stage_hosts | default('vps') }}"
+  become: true
+  gather_facts: true
+
+  # `restore_snapshot` falls back to roles/backup/defaults/main.yml
+  # (`restore_snapshot: latest`) when unset by the caller.
+
+  pre_tasks:
+    - name: Fail fast if restic password is missing
+      ansible.builtin.assert:
+        that:
+          - vault_backup_restic_password is defined
+          - vault_backup_s3_access_key is defined
+          - vault_backup_s3_secret_key is defined
+        fail_msg: >-
+          Restic credentials must be in vault before restore can run.
+          See inventory/example/group_vars/all/vault.yml.example for the
+          schema (the encrypted live file is vault.sops.yml).
+
+  roles:
+    - role: common # apt update + base packages (restic needs apt)
+    - role: storage # mount points must exist before restore writes to them
+    - role: backup
+      vars:
+        backup_mode: restore # restic restore into /
+
+  post_tasks:
+    - name: "Restore complete -- next step"
+      ansible.builtin.debug:
+        msg: |
+          Filesystem restore OK. The restored data is back under /mnt/data.
+          Next: run site.yml to bring services up on the restored data.
+
+            ansible-playbook playbooks/site.yml --limit {{ inventory_hostname }}

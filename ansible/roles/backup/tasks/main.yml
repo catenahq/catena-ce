@@ -1,18 +1,21 @@
 ---
-# Dispatcher -- backup_mode picks which subfile to run.
-#   install   (default, site.yml path) -- install binaries, unit files, timer
+# Dispatcher -- backup_mode picks which subfile to run. These are all
+# restore/backup MECHANISMS (fair-code); the Business edition adds the
+# scheduling (timer -- dropped here) and the multi-app post-restore
+# ORCHESTRATION (post_restore_redeploy.yml, which lives in the private
+# repo and drives the mechanisms below in dependency order).
+#   install   (default, site.yml path) -- install binaries, unit files,
+#             the manual oneshot service, and the initial snapshot
 #   verify    (verify-backup.yml)      -- dry-restore + assert
-#   restore   (restore.yml, restore.yml playbook) -- filesystem restore from restic
-#   pg_replay (pg_replay.yml) -- replay pg_dumpall into running
-#             Dokploy-managed postgres containers. Auto-invoked from the
-#             dokploy role on a DR converge (post-restore-marker-gated,
-#             scope=dokploy). This dispatcher branch is the operator-
-#             callable entry point for incremental scenarios (single-
-#             client replay, stale-snapshot replay against a live host,
-#             "raw volume corrupt" recovery). Split from restore so
-#             restore.yml stays a pure data-restore step (no Docker);
-#             pg_replay runs only once Dokploy-managed postgres
-#             containers are live.
+#   restore   (restore.yml playbook)   -- filesystem restore from restic
+#   pg_replay (pg_replay.yml) -- replay pg_dumpall into running postgres
+#             containers. dokploy-postgres is EXCLUDED from the raw restic
+#             set, so scope=dokploy is the ONLY restore path for the
+#             Dokploy control DB -- the dokploy role calls it directly
+#             (scope=dokploy) on a post-restore converge. scope=clients
+#             is driven by the Business post-restore orchestration.
+#   s3_reconcile (s3_reconcile.yml) -- post-restore DB<->S3 reference
+#             reconcile; driven by the Business post-restore orchestration.
 
 - name: Assert backup_mode is valid
   ansible.builtin.assert:
@@ -30,8 +33,8 @@
     fail_msg: >-
       Restic credentials must be in vault and BACKUP_RESTIC_REPO must be set
       in inventory/<name>/.env before the backup role can run.
-      See ansible/skel/group_vars/all/vault.yml.example for the schema
-      (the encrypted live file is at vault.sops.yml).
+      See inventory/example/group_vars/all/vault.yml.example for the schema
+      (the encrypted live file is vault.sops.yml).
 
 - name: Install backup infrastructure
   ansible.builtin.include_tasks: install.yml
@@ -49,6 +52,6 @@
   ansible.builtin.include_tasks: pg_replay.yml
   when: backup_mode == 'pg_replay'
 
-- name: Reconcile DB ↔ S3 references
+- name: Reconcile DB <-> S3 references
   ansible.builtin.include_tasks: s3_reconcile.yml
   when: backup_mode == 's3_reconcile'
