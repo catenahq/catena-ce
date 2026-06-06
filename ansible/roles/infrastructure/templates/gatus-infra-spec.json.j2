@@ -1,0 +1,128 @@
+[
+  {
+    "label": "{{ dokploy_admin_hostname }}",
+    "url": "https://{{ dokploy_admin_hostname }}",
+    "group": "Infrastructure",
+    "accepted": [302],
+    "ignore_redirect": true,
+    "interval": "120s",
+    "alert_slug": "{{ dokploy_admin_hostname | lower | replace('.', '-') }}",
+    "version_key": "Dokploy"
+  },
+  {
+    "label": "dokploy-traefik",
+    "url": "http://dokploy-traefik:80/",
+    "group": "Infrastructure",
+    "accepted": [200, 404],
+    "ignore_redirect": false,
+    "interval": "60s",
+    "alert_slug": "traefik-internal",
+    "version_key": "Traefik (Dokploy)"
+  },
+  {
+    "label": "{{ infrastructure_monitor_hostname }}",
+    "url": "https://{{ infrastructure_monitor_hostname }}",
+    "group": "Infrastructure",
+    "accepted": [302],
+    "ignore_redirect": true,
+    "interval": "120s",
+    "alert_slug": "{{ infrastructure_monitor_hostname | lower | replace('.', '-') }}",
+    "version_key": "Gatus"
+  },
+{# OliveTin runs in native-OIDC mode (vps.auth.mode=public +
+   vps.auth.oidc=true) and serves its own SPA shell on / -- the
+   OIDC dance happens via JS, no top-level redirect. Other infra
+   apps still 302 because they're gated by oauth2-proxy in front. #}
+  {
+    "label": "{{ infrastructure_actions_hostname }}",
+    "url": "https://{{ infrastructure_actions_hostname }}",
+    "group": "Infrastructure",
+    "accepted": [200],
+    "ignore_redirect": true,
+    "interval": "120s",
+    "alert_slug": "{{ infrastructure_actions_hostname | lower | replace('.', '-') }}",
+    "version_key": "OliveTin"
+  },
+  {
+    "label": "{{ infrastructure_dash_hostname }}",
+    "url": "https://{{ infrastructure_dash_hostname }}",
+    "group": "Infrastructure",
+    "accepted": [302],
+    "ignore_redirect": true,
+    "interval": "120s",
+    "alert_slug": "{{ infrastructure_dash_hostname | lower | replace('.', '-') }}",
+    "version_key": "Homepage"
+  },
+  {
+    "label": "{{ infrastructure_recovery_hostname }}",
+    "url": "https://{{ infrastructure_recovery_hostname }}",
+    "group": "Infrastructure",
+    "accepted": [302],
+    "ignore_redirect": true,
+    "interval": "120s",
+    "alert_slug": "{{ infrastructure_recovery_hostname | lower | replace('.', '-') }}",
+    "version_key": null,
+    "compose_name": "{{ recovery_compose_name }}"
+  },
+  {
+    "label": "{{ healthchecks_hostname }}",
+    "url": "https://{{ healthchecks_hostname }}",
+    "group": "Infrastructure",
+    "accepted": [302],
+    "ignore_redirect": true,
+    "interval": "120s",
+    "alert_slug": "{{ healthchecks_hostname | lower | replace('.', '-') }}",
+    "version_key": "Healthchecks"
+  },
+  {
+    "label": "Restic backup",
+    "url": "http://homepage-stats/backup-stats.json",
+    "group": "Infrastructure",
+    "accepted": [200],
+    "ignore_redirect": false,
+    "interval": "300s",
+    "alert_slug": "restic-backup",
+    "version_key": "Restic",
+    "extra_conditions": [
+      "[BODY].status == ok"
+    ]
+  },
+  {
+    "label": "Container CVE inventory",
+    "url": "http://homepage-stats/container-cve-findings.json",
+    "group": "Infrastructure",
+    "accepted": [200],
+    "ignore_redirect": false,
+    "interval": "3600s",
+    "alert_slug": "container-cve-inventory",
+    "version_key": null,
+    "extra_conditions": [
+      "[BODY].count_critical == 0",
+      "[BODY].count_high <= {{ container_cve_high_threshold | default(10) }}"
+    ]
+  },
+  {
+    "label": "cloudflared",
+    "url": "http://dokploy-traefik:80/",
+    "group": "Infrastructure",
+    "accepted": [200, 404],
+    "ignore_redirect": false,
+    "interval": "120s",
+    "alert_slug": "cloudflared",
+    "version_key": "Cloudflared"
+  }{% if beszel_enabled | default(false) %},
+{# Beszel hub liveness. Only emitted when BESZEL_ENABLED=true so hosts
+   without the monitor don't probe a non-existent hub.<zone> and page.
+   302 because it sits behind the admin oauth2-proxy chain. #}
+  {
+    "label": "{{ beszel_hostname }}",
+    "url": "https://{{ beszel_hostname }}",
+    "group": "Infrastructure",
+    "accepted": [302],
+    "ignore_redirect": true,
+    "interval": "120s",
+    "alert_slug": "{{ beszel_hostname | lower | replace('.', '-') }}",
+    "version_key": "Beszel"
+  }{% endif %}
+
+]

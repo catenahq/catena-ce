@@ -1,0 +1,34 @@
+---
+# Element / Matrix OIDC against Keycloak.
+#
+# Single-step (unlike nextcloud_oidc.yml which has a post-deploy occ
+# wiring): the element Dokploy template's catena-synapse-init.py
+# renders the OIDC block straight into homeserver.yaml from env vars
+# at container start. The Dokploy template ships
+# OIDC_CLIENT_SECRET={{ vault_element_oidc_client_secret }} in
+# env_managed_keys (re-injected on every converge), so as long as
+# Keycloak has a matching `element` client with the same secret, the
+# discovery URL works the instant the operator clicks Deploy.
+#
+# What this task does:
+#   - Render realm-element.yaml into the realm config dir.
+#   - Re-import the realm so Keycloak knows the `element` client.
+#
+# Idempotent: the realm import uses NO_DELETE merge semantics (set in
+# realm_bootstrap.yml). Re-running this task on every converge is safe
+# and cheap; only the realm import command re-fires when the rendered
+# file changes.
+
+- name: "Element OIDC: render Keycloak client into realm config dir"
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../roles/keycloak/templates/realm-element.yaml.j2"
+    dest: "{{ keycloak_realm_host_dir }}/element.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  register: _element_realm_render
+
+- name: "Element OIDC: re-import realm config with the new client"
+  ansible.builtin.include_tasks: ../../keycloak/tasks/realm_bootstrap.yml
+  when: _element_realm_render is changed
+  tags: [element_realm]

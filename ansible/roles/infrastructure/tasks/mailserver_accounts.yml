@@ -1,0 +1,68 @@
+---
+# Bootstrap the postmaster mailbox so docker-mailserver can start at all.
+#
+# docker-mailserver has two hard boot gates in start-mailserver.sh: (1) it
+# polls 120s for >=1 mailbox then shuts down ("no accounts were provided -
+# Dovecot could not be started"), and (2) with SSL_TYPE=manual it then
+# requires the cert at SSL_CERT_PATH. Mailboxes are otherwise provisioned
+# from Keycloak membership by the dashboard-sync reconciler
+# (vps-scripts/mailbox_sync.py) on a 5-minute timer, which loses the 120s
+# race on first deploy and provisions nothing when no member has a mailbox
+# yet (the bench, and any fresh install) -- so DMS crash-loops forever.
+# RFC 2142 also requires postmaster@ to be deliverable.
+#
+# The mailserver_cert task ran just before this and injected the cert
+# during the stable account-wait window. Adding postmaster@<zone> here is
+# the action that unblocks gate 1; the same boot then clears gate 2 (cert
+# present) and Dovecot starts. The reconciler preserves postmaster (never
+# deletes it). Password is a throwaway -- login is via Keycloak OIDC, like
+# every mailbox. Idempotent: `setup email add` exits 1 with "already
+# exists" on a re-converge, which we treat as success.
+#
+# We deliberately do NOT probe with `setup email list`: it shells out to a
+# doveadm userdb lookup that needs Dovecot's socket, so it errors whenever
+# Dovecot is down -- exactly the bootstrap state.
+#
+# Opt-in template: no-ops when the mailserver is not deployed (no dms).
+
+- name: "Mailserver accounts: locate dms container"
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker ps --filter label=com.docker.compose.service=dms \
+      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1
+  args:
+    executable: /bin/bash
+  register: _ms_acct_dms
+  changed_when: false
+
+- name: "Mailserver accounts: throwaway postmaster password (login is via OIDC)"
+  ansible.builtin.set_fact:
+    _ms_postmaster_pw: "{{ lookup('ansible.builtin.password', '/dev/null length=24 chars=ascii_letters,digits') }}"
+  no_log: true
+  when: (_ms_acct_dms.stdout | default('') | length) > 0
+
+- name: "Mailserver accounts: ensure postmaster mailbox exists (unblocks DMS boot)"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - "{{ _ms_acct_dms.stdout | trim }}"
+      - setup
+      - email
+      - add
+      - "postmaster@{{ cloudflare_zone }}"
+      - "{{ _ms_postmaster_pw }}"
+  register: _ms_acct_add
+  changed_when: _ms_acct_add.rc == 0
+  # Success = created (rc 0) OR already present ("already exists" on a
+  # re-converge). Retry rides out the boot crash-loop windows when the
+  # container is briefly down (docker exec then errors with neither). Fail
+  # loud only if it never succeeds for some other reason.
+  until: _ms_acct_add.rc == 0 or 'already exists' in (_ms_acct_add.stderr | default(''))
+  failed_when:
+    - _ms_acct_add.rc != 0
+    - "'already exists' not in (_ms_acct_add.stderr | default(''))"
+  retries: 30
+  delay: 10
+  no_log: true
+  when: (_ms_acct_dms.stdout | default('') | length) > 0

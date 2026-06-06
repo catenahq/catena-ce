@@ -1,0 +1,13 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Periodic refresh of Gatus 50-dokploy-apps.yaml
+
+[Timer]
+OnBootSec=3min
+OnCalendar={{ gatus_sync_interval }}
+RandomizedDelaySec=60s
+Persistent=true
+Unit=gatus-sync.service
+
+[Install]
+WantedBy=timers.target

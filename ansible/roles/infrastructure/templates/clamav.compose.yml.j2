@@ -1,0 +1,54 @@
+---
+# {{ ansible_managed }}
+# Shared ClamAV daemon (clamd) for the Catena stack. ONE clamd serves
+# both the mail server (rspamd antivirus module over TCP) and Nextcloud
+# (files_antivirus Daemon mode). Reached as clamav:3310 on the dedicated
+# {{ clamav_network }} network (external; also joined by the dms and the
+# Nextcloud app/cron services in their templates). No host port -- clamd
+# has no auth, so network isolation is the only control.
+#
+# Image is the _base variant: it ships WITHOUT the signature database;
+# the bundled freshclam daemon downloads it on first start and refreshes
+# it through the day. The DB lives on a named volume so a container
+# recreate does not re-download ~250 MB.
+services:
+  clamav:
+    image: {{ clamav_image }}
+    restart: unless-stopped
+    environment:
+      # Run both clamd and freshclam inside the container (image default;
+      # set explicitly so a Dokploy UI edit is visible + reviewable).
+      CLAMAV_NO_CLAMD: "false"
+      CLAMAV_NO_FRESHCLAMD: "false"
+      # First start blocks until freshclam has pulled the DB; give it
+      # head-room on a slow link before clamd is declared failed.
+      CLAMD_STARTUP_TIMEOUT: "1800"
+      # freshclam refresh cadence (checks per day).
+      FRESHCLAM_CHECKS: "24"
+    volumes:
+      # Persist the signature DB across restarts.
+      - clamav-db:/var/lib/clamav
+    # The official image ships clamdcheck.sh (PING/PONG against the local
+    # clamd socket). Surface it as the compose healthcheck so Dokploy and
+    # the Step-7 monitor see a real ready signal, not just "process up".
+    # start_period covers the first freshclam download.
+    healthcheck:
+      test: ["CMD-SHELL", "clamdcheck.sh || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+    labels:
+      - "vps.auto-update=patch"
+    networks:
+      {{ clamav_network }}:
+        aliases:
+          - clamav
+
+volumes:
+  clamav-db:
+
+networks:
+  # Created by roles/infrastructure clamav.yml before this deploys.
+  {{ clamav_network }}:
+    external: true

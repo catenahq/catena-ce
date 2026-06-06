@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Timer for the catena shared-clamd watchdog
+
+[Timer]
+OnCalendar={{ clamav_watch_schedule }}
+RandomizedDelaySec=60
+Persistent=true
+Unit={{ clamav_watch_systemd_unit_name }}.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,71 @@
+---
+# End-of-role aggregate readiness probe for the gated services
+# (gatus, healthchecks, recovery).
+#
+# Provider-neutral probe: each service must return one of 200, 301,
+# 302, OR 307. 401 is no longer accepted -- after the reverse-proxy
+# migration, oauth2-proxy emits a real 302 to Keycloak when the user
+# is unauthenticated (no more Traefik errors-middleware status
+# preservation that previously masqueraded as 401).
+#
+# 30x covers every gated reverse-proxy instance redirecting to
+# Keycloak.
+#
+# Why end-of-role: per-service probes inside each dokploy_compose include
+# can race the SSO stack's own readiness. Deferring to one aggregate
+# pass at end of role gives the auth layer the full wall-clock of the
+# other infra deploys to settle.
+
+- name: "Verify gated services: probe public URLs (single-shot)"
+  # Single shot, no retries. If services aren't ready at this point it's
+  # a config failure, not a race.
+  ansible.builtin.uri:
+    url: "{{ item.url }}"
+    method: GET
+    status_code: [200, 301, 302, 307]
+    follow_redirects: none
+    timeout: 10
+  register: _infra_gated_probes
+  loop:
+    - { name: "gatus", url: "https://{{ infrastructure_monitor_hostname }}/" }
+    - { name: "healthchecks", url: "https://{{ healthchecks_hostname }}/" }
+    - { name: "recovery", url: "https://{{ infrastructure_recovery_hostname }}/" }
+  loop_control:
+    label: "{{ item.name }} -> {{ item.url }}"
+  delegate_to: localhost
+  become: false
+  ignore_errors: true
+
+- name: "Verify gated services: compute failure set"
+  ansible.builtin.set_fact:
+    _infra_gated_failures: >-
+      {{
+        (_infra_gated_probes.results | default([]))
+        | selectattr('failed', 'defined')
+        | selectattr('failed', 'equalto', true)
+        | map(attribute='item.name')
+        | list
+      }}
+
+- name: "Verify gated services: all OK"
+  ansible.builtin.debug:
+    msg: "All 3 gated services returned 200/30x (auth redirect or direct serve) -- OK."
+  when: _infra_gated_failures | length == 0
+
+- name: "Verify gated services: fail with aggregated report"
+  ansible.builtin.fail:
+    msg: |
+      {{ _infra_gated_failures | length }}/3 gated services failed the
+      public-URL probe: {{ _infra_gated_failures | join(', ') }}.
+
+      Diagnostic next steps:
+        - Inspect Traefik dynamic-config dir for the per-app reverse-proxy route:
+            ls /etc/dokploy/traefik/dynamic/*-oauth2-proxy.yml
+        - Check the per-app oauth2-proxy container logs:
+            docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep oauth2-proxy
+            docker logs <oauth2-proxy-<slug>> --tail 200
+        - Check Keycloak readiness:
+            curl -fsS https://{{ keycloak_hostname | default('auth.' ~ cloudflare_zone) }}/health/ready
+        - Re-run the probe manually:
+            curl -I https://{{ infrastructure_monitor_hostname }}/
+  when: _infra_gated_failures | length > 0

@@ -1,0 +1,139 @@
+---
+# Host-side wiring for the F12 "Generate recovery archive (encrypted)"
+# OliveTin button. Vendors three files into /usr/local/lib/catena/ +
+# /usr/local/bin/, plus the apt dep (p7zip-full / 7zip) needed by the
+# 7z subprocess inside recovery_archive_core.pack_recovery_archive.
+#
+# Idempotent: re-running over a converged host re-copies bytes only
+# when src/dst diverge. Safe to converge against a host that already
+# has the older "Export recovery secrets" plumbing -- nothing
+# conflicts (different filenames, same /var/backups/catena-export/).
+#
+# Deliverables on the host:
+#
+#   /usr/local/lib/catena/recovery_archive_core.py   shared core
+#   /usr/local/lib/catena/restore.sh                 read-only template
+#                                                    the generator stamps
+#                                                    into the recovery
+#                                                    archive's restore.sh
+#   /usr/local/bin/catena-generate-recovery-archive  host-side entry
+#                                                    invoked by OliveTin
+#                                                    via $PAYLOAD =
+#                                                    operator passphrase
+#
+# The OliveTin action manifest entry lives in vars/main.yml
+# (`olivetin_actions:` list) and gets picked up automatically by the
+# templates that iterate (olivetin_actions + olivetin_extra_actions).
+#
+# /var/backups/catena-export/ is created by the existing extract-
+# secrets task + the backup role; we do not duplicate that here.
+
+- name: "recovery_archive: /usr/local/lib/catena dir"
+  ansible.builtin.file:
+    path: /usr/local/lib/catena
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# extract_secrets_core ships as a sibling here because the host-side
+# generator (vps-scripts/generate-recovery-archive.py) imports it to
+# reconstruct the candidate vault.yml from live host state. Same
+# module, same path -- recovery_archive owns the install since the
+# old "Export recovery secrets" button + its task are removed in this
+# commit (the recovery zip subsumes that flow).
+- name: "recovery_archive: vault-recovery core module (/usr/local/lib/catena/extract_secrets_core.py)"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../helpers/extract_secrets_core.py"
+    dest: /usr/local/lib/catena/extract_secrets_core.py
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: "recovery_archive: zip-archive core module (/usr/local/lib/catena/recovery_archive_core.py)"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../helpers/recovery_archive_core.py"
+    dest: /usr/local/lib/catena/recovery_archive_core.py
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: "recovery_archive: restore.sh template (/usr/local/lib/catena/restore.sh)"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../client-tools/restore.sh"
+    dest: /usr/local/lib/catena/restore.sh
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: "recovery_archive: host-side entry script (/usr/local/bin/catena-generate-recovery-archive)"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../vps-scripts/generate-recovery-archive.py"
+    dest: /usr/local/bin/catena-generate-recovery-archive
+    owner: root
+    group: root
+    mode: "0755"
+
+# /var/backups/catena-export/ is shared with roles/backup (its
+# snapshot-export feature uses the same path, mode 0750 root). We
+# create it here because in site.yml, roles/infrastructure runs
+# BEFORE roles/backup -- and validate.yml (end of infrastructure)
+# stats this dir. Without this task, validate fails on first
+# converge. Both roles creating it is idempotent (same mode/owner;
+# state=directory is no-op when already present).
+- name: "recovery_archive: export dir (/var/backups/catena-export)"
+  ansible.builtin.file:
+    path: /var/backups/catena-export
+    state: directory
+    owner: root
+    # group=1000 so catena-admin container (UID/GID 1000 in Dockerfile)
+    # can list artifacts for the /recovery tab. Must match roles/backup
+    # and roles/infrastructure/tasks/recovery.yml.
+    group: "1000"
+    mode: "0750" # must match roles/backup's setting; see header above
+
+# 7z (p7zip-full on Debian 12 / Ubuntu 22-23; renamed to `7zip` on
+# Debian 13 / Ubuntu 24+). Try the newer name first, fall back to
+# p7zip-full. Both produce the same `/usr/bin/7z` symlink so the
+# script does not care which package shipped it.
+- name: "recovery_archive: ensure 7z is installed (newer 7zip package)"
+  ansible.builtin.apt:
+    name: 7zip
+    state: present
+    update_cache: false
+  register: _ra_apt_7zip
+  failed_when: false
+  changed_when: _ra_apt_7zip.changed | default(false)
+
+- name: "recovery_archive: fallback to p7zip-full when 7zip not in repos"
+  ansible.builtin.apt:
+    name: p7zip-full
+    state: present
+    update_cache: false
+  # `'X' in string`: returns bool. The earlier form
+  # `regex_search('X')` returned None on no match, which ansible-
+  # core 2.20's strict boolean check rejects.
+  when: _ra_apt_7zip is failed
+        or 'No package matching' in (_ra_apt_7zip.msg | default(''))
+  # The previous `or not changed and 7zip not in ansible_facts.packages`
+  # disjunct was an idempotency footgun: ansible_facts.packages is only
+  # populated when package_facts has been gathered, which this role
+  # does not do. On every rerun the disjunct evaluated true (`7zip not
+  # in {}`), firing the fallback and breaking the bench's idempotency
+  # check. The first two conditions cover the real failure modes
+  # (apt errored OR repo lacks the package); operator precedence on
+  # the dropped disjunct made it `(failed) or (msg-match) or ((not
+  # changed) and (7zip not in {}))` which is wrong.
+
+- name: "recovery_archive: assert 7z is on PATH"
+  ansible.builtin.stat:
+    path: /usr/bin/7z
+  register: _ra_7z
+
+- name: "recovery_archive: 7z must be installed"
+  ansible.builtin.assert:
+    that: _ra_7z.stat.exists
+    fail_msg: >-
+      /usr/bin/7z is missing after installing p7zip-full / 7zip.
+      Check apt-cache search 7zip; the recovery-archive generator
+      cannot run without it.

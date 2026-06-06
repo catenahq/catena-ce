@@ -1,0 +1,49 @@
+---
+# {{ ansible_managed }}
+# Beszel hub -- web UI + SQLite history store for the resource monitor.
+# Public surface at {{ beszel_hostname }}, admin-gated by oauth2-proxy
+# (vps.auth.mode=admin-only; dashboard-sync synthesises the Traefik route
+# + Keycloak redirect URI from the labels below). Also published on the
+# host loopback so beszel-seed.py and the network_mode:host agent can
+# reach the PocketBase API + WebSocket without leaving the box.
+#
+# USER_EMAIL/USER_PASSWORD bootstrap the hub on first boot: Beszel's
+# initial-settings migration creates a PocketBase superuser AND a regular
+# users record with these credentials (verified against henrygd/beszel
+# internal/migrations/initial-settings.go). beszel-seed.py reuses them to
+# authenticate and seed the universal token.
+#
+# Metrics history (/beszel_data) is a named volume EXCLUDED from restic
+# (see roles/backup/defaults backup_exclude_patterns) -- disposable
+# telemetry, reconstructed from live agents within a cycle after restore.
+services:
+  app:
+    image: {{ beszel_image }}
+    restart: unless-stopped
+    environment:
+      USER_EMAIL: "{{ admin_email }}"
+      USER_PASSWORD: "{{ vault_beszel_admin_password }}"
+      APP_URL: "https://{{ beszel_hostname }}"
+    volumes:
+      - {{ beszel_hub_data_volume }}:/beszel_data
+    # Loopback publish for the host-side seed + the host-network agent.
+    ports:
+      - "127.0.0.1:{{ beszel_hub_host_localhost_port }}:{{ beszel_hub_internal_port }}"
+    networks:
+      dokploy-network:
+        aliases:
+          - {{ beszel_hub_network_alias }}
+    labels:
+      - traefik.enable=true
+      # Admin-only auth posture (vps.auth.* convention). dashboard-sync
+      # renders the forward-auth Traefik route + unions the /oauth2/callback
+      # redirect URI into the shared oauth2-proxy Keycloak client.
+      - vps.auth.mode=admin-only
+      - vps.auth.groups=admin
+
+volumes:
+  {{ beszel_hub_data_volume }}:
+
+networks:
+  dokploy-network:
+    external: true

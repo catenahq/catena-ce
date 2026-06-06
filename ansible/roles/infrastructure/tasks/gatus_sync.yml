@@ -1,0 +1,69 @@
+---
+# Install /usr/local/bin/gatus-sync (stdlib-only Python) + its env file
+# + the systemd service and timer that runs it every {{ gatus_sync_interval }}.
+# Also exposed via the "Sync Gatus monitors" OliveTin button.
+#
+# The script regenerates ONLY {{ gatus_host_config_dir }}/50-dokploy-apps.yaml
+# (two endpoints per gated Dokploy app: internal + public). 00-base.yaml
+# stays Ansible-owned; 99-*.yaml files are operator-owned and untouched.
+
+- name: "gatus-sync: script"
+  # Plain Python file (no Jinja) -- per-host values come from the env
+  # file below. Copy vs. template avoids Jinja chewing on docker
+  # --format Go templates like `{{.Names}}` inside the script's string
+  # literals (see commit history for prior fragile `{{ '{{' }}` dance).
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../vps-scripts/gatus-sync.py"
+    dest: "{{ gatus_sync_script_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "gatus-sync: env file ({{ gatus_sync_env_path }})"
+  ansible.builtin.template:
+    src: gatus-sync.env.j2
+    dest: "{{ gatus_sync_env_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: "gatus-sync: systemd service unit"
+  ansible.builtin.template:
+    src: gatus-sync.service.j2
+    dest: /etc/systemd/system/gatus-sync.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: _gatus_sync_service_unit
+
+- name: "gatus-sync: systemd timer unit"
+  ansible.builtin.template:
+    src: gatus-sync.timer.j2
+    dest: /etc/systemd/system/gatus-sync.timer
+    owner: root
+    group: root
+    mode: "0644"
+  register: _gatus_sync_timer_unit
+
+- name: "gatus-sync: daemon-reload if units changed"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: _gatus_sync_service_unit.changed or _gatus_sync_timer_unit.changed
+
+# Atomicity: see the matching comment in dashboard_sync.yml's
+# "enable + start timer" task. `changed_when: false` is correct --
+# real unit-file drift is captured by the template tasks above,
+# which notify daemon-reload; this systemctl invocation is the
+# idempotent "ensure enabled" follow-up.
+- name: "gatus-sync: enable + start timer"
+  ansible.builtin.systemd_service:
+    name: gatus-sync.timer
+    enabled: true
+    state: started
+
+- name: "gatus-sync: run once now (populate 50-dokploy-apps.yaml)"
+  ansible.builtin.systemd:
+    name: gatus-sync.service
+    state: started
+  changed_when: false

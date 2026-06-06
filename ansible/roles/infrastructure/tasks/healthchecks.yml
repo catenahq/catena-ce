@@ -1,0 +1,204 @@
+---
+# Deploy self-hosted Healthchecks as a Dokploy-managed compose app ->
+# heartbeat.<zone>. Purpose-built cron/dead-man monitoring -- the OSS
+# project behind healthchecks.io. One container, SQLite, no metrics,
+# ntfy-capable. Replaces the Netdata detour earlier in the session.
+#
+# Auto-provision: vault_healthchecks_ping_key is a random value minted
+# at install time. The backup script pings
+# http://healthchecks:8000/ping/<ping_key>/<slug> and Healthchecks
+# creates the check on first ping. Zero manual UI step for the baseline
+# backup heartbeat; operator only has to log in once to wire up ntfy.
+
+# Preflight -- fail loudly if the vault is missing any of the keys the
+# compose + seed tasks need. Common case: an existing inventory that
+# predates a new vault_healthchecks_* key. Point operator at the fix.
+- name: "Healthchecks: preflight vault keys"
+  ansible.builtin.assert:
+    that:
+      - vault_healthchecks_secret_key is defined
+      - vault_healthchecks_superuser_password is defined
+      - vault_healthchecks_ping_key is defined
+      - vault_healthchecks_api_key_readonly is defined
+      - vault_healthchecks_api_key_readwrite is defined
+    fail_msg: >-
+      Missing Healthchecks vault keys -- looks like your vault was
+      minted before one of them was added. Run:
+        uv run operator-tools/migrate_inventory.py -i inventory/<name>/
+      to auto-mint any missing vault_healthchecks_* values, then
+      re-run ./catena site. On fresh installs,
+      `./catena --fresh-install` handles this automatically.
+
+# Forward-auth route reintroduced in plan step 4 (roles/oauth2_proxy)
+# as healthchecks-oauth2-proxy.yml.
+
+- name: "Healthchecks: deploy via Dokploy API"
+  ansible.builtin.include_tasks: dokploy_compose.yml
+  vars:
+    svc_name: "{{ healthchecks_compose_name }}"
+    svc_compose_content: "{{ lookup('template', 'healthchecks.compose.yml.j2') }}"
+    svc_env: []
+    svc_domain_host: "{{ healthchecks_hostname }}"
+    svc_domain_service: "app"
+    svc_domain_port: "{{ healthchecks_internal_port }}"
+    # Readiness verified by the aggregate post-role probe in main.yml.
+    # The in-container Django ORM probe below remains in place -- it's
+    # needed BEFORE the seed shell runs, and it's independent of Traefik
+    # and forward-auth.
+    svc_readiness_skip_reason: >-
+      Verified by the aggregate post-role probe in main.yml.
+
+# ─── Bootstrap channel + check via Django shell ──────────────────────
+# Seeds: (a) an ntfy Channel wired to the operator's topic, (b) a
+# "catena-backup" Check with daily schedule + 2h grace, (c) binds
+# the channel to the check. Idempotent -- re-running on an existing
+# install just reconciles. Runs on the Dokploy-assigned container
+# name; retries while the container + Django + migrations come up.
+#
+# Budget: 60 × 5s = 300s (5 min). Covers cold image pulls without
+# a mirror plus swarm placement + container start. Diagnostic dump
+# below surfaces the real cause if we actually hit this ceiling, so
+# the operator doesn't need to re-run with -vvv to see why.
+- name: "Healthchecks: find running container"
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ healthchecks_compose_name | dokploy_container_regex("app") }}' || true
+  args:
+    executable: /bin/bash
+  register: _healthchecks_container_name
+  changed_when: false
+  failed_when: false
+  retries: 60
+  delay: 5
+  until: _healthchecks_container_name.stdout | length > 0
+
+# Three-view diag block (docker ps -a, docker service ls,
+# docker service ps --no-trunc) so a timeout on the bench -- where
+# the VM is torn down before the
+# operator can shell in -- still yields enough signal to classify
+# the failure: image pull / swarm placement / Dokploy never
+# scheduled the compose.
+- name: "Healthchecks: diag -- docker ps -a (container-level state)"
+  ansible.builtin.shell: |
+    docker ps -a --format 'table {{ "{{" }}.Names{{ "}}" }}\t{{ "{{" }}.Status{{ "}}" }}\t{{ "{{" }}.Image{{ "}}" }}' \
+      | { head -n1; grep -E '{{ healthchecks_compose_name }}' || true; }
+  args:
+    executable: /bin/bash
+  register: _healthchecks_diag_ps
+  changed_when: false
+  failed_when: false
+  when: (_healthchecks_container_name.stdout | default('') | trim) | length == 0
+
+- name: "Healthchecks: diag -- docker service ls (swarm-level state)"
+  ansible.builtin.shell: |
+    docker service ls --format 'table {{ "{{" }}.Name{{ "}}" }}\t{{ "{{" }}.Replicas{{ "}}" }}\t{{ "{{" }}.Image{{ "}}" }}' \
+      | { head -n1; grep -E '{{ healthchecks_compose_name }}' || true; }
+  args:
+    executable: /bin/bash
+  register: _healthchecks_diag_services
+  changed_when: false
+  failed_when: false
+  when: (_healthchecks_container_name.stdout | default('') | trim) | length == 0
+
+- name: "Healthchecks: diag -- docker service ps --no-trunc (per-task errors)"
+  ansible.builtin.shell: |
+    for svc in $(docker service ls --format '{{ "{{" }}.Name{{ "}}" }}' | grep -E '{{ healthchecks_compose_name }}' || true); do
+      echo "==== $svc ===="
+      docker service ps "$svc" --no-trunc --format 'table {{ "{{" }}.ID{{ "}}" }}\t{{ "{{" }}.CurrentState{{ "}}" }}\t{{ "{{" }}.Error{{ "}}" }}' 2>&1 || true
+    done
+  args:
+    executable: /bin/bash
+  register: _healthchecks_diag_taskps
+  changed_when: false
+  failed_when: false
+  when: (_healthchecks_container_name.stdout | default('') | trim) | length == 0
+
+- name: "Healthchecks: diag -- surface collected state"
+  ansible.builtin.debug:
+    msg: |
+      ---- docker ps -a (healthchecks rows) ----
+      {{ _healthchecks_diag_ps.stdout | default('(none)') }}
+
+      ---- docker service ls (healthchecks swarm services) ----
+      {{ _healthchecks_diag_services.stdout | default('(none)') }}
+
+      ---- docker service ps --no-trunc (per-task state + error) ----
+      {{ _healthchecks_diag_taskps.stdout | default('(none)') }}
+  when: (_healthchecks_container_name.stdout | default('') | trim) | length == 0
+
+- name: "Healthchecks: fail clearly if container never appeared"
+  ansible.builtin.fail:
+    msg: |
+      Timed out (300s) waiting for a running container matching
+      '^{{ healthchecks_compose_name }}-[a-z0-9]+-app-1$'.
+
+      Diagnostic output dumped above (docker ps -a, docker service ls,
+      docker service ps --no-trunc). Interpret:
+        - Container in `docker ps -a` with Exited / Restarting status
+          -> app crashed; check `docker logs` of that container.
+        - Task in `docker service ps` with Rejected / Failed + an Error
+          column -> image pull / placement / config failure.
+        - Service replicas=0/1 and no task history -> Dokploy accepted
+          the compose but never scheduled it; check Dokploy compose
+          status in the admin UI.
+  when: (_healthchecks_container_name.stdout | default('') | trim) | length == 0
+
+# The Django seed lives at vps-scripts/healthchecks-seed.py -- plain
+# Python, no Jinja markers (post-EP4 migration). Per-host values that
+# used to be Jinja-substituted now arrive via `docker exec -e KEY=VALUE`
+# flags constructed from Ansible vars. The script reads them from
+# os.environ and KeyErrors loudly on any wiring break.
+#
+# Earlier we embedded the whole Python block directly in the shell
+# module's `|` scalar with Jinja substitutions inline. That broke under
+# ansible-core 2.19's stricter arg scanner (symptom: "failed at
+# splitting arguments, either an unbalanced jinja2 block or quotes"
+# thrown when include_tasks loaded this file). Copying the script to
+# disk and piping it into `docker exec` sidesteps the entire class of
+# issues: only the path is a shell argument, the Python body is a
+# regular file.
+- name: "Healthchecks: drop Django seed script to /root"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../vps-scripts/healthchecks-seed.py"
+    dest: /root/catena-healthchecks-seed.py
+    owner: root
+    group: root
+    mode: "0600"
+  changed_when: false # reconciliation is idempotent; don't noisy-up the run
+
+# The seed's own retry loop is the single readiness check for this
+# deploy. An earlier version split this into a standalone "probe
+# Django ORM" task + a separate seed task, but the probe was a direct
+# duplicate of the seed's inherent readiness requirement -- if the
+# seed succeeds, Django is ready by definition. The probe only added
+# another source of "is this task looping for a good reason or not?"
+# confusion on a broken run.
+#
+# Budget: 12 × 5s = 60s. On a healthy container the seed lands on the
+# first try. If Django isn't ready in 60s something real is wrong
+# (worker crash, DB lock on prior stale session, volume mount issue)
+# -- fail fast rather than dragging it out.
+#
+# Env vars below land as `-e KEY=VALUE` on docker exec. They mirror the
+# top-level reads in healthchecks-seed.py; missing one surfaces as a
+# KeyError, missing the optional CATENA_HC_API_KEY_READWRITE silently
+# leaves the existing project.api_key in place (migration path).
+- name: "Healthchecks: run the Django seed script"
+  ansible.builtin.shell: >-
+    docker exec -i
+    -e CATENA_ADMIN_EMAIL={{ admin_email | quote }}
+    -e CATENA_HC_SUPERUSER_PASSWORD={{ vault_healthchecks_superuser_password | quote }}
+    -e CATENA_INVENTORY_HOSTNAME={{ inventory_hostname | quote }}
+    -e CATENA_HC_API_KEY_READONLY={{ vault_healthchecks_api_key_readonly | quote }}
+    -e CATENA_HC_API_KEY_READWRITE={{ (vault_healthchecks_api_key_readwrite | default('')) | quote }}
+    -e CATENA_HC_PING_KEY={{ vault_healthchecks_ping_key | quote }}
+    -e CATENA_NTFY_TOPIC={{ ntfy_topic | quote }}
+    -e CATENA_NTFY_SERVER={{ ntfy_server | quote }}
+    {{ _healthchecks_container_name.stdout }}
+    python manage.py shell < /root/catena-healthchecks-seed.py
+  register: _healthchecks_seed
+  changed_when: false
+  retries: 12
+  delay: 5
+  until: _healthchecks_seed.rc == 0
+  no_log: true

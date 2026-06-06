@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+[Unit]
+Description=catena shared-clamd watchdog (pages only when a consumer is up)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile={{ clamav_watch_env_file }}
+ExecStart={{ clamav_watch_script_path }}
+# A couple of docker ps calls + one docker exec clamdcheck + a loopback
+# ping. Well under a minute on a healthy host; 2min is a generous cap.
+TimeoutStartSec=2min
+StandardOutput=journal
+StandardError=journal
+Nice=15

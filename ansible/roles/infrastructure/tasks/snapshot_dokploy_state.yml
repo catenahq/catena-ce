@@ -1,0 +1,209 @@
+---
+# Snapshot every project's every compose (current composeFile + env +
+# domains) to a JSON aggregate under {{ dokploy_snapshots_dir }} BEFORE
+# any compose-touching task runs in this role. Lightweight insurance
+# against operator misclick or seeder bug overwriting client edits.
+#
+# Best-effort: a Dokploy API hiccup must NOT block the converge. The
+# whole capture runs under block/rescue so a failure logs a warning
+# and moves on; the operator still has the previous snapshot to
+# compare against if anything went sideways during this converge.
+#
+# Rotation: keep the last {{ dokploy_snapshots_keep_last }} aggregates
+# (default 30 ~ 3 weeks of daily converge history at a few KB each).
+# Sorted by ISO timestamp in filename; oldest get pruned on each pass.
+
+- name: "Snapshot: ensure dokploy snapshots directory exists"
+  ansible.builtin.file:
+    path: "{{ dokploy_snapshots_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: "Snapshot: capture current Dokploy state (best-effort)"
+  block:
+    - name: "Snapshot: list all projects (full tree, includes compose IDs)"
+      ansible.builtin.uri:
+        url: "{{ dokploy_api_base }}/project.all"
+        method: GET
+        headers:
+          x-api-key: "{{ vault_dokploy_api_key }}"
+        status_code: 200
+        return_content: true
+      register: _ds_projects
+      delegate_to: localhost
+      become: false
+
+    # Flatten projects -> environments[0].compose into one ref per
+    # compose. subelements(skip_missing=True) silently skips projects
+    # with no environments / empty compose lists, which is what we
+    # want for an empty-fleet converge.
+    - name: "Snapshot: flatten compose refs across all projects"
+      ansible.builtin.set_fact:
+        _ds_flat_refs: >-
+          {{
+            _ds_flat_refs | default([]) +
+            [{
+              'project': item.0.name,
+              'compose_id': item.1.composeId,
+              'compose_name': item.1.name,
+              'app_name': item.1.appName | default(''),
+            }]
+          }}
+      loop: >-
+        {{
+          (_ds_projects.json | default([]))
+          | subelements('environments[0].compose', skip_missing=True)
+        }}
+      loop_control:
+        label: "{{ item.1.name | default(item.1.composeId) }}"
+
+    - name: "Snapshot: fetch full compose state for each compose"
+      ansible.builtin.uri:
+        url: "{{ dokploy_api_base }}/compose.one?composeId={{ item.compose_id }}"
+        method: GET
+        headers:
+          x-api-key: "{{ vault_dokploy_api_key }}"
+        status_code: 200
+        return_content: true
+      register: _ds_compose_full
+      loop: "{{ _ds_flat_refs | default([]) }}"
+      loop_control:
+        label: "{{ item.project }}/{{ item.compose_name }}"
+      delegate_to: localhost
+      become: false
+
+    - name: "Snapshot: fetch domains for each compose"
+      ansible.builtin.uri:
+        url: "{{ dokploy_api_base }}/domain.byComposeId?composeId={{ item.compose_id }}"
+        method: GET
+        headers:
+          x-api-key: "{{ vault_dokploy_api_key }}"
+        status_code: 200
+        return_content: true
+      register: _ds_compose_domains
+      loop: "{{ _ds_flat_refs | default([]) }}"
+      loop_control:
+        label: "{{ item.project }}/{{ item.compose_name }}"
+      delegate_to: localhost
+      become: false
+
+    # Build the aggregate JSON by zipping the three result lists.
+    # Jinja2 has no list comprehensions, so we build _ds_composes
+    # incrementally via a loop over the zipped tuples (zip filter from
+    # ansible.builtin), then assemble the top-level _ds_aggregate dict.
+    # ISO timestamp is captured ONCE so every compose in the same
+    # aggregate shares it -- easier post-hoc correlation with logs.
+    - name: "Snapshot: zero out per-converge composes accumulator"
+      ansible.builtin.set_fact:
+        _ds_composes: []
+
+    - name: "Snapshot: assemble compose entries from zipped result lists"
+      ansible.builtin.set_fact:
+        _ds_composes: "{{ _ds_composes + [_ds_entry] }}"
+      vars:
+        _ds_ref: "{{ item.0 }}"
+        _ds_full: "{{ item.1 }}"
+        _ds_dom: "{{ item.2 }}"
+        _ds_entry:
+          project: "{{ _ds_ref.project }}"
+          compose_id: "{{ _ds_ref.compose_id }}"
+          compose_name: "{{ _ds_ref.compose_name }}"
+          app_name: "{{ _ds_ref.app_name }}"
+          compose_full: "{{ _ds_full.json | default({}) }}"
+          domains: "{{ _ds_dom.json | default([]) }}"
+      loop: >-
+        {{
+          (_ds_flat_refs | default([]))
+          | zip(
+              _ds_compose_full.results | default([]),
+              _ds_compose_domains.results | default([])
+            )
+          | list
+        }}
+      loop_control:
+        label: "{{ item.0.project }}/{{ item.0.compose_name }}"
+
+    - name: "Snapshot: build aggregate JSON"
+      ansible.builtin.set_fact:
+        _ds_aggregate:
+          captured_at: "{{ ansible_date_time.iso8601 }}"
+          inventory_hostname: "{{ inventory_hostname }}"
+          dokploy_api_base: "{{ dokploy_api_base }}"
+          composes: "{{ _ds_composes }}"
+
+    # ISO-basic format (no colons) keeps the filename safe across
+    # platforms; lex-sort = chronological for the rotation step below.
+    - name: "Snapshot: write aggregate to disk"
+      ansible.builtin.copy:
+        dest: >-
+          {{ dokploy_snapshots_dir }}/dokploy-state-{{
+            ansible_date_time.iso8601_basic_short
+          }}.json
+        content: "{{ _ds_aggregate | to_nice_json }}"
+        owner: root
+        group: root
+        mode: "0640"
+      # Each converge writes a NEW file (timestamped filename) on
+      # purpose -- this is a per-converge snapshot, not config drift.
+      # Reporting changed=true every run trips stage-2.5 idempotency.
+      changed_when: false
+
+    # Rotation: keep the last N aggregates by name (ISO-basic suffix
+    # makes lex-sort = chronological). Done after write so the just-
+    # captured file participates in the ranking.
+    - name: "Snapshot: list existing aggregates for rotation"
+      ansible.builtin.find:
+        paths: "{{ dokploy_snapshots_dir }}"
+        patterns: "dokploy-state-*.json"
+        file_type: file
+      register: _ds_existing
+
+    - name: "Snapshot: compute set of aggregates to delete"
+      # Slice off everything BEFORE the last keep-last entries.
+      # Ansible has no negative-index slice, so we compute the
+      # cutoff index manually and pass it to the slice.
+      ansible.builtin.set_fact:
+        _ds_to_delete: >-
+          {{
+            ((_ds_existing.files | default([]))
+              | sort(attribute='path'))[
+              :((_ds_existing.files | default([])) | length)
+                - (dokploy_snapshots_keep_last | int)
+            ]
+            if ((_ds_existing.files | default([])) | length)
+               > (dokploy_snapshots_keep_last | int)
+            else []
+          }}
+
+    - name: "Snapshot: delete pruned aggregates"
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ _ds_to_delete | default([]) }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+
+    - name: "Snapshot: log captured aggregate"
+      ansible.builtin.debug:
+        msg: >-
+          Dokploy state snapshot written:
+          {{ _ds_flat_refs | default([]) | length }} compose(s)
+          across {{ (_ds_projects.json | default([])) | length }} project(s).
+          Pruned {{ _ds_to_delete | default([]) | length }} old
+          aggregate(s); kept the last {{ dokploy_snapshots_keep_last }}.
+
+  rescue:
+    - name: "Snapshot: failed (best-effort) -- log and continue"
+      ansible.builtin.debug:
+        msg: |
+          Dokploy state snapshot failed (best-effort, not fatal). The
+          converge will continue. Possible causes:
+            - Dokploy API is down or unreachable
+            - vault_dokploy_api_key is invalid (check 401/403 in journal)
+            - The aggregate JSON write hit a disk-space issue at
+              {{ dokploy_snapshots_dir }}
+          The previous snapshot (if any) is still available for compare
+          purposes. Investigate before relying on snapshot diffs across
+          this converge boundary.

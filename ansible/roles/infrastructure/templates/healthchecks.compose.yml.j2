@@ -1,0 +1,91 @@
+---
+# {{ ansible_managed }}
+# Self-hosted Healthchecks (the open-source project that powers
+# healthchecks.io). Single container, SQLite storage -- no Postgres
+# sidecar, no metrics firehose. Purpose-built for cron/dead-man
+# monitoring. Replaces the Netdata detour from earlier in session 7.
+#
+# SQLite lives under a named Docker volume -> gets backed up by restic
+# as part of /mnt/data/docker/volumes. Check definitions + ping history
+# survive a restore.
+services:
+  app:
+    image: {{ healthchecks_image }}
+    restart: unless-stopped
+    environment:
+      SITE_ROOT: "https://{{ healthchecks_hostname }}"
+      SITE_NAME: "{{ cloudflare_zone }} heartbeats"
+      ALLOWED_HOSTS: "{{ healthchecks_hostname }},{{ healthchecks_network_alias }},localhost"
+      SECRET_KEY: "{{ vault_healthchecks_secret_key }}"
+      DEBUG: "False"
+      # Closed registration -- oauth2-proxy + Keycloak gate the UI, and our seed
+      # task (healthchecks-seed.py.j2, step 0) creates the operator
+      # superuser + default Project on first converge. SUPERUSER_EMAIL
+      # and SUPERUSER_PASSWORD below are INERT to this image's
+      # entrypoint (upstream runs migrations only, no auto-bootstrap);
+      # they're kept here so `docker inspect` surfaces the expected
+      # password for the vault-recovery tool (extract_secrets_core.py).
+      REGISTRATION_OPEN: "False"
+      SUPERUSER_EMAIL: "{{ admin_email }}"
+      SUPERUSER_PASSWORD: "{{ vault_healthchecks_superuser_password }}"
+      # PING_KEY is set here for convention/visibility, but Healthchecks
+      # actually routes auto-provisioning against Project.ping_key in the
+      # DB -- not this env var. The seed task in healthchecks.yml writes
+      # the same value into Project.ping_key. Keep this line so future
+      # tooling that expects PING_KEY to be present sees it.
+      # Auto-provision URL: /ping/<ping_key>/<slug>?create=1 (the ?create=1
+      # is required -- without it, unknown slugs 404).
+      PING_KEY: "{{ vault_healthchecks_ping_key }}"
+      DB: "sqlite"
+      DB_NAME: "/data/hc.sqlite"
+      # Alerts route out via ntfy (seeded automatically by the bootstrap
+      # task in healthchecks.yml). No SMTP needed.
+      EMAIL_HOST: ""
+      DEFAULT_FROM_EMAIL: "heartbeat@{{ cloudflare_zone }}"
+      # ─── SSO passthrough via oauth2-proxy reverse-proxy ────────────
+      # The per-app oauth2-proxy container in front of healthchecks
+      # injects X-Forwarded-Email on every authenticated request
+      # (--pass-user-headers=true in oauth2_proxy.compose.yml.j2).
+      # Django WSGI-env-ifies headers as HTTP_X_FORWARDED_EMAIL.
+      # REMOTE_USER_HEADER tells Healthchecks to trust it as identity:
+      # if a User with that email exists, log them in automatically;
+      # otherwise deny. Our SUPERUSER_EMAIL already equals
+      # ADMIN_EMAIL, so the operator skips the Healthchecks login
+      # page entirely.
+      #
+      # This is only safe because oauth2-proxy STRIPS any
+      # client-supplied X-Forwarded-* header on the request before
+      # injecting its own values -- the header cannot be spoofed in
+      # an authenticated path. The unauthenticated /ping/* paths
+      # never reach a session check (oauth2-proxy let them through
+      # via --skip-auth-route, NOT yet wired -- TODO if /ping/*
+      # auto-provision needs anonymous access; today the cron client
+      # uses /ping/<ping_key>/<slug> which doesn't need session
+      # context anyway).
+      REMOTE_USER_HEADER: "HTTP_X_FORWARDED_EMAIL"
+    volumes:
+      - healthchecks-data:/data
+    # Loopback-only publish so gatus-sync (host-side) can reach
+    # /api/v3/checks/ at 127.0.0.1:{{ healthchecks_host_localhost_port }}.
+    # UFW leaves loopback alone so this is never externally reachable.
+    ports:
+      - "127.0.0.1:{{ healthchecks_host_localhost_port }}:{{ healthchecks_internal_port }}"
+    networks:
+      dokploy-network:
+        aliases:
+          - {{ healthchecks_network_alias }}
+    labels:
+      - traefik.enable=true
+      # Auth posture (vps.auth.* convention, see
+      # docs/operator/client-app-templates/README.md). Pinned to
+      # oauth2_proxy_staff_apps in defaults/main.yml by the unit test
+      # test_infra_compose_auth_labels.
+      - vps.auth.mode=private
+      - vps.auth.groups=staff
+
+volumes:
+  healthchecks-data:
+
+networks:
+  dokploy-network:
+    external: true

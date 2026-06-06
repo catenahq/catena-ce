@@ -1,0 +1,161 @@
+---
+# Shared ClamAV daemon (clamd) -- used by BOTH the mail server (rspamd)
+# and Nextcloud (files_antivirus). See clamav.compose.yml.j2 for topology.
+#
+# Two responsibilities, deliberately split so clamd does not waste ~1.5 GB
+# on a VPS that runs neither consumer:
+#
+#   1. ALWAYS create the external `{{ clamav_network }}` network. The
+#      mailserver + nextcloud templates declare it `external: true`, so it
+#      MUST pre-exist before a client clicks Deploy (docker compose
+#      refuses to start an app whose external network is missing). Cheap,
+#      no RAM.
+#   2. Deploy clamd + its watchdog ONLY when a consumer (the dms container
+#      OR the Nextcloud app container) is actually running.
+#
+# Why presence, not a flag: a declared "clamav enabled" flag would have to
+# be kept correct independently across fresh install / recovery /
+# migration / rollback and would drift. Container presence is real state
+# that every one of those flows reproduces (a restore/migrate brings the
+# consumer containers back up), so reading `docker ps` is automatically
+# correct everywhere. On a fresh install clamd lands on the converge after
+# the consumer is first deployed -- the same converge that wires OIDC,
+# aliases, etc. -- matching the established "deploy app, then converge
+# catches up" rhythm.
+#
+# Gated by the caller (main.yml) on vault_dokploy_api_key.
+
+- name: "ClamAV: ensure the shared {{ clamav_network }} network exists"
+  # docker network create is not natively idempotent (errors if the
+  # network exists), so treat the "already exists" stderr as success and
+  # report changed only on a real create. ALWAYS runs -- the templates
+  # need this network to exist before they can deploy.
+  ansible.builtin.command:
+    argv: [docker, network, create, "{{ clamav_network }}"]
+  register: _clamav_net_create
+  changed_when: _clamav_net_create.rc == 0
+  failed_when:
+    - _clamav_net_create.rc != 0
+    - "'already exists' not in (_clamav_net_create.stderr | default(''))"
+
+- name: "ClamAV: detect a running consumer (dms or Nextcloud app)"
+  # Emits each matching consumer container name (dms and/or a Nextcloud
+  # app container); empty when neither is running. PRESENCE -- not the
+  # specific name -- is the deploy gate below, so we list all matches
+  # rather than taking the first. Deliberately NO `| head -n1`: piping a
+  # grouped command into head closes the pipe after one line, the
+  # upstream `docker ps` then takes SIGPIPE (rc 141), and `set -o
+  # pipefail` would promote that into a task failure even though
+  # detection succeeded. Two plain `docker ps` calls avoid the pipe.
+  ansible.builtin.shell: |
+    docker ps --filter 'label=com.docker.compose.service=dms' --format '{{ "{{" }}.Names{{ "}}" }}'
+    docker ps --filter 'name=nextcloud-' --filter 'label=com.docker.compose.service=app' --format '{{ "{{" }}.Names{{ "}}" }}'
+  args:
+    executable: /bin/bash
+  register: _clamav_consumer
+  changed_when: false
+
+- name: "ClamAV: skip clamd deploy when no consumer is running"
+  ansible.builtin.debug:
+    msg: >-
+      No clamd consumer running (no dms, no Nextcloud app). The
+      {{ clamav_network }} network is created but clamd is NOT deployed
+      (saves ~1.5 GB). It deploys automatically on the converge after a
+      consumer first comes up.
+  when: (_clamav_consumer.stdout | default('') | trim) | length == 0
+
+- name: "ClamAV: deploy clamd + watchdog when a consumer is running"
+  when: (_clamav_consumer.stdout | default('') | trim) | length > 0
+  block:
+    - name: "ClamAV: deploy shared clamd via Dokploy API"
+      ansible.builtin.include_tasks: dokploy_compose.yml
+      vars:
+        svc_name: "{{ clamav_compose_name }}"
+        svc_compose_content: "{{ lookup('template', 'clamav.compose.yml.j2') }}"
+        svc_env: []
+        # No HTTP route -- clamd is TCP-only on the catena-clamav network.
+        svc_domain_host: ""
+        svc_readiness_skip_reason: >-
+          clamd has no HTTP endpoint; readiness is the clamdcheck.sh PING
+          below, and ongoing health is the catena-clamav-watch + mail
+          canary host timers.
+
+    # clamd readiness: the first signature-DB load (freshclam download)
+    # takes minutes. Wait for clamd to answer PING=PONG before any consumer
+    # (rspamd / files_antivirus) is wired to it, so a converge that also
+    # wires those does not race a not-yet-ready scanner.
+    - name: "ClamAV: find running clamd container"
+      ansible.builtin.shell: |
+        set -o pipefail
+        docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ clamav_compose_name | dokploy_container_regex("clamav") }}' || true
+      args:
+        executable: /bin/bash
+      register: _clamav_container
+      changed_when: false
+      failed_when: false
+      retries: 60
+      delay: 5
+      until: _clamav_container.stdout | length > 0
+
+    - name: "ClamAV: wait for clamd to answer PING (signature DB loaded)"
+      ansible.builtin.command:
+        argv: [docker, exec, "{{ _clamav_container.stdout | trim }}", clamdcheck.sh]
+      register: _clamav_ping
+      changed_when: false
+      retries: 60
+      delay: 10
+      until: _clamav_ping.rc == 0
+      when: (_clamav_container.stdout | default('') | trim) | length > 0
+
+    # ── Shared-clamd watchdog (host timer) ───────────────────────────
+    # Pings the self-hosted Healthchecks plane so a down clamd pages --
+    # but ONLY when a consumer (dms or Nextcloud) is up
+    # (run-clamav-watch.sh does the gate). Installed alongside clamd (not
+    # on a no-consumer VPS, so no stray green check there). Reuses the
+    # Healthchecks -> ntfy escalation; no new alert wiring.
+    - name: "ClamAV watch: env file"
+      ansible.builtin.template:
+        src: clamav-watch.env.j2
+        dest: "{{ clamav_watch_env_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
+    - name: "ClamAV watch: wrapper script"
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../vps-scripts/run-clamav-watch.sh"
+        dest: "{{ clamav_watch_script_path }}"
+        owner: root
+        group: root
+        mode: "0750"
+
+    - name: "ClamAV watch: systemd service unit"
+      ansible.builtin.template:
+        src: catena-clamav-watch.service.j2
+        dest: "/etc/systemd/system/{{ clamav_watch_systemd_unit_name }}.service"
+        owner: root
+        group: root
+        mode: "0644"
+      register: _clamav_watch_service
+
+    - name: "ClamAV watch: systemd timer unit"
+      ansible.builtin.template:
+        src: catena-clamav-watch.timer.j2
+        dest: "/etc/systemd/system/{{ clamav_watch_systemd_unit_name }}.timer"
+        owner: root
+        group: root
+        mode: "0644"
+      register: _clamav_watch_timer
+
+    - name: "ClamAV watch: reload systemd if units changed"
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      when: (_clamav_watch_service.changed | default(false)) or (_clamav_watch_timer.changed | default(false))
+
+    - name: "ClamAV watch: enable + start timer"
+      ansible.builtin.systemd_service:
+        name: "{{ clamav_watch_systemd_unit_name }}.timer"
+        enabled: true
+        state: started
+      when: not ansible_check_mode

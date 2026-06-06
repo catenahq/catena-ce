@@ -1,0 +1,51 @@
+---
+# Nextcloud office editors -- post-deploy wiring scripts.
+#
+# Two scripts, two catena-admin actions, mutually reversing:
+#   /usr/local/bin/catena-wire-nextcloud-collabora
+#   /usr/local/bin/catena-wire-nextcloud-onlyoffice
+#
+# Operator deploys ONE of the two `collabora` / `onlyoffice` Dokploy
+# templates per client (both are seeded into the Templates project at
+# install but only one is ever Deployed at a time -- they share the
+# `office.<base>` hostname). Then the operator clicks the matching
+# Wire button. The button:
+#   - probes office.<base> from inside Nextcloud to confirm which
+#     editor is actually deployed (refuses to run if the WRONG one);
+#   - removes the OTHER editor's Nextcloud app + its residual config
+#     (so switching from one editor to the other leaves no orphan
+#     state in oc_appconfig);
+#   - installs + configures the matching Nextcloud app (richdocuments
+#     for Collabora; onlyoffice for OnlyOffice DocumentServer).
+#
+# Re-clicking the same button is a no-op convergence. Clicking the
+# other button reverses the prior wiring -- there is no scenario
+# where both NC apps end up installed simultaneously.
+#
+# No converge-time component (unlike nextcloud_oidc.yml). Office
+# editors have no Keycloak realm client; they are server-to-server
+# WOPI integrations gated by JWT (OnlyOffice) or WOPI-host regex
+# (Collabora) inside the editor's own compose. All state lives on
+# the host filesystem (/usr/local/bin) + inside the Nextcloud
+# container at wire time.
+#
+# Idempotency: ansible.builtin.copy is no-op when the source has not
+# changed (mode + content checksum). Each click of the OliveTin
+# button is itself idempotent; this task just keeps the script
+# binaries up-to-date with the repo.
+
+- name: "Nextcloud office: install Collabora wiring script (/usr/local/bin/catena-wire-nextcloud-collabora)"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../vps-scripts/wire-nextcloud-collabora.sh"
+    dest: /usr/local/bin/catena-wire-nextcloud-collabora
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "Nextcloud office: install OnlyOffice wiring script (/usr/local/bin/catena-wire-nextcloud-onlyoffice)"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../vps-scripts/wire-nextcloud-onlyoffice.sh"
+    dest: /usr/local/bin/catena-wire-nextcloud-onlyoffice
+    owner: root
+    group: root
+    mode: "0755"

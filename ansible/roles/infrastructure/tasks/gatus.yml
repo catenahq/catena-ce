@@ -1,0 +1,87 @@
+---
+# Deploy Gatus as a Dokploy-managed compose app -> monitor.<zone>.
+#
+# Config layout on the host:
+#   {{ gatus_host_config_dir }}/00-base.yaml          (Ansible-managed)
+#   {{ gatus_host_config_dir }}/50-dokploy-apps.yaml  (gatus-sync, per-timer)
+#   {{ gatus_host_config_dir }}/99-<anything>.yaml    (operator-added, untouched)
+#
+# Everything in /config is bind-mounted read-only into the container. Gatus
+# loads all *.yaml in the directory alphabetically, which is why the
+# numeric prefix determines precedence / override order.
+
+- name: "Gatus: host config dir ({{ gatus_host_config_dir }})"
+  ansible.builtin.file:
+    path: "{{ gatus_host_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "Gatus: render 00-base.yaml (alerting + UI; no endpoints -- see 40-infra.yaml)"
+  ansible.builtin.template:
+    src: gatus-base.yaml.j2
+    dest: "{{ gatus_host_config_dir }}/00-base.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  register: _gatus_base_cfg
+
+- name: "Gatus: ensure /etc/catena exists for infra spec"
+  ansible.builtin.file:
+    path: "{{ gatus_infra_spec_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "Gatus: render infra-endpoint spec ({{ gatus_infra_spec_path }})"
+  ansible.builtin.template:
+    src: gatus-infra-spec.json.j2
+    dest: "{{ gatus_infra_spec_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+  register: _gatus_infra_spec
+
+# File-based Traefik forward-auth route is reintroduced in plan step 4
+# (roles/oauth2_proxy) -- it will render to gatus-oauth2-proxy.yml and
+# chain the new oauth2-proxy@file middleware. Until then this app
+# deploys without a forward-auth gate.
+
+- name: "Gatus: deploy via Dokploy API"
+  ansible.builtin.include_tasks: dokploy_compose.yml
+  vars:
+    svc_name: "{{ gatus_compose_name }}"
+    svc_compose_content: "{{ lookup('template', 'gatus.compose.yml.j2') }}"
+    svc_env: []
+    svc_domain_host: "{{ infrastructure_monitor_hostname }}"
+    svc_domain_service: "app"
+    svc_domain_port: "{{ gatus_internal_port }}"
+    # Per-service readiness probe is deferred to the aggregate post-role
+    # verification in main.yml -- the SSO chain (Keycloak + oauth2-proxy)
+    # finishes settling during the surrounding infra deploys.
+    svc_readiness_skip_reason: >-
+      Verified by the aggregate post-role probe in main.yml.
+
+# When 00-base.yaml changes, restart the Gatus container so the new
+# endpoints / alert config take effect (Gatus loads config only at
+# startup). 50-dokploy-apps.yaml restart-triggering is owned by gatus-sync
+# itself. Find the container by matching the Dokploy-assigned name pattern.
+- name: "Gatus: find running container (for base-config reload)"
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ gatus_compose_name | dokploy_container_regex("app") }}' || true
+  args:
+    executable: /bin/bash
+  register: _gatus_container_name
+  changed_when: false
+  when: _gatus_base_cfg.changed
+
+- name: "Gatus: restart container so base config reloads"
+  ansible.builtin.command: "docker restart {{ _gatus_container_name.stdout }}"
+  when:
+    - _gatus_base_cfg.changed
+    - _gatus_container_name.stdout is defined
+    - _gatus_container_name.stdout | length > 0
+  changed_when: true

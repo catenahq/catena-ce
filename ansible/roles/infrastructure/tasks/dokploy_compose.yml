@@ -1,0 +1,272 @@
+---
+# Find-or-create-and-deploy a Dokploy compose application. Inputs (caller
+# sets via include_tasks vars):
+#
+#   svc_name            -- Dokploy compose "name" + "appName" (stable slug)
+#   svc_compose_content -- the full docker-compose.yml YAML as a string
+#   svc_env             -- list of "KEY=value" strings (may be empty)
+#   svc_domain_host     -- FQDN to route to this app (e.g. monitor.example.com)
+#   svc_domain_service  -- compose service key Traefik labels target
+#   svc_domain_port     -- backend port inside the container
+#
+# Optional readiness probe (strongly recommended; enforces CLAUDE.md
+# atomicity rule -- Dokploy's composeStatus flips to done/running the
+# moment `docker-compose up` exits, which does NOT mean the app is
+# serving healthy HTTP traffic. Without a real end-to-end probe, any
+# downstream task that hits the deployed app can race).
+#
+#   svc_readiness_url            -- public URL to GET after deploy settles.
+#                                  When unset AND svc_readiness_skip_reason
+#                                  is also unset, a debug warning is emitted
+#                                  (the caller probably forgot a probe).
+#   svc_readiness_ok_codes       -- list of HTTP status codes counted as
+#                                  "ready". Default: [200, 204, 301, 302].
+#                                  Services behind forward-auth return 302.
+#   svc_readiness_validate_certs -- default true.
+#   svc_readiness_skip_reason    -- human-readable explanation for WHY no
+#                                  readiness URL is viable at this stage in
+#                                  the converge (e.g. "oauth2-proxy forward-
+#                                  auth not yet up; validate.yml exercises
+#                                  the public URL later"). When set, the
+#                                  caller is explicitly opting out and the
+#                                  debug message is informational instead
+#                                  of a warning.
+#
+# Requires facts set by dokploy_project.yml:
+#   _dokploy_project_id, _dokploy_environment_id
+#
+# All tRPC POSTs use plain JSON bodies; GETs use plain query params.
+# No {"json":{...}} envelope.
+
+- name: "Dokploy: find existing compose in project ({{ svc_name }})"
+  ansible.builtin.set_fact:
+    _dokploy_compose_existing: >-
+      {{
+        (_dokploy_project.environments[0].compose | default([]))
+        | selectattr('name', 'equalto', svc_name)
+        | list
+        | first
+        | default(None)
+      }}
+
+- name: "Dokploy: create compose ({{ svc_name }})"
+  ansible.builtin.uri:
+    url: "{{ dokploy_api_base }}/compose.create"
+    method: POST
+    headers:
+      x-api-key: "{{ vault_dokploy_api_key }}"
+    body_format: json
+    body:
+      name: "{{ svc_name }}"
+      environmentId: "{{ _dokploy_environment_id }}"
+      composeType: "docker-compose"
+      appName: "{{ svc_name }}"
+      composeFile: ""
+      serverId:
+    status_code: [200, 201]
+    return_content: true
+  register: _dokploy_compose_create
+  when: _dokploy_compose_existing is none
+  delegate_to: localhost
+  become: false
+
+- name: "Dokploy: resolve composeId ({{ svc_name }})"
+  ansible.builtin.set_fact:
+    _dokploy_compose_id: >-
+      {{
+        (_dokploy_compose_existing.composeId
+         if _dokploy_compose_existing is not none
+         else _dokploy_compose_create.json.composeId)
+      }}
+
+# compose.update is the ONE place env vars live for a compose app (there
+# is no saveEnvironment endpoint for compose). `env` is a multi-line
+# newline-separated string -- not a dict.
+#
+# Idempotency contract: re-running site.yml must NEVER overwrite an env
+# var the operator or client typed into the Dokploy UI. We fetch the
+# current env via compose.one, merge our catalog values into it (catalog
+# wins for keys we declare, everything else survives verbatim), and POST
+# the merged result. See playbooks/filter_plugins/env_merge.py for the
+# merge rules + tests/unit/test_env_merge.py for the cases it covers.
+- name: "Dokploy: fetch current compose state for env merge ({{ svc_name }})"
+  ansible.builtin.uri:
+    url: "{{ dokploy_api_base }}/compose.one?composeId={{ _dokploy_compose_id }}"
+    method: GET
+    headers:
+      x-api-key: "{{ vault_dokploy_api_key }}"
+    status_code: 200
+    return_content: true
+  register: _dokploy_compose_current
+  delegate_to: localhost
+  become: false
+
+- name: "Dokploy: compute merged env (preserves operator/client edits) ({{ svc_name }})"
+  ansible.builtin.set_fact:
+    _dokploy_merged_env: "{{ _dokploy_compose_current.json.env | default('') | merge_env(svc_env) }}"
+    _dokploy_preserved_keys: "{{ _dokploy_compose_current.json.env | default('') | preserved_env_keys(svc_env) }}"
+
+- name: "Dokploy: report preserved operator/client env keys ({{ svc_name }})"
+  ansible.builtin.debug:
+    msg: >-
+      Dokploy[{{ svc_name }}]: preserving non-catalog env keys across re-converge:
+      {{ _dokploy_preserved_keys | join(', ') }}
+  when: _dokploy_preserved_keys | length > 0
+
+- name: "Dokploy: set compose file + merged env ({{ svc_name }})"
+  ansible.builtin.uri:
+    url: "{{ dokploy_api_base }}/compose.update"
+    method: POST
+    headers:
+      x-api-key: "{{ vault_dokploy_api_key }}"
+    body_format: json
+    body:
+      composeId: "{{ _dokploy_compose_id }}"
+      composeFile: "{{ svc_compose_content }}"
+      env: "{{ _dokploy_merged_env | join('\n') }}"
+      sourceType: "raw"
+    status_code: 200
+  delegate_to: localhost
+  become: false
+
+# Domain registration is opt-out: callers that deploy intra-cluster-
+# only services (e.g. oauth2-proxy, reachable on dokploy-network via
+# its alias rather than via Traefik) pass svc_domain_host="" and
+# skip the whole list+find+create block. Dokploy's domain.create
+# rejects empty host with HTTP 400 zod validation, so attempting it
+# unconditionally would crash those callers.
+- name: "Dokploy: list domains ({{ svc_name }})"
+  ansible.builtin.uri:
+    url: "{{ dokploy_api_base }}/domain.byComposeId?composeId={{ _dokploy_compose_id }}"
+    method: GET
+    headers:
+      x-api-key: "{{ vault_dokploy_api_key }}"
+    status_code: 200
+    return_content: true
+  register: _dokploy_domains
+  delegate_to: localhost
+  become: false
+  when: svc_domain_host | default('') | length > 0
+
+- name: "Dokploy: find existing domain ({{ svc_name ~ ' -> ' ~ svc_domain_host }})"
+  ansible.builtin.set_fact:
+    _dokploy_domain_existing: >-
+      {{
+        _dokploy_domains.json
+        | selectattr('host', 'equalto', svc_domain_host)
+        | list
+        | first
+        | default(None)
+      }}
+  when: svc_domain_host | default('') | length > 0
+
+- name: "Dokploy: create domain ({{ svc_name ~ ' -> ' ~ svc_domain_host }})"
+  ansible.builtin.uri:
+    url: "{{ dokploy_api_base }}/domain.create"
+    method: POST
+    headers:
+      x-api-key: "{{ vault_dokploy_api_key }}"
+    body_format: json
+    body:
+      host: "{{ svc_domain_host }}"
+      port: "{{ svc_domain_port }}"
+      https: false
+      certificateType: "none"
+      composeId: "{{ _dokploy_compose_id }}"
+      serviceName: "{{ svc_domain_service }}"
+      domainType: "compose"
+      path: "/"
+    status_code: [200, 201]
+  when:
+    - svc_domain_host | default('') | length > 0
+    - _dokploy_domain_existing is none
+  delegate_to: localhost
+  become: false
+
+# Capture the pre-deploy deploymentId so the wait below can tell when
+# Dokploy has accepted the new compose.deploy POST and started a fresh
+# run. composeStatus alone is unreliable: it includes a non-terminal
+# 'running' state AND it is sticky on 'error' from the prior deploy
+# until a new one finishes, so a re-converge after a failed deploy
+# would otherwise see the stale 'error' on the very first poll and
+# bail without waiting for the retry.
+- name: "Dokploy: capture pre-deploy deploymentId ({{ svc_name }})"
+  ansible.builtin.set_fact:
+    _dokploy_pre_deploy_id: >-
+      {{ ((_dokploy_compose_current.json.deployments | default([]))
+          | last | default({})).deploymentId | default('') }}
+
+# Deploy + wait + check, retried up to infrastructure_deploy_max_attempts
+# times when the failure looks like a registry transient (quay.io 502,
+# docker.io 503, ghcr.io 504, TLS handshake timeout, etc). Non-
+# transient errors (compose-syntax, manifest unknown, denied) fail the
+# play immediately. See _dokploy_compose_deploy_attempt.yml for the
+# transient classifier + diagnostic capture.
+- name: "Dokploy: initialize deploy attempt state ({{ svc_name }})"
+  ansible.builtin.set_fact:
+    _dokploy_deploy_done: false
+    _dokploy_deploy_transient: false
+
+- name: "Dokploy: deploy with retry on registry transient ({{ svc_name }})"
+  ansible.builtin.include_tasks: _dokploy_compose_deploy_attempt.yml
+  loop: "{{ range(1, (infrastructure_deploy_max_attempts | default(3)) + 1) | list }}"
+  loop_control:
+    loop_var: _dokploy_deploy_attempt_n
+  when: not _dokploy_deploy_done
+
+- name: "Dokploy: fail if all retries exhausted on registry transients ({{ svc_name }})"
+  ansible.builtin.fail:
+    msg: >-
+      Dokploy compose deploy for {{ svc_name }} failed all
+      {{ infrastructure_deploy_max_attempts | default(3) }} attempts
+      on registry transients. Check Dokploy UI logs at
+      https://{{ dokploy_admin_hostname }} (project
+      {{ dokploy_project_name }} -> {{ svc_name }}).
+  when: not _dokploy_deploy_done
+
+# Atomicity: composeStatus flipping to done/running means
+# `docker-compose up` exited successfully -- NOT that the containers are
+# serving healthy HTTP. The tunnel + Traefik + container-init chain
+# can take tens of seconds after that to converge. Probe the public
+# URL before handing control back to the caller; any follow-up API
+# calls or validators are safe to race once this returns.
+- name: "Dokploy: wait for public URL to serve healthy HTTP ({{ svc_name }})"
+  ansible.builtin.uri:
+    url: "{{ svc_readiness_url }}"
+    method: GET
+    status_code: "{{ svc_readiness_ok_codes | default([200, 204, 301, 302]) }}"
+    validate_certs: "{{ svc_readiness_validate_certs | default(true) }}"
+    follow_redirects: none
+    return_content: false
+    timeout: 10
+  register: _svc_readiness
+  retries: "{{ infrastructure_readiness_poll_retries | default(60) }}"
+  delay: "{{ infrastructure_readiness_poll_delay | default(5) }}"
+  until: _svc_readiness.status in (svc_readiness_ok_codes | default([200, 204, 301, 302]))
+  when:
+    - svc_readiness_url is defined
+    - svc_readiness_url | length > 0
+  delegate_to: localhost
+  become: false
+
+- name: "Dokploy: log intentional readiness-probe skip ({{ svc_name }})"
+  ansible.builtin.debug:
+    msg: >-
+      Dokploy[{{ svc_name }}]: readiness probe intentionally skipped --
+      {{ svc_readiness_skip_reason }}
+  when:
+    - svc_readiness_url is not defined or (svc_readiness_url | length) == 0
+    - svc_readiness_skip_reason is defined
+    - svc_readiness_skip_reason | length > 0
+
+- name: "Dokploy: warn if no readiness probe configured ({{ svc_name }})"
+  ansible.builtin.debug:
+    msg: >-
+      No svc_readiness_url set for {{ svc_name }}; skipping post-deploy
+      HTTP probe. The caller is relying on Dokploy's composeStatus alone,
+      which does NOT confirm the app is serving healthy traffic. If any
+      downstream task depends on this service being live, add a probe URL
+      -- or set svc_readiness_skip_reason to declare the skip intentional.
+  when:
+    - svc_readiness_url is not defined or (svc_readiness_url | length) == 0
+    - svc_readiness_skip_reason is not defined or (svc_readiness_skip_reason | length) == 0

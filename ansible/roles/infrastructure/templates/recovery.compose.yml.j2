@@ -1,0 +1,39 @@
+---
+# {{ ansible_managed }}
+# Recovery-downloads nginx sidecar. Serves {{ recovery_source_dir }}
+# read-only over recovery.<zone> for client admin.
+#
+# Gating lives OUTSIDE this compose -- the recovery hostname is
+# wired into the oauth2-proxy admin chain via dashboard-sync's
+# auto-route generator (see roles/infrastructure/templates/
+# dashboard-sync.py.j2 and roles/oauth2_proxy/templates/oauth2-
+# proxy-middlewares.yml.j2 for the chain definition). Keycloak's
+# `admin` group membership gates access on top of that.
+#
+# The served directory is intentionally kept out of restic snapshots:
+# see roles/backup/defaults/main.yml backup_exclude_patterns.
+services:
+  app:
+    image: {{ recovery_image }}
+    restart: unless-stopped
+    volumes:
+      # Recovery artifacts dir -- read-only. Contains the .yml.gpg bundles
+      # produced by the "Export recovery secrets" button and the .tar.gz
+      # produced by the "Export latest snapshot" button.
+      - {{ recovery_source_dir }}:/srv/recovery:ro
+      # Per-host nginx.conf replacing the base image's default -- needed
+      # so workers run as root and can read the 0600 root-owned files
+      # under /srv/recovery. See the template header for rationale.
+      - {{ recovery_host_config_dir }}/nginx.conf:/etc/nginx/nginx.conf:ro
+    # Stable network alias -- Traefik route's loadBalancer service URL
+    # resolves to http://{{ recovery_network_alias }}:{{ recovery_internal_port }}.
+    networks:
+      dokploy-network:
+        aliases:
+          - {{ recovery_network_alias }}
+    labels:
+      - traefik.enable=true
+
+networks:
+  dokploy-network:
+    external: true

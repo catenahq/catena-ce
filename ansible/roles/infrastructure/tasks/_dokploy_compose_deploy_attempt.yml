@@ -1,0 +1,185 @@
+---
+# One deploy attempt for a Dokploy compose app. Caller wraps in a loop
+# with `when: not _dokploy_deploy_done`. On success this sets that fact
+# true; on registry-transient failure (quay.io / docker.io / ghcr.io
+# 5xx during image pull) it leaves the fact false so the next loop
+# iteration redeploys. On non-transient failure it fails the play
+# immediately -- retrying a real compose-syntax / manifest-unknown
+# error is pointless.
+#
+# Caller must have set:
+#   _dokploy_compose_id, _dokploy_pre_deploy_id, svc_name
+#   _dokploy_deploy_done       (false on first iter)
+# Loop var:
+#   _dokploy_deploy_attempt_n  (1-indexed)
+#
+# The deploy POST + wait below are ALSO individually gated on
+# `not _dokploy_deploy_done`, not just the caller's loop `when:`. A
+# looped include_tasks does not reliably short-circuit the moment an
+# earlier iteration sets the fact, so once a deploy has succeeded a later
+# iteration would otherwise re-POST an already-healthy compose -- and the
+# wait's `until` (a NEW deploymentId reaching done/error) can never be
+# satisfied for an unchanged compose, so it burns all its retries and
+# fails a deploy that already succeeded. Skipping the work when done keeps
+# the transient-retry path (done still false) intact.
+#
+# Why this exists: Dokploy's `compose.deploy` calls `docker compose up
+# --build`, which pulls images from upstream registries on every run.
+# A single transient 502/503/504 from quay.io or docker.io taints the
+# whole deploy; without retry, every bench scenario that re-deploys a
+# stack (DR, migrate, rollback) is one upstream blip away from failure.
+# Mirrors the same retry pattern used by run_unit_with_retries on the
+# bench side for catena-backup.service.
+
+- name: "Dokploy: deploy attempt {{ _dokploy_deploy_attempt_n }} ({{ svc_name }})"
+  ansible.builtin.uri:
+    url: "{{ dokploy_api_base }}/compose.deploy"
+    method: POST
+    headers:
+      x-api-key: "{{ vault_dokploy_api_key }}"
+    body_format: json
+    body:
+      composeId: "{{ _dokploy_compose_id }}"
+      title: "catena roles/infrastructure (attempt {{ _dokploy_deploy_attempt_n }})"
+      description: ""
+    status_code: [200, 201]
+  delegate_to: localhost
+  become: false
+  when: not _dokploy_deploy_done
+
+- name: "Dokploy: wait for attempt {{ _dokploy_deploy_attempt_n }} to finish ({{ svc_name }})"
+  ansible.builtin.uri:
+    url: "{{ dokploy_api_base }}/compose.one?composeId={{ _dokploy_compose_id }}"
+    method: GET
+    headers:
+      x-api-key: "{{ vault_dokploy_api_key }}"
+    status_code: 200
+    return_content: true
+  register: _dokploy_compose_status
+  retries: "{{ infrastructure_deploy_poll_retries }}"
+  delay: "{{ infrastructure_deploy_poll_delay }}"
+  until:
+    - ((_dokploy_compose_status.json.deployments | default([])) | last | default({})).deploymentId | default('') != _dokploy_pre_deploy_id
+    - ((_dokploy_compose_status.json.deployments | default([])) | last | default({})).status | default('') in ['done', 'error']
+  delegate_to: localhost
+  become: false
+  when: not _dokploy_deploy_done
+
+- name: "Dokploy: capture attempt {{ _dokploy_deploy_attempt_n }} status ({{ svc_name }})"
+  ansible.builtin.set_fact:
+    _dokploy_latest_deploy_status: >-
+      {{ ((_dokploy_compose_status.json.deployments | default([]))
+          | last | default({})).status | default('') }}
+    _dokploy_pre_deploy_id: >-
+      {{ ((_dokploy_compose_status.json.deployments | default([]))
+          | last | default({})).deploymentId | default('') }}
+  # Skip on an already-done iteration: the wait above was skipped, so
+  # _dokploy_compose_status holds a skipped result with no .json -- re-
+  # reading it would blank the status. Leave attempt 1's 'done' intact.
+  when: not _dokploy_deploy_done
+
+- name: "Dokploy: mark deploy done ({{ svc_name }})"
+  ansible.builtin.set_fact:
+    _dokploy_deploy_done: true
+  when: _dokploy_latest_deploy_status == 'done'
+
+- name: "Dokploy: collect on-VPS diagnostics for errored attempt {{ _dokploy_deploy_attempt_n }} ({{ svc_name }})"
+  when: _dokploy_latest_deploy_status == 'error'
+  block:
+    - name: "Dokploy: dump compose.one response body (attempt {{ _dokploy_deploy_attempt_n }}, {{ svc_name }})"
+      ansible.builtin.debug:
+        var: _dokploy_compose_status.json
+    - name: "Dokploy: list compose dir + recent deploy logs (attempt {{ _dokploy_deploy_attempt_n }}, {{ svc_name }})"
+      ansible.builtin.shell: |
+        set +e
+        echo "== docker ps -a (filter={{ svc_name }}) =="
+        docker ps -a --filter "name={{ svc_name }}" --format json
+        echo
+        echo "== /etc/dokploy/compose ls =="
+        ls -la /etc/dokploy/compose/ 2>/dev/null | head -40
+        echo
+        echo "== recent Dokploy deploy logs (last 5 min, tail 200) =="
+        for f in $(find /etc/dokploy/logs /etc/dokploy/compose -type f -name "*.log" -mmin -5 2>/dev/null); do
+          echo "--- $f ---"
+          tail -200 "$f"
+          echo
+        done
+      args:
+        executable: /bin/bash
+      register: _dokploy_deploy_diag
+      changed_when: false
+      failed_when: false
+    - name: "Dokploy: print on-VPS diagnostics (attempt {{ _dokploy_deploy_attempt_n }}, {{ svc_name }})"
+      ansible.builtin.debug:
+        var: _dokploy_deploy_diag.stdout_lines
+    # Transients we have seen taint a compose deploy:
+    #   Registry-side:
+    #     quay.io   -> 502 Bad Gateway on manifest GET
+    #     docker.io -> 503 Service Unavailable, TOOMANYREQUESTS rate-limit
+    #     ghcr.io   -> 504 Gateway Timeout
+    #     any registry -> TLS handshake timeout, i/o timeout, connection
+    #                     reset, context deadline exceeded
+    #   Docker-daemon-side (during container recreate on redeploy):
+    #     "cannot stop container ... tried to kill container, but did
+    #      not receive an exit event" -- dockerd lost track of a
+    #      containerd-shim during stop; retrying the compose up usually
+    #      succeeds because dockerd reaps the zombie between attempts.
+    # Non-transient (do NOT retry): "manifest unknown", "repository name
+    # not known to registry", "denied: requested access to the resource
+    # is denied", "no basic auth credentials", compose-yaml parse errors.
+    - name: "Dokploy: detect transient in deploy diag ({{ svc_name }})"
+      ansible.builtin.set_fact:
+        _dokploy_deploy_transient: >-
+          {{ (_dokploy_deploy_diag.stdout | default('')) is regex(
+               '(502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout|TLS handshake timeout|connection reset|i/o timeout|TOOMANYREQUESTS|context deadline exceeded|temporary failure in name resolution|net/http: TLS handshake timeout|received unexpected HTTP status: 5|did not receive an exit event|cannot stop container)'
+             ) }}
+    - name: "Dokploy: report transient detected, will retry ({{ svc_name }})"
+      ansible.builtin.debug:
+        msg: >-
+          Dokploy[{{ svc_name }}]: attempt {{ _dokploy_deploy_attempt_n }}
+          errored on a transient; retrying.
+      when: _dokploy_deploy_transient | bool
+    # Between transient attempts, force-remove any container we own
+    # on this VPS that matches the failing compose project. Without
+    # this, the docker-daemon-zombie family ("did not receive an
+    # exit event" / "cannot stop container") just recurs on the next
+    # `docker compose up` because the stuck container is still in
+    # the dockerd state machine. `docker rm -f` is a no-op when the
+    # container is already gone (registry-transient case where no
+    # container ever started), so this is safe for the whole
+    # transient set. Identified by the compose project label that
+    # Dokploy stamps on every container it owns; the matcher uses
+    # `com.docker.compose.service=<svc_name>` plus a regex on the
+    # `project=` label so we do not touch unrelated workloads.
+    - name: "Dokploy: nudge wedged compose containers ({{ svc_name }}, before retry {{ _dokploy_deploy_attempt_n + 1 }})"
+      ansible.builtin.shell: |
+        set +e
+        ids=$(docker ps -aq \
+          --filter "label=com.docker.compose.service={{ svc_name }}")
+        if [ -n "$ids" ]; then
+          echo "== removing $(echo "$ids" | wc -l) stuck container(s) for svc={{ svc_name }} =="
+          docker rm -f -v $ids 2>&1 | head -40
+        else
+          echo "== no containers found for svc={{ svc_name }}; nudge is a no-op =="
+        fi
+      args:
+        executable: /bin/bash
+      register: _dokploy_deploy_nudge
+      changed_when: false
+      failed_when: false
+      when: _dokploy_deploy_transient | bool
+    - name: "Dokploy: print nudge output (attempt {{ _dokploy_deploy_attempt_n }}, {{ svc_name }})"
+      ansible.builtin.debug:
+        var: _dokploy_deploy_nudge.stdout_lines
+      when: _dokploy_deploy_transient | bool
+    - name: "Dokploy: fail hard on non-transient deploy error ({{ svc_name }})"
+      ansible.builtin.fail:
+        msg: >-
+          Dokploy compose deploy for {{ svc_name }} ended in state
+          '{{ _dokploy_latest_deploy_status }}'
+          (composeStatus={{ _dokploy_compose_status.json.composeStatus }})
+          on attempt {{ _dokploy_deploy_attempt_n }} and the diag
+          output did not match a known transient pattern; not retrying.
+          Check Dokploy UI logs at https://{{ dokploy_admin_hostname }}
+          (project {{ dokploy_project_name }} -> {{ svc_name }}).
+      when: not (_dokploy_deploy_transient | default(false) | bool)

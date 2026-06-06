@@ -1,0 +1,187 @@
+---
+# Mailserver SSO wiring (Keycloak): realm clients + the OAuth2 config files
+# the docker-mailserver template cannot ship itself.
+#
+# Gated on the mailserver template actually being deployed -- the catalog
+# template is opt-in, so on a tenant that never deployed it this whole file
+# no-ops (no dms/roundcube containers => skip).
+#
+# Steps:
+#   1. Render realm-roundcube.yaml (the `roundcube` + `mailserver-introspect`
+#      clients) and re-import the realm.
+#   2. Drop dovecot-oauth2.conf.ext into the dms config volume (introspection
+#      with client auth -- the RFC 7662 fix) and reload Dovecot.
+#   3. Drop oauth.inc.php into the roundcube config volume.
+#
+# Idempotent: renders are change-detected; the docker cp + reload only fire
+# when the rendered file changed. Atomic: gated on the containers existing
+# (docker ps), not on a fixed name.
+
+- name: "Mailserver OIDC: locate dms container"
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker ps --filter label=com.docker.compose.service=dms \
+      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1
+  args:
+    executable: /bin/bash
+  register: _dms_ct
+  changed_when: false
+
+- name: "Mailserver OIDC: locate roundcube container"
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker ps --filter label=com.docker.compose.service=roundcube \
+      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1
+  args:
+    executable: /bin/bash
+  register: _roundcube_ct
+  changed_when: false
+
+- name: "Mailserver OIDC: skip when template not deployed"
+  ansible.builtin.debug:
+    msg: >-
+      mailserver template not deployed (no dms container); skipping SSO
+      wiring. Deploy the `mailserver` template in Dokploy, then re-converge.
+  when: (_dms_ct.stdout | default('') | length) == 0
+
+- name: "Mailserver OIDC: ensure host staging dir exists"
+  ansible.builtin.file:
+    path: /var/lib/catena/mailserver
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  when: (_dms_ct.stdout | default('') | length) > 0
+
+# ── 1. Keycloak realm clients ─────────────────────────────────────────────
+- name: "Mailserver OIDC: render Keycloak clients into realm config dir"
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../roles/keycloak/templates/realm-roundcube.yaml.j2"
+    dest: "{{ keycloak_realm_host_dir }}/roundcube.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  register: _mailserver_realm_render
+  no_log: true
+  when: (_dms_ct.stdout | default('') | length) > 0
+
+- name: "Mailserver OIDC: re-import realm config with the new clients"
+  ansible.builtin.include_tasks: ../../keycloak/tasks/realm_bootstrap.yml
+  when:
+    - (_dms_ct.stdout | default('') | length) > 0
+    - _mailserver_realm_render is changed
+  tags: [mailserver_realm]
+
+# ── 2. Dovecot introspection config (the RFC 7662 fix) ────────────────────
+- name: "Mailserver OIDC: render dovecot-oauth2.conf.ext on host"
+  ansible.builtin.template:
+    src: dovecot-oauth2.conf.ext.j2
+    dest: /var/lib/catena/mailserver/dovecot-oauth2.conf.ext
+    owner: root
+    group: root
+    mode: "0640"
+  register: _dms_oauth_conf
+  no_log: true
+  when: (_dms_ct.stdout | default('') | length) > 0
+
+- name: "Mailserver OIDC: inject dovecot-oauth2.conf.ext into the dms config volume"
+  # docker cp lands in the mounted /tmp/docker-mailserver volume, so it
+  # persists across restarts. DMS reads conf.d on Dovecot reload.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - cp
+      - /var/lib/catena/mailserver/dovecot-oauth2.conf.ext
+      - "{{ _dms_ct.stdout }}:/tmp/docker-mailserver/dovecot-oauth2.conf.ext"
+  register: _dms_oauth_cp
+  changed_when: true
+  when:
+    - (_dms_ct.stdout | default('') | length) > 0
+    - _dms_oauth_conf is changed
+
+# docker-mailserver's first boot can leave Dovecot not-yet-running for
+# minutes after the dms container appears in `docker ps` (a bare reload
+# then exits 75: "Dovecot is not running"). Gate on the ACTUAL service
+# state via supervisor -- container presence is not readiness. `docker
+# exec` also fails fast if the container itself is not running, so this
+# covers both. supervisorctl status exits non-zero unless dovecot is
+# RUNNING, so until+retries waits out the boot and FAILS LOUD if Dovecot
+# never comes up within the budget (a broken mailserver surfaces here,
+# not three scenarios downstream).
+- name: "Mailserver OIDC: wait for Dovecot to be RUNNING in dms"
+  ansible.builtin.command:
+    argv: [docker, exec, "{{ _dms_ct.stdout }}", supervisorctl, status, dovecot]
+  register: _dms_dovecot_status
+  changed_when: false
+  until: "'RUNNING' in (_dms_dovecot_status.stdout | default(''))"
+  retries: 30
+  delay: 10
+  when:
+    - (_dms_ct.stdout | default('') | length) > 0
+    - _dms_oauth_cp is changed
+
+- name: "Mailserver OIDC: reload Dovecot to apply introspection config"
+  ansible.builtin.command:
+    argv: [docker, exec, "{{ _dms_ct.stdout }}", doveadm, reload]
+  register: _dms_oauth_reload
+  changed_when: _dms_oauth_reload.rc == 0
+  # Dovecot is confirmed RUNNING above, so a reload failure is a real
+  # error -- default failed_when (rc != 0) lets it surface, no tolerate.
+  when:
+    - (_dms_ct.stdout | default('') | length) > 0
+    - _dms_oauth_cp is changed
+
+- name: "Mailserver OIDC: verify Dovecot healthy + config valid after reload"
+  # Belt-and-suspenders after applying our drop-in: (1) Dovecot is still
+  # RUNNING under supervisor (a config that crashed it on reload would
+  # drop to BACKOFF/FATAL), and (2) doveconf parses the full config tree
+  # incl. our introspection conf and exits non-zero on any syntax error.
+  # Fails loud if the injected config broke Dovecot -- "it errored out"
+  # is caught here, not by a later scenario.
+  ansible.builtin.shell: |
+    set -eu
+    docker exec {{ _dms_ct.stdout | quote }} supervisorctl status dovecot | grep -q RUNNING
+    docker exec {{ _dms_ct.stdout | quote }} doveconf -n >/dev/null
+  args:
+    executable: /bin/bash
+  changed_when: false
+  when:
+    - (_dms_ct.stdout | default('') | length) > 0
+    - _dms_oauth_cp is changed
+
+# ── 3. Roundcube OAuth provider config ────────────────────────────────────
+- name: "Mailserver OIDC: render roundcube oauth.inc.php on host"
+  ansible.builtin.template:
+    src: roundcube-oauth.inc.php.j2
+    dest: /var/lib/catena/mailserver/oauth.inc.php
+    owner: root
+    group: root
+    mode: "0640"
+  register: _rc_oauth_conf
+  no_log: true
+  when: (_roundcube_ct.stdout | default('') | length) > 0
+
+- name: "Mailserver OIDC: inject oauth.inc.php into the roundcube config volume"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - cp
+      - /var/lib/catena/mailserver/oauth.inc.php
+      - "{{ _roundcube_ct.stdout }}:/var/roundcube/config/oauth.inc.php"
+  changed_when: true
+  when:
+    - (_roundcube_ct.stdout | default('') | length) > 0
+    - _rc_oauth_conf is changed
+
+# ── 4. Nextcloud "Webmail" nav link (top-level, no iframe) ────────────────
+# Surface Roundcube from Nextcloud as a new-tab link so users reach webmail
+# from the suite without a separate bookmark. No-ops when Nextcloud is not
+# deployed (the script self-checks for the container).
+- name: "Mailserver OIDC: add Webmail link to Nextcloud nav"
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/catena-wire-nextcloud-webmail-link
+      - "https://webmail.{{ cloudflare_zone }}"
+  register: _webmail_link
+  changed_when: "'Configuring the Webmail nav link' in (_webmail_link.stdout | default(''))"
+  when: (_dms_ct.stdout | default('') | length) > 0

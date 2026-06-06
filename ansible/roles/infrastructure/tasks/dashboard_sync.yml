@@ -1,0 +1,105 @@
+---
+# Install /usr/local/bin/dashboard-sync (stdlib-only Python), its env file
+# (contains vault_dokploy_api_key, 0600), and the systemd service + timer
+# that runs it every 5 minutes. Also exposed via the catena-admin Actions
+# tab "Sync all" button for on-demand refresh.
+#
+# Phase 4b: the script no longer writes Homepage's services.yaml. Its
+# only remaining job is the gate-route synthesis -- generating
+# {{ dokploy_traefik_dynamic_dir }}/<app>-auto-gate.yml from every
+# Dokploy compose/application's vps.auth.* labels.
+
+- name: "dashboard-sync: script"
+  # Plain stdlib-only Python under vps-scripts/ -- no Jinja in
+  # executables. Per-host config arrives via /etc/catena/dashboard-sync.env
+  # (see EnvironmentFile= in dashboard-sync.service.j2) and is read
+  # via os.environ throughout.
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../vps-scripts/dashboard-sync.py"
+    dest: "{{ dashboard_sync_script_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "dashboard-sync: sibling modules (imported by dashboard-sync)"
+  # The orchestrator does `sys.path.insert(0, dirname(__file__))` then
+  # imports these by bare name, so they all install next to
+  # /usr/local/bin/dashboard-sync. dashboard-sync.py was decomposed from a
+  # ~760-line auth-critical monolith into these stdlib-only modules (see
+  # BACKLOG_TECHNICAL.md "dashboard-sync.py decomposition"); labels_schema
+  # is the canonical vps.* label vocabulary (helpers/), shipped flat here so
+  # the on-host `from labels_schema import ...` fallback resolves -- the
+  # former inlined copy is gone.
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ dashboard_sync_script_path | dirname }}/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - { src: "{{ playbook_dir }}/../../vps-scripts/dokploy_api.py", dest: "dokploy_api.py" }
+    - { src: "{{ playbook_dir }}/../../vps-scripts/route_synth.py", dest: "route_synth.py" }
+    - { src: "{{ playbook_dir }}/../../vps-scripts/gate_routes.py", dest: "gate_routes.py" }
+    - { src: "{{ playbook_dir }}/../../vps-scripts/clients_provisioner.py", dest: "clients_provisioner.py" }
+    - { src: "{{ playbook_dir }}/../../vps-scripts/keycloak_client.py", dest: "keycloak_client.py" }
+    - { src: "{{ playbook_dir }}/../../vps-scripts/mailbox_sync.py", dest: "mailbox_sync.py" }
+    - { src: "{{ playbook_dir }}/../../helpers/labels_schema.py", dest: "labels_schema.py" }
+  loop_control:
+    label: "{{ item.dest }}"
+
+- name: "dashboard-sync: env file ({{ dashboard_sync_env_path }})"
+  ansible.builtin.template:
+    src: dashboard-sync.env.j2
+    dest: "{{ dashboard_sync_env_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: "dashboard-sync: systemd service unit"
+  ansible.builtin.template:
+    src: dashboard-sync.service.j2
+    dest: /etc/systemd/system/dashboard-sync.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: _dashboard_sync_service_unit
+
+- name: "dashboard-sync: systemd timer unit"
+  ansible.builtin.template:
+    src: dashboard-sync.timer.j2
+    dest: /etc/systemd/system/dashboard-sync.timer
+    owner: root
+    group: root
+    mode: "0644"
+  register: _dashboard_sync_timer_unit
+
+- name: "dashboard-sync: daemon-reload if units changed"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: _dashboard_sync_service_unit.changed or _dashboard_sync_timer_unit.changed
+
+# Workaround for ansible-core 2.19/2.20 module_legacy_m2c resolution
+# failure on systemd_service enable+start -- same family as the
+# `state: started` workaround on the run-once task below.
+#
+# Atomicity: `changed_when: false` here is intentional and correct.
+# Any actual unit-file change upstream registers `changed: true` via
+# the template task (lines 28-47) which notifies the daemon-reload
+# handler; this `systemctl enable --now` is just the idempotent
+# "make sure it's enabled" follow-up (systemd returns success on
+# already-enabled). Suppressing changed on this task avoids spurious
+# "changed" reports on every converge; it does NOT cause the daemon-
+# reload to be skipped on a real unit-file edit. Don't remove the
+# suppression in a future atomicity pass.
+- name: "dashboard-sync: enable + start timer"
+  ansible.builtin.systemd_service:
+    name: dashboard-sync.timer
+    enabled: true
+    state: started
+
+- name: "dashboard-sync: run once now (sync gate routes)"
+  ansible.builtin.systemd:
+    name: dashboard-sync.service
+    state: started
+  changed_when: false

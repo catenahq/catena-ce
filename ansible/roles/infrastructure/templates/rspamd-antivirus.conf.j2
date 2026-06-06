@@ -1,0 +1,24 @@
+# {{ ansible_managed }}
+# rspamd antivirus module -> shared clamd on the catena-clamav network.
+# Dropped into the dms container's rspamd/local.d/ by
+# roles/infrastructure mailserver_filtering.yml. This REPLACES the
+# DMS-bundled ClamAV (ENABLE_CLAMAV=0 in the template); the shared clamd
+# is deployed by clamav.yml.
+#
+# TCP transport (not a unix socket) is REQUIRED: over TCP, rspamd sets
+# the CLAM_VIRUS_FAIL symbol when clamd is unreachable, which
+# force_actions.conf turns into a soft reject (fail-loud). Over a unix
+# socket rspamd silently passes on a dead clamd.
+clamav {
+  type = "clamav";
+  servers = "clamav:3310";
+  # Scan attachments/MIME parts; skip plain text + inline images (clamd
+  # adds little there and it inflates scan volume).
+  scan_mime_parts = true;
+  scan_text_mime = false;
+  scan_image_mime = false;
+  # Virus hit -> reject outright. The matching *_FAIL symbol
+  # (CLAM_VIRUS_FAIL) is handled in force_actions.conf.
+  symbol = "CLAM_VIRUS";
+  action = "reject";
+}

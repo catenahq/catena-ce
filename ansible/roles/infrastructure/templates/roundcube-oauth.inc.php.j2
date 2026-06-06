@@ -1,0 +1,26 @@
+<?php
+// {{ ansible_managed }}
+// Roundcube OAuth2 (Keycloak) config, dropped into the roundcube config
+// volume by roles/infrastructure/tasks/mailserver_oidc.yml. The official
+// roundcube image has no oauth_* env, so the wiring is a mounted config.
+//
+// Roundcube does the auth-code dance with Keycloak, then uses the access
+// token as the password over XOAUTH2 to Dovecot/Postfix (no stored mail
+// password). Because the user already holds a Keycloak SSO session (they
+// reached webmail from the suite), the redirect is silent.
+//
+// Scope is kept minimal (no groups) to keep the token under Roundcube's
+// 1024-char OAuth limit -- see realm-roundcube.yaml.j2 header.
+
+$config['oauth_provider'] = 'generic';
+$config['oauth_provider_name'] = 'Keycloak';
+$config['oauth_client_id'] = 'roundcube';
+$config['oauth_client_secret'] = '{{ vault_mailserver_oidc_client_secret }}';
+$config['oauth_auth_uri'] = 'https://{{ keycloak_hostname | default("auth." ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default("vps") }}/protocol/openid-connect/auth';
+$config['oauth_token_uri'] = 'https://{{ keycloak_hostname | default("auth." ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default("vps") }}/protocol/openid-connect/token';
+$config['oauth_identity_uri'] = 'https://{{ keycloak_hostname | default("auth." ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default("vps") }}/protocol/openid-connect/userinfo';
+$config['oauth_scope'] = 'openid email profile';
+$config['oauth_auth_parameters'] = ['access_type' => 'offline'];
+// Send users straight to Keycloak instead of showing a local password
+// form (there is no local mail password).
+$config['oauth_login_redirect'] = true;

@@ -1,0 +1,249 @@
+---
+# Mailserver spam + antivirus filtering (rspamd drop-ins). Injects rspamd
+# local.d config into the dms container the same way mailserver_oidc.yml
+# injects the Dovecot/Roundcube config: render on the host -> docker cp
+# into the mounted /tmp/docker-mailserver volume -> reload rspamd.
+#
+# Drops:
+#   - antivirus.conf      -> shared clamd (catena-clamav) over TCP
+#   - force_actions.conf  -> soft-reject on CLAM_VIRUS_FAIL (fail-loud)
+#   - actions.conf        -> SMB-tuned reject/add_header/greylist scores
+#   - rbl.conf            -> Spamhaus DQS RBL (only when the DQS key is
+#                            set; public mirrors are deprecated Apr 2026)
+#
+# Also ensures the RFC 2142 role aliases (postmaster@ / abuse@) point at
+# the operator address.
+#
+# Opt-in template: gated on the dms container existing -- no-op on a
+# tenant without the mailserver.
+
+- name: "Mailserver filtering: locate dms container"
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker ps --filter label=com.docker.compose.service=dms \
+      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1
+  args:
+    executable: /bin/bash
+  register: _ms_filt_dms
+  changed_when: false
+
+- name: "Mailserver filtering: skip when mailserver template not deployed"
+  ansible.builtin.debug:
+    msg: >-
+      mailserver template not deployed (no dms container); skipping rspamd
+      filtering drop-ins.
+  when: (_ms_filt_dms.stdout | default('') | length) == 0
+
+- name: "Mailserver filtering: render + inject rspamd config (dms deployed)"
+  when: (_ms_filt_dms.stdout | default('') | length) > 0
+  block:
+    - name: "Mailserver filtering: warn when Spamhaus DQS key is unset"
+      ansible.builtin.debug:
+        msg: >-
+          vault_mailserver_spamhaus_dqs_key is empty -- skipping the
+          Spamhaus DQS RBL drop-in. rspamd still scores on content +
+          DKIM/SPF/DMARC + antivirus, but loses the IP/domain reputation
+          layer. Get a free DQS key at spamhaus.com and add it to the
+          vault for full coverage.
+      when: >-
+        vault_mailserver_spamhaus_dqs_key is not defined
+        or (vault_mailserver_spamhaus_dqs_key | trim | length) == 0
+
+    # Base drop-ins (always). rbl.conf is appended only when the DQS key
+    # is set, so an empty key never renders a broken zone.
+    - name: "Mailserver filtering: build config list"
+      ansible.builtin.set_fact:
+        _ms_rspamd_confs:
+          - {src: "rspamd-antivirus.conf.j2", name: "antivirus.conf"}
+          - {src: "rspamd-force_actions.conf.j2", name: "force_actions.conf"}
+          - {src: "rspamd-actions.conf.j2", name: "actions.conf"}
+
+    - name: "Mailserver filtering: add Spamhaus DQS RBL when key is set"
+      ansible.builtin.set_fact:
+        _ms_rspamd_confs: "{{ _ms_rspamd_confs + [{'src': 'rspamd-rbl.conf.j2', 'name': 'rbl.conf'}] }}"
+      when: >-
+        vault_mailserver_spamhaus_dqs_key is defined
+        and (vault_mailserver_spamhaus_dqs_key | trim | length) > 0
+
+    - name: "Mailserver filtering: ensure host staging dir exists"
+      ansible.builtin.file:
+        path: /var/lib/catena/mailserver/rspamd
+        state: directory
+        owner: root
+        group: root
+        mode: "0750"
+
+    - name: "Mailserver filtering: render rspamd config on host"
+      ansible.builtin.template:
+        src: "{{ item.src }}"
+        dest: "/var/lib/catena/mailserver/rspamd/{{ item.name }}"
+        owner: root
+        group: root
+        mode: "0640"
+      loop: "{{ _ms_rspamd_confs }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: _ms_rspamd_render
+      no_log: true # rbl.conf carries the DQS key
+
+    - name: "Mailserver filtering: ensure rspamd dirs exist in container"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ _ms_filt_dms.stdout | trim }}"
+          - mkdir
+          - -p
+          - /tmp/docker-mailserver/rspamd/local.d
+          - /etc/rspamd/local.d
+      changed_when: false
+
+    # Stage the drop-ins into the mail-config volume. This is the durable
+    # copy, but it is NOT what the running rspamd reads: docker-mailserver
+    # only syncs /tmp/docker-mailserver/rspamd/local.d -> /etc/rspamd/local.d
+    # during its ONE-TIME first-boot setup (guarded by a state sentinel),
+    # which runs before this converge-time inject. Verified on the bench:
+    # after staging here + `docker restart`, /etc still held the DMS default
+    # and rspamd logged "antivirus is disabled". So /tmp is staging only --
+    # changed_when:false, it is never the effective gate.
+    - name: "Mailserver filtering: stage drop-ins into the mail-config volume"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - cp
+          - "/var/lib/catena/mailserver/rspamd/{{ item.name }}"
+          - "{{ _ms_filt_dms.stdout | trim }}:/tmp/docker-mailserver/rspamd/local.d/{{ item.name }}"
+      loop: "{{ _ms_rspamd_confs }}"
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: false
+
+    # Sync each drop-in into the LIVE /etc/rspamd/local.d (what rspamd
+    # actually reads) only when it differs from what is already there. This
+    # is the real idempotency gate, keyed on the EFFECTIVE config rather
+    # than "render changed":
+    #   - clean re-converge: shas match -> no change -> no restart
+    #     (restore_dr stage-2.5 stays green);
+    #   - container recreate (DR restore, Dokploy redeploy) resets /etc to
+    #     image defaults -> shas differ -> drop-ins recopied + rspamd
+    #     restarted, so filtering self-heals. Gating on render-changed would
+    #     skip this and silently leave filtering OFF after a restore.
+    # /etc is container-fs (not a volume), which is why the recopy is needed.
+    - name: "Mailserver filtering: sync drop-ins into live /etc when changed"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ _ms_filt_dms.stdout | trim }}"
+          - sh
+          - -c
+          - >-
+            src="/tmp/docker-mailserver/rspamd/local.d/{{ item.name }}";
+            dst="/etc/rspamd/local.d/{{ item.name }}";
+            if [ ! -f "$dst" ] || [ "$(sha256sum < "$src" | cut -d' ' -f1)" != "$(sha256sum < "$dst" | cut -d' ' -f1)" ];
+            then cp "$src" "$dst"; echo CHANGED; else echo OK; fi
+      loop: "{{ _ms_rspamd_confs }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: _ms_etc_sync
+      # `stdout` is not in scope for a per-item changed_when on a looped
+      # task; derive the change signal from the registered results instead
+      # (see the set_fact below). Keep this task itself reporting ok so a
+      # clean re-converge shows zero changed tasks (restore_dr stage-2.5).
+      changed_when: false
+
+    - name: "Mailserver filtering: flag whether any drop-in changed in /etc"
+      ansible.builtin.set_fact:
+        _ms_etc_dirty: >-
+          {{ (_ms_etc_sync.results | default([]))
+             | selectattr('stdout', 'search', 'CHANGED')
+             | list | length > 0 }}
+
+    # Validate the live config BEFORE restarting rspamd: rspamadm configtest
+    # parses local.d/ and exits non-zero on any error, so a bad drop-in
+    # fails loud here instead of silently leaving rspamd down (the old
+    # `|| true` reload hid exactly that). DMS runs rspamd under supervisord.
+    - name: "Mailserver filtering: validate rspamd config before reload"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ _ms_filt_dms.stdout | trim }}"
+          - rspamadm
+          - configtest
+      changed_when: false
+      when: _ms_etc_dirty | bool
+
+    # Restart just the rspamd program to re-read local.d/.
+    # `supervisorctl restart` = stop + start, and the start can race the
+    # outgoing workers releasing their listen ports (rspamd_proxy:11332,
+    # controller:11334): the first start then exits "abnormal termination"
+    # (rc=7) and supervisor's OWN autorestart brings rspamd back up RUNNING
+    # a moment later. Observed on fresh install -- rc=7 from this command,
+    # yet rspamd was stable seconds afterward with the antivirus engine
+    # loaded (EICAR -> CLAM_VIRUS). configtest already proved the config
+    # parses, so the restart rc is not authoritative; the verify-RUNNING
+    # task below waits out the settle and fails LOUD if rspamd does not
+    # recover. Hence failed_when:false (a strict gate here false-failed the
+    # wire stage on a transient that self-healed).
+    - name: "Mailserver filtering: reload rspamd"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ _ms_filt_dms.stdout | trim }}"
+          - supervisorctl
+          - restart
+          - rspamd
+      register: _ms_rspamd_reload
+      changed_when: true
+      failed_when: false
+      when: _ms_etc_dirty | bool
+
+    # Confirm rspamd actually came back RUNNING (a config that crashes it
+    # on start would drop to BACKOFF/FATAL); supervisorctl status exits
+    # non-zero unless RUNNING, so wait out the restart and fail loud if it
+    # does not recover.
+    - name: "Mailserver filtering: verify rspamd is RUNNING after reload"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ _ms_filt_dms.stdout | trim }}"
+          - supervisorctl
+          - status
+          - rspamd
+      register: _ms_rspamd_status
+      changed_when: false
+      until: "'RUNNING' in (_ms_rspamd_status.stdout | default(''))"
+      retries: 12
+      delay: 5
+      when: _ms_etc_dirty | bool
+
+    # ── Role aliases (RFC 2142) ──────────────────────────────────────
+    # abuse@ is expected by feedback loops + abuse reporting; alias it to
+    # the operator address so abuse/FBL mail is seen. postmaster@ is NOT
+    # aliased here -- it is provisioned as a REAL mailbox in
+    # mailserver_accounts.yml (docker-mailserver needs >=1 mailbox to start,
+    # and an address cannot be both a mailbox and an alias). Idempotent:
+    # only adds the alias when it is not already listed.
+    - name: "Mailserver aliases: list existing"
+      ansible.builtin.command:
+        argv: [docker, exec, "{{ _ms_filt_dms.stdout | trim }}", setup, alias, list]
+      register: _ms_alias_list
+      changed_when: false
+      failed_when: false
+
+    - name: "Mailserver aliases: ensure abuse@ -> operator"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ _ms_filt_dms.stdout | trim }}"
+          - setup
+          - alias
+          - add
+          - "abuse@{{ cloudflare_zone }}"
+          - "{{ admin_email }}"
+      when: ("abuse@" ~ cloudflare_zone) not in (_ms_alias_list.stdout | default(''))
+      changed_when: true

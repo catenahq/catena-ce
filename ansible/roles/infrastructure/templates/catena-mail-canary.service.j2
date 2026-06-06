@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+[Unit]
+Description=catena mail canary (ports + rspamd->clamav EICAR check via dms)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile={{ mail_canary_env_file }}
+ExecStart={{ mail_canary_script_path }}
+# Two docker-exec calls (ss + an rspamc scan) + a loopback ping. Seconds
+# on a healthy host; 2min is a generous cap.
+TimeoutStartSec=2min
+StandardOutput=journal
+StandardError=journal
+Nice=15

@@ -1,0 +1,492 @@
+---
+# roles/infrastructure manages everything that shows up in the Dokploy
+# "infrastructure" project PLUS the cloudflared swarm service + CF API state
+# (tunnel, DNS). Role name matches the Dokploy project name so the mental
+# model is one-to-one.
+#
+# Subdomains provisioned end-to-end (DNS -> Tunnel -> Traefik ->
+# container), all gated by Keycloak + oauth2-proxy forward-auth:
+#   admin.<zone>     -> Dokploy UI    (deployed by roles/dokploy)
+#   monitor.<zone>   -> Gatus         (this role, via Dokploy API)
+#   dash.<zone>      -> catena-admin  (operator-deployed via Dokploy
+#                                      git-source flow; see
+#                                      roles/catena-admin)
+
+# Fallback if the inventory's group_vars/all/main.yml predates the
+# ansible_managed variable (added when we moved off the deprecated
+# ansible.cfg setting). Role defaults have lowest priority, so a value
+# in group_vars wins.
+ansible_managed: "Managed by catena - do not edit directly."
+
+# --- Nextcloud Talk + HPB ------------------------------------------------
+# aio-talk's Janus uses TURN-only for ALL its media (its janus.jcfg's
+# nat block is generated with turn_server pointing at the standalone
+# coturn at turn.<base>:5349). No direct UDP exposure needed for Janus
+# itself. The HPB stack reuses the shared coturn UDP profile already
+# opened by roles/coturn (3478, 5349, 50000-50100).
+
+# --- Rocket.Chat bundled Jitsi (JVB media port) --------------------------
+# JVB binds a single multiplexed UDP port for all media (Jitsi
+# convention -- not a range). Matches `JVB_PORT` in the rocketchat
+# compose template. ufw must permit it whenever RC is deployed.
+rocketchat_jitsi_jvb_media_port: 10000
+
+# --- Cloudflare tunnel ---------------------------------------------------
+# Tunnel + DNS + cloudflared swarm service moved to roles/cloudflare_tunnel
+# on 2026-05-08 so site.yml can deploy them BEFORE keycloak/oauth2_proxy
+# in a single pass. oauth2_proxy's wait-for-public-Keycloak task otherwise
+# can't succeed on a fresh DR/migrate target. Tunnel-specific vars
+# (cloudflared_tunnel_name, cloudflared_image, cloudflared_ingress_service,
+# cloudflared_dokploy_env_key) live in roles/cloudflare_tunnel/defaults
+# and are visible here at converge time -- both roles run in the same
+# play, defaults from each are merged into the play's var scope.
+
+# --- Dokploy API helper --------------------------------------------------
+# Poll window for compose.deploy completion. The catena-portal build is
+# the slowest (Next.js standalone + Drizzle migrations on a fresh
+# Alpine npm-workspaces install), and keycloak with the phasetwo
+# distribution re-runs its `start` build step on every container boot
+# (the image is NOT pre-built with `kc.db=postgres`), which routinely
+# exceeds 5 minutes on a redeploy under load. Bumped to 120 (was 80)
+# after run 2026-05-30T15-17-03-46aa where converge_modify's keycloak
+# redeploy used all 80x5=400s without reaching a terminal state.
+# 120x5=600s = 10 minutes leaves comfortable headroom for both.
+infrastructure_deploy_poll_retries: 120
+infrastructure_deploy_poll_delay: 5
+# Each Dokploy compose.deploy issues `docker compose up --build`, which
+# pulls images from upstream registries on every run. A single 502 from
+# quay.io taints the whole deploy; retry up to N times when the diag
+# matches a registry-transient pattern. Between attempts the helper
+# force-removes any container labelled with the failing compose
+# service so the docker-daemon-zombie family ("did not receive an
+# exit event") can clear before the next redeploy. Bumped to 5 (was
+# 3) after run 2026-05-30T10-07-04-af8c where all 3 attempts hit the
+# same zombie state and exhausted the budget on the OAuth2-proxy
+# redeploy in backup_rollback stage-3-rollback. See
+# roles/infrastructure/tasks/_dokploy_compose_deploy_attempt.yml.
+infrastructure_deploy_max_attempts: 5
+
+# --- Gatus (replaces Uptime Kuma; see DEBUGGING.md "Kuma -> Gatus pivot") --
+# Config-as-code monitor. All Jinja-rendered config lives under
+# {{ gatus_host_config_dir }}/; Gatus loads every *.yaml alphabetically.
+# 00-base.yaml (Ansible-managed) + 50-dokploy-apps.yaml (gatus-sync) +
+# 99-*.yaml (operator-added, left alone by both).
+gatus_image_tag: "v5.35.0"
+gatus_image: "twinproduction/gatus:{{ gatus_image_tag }}"
+gatus_compose_name: "gatus"
+gatus_network_alias: "gatus"
+gatus_internal_port: 8080
+gatus_host_config_dir: "/etc/dokploy/gatus"
+# JSON spec consumed by gatus-sync to render 40-infra.yaml (one Gatus
+# endpoint per infra service, NAME augmented with current/latest version
+# from version-check.json). Rendered at converge time with hostnames /
+# aliases substituted; gatus-sync re-evaluates the version annotation
+# every 5 min so version bumps surface on the dashboard cards.
+gatus_infra_spec_path: "/etc/catena/gatus-infra-spec.json"
+# Host-side loopback port gatus-sync reads to reach /api/v1/endpoints/statuses.
+# gatus-sync runs as a systemd service on the host, outside dokploy-network,
+# so it can't resolve the container alias. 127.0.0.1:18080 is UFW-safe
+# (loopback is never publicly reachable).
+gatus_host_localhost_port: 18080
+
+# gatus-sync (systemd timer + Actions tab button) regenerates
+# 50-dokploy-apps.yaml from Dokploy's project.all / domain.byX APIs.
+gatus_sync_script_path: "/usr/local/bin/gatus-sync"
+gatus_sync_env_path: "/etc/catena/gatus-sync.env"
+gatus_sync_interval: "*:0/10" # every 10 minutes
+
+# gatus-sync also writes a small summary here on every run.
+# catena-admin reads it via the backup_stats_dir read-only bind-mount
+# (Phase 4a fold).
+gatus_summary_dir: "{{ backup_stats_dir | default('/var/lib/catena') }}"
+gatus_summary_file: "{{ gatus_summary_dir }}/gatus-summary.json"
+
+# --- Healthchecks (self-hosted, cron/dead-man monitoring) ----------------
+# The OSS project behind healthchecks.io. One container, SQLite, no
+# metrics firehose. Replaces the previous Netdata-based monitoring
+# (too noisy, too broad) AND the healthchecks.io SaaS dependency.
+# Named Docker volume -> backed up by restic along with other volumes.
+healthchecks_image_tag: "v4.2"
+healthchecks_image: "healthchecks/healthchecks:{{ healthchecks_image_tag }}"
+healthchecks_compose_name: "healthchecks"
+healthchecks_network_alias: "healthchecks"
+healthchecks_internal_port: 8000
+# Where gatus-sync writes the Healthchecks summary JSON. catena-admin
+# reads it via the backup_stats_dir read-only bind-mount (Phase 4a fold).
+healthchecks_summary_file: "{{ backup_stats_dir | default('/var/lib/catena') }}/healthchecks-summary.json"
+# Host-side loopback port gatus-sync reads to reach /api/v3/checks/.
+# Gatus-sync runs as a systemd service on the host, outside dokploy-
+# network, so it can't resolve the container alias. 127.0.0.1:18000 is
+# UFW-safe (loopback is never publicly reachable).
+healthchecks_host_localhost_port: 18000
+
+healthchecks_subdomain: "{{ lookup('dotenv', 'HEARTBEAT_SUBDOMAIN', default='heartbeat') }}"
+healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
+
+# --- Beszel (hub + agent resource monitor) ------------------------------
+# Replaces the cAdvisor + catena-resource-sampler lane (deleted 2026-05-31).
+# Two Dokploy-managed compose apps:
+#
+#   beszel-hub   -- web UI + SQLite history store. Public surface at
+#                   hub.<zone>, admin-gated by oauth2-proxy (vps.auth.mode=
+#                   admin-only). dashboard-sync synthesises the Traefik
+#                   route + Keycloak redirect URI from the compose labels,
+#                   so beszel.yml MUST run before dashboard_sync.yml.
+#   beszel-agent -- collects per-container + per-host CPU/memory/network/
+#                   disk/temperature/load over docker.sock. No public
+#                   surface; reaches the hub on the dokploy-network alias.
+#
+# Threshold alerts leave the hub via Shoutrrr (generic webhook) to the
+# beszel-hc-shim sidecar, which maps triggered/resolved to Healthchecks
+# /fail + success pings so Beszel alerts ride the same notification plane
+# as Gatus (clients keep self-service channels). See notifications.md.
+#
+# Off by default. Set BESZEL_ENABLED=true in inventory/<env>/.env to
+# deploy. Pinned tags (Renovate-managed); the agent reads docker.sock so
+# it carries the same blast radius cAdvisor did on a single-tenant VPS.
+beszel_enabled: "{{ lookup('dotenv', 'BESZEL_ENABLED', default='false') | bool }}"
+beszel_image_tag: "0.18.7"
+beszel_image: "henrygd/beszel:{{ beszel_image_tag }}"
+beszel_agent_image_tag: "0.18.7"
+beszel_agent_image: "henrygd/beszel-agent:{{ beszel_agent_image_tag }}"
+beszel_hub_compose_name: "beszel-hub"
+beszel_hub_network_alias: "beszel-hub"
+beszel_hub_internal_port: 8090
+# Host-side loopback publish. Two host-side consumers reach the hub here
+# (UFW-safe, loopback never publicly reachable; mirrors gatus_host_
+# localhost_port / healthchecks_host_localhost_port):
+#   - beszel-seed.py (universal-token seed against the PocketBase API)
+#   - the beszel-agent (network_mode: host) dialling HUB_URL
+beszel_hub_host_localhost_port: 18190
+beszel_hub_data_volume: "beszel-hub-data"
+beszel_agent_compose_name: "beszel-agent"
+# Agent listens on this port for the hub handshake. The agent runs with
+# network_mode: host (canonical upstream shape for host + docker metrics)
+# so it reaches the hub at 127.0.0.1:{{ beszel_hub_host_localhost_port }}.
+beszel_agent_port: 45876
+beszel_subdomain: "{{ lookup('dotenv', 'BESZEL_SUBDOMAIN', default='hub') }}"
+beszel_hostname: "{{ beszel_subdomain }}.{{ cloudflare_zone }}"
+
+# --- Beszel -> Healthchecks alert shim ----------------------------------
+# Tiny stdlib-Python sidecar on dokploy-network. Receives Beszel's
+# Shoutrrr generic-webhook POST, derives a beszel-<slug> check name, and
+# forwards triggered -> /fail, resolved -> success against the
+# Healthchecks loopback alias. All project channels auto-attach via the
+# existing assign_all_channels() seed (zero per-check wiring).
+beszel_hc_shim_compose_name: "beszel-hc-shim"
+beszel_hc_shim_network_alias: "beszel-hc-shim"
+beszel_hc_shim_internal_port: 8099
+beszel_hc_shim_image_tag: "3.14-alpine"
+beszel_hc_shim_image: "python:{{ beszel_hc_shim_image_tag }}"
+# Host dir the shim script is dropped into + bind-mounted read-only.
+beszel_hc_shim_host_dir: "/etc/dokploy/beszel-hc-shim"
+
+# --- recovery-downloads (SSO-gated file server) -------------------------
+# Nginx sidecar that exposes /var/backups/catena-export/ read-only
+# over recovery.<zone>. Gated by the same forward-auth middleware as every
+# other *.<zone> admin surface, restricted to the `admin` group.
+# The SSO layer is being rebuilt in plan steps 2-4 (Keycloak Phase Two
+# + oauth2-proxy); group enforcement moves to oauth2-proxy
+# `--allowed-group=/admin`.
+#
+# Purpose: give client admins a way to retrieve the "Export recovery
+# secrets" .gpg bundle + the "Export latest snapshot" .tar.gz WITHOUT
+# needing tailnet access. Previous flow required `scp ops@<host>` on
+# the operator's laptop, which the client cannot do.
+#
+# The served directory is explicitly excluded from restic (see
+# roles/backup/defaults/main.yml backup_exclude_patterns) -- it IS the
+# packaged backup artifact, re-including it would be self-referential.
+recovery_image_tag: "1.29.8-alpine"
+recovery_image: "nginx:{{ recovery_image_tag }}"
+recovery_compose_name: "recovery"
+recovery_network_alias: "recovery"
+recovery_internal_port: 80
+recovery_host_config_dir: "/etc/dokploy/recovery"
+# Source dir served read-only. Kept in sync with roles/backup/defaults'
+# `backup_export_dir`; override by setting the backup default, not here.
+recovery_source_dir: "{{ backup_export_dir | default('/var/backups/catena-export') }}"
+
+infrastructure_recovery_subdomain: "{{ lookup('dotenv', 'RECOVERY_SUBDOMAIN', default='recovery') }}"
+infrastructure_recovery_hostname: "{{ infrastructure_recovery_subdomain }}.{{ cloudflare_zone }}"
+
+# --- Semaphore (CI/Ansible runner -- runner.<zone>) ---------------------
+# Semaphore is the operator's CI surface: triggers Ansible playbooks
+# from a web UI + on a schedule. Per-environment Semaphore project
+# pointing at this repo's automation/ansible/ subfolder. Secrets are
+# decrypted by Semaphore's own age key (added to .sops.yaml as a
+# second recipient alongside the operator's key).
+#
+# Off by default. Set SEMAPHORE_ENABLED=true in inventory/<env>/.env
+# to deploy.
+semaphore_enabled: "{{ lookup('dotenv', 'SEMAPHORE_ENABLED', default='false') | bool }}"
+semaphore_image_tag: "v2.18.2"
+semaphore_image: "semaphoreui/semaphore:{{ semaphore_image_tag }}"
+semaphore_compose_name: "semaphore"
+semaphore_internal_port: 3000
+semaphore_subdomain: "{{ lookup('dotenv', 'SEMAPHORE_SUBDOMAIN', default='runner') }}"
+semaphore_hostname: "{{ semaphore_subdomain }}.{{ cloudflare_zone }}"
+semaphore_host_config_dir: "/etc/dokploy/semaphore"
+semaphore_host_data_dir: "/mnt/data/semaphore"
+# Bundled Postgres for Semaphore's own state (projects, runs, users).
+# Internal-only; not exposed beyond the dokploy-network.
+semaphore_db_image_tag: "16.13-alpine"
+semaphore_db_image: "postgres:{{ semaphore_db_image_tag }}"
+semaphore_db_name: "semaphore"
+semaphore_db_user: "semaphore"
+semaphore_db_volume: "semaphore-postgres"
+
+# --- stack-update (weekly pull+redeploy of floating-tag infra) ----------
+# Complement to the auto-update role: auto-update bumps host packages
+# (apt upgrade + reboot + rollback on health regression); stack-update
+# bumps containers whose image tag is floating (not pinned to a specific
+# version). Pinned services (Keycloak, oauth2-proxy, Dokploy, Postgres,
+# Redis, Traefik) are NEVER touched by this -- bump their version vars
+# explicitly.
+#
+# ON by default alongside auto-update; same "servers stay current" posture.
+# Set STACK_UPDATE_ENABLED=false in .env to disable.
+stack_update_enabled: "{{ lookup('dotenv', 'STACK_UPDATE_ENABLED', default='true') | bool }}"
+
+# Compose appNames whose `docker compose pull` is triggered on each run.
+# All ship :latest (or equivalent floating) today; extend here if a client
+# wants a new low-risk app auto-pulled.
+stack_update_compose_apps:
+  - "{{ gatus_compose_name | default('gatus') }}"
+  - "{{ healthchecks_compose_name | default('healthchecks') }}"
+  - "{{ recovery_compose_name | default('recovery') }}"
+
+# Swarm services to refresh via `docker service update --force --image <same>`.
+# The redundant --image re-resolves the tag, pulling new if digest changed.
+stack_update_swarm_services:
+  - cloudflared
+
+# Weekly, staggered an hour after auto-update (Sun 04:15) so health
+# impact lands one event at a time.
+stack_update_schedule: "{{ lookup('dotenv', 'STACK_UPDATE_SCHEDULE', default='Sun 05:30') }}"
+
+# Seconds to wait after pull+restart before running the health-baseline
+# diff. 60s is the empirical settle time for SSO-flavored stacks.
+stack_update_stabilize_seconds: "{{ lookup('dotenv', 'STACK_UPDATE_STABILIZE_SECONDS', default='60') }}"
+
+# Dead-man URL. Defaults to the same Healthchecks instance the backup +
+# auto-update roles use. Distinct slug so a red stack-update check
+# surfaces in the UI independently.
+stack_update_healthcheck_url: >-
+  {{
+    lookup('dotenv', 'STACK_UPDATE_HEALTHCHECK_URL', default='')
+    or ('https://' ~ healthchecks_hostname
+        ~ '/ping/' ~ (vault_healthchecks_ping_key | default(''))
+        ~ '/catena-stack-update?create=1'
+        if vault_healthchecks_ping_key is defined else '')
+  }}
+
+stack_update_script_path: /usr/local/bin/catena-stack-update
+stack_update_env_file: /etc/catena/stack-update.env
+stack_update_systemd_unit_name: catena-stack-update
+stack_update_baseline_file: /var/lib/catena/stack-update-baseline.json
+
+# --- managed-bump engine (drives the weekly timer; see Phase 3 of the
+#     auto-update plan). Per-service bump + auto-rollback + quarantine.
+stack_update_managed_script_path: /usr/local/bin/catena-stack-update-managed
+stack_update_managed_specs_file: /etc/catena/managed-services.json
+stack_update_managed_state_file: /var/lib/catena/managed-versions.json
+stack_update_managed_failed_file: /var/lib/catena/managed-versions.failed.json
+stack_update_managed_pause_flag: /etc/catena/stack-update.disabled
+stack_update_post_bump_stabilize_seconds: 120
+
+# Selection gates for the managed-bump engine. Age gate soaks fresh
+# releases (compatibility); CVE gate refuses tags that introduce a new
+# HIGH/CRITICAL fixed-CVE vs the running image (vulnerability). A clean
+# tag that fixes a CVE in the running image bypasses the soak. CVE gate
+# soft-degrades to age-only when trivy is absent. Per-inventory override
+# in group_vars/all/main.yml or .env (MANAGED_MIN_TAG_AGE_DAYS etc.).
+stack_update_managed_min_tag_age_days: "{{ lookup('dotenv', 'MANAGED_MIN_TAG_AGE_DAYS', default='7') }}"
+stack_update_managed_cve_gate_severity: "{{ lookup('dotenv', 'MANAGED_CVE_GATE_SEVERITY', default='HIGH,CRITICAL') }}"
+stack_update_managed_cve_scan_max_candidates: "{{ lookup('dotenv', 'MANAGED_CVE_SCAN_MAX_CANDIDATES', default='4') }}"
+stack_update_managed_trivy_cache_dir: "{{ lookup('dotenv', 'MANAGED_TRIVY_CACHE_DIR', default='/var/cache/trivy') }}"
+
+# --- version-check (current vs. latest, surfaced on Homepage) ----------
+# Stdlib script that queries GitHub releases / Docker Hub tags for each
+# pinned service + reads the running container's image tag, emits a JSON
+# report under /var/lib/catena/. Currently consumed by the catena-admin
+# System tab (via the same /var/lib/catena bind-mount the backup +
+# gatus summaries land on). Invoked at the tail of the weekly
+# stack-update run so the report is refreshed alongside the pulls.
+version_check_script_path: /usr/local/bin/catena-version-check
+version_check_output_file: /var/lib/catena/version-check.json
+# Per-host JSON registry of SERVICE_SPECS consumed by version-check.py.
+# Rendered at converge-time with compose-name regexes (which are variable)
+# so the Python script itself stays Jinja-free.
+version_check_specs_file: /etc/catena/version-check-specs.json
+
+# --- snapshot-before-converge -------------------------------------------
+# Before each converge that touches Dokploy state, dump every project's
+# every compose (with current composeFile + env + domains) to a JSON
+# aggregate under dokploy_snapshots_dir. Cheap insurance against
+# operator misclick or seeder bug overwriting client edits -- operator
+# can manually compare or replay from the most recent snapshot.
+#
+# Rotation keeps the last N aggregates; older ones are deleted on the
+# next snapshot pass. 30 default keeps ~3 weeks of converge history at
+# a reasonable disk cost (a typical aggregate is well under 100 KB).
+dokploy_snapshots_dir: /var/lib/catena/dokploy-snapshots
+dokploy_snapshots_keep_last: 30
+
+# --- dashboard-sync ------------------------------------------------------
+# Phase 4b retired the Homepage services.yaml writer; dashboard-sync's
+# only remaining job is syncing per-app Traefik gate routes.
+dashboard_sync_script_path: "/usr/local/bin/dashboard-sync"
+dashboard_sync_env_path: "/etc/catena/dashboard-sync.env"
+dashboard_sync_interval: "*:0/5" # every 5 minutes
+
+# --- Catena apps (website + portal) -------------------------------------
+# Catena's own webapps deploy via Dokploy's native git-source compose
+# flow (operator-driven, UI-only). Each app ships its own
+# `dokploy.compose.yml` and `Dockerfile` in this repo; the operator
+# clones the catena monorepo into Dokploy as a Compose entity per
+# app (`composePath: apps/<name>/dokploy.compose.yml`) and Dokploy
+# pulls + rebuilds on push via the GitHub App webhook. See
+# internal_docs/operator/deploy-webapp-from-github.md for the click
+# path.
+#
+# Ansible's role here is limited to the IdP-side wiring:
+#   - catena_portal_enabled gates the Keycloak realm client
+#     (roles/keycloak/tasks/_portal_realm.yml).
+#   - catena_website_enabled is no longer load-bearing in Ansible
+#     but kept as a documented inventory flag so operators have a
+#     single source of truth for "is this VPS supposed to host the
+#     marketing site."
+
+# GitHub App aliases registered in this Dokploy instance. Each alias
+# corresponds to a GitHub App created via Dokploy UI -> Settings ->
+# Git Providers -> GitHub. The infrastructure role's
+# `_github_provider_assert.yml` preflight asserts each alias is
+# present + reachable. Empty list = no assertion (operator hasn't
+# adopted the git-source compose flow yet). Per-client deploys add
+# their own alias here. Naming convention:
+#   - catena-org-app           (operator's own org)
+#   - client-<slug>-app        (per-client orgs)
+expected_github_providers: []
+
+# Website (catena.run / website.<bench-zone>).
+catena_website_enabled: "{{ lookup('dotenv', 'CATENA_WEBSITE_ENABLED', default='false') | bool }}"
+catena_website_subdomain: "{{ lookup('dotenv', 'WEBSITE_SUBDOMAIN', default='website') }}"
+catena_website_hostname: "{{ catena_website_subdomain }}.{{ cloudflare_zone }}"
+
+# Docs (the client wiki at catenahq/docs) deploy independently from
+# their own repo; the operator stack does NOT build or serve them. No
+# separate app or hostname to manage from this role.
+
+# Portal (app.<zone>). Next.js standalone + bundled Postgres.
+catena_portal_enabled: "{{ lookup('dotenv', 'CATENA_PORTAL_ENABLED', default='false') | bool }}"
+catena_portal_subdomain: "{{ lookup('dotenv', 'PORTAL_SUBDOMAIN', default='app') }}"
+catena_portal_hostname: "{{ catena_portal_subdomain }}.{{ cloudflare_zone }}"
+# Keycloak realm client used by NextAuth. The client itself is created
+# by the keycloak realm-bootstrap blueprint when CATENA_PORTAL_ENABLED
+# is true; client secret auto-minted into vault_keycloak_portal_client_secret.
+catena_portal_keycloak_client_id: "catena-portal"
+# Bench-only: when true, render bench-alice + bench-bob test users
+# into the Keycloak realm so security_scan can drive authenticated
+# ZAP + cross-tenant IDOR tests. NEVER set true in a production
+# inventory; the bench inventory (automation/test_bench/install.yaml)
+# is the only place this should be on.
+catena_portal_test_users_enabled: "{{ lookup('dotenv', 'CATENA_PORTAL_TEST_USERS_ENABLED', default='false') | bool }}"
+
+# --- External dead-man watchdog (hourly liveness probe of the watchers) -
+# Closes the gap that BACKUP_HEALTHCHECK_URL only addresses on the nightly
+# cycle. An hourly timer probes the LOOPBACK endpoints of Gatus + the
+# self-hosted Healthchecks to confirm the WATCHERS themselves are alive
+# (operator-paused services are NOT errors here -- this only checks
+# Gatus + Healthchecks, not the apps they monitor). Pings off-host on
+# success; pings /fail + optionally pushes ntfy.sh on failure.
+#
+# OFF when HEALTHCHECKSIO_DEADMAN_URL is empty. The timer is not
+# installed at all in that case -- zero risk to existing deployments.
+deadman_healthcheck_url: "{{ lookup('dotenv', 'HEALTHCHECKSIO_DEADMAN_URL', default='') }}"
+deadman_ntfy_topic: "{{ lookup('dotenv', 'NTFYSH_DEADMAN_TOPIC', default='') }}"
+deadman_ntfy_url: "{{ lookup('dotenv', 'NTFYSH_DEADMAN_URL', default='https://ntfy.sh') }}"
+# OnCalendar expression. `hourly` is systemd shorthand for `*-*-* *:00:00`.
+deadman_schedule: "{{ lookup('dotenv', 'DEADMAN_TIMER', default='hourly') }}"
+deadman_enabled: "{{ deadman_healthcheck_url | length > 0 }}"
+
+deadman_script_path: /usr/local/bin/run-deadman
+deadman_env_file: /etc/catena/deadman.env
+deadman_systemd_unit_name: catena-deadman
+
+# --- Shared ClamAV (clamd) --------------------------------------------
+# One clamd serves BOTH the mail server (rspamd antivirus over TCP) and
+# Nextcloud (files_antivirus Daemon mode). Reached as clamav:3310 on the
+# dedicated external network below (also joined by the dms + Nextcloud
+# app/cron services in their Dokploy templates). No host port -- clamd
+# has no auth, so network isolation is the only control.
+#
+# Image: the _base variant ships WITHOUT the signature DB; freshclam
+# downloads + refreshes it on start (the DB persists on a named volume).
+# Renovate manages the pin (custom manager for stack images).
+clamav_image: "clamav/clamav:1.5.2_base"
+clamav_compose_name: "clamav"
+clamav_network: "catena-clamav"
+# clamd StreamMaxLength -- the largest object clamd will scan in one
+# INSTREAM. Must be >= the Nextcloud max upload AND the rspamd scan size,
+# else large files/messages are skipped rather than scanned. 100 MB
+# default; raise per-host if uploads are larger.
+clamav_stream_max_length: "104857600"
+
+# Shared-clamd watchdog. Pings the self-hosted Healthchecks plane so a
+# down clamd pages -- but only when a consumer (dms or Nextcloud) is up
+# (see run-clamav-watch.sh). Off implicitly when Healthchecks is not
+# wired (empty ping key).
+clamav_watch_slug: "clamav-shared"
+clamav_watch_script_path: /usr/local/bin/run-clamav-watch
+clamav_watch_env_file: /etc/catena/clamav-watch.env
+clamav_watch_systemd_unit_name: catena-clamav-watch
+# Every 5 minutes.
+clamav_watch_schedule: "*:0/5"
+
+# --- Mailserver TLS cert (mail.<zone>) --------------------------------
+# Self-hosted mailserver runs SSL_TYPE=manual; we issue the cert here via
+# Let's Encrypt DNS-01 (cloudflared owns :80, so HTTP-01 is out -- same
+# rationale as roles/coturn) and inject it into the dms container's
+# mounted custom-certs dir through a certbot deploy hook. certbot.timer
+# renews; the hook re-injects + reloads Postfix/Dovecot.
+mailserver_hostname: "mail.{{ cloudflare_zone }}"
+mailserver_cert_live_dir: "/etc/letsencrypt/live/{{ mailserver_hostname }}"
+# Distinct from coturn's cloudflare.ini so the two roles never contend
+# for one file (identical content -- the same vault token).
+mailserver_cloudflare_creds_path: "/etc/letsencrypt/cloudflare-mail.ini"
+mailserver_certbot_email: "{{ admin_email | default('hostmaster@' ~ cloudflare_zone) }}"
+# Staging CA for the bench only (production LE rate-limits re-issuance of
+# the same identifier; the bench redeploys mail.<zone> every run). Same
+# knob shape as coturn. Production inventories MUST leave this false.
+mailserver_certbot_use_staging: "{{ lookup('dotenv', 'MAILSERVER_CERTBOT_STAGING', default='false') | bool }}"
+mailserver_certbot_staging_server: "https://acme-staging-v02.api.letsencrypt.org/directory"
+
+# --- Mailserver DNS (MTA-STS / TLS-RPT + the mail A record) -----------
+# ops automates ONLY the safe, mail-specific records via the Cloudflare
+# API: the gray-cloud A record for mail.<zone> (the mail plane cannot
+# ride the CF tunnel) and the MTA-STS + TLS-RPT TXT records. MX, SPF,
+# DKIM, DMARC, and rDNS stay OPERATOR-MANUAL (documented in the runbook):
+#   - MX is a deliberate cutover (auto-creating it would hijack a
+#     domain's existing inbound mail) -- never automated.
+#   - SPF include + DKIM selector are relay-specific (the relay signs;
+#     the mailserver does NOT sign locally -- no `setup config dkim`).
+#   - DMARC + rDNS are operator policy / provider-side.
+#
+# MTA-STS policy id (RFC 8461): must change when the policy changes so
+# caching MTAs re-fetch. Derived from the policy-defining value
+# (hostname); changes automatically if the mail host changes.
+mailserver_mta_sts_policy_id: "{{ ('STSv1-enforce-' ~ mailserver_hostname) | hash('md5') }}"
+mailserver_tlsrpt_rua: "mailto:{{ admin_email | default('hostmaster@' ~ cloudflare_zone) }}"
+
+# Mail canary. Host timer that docker-execs into dms to check ports
+# 25/993 are listening + that the rspamd->clamav AV path detects EICAR.
+# Self-gates (no-op without a dms container). Pings the Healthchecks
+# plane. (External reachability stays with validate.yml's registry nmap;
+# disk pressure with the daily disk-preflight.)
+mail_canary_slug: "mailserver-canary"
+mail_canary_script_path: /usr/local/bin/run-mail-canary
+mail_canary_env_file: /etc/catena/mail-canary.env
+mail_canary_systemd_unit_name: catena-mail-canary
+# Every 15 minutes (the rspamc scan is heavier than the clamd ping).
+mail_canary_schedule: "*:0/15"

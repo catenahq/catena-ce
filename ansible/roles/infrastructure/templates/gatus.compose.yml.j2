@@ -1,0 +1,46 @@
+---
+# {{ ansible_managed }}
+services:
+  app:
+    image: {{ gatus_image }}
+    restart: unless-stopped
+    environment:
+      GATUS_CONFIG_PATH: /config
+      GATUS_WEB_PORT: "{{ gatus_internal_port }}"
+    volumes:
+      - {{ gatus_host_config_dir }}:/config:ro
+      - gatus-data:/data
+    # Loopback-only publish so gatus-sync (runs on the host, not in
+    # dokploy-network) can reach /api/v1/endpoints/statuses at
+    # 127.0.0.1:{{ gatus_host_localhost_port }}. UFW leaves loopback
+    # traffic alone so this is never externally reachable.
+    ports:
+      - "127.0.0.1:{{ gatus_host_localhost_port }}:{{ gatus_internal_port }}"
+    networks:
+      dokploy-network:
+        aliases:
+          - {{ gatus_network_alias }}
+    # No Docker HEALTHCHECK block. twinproduction/gatus v5+ ships a
+    # distroless-ish image with no wget/curl/nc, so a CMD healthcheck
+    # fails with "executable not found" and the container gets marked
+    # unhealthy regardless of whether Gatus itself is serving. That
+    # false-unhealthy signal paged the operator via Netdata Cloud (also
+    # seen mid-Apr 2026). Gatus self-probes /health via its own endpoint
+    # config (see gatus-base.yaml.j2 "Gatus (self-check)"), which is the
+    # authoritative signal -- a second Docker-level check added nothing
+    # except a failure mode.
+    labels:
+      - traefik.enable=true
+      # Auth posture (vps.auth.* convention, see
+      # docs/operator/client-app-templates/README.md). Pinned to
+      # oauth2_proxy_staff_apps in defaults/main.yml by the unit test
+      # test_infra_compose_auth_labels.
+      - vps.auth.mode=private
+      - vps.auth.groups=staff
+
+volumes:
+  gatus-data:
+
+networks:
+  dokploy-network:
+    external: true

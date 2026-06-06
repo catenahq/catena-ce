@@ -1,0 +1,121 @@
+# {{ ansible_managed }}
+# 00-base.yaml -- Ansible-managed foundation for Gatus. Two siblings:
+#   50-dokploy-apps.yaml    written by /usr/local/bin/gatus-sync on a timer
+#                           (one internal + one public endpoint per Dokploy
+#                           app with a domain).
+#   99-<anything>.yaml      operator-added, never touched by either.
+#
+# Gatus loads every *.yaml under /config alphabetically and merges them.
+# Conditions are evaluated server-side: see https://gatus.io/docs/conditions.
+#
+# Two-monitor model per gated service (decided 2026-04-17 during Kuma->Gatus
+# pivot): probing the INTERNAL alias tests the app is running; probing the
+# PUBLIC URL with [STATUS] == 302 as healthy tests the full CF Tunnel ->
+# Traefik -> per-app oauth2-proxy chain (302 = oauth2-proxy redirecting
+# unauthed requests to Keycloak, which means every layer in front is
+# healthy). Olivetin is the exception: native-OIDC apps return 200 on /
+# (their own SPA shell), so its probe accepts 200 instead.
+# Internal down + public up -> app broken. Internal up + public down ->
+# tunnel / Traefik / oauth2-proxy broken. Full diagnostic coverage,
+# zero credentials inside Gatus.
+#
+# Endpoint naming: `<hostname or alias> (<service label>)` so the
+# downstream notification body (posted to Healthchecks, then fanned out
+# via the client-configured integrations -- see alerting.custom below
+# for the webhook wiring) carries enough context to identify what's
+# down without opening the status page.
+
+{# ─── Per-language labels (client-facing status page + notification titles) ───
+   Gatus itself has no upstream i18n, so we localize the labels we author.
+   Probe NAMES on internal groups stay EN (operator-facing); public probe
+   suffixes get FR equivalents when catena_default_language=fr.         #}
+{% set _lang = catena_default_language | default('en') %}
+{% set _labels = {
+    'service_status': 'État des services' if _lang == 'fr' else 'service status',
+    'live_status':    'État en direct de la pile catena sur' if _lang == 'fr' else 'Live status of the catena stack on',
+    'open_for':       'ouvrez' if _lang == 'fr' else 'open',
+    'for_detail':     'pour détails' if _lang == 'fr' else 'for detail',
+    'dokploy_admin':  'Admin Dokploy' if _lang == 'fr' else 'Dokploy admin',
+    'gatus_status':   "Page d'état Gatus" if _lang == 'fr' else 'Gatus status page',
+    'auth_login':     'Connexion Keycloak' if _lang == 'fr' else 'Keycloak login',
+} %}
+
+storage:
+  type: sqlite
+  path: /data/gatus.db
+
+ui:
+  title: "{{ cloudflare_zone }} -- {{ _labels.service_status }}"
+  description: "{{ _labels.live_status }} {{ inventory_hostname }}"
+  header: "{{ cloudflare_zone }}"
+  default-sort-by: group
+  # Dashboard subheading explains the `<version>` (angle-bracket)
+  # convention used on service cards for images that aren't on the
+  # weekly auto-update safety net. Gatus renders it as plain text
+  # (no markdown / HTML -- see web/app/src/views/Home.vue), so the
+  # docs URL is shown verbatim; the "Docs" button below is the
+  # clickable entry point. Single-line quoted scalar on purpose:
+  # YAML folded-block (`>-`) + Jinja whitespace stripping fuses the
+  # next top-level key into the subheading text.
+{% if (catena_default_language | default('en')) == 'fr' %}
+  dashboard-subheading: "Les services dont la version apparaît entre ⟨ ⟩ ne sont pas mis à jour automatiquement. Consultez la documentation à catena.run/docs pour en savoir plus. Cliquez sur un service pour plus de détails."
+{% else %}
+  dashboard-subheading: "Services with their version shown in ⟨ ⟩ are not auto-updated. See the docs to learn more at catena.run/docs. Click on any service for more details."
+{% endif %}
+  buttons:
+    - name: "{{ 'Docs' if (catena_default_language | default('en')) == 'en' else 'Documentation' }}"
+      link: "https://catena.run/docs"
+
+alerting:
+  # Gatus pipes every alert to Healthchecks instead of ntfy directly.
+  # Rationale (decided 2026-04-19):
+  #   - Clients need to own their notification channels (email, Slack,
+  #     Discord, ...). Gatus's alerting providers are config-as-code --
+  #     no UI to add channels. Healthchecks has a full per-user
+  #     integration UI, gated by oauth2-proxy + Keycloak SSO. One
+  #     notification plane wins: clients add integrations in
+  #     heartbeat.<zone>, Gatus just pushes state transitions.
+  #   - The operator's default ntfy channel is auto-provisioned in
+  #     Healthchecks (see roles/infrastructure/tasks/healthchecks.yml
+  #     Django seed), so the existing operator-ntfy flow keeps working
+  #     with zero client-visible surface.
+  #
+  # URL + placeholder trick: Gatus's `custom` provider templates the URL
+  # with:
+  #   - [ALERT_DESCRIPTION] -> per-endpoint slug, makes Healthchecks
+  #     auto-create a distinct check per service so the ntfy title reads
+  #     "gatus-<service> is DOWN" instead of a single aggregate name.
+  #   - [ALERT_TRIGGERED_OR_RESOLVED] -> /fail for failures, empty for
+  #     recoveries (pings the success endpoint).
+  # `?create=1` auto-provisions the check on first failure.
+  # Healthchecks assigns ALL project-level channels to new checks, so
+  # the operator ntfy channel (seeded in healthchecks-seed.py) is
+  # attached automatically without per-check wiring.
+  #
+  # Every endpoint below sets `description:` on its alert (overriding
+  # default-alert.description), and that description is the slug.
+  # Derived from endpoint name so operators reading both the Gatus UI
+  # and the Healthchecks UI get obvious pairings.
+  custom:
+    url: "http://{{ healthchecks_network_alias }}:{{ healthchecks_internal_port }}/ping/{{ vault_healthchecks_ping_key }}/gatus-[ALERT_DESCRIPTION][ALERT_TRIGGERED_OR_RESOLVED]?create=1"
+    method: "POST"
+    body: |
+      [ENDPOINT_GROUP] / [ENDPOINT_NAME]
+      Conditions: [CONDITION_RESULTS]
+      Status page: https://{{ infrastructure_monitor_hostname }}
+    placeholders:
+      ALERT_TRIGGERED_OR_RESOLVED:
+        TRIGGERED: "/fail"
+        RESOLVED: ""
+    default-alert:
+      failure-threshold: 3
+      success-threshold: 2
+      send-on-resolved: true
+
+# NOTE: infra endpoints (internal + public) live in 40-infra.yaml,
+# generated by /usr/local/bin/gatus-sync from gatus-infra-spec.json so
+# that the endpoint NAME can include live current/latest version info
+# from /var/lib/catena/version-check.json. This file (00-base.yaml)
+# now carries only the alerting + storage + UI configuration; loading
+# additional `endpoints:` from sibling 40-/50-/99- yaml files is
+# Gatus's native multi-file-merge behavior.

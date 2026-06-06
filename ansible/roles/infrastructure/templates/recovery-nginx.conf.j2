@@ -1,0 +1,67 @@
+# {{ ansible_managed }}
+# Bind-mounted into the recovery-downloads container at
+# /etc/nginx/nginx.conf, replacing the base image's default nginx.conf.
+#
+# Why replace the whole file instead of dropping a site under conf.d/:
+# the files we serve in /srv/recovery (.yml.gpg + .tar.gz) are produced
+# on the host as root:root mode 0600. nginx:alpine's stock config runs
+# workers as `nginx` (UID 101) which cannot read root-owned files. The
+# `user` directive is only valid at the main config level, so the only
+# way to run workers as root is to replace this file.
+#
+# Running workers as root is safe here: the container is single-purpose
+# (static file serving) with no writable mounts and no secondary state.
+# Keycloak-level access control restricts the application to the
+# `admin` group (via the oauth2-proxy admin chain), so
+# nothing untrusted ever reaches nginx.
+
+user root;
+worker_processes auto;
+error_log /var/log/nginx/error.log notice;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    log_format main '$remote_addr - $remote_user [$time_local] '
+                    '"$request" $status $body_bytes_sent '
+                    '"$http_referer" "$http_user_agent"';
+    access_log /var/log/nginx/access.log main;
+
+    sendfile on;
+    keepalive_timeout 65;
+
+    server {
+        listen 80;
+        server_name _;
+
+        # Recovery bundles are already AES-256 encrypted (.yml.gpg) or
+        # plain tar.gz of a snapshot export; either way they're single-
+        # consumption artifacts. Never cache.
+        add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header X-Content-Type-Options "nosniff" always;
+
+        location / {
+            root /srv/recovery;
+            # F6: serve the curated index.html when present (rendered by
+            # catena-snapshot-list after every backup run + every
+            # export). Falls through to autoindex when the file is
+            # absent (fresh install before the first backup).
+            index index.html;
+            autoindex on;
+            autoindex_exact_size off;
+            autoindex_localtime on;
+            # Force octet-stream so browsers offer "Save As" rather than
+            # trying to render .gpg / .tar.gz as text. nginx still picks
+            # text/html for the curated index.html via mime.types lookup
+            # before this default applies.
+            default_type application/octet-stream;
+        }
+    }
+}

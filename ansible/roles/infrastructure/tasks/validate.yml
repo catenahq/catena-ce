@@ -1,0 +1,108 @@
+---
+# Validation tasks for roles/infrastructure. Replaces tests/goss/infrastructure.yaml.
+- name: "validate/infrastructure: stat sync scripts + traefik dynamic dir"
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+  register: _infra_stats
+  loop:
+    - { path: /usr/local/bin/dashboard-sync, mode: "0755" }
+    - { path: /usr/local/bin/gatus-sync, mode: "0755" }
+    - { path: /usr/local/bin/catena-generate-recovery-archive, mode: "0755" }
+    - { path: /usr/local/bin/catena-wire-nextcloud-oidc, mode: "0755" }
+    - { path: /usr/local/lib/catena/extract_secrets_core.py, mode: "0644" }
+    - { path: /usr/local/lib/catena/recovery_archive_core.py, mode: "0644" }
+    - { path: /usr/local/lib/catena/restore.sh, mode: "0644" }
+    - { path: /usr/bin/7z, mode: "0755" }  # F12 generator dep (p7zip-full / 7zip)
+    - { path: /var/backups/catena-export, type: directory, mode: "0750" } # shared w/ backup role
+    - { path: /etc/dokploy/traefik/dynamic, type: directory }
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: "validate/infrastructure: fixture files/dirs correct"
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - (item.item.type is not defined) or (item.stat.isdir if item.item.type == 'directory' else item.stat.isreg)
+      - (item.item.mode is not defined) or (item.stat.mode == item.item.mode)
+    fail_msg: "{{ item.item.path }}: missing or wrong type/mode"
+  loop: "{{ _infra_stats.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+
+- name: "validate/infrastructure: sync timers are active + enabled"
+  # service_facts enumerates .service units reliably but can miss .timer
+  # units depending on ansible version. Use systemctl command probes so
+  # timer state is deterministic across versions.
+  ansible.builtin.command: "systemctl {{ item.1 }} {{ item.0 }}"  # noqa: command-instead-of-module
+  register: _infra_timer_checks
+  loop: "{{ ['dashboard-sync.timer', 'gatus-sync.timer'] | product(['is-active', 'is-enabled']) | list }}"
+  loop_control:
+    label: "{{ item.0 }} {{ item.1 }}"
+  failed_when: false
+  changed_when: false
+
+- name: "validate/infrastructure: all sync timers armed"
+  ansible.builtin.assert:
+    that:
+      - (item.stdout | trim) in ['active', 'enabled']
+    fail_msg: >-
+      {{ item.item.0 }} {{ item.item.1 }} -> {{ item.stdout | trim }}
+      (expected active/enabled)
+  loop: "{{ _infra_timer_checks.results }}"
+  loop_control:
+    label: "{{ item.item.0 }} {{ item.item.1 }}"
+
+- name: "validate/infrastructure: dokploy-network exists"
+  ansible.builtin.command: docker network inspect dokploy-network
+  register: _infra_net
+  failed_when: false
+  changed_when: false
+
+- name: "validate/infrastructure: dokploy-network reachable"
+  ansible.builtin.assert:
+    that:
+      - _infra_net.rc == 0
+    fail_msg: "docker network inspect dokploy-network rc={{ _infra_net.rc }}"
+
+- name: "validate/infrastructure: cloudflared 1/1 replica"
+  ansible.builtin.command: docker service ls --filter name=cloudflared --format '{% raw %}{{.Name}}|{{.Replicas}}{% endraw %}'
+  register: _infra_cf
+  failed_when: false
+  changed_when: false
+
+- name: "validate/infrastructure: cloudflared replicas healthy"
+  ansible.builtin.assert:
+    that:
+      - _infra_cf.rc == 0
+      - _infra_cf.stdout_lines | select('match', '^cloudflared\\|1/1') | list | length > 0
+    fail_msg: "cloudflared swarm service not 1/1: {{ _infra_cf.stdout }}"
+
+- name: "validate/infrastructure: host binds no port 80 or 443 (architecture invariant)"
+  ansible.builtin.shell: |
+    ss -H -tln | awk '{print $4}' | grep -E ':(80|443)$' || true
+  args:
+    executable: /bin/bash
+  register: _infra_ports
+  failed_when: false
+  changed_when: false
+
+- name: "validate/infrastructure: nothing listens on 80/443"
+  ansible.builtin.assert:
+    that:
+      - (_infra_ports.stdout | trim) == ''
+    fail_msg: "host has processes bound to 80 or 443 directly: {{ _infra_ports.stdout }}"
+
+- name: "validate/infrastructure: ufw does not allow public 80/443"
+  ansible.builtin.shell: |
+    ufw status | grep -E '(80|443)/tcp' || true
+  args:
+    executable: /bin/bash
+  register: _infra_ufw
+  failed_when: false
+  changed_when: false
+
+- name: "validate/infrastructure: no 80/443 rule in ufw"
+  ansible.builtin.assert:
+    that:
+      - (_infra_ufw.stdout | trim) == ''
+    fail_msg: "ufw has rule allowing tcp/80 or tcp/443: {{ _infra_ufw.stdout }}"

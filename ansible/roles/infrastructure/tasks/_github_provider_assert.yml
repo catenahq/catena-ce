@@ -1,0 +1,92 @@
+---
+# Assert that every GitHub App alias the operator declares in
+# `expected_github_providers` is registered in this Dokploy
+# instance. Mutates nothing -- failure prints the manual-setup
+# walkthrough so the operator can fix it without consulting docs.
+#
+# Why this exists: operators deploy webapps from private GitHub
+# repos via Dokploy's native git-source compose flow (composes
+# created in the Dokploy UI, NOT via this Ansible role). For a
+# private repo, Dokploy needs a GitHub App registered as a git
+# provider. Registration is a one-time browser flow we cannot
+# automate (manifest exchange requires a real GitHub session).
+# This task gives operators an early, descriptive failure if
+# they forget step 1.
+#
+# Inventory contract (group_vars/all/main.yml or .env-derived):
+#
+#   expected_github_providers:
+#     - catena-org-app          # the operator's own org
+#     - client-acme-app         # one alias per client whose repos
+#                                  this Dokploy will deploy
+#
+# Empty / undefined list = task is a no-op (caller already gated
+# on length > 0, but the asserts below are defensive).
+
+- name: "GitHub provider assert: list registered providers"
+  ansible.builtin.uri:
+    url: "{{ dokploy_api_base }}/github.githubProviders"
+    method: GET
+    headers:
+      x-api-key: "{{ vault_dokploy_api_key }}"
+    status_code: 200
+    return_content: true
+  register: _gh_providers
+  delegate_to: localhost
+  become: false
+
+- name: "GitHub provider assert: build alias->githubId map"
+  ansible.builtin.set_fact:
+    _github_provider_id_by_alias: >-
+      {{
+        dict(
+          (_gh_providers.json | default([]))
+          | map(attribute='gitProvider.name')
+          | zip((_gh_providers.json | default([])) | map(attribute='githubId'))
+        )
+      }}
+
+- name: "GitHub provider assert: every expected alias is registered"
+  ansible.builtin.assert:
+    that: alias in _github_provider_id_by_alias
+    fail_msg: |2
+
+      ─── Dokploy GitHub App not registered: {{ alias }} ─────────────────────────
+
+      Manual one-time setup required. From the operator's laptop browser:
+
+        1. Open https://{{ dokploy_admin_hostname | default('admin.' ~ cloudflare_zone) }}/dashboard/settings/git-providers
+        2. Click "Create GitHub App".
+        3. Name it EXACTLY: {{ alias }}
+        4. Submit -- GitHub redirects you back; Dokploy stores the App
+           credentials in its own DB (NOT in vault.sops.yml).
+        5. Click "Install" on the new App and grant access to the
+           repos this Dokploy instance will deploy.
+        6. Re-run this converge.
+
+      Currently registered providers: {{ _github_provider_id_by_alias.keys() | list }}
+
+      Full walkthrough with screenshots:
+        internal_docs/operator/github-app-setup.md
+      ────────────────────────────────────────────────────────────────────────────
+  loop: "{{ expected_github_providers }}"
+  loop_control:
+    loop_var: alias
+    label: "{{ alias }}"
+
+- name: "GitHub provider assert: probe connectivity for each alias"
+  ansible.builtin.uri:
+    url: "{{ dokploy_api_base }}/github.testConnection"
+    method: POST
+    headers:
+      x-api-key: "{{ vault_dokploy_api_key }}"
+    body_format: json
+    body:
+      githubId: "{{ _github_provider_id_by_alias[alias] }}"
+    status_code: 200
+  loop: "{{ expected_github_providers }}"
+  loop_control:
+    loop_var: alias
+    label: "{{ alias }}"
+  delegate_to: localhost
+  become: false

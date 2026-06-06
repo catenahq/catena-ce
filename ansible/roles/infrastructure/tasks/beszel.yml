@@ -1,0 +1,184 @@
+---
+# Beszel resource monitor -- hub + agent (+ Healthchecks alert shim,
+# appended below). Replaces the cAdvisor + catena-resource-sampler lane.
+#
+# Deterministic, one-pass, no manual UI step (mechanism verified against
+# henrygd/beszel @ main):
+#   1. Deploy the hub. First boot creates a PocketBase superuser + a
+#      regular users record from USER_EMAIL/USER_PASSWORD, and generates
+#      + persists its SSH key at /beszel_data/id_ed25519.
+#   2. Read that private key back out of the running container and derive
+#      the public key (ssh-keygen -y) -- the agent needs it as KEY.
+#   3. Seed a permanent universal token into the hub's universal_tokens
+#      collection (superuser-authenticated, idempotent). With it, the
+#      agent auto-registers its system on first WebSocket connect
+#      (createNewSystemForUniversalToken) -- no "add system" UI click.
+#   4. Deploy the agent (network_mode: host) with KEY + TOKEN + HUB_URL.
+#
+# The whole file is gated by `when: beszel_enabled` on the include in
+# main.yml. Secrets are minted by operator-tools/migrate_inventory.py;
+# this role only ASSERTS them (healthchecks preflight pattern).
+
+- name: "Beszel: preflight vault keys"
+  ansible.builtin.assert:
+    that:
+      - vault_beszel_admin_password is defined
+      - vault_beszel_admin_password | length > 0
+      - vault_beszel_universal_token is defined
+      - vault_beszel_universal_token | length > 0
+      - (vault_beszel_universal_token | length) <= 64
+    fail_msg: >-
+      Missing or invalid Beszel vault keys -- looks like your vault was
+      minted before they were added. Run:
+        uv run operator-tools/migrate_inventory.py -i inventory/<name>/
+      to auto-mint vault_beszel_admin_password + vault_beszel_universal_token
+      (the universal token must be <= 64 chars; Beszel rejects longer
+      X-Token headers), then re-run ./catena site.
+
+- name: "Beszel: deploy hub via Dokploy API"
+  ansible.builtin.include_tasks: dokploy_compose.yml
+  vars:
+    svc_name: "{{ beszel_hub_compose_name }}"
+    svc_compose_content: "{{ lookup('template', 'beszel-hub.compose.yml.j2') }}"
+    svc_env: []
+    svc_domain_host: "{{ beszel_hostname }}"
+    svc_domain_service: "app"
+    svc_domain_port: "{{ beszel_hub_internal_port }}"
+    # Public readiness (302 through oauth2-proxy) is verified by the
+    # aggregate post-role probe in main.yml. The pubkey read + seed below
+    # carry their own retry loops against the loopback API, which is the
+    # real readiness gate for the hub<->agent wiring.
+    svc_readiness_skip_reason: >-
+      Verified by the aggregate gated-services probe in main.yml; the
+      pubkey-read + universal-token seed below retry against the loopback
+      API until the hub is serving.
+
+- name: "Beszel: wait for hub container"
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ beszel_hub_compose_name | dokploy_container_regex("app") }}' || true
+  args:
+    executable: /bin/bash
+  register: _beszel_hub_container
+  changed_when: false
+  failed_when: false
+  retries: 60
+  delay: 5
+  until: _beszel_hub_container.stdout | length > 0
+
+- name: "Beszel: fail clearly if hub container never appeared"
+  ansible.builtin.fail:
+    msg: >-
+      Timed out (300s) waiting for a running container matching
+      '{{ beszel_hub_compose_name | dokploy_container_regex("app") }}'.
+      Check the Dokploy compose status for {{ beszel_hub_compose_name }}
+      at https://{{ dokploy_admin_hostname }}.
+  when: (_beszel_hub_container.stdout | default('') | trim) | length == 0
+
+# Read the hub-generated private key out of the container and derive the
+# public key on the host. Written to a 0600 temp file (umask 077) and
+# removed immediately -- the key never lands on persistent host storage.
+# Retries because the key is written during the hub's first-boot
+# migration, a beat after the container is "running".
+- name: "Beszel: derive hub public key for the agent"
+  ansible.builtin.shell: |
+    set -o pipefail
+    umask 077
+    tmp="$(mktemp)"
+    trap 'rm -f "$tmp"' EXIT
+    docker exec -i {{ _beszel_hub_container.stdout | trim }} cat /beszel_data/id_ed25519 > "$tmp"
+    ssh-keygen -y -f "$tmp"
+  args:
+    executable: /bin/bash
+  register: _beszel_pubkey
+  changed_when: false
+  retries: 24
+  delay: 5
+  until:
+    - _beszel_pubkey.rc == 0
+    - (_beszel_pubkey.stdout | trim) is match('^ssh-ed25519 ')
+  no_log: true
+
+- name: "Beszel: pin derived hub public key as a fact"
+  ansible.builtin.set_fact:
+    _beszel_hub_pubkey: "{{ _beszel_pubkey.stdout | trim }}"
+
+# Seed the permanent universal token. Plain stdlib script (no Jinja
+# markers) dropped to /root and run on the host against the hub's
+# loopback publish; per-host values arrive via env, mirroring the
+# healthchecks-seed.py contract. Idempotent: find-or-update the single
+# universal_tokens row (unique on user).
+- name: "Beszel: drop universal-token seed script to /root"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../vps-scripts/beszel-seed.py"
+    dest: /root/catena-beszel-seed.py
+    owner: root
+    group: root
+    mode: "0700"
+  changed_when: false
+
+- name: "Beszel: seed the universal token (superuser-authenticated upsert)"
+  ansible.builtin.shell: >-
+    BESZEL_HUB_URL=http://127.0.0.1:{{ beszel_hub_host_localhost_port }}
+    BESZEL_ADMIN_EMAIL={{ admin_email | quote }}
+    BESZEL_ADMIN_PASSWORD={{ vault_beszel_admin_password | quote }}
+    BESZEL_UNIVERSAL_TOKEN={{ vault_beszel_universal_token | quote }}
+    python3 /root/catena-beszel-seed.py
+  register: _beszel_seed
+  changed_when: "'minted' in _beszel_seed.stdout or 'updated' in _beszel_seed.stdout"
+  retries: 24
+  delay: 5
+  until: _beszel_seed.rc == 0
+  no_log: true
+
+- name: "Beszel: deploy agent via Dokploy API"
+  ansible.builtin.include_tasks: dokploy_compose.yml
+  vars:
+    svc_name: "{{ beszel_agent_compose_name }}"
+    svc_compose_content: "{{ lookup('template', 'beszel-agent.compose.yml.j2') }}"
+    svc_env: []
+    # No public domain -- agent is host-network only, dials the hub on
+    # the loopback. dokploy_compose.yml skips its domain block when
+    # svc_domain_host is empty.
+    svc_domain_host: ""
+    svc_domain_service: "app"
+    svc_domain_port: "{{ beszel_agent_port }}"
+    svc_readiness_skip_reason: >-
+      Host-network metrics agent; no HTTP surface. The hub's Systems view
+      shows it online within a poll once it registers via the universal
+      token.
+
+# ─── Beszel -> Healthchecks alert shim ───────────────────────────────────
+# Bridges Beszel's static-URL Shoutrrr webhook to the Gatus-style
+# Healthchecks /fail + success pings. The operator points a Beszel
+# webhook notification at
+# generic+http://{{ beszel_hc_shim_network_alias }}:{{ beszel_hc_shim_internal_port }}/notify
+# and sets per-system thresholds in the hub UI (notifications.md).
+- name: "Beszel: ensure shim host dir exists"
+  ansible.builtin.file:
+    path: "{{ beszel_hc_shim_host_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "Beszel: drop alert-shim script"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../vps-scripts/beszel-hc-shim.py"
+    dest: "{{ beszel_hc_shim_host_dir }}/beszel-hc-shim.py"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: "Beszel: deploy alert shim via Dokploy API"
+  ansible.builtin.include_tasks: dokploy_compose.yml
+  vars:
+    svc_name: "{{ beszel_hc_shim_compose_name }}"
+    svc_compose_content: "{{ lookup('template', 'beszel-hc-shim.compose.yml.j2') }}"
+    svc_env: []
+    svc_domain_host: ""
+    svc_domain_service: "app"
+    svc_domain_port: "{{ beszel_hc_shim_internal_port }}"
+    svc_readiness_skip_reason: >-
+      Internal webhook receiver on dokploy-network; no public surface.
+      Exercised by a Beszel alert firing (see notifications.md).

@@ -1,0 +1,32 @@
+---
+# {{ ansible_managed }}
+# Beszel agent -- collects per-container + per-host CPU/memory/network/
+# disk/temperature/load and reports to the hub. Replaces the cAdvisor +
+# catena-resource-sampler scrape lane.
+#
+# network_mode: host is the canonical upstream shape for a Docker agent
+# that must report HOST metrics (not just its own container's): it reads
+# the host network + cgroup state directly, and reaches the docker daemon
+# via the read-only socket mount. With host networking the agent dials
+# the hub over the host loopback publish rather than a dokploy-network
+# alias.
+#
+# Auth: KEY is the hub's public SSH key, read back from the running hub
+# at converge time (beszel.yml derives _beszel_hub_pubkey via ssh-keygen
+# -y on /beszel_data/id_ed25519). TOKEN is the seeded universal token, so
+# the hub auto-creates this system on first WebSocket connect
+# (createNewSystemForUniversalToken). No Traefik surface.
+services:
+  app:
+    image: {{ beszel_agent_image }}
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      LISTEN: "{{ beszel_agent_port }}"
+      HUB_URL: "http://127.0.0.1:{{ beszel_hub_host_localhost_port }}"
+      TOKEN: "{{ vault_beszel_universal_token }}"
+      KEY: "{{ _beszel_hub_pubkey }}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      - traefik.enable=false

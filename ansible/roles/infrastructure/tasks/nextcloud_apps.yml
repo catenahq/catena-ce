@@ -1,0 +1,39 @@
+---
+# Nextcloud first-party app provisioning -- post-deploy wiring scripts.
+#
+# One script per Nextcloud app that the catena stack treats as a
+# first-party feature (vs an operator-installable add-on). Today:
+#
+#   /usr/local/bin/catena-wire-nextcloud-mail  -- enables `mail` so
+#       per-user IMAP/CalDAV/CardDAV credentials flow into
+#       oc_mail_accounts, which the Email Archive sidecar consumes.
+#
+# No converge-time component (unlike nextcloud_oidc.yml). The Mail app
+# is server-local Nextcloud state; no Keycloak realm client is needed.
+# All state lives on the host filesystem (/usr/local/bin) + inside the
+# Nextcloud container at wire time.
+#
+# Idempotency: ansible.builtin.copy is no-op when the source has not
+# changed (mode + content checksum). Each click of the OliveTin button
+# is itself idempotent (probe-before-install on app:list, app:enable
+# is a no-op when already enabled); this task just keeps the script
+# binary up-to-date with the repo.
+
+- name: "Nextcloud apps: install Mail wiring script (/usr/local/bin/catena-wire-nextcloud-mail)"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../vps-scripts/wire-nextcloud-mail.sh"
+    dest: /usr/local/bin/catena-wire-nextcloud-mail
+    owner: root
+    group: root
+    mode: "0755"
+
+# Webmail nav link -> standalone Roundcube (mailserver template). Run from
+# mailserver_oidc.yml when both Nextcloud and the mailserver are deployed.
+# Opens top-level (redirect, not iframe) so Roundcube's Keycloak OAuth works.
+- name: "Nextcloud apps: install Webmail-link script (/usr/local/bin/catena-wire-nextcloud-webmail-link)"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../vps-scripts/wire-nextcloud-webmail-link.sh"
+    dest: /usr/local/bin/catena-wire-nextcloud-webmail-link
+    owner: root
+    group: root
+    mode: "0755"

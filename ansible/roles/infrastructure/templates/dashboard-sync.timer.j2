@@ -1,0 +1,13 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Periodic refresh of Homepage services.yaml
+
+[Timer]
+OnBootSec=2min
+OnCalendar={{ dashboard_sync_interval }}
+RandomizedDelaySec=60s
+Persistent=true
+Unit=dashboard-sync.service
+
+[Install]
+WantedBy=timers.target

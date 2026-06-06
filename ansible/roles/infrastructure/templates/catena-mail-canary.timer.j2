@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Timer for the catena mail canary
+
+[Timer]
+OnCalendar={{ mail_canary_schedule }}
+RandomizedDelaySec=120
+Persistent=true
+Unit={{ mail_canary_systemd_unit_name }}.service
+
+[Install]
+WantedBy=timers.target

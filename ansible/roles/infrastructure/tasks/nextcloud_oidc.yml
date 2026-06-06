@@ -1,0 +1,56 @@
+---
+# Nextcloud native OIDC against Keycloak.
+#
+# Two parts, split by lifecycle:
+#
+#   1. CONVERGE (this file). Render realm-nextcloud.yaml + re-run
+#      keycloak-config-cli on change so the Keycloak side has a
+#      `nextcloud` client registered the moment the operator clicks
+#      Deploy in Dokploy. Mirrors the oauth2_proxy + olivetin patterns.
+#
+#   2. POST-DEPLOY (OliveTin button "Wire Nextcloud OIDC"). The actual
+#      `occ user_oidc:provider` call inside the running Nextcloud
+#      container, run on demand by the operator after a Dokploy
+#      deploy. Backed by /usr/local/bin/catena-wire-nextcloud-oidc
+#      (installed below from vps-scripts/wire-nextcloud-oidc.sh).
+#
+# Why split: per project policy, converge runs only at initial install
+# or full VPS repair -- NOT after every catalog template deploy.
+# Wiring an app's OIDC the first time it's deployed cannot depend on
+# the operator running a subsequent converge against an already-
+# running production VPS. The OliveTin button is the on-demand path;
+# the converge path stays focused on Keycloak-side state (which is
+# legitimately initial-setup territory).
+#
+# Idempotency: the realm import is unconditional + idempotent. The
+# host script is upsert-safe (user_oidc:provider create-or-update by
+# identifier). Re-running either is cheap and converges to the same
+# state.
+
+# ── Step 1: render realm client + reimport (converge-time) ───────
+- name: "Nextcloud OIDC: render Keycloak client into realm config dir"
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../roles/keycloak/templates/realm-nextcloud.yaml.j2"
+    dest: "{{ keycloak_realm_host_dir }}/nextcloud.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  register: _nextcloud_realm_render
+
+- name: "Nextcloud OIDC: re-import realm config with the new client"
+  ansible.builtin.include_tasks: ../../keycloak/tasks/realm_bootstrap.yml
+  when: _nextcloud_realm_render is changed
+  tags: [nextcloud_realm]
+
+# ── Step 2: install the post-deploy wiring script ────────────────
+# Backs the "Wire Nextcloud OIDC" OliveTin button defined in
+# roles/infrastructure/vars/main.yml. The button entry is also
+# rendered into the dispatcher allow-list + olivetin.config.yaml,
+# both of which iterate (olivetin_actions + olivetin_extra_actions).
+- name: "Nextcloud OIDC: install host script (/usr/local/bin/catena-wire-nextcloud-oidc)"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../vps-scripts/wire-nextcloud-oidc.sh"
+    dest: /usr/local/bin/catena-wire-nextcloud-oidc
+    owner: root
+    group: root
+    mode: "0755"

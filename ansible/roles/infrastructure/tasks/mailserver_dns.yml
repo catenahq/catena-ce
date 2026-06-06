@@ -1,0 +1,194 @@
+---
+# Mailserver DNS -- the safe, mail-specific records ops can own via the
+# Cloudflare API. Clones the roles/coturn dns.yml upsert idiom
+# (look up -> create-if-absent -> update-if-drift).
+#
+# ops automates:
+#   - mail.<zone>  A   (gray-cloud) -> VPS public IP. The mail plane
+#                      (25/465/587/993) cannot ride the CF tunnel, so the
+#                      MX/mail FQDN must resolve straight to the VPS.
+#   - _mta-sts.<zone>     TXT -> MTA-STS policy id (RFC 8461). The policy
+#                      file itself is served by the mta-sts nginx in the
+#                      template at mta-sts.<zone>/.well-known/mta-sts.txt
+#                      (which resolves via the existing wildcard CNAME).
+#   - _smtp._tls.<zone>   TXT -> TLS-RPT (RFC 8460) reporting address.
+#
+# Deliberately NOT automated (operator-manual, see the runbook):
+#   - MX     -- a cutover decision; auto-creating it would hijack a
+#               domain's existing inbound mail.
+#   - SPF    -- the relay include is relay-specific.
+#   - DKIM   -- the relay is the sole signer; publish ITS selector. The
+#               mailserver does not sign locally (no `setup config dkim`).
+#   - DMARC  -- operator policy.
+#   - rDNS   -- set at the VPS provider.
+#
+# Opt-in template: gated on the dms container existing. The Cloudflare
+# calls run from localhost (delegate_to), but we still gate on the
+# mailserver actually being deployed so we never publish mail DNS for a
+# tenant without it.
+
+- name: "Mailserver DNS: locate dms container"
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker ps --filter label=com.docker.compose.service=dms \
+      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1
+  args:
+    executable: /bin/bash
+  register: _ms_dns_dms
+  changed_when: false
+
+- name: "Mailserver DNS: skip when mailserver template not deployed"
+  ansible.builtin.debug:
+    msg: "mailserver template not deployed (no dms container); skipping mail DNS."
+  when: (_ms_dns_dms.stdout | default('') | length) == 0
+
+- name: "Mailserver DNS: publish mail A + MTA-STS + TLS-RPT (dms deployed)"
+  when: (_ms_dns_dms.stdout | default('') | length) > 0
+  delegate_to: localhost
+  become: false
+  block:
+    # cloudflare_zone_id is normally set by the cloudflare_tunnel role
+    # earlier in a full converge. But this task also runs under
+    # `--tags infrastructure` (stage-3b mailserver wiring, and any
+    # operator iterating on just this role), where cloudflare_tunnel is
+    # skipped and the fact is absent. Resolve it here when missing so the
+    # task is self-sufficient rather than silently depending on another
+    # role's run order.
+    - name: "Mailserver DNS: resolve cloudflare_zone_id (when not set by cloudflare_tunnel)"
+      when: cloudflare_zone_id is not defined
+      block:
+        - name: "Mailserver DNS: look up zone_id for {{ cloudflare_zone }}"
+          ansible.builtin.uri:
+            url: "{{ cloudflare_api_base }}/zones?name={{ cloudflare_zone }}"
+            method: GET
+            headers:
+              Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+            status_code: 200
+            return_content: true
+          register: _ms_dns_zones
+          retries: 5
+          delay: 6
+          until: _ms_dns_zones.status == 200
+
+        - name: "Mailserver DNS: assert the zone is visible to this token"
+          ansible.builtin.assert:
+            that:
+              - _ms_dns_zones.json.result | length == 1
+            fail_msg: >-
+              Zone '{{ cloudflare_zone }}' not found (or token lacks access).
+              The API token needs Zone:DNS:Edit scope on this zone.
+
+        - name: "Mailserver DNS: capture zone_id"
+          ansible.builtin.set_fact:
+            cloudflare_zone_id: "{{ _ms_dns_zones.json.result[0].id }}"
+
+    # ── mail.<zone> A (gray-cloud) ──────────────────────────────────
+    - name: "Mailserver DNS: look up A record for {{ mailserver_hostname }}"
+      ansible.builtin.uri:
+        url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records?type=A&name={{ mailserver_hostname }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+        status_code: 200
+        return_content: true
+      register: _ms_dns_a
+      retries: 5
+      delay: 6
+      until: _ms_dns_a.status == 200
+
+    - name: "Mailserver DNS: create mail A record (gray-cloud) if absent"
+      ansible.builtin.uri:
+        url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+        body_format: json
+        body:
+          type: A
+          name: "{{ mailserver_hostname }}"
+          content: "{{ public_ip }}"
+          proxied: false
+          ttl: 1
+          comment: "Managed by catena -- mail plane, MUST be gray-cloud"
+        status_code: 200
+      when: _ms_dns_a.json.result | length == 0
+
+    - name: "Mailserver DNS: update mail A record if content/proxy drifted"
+      ansible.builtin.uri:
+        url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records/{{ _ms_dns_a.json.result[0].id }}"
+        method: PUT
+        headers:
+          Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+        body_format: json
+        body:
+          type: A
+          name: "{{ mailserver_hostname }}"
+          content: "{{ public_ip }}"
+          proxied: false
+          ttl: 1
+        status_code: 200
+      when:
+        - _ms_dns_a.json.result | length > 0
+        - >-
+          _ms_dns_a.json.result[0].content != public_ip
+          or _ms_dns_a.json.result[0].proxied | default(false)
+
+    # ── _mta-sts.<zone> TXT (policy id) ─────────────────────────────
+    - name: "Mailserver DNS: look up _mta-sts TXT"
+      ansible.builtin.uri:
+        url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records?type=TXT&name=_mta-sts.{{ cloudflare_zone }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+        status_code: 200
+        return_content: true
+      register: _ms_dns_stsid
+
+    - name: "Mailserver DNS: set _mta-sts TXT (create or update on drift)"
+      ansible.builtin.uri:
+        url: >-
+          {{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records{{
+            '/' ~ _ms_dns_stsid.json.result[0].id if (_ms_dns_stsid.json.result | length > 0) else '' }}
+        method: "{{ 'PUT' if (_ms_dns_stsid.json.result | length > 0) else 'POST' }}"
+        headers:
+          Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+        body_format: json
+        body:
+          type: TXT
+          name: "_mta-sts.{{ cloudflare_zone }}"
+          content: "v=STSv1; id={{ mailserver_mta_sts_policy_id }};"
+          ttl: 1
+        status_code: 200
+      when: >-
+        (_ms_dns_stsid.json.result | length) == 0
+        or _ms_dns_stsid.json.result[0].content != ('v=STSv1; id=' ~ mailserver_mta_sts_policy_id ~ ';')
+
+    # ── _smtp._tls.<zone> TXT (TLS-RPT) ─────────────────────────────
+    - name: "Mailserver DNS: look up _smtp._tls TXT"
+      ansible.builtin.uri:
+        url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records?type=TXT&name=_smtp._tls.{{ cloudflare_zone }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+        status_code: 200
+        return_content: true
+      register: _ms_dns_tlsrpt
+
+    - name: "Mailserver DNS: set _smtp._tls TXT (create or update on drift)"
+      ansible.builtin.uri:
+        url: >-
+          {{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records{{
+            '/' ~ _ms_dns_tlsrpt.json.result[0].id if (_ms_dns_tlsrpt.json.result | length > 0) else '' }}
+        method: "{{ 'PUT' if (_ms_dns_tlsrpt.json.result | length > 0) else 'POST' }}"
+        headers:
+          Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+        body_format: json
+        body:
+          type: TXT
+          name: "_smtp._tls.{{ cloudflare_zone }}"
+          content: "v=TLSRPTv1; rua={{ mailserver_tlsrpt_rua }}"
+          ttl: 1
+        status_code: 200
+      when: >-
+        (_ms_dns_tlsrpt.json.result | length) == 0
+        or _ms_dns_tlsrpt.json.result[0].content != ('v=TLSRPTv1; rua=' ~ mailserver_tlsrpt_rua)

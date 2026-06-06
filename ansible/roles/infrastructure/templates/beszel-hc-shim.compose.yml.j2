@@ -1,0 +1,33 @@
+---
+# {{ ansible_managed }}
+# Beszel -> Healthchecks alert shim. Receives Beszel's Shoutrrr generic
+# webhook and maps triggered/resolved to Healthchecks /fail + success
+# pings so Beszel threshold alerts ride the same notification plane as
+# Gatus (clients keep their self-service channels). See
+# internal_docs/operator/notifications.md and vps-scripts/beszel-hc-shim.py.
+#
+# No public surface (traefik.enable=false). Reachable on dokploy-network
+# at {{ beszel_hc_shim_network_alias }}:{{ beszel_hc_shim_internal_port }};
+# the operator points Beszel's webhook notification at
+# generic+http://{{ beszel_hc_shim_network_alias }}:{{ beszel_hc_shim_internal_port }}/notify
+services:
+  app:
+    image: {{ beszel_hc_shim_image }}
+    restart: unless-stopped
+    command: ["python3", "/app/beszel-hc-shim.py"]
+    environment:
+      HC_URL: "http://{{ healthchecks_network_alias }}:{{ healthchecks_internal_port }}"
+      HC_PING_KEY: "{{ vault_healthchecks_ping_key }}"
+      LISTEN_PORT: "{{ beszel_hc_shim_internal_port }}"
+    volumes:
+      - {{ beszel_hc_shim_host_dir }}:/app:ro
+    networks:
+      dokploy-network:
+        aliases:
+          - {{ beszel_hc_shim_network_alias }}
+    labels:
+      - traefik.enable=false
+
+networks:
+  dokploy-network:
+    external: true

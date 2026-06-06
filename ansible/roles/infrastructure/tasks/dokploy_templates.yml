@@ -1,0 +1,124 @@
+---
+# Drift-heal env_managed_keys for catalog templates deployed via Dokploy's
+# marketplace. Operator-side reconciliation of operator-controlled env
+# vars on every converge.
+#
+# Catalog source: catenahq/dokploy-templates (fetched via
+# _templates_catalog_load.yml). Clients install templates by pasting
+# the catalog's BASE URL into Dokploy + clicking Deploy from the
+# marketplace UI. The deployed compose ships with sentinel values
+# (__CATENA_OPERATOR_WIRED__) for keys in env_managed_keys; this task
+# replaces those (and any later drift) with current operator-side
+# values pulled from the vault.
+#
+# Auto-seed was removed on 2026-05-16 alongside the catenahq/dokploy-templates
+# lift -- clients now discover and install templates through Dokploy's
+# marketplace UI rather than the operator pushing them via the
+# compose.create API. This task narrowed to drift-heal only.
+#
+# Idempotent: when current env already matches catalog env (no drift),
+# no-op. Non-managed env vars (client edits to S3 coords, admin creds,
+# etc.) are preserved verbatim. composeFile is NEVER overwritten --
+# client edits to the compose YAML survive every converge.
+#
+# Cold-restore safety: a Dokploy restore from restic recovers compose +
+# env state from the Dokploy Postgres backup. Re-converge after restore
+# re-syncs managed keys against the current vault (recovers from any
+# vault-side rotation that happened post-snapshot). Non-managed env
+# values restored verbatim from the Postgres backup.
+#
+# Scans EVERY project's composes, not just a "Templates" project.
+# Marketplace deploys can land in any project; we match by compose name
+# against catalog app_name and drift-heal whatever matches.
+#
+# Collision caveat: if a client manually creates a compose with the
+# same name as a catalog entry's app_name (e.g. "nextcloud") outside
+# the marketplace, drift-heal applies anyway. In practice the
+# marketplace is the only path to deploy a Catena template, so the
+# name space is effectively reserved.
+#
+# Must NOT mutate `_dokploy_project_id` / `_dokploy_environment_id`.
+# All local state stays under `_templates_*`-prefixed facts.
+
+- name: "Dokploy templates: load catalog from catenahq/dokploy-templates"
+  ansible.builtin.include_tasks: _templates_catalog_load.yml
+
+- name: "Dokploy templates: index catalog entries by app_name (managed-keys only)"
+  ansible.builtin.set_fact:
+    _templates_managed_entries: >-
+      {{
+        dokploy_template_catalog
+        | selectattr('env_managed_keys', 'defined')
+        | rejectattr('env_managed_keys', 'equalto', [])
+        | list
+      }}
+
+- name: "Dokploy templates: skip drift-heal when no catalog entry declares env_managed_keys"
+  ansible.builtin.debug:
+    msg: "catalog has no env_managed_keys entries; nothing to drift-heal."
+  when: _templates_managed_entries | length == 0
+
+- name: "Dokploy templates: build app_name -> catalog entry lookup"
+  ansible.builtin.set_fact:
+    _templates_managed_index: >-
+      {{
+        dict(
+          _templates_managed_entries
+          | map(attribute='app_name')
+          | zip(_templates_managed_entries)
+        )
+      }}
+  when: _templates_managed_entries | length > 0
+
+- name: "Dokploy templates: list all Dokploy projects + their composes"
+  ansible.builtin.uri:
+    url: "{{ dokploy_api_base }}/project.all"
+    method: GET
+    headers:
+      x-api-key: "{{ vault_dokploy_api_key }}"
+    status_code: 200
+    return_content: true
+  register: _templates_projects_all
+  delegate_to: localhost
+  become: false
+  when: _templates_managed_entries | length > 0
+
+- name: "Dokploy templates: flatten matched composes across all projects"
+  # Jinja2 3.1's `first` filter has no `default` kwarg; passing one
+  # raises `sync_do_first() got an unexpected keyword argument 'default'`.
+  # selectattr('environments','truthy') drops projects whose
+  # environments list is missing/empty so the bare `first` is safe.
+  # Dokploy guarantees every project has at least one environment
+  # (auto-created `production`), so this is defense-in-depth, not a
+  # path the API is expected to hit.
+  ansible.builtin.set_fact:
+    _templates_drift_targets: >-
+      {{
+        _templates_projects_all.json
+        | selectattr('environments', 'truthy')
+        | map(attribute='environments')
+        | map('first')
+        | selectattr('compose', 'defined')
+        | map(attribute='compose')
+        | flatten(levels=1)
+        | selectattr('name', 'in', _templates_managed_index.keys() | list)
+        | list
+      }}
+  when: _templates_managed_entries | length > 0
+
+- name: "Dokploy templates: announce drift-heal scope"
+  ansible.builtin.debug:
+    msg: >-
+      managed-key catalog entries: {{ _templates_managed_index.keys() | list }};
+      deployed matches: {{ _templates_drift_targets | map(attribute='name') | list }}
+  when: _templates_managed_entries | length > 0
+
+- name: "Dokploy templates: drift-heal each matched compose"
+  ansible.builtin.include_tasks: _dokploy_template_drift_heal.yml
+  loop: "{{ _templates_drift_targets | default([]) }}"
+  loop_control:
+    loop_var: _compose
+    label: "{{ _compose.name }}"
+  when:
+    - _templates_managed_entries | length > 0
+    - (_templates_drift_targets | default([])) | length > 0

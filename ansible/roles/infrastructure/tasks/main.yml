@@ -1,0 +1,373 @@
+---
+# Orchestrator for roles/infrastructure. Order matters:
+#
+# 1. recovery_archive.yml    -- F12 recovery-archive generator (host-side
+#                              cores, restore.sh template, entry script,
+#                              p7zip-full apt dep, /var/backups/catena-export).
+#                              Independent of Dokploy API.
+# 2. dokploy_project.yml     -- find-or-create the "infrastructure" project
+#                              in Dokploy; capture project_id + env_id.
+#                              Gated on vault_dokploy_api_key -- skipped on
+#                              first run before operator creates API key.
+# 3. gatus.yml / healthchecks.yml / recovery.yml / semaphore.yml --
+#    each calls dokploy_compose.yml with its own compose YAML, env,
+#    domain, port. All gated on vault_dokploy_api_key.
+# 4. dashboard_sync.yml + gatus_sync.yml -- sync scripts + systemd timers.
+#                              Gated on the API key. dashboard-sync owns
+#                              auto-gated Traefik routes (Phase 4b
+#                              retired its services.yaml writer);
+#                              gatus-sync owns {{ gatus_host_config_dir }}/
+#                              50-dokploy-apps.yaml.
+#
+# CF tunnel + DNS + cloudflared swarm service moved to roles/cloudflare_tunnel
+# on 2026-05-08 so site.yml can deploy them BEFORE keycloak/oauth2_proxy --
+# oauth2_proxy's wait-for-public-Keycloak task otherwise can't succeed on a
+# fresh DR/migrate target in a single converge.
+#
+# Forward-auth middleware definition + the per-service
+# `<app>-oauth2-proxy.yml` Traefik route files are rendered by
+# roles/oauth2_proxy (which runs before this role in site.yml).
+# Every gated public URL inherits the staff or admin chain by the
+# time this role's compose deploys land.
+
+# CF Access has been removed in favor of self-hosted SSO. CF Tunnel
+# stays (it is the only public ingress, owned by roles/cloudflare_tunnel),
+# but the Access policies that used to gate the four UIs are gone.
+# Existing CF Access applications in the Cloudflare dashboard for this
+# zone are NOT removed via API (avoids destructive cross-account action).
+# Manual cleanup: dash.cloudflare.com -> Zero Trust -> Access -> Applications
+# -> delete the four `<subdomain>.<zone>` entries.
+
+# F12 recovery-archive generator (host-side cores + restore.sh template +
+# entry script + p7zip-full apt dep + /var/backups/catena-export). Backs
+# the catena-admin "Generate recovery archive (encrypted)" Recovery-tab
+# button. Independent of Dokploy API key (host-only state), runs on
+# every converge. Subsumes the older extract_secrets task -- the
+# recovery zip contains vault.recovered.yml internally, so the
+# gpg-armored vault dump it produced is no longer a separate flow.
+- name: Recovery-archive generator (host-side cores + entry script + 7z)
+  ansible.builtin.import_tasks: recovery_archive.yml
+  tags: [catena_admin, recovery_archive]
+
+# --- Everything below requires a Dokploy API key. Skip cleanly on first
+#     run so site.yml can complete; operator adds the key to vault and
+#     re-runs. ----------------------------------------------------------
+- name: Has Dokploy API key -> provision services via Dokploy API
+  when:
+    - vault_dokploy_api_key is defined
+    - vault_dokploy_api_key | length > 10
+  block:
+    # Runs before any per-service include below. Tagged `always` so
+    # --tags <service> filters still get _dokploy_environment_id /
+    # _dokploy_project_id in scope (the per-service includes need them
+    # for the compose-create API call).
+    - name: "Find-or-create Dokploy project ({{ dokploy_project_name }})"
+      ansible.builtin.include_tasks:
+        file: dokploy_project.yml
+        apply:
+          tags: [always]
+      tags: [always]
+
+    # Snapshot every project's every compose BEFORE we touch any
+    # compose state. Best-effort -- a Dokploy API hiccup logs + moves
+    # on. Run early enough that gatus/healthchecks/etc.
+    # haven't yet been (re-)deployed by this converge, so the
+    # aggregate captures the state we're about to potentially mutate.
+    - name: Snapshot Dokploy state pre-converge (rollback-able JSON)
+      ansible.builtin.include_tasks:
+        file: snapshot_dokploy_state.yml
+        apply:
+          tags: [always, dokploy_snapshot]
+      tags: [always, dokploy_snapshot]
+
+    # include_tasks doesn't propagate tags to sub-tasks by default -- a
+    # top-level `tags:` here applies only to the include statement itself,
+    # so `--tags <name>` makes the include fire but every child task
+    # silently skips. `apply: tags:` pushes the tag down to every task
+    # inside the included file, which is what operators expect when they
+    # run `--tags gatus` / `--tags healthchecks` / etc.
+    - name: Gatus (monitor.<zone>)
+      ansible.builtin.include_tasks:
+        file: gatus.yml
+        apply:
+          tags: [gatus]
+      tags: [gatus]
+
+    - name: Healthchecks (heartbeat.<zone>) -- cron/dead-man monitoring
+      ansible.builtin.include_tasks:
+        file: healthchecks.yml
+        apply:
+          tags: [healthchecks]
+      tags: [healthchecks]
+
+    # Shared ClamAV (clamd). Creates the external catena-clamav network
+    # (the mailserver + nextcloud templates depend on it existing before
+    # a client clicks Deploy) and deploys one clamd for both consumers.
+    # Runs before the per-app wiring below so the network + scanner are
+    # ready when those land.
+    - name: Shared ClamAV (clamd, used by mail + Nextcloud)
+      ansible.builtin.include_tasks:
+        file: clamav.yml
+        apply:
+          tags: [clamav]
+      tags: [clamav]
+
+    # Beszel -- hub + agent resource monitor (CPU/memory/network/disk +
+    # temperature/load history with built-in threshold alerting). The
+    # agent collects per-container + per-host metrics over docker.sock;
+    # the hub stores history and serves hub.<zone> (admin-gated via
+    # oauth2-proxy). A small shim forwards Beszel threshold alerts into
+    # the Healthchecks plane. Off-switch: BESZEL_ENABLED=false in
+    # inventory/<env>/.env (default off).
+    - name: Beszel (hub + agent + Healthchecks alert shim)
+      ansible.builtin.include_tasks:
+        file: beszel.yml
+        apply:
+          tags: [beszel]
+      when: beszel_enabled | bool
+      tags: [beszel]
+
+    # Semaphore (the operator's Ansible runner) is operator-only
+    # infrastructure -- it is not part of the Community edition and is not
+    # deployed here.
+
+    - name: Recovery downloads (recovery.<zone>) -- admin-only file server
+      ansible.builtin.include_tasks:
+        file: recovery.yml
+        apply:
+          tags: [recovery]
+      tags: [recovery]
+
+    # GitHub App preflight: assert every alias the operator declares
+    # in `expected_github_providers` is registered in Dokploy. Manual
+    # one-time browser flow per alias; this task FAILS WITH A
+    # WALKTHROUGH MESSAGE if any are missing. Skipped silently when
+    # the inventory does not declare any (operator hasn't started
+    # using the git-source compose flow yet). See
+    # internal_docs/operator/github-app-setup.md.
+    - name: Assert Dokploy GitHub providers (for git-source webapp deploys)
+      ansible.builtin.include_tasks:
+        file: _github_provider_assert.yml
+        apply:
+          tags: [github_providers]
+      when: expected_github_providers | default([]) | length > 0
+      tags: [github_providers]
+
+    - name: Pre-seed client-app templates into Dokploy (create-once)
+      ansible.builtin.include_tasks:
+        file: dokploy_templates.yml
+        apply:
+          tags: [dokploy_templates]
+      tags: [dokploy_templates]
+
+    # EP3: Nextcloud native OIDC. Realm client is registered eagerly
+    # so the discovery URL works the moment the operator clicks Deploy
+    # in Dokploy UI. The occ-based provider registration runs only
+    # if the Nextcloud container is currently up (no-op on first
+    # converge before Deploy). See nextcloud_oidc.yml header for the
+    # full atomicity/idempotency notes.
+    - name: Nextcloud native OIDC (Keycloak realm client + occ wiring)
+      ansible.builtin.include_tasks:
+        file: nextcloud_oidc.yml
+        apply:
+          tags: [nextcloud_oidc]
+      tags: [nextcloud_oidc]
+
+    # Element / Matrix OIDC. Synapse reads the OIDC config straight
+    # from its homeserver.yaml (rendered by the element template's
+    # catena-synapse-init.py from env vars at container start). All
+    # this converge step does is register the matching `element`
+    # client in Keycloak so the discovery URL works the moment the
+    # operator clicks Deploy. No post-deploy hook needed -- the
+    # template's env_managed_keys re-injects OIDC_CLIENT_SECRET on
+    # every converge.
+    - name: Element / Matrix OIDC (Keycloak realm client)
+      ansible.builtin.include_tasks:
+        file: element_oidc.yml
+        apply:
+          tags: [element_oidc]
+      tags: [element_oidc]
+
+    # Mailserver TLS cert (mail.<zone>). Opt-in template: issues a
+    # Let's Encrypt cert via DNS-01 and injects it into the dms container
+    # (SSL_TYPE=manual). MUST run BEFORE mailserver_accounts: docker-
+    # mailserver has two hard boot gates -- (1) >=1 mailbox, polled for
+    # 120s, then (2) the manual cert. The container is in a STABLE, exec-
+    # able window only while gate 1 is unmet (no account), so we docker cp
+    # the cert in during that window. Adding the account last (next task)
+    # then lets the boot proceed past gate 1 to gate 2 with the cert
+    # already present. No-ops on tenants without the mailserver (no dms).
+    - name: Mailserver TLS cert (Let's Encrypt DNS-01 -> dms inject + reload)
+      ansible.builtin.include_tasks:
+        file: mailserver_cert.yml
+        apply:
+          tags: [mailserver_cert]
+      tags: [mailserver_cert]
+
+    # Mailserver accounts. docker-mailserver will not start Dovecot until
+    # >=1 mailbox exists. Bootstrap postmaster@<zone> as a real mailbox
+    # here -- this is the action that unblocks the boot (gate 1), and since
+    # the cert task above already injected the cert (gate 2), the same boot
+    # proceeds to start Dovecot. The dashboard-sync reconciler manages the
+    # rest from Keycloak and never deletes postmaster. No-ops without the
+    # mailserver (no dms container).
+    - name: Mailserver accounts (bootstrap postmaster mailbox so DMS can start)
+      ansible.builtin.include_tasks:
+        file: mailserver_accounts.yml
+        apply:
+          tags: [mailserver_accounts]
+      tags: [mailserver_accounts]
+
+    # Mailserver SSO. Opt-in template: registers the roundcube +
+    # mailserver-introspect Keycloak clients and injects the Dovecot
+    # introspection config + Roundcube oauth config when the mailserver
+    # template is deployed. No-ops on tenants without it (no dms container).
+    - name: Mailserver OIDC (Keycloak clients + Dovecot/Roundcube OAuth config)
+      ansible.builtin.include_tasks:
+        file: mailserver_oidc.yml
+        apply:
+          tags: [mailserver_oidc]
+      tags: [mailserver_oidc]
+
+    # Mailserver spam + antivirus filtering. Injects rspamd local.d
+    # drop-ins (Spamhaus DQS RBL, shared-clamd antivirus, SMB action
+    # thresholds, soft-reject-on-AV-fail) into the dms container. No-ops
+    # without the mailserver template (no dms container).
+    - name: Mailserver filtering (rspamd DQS RBL + antivirus + thresholds)
+      ansible.builtin.include_tasks:
+        file: mailserver_filtering.yml
+        apply:
+          tags: [mailserver_filtering]
+      tags: [mailserver_filtering]
+
+    # Mailserver DNS. ops owns only the safe mail-specific records (the
+    # gray-cloud mail A + MTA-STS + TLS-RPT TXT); MX/SPF/DKIM/DMARC/rDNS
+    # stay operator-manual (see the runbook). No-ops without the dms
+    # container.
+    - name: Mailserver DNS (mail A + MTA-STS + TLS-RPT via Cloudflare)
+      ansible.builtin.include_tasks:
+        file: mailserver_dns.yml
+        apply:
+          tags: [mailserver_dns]
+      tags: [mailserver_dns]
+
+    # Mail canary host timer. Proves dms is listening on 25/993 + that the
+    # rspamd->clamav AV path detects EICAR (docker-exec rspamc). Wrapper
+    # self-gates (no-op without a dms container).
+    - name: Mail canary (ports + EICAR rspamc check via Healthchecks)
+      ansible.builtin.include_tasks:
+        file: mailserver_canary.yml
+        apply:
+          tags: [mailserver_canary]
+      tags: [mailserver_canary]
+
+    # Nextcloud Talk + HPB. Same converge / post-deploy split as OIDC:
+    # converge installs the wire script + ufw range when HPB is live;
+    # the Actions-tab button runs the in-container occ-based wiring on
+    # demand. The wire script itself auto-detects whether the HPB
+    # compose block is commented out -- safe to fire unconditionally.
+    - name: Nextcloud Talk + HPB (wire script + media-range ufw)
+      ansible.builtin.include_tasks:
+        file: nextcloud_talk_hpb.yml
+        apply:
+          tags: [nextcloud_talk_hpb]
+      tags: [nextcloud_talk_hpb]
+
+    # Nextcloud office editors (Collabora / OnlyOffice). Pure host-side
+    # wiring-script install; no Keycloak realm client. The matching
+    # Dokploy templates ship their own composes; the Actions-tab buttons
+    # do the post-deploy occ wiring. See nextcloud_office.yml header.
+    - name: Nextcloud office editors (Collabora + OnlyOffice wire scripts)
+      ansible.builtin.include_tasks:
+        file: nextcloud_office.yml
+        apply:
+          tags: [nextcloud_office]
+      tags: [nextcloud_office]
+
+    # Nextcloud antivirus. Pure host-side wire-script install (mirrors
+    # nextcloud_office.yml). The shared clamd is deployed by clamav.yml
+    # above; the Actions-tab button does the in-container occ wiring on
+    # demand (files_antivirus Daemon mode -> clamav:3310).
+    - name: Nextcloud antivirus (files_antivirus -> shared clamd wire script)
+      ansible.builtin.include_tasks:
+        file: nextcloud_antivirus.yml
+        apply:
+          tags: [nextcloud_antivirus]
+      tags: [nextcloud_antivirus]
+
+    # Nextcloud first-party apps (Mail today; more later). Pure host-side
+    # wire-script install. Mail is the prerequisite for the Email Archive
+    # feature (sidecar reads oc_mail_accounts). Idempotent on every
+    # converge; Actions-tab button does the in-container occ work on demand.
+    - name: Nextcloud first-party apps (Mail wire script)
+      ansible.builtin.include_tasks:
+        file: nextcloud_apps.yml
+        apply:
+          tags: [nextcloud_apps]
+      tags: [nextcloud_apps]
+
+    # Rocket.Chat + bundled Jitsi. Wire script installs unconditionally;
+    # ufw rule for JVB media (10000/udp) opens only when RC is deployed.
+    - name: Rocket.Chat + Jitsi (wire script + JVB media ufw)
+      ansible.builtin.include_tasks:
+        file: rocketchat_jitsi.yml
+        apply:
+          tags: [rocketchat_jitsi]
+      tags: [rocketchat_jitsi]
+
+
+    # Productized WordPress: post-deploy plugin curation + config.
+    # Pre-installs the lean plugin stack (kadence-blocks, performance-
+    # lab, NPP cache purge/preload, redis-cache, wp-mail-smtp, etc.)
+    # and configures the cross-plugin wiring (Redis object cache,
+    # FastCGI cache purge, Performance Lab module enablement). Skips
+    # cleanly when the wp container is not deployed or the in-browser
+    # install wizard has not yet been run.
+    - name: WordPress curated plugin install + config (post-deploy wp-cli)
+      ansible.builtin.include_tasks:
+        file: wordpress_plugins.yml
+        apply:
+          tags: [wordpress_plugins]
+      tags: [wordpress_plugins]
+
+    - name: dashboard-sync script + systemd timer
+      ansible.builtin.include_tasks:
+        file: dashboard_sync.yml
+        apply:
+          tags: [dashboard_sync]
+      tags: [dashboard_sync]
+
+    - name: gatus-sync script + systemd timer
+      ansible.builtin.include_tasks:
+        file: gatus_sync.yml
+        apply:
+          tags: [gatus, gatus_sync]
+      tags: [gatus, gatus_sync]
+
+    # Aggregate end-of-role readiness probe for the gated services.
+    # Deferred here (rather than per-service inside each dokploy_compose
+    # include) so the SSO chain (Keycloak + oauth2-proxy) has the full
+    # wall-clock of the other infra deploys to finish settling before
+    # we test. Fails fast with diagnostic output if any gated app's
+    # public URL doesn't respond with 200/302/etc. Total additional
+    # wall clock on a healthy run: 6 probes × ~1s each = 6s.
+    - name: Verify gated services serve healthy HTTP
+      ansible.builtin.include_tasks:
+        file: verify_gated_services.yml
+        apply:
+          tags: [verify_gated]
+      tags: [verify_gated]
+
+# The weekly stack-update timer (managed floating-tag container updates) and
+# the hourly external dead-man watchdog are SCHEDULED automation -- they are
+# the Business managed lane, not Community, and are not installed here.
+
+- name: Note -- Dokploy-managed services skipped (no API key yet)
+  ansible.builtin.debug:
+    msg: >-
+      vault_dokploy_api_key not set. Gatus / Healthchecks / Recovery
+      deploys skipped. After creating your admin account at
+      https://{{ dokploy_admin_hostname }} and generating an API key
+      (Settings -> Profile), add it to the vault and re-run a site converge
+      with --tags infrastructure --limit {{ inventory_hostname }}.
+  when: vault_dokploy_api_key is not defined or (vault_dokploy_api_key | length) < 10

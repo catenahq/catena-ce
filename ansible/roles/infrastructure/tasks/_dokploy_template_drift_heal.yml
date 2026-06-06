@@ -1,0 +1,94 @@
+---
+# Per-compose drift-heal body. Called from dokploy_templates.yml with
+# `_compose` set to a Dokploy compose dict (composeId + name + ...)
+# whose `name` matches a catalog entry's `app_name`. Parent populated
+# `_templates_managed_index` (app_name -> catalog entry) so we look up
+# the entry here.
+#
+# Behavior:
+#   - Fetch full compose state (composeFile + env) from Dokploy.
+#   - Filter catalog env_defaults to just env_managed_keys.
+#   - merge_env: replace managed-key values in existing env with the
+#     catalog values, preserving every other line verbatim.
+#   - If the resulting env differs from existing -> compose.update with
+#     the merged env and the COMPOSEFILE UNCHANGED (client edits to
+#     the YAML survive every converge).
+#   - Else no-op.
+#
+# Why preserve composeFile: a client may have legitimately edited the
+# compose to tune resources, swap an image tag, etc. Force-syncing
+# from the catalog would undo that work. The auto-restore path used
+# to take care of this (delete compose -> re-create from catalog) but
+# is gone; clients refresh compose content by reinstalling from the
+# Dokploy marketplace UI.
+
+- name: "Drift-heal: resolve catalog entry for {{ _compose.name }}"
+  ansible.builtin.set_fact:
+    _drift_tmpl: "{{ _templates_managed_index[_compose.name] }}"
+
+- name: "Drift-heal: fetch full compose state for {{ _compose.name }}"
+  ansible.builtin.uri:
+    url: "{{ dokploy_api_base }}/compose.one?composeId={{ _compose.composeId }}"
+    method: GET
+    headers:
+      x-api-key: "{{ vault_dokploy_api_key }}"
+    status_code: 200
+    return_content: true
+  register: _drift_compose_full
+  delegate_to: localhost
+  become: false
+
+- name: "Drift-heal: filter env_defaults to managed keys ({{ _compose.name }})"
+  ansible.builtin.set_fact:
+    _drift_managed_env_subset: >-
+      {{
+        (_drift_tmpl.env_defaults | default([]))
+        | select('match', '^(' ~ (_drift_tmpl.env_managed_keys | join('|')) ~ ')=')
+        | list
+      }}
+
+- name: "Drift-heal: compute merged env ({{ _compose.name }})"
+  ansible.builtin.set_fact:
+    _drift_merged_env: >-
+      {{
+        (_drift_compose_full.json.env | default(''))
+        | merge_env(_drift_managed_env_subset)
+      }}
+
+- name: "Drift-heal: detect env drift on managed keys ({{ _compose.name }})"
+  ansible.builtin.set_fact:
+    _drift_env_drifted: >-
+      {{
+        ((_drift_compose_full.json.env | default('')) | trim)
+        != (_drift_merged_env | join('\n') | trim)
+      }}
+
+- name: "Drift-heal: apply env merge ({{ _compose.name }})"
+  ansible.builtin.uri:
+    url: "{{ dokploy_api_base }}/compose.update"
+    method: POST
+    headers:
+      x-api-key: "{{ vault_dokploy_api_key }}"
+    body_format: json
+    body:
+      composeId: "{{ _compose.composeId }}"
+      composeFile: "{{ _drift_compose_full.json.composeFile | default('') }}"
+      env: "{{ _drift_merged_env | join('\n') }}"
+      sourceType: "raw"
+    status_code: 200
+  when: _drift_env_drifted | default(false)
+  delegate_to: localhost
+  become: false
+
+- name: "Drift-heal: log outcome ({{ _compose.name }})"
+  ansible.builtin.debug:
+    msg: >-
+      compose {{ _compose.name }} (composeId={{ _compose.composeId }}):
+      {% if _drift_env_drifted | default(false) %}
+      managed-key env drift HEALED; preserved
+      {{ ((_drift_compose_full.json.env | default(''))
+          | preserved_env_keys(_drift_managed_env_subset)) | length }}
+      client-edited non-managed key(s).
+      {% else %}
+      no drift (managed keys already in sync).
+      {% endif %}

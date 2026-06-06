@@ -1,0 +1,42 @@
+---
+# Load the catenahq/dokploy-templates catalog and expose it as the
+# `dokploy_template_catalog` fact.
+#
+# Source URL defaults to the public raw URL of catenahq/dokploy-templates. The
+# controller running ansible-playbook can override with the env var
+# CATENAHQ_TEMPLATES_BASE (e.g. file:///path/to/local/templates checkout)
+# for bench scenarios or local dev against unpushed catalog changes.
+#
+# Idempotent: gated on `dokploy_template_catalog is not defined`. Safe
+# to include multiple times in the same play.
+#
+# Include this file from a task list. Do NOT include it from a play
+# block (uses set_fact which is fine in tasks, not at play level).
+
+- name: "templates_catalog: resolve catenahq/dokploy-templates base"
+  ansible.builtin.set_fact:
+    _catenahq_templates_base: >-
+      {{
+        lookup('env', 'CATENAHQ_TEMPLATES_BASE')
+        | default('https://raw.githubusercontent.com/catenahq/dokploy-templates/main', true)
+      }}
+  when: _catenahq_templates_base is not defined
+
+- name: "templates_catalog: fetch catalog list"
+  # url lookup defaults split_lines=true which silently turns the
+  # multi-line catalog into a list-of-lines that gets comma-joined
+  # before from_yaml -- PyYAML then fails with "mapping values are
+  # not allowed" at the first colon past column 1. file lookup does
+  # not split, so file:// works either way; the explicit kwarg keeps
+  # http(s) and file:// paths producing the same raw text.
+  ansible.builtin.set_fact:
+    dokploy_template_catalog: >-
+      {{
+        (
+          (lookup('ansible.builtin.file', _catenahq_templates_base[7:] + '/source/catalog.yml')
+           if _catenahq_templates_base.startswith('file://')
+           else lookup('ansible.builtin.url', _catenahq_templates_base + '/source/catalog.yml', split_lines=false))
+          | from_yaml
+        ).dokploy_template_catalog
+      }}
+  when: dokploy_template_catalog is not defined

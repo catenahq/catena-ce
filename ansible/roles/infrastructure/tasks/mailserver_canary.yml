@@ -1,0 +1,53 @@
+---
+# Mail canary host timer. Proves the mail server is up + filtering via
+# docker-exec into dms (ports 25/993 listening + an EICAR rspamc scan).
+# The wrapper self-gates (no-op when no dms container), so installing it
+# unconditionally is harmless on non-mail hosts -- same posture as the
+# deadman + clamav watch timers. Reuses the self-hosted Healthchecks ->
+# ntfy escalation; no new alert plane.
+- name: "Mail canary: env file"
+  ansible.builtin.template:
+    src: mail-canary.env.j2
+    dest: "{{ mail_canary_env_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: "Mail canary: wrapper script"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../vps-scripts/run-mail-canary.sh"
+    dest: "{{ mail_canary_script_path }}"
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: "Mail canary: systemd service unit"
+  ansible.builtin.template:
+    src: catena-mail-canary.service.j2
+    dest: "/etc/systemd/system/{{ mail_canary_systemd_unit_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  register: _mail_canary_service
+
+- name: "Mail canary: systemd timer unit"
+  ansible.builtin.template:
+    src: catena-mail-canary.timer.j2
+    dest: "/etc/systemd/system/{{ mail_canary_systemd_unit_name }}.timer"
+    owner: root
+    group: root
+    mode: "0644"
+  register: _mail_canary_timer
+
+- name: "Mail canary: reload systemd if units changed"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: (_mail_canary_service.changed | default(false)) or (_mail_canary_timer.changed | default(false))
+
+- name: "Mail canary: enable + start timer"
+  ansible.builtin.systemd_service:
+    name: "{{ mail_canary_systemd_unit_name }}.timer"
+    enabled: true
+    state: started
+  when: not ansible_check_mode

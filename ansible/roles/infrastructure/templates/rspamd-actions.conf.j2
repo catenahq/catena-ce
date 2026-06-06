@@ -1,0 +1,15 @@
+# {{ ansible_managed }}
+# rspamd metric action thresholds, tuned for SMB mail volume. Merged
+# into the default actions by DMS (rspamd/local.d/actions.conf). Scores
+# above each threshold trigger the action:
+#   greylist   -> temp-defer borderline mail (sender retries; most spam
+#                 bots do not)
+#   add_header  -> tag as probable spam (X-Spam headers; Sieve can file
+#                 it to Junk) without refusing it
+#   reject      -> refuse outright
+# Conservative reject threshold (15) keeps false-positive refusals rare;
+# the add_header band (6) does the day-to-day spam foldering. DKIM/SPF/
+# DMARC verification + the Spamhaus DQS RBL feed these scores.
+greylist = 4;
+add_header = 6;
+reject = 15;

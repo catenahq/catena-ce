@@ -1,0 +1,434 @@
+---
+# Post-deploy WordPress plugin curation + configuration. Mirrors
+# nextcloud_oidc.yml shape: find running container -> HTTP readiness
+# probe -> idempotent wp-cli install + activate -> idempotent option
+# updates for the plugins that need pre-configuration.
+#
+# Atomicity: gates on `wp core is-installed`, which returns rc 0 only
+# AFTER the operator has run the in-browser install wizard. Until
+# then the task is a no-op (skipped with a debug message). The wp
+# image entrypoint copies files; wizard provisions wp_options /
+# wp_users. Per project CLAUDE.md, this is the readiness probe -- not
+# "container exists in docker ps", which would race the wizard.
+#
+# Idempotent: every mutation gates on a `wp <foo> is-X` check first.
+# Running this task twice in a row produces zero `changed=` on the
+# second run.
+
+# ── Step 0: curated plugin slugs ─────────────────────────────────
+# Order is irrelevant -- each step gates independently. Adding a slug
+# here installs + activates it on the next converge; removing one
+# leaves it in place (we only flow forward, never deactivate, to
+# avoid clobbering operator-side decisions).
+- name: "WordPress plugins: declare curated set"
+  ansible.builtin.set_fact:
+    _wp_plugins:
+      - { slug: kadence-blocks }
+      # Performance Lab parent + its seven feature modules. In
+      # Performance Lab v3+, the modules ship as separate plugins on
+      # wordpress.org; the parent plugin acts as a discovery / settings
+      # hub. Installing each module as a top-level plugin is the
+      # supported wiring (the parent does not auto-install them).
+      - { slug: performance-lab }
+      - { slug: auto-sizes }
+      - { slug: dominant-color-images }
+      - { slug: embed-optimizer }
+      - { slug: image-prioritizer }
+      - { slug: optimization-detective }
+      - { slug: speculation-rules }
+      - { slug: webp-uploads }
+      - { slug: fastcgi-cache-purge-and-preload-nginx }
+      - { slug: redis-cache }
+      - { slug: wp-mail-smtp }
+      - { slug: wp-mail-logging }
+      - { slug: complianz-gdpr }
+      - { slug: wp-consent-api }
+      - { slug: seo-by-rank-math }
+      - { slug: fluentform }
+
+# ── Step 1: detect running wp container ─────────────────────────
+- name: "WordPress plugins: find running wp container"
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
+      | grep -E 'wordpress-[0-9a-z]{6,}-wp-' \
+      | head -n1 || true
+  args:
+    executable: /bin/bash
+  register: _wp_ct
+  changed_when: false
+
+- name: "WordPress plugins: skip wiring (no running container)"
+  ansible.builtin.debug:
+    msg: >-
+      WordPress not yet deployed in Dokploy ({{ dokploy_admin_hostname }}
+      / Templates / wordpress). On the next converge AFTER the operator
+      clicks Deploy and runs the install wizard, this task will
+      auto-install the curated plugin set.
+  when: (_wp_ct.stdout | default('') | length) == 0
+
+- name: "WordPress plugins: wire when container is up"
+  when: (_wp_ct.stdout | default('') | length) > 0
+  block:
+    # ── Step 2: install wp-cli phar in the wp container ──────────
+    # The wordpress:fpm-alpine image does not bundle wp-cli. Pull the
+    # official phar once into /usr/local/bin/wp; rerun is no-op while
+    # the binary exists. Container recreation re-fetches.
+    - name: "WordPress plugins: install wp-cli phar in container (idempotent)"
+      ansible.builtin.shell: |
+        set -e
+        CT={{ _wp_ct.stdout | quote }}
+        if docker exec "$CT" test -x /usr/local/bin/wp 2>/dev/null; then
+          echo OK
+          exit 0
+        fi
+        WP_CLI_URL="https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar"
+        docker exec "$CT" sh -c "php -r \"copy('$WP_CLI_URL', '/usr/local/bin/wp');\" \
+          && chmod +x /usr/local/bin/wp"
+        echo CHANGED
+      args:
+        executable: /bin/bash
+      register: _wp_cli_install
+      changed_when: "'CHANGED' in _wp_cli_install.stdout"
+
+    # ── Step 3: HTTP readiness gate -- wp core is-installed ──────
+    # Returns rc 0 when WP is installed (wp_options.siteurl set,
+    # wp_users seeded). rc 1 while the operator has not yet completed
+    # the in-browser install wizard. Retry loop covers the deploy-
+    # but-not-yet-configured window (max 60s).
+    - name: "WordPress plugins: wait for wp core is-installed"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - --user
+          - "82" # www-data uid in php-fpm-alpine; wp-cli refuses root without --allow-root
+          - "{{ _wp_ct.stdout }}"
+          - wp
+          - core
+          - is-installed
+      register: _wp_installed
+      changed_when: false
+      failed_when: false
+      retries: 30
+      delay: 2
+      until: _wp_installed.rc == 0
+
+    - name: "WordPress plugins: skip wiring (wp not yet installed)"
+      ansible.builtin.debug:
+        msg: >-
+          WordPress container is up but the install wizard has not yet
+          been run (rc {{ _wp_installed.rc }}). Visit your WordPress
+          domain, complete the install wizard, then re-run this task.
+      when: _wp_installed.rc != 0
+
+    # ── Step 4: ensure curated plugin set is installed + active ──
+    - name: "WordPress plugins: check is-installed for each curated plugin"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - --user
+          - "82"
+          - "{{ _wp_ct.stdout }}"
+          - wp
+          - plugin
+          - is-installed
+          - "{{ item.slug }}"
+      register: _wp_plugin_present
+      changed_when: false
+      failed_when: false
+      loop: "{{ _wp_plugins }}"
+      loop_control:
+        label: "{{ item.slug }}"
+      when: _wp_installed.rc == 0
+
+    - name: "WordPress plugins: install + activate any missing plugin"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - --user
+          - "82"
+          - "{{ _wp_ct.stdout }}"
+          - wp
+          - plugin
+          - install
+          - "{{ item.item.slug }}"
+          - "--activate"
+      changed_when: true
+      loop: "{{ _wp_plugin_present.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.slug }}"
+      when:
+        - _wp_installed.rc == 0
+        - item.rc is defined
+        - item.rc != 0
+
+    - name: "WordPress plugins: check is-active for each curated plugin"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - --user
+          - "82"
+          - "{{ _wp_ct.stdout }}"
+          - wp
+          - plugin
+          - is-active
+          - "{{ item.slug }}"
+      register: _wp_plugin_active
+      changed_when: false
+      failed_when: false
+      loop: "{{ _wp_plugins }}"
+      loop_control:
+        label: "{{ item.slug }}"
+      when: _wp_installed.rc == 0
+
+    - name: "WordPress plugins: activate any installed-but-inactive plugin"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - --user
+          - "82"
+          - "{{ _wp_ct.stdout }}"
+          - wp
+          - plugin
+          - activate
+          - "{{ item.item.slug }}"
+      changed_when: true
+      loop: "{{ _wp_plugin_active.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.slug }}"
+      when:
+        - _wp_installed.rc == 0
+        - item.rc is defined
+        - item.rc != 0
+
+    # ── Step 5: enable redis-cache drop-in ───────────────────────
+    # `wp redis status` returns rc 0 + stdout containing "Connected"
+    # when the object-cache.php drop-in is active. Otherwise enable
+    # it; the WP_REDIS_HOST + WP_CACHE_KEY_SALT constants in
+    # WORDPRESS_CONFIG_EXTRA already point at the redis service.
+    - name: "WordPress plugins: check redis-cache status"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - --user
+          - "82"
+          - "{{ _wp_ct.stdout }}"
+          - wp
+          - redis
+          - status
+      register: _wp_redis_status
+      changed_when: false
+      failed_when: false
+      when: _wp_installed.rc == 0
+
+    - name: "WordPress plugins: enable redis-cache drop-in"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - --user
+          - "82"
+          - "{{ _wp_ct.stdout }}"
+          - wp
+          - redis
+          - enable
+      changed_when: true
+      when:
+        - _wp_installed.rc == 0
+        - _wp_redis_status.rc | default(1) != 0 or 'Connected' not in (_wp_redis_status.stdout | default(''))
+
+    # ── Step 6: configure NPP (FastCGI cache purge + preload) ────
+    # Stored as a serialized array in the `nginx_cache_settings`
+    # option. We compute desired settings, fetch current, combine
+    # (preserving operator-side flags we do not manage), update
+    # only on diff. Sitemap path /sitemap_index.xml matches Rank
+    # Math defaults; Yoast users would need to retune in the NPP UI.
+    - name: "WordPress plugins: declare NPP desired settings"
+      ansible.builtin.set_fact:
+        _wp_npp_desired:
+          nginx_cache_path: /var/cache/nginx/fastcgi
+          nginx_cache_method: unlink
+          nginx_cache_reject_regex: "/wp-admin/|/wp-.*\\.php|/feed/|/sitemap.*\\.xml"
+          nginx_cache_auto_purge: "1"
+          nginx_cache_purge_homepage_on_edit: "1"
+          nginx_cache_purge_homepage_on_del: "1"
+          nginx_cache_preload_enable: "1"
+          nginx_cache_preload_method: wget
+          nginx_cache_preload_sitemap: /sitemap_index.xml
+      when: _wp_installed.rc == 0
+
+    - name: "WordPress plugins: get current NPP settings (defaults to {} if missing)"
+      ansible.builtin.shell: |
+        set -o pipefail
+        docker exec --user 82 {{ _wp_ct.stdout | quote }} wp option get nginx_cache_settings --format=json 2>/dev/null || echo '{}'
+      args:
+        executable: /bin/bash
+      register: _wp_npp_current
+      changed_when: false
+      when: _wp_installed.rc == 0
+
+    - name: "WordPress plugins: combine current + desired NPP settings"
+      ansible.builtin.set_fact:
+        _wp_npp_merged: >-
+          {{ (_parsed if _parsed is mapping else {}) | combine(_wp_npp_desired) }}
+      vars:
+        _parsed: "{{ _wp_npp_current.stdout | from_json }}"
+      when: _wp_installed.rc == 0
+
+    - name: "WordPress plugins: update NPP settings (only on diff)"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - --user
+          - "82"
+          - "{{ _wp_ct.stdout }}"
+          - wp
+          - option
+          - update
+          - nginx_cache_settings
+          - "{{ _wp_npp_merged | to_json }}"
+          - --format=json
+      changed_when: true
+      when:
+        - _wp_installed.rc == 0
+        - _wp_npp_merged != (_parsed if _parsed is mapping else {})
+      vars:
+        _parsed: "{{ _wp_npp_current.stdout | from_json }}"
+
+    # ── Step 7: configure wp-mail-smtp (only when SMTP configured) ──
+    # SMTP fact resolution mirrors keycloak/defaults/main.yml lines
+    # 92-127 -- the same RESEND/BREVO/SMTP_HOST dotenv chain. Lifted
+    # inline rather than imported because role defaults from the
+    # keycloak role are not in scope when this infrastructure-role
+    # task runs.
+    #
+    # Password is NOT stored in the wp_mail_smtp option. The plugin
+    # reads `defined('WPMS_SMTP_PASS') ? WPMS_SMTP_PASS : ...` so
+    # the WPMS_SMTP_PASS constant in WORDPRESS_CONFIG_EXTRA wins,
+    # keeping the password out of the WP database. The constant
+    # itself is set from the WPMS_SMTP_PASS env var (auto-healed
+    # via env_managed_keys from vault_smtp_password).
+    - name: "WordPress plugins: resolve SMTP facts from inventory"
+      ansible.builtin.set_fact:
+        _wp_smtp_resend_sender: "{{ lookup('dotenv', 'RESEND_SENDER_EMAIL', default='') }}"
+        _wp_smtp_brevo_sender: "{{ lookup('dotenv', 'BREVO_SENDER_EMAIL', default='') }}"
+        _wp_smtp_raw_host: "{{ lookup('dotenv', 'SMTP_HOST', default='') }}"
+      when: _wp_installed.rc == 0
+
+    - name: "WordPress plugins: derive consolidated SMTP config"
+      ansible.builtin.set_fact:
+        _wp_smtp_enabled: >-
+          {{
+            (_wp_smtp_resend_sender | length > 0)
+            or (_wp_smtp_brevo_sender | length > 0)
+            or (_wp_smtp_raw_host | length > 0)
+          }}
+        _wp_smtp_host: >-
+          {{
+            'smtp.resend.com' if (_wp_smtp_resend_sender | length > 0)
+            else ('smtp-relay.brevo.com' if (_wp_smtp_brevo_sender | length > 0)
+            else _wp_smtp_raw_host)
+          }}
+        _wp_smtp_port: >-
+          {{
+            587 if ((_wp_smtp_resend_sender | length > 0) or (_wp_smtp_brevo_sender | length > 0))
+            else (lookup('dotenv', 'SMTP_PORT', default='587') | int)
+          }}
+        _wp_smtp_user: >-
+          {{
+            'resend' if (_wp_smtp_resend_sender | length > 0)
+            else (lookup('dotenv', 'BREVO_SMTP_USER', default='') if (_wp_smtp_brevo_sender | length > 0)
+            else lookup('dotenv', 'SMTP_USER', default=''))
+          }}
+        _wp_smtp_from: >-
+          {{
+            _wp_smtp_resend_sender if (_wp_smtp_resend_sender | length > 0)
+            else (_wp_smtp_brevo_sender if (_wp_smtp_brevo_sender | length > 0)
+            else lookup('dotenv', 'SMTP_FROM', default=''))
+          }}
+      when: _wp_installed.rc == 0
+
+    - name: "WordPress plugins: skip wp-mail-smtp wiring (no SMTP configured)"
+      ansible.builtin.debug:
+        msg: >-
+          wp-mail-smtp installed but unwired -- no SMTP provider in
+          inventory (.env). Operator can either populate
+          RESEND_SENDER_EMAIL / BREVO_SENDER_EMAIL / SMTP_HOST in
+          inventory and re-run, or fill in Settings > WP Mail SMTP
+          inside the WordPress admin manually.
+      when:
+        - _wp_installed.rc == 0
+        - not (_wp_smtp_enabled | bool)
+
+    - name: "WordPress plugins: declare wp-mail-smtp desired option"
+      ansible.builtin.set_fact:
+        _wp_mail_smtp_desired:
+          mail:
+            from_email: "{{ _wp_smtp_from }}"
+            from_email_force: true
+            from_name: "{{ _wp_smtp_from }}"
+            from_name_force: false
+            mailer: smtp
+            return_path: false
+          smtp:
+            host: "{{ _wp_smtp_host }}"
+            port: "{{ _wp_smtp_port | int }}"
+            encryption: tls
+            autotls: true
+            auth: true
+            user: "{{ _wp_smtp_user }}"
+      when:
+        - _wp_installed.rc == 0
+        - _wp_smtp_enabled | bool
+
+    - name: "WordPress plugins: get current wp_mail_smtp option (defaults to {} if missing)"
+      ansible.builtin.shell: |
+        set -o pipefail
+        docker exec --user 82 {{ _wp_ct.stdout | quote }} wp option get wp_mail_smtp --format=json 2>/dev/null || echo '{}'
+      args:
+        executable: /bin/bash
+      register: _wp_mail_smtp_current
+      changed_when: false
+      when:
+        - _wp_installed.rc == 0
+        - _wp_smtp_enabled | bool
+
+    - name: "WordPress plugins: combine current + desired wp_mail_smtp option"
+      ansible.builtin.set_fact:
+        _wp_mail_smtp_merged: >-
+          {{ (_parsed if _parsed is mapping else {}) | combine(_wp_mail_smtp_desired, recursive=True) }}
+      vars:
+        _parsed: "{{ _wp_mail_smtp_current.stdout | from_json }}"
+      when:
+        - _wp_installed.rc == 0
+        - _wp_smtp_enabled | bool
+
+    - name: "WordPress plugins: update wp_mail_smtp option (only on diff)"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - --user
+          - "82"
+          - "{{ _wp_ct.stdout }}"
+          - wp
+          - option
+          - update
+          - wp_mail_smtp
+          - "{{ _wp_mail_smtp_merged | to_json }}"
+          - --format=json
+      changed_when: true
+      when:
+        - _wp_installed.rc == 0
+        - _wp_smtp_enabled | bool
+        - _wp_mail_smtp_merged != (_parsed if _parsed is mapping else {})
+      vars:
+        _parsed: "{{ _wp_mail_smtp_current.stdout | from_json }}"
+      no_log: true # option contents are non-secret but option-update logs the JSON; keep terse

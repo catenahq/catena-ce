@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Regenerate Gatus 50-dokploy-apps.yaml from Dokploy API
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile={{ gatus_sync_env_path }}
+ExecStart={{ gatus_sync_script_path }}
+StandardOutput=journal
+StandardError=journal

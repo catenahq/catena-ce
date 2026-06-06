@@ -1,0 +1,19 @@
+---
+# Nextcloud antivirus (files_antivirus -> shared clamd). Same lifecycle
+# split as nextcloud_oidc.yml / nextcloud_office.yml: converge installs
+# the host wire script; the catena-admin Actions-tab button
+# ("Wire Nextcloud Antivirus") runs the in-container occ wiring on
+# demand. Per project policy, converge does NOT do per-template
+# in-container config -- it cannot assume a converge runs after every
+# Dokploy template deploy.
+#
+# The shared clamd is deployed by clamav.yml and reachable as
+# clamav:3310 on the {{ clamav_network }} network, which the Nextcloud
+# app + cron services join (see nextcloud-s3.compose.yml).
+- name: "Nextcloud antivirus: install host script (/usr/local/bin/catena-wire-nextcloud-antivirus)"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../vps-scripts/wire-nextcloud-antivirus.sh"
+    dest: /usr/local/bin/catena-wire-nextcloud-antivirus
+    owner: root
+    group: root
+    mode: "0755"

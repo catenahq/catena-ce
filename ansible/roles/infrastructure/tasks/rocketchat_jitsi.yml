@@ -1,0 +1,53 @@
+---
+# Rocket.Chat + bundled Jitsi post-deploy wiring. Mirrors
+# nextcloud_talk_hpb.yml.
+#
+# Two layers:
+#
+#   1. CONVERGE (this file). Install the wire script + open ufw for
+#      JVB media (10000/udp) when the Jitsi block in the live RC
+#      compose is detected. Render meet.<base> A record (via
+#      cloudflared wildcard CNAME, so no extra DNS task is needed --
+#      meet.<base> resolves through the existing wildcard CNAME).
+#
+#   2. POST-DEPLOY (OliveTin button "Wire Rocket.Chat Jitsi"). The
+#      RC REST API calls (POST /api/v1/settings/Jitsi_*) inside the
+#      running Rocket.Chat container, run on demand by the operator
+#      after a Dokploy deploy. Backed by
+#      /usr/local/bin/catena-wire-rocketchat-jitsi (installed below
+#      from vps-scripts/rocketchat-jitsi-wire.sh).
+#
+# meet.<base> intentionally rides the wildcard CNAME -- the Jitsi web
+# UI is HTTP only and goes through cloudflared like every other web
+# app. JVB's UDP media is the part that bypasses the tunnel; that one
+# binds directly via mode: host on 10000/udp.
+
+- name: "RC Jitsi: install host script"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../vps-scripts/rocketchat-jitsi-wire.sh"
+    dest: /usr/local/bin/catena-wire-rocketchat-jitsi
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "RC Jitsi: probe whether Rocket.Chat is deployed"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - ls
+      - --filter
+      - name=rocketchat
+      - --format
+      - "{{ '{{' }}.Name{{ '}}' }}"
+  register: _rc_jitsi_svc
+  changed_when: false
+  failed_when: false
+
+- name: "RC Jitsi: open JVB media UDP (10000) when RC is deployed"
+  community.general.ufw:
+    rule: allow
+    port: "{{ rocketchat_jitsi_jvb_media_port }}"
+    proto: udp
+    comment: "Rocket.Chat Jitsi JVB media"
+  when: _rc_jitsi_svc.stdout | trim | length > 0

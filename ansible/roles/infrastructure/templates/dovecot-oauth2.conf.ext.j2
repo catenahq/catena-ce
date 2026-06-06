@@ -1,0 +1,22 @@
+{{ ansible_managed | comment }}
+# docker-mailserver Dovecot OAuth2 / XOAUTH2 config, dropped into the dms
+# config volume by roles/infrastructure/tasks/mailserver_oidc.yml.
+#
+# Why this file exists (and is not just ENABLE_OAUTH2 env): RFC 7662
+# requires the CALLER of the introspection endpoint to authenticate.
+# Keycloak rejects an unauthenticated /token/introspect. DMS has no env
+# var for introspection credentials, so we embed the `mailserver-introspect`
+# client_id:secret as basic-auth userinfo in the introspection URL -- the
+# Dovecot oauth2 plugin sends it as HTTP Basic on the introspection POST.
+#
+# Token -> user mapping: Keycloak's introspection response carries the
+# user's email; Dovecot keys the mailbox on it. Roundcube and the mailbox
+# local-part must therefore agree on the address.
+
+introspection_url = https://mailserver-introspect:{{ vault_mailserver_introspect_client_secret }}@{{ keycloak_hostname | default('auth.' ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default('vps') }}/protocol/openid-connect/token/introspect
+introspection_mode = post
+force_introspection = yes
+active_attribute = active
+active_value = true
+username_attribute = email
+tls_ca_cert_file = /etc/ssl/certs/ca-certificates.crt

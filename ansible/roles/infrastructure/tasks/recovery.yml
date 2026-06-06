@@ -1,0 +1,83 @@
+---
+# Deploy the recovery-downloads nginx sidecar as a Dokploy-managed
+# compose app -> recovery.<zone>.
+#
+# Purpose: SSO-gated file server exposing /var/backups/catena-
+# export/ read-only so client admin can retrieve recovery
+# bundles (.yml.gpg from the "Export recovery secrets" button, .tar.gz
+# from the "Export latest snapshot" button) without needing tailnet
+# access.
+#
+# Auth: forward-auth via the shared SSO middleware (same as every other
+# *.<zone> admin surface). Group enforcement (`admin` only) is
+# applied by oauth2-proxy `--allowed-group=/admin` (Keycloak
+# Phase Two + oauth2_proxy roles, live since 2026-04-27).
+
+# Bind-mount source seed. roles/infrastructure runs BEFORE roles/backup
+# in site.yml, so on a fresh install the backup-export dir doesn't exist
+# yet when the recovery container starts. Docker would auto-create the
+# source as root:root 0755 and then roles/backup would flip it to 0750
+# on its next pass -- harmless but flappy and noisy on converge diffs.
+# Seed it here with the SAME attributes roles/backup uses so there's no
+# ownership/mode drift between roles. Matches the bind-mount-seeding
+# pattern already used by roles/infrastructure/tasks/homepage.yml.
+- name: "recovery: seed backup-export dir ({{ recovery_source_dir }})"
+  ansible.builtin.file:
+    path: "{{ recovery_source_dir }}"
+    state: directory
+    owner: root
+    # group=1000 so catena-admin container (UID/GID 1000 in Dockerfile)
+    # can list artifacts for the /recovery tab. Must match roles/backup
+    # and roles/infrastructure/tasks/recovery_archive.yml.
+    group: "1000"
+    mode: "0750"
+
+- name: "recovery: config dir on host ({{ recovery_host_config_dir }})"
+  ansible.builtin.file:
+    path: "{{ recovery_host_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "recovery: render nginx.conf (root worker + autoindex + no-cache)"
+  ansible.builtin.template:
+    src: recovery-nginx.conf.j2
+    dest: "{{ recovery_host_config_dir }}/nginx.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  register: _recovery_nginx_config
+
+# Forward-auth route reintroduced in plan step 4 (roles/oauth2_proxy)
+# as recovery-oauth2-proxy.yml.
+
+- name: "recovery: deploy via Dokploy API"
+  ansible.builtin.include_tasks: dokploy_compose.yml
+  vars:
+    svc_name: "{{ recovery_compose_name }}"
+    svc_compose_content: "{{ lookup('template', 'recovery.compose.yml.j2') }}"
+    svc_env: []
+    svc_domain_host: "{{ infrastructure_recovery_hostname }}"
+    svc_domain_service: "app"
+    svc_domain_port: "{{ recovery_internal_port }}"
+    # Readiness verified by the aggregate post-role probe in main.yml.
+    svc_readiness_skip_reason: >-
+      Verified by the aggregate post-role probe in main.yml.
+
+# nginx only reloads on SIGHUP, not on bind-mount file change. If the
+# site config changed, force a container restart so the new autoindex
+# / header rules take effect on the next request (idempotent no-op
+# when _recovery_nginx_config is unchanged).
+- name: "recovery: restart container to pick up nginx config changes"
+  ansible.builtin.shell: |
+    set -o pipefail
+    name=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
+      | grep -E '{{ recovery_compose_name | dokploy_container_regex("app") }}' || true)
+    if [ -n "$name" ]; then
+      docker restart "$name"
+    fi
+  args:
+    executable: /bin/bash
+  when: _recovery_nginx_config is changed
+  changed_when: true
