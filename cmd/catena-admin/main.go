@@ -18,8 +18,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/catenahq/catena-ce/internal/license"
-	"github.com/catenahq/catena-ce/internal/plugin"
+	"github.com/catenahq/catena-ce/internal/registry"
+	"github.com/catenahq/catena-ce/license"
 )
 
 var errInvalidPubkey = errors.New("license: CATENA_LICENSE_PUBKEY is not a valid base64 ed25519 public key")
@@ -32,7 +32,7 @@ const graceWindow = 72 * time.Hour
 func main() {
 	addr := envOr("CATENA_ADMIN_ADDR", ":8080")
 
-	reg := plugin.NewRegistry()
+	reg := registry.New()
 	// CE plugins self-register here as they are ported. EE plugins, when
 	// present, register from the license-gated binaries loaded at runtime.
 

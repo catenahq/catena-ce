@@ -1,22 +1,27 @@
-package plugin
+package registry
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"testing"
 	"time"
 
-	"github.com/catenahq/catena-ce/internal/license"
+	"github.com/catenahq/catena-ce/license"
+	"github.com/catenahq/catena-ce/plugin"
 )
 
+// stubPlugin structurally satisfies plugin.Plugin (the registry stores
+// plugin.Plugin; any type with these methods registers fine).
 type stubPlugin struct {
 	id      string
 	edition license.Edition
 }
 
-func (s stubPlugin) ID() string               { return s.id }
-func (s stubPlugin) Title() string            { return s.id }
-func (s stubPlugin) Edition() license.Edition { return s.edition }
+func (s stubPlugin) ID() string                             { return s.id }
+func (s stubPlugin) Title() string                          { return s.id }
+func (s stubPlugin) Edition() license.Edition               { return s.edition }
+func (s stubPlugin) Render(context.Context) (string, error) { return s.id, nil }
 
 func activeBusinessLicense(t *testing.T, now time.Time) *license.License {
 	t.Helper()
@@ -40,7 +45,7 @@ func activeBusinessLicense(t *testing.T, now time.Time) *license.License {
 	return lic
 }
 
-func ids(ps []Plugin) []string {
+func ids(ps []plugin.Plugin) []string {
 	out := make([]string, len(ps))
 	for i, p := range ps {
 		out[i] = p.ID()
@@ -49,7 +54,7 @@ func ids(ps []Plugin) []string {
 }
 
 func newTestRegistry() *Registry {
-	r := NewRegistry()
+	r := New()
 	r.Register(stubPlugin{id: "actions", edition: license.Community})
 	r.Register(stubPlugin{id: "audit", edition: license.Business})
 	r.Register(stubPlugin{id: "access", edition: license.Business})
@@ -68,8 +73,7 @@ func TestEnabledIncludesEEWithActiveLicense(t *testing.T) {
 	now := time.Now()
 	r := newTestRegistry()
 	got := ids(r.Enabled(activeBusinessLicense(t, now), now, time.Hour))
-	// Sorted by ID: access, actions, audit.
-	want := []string{"access", "actions", "audit"}
+	want := []string{"access", "actions", "audit"} // sorted by ID
 	if len(got) != len(want) {
 		t.Fatalf("active license should enable all plugins, got %v", got)
 	}
@@ -81,10 +85,9 @@ func TestEnabledIncludesEEWithActiveLicense(t *testing.T) {
 }
 
 func TestRegisterIsIdempotentLastWins(t *testing.T) {
-	r := NewRegistry()
+	r := New()
 	r.Register(stubPlugin{id: "audit", edition: license.Community})
 	r.Register(stubPlugin{id: "audit", edition: license.Business})
-	// Now EE: should be hidden without a license.
 	if got := ids(r.Enabled(nil, time.Now(), 0)); len(got) != 0 {
 		t.Fatalf("re-registered EE plugin should be gated, got %v", got)
 	}

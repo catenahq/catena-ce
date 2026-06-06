@@ -22,13 +22,15 @@ The public, fair-code base of Catena. Sibling repo under the workspace at
 
 - Module: `github.com/catenahq/catena-ce`. Go 1.26+.
 - `go build ./... && go vet ./... && go test ./...` must stay green.
-- `internal/license` is the single definition of the license-token wire
-  format (ed25519, offline verify, grace window). The license endpoint in
-  catena-enterprise mints tokens with the matching private key -- keep
-  `Sign`/`Verify` in lockstep if the format changes.
-- `internal/plugin` is the CE/EE seam. Community plugins always enabled;
-  Business plugins enabled only while a license is `Active`. The shell
-  only ever sees the `Plugin` interface.
+- `license` (public package) is the single definition of the license-token
+  wire format (ed25519, offline verify, grace window). It is public so
+  catena-ee can import it: the license endpoint there mints tokens with the
+  matching private key via `Sign`, and EE plugins reference `license.Edition`.
+  Keep `Sign`/`Verify` in lockstep if the format changes.
+- `plugin` (public SDK) is the CE/EE contract enterprise plugins implement;
+  it is outside `internal/` on purpose so the catena-ee module can import
+  it. `internal/registry` is the host-side store that gates Business
+  plugins on an active license. The shell only ever sees `plugin.Plugin`.
 - The shell must run Community-only when no/invalid license is present; it
   never fails closed on a missing key.
 
