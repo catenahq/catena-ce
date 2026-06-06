@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/catenahq/catena-ce/internal/admin/actions"
 	"github.com/catenahq/catena-ce/internal/admin/apps"
 	"github.com/catenahq/catena-ce/internal/admin/i18n"
 	"github.com/catenahq/catena-ce/internal/admin/integrations"
@@ -41,6 +42,8 @@ type Config struct {
 	StatsDir string
 	// ExtraTilesPath overrides the operator extra-tiles.yml location.
 	ExtraTilesPath string
+	// ActionsFile overrides the host action catalog (admin-actions.yml).
+	ActionsFile string
 }
 
 // New builds the shell HTTP handler: static mount, public routes, and the
@@ -66,6 +69,7 @@ func New(cfg Config) (http.Handler, error) {
 		dokploy:        cfg.Dokploy,
 		statsDir:       cfg.StatsDir,
 		extraTilesPath: cfg.ExtraTilesPath,
+		actionsFile:    cfg.ActionsFile,
 	}
 
 	mux := http.NewServeMux()
@@ -78,6 +82,7 @@ func New(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("GET /{$}", s.rootRedirect)
 	mux.HandleFunc("GET /apps", s.apps)
 	mux.HandleFunc("GET /system", RequireAdmin(s.systemIndex))
+	mux.HandleFunc("GET /actions", RequireAdmin(s.actionsIndex))
 	mux.HandleFunc("GET /_/lang/{lang}", s.setLocale)
 	mux.HandleFunc("GET /_/theme/{name}", s.setTheme)
 
@@ -105,6 +110,32 @@ type server struct {
 	dokploy        apps.DokployLister
 	statsDir       string
 	extraTilesPath string
+	actionsFile    string
+}
+
+// actionsView is the Actions-tab render data: the catalog grouped into the
+// fixed category order, plus whether any category has actions (else the
+// empty-state renders).
+type actionsView struct {
+	Groups []actions.CategoryGroup
+	HasAny bool
+}
+
+// actionsIndex renders the admin-only Actions tab: the static CE catalog
+// merged with EE plugin-contributed actions (empty until the plugin SDK gains
+// Actions() in M2.5), grouped by category. Recovery-category actions are
+// excluded (they render on the Recovery tab).
+func (s *server) actionsIndex(w http.ResponseWriter, r *http.Request) {
+	catalog := actions.MergedCatalog(actions.Load(s.actionsFile), nil)
+	groups := actions.GroupByCategory(actions.ForActionsTab(catalog))
+	hasAny := false
+	for _, g := range groups {
+		if len(g.Actions) > 0 {
+			hasAny = true
+			break
+		}
+	}
+	s.tmpl.Render(w, r, "actions", http.StatusOK, actionsView{Groups: groups, HasAny: hasAny})
 }
 
 // systemIndex renders the admin-only System tab: the backup/disk/Healthchecks

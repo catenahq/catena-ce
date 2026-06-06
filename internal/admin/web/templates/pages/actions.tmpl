@@ -1,0 +1,55 @@
+{{define "content"}}
+<section class="actions-page">
+  <p class="muted hint">{{ .T "actions.hint" }}</p>
+
+  {{ if not .Data.HasAny }}
+    <div class="empty-state">
+      <p>{{ .T "actions.empty" }}</p>
+    </div>
+  {{ else }}
+    {{ range $group := .Data.Groups }}
+      {{ if $group.Actions }}
+        <section class="action-category" data-category="{{ $group.Slug }}">
+          <h2>{{ $.T (printf "actions.category.%s" $group.Slug) }}</h2>
+          <ul class="action-grid" role="list">
+            {{ range $action := $group.Actions }}
+              <li class="action-card" data-action="{{ $action.Name }}">
+                <div class="action-header">
+                  <span class="action-icon" aria-hidden="true">{{ $action.Icon }}</span>
+                  <span class="action-title">{{ $action.LocalizedTitle $.Locale }}</span>
+                  <span class="action-name muted">{{ $action.Name }}</span>
+                </div>
+                <form
+                  class="action-form"
+                  method="post"
+                  action="/actions/start/{{ $action.Name }}"
+                  hx-post="/actions/start/{{ $action.Name }}"
+                  hx-target="#out-{{ $action.Name }}"
+                  hx-swap="innerHTML"
+                >
+                  {{ if $action.Arguments }}
+                    {{ range $arg := $action.Arguments }}
+                      <label class="action-arg">
+                        <span>{{ $arg.Name }}</span>
+                        <input
+                          type="{{ if eq $arg.Type "password" }}password{{ else }}text{{ end }}"
+                          name="payload"
+                          autocomplete="off"
+                        >
+                      </label>
+                    {{ end }}
+                  {{ else }}
+                    <input type="hidden" name="payload" value="">
+                  {{ end }}
+                  <button type="submit" class="btn-run">{{ $.T "actions.run" }}</button>
+                </form>
+                <div id="out-{{ $action.Name }}" class="action-output" aria-live="polite"></div>
+              </li>
+            {{ end }}
+          </ul>
+        </section>
+      {{ end }}
+    {{ end }}
+  {{ end }}
+</section>
+{{end}}

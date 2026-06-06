@@ -110,6 +110,33 @@ func TestNavGatedByAdmin(t *testing.T) {
 	}
 }
 
+func TestActionsRequiresAdminAndRenders(t *testing.T) {
+	h := newTestHandler(t)
+
+	// Non-admin -> 403.
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/actions", nil)
+	req.Header.Set("X-Forwarded-Email", "staff@example.com")
+	req.Header.Set("X-Forwarded-Groups", "staff")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("non-admin /actions = %d, want 403", rr.Code)
+	}
+
+	// Admin -> 200, empty-state (no catalog file configured in the test).
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest("GET", "/actions", nil)
+	req.Header.Set("X-Forwarded-Email", "op@example.com")
+	req.Header.Set("X-Forwarded-Groups", "admin")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("admin /actions = %d, want 200", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "actions-page") {
+		t.Error("expected the Actions page to render")
+	}
+}
+
 func TestSetLocaleCookieAndRedirect(t *testing.T) {
 	h := newTestHandler(t)
 	rr := httptest.NewRecorder()
