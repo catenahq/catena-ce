@@ -1,0 +1,90 @@
+# catena-admin (Community Go shell) -- Dokploy compose.
+#
+# Single source of truth for deploying the admin shell. Two consumers:
+#   - Operator (production): Dokploy git-source flow points at this file;
+#     `build:` builds the repo-root Dockerfile on the Dokploy host.
+#   - Test bench: builds the image on the VPS and rewrites `build:` -> the
+#     pre-built `image:` (raw sourceType); it reads THIS file so there is no
+#     second copy to keep in sync.
+#
+# Per-host values arrive via Dokploy's ${VAR} env substitution at deploy
+# time (the env block the operator role / bench supplies); this file stays
+# static so both consumers share it verbatim.
+#
+# The roles/catena-admin Ansible role creates the host-side bind targets
+# (/etc/catena/admin-ssh, /etc/catena/admin-actions.yml, /etc/catena/
+# extra-tiles.yml, /var/lib/catena stats, /var/backups/catena-export) before
+# the container boots. EE plugin binaries are NOT baked in -- they are pulled
+# at runtime into the writable admin-plugins volume only under an active
+# Business license, then exec'd as go-plugin children.
+
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      # Listen on :8000 to match the oauth2-proxy slug + the dash.<zone>
+      # domain port (the image default is :8080).
+      CATENA_ADMIN_ADDR: ":8000"
+      CATENA_DEFAULT_LANG: ${CATENA_DEFAULT_LANG:-en}
+      CATENA_DEFAULT_THEME: ${CATENA_DEFAULT_THEME:-system}
+      CATENA_CLIENTS_TAB_ENABLED: ${CATENA_CLIENTS_TAB_ENABLED:-}
+      # License: empty in Community. A Business activation sets the signed
+      # token + the operator public key + the endpoint; the shell then pulls
+      # the license-gated EE plugin binaries into admin-plugins and enables
+      # the EE tabs/actions. A lapse past grace disables them again.
+      CATENA_LICENSE: ${CATENA_LICENSE:-}
+      CATENA_LICENSE_PUBKEY: ${CATENA_LICENSE_PUBKEY:-}
+      CATENA_LICENSE_ENDPOINT: ${CATENA_LICENSE_ENDPOINT:-}
+      DOKPLOY_API_BASE: ${DOKPLOY_API_BASE}
+      DOKPLOY_API_KEY: ${DOKPLOY_API_KEY}
+      KEYCLOAK_HOSTNAME: ${KEYCLOAK_HOSTNAME:-}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-vps}
+      INFRA_MONITOR_HOSTNAME: ${INFRA_MONITOR_HOSTNAME:-}
+      INFRA_HEARTBEAT_HOSTNAME: ${INFRA_HEARTBEAT_HOSTNAME:-}
+      INFRA_BESZEL_HOSTNAME: ${INFRA_BESZEL_HOSTNAME:-}
+      CATENA_ADMIN_RECOVERY_URL: ${CATENA_ADMIN_RECOVERY_URL:-}
+      GATUS_COMPOSE_NAME: ${GATUS_COMPOSE_NAME:-gatus}
+      GATUS_INTERNAL_PORT: ${GATUS_INTERNAL_PORT:-8080}
+      HEALTHCHECKS_COMPOSE_NAME: ${HEALTHCHECKS_COMPOSE_NAME:-healthchecks}
+      HEALTHCHECKS_INTERNAL_PORT: ${HEALTHCHECKS_INTERNAL_PORT:-8000}
+      HEALTHCHECKS_API_KEY_READONLY: ${HEALTHCHECKS_API_KEY_READONLY:-}
+      # Host-dispatch SSH: the shell SSHes into the forced-command runner
+      # account to execute Actions/Recovery on the host.
+      ADMIN_SSH_HOST: ${ADMIN_SSH_HOST:-host.docker.internal}
+      ADMIN_SSH_USER: ${ADMIN_SSH_USER:-catena-admin-runner}
+      ADMIN_SSH_KEY_PATH: /etc/catena/admin-ssh/id_ed25519
+    volumes:
+      # Writable: the license-gated pull lands EE plugin binaries here, and
+      # the shell exec's them. The nested ro /var/lib/catena mount below
+      # provides host stats; this volume shadows the plugins subpath rw.
+      - admin-plugins:/var/lib/catena/plugins
+      - /etc/catena/admin-ssh:/etc/catena/admin-ssh:ro
+      - /var/backups/catena-export:/var/backups/catena-export:ro
+      - /var/lib/catena:/var/lib/catena:ro
+      - /etc/catena/admin-actions.yml:/etc/catena/admin-actions.yml:ro
+      - /etc/catena/extra-tiles.yml:/etc/catena/extra-tiles.yml:ro
+    labels:
+      - "vps.auth.mode=private"
+      - "vps.auth.groups=staff,admin"
+      - "vps.auto-update=patch"
+      - "vps.homepage.name=Catena Admin"
+      - "vps.homepage.icon=mdi-shield-account"
+      - "vps.homepage.description=Operator panel: apps, system, actions, recovery"
+    # host.docker.internal -> host-gateway so the SSH dispatch resolves the
+    # host from inside the container.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      dokploy-network:
+        aliases:
+          - catena-admin
+
+volumes:
+  admin-plugins:
+
+networks:
+  dokploy-network:
+    external: true

@@ -23,9 +23,15 @@ find on the host before it boots.
 - Generates an ed25519 keypair under `/etc/catena/admin-ssh/`
   (chowned for the container's uid 1000) and seeds known_hosts via
   ssh-keyscan.
-- Creates the bind-mount targets the admin compose expects:
-  `/var/lib/catena/` (read-only stats; populated by run-backup.sh +
-  gatus-sync) and `/var/lib/catena-admin/` (the container's state dir).
+- Creates the bind-mount targets the admin compose
+  ([deploy/catena-admin/dokploy.compose.yml](../../../deploy/catena-admin/dokploy.compose.yml))
+  expects: `/etc/catena/admin-ssh/`, `/etc/catena/admin-actions.yml`,
+  `/etc/catena/extra-tiles.yml`, `/var/lib/catena/` (read-only stats;
+  populated by run-backup.sh + gatus-sync), and
+  `/var/backups/catena-export/` (recovery artifacts, read-only). The
+  shell's writable state is the `admin-plugins` named volume at
+  `/var/lib/catena/plugins`, where the license-gated pull lands EE plugin
+  binaries; Community runs with it empty.
 - Renders `/etc/catena/extra-tiles.yml` from inventory
   `catena_admin_extra_tiles` (operator escape hatch for hand-authored
   Apps-tab tiles).
@@ -33,7 +39,10 @@ find on the host before it boots.
 ## What this role does NOT do
 
 - It does **not** push the catena-admin compose via the Dokploy API.
-  The container is deployed through Dokploy's git-source flow.
+  The container is deployed through Dokploy's git-source flow pointed at
+  [deploy/catena-admin/dokploy.compose.yml](../../../deploy/catena-admin/dokploy.compose.yml)
+  (which builds the repo-root Dockerfile). The test bench reuses that same
+  compose, building the image on the VPS instead of via git-source.
 - It does **not** create a Keycloak realm client. The admin sits
   behind the shared `oauth2-proxy` realm client and the staff/admin
   oauth2-proxy slug.
