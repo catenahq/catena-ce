@@ -1,0 +1,10 @@
+# Keep the build context lean: the admin-shell image only needs the Go
+# module. Ansible, docs, and VCS metadata are not part of the build.
+.git
+.github
+ansible
+README.md
+CLAUDE.md
+LICENSE.md
+renovate.json
+**/*_test.go
