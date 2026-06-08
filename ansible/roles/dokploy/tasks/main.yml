@@ -178,6 +178,12 @@
     mode: "0755"
   when: _dokploy_needs_install | bool
 
+# First fetch of an arbitrary external hostname after the tailscale join.
+# tailscaled rewrites /etc/resolv.conf (MagicDNS) at join time, leaving a
+# brief window where external resolution returns EAI_AGAIN ("Temporary
+# failure in name resolution"). A single attempt fails the whole install on
+# that blip; retry through it (the upstream URL is static, so retries are
+# safe + idempotent).
 - name: "Dokploy install: fetch installer to disk (run the bytes we scan)"
   ansible.builtin.get_url:
     url: "{{ dokploy_install_url }}"
@@ -185,6 +191,10 @@
     owner: root
     group: root
     mode: "0755"
+  register: _dokploy_installer_fetch
+  retries: 5
+  delay: 10
+  until: _dokploy_installer_fetch is succeeded
   when: _dokploy_needs_install | bool
 
 - name: "Dokploy install: ship bootstrap-image extractor"
