@@ -111,3 +111,84 @@ def test_bootstrap_extra_vars_noop_without_install_yaml(cli):
     extra, tmp = cli._bootstrap_extra_vars(None)
     assert extra == []
     assert tmp is None
+
+
+def _seed_hosts_yml(inv_dir: Path, ansible_host: str) -> None:
+    import yaml
+
+    inv_dir.mkdir(parents=True, exist_ok=True)
+    (inv_dir / "hosts.yml").write_text(
+        yaml.safe_dump(
+            {"all": {"children": {"vps": {"hosts": {
+                "host1": {"ansible_host": ansible_host, "ansible_user": "ops"},
+            }}}}},
+            sort_keys=False,
+        )
+    )
+
+
+def test_host_tailnet_ip_reads_vps_host(cli, tmp_path, monkeypatch):
+    inv = tmp_path / "inventory" / "prod"
+    _seed_hosts_yml(inv, "100.77.16.46")
+    monkeypatch.setattr(cli, "inventory_path", lambda name: tmp_path / "inventory" / name)
+    assert cli._host_tailnet_ip("prod") == "100.77.16.46"
+
+
+def test_host_tailnet_ip_skips_placeholder(cli, tmp_path, monkeypatch):
+    inv = tmp_path / "inventory" / "prod"
+    _seed_hosts_yml(inv, "0.0.0.0")
+    monkeypatch.setattr(cli, "inventory_path", lambda name: tmp_path / "inventory" / name)
+    assert cli._host_tailnet_ip("prod") == ""
+
+
+def test_host_tailnet_ip_missing_file(cli, tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "inventory_path", lambda name: tmp_path / "inventory" / name)
+    assert cli._host_tailnet_ip("prod") == ""
+
+
+def test_ensure_dokploy_api_key_skips_when_present(cli, tmp_path, monkeypatch):
+    from helpers import sops_vault
+
+    inv = tmp_path / "inventory" / "prod"
+    (inv / "group_vars" / "all").mkdir(parents=True)
+    (inv / "group_vars" / "all" / "vault.sops.yml").write_text("encrypted")
+    monkeypatch.setattr(cli, "inventory_path", lambda name: tmp_path / "inventory" / name)
+    monkeypatch.setattr(sops_vault, "read_value", lambda *a, **k: "a-real-dokploy-api-key")
+    # No second pass needed; must NOT shell out to the bootstrap helper.
+    called = []
+    monkeypatch.setattr(cli, "_run", lambda cmd: called.append(cmd))
+    assert cli._ensure_dokploy_api_key("prod") is False
+    assert called == []
+
+
+def test_ensure_dokploy_api_key_mints_when_absent(cli, tmp_path, monkeypatch):
+    from helpers import sops_vault
+
+    inv = tmp_path / "inventory" / "prod"
+    (inv / "group_vars" / "all").mkdir(parents=True)
+    (inv / "group_vars" / "all" / "vault.sops.yml").write_text("encrypted")
+    _seed_hosts_yml(inv, "100.77.16.46")
+    monkeypatch.setattr(cli, "inventory_path", lambda name: tmp_path / "inventory" / name)
+    monkeypatch.setattr(sops_vault, "read_value", lambda *a, **k: "")
+    called = []
+    monkeypatch.setattr(cli, "_run", lambda cmd: called.append(cmd))
+    assert cli._ensure_dokploy_api_key("prod") is True
+    assert len(called) == 1
+    cmd = called[0]
+    assert cmd[1].endswith("helpers/bootstrap_dokploy_admin.py")
+    assert "--tailnet-ip" in cmd
+    assert cmd[cmd.index("--tailnet-ip") + 1] == "100.77.16.46"
+    assert cmd[cmd.index("--vault") + 1].endswith("vault.sops.yml")
+
+
+def test_ensure_dokploy_api_key_dies_without_tailnet_ip(cli, tmp_path, monkeypatch):
+    from helpers import sops_vault
+
+    inv = tmp_path / "inventory" / "prod"
+    (inv / "group_vars" / "all").mkdir(parents=True)
+    (inv / "group_vars" / "all" / "vault.sops.yml").write_text("encrypted")
+    _seed_hosts_yml(inv, "0.0.0.0")  # placeholder -> no usable tailnet IP
+    monkeypatch.setattr(cli, "inventory_path", lambda name: tmp_path / "inventory" / name)
+    monkeypatch.setattr(sops_vault, "read_value", lambda *a, **k: "")
+    with pytest.raises(SystemExit):
+        cli._ensure_dokploy_api_key("prod")

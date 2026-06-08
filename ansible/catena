@@ -139,6 +139,66 @@ def _run(cmd: list[str]) -> None:
             code=result.returncode)
 
 
+def _host_tailnet_ip(inventory: str) -> str:
+    """Return the vps host's tailnet ansible_host from the inventory hosts.yml
+    (folded in from .bootstrap-output.yml after the bootstrap stage by
+    bootstrap_output.apply_to_inventory). Returns "" when absent or still the
+    0.0.0.0 placeholder."""
+    import yaml
+
+    hosts_yml = inventory_path(inventory) / "hosts.yml"
+    if not hosts_yml.is_file():
+        return ""
+    data = yaml.safe_load(hosts_yml.read_text()) or {}
+    vps = (
+        ((data.get("all") or {}).get("children") or {})
+        .get("vps", {}).get("hosts") or {}
+    )
+    for entry in vps.values():
+        ip = (entry or {}).get("ansible_host", "")
+        if ip and ip != "0.0.0.0":
+            return ip
+    return ""
+
+
+def _ensure_dokploy_api_key(inventory: str) -> bool:
+    """Bridge between the two site passes a fresh install needs.
+
+    After site pass 1 Dokploy is up, but the auth stack (Keycloak compose,
+    oauth2-proxy per-app routes, the gated apps' Traefik chain) is all gated
+    behind vault_dokploy_api_key -- which does not exist until an admin
+    account is created and a key minted. helpers/bootstrap_dokploy_admin.py
+    does that over better-auth's public endpoints (signup -> signin -> mint)
+    and merges the key into the vault, so a SECOND site pass -- a fresh
+    ansible process that re-reads the now-updated vault (community.sops caches
+    decrypted vault contents per-process, so an in-place re-read would not see
+    it) -- deploys the auth stack.
+
+    Returns True when a key was minted (caller runs the second pass); False
+    when the vault already held one (a single pass already deployed
+    everything, e.g. a re-install over an existing inventory)."""
+    from helpers import sops_vault
+
+    inv = inventory_path(inventory)
+    vault = inv / "group_vars" / "all" / "vault.sops.yml"
+    if len(sops_vault.read_value(vault, "vault_dokploy_api_key")) > 10:
+        return False
+    tailnet_ip = _host_tailnet_ip(inventory)
+    if not tailnet_ip:
+        die("cannot mint the Dokploy API key: the host's tailnet IP is "
+            "unknown (hosts.yml still has the 0.0.0.0 placeholder -- did "
+            "bootstrap join the tailnet and emit .bootstrap-output.yml?).")
+    banner("Bootstrap Dokploy admin + API key (unlocks the auth stack)")
+    _run([
+        sys.executable,
+        str(ANSIBLE_DIR / "helpers" / "bootstrap_dokploy_admin.py"),
+        "--vault", str(vault),
+        "--env-file", str(inv / ".env"),
+        "--tailnet-ip", tailnet_ip,
+    ])
+    return True
+
+
 def ensure_collections() -> None:
     """Install the Galaxy collections (community.sops, community.general, ...)
     on first run if collections/ is absent."""
@@ -211,6 +271,12 @@ def cmd_install(args: argparse.Namespace) -> int:
                 for line in applied:
                     print(_c("1;32", f"  + bootstrap-output applied {line}"),
                           file=sys.stderr)
+            if stage == "site" and _ensure_dokploy_api_key(inventory):
+                # Pass 1 deployed Dokploy; the key now exists. Re-run site so
+                # the auth stack (Keycloak compose, oauth2-proxy routes, gated
+                # apps) deploys before validate asserts it.
+                banner("Stage: site (pass 2 -- auth stack)")
+                _run(playbook_cmd(inventory, "site"))
     finally:
         if bootstrap_vars_tmp is not None:
             bootstrap_vars_tmp.unlink(missing_ok=True)
