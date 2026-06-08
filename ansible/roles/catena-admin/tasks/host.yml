@@ -192,6 +192,23 @@
     group: root
     mode: "0755"
 
+# The admin compose mounts {{ catena_admin_stats_dir }} (/var/lib/catena)
+# READ-ONLY and then mounts the admin-plugins named volume NESTED at
+# /var/lib/catena/plugins. Docker can only create that nested mountpoint if
+# the subdir already exists on the host -- a read-only parent makes the
+# mkdirat fail ("read-only file system") and the container never starts, so
+# Dokploy settles the deploy at composeStatus=error. Pre-create the
+# mountpoint here. The named volume shadows it at runtime (its perms come
+# from the image's nonroot-owned /var/lib/catena/plugins), so this host dir
+# is purely the bind target.
+- name: "Plugins mountpoint for the admin container ({{ catena_admin_stats_dir }}/plugins)"
+  ansible.builtin.file:
+    path: "{{ catena_admin_stats_dir }}/plugins"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
 # Admin state volume (the container's persisted state lives here once
 # Dokploy mounts the named volume on first deploy; the host bind-mount
 # target is owned by uid 1000 so the container can write).
