@@ -1,0 +1,36 @@
+name: Socket (supply-chain, report-only)
+
+# Socket scans dependency manifests for MALICIOUS / risky packages
+# (install scripts, typosquats, behavioral risk) -- the supply-chain
+# axis that OSV/Trivy (known-CVE) miss, and the right backstop for
+# auto-merged Renovate PRs. Public repo. Report-only; gated on the
+# SOCKET_SECURITY_API_KEY secret (free tier). Installing the Socket
+# GitHub App is the preferred, zero-config alternative to this workflow.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '27 6 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  socket:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: "24"
+      - name: Socket scan (report-only)
+        env:
+          SOCKET_SECURITY_API_KEY: ${{ secrets.SOCKET_SECURITY_API_KEY }}
+        run: |
+          if [ -z "${SOCKET_SECURITY_API_KEY:-}" ]; then
+            echo "::warning::SOCKET_SECURITY_API_KEY not set -- skipping. Add the free-tier key as a repo secret, or install the Socket GitHub App (preferred)."
+            exit 0
+          fi
+          npx --yes @socketsecurity/cli@latest ci || echo "::warning::Socket flagged supply-chain risk (report-only)."
