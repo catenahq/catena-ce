@@ -66,3 +66,27 @@ catena_admin_default_theme: "{{ catena_default_theme | default('system') }}"
 # Go shell's Apps tab consumes (internal/admin/apps).
 catena_admin_extra_actions: []
 catena_admin_extra_tiles: []
+
+# EE-reserved HOST dispatch entries. The Go shell renders EE plugin action
+# BUTTONS at runtime from the downloaded plugins (audit, daily) only under an
+# active Business license, and dispatches each by NAME through the host
+# forced-command runner. The runner's dispatch table is CE-rendered, so
+# without a matching entry it rejects the EE action name. These entries
+# authorize the known EE action names -> the EE host binaries, which exist on
+# the host ONLY under a license (installed on activation); on a Community host
+# the binary is absent, so the dispatcher runs nothing and exits non-zero --
+# inert plumbing, the same pattern as the license-gated systemd timers. The
+# dispatcher already runs as root (the forced-command pipes through sudo), so
+# no extra sudoers is needed. These are appended to the host dispatch table +
+# allow-list ONLY, never to the shell-read catalog (actions.yml), so no EE
+# button ever appears on a Community host -- the plugin contributes the button
+# only when loaded. Names + commands MUST match the plugins' ActionSpec
+# (catena-ee audit/audit.go + dailyplugin/plugin.go); a drift means the shell
+# dispatches a name the host cannot resolve.
+catena_admin_ee_reserved_actions:
+  - name: daily-status
+    shell: "/usr/local/bin/catena-daily status"
+  - name: daily-run-now
+    shell: "/usr/local/bin/catena-daily run"
+  - name: audit-export
+    shell: "/usr/local/bin/catena-audit export"

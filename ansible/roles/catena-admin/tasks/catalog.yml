@@ -23,6 +23,15 @@
     _catena_admin_actions_merged: >-
       {{ _catena_admin_actions_canonical + (catena_admin_extra_actions | default([])) }}
 
+- name: "Catalog: append EE-reserved entries for the HOST dispatch path only"
+  # The shell-read catalog (actions.yml) stays CE-only -- no EE button shows
+  # without a license. But the host dispatch table + allow-list must also
+  # authorize the EE action NAMES the loaded plugin dispatches under a
+  # license -> the EE host binaries. Inert on Community (binary absent).
+  ansible.builtin.set_fact:
+    _catena_admin_actions_dispatch: >-
+      {{ _catena_admin_actions_merged + (catena_admin_ee_reserved_actions | default([])) }}
+
 # --- Files the admin container bind-mounts ---------------------------
 
 - name: "Catalog: install canonical actions.yml ({{ catena_admin_actions_yml_path }})"

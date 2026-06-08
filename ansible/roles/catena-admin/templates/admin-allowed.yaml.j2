@@ -10,7 +10,7 @@
 # point; both are rendered from the same merged list above so they
 # cannot drift.
 actions:
-{% for a in _catena_admin_actions_merged %}
+{% for a in _catena_admin_actions_dispatch %}
   - name: {{ a.name }}
     title: {{ a.title | default(a.name) }}
     category: {{ a.category | default('Ops') }}

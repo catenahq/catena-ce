@@ -14,14 +14,14 @@
 
 catena_admin_dispatch() {
     case "$1" in
-{% for a in _catena_admin_actions_merged %}
+{% for a in _catena_admin_actions_dispatch %}
         {{ a.name }})
             {{ a.shell }}
             ;;
 {% endfor %}
         *)
             echo "catena-admin-runner: unknown action '$1'" >&2
-            echo "Allowed: {{ _catena_admin_actions_merged | map(attribute='name') | join(', ') }}" >&2
+            echo "Allowed: {{ _catena_admin_actions_dispatch | map(attribute='name') | join(', ') }}" >&2
             exit 1
             ;;
     esac
