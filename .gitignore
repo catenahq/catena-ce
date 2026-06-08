@@ -7,3 +7,4 @@ coverage.*
 # Editor / OS
 .DS_Store
 *.swp
+.token-savior-cache.json
