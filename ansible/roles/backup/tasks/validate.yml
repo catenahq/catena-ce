@@ -1,25 +1,13 @@
 ---
 # Validation tasks for roles/backup. Replaces tests/goss/backup.yaml.
-- name: "validate/backup: backup timer is-active + is-enabled"
-  # Timer units are not always enumerated by ansible.builtin.service_facts
-  # depending on version; use systemctl directly for deterministic
-  # results. Same pattern as the ufw/ssh command probes in common.
-  ansible.builtin.command: "systemctl {{ item }} catena-backup.timer"  # noqa: command-instead-of-module
-  register: _bk_timer_checks
-  loop: [is-active, is-enabled]
-  failed_when: false
-  changed_when: false
-
-- name: "validate/backup: timer state valid"
-  ansible.builtin.assert:
-    that:
-      - (_bk_timer_checks.results[0].stdout | trim) == 'active'
-      - (_bk_timer_checks.results[1].stdout | trim) == 'enabled'
-    fail_msg: >-
-      catena-backup.timer not armed:
-      is-active={{ _bk_timer_checks.results[0].stdout | trim }},
-      is-enabled={{ _bk_timer_checks.results[1].stdout | trim }}
-
+#
+# Community ships the backup as a MANUALLY-invoked oneshot service (the
+# "Backup now" admin button / a direct systemctl start), NOT a timer --
+# see roles/backup/tasks/install.yml: the scheduled backup timer is the
+# Business managed lane and is not shipped here. So this validate asserts
+# only the manual mechanism (oneshot service + scripts + a reachable
+# restic repo); the timer is-active/is-enabled checks were a stale EE-era
+# assertion and have been removed.
 - name: "validate/backup: fixture files exist + correct mode"
   ansible.builtin.include_role:
     name: common
@@ -27,7 +15,6 @@
   vars:
     _assert_paths:
       - { path: /etc/systemd/system/catena-backup.service }
-      - { path: /etc/systemd/system/catena-backup.timer }
       - { path: /usr/local/bin/run-backup.sh, mode: "0750" }
       - { path: /usr/local/bin/restic, mode: "0755" }
       - { path: /usr/local/bin/catena-disk-preflight, mode: "0755" }
