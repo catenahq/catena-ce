@@ -77,16 +77,20 @@
       - "'ops ALL=(ALL) NOPASSWD: ALL' in (_sudoers_conf.content | b64decode)"
     fail_msg: "/etc/sudoers.d/010-ops missing the expected NOPASSWD line"
 
-- name: "validate/common: unattended-upgrades disabled (auto_update owns the lane)"
+# CE keeps Debian's native unattended-upgrades ON for security patching
+# (the EE catena-daily auto_update lane that would own patching and mask
+# the timer is not present in Community). This is the inverse of the EE
+# model -- see the unattended-upgrades handback contract.
+- name: "validate/common: unattended-upgrades enabled (CE keeps Debian-native patching on)"
   ansible.builtin.slurp:
     src: /etc/apt/apt.conf.d/20auto-upgrades
   register: _auto_upgrades_conf
 
-- name: "validate/common: 20auto-upgrades disables Unattended-Upgrade"
+- name: "validate/common: 20auto-upgrades enables Unattended-Upgrade"
   ansible.builtin.assert:
     that:
-      - "'Unattended-Upgrade \"0\"' in (_auto_upgrades_conf.content | b64decode)"
-    fail_msg: "20auto-upgrades did NOT disable Unattended-Upgrade -- auto_update driver will race Debian's own timer"
+      - "'Unattended-Upgrade \"1\"' in (_auto_upgrades_conf.content | b64decode)"
+    fail_msg: "20auto-upgrades did NOT enable Unattended-Upgrade -- CE relies on Debian's native unattended-upgrades for security patching"
 
 - name: "validate/common: required packages installed"
   ansible.builtin.package_facts:
