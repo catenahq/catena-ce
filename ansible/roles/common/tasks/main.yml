@@ -625,6 +625,23 @@
     group: root
     mode: "0755"
 
+# /var/lib/catena is the catena VAR-state dir (restore markers, the
+# backup stats dir, the keycloak-realm SMTP-bootstrap marker, ...).
+# Several roles WRITE under it before the backup role -- which used to be
+# its sole creator -- runs near the end of the converge. On a two-pass
+# fresh install the pass-1 backup happens to create it for pass-2's
+# keycloak, but a single-pass converge (key already in the vault) runs
+# keycloak's realm marker touch with no dir yet and fails with ENOENT.
+# Create it here in common (first role) so every later writer can rely on
+# it regardless of role order.
+- name: "/var/lib/catena exists"
+  ansible.builtin.file:
+    path: /var/lib/catena
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: "/etc/catena/version.txt stamped with current converge"
   ansible.builtin.copy:
     dest: /etc/catena/version.txt
