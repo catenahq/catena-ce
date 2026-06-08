@@ -24,6 +24,12 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Put Go on PATH
         run: echo "$HOME/.local/go/bin" >> "$GITHUB_PATH"
+      - name: Check Go toolchain
+        run: |
+          if ! command -v go >/dev/null 2>&1; then
+            echo "::error::Go not found on PATH. Install the Go toolchain to ~/.local/go on the self-hosted runner -- see catenahq/ops internal_docs/operator/ci-runner-provisioning.md"
+            exit 1
+          fi
       - name: govulncheck (blocking)
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
