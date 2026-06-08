@@ -66,8 +66,7 @@ def _run(cmd: str) -> core.CommandResult:
     """
     try:
         res = subprocess.run(  # nosec B602 - operator-controlled probes
-            # nosemgrep: python.lang.security.audit.subprocess-shell-true.subprocess-shell-true
-            cmd, shell=True, capture_output=True, text=True, timeout=30,
+            cmd, shell=True, capture_output=True, text=True, timeout=30,  # nosemgrep: python.lang.security.audit.subprocess-shell-true.subprocess-shell-true
             executable="/bin/bash",
         )
     except subprocess.TimeoutExpired as exc:

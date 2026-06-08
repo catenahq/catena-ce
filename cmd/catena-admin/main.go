@@ -163,7 +163,10 @@ func main() {
 	enabled := reg.Enabled(lic, now, graceWindow)
 	log.Printf("catena-admin on %s: edition=%s, %d plugin(s) enabled",
 		addr, editionLabel(lic, now), len(enabled))
-	log.Fatal(http.ListenAndServe(addr, mux))
+	// TLS is terminated at the edge (Cloudflare tunnel + oauth2-proxy); the
+	// admin binary listens on plain HTTP behind the proxy and never faces the
+	// public internet directly.
+	log.Fatal(http.ListenAndServe(addr, mux)) // nosemgrep: go.lang.security.audit.net.use-tls.use-tls
 }
 
 // pullState tracks the last successful plugin pull, read by /licensez. Guarded

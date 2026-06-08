@@ -407,8 +407,12 @@ func (s *server) setLocale(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   60 * 60 * 24 * 365,
 		SameSite: http.SameSiteLaxMode,
 		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
 	})
-	http.Redirect(w, r, safeBack(r.URL.Query().Get("back")), http.StatusSeeOther)
+	// safeBack() only returns same-origin relative paths (leading "/", no
+	// "//", no scheme/host), so the redirect target cannot leave this host.
+	http.Redirect(w, r, safeBack(r.URL.Query().Get("back")), http.StatusSeeOther) // nosemgrep: go.lang.security.injection.open-redirect.open-redirect
 }
 
 // setTheme sets light/dark/system directly, or cycles when name == "cycle".
@@ -429,8 +433,12 @@ func (s *server) setTheme(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   60 * 60 * 24 * 365,
 		SameSite: http.SameSiteLaxMode,
 		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
 	})
-	http.Redirect(w, r, safeBack(r.URL.Query().Get("back")), http.StatusSeeOther)
+	// safeBack() only returns same-origin relative paths (leading "/", no
+	// "//", no scheme/host), so the redirect target cannot leave this host.
+	http.Redirect(w, r, safeBack(r.URL.Query().Get("back")), http.StatusSeeOther) // nosemgrep: go.lang.security.injection.open-redirect.open-redirect
 }
 
 func supported(set []string, v string) bool {
