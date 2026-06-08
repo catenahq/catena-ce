@@ -504,6 +504,17 @@
 # is printed ONCE below -- save it off-box; it is what proves the seal.
 # Shipping this journal to a central collector is a Business feature handled
 # elsewhere; CE keeps it local and the EE audit panel reads it back.
+- name: "journald: ensure drop-in directory exists"
+  # Debian's genericcloud image does not ship /etc/systemd/journald.conf.d/,
+  # and ansible.builtin.copy does not create the dest parent -- create it
+  # first so the drop-in below lands cleanly on a fresh host.
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: "journald: drop-in for persistent storage + sealing"
   ansible.builtin.copy:
     dest: /etc/systemd/journald.conf.d/10-catena.conf
