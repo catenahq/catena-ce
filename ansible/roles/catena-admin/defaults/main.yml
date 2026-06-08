@@ -19,6 +19,17 @@ catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
 catena_admin_runner_user: "catena-admin-runner"
 catena_admin_runner_home: "/home/catena-admin-runner"
 
+# The catena-admin container runs as the distroless `nonroot` user
+# (uid/gid 65532), set by `USER nonroot:nonroot` in the repo-root Dockerfile
+# -- NOT uid 1000. Host-side files the container reads through its read-only
+# bind mounts (the SSH runner private key, known_hosts, ssh config) must be
+# owned by this uid, and the 0700 ssh dir must be owned by it, or the Go
+# shell's SSH action runner fails every dispatch with
+# "known_hosts load failed: ... permission denied". Keep in lockstep with
+# the Dockerfile's USER.
+catena_admin_container_uid: "65532"
+catena_admin_container_gid: "65532"
+
 # Host paths -- the bind-mount targets the admin compose expects. Keep
 # these in sync with the compose file when you rename either.
 catena_admin_host_ssh_dir: "/etc/catena/admin-ssh"

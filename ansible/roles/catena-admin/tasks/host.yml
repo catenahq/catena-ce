@@ -97,19 +97,20 @@
   ansible.builtin.file:
     path: "{{ catena_admin_host_ssh_dir }}"
     state: directory
-    # Container runs as uid 1000 by default (non-root user baked into
-    # the Dockerfile). Mount is read-only but the container still
-    # needs to stat + read the files.
-    owner: "1000"
-    group: "1000"
+    # The container runs as the distroless nonroot user
+    # ({{ catena_admin_container_uid }}); this 0700 dir + the files in it
+    # are mounted read-only and must be owned by that uid or the Go shell's
+    # SSH runner cannot read them (EACCES on every action dispatch).
+    owner: "{{ catena_admin_container_uid }}"
+    group: "{{ catena_admin_container_gid }}"
     mode: "0700"
 
 - name: "SSH dir: generate ed25519 keypair if missing"
   community.crypto.openssh_keypair:
     path: "{{ catena_admin_host_ssh_dir }}/id_ed25519"
     type: ed25519
-    owner: "1000"
-    group: "1000"
+    owner: "{{ catena_admin_container_uid }}"
+    group: "{{ catena_admin_container_gid }}"
     mode: "0600"
     regenerate: never
 
@@ -155,8 +156,8 @@
 - name: "SSH dir: write known_hosts"
   ansible.builtin.copy:
     dest: "{{ catena_admin_host_ssh_dir }}/known_hosts"
-    owner: "1000"
-    group: "1000"
+    owner: "{{ catena_admin_container_uid }}"
+    group: "{{ catena_admin_container_gid }}"
     mode: "0644"
     # ssh-keyscan emits "HOST keytype keydata"; the SSH client matches
     # the connection hostname against the first field literally. From
@@ -174,8 +175,8 @@
   ansible.builtin.template:
     src: admin-ssh-config.j2
     dest: "{{ catena_admin_host_ssh_dir }}/config"
-    owner: "1000"
-    group: "1000"
+    owner: "{{ catena_admin_container_uid }}"
+    group: "{{ catena_admin_container_gid }}"
     mode: "0644"
 
 # --- Bind-mount targets the admin container expects -----------------
