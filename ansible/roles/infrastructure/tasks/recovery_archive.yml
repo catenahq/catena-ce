@@ -61,7 +61,7 @@
 
 - name: "recovery_archive: restore.sh template (/usr/local/lib/catena/restore.sh)"
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../client-tools/restore.sh"
+    src: "{{ playbook_dir }}/../scripts/restore.sh"
     dest: /usr/local/lib/catena/restore.sh
     owner: root
     group: root
