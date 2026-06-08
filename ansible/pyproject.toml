@@ -6,6 +6,9 @@ requires-python = ">=3.11"
 dependencies = [
     "pyyaml>=6",
     "ansible-core>=2.18",
+    # bootstrap Phase 0.5 runs helpers/install_key.py to install the operator
+    # key over the provider password; pexpect drives that SSH session.
+    "pexpect>=4.9",
 ]
 
 [dependency-groups]
