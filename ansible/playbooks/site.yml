@@ -66,6 +66,14 @@
     # when accessing via admin.<zone>. Single canonical caller. Runs AFTER
     # all roles so dokploy-postgres + the dokploy app are healthy.
     # Idempotent: re-runs are no-ops once the host record matches.
+    #
+    # Retry-through-restart: end-of-play handlers (docker: restart docker,
+    # fired when the docker role freshly dropped daemon.json on a first/
+    # single-pass install) bounce the whole swarm right before post_tasks,
+    # so dokploy :3000 is briefly Connection-refused while swarm reschedules
+    # the task. Without a wait this post_task races that reconverge and
+    # fails. Retry until the API answers 200. (A two-pass install masks this
+    # because pass-2 leaves daemon.json unchanged -> no restart handler.)
     - name: "Dokploy API: set admin domain"
       ansible.builtin.uri:
         url: "{{ dokploy_api_base }}/settings.assignDomainServer"
@@ -78,6 +86,10 @@
           certificateType: "none"
           https: false
         status_code: 200
+      register: _dok_set_domain
+      retries: 30
+      delay: 5
+      until: _dok_set_domain.status | default(-1) == 200
       delegate_to: localhost
       become: false
       when:
