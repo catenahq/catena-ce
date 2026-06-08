@@ -140,10 +140,17 @@ def encrypt_text(
     env: dict[str, str] | None = None,
 ) -> None:
     """Encrypt `cleartext` (YAML) and write it to `target_path`.
-    Recipients are taken from .sops.yaml at repo root via
-    --filename-override (matches the creation_rule for `target_path`).
-    Cleartext is piped via stdin; sops's encrypted output is captured
-    in-memory and only the encrypted bytes touch disk."""
+    Recipients come from the .sops.yaml whose creation_rule matches
+    `target_path` (seed.py writes inventory/<inv>/.sops.yaml with the
+    self age recipient). Cleartext is piped via stdin; sops's encrypted
+    output is captured in-memory and only the encrypted bytes touch disk.
+
+    sops discovers .sops.yaml by walking UP from its working directory
+    (not from --filename-override, which only selects the creation_rule),
+    so run it with cwd = the target's own directory. Otherwise `catena
+    install` invoked from the repo root (e.g. the test bench) walks up
+    from there, never reaches inventory/<inv>/.sops.yaml, and fails with
+    "config file not found, or has no creation rules"."""
     e = _ensure_age_key(env)
     target_path.parent.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(
@@ -155,6 +162,7 @@ def encrypt_text(
             "/dev/stdin",
         ],
         input=cleartext, capture_output=True, text=True, env=e, check=False,
+        cwd=str(target_path.parent),
     )
     if result.returncode != 0:
         raise SopsError(
