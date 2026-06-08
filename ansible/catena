@@ -27,6 +27,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 # This file lives at the root of the self-contained ansible/ tree.
@@ -95,6 +96,41 @@ def playbook_cmd(inventory: str, playbook: str, extra: list[str] | None = None) 
     return cmd
 
 
+def _bootstrap_extra_vars(input_path: str | None) -> tuple[list[str], Path | None]:
+    """Non-interactive bootstrap needs bootstrap_initial_user +
+    bootstrap_root_password, but bootstrap.yml only collects them via a
+    play-scoped vars_prompt (skipped with no TTY, so Phase 0.5 never installs
+    the key and Phase 1 connects as the wrong/keyless user). Read them from
+    the install.yaml and hand them to the bootstrap stage as extra-vars
+    (highest precedence -> they satisfy the prompt across every play).
+
+    The provider password is written to a 0600 temp file passed as `-e @file`
+    (NOT `-e key=value`), so it never lands on argv, in `ps`, or in the
+    printed command / bench logs. Returns (extra_args, tmp_path_to_clean).
+    With no install.yaml the interactive vars_prompt handles it, so this is a
+    no-op."""
+    if not input_path:
+        return [], None
+    import seed  # shares ANSIBLE_DIR on sys.path
+    import yaml
+
+    host = (seed.load_input(Path(input_path)).get("host") or {})
+    overrides: dict[str, str] = {
+        # Blank password is meaningful: Phase 0.5 then skips key install (the
+        # host is assumed already keyed), matching the vars_prompt default.
+        "bootstrap_root_password": host.get("initial_password") or "",
+    }
+    if host.get("initial_user"):
+        overrides["bootstrap_initial_user"] = host["initial_user"]
+
+    fd, name = tempfile.mkstemp(prefix="catena-bootstrap-vars-", suffix=".yml")
+    os.close(fd)
+    tmp = Path(name)
+    tmp.write_text(yaml.safe_dump(overrides, default_flow_style=False))
+    tmp.chmod(0o600)
+    return ["-e", f"@{tmp}"], tmp
+
+
 def _run(cmd: list[str]) -> None:
     print(_c("1;30", "  $ " + " ".join(cmd)), file=sys.stderr)
     result = subprocess.run(cmd)
@@ -157,9 +193,27 @@ def cmd_install(args: argparse.Namespace) -> int:
     ensure_collections()
 
     banner("Step 2/2 -- deploy (preflight -> bootstrap -> site -> validate)")
-    for stage in INSTALL_CHAIN:
-        banner(f"Stage: {stage}")
-        _run(playbook_cmd(inventory, stage))
+    bootstrap_extra, bootstrap_vars_tmp = _bootstrap_extra_vars(args.input)
+    try:
+        for stage in INSTALL_CHAIN:
+            banner(f"Stage: {stage}")
+            extra = bootstrap_extra if stage == "bootstrap" else None
+            _run(playbook_cmd(inventory, stage, extra))
+            if stage == "bootstrap":
+                # bootstrap joined the tailnet + emitted .bootstrap-output.yml;
+                # fold its real ansible_host into hosts.yml so the next stages
+                # (site, validate), each a separate ansible invocation, reach
+                # the host instead of the 0.0.0.0 placeholder.
+                from helpers import bootstrap_output
+                applied = bootstrap_output.apply_to_inventory(
+                    inventory_path(inventory)
+                )
+                for line in applied:
+                    print(_c("1;32", f"  + bootstrap-output applied {line}"),
+                          file=sys.stderr)
+    finally:
+        if bootstrap_vars_tmp is not None:
+            bootstrap_vars_tmp.unlink(missing_ok=True)
     banner("Install complete.")
     return 0
 

@@ -80,3 +80,34 @@ def test_ensure_age_key_env_noop_when_no_file(cli, tmp_path, monkeypatch):
 def test_required_binaries_cover_vault_and_ansible(cli):
     for b in ("ansible-playbook", "sops", "age-keygen"):
         assert b in cli.REQUIRED_BINARIES
+
+
+def test_bootstrap_extra_vars_writes_secret_to_file_not_argv(cli, tmp_path):
+    import yaml
+
+    iy = tmp_path / "install.yaml"
+    iy.write_text(
+        "inventory: test\n"
+        "host_initial_user: debian\n"
+        "host_initial_password: s3cr3t-provider-pw\n"
+    )
+    extra, tmp = cli._bootstrap_extra_vars(str(iy))
+    try:
+        # The provider password is referenced as -e @file, never inline on
+        # argv (would otherwise leak via `ps` and the printed command).
+        assert extra[0] == "-e"
+        assert extra[1].startswith("@")
+        assert "s3cr3t-provider-pw" not in " ".join(extra)
+        data = yaml.safe_load(tmp.read_text())
+        assert data["bootstrap_initial_user"] == "debian"
+        assert data["bootstrap_root_password"] == "s3cr3t-provider-pw"
+        # 0600 so the provider password is not world-readable on disk.
+        assert (tmp.stat().st_mode & 0o777) == 0o600
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def test_bootstrap_extra_vars_noop_without_install_yaml(cli):
+    extra, tmp = cli._bootstrap_extra_vars(None)
+    assert extra == []
+    assert tmp is None

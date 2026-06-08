@@ -111,6 +111,42 @@ def _atomic_write(path: Path, body: str) -> None:
         raise
 
 
+def apply_to_inventory(inv_dir: Path) -> list[str]:
+    """Apply hosts.<name>.ansible_host from .bootstrap-output.yml into
+    <inv_dir>/hosts.yml (the `vps:` group).
+
+    bootstrap.yml joins the tailnet and rewrites the host's ansible_host in
+    its IN-MEMORY inventory (add_host) + emits .bootstrap-output.yml, but a
+    SEPARATE site.yml / validate.yml invocation (as `catena install` runs
+    each stage) reads hosts.yml, where the entry is still the 0.0.0.0
+    placeholder. Applying the emitted IP here makes the later stages target
+    the real tailnet address. Returns the list of applied
+    "<host>.ansible_host=<ip>" (empty == nothing to apply)."""
+    out_path = inv_dir / ".bootstrap-output.yml"
+    hosts = (_load(out_path).get("hosts") or {})
+    if not hosts:
+        return []
+    hosts_yml = inv_dir / "hosts.yml"
+    inv = _load(hosts_yml)
+    vps = (
+        inv.setdefault("all", {}).setdefault("children", {})
+        .setdefault("vps", {}).setdefault("hosts", {})
+    )
+    applied: list[str] = []
+    for host, entry in hosts.items():
+        ip = (entry or {}).get("ansible_host")
+        if not ip:
+            continue
+        vps.setdefault(host, {})["ansible_host"] = ip
+        applied.append(f"{host}.ansible_host={ip}")
+    if applied:
+        _atomic_write(
+            hosts_yml,
+            yaml.safe_dump(inv, default_flow_style=False, sort_keys=False),
+        )
+    return applied
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="bootstrap_output.py")
     ap.add_argument("--inventory-dir", required=True, type=Path)
