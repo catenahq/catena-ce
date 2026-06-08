@@ -678,7 +678,10 @@ def emit_self_sops_yaml(inv_dir: Path, pubkey: str) -> None:
     )
 
 
-def emit_hosts_yml(target: Path, host_name: str, public_ip: str, tailnet_ip: str) -> None:
+def emit_hosts_yml(
+    target: Path, host_name: str, public_ip: str, tailnet_ip: str,
+    initial_user: str,
+) -> None:
     if target.exists():
         data = yaml.safe_load(target.read_text()) or {}
     else:
@@ -686,9 +689,15 @@ def emit_hosts_yml(target: Path, host_name: str, public_ip: str, tailnet_ip: str
     children = data.setdefault("all", {}).setdefault("children", {})
     vps_hosts = children.setdefault("vps", {}).setdefault("hosts", {})
     bootstrap_hosts = children.setdefault("bootstrap", {}).setdefault("hosts", {})
+    # bootstrap_initial_user must be an inventory var (not only the Phase 0.5
+    # vars_prompt in bootstrap.yml): vars_prompt is play-scoped, so Phase 1
+    # (harden) and Phase 2 (tailscale) -- separate plays that connect as this
+    # user -- would otherwise see it undefined under a non-interactive
+    # `catena install --no-confirm`. Seed already collected it, so pin it here.
     bootstrap_hosts[f"{host_name}-bootstrap"] = {
         "ansible_host": public_ip,
         "ansible_port": 22,
+        "bootstrap_initial_user": initial_user,
     }
     # The bootstrap host's ansible_host is the public IP (how we reach a
     # fresh box before tailscale joins); the vps host's ansible_host is the
@@ -1140,6 +1149,7 @@ def _write_inventory_files(
     vault_values: dict[str, str],
     host_name: str,
     public_ip: str,
+    initial_user: str,
     tailnet_ip_provided: str,
     self_pubkey: str,
 ) -> None:
@@ -1163,7 +1173,9 @@ def _write_inventory_files(
     # Placeholder tailnet IP; bootstrap.yml's post_task rewrites it after the
     # VPS joins the tailnet.
     initial_tailnet_ip = tailnet_ip_provided or "0.0.0.0"
-    emit_hosts_yml(hosts_target, host_name, public_ip, initial_tailnet_ip)
+    emit_hosts_yml(
+        hosts_target, host_name, public_ip, initial_tailnet_ip, initial_user,
+    )
     ok(f"wrote {hosts_target}")
 
 
@@ -1283,6 +1295,7 @@ def main(argv: list[str] | None = None) -> int:
         env_template=env_template, env_values=env_values,
         vault_values=vault_values,
         host_name=host_name, public_ip=public_ip,
+        initial_user=initial_user,
         tailnet_ip_provided=tailnet_ip_provided,
         self_pubkey=self_pubkey,
     )
