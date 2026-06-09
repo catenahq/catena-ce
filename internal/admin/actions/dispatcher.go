@@ -116,7 +116,15 @@ func (s SSHRunner) Run(ctx context.Context, command string, env map[string]strin
 		User:            s.Cfg.User,
 		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
 		HostKeyCallback: hostKeys,
-		Timeout:         s.Cfg.ConnectTimeout,
+		// Pin host-key negotiation to ed25519. The catena-admin role scans
+		// the host with `ssh-keyscan -t ed25519` and writes an ed25519-only
+		// known_hosts, but Debian sshd also serves rsa/ecdsa host keys.
+		// Without this pin x/crypto may negotiate one of those, which the
+		// ed25519-only known_hosts cannot match -> "knownhosts: key
+		// mismatch" on every dispatch. Keep in lockstep with the role's
+		// keyscan key type.
+		HostKeyAlgorithms: []string{ssh.KeyAlgoED25519},
+		Timeout:           s.Cfg.ConnectTimeout,
 	}
 	addr := net.JoinHostPort(s.Cfg.Host, strconv.Itoa(s.Cfg.Port))
 	client, err := ssh.Dial("tcp", addr, cfg)
