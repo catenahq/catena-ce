@@ -2,10 +2,16 @@
 name = "catena-ce-installer"
 version = "0.1.0"
 description = "Community Catena installer / CLI (seed + ansible wrapper)"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "pyyaml>=6",
-    "ansible-core>=2.18",
+    # Pin to the bench-validated ansible-core line. The floor is above the
+    # 2.19 series (which needed systemd/ufw workarounds), the ceiling below
+    # the next unvalidated minor; requires-python>=3.12 keeps a single
+    # resolution (2.21.x) rather than splitting py3.11 onto 2.19. uv
+    # provisions a 3.12+ interpreter, so older-distro controllers are not
+    # blocked.
+    "ansible-core>=2.20,<2.22",
     # bootstrap Phase 0.5 runs helpers/install_key.py to install the operator
     # key over the provider password; pexpect drives that SSH session.
     "pexpect>=4.9",
