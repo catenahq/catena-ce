@@ -66,6 +66,15 @@ services:
       - /var/lib/catena:/var/lib/catena:ro
       - /etc/catena/admin-actions.yml:/etc/catena/admin-actions.yml:ro
       - /etc/catena/extra-tiles.yml:/etc/catena/extra-tiles.yml:ro
+      # Host journald socket: the shell's audit log IS journald
+      # (internal/auditlog Emit -> go-systemd journal.Send, which writes to
+      # this datagram socket). Without it journal.Enabled() is false in the
+      # container and every audit entry is silently dropped. Mounting the
+      # host socket routes structured audit rows (SYSLOG_IDENTIFIER=
+      # catena-admin) into the HOST journal, where the EE audit panel + the
+      # Alloy shipper read them back. Send-only: the socket lets the
+      # container WRITE journald entries, not read other services' logs.
+      - /run/systemd/journal/socket:/run/systemd/journal/socket
     labels:
       - "vps.auth.mode=private"
       - "vps.auth.groups=staff,admin"
