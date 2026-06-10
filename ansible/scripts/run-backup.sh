@@ -317,8 +317,14 @@ fi
 # journal; OliveTin has a button wired to the same script for on-demand.
 if [ -n "${BACKUP_COVERAGE_SCRIPT:-}" ] && [ -x "${BACKUP_COVERAGE_SCRIPT}" ]; then
     log "running backup coverage check"
-    "${BACKUP_COVERAGE_SCRIPT}" 2>&1 | sed 's/^/  coverage: /' || \
-        log "coverage checker hit an error; non-fatal"
+    # `timeout` so a wedged `docker inspect` inside the coverage script
+    # (it inspects every running container) can never hang this oneshot.
+    # The script is warn-only by contract; a HANG is not caught by the
+    # `|| log` below (that only catches a non-zero EXIT), so without the
+    # bound a stuck inspect leaves catena-backup.service in 'activating'
+    # until the caller's timeout. 120s is ample for a host's container set.
+    timeout 120 "${BACKUP_COVERAGE_SCRIPT}" 2>&1 | sed 's/^/  coverage: /' || \
+        log "coverage checker errored or timed out; non-fatal"
 fi
 
 # ─── F6: refresh recovery.<zone> snapshot listing ────────────────────────
@@ -328,8 +334,10 @@ fi
 # diagnostic, not load-bearing.
 if [ -n "${BACKUP_SNAPSHOT_LIST_SCRIPT:-}" ] && [ -x "${BACKUP_SNAPSHOT_LIST_SCRIPT}" ]; then
     log "regenerating snapshot-list page"
-    "${BACKUP_SNAPSHOT_LIST_SCRIPT}" "${ENV_FILE}" 2>&1 | sed 's/^/  snapshot-list: /' || \
-        log "snapshot-list hit an error; non-fatal"
+    # Same bound as the coverage tail: this runs `restic snapshots`, which
+    # can stall on a network blip. Diagnostic page, must never block the run.
+    timeout 120 "${BACKUP_SNAPSHOT_LIST_SCRIPT}" "${ENV_FILE}" 2>&1 | sed 's/^/  snapshot-list: /' || \
+        log "snapshot-list errored or timed out; non-fatal"
 fi
 
 # ─── success ─────────────────────────────────────────────────────────────
