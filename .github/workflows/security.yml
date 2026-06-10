@@ -25,4 +25,4 @@ jobs:
       security-events: write
     with:
       profile: full
-      runner: self-hosted
+      runner: ubuntu-latest
