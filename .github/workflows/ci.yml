@@ -30,6 +30,17 @@ jobs:
         run: go vet ./...
       - name: Test
         run: go test ./...
+      - name: Staticcheck (report-only)
+        # Correctness lint folded in from the retired go-analysis.yml.
+        # govulncheck (the blocking half of that workflow) now runs via
+        # the scanctl security gate; staticcheck is not a scanctl tool.
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          set +e
+          "$(go env GOPATH)/bin/staticcheck" ./...
+          rc=$?
+          set -e
+          if [ $rc -ne 0 ]; then echo "::warning::staticcheck reported findings (report-only)."; fi
 
   installer:
     name: Installer (Python) tests
