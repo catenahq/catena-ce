@@ -18,7 +18,7 @@ jobs:
     name: Go build + vet + test
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - name: Put Go on PATH
         run: |
           echo "$HOME/.local/go/bin" >> "$GITHUB_PATH"
@@ -35,7 +35,7 @@ jobs:
     name: Installer (Python) tests
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       # The installer tests import only seed.py + helpers (no ansible-core), so
       # run them in a lightweight ephemeral env instead of syncing the project
       # (which would pull ansible-core for nothing here).
