@@ -75,6 +75,17 @@ services:
       # Alloy shipper read them back. Send-only: the socket lets the
       # container WRITE journald entries, not read other services' logs.
       - /run/systemd/journal/socket:/run/systemd/journal/socket
+    # The recovery export dir (/var/backups/catena-export) is mode 0750
+    # owned root:1000 (gid 1000 is the shared recovery-downloads group; the
+    # nginx sidecar reads it as root via owner-rwx). The shell image runs
+    # USER nonroot:nonroot, which is neither the owner nor in group 1000, so
+    # without this the Recovery tab's ListArtifacts (os.ReadDir) gets EACCES
+    # and renders the empty state even when host-side generation wrote a
+    # recovery-*.zip. Add gid 1000 as a supplementary group so the nonroot
+    # shell can traverse + read the dir (read-only; the bytes are still
+    # served by the gated nginx sidecar, not the shell).
+    group_add:
+      - "1000"
     labels:
       - "vps.auth.mode=private"
       - "vps.auth.groups=staff,admin"
