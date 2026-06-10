@@ -1,0 +1,8 @@
+# scanctl config -- github.com/catenahq/scanctl
+# semgrep stays blocking to preserve the gate the standalone semgrep.yml
+# enforced (--error). osv-scanner, trivy and govulncheck already block by
+# default; gitleaks, gosec, zizmor, guarddog and trivy-license stay report-mode.
+tools:
+  semgrep:
+    enabled: true
+    mode: block

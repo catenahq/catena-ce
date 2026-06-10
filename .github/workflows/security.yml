@@ -1,0 +1,28 @@
+name: security
+
+# Bundled FOSS security scan via catenahq/scanctl. Replaces the former per-tool
+# workflows (gitleaks, osv-scanner, trivy fs, semgrep, zizmor, licenses-sbom,
+# go-analysis's govulncheck, socket). One run detects the repo's ecosystems,
+# runs the matching scanners, merges SARIF (uploaded to code scanning), and
+# emits a CycloneDX SBOM artifact. profile=full enables semgrep's registry packs.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 6 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  scanctl:
+    uses: catenahq/scanctl/.github/workflows/github-reusable.yml@main
+    permissions:
+      contents: read
+      security-events: write
+    with:
+      profile: full
+      runner: self-hosted
