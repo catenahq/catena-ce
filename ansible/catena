@@ -12,6 +12,8 @@ ansible-playbook. Subcommands:
   recover    whole-host DR onto a FRESH replacement box: preflight ->
              bootstrap -> restore -> site -> validate (reuses the existing
              inventory's vault + .env; no seed)
+  rollback   roll a STILL-RUNNING host back to a prior snapshot: preflight ->
+             restore -> site -> validate (in place, no bootstrap)
   uninstall  hand control back to the OS: unmask + re-enable Debian's
              apt-daily-upgrade.timer (the unattended-upgrades handback)
              and print teardown guidance
@@ -46,6 +48,13 @@ INSTALL_CHAIN = ("preflight", "bootstrap", "site", "validate")
 # new host before the converge), and no seed step (the existing inventory's
 # vault + .env are reused). Mirrors the operator disaster_recovery flow.
 RECOVER_CHAIN = ("preflight", "bootstrap", "restore", "site", "validate")
+
+# Roll a STILL-RUNNING host back to a prior restic snapshot: restore in place
+# then re-converge + validate. No bootstrap (the box is alive + on the
+# tailnet). The `site` leg is load-bearing for password coherence
+# (pg_password_reconcile re-aligns vault -> swarm secret -> pg_authid if the
+# operator rotated a secret between snapshot and rollback) -- never drop it.
+ROLLBACK_CHAIN = ("preflight", "restore", "site", "validate")
 
 # Host binaries the wrapper shells out to. age-keygen + sops handle the
 # vault; ansible-playbook/ansible run the base.
@@ -360,6 +369,26 @@ def cmd_recover(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_rollback(args: argparse.Namespace) -> int:
+    """Roll a still-running host back to a prior restic snapshot: preflight ->
+    restore -> site -> validate, in place (no bootstrap). Reuses the existing
+    inventory's vault. --snapshot picks the restic snapshot to roll back to
+    (default: latest). The `site` leg is load-bearing for password coherence
+    (pg_password_reconcile) -- never dropped."""
+    _preflight_checks()
+    _require_inventory(args.inventory)
+    ensure_age_key_env()
+    ensure_collections()
+
+    banner("Rollback -- preflight -> restore -> site -> validate")
+    _run_deploy_chain(
+        args.inventory, ROLLBACK_CHAIN,
+        bootstrap_extra=None, restore_extra=_snapshot_extra(args),
+    )
+    banner("Rollback complete.")
+    return 0
+
+
 def cmd_converge(args: argparse.Namespace) -> int:
     _preflight_checks()
     _require_inventory(args.inventory)
@@ -443,6 +472,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_rec.add_argument("--snapshot", default="",
                        help="restic snapshot id to restore (default: latest)")
     p_rec.set_defaults(func=cmd_recover)
+
+    p_rb = sub.add_parser(
+        "rollback",
+        help="roll a running host back to a prior snapshot "
+             "(restore -> site -> validate, in place)",
+    )
+    p_rb.add_argument("--inventory", required=True)
+    p_rb.add_argument("--snapshot", default="",
+                      help="restic snapshot id to roll back to (default: latest)")
+    p_rb.set_defaults(func=cmd_rollback)
 
     p_uni = sub.add_parser(
         "uninstall",

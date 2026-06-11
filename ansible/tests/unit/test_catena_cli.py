@@ -78,6 +78,47 @@ def test_recover_runs_full_chain_with_snapshot(cli, monkeypatch):
     assert "restore_snapshot=snap42" in " ".join(restore_cmd)
 
 
+def test_rollback_chain_order(cli):
+    """In-place rollback runs preflight -> restore -> site -> validate, no
+    bootstrap (the host is alive)."""
+    assert cli.ROLLBACK_CHAIN == ("preflight", "restore", "site", "validate")
+
+
+def test_rollback_parser_wires_snapshot(cli):
+    ns = cli.build_parser().parse_args(
+        ["rollback", "--inventory", "test", "--snapshot", "snap7"]
+    )
+    assert ns.func is cli.cmd_rollback
+    assert ns.snapshot == "snap7"
+
+
+def test_rollback_runs_chain_with_snapshot_no_bootstrap(cli, monkeypatch):
+    """cmd_rollback drives restore -> site -> validate (preflight first), threads
+    the snapshot onto restore, and never runs bootstrap."""
+    from helpers import bootstrap_output
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
+    monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
+    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
+    monkeypatch.setattr(cli, "ensure_collections", lambda: None)
+    monkeypatch.setattr(cli, "_ensure_dokploy_api_key", lambda inv: False)
+    monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
+
+    ns = cli.build_parser().parse_args(
+        ["rollback", "--inventory", "test", "--snapshot", "snap7"]
+    )
+    assert ns.func(ns) == 0
+
+    pb_calls = [c for c in calls if c and c[0] == "ansible-playbook"]
+    stages = [_stage_of(c) for c in pb_calls]
+    assert stages == ["preflight", "restore", "site", "validate"]
+    assert "bootstrap" not in stages
+    restore_cmd = next(c for c in pb_calls if _stage_of(c) == "restore")
+    assert "restore_snapshot=snap7" in " ".join(restore_cmd)
+
+
 def test_recover_second_site_pass_when_vault_lacks_key(cli, monkeypatch):
     """If the reused vault somehow lacks the Dokploy key (key was rotated out
     / fresh repo), recover still mints + runs the second site pass -- same
