@@ -63,6 +63,24 @@ def test_tags_extra_is_none_when_unset(cli):
     assert cli._tags_extra(val) == ["--tags", "keycloak"]
 
 
+def test_restore_accepts_snapshot_passthrough(cli):
+    """`catena restore --snapshot <id>` restores a specific restic snapshot
+    via restore.yml's restore_snapshot extra-var."""
+    ns = cli.build_parser().parse_args(
+        ["restore", "--inventory", "test", "--snapshot", "abc123"]
+    )
+    assert cli._snapshot_extra(ns) == ["-e", "restore_snapshot=abc123"]
+    cmd = cli.playbook_cmd(ns.inventory, "restore", cli._snapshot_extra(ns))
+    assert cmd[-2:] == ["-e", "restore_snapshot=abc123"]
+    assert cmd[-3].endswith("playbooks/restore.yml")
+
+
+def test_snapshot_extra_is_none_when_unset(cli):
+    """No --snapshot -> restore.yml defaults to latest."""
+    ns = cli.build_parser().parse_args(["restore", "--inventory", "test"])
+    assert cli._snapshot_extra(ns) is None
+
+
 def test_check_prereqs_reports_missing(cli, monkeypatch):
     monkeypatch.setattr(cli.shutil, "which", lambda name: None)
     missing = cli.check_prereqs(("ansible-playbook", "sops"))
