@@ -181,6 +181,27 @@ def test_tags_extra_is_none_when_unset(cli):
     assert cli._tags_extra(val) == ["--tags", "keycloak"]
 
 
+def test_backup_parser_wires_backup_now(cli):
+    """`catena backup` runs the backup_now playbook (the manual CE snapshot)."""
+    ns = cli.build_parser().parse_args(["backup", "--inventory", "test"])
+    assert ns.func is cli.cmd_backup
+    cmd = cli.playbook_cmd(ns.inventory, "backup_now")
+    assert cmd[-1].endswith("playbooks/backup_now.yml")
+
+
+def test_backup_runs_backup_now_playbook(cli, monkeypatch):
+    calls: list[list[str]] = []
+    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
+    monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
+    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
+    monkeypatch.setattr(cli, "ensure_collections", lambda: None)
+    ns = cli.build_parser().parse_args(["backup", "--inventory", "test"])
+    assert ns.func(ns) == 0
+    assert len(calls) == 1
+    assert calls[0][-1].endswith("playbooks/backup_now.yml")
+
+
 def test_restore_accepts_snapshot_passthrough(cli):
     """`catena restore --snapshot <id>` restores a specific restic snapshot
     via restore.yml's restore_snapshot extra-var."""

@@ -1,0 +1,21 @@
+---
+# Trigger an on-demand restic snapshot of the host (Community manual backup).
+#
+# Single-play wrapper around roles/backup/tasks/trigger_now.yml, the same
+# mechanism the `catena-backup.service` systemd unit runs. CE ships a single,
+# manual backup; this is the CLI entry point (`catena backup`) a self-hoster
+# uses to take a snapshot on demand (the admin shell "Backup now" button drives
+# the same role task).
+#
+# Preflight is intentionally skipped: backup_now mints no auth keys, and the
+# restic creds it relies on are validated by the systemd unit itself.
+
+- name: "Snapshot now: run catena-backup.service synchronously"
+  hosts: "{{ stage_hosts | default('vps') }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: "Trigger snapshot via backup role"
+      ansible.builtin.import_role:
+        name: backup
+        tasks_from: trigger_now.yml

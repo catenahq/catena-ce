@@ -8,6 +8,7 @@ ansible-playbook. Subcommands:
              preflight -> bootstrap -> site -> validate
   converge   re-run site.yml (apply config changes / new app tags)
   validate   run validate.yml (on-host + tailnet + external checks)
+  backup     trigger an on-demand snapshot (the manual CE backup)
   restore    run restore.yml (in-place whole-host restore)
   recover    whole-host DR onto a FRESH replacement box: preflight ->
              bootstrap -> restore -> site -> validate (reuses the existing
@@ -407,6 +408,20 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_backup(args: argparse.Namespace) -> int:
+    """Trigger an on-demand backup snapshot: run catena-backup.service
+    synchronously via the backup role's trigger_now (the same mechanism the
+    admin shell "Backup now" button drives). CE ships a single, manual
+    backup -- this is its CLI entry point. No preflight (mints no keys)."""
+    _preflight_checks()
+    _require_inventory(args.inventory)
+    ensure_age_key_env()
+    ensure_collections()
+    banner("Backup -- trigger an on-demand snapshot")
+    _run(playbook_cmd(args.inventory, "backup_now"))
+    return 0
+
+
 def cmd_restore(args: argparse.Namespace) -> int:
     _preflight_checks()
     _require_inventory(args.inventory)
@@ -453,6 +468,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_val.add_argument("--tags", default="",
                        help="comma-separated ansible tags to scope validation")
     p_val.set_defaults(func=cmd_validate)
+
+    p_bak = sub.add_parser(
+        "backup", help="trigger an on-demand snapshot (manual CE backup)",
+    )
+    p_bak.add_argument("--inventory", required=True)
+    p_bak.set_defaults(func=cmd_backup)
 
     p_res = sub.add_parser("restore", help="run restore.yml (in-place restore)")
     p_res.add_argument("--inventory", required=True)
