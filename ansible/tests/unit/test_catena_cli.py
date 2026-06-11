@@ -26,6 +26,83 @@ def test_install_chain_order(cli):
     assert cli.INSTALL_CHAIN == ("preflight", "bootstrap", "site", "validate")
 
 
+def test_recover_chain_order(cli):
+    """DR onto a fresh box runs preflight -> bootstrap -> restore -> site ->
+    validate: the install chain with `restore` inserted after bootstrap."""
+    assert cli.RECOVER_CHAIN == (
+        "preflight", "bootstrap", "restore", "site", "validate",
+    )
+
+
+def test_recover_parser_wires_snapshot_and_input(cli):
+    ns = cli.build_parser().parse_args(
+        ["recover", "--inventory", "test", "--snapshot", "snap42",
+         "-i", "install.yaml"]
+    )
+    assert ns.func is cli.cmd_recover
+    assert ns.snapshot == "snap42"
+    assert ns.input == "install.yaml"
+
+
+def _stage_of(cmd):
+    """The playbook stem of an ansible-playbook argv (the .yml arg)."""
+    pb = next(a for a in cmd if a.endswith(".yml"))
+    return pb.rsplit("/", 1)[-1].removesuffix(".yml")
+
+
+def test_recover_runs_full_chain_with_snapshot(cli, monkeypatch):
+    """cmd_recover drives the whole DR chain in order, threads the snapshot
+    onto the restore stage, and (reused vault holds the key) makes a single
+    site pass -- no seed."""
+    from helpers import bootstrap_output
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
+    monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
+    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
+    monkeypatch.setattr(cli, "ensure_collections", lambda: None)
+    monkeypatch.setattr(cli, "_ensure_dokploy_api_key", lambda inv: False)
+    monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
+
+    ns = cli.build_parser().parse_args(
+        ["recover", "--inventory", "test", "--snapshot", "snap42"]
+    )
+    assert ns.func(ns) == 0
+
+    pb_calls = [c for c in calls if c and c[0] == "ansible-playbook"]
+    assert [_stage_of(c) for c in pb_calls] == [
+        "preflight", "bootstrap", "restore", "site", "validate",
+    ]
+    restore_cmd = next(c for c in pb_calls if _stage_of(c) == "restore")
+    assert "restore_snapshot=snap42" in " ".join(restore_cmd)
+
+
+def test_recover_second_site_pass_when_vault_lacks_key(cli, monkeypatch):
+    """If the reused vault somehow lacks the Dokploy key (key was rotated out
+    / fresh repo), recover still mints + runs the second site pass -- same
+    bridge as install."""
+    from helpers import bootstrap_output
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
+    monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
+    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
+    monkeypatch.setattr(cli, "ensure_collections", lambda: None)
+    # First site pass -> key minted -> second pass requested.
+    monkeypatch.setattr(cli, "_ensure_dokploy_api_key", lambda inv: True)
+    monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
+
+    ns = cli.build_parser().parse_args(["recover", "--inventory", "test"])
+    assert ns.func(ns) == 0
+
+    stages = [_stage_of(c) for c in calls if c and c[0] == "ansible-playbook"]
+    assert stages == [
+        "preflight", "bootstrap", "restore", "site", "site", "validate",
+    ]
+
+
 def test_playbook_cmd_shape(cli):
     cmd = cli.playbook_cmd("prod", "site")
     assert cmd[0] == "ansible-playbook"

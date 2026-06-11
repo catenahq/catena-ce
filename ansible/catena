@@ -8,7 +8,10 @@ ansible-playbook. Subcommands:
              preflight -> bootstrap -> site -> validate
   converge   re-run site.yml (apply config changes / new app tags)
   validate   run validate.yml (on-host + tailnet + external checks)
-  restore    run restore.yml (whole-host disaster recovery)
+  restore    run restore.yml (in-place whole-host restore)
+  recover    whole-host DR onto a FRESH replacement box: preflight ->
+             bootstrap -> restore -> site -> validate (reuses the existing
+             inventory's vault + .env; no seed)
   uninstall  hand control back to the OS: unmask + re-enable Debian's
              apt-daily-upgrade.timer (the unattended-upgrades handback)
              and print teardown guidance
@@ -37,6 +40,12 @@ sys.path.insert(0, str(ANSIBLE_DIR))
 # The ordered converge chain a fresh install runs. preflight is a SEPARATE
 # invocation BEFORE bootstrap so a stray --limit can never skip it.
 INSTALL_CHAIN = ("preflight", "bootstrap", "site", "validate")
+
+# Whole-host disaster recovery onto a FRESH replacement box: same as install
+# but with `restore` inserted after bootstrap (push the last snapshot onto the
+# new host before the converge), and no seed step (the existing inventory's
+# vault + .env are reused). Mirrors the operator disaster_recovery flow.
+RECOVER_CHAIN = ("preflight", "bootstrap", "restore", "site", "validate")
 
 # Host binaries the wrapper shells out to. age-keygen + sops handle the
 # vault; ansible-playbook/ansible run the base.
@@ -251,6 +260,50 @@ def _require_inventory(inventory: str) -> None:
         )
 
 
+def _run_deploy_chain(
+    inventory: str,
+    chain: tuple[str, ...],
+    *,
+    bootstrap_extra: list[str] | None,
+    restore_extra: list[str] | None = None,
+) -> None:
+    """Run an ordered deploy chain (install or recover) stage by stage,
+    threading the bootstrap creds onto the bootstrap stage and (recover only)
+    the restore snapshot onto the restore stage, plus the two inter-stage
+    bridges a deploy needs:
+
+      - after `bootstrap`: fold the steady-state tailnet IP that bootstrap
+        emitted into .bootstrap-output.yml back into hosts.yml, so the later
+        stages (each a separate ansible invocation) reach the host instead of
+        the 0.0.0.0 placeholder.
+      - after the first `site`: mint the Dokploy admin + API key if the vault
+        lacks one, then run a SECOND site pass so the auth stack deploys
+        before validate. On recovery the reused vault already holds the key,
+        so this is a single pass.
+
+    Shared by install + recover so the bridge logic lives in one place."""
+    for stage in chain:
+        banner(f"Stage: {stage}")
+        if stage == "bootstrap":
+            extra = bootstrap_extra
+        elif stage == "restore":
+            extra = restore_extra
+        else:
+            extra = None
+        _run(playbook_cmd(inventory, stage, extra))
+        if stage == "bootstrap":
+            from helpers import bootstrap_output
+            applied = bootstrap_output.apply_to_inventory(
+                inventory_path(inventory)
+            )
+            for line in applied:
+                print(_c("1;32", f"  + bootstrap-output applied {line}"),
+                      file=sys.stderr)
+        if stage == "site" and _ensure_dokploy_api_key(inventory):
+            banner("Stage: site (pass 2 -- auth stack)")
+            _run(playbook_cmd(inventory, "site"))
+
+
 def cmd_install(args: argparse.Namespace) -> int:
     _preflight_checks()
     inventory = args.inventory or input("Inventory name [prod]: ").strip() or "prod"
@@ -273,32 +326,37 @@ def cmd_install(args: argparse.Namespace) -> int:
     banner("Step 2/2 -- deploy (preflight -> bootstrap -> site -> validate)")
     bootstrap_extra, bootstrap_vars_tmp = _bootstrap_extra_vars(args.input)
     try:
-        for stage in INSTALL_CHAIN:
-            banner(f"Stage: {stage}")
-            extra = bootstrap_extra if stage == "bootstrap" else None
-            _run(playbook_cmd(inventory, stage, extra))
-            if stage == "bootstrap":
-                # bootstrap joined the tailnet + emitted .bootstrap-output.yml;
-                # fold its real ansible_host into hosts.yml so the next stages
-                # (site, validate), each a separate ansible invocation, reach
-                # the host instead of the 0.0.0.0 placeholder.
-                from helpers import bootstrap_output
-                applied = bootstrap_output.apply_to_inventory(
-                    inventory_path(inventory)
-                )
-                for line in applied:
-                    print(_c("1;32", f"  + bootstrap-output applied {line}"),
-                          file=sys.stderr)
-            if stage == "site" and _ensure_dokploy_api_key(inventory):
-                # Pass 1 deployed Dokploy; the key now exists. Re-run site so
-                # the auth stack (Keycloak compose, oauth2-proxy routes, gated
-                # apps) deploys before validate asserts it.
-                banner("Stage: site (pass 2 -- auth stack)")
-                _run(playbook_cmd(inventory, "site"))
+        _run_deploy_chain(inventory, INSTALL_CHAIN, bootstrap_extra=bootstrap_extra)
     finally:
         if bootstrap_vars_tmp is not None:
             bootstrap_vars_tmp.unlink(missing_ok=True)
     banner("Install complete.")
+    return 0
+
+
+def cmd_recover(args: argparse.Namespace) -> int:
+    """Whole-host disaster recovery onto a FRESH replacement box, reusing the
+    existing inventory's vault + .env (no seed): preflight -> bootstrap ->
+    restore -> site -> validate. The provider creds come from --input
+    install.yaml (same 0600-temp-file path as install, never on argv);
+    --snapshot picks the restic snapshot to push (default: latest)."""
+    _preflight_checks()
+    _require_inventory(args.inventory)
+    ensure_age_key_env()
+    ensure_collections()
+
+    banner("Recover -- preflight -> bootstrap -> restore -> site -> validate")
+    bootstrap_extra, bootstrap_vars_tmp = _bootstrap_extra_vars(args.input)
+    restore_extra = _snapshot_extra(args)
+    try:
+        _run_deploy_chain(
+            args.inventory, RECOVER_CHAIN,
+            bootstrap_extra=bootstrap_extra, restore_extra=restore_extra,
+        )
+    finally:
+        if bootstrap_vars_tmp is not None:
+            bootstrap_vars_tmp.unlink(missing_ok=True)
+    banner("Recovery complete.")
     return 0
 
 
@@ -367,11 +425,24 @@ def build_parser() -> argparse.ArgumentParser:
                        help="comma-separated ansible tags to scope validation")
     p_val.set_defaults(func=cmd_validate)
 
-    p_res = sub.add_parser("restore", help="run restore.yml (disaster recovery)")
+    p_res = sub.add_parser("restore", help="run restore.yml (in-place restore)")
     p_res.add_argument("--inventory", required=True)
     p_res.add_argument("--snapshot", default="",
                        help="restic snapshot id to restore (default: latest)")
     p_res.set_defaults(func=cmd_restore)
+
+    p_rec = sub.add_parser(
+        "recover",
+        help="whole-host DR onto a fresh replacement box "
+             "(bootstrap -> restore -> site -> validate)",
+    )
+    p_rec.add_argument("--inventory", required=True)
+    p_rec.add_argument("-i", "--input",
+                       help="install.yaml supplying the replacement box's "
+                            "provider user + password for bootstrap")
+    p_rec.add_argument("--snapshot", default="",
+                       help="restic snapshot id to restore (default: latest)")
+    p_rec.set_defaults(func=cmd_recover)
 
     p_uni = sub.add_parser(
         "uninstall",
