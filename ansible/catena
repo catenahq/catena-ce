@@ -96,6 +96,15 @@ def playbook_cmd(inventory: str, playbook: str, extra: list[str] | None = None) 
     return cmd
 
 
+def _tags_extra(args: argparse.Namespace) -> list[str] | None:
+    """Turn a `--tags a,b` CLI value into the ansible-playbook passthrough,
+    or None when unset. Lets `converge`/`validate` run a tag-scoped subset
+    (e.g. `catena converge --tags keycloak,oauth2_proxy` to re-apply only
+    the auth roles after rotating a secret), Pure -- unit-testable."""
+    tags = (getattr(args, "tags", "") or "").strip()
+    return ["--tags", tags] if tags else None
+
+
 def _bootstrap_extra_vars(input_path: str | None) -> tuple[list[str], Path | None]:
     """Non-interactive bootstrap needs bootstrap_initial_user +
     bootstrap_root_password, but bootstrap.yml only collects them via a
@@ -289,7 +298,7 @@ def cmd_converge(args: argparse.Namespace) -> int:
     _require_inventory(args.inventory)
     ensure_age_key_env()
     ensure_collections()
-    _run(playbook_cmd(args.inventory, "site"))
+    _run(playbook_cmd(args.inventory, "site", _tags_extra(args)))
     return 0
 
 
@@ -298,7 +307,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
     _require_inventory(args.inventory)
     ensure_age_key_env()
     ensure_collections()
-    _run(playbook_cmd(args.inventory, "validate"))
+    _run(playbook_cmd(args.inventory, "validate", _tags_extra(args)))
     return 0
 
 
@@ -338,10 +347,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_conv = sub.add_parser("converge", help="re-run site.yml")
     p_conv.add_argument("--inventory", required=True)
+    p_conv.add_argument("--tags", default="",
+                        help="comma-separated ansible tags to scope the "
+                             "converge (e.g. keycloak,oauth2_proxy)")
     p_conv.set_defaults(func=cmd_converge)
 
     p_val = sub.add_parser("validate", help="run validate.yml")
     p_val.add_argument("--inventory", required=True)
+    p_val.add_argument("--tags", default="",
+                       help="comma-separated ansible tags to scope validation")
     p_val.set_defaults(func=cmd_validate)
 
     p_res = sub.add_parser("restore", help="run restore.yml (disaster recovery)")

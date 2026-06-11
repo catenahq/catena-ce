@@ -40,6 +40,29 @@ def test_playbook_cmd_extra_args(cli):
     assert cmd[-2:] == ["--limit", "prod1-bootstrap"]
 
 
+def test_converge_accepts_tags_passthrough(cli):
+    """`catena converge --tags a,b` scopes the converge to those roles
+    (e.g. re-apply only keycloak,oauth2_proxy after rotating a secret)."""
+    ns = cli.build_parser().parse_args(
+        ["converge", "--inventory", "test", "--tags", "keycloak,oauth2_proxy"]
+    )
+    assert cli._tags_extra(ns) == ["--tags", "keycloak,oauth2_proxy"]
+    cmd = cli.playbook_cmd(ns.inventory, "site", cli._tags_extra(ns))
+    assert cmd[-2:] == ["--tags", "keycloak,oauth2_proxy"]
+    assert cmd[-3].endswith("playbooks/site.yml")
+
+
+def test_tags_extra_is_none_when_unset(cli):
+    """No --tags -> no passthrough (a full converge / validate). validate
+    accepts the same flag."""
+    conv = cli.build_parser().parse_args(["converge", "--inventory", "test"])
+    assert cli._tags_extra(conv) is None
+    val = cli.build_parser().parse_args(
+        ["validate", "--inventory", "test", "--tags", "keycloak"]
+    )
+    assert cli._tags_extra(val) == ["--tags", "keycloak"]
+
+
 def test_check_prereqs_reports_missing(cli, monkeypatch):
     monkeypatch.setattr(cli.shutil, "which", lambda name: None)
     missing = cli.check_prereqs(("ansible-playbook", "sops"))
