@@ -38,10 +38,25 @@ Comment lines (`#...`) and empty lines pass through verbatim.
 from __future__ import annotations
 
 
-def keyscan_alias_lines(lines, alias):
-    """Prefix `alias,` onto the first whitespace-separated field of
-    each non-comment ssh-keyscan line. Comment and blank lines pass
-    through unchanged. Returns a list of rewritten lines."""
+def keyscan_alias_lines(lines, alias, replace=False):
+    """Rewrite the first whitespace-separated field (the scanned host) of
+    each non-comment ssh-keyscan line. Comment and blank lines pass through
+    unchanged. Returns a list of rewritten lines.
+
+    `replace=False` (default): PREFIX `alias,` onto the scanned host, so the
+    entry lists both names as aliases of the key
+    (``alias,HOST keytype keydata``).
+
+    `replace=True`: REPLACE the scanned host with `alias` entirely, dropping
+    the scanned address (``alias keytype keydata``). The catena-admin known_
+    hosts uses this: the admin container's SSH runner only ever connects to
+    `host.docker.internal`, so the scanned address is never matched against --
+    and it is the one VOLATILE part of the content (ansible_host flips between
+    a box's public IP and its tailnet IP across converges, and differs again
+    after a cross-host restore). Including it makes the `copy` task report
+    `changed` on every re-converge; dropping it makes the entry idempotent
+    (alias is constant, keydata is the stable host key) with zero functional
+    loss."""
     if lines is None:
         return []
     if isinstance(lines, str):
@@ -62,15 +77,19 @@ def keyscan_alias_lines(lines, alias):
         if not sep:
             out.append(line)
             continue
-        out.append(f"{alias},{head}{sep}{rest}")
+        if replace:
+            out.append(f"{alias}{sep}{rest}")
+        else:
+            out.append(f"{alias},{head}{sep}{rest}")
     return out
 
 
-def keyscan_alias(lines, alias):
+def keyscan_alias(lines, alias, replace=False):
     """Same transform as `keyscan_alias_lines` but returns one string
     with literal newline separators + a trailing newline, ready for
-    ansible.builtin.copy's `content:` field."""
-    return "\n".join(keyscan_alias_lines(lines, alias)) + "\n"
+    ansible.builtin.copy's `content:` field. See `keyscan_alias_lines`
+    for the `replace` semantics."""
+    return "\n".join(keyscan_alias_lines(lines, alias, replace=replace)) + "\n"
 
 
 class FilterModule:

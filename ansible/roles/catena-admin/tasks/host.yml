@@ -159,17 +159,20 @@
     owner: "{{ catena_admin_container_uid }}"
     group: "{{ catena_admin_container_gid }}"
     mode: "0644"
-    # ssh-keyscan emits "HOST keytype keydata"; the SSH client matches
-    # the connection hostname against the first field literally. From
-    # inside the container, the Go shell's SSH runner connects to
-    # host.docker.internal (resolved via the extra_hosts host-gateway
-    # mapping in the admin compose), so the entry must list that name as
-    # well. The `keyscan_alias` filter (Python; see
-    # playbooks/filter_plugins/keyscan_alias.py) rewrites each entry
-    # as "host.docker.internal,HOST keytype keydata" without the YAML
-    # folded-scalar + Jinja string-literal backref traps that broke an
-    # earlier regex_replace pass.
-    content: "{{ _catena_admin_keyscan.stdout_lines | keyscan_alias('host.docker.internal') }}"
+    # ssh-keyscan emits "HOST keytype keydata"; the SSH client matches the
+    # connection hostname against the first field literally. From inside the
+    # container, the Go shell's SSH runner ONLY ever connects to
+    # host.docker.internal (resolved via the extra_hosts host-gateway mapping
+    # in the admin compose), so the scanned HOST is never matched against --
+    # and it is the one volatile part of the content (ansible_host flips
+    # public-IP <-> tailnet-IP across converges, and differs again after a
+    # cross-host restore), which made this copy non-idempotent (changed every
+    # re-converge). The `keyscan_alias` filter (Python; see playbooks/
+    # filter_plugins/keyscan_alias.py) with replace=true REPLACES the scanned
+    # HOST with the constant alias, emitting "host.docker.internal keytype
+    # keydata" -- idempotent, no functional loss -- without the YAML folded-
+    # scalar + Jinja string-literal backref traps that broke a regex_replace.
+    content: "{{ _catena_admin_keyscan.stdout_lines | keyscan_alias('host.docker.internal', replace=true) }}"
 
 - name: "SSH dir: ssh client config (StrictHostKeyChecking yes)"
   ansible.builtin.template:
