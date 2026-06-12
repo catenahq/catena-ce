@@ -1,8 +1,13 @@
 # catena-ce
 
 The public, fair-code base of Catena: a self-hostable business suite you
-own. Run the **Community** edition yourself for free, or subscribe to the
-managed **Business** edition where we operate the whole lifecycle for you.
+own. Run the **Community** edition yourself for free -- the full app
+catalog plus the base lifecycle (install, single sign-on, monitoring
+basics, a single backup runner, and restore/recovery). Subscribe to the
+managed **Business** edition for the parts Community does not include:
+offsite immutable backups, the automation engine (managed updates, CVE
+response), monitoring, identity governance, and a monthly assurance
+report -- with us operating the whole lifecycle for you.
 
 This repository will hold:
 
@@ -59,6 +64,6 @@ key.
 
 | Edition | What it is | Price |
 | --- | --- | --- |
-| Community | Self-host the whole suite yourself. Source-available, no telemetry. | Free |
-| Business | We operate the lifecycle: offsite immutable backups, managed updates, monitoring, identity, monthly assurance report. | Managed subscription |
+| Community | Self-host the full app catalog plus the base lifecycle (install, SSO, monitoring basics, single backup, restore/recover). Source-available, no telemetry. Offsite immutable backups and the automation engine are NOT included -- but recovery is, so you can always read and restore from a cold backup. | Free |
+| Business | Everything in Community, operated for you, plus the parts Community does not include: offsite immutable backups (write), the automation engine (managed updates, CVE response), monitoring, identity governance, monthly assurance report. | Managed subscription |
 | Bespoke | Design a suite around your workflow. | Quoted |
