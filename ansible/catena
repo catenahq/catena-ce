@@ -15,6 +15,13 @@ ansible-playbook. Subcommands:
              inventory's vault + .env; no seed)
   rollback   roll a STILL-RUNNING host back to a prior snapshot: preflight ->
              restore -> site -> validate (in place, no bootstrap)
+  rotate-tunnel
+             regenerate the host's Cloudflare tunnel without a full
+             converge (manual maintenance); the CF API token is consumed
+             once and never stored in the vault
+  rotate-tailscale
+             re-authenticate the node to the tailnet (force re-auth;
+             manual maintenance)
   uninstall  hand control back to the OS: unmask + re-enable Debian's
              apt-daily-upgrade.timer (the unattended-upgrades handback)
              and print teardown guidance
@@ -29,6 +36,7 @@ decrypt. Run inside the catena-ce checkout:
 from __future__ import annotations
 
 import argparse
+import getpass
 import os
 import shutil
 import subprocess
@@ -131,6 +139,23 @@ def _snapshot_extra(args: argparse.Namespace) -> list[str] | None:
     restic snapshot, not just the most recent. Pure -- unit-testable."""
     snap = (getattr(args, "snapshot", "") or "").strip()
     return ["-e", f"restore_snapshot={snap}"] if snap else None
+
+
+def _secret_extra_var(name: str, value: str) -> tuple[list[str], Path | None]:
+    """Write a single secret extra-var to a 0600 temp file and return the
+    `-e @file` passthrough plus the temp path to clean. Keeps the secret off
+    argv / `ps` / the printed command (same pattern as the bootstrap provider
+    password). Empty value -> ([], None). Pure-ish (writes a temp file)."""
+    if not value:
+        return [], None
+    import yaml
+
+    fd, name_ = tempfile.mkstemp(prefix="catena-rotate-vars-", suffix=".yml")
+    os.close(fd)
+    tmp = Path(name_)
+    tmp.write_text(yaml.safe_dump({name: value}, default_flow_style=False))
+    tmp.chmod(0o600)
+    return ["-e", f"@{tmp}"], tmp
 
 
 def _bootstrap_extra_vars(input_path: str | None) -> tuple[list[str], Path | None]:
@@ -431,6 +456,45 @@ def cmd_restore(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_rotate_tunnel(args: argparse.Namespace) -> int:
+    """Regenerate this host's Cloudflare tunnel without a full converge
+    (manual maintenance). The CF API token is consumed once and never
+    persisted to the vault; supply it via --cf-api-token, the
+    CATENA_CF_API_TOKEN env var, or the interactive prompt. The token is
+    passed to ansible via a 0600 temp file (-e @file), never on argv."""
+    _preflight_checks()
+    _require_inventory(args.inventory)
+    ensure_age_key_env()
+    ensure_collections()
+    token = (args.cf_api_token or os.environ.get("CATENA_CF_API_TOKEN", "")).strip()
+    if not token:
+        token = getpass.getpass("Cloudflare API token: ").strip()
+    if not token:
+        die("a Cloudflare API token is required to regenerate the tunnel.")
+    banner("Rotate -- regenerate the Cloudflare tunnel")
+    extra, tmp = _secret_extra_var("cf_api_token", token)
+    try:
+        _run(playbook_cmd(args.inventory, "regenerate-cf-tunnel", extra))
+    finally:
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
+    return 0
+
+
+def cmd_rotate_tailscale(args: argparse.Namespace) -> int:
+    """Re-authenticate the node to the tailnet, forcing a fresh OAuth key
+    (manual maintenance: node lost tailnet reachability or you are rotating
+    tags). The tailscale role's tailscale_force_reauth is set by the
+    playbook itself, so this just runs it."""
+    _preflight_checks()
+    _require_inventory(args.inventory)
+    ensure_age_key_env()
+    ensure_collections()
+    banner("Rotate -- re-authenticate Tailscale")
+    _run(playbook_cmd(args.inventory, "rotate-tailscale"))
+    return 0
+
+
 def cmd_uninstall(args: argparse.Namespace) -> int:
     _preflight_checks()
     _require_inventory(args.inventory)
@@ -503,6 +567,25 @@ def build_parser() -> argparse.ArgumentParser:
     p_rb.add_argument("--snapshot", default="",
                       help="restic snapshot id to roll back to (default: latest)")
     p_rb.set_defaults(func=cmd_rollback)
+
+    p_rtun = sub.add_parser(
+        "rotate-tunnel",
+        help="regenerate the Cloudflare tunnel (manual; token consumed once)",
+    )
+    p_rtun.add_argument("--inventory", required=True)
+    p_rtun.add_argument(
+        "--cf-api-token", default="",
+        help="Cloudflare API token (consumed once, never stored); also read "
+             "from CATENA_CF_API_TOKEN, prompted if unset",
+    )
+    p_rtun.set_defaults(func=cmd_rotate_tunnel)
+
+    p_rts = sub.add_parser(
+        "rotate-tailscale",
+        help="re-authenticate the node to the tailnet (manual force re-auth)",
+    )
+    p_rts.add_argument("--inventory", required=True)
+    p_rts.set_defaults(func=cmd_rotate_tailscale)
 
     p_uni = sub.add_parser(
         "uninstall",

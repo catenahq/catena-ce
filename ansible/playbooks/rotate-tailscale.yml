@@ -1,0 +1,21 @@
+---
+# Re-authenticate this node to the tailnet (force re-auth). Manual
+# maintenance action (Community): use when the node lost tailnet
+# reachability or you are rotating tags. With OAuth-minted keys a fresh key
+# is minted automatically on every install/recover, so this exists for
+# explicit re-auth only.
+#
+# Usage (cwd = ansible/):
+#   ./catena rotate-tailscale --inventory prod
+#   # or directly:
+#   ansible-playbook -i inventory/prod playbooks/rotate-tailscale.yml
+
+- name: Rotate Tailscale auth on VPS nodes
+  hosts: "{{ stage_hosts | default('vps') }}"
+  become: true
+  gather_facts: false
+
+  roles:
+    - role: tailscale
+      vars:
+        tailscale_force_reauth: true

@@ -361,6 +361,107 @@ def test_ensure_dokploy_api_key_mints_when_absent(cli, tmp_path, monkeypatch):
     assert cmd[cmd.index("--vault") + 1].endswith("vault.sops.yml")
 
 
+def test_rotate_tunnel_parser_wires_token(cli):
+    ns = cli.build_parser().parse_args(
+        ["rotate-tunnel", "--inventory", "test", "--cf-api-token", "cf-tok"]
+    )
+    assert ns.func is cli.cmd_rotate_tunnel
+    assert ns.cf_api_token == "cf-tok"
+
+
+def test_rotate_tailscale_parser_wires_playbook(cli):
+    ns = cli.build_parser().parse_args(["rotate-tailscale", "--inventory", "test"])
+    assert ns.func is cli.cmd_rotate_tailscale
+    cmd = cli.playbook_cmd(ns.inventory, "rotate-tailscale")
+    assert cmd[-1].endswith("playbooks/rotate-tailscale.yml")
+
+
+def test_secret_extra_var_writes_secret_to_file_not_argv(cli):
+    import yaml
+
+    extra, tmp = cli._secret_extra_var("cf_api_token", "super-secret-token")
+    try:
+        # Referenced as -e @file; the secret never lands inline on argv.
+        assert extra[0] == "-e"
+        assert extra[1].startswith("@")
+        assert "super-secret-token" not in " ".join(extra)
+        data = yaml.safe_load(tmp.read_text())
+        assert data["cf_api_token"] == "super-secret-token"
+        assert (tmp.stat().st_mode & 0o777) == 0o600
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def test_secret_extra_var_noop_on_empty(cli):
+    extra, tmp = cli._secret_extra_var("cf_api_token", "")
+    assert extra == []
+    assert tmp is None
+
+
+def test_rotate_tunnel_runs_playbook_with_token_file(cli, monkeypatch):
+    """cmd_rotate_tunnel runs the regenerate-cf-tunnel playbook, passing the
+    token via -e @file (never inline), and cleans the temp file after."""
+    calls: list[list[str]] = []
+    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
+    monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
+    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
+    monkeypatch.setattr(cli, "ensure_collections", lambda: None)
+
+    ns = cli.build_parser().parse_args(
+        ["rotate-tunnel", "--inventory", "test", "--cf-api-token", "cf-tok"]
+    )
+    assert ns.func(ns) == 0
+    assert len(calls) == 1
+    joined = " ".join(calls[0])
+    assert calls[0][-2] == "-e"
+    assert calls[0][-1].startswith("@")
+    assert "cf-tok" not in joined
+    assert _stage_of(calls[0]) == "regenerate-cf-tunnel"
+
+
+def test_rotate_tunnel_reads_token_from_env(cli, monkeypatch):
+    calls: list[list[str]] = []
+    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
+    monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
+    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
+    monkeypatch.setattr(cli, "ensure_collections", lambda: None)
+    monkeypatch.setenv("CATENA_CF_API_TOKEN", "env-token")
+
+    ns = cli.build_parser().parse_args(["rotate-tunnel", "--inventory", "test"])
+    assert ns.func(ns) == 0
+    assert len(calls) == 1
+    assert _stage_of(calls[0]) == "regenerate-cf-tunnel"
+
+
+def test_rotate_tunnel_dies_without_token(cli, monkeypatch):
+    monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
+    monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
+    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
+    monkeypatch.setattr(cli, "ensure_collections", lambda: None)
+    monkeypatch.delenv("CATENA_CF_API_TOKEN", raising=False)
+    monkeypatch.setattr(cli.getpass, "getpass", lambda *a, **k: "")
+
+    ns = cli.build_parser().parse_args(["rotate-tunnel", "--inventory", "test"])
+    with pytest.raises(SystemExit):
+        ns.func(ns)
+
+
+def test_rotate_tailscale_runs_playbook(cli, monkeypatch):
+    calls: list[list[str]] = []
+    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
+    monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
+    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
+    monkeypatch.setattr(cli, "ensure_collections", lambda: None)
+
+    ns = cli.build_parser().parse_args(["rotate-tailscale", "--inventory", "test"])
+    assert ns.func(ns) == 0
+    assert len(calls) == 1
+    assert _stage_of(calls[0]) == "rotate-tailscale"
+
+
 def test_ensure_dokploy_api_key_dies_without_tailnet_ip(cli, tmp_path, monkeypatch):
     from helpers import sops_vault
 

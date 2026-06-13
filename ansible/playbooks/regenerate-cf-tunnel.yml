@@ -1,0 +1,20 @@
+---
+# Regenerate this host's Cloudflare tunnel without a full site converge.
+# Manual maintenance action (Community): driven by `catena rotate-tunnel`
+# and by the catena-admin host-side action, both of which pass the
+# Cloudflare API token via -e cf_api_token=<token>.
+#
+# Usage (cwd = ansible/):
+#   ./catena rotate-tunnel --inventory prod --cf-api-token $TOKEN
+#   # or directly:
+#   ansible-playbook -i inventory/prod playbooks/regenerate-cf-tunnel.yml \
+#       -e cf_api_token=$TOKEN
+#
+# The token is consumed once per call. It is NEVER persisted to the vault.
+
+- name: Regenerate Cloudflare tunnel
+  hosts: "{{ stage_hosts | default('vps') }}"
+  become: true
+  gather_facts: false
+  roles:
+    - role: cloudflare_tunnel_regenerate
