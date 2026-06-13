@@ -14,11 +14,14 @@ Environment=HOME=/var/lib/catena/restic-home
 Environment=XDG_CACHE_HOME=/var/lib/catena/restic-cache
 EnvironmentFile={{ backup_env_file }}
 ExecStartPre=/bin/mkdir -p /var/lib/catena/restic-home /var/lib/catena/restic-cache
-# R21: mutex with auto-update. Wait up to 2 hours for auto-update to finish
-# if it's already running (unlikely but protects against clock-skew or test
-# scenarios where both fire close together).
-ExecStartPre=/usr/local/bin/catena-acquire-lock.sh /run/catena.lock 7200 catena-backup
-ExecStart={{ backup_wrapper_script }}
+# R21: mutex with auto-update / stack-update via flock on /run/catena.lock.
+# flock holds the lock for the LIFETIME of the wrapped command and releases
+# it on exit OR crash. The prior ExecStartPre PID-file helper recorded the
+# pre-step's own PID, which died the instant ExecStartPre returned -- so a
+# contender saw a "stale" lock and acquired immediately, and nothing ever
+# released it. -w 7200: wait up to 2h for a holder, then flock exits non-zero
+# (systemd failure -> dead-man alert) rather than run concurrently.
+ExecStart=/usr/bin/flock -w 7200 /run/catena.lock {{ backup_wrapper_script }}
 # Kill the run if it exceeds 4 hours -- better to fail loudly (and ping /fail)
 # than to silently run for days.
 TimeoutStartSec=4h
