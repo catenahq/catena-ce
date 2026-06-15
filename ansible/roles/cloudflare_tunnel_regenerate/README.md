@@ -18,17 +18,19 @@ rather than firing on every converge.
 ## Side effects
 
 - Deletes the prior CF Named Tunnel (if any).
-- Creates a new tunnel; writes the credentials JSON to
-  `/etc/cloudflared/<tunnel-id>.json`.
-- Restarts the cloudflared swarm service (Dokploy stack) so the
-  new credential takes effect immediately.
+- Creates a new tunnel and re-points the `*.<zone>` wildcard CNAME
+  at it (via the `cloudflare_tunnel` role's find-or-create handoff).
+- Updates the cloudflared swarm service's `TUNNEL_TOKEN` env so the
+  new credential takes effect immediately. The credential is carried
+  in the swarm service spec, NOT written to a file on disk (there is
+  no `/etc/cloudflared/` credentials JSON in this architecture).
 
 ## Idempotency
 
 - Listing existing tunnels first means re-running with the same
   name is safe; the prior tunnel is deleted before the new one is
   created.
-- Credentials file is overwritten atomically.
+- The swarm `TUNNEL_TOKEN` env is reconciled only on real drift.
 
 ## Related
 
