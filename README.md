@@ -24,7 +24,7 @@ This repository will hold:
 
 Enterprise (Business) code is NOT here: it lives privately in
 `catenahq/catena-ee` and ships as compiled, license-gated
-binaries. See [LICENSE.md](LICENSE.md).
+binaries. See [LICENSE](LICENSE).
 
 ## Layout (so far)
 

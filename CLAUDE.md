@@ -9,7 +9,7 @@ The public, fair-code base of Catena. Sibling repo under the workspace at
 - **Here (public, fair-code):** the catena-admin **Go shell** (CE panels +
   actions + the plugin seam + license validation), the base Ansible
   (preflight/bootstrap/site/validate/restore + shared roles + single
-  backup), and the installer/CLI. See [LICENSE.md](LICENSE.md).
+  backup), and the installer/CLI. See [LICENSE](LICENSE).
 - **NOT here:** enterprise (Business) code. It is private in
   `catenahq/catena-ee` and ships as compiled, license-gated
   plugin binaries. Never paste EE source or operational/cross-host
