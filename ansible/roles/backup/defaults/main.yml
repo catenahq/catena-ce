@@ -3,11 +3,11 @@ backup_mode: install # install | restore | verify
 
 # Restic binary version, pulled directly from upstream GitHub releases
 # (not Debian's repo -- trixie's restic is pinned to 0.18.0 while upstream
-# is on 0.18.1). Installed into /usr/local/bin/restic which shadows any
+# is on 0.19.0). Installed into /usr/local/bin/restic which shadows any
 # apt-shipped /usr/bin/restic thanks to $PATH order. Bump this to pick
 # up new releases -- the role will download + verify SHA256 + swap the
 # binary atomically. Matches our pattern for Dokploy + cloudflared.
-backup_restic_version: "0.18.1"
+backup_restic_version: "0.19.0"
 
 backup_restic_repo: "" # e.g. s3:s3.bhs.io.cloud.ovh.net/<client>-restic
 
