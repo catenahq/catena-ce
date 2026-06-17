@@ -2,7 +2,7 @@
 # Pinned Dokploy version (match a GitHub release tag). Matches the
 # Keycloak pattern: role-default hardcoded; override per-client by
 # setting dokploy_version in inventory/<name>/group_vars/all/main.yml.
-dokploy_version: "v0.29.6"
+dokploy_version: "v0.29.7"
 
 # Upstream Dokploy installer. Fetched to disk before running so the exact
 # bytes we scan for bootstrap-image pre-pull are the bytes we execute.
@@ -50,7 +50,7 @@ dokploy_traefik_trusted_ips:
 # (v3.6.7 lingered on dev1 after Dokploy installed it, despite the code
 # pinning v3.6.13). The re-launch task below rebuilds the container when
 # the running image doesn't match this pin.
-dokploy_traefik_image_tag: "v3.6.17"
+dokploy_traefik_image_tag: "v3.6.21"
 dokploy_traefik_image: "traefik:{{ dokploy_traefik_image_tag }}"
 
 # The admin UI hostname -- must match cloudflared_ingress_rules and the

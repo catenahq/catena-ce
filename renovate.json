@@ -12,6 +12,161 @@
       "matchManagers": ["gomod"],
       "matchUpdateTypes": ["major"],
       "automerge": false
+    },
+    {
+      "description": "Operator-stack base images pinned in role defaults. Bumps stay manual: a cloudflared/dokploy/traefik/restic upgrade can break the platform out-of-band, so the operator reviews each one (the Trivy job still gates the PR on CVEs).",
+      "matchManagers": ["custom.regex"],
+      "matchPackageNames": [
+        "cloudflare/cloudflared",
+        "Dokploy/dokploy",
+        "traefik",
+        "restic/restic"
+      ],
+      "groupName": "operator-stack pins",
+      "automerge": false
+    },
+    {
+      "description": "Traefik feature-set + config schema are owned by Dokploy's installer. Minor/major bumps risk breaking compose syntax + middleware behaviour out-of-band; only patch bumps are safe between Dokploy releases. Dokploy upgrades carry the matching traefik minor/major.",
+      "matchPackageNames": ["traefik"],
+      "matchUpdateTypes": ["major", "minor"],
+      "enabled": false
+    },
+    {
+      "description": "Infra app images pinned in role defaults (gatus, healthchecks, beszel hub+agent, recovery nginx, clamav). Manual review like the operator-stack pins; Trivy gates each PR.",
+      "matchManagers": ["custom.regex"],
+      "matchPackageNames": [
+        "twinproduction/gatus",
+        "healthchecks/healthchecks",
+        "henrygd/beszel",
+        "henrygd/beszel-agent",
+        "nginx",
+        "clamav/clamav"
+      ],
+      "groupName": "infra app pins",
+      "automerge": false
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Track cloudflared image tag pinned in cloudflare_tunnel role defaults",
+      "managerFilePatterns": [
+        "/^ansible/roles/cloudflare_tunnel/defaults/main\\.yml$/"
+      ],
+      "matchStrings": [
+        "cloudflared_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "cloudflare/cloudflared",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Track Dokploy installer version pinned in dokploy role defaults",
+      "managerFilePatterns": [
+        "/^ansible/roles/dokploy/defaults/main\\.yml$/"
+      ],
+      "matchStrings": [
+        "dokploy_version:\\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "Dokploy/dokploy",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "description": "Track Traefik image tag pinned in dokploy role defaults",
+      "managerFilePatterns": [
+        "/^ansible/roles/dokploy/defaults/main\\.yml$/"
+      ],
+      "matchStrings": [
+        "dokploy_traefik_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "traefik",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Track restic binary version pinned in backup role defaults",
+      "managerFilePatterns": [
+        "/^ansible/roles/backup/defaults/main\\.yml$/"
+      ],
+      "matchStrings": [
+        "backup_restic_version:\\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "restic/restic",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v?(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "Track Gatus image tag pinned in infrastructure role defaults",
+      "managerFilePatterns": [
+        "/^ansible/roles/infrastructure/defaults/main\\.yml$/"
+      ],
+      "matchStrings": [
+        "gatus_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "twinproduction/gatus",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Track Healthchecks image tag pinned in infrastructure role defaults",
+      "managerFilePatterns": [
+        "/^ansible/roles/infrastructure/defaults/main\\.yml$/"
+      ],
+      "matchStrings": [
+        "healthchecks_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "healthchecks/healthchecks",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Track Beszel hub image tag pinned in infrastructure role defaults",
+      "managerFilePatterns": [
+        "/^ansible/roles/infrastructure/defaults/main\\.yml$/"
+      ],
+      "matchStrings": [
+        "beszel_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "henrygd/beszel",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Track Beszel agent image tag pinned in infrastructure role defaults (kept in lockstep with the hub)",
+      "managerFilePatterns": [
+        "/^ansible/roles/infrastructure/defaults/main\\.yml$/"
+      ],
+      "matchStrings": [
+        "beszel_agent_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "henrygd/beszel-agent",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Track recovery-downloads nginx image tag pinned in infrastructure role defaults",
+      "managerFilePatterns": [
+        "/^ansible/roles/infrastructure/defaults/main\\.yml$/"
+      ],
+      "matchStrings": [
+        "recovery_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "nginx",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Track shared ClamAV image (full image:tag) pinned in infrastructure role defaults. The _base variant ships without the signature DB; freshclam fetches it on start.",
+      "managerFilePatterns": [
+        "/^ansible/roles/infrastructure/defaults/main\\.yml$/"
+      ],
+      "matchStrings": [
+        "clamav_image:\\s*\"clamav/clamav:(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "clamav/clamav",
+      "datasourceTemplate": "docker"
     }
   ]
 }
