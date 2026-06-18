@@ -69,9 +69,11 @@ func main() {
 		if endpoint != "" {
 			puller := pull.New(endpoint, strings.TrimSpace(os.Getenv("CATENA_LICENSE")), pluginsDir)
 			if n, err := puller.Sync(context.Background()); err != nil {
+				// #nosec G706 -- endpoint is an operator-set env var, not request input
 				log.Printf("plugins: initial pull from %s: %v", endpoint, err)
 			} else {
 				pulls.set(time.Now().UTC())
+				// #nosec G706 -- endpoint is an operator-set env var, not request input
 				log.Printf("plugins: pulled %d binary(ies) from %s", n, endpoint)
 			}
 			// Re-validate + re-pull hourly; stops when the license lapses.
@@ -165,8 +167,15 @@ func main() {
 		addr, editionLabel(lic, now), len(enabled))
 	// TLS is terminated at the edge (Cloudflare tunnel + oauth2-proxy); the
 	// admin binary listens on plain HTTP behind the proxy and never faces the
-	// public internet directly.
-	log.Fatal(http.ListenAndServe(addr, mux)) // nosemgrep: go.lang.security.audit.net.use-tls.use-tls
+	// public internet directly. ReadHeaderTimeout caps slow-header (Slowloris)
+	// holds even behind the proxy; the *http.Server form also avoids gosec G114.
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	// nosemgrep: go.lang.security.audit.net.use-tls.use-tls
+	log.Fatal(srv.ListenAndServe())
 }
 
 // pullState tracks the last successful plugin pull, read by /licensez. Guarded
@@ -211,6 +220,7 @@ func pullLoop(ctx context.Context, puller *pull.Client, st *pullState, lic *lice
 			}
 			st.set(time.Now().UTC())
 			if n > 0 {
+				// #nosec G706 -- n is an integer count, not attacker-controlled text
 				log.Printf("plugins: pulled %d updated binary(ies) (effective on restart)", n)
 			}
 		}

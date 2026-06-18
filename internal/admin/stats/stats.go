@@ -28,8 +28,13 @@ func Dir(override string) string {
 // Read returns <dir>/<name>.json as a map, or an empty map on any failure
 // (missing file, invalid JSON, permission error).
 func Read(name, statsDir string) map[string]any {
+	// Guard the name to a plain base filename so it can never traverse out of
+	// the stats dir, regardless of caller.
+	if name == "" || name != filepath.Base(name) {
+		return map[string]any{}
+	}
 	path := filepath.Join(Dir(statsDir), name+".json")
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) // #nosec G304 -- name guarded to a base filename above; statsDir is operator-configured
 	if err != nil {
 		return map[string]any{}
 	}

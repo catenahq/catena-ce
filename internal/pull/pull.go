@@ -82,6 +82,14 @@ func (c *Client) List(ctx context.Context) ([]Artifact, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&arts); err != nil {
 		return nil, fmt.Errorf("pull: list: decode: %w", err)
 	}
+	// Every artifact name is joined onto PluginsDir to form a download target
+	// and a hash path. Reject anything that is not a plain base filename so a
+	// buggy or hostile endpoint cannot traverse out of PluginsDir.
+	for _, a := range arts {
+		if a.Name == "" || a.Name != filepath.Base(a.Name) {
+			return nil, fmt.Errorf("pull: list: unsafe artifact name %q", a.Name)
+		}
+	}
 	return arts, nil
 }
 
@@ -92,7 +100,7 @@ func (c *Client) Sync(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if err := os.MkdirAll(c.PluginsDir, 0o755); err != nil {
+	if err := os.MkdirAll(c.PluginsDir, 0o750); err != nil {
 		return 0, fmt.Errorf("pull: mkdir %s: %w", c.PluginsDir, err)
 	}
 	downloaded := 0
@@ -138,7 +146,7 @@ func (c *Client) download(ctx context.Context, a Artifact) error {
 
 	h := sha256.New()
 	if _, err := io.Copy(io.MultiWriter(tmp, h), resp.Body); err != nil {
-		tmp.Close()
+		_ = tmp.Close() // already returning the copy error; temp file is removed by defer
 		return fmt.Errorf("pull: write %s: %w", a.Name, err)
 	}
 	if err := tmp.Close(); err != nil {
@@ -147,14 +155,19 @@ func (c *Client) download(ctx context.Context, a Artifact) error {
 	if got := hex.EncodeToString(h.Sum(nil)); got != a.SHA256 {
 		return fmt.Errorf("pull: %s sha256 mismatch: want %s got %s", a.Name, a.SHA256, got)
 	}
-	if err := os.Chmod(tmpName, 0o755); err != nil {
+	// 0o700: the loader execs this binary as the admin user, so the owner exec
+	// bit is required; group/other get nothing. (gosec G302 wants <=0600, but a
+	// plugin binary must be executable -- 0o700 is the minimal workable mode.)
+	if err := os.Chmod(tmpName, 0o700); err != nil { // #nosec G302 -- plugin binary must be owner-executable
 		return err
 	}
 	return os.Rename(tmpName, filepath.Join(c.PluginsDir, a.Name))
 }
 
 func localSHA256(path string) (string, error) {
-	f, err := os.Open(path)
+	// path is PluginsDir joined with an artifact name already validated in
+	// List() to be a plain base filename, so no traversal is possible here.
+	f, err := os.Open(path) // #nosec G304 -- artifact name validated to a base filename in List()
 	if err != nil {
 		return "", err
 	}

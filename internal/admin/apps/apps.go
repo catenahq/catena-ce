@@ -196,7 +196,7 @@ func extraTiles(path string, gatus GatusByHost) []Tile {
 	if path == "" {
 		path = envOr("CATENA_ADMIN_EXTRA_TILES", "/etc/catena/extra-tiles.yml")
 	}
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) // #nosec G304 -- operator-configured tiles path (env or fixed default), not request input
 	if err != nil {
 		return nil
 	}

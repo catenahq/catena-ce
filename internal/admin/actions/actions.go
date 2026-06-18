@@ -77,7 +77,7 @@ func Load(path string) []Action {
 	if path == "" {
 		path = envOr("CATENA_ADMIN_ACTIONS_FILE", "/etc/catena/admin-actions.yml")
 	}
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) // #nosec G304 -- operator-configured catalog path (env or fixed default), not request input
 	if err != nil {
 		return nil
 	}

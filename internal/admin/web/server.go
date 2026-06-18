@@ -412,6 +412,7 @@ func (s *server) setLocale(w http.ResponseWriter, r *http.Request) {
 	})
 	// safeBack() only returns same-origin relative paths (leading "/", no
 	// "//", no scheme/host), so the redirect target cannot leave this host.
+	// #nosec G710 -- safeBack() returns same-origin relative paths only
 	http.Redirect(w, r, safeBack(r.URL.Query().Get("back")), http.StatusSeeOther) // nosemgrep: go.lang.security.injection.open-redirect.open-redirect
 }
 
@@ -438,6 +439,7 @@ func (s *server) setTheme(w http.ResponseWriter, r *http.Request) {
 	})
 	// safeBack() only returns same-origin relative paths (leading "/", no
 	// "//", no scheme/host), so the redirect target cannot leave this host.
+	// #nosec G710 -- safeBack() returns same-origin relative paths only
 	http.Redirect(w, r, safeBack(r.URL.Query().Get("back")), http.StatusSeeOther) // nosemgrep: go.lang.security.injection.open-redirect.open-redirect
 }
 

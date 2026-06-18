@@ -57,7 +57,7 @@ func NewTemplates(tr *i18n.Translations, globals map[string]any) (*Templates, er
 		// safeHTML emits a trusted, static fragment (action/artifact icon
 		// entities from the catalog + recovery package) without escaping.
 		// Only ever called on constants, never on user input.
-		"safeHTML": func(s string) template.HTML { return template.HTML(s) },
+		"safeHTML": func(s string) template.HTML { return template.HTML(s) }, // #nosec G203 -- only ever called on trusted static constants (see comment above)
 	}
 	base := template.New("base").Funcs(fm)
 	for _, f := range []string{"templates/layout.tmpl", "templates/nav.tmpl"} {

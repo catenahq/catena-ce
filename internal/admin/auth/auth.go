@@ -40,7 +40,7 @@ const (
 	groupsHeader    = "X-Forwarded-Groups"
 	sigHeader       = "X-Catena-Sig"
 	requireSigEnv   = "CATENA_ADMIN_REQUIRE_HEADER_SIG"
-	headerSecretEnv = "CATENA_ADMIN_HEADER_SECRET"
+	headerSecretEnv = "CATENA_ADMIN_HEADER_SECRET" // #nosec G101 -- env var NAME, not a secret value
 )
 
 // Sig verification errors. The HTTP layer maps both to 403.
