@@ -94,6 +94,32 @@
         path: "{{ mailserver_cert_live_dir }}/fullchain.pem"
       register: _ms_cert_stat
 
+    # Bench local-CA (Pebble) wiring. No-op in production (the
+    # CATENA_ACME_* knobs are blank), so certbot issues against Let's
+    # Encrypt exactly as before. When the bench points at its host-side
+    # Pebble ACME server, certbot must (a) resolve the `pebble` hostname
+    # baked into Pebble's endpoint cert SAN to the Pebble host IP, and
+    # (b) trust the extracted minica via REQUESTS_CA_BUNDLE. See
+    # test_bench/orchestrator/pebble.py.
+    - name: "Mailserver cert: map Pebble ACME host (bench local CA)"
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '[[:space:]]pebble$'
+        line: "{{ mailserver_acme_host_ip }} pebble"
+        state: present
+      when:
+        - (mailserver_acme_directory_url | length) > 0
+        - (mailserver_acme_host_ip | length) > 0
+
+    - name: "Mailserver cert: install Pebble CA bundle (bench local CA)"
+      ansible.builtin.copy:
+        content: "{{ mailserver_acme_ca_bundle_b64 | b64decode }}"
+        dest: "{{ mailserver_acme_ca_bundle_path }}"
+        owner: root
+        group: root
+        mode: "0644"
+      when: (mailserver_acme_ca_bundle_b64 | length) > 0
+
     # First-issuance path. Idempotent: certbot's own state in
     # /etc/letsencrypt/renewal/<host>.conf prevents duplicate orders;
     # re-running on an issued cert is a near-no-op. Wide retry envelope
@@ -108,10 +134,15 @@
              '--dns-cloudflare',
              '--dns-cloudflare-credentials', mailserver_cloudflare_creds_path,
              '--dns-cloudflare-propagation-seconds', '30']
-            + (['--server', mailserver_certbot_staging_server]
-               if mailserver_certbot_use_staging | bool else [])
+            + (['--server', mailserver_acme_server]
+               if (mailserver_acme_server | length) > 0 else [])
             + ['-d', mailserver_hostname]
           }}
+      # REQUESTS_CA_BUNDLE makes certbot trust the bench Pebble endpoint's
+      # minica; empty dict in production = certbot uses the system trust
+      # store against Let's Encrypt, unchanged.
+      environment: "{{ {'REQUESTS_CA_BUNDLE': mailserver_acme_ca_bundle_path}
+                       if (mailserver_acme_ca_bundle_b64 | length) > 0 else {} }}"
       register: _ms_cert_issue
       when: not _ms_cert_stat.stat.exists
       changed_when: _ms_cert_issue.rc == 0

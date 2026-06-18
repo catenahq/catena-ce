@@ -77,6 +77,29 @@
     path: "{{ coturn_cert_path }}"
   register: _coturn_cert_stat
 
+# Bench local-CA (Pebble) wiring. No-op in production (CATENA_ACME_* are
+# blank). When the bench points at its host-side Pebble ACME server,
+# certbot must resolve the `pebble` hostname (in Pebble's endpoint cert
+# SAN) to the Pebble host IP and trust the minica via REQUESTS_CA_BUNDLE.
+- name: "coturn cert: map Pebble ACME host (bench local CA)"
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '[[:space:]]pebble$'
+    line: "{{ coturn_acme_host_ip }} pebble"
+    state: present
+  when:
+    - (coturn_acme_directory_url | length) > 0
+    - (coturn_acme_host_ip | length) > 0
+
+- name: "coturn cert: install Pebble CA bundle (bench local CA)"
+  ansible.builtin.copy:
+    content: "{{ coturn_acme_ca_bundle_b64 | b64decode }}"
+    dest: "{{ coturn_acme_ca_bundle_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: (coturn_acme_ca_bundle_b64 | length) > 0
+
 # First-issuance path. Idempotent: certbot's own state in
 # /etc/letsencrypt/renewal/<host>.conf prevents duplicate orders.
 # Re-running on an already-issued cert is a near-no-op.
@@ -94,10 +117,14 @@
          '--dns-cloudflare',
          '--dns-cloudflare-credentials', coturn_cloudflare_creds_path,
          '--dns-cloudflare-propagation-seconds', '30']
-        + (['--server', coturn_certbot_staging_server]
-           if coturn_certbot_use_staging | bool else [])
+        + (['--server', coturn_acme_server]
+           if (coturn_acme_server | length) > 0 else [])
         + ['-d', coturn_hostname]
       }}
+  # REQUESTS_CA_BUNDLE makes certbot trust the bench Pebble endpoint's
+  # minica; empty dict in production = system trust against LE, unchanged.
+  environment: "{{ {'REQUESTS_CA_BUNDLE': coturn_acme_ca_bundle_path}
+                   if (coturn_acme_ca_bundle_b64 | length) > 0 else {} }}"
   register: _coturn_cert_issue
   when: not _coturn_cert_stat.stat.exists
   changed_when: _coturn_cert_issue.rc == 0

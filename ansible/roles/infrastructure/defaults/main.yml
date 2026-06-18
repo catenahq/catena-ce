@@ -347,6 +347,24 @@ mailserver_certbot_email: "{{ admin_email | default('hostmaster@' ~ cloudflare_z
 mailserver_certbot_use_staging: "{{ lookup('dotenv', 'MAILSERVER_CERTBOT_STAGING', default='false') | bool }}"
 mailserver_certbot_staging_server: "https://acme-staging-v02.api.letsencrypt.org/directory"
 
+# Local-ACME override (bench Pebble). All blank in production -> certbot
+# issues against Let's Encrypt (prod, or staging when the flag above is
+# set). The test bench points these at its host-side Pebble ACME server
+# so cert issuance does not depend on LE staging (which intermittently
+# returns "Service busy"). CA bundle is base64 (a raw PEM cannot survive
+# the line-based inventory .env). See test_bench/orchestrator/pebble.py.
+mailserver_acme_directory_url: "{{ lookup('dotenv', 'CATENA_ACME_DIRECTORY_URL', default='') }}"
+mailserver_acme_host_ip: "{{ lookup('dotenv', 'CATENA_ACME_HOST_IP', default='') }}"
+mailserver_acme_ca_bundle_b64: "{{ lookup('dotenv', 'CATENA_ACME_CA_BUNDLE_PEM_B64', default='') }}"
+mailserver_acme_ca_bundle_path: "/etc/letsencrypt/catena-acme-ca.pem"
+# Effective --server: explicit local-CA override wins; else LE staging
+# when requested; else '' (certbot's default = LE production).
+mailserver_acme_server: >-
+  {{ mailserver_acme_directory_url
+     if (mailserver_acme_directory_url | length) > 0
+     else (mailserver_certbot_staging_server
+           if mailserver_certbot_use_staging | bool else '') }}
+
 # --- Mailserver DNS (MTA-STS / TLS-RPT + the mail A record) -----------
 # ops automates ONLY the safe, mail-specific records via the Cloudflare
 # API: the gray-cloud A record for mail.<zone> (the mail plane cannot
