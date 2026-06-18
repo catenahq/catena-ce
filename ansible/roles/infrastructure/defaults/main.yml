@@ -356,7 +356,13 @@ mailserver_certbot_staging_server: "https://acme-staging-v02.api.letsencrypt.org
 mailserver_acme_directory_url: "{{ lookup('dotenv', 'CATENA_ACME_DIRECTORY_URL', default='') }}"
 mailserver_acme_host_ip: "{{ lookup('dotenv', 'CATENA_ACME_HOST_IP', default='') }}"
 mailserver_acme_ca_bundle_b64: "{{ lookup('dotenv', 'CATENA_ACME_CA_BUNDLE_PEM_B64', default='') }}"
-mailserver_acme_ca_bundle_path: "/etc/letsencrypt/catena-acme-ca.pem"
+# The Pebble minica is ADDED to the system trust store (update-ca-
+# certificates), not used as a standalone REQUESTS_CA_BUNDLE -- certbot's
+# Cloudflare DNS plugin must still verify api.cloudflare.com's public-CA
+# cert in the same process. So drop it where update-ca-certificates picks
+# it up (.crt extension required) and point certbot at the COMBINED bundle.
+mailserver_acme_ca_bundle_path: "/usr/local/share/ca-certificates/catena-pebble-acme.crt"
+mailserver_acme_system_ca_bundle: "/etc/ssl/certs/ca-certificates.crt"
 # Effective --server: explicit local-CA override wins; else LE staging
 # when requested; else '' (certbot's default = LE production).
 mailserver_acme_server: >-

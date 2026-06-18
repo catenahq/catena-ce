@@ -111,13 +111,24 @@
         - (mailserver_acme_directory_url | length) > 0
         - (mailserver_acme_host_ip | length) > 0
 
-    - name: "Mailserver cert: install Pebble CA bundle (bench local CA)"
+    - name: "Mailserver cert: install Pebble CA bundle into system trust (bench local CA)"
       ansible.builtin.copy:
         content: "{{ mailserver_acme_ca_bundle_b64 | b64decode }}"
         dest: "{{ mailserver_acme_ca_bundle_path }}"
         owner: root
         group: root
         mode: "0644"
+      register: _ms_pebble_ca
+      when: (mailserver_acme_ca_bundle_b64 | length) > 0
+
+    # Fold the minica into the system bundle so the SAME process trusts
+    # both Pebble (ACME endpoint) AND api.cloudflare.com (DNS plugin,
+    # public CA). Pointing REQUESTS_CA_BUNDLE at the minica alone broke
+    # the Cloudflare call with CERTIFICATE_VERIFY_FAILED.
+    - name: "Mailserver cert: refresh system trust store (bench local CA)"
+      ansible.builtin.command:
+        cmd: update-ca-certificates
+      changed_when: _ms_pebble_ca is changed
       when: (mailserver_acme_ca_bundle_b64 | length) > 0
 
     # First-issuance path. Idempotent: certbot's own state in
@@ -138,10 +149,11 @@
                if (mailserver_acme_server | length) > 0 else [])
             + ['-d', mailserver_hostname]
           }}
-      # REQUESTS_CA_BUNDLE makes certbot trust the bench Pebble endpoint's
-      # minica; empty dict in production = certbot uses the system trust
-      # store against Let's Encrypt, unchanged.
-      environment: "{{ {'REQUESTS_CA_BUNDLE': mailserver_acme_ca_bundle_path}
+      # Point certbot at the COMBINED system bundle (now carrying the
+      # Pebble minica via update-ca-certificates) so it trusts both the
+      # Pebble ACME endpoint and api.cloudflare.com. Empty dict in
+      # production = system trust against Let's Encrypt, unchanged.
+      environment: "{{ {'REQUESTS_CA_BUNDLE': mailserver_acme_system_ca_bundle}
                        if (mailserver_acme_ca_bundle_b64 | length) > 0 else {} }}"
       register: _ms_cert_issue
       when: not _ms_cert_stat.stat.exists

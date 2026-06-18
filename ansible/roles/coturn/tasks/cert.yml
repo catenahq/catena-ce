@@ -91,13 +91,24 @@
     - (coturn_acme_directory_url | length) > 0
     - (coturn_acme_host_ip | length) > 0
 
-- name: "coturn cert: install Pebble CA bundle (bench local CA)"
+- name: "coturn cert: install Pebble CA bundle into system trust (bench local CA)"
   ansible.builtin.copy:
     content: "{{ coturn_acme_ca_bundle_b64 | b64decode }}"
     dest: "{{ coturn_acme_ca_bundle_path }}"
     owner: root
     group: root
     mode: "0644"
+  register: _coturn_pebble_ca
+  when: (coturn_acme_ca_bundle_b64 | length) > 0
+
+# Fold the minica into the system bundle so the SAME process trusts both
+# Pebble (ACME endpoint) AND api.cloudflare.com (DNS plugin, public CA).
+# Pointing REQUESTS_CA_BUNDLE at the minica alone broke the Cloudflare
+# call with CERTIFICATE_VERIFY_FAILED.
+- name: "coturn cert: refresh system trust store (bench local CA)"
+  ansible.builtin.command:
+    cmd: update-ca-certificates
+  changed_when: _coturn_pebble_ca is changed
   when: (coturn_acme_ca_bundle_b64 | length) > 0
 
 # First-issuance path. Idempotent: certbot's own state in
@@ -121,9 +132,11 @@
            if (coturn_acme_server | length) > 0 else [])
         + ['-d', coturn_hostname]
       }}
-  # REQUESTS_CA_BUNDLE makes certbot trust the bench Pebble endpoint's
-  # minica; empty dict in production = system trust against LE, unchanged.
-  environment: "{{ {'REQUESTS_CA_BUNDLE': coturn_acme_ca_bundle_path}
+  # Point certbot at the COMBINED system bundle (now carrying the Pebble
+  # minica via update-ca-certificates) so it trusts both the Pebble ACME
+  # endpoint and api.cloudflare.com. Empty dict in production = system
+  # trust against LE, unchanged.
+  environment: "{{ {'REQUESTS_CA_BUNDLE': coturn_acme_system_ca_bundle}
                    if (coturn_acme_ca_bundle_b64 | length) > 0 else {} }}"
   register: _coturn_cert_issue
   when: not _coturn_cert_stat.stat.exists
