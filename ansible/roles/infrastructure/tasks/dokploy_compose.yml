@@ -196,6 +196,42 @@
       {{ ((_dokploy_compose_current.json.deployments | default([]))
           | last | default({})).deploymentId | default('') }}
 
+# A re-converge can mint a NEW Dokploy appName for an already-deployed
+# service when find-or-create misses the existing compose -- notably
+# after a restore replays the Dokploy DB. The PRIOR app's containers
+# then keep running but UNTRACKED by Dokploy: they hold their fixed host
+# ports (e.g. gatus' 127.0.0.1:18080) and bloat container storage, so the
+# fresh compose.deploy below cannot bind and ends in composeStatus=error.
+# Reap any container whose compose-project label matches THIS service's
+# Dokploy appName pattern (<name>-<6 chars>) but is NOT the appName we are
+# about to deploy -- frees the port + disk without touching the
+# steady-state app (no flap; honours the anti-flap contract fi_c6 guards).
+# Self-healing: a clean converge with no orphans removes nothing.
+- name: "Dokploy: reap orphan containers from a stale appName ({{ svc_name }})"
+  ansible.builtin.shell:
+    cmd: |
+      {% raw %}
+      set -u
+      docker ps -a --filter "label=com.docker.compose.project" \
+        --format '{{.Label "com.docker.compose.project"}} {{.ID}}' \
+        | while read -r proj cid; do
+            case "$proj" in
+              "$CATENA_REAP_SVC"-??????)
+                if [ "$proj" != "$CATENA_REAP_KEEP" ]; then
+                  echo "reaping orphan container $cid (project=$proj)"
+                  docker rm -f "$cid" >/dev/null 2>&1 || true
+                fi
+                ;;
+            esac
+          done
+      {% endraw %}
+  environment:
+    CATENA_REAP_SVC: "{{ svc_name }}"
+    CATENA_REAP_KEEP: "{{ _dokploy_compose_current.json.appName | default('') }}"
+  register: _dokploy_reap
+  changed_when: "'reaping orphan' in (_dokploy_reap.stdout | default(''))"
+  when: _dokploy_compose_current.json.appName | default('') | length > 0
+
 # Deploy + wait + check, retried up to infrastructure_deploy_max_attempts
 # times when the failure looks like a registry transient (quay.io 502,
 # docker.io 503, ghcr.io 504, TLS handshake timeout, etc). Non-
