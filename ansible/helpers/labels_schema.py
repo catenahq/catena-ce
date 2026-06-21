@@ -86,6 +86,90 @@ def extract_vps_auth_labels(compose_text: str) -> dict:
     return labels
 
 
+# ─── dokploy-network service-alias extraction ─────────────────────────────
+#
+# dashboard-sync routes each domain's Traefik backend to the dokploy-network
+# alias of the compose service that domain fronts (the Dokploy domain record's
+# serviceName). A multi-domain app (Nextcloud + Talk HPB) gives each service
+# its own alias (`nextcloud`, `signaling`), so the router must target the
+# service-specific alias, not blindly the appName slug. This is the host-side
+# resolver gate_routes consults. Stdlib-only (no YAML dep): an indentation
+# parser over the standard 2-space compose shape.
+
+
+def _line_indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def extract_service_aliases(compose_text: str) -> dict:
+    """Return {service_name: [dokploy-network aliases]} parsed from a compose
+    body. Only dokploy-network aliases are collected (the handle Traefik
+    resolves backends through); a service with none maps to []. Handles both
+    the block list form
+
+        services:
+          app:
+            networks:
+              dokploy-network:
+                aliases:
+                  - nextcloud
+
+    and the flow form (`aliases: [nextcloud]`). Best-effort: malformed
+    indentation yields a partial map, never an exception. YAML-less so it runs
+    beside dashboard-sync on a stdlib-only host."""
+    out: dict = {}
+    if not compose_text:
+        return out
+    stack: list[tuple[int, str]] = []  # (indent, key) path from the root
+    for raw in compose_text.splitlines():
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        ind = _line_indent(raw)
+        stripped = raw.strip()
+        if stripped.startswith("- "):
+            # List item: contributes only under services.<svc>.networks.
+            # dokploy-network.aliases.
+            path = [k for _, k in stack]
+            if (
+                len(path) >= 5
+                and path[-1] == "aliases"
+                and path[-2] == "dokploy-network"
+                and path[-3] == "networks"
+                and path[-5] == "services"
+            ):
+                out.setdefault(path[-4], []).append(
+                    stripped[2:].strip().strip("\"'")
+                )
+            continue
+        if ":" not in stripped:
+            continue
+        while stack and stack[-1][0] >= ind:
+            stack.pop()
+        key, _, val = stripped.partition(":")
+        key = key.strip().strip("\"'")
+        val = val.strip()
+        stack.append((ind, key))
+        path = [k for _, k in stack]
+        # Register every service so callers can distinguish "no alias" from
+        # "unknown service".
+        if len(path) == 2 and path[-2] == "services":
+            out.setdefault(key, [])
+        # Flow-list aliases: dokploy-network: aliases: [a, b]
+        if (
+            key == "aliases"
+            and val.startswith("[")
+            and val.endswith("]")
+            and len(path) >= 5
+            and path[-2] == "dokploy-network"
+            and path[-3] == "networks"
+            and path[-5] == "services"
+        ):
+            out.setdefault(path[-4], []).extend(
+                x.strip().strip("\"'") for x in val[1:-1].split(",") if x.strip()
+            )
+    return out
+
+
 # ─── vps.homepage.* label extraction ──────────────────────────────────────
 
 _VPS_HOMEPAGE_LABEL_RE = re.compile(

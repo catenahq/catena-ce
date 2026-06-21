@@ -17,10 +17,18 @@ import route_synth  # noqa: E402
 
 try:
     # In-repo (pytest / operator uv-run with pythonpath=automation).
-    from helpers.labels_schema import extract_vps_auth_labels, slugify
+    from helpers.labels_schema import (
+        extract_service_aliases,
+        extract_vps_auth_labels,
+        slugify,
+    )
 except ModuleNotFoundError:
     # On host: labels_schema.py is installed flat beside dashboard-sync.
-    from labels_schema import extract_vps_auth_labels, slugify
+    from labels_schema import (
+        extract_service_aliases,
+        extract_vps_auth_labels,
+        slugify,
+    )
 
 
 def sync_gate_routes(projects, api_base, api_key, dyn_dir, infra_project,
@@ -64,9 +72,15 @@ def sync_gate_routes(projects, api_base, api_key, dyn_dir, infra_project,
         # Dokploy API, so labels stays empty -> resolve_access DENIES them
         # (admin-only) under default-deny. That is the secure outcome.
         labels = {}
+        svc_aliases = {}
         if kind == "compose":
             compose_body = dokploy_api._fetch_compose_file(api_base, api_key, item)
             labels = extract_vps_auth_labels(compose_body)
+            # service -> [dokploy-network aliases]: a domain that fronts a
+            # non-primary service (Talk HPB's signaling.<zone>) must route to
+            # THAT service's alias, not the appName slug (which only the
+            # primary service carries).
+            svc_aliases = extract_service_aliases(compose_body)
         is_public, allowed = route_synth.resolve_access(labels, app_name=name)
         this_slug = slugify(name)
 
@@ -76,11 +90,32 @@ def sync_gate_routes(projects, api_base, api_key, dyn_dir, infra_project,
             if not host or host == auth_hostname:
                 continue
             port = d.get("port") or 80
-            fname = f"{this_slug}{route_synth.AUTO_ROUTE_SUFFIX}"
+            # Backend alias = the dokploy-network alias of the service this
+            # domain fronts (Dokploy tags each domain with its serviceName).
+            # Falls back to the appName slug for a single-service app or when
+            # the service declares no alias -- so a primary domain resolves
+            # exactly as before.
+            svc_name = (d.get("serviceName") or "").strip()
+            svc_alias_list = svc_aliases.get(svc_name) if svc_name else None
+            backend_alias = svc_alias_list[0] if svc_alias_list else this_slug
+            # Per-service route slug so a multi-domain app's domains land in
+            # distinct files + router keys. Identical to this_slug for the
+            # primary service, so single-domain apps are byte-for-byte
+            # unchanged.
+            route_slug = (
+                this_slug if backend_alias == this_slug
+                else slugify(backend_alias)
+            )
+            fname = f"{route_slug}{route_synth.AUTO_ROUTE_SUFFIX}"
             if is_public:
-                body = route_synth._route_yaml_public(name, host, this_slug, port, force_https_mw)
+                body = route_synth._route_yaml_public(
+                    name, host, backend_alias, port, force_https_mw,
+                    route_slug=route_slug,
+                )
             else:
-                body = route_synth._route_yaml_perapp(name, host, force_https_mw, proxy_port)
+                body = route_synth._route_yaml_perapp(
+                    name, host, force_https_mw, proxy_port, route_slug=route_slug,
+                )
                 hosts.add(host)
                 # One proxy instance per app; first domain's port is the
                 # backend upstream. (Multiple domains share the instance.)
@@ -92,15 +127,15 @@ def sync_gate_routes(projects, api_base, api_key, dyn_dir, infra_project,
                     "allowed_groups": allowed,
                 })
 
-            owner = slug_owners.get(this_slug)
+            owner = slug_owners.get(route_slug)
             if owner is not None and owner != name:
                 print(
                     f"dashboard-sync/warn: slug collision -- {name!r} and "
-                    f"{owner!r} both slugify to {this_slug!r}; later write "
+                    f"{owner!r} both slugify to {route_slug!r}; later write "
                     f"wins. Rename one of the Dokploy apps.",
                     file=sys.stderr,
                 )
-            slug_owners[this_slug] = name
+            slug_owners[route_slug] = name
             desired[fname] = body
             gated_count += 1
 
