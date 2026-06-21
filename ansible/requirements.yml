@@ -18,4 +18,4 @@ collections:
   # content; paste into the calling shell once per session, no file
   # on disk).
   - name: community.sops
-    version: "==2.3.0"
+    version: "==2.4.0"
