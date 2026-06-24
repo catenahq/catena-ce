@@ -304,16 +304,47 @@
     mode: "0644"
   register: _backup_service_unit
 
-# Community ships the backup as a manually-invoked oneshot service (the
-# "Backup now" admin button / a direct systemctl start), NOT a timer.
-# The scheduled backup timer + the cold/WORM mirror (restic + nextcloud
-# service/timer/scripts) are the Business managed lane and are not shipped
-# here -- a CE user who wants a schedule wires their own timer around
-# catena-backup.service.
-- name: Reload systemd if the backup service unit changed
+# Community ships exactly ONE timer: a single daily backup, so a self-
+# hosted CE deployment backs itself up without a license. Sub-daily
+# cadence (backup_tier realtime/standard) + the cold/WORM mirror + the
+# catena-daily orchestrator chain are the Business managed lane and are
+# NOT shipped here. On a Business host the EE catena-daily engine masks
+# catena-backup.timer and drives scheduling itself, so the daily timer
+# and the chain never double-fire (the enable below tolerates the mask).
+- name: Drop systemd daily-backup timer unit
+  ansible.builtin.template:
+    src: catena-backup.timer.j2
+    dest: "/etc/systemd/system/{{ backup_systemd_unit_name }}.timer"
+    owner: root
+    group: root
+    mode: "0644"
+  register: _backup_timer_unit
+
+- name: Reload systemd if the backup service or timer unit changed
   ansible.builtin.systemd_service:
     daemon_reload: true
-  when: _backup_service_unit.changed
+  when: _backup_service_unit.changed or _backup_timer_unit.changed
+
+# Probe mask state so a Business host (where EE catena-daily has masked
+# the timer to take over scheduling) is left alone -- `systemctl enable`
+# errors on a masked unit. is-enabled prints "masked" and exits non-zero
+# for a masked unit; we only enable when it is NOT masked.
+- name: "Backup: probe daily-timer mask state"
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-enabled
+      - "{{ backup_systemd_unit_name }}.timer"
+  register: _backup_timer_enabled_state
+  changed_when: false
+  failed_when: false
+
+- name: "Backup: enable + start the daily-backup timer (skip if EE-masked)"
+  ansible.builtin.systemd_service:
+    name: "{{ backup_systemd_unit_name }}.timer"
+    enabled: true
+    state: started
+  when: "'masked' not in _backup_timer_enabled_state.stdout"
 
 # ─── restic repo init (idempotent) ───────────────────────────────────────
 # `restic cat config` returns 0 iff the repo exists and the password is

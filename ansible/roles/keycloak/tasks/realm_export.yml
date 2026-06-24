@@ -24,7 +24,7 @@
 # run, so each converge dumps the realm to backup-staging where the
 # single backup picks it up. (Community runs this at converge time only;
 # the nightly drift-export timer is part of the Business managed lane,
-# not CE -- CE ships no scheduled tasks.)
+# not CE -- CE's only timer is the single daily backup.)
 
 - name: "Keycloak realm export: ensure backup-staging/keycloak dir"
   ansible.builtin.file:

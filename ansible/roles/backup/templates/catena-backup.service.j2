@@ -1,5 +1,5 @@
 [Unit]
-Description=catena restic backup (manual oneshot -- no timer in CE)
+Description=catena restic backup (oneshot; driven by catena-backup.timer in CE, by the catena-daily chain in Business)
 After=network-online.target docker.service
 Wants=network-online.target
 
