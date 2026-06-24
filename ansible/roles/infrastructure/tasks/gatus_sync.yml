@@ -19,6 +19,18 @@
     group: root
     mode: "0755"
 
+- name: "version-check: script (auto-detecting Versions producer)"
+  # Plain Python (no Jinja) -- same docker --format reasoning as
+  # gatus-sync. Runs as gatus-sync.service's ExecStartPre so the
+  # version-check.json gatus-sync reads is always fresh. Auto-detects
+  # every running service; no registry to maintain.
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/catena-version-check.py"
+    dest: "{{ version_check_script_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: "gatus-sync: env file ({{ gatus_sync_env_path }})"
   ansible.builtin.template:
     src: gatus-sync.env.j2

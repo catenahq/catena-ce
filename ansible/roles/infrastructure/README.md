@@ -19,8 +19,9 @@ the operator panel (`roles/catena-admin`):
   `Generate recovery archive (encrypted)` entry in catena-admin's
   Actions tab) so the operator can recover access even after vault
   key loss.
-- **Sync timers** -- systemd timers around `dashboard-sync.py`,
-  `gatus-sync.py`, `version-check.py`.
+- **Sync timers** -- systemd timers around `dashboard-sync.py` and
+  `gatus-sync.py`. `catena-version-check.py` (auto-detecting Versions
+  report) runs as gatus-sync's ExecStartPre producer, not its own timer.
 
 ## Auxiliary task files
 

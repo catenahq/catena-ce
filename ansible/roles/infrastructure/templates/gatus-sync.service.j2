@@ -7,6 +7,10 @@ After=network-online.target docker.service
 [Service]
 Type=oneshot
 EnvironmentFile={{ gatus_sync_env_path }}
+# Refresh the auto-detected version report BEFORE gatus-sync reads it.
+# Leading "-" so a version-check failure (an upstream registry hiccup)
+# never blocks the monitor-config sync.
+ExecStartPre=-{{ version_check_script_path }}
 ExecStart={{ gatus_sync_script_path }}
 StandardOutput=journal
 StandardError=journal

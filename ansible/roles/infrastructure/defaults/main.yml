@@ -210,16 +210,21 @@ recovery_source_dir: "{{ backup_export_dir | default('/var/backups/catena-export
 infrastructure_recovery_subdomain: "{{ lookup('dotenv', 'RECOVERY_SUBDOMAIN', default='recovery') }}"
 infrastructure_recovery_hostname: "{{ infrastructure_recovery_subdomain }}.{{ cloudflare_zone }}"
 
-# Semaphore (the operator's CI/Ansible runner), stack-update (the weekly
-# managed container-bump engine), and version-check (the current-vs-latest
-# Versions report) are all Business-edition / operator-side capabilities,
-# not part of Community. Their roles/templates live in the private repos;
-# nothing here deploys them.
+# Semaphore (the operator's CI/Ansible runner) and stack-update (the
+# weekly managed container-BUMP engine) are Business-edition / operator-
+# side capabilities, not part of Community. Their roles/templates live in
+# the private repos; nothing here deploys them.
 
-# version-check.json is a forward-compatible seam: when the Business
-# managed-update module is licensed it writes /var/lib/catena/version-check.json,
-# and gatus-sync best-effort enriches endpoint names from it. In Community
-# the file is simply absent and gatus skips the version suffix.
+# version-check (the current-vs-latest Versions report) is CE: a
+# self-hosted Community deployment sees its own version + CVE-visibility
+# without a license. It auto-detects every running container + swarm
+# service and derives each upstream from the image ref (no registry to
+# maintain), running as the ExecStartPre producer of gatus-sync so the
+# report is fresh before gatus-sync reads it. When the Business managed-
+# update engine is ALSO licensed it writes its updater-state files, which
+# version-check merges into the report's summary card (absent on CE).
+version_check_script_path: /usr/local/bin/catena-version-check
+version_check_overrides_file: /etc/catena/version-check-overrides.json
 version_check_output_file: /var/lib/catena/version-check.json
 
 # --- snapshot-before-converge -------------------------------------------
