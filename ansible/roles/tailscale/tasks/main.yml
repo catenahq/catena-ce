@@ -26,11 +26,19 @@
   ansible.builtin.apt:
     update_cache: true
   when: tailscale_source.changed
+  register: tailscale_apt_update
+  until: tailscale_apt_update is succeeded
+  retries: 5
+  delay: 10
 
 - name: Install tailscale package
   ansible.builtin.apt:
     name: tailscale
     state: present
+  register: tailscale_apt_install
+  until: tailscale_apt_install is succeeded
+  retries: 5
+  delay: 10
 
 - name: Ensure tailscaled is enabled and running
   ansible.builtin.command:
