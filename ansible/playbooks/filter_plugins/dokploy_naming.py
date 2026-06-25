@@ -80,8 +80,39 @@ def dokploy_container_regex(compose_name, service_name="app", index=1):
     return f"^{re.escape(compose)}-[a-z0-9]+-{re.escape(service)}-{index}$"
 
 
+def dokploy_find_compose(project, svc_name):
+    """Find a compose named (or appName-ed) ``svc_name`` ANYWHERE in a
+    Dokploy ``project.all`` payload entry, searching EVERY environment.
+    Returns the compose dict, or None when absent.
+
+    find-or-create in roles/infrastructure/tasks/dokploy_compose.yml used
+    to read only ``project.environments[0].compose``. A compose that
+    Dokploy filed under a non-first environment -- or a first-environment
+    list that lagged on re-fetch -- was then missed: find-existing returned
+    None and a duplicate app was minted on re-converge, leaving the prior
+    container running but untracked while still holding its fixed host port
+    (the gatus 127.0.0.1:18080 collision that fails backup_rollback /
+    restore / re-converge with composeStatus=error). Flattening compose
+    across ALL environments and matching on name OR appName mirrors the
+    bench's own _find_compose_in_any_environment and makes the lookup
+    reliably idempotent. The orphan-reap in the role stays as a second line
+    of defence; this removes the cause it was papering over."""
+    if not isinstance(project, dict):
+        return None
+    for env in (project.get("environments") or []):
+        if not isinstance(env, dict):
+            continue
+        for compose in (env.get("compose") or []):
+            if not isinstance(compose, dict):
+                continue
+            if compose.get("name") == svc_name or compose.get("appName") == svc_name:
+                return compose
+    return None
+
+
 class FilterModule:
     def filters(self):
         return {
             "dokploy_container_regex": dokploy_container_regex,
+            "dokploy_find_compose": dokploy_find_compose,
         }

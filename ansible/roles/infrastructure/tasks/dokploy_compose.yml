@@ -38,16 +38,18 @@
 # All tRPC POSTs use plain JSON bodies; GETs use plain query params.
 # No {"json":{...}} envelope.
 
+# Search EVERY environment + match name OR appName (not just
+# environments[0].compose by name). A compose filed under a non-first
+# environment, or a first-environment list that lagged on re-fetch, was
+# missed here -- find-existing returned None and compose.create minted a
+# DUPLICATE app on re-converge, orphaning the prior container while it
+# still held its fixed host port (gatus 127.0.0.1:18080 -> composeStatus=
+# error -> backup_rollback / restore / re-converge rc=2). The filter
+# mirrors the bench's _find_compose_in_any_environment. See
+# playbooks/filter_plugins/dokploy_naming.py + its unit test.
 - name: "Dokploy: find existing compose in project ({{ svc_name }})"
   ansible.builtin.set_fact:
-    _dokploy_compose_existing: >-
-      {{
-        (_dokploy_project.environments[0].compose | default([]))
-        | selectattr('name', 'equalto', svc_name)
-        | list
-        | first
-        | default(None)
-      }}
+    _dokploy_compose_existing: "{{ _dokploy_project | dokploy_find_compose(svc_name) }}"
 
 - name: "Dokploy: create compose ({{ svc_name }})"
   ansible.builtin.uri:
