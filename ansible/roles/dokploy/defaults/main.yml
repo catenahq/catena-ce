@@ -2,7 +2,7 @@
 # Pinned Dokploy version (match a GitHub release tag). Matches the
 # Keycloak pattern: role-default hardcoded; override per-client by
 # setting dokploy_version in inventory/<name>/group_vars/all/main.yml.
-dokploy_version: "v0.29.7"
+dokploy_version: "v0.29.8"
 
 # Upstream Dokploy installer. Fetched to disk before running so the exact
 # bytes we scan for bootstrap-image pre-pull are the bytes we execute.
