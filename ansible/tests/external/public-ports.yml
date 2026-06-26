@@ -35,6 +35,31 @@
   ansible.builtin.set_fact:
     scan_result: "{{ scan_raw.stdout | from_json }}"
 
+# Record the scan on the host so the catena-admin proof dashboard can render
+# the port-exposure card (exposed_count == 0 => sealed). Written BEFORE the
+# assert so a regression is still surfaced in-product, not just in the play
+# output. The scan itself runs off-host (against the public IP); validate.yml
+# is its cadence -- a host cannot scan its own public IP from outside.
+- name: Build the port-scan record for the dashboard
+  ansible.builtin.set_fact:
+    _port_scan_record:
+      ts: "{{ now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ') }}"
+      host: "{{ public_ip }}"
+      scanned: "{{ scan_result.scanned | int }}"
+      open_ports: "{{ scan_result.open_ports }}"
+      expected: "{{ expected_public_ports | default([]) }}"
+      expected_count: "{{ expected_public_ports | default([]) | length | int }}"
+      unexpected: "{{ scan_result.open_ports | difference(expected_public_ports | default([])) }}"
+      exposed_count: "{{ (scan_result.open_ports | difference(expected_public_ports | default([]))) | length | int }}"
+
+- name: Persist the port-scan record to the host stats dir
+  ansible.builtin.copy:
+    content: "{{ _port_scan_record | to_nice_json }}\n"
+    dest: /var/lib/catena/port-scan.json
+    mode: "0644"
+  become: true
+  changed_when: false
+
 - name: Assert only expected ports are open publicly
   ansible.builtin.assert:
     that:
