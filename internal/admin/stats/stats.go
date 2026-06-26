@@ -50,3 +50,66 @@ func Read(name, statsDir string) map[string]any {
 func Backup(statsDir string) map[string]any {
 	return Read("backup-stats", statsDir)
 }
+
+// VerifyHot reads verify-hot.json (exit, ts, pg_archives_checked,
+// compose_files_checked, bootprobe, rto) written by catena-verify-hot.sh.
+func VerifyHot(statsDir string) map[string]any {
+	return Read("verify-hot", statsDir)
+}
+
+// VerifyCold reads verify-cold.json (exit, ts, latest_snapshot_id,
+// latest_snapshot_time) written by catena-verify-cold.sh.
+func VerifyCold(statsDir string) map[string]any {
+	return Read("verify-cold", statsDir)
+}
+
+// ResticCheck reads restic-check.json (exit, last_run, last_subset_run)
+// written by catena-restic-check.sh.
+func ResticCheck(statsDir string) map[string]any {
+	return Read("restic-check", statsDir)
+}
+
+// ContainerCVE reads container-cve-findings.json (exit, count_critical,
+// count_high, scanned_images) written by catena-container-cve-scan.sh.
+func ContainerCVE(statsDir string) map[string]any {
+	return Read("container-cve-findings", statsDir)
+}
+
+// HomepageSummary reads homepage-summary.json (total, up, down, down_names)
+// written by gatus-sync.py.
+func HomepageSummary(statsDir string) map[string]any {
+	return Read("homepage-summary", statsDir)
+}
+
+// PortScan reads port-scan.json (ts, exposed_count, unexpected, expected)
+// written by the external port-scan emitter.
+func PortScan(statsDir string) map[string]any {
+	return Read("port-scan", statsDir)
+}
+
+// String returns m[k] as a string, or "" if absent or not a string.
+func String(m map[string]any, k string) string {
+	if v, ok := m[k].(string); ok {
+		return v
+	}
+	return ""
+}
+
+// Int returns m[k] as an int, coercing the float64 JSON numbers decode to.
+// Absent or non-numeric yields 0.
+func Int(m map[string]any, k string) int {
+	switch n := m[k].(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	}
+	return 0
+}
+
+// Has reports whether m carries key k with a non-nil value. Lets callers
+// tell "field absent" (no report yet) from "field present and zero".
+func Has(m map[string]any, k string) bool {
+	v, ok := m[k]
+	return ok && v != nil
+}

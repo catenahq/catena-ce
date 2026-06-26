@@ -115,13 +115,15 @@ func NewTemplates(tr *i18n.Translations, globals map[string]any) (*Templates, er
 // renderData is the per-render context templates consume. T/Tf bind the
 // request locale so templates call {{ .T "key" }} like the Python {{ _("key") }}.
 type renderData struct {
-	Locale   string
-	Theme    string
-	Identity auth.Identity
-	IsAdmin  bool
-	Globals  map[string]any
-	Path     string
-	Data     any
+	Locale          string
+	Theme           string
+	Identity        auth.Identity
+	IsAdmin         bool
+	IsStaff         bool
+	IsAuthenticated bool
+	Globals         map[string]any
+	Path            string
+	Data            any
 	// Plugins are the enabled EE plugin panels, rendered as extra admin nav
 	// links. Empty in Community.
 	Plugins []PanelInfo
@@ -152,15 +154,17 @@ func (t *Templates) Render(w http.ResponseWriter, r *http.Request, page string, 
 	}
 	id := identityFrom(r)
 	rd := &renderData{
-		Locale:   localeFrom(r),
-		Theme:    themeFrom(r),
-		Identity: id,
-		IsAdmin:  id.IsAdmin(),
-		Globals:  t.globals,
-		Path:     r.URL.Path,
-		Data:     data,
-		Plugins:  t.navPanels(),
-		tr:       t.tr,
+		Locale:          localeFrom(r),
+		Theme:           themeFrom(r),
+		Identity:        id,
+		IsAdmin:         id.IsAdmin(),
+		IsStaff:         id.HasGroup(auth.StaffGroup),
+		IsAuthenticated: id.IsAuthenticated(),
+		Globals:         t.globals,
+		Path:            r.URL.Path,
+		Data:            data,
+		Plugins:         t.navPanels(),
+		tr:              t.tr,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
@@ -182,15 +186,17 @@ func (t *Templates) RenderFragment(w http.ResponseWriter, r *http.Request, name 
 	}
 	id := identityFrom(r)
 	rd := &renderData{
-		Locale:   localeFrom(r),
-		Theme:    themeFrom(r),
-		Identity: id,
-		IsAdmin:  id.IsAdmin(),
-		Globals:  t.globals,
-		Path:     r.URL.Path,
-		Data:     data,
-		Plugins:  t.navPanels(),
-		tr:       t.tr,
+		Locale:          localeFrom(r),
+		Theme:           themeFrom(r),
+		Identity:        id,
+		IsAdmin:         id.IsAdmin(),
+		IsStaff:         id.HasGroup(auth.StaffGroup),
+		IsAuthenticated: id.IsAuthenticated(),
+		Globals:         t.globals,
+		Path:            r.URL.Path,
+		Data:            data,
+		Plugins:         t.navPanels(),
+		tr:              t.tr,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)

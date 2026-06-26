@@ -1,0 +1,77 @@
+{{define "content"}}
+<section class="system-gauges" hx-get="/dashboard" hx-trigger="every 60s" hx-target="closest .system-page" hx-select=".system-page" hx-swap="outerHTML">
+  <div class="system-page">
+    <p class="muted">{{ .T "dashboard.intro" }}</p>
+
+    <div class="gauges">
+      <div class="gauge">
+        <h3>{{ .T "dashboard.restore.heading" }}</h3>
+        <p>
+          <span class="status-dot status-{{ .Data.HotDrill.StatusClass }}"></span>
+          {{ if eq .Data.HotDrill.StatusClass "healthy" }}{{ .T "dashboard.restore.proven" }}{{ else if eq .Data.HotDrill.StatusClass "unhealthy" }}{{ .T "dashboard.restore.failed" }}{{ else }}{{ .T "dashboard.never_run" }}{{ end }}
+        </p>
+        <p class="muted">
+          {{ if .Data.HotDrill.TS }}{{ .T "dashboard.last" }} {{ .Data.HotDrill.TS }}{{ end }}
+          {{ if .Data.HotDrill.RTO }}&middot; {{ .T "dashboard.restore.rto" }} {{ .Data.HotDrill.RTO }}{{ end }}
+        </p>
+      </div>
+
+      <div class="gauge">
+        <h3>{{ .T "dashboard.offsite.heading" }}</h3>
+        <p>
+          <span class="status-dot status-{{ .Data.ColdDrill.StatusClass }}"></span>
+          {{ if eq .Data.ColdDrill.StatusClass "healthy" }}{{ .T "dashboard.offsite.verified" }}{{ else if eq .Data.ColdDrill.StatusClass "unhealthy" }}{{ .T "dashboard.offsite.failed" }}{{ else }}{{ .T "dashboard.never_run" }}{{ end }}
+        </p>
+        <p class="muted">{{ if .Data.ColdDrill.TS }}{{ .T "dashboard.offsite.snapshot" }} {{ .Data.ColdDrill.TS }}{{ end }}</p>
+      </div>
+
+      <div class="gauge">
+        <h3>{{ .T "dashboard.backup.heading" }}</h3>
+        {{ if .Data.BackupSize }}
+          <p class="big-number">{{ .Data.BackupSize }}</p>
+          <p class="muted">
+            {{ .Data.BackupCount }} {{ .T "dashboard.backup.snapshots" }}
+            {{ if .Data.BackupLast }}&middot; {{ .T "dashboard.last" }} {{ .Data.BackupLast }}{{ end }}
+          </p>
+        {{ else }}
+          <p class="muted">{{ .T "dashboard.never_run" }}</p>
+        {{ end }}
+        <p class="muted">
+          <span class="status-dot status-{{ .Data.BackupCheck.StatusClass }}"></span>
+          {{ if eq .Data.BackupCheck.StatusClass "healthy" }}{{ .T "dashboard.backup.integrity_ok" }}{{ else if eq .Data.BackupCheck.StatusClass "unhealthy" }}{{ .T "dashboard.backup.integrity_failed" }}{{ else }}{{ .T "dashboard.never_run" }}{{ end }}
+        </p>
+      </div>
+
+      <div class="gauge">
+        <h3>{{ .T "dashboard.security.heading" }}</h3>
+        <p>
+          <span class="status-dot status-{{ .Data.SSO.StatusClass }}"></span>
+          {{ if eq .Data.SSO.StatusClass "healthy" }}{{ .T "dashboard.security.sso_ok" }}{{ else if eq .Data.SSO.StatusClass "unhealthy" }}{{ .T "dashboard.security.sso_down" }}{{ else }}{{ .T "dashboard.security.sso_unknown" }}{{ end }}
+        </p>
+        <p class="muted">
+          <span class="status-dot status-{{ .Data.PortsClass }}"></span>
+          {{ if .Data.PortsMeasured }}{{ .Data.PortsCount }} {{ .T "dashboard.security.ports_exposed" }}{{ else }}{{ .T "dashboard.security.ports_unmeasured" }}{{ end }}
+        </p>
+      </div>
+
+      <div class="gauge">
+        <h3>{{ .T "dashboard.monitoring.heading" }}</h3>
+        <p class="big-number">{{ .Data.MonUp }} / {{ .Data.MonTotal }}</p>
+        <p class="muted">
+          {{ if .Data.MonDown }}<span class="badge badge-bad">{{ .Data.MonDown }} {{ .T "dashboard.monitoring.down" }}</span>{{ else }}{{ .T "dashboard.monitoring.all_up" }}{{ end }}
+        </p>
+      </div>
+
+      <div class="gauge">
+        <h3>{{ .T "dashboard.cve.heading" }}</h3>
+        {{ if .Data.CVEReported }}
+          <p class="big-number">{{ .Data.CVECritical }} / {{ .Data.CVEHigh }}</p>
+          <p class="muted">{{ .T "dashboard.cve.legend" }}</p>
+        {{ else }}
+          <p class="muted">{{ .T "dashboard.never_run" }}</p>
+        {{ end }}
+      </div>
+    </div>
+  </div>
+</section>
+{{end}}

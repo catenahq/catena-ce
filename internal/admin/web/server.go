@@ -12,6 +12,7 @@ import (
 
 	"github.com/catenahq/catena-ce/internal/admin/actions"
 	"github.com/catenahq/catena-ce/internal/admin/apps"
+	"github.com/catenahq/catena-ce/internal/admin/dashboard"
 	"github.com/catenahq/catena-ce/internal/admin/i18n"
 	"github.com/catenahq/catena-ce/internal/admin/integrations"
 	"github.com/catenahq/catena-ce/internal/admin/maintenance"
@@ -19,6 +20,7 @@ import (
 	"github.com/catenahq/catena-ce/internal/admin/system"
 	"github.com/catenahq/catena-ce/internal/admin/theme"
 	"github.com/catenahq/catena-ce/internal/auditlog"
+	"github.com/catenahq/catena-ce/plugin"
 )
 
 // GatusReader is the Gatus surface the shell needs: the System tab lists all
@@ -44,6 +46,9 @@ type Config struct {
 	Dokploy apps.DokployLister
 	// StatsDir overrides the host stats dir (default /var/lib/catena).
 	StatsDir string
+	// KeycloakProbeURL is the Keycloak readiness endpoint the dashboard's
+	// SSO card probes. Empty renders the SSO card as "unknown".
+	KeycloakProbeURL string
 	// ExtraTilesPath overrides the operator extra-tiles.yml location.
 	ExtraTilesPath string
 	// ActionsFile overrides the host action catalog (admin-actions.yml).
@@ -106,6 +111,7 @@ func New(cfg Config) (http.Handler, error) {
 		hc:             cfg.Healthchecks,
 		dokploy:        cfg.Dokploy,
 		statsDir:       cfg.StatsDir,
+		keycloakProbe:  cfg.KeycloakProbeURL,
 		extraTilesPath: cfg.ExtraTilesPath,
 		actionsFile:    cfg.ActionsFile,
 		exportsDir:     cfg.ExportsDir,
@@ -127,6 +133,7 @@ func New(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /{$}", s.rootRedirect)
 	mux.HandleFunc("GET /apps", s.apps)
+	mux.HandleFunc("GET /dashboard", RequireAuthenticated(s.dashboardIndex))
 	mux.HandleFunc("GET /system", RequireAdmin(s.systemIndex))
 	mux.HandleFunc("GET /actions", RequireAdmin(s.actionsIndex))
 	mux.HandleFunc("POST /actions/start/{name}", RequireAdmin(s.actionsStart))
@@ -163,6 +170,7 @@ type server struct {
 	hc             system.HCLister
 	dokploy        apps.DokployLister
 	statsDir       string
+	keycloakProbe  string
 	extraTilesPath string
 	actionsFile    string
 	exportsDir     string
@@ -311,6 +319,14 @@ func clientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
+// dashboardIndex renders the client-facing proof dashboard: restore-drill,
+// backup-integrity, monitoring, CVE, port-exposure and SSO cards. Open to
+// any signed-in user (admin/staff/client), not admin-only.
+func (s *server) dashboardIndex(w http.ResponseWriter, r *http.Request) {
+	d := dashboard.BuildDashboard(s.gatus, s.statsDir, s.keycloakProbe)
+	s.tmpl.Render(w, r, "dashboard", http.StatusOK, d)
+}
+
 // systemIndex renders the admin-only System tab: the backup/disk/Healthchecks
 // gauges, current alerts, and the infrastructure rollup.
 func (s *server) systemIndex(w http.ResponseWriter, r *http.Request) {
@@ -365,7 +381,10 @@ func (s *server) pluginPanel(w http.ResponseWriter, r *http.Request) {
 		if p.ID != id {
 			continue
 		}
-		body, err := p.Render(r.Context())
+		// Stamp the resolved request locale onto the context so a
+		// locale-aware EE panel renders EN/FR; older panels ignore it.
+		ctx := plugin.ContextWithLocale(r.Context(), localeFrom(r))
+		body, err := p.Render(ctx)
 		if err != nil {
 			http.Error(w, "panel error", http.StatusInternalServerError)
 			return

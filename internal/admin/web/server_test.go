@@ -385,6 +385,55 @@ func TestAppsGridRendersTiles(t *testing.T) {
 	}
 }
 
+func TestDashboardRequiresAuthAndRenders(t *testing.T) {
+	h := newTestHandler(t)
+
+	// Anonymous visitor (no email header) -> 403.
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest("GET", "/dashboard", nil))
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("anonymous /dashboard = %d, want 403", rr.Code)
+	}
+
+	// A signed-in client (not admin) -> 200: the dashboard is client-facing.
+	rr = httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/dashboard", nil)
+	req.Header.Set("X-Forwarded-Email", "user@example.com")
+	req.Header.Set("X-Forwarded-Groups", "client")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("client /dashboard = %d, want 200", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "system-page") {
+		t.Error("expected the dashboard card grid to render")
+	}
+}
+
+func TestDashboardNavVisibleToAuthenticated(t *testing.T) {
+	h := newTestHandler(t)
+
+	// Anonymous: no Dashboard tab.
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest("GET", "/apps", nil))
+	if strings.Contains(rr.Body.String(), `href="/dashboard"`) {
+		t.Error("anonymous visitor must not see the Dashboard tab")
+	}
+
+	// Signed-in client: the Dashboard tab renders, the admin tabs do not.
+	rr = httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/apps", nil)
+	req.Header.Set("X-Forwarded-Email", "user@example.com")
+	req.Header.Set("X-Forwarded-Groups", "client")
+	h.ServeHTTP(rr, req)
+	body := rr.Body.String()
+	if !strings.Contains(body, `href="/dashboard"`) {
+		t.Error("a signed-in client must see the Dashboard tab")
+	}
+	if strings.Contains(body, `href="/system"`) {
+		t.Error("a non-admin must not see the System tab")
+	}
+}
+
 func TestSystemRequiresAdmin(t *testing.T) {
 	h := newTestHandler(t)
 

@@ -5,6 +5,9 @@
        links. */ -}}
 {{define "nav"}}
 <a href="/apps"{{ if or (eq .Path "/") (hasPrefix .Path "/apps") }} class="active"{{ end }}>{{ .T "tabs.apps" }}</a>
+{{- if .IsAuthenticated }}
+<a href="/dashboard"{{ if hasPrefix .Path "/dashboard" }} class="active"{{ end }}>{{ .T "tabs.dashboard" }}</a>
+{{- end }}
 {{- if .IsAdmin }}
 {{- if .Globals.access_tab_enabled }}
 <a href="/access"{{ if hasPrefix .Path "/access" }} class="active"{{ end }}>{{ .T "tabs.access" }}</a>

@@ -140,6 +140,9 @@ func main() {
 		Healthchecks:    integrations.NewHealthchecksClient(hcBase, os.Getenv("HEALTHCHECKS_API_KEY_READONLY")),
 		Dokploy: integrations.NewDokployClient(
 			envOr("DOKPLOY_API_BASE", "http://127.0.0.1:3000"), os.Getenv("DOKPLOY_API_KEY")),
+		// SSO card on the dashboard probes Keycloak's management readiness
+		// endpoint (cluster-internal, port 9000). Empty disables the probe.
+		KeycloakProbeURL: envOr("KEYCLOAK_HEALTH_URL", "http://keycloak:9000/health/ready"),
 		// Recovery sidecar base URL: artifact Download links point here; the
 		// oauth2-proxy-gated nginx sidecar serves the bytes, not the shell.
 		// ExportsDir is left empty so the recovery package uses its env/default.

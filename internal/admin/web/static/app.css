@@ -723,3 +723,24 @@ main {
 .maintenance-message { margin-left: 0.5rem; }
 
 .access-warnings { margin: 1rem 0; }
+
+/* Compliance one-pager + restore report: print-friendly document layout.
+   The EE compliance/restore panels render into the plugin page; these style
+   the sections, and the @media print block strips the shell chrome so the
+   client can save the page as a PDF to hand to a lawyer/auditor. */
+.compliance-onepager .restore-card,
+.compliance-onepager section { margin: 1rem 0; }
+.compliance-onepager table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+.compliance-onepager th,
+.compliance-onepager td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: top; font-size: 0.85rem; }
+.compliance-check { list-style: none; padding-left: 0; }
+.compliance-check li { margin: 0.3rem 0; }
+.compliance-check .ok { color: var(--status-ok); }
+.compliance-check .todo { color: var(--fg-muted); }
+.compliance-disclaimer { font-size: 0.85rem; color: var(--fg-muted); border-left: 3px solid var(--accent); padding-left: 0.75rem; }
+
+@media print {
+  .app-header, .app-footer, .external-links, .toggle { display: none !important; }
+  main { margin: 0; }
+  a[href]::after { content: ""; }
+}

@@ -79,6 +79,42 @@ func RequireAdmin(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// RequireAuthenticated wraps a handler open to any signed-in user (admin,
+// staff, or client) but closed to anonymous visitors. Used by the
+// client-facing surfaces (dashboard) that are not admin-only.
+func RequireAuthenticated(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !identityFrom(r).IsAuthenticated() {
+			http.Error(w, "Sign-in required.", http.StatusForbidden)
+			return
+		}
+		h(w, r)
+	}
+}
+
+// RequireGroups wraps a handler reachable only by an identity in at least
+// one of the named groups (admin always passes). A non-matching identity
+// gets 403 before the handler runs.
+func RequireGroups(h http.HandlerFunc, groups ...string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := identityFrom(r)
+		if !id.IsAdmin() && !anyGroup(id, groups) {
+			http.Error(w, "Group membership required.", http.StatusForbidden)
+			return
+		}
+		h(w, r)
+	}
+}
+
+func anyGroup(id auth.Identity, groups []string) bool {
+	for _, g := range groups {
+		if id.HasGroup(g) {
+			return true
+		}
+	}
+	return false
+}
+
 // defaultCSP is strict same-origin plus the one external script source the
 // base layout needs (htmx + htmx-ext-sse on unpkg). Operators override
 // verbatim via CATENA_ADMIN_CSP (a typo turns the header off rather than
