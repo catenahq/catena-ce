@@ -548,6 +548,25 @@
     src: /etc/machine-id
   register: _journal_machine_id_raw
 
+# On a restored/DR host journald may still be running volatile: the conf was
+# restored before journald started, so the conditional restart above is a
+# no-op and journald never created the per-machine-id journal dir. --setup-keys
+# below writes its sealing key INTO that dir, so it must exist first. Create it
+# explicitly (deterministic) and flush the runtime journal so journald actually
+# adopts persistent storage. Both idempotent.
+- name: "journald: ensure machine-id journal dir exists (DR target may still be volatile)"
+  ansible.builtin.file:
+    path: "/var/log/journal/{{ (_journal_machine_id_raw.content | b64decode | trim) }}"
+    state: directory
+    owner: root
+    group: systemd-journal
+    mode: "2755"
+
+- name: "journald: flush runtime journal to persistent storage"
+  ansible.builtin.command:
+    cmd: journalctl --flush
+  changed_when: false
+
 - name: "journald: check whether FSS is already set up"
   ansible.builtin.stat:
     path: "/var/log/journal/{{ (_journal_machine_id_raw.content | b64decode | trim) }}/fss"
