@@ -167,11 +167,19 @@
 # if the flip lands before the route is live, every subsequent task
 # fails with a misleading SSH/connection error. Probe now so the
 # failure (if any) surfaces here with a clear message.
+#
+# 120s (was 30s): a fresh DERP-relayed path, ACL/route propagation, or a
+# session that was momentarily superseded (another node briefly presenting
+# the same key -- the bench's snapshot-clone churn reproduces this) can take
+# well over 30s to settle into a direct, reachable route. wait_for polls the
+# port internally for the whole window, so a node that genuinely never
+# becomes reachable still fails -- just after a realistic settle budget
+# rather than a single tight 30s shot that flaked the converge keystone.
 - name: "Verify controller can reach node via tailnet IPv4"
   ansible.builtin.wait_for:
     host: "{{ tailscale_ipv4 }}"
     port: 22
-    timeout: 30
+    timeout: 120
   delegate_to: localhost
   become: false
 
