@@ -119,6 +119,13 @@
     #     ghcr.io   -> 504 Gateway Timeout
     #     any registry -> TLS handshake timeout, i/o timeout, connection
     #                     reset, context deadline exceeded
+    #     any registry -> a layer download truncated mid-stream:
+    #                     "short read: expected N bytes but got M:
+    #                      unexpected EOF" then "Docker command failed".
+    #                     The connection dropped partway through a blob;
+    #                     the next `compose up` re-pulls cleanly. (Seen on
+    #                     quay.io/phasetwo/phasetwo-keycloak -- it tanked a
+    #                     whole ce_install keystone, BLOCKing 146 scenarios.)
     #   Docker-daemon-side (during container recreate on redeploy):
     #     "cannot stop container ... tried to kill container, but did
     #      not receive an exit event" -- dockerd lost track of a
@@ -131,7 +138,7 @@
       ansible.builtin.set_fact:
         _dokploy_deploy_transient: >-
           {{ (_dokploy_deploy_diag.stdout | default('')) is regex(
-               '(502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout|TLS handshake timeout|connection reset|i/o timeout|TOOMANYREQUESTS|context deadline exceeded|temporary failure in name resolution|net/http: TLS handshake timeout|received unexpected HTTP status: 5|did not receive an exit event|cannot stop container)'
+               '(502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout|TLS handshake timeout|connection reset|i/o timeout|TOOMANYREQUESTS|context deadline exceeded|temporary failure in name resolution|net/http: TLS handshake timeout|received unexpected HTTP status: 5|did not receive an exit event|cannot stop container|unexpected EOF|short read: expected)'
              ) }}
     - name: "Dokploy: report transient detected, will retry ({{ svc_name }})"
       ansible.builtin.debug:
