@@ -44,6 +44,14 @@
       ],
       "groupName": "infra app pins",
       "automerge": false
+    },
+    {
+      "description": "Keycloak (Phase Two distribution) image pinned in the keycloak role defaults. Manual review like the other infra pins -- a Keycloak major/minor can break SSO + the oauth2-proxy wiring out-of-band; Trivy gates the PR. Restricted to the rolling X.Y.Z tag; the timestamped X.Y.Z.<unixtime> immutable builds are excluded.",
+      "matchManagers": ["custom.regex"],
+      "matchPackageNames": ["quay.io/phasetwo/phasetwo-keycloak"],
+      "allowedVersions": "/^\\d+\\.\\d+\\.\\d+$/",
+      "groupName": "infra app pins",
+      "automerge": false
     }
   ],
   "customManagers": [
@@ -166,6 +174,18 @@
         "clamav_image:\\s*\"clamav/clamav:(?<currentValue>[^\"]+)\""
       ],
       "depNameTemplate": "clamav/clamav",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Track Phase Two Keycloak image tag pinned in keycloak role defaults",
+      "managerFilePatterns": [
+        "/^ansible/roles/keycloak/defaults/main\\.yml$/"
+      ],
+      "matchStrings": [
+        "keycloak_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "quay.io/phasetwo/phasetwo-keycloak",
       "datasourceTemplate": "docker"
     }
   ]
