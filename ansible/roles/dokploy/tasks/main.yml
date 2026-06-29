@@ -839,13 +839,49 @@
 # pg_replay also remains callable via the backup playbook with
 # `--tags pg_replay` for incremental scenarios (single-client replay,
 # stale-snapshot replay against a live host).
+# Idempotency gate: post-restore.needed persists across converges (CE has
+# no post-restore orchestration to clear it -- that lane is Business-only,
+# see site.yml), so a plain re-converge after a DR would replay the dump
+# AGAIN -- a non-idempotent `changed` that fails restore_dr's
+# stage-2.5-idempotency-rerun (which asserts a clean second converge). Gate
+# the replay on a dedicated `dokploy-pg-replayed.done` sub-marker dropped
+# right after a successful replay: the FIRST post-restore converge replays
+# and marks done; later converges skip (the dump is already in the
+# persisted dokploy-postgres volume). restore.yml clears this sub-marker on
+# every fresh restore, so a real DR always re-replays -- safe by
+# construction, no risk of a restore landing an empty DB. Deliberately a
+# SEPARATE marker from post-restore.needed so EE's other post-restore
+# consumers (scope=clients replay, s3_reconcile) are untouched.
+- name: "Post-restore: stat dokploy pg_replay-done sub-marker"
+  ansible.builtin.stat:
+    path: "{{ backup_stats_dir }}/dokploy-pg-replayed.done"
+  register: _dokploy_pg_replayed_marker
+  when: _dokploy_post_restore_marker.stat.exists | default(false)
+
 - name: "Post-restore: replay pg_dumpall into dokploy-postgres"
   ansible.builtin.include_role:
     name: backup
     tasks_from: pg_replay.yml
   vars:
     pg_replay_scope: dokploy
-  when: _dokploy_post_restore_marker.stat.exists | default(false)
+  when:
+    - _dokploy_post_restore_marker.stat.exists | default(false)
+    - not (_dokploy_pg_replayed_marker.stat.exists | default(false))
+
+# Mark the dokploy-scope replay done so the next converge is idempotent.
+# Only reached when the replay above ran AND succeeded (pg_replay.yml fails
+# the play on a replay error, so a failed replay never marks done -> retried
+# next converge).
+- name: "Post-restore: mark dokploy pg_replay done (idempotency gate)"
+  ansible.builtin.file:
+    path: "{{ backup_stats_dir }}/dokploy-pg-replayed.done"
+    state: touch
+    owner: root
+    group: root
+    mode: "0644"
+  when:
+    - _dokploy_post_restore_marker.stat.exists | default(false)
+    - not (_dokploy_pg_replayed_marker.stat.exists | default(false))
 
 # ─── heal vault_dokploy_api_key if Dokploy rejects it ────────────────────
 # pg_replay above restores the dump's `apikey` row(s) into the fresh

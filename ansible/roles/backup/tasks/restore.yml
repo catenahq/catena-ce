@@ -324,3 +324,12 @@
     owner: root
     group: root
     mode: "0644"
+
+# Clear the dokploy pg_replay-done sub-marker so THIS fresh restore re-runs
+# the dokploy-scope replay (the dokploy role gates the replay on this marker
+# being absent for idempotency across plain re-converges). A new restore
+# brings a fresh empty dokploy-postgres, so the replay MUST run again.
+- name: "Clear dokploy pg_replay-done sub-marker (fresh restore must re-replay)"
+  ansible.builtin.file:
+    path: "{{ backup_stats_dir }}/dokploy-pg-replayed.done"
+    state: absent
