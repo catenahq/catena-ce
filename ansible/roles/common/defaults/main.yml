@@ -36,6 +36,15 @@ common_baseline_packages:
   - python3-apt
   - rsync
   - systemd-timesyncd
+  # jq is the JSON writer for every on-host report the daily lane + backup
+  # machinery emit (catena-restic-check.json, cve-findings.json,
+  # verify-hot/cold status, the maintenance log) and that catena-admin reads
+  # back. Those scripts gate their report write on `command -v jq`, so a host
+  # without it silently produces NO report (the catena-admin freshness badges
+  # go blank; the bench's restic_check_subset_weekly / verify_hot_bootprobe /
+  # cve_residual scenarios saw "report missing"). Baseline-install it so the
+  # report writers always have it, CE and EE alike.
+  - jq
   # rclone is the WORM-mirror's transport (roles/backup ships
   # restic-mirror-to-worm.sh); installing it at common/baseline
   # means a freshly-bootstrapped recovery VPS already has the tool
