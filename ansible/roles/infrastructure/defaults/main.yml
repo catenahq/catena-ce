@@ -71,7 +71,7 @@ infrastructure_deploy_max_attempts: 5
 # {{ gatus_host_config_dir }}/; Gatus loads every *.yaml alphabetically.
 # 00-base.yaml (Ansible-managed) + 50-dokploy-apps.yaml (gatus-sync) +
 # 99-*.yaml (operator-added, left alone by both).
-gatus_image_tag: "v5.35.0"
+gatus_image_tag: "v5.36.0"
 gatus_image: "twinproduction/gatus:{{ gatus_image_tag }}"
 gatus_compose_name: "gatus"
 gatus_network_alias: "gatus"
@@ -197,7 +197,7 @@ beszel_hc_shim_host_dir: "/etc/dokploy/beszel-hc-shim"
 # The served directory is explicitly excluded from restic (see
 # roles/backup/defaults/main.yml backup_exclude_patterns) -- it IS the
 # packaged backup artifact, re-including it would be self-referential.
-recovery_image_tag: "1.29.8-alpine"
+recovery_image_tag: "1.31.2-alpine"
 recovery_image: "nginx:{{ recovery_image_tag }}"
 recovery_compose_name: "recovery"
 recovery_network_alias: "recovery"
@@ -314,7 +314,7 @@ catena_portal_test_users_enabled: "{{ lookup('dotenv', 'CATENA_PORTAL_TEST_USERS
 # Image: the _base variant ships WITHOUT the signature DB; freshclam
 # downloads + refreshes it on start (the DB persists on a named volume).
 # Renovate manages the pin (custom manager for stack images).
-clamav_image: "clamav/clamav:1.5.2_base"
+clamav_image: "clamav/clamav:1.5.2-35_base"
 clamav_compose_name: "clamav"
 clamav_network: "catena-clamav"
 # clamd StreamMaxLength -- the largest object clamd will scan in one
