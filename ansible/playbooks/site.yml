@@ -17,6 +17,78 @@
   become: true
   gather_facts: true
 
+  # ─── Fail-fast external-service reachability ───────────────────────────
+  # Probe every configured external backend the converge depends on BEFORE
+  # any heavy role runs, so a dead / unreachable / misconfigured endpoint
+  # fails the install in ~10s with a clear message -- not 10-30 min in when
+  # the backup role finally writes (a restic-repo-unreachable converge once
+  # took 29 min to surface). Probes run ON the VPS (where the backup / mail
+  # traffic actually originates), so they catch VM-side network blocks a
+  # controller-side check would miss. Values come from the inventory `.env`
+  # (dotenv), not role defaults (out of scope in pre_tasks). Bypass for
+  # offline dev with -e skip_external_preflight=true.
+  pre_tasks:
+    - name: "Preflight (external): probe configured S3 backends (HEAD, 10s)"
+      ansible.builtin.uri:
+        url: "{{ item.url }}"
+        method: HEAD
+        timeout: 10
+        validate_certs: false
+      register: _ext_s3
+      failed_when: false # never fail per-probe; the assert below fails once, clearly
+      changed_when: false
+      loop: >-
+        {{ [
+             {'name': 'BACKUP_RESTIC_REPO',
+              'url': (lookup('dotenv', 'BACKUP_RESTIC_REPO', default='')
+                      | restic_repo_endpoint)},
+             {'name': 'BACKUP_WORM_REPO',
+              'url': (lookup('dotenv', 'BACKUP_WORM_REPO', default='')
+                      | restic_repo_endpoint)},
+             {'name': 'NEXTCLOUD_WORM_REPO',
+              'url': (lookup('dotenv', 'NEXTCLOUD_WORM_REPO', default='')
+                      | restic_repo_endpoint)},
+           ] | selectattr('url', 'ne', '') | list }}
+      loop_control:
+        label: "{{ item.name }} -> {{ item.url }}"
+      when: not (skip_external_preflight | default(false) | bool)
+      tags: [always, external_preflight]
+
+    - name: "Preflight (external): fail fast if any S3 backend is unreachable"
+      ansible.builtin.fail:
+        msg: |
+          External S3 backend(s) unreachable from {{ inventory_hostname }}.
+          Failing the install NOW instead of 10-30 min into the converge:
+          {% for r in _ext_s3.results | default([]) if (r.status | default(-1)) == -1 %}
+            - {{ r.item.name }} ({{ r.item.url }}): {{ r.msg | default('connection failed') }}
+          {% endfor %}
+          Check the endpoint URL, credentials, region, and network/firewall,
+          then re-run. To bypass (NOT recommended): -e skip_external_preflight=true
+      when:
+        - not (skip_external_preflight | default(false) | bool)
+        - _ext_s3.results | default([]) | selectattr('status', 'defined')
+          | selectattr('status', 'equalto', -1) | list | length > 0
+      tags: [always, external_preflight]
+
+    - name: "Preflight (external): SMTP relay reachable (TCP, 10s)"
+      ansible.builtin.wait_for:
+        host: "{{ _smtp_host }}"
+        port: "{{ _smtp_port | int }}"
+        timeout: 10
+        state: started
+        msg: >-
+          SMTP relay {{ _smtp_host }}:{{ _smtp_port }} (SMTP_HOST/SMTP_PORT)
+          did not accept a connection within 10s. Keycloak + alert mail would
+          fail later in the converge; fix the relay host/port or network, or
+          re-run with -e skip_external_preflight=true.
+      vars:
+        _smtp_host: "{{ lookup('dotenv', 'SMTP_HOST', default='') }}"
+        _smtp_port: "{{ lookup('dotenv', 'SMTP_PORT', default='587') }}"
+      when:
+        - not (skip_external_preflight | default(false) | bool)
+        - (lookup('dotenv', 'SMTP_HOST', default='') | length) > 0
+      tags: [always, external_preflight]
+
   # Tags allow iterating on a single role:
   #   ansible-playbook -i inventory/example playbooks/site.yml --limit host1 --tags storage
   # Preflight runs as its own ansible-playbook invocation (the installer
