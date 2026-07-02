@@ -27,7 +27,7 @@ cloudflared_dokploy_env_key: "CLOUDFLARE_TUNNEL_TOKEN"
 # and uses `docker service update --rollback` (built-in swarm primitive)
 # on health regression. Resolved at policy-rollout time (2026-04) to what
 # was running on dev1.
-cloudflared_image_tag: "2026.6.0"
+cloudflared_image_tag: "2026.6.1"
 cloudflared_image: "cloudflare/cloudflared:{{ cloudflared_image_tag }}"
 
 # `cloudflare_api_base` lives in group_vars/all/main.yml so playbooks
