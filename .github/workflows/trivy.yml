@@ -1,0 +1,107 @@
+name: Trivy
+
+# Wave 4 (blocking) container-image CVE gate for catena-ce. Ported from
+# catenahq/ops at the M3.7 cutover: the catena-admin image and the operator-
+# stack base-image pins moved here with the client-facing Ansible roles. The
+# fs scan (repo deps + misconfig + secrets) is the scanctl security gate
+# (security.yml). What stays here cannot fold into scanctl's static fs scan:
+#   - image (catena-admin): builds the distroless catena-admin image (top-level
+#     Dockerfile) and scans the runtime layers.
+#   - image (operator-stack pins): scans the cloudflared + traefik tags resolved
+#     at runtime from the Ansible role defaults.
+#
+# Severity floor is HIGH+CRITICAL, ignore-unfixed:true so unpatched CVEs do not
+# block until a fix exists upstream. Tune via .trivyignore.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '43 6 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  trivy-catena-admin-image:
+    name: Trivy image (catena-admin)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - name: Build catena-admin image
+        # Build context is the repo root; the top-level Dockerfile is the
+        # multi-stage Go build of ./cmd/catena-admin into distroless/static.
+        run: docker buildx build -t catena-admin:ci -f Dockerfile .
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: catena-admin:ci
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: 'json'
+          output: 'trivy-catena-admin.json'
+          ignore-unfixed: true
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: trivy-catena-admin-report
+          path: trivy-catena-admin.json
+          if-no-files-found: ignore
+
+  # Image-CVE scan for the two operator-stack base images we pin by role
+  # default (cloudflared + traefik). Renovate's docker manager does not see
+  # these because they live as plain YAML values, not in a Dockerfile or
+  # docker-compose. The customManagers open the BUMP PRs; this job catches the
+  # CVE BEFORE merging a PR that pins a vulnerable tag.
+  trivy-operator-stack-pins:
+    name: Trivy image (operator-stack pins)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: cloudflared
+            pin_file: ansible/roles/cloudflare_tunnel/defaults/main.yml
+            pin_key: cloudflared_image_tag
+            image_repo: cloudflare/cloudflared
+          - name: traefik
+            pin_file: ansible/roles/dokploy/defaults/main.yml
+            pin_key: dokploy_traefik_image_tag
+            image_repo: traefik
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+          python-version: '3.14'
+      - name: Resolve pinned image ref
+        id: resolve
+        env:
+          PIN_FILE: ${{ matrix.pin_file }}
+          PIN_KEY: ${{ matrix.pin_key }}
+        run: |
+          set -euo pipefail
+          tag=$(uv run --with pyyaml python -c 'import os, yaml; print(yaml.safe_load(open(os.environ["PIN_FILE"]))[os.environ["PIN_KEY"]])')
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "image=${{ matrix.image_repo }}:$tag" >> "$GITHUB_OUTPUT"
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.resolve.outputs.image }}
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: 'json'
+          output: 'trivy-${{ matrix.name }}.json'
+          ignore-unfixed: true
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: trivy-${{ matrix.name }}-report
+          path: trivy-${{ matrix.name }}.json
+          if-no-files-found: ignore
