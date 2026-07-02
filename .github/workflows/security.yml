@@ -19,10 +19,11 @@ permissions:
 
 jobs:
   scanctl:
-    uses: catenahq/scanctl/.github/workflows/github-reusable.yml@main
+    uses: catenahq/scanctl/.github/workflows/github-reusable.yml@a3a0c815559521f7a72a247830cc307914b1a7fc # main
     permissions:
       contents: read
       security-events: write
+      pull-requests: write
     with:
       profile: full
       runner: ubuntu-latest
