@@ -101,3 +101,9 @@ catena_admin_ee_reserved_actions:
     shell: "/usr/local/bin/catena-daily run"
   - name: audit-export
     shell: "/usr/local/bin/catena-audit export"
+  # restore-report plugin's on-demand restore drill. Runs the verify-hot
+  # lane standalone (single-state), which rewrites verify-hot.json so the
+  # Restore report panel refreshes with a fresh pass/fail + RTO. Name +
+  # shell MUST match catena-ee restorereport/plugin.go's ActionSpec.
+  - name: verify-backup
+    shell: "/usr/local/bin/catena-daily step VERIFY_HOT"
