@@ -13,6 +13,13 @@
 # SIGHUPs the running coturn container so cert hot-reloads land
 # without dropping calls.
 
+- name: "coturn cert: check certbot + Cloudflare DNS plugin already installed"
+  ansible.builtin.command:
+    cmd: dpkg-query -W -f='${Status}\n' certbot python3-certbot-dns-cloudflare
+  register: _coturn_certbot_present
+  changed_when: false
+  failed_when: false
+
 - name: "coturn cert: install certbot + Cloudflare DNS plugin"
   ansible.builtin.apt:
     name:
@@ -21,6 +28,15 @@
     state: present
     update_cache: true
     cache_valid_time: 3600
+  # Skip the install (and its forced apt cache refresh) when both packages
+  # are already present. A re-converge -- e.g. certbot renewing after the
+  # clock has advanced far enough that the repo Release files read as
+  # expired (Valid-Until in the past) -- otherwise forces an `apt update`
+  # that fails on the stale Release, aborting a converge that had no package
+  # work to do. `state: present` never upgrades, so gating on presence is
+  # equivalent + idempotent.
+  when: >-
+    _coturn_certbot_present.stdout.count('install ok installed') < 2
   retries: 3
   delay: 10
   register: _coturn_apt_install
