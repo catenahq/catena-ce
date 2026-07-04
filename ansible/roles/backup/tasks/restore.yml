@@ -162,9 +162,15 @@
   failed_when: false
 
 - name: "Verify no containers are running after docker stop"
-  # If `docker ps` still returns running containers after stopping the
-  # daemon, something is socket-activating it or the stop didn't take.
-  # Hard-fail before restic writes underneath them.
+  # Poll: dockerd takes a few seconds to drain swarm tasks + release
+  # /var/run/docker.sock after `systemctl stop`. A single-shot probe right
+  # after stop catches dockerd MID-SHUTDOWN (rc=0, containers still listed)
+  # and trips the assert below on a perfectly healthy stop -- a flaky
+  # backup_rollback stage-3 failure. Mirror catena-ee stop-services.yml:
+  # 12 retries * 5s = 60s, comfortably above any observed drain time but
+  # short enough to flag a real socket-activation respawn loop. If `docker
+  # ps` still returns running containers after that window, something is
+  # keeping the daemon up and the assert hard-fails before restic writes.
   ansible.builtin.command:
     argv:
       - docker
@@ -173,6 +179,11 @@
   register: _docker_running_after
   changed_when: false
   failed_when: false
+  retries: 12
+  delay: 5
+  until: >-
+    _docker_running_after.rc != 0
+    or (_docker_running_after.stdout | trim) | length == 0
 
 - name: "Assert docker is down before restic restore"
   ansible.builtin.assert:
@@ -180,10 +191,10 @@
       - _docker_running_after.rc != 0 or (_docker_running_after.stdout | trim) | length == 0
     fail_msg: >-
       Stopped docker.service + docker.socket but `docker ps` still lists
-      running containers. Something is keeping the daemon up (socket
-      activation, watchdog, operator session). Investigate before
-      re-running restore -- writing into /mnt/data under live containers
-      corrupts state.
+      running containers after a 60s drain window. Something is keeping the
+      daemon up (socket activation, watchdog, operator session). Investigate
+      before re-running restore -- writing into /mnt/data under live
+      containers corrupts state.
 
 - name: "Restic restore into / (snapshot {{ _restic_snapshot_id }})"
   # /var/lib/dpkg is in the backup set so the auto-update two-phase
