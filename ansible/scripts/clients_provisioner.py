@@ -43,6 +43,14 @@ def build_clients_compose(specs, env):
             '      - "--reverse-proxy=true"',
             '      - "--provider=keycloak-oidc"',
             f'      - "--oidc-issuer-url={env["OAUTH2_PROXY_OIDC_ISSUER"]}"',
+            # Skip boot-time OIDC discovery (a public CF-tunnel GET) and pin
+            # explicit endpoints: login PUBLIC (browser), token + JWKS intra-
+            # cluster. Removes Cloudflare from the auth boot path so a tunnel
+            # re-register during a restore cannot crashloop this container.
+            '      - "--skip-oidc-discovery=true"',
+            f'      - "--login-url={env["OAUTH2_PROXY_LOGIN_URL"]}"',
+            f'      - "--redeem-url={env["OAUTH2_PROXY_REDEEM_URL"]}"',
+            f'      - "--oidc-jwks-url={env["OAUTH2_PROXY_JWKS_URL"]}"',
             f'      - "--client-id={env["OAUTH2_PROXY_CLIENT_ID"]}"',
             f'      - "--cookie-name={env["OAUTH2_PROXY_COOKIE_NAME"]}"',
             f'      - "--cookie-domain=.{zone}"',

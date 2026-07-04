@@ -33,6 +33,15 @@ services:
       - "--reverse-proxy=true"
       - "--provider=keycloak-oidc"
       - "--oidc-issuer-url={{ oauth2_proxy_oidc_issuer }}"
+      # Skip boot-time OIDC discovery (a public CF-tunnel GET) and pin
+      # explicit endpoints: login stays PUBLIC (browser redirect), token
+      # + JWKS go intra-cluster. Removes Cloudflare from the auth boot
+      # path so a tunnel re-register during a restore cannot crashloop
+      # this container. See defaults/main.yml for the full rationale.
+      - "--skip-oidc-discovery=true"
+      - "--login-url={{ oauth2_proxy_login_url }}"
+      - "--redeem-url={{ oauth2_proxy_redeem_url }}"
+      - "--oidc-jwks-url={{ oauth2_proxy_jwks_url }}"
       - "--client-id={{ oauth2_proxy_client_id }}"
       - "--cookie-name={{ oauth2_proxy_cookie_name }}"
       - "--cookie-domain=.{{ cloudflare_zone }}"
@@ -91,6 +100,15 @@ services:
       - "--reverse-proxy=true"
       - "--provider=keycloak-oidc"
       - "--oidc-issuer-url={{ oauth2_proxy_oidc_issuer }}"
+      # Skip boot-time OIDC discovery (a public CF-tunnel GET) and pin
+      # explicit endpoints: login stays PUBLIC (browser redirect), token
+      # + JWKS go intra-cluster. Removes Cloudflare from the auth boot
+      # path so a tunnel re-register during a restore cannot crashloop
+      # this container. See defaults/main.yml for the full rationale.
+      - "--skip-oidc-discovery=true"
+      - "--login-url={{ oauth2_proxy_login_url }}"
+      - "--redeem-url={{ oauth2_proxy_redeem_url }}"
+      - "--oidc-jwks-url={{ oauth2_proxy_jwks_url }}"
       - "--client-id={{ oauth2_proxy_client_id }}"
       - "--cookie-name={{ oauth2_proxy_staff_cookie_name }}"
       - "--cookie-domain=.{{ cloudflare_zone }}"
@@ -130,6 +148,15 @@ services:
       - "--reverse-proxy=true"
       - "--provider=keycloak-oidc"
       - "--oidc-issuer-url={{ oauth2_proxy_oidc_issuer }}"
+      # Skip boot-time OIDC discovery (a public CF-tunnel GET) and pin
+      # explicit endpoints: login stays PUBLIC (browser redirect), token
+      # + JWKS go intra-cluster. Removes Cloudflare from the auth boot
+      # path so a tunnel re-register during a restore cannot crashloop
+      # this container. See defaults/main.yml for the full rationale.
+      - "--skip-oidc-discovery=true"
+      - "--login-url={{ oauth2_proxy_login_url }}"
+      - "--redeem-url={{ oauth2_proxy_redeem_url }}"
+      - "--oidc-jwks-url={{ oauth2_proxy_jwks_url }}"
       - "--client-id={{ oauth2_proxy_client_id }}"
       - "--cookie-name={{ oauth2_proxy_admin_cookie_name }}"
       - "--cookie-domain=.{{ cloudflare_zone }}"

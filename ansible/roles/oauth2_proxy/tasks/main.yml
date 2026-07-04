@@ -132,70 +132,27 @@
         loop_var: _app
         label: "{{ _app.slug }} (cleanup)"
 
-    # oauth2-proxy v7 fetches the OIDC discovery doc from
-    # `<oidc_issuer>/.well-known/openid-configuration` ONCE on
-    # container startup and exits the process on failure -- there is
-    # no built-in retry. The issuer URL is the public Keycloak
-    # hostname (auth.<zone>), which means the discovery fetch traverses
-    # the full edge path: container -> Docker DNS -> dokploy-network ->
-    # Traefik :443 -> back-channel to keycloak-server alias. If ANY
-    # link in that path is briefly unhealthy at boot -- in particular
-    # cloudflared's resolution of `keycloak-server` returning Cloudflare
-    # error 1033 / HTTP 530 during a same-converge Keycloak redeploy --
-    # every per-app oauth2-proxy crashloops on
-    #   `OIDC discovery: failed to discover OIDC configuration:
-    #    unexpected status "530": error code: 1033`.
-    #
-    # Bench surfaced this in stage-3-rollback: site re-converge after
-    # restic restore re-deploys both Keycloak and oauth2-proxy via the
-    # Dokploy API; oauth2-proxy's new containers raced Keycloak's
-    # restart window and never recovered (no retry loop in v7).
-    #
-    # Wait for the public OIDC discovery URL to answer 200 BEFORE
-    # asking Dokploy to redeploy. 30 retries x 5s = 150s budget, easily
-    # covers a Keycloak rolling restart. Hard-fail on timeout: a
-    # genuinely-down auth.<zone> is something the operator must see,
-    # not a silent crashloop.
-    - name: "oauth2-proxy: wait for Keycloak public OIDC discovery to be reachable"
-      ansible.builtin.uri:
-        url: "{{ oauth2_proxy_oidc_issuer }}/.well-known/openid-configuration"
-        method: GET
-        status_code: [200]
-        timeout: 10
-      delegate_to: localhost
-      become: false
-      register: _oauth2_kc_oidc_discovery
-      retries: 30
-      delay: 5
-      until: _oauth2_kc_oidc_discovery.status == 200
-
+    # NOTE: there is deliberately no pre-deploy "wait for public OIDC
+    # discovery" gate here anymore. oauth2-proxy now boots with
+    # --skip-oidc-discovery + intra-cluster --oidc-jwks-url/--redeem-url
+    # (see roles/oauth2_proxy/defaults/main.yml), so a container start
+    # makes ZERO calls to the public auth.<zone> endpoint and cannot
+    # crashloop on a Cloudflare 530/1033 while cloudflared re-registers
+    # during a same-converge Keycloak/cloudflared redeploy. The old gate
+    # (delegate_to localhost -> public URL) hard-failed the converge in
+    # exactly that reconnect window, coupling a restore to the public
+    # edge being up at that instant -- the fragility this decoupling
+    # removes. End-to-end public login reachability is still asserted in
+    # validate.yml.
     - name: "oauth2-proxy: deploy compose via Dokploy API"
       ansible.builtin.include_tasks: compose.yml
       tags: [oauth2_proxy_compose]
 
-    # The Dokploy redeploy above can churn the swarm stack (cloudflared
-    # included on rollback / DR converges where the cloudflared service
-    # gets re-created or its image reconciled). When cloudflared
-    # reconnects, CF edge briefly returns 1033/404 for tunnel routes
-    # until the new connection registers. oauth2-proxy v7 fetches OIDC
-    # discovery once at container start with no retry, so a /ping probe
-    # that lands in that window crashloops the container and trips the
-    # validate. Re-confirm discovery is reachable from the controller
-    # BEFORE asking the container for /ping; same uri probe as the
-    # pre-deploy wait above.
-    - name: "oauth2-proxy: re-confirm Keycloak public OIDC discovery is reachable post-deploy"
-      ansible.builtin.uri:
-        url: "{{ oauth2_proxy_oidc_issuer }}/.well-known/openid-configuration"
-        method: GET
-        status_code: [200]
-        timeout: 10
-      delegate_to: localhost
-      become: false
-      register: _oauth2_kc_oidc_discovery_post
-      retries: 60
-      delay: 5
-      until: _oauth2_kc_oidc_discovery_post.status == 200
-
+    # NOTE: no post-deploy "re-confirm public OIDC discovery" gate either.
+    # With --skip-oidc-discovery the container's /ping does not depend on
+    # the public auth endpoint, so a cloudflared re-register window can no
+    # longer crashloop it. validate.yml still gates its per-app /ping on
+    # the public issuer + JWKS being reachable (end-to-end validation).
     - name: "oauth2-proxy: post-deploy /ping probe"
       ansible.builtin.include_tasks: validate.yml
       tags: [oauth2_proxy_health]

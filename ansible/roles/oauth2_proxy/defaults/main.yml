@@ -59,25 +59,50 @@ oauth2_proxy_client_id: "oauth2-proxy"
 # OIDC issuer URL. MUST match Keycloak's KC_HOSTNAME (the issuer claim
 # minted into JWTs + the `issuer` field returned by /.well-known/openid-
 # configuration). oauth2-proxy v7 strict-validates the configured
-# issuer against the discovery doc and refuses to start on mismatch
-# with: `oidc: issuer did not match the issuer returned by provider`.
+# issuer against the JWT iss claim, so this stays the PUBLIC hostname
+# (auth.<zone>) -- Keycloak 26's KC_HOSTNAME is public, so every token's
+# iss carries the public URL.
 #
-# We previously used the intra-cluster URL `http://keycloak-server:8080
-# /realms/{{realm}}` to skip a CF Tunnel + Traefik hop on every auth
-# probe -- but Keycloak 26's KC_HOSTNAME is set to the public hostname
-# (auth.<zone>), which means the discovery doc and JWT iss claim
-# always carry the public URL. oauth2-proxy refused to start at bench
-# 26 with exactly that mismatch error.
+# BUT oauth2-proxy's BACKCHANNEL calls (OIDC discovery + JWKS fetch at
+# boot, token redemption at login) go to the intra-cluster Keycloak,
+# NOT out through Cloudflare. Rationale (root-caused on bench run
+# 2026-07-04T05-51-10-8947): with discovery pointed at the public
+# issuer, oauth2-proxy fetches .well-known/openid-configuration through
+# the CF Tunnel at every boot. During a restore/reconverge the
+# cloudflared connector re-registers for a few seconds; any oauth2-proxy
+# that (re)starts in that window gets a CF-synthesized 530/1033, crash-
+# exits ("Failed to initialise OAuth2 Proxy"), and Docker's exponential
+# restart-backoff can outlive the validate /ping budget. That coupled
+# internal auth boot to the public edge being up at that instant.
 #
-# Using the public URL adds one CF Tunnel hop at oauth2-proxy boot
-# (discovery + JWKS fetch, then cached), and another at login redemption
-# (token endpoint POST). It does NOT affect per-request validation,
-# which remains local against the cached JWKS. If the latency proves
-# painful later, the optimization is to set
-# KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true on Keycloak AND override
-# oauth2-proxy's --redeem-url + --oidc-jwks-url to the intra-cluster
-# host while leaving --oidc-issuer-url as the public URL.
+# Fix: --skip-oidc-discovery=true + explicit endpoints. The browser-
+# facing authorization endpoint (--login-url) stays PUBLIC; the server-
+# to-server token + JWKS endpoints (--redeem-url, --oidc-jwks-url) point
+# at keycloak-server:8080 on dokploy-network. Keycloak already sets
+# KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true, so it answers backchannel
+# requests on the internal host while keeping the public issuer in the
+# iss claim. Overriding redeem+jwks alone is NOT enough -- with
+# discovery still enabled oauth2-proxy STILL fetches .well-known from
+# the public issuer at boot; --skip-oidc-discovery removes that GET.
+# Net: oauth2-proxy boot makes ZERO Cloudflare round-trips, so a tunnel
+# re-register during a restore can no longer crashloop internal auth.
 oauth2_proxy_oidc_issuer: "https://{{ keycloak_hostname }}/realms/{{ keycloak_realm }}"
+
+# Public (browser-facing) authorization endpoint -- the user's browser
+# is redirected here, so it MUST be the public hostname.
+oauth2_proxy_login_url: "https://{{ keycloak_hostname }}/realms/{{ keycloak_realm }}/protocol/openid-connect/auth"
+
+# Intra-cluster Keycloak backchannel base for server-to-server calls
+# (token redemption + JWKS). Host + port MUST match
+# roles/keycloak/vars/main.yml keycloak_server_alias + the KC HTTP port
+# (keycloak.compose.yml.j2 exposes 8080 on dokploy-network). Keycloak's
+# KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true makes these reachable on the
+# internal host while the discovery doc / iss stay public.
+oauth2_proxy_keycloak_backchannel_host: "keycloak-server"
+oauth2_proxy_keycloak_backchannel_port: 8080
+oauth2_proxy_backchannel_base: "http://{{ oauth2_proxy_keycloak_backchannel_host }}:{{ oauth2_proxy_keycloak_backchannel_port }}/realms/{{ keycloak_realm }}/protocol/openid-connect"
+oauth2_proxy_redeem_url: "{{ oauth2_proxy_backchannel_base }}/token"
+oauth2_proxy_jwks_url: "{{ oauth2_proxy_backchannel_base }}/certs"
 
 # --- Gated apps (one oauth2-proxy container per entry) ---
 # Each entry maps to:
