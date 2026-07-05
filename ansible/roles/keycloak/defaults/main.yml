@@ -1,16 +1,16 @@
 ---
-# roles/keycloak deploys Keycloak (Phase Two distribution) as a
-# Dokploy-managed compose app. Phase Two extensions ship in the same
-# image: Admin Portal, Organizations (multi-tenancy), IdP Wizards,
-# Events (audit log + webhooks), Magic Link, themes.
+# roles/keycloak deploys Keycloak (Phase Two distribution) as a compose
+# app. Phase Two extensions ship in the same image: Admin Portal,
+# Organizations (multi-tenancy), IdP Wizards, Events (audit log +
+# webhooks), Magic Link, themes.
 #
 # Database: Keycloak gets its own Postgres database (`keycloak`) and
-# user (`keycloak`) inside the existing dokploy-postgres swarm service.
-# Project convention is one Postgres per VPS, multiple DBs inside (see
-# the PLANNING.md sec 2 decision in the sibling catenahq/sales repo).
-# We do NOT spin up a dedicated postgres
-# container -- one less moving part, one less restic exclude, no
-# password skew between install.sh and a restored volume.
+# user (`keycloak`) inside the catena-postgres swarm service that
+# roles/postgres deploys. Project convention is one Postgres per VPS,
+# multiple DBs inside (see the PLANNING.md sec 2 decision in the sibling
+# catenahq/sales repo). Historically this DB lived in dokploy-postgres;
+# the Dokploy->Portainer migration moved it to catena-owned Postgres
+# (Portainer uses BoltDB, no shared Postgres to piggyback on).
 
 # --- Hostname ---
 keycloak_subdomain: "{{ lookup('dotenv', 'AUTH_SUBDOMAIN', default='auth') }}"
@@ -38,7 +38,7 @@ keycloak_internal_port: 8080 # KC's HTTP port inside the container
 # in-container probe + the compose healthcheck.
 keycloak_management_port: 9000
 
-# --- DB (inside dokploy-postgres) ---
+# --- DB (inside catena-postgres) ---
 keycloak_db_name: "keycloak"
 keycloak_db_user: "keycloak"
 

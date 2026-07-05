@@ -1,0 +1,123 @@
+---
+# Deploy the catena-owned Postgres swarm service. Runs after roles/traefik
+# (which creates the catena-network overlay) and before roles/keycloak (which
+# provisions its DB inside this service). See defaults for ownership rationale.
+
+- name: "postgres: assert vault_catena_postgres_password is set"
+  ansible.builtin.assert:
+    that:
+      - vault_catena_postgres_password is defined
+      - vault_catena_postgres_password | length >= 12
+      - vault_catena_postgres_password not in ['REPLACE', 'REPLACE-LONG-RANDOM-STRING']
+    fail_msg: >-
+      vault_catena_postgres_password is missing or a placeholder. The installer
+      mints it on a fresh install; otherwise set it in
+      inventory/<name>/group_vars/all/vault.sops.yml.
+
+# ─── swarm secret (immutable; create-once) ───────────────────────────────
+- name: "postgres: check swarm secret exists"
+  ansible.builtin.command: "docker secret inspect {{ catena_postgres_secret_name }}"
+  register: _pg_secret
+  changed_when: false
+  failed_when: false
+
+# Stage the password to a 0600 file and `docker secret create <name> <file>`
+# rather than piping it through a shell -- avoids any quoting/injection issue
+# with special characters in the password. Removed immediately after.
+- name: "postgres: create swarm secret from vault"
+  when: _pg_secret.rc != 0
+  block:
+    - name: "postgres: stage secret material"
+      ansible.builtin.copy:
+        dest: /root/.catena-postgres-secret
+        content: "{{ vault_catena_postgres_password }}"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
+    - name: "postgres: docker secret create"
+      ansible.builtin.command: "docker secret create {{ catena_postgres_secret_name }} /root/.catena-postgres-secret"
+      register: _pg_secret_create
+      changed_when: _pg_secret_create.rc == 0
+  always:
+    - name: "postgres: remove staged secret material"
+      ansible.builtin.file:
+        path: /root/.catena-postgres-secret
+        state: absent
+
+# ─── swarm service ───────────────────────────────────────────────────────
+- name: "postgres: check catena-postgres swarm service exists"
+  ansible.builtin.command: "docker service inspect {{ catena_postgres_service_name }} --format '{{ '{{' }}.ID{{ '}}' }}'"
+  register: _pg_service
+  changed_when: false
+  failed_when: false
+
+# Single-node swarm service on catena-network. POSTGRES_PASSWORD_FILE points at
+# the mounted secret; the named volume persists the cluster across task
+# reschedules + service updates. No published host port -- reachable only on
+# catena-network by the service name (catena-postgres:5432).
+- name: "postgres: create catena-postgres swarm service (first run)"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - create
+      - "--name={{ catena_postgres_service_name }}"
+      - --network=catena-network
+      - --restart-condition=any
+      - "--secret={{ catena_postgres_secret_name }}"
+      - "--env=POSTGRES_USER={{ catena_postgres_superuser }}"
+      - "--env=POSTGRES_PASSWORD_FILE=/run/secrets/{{ catena_postgres_secret_name }}"
+      - --env=POSTGRES_DB=postgres
+      - "--mount=type=volume,source={{ catena_postgres_data_volume }},destination=/var/lib/postgresql/data"
+      - "{{ catena_postgres_image }}"
+  when: _pg_service.rc != 0
+  register: _pg_service_create
+  changed_when: _pg_service_create.rc == 0
+
+# Image-drift upgrade (rolling). Mirrors the dokploy role's swarm-native upgrade
+# path so a pinned-tag bump takes effect on the next converge.
+- name: "postgres: read running image (drift check)"
+  ansible.builtin.command: >-
+    docker service inspect {{ catena_postgres_service_name }}
+    --format '{{ "{{" }}.Spec.TaskTemplate.ContainerSpec.Image{{ "}}" }}'
+  register: _pg_running_image
+  changed_when: false
+  failed_when: false
+  when: _pg_service.rc == 0
+
+- name: "postgres: rolling image upgrade on drift"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - update
+      - --image
+      - "{{ catena_postgres_image }}"
+      - "{{ catena_postgres_service_name }}"
+  when:
+    - _pg_service.rc == 0
+    - _pg_running_image.stdout is defined
+    - catena_postgres_image not in (_pg_running_image.stdout | default(''))
+  register: _pg_upgrade
+  changed_when: _pg_upgrade.rc == 0
+
+# ─── readiness ───────────────────────────────────────────────────────────
+# Gate downstream (roles/keycloak provision_db) on the cluster actually
+# accepting connections -- container-exists is not readiness (the entrypoint
+# runs initdb + a first-boot restart on a fresh volume).
+- name: "postgres: wait for catena-postgres to accept connections"
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      ctr="$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
+        | grep -E '^{{ catena_postgres_service_name }}\.' | head -n1)"
+      if [ -z "$ctr" ]; then echo "no {{ catena_postgres_service_name }} task yet" >&2; exit 1; fi
+      docker exec "$ctr" pg_isready -U {{ catena_postgres_superuser }}
+    executable: /bin/bash
+  register: _pg_ready
+  retries: 30
+  delay: 4
+  until: _pg_ready.rc == 0
+  changed_when: false

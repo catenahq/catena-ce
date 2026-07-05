@@ -1,6 +1,6 @@
 -- {{ ansible_managed }}
 -- Idempotent role + database provisioner for the Keycloak DB inside
--- dokploy-postgres. CREATE ROLE / CREATE DATABASE are not IF NOT EXISTS
+-- catena-postgres. CREATE ROLE / CREATE DATABASE are not IF NOT EXISTS
 -- in vanilla psql, so the role is wrapped in a DO block + pg_database
 -- existence is guarded inline via SELECT.
 \set ON_ERROR_STOP on

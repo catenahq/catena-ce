@@ -14,7 +14,7 @@
 # stronger than "container exists in docker ps".
 
 # DR detection: realm + clients + users come back via the
-# dokploy-postgres pg_dumpall replay. Re-importing on top of that
+# catena-postgres pg_dumpall replay. Re-importing on top of that
 # triggers Keycloak 500s on user-create (Phase Two image returns 500
 # instead of 409 on the duplicate-username path), so on a post-
 # restore converge we skip the entire keycloak-config-cli step. The
@@ -43,7 +43,7 @@
 # On a post-restore converge the marker doesn't exist on disk (it
 # lives under /var/lib/catena/, which is NOT in backup_paths -- only
 # /etc + /mnt/data + /var/lib/dpkg + /usr/local/bin are). But the
-# restored dokploy-postgres DB already carries the smtpServer config
+# restored catena-postgres DB already carries the smtpServer config
 # from the source host (pg_dumpall replay path). Drop the marker
 # pre-import so the "render without smtpServer" + "skip mark" paths
 # below both behave the same way they would on a normal converge.

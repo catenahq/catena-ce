@@ -2,7 +2,7 @@
 # Keycloak realm export sidecar.
 #
 # Realm clients, mappers, scopes, signing keys, SMTP config all live
-# in dokploy-postgres so they recover with the rest of the DB. But
+# in catena-postgres so they recover with the rest of the DB. But
 # realm-level UI customizations (logos, themes) and any operator-edited
 # client redirect_uris that were not re-applied via blueprint are
 # DB-only state with no easy diff surface. A nightly JSON export gives

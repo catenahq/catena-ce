@@ -1,7 +1,7 @@
 ---
 # Orchestrator for roles/keycloak. Order:
 # 1. Preflight: vault keys + admin email + cloudflare_zone defined.
-# 2. Provision keycloak DB + user inside dokploy-postgres (idempotent
+# 2. Provision keycloak DB + user inside catena-postgres (idempotent
 #    via `CREATE ... IF NOT EXISTS`-equivalent guards).
 # 3. Render compose + deploy via Dokploy API. Health-gated readiness
 #    probe.
@@ -11,7 +11,7 @@
 #
 # Atomicity: per project CLAUDE.md "Ansible tasks must be idempotent
 # AND atomic w.r.t. concurrent service boot": the DB-provision step
-# (psql in dokploy-postgres) only runs once dokploy-postgres is
+# (psql in catena-postgres) only runs once catena-postgres is
 # `running`, and the realm-config one-shot gates on Keycloak's
 # /health/ready (NOT on container-exists).
 
@@ -31,7 +31,7 @@
       AUTH_SUBDOMAIN, and CLOUDFLARE_ZONE in .env. The installer mints
       vault_keycloak_db_password automatically on a fresh install.
 
-- name: "Keycloak: provision DB + user inside dokploy-postgres"
+- name: "Keycloak: provision DB + user inside catena-postgres"
   ansible.builtin.include_tasks: provision_db.yml
   tags: [keycloak_db]
 

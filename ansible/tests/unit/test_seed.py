@@ -282,6 +282,7 @@ def test_service_secrets_mints_ce_groups(seed):
         "vault_dashboard_sync_client_secret",
         "vault_healthchecks_secret_key",
         "vault_dokploy_postgres_password",
+        "vault_catena_postgres_password",
         "vault_turn_static_auth_secret",
         "vault_beszel_admin_password",
     ):

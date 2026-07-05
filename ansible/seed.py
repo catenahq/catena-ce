@@ -78,6 +78,7 @@ PLACEHOLDER_VALUES = {"REPLACE", "REPLACE-LONG-RANDOM-STRING"}
 VAULT_SKIP_KEYS = {
     "vault_dokploy_api_key",
     "vault_dokploy_postgres_password",
+    "vault_catena_postgres_password",
     "vault_backup_restic_password",
     "vault_admin_password",
     "vault_keycloak_db_password",
@@ -1061,15 +1062,18 @@ def _resolve_service_secrets(
         },
         ok_message="Healthchecks secrets auto-generated.",
     )
-    # Dokploy postgres password (stable across restores) and coturn
-    # static-auth-secret (seed for ephemeral TURN credentials).
+    # Postgres passwords (stable across restores) and coturn static-auth-secret
+    # (seed for ephemeral TURN credentials). catena-postgres is the catena-owned
+    # Postgres (roles/postgres) that hosts the Keycloak DB; dokploy-postgres is
+    # kept until Dokploy is removed at the end of the Dokploy->Portainer migration.
     _auto_mint_group(
         vault_values, existing_vault=existing_vault,
         minters={
             "vault_dokploy_postgres_password": _mint_strong_password,
+            "vault_catena_postgres_password": _mint_strong_password,
             "vault_turn_static_auth_secret": _mint_strong_password,
         },
-        ok_message="Dokploy postgres + coturn static-auth-secret auto-generated.",
+        ok_message="Postgres (dokploy + catena) + coturn static-auth-secret auto-generated.",
     )
     # Nextcloud Talk + HPB bearer secrets. Idle when the talk-hpb service is
     # commented out in the compose.

@@ -114,6 +114,12 @@
     # catena-traefik and joins catena-network. Lifted out of roles/dokploy
     # in the Dokploy->Portainer migration.
     - { role: traefik, tags: [traefik] } # reverse proxy: catena-traefik + catena-network
+    # catena-owned Postgres (catena-postgres swarm service on catena-network),
+    # replacing the dokploy-postgres the Keycloak DB used to live in. Runs after
+    # traefik (needs catena-network) and BEFORE keycloak (which provisions its
+    # DB inside it). Dokploy->Portainer migration: Portainer uses BoltDB, so
+    # there is no shared Dokploy Postgres to piggyback on anymore.
+    - { role: postgres, tags: [postgres] } # infra Postgres (Keycloak DB)
     # cloudflared swarm service + CF tunnel + wildcard DNS. Runs BEFORE
     # keycloak + oauth2_proxy so the public auth.<zone> URL is reachable
     # by the time oauth2_proxy waits for Keycloak's OIDC discovery doc.

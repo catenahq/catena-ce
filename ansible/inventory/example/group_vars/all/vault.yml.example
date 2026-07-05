@@ -35,6 +35,13 @@ vault_dokploy_api_key: "REPLACE"
 # random value. Keeping this stable is what makes restore-to-a-new-VPS work.
 vault_dokploy_postgres_password: "REPLACE-LONG-RANDOM-STRING"
 
+# catena-owned Postgres superuser password. roles/postgres creates the
+# catena-postgres swarm service with this as a swarm secret; the Keycloak DB
+# lives inside it (moved off dokploy-postgres in the Dokploy->Portainer
+# migration -- Portainer uses BoltDB, no shared Postgres to piggyback on).
+# Keep stable across restores (logical pg_dumpall replay, same as Dokploy's).
+vault_catena_postgres_password: "REPLACE-LONG-RANDOM-STRING"
+
 # --- Restic / backups ---
 # S3 credentials for the restic repo (on your own client-owned bucket).
 vault_backup_s3_access_key: "REPLACE"

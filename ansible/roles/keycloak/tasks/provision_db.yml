@@ -1,5 +1,5 @@
 ---
-# Provision Keycloak's database + role inside dokploy-postgres.
+# Provision Keycloak's database + role inside catena-postgres.
 #
 # Why here and not via roles/dokploy: dokploy/postgres bootstrapping
 # is the swarm-secret + install.sh path, scoped to the `dokploy` DB.
@@ -11,8 +11,8 @@
 # existence probe (run as a separate task because CREATE DATABASE
 # cannot run inside a transaction block).
 #
-# Atomicity: gated on dokploy-postgres being `running`. Per project
-# memory `feedback_pg_password_state_machine`, dokploy-postgres becoming
+# Atomicity: gated on catena-postgres being `running`. Per project
+# memory `feedback_pg_password_state_machine`, catena-postgres becoming
 # reachable AFTER this point is the dokploy role's invariant, not ours.
 #
 # SQL rendered to /root and piped via stdin instead of inlined in
@@ -21,11 +21,11 @@
 # cause as the Healthchecks seed-script-to-file refactor recorded in
 # memory `feedback_pg_password_state_machine`).
 
-- name: "Keycloak DB: find dokploy-postgres swarm task"
+- name: "Keycloak DB: find catena-postgres swarm task"
   ansible.builtin.shell: |
     set -o pipefail
     docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-      | grep -E '^dokploy-postgres\..*' \
+      | grep -E '^catena-postgres\..*' \
       | head -n1
   args:
     executable: /bin/bash
@@ -35,11 +35,11 @@
   delay: 4
   until: _kc_pg_container.stdout | length > 0
 
-# dokploy-postgres ships POSTGRES_USER=dokploy (no `postgres` superuser
-# exists). Detect the live superuser from the container env so this
-# role survives any future Dokploy default-user change. Mirrors the
-# pattern used in roles/backup/tasks/pg_replay.yml.
-- name: "Keycloak DB: detect POSTGRES_USER from dokploy-postgres env"
+# catena-postgres ships POSTGRES_USER=postgres (roles/postgres sets it).
+# Detect the live superuser from the container env anyway so this role
+# survives any future default-user change. Mirrors the pattern used in
+# roles/backup/tasks/pg_replay.yml.
+- name: "Keycloak DB: detect POSTGRES_USER from catena-postgres env"
   ansible.builtin.shell: >-
     docker exec {{ _kc_pg_container.stdout | quote }}
     sh -c 'printf %s "${POSTGRES_USER:-}"'

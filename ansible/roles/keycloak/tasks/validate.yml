@@ -2,7 +2,7 @@
 # Validation tasks for roles/keycloak. One probe surface:
 #
 # In-container /health/ready -- proves the server booted, ran its
-# schema migrations against dokploy-postgres, and accepted the DB
+# schema migrations against catena-postgres, and accepted the DB
 # credentials. This is the canonical "safe to issue admin API calls
 # now" gate (used by realm_bootstrap.yml's keycloak-config-cli one-
 # shot, and by playbooks/validate.yml Vantage 1b's DR SMTP smoke test).
