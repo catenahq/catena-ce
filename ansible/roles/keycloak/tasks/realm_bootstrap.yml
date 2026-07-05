@@ -172,8 +172,17 @@
       - KEYCLOAK_PASSWORD
       - -e
       - "KEYCLOAK_AVAILABILITYCHECK_ENABLED=true"
+      # Short per-attempt wait: kc-config-cli resolves keycloak-server via
+      # the JVM, which negative-DNS-caches a first-lookup miss for the life
+      # of the container -- so a long in-container wait never recovers if
+      # the dokploy-network alias was not yet registered at startup (the
+      # network-attachment race after an anchor-rewind reboot / redeploy).
+      # We instead retry the WHOLE run at the Ansible level below: each
+      # retry is a fresh container with a fresh resolver, so the lookup
+      # succeeds once the alias is up. Keep this short so a doomed attempt
+      # fails fast into the next retry.
       - -e
-      - "KEYCLOAK_AVAILABILITYCHECK_TIMEOUT=120s"
+      - "KEYCLOAK_AVAILABILITYCHECK_TIMEOUT=25s"
       - -e
       - "IMPORT_FILES_LOCATIONS=/config/*.yaml"
       - -e
@@ -243,6 +252,20 @@
   # leak vault_admin_password); the registered variable still carries
   # the stdout/stderr that the debug task explicitly emits next.
   failed_when: false
+  # Retry the whole run on any failure: each attempt is a FRESH container
+  # with a fresh DNS resolver, so a keycloak-server lookup that missed on
+  # the first attempt (alias not yet registered after a rewind-reboot /
+  # redeploy, then JVM-negative-cached for that container's life) resolves
+  # on a later attempt once the alias is up -- and a transient dokploy-
+  # network attach error is ridden out too. `until` retries while rc != 0;
+  # on final exhaustion failed_when=false keeps the play alive so the debug
+  # + abort pair below still surface the real error. The import is
+  # idempotent (import-update-merge, NO_DELETE), so re-running is safe.
+  # Bench 2026-07-05T01-35-42-fbb4 fi_a2: a single attempt died with
+  # `UnknownHostException: keycloak-server` for the full availability wait.
+  retries: 6
+  delay: 8
+  until: _keycloak_realm_import.rc == 0
   when: not (_keycloak_realm_post_restore_marker.stat.exists | default(false))
   no_log: true
 
