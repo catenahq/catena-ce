@@ -267,36 +267,29 @@
   when: _cloudflared_service.rc != 0
   no_log: true
 
-# Read the current TUNNEL_TOKEN from the swarm spec and compare with the
-# CF API value. `docker service update --env-add KEY=VALUE` bumps the
-# service spec version EVEN IF the value is identical, which triggers a
-# rolling task replacement on every site.yml converge. The replacement
-# briefly drops cloudflared's CF tunnel connections, and CF edge serves
-# 530/1033 for tunnel hostnames while the new connector registers. Any
-# container that does single-shot OIDC discovery in that window
-# (oauth2-proxy v7 has no retry) crashloops into Docker restart-backoff
-# and may never recover within the validate retry budget.
+# Push the token to the running connector ONLY when the tunnel was
+# actually (re-)created above. `docker service update --env-add KEY=VALUE`
+# bumps the service spec version EVEN IF the value is identical, which
+# rolls the task: the connector drops, CF edge serves 530/1033 for tunnel
+# hostnames until it re-registers, and any container doing single-shot OIDC
+# discovery in that window (oauth2-proxy v7 has no retry) crashloops into
+# Docker restart-backoff and may never recover within the validate budget.
 #
-# Bench rollback Run 2026-05-09T15-32-56-9f17 reproduced this: the
-# unconditional --env-add fired during stage-3-rollback's site.yml
-# converge, swarm rolled cloudflared 3 times in 2 minutes, gatus
-# oauth2-proxy started fresh in the middle of that and never recovered
-# before /ping retries exhausted.
-- name: Read cloudflared current TUNNEL_TOKEN env from swarm spec
-  ansible.builtin.command:
-    argv:
-      - docker
-      - service
-      - inspect
-      - cloudflared
-      - --format
-      - "{{ '{{' }}range .Spec.TaskTemplate.ContainerSpec.Env{{ '}}' }}{{ '{{' }}.{{ '}}' }}|{{ '{{' }}end{{ '}}' }}"
-  register: _cloudflared_current_env
-  when: _cloudflared_service.rc == 0
-  changed_when: false
-  no_log: true
-
-- name: Update cloudflared service token only if it actually drifted
+# We deliberately do NOT string-compare the fetched token against the swarm
+# spec. The CF `GET /cfd_tunnel/{id}/token` response is NOT byte-stable for
+# the same tunnel -- the base64(JSON{a,t,s}) blob is re-serialized per call
+# -- so a string compare ALWAYS sees "drift" and rolls cloudflared on EVERY
+# converge (the flap fi_c6 catches, and the upstream source of the
+# oauth2-proxy 530 crashloops). The token for an existing (found) tunnel is
+# immutable, so the connector only needs a new token when find-or-create
+# actually minted a new tunnel -- gate on that.
+#
+# History: bench rollback Run 2026-05-09T15-32-56-9f17 first reproduced the
+# flap from an unconditional --env-add; the string-compare guard that
+# replaced it STILL rolled every converge because of the re-encoding
+# (bench 2026-07-05T01-35-42-fbb4: tunnel found, token "drifted", task
+# replaced + spec version bumped).
+- name: Update cloudflared service token only when the tunnel was (re-)created
   ansible.builtin.command:
     argv:
       - docker
@@ -306,7 +299,7 @@
       - cloudflared
   when:
     - _cloudflared_service.rc == 0
-    - ('TUNNEL_TOKEN=' + cloudflared_tunnel_token) not in (_cloudflared_current_env.stdout | default('')).split('|')
+    - _cf_tunnel_create is changed
   no_log: true
 
 - name: Read cloudflared current image
