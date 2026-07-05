@@ -1,0 +1,49 @@
+---
+# roles/traefik -- catena-owned reverse proxy.
+#
+# Lifted out of roles/dokploy (2026-07, Dokploy->Portainer migration). Traefik
+# is no longer born from Dokploy's install.sh: we deploy and own the
+# `catena-traefik` container directly. Config surface is identical to what the
+# dokploy role used to render; only the ownership, container name, network, and
+# var names changed.
+
+# Pinned Traefik image. Was dokploy_traefik_image_tag; renovate/trivy key off
+# `traefik_image_tag` now (see renovate.json customManagers).
+traefik_image_tag: "v3.6.21"
+traefik_image: "traefik:{{ traefik_image_tag }}"
+
+# The catena-owned reverse-proxy container (was the install.sh-born
+# `dokploy-traefik`). cloudflared points its ingress at this name.
+traefik_container_name: catena-traefik
+
+# The overlay network apps + traefik share. Renamed from dokploy-network.
+# We create it ourselves (attachable overlay) because Dokploy's install.sh no
+# longer owns the ingress network.
+catena_network_name: catena-network
+
+# Traefik config tree. NOTE: path intentionally kept under /etc/dokploy/traefik
+# for the Dokploy-present transition window -- Dokploy still writes its own
+# file-provider routes there and our traefik must keep reading them until
+# Dokploy is removed (Phase 5), at which point this moves to /etc/catena/traefik
+# in one step with the rest of the /etc/dokploy teardown.
+traefik_config_dir: /etc/dokploy/traefik
+traefik_dynamic_dir: "{{ traefik_config_dir }}/dynamic"
+
+# Trusted upstream-proxy IPs for Traefik's forwardedHeaders. Only sources in
+# this list have their X-Forwarded-* headers honored; anything else gets
+# rewritten with the local-edge values (X-Forwarded-Proto: http on :80), which
+# makes Keycloak treat HTTPS clients as non-secure and refuse Secure cookies.
+#
+# RFC1918 is the right scope: UFW + DOCKER-USER + cloudflared-only ingress mean
+# only private sources (cloudflared on the overlay's 10.x, Docker bridges,
+# anything inside Docker) reach :80/:443 at all. Public clients are blocked at
+# the firewall; this governs what Traefik trusts among sources that DO reach it.
+traefik_trusted_ips:
+  - "10.0.0.0/8"
+  - "172.16.0.0/12"
+  - "192.168.0.0/16"
+  - "127.0.0.0/8"
+
+# Nudge timeout: seconds the recovery script waits for the overlay network to
+# re-materialize after a docker.service restart before giving up.
+traefik_nudge_timeout: 60
