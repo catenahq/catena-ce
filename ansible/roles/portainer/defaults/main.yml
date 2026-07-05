@@ -1,0 +1,37 @@
+---
+# roles/portainer -- the container control plane that replaces Dokploy.
+#
+# Portainer CE spans Docker + Swarm + (later) Kubernetes, which Dokploy could
+# not. It provides the compose/stack + env + logs + lifecycle API the migration
+# needs; routing stays with catena-traefik (Portainer does no reverse proxy).
+#
+# Deployed as a swarm service on catena-network with the docker socket, so it
+# manages the local Docker/Swarm endpoint (id 1). The UI/API port is published
+# host-mode and firewalled to the tailnet via the public-ports registry -- same
+# model as the old Dokploy :3000 (operators + the controller reach it over the
+# tailnet; a catena-traefik route at apps.<zone> comes later).
+
+# Pinned LTS. Portainer 2.27.0 removed the old POST /api/stacks form; 2.39.4
+# (lts tag) uses the typed /api/stacks/create/{type}/{method} paths the CE +
+# EE API seams target. Renovate should track portainer_image_tag.
+portainer_image_tag: "2.39.4"
+portainer_image: "portainer/portainer-ce:{{ portainer_image_tag }}"
+
+portainer_service_name: catena-portainer
+portainer_data_volume: catena-portainer-data
+
+# UI/API port inside the container (Portainer's HTTP listener). Not published;
+# firewalled to the tailnet via the public-ports registry, same model as the
+# old Dokploy :3000.
+portainer_ui_port: 9000
+
+# Initial admin. Reuses the shared operator identity (vault_admin_password,
+# >= 16 chars, same as Keycloak/ex-Dokploy). Delivered via --admin-password-file
+# from a swarm secret so it is set at first boot (no racing the 5-minute
+# /api/users/admin/init window).
+portainer_admin_user: admin
+portainer_admin_secret_name: catena_portainer_admin_password
+
+# API base for the token-mint + downstream CE/EE seam calls. Reached from the
+# controller over the tailnet, same shape as the old dokploy_api_base.
+portainer_api_base: "http://{{ ansible_host }}:{{ portainer_ui_port }}/api"

@@ -120,6 +120,12 @@
     # DB inside it). Dokploy->Portainer migration: Portainer uses BoltDB, so
     # there is no shared Dokploy Postgres to piggyback on anymore.
     - { role: postgres, tags: [postgres] } # infra Postgres (Keycloak DB)
+    # Portainer CE -- the container control plane that replaces Dokploy
+    # (Docker + Swarm + later K8s). Deployed here alongside Dokploy during the
+    # migration; the CE + EE API seams cut over from the Dokploy API to
+    # Portainer's stack API in a later step, after which roles/dokploy is
+    # removed. Not yet consumed, so bringing it up is behavior-neutral.
+    - { role: portainer, tags: [portainer] } # container control plane (Dokploy replacement)
     # cloudflared swarm service + CF tunnel + wildcard DNS. Runs BEFORE
     # keycloak + oauth2_proxy so the public auth.<zone> URL is reachable
     # by the time oauth2_proxy waits for Keycloak's OIDC discovery doc.

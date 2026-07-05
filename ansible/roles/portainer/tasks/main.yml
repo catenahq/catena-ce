@@ -1,0 +1,153 @@
+---
+# Deploy Portainer CE as the container control plane. Runs after roles/traefik
+# (catena-network) and roles/postgres. The compose/stack API this exposes is
+# consumed by the CE infrastructure tasks + the EE managed-update engine (their
+# seam swaps land next). See defaults for the ownership rationale.
+
+- name: "portainer: assert vault_admin_password is usable as the initial admin"
+  ansible.builtin.assert:
+    that:
+      - vault_admin_password is defined
+      - vault_admin_password | length >= 12
+    fail_msg: >-
+      vault_admin_password missing or < 12 chars. Portainer's initial admin
+      needs >= 12; the installer mints vault_admin_password (>= 16).
+
+# ─── admin-password swarm secret (immutable; create-once) ────────────────
+# Delivered to Portainer via --admin-password-file so the admin is set at first
+# boot (no racing the 5-minute /api/users/admin/init window). Staged to a 0600
+# file for `docker secret create` -- no shell interpolation of the password.
+- name: "portainer: check admin-password swarm secret exists"
+  ansible.builtin.command: "docker secret inspect {{ portainer_admin_secret_name }}"
+  register: _pt_secret
+  changed_when: false
+  failed_when: false
+
+- name: "portainer: create admin-password swarm secret"
+  when: _pt_secret.rc != 0
+  block:
+    - name: "portainer: stage secret material"
+      ansible.builtin.copy:
+        dest: /root/.catena-portainer-admin
+        content: "{{ vault_admin_password }}"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
+    - name: "portainer: docker secret create"
+      ansible.builtin.command: "docker secret create {{ portainer_admin_secret_name }} /root/.catena-portainer-admin"
+      register: _pt_secret_create
+      changed_when: _pt_secret_create.rc == 0
+  always:
+    - name: "portainer: remove staged secret material"
+      ansible.builtin.file:
+        path: /root/.catena-portainer-admin
+        state: absent
+
+# ─── swarm service ───────────────────────────────────────────────────────
+- name: "portainer: check catena-portainer swarm service exists"
+  ansible.builtin.command: "docker service inspect {{ portainer_service_name }} --format '{{ '{{' }}.ID{{ '}}' }}'"
+  register: _pt_service
+  changed_when: false
+  failed_when: false
+
+# Host-mode publish so the port lands on the node IP (reached over the tailnet;
+# the registry fragment below firewalls it to tailnet + RFC1918). Docker socket
+# lets Portainer manage the local Docker/Swarm endpoint. /data on a named volume
+# persists its BoltDB store (replaces Dokploy's Postgres control-plane DB). The
+# trailing --admin-password-file arg is passed to the portainer binary.
+- name: "portainer: create catena-portainer swarm service (first run)"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - create
+      - "--name={{ portainer_service_name }}"
+      - --network=catena-network
+      - --restart-condition=any
+      - "--publish=mode=host,published={{ portainer_ui_port }},target=9000"
+      - "--secret={{ portainer_admin_secret_name }}"
+      - "--mount=type=bind,source=/var/run/docker.sock,destination=/var/run/docker.sock"
+      - "--mount=type=volume,source={{ portainer_data_volume }},destination=/data"
+      - --constraint=node.role==manager
+      - "{{ portainer_image }}"
+      - "--admin-password-file=/run/secrets/{{ portainer_admin_secret_name }}"
+  when: _pt_service.rc != 0
+  register: _pt_service_create
+  changed_when: _pt_service_create.rc == 0
+
+# Rolling image-drift upgrade (pinned-tag bump takes effect next converge).
+- name: "portainer: read running image (drift check)"
+  ansible.builtin.command: >-
+    docker service inspect {{ portainer_service_name }}
+    --format '{{ "{{" }}.Spec.TaskTemplate.ContainerSpec.Image{{ "}}" }}'
+  register: _pt_running_image
+  changed_when: false
+  failed_when: false
+  when: _pt_service.rc == 0
+
+- name: "portainer: rolling image upgrade on drift"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - update
+      - --image
+      - "{{ portainer_image }}"
+      - "{{ portainer_service_name }}"
+  when:
+    - _pt_service.rc == 0
+    - _pt_running_image.stdout is defined
+    - portainer_image not in (_pt_running_image.stdout | default(''))
+  register: _pt_upgrade
+  changed_when: _pt_upgrade.rc == 0
+
+# ─── tailnet-only firewall for the UI port (registry fragment) ───────────
+- name: "portainer: ensure public-port fragment dir exists"
+  ansible.builtin.file:
+    path: "{{ public_ports_fragment_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "portainer: declare UI port (registry fragment, tailnet-only)"
+  ansible.builtin.copy:
+    dest: "{{ public_ports_fragment_dir }}/portainer.json"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {{
+        [
+          {"proto": "tcp", "port": portainer_ui_port | int,
+           "scope": "tailnet", "bind": "docker", "owner": "portainer",
+           "comment": "Portainer control-plane UI -- tailnet + RFC1918 only"}
+        ] | to_nice_json
+      }}
+  register: _pt_ports_fragment
+
+- name: "portainer: reconcile public ports now (fragment changed)"
+  ansible.builtin.systemd_service:
+    name: catena-public-ports.service
+    state: started
+  changed_when: false
+  when: _pt_ports_fragment.changed
+
+# ─── readiness ───────────────────────────────────────────────────────────
+# Portainer serves its SPA on the UI port once the BoltDB store is initialised.
+# Probe the SPA root (always 200, no auth, version-agnostic) rather than a
+# specific /api/* status path, before the token-mint tasks (which land next)
+# can race first boot.
+- name: "portainer: wait for the UI to answer"
+  ansible.builtin.uri:
+    url: "http://localhost:{{ portainer_ui_port }}/"
+    method: GET
+    status_code: [200, 307, 308]
+    timeout: 5
+  register: _pt_ready
+  retries: 40
+  delay: 5
+  until: _pt_ready.status | default(-1) in [200, 307, 308]
+  failed_when: false
