@@ -2,7 +2,7 @@
 # roles/oauth2_proxy deploys ONE oauth2-proxy container per gated
 # upstream in true reverse-proxy mode. Each instance:
 #
-#   - listens on dokploy-network alias `oauth2-proxy-<slug>`
+#   - listens on catena-network alias `oauth2-proxy-<slug>`
 #   - proxies to its own backend via `--upstream=http://<alias>:<port>`
 #   - enforces its own `--allowed-group=` ACL
 #   - shares the same Keycloak client + cookie name + cookie secret so
@@ -78,7 +78,7 @@ oauth2_proxy_client_id: "oauth2-proxy"
 # Fix: --skip-oidc-discovery=true + explicit endpoints. The browser-
 # facing authorization endpoint (--login-url) stays PUBLIC; the server-
 # to-server token + JWKS endpoints (--redeem-url, --oidc-jwks-url) point
-# at keycloak-server:8080 on dokploy-network. Keycloak already sets
+# at keycloak-server:8080 on catena-network. Keycloak already sets
 # KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true, so it answers backchannel
 # requests on the internal host while keeping the public issuer in the
 # iss claim. Overriding redeem+jwks alone is NOT enough -- with
@@ -95,7 +95,7 @@ oauth2_proxy_login_url: "https://{{ keycloak_hostname }}/realms/{{ keycloak_real
 # Intra-cluster Keycloak backchannel base for server-to-server calls
 # (token redemption + JWKS). Host + port MUST match
 # roles/keycloak/vars/main.yml keycloak_server_alias + the KC HTTP port
-# (keycloak.compose.yml.j2 exposes 8080 on dokploy-network). Keycloak's
+# (keycloak.compose.yml.j2 exposes 8080 on catena-network). Keycloak's
 # KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true makes these reachable on the
 # internal host while the discovery doc / iss stay public.
 oauth2_proxy_keycloak_backchannel_host: "keycloak-server"
@@ -107,9 +107,9 @@ oauth2_proxy_jwks_url: "{{ oauth2_proxy_backchannel_base }}/certs"
 # --- Gated apps (one oauth2-proxy container per entry) ---
 # Each entry maps to:
 #   - a per-app oauth2-proxy compose service named `<slug>` with
-#     network alias `oauth2-proxy-<slug>` on dokploy-network
+#     network alias `oauth2-proxy-<slug>` on catena-network
 #   - a Traefik file-based route at
-#     {{ dokploy_traefik_dynamic_dir }}/<slug>-oauth2-proxy.yml that
+#     {{ traefik_dynamic_dir }}/<slug>-oauth2-proxy.yml that
 #     routes Host(<host>) -> http://oauth2-proxy-<slug>:4180
 #   - a redirect URI in the shared `oauth2-proxy` Keycloak client.
 #
@@ -118,7 +118,7 @@ oauth2_proxy_jwks_url: "{{ oauth2_proxy_backchannel_base }}/certs"
 #                   `oauth2-proxy-<slug>` compose service name +
 #                   network alias.
 #   host_var        inventory hostname variable holding the public FQDN.
-#   upstream_alias  dokploy-network alias of the BACKEND app. Dokploy
+#   upstream_alias  catena-network alias of the BACKEND app. Dokploy
 #                   compose-managed apps register an alias matching
 #                   their compose service name (e.g. `gatus`,
 #                   `homepage`); swarm services resolve via the
@@ -131,11 +131,11 @@ oauth2_proxy_jwks_url: "{{ oauth2_proxy_backchannel_base }}/certs"
 # is also the per-app compose service name + DNS alias of the
 # oauth2-proxy container. If `slug == upstream_alias` then BOTH
 # containers (proxy + backend) advertise the same alias on
-# dokploy-network and Docker round-robins between them, randomly
+# catena-network and Docker round-robins between them, randomly
 # proxying to the proxy itself instead of the backend. The compose
 # template defends against this by always using `oauth2-proxy-<slug>`
 # as the proxy's service name -- but `upstream_alias` MUST still be
-# the BACKEND's actual alias on dokploy-network, NOT the public
+# the BACKEND's actual alias on catena-network, NOT the public
 # subdomain prefix.
 oauth2_proxy_apps:
   - slug: "gatus"
@@ -181,7 +181,7 @@ oauth2_proxy_apps:
   # ROLLOUT ORDER (operator-side): the catena-admin compose at
   # services/catena-admin/dokploy.compose.yml must be redeployed
   # BEFORE this converge runs so the sigproxy container is up on
-  # dokploy-network. Otherwise oauth2-proxy gets connection-refused
+  # catena-network. Otherwise oauth2-proxy gets connection-refused
   # on the new upstream and dash.<zone> returns 502. The compose
   # change shipped in the same commit as this defaults flip;
   # Dokploy redeploy picks it up automatically on its next poll.

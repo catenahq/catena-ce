@@ -108,6 +108,12 @@
     - { role: storage, tags: [storage] } # mount block volume at /mnt/data (+ optional bulk)
     - { role: docker, tags: [docker] }
     - { role: dokploy, tags: [dokploy] } # app platform, bound to tailscale0 only
+    # catena-owned reverse proxy (catena-traefik on the catena-network
+    # overlay). Runs AFTER dokploy (which still does the swarm init) and
+    # BEFORE cloudflare_tunnel, which points cloudflared's ingress at
+    # catena-traefik and joins catena-network. Lifted out of roles/dokploy
+    # in the Dokploy->Portainer migration.
+    - { role: traefik, tags: [traefik] } # reverse proxy: catena-traefik + catena-network
     # cloudflared swarm service + CF tunnel + wildcard DNS. Runs BEFORE
     # keycloak + oauth2_proxy so the public auth.<zone> URL is reachable
     # by the time oauth2_proxy waits for Keycloak's OIDC discovery doc.

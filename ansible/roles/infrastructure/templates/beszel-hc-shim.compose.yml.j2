@@ -6,7 +6,7 @@
 # Gatus (clients keep their self-service channels). See
 # internal_docs/operator/notifications.md and vps-scripts/beszel-hc-shim.py.
 #
-# No public surface (traefik.enable=false). Reachable on dokploy-network
+# No public surface (traefik.enable=false). Reachable on catena-network
 # at {{ beszel_hc_shim_network_alias }}:{{ beszel_hc_shim_internal_port }};
 # the operator points Beszel's webhook notification at
 # generic+http://{{ beszel_hc_shim_network_alias }}:{{ beszel_hc_shim_internal_port }}/notify
@@ -22,12 +22,12 @@ services:
     volumes:
       - {{ beszel_hc_shim_host_dir }}:/app:ro
     networks:
-      dokploy-network:
+      catena-network:
         aliases:
           - {{ beszel_hc_shim_network_alias }}
     labels:
       - traefik.enable=false
 
 networks:
-  dokploy-network:
+  catena-network:
     external: true

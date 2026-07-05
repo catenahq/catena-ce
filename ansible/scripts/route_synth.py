@@ -61,7 +61,7 @@ def _route_yaml_public(name, host, alias, port, force_https_mw, route_slug=None)
 
 
 def _proxy_alias(name):
-    """dokploy-network alias of the per-app oauth2-proxy instance for this
+    """catena-network alias of the per-app oauth2-proxy instance for this
     app. Matches the service name dashboard-sync renders in the
     oauth2-proxy-clients compose."""
     return f"oauth2-proxy-{slugify(name)}"

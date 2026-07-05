@@ -333,7 +333,7 @@
         timeout: 10
       delegate_to: localhost
       # Proxy check -- proves the tailnet path still works. Real Gatus
-      # health lives at its own /health endpoint inside dokploy-network
+      # health lives at its own /health endpoint inside catena-network
       # and isn't reachable from the controller; Gatus's own self-monitor
       # in 00-base.yaml covers it.
 
@@ -525,7 +525,7 @@
     # client compose with `ports: ["8080:80"]` would expose its
     # container directly to the tailnet, bypassing Traefik's
     # forward-auth chain. Container IPs themselves aren't routable
-    # from tailnet (dokploy-network is host-internal), so the actual
+    # from tailnet (catena-network is host-internal), so the actual
     # attack surface is host-published ports. Enumerate every
     # listening TCP port on the host and assert the set matches the
     # allowlist (Traefik 80/443, SSH 22, Dokploy admin 3000 on the
@@ -628,7 +628,7 @@
         success_msg: "Host port set OK ({{ _r4_public_ports | join(', ') }} - all in allowlist)"
 
     # Direct-container-IP probe from a tailnet vantage.
-    # Asserts the dokploy-network bridge stays host-internal: container
+    # Asserts the catena-network bridge stays host-internal: container
     # IPs (172.x.y.z by default) must NOT be reachable from the
     # operator's controller. The host-port allowlist above catches the
     # `ports: "8080:80"` shape; this catches the orthogonal case where
@@ -636,13 +636,13 @@
     # itself. A successful TCP connect from controller -> container IP
     # would mean the network isolation is broken (Traefik bypass: clients
     # could hit the gated app's container directly).
-    - name: "tailnet: list container IPs on dokploy-network"
+    - name: "tailnet: list container IPs on catena-network"
       ansible.builtin.command:
         argv:
           - docker
           - network
           - inspect
-          - "{{ dokploy_network_name | default('dokploy-network') }}"
+          - "{{ dokploy_network_name | default('catena-network') }}"
           - --format
           - '{% raw %}{{range $k, $v := .Containers}}{{$v.IPv4Address}}{{"\n"}}{{end}}{% endraw %}'
       register: _r4_ct_ips_raw
@@ -680,7 +680,7 @@
       ansible.builtin.debug:
         msg: |
           {{ (_container_ips | default([])) | length }} container IP(s)
-          on dokploy-network: none reachable from controller (good).
+          on catena-network: none reachable from controller (good).
       when: (_container_ips | default([])) | length > 0
 
 - name: "Vantage 3 -- external checks"

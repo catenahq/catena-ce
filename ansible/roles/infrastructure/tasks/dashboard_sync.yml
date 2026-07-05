@@ -6,7 +6,7 @@
 #
 # Phase 4b: the script no longer writes Homepage's services.yaml. Its
 # only remaining job is the gate-route synthesis -- generating
-# {{ dokploy_traefik_dynamic_dir }}/<app>-auto-gate.yml from every
+# {{ traefik_dynamic_dir }}/<app>-auto-gate.yml from every
 # Dokploy compose/application's vps.auth.* labels.
 
 - name: "dashboard-sync: script"

@@ -57,7 +57,7 @@ keycloak_health_path: "/health/ready"
 
 # --- Realm bootstrap (keycloak-config-cli) ---
 # adorsys' import-update-merge tool. Runs as a one-shot docker container
-# attached to dokploy-network so it can hit keycloak-server:8080. Image
+# attached to catena-network so it can hit keycloak-server:8080. Image
 # tag must match Keycloak's major.minor (the tool's CRD parser breaks
 # across major-version drift). Track upstream:
 #   https://hub.docker.com/r/adorsys/keycloak-config-cli/tags

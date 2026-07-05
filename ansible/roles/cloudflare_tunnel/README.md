@@ -3,8 +3,8 @@
 Find-or-create the Cloudflare Named Tunnel for this VPS, render the
 wildcard DNS record (`*.<zone>` -> `<tunnel-id>.cfargotunnel.com`),
 enforce the tunnel ingress config (single rule pointing at
-`http://dokploy-traefik:80` plus a `404` fallback), and deploy
-`cloudflared` as a swarm service on `dokploy-network`.
+`http://catena-traefik:80` plus a `404` fallback), and deploy
+`cloudflared` as a swarm service on `catena-network`.
 
 ## Why a separate role (not part of `infrastructure`)
 
@@ -29,7 +29,7 @@ roles:
   - tailscale
   - storage
   - docker
-  - dokploy           # initializes swarm + creates dokploy-network
+  - dokploy           # initializes swarm + creates catena-network
   - cloudflare_tunnel # <- this role
   - keycloak
   - oauth2_proxy      # waits for auth.<zone>; cloudflared is up by here
@@ -39,7 +39,7 @@ roles:
 
 ## Dependencies
 
-- `dokploy-network` exists (provided by `roles/dokploy`).
+- `catena-network` exists (provided by `roles/dokploy`).
 - Docker swarm initialized (provided by `roles/dokploy`).
 - Vault: `vault_cloudflare_api_token` (Zone:DNS:Edit + Cloudflare
   Tunnel:Edit on the target zone).

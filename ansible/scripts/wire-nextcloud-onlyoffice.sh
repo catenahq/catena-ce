@@ -71,7 +71,7 @@ fi
 OFFICE_URL="https://office.$BASE"
 
 # --- 3. Probe office.<base> to detect which editor is deployed ----------
-# Internal aliases on dokploy-network:
+# Internal aliases on catena-network:
 #   - OnlyOffice: documentserver:80  /healthcheck       -> "true"
 #   - Collabora:  collabora:9980     /hosting/discovery -> XML <wopi-discovery>
 exec_in_nc() {
@@ -105,7 +105,7 @@ fi
 
 if ! is_onlyoffice_alive; then
     cat >&2 <<EOF
-error: OnlyOffice is not reachable on the dokploy-network alias documentserver:80.
+error: OnlyOffice is not reachable on the catena-network alias documentserver:80.
 
 Check: Dokploy UI > Templates > onlyoffice > Logs.
        The container should answer GET /healthcheck with the literal "true".

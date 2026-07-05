@@ -74,7 +74,7 @@ fi
 OFFICE_URL="https://office.$BASE"
 
 # --- 3. Probe office.<base> to detect which editor is deployed ----------
-# Internal aliases on dokploy-network:
+# Internal aliases on catena-network:
 #   - Collabora:  collabora:9980     /hosting/discovery -> XML <wopi-discovery>
 #   - OnlyOffice: documentserver:80  /healthcheck       -> "true"
 # Probe both from inside NC so the right error message can be rendered
@@ -110,7 +110,7 @@ fi
 
 if ! is_collabora_alive; then
     cat >&2 <<EOF
-error: Collabora is not reachable on the dokploy-network alias collabora:9980.
+error: Collabora is not reachable on the catena-network alias collabora:9980.
 
 Check: Dokploy UI > Templates > collabora > Logs.
        The container should answer GET /hosting/discovery with XML.

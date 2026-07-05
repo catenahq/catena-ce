@@ -13,7 +13,7 @@ import (
 // infraEndpointKeys are the Gatus infrastructure-group endpoints the System
 // tab pins, cross-referenced with their probe state.
 var infraEndpointKeys = []string{
-	"dokploy", "dokploy-traefik", "gatus", "healthchecks", "keycloak", "oauth2-proxy",
+	"dokploy", "catena-traefik", "gatus", "healthchecks", "keycloak", "oauth2-proxy",
 }
 
 // GatusLister + HCLister are the read surfaces BuildSnapshot needs; the

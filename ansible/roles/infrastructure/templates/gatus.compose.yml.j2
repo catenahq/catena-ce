@@ -11,13 +11,13 @@ services:
       - {{ gatus_host_config_dir }}:/config:ro
       - gatus-data:/data
     # Loopback-only publish so gatus-sync (runs on the host, not in
-    # dokploy-network) can reach /api/v1/endpoints/statuses at
+    # catena-network) can reach /api/v1/endpoints/statuses at
     # 127.0.0.1:{{ gatus_host_localhost_port }}. UFW leaves loopback
     # traffic alone so this is never externally reachable.
     ports:
       - "127.0.0.1:{{ gatus_host_localhost_port }}:{{ gatus_internal_port }}"
     networks:
-      dokploy-network:
+      catena-network:
         aliases:
           - {{ gatus_network_alias }}
     # No Docker HEALTHCHECK block. twinproduction/gatus v5+ ships a
@@ -42,5 +42,5 @@ volumes:
   gatus-data:
 
 networks:
-  dokploy-network:
+  catena-network:
     external: true

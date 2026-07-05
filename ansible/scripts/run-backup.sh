@@ -263,7 +263,7 @@ restic forget \
 
 # ─── stats JSON for Homepage widget ──────────────────────────────────────
 # Runs AFTER retention so size reflects post-prune state. Parsed by the
-# Homepage customapi widget via the nginx sidecar on dokploy-network.
+# Homepage customapi widget via the nginx sidecar on catena-network.
 # Failure here must NOT fail the whole backup run (widget is diagnostic,
 # not load-bearing) -- hence the outer `|| log "..."` wrapper.
 if [ -n "${BACKUP_STATS_FILE:-}" ]; then

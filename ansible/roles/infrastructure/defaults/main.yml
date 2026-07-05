@@ -84,7 +84,7 @@ gatus_host_config_dir: "/etc/dokploy/gatus"
 # every 5 min so version bumps surface on the dashboard cards.
 gatus_infra_spec_path: "/etc/catena/gatus-infra-spec.json"
 # Host-side loopback port gatus-sync reads to reach /api/v1/endpoints/statuses.
-# gatus-sync runs as a systemd service on the host, outside dokploy-network,
+# gatus-sync runs as a systemd service on the host, outside catena-network,
 # so it can't resolve the container alias. 127.0.0.1:18080 is UFW-safe
 # (loopback is never publicly reachable).
 gatus_host_localhost_port: 18080
@@ -134,7 +134,7 @@ healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
 #                   so beszel.yml MUST run before dashboard_sync.yml.
 #   beszel-agent -- collects per-container + per-host CPU/memory/network/
 #                   disk/temperature/load over docker.sock. No public
-#                   surface; reaches the hub on the dokploy-network alias.
+#                   surface; reaches the hub on the catena-network alias.
 #
 # Threshold alerts leave the hub via Shoutrrr (generic webhook) to the
 # beszel-hc-shim sidecar, which maps triggered/resolved to Healthchecks
@@ -168,7 +168,7 @@ beszel_subdomain: "{{ lookup('dotenv', 'BESZEL_SUBDOMAIN', default='hub') }}"
 beszel_hostname: "{{ beszel_subdomain }}.{{ cloudflare_zone }}"
 
 # --- Beszel -> Healthchecks alert shim ----------------------------------
-# Tiny stdlib-Python sidecar on dokploy-network. Receives Beszel's
+# Tiny stdlib-Python sidecar on catena-network. Receives Beszel's
 # Shoutrrr generic-webhook POST, derives a beszel-<slug> check name, and
 # forwards triggered -> /fail, resolved -> success against the
 # Healthchecks loopback alias. All project channels auto-attach via the

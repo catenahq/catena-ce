@@ -180,5 +180,5 @@
     svc_domain_service: "app"
     svc_domain_port: "{{ beszel_hc_shim_internal_port }}"
     svc_readiness_skip_reason: >-
-      Internal webhook receiver on dokploy-network; no public surface.
+      Internal webhook receiver on catena-network; no public surface.
       Exercised by a Beszel alert firing (see notifications.md).

@@ -1,7 +1,7 @@
 ---
 # Control-plane setup for the Cloudflare tunnel + wildcard DNS + ingress,
 # plus deployment of cloudflared itself as a swarm service on
-# dokploy-network. All CF API calls run from the controller
+# catena-network. All CF API calls run from the controller
 # (delegate_to: localhost) -- the API token never lands on the VPS.
 #
 # Desired state this file enforces:
@@ -11,7 +11,7 @@
 #       *.{{ cloudflare_zone }} -> {{ cloudflared_ingress_service }}
 #       + catch-all http_status:404.
 #     (Manual edits in CF dashboard get overwritten -- intentional.)
-#   - cloudflared swarm service exists, attached to dokploy-network, with
+#   - cloudflared swarm service exists, attached to catena-network, with
 #     the current TUNNEL_TOKEN. cloudflared stays a raw swarm service (NOT
 #     Dokploy-managed) because migrating it to Dokploy-managed would risk
 #     tunnel outage during swap, and the UI-visibility gain is low for a
@@ -242,7 +242,7 @@
 # ─── deploy cloudflared as a swarm service ────────────────────────────────
 # Created as a direct swarm service (not via Dokploy's app API) because
 # cloudflared is infrastructure, not an operator-managed app. It just
-# needs to be on dokploy-network with the tunnel token. Dokploy's UI
+# needs to be on catena-network with the tunnel token. Dokploy's UI
 # won't show it, but `docker service ls` will.
 - name: Check if cloudflared swarm service exists
   ansible.builtin.command: docker service inspect cloudflared --format '{{ "{{" }}.ID{{ "}}" }}'
@@ -257,7 +257,7 @@
       - service
       - create
       - --name=cloudflared
-      - --network=dokploy-network
+      - --network=catena-network
       - --restart-condition=any
       - "--env=TUNNEL_TOKEN={{ cloudflared_tunnel_token }}"
       - "{{ cloudflared_image }}"
@@ -373,7 +373,7 @@
 # What a 404 from this URL actually proves:
 #   1. CF wildcard DNS resolved -> edge received the request.
 #   2. Edge forwarded to tunnel -> cloudflared connector is registered.
-#   3. Cloudflared reached origin -> dokploy-traefik is serving on :80.
+#   3. Cloudflared reached origin -> catena-traefik is serving on :80.
 #
 # Real chain failures surface differently: CF-synthesized error pages
 # (1033/1016/530), connect timeouts (cloudflared connector broken),

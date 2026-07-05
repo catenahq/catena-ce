@@ -73,12 +73,12 @@ def build_clients_compose(specs, env):
             '      - "--silence-ping-logging=true"',
             '      - "--skip-provider-button=true"',
             "    networks:",
-            "      dokploy-network:",
+            "      catena-network:",
             "        aliases:",
             f'          - "{svc}"',
             "    restart: unless-stopped",
         ]
-    out += ["networks:", "  dokploy-network:", "    external: true", ""]
+    out += ["networks:", "  catena-network:", "    external: true", ""]
     return "\n".join(out)
 
 

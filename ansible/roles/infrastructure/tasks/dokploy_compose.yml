@@ -132,7 +132,7 @@
   become: false
 
 # Domain registration is opt-out: callers that deploy intra-cluster-
-# only services (e.g. oauth2-proxy, reachable on dokploy-network via
+# only services (e.g. oauth2-proxy, reachable on catena-network via
 # its alias rather than via Traefik) pass svc_domain_host="" and
 # skip the whole list+find+create block. Dokploy's domain.create
 # rejects empty host with HTTP 400 zod validation, so attempting it

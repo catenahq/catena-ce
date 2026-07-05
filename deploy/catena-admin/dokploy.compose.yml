@@ -98,7 +98,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
-      dokploy-network:
+      catena-network:
         aliases:
           - catena-admin
 
@@ -106,5 +106,5 @@ volumes:
   admin-plugins:
 
 networks:
-  dokploy-network:
+  catena-network:
     external: true

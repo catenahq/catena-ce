@@ -71,7 +71,7 @@ services:
     ports:
       - "127.0.0.1:{{ healthchecks_host_localhost_port }}:{{ healthchecks_internal_port }}"
     networks:
-      dokploy-network:
+      catena-network:
         aliases:
           - {{ healthchecks_network_alias }}
     labels:
@@ -87,5 +87,5 @@ volumes:
   healthchecks-data:
 
 networks:
-  dokploy-network:
+  catena-network:
     external: true

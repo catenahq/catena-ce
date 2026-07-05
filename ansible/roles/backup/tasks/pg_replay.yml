@@ -211,7 +211,7 @@
       # stay live), cloudflared (tunnel reachability), and core dokploy
       # swarm services (swarm health checks would reschedule them on
       # pause). Everything else is a candidate.
-      PAUSE_EXCLUDE_RE='^(dokploy|dokploy-postgres|dokploy-redis|dokploy-traefik|cloudflared)(\.[0-9]+\.[a-z0-9]+)?$|^[a-z0-9-]+-postgres(\.[0-9]+\.[a-z0-9]+)?$|^[a-z0-9-]+-db-[0-9]+$'
+      PAUSE_EXCLUDE_RE='^(dokploy|dokploy-postgres|dokploy-redis|catena-traefik|cloudflared)(\.[0-9]+\.[a-z0-9]+)?$|^[a-z0-9-]+-postgres(\.[0-9]+\.[a-z0-9]+)?$|^[a-z0-9-]+-db-[0-9]+$'
       PAUSED_LIST=""
       unpause_paused() {
           for c in $PAUSED_LIST; do

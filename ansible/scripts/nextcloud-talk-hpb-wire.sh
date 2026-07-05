@@ -8,7 +8,7 @@
 #
 # Auto-detect: the HPB block in nextcloud-s3.compose.yml may be
 # commented out (operator opted to disable HPB). Probe whether the
-# `signaling` service is reachable on dokploy-network; if not, log
+# `signaling` service is reachable on catena-network; if not, log
 # and exit 0 -- this script is safe to wire into a single catena-admin
 # action that fires unconditionally.
 #
@@ -57,10 +57,10 @@ TURN_HOSTNAME="turn.$TURN_HOST"
 STUN_HOSTNAME="$TURN_HOSTNAME" # coturn STUN + TURN share the host
 SIGNALING_HOSTNAME="signaling.$NC_HOSTNAME"
 
-# Auto-detect: is the signaling service alive on dokploy-network? The
-# Nextcloud container is on dokploy-network so a short curl from inside
+# Auto-detect: is the signaling service alive on catena-network? The
+# Nextcloud container is on catena-network so a short curl from inside
 # it is the cheapest probe. aio-talk's signaling layer listens on
-# port 8081 inside the container; the dokploy-network alias `signaling`
+# port 8081 inside the container; the catena-network alias `signaling`
 # points at the talk-hpb service (set in nextcloud-s3.compose.yml).
 if ! docker exec "$ct" /bin/sh -c \
         "curl -fsS --max-time 3 http://signaling:8081/api/v1/welcome >/dev/null 2>&1"; then

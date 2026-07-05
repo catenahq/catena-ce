@@ -19,7 +19,7 @@ services:
   # NOTE: service name is `oauth2-proxy-<slug>`, NOT just <slug>.
   # docker compose auto-aliases the service name on the network, and
   # several backend apps (gatus, homepage, healthchecks, vps-docs,
-  # recovery) register their slug as their dokploy-network alias. If
+  # recovery) register their slug as their catena-network alias. If
   # we used the bare slug here, both proxy + backend would share an
   # alias and Docker DNS would round-robin between them -- randomly
   # making the proxy proxy to itself instead of to the backend.
@@ -51,7 +51,7 @@ services:
       - "--email-domain=*"
       - "--scope=openid email profile groups"
       - "--oidc-groups-claim=groups"
-      # Backend proxied by THIS instance. The dokploy-network alias
+      # Backend proxied by THIS instance. The catena-network alias
       # of the upstream app is resolved by Docker's embedded DNS at
       # request time; if the backend is down, oauth2-proxy returns
       # 502 (not 401) so monitoring can distinguish auth failure
@@ -72,7 +72,7 @@ services:
       - "--silence-ping-logging=true"
       - "--skip-provider-button=true"
     networks:
-      dokploy-network:
+      catena-network:
         aliases:
           - "oauth2-proxy-{{ _app.slug }}"
     restart: unless-stopped
@@ -127,7 +127,7 @@ services:
       - "--silence-ping-logging=true"
       - "--skip-provider-button=true"
     networks:
-      dokploy-network:
+      catena-network:
         aliases:
           - "{{ oauth2_proxy_staff_alias }}"
     restart: unless-stopped
@@ -173,7 +173,7 @@ services:
       - "--silence-ping-logging=true"
       - "--skip-provider-button=true"
     networks:
-      dokploy-network:
+      catena-network:
         aliases:
           - "{{ oauth2_proxy_admin_alias }}"
     restart: unless-stopped
@@ -186,5 +186,5 @@ services:
 {% endif %}
 
 networks:
-  dokploy-network:
+  catena-network:
     external: true

@@ -115,7 +115,7 @@
 
 # Restore is a cold operation -- restoring /mnt/data (and friends)
 # underneath live containers corrupts state. Operators can't stop
-# dokploy / cloudflared / dokploy-traefik by hand: they're swarm
+# dokploy / cloudflared / catena-traefik by hand: they're swarm
 # services (auto-reconciled) or `restart=always` containers. So we
 # stop the docker daemon itself, which drops every container in one
 # shot. `docker_live_restore` is false for this project (swarm requires

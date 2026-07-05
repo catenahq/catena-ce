@@ -1,7 +1,7 @@
 ---
 # Render compose + deploy via Dokploy API. Reuses the canonical
 # infrastructure helper. No public domain attached -- both oauth2-proxy
-# instances are reached via Traefik forwardAuth on dokploy-network only.
+# instances are reached via Traefik forwardAuth on catena-network only.
 
 # dokploy_compose.yml requires `_dokploy_project_id` + `_dokploy_environment_id`.
 # These are set by dokploy_project.yml, which the infrastructure role runs --

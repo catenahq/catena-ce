@@ -148,7 +148,7 @@
 #   3. The image is operator-internal (not part of the customer-facing
 #      stack) -- no point cluttering the Dokploy app catalog with it.
 #
-# Network: dokploy-network so we can reach keycloak-server:8080 by
+# Network: catena-network so we can reach keycloak-server:8080 by
 # alias. Pull policy is the default (use cached image if present;
 # fall back to registry pull on first run).
 - name: "Keycloak realm: keycloak-config-cli import-update-merge"
@@ -158,7 +158,7 @@
       - run
       - --rm
       - --network
-      - dokploy-network
+      - catena-network
       - -e
       - "KEYCLOAK_URL=http://{{ keycloak_server_alias }}:{{ keycloak_internal_port }}"
       - -e
@@ -175,7 +175,7 @@
       # Short per-attempt wait: kc-config-cli resolves keycloak-server via
       # the JVM, which negative-DNS-caches a first-lookup miss for the life
       # of the container -- so a long in-container wait never recovers if
-      # the dokploy-network alias was not yet registered at startup (the
+      # the catena-network alias was not yet registered at startup (the
       # network-attachment race after an anchor-rewind reboot / redeploy).
       # We instead retry the WHOLE run at the Ansible level below: each
       # retry is a fresh container with a fresh resolver, so the lookup

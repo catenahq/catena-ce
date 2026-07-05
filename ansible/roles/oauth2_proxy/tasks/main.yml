@@ -77,7 +77,7 @@
     - name: "oauth2-proxy: render shared Traefik middlewares"
       ansible.builtin.template:
         src: oauth2-proxy-middlewares.yml.j2
-        dest: "{{ dokploy_traefik_dynamic_dir }}/oauth2-proxy-middlewares.yml"
+        dest: "{{ traefik_dynamic_dir }}/oauth2-proxy-middlewares.yml"
         owner: root
         group: root
         mode: "0644"
@@ -85,7 +85,7 @@
     - name: "oauth2-proxy: render per-app Traefik route files"
       ansible.builtin.template:
         src: app-oauth2-proxy.yml.j2
-        dest: "{{ dokploy_traefik_dynamic_dir }}/{{ _app.slug }}-oauth2-proxy.yml"
+        dest: "{{ traefik_dynamic_dir }}/{{ _app.slug }}-oauth2-proxy.yml"
         owner: root
         group: root
         mode: "0644"
@@ -106,7 +106,7 @@
     - name: "oauth2-proxy: render per-app Traefik route files (public OIDC)"
       ansible.builtin.template:
         src: app-public-oidc.yml.j2
-        dest: "{{ dokploy_traefik_dynamic_dir }}/{{ _app.slug }}-public-oidc.yml"
+        dest: "{{ traefik_dynamic_dir }}/{{ _app.slug }}-public-oidc.yml"
         owner: root
         group: root
         mode: "0644"
@@ -125,7 +125,7 @@
     # claiming the same Host(), Traefik picks one undefined-ly.
     - name: "oauth2-proxy: remove stale chain-route files for migrated public-oidc apps"
       ansible.builtin.file:
-        path: "{{ dokploy_traefik_dynamic_dir }}/{{ _app.slug }}-oauth2-proxy.yml"
+        path: "{{ traefik_dynamic_dir }}/{{ _app.slug }}-oauth2-proxy.yml"
         state: absent
       loop: "{{ oauth2_proxy_public_oidc_apps | default([]) }}"
       loop_control:

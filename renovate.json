@@ -81,12 +81,12 @@
     },
     {
       "customType": "regex",
-      "description": "Track Traefik image tag pinned in dokploy role defaults",
+      "description": "Track Traefik image tag pinned in traefik role defaults",
       "managerFilePatterns": [
-        "/^ansible/roles/dokploy/defaults/main\\.yml$/"
+        "/^ansible/roles/traefik/defaults/main\\.yml$/"
       ],
       "matchStrings": [
-        "dokploy_traefik_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
+        "traefik_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
       ],
       "depNameTemplate": "traefik",
       "datasourceTemplate": "docker"

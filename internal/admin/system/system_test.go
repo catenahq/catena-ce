@@ -71,7 +71,7 @@ func TestBuildSnapshot(t *testing.T) {
 	}
 
 	// Infra rollup: dokploy matched (healthy), gatus matched via substring
-	// (gatus-internal), healthchecks/keycloak/oauth2-proxy/dokploy-traefik
+	// (gatus-internal), healthchecks/keycloak/oauth2-proxy/catena-traefik
 	// have no probe.
 	infra := map[string]InfraEntry{}
 	for _, e := range snap.Infra {

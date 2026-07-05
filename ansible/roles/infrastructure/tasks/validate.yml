@@ -52,17 +52,17 @@
   loop_control:
     label: "{{ item.item.0 }} {{ item.item.1 }}"
 
-- name: "validate/infrastructure: dokploy-network exists"
-  ansible.builtin.command: docker network inspect dokploy-network
+- name: "validate/infrastructure: catena-network exists"
+  ansible.builtin.command: docker network inspect catena-network
   register: _infra_net
   failed_when: false
   changed_when: false
 
-- name: "validate/infrastructure: dokploy-network reachable"
+- name: "validate/infrastructure: catena-network reachable"
   ansible.builtin.assert:
     that:
       - _infra_net.rc == 0
-    fail_msg: "docker network inspect dokploy-network rc={{ _infra_net.rc }}"
+    fail_msg: "docker network inspect catena-network rc={{ _infra_net.rc }}"
 
 - name: "validate/infrastructure: cloudflared 1/1 replica"
   ansible.builtin.command: docker service ls --filter name=cloudflared --format '{% raw %}{{.Name}}|{{.Replicas}}{% endraw %}'

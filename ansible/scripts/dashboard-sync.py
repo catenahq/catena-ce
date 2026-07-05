@@ -4,7 +4,7 @@ files. Runs via systemd timer (every 5 min) and on-demand via the
 catena-admin Actions tab "Sync all" button."""
 # Managed by Ansible (roles/infrastructure). Do not edit by hand.
 # /usr/local/bin/dashboard-sync -- generate per-app *-auto-gate.yml route
-# files under {{ dokploy_traefik_dynamic_dir }} based on compose
+# files under {{ traefik_dynamic_dir }} based on compose
 # vps.auth.* labels.
 #
 # Phase 4b retired the Homepage services.yaml write path. The catena-admin
@@ -53,7 +53,7 @@ catena-admin Actions tab "Sync all" button."""
 #
 # CONVENTION FOR AUTO-GATING TO WORK: a compose app deployed via Dokploy
 # (outside the infrastructure project) must include a stable network
-# alias on dokploy-network matching the LOWERCASED-SLUGIFIED form of
+# alias on catena-network matching the LOWERCASED-SLUGIFIED form of
 # its Dokploy appName (i.e., lowercase + non-[a-z0-9] replaced with `-`).
 # Examples:
 #     appName "myblog"  -> alias `myblog`
@@ -65,7 +65,7 @@ catena-admin Actions tab "Sync all" button."""
 #     services:
 #       app:
 #         networks:
-#           dokploy-network:
+#           catena-network:
 #             aliases: [b2-test]
 #
 # Without the alias, dashboard-sync still writes the route, but Traefik

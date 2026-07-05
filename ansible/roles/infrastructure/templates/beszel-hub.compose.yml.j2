@@ -30,7 +30,7 @@ services:
     ports:
       - "127.0.0.1:{{ beszel_hub_host_localhost_port }}:{{ beszel_hub_internal_port }}"
     networks:
-      dokploy-network:
+      catena-network:
         aliases:
           - {{ beszel_hub_network_alias }}
     labels:
@@ -45,5 +45,5 @@ volumes:
   {{ beszel_hub_data_volume }}:
 
 networks:
-  dokploy-network:
+  catena-network:
     external: true

@@ -76,7 +76,7 @@ def sync_gate_routes(projects, api_base, api_key, dyn_dir, infra_project,
         if kind == "compose":
             compose_body = dokploy_api._fetch_compose_file(api_base, api_key, item)
             labels = extract_vps_auth_labels(compose_body)
-            # service -> [dokploy-network aliases]: a domain that fronts a
+            # service -> [catena-network aliases]: a domain that fronts a
             # non-primary service (Talk HPB's signaling.<zone>) must route to
             # THAT service's alias, not the appName slug (which only the
             # primary service carries).
@@ -90,7 +90,7 @@ def sync_gate_routes(projects, api_base, api_key, dyn_dir, infra_project,
             if not host or host == auth_hostname:
                 continue
             port = d.get("port") or 80
-            # Backend alias = the dokploy-network alias of the service this
+            # Backend alias = the catena-network alias of the service this
             # domain fronts (Dokploy tags each domain with its serviceName).
             # Falls back to the appName slug for a single-service app or when
             # the service declares no alias -- so a primary domain resolves

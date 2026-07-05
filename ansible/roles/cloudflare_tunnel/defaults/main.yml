@@ -14,9 +14,9 @@
 
 cloudflared_tunnel_name: "{{ inventory_hostname }}"
 
-# Traefik service URL inside dokploy-network -- the single destination for
+# Traefik service URL inside catena-network -- the single destination for
 # every *.<zone> wildcard ingress rule.
-cloudflared_ingress_service: "http://dokploy-traefik:80"
+cloudflared_ingress_service: "http://catena-traefik:80"
 
 cloudflared_dokploy_env_key: "CLOUDFLARE_TUNNEL_TOKEN"
 

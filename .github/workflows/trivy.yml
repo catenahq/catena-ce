@@ -68,8 +68,8 @@ jobs:
             pin_key: cloudflared_image_tag
             image_repo: cloudflare/cloudflared
           - name: traefik
-            pin_file: ansible/roles/dokploy/defaults/main.yml
-            pin_key: dokploy_traefik_image_tag
+            pin_file: ansible/roles/traefik/defaults/main.yml
+            pin_key: traefik_image_tag
             image_repo: traefik
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7

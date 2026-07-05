@@ -28,12 +28,12 @@ services:
     # Stable network alias -- Traefik route's loadBalancer service URL
     # resolves to http://{{ recovery_network_alias }}:{{ recovery_internal_port }}.
     networks:
-      dokploy-network:
+      catena-network:
         aliases:
           - {{ recovery_network_alias }}
     labels:
       - traefik.enable=true
 
 networks:
-  dokploy-network:
+  catena-network:
     external: true

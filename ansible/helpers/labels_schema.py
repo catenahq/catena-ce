@@ -86,9 +86,9 @@ def extract_vps_auth_labels(compose_text: str) -> dict:
     return labels
 
 
-# ─── dokploy-network service-alias extraction ─────────────────────────────
+# ─── catena-network service-alias extraction ─────────────────────────────
 #
-# dashboard-sync routes each domain's Traefik backend to the dokploy-network
+# dashboard-sync routes each domain's Traefik backend to the catena-network
 # alias of the compose service that domain fronts (the Dokploy domain record's
 # serviceName). A multi-domain app (Nextcloud + Talk HPB) gives each service
 # its own alias (`nextcloud`, `signaling`), so the router must target the
@@ -102,15 +102,15 @@ def _line_indent(line: str) -> int:
 
 
 def extract_service_aliases(compose_text: str) -> dict:
-    """Return {service_name: [dokploy-network aliases]} parsed from a compose
-    body. Only dokploy-network aliases are collected (the handle Traefik
+    """Return {service_name: [catena-network aliases]} parsed from a compose
+    body. Only catena-network aliases are collected (the handle Traefik
     resolves backends through); a service with none maps to []. Handles both
     the block list form
 
         services:
           app:
             networks:
-              dokploy-network:
+              catena-network:
                 aliases:
                   - nextcloud
 
@@ -128,12 +128,12 @@ def extract_service_aliases(compose_text: str) -> dict:
         stripped = raw.strip()
         if stripped.startswith("- "):
             # List item: contributes only under services.<svc>.networks.
-            # dokploy-network.aliases.
+            # catena-network.aliases.
             path = [k for _, k in stack]
             if (
                 len(path) >= 5
                 and path[-1] == "aliases"
-                and path[-2] == "dokploy-network"
+                and path[-2] == "catena-network"
                 and path[-3] == "networks"
                 and path[-5] == "services"
             ):
@@ -154,13 +154,13 @@ def extract_service_aliases(compose_text: str) -> dict:
         # "unknown service".
         if len(path) == 2 and path[-2] == "services":
             out.setdefault(key, [])
-        # Flow-list aliases: dokploy-network: aliases: [a, b]
+        # Flow-list aliases: catena-network: aliases: [a, b]
         if (
             key == "aliases"
             and val.startswith("[")
             and val.endswith("]")
             and len(path) >= 5
-            and path[-2] == "dokploy-network"
+            and path[-2] == "catena-network"
             and path[-3] == "networks"
             and path[-5] == "services"
         ):

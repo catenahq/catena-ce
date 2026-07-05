@@ -1,10 +1,10 @@
 # {{ ansible_managed }}
 # Keycloak (Phase Two distribution). One service: `server`. Postgres
 # lives inside the shared dokploy-postgres swarm task; we connect to
-# it by service name on dokploy-network.
+# it by service name on catena-network.
 #
 # Networks:
-#   - dokploy-network (external): Traefik routes auth.<zone> to us via
+#   - catena-network (external): Traefik routes auth.<zone> to us via
 #     this network; oauth2-proxy (plan step 4) reaches us by the
 #     `keycloak-server` alias.
 #   - default (project-local): not currently used because Postgres is
@@ -76,7 +76,7 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: "{{ admin_email }}"
       KC_BOOTSTRAP_ADMIN_PASSWORD: "{{ vault_admin_password }}"
     networks:
-      dokploy-network:
+      catena-network:
         aliases:
           - "{{ keycloak_server_alias }}"
       default: {}
@@ -97,6 +97,6 @@ services:
     restart: unless-stopped
 
 networks:
-  dokploy-network:
+  catena-network:
     external: true
   default: {}
