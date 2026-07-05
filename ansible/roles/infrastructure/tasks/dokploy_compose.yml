@@ -131,59 +131,28 @@
   delegate_to: localhost
   become: false
 
-# Domain registration is opt-out: callers that deploy intra-cluster-
-# only services (e.g. oauth2-proxy, reachable on catena-network via
-# its alias rather than via Traefik) pass svc_domain_host="" and
-# skip the whole list+find+create block. Dokploy's domain.create
-# rejects empty host with HTTP 400 zod validation, so attempting it
-# unconditionally would crash those callers.
-- name: "Dokploy: list domains ({{ svc_name }})"
-  ansible.builtin.uri:
-    url: "{{ dokploy_api_base }}/domain.byComposeId?composeId={{ _dokploy_compose_id }}"
-    method: GET
-    headers:
-      x-api-key: "{{ vault_dokploy_api_key }}"
-    status_code: 200
-    return_content: true
-  register: _dokploy_domains
-  delegate_to: localhost
-  become: false
+# Routing: write a Traefik file-provider route that catena-traefik serves
+# directly, replacing Dokploy's domain.create (Dokploy's own Traefik is gone).
+# Runs ON the VPS (no delegate_to) -- the file lands in traefik_dynamic_dir
+# where catena-traefik's file provider hot-reloads it. Idempotent (same render).
+#
+# Opt-out: intra-cluster-only services (e.g. oauth2-proxy, reached by their
+# catena-network alias, not via Traefik) pass svc_domain_host="" -> the route
+# file is removed instead of written.
+- name: "Route: write Traefik file-provider route ({{ svc_name ~ ' -> ' ~ svc_domain_host }})"
+  ansible.builtin.template:
+    src: app-route.yml.j2
+    dest: "{{ traefik_dynamic_dir }}/{{ svc_name }}-route.yml"
+    owner: root
+    group: root
+    mode: "0644"
   when: svc_domain_host | default('') | length > 0
 
-- name: "Dokploy: find existing domain ({{ svc_name ~ ' -> ' ~ svc_domain_host }})"
-  ansible.builtin.set_fact:
-    _dokploy_domain_existing: >-
-      {{
-        _dokploy_domains.json
-        | selectattr('host', 'equalto', svc_domain_host)
-        | list
-        | first
-        | default(None)
-      }}
-  when: svc_domain_host | default('') | length > 0
-
-- name: "Dokploy: create domain ({{ svc_name ~ ' -> ' ~ svc_domain_host }})"
-  ansible.builtin.uri:
-    url: "{{ dokploy_api_base }}/domain.create"
-    method: POST
-    headers:
-      x-api-key: "{{ vault_dokploy_api_key }}"
-    body_format: json
-    body:
-      host: "{{ svc_domain_host }}"
-      port: "{{ svc_domain_port }}"
-      https: false
-      certificateType: "none"
-      composeId: "{{ _dokploy_compose_id }}"
-      serviceName: "{{ svc_domain_service }}"
-      domainType: "compose"
-      path: "/"
-    status_code: [200, 201]
-  when:
-    - svc_domain_host | default('') | length > 0
-    - _dokploy_domain_existing is none
-  delegate_to: localhost
-  become: false
+- name: "Route: remove Traefik route for intra-cluster-only service ({{ svc_name }})"
+  ansible.builtin.file:
+    path: "{{ traefik_dynamic_dir }}/{{ svc_name }}-route.yml"
+    state: absent
+  when: svc_domain_host | default('') | length == 0
 
 # Capture the pre-deploy deploymentId so the wait below can tell when
 # Dokploy has accepted the new compose.deploy POST and started a fresh

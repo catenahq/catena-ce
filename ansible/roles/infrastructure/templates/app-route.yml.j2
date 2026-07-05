@@ -1,0 +1,28 @@
+# {{ ansible_managed }}
+#
+# Traefik file-provider route for {{ svc_name }} -> {{ svc_domain_host }}.
+# Written by roles/infrastructure/tasks/dokploy_compose.yml, replacing
+# Dokploy's domain.create (Dokploy's own Traefik is gone; catena-traefik
+# serves this directly via the file provider).
+#
+# Backend: http://{{ svc_domain_service }}:{{ svc_domain_port }} on
+# catena-network -- the compose service name resolves via its network alias.
+# X-Forwarded-Proto: https is injected globally on the :80 entrypoint (see
+# roles/traefik/templates/traefik.yml.j2), so no per-route middleware here.
+#
+# DEFAULT priority (no `priority:` key): a gated app's oauth2-proxy route
+# (priority 100, written by roles/oauth2_proxy / dashboard-sync) overrides this
+# on the same Host(), so gated apps stay behind auth. Public apps use this
+# route directly. Mirrors the old default-priority Dokploy domain route.
+http:
+  routers:
+    {{ svc_name }}-route:
+      rule: "Host(`{{ svc_domain_host }}`)"
+      entryPoints:
+        - web
+      service: {{ svc_name }}-route-svc
+  services:
+    {{ svc_name }}-route-svc:
+      loadBalancer:
+        servers:
+          - url: "http://{{ svc_domain_service }}:{{ svc_domain_port }}"
