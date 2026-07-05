@@ -1,0 +1,84 @@
+# roles/portainer
+
+Portainer CE -- the container control plane that replaces Dokploy in the
+Dokploy->Portainer migration. Spans Docker + Swarm + (later) Kubernetes;
+provides the compose/stack + env + logs + lifecycle API. Routing stays with
+`catena-traefik` (Portainer does no reverse proxy).
+
+This role deploys `catena-portainer` (swarm service on catena-network, docker
+socket, `/data` BoltDB volume, admin via `--admin-password-file`, tailnet-only
+UI). See `defaults/main.yml` + `tasks/main.yml`.
+
+## Verified Portainer API endpoint map (Phase 0 deliverable)
+
+Target pin: **Portainer CE LTS 2.39.4** (`portainer/portainer-ce`). Verified
+against `portainer/portainer-skills` + docs.portainer.io (2026-07), NOT guessed.
+
+**Breaking-change gate:** Portainer **2.27.0 removed** the old
+`POST /api/stacks?type=&method=&endpointId=` form. On 2.39.4 use the typed
+create paths below. Most blog/gist snippets predate this and are wrong.
+
+### Auth (replaces Dokploy better-auth)
+- Fresh-install admin: `--admin-password-file <file>` at container launch (file
+  holds the plaintext password; Portainer hashes it). Set once, on an empty
+  BoltDB. Alternative (racy, 5-min window): `POST /api/users/admin/init`
+  `{Username, Password}` (>= 12 chars).
+- JWT (per-run): `POST /api/auth` `{Username, Password}` -> `jwt` ->
+  header `Authorization: Bearer <jwt>`.
+- Long-lived API token (services): with a JWT,
+  `POST /api/users/{id}/tokens` `{description, password}` -> `rawAPIKey`
+  (shown once) -> header **`X-API-Key`** (same header name Dokploy used).
+- Bootstrap flow for `vault_portainer_api_key`: `/api/auth` (JWT) ->
+  `/api/users/{id}/tokens` -> store rawAPIKey in vault.
+
+### Environment (endpoint) + swarm id
+- List: `GET /api/endpoints` (local Docker/Swarm is usually id `1`).
+- Swarm id (swarm-stacks only): `GET /api/endpoints/{envId}/docker/info`
+  -> `.Swarm.Cluster.ID`.
+
+### Stack lifecycle (body fields PascalCase; Env is `[{name,value}]`)
+| Verb | 2.39.4 |
+| --- | --- |
+| Create compose-stack (v1 default) | `POST /api/stacks/create/standalone/string?endpointId={id}` `{Name, StackFileContent, Env}` |
+| Create swarm-stack (later) | `POST /api/stacks/create/swarm/string?endpointId={id}` `{Name, StackFileContent, Env, SwarmID}` |
+| Create from git (App Templates) | `POST /api/stacks/create/{standalone|swarm}/repository?endpointId={id}` `{Name, RepositoryURL, ComposeFilePathInRepository, Env}` |
+| Update + redeploy | `PUT /api/stacks/{id}?endpointId={id}` `{StackFileContent, Env, PullImage:true, Prune:false}` |
+| Start / Stop stack | `POST /api/stacks/{id}/{start|stop}?endpointId={id}` |
+| List / Get / Remove | `GET /api/stacks` / `GET /api/stacks/{id}` / `DELETE /api/stacks/{id}?endpointId={id}` |
+| Container logs | `GET /api/endpoints/{id}/docker/containers/{cid}/logs?stdout=1&stderr=1&tail=N` |
+| Container start/stop | `POST /api/endpoints/{id}/docker/containers/{cid}/{start|stop}` |
+
+No `composeStatus` field: derive readiness from `GET /api/stacks/{id}`
+(`Status`: 1=active, 2=inactive) + container State via
+`GET /api/endpoints/{id}/docker/containers/json`.
+
+### Dokploy call -> Portainer call (the ~10 catena consumed)
+| Dokploy | Portainer 2.39.4 |
+| --- | --- |
+| `project.create` / `project.all` | No projects; group by stack Name prefix, enumerate `GET /api/stacks`. |
+| `compose.create` (docker-compose) | `POST /api/stacks/create/standalone/string` |
+| `compose.update` (composeFile + newline env) | `PUT /api/stacks/{id}` (StackFileContent + structured Env) |
+| `compose.deploy` | `PUT /api/stacks/{id}` `PullImage:true` (update==redeploy) or start/stop |
+| `compose.one` (composeStatus) | `GET /api/stacks/{id}` + container State |
+| `domain.create` / `domain.by*` | **None** -- routing is our Traefik file-provider routes (`app-route.yml.j2` / dashboard-sync). |
+| `github.githubProviders` | git-repo stacks via `.../repository`; no provider registry. |
+| better-auth sign-up/in/createApiKey | `admin/init` + `/api/auth` + `/api/users/{id}/tokens` |
+
+### App Templates (client self-serve marketplace) -- templates.json v3
+Entry for a catalog app (`render.py` re-target target):
+```json
+{ "type": 3, "title": "...", "description": "...", "categories": ["..."],
+  "platform": "linux", "logo": "https://.../logo.png", "note": "<p>ok</p>",
+  "repository": { "url": "https://github.com/catenahq/<templates-repo>",
+                  "stackfile": "blueprints/<id>/docker-compose.yml" },
+  "env": [ { "name": "PORT", "label": "Port", "default": "5006",
+             "select": [ { "text": "A", "value": "a", "default": true } ] } ] }
+```
+- `type 3` = compose-stack, deployed FROM a git repo (not inline); requires
+  Compose format **version "2"**; env has **no secret generator** (pre-seed
+  generated secrets into `env.default` in `render.py`); App Templates do **not**
+  create routes (route on new-stack event).
+
+Sources: docs.portainer.io/api/access, /advanced/app-templates/format,
+github.com/portainer/portainer-skills (portainer-api/references/stacks.md),
+portainer discussions #12670 (2.27.0 removal), hub.docker.com/r/portainer/portainer-ce.
