@@ -4,14 +4,14 @@
 # 1. recovery_archive.yml    -- F12 recovery-archive generator (host-side
 #                              cores, restore.sh template, entry script,
 #                              p7zip-full apt dep, /var/backups/catena-export).
-#                              Independent of Dokploy API.
-# 2. portainer_endpoint.yml     -- find-or-create the "infrastructure" project
-#                              in Dokploy; capture project_id + env_id.
-#                              Gated on vault_dokploy_api_key -- skipped on
-#                              first run before operator creates API key.
+#                              Independent of the Portainer API.
+# 2. portainer_endpoint.yml     -- resolve the Portainer local Docker endpoint
+#                              id; capture _portainer_endpoint_id.
+#                              Gated on vault_portainer_api_key (minted in-role
+#                              by roles/portainer earlier in site.yml).
 # 3. gatus.yml / healthchecks.yml / recovery.yml --
 #    each calls portainer_stack.yml with its own compose YAML, env,
-#    domain, port. All gated on vault_dokploy_api_key.
+#    domain, port. All gated on vault_portainer_api_key.
 # 4. dashboard_sync.yml + gatus_sync.yml -- sync scripts + systemd timers.
 #                              Gated on the API key. dashboard-sync owns
 #                              auto-gated Traefik routes (Phase 4b
@@ -41,7 +41,7 @@
 # F12 recovery-archive generator (host-side cores + restore.sh template +
 # entry script + p7zip-full apt dep + /var/backups/catena-export). Backs
 # the catena-admin "Generate recovery archive (encrypted)" Recovery-tab
-# button. Independent of Dokploy API key (host-only state), runs on
+# button. Independent of the Portainer API key (host-only state), runs on
 # every converge. Subsumes the older extract_secrets task -- the
 # recovery zip contains vault.recovered.yml internally, so the
 # gpg-armored vault dump it produced is no longer a separate flow.
@@ -49,16 +49,15 @@
   ansible.builtin.import_tasks: recovery_archive.yml
   tags: [catena_admin, recovery_archive]
 
-# --- Everything below requires a Dokploy API key. Skip cleanly on first
-#     run so site.yml can complete; operator adds the key to vault and
-#     re-runs. ----------------------------------------------------------
-# Dokploy->Portainer migration: the provision block now gates on the Portainer
-# API key (minted by roles/portainer earlier in site.yml). The per-service
-# stack deploys go through the Portainer stack seam (portainer_stack.yml, now
-# Portainer-backed). The remaining Dokploy-API sub-includes (snapshot,
-# templates, github-provider) + gatus_sync individually self-gate on
-# vault_dokploy_api_key below so a Portainer-only converge skips them cleanly;
-# they are ported (gatus_sync) / deleted (the rest) in the later migration steps.
+# --- Everything below requires the Portainer API key. It is minted in-role
+#     by roles/portainer earlier in site.yml (and self-heals a missing/
+#     rejected key on every converge), so the block runs on a normal
+#     converge; it skips cleanly only in the rare window before the key
+#     exists. ------------------------------------------------------------
+# The per-service stack deploys go through the Portainer stack seam
+# (portainer_stack.yml). The old Dokploy-API sub-includes (snapshot,
+# templates, github-provider) were deleted in the Dokploy teardown; gatus_sync
+# was ported to read docker labels instead of the control-plane API.
 - name: Has Portainer API key -> provision services via the Portainer stack API
   when:
     - vault_portainer_api_key is defined

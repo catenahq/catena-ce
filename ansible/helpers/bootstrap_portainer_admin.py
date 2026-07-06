@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """Leaf utility: mint a Portainer X-API-Key from the initial admin.
 
-Portainer CE replaces Dokploy as the container control plane (see the
-Dokploy->Portainer migration). Unlike Dokploy's better-auth signup flow,
-Portainer's admin is ALREADY created at container first boot via
-`--admin-password-file` (roles/portainer stages vault_admin_password into
-a swarm secret and passes the file to the portainer binary). So there is
-no signup step here -- we only sign in and mint a long-lived API token.
+Portainer CE is the container control plane. Its admin is ALREADY created
+at container first boot via `--admin-password-file` (roles/portainer stages
+vault_admin_password into a swarm secret and passes the file to the
+portainer binary). So there is no signup step here -- we only sign in and
+mint a long-lived API token.
 
 The flow (verified endpoint map: roles/portainer/README.md):
 
@@ -22,12 +21,12 @@ The flow (verified endpoint map: roles/portainer/README.md):
                                  RE-verifies the password on this call.
 
 This helper chains those calls with the shared vault_admin_password
-(already in the vault, shared with Keycloak + the ex-Dokploy admin). On
-success it merges the minted key into the vault under
-vault_portainer_api_key and exits 0. Invoked by roles/portainer on a
-converge when the vault does not yet hold a valid Portainer API key.
+(already in the vault, shared with Keycloak). On success it merges the
+minted key into the vault under vault_portainer_api_key and exits 0.
+Invoked by roles/portainer on a converge when the vault does not yet hold
+a valid Portainer API key.
 
-Contract (mirrors bootstrap_dokploy_admin.py so the role wiring matches):
+Contract:
   Exit code 0  : API key minted + merged into vault.
   Exit code 2  : Portainer unreachable at tailnet:port -- caller should
                  fall back / retry. Not a hard failure; Portainer may
@@ -58,8 +57,9 @@ import urllib.request
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-# Make helpers/ importable in both script and module modes (see
-# bootstrap_dokploy_admin.py for the rationale).
+# Make helpers/ importable in both script and module modes (running this as
+# a bare script leaves REPO_ROOT off sys.path, so `from helpers import ...`
+# would fail without this insert).
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 from helpers import sops_vault  # noqa: E402

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Merge a key/value into <inventory_dir>/.bootstrap-output.yml.
 
-Bootstrap-time invocations (bootstrap.yml's IP rewrite, fresh_install.yml's
-Dokploy-admin API key mint) used to write directly into the inventory
+Bootstrap-time invocations (bootstrap.yml's IP rewrite, roles/portainer's
+admin API key mint) used to write directly into the inventory
 clone (hosts.yml, vault.sops.yml). Under a permanent Semaphore worker
 the clone is task-scoped and these mutations vanish on the next git
 pull, so the workflow is now: emit values into a gitignored
@@ -18,7 +18,7 @@ File shape:
       <hostname>:
         ansible_host: <ip>
     vault:
-      vault_dokploy_api_key: <key>
+      vault_portainer_api_key: <key>
 
 This helper merges a single (section, host, key, value) tuple into the
 file atomically (temp-file + os.replace). Stdlib + PyYAML only -- no
@@ -38,11 +38,11 @@ Usage:
         --section hosts --host testvm-a \\
         --key ansible_host --value 100.123.45.67
 
-    # Example: Dokploy API key
+    # Example: Portainer API key
     helpers/bootstrap_output.py \\
         --inventory-dir inventory/test \\
         --section vault \\
-        --key vault_dokploy_api_key --value abcdef...
+        --key vault_portainer_api_key --value abcdef...
 
 Exit codes:
     0 -- merge succeeded (no-op or update).

@@ -23,7 +23,7 @@
 # aliases, etc. -- matching the established "deploy app, then converge
 # catches up" rhythm.
 #
-# Gated by the caller (main.yml) on vault_dokploy_api_key.
+# Gated by the caller (main.yml) on vault_portainer_api_key.
 
 - name: "ClamAV: ensure the shared {{ clamav_network }} network exists"
   # docker network create is not natively idempotent (errors if the

@@ -1,6 +1,6 @@
 ---
 # Install /usr/local/bin/dashboard-sync (stdlib-only Python), its env file
-# (contains vault_dokploy_api_key, 0600), and the systemd service + timer
+# (contains vault_portainer_api_key, 0600), and the systemd service + timer
 # that runs it every 5 minutes. Also exposed via the catena-admin Actions
 # tab "Sync all" button for on-demand refresh.
 #

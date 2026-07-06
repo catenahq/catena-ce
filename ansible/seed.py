@@ -72,15 +72,13 @@ DEFAULT_AGE_KEY_FILE = Path.home() / ".config" / "sops" / "age" / "keys.txt"
 PLACEHOLDER_VALUES = {"REPLACE", "REPLACE-LONG-RANDOM-STRING"}
 
 # Vault keys NOT prompted at seed time: either auto-generated below (restic
-# password, SSO / Healthchecks service credentials, Dokploy postgres
-# password) or minted post-install (Dokploy API key, optional SMTP
+# password, SSO / Healthchecks service credentials, catena-postgres
+# password) or minted post-install (Portainer API key, optional SMTP
 # password, optional Nextcloud-S3 credentials, opt-in mailserver secrets).
 VAULT_SKIP_KEYS = {
-    "vault_dokploy_api_key",
-    # Minted post-install by roles/portainer (bootstrap_portainer_admin.py),
-    # same category as vault_dokploy_api_key -- exempt from the seed prompt.
+    # Minted post-install by roles/portainer (bootstrap_portainer_admin.py) --
+    # exempt from the seed prompt.
     "vault_portainer_api_key",
-    "vault_dokploy_postgres_password",
     "vault_catena_postgres_password",
     "vault_backup_restic_password",
     "vault_admin_password",
@@ -1065,18 +1063,16 @@ def _resolve_service_secrets(
         },
         ok_message="Healthchecks secrets auto-generated.",
     )
-    # Postgres passwords (stable across restores) and coturn static-auth-secret
+    # Postgres password (stable across restores) and coturn static-auth-secret
     # (seed for ephemeral TURN credentials). catena-postgres is the catena-owned
-    # Postgres (roles/postgres) that hosts the Keycloak DB; dokploy-postgres is
-    # kept until Dokploy is removed at the end of the Dokploy->Portainer migration.
+    # Postgres (roles/postgres) that hosts the Keycloak DB.
     _auto_mint_group(
         vault_values, existing_vault=existing_vault,
         minters={
-            "vault_dokploy_postgres_password": _mint_strong_password,
             "vault_catena_postgres_password": _mint_strong_password,
             "vault_turn_static_auth_secret": _mint_strong_password,
         },
-        ok_message="Postgres (dokploy + catena) + coturn static-auth-secret auto-generated.",
+        ok_message="catena-postgres password + coturn static-auth-secret auto-generated.",
     )
     # Nextcloud Talk + HPB bearer secrets. Idle when the talk-hpb service is
     # commented out in the compose.

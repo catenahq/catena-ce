@@ -62,7 +62,6 @@ def test_recover_runs_full_chain_with_snapshot(cli, monkeypatch):
     monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
     monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
-    monkeypatch.setattr(cli, "_ensure_dokploy_api_key", lambda inv: False)
     monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
 
     ns = cli.build_parser().parse_args(
@@ -103,7 +102,6 @@ def test_rollback_runs_chain_with_snapshot_no_bootstrap(cli, monkeypatch):
     monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
     monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
-    monkeypatch.setattr(cli, "_ensure_dokploy_api_key", lambda inv: False)
     monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
 
     ns = cli.build_parser().parse_args(
@@ -119,10 +117,10 @@ def test_rollback_runs_chain_with_snapshot_no_bootstrap(cli, monkeypatch):
     assert "restore_snapshot=snap7" in " ".join(restore_cmd)
 
 
-def test_recover_second_site_pass_when_vault_lacks_key(cli, monkeypatch):
-    """If the reused vault somehow lacks the Dokploy key (key was rotated out
-    / fresh repo), recover still mints + runs the second site pass -- same
-    bridge as install."""
+def test_recover_runs_single_site_pass(cli, monkeypatch):
+    """Post-Portainer-migration there is no CLI-driven second site pass: the
+    Portainer API key the auth stack needs is minted in-band by
+    roles/portainer during `site`, so the chain runs `site` exactly once."""
     from helpers import bootstrap_output
 
     calls: list[list[str]] = []
@@ -131,17 +129,14 @@ def test_recover_second_site_pass_when_vault_lacks_key(cli, monkeypatch):
     monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
     monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
-    # First site pass -> key minted -> second pass requested.
-    monkeypatch.setattr(cli, "_ensure_dokploy_api_key", lambda inv: True)
     monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
 
     ns = cli.build_parser().parse_args(["recover", "--inventory", "test"])
     assert ns.func(ns) == 0
 
     stages = [_stage_of(c) for c in calls if c and c[0] == "ansible-playbook"]
-    assert stages == [
-        "preflight", "bootstrap", "restore", "site", "site", "validate",
-    ]
+    assert stages == ["preflight", "bootstrap", "restore", "site", "validate"]
+    assert stages.count("site") == 1
 
 
 def test_playbook_cmd_shape(cli):
@@ -293,74 +288,6 @@ def test_bootstrap_extra_vars_noop_without_install_yaml(cli):
     assert tmp is None
 
 
-def _seed_hosts_yml(inv_dir: Path, ansible_host: str) -> None:
-    import yaml
-
-    inv_dir.mkdir(parents=True, exist_ok=True)
-    (inv_dir / "hosts.yml").write_text(
-        yaml.safe_dump(
-            {"all": {"children": {"vps": {"hosts": {
-                "host1": {"ansible_host": ansible_host, "ansible_user": "ops"},
-            }}}}},
-            sort_keys=False,
-        )
-    )
-
-
-def test_host_tailnet_ip_reads_vps_host(cli, tmp_path, monkeypatch):
-    inv = tmp_path / "inventory" / "prod"
-    _seed_hosts_yml(inv, "100.77.16.46")
-    monkeypatch.setattr(cli, "inventory_path", lambda name: tmp_path / "inventory" / name)
-    assert cli._host_tailnet_ip("prod") == "100.77.16.46"
-
-
-def test_host_tailnet_ip_skips_placeholder(cli, tmp_path, monkeypatch):
-    inv = tmp_path / "inventory" / "prod"
-    _seed_hosts_yml(inv, "0.0.0.0")
-    monkeypatch.setattr(cli, "inventory_path", lambda name: tmp_path / "inventory" / name)
-    assert cli._host_tailnet_ip("prod") == ""
-
-
-def test_host_tailnet_ip_missing_file(cli, tmp_path, monkeypatch):
-    monkeypatch.setattr(cli, "inventory_path", lambda name: tmp_path / "inventory" / name)
-    assert cli._host_tailnet_ip("prod") == ""
-
-
-def test_ensure_dokploy_api_key_skips_when_present(cli, tmp_path, monkeypatch):
-    from helpers import sops_vault
-
-    inv = tmp_path / "inventory" / "prod"
-    (inv / "group_vars" / "all").mkdir(parents=True)
-    (inv / "group_vars" / "all" / "vault.sops.yml").write_text("encrypted")
-    monkeypatch.setattr(cli, "inventory_path", lambda name: tmp_path / "inventory" / name)
-    monkeypatch.setattr(sops_vault, "read_value", lambda *a, **k: "a-real-dokploy-api-key")
-    # No second pass needed; must NOT shell out to the bootstrap helper.
-    called = []
-    monkeypatch.setattr(cli, "_run", lambda cmd: called.append(cmd))
-    assert cli._ensure_dokploy_api_key("prod") is False
-    assert called == []
-
-
-def test_ensure_dokploy_api_key_mints_when_absent(cli, tmp_path, monkeypatch):
-    from helpers import sops_vault
-
-    inv = tmp_path / "inventory" / "prod"
-    (inv / "group_vars" / "all").mkdir(parents=True)
-    (inv / "group_vars" / "all" / "vault.sops.yml").write_text("encrypted")
-    _seed_hosts_yml(inv, "100.77.16.46")
-    monkeypatch.setattr(cli, "inventory_path", lambda name: tmp_path / "inventory" / name)
-    monkeypatch.setattr(sops_vault, "read_value", lambda *a, **k: "")
-    called = []
-    monkeypatch.setattr(cli, "_run", lambda cmd: called.append(cmd))
-    assert cli._ensure_dokploy_api_key("prod") is True
-    assert len(called) == 1
-    cmd = called[0]
-    assert cmd[1].endswith("helpers/bootstrap_dokploy_admin.py")
-    assert "--tailnet-ip" in cmd
-    assert cmd[cmd.index("--tailnet-ip") + 1] == "100.77.16.46"
-    assert cmd[cmd.index("--vault") + 1].endswith("vault.sops.yml")
-
-
 def test_rotate_tunnel_parser_wires_token(cli):
     ns = cli.build_parser().parse_args(
         ["rotate-tunnel", "--inventory", "test", "--cf-api-token", "cf-tok"]
@@ -460,16 +387,3 @@ def test_rotate_tailscale_runs_playbook(cli, monkeypatch):
     assert ns.func(ns) == 0
     assert len(calls) == 1
     assert _stage_of(calls[0]) == "rotate-tailscale"
-
-
-def test_ensure_dokploy_api_key_dies_without_tailnet_ip(cli, tmp_path, monkeypatch):
-    from helpers import sops_vault
-
-    inv = tmp_path / "inventory" / "prod"
-    (inv / "group_vars" / "all").mkdir(parents=True)
-    (inv / "group_vars" / "all" / "vault.sops.yml").write_text("encrypted")
-    _seed_hosts_yml(inv, "0.0.0.0")  # placeholder -> no usable tailnet IP
-    monkeypatch.setattr(cli, "inventory_path", lambda name: tmp_path / "inventory" / name)
-    monkeypatch.setattr(sops_vault, "read_value", lambda *a, **k: "")
-    with pytest.raises(SystemExit):
-        cli._ensure_dokploy_api_key("prod")

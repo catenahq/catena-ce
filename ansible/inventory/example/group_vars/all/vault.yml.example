@@ -21,33 +21,20 @@ vault_tailscale_oauth_client_secret: "REPLACE"
 # Create at: https://dash.cloudflare.com/profile/api-tokens
 vault_cloudflare_api_token: "REPLACE"
 
-# --- Dokploy API ---
-# Generate in the Dokploy UI at Settings -> Profile -> API Keys.
-# Used by roles/infrastructure to provision the "infrastructure" project,
-# deploy Gatus / Healthchecks as compose apps, and by dashboard-sync. The
-# first site.yml run works without this key (it's skipped with a notice);
-# add it after creating the admin account and re-run the installer.
-vault_dokploy_api_key: "REPLACE"
-
 # --- Portainer API ---
 # Minted post-install by roles/portainer (bootstrap_portainer_admin.py signs
 # in as the initial admin with vault_admin_password and creates an access
-# token). The container control plane that replaces Dokploy in the
-# Dokploy->Portainer migration; the CE compose seam + EE managed-update engine
-# use it as the X-API-Key. The first site.yml run mints it automatically.
+# token). The container control plane; the CE compose seam (roles/
+# infrastructure -- provisions the stacks, deploys Gatus / Healthchecks) + the
+# EE managed-update engine + dashboard-sync all use it as the X-API-Key. The
+# first site.yml run mints it automatically.
 vault_portainer_api_key: "REPLACE"
-
-# Dokploy embedded-Postgres password. Pre-seeded as the
-# dokploy_postgres_password swarm secret by roles/dokploy BEFORE Dokploy's
-# install.sh runs, so install.sh reuses it instead of generating a new
-# random value. Keeping this stable is what makes restore-to-a-new-VPS work.
-vault_dokploy_postgres_password: "REPLACE-LONG-RANDOM-STRING"
 
 # catena-owned Postgres superuser password. roles/postgres creates the
 # catena-postgres swarm service with this as a swarm secret; the Keycloak DB
-# lives inside it (moved off dokploy-postgres in the Dokploy->Portainer
-# migration -- Portainer uses BoltDB, no shared Postgres to piggyback on).
-# Keep stable across restores (logical pg_dumpall replay, same as Dokploy's).
+# lives inside it. Keep stable across restores: the data volume is restored
+# raw, and a matching password is what makes that byte-for-byte restore work
+# (the restored pg_authid hash lines up with this vault value -- no skew).
 vault_catena_postgres_password: "REPLACE-LONG-RANDOM-STRING"
 
 # --- Restic / backups ---
@@ -60,7 +47,7 @@ vault_backup_s3_secret_key: "REPLACE"
 # in case the vault itself is lost.
 vault_backup_restic_password: "REPLACE-LONG-RANDOM-STRING"
 
-# --- Admin credentials (shared by Dokploy + SSO) ---
+# --- Admin credentials (shared by Portainer + SSO) ---
 # One email + password identify you on both auth planes. vault_admin_password
 # is minted by the installer (20 chars) and shown ONCE.
 vault_admin_password: "REPLACE-LONG-RANDOM-STRING"
@@ -68,7 +55,7 @@ vault_admin_password: "REPLACE-LONG-RANDOM-STRING"
 # --- SSO (Keycloak) ---
 # Minted by the installer, never displayed; lives only in the encrypted vault.
 #   db_password -- credential keycloak-server passes via KC_DB_PASSWORD to
-#                  authenticate against the `keycloak` DB in dokploy-postgres.
+#                  authenticate against the `keycloak` DB in catena-postgres.
 # The initial Keycloak admin password is vault_admin_password above.
 vault_keycloak_db_password: "REPLACE-LONG-RANDOM-STRING"
 
