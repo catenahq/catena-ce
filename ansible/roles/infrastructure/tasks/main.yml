@@ -52,16 +52,22 @@
 # --- Everything below requires a Dokploy API key. Skip cleanly on first
 #     run so site.yml can complete; operator adds the key to vault and
 #     re-runs. ----------------------------------------------------------
-- name: Has Dokploy API key -> provision services via Dokploy API
+# Dokploy->Portainer migration: the provision block now gates on the Portainer
+# API key (minted by roles/portainer earlier in site.yml). The per-service
+# stack deploys go through the Portainer stack seam (dokploy_compose.yml, now
+# Portainer-backed). The remaining Dokploy-API sub-includes (snapshot,
+# templates, github-provider) + gatus_sync individually self-gate on
+# vault_dokploy_api_key below so a Portainer-only converge skips them cleanly;
+# they are ported (gatus_sync) / deleted (the rest) in the later migration steps.
+- name: Has Portainer API key -> provision services via the Portainer stack API
   when:
-    - vault_dokploy_api_key is defined
-    - vault_dokploy_api_key | length > 10
+    - vault_portainer_api_key is defined
+    - vault_portainer_api_key | length > 10
   block:
     # Runs before any per-service include below. Tagged `always` so
-    # --tags <service> filters still get _dokploy_environment_id /
-    # _dokploy_project_id in scope (the per-service includes need them
-    # for the compose-create API call).
-    - name: "Find-or-create Dokploy project ({{ dokploy_project_name }})"
+    # --tags <service> filters still get _portainer_endpoint_id in scope
+    # (the per-service stack includes need it for the create/update call).
+    - name: "Resolve the Portainer endpoint id"
       ansible.builtin.include_tasks:
         file: dokploy_project.yml
         apply:
@@ -73,11 +79,16 @@
     # on. Run early enough that gatus/healthchecks/etc.
     # haven't yet been (re-)deployed by this converge, so the
     # aggregate captures the state we're about to potentially mutate.
+    # Still Dokploy-API (snapshots Dokploy projects). Self-gated on the
+    # Dokploy key so a Portainer-only converge skips it; removed in Phase 5.
     - name: Snapshot Dokploy state pre-converge (rollback-able JSON)
       ansible.builtin.include_tasks:
         file: snapshot_dokploy_state.yml
         apply:
           tags: [always, dokploy_snapshot]
+      when:
+        - vault_dokploy_api_key is defined
+        - vault_dokploy_api_key | length > 10
       tags: [always, dokploy_snapshot]
 
     # include_tasks doesn't propagate tags to sub-tasks by default -- a
@@ -145,19 +156,29 @@
     # the inventory does not declare any (operator hasn't started
     # using the git-source compose flow yet). See
     # internal_docs/operator/github-app-setup.md.
+    # Still Dokploy-API. Self-gated on the Dokploy key (removed in Phase 5;
+    # git-source deploys move to Portainer git-repo stacks).
     - name: Assert Dokploy GitHub providers (for git-source webapp deploys)
       ansible.builtin.include_tasks:
         file: _github_provider_assert.yml
         apply:
           tags: [github_providers]
-      when: expected_github_providers | default([]) | length > 0
+      when:
+        - expected_github_providers | default([]) | length > 0
+        - vault_dokploy_api_key is defined
+        - vault_dokploy_api_key | length > 10
       tags: [github_providers]
 
+    # Still Dokploy-API (seeds the Dokploy marketplace). Self-gated on the
+    # Dokploy key; replaced by Portainer App Templates (render.py) in Phase 3.
     - name: Pre-seed client-app templates into Dokploy (create-once)
       ansible.builtin.include_tasks:
         file: dokploy_templates.yml
         apply:
           tags: [dokploy_templates]
+      when:
+        - vault_dokploy_api_key is defined
+        - vault_dokploy_api_key | length > 10
       tags: [dokploy_templates]
 
     # EP3: Nextcloud native OIDC. Realm client is registered eagerly
@@ -337,11 +358,19 @@
           tags: [dashboard_sync]
       tags: [dashboard_sync]
 
+    # gatus-sync still reads the Dokploy API for CLIENT-app monitoring
+    # (50-dokploy-apps.yaml). Self-gated on the Dokploy key so a
+    # Portainer-only converge skips it (infra monitoring is unaffected --
+    # that lives in gatus.yml's 00-base/40-infra spec). Ported to the
+    # Portainer stack API in the naming-seam migration step.
     - name: gatus-sync script + systemd timer
       ansible.builtin.include_tasks:
         file: gatus_sync.yml
         apply:
           tags: [gatus, gatus_sync]
+      when:
+        - vault_dokploy_api_key is defined
+        - vault_dokploy_api_key | length > 10
       tags: [gatus, gatus_sync]
 
     # Aggregate end-of-role readiness probe for the gated services.
@@ -362,12 +391,12 @@
 # the hourly external dead-man watchdog are SCHEDULED automation -- they are
 # the Business managed lane, not Community, and are not installed here.
 
-- name: Note -- Dokploy-managed services skipped (no API key yet)
+- name: Note -- Portainer-managed services skipped (no API key yet)
   ansible.builtin.debug:
     msg: >-
-      vault_dokploy_api_key not set. Gatus / Healthchecks / Recovery
-      deploys skipped. After creating your admin account at
-      https://{{ dokploy_admin_hostname }} and generating an API key
-      (Settings -> Profile), add it to the vault and re-run a site converge
-      with --tags infrastructure --limit {{ inventory_hostname }}.
-  when: vault_dokploy_api_key is not defined or (vault_dokploy_api_key | length) < 10
+      vault_portainer_api_key not set. Gatus / Healthchecks / Recovery
+      deploys skipped. roles/portainer mints it on a converge (it may not be
+      in scope yet on a partial --tags infrastructure run before roles/portainer
+      ran); re-run a full site converge, or --tags portainer,infrastructure
+      --limit {{ inventory_hostname }}.
+  when: vault_portainer_api_key is not defined or (vault_portainer_api_key | length) < 10

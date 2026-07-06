@@ -20,10 +20,11 @@ portainer_image: "portainer/portainer-ce:{{ portainer_image_tag }}"
 portainer_service_name: catena-portainer
 portainer_data_volume: catena-portainer-data
 
-# UI/API port inside the container (Portainer's HTTP listener). Not published;
-# firewalled to the tailnet via the public-ports registry, same model as the
-# old Dokploy :3000.
-portainer_ui_port: 9000
+# NOTE: portainer_ui_port + portainer_api_base are defined GLOBALLY in
+# group_vars/all/main.yml (mirroring dokploy_api_base) so roles/infrastructure
+# + dashboard-sync can reference them cross-role. Not redeclared here to avoid
+# drift. portainer_ui_port default = 9000 (env PORTAINER_UI_PORT); it is
+# published host-mode + firewalled to the tailnet, same model as Dokploy :3000.
 
 # Initial admin. Reuses the shared operator identity (vault_admin_password,
 # >= 16 chars, same as Keycloak/ex-Dokploy). Delivered via --admin-password-file
@@ -32,9 +33,8 @@ portainer_ui_port: 9000
 portainer_admin_user: admin
 portainer_admin_secret_name: catena_portainer_admin_password
 
-# API base for the token-mint + downstream CE/EE seam calls. Reached from the
-# controller over the tailnet, same shape as the old dokploy_api_base.
-portainer_api_base: "http://{{ ansible_host }}:{{ portainer_ui_port }}/api"
+# portainer_api_base is GLOBAL (group_vars/all/main.yml), used cross-role by
+# the token-mint + downstream CE/EE seam calls. Not redeclared here.
 
 # Name of the local Docker environment (endpoint) this role provisions via
 # POST /api/endpoints (EndpointCreationType=1). Portainer does NOT auto-create

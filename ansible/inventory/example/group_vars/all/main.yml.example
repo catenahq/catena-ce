@@ -75,6 +75,13 @@ ntfy_topic: "{{ lookup('dotenv', 'NTFY_TOPIC', default='') }}"
 dokploy_api_base: "http://{{ ansible_host }}:{{ dokploy_port }}/api"
 dokploy_project_name: "{{ lookup('dotenv', 'DOKPLOY_PROJECT_NAME', default='infrastructure') }}"
 
+# --- Portainer API (control plane; replaces Dokploy) ---
+# Global so any role (infrastructure stack seam, dashboard-sync env) can
+# reference it, mirroring dokploy_api_base. roles/portainer consumes the same
+# names. Reached from the controller over the tailnet.
+portainer_ui_port: "{{ lookup('dotenv', 'PORTAINER_UI_PORT', default='9000') }}"
+portainer_api_base: "http://{{ ansible_host }}:{{ portainer_ui_port }}/api"
+
 # --- Storage ---
 storage_mode: "{{ lookup('dotenv', 'STORAGE_MODE', default='built_in') }}"
 storage_mount_point: "{{ lookup('dotenv', 'STORAGE_MOUNT_POINT', default='/mnt/data') }}"

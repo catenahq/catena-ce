@@ -1,10 +1,11 @@
 """Gate-route discovery for dashboard-sync.
 
-Walk Dokploy's projects and, for every compose/application with a domain
-(outside the infra project + the auth.<zone> exemption + the Ansible-managed
+Walk the Portainer stacks and, for every stack that declares a public host
+(`vps.route.host`, outside the auth.<zone> exemption + the Ansible-managed
 infra list), write a `*-auto-gate.yml` Traefik route file under DEFAULT-DENY.
-Carved out of dashboard-sync.py (see BACKLOG_TECHNICAL.md "dashboard-sync.py
-decomposition"). Stdlib-only; installed beside dashboard-sync on the host.
+Was a Dokploy project/domain walk before the Dokploy->Portainer migration
+(Dokploy's domain.by* API is gone -- the host is now a compose label).
+Stdlib-only; installed beside dashboard-sync on the host.
 """
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ try:
     from helpers.labels_schema import (
         extract_service_aliases,
         extract_vps_auth_labels,
+        extract_vps_route_labels,
         slugify,
     )
 except ModuleNotFoundError:
@@ -27,16 +29,16 @@ except ModuleNotFoundError:
     from labels_schema import (
         extract_service_aliases,
         extract_vps_auth_labels,
+        extract_vps_route_labels,
         slugify,
     )
 
 
-def sync_gate_routes(projects, api_base, api_key, dyn_dir, infra_project,
-                     infra_compose_names, auth_hostname, force_https_mw,
-                     proxy_port):
-    """For every Dokploy compose/application with a domain (outside the
-    infrastructure project + the auth.<zone> exemption + the Ansible-managed
-    infra list), write a *-auto-gate.yml route file under DEFAULT-DENY:
+def sync_gate_routes(api_base, api_key, dyn_dir, infra_compose_names,
+                     auth_hostname, force_https_mw, proxy_port):
+    """For every active Portainer stack that declares `vps.route.host`
+    (outside the auth.<zone> exemption + the Ansible-managed infra list),
+    write a *-auto-gate.yml route file under DEFAULT-DENY:
 
       - public (vps.auth.mode=public or visitor) -> force-https only.
       - everything else -> a single router to the app's own per-app
@@ -53,99 +55,74 @@ def sync_gate_routes(projects, api_base, api_key, dyn_dir, infra_project,
     dyn_dir.mkdir(parents=True, exist_ok=True)
 
     desired = {}
-    specs = {}  # slug -> instance spec (one per app, dedup across domains)
+    specs = {}  # slug -> instance spec (one per app)
     hosts = set()
     slug_owners = {}
     skip_names = {n.strip() for n in infra_compose_names.split(",") if n.strip()}
     seen = []
 
-    for pname, kind, item, name in dokploy_api._iterate_deployed_items(
-        projects, infra_project, skip_names, seen,
+    for name, _stack_id, compose_body in dokploy_api.iter_stacks(
+        api_base, api_key, skip_names, seen=None,
     ):
-        domains = dokploy_api._fetch_domains(api_base, api_key, item, kind)
-        doms = [d.get("host") for d in (domains or [])]
-        if not doms:
-            seen.append((pname, kind, name, doms, "skip: no-domains"))
+        route = extract_vps_route_labels(compose_body)
+        host = route.get("host")
+        if not host or host == auth_hostname:
+            seen.append((name, host, "skip: no-route-host"))
             continue
 
-        # Applications (single image) ship no compose labels through the
-        # Dokploy API, so labels stays empty -> resolve_access DENIES them
-        # (admin-only) under default-deny. That is the secure outcome.
-        labels = {}
-        svc_aliases = {}
-        if kind == "compose":
-            compose_body = dokploy_api._fetch_compose_file(api_base, api_key, item)
-            labels = extract_vps_auth_labels(compose_body)
-            # service -> [catena-network aliases]: a domain that fronts a
-            # non-primary service (Talk HPB's signaling.<zone>) must route to
-            # THAT service's alias, not the appName slug (which only the
-            # primary service carries).
-            svc_aliases = extract_service_aliases(compose_body)
+        labels = extract_vps_auth_labels(compose_body)
+        # service -> [catena-network aliases]: a host that fronts a non-primary
+        # service (Talk HPB's signaling.<zone>) must route to THAT service's
+        # alias, not the stack-name slug (which only the primary carries).
+        svc_aliases = extract_service_aliases(compose_body)
         is_public, allowed = route_synth.resolve_access(labels, app_name=name)
         this_slug = slugify(name)
 
-        gated_count = 0
-        for d in domains or []:
-            host = d.get("host")
-            if not host or host == auth_hostname:
-                continue
-            port = d.get("port") or 80
-            # Backend alias = the catena-network alias of the service this
-            # domain fronts (Dokploy tags each domain with its serviceName).
-            # Falls back to the appName slug for a single-service app or when
-            # the service declares no alias -- so a primary domain resolves
-            # exactly as before.
-            svc_name = (d.get("serviceName") or "").strip()
-            svc_alias_list = svc_aliases.get(svc_name) if svc_name else None
-            backend_alias = svc_alias_list[0] if svc_alias_list else this_slug
-            # Per-service route slug so a multi-domain app's domains land in
-            # distinct files + router keys. Identical to this_slug for the
-            # primary service, so single-domain apps are byte-for-byte
-            # unchanged.
-            route_slug = (
-                this_slug if backend_alias == this_slug
-                else slugify(backend_alias)
+        port = route.get("port") or 80
+        # Backend alias = the catena-network alias of the service this host
+        # fronts (vps.route.service). Falls back to the stack-name slug for a
+        # single-service app or when the service declares no alias.
+        svc_name = (route.get("service") or "").strip()
+        svc_alias_list = svc_aliases.get(svc_name) if svc_name else None
+        backend_alias = svc_alias_list[0] if svc_alias_list else this_slug
+        route_slug = (
+            this_slug if backend_alias == this_slug else slugify(backend_alias)
+        )
+        fname = f"{route_slug}{route_synth.AUTO_ROUTE_SUFFIX}"
+        if is_public:
+            body = route_synth._route_yaml_public(
+                name, host, backend_alias, port, force_https_mw,
+                route_slug=route_slug,
             )
-            fname = f"{route_slug}{route_synth.AUTO_ROUTE_SUFFIX}"
-            if is_public:
-                body = route_synth._route_yaml_public(
-                    name, host, backend_alias, port, force_https_mw,
-                    route_slug=route_slug,
-                )
-            else:
-                body = route_synth._route_yaml_perapp(
-                    name, host, force_https_mw, proxy_port, route_slug=route_slug,
-                )
-                hosts.add(host)
-                # One proxy instance per app; first domain's port is the
-                # backend upstream. (Multiple domains share the instance.)
-                specs.setdefault(this_slug, {
-                    "slug": this_slug,
-                    "app_name": name,
-                    "upstream_alias": this_slug,
-                    "upstream_port": port,
-                    "allowed_groups": allowed,
-                })
+        else:
+            body = route_synth._route_yaml_perapp(
+                name, host, force_https_mw, proxy_port, route_slug=route_slug,
+            )
+            hosts.add(host)
+            specs.setdefault(this_slug, {
+                "slug": this_slug,
+                "app_name": name,
+                "upstream_alias": this_slug,
+                "upstream_port": port,
+                "allowed_groups": allowed,
+            })
 
-            owner = slug_owners.get(route_slug)
-            if owner is not None and owner != name:
-                print(
-                    f"dashboard-sync/warn: slug collision -- {name!r} and "
-                    f"{owner!r} both slugify to {route_slug!r}; later write "
-                    f"wins. Rename one of the Dokploy apps.",
-                    file=sys.stderr,
-                )
-            slug_owners[route_slug] = name
-            desired[fname] = body
-            gated_count += 1
-
+        owner = slug_owners.get(route_slug)
+        if owner is not None and owner != name:
+            print(
+                f"dashboard-sync/warn: slug collision -- {name!r} and "
+                f"{owner!r} both slugify to {route_slug!r}; later write "
+                f"wins. Rename one of the stacks.",
+                file=sys.stderr,
+            )
+        slug_owners[route_slug] = name
+        desired[fname] = body
         posture = "public" if is_public else f"groups={allowed}"
-        seen.append((pname, kind, name, doms, f"routed:{gated_count} {posture}"))
+        seen.append((name, host, f"routed {posture}"))
 
-    print(f"dashboard-sync: examined {len(seen)} items:")
+    print(f"dashboard-sync: examined {len(seen)} stacks:")
     for row in seen:
-        print(f"  {row[4]:24s} project={row[0]!r:18s} kind={row[1]:11s} "
-              f"name={row[2]!r:20s} domains={row[3]}")
+        print(f"  {row[2]:24s} stack={row[0]!r:22s} host={row[1]}")
 
     written = 0
     for fname, body in desired.items():

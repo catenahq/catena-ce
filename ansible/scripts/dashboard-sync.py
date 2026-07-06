@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Auto-discover Dokploy-deployed apps and sync their Traefik gate-route
+"""Auto-discover Portainer-deployed stacks and sync their Traefik gate-route
 files. Runs via systemd timer (every 5 min) and on-demand via the
 catena-admin Actions tab "Sync all" button."""
 # Managed by Ansible (roles/infrastructure). Do not edit by hand.
@@ -32,10 +32,10 @@ catena-admin Actions tab "Sync all" button."""
 # beyond the default python3 install.
 #
 # Env vars (rendered by roles/infrastructure into /etc/catena/dashboard-sync.env):
-#   DOKPLOY_API_BASE       -- e.g. http://127.0.0.1:3000/api
-#   DOKPLOY_API_KEY        -- from vault
-#   DOKPLOY_INFRA_PROJECT  -- project to skip (and where the
-#                             oauth2-proxy-clients compose is provisioned)
+#   PORTAINER_API_BASE     -- e.g. http://<tailnet-ip>:9000/api
+#   PORTAINER_API_KEY      -- from vault (vault_portainer_api_key)
+#   (Client-app hosts come from the compose vps.route.host label, not a
+#    domain API; infra stacks to skip come from INFRA_COMPOSE_NAMES below.)
 #
 # Gate-route auto-discovery + per-app proxy provisioning (always on):
 #   TRAEFIK_DYNAMIC_DIR   -- Dokploy's Traefik dynamic-config dir
@@ -51,14 +51,14 @@ catena-admin Actions tab "Sync all" button."""
 #                            redirect-URI union (see
 #                            keycloak_client.sync_redirect_uris)
 #
-# CONVENTION FOR AUTO-GATING TO WORK: a compose app deployed via Dokploy
-# (outside the infrastructure project) must include a stable network
-# alias on catena-network matching the LOWERCASED-SLUGIFIED form of
-# its Dokploy appName (i.e., lowercase + non-[a-z0-9] replaced with `-`).
-# Examples:
-#     appName "myblog"  -> alias `myblog`
-#     appName "MyBlog"  -> alias `myblog`
-#     appName "B2-Test" -> alias `b2-test`
+# CONVENTION FOR AUTO-GATING TO WORK: a stack deployed via Portainer
+# (outside the Ansible-managed infra list) must declare a public host via
+# `vps.route.host` AND include a stable network alias on catena-network
+# matching the LOWERCASED-SLUGIFIED form of its Portainer stack Name
+# (i.e., lowercase + non-[a-z0-9] replaced with `-`). Examples:
+#     stack "myblog"  -> alias `myblog`
+#     stack "MyBlog"  -> alias `myblog`
+#     stack "B2-Test" -> alias `b2-test`
 #
 # Matching compose snippet:
 #
@@ -79,7 +79,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import clients_provisioner  # noqa: E402
 import gate_routes  # noqa: E402
 import keycloak_client  # noqa: E402
-from dokploy_api import dokploy_get, http_json  # noqa: E402
+from dokploy_api import http_json  # noqa: E402
 
 
 def _env(name, default=None, required=True):
@@ -91,20 +91,16 @@ def _env(name, default=None, required=True):
 
 
 def main():
-    api_base = _env("DOKPLOY_API_BASE")
-    api_key = _env("DOKPLOY_API_KEY")
-    infra_project = _env("DOKPLOY_INFRA_PROJECT")
+    api_base = _env("PORTAINER_API_BASE")
+    api_key = _env("PORTAINER_API_KEY")
 
-    projects = dokploy_get(api_base, "/project.all", api_key)
     dyn_dir = Path(_env("TRAEFIK_DYNAMIC_DIR"))
     proxy_port = _env("OAUTH2_PROXY_INTERNAL_PORT", default="4180", required=False)
 
     written, removed, specs, hosts = gate_routes.sync_gate_routes(
-        projects=projects,
         api_base=api_base,
         api_key=api_key,
         dyn_dir=dyn_dir,
-        infra_project=infra_project,
         infra_compose_names=_env("INFRA_COMPOSE_NAMES"),
         auth_hostname=_env("AUTH_HOSTNAME"),
         force_https_mw=_env("AUTH_FORCE_HTTPS_MW"),
@@ -131,7 +127,7 @@ def main():
         )
     }
     clients_provisioner.provision_clients_compose(
-        api_base, api_key, projects, infra_project, specs, env)
+        api_base, api_key, specs, env)
     keycloak_client.sync_redirect_uris(hosts, env)
 
     # Mailbox provisioning for the (opt-in) mailserver template. Isolated in

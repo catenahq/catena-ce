@@ -170,6 +170,50 @@ def extract_service_aliases(compose_text: str) -> dict:
     return out
 
 
+# ─── vps.route.* label extraction (client-app ingress host) ───────────────
+#
+# Under Dokploy, a client app's public hostname came from the Dokploy domain
+# API (domain.byComposeId). Portainer has no domain records, so the host is
+# declared on the compose itself via:
+#   vps.route.host     the public FQDN (e.g. blog.acme.com)
+#   vps.route.port     backend port inside the container (default 80)
+#   vps.route.service  compose service the host fronts (default: primary/app);
+#                      dashboard-sync routes to that service's catena-network
+#                      alias. render.py (App Templates) populates these from
+#                      the catalog. A compose with no vps.route.host is
+#                      intra-cluster only (no auto-gate route written).
+
+_VPS_ROUTE_LABEL_RE = re.compile(
+    r"['\"]?vps\.route\.(host|port|service)['\"]?"
+    r"\s*[=:]\s*['\"]?([^'\"\n#]+?)['\"]?\s*(?:\n|$|#)",
+    re.IGNORECASE,
+)
+
+
+def extract_vps_route_labels(compose_text: str) -> dict:
+    """Return {'host': str, 'port': int, 'service': str} from vps.route.*
+    compose labels. Only keys that appear are present, EXCEPT that a missing
+    'port' defaults to 80 whenever a 'host' is set (so a bare vps.route.host
+    is routable). Empty dict if no vps.route.host is present."""
+    if not compose_text:
+        return {}
+    out: dict = {}
+    for m in _VPS_ROUTE_LABEL_RE.finditer(compose_text):
+        key = m.group(1).lower()
+        val = m.group(2).strip()
+        if key == "port":
+            try:
+                out["port"] = int(val)
+            except ValueError:
+                continue
+        else:
+            out[key] = val
+    if not out.get("host"):
+        return {}
+    out.setdefault("port", 80)
+    return out
+
+
 # ─── vps.homepage.* label extraction ──────────────────────────────────────
 
 _VPS_HOMEPAGE_LABEL_RE = re.compile(

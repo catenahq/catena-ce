@@ -82,15 +82,15 @@ def build_clients_compose(specs, env):
     return "\n".join(out)
 
 
-def provision_clients_compose(api_base, api_key, projects, infra_project, specs, env):
-    """Find-or-create the `oauth2-proxy-clients` Dokploy compose in the
-    infrastructure project and (re)deploy it when its body changes.
-    Declarative `compose up` recreates only changed services, so adding
-    one client app does not disturb the others' live SSO sessions.
+def provision_clients_compose(api_base, api_key, specs, env):
+    """Find-or-create the `oauth2-proxy-clients` Portainer stack and
+    (re)deploy it when its body changes. Declarative `compose up` recreates
+    only changed services, so adding one client app does not disturb the
+    others' live SSO sessions.
 
-    Non-fatal: any Dokploy API error here is logged and the sync
-    continues (the route files are still written; the proxy just is not
-    refreshed until the next run)."""
+    Non-fatal: any Portainer API error here is logged and the sync continues
+    (the route files are still written; the proxy just is not refreshed until
+    the next run)."""
     name = env["OAUTH2_PROXY_CLIENTS_COMPOSE"]
     if not specs:
         print(
@@ -98,43 +98,37 @@ def provision_clients_compose(api_base, api_key, projects, infra_project, specs,
             f"(no teardown)."
         )
         return
-    proj = next((p for p in projects if p.get("name") == infra_project), None)
-    if not proj or not proj.get("environments"):
-        print(
-            f"dashboard-sync/warn: infra project {infra_project!r} or its "
-            f"environment not found; cannot provision {name}.",
-            file=sys.stderr,
-        )
-        return
-    environment = proj["environments"][0]
-    env_id = environment.get("environmentId")
-    existing = next(
-        (c for c in (environment.get("compose") or []) if c.get("name") == name),
-        None,
-    )
     body = build_clients_compose(specs, env)
+    headers = {"X-API-Key": api_key, "accept": "application/json"}
     try:
-        if existing is None:
-            created = dokploy_api.dokploy_post(
-                api_base, "/compose.create", api_key,
-                {
-                    "name": name, "environmentId": env_id,
-                    "composeType": "docker-compose", "appName": name,
-                    "composeFile": "", "serverId": None,
-                },
-            )
-            compose_id = created.get("composeId")
-        else:
-            compose_id = existing.get("composeId")
-        current = dokploy_api.dokploy_get(api_base, f"/compose.one?composeId={compose_id}", api_key)
-        if isinstance(current, dict) and current.get("composeFile") == body:
-            print(f"dashboard-sync: {name} compose unchanged ({len(specs)} instance(s)).")
-            return
-        dokploy_api.dokploy_post(
-            api_base, "/compose.update", api_key,
-            {"composeId": compose_id, "composeFile": body, "sourceType": "raw"},
+        endpoint_id = dokploy_api.portainer_endpoint_id(api_base, api_key)
+        existing = next(
+            (s for s in dokploy_api.list_stacks(api_base, api_key)
+             if s.get("Name") == name),
+            None,
         )
-        dokploy_api.dokploy_post(api_base, "/compose.deploy", api_key, {"composeId": compose_id})
+        if existing is None:
+            dokploy_api.http_json(
+                f"{api_base}/stacks/create/standalone/string?endpointId={endpoint_id}",
+                headers,
+                {"Name": name, "StackFileContent": body, "Env": []},
+                method="POST",
+            )
+            print(f"dashboard-sync: created {name} ({len(specs)} instance(s)).")
+            return
+        stack_id = existing.get("Id")
+        if dokploy_api.stack_file(api_base, api_key, stack_id) == body:
+            print(f"dashboard-sync: {name} stack unchanged ({len(specs)} instance(s)).")
+            return
+        # PUT is update == synchronous redeploy. Image is pinned, so no
+        # PullImage on the routine env refresh. Env preserved verbatim.
+        dokploy_api.http_json(
+            f"{api_base}/stacks/{stack_id}?endpointId={endpoint_id}",
+            headers,
+            {"StackFileContent": body, "Env": existing.get("Env") or [],
+             "PullImage": False, "Prune": False},
+            method="PUT",
+        )
         print(f"dashboard-sync: (re)deployed {name} ({len(specs)} instance(s)).")
-    except RuntimeError as e:
+    except (RuntimeError, SystemExit) as e:
         print(f"dashboard-sync/warn: {name} provisioning failed: {e}", file=sys.stderr)
