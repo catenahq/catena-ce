@@ -65,7 +65,13 @@
 # file is removed instead of written.
 - name: "Route: write Traefik file-provider route ({{ svc_name ~ ' -> ' ~ svc_domain_host }})"
   ansible.builtin.template:
-    src: app-route.yml.j2
+    # Explicit playbook_dir-relative path: portainer_stack.yml is include_tasks'd
+    # from OTHER roles (keycloak, oauth2_proxy) whose compose.yml deploys their
+    # own stack through this helper. Ansible resolves a bare `src:` against the
+    # CALLING role's templates/ dir, so a bare `app-route.yml.j2` is not found
+    # when the caller is keycloak. Anchor it to infrastructure/templates so it
+    # resolves from any caller (same pattern as realm_bootstrap.yml's src).
+    src: "{{ playbook_dir }}/../roles/infrastructure/templates/app-route.yml.j2"
     dest: "{{ traefik_dynamic_dir }}/{{ svc_name }}-route.yml"
     owner: root
     group: root
