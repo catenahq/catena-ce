@@ -5,6 +5,26 @@ import (
 	"testing"
 )
 
+func TestExtractRouteLabels(t *testing.T) {
+	// Lockstep with helpers/labels_schema.extract_vps_route_labels (Python).
+	got := ExtractRouteLabels("labels:\n  vps.route.host: blog.acme.com\n")
+	if got != (RouteLabels{Host: "blog.acme.com", Port: 80}) {
+		t.Errorf("host-only = %+v, want default port 80", got)
+	}
+	got = ExtractRouteLabels(
+		"labels:\n  vps.route.host: app.acme.com\n  vps.route.port: 8080\n  vps.route.service: web\n")
+	if got != (RouteLabels{Host: "app.acme.com", Port: 8080, Service: "web"}) {
+		t.Errorf("full = %+v", got)
+	}
+	// No host -> zero value; malformed port with a host -> default 80.
+	if got := ExtractRouteLabels("labels:\n  vps.route.port: 80\n"); got != (RouteLabels{}) {
+		t.Errorf("no-host = %+v, want zero", got)
+	}
+	if got := ExtractRouteLabels("labels:\n  vps.route.host: h.acme.com\n  vps.route.port: nope\n"); got != (RouteLabels{Host: "h.acme.com", Port: 80}) {
+		t.Errorf("bad-port = %+v", got)
+	}
+}
+
 func TestSlugify(t *testing.T) {
 	cases := map[string]string{
 		"Invoice Ninja":  "invoice-ninja",

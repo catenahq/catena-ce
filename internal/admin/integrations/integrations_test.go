@@ -99,22 +99,24 @@ func TestHealthchecksListChecks(t *testing.T) {
 }
 
 func TestDokployListItems(t *testing.T) {
+	// Portainer stack API: list stacks + fetch each stack's compose file; the
+	// tile host comes from the vps.route.host label. An inactive stack and a
+	// stack with no vps.route.host must both be skipped.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("x-api-key") != "dk" {
+		if r.Header.Get("X-API-Key") != "dk" {
 			t.Errorf("missing api key")
 		}
 		switch r.URL.Path {
-		case "/api/project.all":
+		case "/api/stacks":
 			_, _ = w.Write([]byte(`[
-				{"name":"client","environments":[{"compose":[{"composeId":"c1","appName":"Nextcloud","description":"files"}],"applications":[]}]}
+				{"Id":1,"Name":"Nextcloud","Status":1},
+				{"Id":2,"Name":"stopped","Status":2},
+				{"Id":3,"Name":"no-route","Status":1}
 			]`))
-		case "/api/compose.one":
-			if r.URL.Query().Get("composeId") != "c1" {
-				t.Errorf("unexpected composeId %q", r.URL.Query().Get("composeId"))
-			}
-			_, _ = w.Write([]byte(`{"composeFile":"services:\n  app:\n    labels: [\"vps.auth.mode=public\"]\n"}`))
-		case "/api/domain.byComposeId":
-			_, _ = w.Write([]byte(`[{"host":"cloud.example.com","port":443}]`))
+		case "/api/stacks/1/file":
+			_, _ = w.Write([]byte(`{"StackFileContent":"services:\n  app:\n    labels:\n      vps.route.host: cloud.example.com\n      vps.route.port: 443\n      vps.auth.mode: public\n"}`))
+		case "/api/stacks/3/file":
+			_, _ = w.Write([]byte(`{"StackFileContent":"services:\n  app:\n    image: x\n"}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -124,24 +126,24 @@ func TestDokployListItems(t *testing.T) {
 	c := NewDokployClient(srv.URL, "dk", WithDokployHTTPClient(srv.Client()))
 	items := c.ListItems(false)
 	if len(items) != 1 {
-		t.Fatalf("ListItems = %d, want 1", len(items))
+		t.Fatalf("ListItems = %d, want 1 (active + routed only)", len(items))
 	}
 	it := items[0]
-	if it.Kind != "compose" || it.ItemID != "c1" || it.AppName != "Nextcloud" {
+	if it.Kind != "compose" || it.ItemID != "1" || it.AppName != "Nextcloud" {
 		t.Errorf("item = %+v", it)
 	}
 	if len(it.Domains) != 1 || it.Domains[0].Host != "cloud.example.com" || it.Domains[0].Port != 443 {
 		t.Errorf("domains = %+v", it.Domains)
 	}
-	if !contains(it.ComposeBody, "vps.auth.mode=public") {
+	if !contains(it.ComposeBody, "vps.auth.mode: public") {
 		t.Errorf("compose body not fetched: %q", it.ComposeBody)
 	}
 }
 
 func TestDokployBaseURLNormalizesApiSuffix(t *testing.T) {
-	c := NewDokployClient("http://dok:3000/api/", "k")
-	if c.baseURL != "http://dok:3000" {
-		t.Errorf("baseURL = %q, want http://dok:3000", c.baseURL)
+	c := NewDokployClient("http://dok:9000/api/", "k")
+	if c.baseURL != "http://dok:9000" {
+		t.Errorf("baseURL = %q, want http://dok:9000", c.baseURL)
 	}
 }
 

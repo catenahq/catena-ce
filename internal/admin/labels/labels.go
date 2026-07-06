@@ -8,6 +8,7 @@ package labels
 import (
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -106,6 +107,53 @@ func ExtractHomepageLabels(composeText string) HomepageLabels {
 		case "hidden":
 			out.Hidden = truthy(val)
 		}
+	}
+	return out
+}
+
+// ─── vps.route.* extraction (client-app ingress host) ───────────────────
+
+var routeLabelRe = regexp.MustCompile(
+	`(?i)['"]?vps\.route\.(host|port|service)['"]?` +
+		`\s*[=:]\s*['"]?([^'"\n#]+?)['"]?\s*(?:\n|$|#)`)
+
+// RouteLabels holds the parsed vps.route.* labels. Host is the public FQDN
+// (the client-app ingress host source under Portainer -- Dokploy's domain API
+// is gone). Port defaults to 80 when a Host is present. Service names the
+// compose service the Host fronts (blank = primary). Mirrors the Python
+// helpers/labels_schema.extract_vps_route_labels -- keep the two in lockstep.
+type RouteLabels struct {
+	Host    string
+	Port    int
+	Service string
+}
+
+// ExtractRouteLabels pulls the vps.route.* labels from compose text. Returns
+// a zero RouteLabels (Host "") when no vps.route.host is present.
+func ExtractRouteLabels(composeText string) RouteLabels {
+	var out RouteLabels
+	if composeText == "" {
+		return out
+	}
+	for _, m := range routeLabelRe.FindAllStringSubmatch(composeText, -1) {
+		key := strings.ToLower(m[1])
+		val := strings.TrimSpace(m[2])
+		switch key {
+		case "host":
+			out.Host = val
+		case "port":
+			if n, err := strconv.Atoi(val); err == nil {
+				out.Port = n
+			}
+		case "service":
+			out.Service = val
+		}
+	}
+	if out.Host == "" {
+		return RouteLabels{}
+	}
+	if out.Port == 0 {
+		out.Port = 80
 	}
 	return out
 }

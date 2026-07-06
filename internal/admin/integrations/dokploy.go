@@ -5,23 +5,27 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/catenahq/catena-ce/internal/admin/labels"
 )
 
 var errBadStatus = errors.New("integrations: non-2xx status")
 
-// Domain is one app domain (host + port).
+// Domain is one app ingress (host + port). Under the Dokploy->Portainer
+// migration it comes from the compose vps.route.host label, not a domain API.
 type Domain struct {
 	Host string
 	Port int
 }
 
-// DokployItem normalizes a Dokploy application or compose to one shape. Kind is
-// "application" or "compose"; ComposeBody is the YAML for composes, empty for
-// applications.
+// DokployItem normalizes a Portainer stack to the shape the Apps tab consumes.
+// Kind is always "compose" (Portainer stacks are compose); ComposeBody is the
+// stack's StackFileContent. Name/ItemID map to the stack Name/Id. (Type name
+// kept during the migration; renamed in Phase 5.)
 type DokployItem struct {
 	ProjectName string
 	Kind        string
@@ -32,8 +36,8 @@ type DokployItem struct {
 	ComposeBody string
 }
 
-// DokployClient is a read-only Dokploy API client (project.all + compose.one +
-// domain.by*). TTL-cached and fail-soft. Safe for concurrent use.
+// DokployClient is a read-only Portainer stack API client (GET /api/stacks +
+// /api/stacks/{id}/file). TTL-cached and fail-soft. Safe for concurrent use.
 type DokployClient struct {
 	baseURL string
 	apiKey  string
@@ -104,111 +108,63 @@ func (c *DokployClient) Invalidate() {
 	c.mu.Unlock()
 }
 
-type dokployProject struct {
-	Name         string `json:"name"`
-	Environments []struct {
-		Applications []map[string]any `json:"applications"`
-		Compose      []map[string]any `json:"compose"`
-	} `json:"environments"`
+type portainerStack struct {
+	ID     int    `json:"Id"`
+	Name   string `json:"Name"`
+	Status int    `json:"Status"` // 1 = active, 2 = inactive
 }
 
 func (c *DokployClient) fetchAll() []DokployItem {
-	var projects []dokployProject
-	if err := c.get("/api/project.all", nil, &projects); err != nil {
+	var stacks []portainerStack
+	if err := c.get("/api/stacks", &stacks); err != nil {
 		// Empty so the UI shows "no apps" rather than 500; the System tab is
-		// where the operator sees the Dokploy probe is red.
+		// where the operator sees the Portainer probe is red.
 		return nil
 	}
 	var out []DokployItem
-	for _, proj := range projects {
-		if len(proj.Environments) == 0 {
-			continue
+	for _, st := range stacks {
+		if st.Name == "" || st.Status != 1 {
+			continue // inactive / never-deployed -> no live backend to tile
 		}
-		env := proj.Environments[0]
-		for _, app := range env.Applications {
-			if item, ok := c.fetchApplication(proj.Name, app); ok {
-				out = append(out, item)
-			}
+		body := c.stackFile(st.ID)
+		route := labels.ExtractRouteLabels(body)
+		if route.Host == "" {
+			continue // no public host declared -> not a tile
 		}
-		for _, comp := range env.Compose {
-			if item, ok := c.fetchCompose(proj.Name, comp); ok {
-				out = append(out, item)
-			}
-		}
+		out = append(out, DokployItem{
+			ProjectName: "", // Portainer has no project grouping
+			Kind:        "compose",
+			ItemID:      strconv.Itoa(st.ID),
+			AppName:     st.Name,
+			Domains:     []Domain{{Host: route.Host, Port: route.Port}},
+			ComposeBody: body,
+		})
 	}
 	return out
 }
 
-func (c *DokployClient) fetchApplication(project string, app map[string]any) (DokployItem, bool) {
-	id := mapStr(app, "applicationId")
-	if id == "" {
-		return DokployItem{}, false
-	}
-	return DokployItem{
-		ProjectName: project,
-		Kind:        "application",
-		ItemID:      id,
-		AppName:     firstNonEmpty(mapStr(app, "appName"), mapStr(app, "name")),
-		Description: mapStr(app, "description"),
-		Domains:     c.fetchDomains("/api/domain.byApplicationId", "applicationId", id),
-	}, true
-}
-
-func (c *DokployClient) fetchCompose(project string, comp map[string]any) (DokployItem, bool) {
-	id := mapStr(comp, "composeId")
-	if id == "" {
-		return DokployItem{}, false
-	}
+// stackFile fetches a stack's StackFileContent (the compose body). Fail-soft:
+// a fetch error yields an empty body, so the caller skips a stack with no
+// readable route label rather than 500ing the whole grid.
+func (c *DokployClient) stackFile(id int) string {
 	var detail struct {
-		ComposeFile string `json:"composeFile"`
+		StackFileContent string `json:"StackFileContent"`
 	}
-	_ = c.get("/api/compose.one", url.Values{"composeId": {id}}, &detail)
-	return DokployItem{
-		ProjectName: project,
-		Kind:        "compose",
-		ItemID:      id,
-		AppName:     firstNonEmpty(mapStr(comp, "appName"), mapStr(comp, "name")),
-		Description: mapStr(comp, "description"),
-		Domains:     c.fetchDomains("/api/domain.byComposeId", "composeId", id),
-		ComposeBody: detail.ComposeFile,
-	}, true
+	if err := c.get("/api/stacks/"+strconv.Itoa(id)+"/file", &detail); err != nil {
+		return ""
+	}
+	return detail.StackFileContent
 }
 
-func (c *DokployClient) fetchDomains(path, idParam, id string) []Domain {
-	var data []struct {
-		Host string `json:"host"`
-		Port int    `json:"port"`
-	}
-	if err := c.get(path, url.Values{idParam: {id}}, &data); err != nil {
-		return nil
-	}
-	var out []Domain
-	for _, d := range data {
-		if d.Host == "" {
-			continue
-		}
-		port := d.Port
-		if port == 0 {
-			port = 80
-		}
-		out = append(out, Domain{Host: d.Host, Port: port})
-	}
-	return out
-}
-
-// get issues a GET to path with query params and decodes the JSON into out.
-func (c *DokployClient) get(path string, params url.Values, out any) error {
+// get issues a GET to path and decodes the JSON into out.
+func (c *DokployClient) get(path string, out any) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	u := c.baseURL + path
-	if len(params) > 0 {
-		u += "?" + params.Encode()
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("x-api-key", c.apiKey)
+	req.Header.Set("X-API-Key", c.apiKey)
 	req.Header.Set("Accept", "application/json")
 	resp, err := c.hc.Do(req)
 	if err != nil {
@@ -219,18 +175,4 @@ func (c *DokployClient) get(path string, params url.Values, out any) error {
 		return errBadStatus
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
-}
-
-func mapStr(m map[string]any, k string) string {
-	if s, ok := m[k].(string); ok {
-		return s
-	}
-	return ""
-}
-
-func firstNonEmpty(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
 }
