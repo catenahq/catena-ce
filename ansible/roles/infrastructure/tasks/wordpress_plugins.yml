@@ -61,10 +61,9 @@
 - name: "WordPress plugins: skip wiring (no running container)"
   ansible.builtin.debug:
     msg: >-
-      WordPress not yet deployed in Dokploy ({{ dokploy_admin_hostname }}
-      / Templates / wordpress). On the next converge AFTER the operator
-      clicks Deploy and runs the install wizard, this task will
-      auto-install the curated plugin set.
+      WordPress not yet deployed (Portainer marketplace / wordpress). On
+      the next converge AFTER the operator clicks Deploy and runs the
+      install wizard, this task will auto-install the curated plugin set.
   when: (_wp_ct.stdout | default('') | length) == 0
 
 - name: "WordPress plugins: wire when container is up"

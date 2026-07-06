@@ -27,18 +27,10 @@ the operator panel (`roles/catena-admin`):
 
 - `_seed_bind_mount_file.yml` -- helper for templates that ship a
   config file via bind-mount.
-- `_github_provider_assert.yml` -- preflight assertion that every
-  GitHub App alias declared in `expected_github_providers` is
-  registered in this Dokploy instance. Manual one-time browser
-  flow per alias; this task fails with the operator walkthrough
-  if any are missing. Used by webapps deployed via Dokploy's
-  native git-source compose flow (catena's own + per-client).
-- `snapshot_dokploy_state.yml` -- capture compose state for the
-  pre-rotate snapshot used by the auto-update tier 2 flow.
 
 Catena's own webapps (website + portal) are no longer deployed
-by this role. They ship a `dokploy.compose.yml` per app and the
-operator creates the Dokploy compose manually from the UI; see
+by this role. They ship a compose per app that the operator deploys
+as a Portainer stack; see
 `internal_docs/operator/deploy-webapp-from-github.md`. The
 Keycloak realm client for the portal still lives in Ansible and
 is provisioned by `roles/keycloak/tasks/_portal_realm.yml`.

@@ -1,15 +1,5 @@
 [
   {
-    "label": "{{ dokploy_admin_hostname }}",
-    "url": "https://{{ dokploy_admin_hostname }}",
-    "group": "Infrastructure",
-    "accepted": [302],
-    "ignore_redirect": true,
-    "interval": "120s",
-    "alert_slug": "{{ dokploy_admin_hostname | lower | replace('.', '-') }}",
-    "version_key": "Dokploy"
-  },
-  {
     "label": "catena-traefik",
     "url": "http://catena-traefik:80/",
     "group": "Infrastructure",
@@ -17,7 +7,7 @@
     "ignore_redirect": false,
     "interval": "60s",
     "alert_slug": "traefik-internal",
-    "version_key": "Traefik (Dokploy)"
+    "version_key": "Traefik"
   },
   {
     "label": "{{ infrastructure_monitor_hostname }}",

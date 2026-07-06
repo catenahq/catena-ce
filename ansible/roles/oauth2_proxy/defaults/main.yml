@@ -152,14 +152,6 @@ oauth2_proxy_apps:
     upstream_alias: "healthchecks"
     upstream_port: 8000
     allowed_groups: ["staff", "admin"]
-  # Dokploy is the per-VPS control plane -- admin-only. An empty list
-  # would mean "any authenticated user" in oauth2-proxy, so admin-only
-  # MUST be expressed as an explicit ["admin"], never [].
-  - slug: "dokploy-admin"
-    host_var: "dokploy_admin_hostname"
-    upstream_alias: "dokploy"
-    upstream_port: 3000
-    allowed_groups: ["admin"]
   # Recovery is admin-only: it serves the GPG-encrypted bundle and
   # must reject anyone outside the admin group.
   - slug: "recovery"

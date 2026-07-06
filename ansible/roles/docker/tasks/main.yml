@@ -180,6 +180,33 @@
   until: _docker_info_probe.rc == 0
   changed_when: false
 
+# ─── Docker Swarm (single-node) init ─────────────────────────────────────
+# The reverse-proxy + control-plane roles that follow (traefik, postgres,
+# portainer) all deploy `docker service`s, which require an active swarm
+# manager. Dokploy's install.sh used to init the swarm; the Dokploy->Portainer
+# migration removed roles/dokploy, so this role inits it now -- right after the
+# daemon is confirmed serving and before any swarm-service role runs.
+#
+# Idempotent: `docker swarm init` errors on an already-active node, so gate on
+# LocalNodeState. A restored host (swarm state under /var/lib/docker/swarm is
+# in the restic set) comes back `active` and skips init.
+- name: "swarm: read local node state"
+  ansible.builtin.command: docker info --format '{{ "{{" }}.Swarm.LocalNodeState{{ "}}" }}'
+  register: _docker_swarm_state
+  changed_when: false
+
+- name: "swarm: init single-node swarm (advertise on the tailnet)"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - swarm
+      - init
+      - --advertise-addr
+      - "{{ docker_swarm_advertise_addr }}"
+  when: (_docker_swarm_state.stdout | trim) != 'active'
+  register: _docker_swarm_init
+  changed_when: _docker_swarm_init.rc == 0
+
 # ─── UFW FORWARD policy ──────────────────────────────────────────────────
 # /etc/default/ufw ships with DEFAULT_FORWARD_POLICY="DROP" by default
 # (Debian/Ubuntu OS-level setting; not devsec, not catena). With Docker

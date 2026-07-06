@@ -1,23 +1,11 @@
-"""Lock down the R3 gated-host derivation in playbooks/validate.yml.
+"""Lock down the gated-host probe set in playbooks/validate.yml.
 
-R3 enumerates every Dokploy compose, fetches its composeFile, and
-classifies it as gated unless the composeFile carries the
-`vps.auth.mode=public` label. The classification is implemented as a
-Jinja `rejectattr(... 'search', '<pattern>')` test -- i.e. a regex
-match against the raw composeFile body.
-
-This test guards two regressions that previously let every public-
-labelled template (and OliveTin) leak into the gated probe set,
-producing 502 / 200 false positives:
-
-  1. The pattern reaches Jinja exactly as the YAML scalar literal --
-     YAML single-quoted scalars do NOT process backslash escapes, so
-     `'vps\\.auth\\.mode=public'` becomes the regex `vps\\.auth\\.mode=public`,
-     which requires a literal backslash in the input and never matches
-     real composeFile labels. The pattern must use single backslashes.
-  2. The keycloak host (auth.<zone>) carries no `vps.auth.mode` label
-     and would otherwise survive the rejectattr filter; the build-set
-     step must drop it explicitly.
+The dynamic Dokploy-compose enumeration (project.all + compose.one +
+composeFile `vps.auth.mode=public` classification) was removed in the
+Dokploy->Portainer migration: client-app gating is now label-based via
+dashboard-sync (route_synth / labels_schema), verified by
+verify_gated_services.yml, not re-walked in validate. This test guards
+the one remaining invariant in the static build-set step.
 
 Run: `uv run pytest tests/unit/test_r3_gated_filter.py`
 """
@@ -53,53 +41,10 @@ def _find_task(name: str) -> dict:
     raise AssertionError(f"task not found: {name!r}")
 
 
-def _extract_pattern(rejectattr_call: str) -> str:
-    """Pull the regex literal out of a `rejectattr(...)` filter call."""
-    m = re.search(
-        r"rejectattr\(\s*'json\.composeFile'\s*,\s*'search'\s*,\s*'([^']*)'\s*\)",
-        rejectattr_call,
-    )
-    assert m, f"rejectattr literal not found in: {rejectattr_call!r}"
-    return m.group(1)
-
-
-def test_public_label_pattern_matches_real_compose_label():
-    """The regex literal must match the canonical label syntax."""
-    task = _find_task("Derive gated hosts (no vps.auth.mode=public label)")
-    expr = task["ansible.builtin.set_fact"]["_r3_dyn_gated_hosts"]
-    pattern = _extract_pattern(expr)
-
-    # Real compose body contains lines like:  - "vps.auth.mode=public"
-    label_line = '      - "vps.auth.mode=public"'
-    private_line = '      - "vps.auth.mode=private"'
-
-    assert re.search(pattern, label_line), (
-        f"pattern {pattern!r} did NOT match a real `vps.auth.mode=public` "
-        "label line. The likely cause is double-backslash over-escaping "
-        "(YAML single-quoted scalars don't process \\\\ as \\)."
-    )
-    assert not re.search(pattern, private_line), (
-        f"pattern {pattern!r} unexpectedly matched a `private` label line."
-    )
-
-
-def test_public_label_pattern_uses_escaped_dots():
-    """Pattern must escape literal dots -- bare `.` would over-match
-    (e.g. `vpsxauthxmode=public` would also match)."""
-    task = _find_task("Derive gated hosts (no vps.auth.mode=public label)")
-    expr = task["ansible.builtin.set_fact"]["_r3_dyn_gated_hosts"]
-    pattern = _extract_pattern(expr)
-
-    assert re.search(r"vps\\\.auth\\\.mode=public", pattern), (
-        f"pattern {pattern!r} should use \\. between segments to anchor "
-        "to the literal dot."
-    )
-
-
 def test_build_set_drops_keycloak_host():
-    """Keycloak's compose has no `vps.auth.mode` label (it IS the IdP),
-    so it survives the rejectattr filter. The build-set step must drop
-    it explicitly so R3 doesn't probe `auth.<zone>/oauth2/start`."""
+    """Keycloak's host (auth.<zone>) is the IdP, not an oauth2-proxy-gated
+    client. The build-set step must drop it explicitly so validate doesn't
+    probe `auth.<zone>/oauth2/start` as a gated app."""
     task = _find_task("Build gated-host probe set")
     expr = task["ansible.builtin.set_fact"]["_gated_hosts"]
 

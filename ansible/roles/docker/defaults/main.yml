@@ -12,11 +12,19 @@ docker_log_max_size: "50m"
 docker_log_max_files: 5
 
 # live-restore lets dockerd restart without killing running containers.
-# HOWEVER: it is incompatible with Docker Swarm mode, which Dokploy
-# requires. Since this project always runs Dokploy, live-restore must
-# be false. Swarm's own orchestrator handles container lifecycle across
-# daemon restarts instead.
+# HOWEVER: it is incompatible with Docker Swarm mode, which the catena
+# control plane requires (catena-traefik, catena-postgres, catena-portainer
+# all run as swarm services). live-restore must be false; swarm's own
+# orchestrator handles container lifecycle across daemon restarts instead.
 docker_live_restore: false
+
+# Docker Swarm advertise address. The tailnet IP so any future multi-node
+# expansion uses the private tailnet path. This role inits a single-node
+# swarm (below) that the reverse-proxy + control-plane roles deploy their
+# services onto. (Was dokploy_advertise_addr in roles/dokploy, which ran
+# `docker swarm init` via Dokploy's install.sh before the Dokploy->Portainer
+# migration removed that role.)
+docker_swarm_advertise_addr: "{{ ansible_host }}"
 
 # Codename-aware apt repo. Matches the pattern used by roles/tailscale/.
 docker_apt_codename: "{{ ansible_facts['distribution_release'] }}"

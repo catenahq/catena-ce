@@ -74,23 +74,6 @@
           tags: [always]
       tags: [always]
 
-    # Snapshot every project's every compose BEFORE we touch any
-    # compose state. Best-effort -- a Dokploy API hiccup logs + moves
-    # on. Run early enough that gatus/healthchecks/etc.
-    # haven't yet been (re-)deployed by this converge, so the
-    # aggregate captures the state we're about to potentially mutate.
-    # Still Dokploy-API (snapshots Dokploy projects). Self-gated on the
-    # Dokploy key so a Portainer-only converge skips it; removed in Phase 5.
-    - name: Snapshot Dokploy state pre-converge (rollback-able JSON)
-      ansible.builtin.include_tasks:
-        file: snapshot_dokploy_state.yml
-        apply:
-          tags: [always, dokploy_snapshot]
-      when:
-        - vault_dokploy_api_key is defined
-        - vault_dokploy_api_key | length > 10
-      tags: [always, dokploy_snapshot]
-
     # include_tasks doesn't propagate tags to sub-tasks by default -- a
     # top-level `tags:` here applies only to the include statement itself,
     # so `--tags <name>` makes the include fire but every child task
@@ -149,42 +132,10 @@
           tags: [recovery]
       tags: [recovery]
 
-    # GitHub App preflight: assert every alias the operator declares
-    # in `expected_github_providers` is registered in Dokploy. Manual
-    # one-time browser flow per alias; this task FAILS WITH A
-    # WALKTHROUGH MESSAGE if any are missing. Skipped silently when
-    # the inventory does not declare any (operator hasn't started
-    # using the git-source compose flow yet). See
-    # internal_docs/operator/github-app-setup.md.
-    # Still Dokploy-API. Self-gated on the Dokploy key (removed in Phase 5;
-    # git-source deploys move to Portainer git-repo stacks).
-    - name: Assert Dokploy GitHub providers (for git-source webapp deploys)
-      ansible.builtin.include_tasks:
-        file: _github_provider_assert.yml
-        apply:
-          tags: [github_providers]
-      when:
-        - expected_github_providers | default([]) | length > 0
-        - vault_dokploy_api_key is defined
-        - vault_dokploy_api_key | length > 10
-      tags: [github_providers]
-
-    # Still Dokploy-API (seeds the Dokploy marketplace). Self-gated on the
-    # Dokploy key; replaced by Portainer App Templates (render.py) in Phase 3.
-    - name: Pre-seed client-app templates into Dokploy (create-once)
-      ansible.builtin.include_tasks:
-        file: dokploy_templates.yml
-        apply:
-          tags: [dokploy_templates]
-      when:
-        - vault_dokploy_api_key is defined
-        - vault_dokploy_api_key | length > 10
-      tags: [dokploy_templates]
-
     # EP3: Nextcloud native OIDC. Realm client is registered eagerly
     # so the discovery URL works the moment the operator clicks Deploy
-    # in Dokploy UI. The occ-based provider registration runs only
-    # if the Nextcloud container is currently up (no-op on first
+    # in the Portainer marketplace. The occ-based provider registration
+    # runs only if the Nextcloud container is currently up (no-op on first
     # converge before Deploy). See nextcloud_oidc.yml header for the
     # full atomicity/idempotency notes.
     - name: Nextcloud native OIDC (Keycloak realm client + occ wiring)

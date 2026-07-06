@@ -40,9 +40,6 @@ cloudflared_dokploy_env_key: "CLOUDFLARE_TUNNEL_TOKEN"
 # Public-facing hostnames, all gated by self-hosted SSO + forward-auth
 # (Keycloak + oauth2-proxy). SSO works across them via a shared auth.<zone>
 # session cookie.
-dokploy_admin_subdomain: "{{ lookup('dotenv', 'DOKPLOY_ADMIN_SUBDOMAIN', default='apps') }}"
-dokploy_admin_hostname: "{{ dokploy_admin_subdomain }}.{{ cloudflare_zone }}"
-
 infrastructure_monitor_subdomain: "{{ lookup('dotenv', 'DOKPLOY_MONITOR_SUBDOMAIN', default='monitor') }}"
 infrastructure_monitor_hostname: "{{ infrastructure_monitor_subdomain }}.{{ cloudflare_zone }}"
 # catena-admin (the Go shell) is served at dash.<zone>.
@@ -71,14 +68,10 @@ ntfy_topic: "{{ lookup('dotenv', 'NTFY_TOPIC', default='') }}"
 # middleware on each app router. User membership in the access groups controls
 # access to the gated subdomains.
 
-# --- Dokploy API ---
-dokploy_api_base: "http://{{ ansible_host }}:{{ dokploy_port }}/api"
-dokploy_project_name: "{{ lookup('dotenv', 'DOKPLOY_PROJECT_NAME', default='infrastructure') }}"
-
-# --- Portainer API (control plane; replaces Dokploy) ---
+# --- Portainer API (container control plane) ---
 # Global so any role (infrastructure stack seam, dashboard-sync env) can
-# reference it, mirroring dokploy_api_base. roles/portainer consumes the same
-# names. Reached from the controller over the tailnet.
+# reference it. roles/portainer consumes the same names. Reached from the
+# controller over the tailnet.
 portainer_ui_port: "{{ lookup('dotenv', 'PORTAINER_UI_PORT', default='9000') }}"
 portainer_api_base: "http://{{ ansible_host }}:{{ portainer_ui_port }}/api"
 
@@ -89,13 +82,6 @@ storage_block_device: "{{ lookup('dotenv', 'STORAGE_BLOCK_DEVICE', default='/dev
 storage_bulk_enabled: >-
   {{ lookup('dotenv', 'STORAGE_BULK_ENABLED', default='false') | bool }}
 storage_bulk_mount_point: "{{ lookup('dotenv', 'STORAGE_BULK_MOUNT_POINT', default='/mnt/bulk') }}"
-
-# --- Dokploy ---
-# dokploy_version reads its .env override inside the role default
-# (roles/dokploy/defaults/main.yml). Uncomment + set to pin explicitly.
-# dokploy_version: "v0.29.0"
-dokploy_bind_interface: "{{ lookup('dotenv', 'DOKPLOY_BIND_INTERFACE', default='tailscale0') }}"
-dokploy_port: "{{ lookup('dotenv', 'DOKPLOY_PORT', default='3000') | int }}"
 
 # --- Backup ---
 # Community ships a MANUAL backup (no schedule). backup_restic_repo +

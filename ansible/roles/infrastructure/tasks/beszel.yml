@@ -71,8 +71,8 @@
     msg: >-
       Timed out (300s) waiting for a running container matching
       '{{ beszel_hub_compose_name | portainer_container_regex("app") }}'.
-      Check the Dokploy compose status for {{ beszel_hub_compose_name }}
-      at https://{{ dokploy_admin_hostname }}.
+      Check the Portainer stack status for {{ beszel_hub_compose_name }}
+      at http://{{ ansible_host }}:{{ portainer_ui_port | default(9000) }}.
   when: (_beszel_hub_container.stdout | default('') | trim) | length == 0
 
 # Read the hub-generated private key out of the container and derive the

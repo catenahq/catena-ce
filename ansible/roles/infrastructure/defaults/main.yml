@@ -227,19 +227,6 @@ version_check_script_path: /usr/local/bin/catena-version-check
 version_check_overrides_file: /etc/catena/version-check-overrides.json
 version_check_output_file: /var/lib/catena/version-check.json
 
-# --- snapshot-before-converge -------------------------------------------
-# Before each converge that touches Dokploy state, dump every project's
-# every compose (with current composeFile + env + domains) to a JSON
-# aggregate under dokploy_snapshots_dir. Cheap insurance against
-# operator misclick or seeder bug overwriting client edits -- operator
-# can manually compare or replay from the most recent snapshot.
-#
-# Rotation keeps the last N aggregates; older ones are deleted on the
-# next snapshot pass. 30 default keeps ~3 weeks of converge history at
-# a reasonable disk cost (a typical aggregate is well under 100 KB).
-dokploy_snapshots_dir: /var/lib/catena/dokploy-snapshots
-dokploy_snapshots_keep_last: 30
-
 # --- dashboard-sync ------------------------------------------------------
 # Phase 4b retired the Homepage services.yaml writer; dashboard-sync's
 # only remaining job is syncing per-app Traefik gate routes.

@@ -106,26 +106,20 @@
     - { role: host_hardening, tags: [host_hardening, hardening] }
     - { role: tailscale, tags: [tailscale] }
     - { role: storage, tags: [storage] } # mount block volume at /mnt/data (+ optional bulk)
-    - { role: docker, tags: [docker] }
-    - { role: dokploy, tags: [dokploy] } # app platform, bound to tailscale0 only
+    - { role: docker, tags: [docker] } # Docker CE + single-node swarm init
     # catena-owned reverse proxy (catena-traefik on the catena-network
-    # overlay). Runs AFTER dokploy (which still does the swarm init) and
-    # BEFORE cloudflare_tunnel, which points cloudflared's ingress at
-    # catena-traefik and joins catena-network. Lifted out of roles/dokploy
-    # in the Dokploy->Portainer migration.
+    # overlay). Runs AFTER docker (which inits the swarm) and BEFORE
+    # cloudflare_tunnel, which points cloudflared's ingress at catena-traefik
+    # and joins catena-network.
     - { role: traefik, tags: [traefik] } # reverse proxy: catena-traefik + catena-network
     # catena-owned Postgres (catena-postgres swarm service on catena-network),
-    # replacing the dokploy-postgres the Keycloak DB used to live in. Runs after
-    # traefik (needs catena-network) and BEFORE keycloak (which provisions its
-    # DB inside it). Dokploy->Portainer migration: Portainer uses BoltDB, so
-    # there is no shared Dokploy Postgres to piggyback on anymore.
+    # hosting the Keycloak DB. Runs after traefik (needs catena-network) and
+    # BEFORE keycloak (which provisions its DB inside it).
     - { role: postgres, tags: [postgres] } # infra Postgres (Keycloak DB)
-    # Portainer CE -- the container control plane that replaces Dokploy
-    # (Docker + Swarm + later K8s). Deployed here alongside Dokploy during the
-    # migration; the CE + EE API seams cut over from the Dokploy API to
-    # Portainer's stack API in a later step, after which roles/dokploy is
-    # removed. Not yet consumed, so bringing it up is behavior-neutral.
-    - { role: portainer, tags: [portainer] } # container control plane (Dokploy replacement)
+    # Portainer CE -- the container control plane (Docker + Swarm + later K8s).
+    # The CE + EE API seams + catena-admin drive it via its stack API. Runs
+    # after postgres (both are swarm services on catena-network).
+    - { role: portainer, tags: [portainer] } # container control plane
     # cloudflared swarm service + CF tunnel + wildcard DNS. Runs BEFORE
     # keycloak + oauth2_proxy so the public auth.<zone> URL is reachable
     # by the time oauth2_proxy waits for Keycloak's OIDC discovery doc.
@@ -143,61 +137,13 @@
     - { role: oauth2_proxy, tags: [oauth2_proxy, auth] } # forward-auth gateway: staff + admin instances
     - { role: infrastructure, tags: [infrastructure] } # recovery archive, gated apps (Gatus, Healthchecks, ...), dashboard-sync, gatus-sync
     # catena-admin host-side state -- runner user, dispatcher, action
-    # catalog, bind-mount targets. The Go shell container is deployed via
-    # Dokploy's git-source flow; this role only manages the host
-    # prerequisites.
+    # catalog, bind-mount targets. The Go shell container is deployed via the
+    # Portainer stack flow; this role only manages the host prerequisites.
     - { role: catena-admin, tags: [catena_admin] }
     - { role: coturn, tags: [coturn] } # shared TURN/STUN for NC Talk HPB + RC Jitsi (UDP media plane, direct on VPS public IP)
     - { role: backup, tags: [backup] } # restic + the manual oneshot catena-backup.service
 
   post_tasks:
-    # ─── Dokploy admin-domain ────────────────────────────────────────────
-    # Configures Dokploy's "Web Server" domain so origin validation passes
-    # when accessing via admin.<zone>. Single canonical caller. Runs AFTER
-    # all roles so dokploy-postgres + the dokploy app are healthy.
-    # Idempotent: re-runs are no-ops once the host record matches.
-    #
-    # Retry-through-restart: end-of-play handlers (docker: restart docker,
-    # fired when the docker role freshly dropped daemon.json on a first/
-    # single-pass install) bounce the whole swarm right before post_tasks,
-    # so dokploy :3000 is briefly Connection-refused while swarm reschedules
-    # the task. Without a wait this post_task races that reconverge and
-    # fails. Retry until the API answers 200. (A two-pass install masks this
-    # because pass-2 leaves daemon.json unchanged -> no restart handler.)
-    - name: "Dokploy API: set admin domain"
-      ansible.builtin.uri:
-        url: "{{ dokploy_api_base }}/settings.assignDomainServer"
-        method: POST
-        headers:
-          x-api-key: "{{ vault_dokploy_api_key }}"
-        body_format: json
-        body:
-          host: "{{ dokploy_admin_hostname }}"
-          certificateType: "none"
-          https: false
-        status_code: 200
-      register: _dok_set_domain
-      retries: 30
-      delay: 5
-      until: _dok_set_domain.status | default(-1) == 200
-      delegate_to: localhost
-      become: false
-      when:
-        - vault_dokploy_api_key is defined
-        - vault_dokploy_api_key | length > 10
-      tags: [post_admin_domain]
-
-    - name: "Note -- admin domain not set (no API key yet)"
-      ansible.builtin.debug:
-        msg: >-
-          Skipped setting admin domain -- vault_dokploy_api_key not in vault yet.
-          After creating your admin account at http://{{ ansible_host }}:{{ dokploy_port }},
-          generate an API key (Settings -> Profile), add it to the vault as
-          vault_dokploy_api_key, and re-run the installer (or:
-          ansible-playbook playbooks/site.yml --limit {{ inventory_hostname }}).
-      when: vault_dokploy_api_key is not defined or (vault_dokploy_api_key | length) < 10
-      tags: [post_admin_domain]
-
     # Reconcile the declarative public-port registry. Runs AFTER every role
     # has dropped its /etc/catena/public-ports.d/ fragment + deployed its
     # containers (vps.expose.* labels), so the merged effective set is

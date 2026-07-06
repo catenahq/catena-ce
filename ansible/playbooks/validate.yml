@@ -36,7 +36,8 @@
       - tailscale
       - storage
       - docker
-      - dokploy
+      - traefik
+      - postgres
       - backup
       - infrastructure
       - keycloak
@@ -288,13 +289,13 @@
         timeout: 10
       delegate_to: localhost
 
-    - name: Probe Dokploy UI on tailnet
+    - name: "Probe Portainer UI on tailnet"
       ansible.builtin.uri:
-        url: "http://{{ ansible_host }}:{{ dokploy_port | default(3000) }}"
-        status_code: [200, 301, 302]
+        url: "http://{{ ansible_host }}:{{ portainer_ui_port | default(9000) }}/"
+        status_code: [200, 301, 302, 307, 308]
         timeout: 10
       delegate_to: localhost
-      # Asserts Dokploy IS reachable over tailnet (positive).
+      # Asserts the Portainer control-plane UI IS reachable over tailnet.
 
     - name: "Probe Keycloak (auth.<zone>) login page via CF"
       ansible.builtin.uri:
@@ -305,37 +306,6 @@
       when: keycloak_hostname is defined or cloudflare_zone is defined
       # Keycloak's Account Console redirects unauth'd hits to the login
       # page (302). Authenticated would be 200. Either is healthy.
-
-    - name: "Probe a gated app (Dokploy admin) requires auth when unauth'd"
-      ansible.builtin.uri:
-        url: "https://{{ dokploy_admin_hostname }}"
-        status_code: [302, 303, 307]
-        follow_redirects: none
-        timeout: 15
-      delegate_to: localhost
-      register: _auth_redirect
-      when: dokploy_admin_hostname is defined
-      failed_when:
-        - _auth_redirect.status not in [302, 303, 307]
-        # Reverse-proxy mode (Phase 1 of the oauth2-proxy migration):
-        # the per-app oauth2-proxy container in front of dokploy-admin
-        # emits a real 302 to Keycloak when the request lacks a session.
-        # The OLD forward-auth + errors-middleware pattern preserved
-        # 401 on the response while body-substituting /oauth2/start's
-        # 302; that workaround is gone. A 401 here now means the
-        # reverse-proxy path is broken; a 200 means the proxy is
-        # bypassed entirely (regression).
-
-    - name: "Probe Gatus health endpoint directly on tailnet (via Dokploy internal)"
-      ansible.builtin.uri:
-        url: "http://{{ ansible_host }}:{{ dokploy_port | default(3000) }}"
-        status_code: [200, 301, 302]
-        timeout: 10
-      delegate_to: localhost
-      # Proxy check -- proves the tailnet path still works. Real Gatus
-      # health lives at its own /health endpoint inside catena-network
-      # and isn't reachable from the controller; Gatus's own self-monitor
-      # in 00-base.yaml covers it.
 
     # Assert the auth-redirect chain
     # actually lands on Keycloak's login URL with state + redirect_uri +
@@ -350,17 +320,18 @@
     # defined in the inventory (skips silently on partial deploys).
     #
     # Coverage:
-    #   - Static infrastructure apps (gatus, catena-admin at
-    #     dash.<zone>, healthchecks, recovery, dokploy-admin) are
-    #     always probed. The dash.<zone> entry reaches catena-admin
-    #     via infrastructure_dash_hostname.
-    #   - Dynamic Dokploy-managed composes are enumerated via the API
-    #     (project.all + compose.one) and any compose whose composeFile
-    #     does NOT carry `vps.auth.mode=public` is treated as gated.
-    #     Gated by default per catenahq/dokploy-templates source/compose/ convention
-    #     ("Default if unset = `private`").
+    #   - Static infrastructure apps (gatus, catena-admin at dash.<zone>,
+    #     healthchecks, recovery) are always probed. The dash.<zone> entry
+    #     reaches catena-admin via infrastructure_dash_hostname.
     #   - Operators can add ad-hoc gated hostnames via the
     #     `validate_extra_gated_hosts` inventory variable.
+    #   - Dynamic client-app gated hosts (deployed via the Portainer
+    #     marketplace) get their Traefik routes + oauth2-proxy gating from
+    #     dashboard-sync (vps.route.host + vps.auth.* labels). Their auth
+    #     contract is verified by verify_gated_services.yml; there is no
+    #     enumeration API call here (Dokploy's project.all/compose.one are
+    #     gone -- Portainer stacks are discovered by dashboard-sync, not
+    #     re-walked in validate).
     #
     # Native-OIDC hosts (vps.auth.mode=public + vps.auth.oidc=true)
     # are EXCLUDED here. Native-OIDC apps run their own OAuth dance
@@ -373,79 +344,6 @@
     # Native-OIDC apps (e.g. Nextcloud, Element) are excluded from the
     # /oauth2/start probe set; the comment shape is retained for future
     # client-deployed native-OIDC apps.
-    - name: "Enumerate Dokploy projects via API (dynamic gated apps)"
-      ansible.builtin.uri:
-        url: "{{ dokploy_api_base }}/project.all"
-        method: GET
-        headers:
-          x-api-key: "{{ vault_dokploy_api_key }}"
-        status_code: 200
-        return_content: true
-      register: _dyn_projects
-      delegate_to: localhost
-      become: false
-      when:
-        - vault_dokploy_api_key is defined
-        - vault_dokploy_api_key | length > 10
-        - cloudflare_zone is defined
-      failed_when: false
-
-    - name: "Collect compose IDs from project.all"
-      ansible.builtin.set_fact:
-        _r3_dyn_compose_ids: >-
-          {{
-            (_dyn_projects.json | default([]))
-            | map(attribute='environments', default=[]) | flatten
-            | map(attribute='compose', default=[]) | flatten
-            | map(attribute='composeId') | select('string') | list
-          }}
-      when: _dyn_projects.json is defined
-
-    - name: "Fetch each compose record (composeFile + domains)"
-      ansible.builtin.uri:
-        url: "{{ dokploy_api_base }}/compose.one?composeId={{ item }}"
-        method: GET
-        headers:
-          x-api-key: "{{ vault_dokploy_api_key }}"
-        status_code: 200
-        return_content: true
-      register: _r3_dyn_records
-      delegate_to: localhost
-      become: false
-      loop: "{{ _r3_dyn_compose_ids | default([]) }}"
-      loop_control:
-        label: "{{ item }}"
-      when: (_r3_dyn_compose_ids | default([])) | length > 0
-      failed_when: false
-
-    - name: "Derive gated hosts (no vps.auth.mode=public label)"
-      ansible.builtin.set_fact:
-        # A compose is "gated" if its composeFile does NOT carry
-        # `vps.auth.mode=public`. The default per the convention
-        # (catenahq/dokploy-templates source/compose/ convention) is `private`,
-        # so unset == gated.
-        #
-        # Pattern note: the YAML single-quoted scalar does not process
-        # backslash escapes, so '\.' reaches Jinja's `search` test as
-        # literal '\.' -- the regex form of "match a dot". Doubling the
-        # backslashes here produces the regex '\\.', which requires a
-        # literal backslash in the input and silently never matches the
-        # composeFile labels.
-        _r3_dyn_gated_hosts: >-
-          {{
-            (_r3_dyn_records.results | default([]))
-            | selectattr('json', 'defined')
-            | selectattr('json.composeFile', 'defined')
-            | rejectattr('json.composeFile', 'search', 'vps\.auth\.mode=public')
-            | map(attribute='json.domains', default=[])
-            | flatten
-            | map(attribute='host')
-            | select('string')
-            | reject('equalto', '')
-            | list
-          }}
-      when: _r3_dyn_records.results is defined
-
     - name: "Build gated-host probe set"
       ansible.builtin.set_fact:
         # Keycloak's own host (auth.<zone>) is the IdP, not an oauth2-
@@ -460,9 +358,7 @@
                 infrastructure_dash_hostname | default(''),
                 healthchecks_hostname | default(''),
                 infrastructure_recovery_hostname | default(''),
-                dokploy_admin_hostname | default(''),
               ]
-              + (_r3_dyn_gated_hosts | default([]))
               + (validate_extra_gated_hosts | default([]))
             )
             | reject('equalto', '')
@@ -586,7 +482,7 @@
             | list
           }}
         # Allowlist = always-present infra ports + the registry's bound TCP
-        # ports (Dokploy 3000, coturn 5349, mailserver 25/465/587/993, ...).
+        # ports (Portainer 9000, coturn 5349, mailserver 25/465/587/993, ...).
         #   22  - SSH (UFW limits ingress to tailnet)
         #   80  - Traefik HTTP (CF Tunnel only; UFW blocks public)
         #   443 - Traefik HTTPS (CF Tunnel only; UFW blocks public)
@@ -599,7 +495,7 @@
             ([22, 80, 443] +
               ((_pp_summary_raw.content | b64decode | from_json).all_tcp_bound
                if (_pp_summary_stat.stat.exists | default(false))
-               else [dokploy_port | default(3000) | int, 5349]))
+               else [portainer_ui_port | default(9000) | int, 5349]))
             | map('int') | unique | sort | list
           }}
 
@@ -642,7 +538,7 @@
           - docker
           - network
           - inspect
-          - "{{ dokploy_network_name | default('catena-network') }}"
+          - "{{ catena_network_name | default('catena-network') }}"
           - --format
           - '{% raw %}{{range $k, $v := .Containers}}{{$v.IPv4Address}}{{"\n"}}{{end}}{% endraw %}'
       register: _r4_ct_ips_raw
