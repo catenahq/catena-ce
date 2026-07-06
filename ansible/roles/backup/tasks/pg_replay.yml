@@ -1,40 +1,32 @@
 ---
-# Scoped pg_dumpall replay tool. Three callers, same task file -- two
-# auto-invoked converge-path callers (one per scope; sequential, not
-# parallel) and one operator-callable out-of-band entry point.
+# Scoped pg_dumpall replay tool. Two callers, same task file -- one
+# auto-invoked converge-path caller and one operator-callable
+# out-of-band entry point.
 #
-#   1. Auto-invoked from roles/dokploy/tasks/main.yml on a DR converge.
-#      Gated on the post-restore marker (/var/lib/catena/post-
-#      restore.needed); scope=dokploy. Lives late in the dokploy role
-#      -- after pg_password_reconcile aligned vault -> secret ->
-#      pg_authid, after the reach + API-router probes confirm
-#      dokploy-postgres is responsive, before any role that hits the
-#      Dokploy API at role time (keycloak, infrastructure). Required
-#      placement: dokploy DB has to carry snapshot data BEFORE
-#      downstream roles authenticate against it.
+#   1. Auto-invoked from playbooks/post_restore_redeploy.yml on a DR
+#      converge. scope=clients (every per-app DB EXCEPT the infra DB
+#      catena-postgres). Lives AFTER the compose-redeploy +
+#      wait-to-settle (per-app postgres containers must be running for
+#      pg_isready to respond) and BEFORE s3_reconcile. Mirrors
+#      client-tools/restore.sh::step_replay_pg_dumps -- without it,
+#      per-app DBs depend on raw-volume survival across compose
+#      recreate, which broke worm-bucket DR (bench Run
+#      2026-05-09T16-36-46-86f4).
 #
-#   2. Auto-invoked from playbooks/post_restore_redeploy.yml on a DR
-#      converge. scope=clients (every per-app DB EXCEPT dokploy).
-#      Lives AFTER the compose-redeploy + wait-to-settle (per-app
-#      postgres containers must be running for pg_isready to respond)
-#      and BEFORE s3_reconcile. Mirrors client-tools/restore.sh::
-#      step_replay_pg_dumps -- without it, per-app DBs depend on
-#      raw-volume survival across compose recreate, which broke worm-
-#      bucket DR (bench Run 2026-05-09T16-36-46-86f4).
+#      catena-postgres itself is NOT auto-replayed: it is restored raw
+#      (its volume is in the restic set and its vault-derived superuser
+#      password makes a byte-for-byte restore correct), so the converge
+#      path never logically replays it -- scope=clients excludes it.
 #
-#   Both auto-invocations are locked in by
-#   tests/unit/test_no_parallel_paths.py::
-#     test_pg_replay_yml_has_exactly_two_canonical_callers
-#   plus tests/unit/test_restore_sh_ansible_parity.py.
-#
-#   3. Operator-callable for the rare "raw volume corrupt" or
+#   2. Operator-callable for the rare "raw volume corrupt" or
 #      "incremental replay" recovery path:
 #        uv run ansible-playbook -i inventory/<env> playbooks/backup.yml \
 #          --tags pg_replay --limit <host> \
 #          -e backup_mode=pg_replay \
-#          -e pg_replay_scope=<dokploy|clients|all>
+#          -e pg_replay_scope=<infra|clients|all>
 #      Dispatches via roles/backup/tasks/main.yml. Same task file,
-#      no parallel logic.
+#      no parallel logic. scope=infra targets catena-postgres only --
+#      the escape hatch for a corrupt infra-DB volume.
 #
 # Contract:
 #   - Dumps live under {{ storage_mount_point }}/backup-staging/pg/
@@ -46,25 +38,20 @@
 #     sessions, DROP DATABASE, then apply the per-db section
 #     (which starts with `CREATE DATABASE` + `\connect`). The
 #     cluster-level role drops/creates from the dump are
-#     INTENTIONALLY skipped -- pg_password_reconcile owns the
-#     dokploy role's password. Replaying `DROP ROLE <user>` while
+#     INTENTIONALLY skipped: replaying `DROP ROLE <user>` while
 #     connected as `<user>` would halt with ON_ERROR_STOP=1 and
 #     leave the target db dropped but not recreated.
-#   - If the operator runs this out-of-band against dokploy-postgres,
-#     follow up with `./catena site --tags dokploy` so
-#     pg_password_reconcile re-applies the vault password to
-#     pg_authid.
 #
 # Scope filter:
-#   - "dokploy"  -- only dokploy-postgres
-#   - "clients"  -- every matching container EXCEPT dokploy-postgres
+#   - "infra"    -- only catena-postgres (operator escape hatch)
+#   - "clients"  -- every matching container EXCEPT catena-postgres
 #   - "all"      -- every container that has a dump (default)
 
 - name: "pg_replay: assert scope is valid"
   ansible.builtin.assert:
     that:
-      - pg_replay_scope | default('all') in ['dokploy', 'clients', 'all']
-    fail_msg: "pg_replay_scope must be 'dokploy' | 'clients' | 'all'"
+      - pg_replay_scope | default('all') in ['infra', 'clients', 'all']
+    fail_msg: "pg_replay_scope must be 'infra' | 'clients' | 'all'"
 
 - name: "pg_replay: find pg_dump archives in backup-staging/pg"
   ansible.builtin.find:
@@ -73,11 +60,12 @@
     recurse: false
   register: _available_pg_dumps
 
-# Distinguish DR-mode (caller 1: dokploy role on a post-restore converge)
-# from operator-mode (caller 2: out-of-band ./catena backup --tags
-# pg_replay). On a DR converge the post-restore.needed marker exists.
-# Missing dumps in DR-mode = silent data loss waiting to happen, so fail
-# loudly. Out-of-band, missing dumps = nothing to do, debug + continue.
+# Distinguish DR-mode (caller 1: post_restore_redeploy.yml on a
+# post-restore converge) from operator-mode (caller 2: out-of-band
+# ./catena backup --tags pg_replay). On a DR converge the
+# post-restore.needed marker exists. Missing dumps in DR-mode = silent
+# data loss waiting to happen, so fail loudly. Out-of-band, missing
+# dumps = nothing to do, debug + continue.
 - name: "pg_replay: detect post-restore marker"
   ansible.builtin.stat:
     path: "{{ backup_stats_dir }}/post-restore.needed"
@@ -90,19 +78,20 @@
       but NO pg_dump archives were found under
       {{ storage_mount_point }}/backup-staging/pg.
 
-      Restoring without the logical dump would silently leave the Dokploy
-      database empty (raw dokploy-postgres volume is excluded from the
-      restic set by design). Refusing to proceed.
+      A healthy backup always dumps at least catena-postgres, so an empty
+      staging dir on a DR converge means the snapshot carried no logical
+      dumps -- any per-app DB that does not survive its raw volume across
+      the compose recreate would come back empty. Refusing to proceed.
 
       Possible causes:
         - run-backup.sh failed silently in an older catena version
           and the snapshot was taken with no dumps (check previous backup
           runs in journalctl -u {{ backup_systemd_unit_name }}).
         - The restic snapshot picked for restore predates the pg_dumpall
-          contract (Option A storage layout).
+          contract.
         - storage_mount_point points at the wrong path on this host.
 
-      To override (dangerous; loses dokploy DB state):
+      To override (dangerous; per-app DBs then rely on raw-volume survival):
           rm {{ backup_stats_dir }}/post-restore.needed
       then re-run the converge.
   when:
@@ -208,10 +197,11 @@
       # the consumer container is the only reliable block.
       #
       # Excludes: every postgres / db container (replay targets, must
-      # stay live), cloudflared (tunnel reachability), and core dokploy
-      # swarm services (swarm health checks would reschedule them on
-      # pause). Everything else is a candidate.
-      PAUSE_EXCLUDE_RE='^(dokploy|dokploy-postgres|dokploy-redis|catena-traefik|cloudflared)(\.[0-9]+\.[a-z0-9]+)?$|^[a-z0-9-]+-postgres(\.[0-9]+\.[a-z0-9]+)?$|^[a-z0-9-]+-db-[0-9]+$'
+      # stay live), cloudflared (tunnel reachability), and the catena
+      # control-plane swarm services (swarm health checks would
+      # reschedule them on pause). catena-postgres is covered by the
+      # `-postgres` branch. Everything else is a candidate.
+      PAUSE_EXCLUDE_RE='^(catena-portainer|catena-traefik|cloudflared)(\.[0-9]+\.[a-z0-9]+)?$|^[a-z0-9-]+-postgres(\.[0-9]+\.[a-z0-9]+)?$|^[a-z0-9-]+-db-[0-9]+$'
       PAUSED_LIST=""
       unpause_paused() {
           for c in $PAUSED_LIST; do
@@ -242,11 +232,11 @@
       for basename in $basename_iter; do
 
           case "$SCOPE" in
-              dokploy)
-                  [ "$basename" = "dokploy-postgres" ] || continue
+              infra)
+                  [ "$basename" = "catena-postgres" ] || continue
                   ;;
               clients)
-                  [ "$basename" = "dokploy-postgres" ] && continue
+                  [ "$basename" = "catena-postgres" ] && continue
                   ;;
               all)
                   : ;;
@@ -255,10 +245,10 @@
           # Resolve basename -> live container name (handles swarm
           # `<basename>.<replica>.<task>` AND plain compose names).
           # Retries for ~2 min: post_restore_redeploy.yml's
-          # "wait for each compose to settle" returns when Dokploy
-          # reports composeStatus=running, which flips true the moment
-          # `docker compose up` EXITS, NOT when individual non-app
-          # services (postgres, redis) finish starting. Bench
+          # "wait for each compose to settle" returns when Portainer
+          # reports the stack active, which flips true the moment the
+          # stack deploy EXITS, NOT when individual non-app services
+          # (postgres, redis) finish starting. Bench
           # worm_round_trip Run 2026-05-09T20-40-22 saw the nextcloud
           # `app` container in docker ps several seconds before its
           # `db` peer; the pg_replay basename `nextcloud-XXX-db-1`
@@ -329,7 +319,7 @@
           # in the dump section header as `\"`). The current regex
           # accepts an escaped-quote sequence inside the name; the
           # post-extraction `sed s/\\"/"/g` un-escapes for the DROP +
-          # CREATE that follow. Today no Dokploy-managed DB has a
+          # CREATE that follow. Today no catena-managed DB has a
           # quote (slug-form names only), but a client manually
           # creating `"prod-2026"` would hit the silent-skip without
           # this fix.
@@ -346,21 +336,20 @@
 
           # DR path role recreation. The cluster-level role section at
           # the top of the dump is intentionally skipped (DROP ROLE on
-          # the active dokploy session would kill us; pg_password_
-          # reconcile owns the dokploy password). But per-db sections
-          # contain ALTER DATABASE ... OWNER + ALTER TABLE ... OWNER
-          # statements that REFERENCE roles. On a fresh cluster the
-          # dokploy role exists (install.sh) but app-specific roles
-          # (keycloak, ...) live only in the dump. ON_ERROR_STOP=1 then
-          # halts on `role "keycloak" does not exist` and the per-db
-          # replay aborts.
+          # the connected superuser session would kill us). But per-db
+          # sections contain ALTER DATABASE ... OWNER + ALTER TABLE ...
+          # OWNER statements that REFERENCE roles. On a freshly-restored
+          # cluster the `postgres` superuser exists but app-specific
+          # roles (keycloak, ...) may live only in the dump.
+          # ON_ERROR_STOP=1 then halts on `role "keycloak" does not
+          # exist` and the per-db replay aborts.
           #
           # Fix: extract the dump's pre-database globals section, find
           # CREATE ROLE statements, and replay only those for roles
           # NOT already on the cluster. The existing-roles filter
-          # automatically excludes dokploy + postgres so their
-          # cluster-managed passwords are never overwritten by the
-          # dump's stale ALTER ROLE WITH PASSWORD lines.
+          # automatically excludes the `postgres` superuser so its
+          # vault-managed password is never overwritten by the dump's
+          # stale ALTER ROLE WITH PASSWORD lines.
           first_db_lineno=$(zcat "$dump" 2>/dev/null | grep -nE '^-- Database "' | head -n1 | cut -d: -f1)
           if [ -n "$first_db_lineno" ] && [ "$first_db_lineno" -gt 1 ]; then
               pre_db=$(zcat "$dump" 2>/dev/null | sed -n "1,$((first_db_lineno - 1))p")
@@ -394,7 +383,7 @@
               log "REPLAY: db='$db' from $dump into $container (user=$PG_USER)"
 
               # Skip the DROP block if the db doesn't yet exist (DR path
-              # after a fresh dokploy-postgres bootstrap: only `dokploy`
+              # after a fresh restore: only the default `postgres` db
               # exists; `keycloak` and any client-app dbs live only in
               # the dump). ALTER DATABASE has no IF EXISTS, so running
               # the four-statement DROP block against a missing db
@@ -410,8 +399,8 @@
                   # needs both halves:
                   #   1. ALTER DATABASE ... WITH ALLOW_CONNECTIONS =
                   #      false blocks new sessions. Without this,
-                  #      swarm-managed clients (dokploy-app, etc.)
-                  #      reconnect within ms of pg_terminate_backend
+                  #      swarm-managed clients reconnect within ms of
+                  #      pg_terminate_backend
                   #      SIGTERMing them and DROP then fails with
                   #      "database is being accessed by other users".
                   #   2. DROP DATABASE ... WITH (FORCE) (PG13+)

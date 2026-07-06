@@ -40,9 +40,9 @@
   when: _s3_recon_targets | length == 0
 
 # Retry loop: post_restore_redeploy.yml's "wait for each compose to
-# settle" returns as soon as Dokploy reports composeStatus in
-# {done, idle, running, error}, but `running` flips true the moment
-# `docker compose up` exits, NOT when containers stop their
+# settle" returns as soon as Portainer reports the stack active, but
+# that flips true the moment the stack deploy exits, NOT when
+# containers stop their
 # install/restart cycles. Nextcloud in particular goes through 2-3
 # Apache SIGWINCH/recreate cycles after first boot (Nextcloud install
 # triggers internal config-rewrite restarts). If `docker ps` lands in

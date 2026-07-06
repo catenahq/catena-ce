@@ -76,8 +76,8 @@
   register: _pg_service_create
   changed_when: _pg_service_create.rc == 0
 
-# Image-drift upgrade (rolling). Mirrors the dokploy role's swarm-native upgrade
-# path so a pinned-tag bump takes effect on the next converge.
+# Image-drift upgrade (rolling). A pinned-tag bump takes effect on the next
+# converge via `docker service update --image`.
 - name: "postgres: read running image (drift check)"
   ansible.builtin.command: >-
     docker service inspect {{ catena_postgres_service_name }}

@@ -15,9 +15,9 @@ provides one-shot tasks for verification, restore, and reconciliation.
   into a scratch dir; verify file count and size; emit alert on
   drift.
 - `restore.yml` -- full filesystem restore from a chosen snapshot.
-  Replays a fresh `pg_dumpall` afterward (raw-volume restore is
-  the authoritative path; pg replay reconciles the dokploy-postgres
-  vault password).
+  catena-postgres is restored raw (its vault-derived password makes a
+  byte-for-byte restore correct); per-app DBs are restored raw and then
+  reconciled by a fresh `pg_dumpall` replay (scope=clients).
 - `s3_reconcile.yml` -- list the bucket via the S3 API and prune
   snapshots not in the restic index (orphan cleanup).
 - `ensure_restic.yml` -- apt-install + binary version pin only.
@@ -43,5 +43,4 @@ provides one-shot tasks for verification, restore, and reconciliation.
 
 ## Related
 
-- Operator-facing: `runbooks/postgres-password-reconciler.md`,
-  `runbooks/restore-to-new-vps.md`.
+- Operator-facing: `runbooks/restore-to-new-vps.md`.

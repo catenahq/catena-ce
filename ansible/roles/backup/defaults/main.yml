@@ -6,7 +6,7 @@ backup_mode: install # install | restore | verify
 # is on 0.19.0). Installed into /usr/local/bin/restic which shadows any
 # apt-shipped /usr/bin/restic thanks to $PATH order. Bump this to pick
 # up new releases -- the role will download + verify SHA256 + swap the
-# binary atomically. Matches our pattern for Dokploy + cloudflared.
+# binary atomically. Matches our pattern for the cloudflared binary.
 backup_restic_version: "0.19.0"
 
 backup_restic_repo: "" # e.g. s3:s3.bhs.io.cloud.ovh.net/<client>-restic
@@ -32,7 +32,7 @@ backup_tier: "{{ lookup('dotenv', 'BACKUP_TIER', default='standard') }}"
 # baseline so existing clients see no flag day. Restic's
 # content-defined chunking makes a per-hour snapshot near-free at the
 # pack-file level (only changed bytes write); the real cost is the
-# pg_dumpall (~minutes per Dokploy postgres) + S3 API calls (cents/mo
+# pg_dumpall (~minutes per Postgres container) + S3 API calls (cents/mo
 # on OVH BHS). Operators with sparse-write workloads can override
 # back to nightly via inventory `.env` (BACKUP_SCHEDULE=*-*-* 03:30:00).
 backup_schedule: "{{ backup_tier | backup_tier_schedule }}"
@@ -87,10 +87,11 @@ backup_restic_mirror_script: /usr/local/bin/catena-restic-mirror-to-worm
 # ping when only the cold half is unconfigured, and skips on
 # unreachable cold buckets.
 #
-# Live-bucket coords come from the operator-managed Nextcloud Dokploy
+# Live-bucket coords come from the operator-managed Nextcloud app
 # template (S3_HOST, S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY in the
 # Environment tab). Operators set NEXTCLOUD_LIVE_REPO in .env to the
-# `s3:<host>/<bucket>` form matching what they entered in Dokploy; the
+# `s3:<host>/<bucket>` form matching what they entered in the app's
+# Environment; the
 # live IAM creds reuse vault_nextcloud_s3_access_key /
 # vault_nextcloud_s3_secret_key (the same keys Nextcloud itself uses).
 nextcloud_live_repo: "{{ lookup('dotenv', 'NEXTCLOUD_LIVE_REPO', default='') }}"
@@ -197,31 +198,29 @@ backup_retention_policy: "{{ backup_tier | backup_tier_retention }}"
 #   - docker/overlay2, image, buildkit, containers, network, plugins, runtimes,
 #     swarm, tmp, trust -- image layers and runtime state, all reproducible
 #     from the registry. Listing /mnt/data/docker/volumes lets us keep
-#     named-volume data (Dokploy templates rely on these) without
+#     named-volume data (app stacks rely on these) without
 #     scooping up tens of GB of reproducible image layers.
 #   - postgres (legacy empty dir from the storage role; real pg data lives
 #     under docker/volumes/<volume>/_data/).
 #
 # Postgres data on this stack:
-#   - dokploy-postgres (the platform's embedded DB) is restored
-#     LOGICALLY: pg_dumpall writes a per-host snapshot to
-#     backup-staging/pg/, which IS in the restic set. The raw
-#     dokploy-postgres volume is EXCLUDED below -- restoring it
-#     byte-for-byte brings back snapshot-time pg_authid hashes
-#     that don't match the fresh secret install.sh creates on a
-#     DR converge, producing migration.mjs auth-loop crashes.
-#     Replay path: roles/dokploy/tasks/main.yml includes
-#     pg_replay.yml with scope=dokploy on a DR converge (gated on
-#     the post-restore.needed marker).
-#   - Client postgres containers (Dokploy-deployed apps) are
-#     restored RAW: their named volumes are in the restic set
-#     and replay back deterministically. pg_dumpall captures
-#     them too so an operator can cross-check or do a partial
-#     replay; raw-volume is the default path.
+#   - catena-postgres (the catena-owned infra DB -- hosts Keycloak) is
+#     restored RAW: its named volume (catena-postgres-data) is in the
+#     restic set and replays back byte-for-byte. Unlike the old
+#     dokploy-postgres, a raw restore is correct here because the
+#     superuser password comes from vault (a swarm secret), so the
+#     restored pg_authid hash matches the also-restored vault -- no
+#     skew, no logical-replay dance. pg_dumpall still captures it to
+#     backup-staging/pg/ for cross-check / partial replay.
+#   - Client postgres containers (app stacks) are restored RAW:
+#     their named volumes are in the restic set and replay back
+#     deterministically. pg_dumpall captures them too, and
+#     post_restore_redeploy.yml logically replays them (scope=clients)
+#     after the stacks redeploy -- belt-and-suspenders against a
+#     volume that doesn't survive the compose recreate.
 #
-# pg_dumpall failures are fatal (run-backup.sh exits non-zero) so
-# a silent dump gap can't lead to silent data loss on the dokploy
-# branch where pg_dumpall is the only source.
+# pg_dumpall failures are fatal (run-backup.sh exits non-zero) so a
+# silent dump gap can't lead to silent data loss.
 # Covered storage contract for Docker data on this stack:
 #
 #   A. Named volumes (compose `volumes: [myapp_data:/data]`)
@@ -297,23 +296,10 @@ backup_paths:
 # can see what's deliberately NOT in the snapshot alongside what's
 # accidentally not in it.
 backup_exclude_patterns:
-  # dokploy-postgres volume EXCLUDED -- pg_dumpall snapshots in
-  # backup-staging/pg/ are authoritative for dokploy database state.
-  # Replay path: roles/dokploy/tasks/main.yml includes pg_replay.yml
-  # with scope=dokploy on a DR converge (gated on the post-restore.needed
-  # marker). Including the raw volume
-  # would bring back snapshot-time pg_authid hashes that don't match
-  # the fresh secret install.sh creates on a DR converge, producing
-  # migration.mjs auth-loop crashes. Locked in by
-  # tests/unit/test_restore_option_a.py::
-  #   test_backup_defaults_exclude_dokploy_postgres_volume
-  - "*/docker/volumes/dokploy-postgres"
-  - "*/docker/volumes/dokploy-postgres/*"
-  # Dokploy's redis -- ephemeral queue/session state; fresh volume on
-  # restore is correct behaviour, any stale queued work is lost by
-  # design (nothing load-bearing lives here).
-  - "*/docker/volumes/dokploy-redis"
-  - "*/docker/volumes/dokploy-redis/*"
+  # NOTE: catena-postgres-data (the infra DB volume) is deliberately NOT
+  # excluded -- it is restored RAW (see the "Postgres data on this stack"
+  # note above; the vault-derived superuser password makes a byte-for-byte
+  # restore correct, so no logical-replay dance and no exclusion).
   # Gatus per-minute probe history (sqlite at /data/gatus.db, see
   # roles/infrastructure/templates/gatus-base.yaml.j2). Probed every
   # minute against every internal alias + public URL, so the on-disk
@@ -373,9 +359,9 @@ backup_exclude_patterns:
   - "/var/backups/catena-export"
   - "/var/backups/catena-export/*"
 
-# Postgres superuser for pg_dumpall. Dokploy's default is `postgres`. Override
-# per-host if a client runs a bespoke setup. Auth failures per-container are
-# logged and skipped -- they don't fail the backup run.
+# Postgres superuser for pg_dumpall. catena-postgres uses the conventional
+# `postgres`. Override per-host if a client runs a bespoke setup. Auth
+# failures per-container are logged and skipped -- they don't fail the run.
 backup_pg_dump_user: postgres
 
 # Run an initial snapshot during install so there's something to verify

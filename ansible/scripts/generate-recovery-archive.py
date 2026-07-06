@@ -19,8 +19,8 @@ admin-gated download URL.
 # Runs as root via sudo (catena-admin dispatches it over SSH from the
 # Recovery tab). Root is needed because:
 #   - extract_secrets_core probes /etc/catena/restic.pass (mode 0600
-#     root) and /run/secrets/postgres_password inside the dokploy-
-#     postgres container.
+#     root) and /run/secrets/catena_postgres_password inside the
+#     catena-postgres container.
 #   - /etc/catena/backup.env is mode 0600 root.
 #   - The output .zip is mode 0600 root and lives under
 #     /var/backups/catena-export/ which is mode 0750 root:1000 (group

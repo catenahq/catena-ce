@@ -105,19 +105,19 @@ LOCATIONS: dict[str, dict] = {
         "env_key": "NEXTCLOUD_WORM_SECRET_ACCESS_KEY",
         "optional": True,
     },
-    # ── Dokploy ──────────────────────────────────────────────────────
-    "vault_dokploy_postgres_password": {
+    # ── catena-postgres (infra DB) ───────────────────────────────────
+    "vault_catena_postgres_password": {
         "kind": "container-exec",
-        # Dokploy runs postgres as a Docker Swarm service, so the live
-        # container name is `dokploy-postgres.<replica>.<taskid>` (e.g.
-        # `dokploy-postgres.1.0dlk3znfyhktcja6gz4hh03c8`). A bare
-        # `dokploy-postgres` exact-match never resolved. The `*` also
-        # covers a hypothetical compose-style `dokploy-postgres-1` name
-        # if Dokploy ever moves off swarm. fnmatch `*` doesn't cross
-        # slashes but container names don't contain slashes, so matching
-        # is unambiguous.
-        "container": "dokploy-postgres*",
-        "path": "/run/secrets/postgres_password",
+        # roles/postgres runs Postgres as a Docker Swarm service, so the
+        # live container name is `catena-postgres.<replica>.<taskid>`
+        # (e.g. `catena-postgres.1.0dlk3znfyhktcja6gz4hh03c8`). A bare
+        # `catena-postgres` exact-match never resolves. fnmatch `*`
+        # doesn't cross slashes but container names don't contain
+        # slashes, so matching is unambiguous. The password is delivered
+        # as the swarm secret `catena_postgres_password`, mounted at
+        # /run/secrets/<secret-name> and read by POSTGRES_PASSWORD_FILE.
+        "container": "catena-postgres*",
+        "path": "/run/secrets/catena_postgres_password",
     },
     # ── SSO (Keycloak Phase Two) ─────────────────────────────────────
     "vault_keycloak_db_password": {
@@ -356,19 +356,17 @@ LOCATIONS: dict[str, dict] = {
         "kind": "provider-only",
         "hint": "https://dash.cloudflare.com/profile/api-tokens (scopes: Account > Cloudflare Tunnel > Edit, Zone > DNS > Edit)",
     },
-    "vault_dokploy_api_key": {
+    "vault_portainer_api_key": {
         "kind": "provider-only",
-        # Dokploy runs on the host but its API keys are managed by the
-        # better-auth `apikey` plugin, which stores only an HMAC of the
-        # key -- the plaintext is shown once at creation and then
-        # discarded. Verified April 2026 on dev1: the `apikey.key`
-        # column's first bytes do not match `apikey.start` (the 6-char
-        # public prefix shown in the UI), confirming the stored value
-        # is a hash, not the plaintext. So this key is provider-only
-        # not by convention but because the plaintext is cryptographically
-        # unrecoverable from the DB -- re-minting in the UI is the only
-        # option, same as Tailscale/Cloudflare.
-        "hint": "Dokploy UI -> Settings -> Profile -> API Keys -> generate one",
+        # Portainer runs on the host but its API keys (access tokens) are
+        # stored only as a hash in the BoltDB store -- the rawAPIKey is
+        # shown once at creation (POST /api/users/{id}/tokens) and then
+        # discarded. So this key is provider-only not by convention but
+        # because the plaintext is cryptographically unrecoverable from
+        # the store. On a converge the portainer role re-mints it from
+        # the initial admin (helpers/bootstrap_portainer_admin.py); the
+        # manual escape hatch is the UI, same as Tailscale/Cloudflare.
+        "hint": "Portainer UI -> My account -> Access tokens -> Add access token",
     },
 }
 
@@ -562,7 +560,7 @@ def to_yaml(result: ExtractResult) -> str:
     lines.append("# boot an operator back into the system when the vault")
     lines.append("# password has been lost and the server is still running.")
     lines.append("#")
-    lines.append("# Provider-only keys (Tailscale, Cloudflare, Dokploy API)")
+    lines.append("# Provider-only keys (Tailscale, Cloudflare, Portainer API)")
     lines.append("# can never come from the host -- they are emitted as")
     lines.append("# commented placeholders below; re-mint them in the")
     lines.append("# respective admin consoles and uncomment.")

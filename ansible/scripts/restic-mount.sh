@@ -100,6 +100,6 @@ Auto-unmount in $TIMEOUT (click 'Unmount snapshot browser' to release sooner).
 Typical recovery (single file from latest snapshot):
   1. ls $MOUNTPOINT/snapshots/latest/mnt/data/docker/volumes/
   2. cp -a $MOUNTPOINT/snapshots/latest/<src> /mnt/data/docker/volumes/<dst>
-  3. Restart the affected container from the Dokploy UI so it picks
+  3. Restart the affected container from the Portainer UI so it picks
      the file up.
 EOF

@@ -6,8 +6,8 @@
 # backport upstream patch releases -- 0.18.1 shipped 2026-01-17 but
 # hasn't made it into the repo. For a backup tool where a single bug
 # can mean unrecoverable data, tracking upstream is worth owning the
-# download pipeline ourselves. Matches our pattern for Dokploy +
-# cloudflared -- both direct GitHub/vendor downloads.
+# download pipeline ourselves. Matches our pattern for the cloudflared
+# binary -- a direct GitHub/vendor download.
 #
 # Idempotent: skip download if /usr/local/bin/restic already reports the
 # pinned version. Controlled by backup_restic_version (role default).

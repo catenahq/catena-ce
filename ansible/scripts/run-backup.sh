@@ -121,19 +121,19 @@ if command -v docker >/dev/null 2>&1; then
         for c in $CONTAINERS; do
             # Strip the swarm task suffix (`.<replica>.<task_id>`) from the
             # container name so the dump filename is stable across host
-            # reschedules. dokploy-postgres is a swarm service whose live
-            # name is `dokploy-postgres.1.<task_id>` -- that task_id changes
+            # reschedules. catena-postgres is a swarm service whose live
+            # name is `catena-postgres.1.<task_id>` -- that task_id changes
             # on every restart, and pg_replay's filename-based container
             # lookup would never match a freshly-rescheduled task. Plain
-            # (compose-managed) containers like `nextcloud-ehlkpl-db-1`
+            # (compose-managed) containers like `nextcloud-db-1`
             # don't match the suffix pattern and pass through unchanged.
             name=$(printf '%s' "$c" | sed -E 's/\.[0-9]+\.[a-z0-9]+$//')
 
             # Detect the right superuser per container instead of trusting
-            # BACKUP_PG_DUMP_USER as a global default. Dokploy's embedded
-            # postgres initialises with POSTGRES_USER=dokploy, so role
-            # `postgres` does NOT exist there -- pg_dumpall -U postgres
-            # errors out with "role does not exist". Without pipefail the
+            # BACKUP_PG_DUMP_USER as a global default. catena-postgres uses
+            # the conventional POSTGRES_USER=postgres, but a client app can
+            # ship a bespoke superuser -- pg_dumpall -U postgres would then
+            # error out with "role does not exist". Without pipefail the
             # `... | gzip` pipeline returns gzip's rc (0 on empty input),
             # so the error gets silently committed as a 20-byte empty-
             # gzip "dump" and a future restore loses every row of that

@@ -9,11 +9,11 @@
 #   verify    (verify-backup.yml)      -- dry-restore + assert
 #   restore   (restore.yml playbook)   -- filesystem restore from restic
 #   pg_replay (pg_replay.yml) -- replay pg_dumpall into running postgres
-#             containers. dokploy-postgres is EXCLUDED from the raw restic
-#             set, so scope=dokploy is the ONLY restore path for the
-#             Dokploy control DB -- the dokploy role calls it directly
-#             (scope=dokploy) on a post-restore converge. scope=clients
-#             is driven by the Business post-restore orchestration.
+#             containers. catena-postgres (the infra DB) is restored raw,
+#             so the converge never auto-replays it; scope=infra is an
+#             operator-only escape hatch for a corrupt infra-DB volume.
+#             scope=clients (per-app DBs, the default converge path) is
+#             driven by the Business post-restore orchestration.
 #   s3_reconcile (s3_reconcile.yml) -- post-restore DB<->S3 reference
 #             reconcile; driven by the Business post-restore orchestration.
 

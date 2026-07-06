@@ -10,18 +10,16 @@
 #      the rollback flow) starts docker back up and swarm reconciles.
 #
 # pg_replay (roles/backup/tasks/pg_replay.yml) is a separate mode that
-# replays pg_dumpall into running Dokploy-managed postgres containers.
-# It runs LATER in the same converge: from the dokploy role
-# (scope=dokploy, marker-gated) once dokploy-postgres is up.
+# replays pg_dumpall into running per-app postgres containers. It runs
+# LATER in the same converge, driven by post_restore_redeploy.yml
+# (scope=clients) once the app stacks redeploy. catena-postgres itself
+# is restored raw, so it is not part of this replay.
 #
 # Contract with site.yml: on success, drop
-# /var/lib/catena/post-restore.needed as a marker. The marker
-# triggers two distinct hooks:
-#   - the dokploy role's pg_replay include (scope=dokploy), inside the
-#     dokploy role mid-converge so downstream roles see the replayed DB;
-#   - site.yml post_tasks include of post_restore_redeploy.yml (Dokploy
-#     compose redeploy via the API).
-# site.yml clears the marker after compose redeploy succeeds.
+# /var/lib/catena/post-restore.needed as a marker. The marker triggers
+# the site.yml post_tasks include of post_restore_redeploy.yml, which
+# redeploys the app stacks via the Portainer API and then replays their
+# pg dumps (scope=clients). site.yml clears the marker afterwards.
 
 # ─── Minimal prereqs for restore on a fresh VPS ─────────────────────────
 # A disaster-recovery restore runs on a host where install.yml has never
@@ -115,16 +113,16 @@
 
 # Restore is a cold operation -- restoring /mnt/data (and friends)
 # underneath live containers corrupts state. Operators can't stop
-# dokploy / cloudflared / catena-traefik by hand: they're swarm
-# services (auto-reconciled) or `restart=always` containers. So we
-# stop the docker daemon itself, which drops every container in one
-# shot. `docker_live_restore` is false for this project (swarm requires
-# it), so stopping docker really does kill containers.
+# catena-portainer / catena-postgres / cloudflared / catena-traefik by
+# hand: they're swarm services (auto-reconciled) or `restart=always`
+# containers. So we stop the docker daemon itself, which drops every
+# container in one shot. `docker_live_restore` is false for this project
+# (swarm requires it), so stopping docker really does kill containers.
 #
 # Restart: site.yml follows restore in the rollback flow; its docker
 # role starts docker back up, swarm reconciles the services, and
 # restart-policy containers come back. The post-restore.needed marker
-# additionally triggers a full Dokploy compose redeploy.
+# additionally triggers a full app-stack redeploy via the Portainer API.
 
 - name: "Snapshot running containers before stopping docker (for the log)"
   # Best-effort: if docker isn't installed (fresh-host DR path) this is
@@ -312,9 +310,9 @@
       run (Keycloak OIDC will reject tokens issued under a skewed clock).
 
 # ─── Hand-off to site.yml ───────────────────────────────────────────────
-# Drop a marker so site.yml's post_tasks know to (a) redeploy every
-# Dokploy compose project (containers are stopped post-restore -- image
-# layers aren't in the backup) and (b) replay pg_dumpall into them.
+# Drop a marker so site.yml's post_tasks know to (a) redeploy every app
+# stack via the Portainer API (containers are stopped post-restore --
+# image layers aren't in the backup) and (b) replay pg_dumpall into them.
 # Marker is cleared by site.yml after both hooks succeed; operator can
 # `touch` it manually to re-run hooks out-of-band.
 
@@ -335,12 +333,3 @@
     owner: root
     group: root
     mode: "0644"
-
-# Clear the dokploy pg_replay-done sub-marker so THIS fresh restore re-runs
-# the dokploy-scope replay (the dokploy role gates the replay on this marker
-# being absent for idempotency across plain re-converges). A new restore
-# brings a fresh empty dokploy-postgres, so the replay MUST run again.
-- name: "Clear dokploy pg_replay-done sub-marker (fresh restore must re-replay)"
-  ansible.builtin.file:
-    path: "{{ backup_stats_dir }}/dokploy-pg-replayed.done"
-    state: absent
