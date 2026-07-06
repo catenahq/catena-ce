@@ -137,24 +137,24 @@
   changed_when: false
   when: (_verify_pg_archives.matched | default(0)) > 0
 
-- name: "Deep verify: locate restored Dokploy compose files"
-  ansible.builtin.find:
-    paths: "{{ verify_scratch_dir }}/etc/dokploy/compose"
-    patterns: "docker-compose.yml,compose.yml,docker-compose.yaml,compose.yaml"
-    recurse: true
-    file_type: file
-  register: _verify_compose_files
-  failed_when: false
+- name: "Deep verify: confirm the catena-postgres data volume restored"
+  ansible.builtin.stat:
+    path: "{{ verify_scratch_dir }}{{ storage_mount_point }}/docker/volumes/{{ catena_postgres_data_volume | default('catena-postgres-data') }}"
+  register: _verify_catena_pg_vol
 
-- name: "Deep verify: warn if no compose files in restored tree"
+- name: "Deep verify: warn if the catena-postgres data volume is missing"
   ansible.builtin.debug:
     msg: |
-      No Dokploy compose files under {{ verify_scratch_dir }}/etc/dokploy/compose
-      after restore. Either Dokploy never seeded any composes (fresh
-      install pre-Templates-seed) or /etc/dokploy didn't make it into
-      the snapshot. The path-stat block above asserts /etc/ssh; if THAT
-      came back but compose did not, the backup_paths config has drifted.
-  when: (_verify_compose_files.matched | default(0)) == 0
+      The catena-postgres data volume
+      ({{ catena_postgres_data_volume | default('catena-postgres-data') }}) is
+      not present under {{ verify_scratch_dir }}{{ storage_mount_point }}/
+      docker/volumes after restore. The infra DB is restored RAW from this
+      volume (see roles/backup/defaults "Postgres data on this stack"); if it
+      is missing the snapshot predates the catena-postgres cutover OR
+      {{ storage_mount_point }}/docker/volumes drifted out of backup_paths.
+      The path-stat block above asserts /etc/ssh; if THAT came back but the
+      volume did not, backup_paths has drifted.
+  when: not (_verify_catena_pg_vol.stat.exists | default(false))
 
 - name: "Deep verify: detect docker compose tool"
   ansible.builtin.shell:

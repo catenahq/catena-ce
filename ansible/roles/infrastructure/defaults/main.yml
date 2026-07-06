@@ -76,7 +76,7 @@ gatus_image: "twinproduction/gatus:{{ gatus_image_tag }}"
 gatus_compose_name: "gatus"
 gatus_network_alias: "gatus"
 gatus_internal_port: 8080
-gatus_host_config_dir: "/etc/dokploy/gatus"
+gatus_host_config_dir: "/etc/catena/gatus"
 # JSON spec consumed by gatus-sync to render 40-infra.yaml (one Gatus
 # endpoint per infra service, NAME augmented with current/latest version
 # from version-check.json). Rendered at converge time with hostnames /
@@ -179,7 +179,7 @@ beszel_hc_shim_internal_port: 8099
 beszel_hc_shim_image_tag: "3.14-alpine"
 beszel_hc_shim_image: "python:{{ beszel_hc_shim_image_tag }}"
 # Host dir the shim script is dropped into + bind-mounted read-only.
-beszel_hc_shim_host_dir: "/etc/dokploy/beszel-hc-shim"
+beszel_hc_shim_host_dir: "/etc/catena/beszel-hc-shim"
 
 # --- recovery-downloads (SSO-gated file server) -------------------------
 # Nginx sidecar that exposes /var/backups/catena-export/ read-only
@@ -202,7 +202,7 @@ recovery_image: "nginx:{{ recovery_image_tag }}"
 recovery_compose_name: "recovery"
 recovery_network_alias: "recovery"
 recovery_internal_port: 80
-recovery_host_config_dir: "/etc/dokploy/recovery"
+recovery_host_config_dir: "/etc/catena/recovery"
 # Source dir served read-only. Kept in sync with roles/backup/defaults'
 # `backup_export_dir`; override by setting the backup default, not here.
 recovery_source_dir: "{{ backup_export_dir | default('/var/backups/catena-export') }}"

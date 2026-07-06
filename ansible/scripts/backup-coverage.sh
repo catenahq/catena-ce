@@ -177,7 +177,7 @@ echo "  b) Add the path to backup_paths in roles/backup/defaults/main.yml"
 echo "     (or via inventory override) and re-converge."
 echo
 echo "Named volumes are always covered (under /mnt/data/docker/volumes)."
-echo "Relative bind mounts in Dokploy compose files (e.g. ./myapp) resolve"
-echo "under /etc/dokploy/compose/<project>/code/ which is covered too."
+echo "Relative bind mounts in a Portainer stack (e.g. ./myapp) resolve under"
+echo "the stack's dir in the Portainer data volume, which is covered too."
 
 exit 0

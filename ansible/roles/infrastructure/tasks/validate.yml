@@ -14,7 +14,7 @@
     - { path: /usr/local/lib/catena/restore.sh, mode: "0644" }
     - { path: /usr/bin/7z, mode: "0755" }  # F12 generator dep (p7zip-full / 7zip)
     - { path: /var/backups/catena-export, type: directory, mode: "0750" } # shared w/ backup role
-    - { path: /etc/dokploy/traefik/dynamic, type: directory }
+    - { path: /etc/catena/traefik/dynamic, type: directory }
   loop_control:
     label: "{{ item.path }}"
 

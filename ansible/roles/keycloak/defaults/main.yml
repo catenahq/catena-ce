@@ -70,7 +70,7 @@ keycloak_config_cli_image: "adorsys/keycloak-config-cli:{{ keycloak_config_cli_i
 
 # Host-side dir that holds rendered realm YAML files. Bind-mounted into
 # the keycloak-config-cli container at /config (RO).
-keycloak_realm_host_dir: "/etc/dokploy/keycloak/realms"
+keycloak_realm_host_dir: "/etc/catena/keycloak/realms"
 
 # Realm name owning all per-VPS clients + groups + users. Single-realm
 # per VPS today; Phase Two Organizations (multi-tenancy inside one

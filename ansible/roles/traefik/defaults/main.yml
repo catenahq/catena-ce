@@ -21,12 +21,12 @@ traefik_container_name: catena-traefik
 # longer owns the ingress network.
 catena_network_name: catena-network
 
-# Traefik config tree. NOTE: path intentionally kept under /etc/dokploy/traefik
-# for the Dokploy-present transition window -- Dokploy still writes its own
-# file-provider routes there and our traefik must keep reading them until
-# Dokploy is removed (Phase 5), at which point this moves to /etc/catena/traefik
-# in one step with the rest of the /etc/dokploy teardown.
-traefik_config_dir: /etc/dokploy/traefik
+# Traefik config tree: traefik.yml (static), dynamic/ (file-provider routes
+# written by oauth2_proxy + dashboard-sync + portainer_stack), and
+# dynamic/acme.json. Rooted under /etc/catena with the rest of the catena
+# host config; roles/common migrates an existing /etc/dokploy/traefik here on
+# the first post-teardown converge (preserving acme.json).
+traefik_config_dir: /etc/catena/traefik
 traefik_dynamic_dir: "{{ traefik_config_dir }}/dynamic"
 
 # Trusted upstream-proxy IPs for Traefik's forwardedHeaders. Only sources in

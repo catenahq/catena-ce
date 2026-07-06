@@ -227,13 +227,13 @@ backup_retention_policy: "{{ backup_tier | backup_tier_retention }}"
 #      -> /mnt/data/docker/volumes/<name>/_data/
 #      ✓ covered by {{ storage_mount_point }}/docker/volumes
 #
-#   B. Relative bind mounts in Dokploy compose (`- ./myapp:/app`)
-#      -> /etc/dokploy/compose/<project>/code/myapp
-#      ✓ covered by /etc/dokploy
+#   B. Relative bind mounts in a Portainer stack (`- ./myapp:/app`)
+#      -> the stack's working dir inside the Portainer data volume
+#      ✓ covered by {{ storage_mount_point }}/docker/volumes
 #
-#   C. Dokploy Files UI ("Files" tab per project)
-#      -> /etc/dokploy/compose/<project>/files/
-#      ✓ covered by /etc/dokploy
+#   C. catena host config (traefik + acme.json, gatus, keycloak realms, ...)
+#      -> /etc/catena/<component>
+#      ✓ covered by /etc (below)
 #
 #   D. Absolute bind mounts under /mnt/data/apps (operator convention)
 #      ✓ covered by {{ storage_mount_point }}/apps
@@ -248,11 +248,9 @@ backup_retention_policy: "{{ backup_tier | backup_tier_retention }}"
 # pg_dumpall output gets its own dedicated path (backup-staging/pg)
 # populated by the wrapper before restic walks the tree.
 backup_paths:
-  - "{{ storage_mount_point }}/dokploy"
   - "{{ storage_mount_point }}/apps"
   - "{{ storage_mount_point }}/backup-staging"
   - "{{ storage_mount_point }}/docker/volumes"
-  - /etc/dokploy
   - /etc/ssh
   - /etc/ufw
   - /etc/fstab

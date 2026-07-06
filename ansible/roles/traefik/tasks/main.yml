@@ -11,11 +11,10 @@
 #   - Plain container (not a swarm service) + a nudge unit that restarts it
 #     after a docker restart once the overlay re-materializes.
 #
-# TRANSITION NOTE (Dokploy-present window, Phase 1->5): the config tree stays at
-# /etc/dokploy/traefik so it moves out with the rest of the /etc/dokploy tree in
-# one step at Phase 5 teardown. catena-traefik itself is on catena_network_name
-# only -- every catena app now deploys onto catena-network via the Portainer
-# stack seam, so there is nothing Dokploy-managed for traefik to reach.
+# The config tree lives under /etc/catena/traefik (roles/common migrates an
+# existing /etc/dokploy/traefik here on the first post-teardown converge).
+# catena-traefik is on catena_network_name only -- every catena app deploys
+# onto catena-network via the Portainer stack seam.
 
 # ─── overlay network ─────────────────────────────────────────────────────
 - name: "traefik: ensure {{ catena_network_name }} overlay exists"
@@ -148,14 +147,9 @@
   register: _traefik_launch
   changed_when: _traefik_launch.rc == 0
 
-# NOTE: catena-traefik attaches to catena_network_name ONLY (the overlay the
-# Dokploy->Portainer migration renamed dokploy-network to, and the network every
-# catena app stack now joins via the Portainer stack seam). The former
-# "transition straddle" that also connected catena-traefik to dokploy-network
-# was removed: nothing catena-traefik routes to lives on dokploy-network under
-# the Portainer model -- catena apps are on catena-network, and only Dokploy's
-# own infra (its app/postgres/redis) remains on dokploy-network, which traefik
-# never proxies. roles/dokploy + that network disappear entirely in Phase 5.
+# NOTE: catena-traefik attaches to catena_network_name ONLY. Every catena app
+# stack joins catena-network via the Portainer stack seam, so that single
+# overlay is all traefik needs to route to.
 
 - name: "traefik: restart to pick up static config change"
   ansible.builtin.command: "docker restart {{ traefik_container_name }}"

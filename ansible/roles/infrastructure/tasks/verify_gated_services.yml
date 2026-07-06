@@ -60,7 +60,7 @@
 
       Diagnostic next steps:
         - Inspect Traefik dynamic-config dir for the per-app reverse-proxy route:
-            ls /etc/dokploy/traefik/dynamic/*-oauth2-proxy.yml
+            ls /etc/catena/traefik/dynamic/*-oauth2-proxy.yml
         - Check the per-app oauth2-proxy container logs:
             docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep oauth2-proxy
             docker logs <oauth2-proxy-<slug>> --tail 200
