@@ -77,6 +77,9 @@ PLACEHOLDER_VALUES = {"REPLACE", "REPLACE-LONG-RANDOM-STRING"}
 # password, optional Nextcloud-S3 credentials, opt-in mailserver secrets).
 VAULT_SKIP_KEYS = {
     "vault_dokploy_api_key",
+    # Minted post-install by roles/portainer (bootstrap_portainer_admin.py),
+    # same category as vault_dokploy_api_key -- exempt from the seed prompt.
+    "vault_portainer_api_key",
     "vault_dokploy_postgres_password",
     "vault_catena_postgres_password",
     "vault_backup_restic_password",

@@ -151,3 +151,69 @@
   delay: 5
   until: _pt_ready.status | default(-1) in [200, 307, 308]
   failed_when: false
+
+# ─── mint / heal vault_portainer_api_key ─────────────────────────────────
+# The CE compose seam (roles/infrastructure) + the EE managed-update engine
+# talk to Portainer with an X-API-Key. It is minted from the initial admin
+# (created at first boot via --admin-password-file above) by
+# helpers/bootstrap_portainer_admin.py: signs in with vault_admin_password,
+# resolves the admin user id, POSTs /api/users/{id}/tokens, and writes the
+# rawAPIKey into vault.sops.yml via sops --set. community.sops.load_vars
+# then brings it into the in-flight playbook scope.
+#
+# Fires when the vault has NO key yet (first install) OR when the stored key
+# is rejected by the live Portainer (401/403 -- e.g. the operator recreated
+# the admin, or a /data restore replaced the BoltDB store the token lived
+# in). The validate is one cheap GET; the mint only runs on the miss.
+- name: "portainer: validate vault_portainer_api_key against Portainer"
+  ansible.builtin.uri:
+    url: "{{ portainer_api_base }}/stacks"
+    method: GET
+    headers:
+      X-API-Key: "{{ vault_portainer_api_key }}"
+    status_code: [200, 401, 403]
+    timeout: 10
+  register: _pt_apikey_validate
+  delegate_to: localhost
+  become: false
+  # Transient 5xx / connection refused (Portainer mid-reschedule) must not
+  # bomb the converge -- the mint condition below only fires on missing key
+  # or an explicit 401/403.
+  failed_when: false
+  when:
+    - vault_portainer_api_key is defined
+    - vault_portainer_api_key | length > 10
+
+- name: "portainer: mint Portainer API key (missing or rejected by live Portainer)"
+  when: >-
+    vault_portainer_api_key is not defined
+    or (vault_portainer_api_key | length) <= 10
+    or (_pt_apikey_validate.status | default(200)) in [401, 403]
+  block:
+    - name: "portainer: pin the inventory vault.sops.yml path"
+      ansible.builtin.set_fact:
+        _pt_apikey_vault_file: "{{ inventory_dir }}/group_vars/all/vault.sops.yml"
+
+    - name: "portainer: invoke bootstrap_portainer_admin.py to mint an API key"
+      ansible.builtin.command:
+        # Stdlib-only helper -- skip the `uv` indirection so a minimal
+        # controller (Alpine system python) can run it via python3 directly.
+        argv:
+          - python3
+          - "{{ playbook_dir }}/../helpers/bootstrap_portainer_admin.py"
+          - --vault
+          - "{{ _pt_apikey_vault_file }}"
+          - --admin-password-vault
+          - "{{ _pt_apikey_vault_file }}"
+          - --tailnet-ip
+          - "{{ ansible_host }}"
+          - --port
+          - "{{ portainer_ui_port }}"
+        chdir: "{{ playbook_dir }}/../.."
+      delegate_to: localhost
+      become: false
+      changed_when: true
+
+    - name: "portainer: reload vault so the freshly-minted key is in playbook scope"
+      community.sops.load_vars:
+        file: "{{ _pt_apikey_vault_file }}"

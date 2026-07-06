@@ -29,6 +29,14 @@ vault_cloudflare_api_token: "REPLACE"
 # add it after creating the admin account and re-run the installer.
 vault_dokploy_api_key: "REPLACE"
 
+# --- Portainer API ---
+# Minted post-install by roles/portainer (bootstrap_portainer_admin.py signs
+# in as the initial admin with vault_admin_password and creates an access
+# token). The container control plane that replaces Dokploy in the
+# Dokploy->Portainer migration; the CE compose seam + EE managed-update engine
+# use it as the X-API-Key. The first site.yml run mints it automatically.
+vault_portainer_api_key: "REPLACE"
+
 # Dokploy embedded-Postgres password. Pre-seeded as the
 # dokploy_postgres_password swarm secret by roles/dokploy BEFORE Dokploy's
 # install.sh runs, so install.sh reuses it instead of generating a new

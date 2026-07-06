@@ -94,6 +94,14 @@ def test_vault_admin_password_is_skip_key(seed):
     assert "vault_admin_password" in seed.VAULT_SKIP_KEYS
 
 
+def test_control_plane_api_keys_are_skip_keys(seed):
+    """Both control-plane API keys are minted post-install (Dokploy by
+    bootstrap_dokploy_admin.py, Portainer by bootstrap_portainer_admin.py),
+    so seed must not prompt for them."""
+    for key in ("vault_dokploy_api_key", "vault_portainer_api_key"):
+        assert key in seed.VAULT_SKIP_KEYS
+
+
 def test_ce_service_keys_are_skip_keys(seed):
     for key in (
         "vault_keycloak_db_password",
