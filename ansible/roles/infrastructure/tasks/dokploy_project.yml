@@ -1,103 +1,62 @@
 ---
-# Find-or-create the "{{ dokploy_project_name }}" Dokploy project and
-# capture its ID + the default environment's ID.
+# Resolve the Portainer environment (endpoint) id that every stack call
+# targets, and set the fact dokploy_compose.yml consumes:
+#   _portainer_endpoint_id
 #
-# Dokploy's project.create auto-creates a "production" environment -- do NOT
-# call environment.create, or you get duplicates. We re-read project.all
-# afterwards to capture the environmentId.
+# Portainer has no "project" concept (Dokploy's project/environment grouping
+# is gone); stacks are grouped by their Name prefix instead. The local Docker
+# endpoint is provisioned by roles/portainer (POST /api/endpoints,
+# EndpointCreationType=1) on a full converge; here we only look it up so
+# tag-filtered `--tags infrastructure` runs still resolve it independently.
 #
-# Sets facts used by dokploy_compose.yml:
-#   _dokploy_project_id
-#   _dokploy_environment_id
+# NOTE: kept under the dokploy_* filename during the Dokploy->Portainer
+# migration (renamed to portainer_endpoint.yml in the Phase 5 cleanup) so the
+# orchestrator include needs no edit.
 
-- name: "Dokploy: list projects"
+- name: "Portainer: list environments (endpoints)"
   ansible.builtin.uri:
-    url: "{{ dokploy_api_base }}/project.all"
+    url: "{{ portainer_api_base }}/endpoints"
     method: GET
     headers:
-      x-api-key: "{{ vault_dokploy_api_key }}"
+      X-API-Key: "{{ vault_portainer_api_key }}"
     status_code: 200
     return_content: true
-  register: _dokploy_projects
+  register: _portainer_endpoints
   delegate_to: localhost
   become: false
-  # The Dokploy API (swarm service on :3000) can be momentarily down when
-  # this role runs -- e.g. a `--tags infrastructure` converge right after a
-  # heavy template deploy + swarm churn, or the first-converge pg-password
-  # rotation restarting the dokploy task. When the dokploy role's own
-  # readiness gate did not run first (tag-filtered runs), the very first API
-  # call here would otherwise fail with "Connection refused". Wait for the
-  # API to come back instead of failing the whole converge. ~2.5 min budget
-  # covers a dokploy restart; a genuine outage still surfaces after it.
+  # Portainer can be momentarily unreachable when this role runs right after
+  # a heavy converge / swarm reschedule. Wait for the API instead of failing.
   retries: 30
   delay: 5
-  until: _dokploy_projects.status == 200
+  until: _portainer_endpoints.status == 200
 
-- name: "Dokploy: find existing project ({{ dokploy_project_name }})"
+# Pick the local Docker endpoint. roles/portainer names it deterministically
+# (portainer_local_endpoint_name); fall back to the first Docker endpoint
+# (Type 1 = Docker/local) so a manually-added endpoint still resolves.
+- name: "Portainer: resolve local endpoint id"
   ansible.builtin.set_fact:
-    _dokploy_existing_project: >-
+    _portainer_endpoint_id: >-
       {{
-        _dokploy_projects.json
-        | selectattr('name', 'equalto', dokploy_project_name)
-        | list
-        | first
-        | default(None)
+        (
+          (_portainer_endpoints.json
+            | selectattr('Name', 'equalto', portainer_local_endpoint_name | default('catena-local'))
+            | list)
+          + (_portainer_endpoints.json | selectattr('Type', 'equalto', 1) | list)
+          + (_portainer_endpoints.json | list)
+        ) | map(attribute='Id') | first | default('')
       }}
 
-- name: "Dokploy: create project ({{ dokploy_project_name }})"
-  ansible.builtin.uri:
-    url: "{{ dokploy_api_base }}/project.create"
-    method: POST
-    headers:
-      x-api-key: "{{ vault_dokploy_api_key }}"
-    body_format: json
-    body:
-      name: "{{ dokploy_project_name }}"
-      description: >-
-        OPERATOR-MANAGED. All composes and catalog env vars in this
-        project are overwritten on every operator converge. Do not edit
-        composes here directly -- file an operator request. (Unknown
-        env keys not in the catalog ARE preserved across converges
-        via merge_env, but catalog keys always reset.)
-      env: ""
-    status_code: [200, 201]
-  when: _dokploy_existing_project is none
-  delegate_to: localhost
-  become: false
+- name: "Portainer: assert an endpoint id resolved"
+  ansible.builtin.assert:
+    that:
+      - _portainer_endpoint_id is defined
+      - (_portainer_endpoint_id | string | length) > 0
+    fail_msg: >-
+      No Portainer environment (endpoint) found. roles/portainer should have
+      created the local Docker endpoint (POST /api/endpoints,
+      EndpointCreationType=1) on the converge. Endpoints seen:
+      {{ _portainer_endpoints.json | default([]) | map(attribute='Name') | list }}
 
-- name: "Dokploy: re-read project list (capture environmentId post-create)"
-  ansible.builtin.uri:
-    url: "{{ dokploy_api_base }}/project.all"
-    method: GET
-    headers:
-      x-api-key: "{{ vault_dokploy_api_key }}"
-    status_code: 200
-    return_content: true
-  register: _dokploy_projects_after
-  delegate_to: localhost
-  become: false
-  when: _dokploy_existing_project is none
-
-- name: "Dokploy: capture project + environment IDs"
-  ansible.builtin.set_fact:
-    _dokploy_project: >-
-      {{
-        (_dokploy_projects_after.json
-          if _dokploy_existing_project is none
-          else _dokploy_projects.json)
-        | selectattr('name', 'equalto', dokploy_project_name)
-        | list
-        | first
-      }}
-
-- name: "Dokploy: resolve environmentId (first environment of project)"
-  ansible.builtin.set_fact:
-    _dokploy_project_id: "{{ _dokploy_project.projectId }}"
-    _dokploy_environment_id: "{{ _dokploy_project.environments[0].environmentId }}"
-
-- name: "Dokploy: project ready"
+- name: "Portainer: environment resolved"
   ansible.builtin.debug:
-    msg: >-
-      Dokploy project '{{ dokploy_project_name }}' ready
-      (projectId={{ _dokploy_project_id }},
-       environmentId={{ _dokploy_environment_id }})
+    msg: "Portainer endpoint id = {{ _portainer_endpoint_id }}"

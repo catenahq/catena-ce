@@ -35,3 +35,15 @@ portainer_admin_secret_name: catena_portainer_admin_password
 # API base for the token-mint + downstream CE/EE seam calls. Reached from the
 # controller over the tailnet, same shape as the old dokploy_api_base.
 portainer_api_base: "http://{{ ansible_host }}:{{ portainer_ui_port }}/api"
+
+# Name of the local Docker environment (endpoint) this role provisions via
+# POST /api/endpoints (EndpointCreationType=1). Portainer does NOT auto-create
+# a local endpoint on first boot even with the socket mounted, so the role
+# creates it once; dokploy_project.yml resolves its Id for every stack call.
+portainer_local_endpoint_name: catena-local
+
+# HTTP timeout (seconds) for a stack create/update -- Portainer deploys
+# synchronously (image pull + compose up happen inside the request), so this
+# must comfortably exceed a cold multi-image pull. Consumed by
+# roles/infrastructure/tasks/_dokploy_compose_deploy_attempt.yml.
+portainer_deploy_http_timeout: 600

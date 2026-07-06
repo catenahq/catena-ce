@@ -14,16 +14,16 @@
 # gate readiness; the post-deploy probe in tasks/validate.yml handles
 # the cross-check once Traefik picks up the new compose.
 
-# dokploy_compose.yml requires `_dokploy_project_id` + `_dokploy_environment_id`.
-# Those facts are set by dokploy_project.yml, which is normally invoked by the
-# infrastructure role -- but keycloak runs BEFORE infrastructure (it must be
-# up so the gated apps' forward-auth middleware can resolve the issuer).
-# Invoke the project-bootstrap helper here so the facts are present.
-# Idempotent: find-or-create at the Dokploy API level.
-- name: "Keycloak: ensure Dokploy project + environment IDs are captured"
+# dokploy_compose.yml requires `_portainer_endpoint_id`. That fact is set by
+# dokploy_project.yml (the Portainer environment resolver, renamed in the
+# Phase 5 cleanup), normally invoked by the infrastructure role -- but keycloak
+# runs BEFORE infrastructure (it must be up so the gated apps' forward-auth
+# middleware can resolve the issuer). Invoke the resolver here so the fact is
+# present. Idempotent: a read-only GET /api/endpoints.
+- name: "Keycloak: ensure the Portainer endpoint id is captured"
   ansible.builtin.include_tasks: ../../infrastructure/tasks/dokploy_project.yml
 
-- name: "Keycloak: deploy via Dokploy API"
+- name: "Keycloak: deploy via the Portainer stack API"
   ansible.builtin.include_tasks: ../../infrastructure/tasks/dokploy_compose.yml
   vars:
     svc_name: "{{ keycloak_compose_name }}"

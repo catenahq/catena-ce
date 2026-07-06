@@ -152,9 +152,46 @@ def preserved_env_keys(existing, desired):
     return preserved
 
 
+def merge_env_portainer(existing, desired):
+    """Same reconcile-not-overwrite merge as merge_env, but for Portainer's
+    stack Env shape (a list of {"name": K, "value": V} dicts) on BOTH sides.
+
+    Portainer's GET /api/stacks/{id} returns Env as such a list, and its
+    create/update bodies take the same shape. This wraps merge_env: it turns
+    the existing dict-list into the newline "K=V" text merge_env expects,
+    runs the merge, then re-emits Portainer's dict-list. On a first deploy
+    (existing empty) it just normalises `desired` to the dict-list shape.
+
+    Called like:
+        {{ (current_env | default([])) | merge_env_portainer(svc_env) }}
+    """
+    if existing is None:
+        existing_pairs = []
+    elif isinstance(existing, list):
+        existing_pairs = existing
+    else:
+        existing_pairs = [existing]
+
+    existing_lines: list[str] = []
+    for item in existing_pairs:
+        kv = _parse_kv(item)
+        if kv is not None:
+            existing_lines.append(f"{kv[0]}={kv[1]}")
+
+    merged_lines = merge_env(existing_lines, desired)
+
+    out: list[dict] = []
+    for line in merged_lines:
+        kv = _parse_kv(line)
+        if kv is not None:
+            out.append({"name": kv[0], "value": kv[1]})
+    return out
+
+
 class FilterModule:
     def filters(self):
         return {
             "merge_env": merge_env,
             "preserved_env_keys": preserved_env_keys,
+            "merge_env_portainer": merge_env_portainer,
         }

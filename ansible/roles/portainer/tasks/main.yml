@@ -217,3 +217,43 @@
     - name: "portainer: reload vault so the freshly-minted key is in playbook scope"
       community.sops.load_vars:
         file: "{{ _pt_apikey_vault_file }}"
+
+# ─── local Docker environment (endpoint) ─────────────────────────────────
+# Portainer does NOT auto-create a local endpoint on first boot even with the
+# socket mounted; the stack API is scoped per-endpoint, so provision it once
+# here (POST /api/endpoints, EndpointCreationType=1 = local Docker socket).
+# roles/infrastructure/tasks/dokploy_project.yml resolves its Id per converge.
+- name: "portainer: list environments (endpoints)"
+  ansible.builtin.uri:
+    url: "{{ portainer_api_base }}/endpoints"
+    method: GET
+    headers:
+      X-API-Key: "{{ vault_portainer_api_key }}"
+    status_code: 200
+    return_content: true
+  register: _pt_endpoints
+  delegate_to: localhost
+  become: false
+  failed_when: false
+  when:
+    - vault_portainer_api_key is defined
+    - vault_portainer_api_key | length > 10
+
+- name: "portainer: create local Docker environment (create-once)"
+  ansible.builtin.uri:
+    url: "{{ portainer_api_base }}/endpoints"
+    method: POST
+    headers:
+      X-API-Key: "{{ vault_portainer_api_key }}"
+    body_format: form-multipart
+    body:
+      Name: "{{ portainer_local_endpoint_name }}"
+      # 1 = local Docker environment via the mounted /var/run/docker.sock.
+      EndpointCreationType: "1"
+    status_code: [200, 201]
+  delegate_to: localhost
+  become: false
+  when:
+    - vault_portainer_api_key is defined
+    - vault_portainer_api_key | length > 10
+    - (_pt_endpoints.json | default([]) | selectattr('Name', 'equalto', portainer_local_endpoint_name) | list | length) == 0
