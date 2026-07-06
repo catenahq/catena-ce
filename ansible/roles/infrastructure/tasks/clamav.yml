@@ -68,7 +68,7 @@
   when: (_clamav_consumer.stdout | default('') | trim) | length > 0
   block:
     - name: "ClamAV: deploy shared clamd via Dokploy API"
-      ansible.builtin.include_tasks: dokploy_compose.yml
+      ansible.builtin.include_tasks: portainer_stack.yml
       vars:
         svc_name: "{{ clamav_compose_name }}"
         svc_compose_content: "{{ lookup('template', 'clamav.compose.yml.j2') }}"

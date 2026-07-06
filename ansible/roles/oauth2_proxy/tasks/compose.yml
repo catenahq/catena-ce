@@ -3,17 +3,17 @@
 # infrastructure helper. No public domain attached -- both oauth2-proxy
 # instances are reached via Traefik forwardAuth on catena-network only.
 
-# dokploy_compose.yml requires `_portainer_endpoint_id`. It is set by
-# dokploy_project.yml (the Portainer environment resolver), which the
+# portainer_stack.yml requires `_portainer_endpoint_id`. It is set by
+# portainer_endpoint.yml (the Portainer environment resolver), which the
 # infrastructure role runs -- but oauth2_proxy runs BEFORE infrastructure (it
 # must be up so gated apps' forward-auth chain can resolve at infrastructure-
 # role stack-deploy time). Idempotent: a read-only GET /api/endpoints. The
 # keycloak role also calls this resolver; calling it again is a no-op.
 - name: "oauth2-proxy: ensure the Portainer endpoint id is captured"
-  ansible.builtin.include_tasks: ../../infrastructure/tasks/dokploy_project.yml
+  ansible.builtin.include_tasks: ../../infrastructure/tasks/portainer_endpoint.yml
 
 - name: "oauth2-proxy: deploy per-app instance stack"
-  ansible.builtin.include_tasks: ../../infrastructure/tasks/dokploy_compose.yml
+  ansible.builtin.include_tasks: ../../infrastructure/tasks/portainer_stack.yml
   vars:
     svc_name: "{{ oauth2_proxy_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'oauth2-proxy.compose.yml.j2') }}"

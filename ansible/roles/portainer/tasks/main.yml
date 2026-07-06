@@ -222,7 +222,7 @@
 # Portainer does NOT auto-create a local endpoint on first boot even with the
 # socket mounted; the stack API is scoped per-endpoint, so provision it once
 # here (POST /api/endpoints, EndpointCreationType=1 = local Docker socket).
-# roles/infrastructure/tasks/dokploy_project.yml resolves its Id per converge.
+# roles/infrastructure/tasks/portainer_endpoint.yml resolves its Id per converge.
 - name: "portainer: list environments (endpoints)"
   ansible.builtin.uri:
     url: "{{ portainer_api_base }}/endpoints"

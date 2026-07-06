@@ -36,7 +36,7 @@
       X-Token headers), then re-run ./catena site.
 
 - name: "Beszel: deploy hub via Dokploy API"
-  ansible.builtin.include_tasks: dokploy_compose.yml
+  ansible.builtin.include_tasks: portainer_stack.yml
   vars:
     svc_name: "{{ beszel_hub_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'beszel-hub.compose.yml.j2') }}"
@@ -132,13 +132,13 @@
   no_log: true
 
 - name: "Beszel: deploy agent via Dokploy API"
-  ansible.builtin.include_tasks: dokploy_compose.yml
+  ansible.builtin.include_tasks: portainer_stack.yml
   vars:
     svc_name: "{{ beszel_agent_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'beszel-agent.compose.yml.j2') }}"
     svc_env: []
     # No public domain -- agent is host-network only, dials the hub on
-    # the loopback. dokploy_compose.yml skips its domain block when
+    # the loopback. portainer_stack.yml skips its domain block when
     # svc_domain_host is empty.
     svc_domain_host: ""
     svc_domain_service: "app"
@@ -171,7 +171,7 @@
     mode: "0644"
 
 - name: "Beszel: deploy alert shim via Dokploy API"
-  ansible.builtin.include_tasks: dokploy_compose.yml
+  ansible.builtin.include_tasks: portainer_stack.yml
   vars:
     svc_name: "{{ beszel_hc_shim_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'beszel-hc-shim.compose.yml.j2') }}"

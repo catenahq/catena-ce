@@ -17,7 +17,7 @@
 #   svc_readiness_url / svc_readiness_ok_codes / svc_readiness_validate_certs
 #   svc_readiness_skip_reason
 #
-# Requires _portainer_endpoint_id (set by dokploy_project.yml).
+# Requires _portainer_endpoint_id (set by portainer_endpoint.yml).
 #
 # NOTE: kept under the dokploy_* filename during the Dokploy->Portainer
 # migration so its ~8 callers (gatus/healthchecks/recovery/beszel/clamav +
@@ -33,14 +33,14 @@
 # re-resolves the stack each pass (find-or-create) and calls the typed
 # Portainer create (new) or update (existing) path; Portainer deploys
 # synchronously, so there is no separate status poll. See
-# _dokploy_compose_deploy_attempt.yml for the transient classifier.
+# _portainer_stack_deploy_attempt.yml for the transient classifier.
 - name: "Portainer: initialize deploy attempt state ({{ svc_name }})"
   ansible.builtin.set_fact:
     _portainer_deploy_done: false
     _portainer_deploy_transient: false
 
 - name: "Portainer: deploy with retry on registry transient ({{ svc_name }})"
-  ansible.builtin.include_tasks: _dokploy_compose_deploy_attempt.yml
+  ansible.builtin.include_tasks: _portainer_stack_deploy_attempt.yml
   loop: "{{ range(1, (infrastructure_deploy_max_attempts | default(3)) + 1) | list }}"
   loop_control:
     loop_var: _dokploy_deploy_attempt_n

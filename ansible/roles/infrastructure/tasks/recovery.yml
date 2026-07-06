@@ -53,7 +53,7 @@
 # as recovery-oauth2-proxy.yml.
 
 - name: "recovery: deploy via Dokploy API"
-  ansible.builtin.include_tasks: dokploy_compose.yml
+  ansible.builtin.include_tasks: portainer_stack.yml
   vars:
     svc_name: "{{ recovery_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'recovery.compose.yml.j2') }}"

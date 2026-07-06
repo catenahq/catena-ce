@@ -1,12 +1,12 @@
 ---
-# One deploy attempt for a Portainer stack. Caller (dokploy_compose.yml)
+# One deploy attempt for a Portainer stack. Caller (portainer_stack.yml)
 # wraps this in a loop with `when: not _portainer_deploy_done`. On success it
 # sets that fact true; on a registry-transient failure (quay.io / docker.io /
 # ghcr.io 5xx during image pull) it leaves it false so the next iteration
 # retries. On a non-transient failure it fails the play immediately.
 #
 # NOTE: file kept under the dokploy_* name during the Dokploy->Portainer
-# migration so the ~8 callers of dokploy_compose.yml need no edit; it is
+# migration so the ~8 callers of portainer_stack.yml need no edit; it is
 # renamed to _portainer_stack_deploy_attempt.yml in the Phase 5 cleanup.
 #
 # Self-reconciling: each attempt RE-RESOLVES the stack (Portainer's

@@ -78,7 +78,7 @@
     # cannot recur.
     #
     # Plain shell grep against the compose-name prefix (oauth2-proxy-)
-    # rather than dokploy_container_regex per app -- one docker ps
+    # rather than portainer_container_regex per app -- one docker ps
     # round-trip covers every per-app instance, and the filter rejects
     # wildcard service names.
     - name: "validate/oauth2-proxy: list oauth2-proxy containers and their state"

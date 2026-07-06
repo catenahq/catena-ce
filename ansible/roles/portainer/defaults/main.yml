@@ -39,11 +39,11 @@ portainer_admin_secret_name: catena_portainer_admin_password
 # Name of the local Docker environment (endpoint) this role provisions via
 # POST /api/endpoints (EndpointCreationType=1). Portainer does NOT auto-create
 # a local endpoint on first boot even with the socket mounted, so the role
-# creates it once; dokploy_project.yml resolves its Id for every stack call.
+# creates it once; portainer_endpoint.yml resolves its Id for every stack call.
 portainer_local_endpoint_name: catena-local
 
 # HTTP timeout (seconds) for a stack create/update -- Portainer deploys
 # synchronously (image pull + compose up happen inside the request), so this
 # must comfortably exceed a cold multi-image pull. Consumed by
-# roles/infrastructure/tasks/_dokploy_compose_deploy_attempt.yml.
+# roles/infrastructure/tasks/_portainer_stack_deploy_attempt.yml.
 portainer_deploy_http_timeout: 600

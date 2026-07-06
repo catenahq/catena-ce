@@ -63,7 +63,7 @@ infrastructure_deploy_poll_delay: 5
 # 3) after run 2026-05-30T10-07-04-af8c where all 3 attempts hit the
 # same zombie state and exhausted the budget on the OAuth2-proxy
 # redeploy in backup_rollback stage-3-rollback. See
-# roles/infrastructure/tasks/_dokploy_compose_deploy_attempt.yml.
+# roles/infrastructure/tasks/_portainer_stack_deploy_attempt.yml.
 infrastructure_deploy_max_attempts: 5
 
 # --- Gatus (replaces Uptime Kuma; see DEBUGGING.md "Kuma -> Gatus pivot") --

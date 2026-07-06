@@ -1,6 +1,6 @@
 ---
 # Resolve the Portainer environment (endpoint) id that every stack call
-# targets, and set the fact dokploy_compose.yml consumes:
+# targets, and set the fact portainer_stack.yml consumes:
 #   _portainer_endpoint_id
 #
 # Portainer has no "project" concept (Dokploy's project/environment grouping

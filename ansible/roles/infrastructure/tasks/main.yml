@@ -5,12 +5,12 @@
 #                              cores, restore.sh template, entry script,
 #                              p7zip-full apt dep, /var/backups/catena-export).
 #                              Independent of Dokploy API.
-# 2. dokploy_project.yml     -- find-or-create the "infrastructure" project
+# 2. portainer_endpoint.yml     -- find-or-create the "infrastructure" project
 #                              in Dokploy; capture project_id + env_id.
 #                              Gated on vault_dokploy_api_key -- skipped on
 #                              first run before operator creates API key.
 # 3. gatus.yml / healthchecks.yml / recovery.yml --
-#    each calls dokploy_compose.yml with its own compose YAML, env,
+#    each calls portainer_stack.yml with its own compose YAML, env,
 #    domain, port. All gated on vault_dokploy_api_key.
 # 4. dashboard_sync.yml + gatus_sync.yml -- sync scripts + systemd timers.
 #                              Gated on the API key. dashboard-sync owns
@@ -54,7 +54,7 @@
 #     re-runs. ----------------------------------------------------------
 # Dokploy->Portainer migration: the provision block now gates on the Portainer
 # API key (minted by roles/portainer earlier in site.yml). The per-service
-# stack deploys go through the Portainer stack seam (dokploy_compose.yml, now
+# stack deploys go through the Portainer stack seam (portainer_stack.yml, now
 # Portainer-backed). The remaining Dokploy-API sub-includes (snapshot,
 # templates, github-provider) + gatus_sync individually self-gate on
 # vault_dokploy_api_key below so a Portainer-only converge skips them cleanly;
@@ -69,7 +69,7 @@
     # (the per-service stack includes need it for the create/update call).
     - name: "Resolve the Portainer endpoint id"
       ansible.builtin.include_tasks:
-        file: dokploy_project.yml
+        file: portainer_endpoint.yml
         apply:
           tags: [always]
       tags: [always]
