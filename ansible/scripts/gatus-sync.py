@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""Regenerate Gatus endpoint config (50-dokploy-apps.yaml) from
-Dokploy's project / compose / domain APIs. Emits two endpoints per
-non-infrastructure app: an internal alias check (expects 200-ish)
-and a public-domain check (expects auth-redirect / 302). Runs via
-systemd timer + on-demand from catena-admin."""
+"""Regenerate Gatus endpoint config (50-dokploy-apps.yaml) from docker
+labels. Emits one public-domain check (expects auth-redirect / 302) per
+routed, running client app. Runs via systemd timer + on-demand from
+catena-admin."""
 # Managed by Ansible (roles/infrastructure). Do not edit by hand.
-# /usr/local/bin/gatus-sync -- regenerate
-# $GATUS_CONFIG_PATH (default .../50-dokploy-apps.yaml) from Dokploy's project /
-# compose / application / domain APIs. For every non-infrastructure Dokploy
-# app with at least one domain we emit TWO Gatus endpoints:
+# /usr/local/bin/gatus-sync -- regenerate $GATUS_CONFIG_PATH (default
+# .../50-dokploy-apps.yaml) from `docker ps` labels. Dokploy->Portainer
+# migration: no control-plane API query -- every RUNNING container that
+# declares a `vps.route.host` label (and whose compose-project stack is not in
+# the infra list) is a live client app, and we emit one Gatus endpoint:
 #
-#   <app>-internal : http://<network-alias>:<port>/   (conditions: 200-ish)
-#   <app>-public   : https://<host>/                  (conditions: 302, auth redirect)
+#   <host>-public : https://<host>/   (conditions: 302, auth redirect)
 #
 # "Ensure minimum, never delete modifications" (user directive, 2026-04-17):
 # this script owns ONLY 50-dokploy-apps.yaml. Operator additions go in
@@ -25,10 +24,9 @@ systemd timer + on-demand from catena-admin."""
 # startup; there's no in-process reload endpoint).
 #
 # Env vars (/etc/catena/gatus-sync.env):
-#   DOKPLOY_API_BASE, DOKPLOY_API_KEY, DOKPLOY_INFRA_PROJECT
 #   GATUS_CONFIG_PATH          -- full path of 50-dokploy-apps.yaml
 #   GATUS_CONTAINER_NAME_RE    -- regex to find Gatus container name in docker ps
-#   INFRA_COMPOSE_NAMES        -- comma-separated appNames owned by Ansible
+#   INFRA_COMPOSE_NAMES        -- comma-separated stack names owned by Ansible
 #                                (already covered in 00-base.yaml; skipped here)
 #   AUTH_HOSTNAME              -- never monitor auth.<zone> here (it's in base)
 #   GATUS_SUMMARY_PATH         -- write a small JSON summary ({total, up, down,
@@ -57,34 +55,39 @@ def _env(name, default=None, required=True):
     return v
 
 
-def dokploy_get(base, path, api_key):
-    req = urllib.request.Request(
-        f"{base}{path}",
-        headers={"x-api-key": api_key, "accept": "application/json"},
-        method="GET",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=10) as r:
-            return json.loads(r.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        print(f"gatus-sync: HTTP {e.code} on GET {path}: "
-              f"{e.read().decode('utf-8', 'replace')}", file=sys.stderr)
-        sys.exit(3)
-    except (urllib.error.URLError, TimeoutError) as e:
-        print(f"gatus-sync: request failed on GET {path}: {e}", file=sys.stderr)
-        sys.exit(3)
+def list_routed_containers() -> list[tuple[str, str, str]]:
+    """Enumerate RUNNING containers that declare a public host, reading it
+    straight from docker labels: `(compose-project, vps.route.host, appName)`.
 
-
-def _fetch_domains(api_base, api_key, item, kind):
-    endpoint = "domain.byComposeId" if kind == "compose" else "domain.byApplicationId"
-    id_field = "composeId" if kind == "compose" else "applicationId"
-    item_id = item.get(id_field)
-    if not item_id:
-        return []
+    Dokploy->Portainer migration: gatus-sync no longer queries a control-plane
+    API (Dokploy project.all + domain.by*). A running container IS a live app
+    (the composeStatus=='done' gate collapses to "it's running"), and its host
+    comes from the `vps.route.host` compose label (Portainer has no domain
+    API). The compose-project label is the Portainer stack Name (the group +
+    the infra-skip key). appName mirrors the project so the version-map +
+    display-name lookups key the same way they did on the Dokploy appName."""
     try:
-        return dokploy_get(api_base, f"/{endpoint}?{id_field}={item_id}", api_key)
-    except SystemExit:
+        out = subprocess.check_output(
+            ["docker", "ps", "--format",
+             '{{.Label "com.docker.compose.project"}}|{{.Label "vps.route.host"}}'],
+            timeout=5, text=True,
+        )
+    except (subprocess.SubprocessError, FileNotFoundError) as e:
+        print(f"gatus-sync: couldn't list docker containers: {e}", file=sys.stderr)
         return []
+    rows: list[tuple[str, str, str]] = []
+    seen_hosts: set[str] = set()
+    for line in out.splitlines():
+        if "|" not in line:
+            continue
+        project, host = (p.strip() for p in line.split("|", 1))
+        if not project or not host or host == "<no value>":
+            continue
+        if host in seen_hosts:
+            continue  # one endpoint per host (a stack's primary + extra svcs)
+        seen_hosts.add(host)
+        rows.append((project, host, project))
+    return rows
 
 
 _SLUG_SAFE = re.compile(r"[^a-z0-9-]+")
@@ -171,33 +174,29 @@ def load_version_map(path: Path) -> dict[str, dict]:
 
 
 def load_display_name_overrides() -> dict[str, str]:
-    """Map {compose-basename: vps.display-name label value} gathered
-    from all running containers. Lets a compose file override the
-    Gatus card title (line 1) without touching Ansible config.
+    """Map {compose-project: vps.display-name label value} gathered from all
+    running containers. Lets a compose file override the Gatus card title
+    (line 1) without touching Ansible config.
 
-    Dokploy names containers `<compose-name>-<6-char-hash>-app-<N>`;
-    we strip the suffix so spec entries can key on the stable
-    compose-name (e.g., `vps-docs`). Client apps match on their
-    Dokploy appName directly."""
+    Keys on the `com.docker.compose.project` label -- the Portainer stack
+    Name -- which is the stable identifier build_doc groups + looks up on.
+    (Was a parse of Dokploy's `<compose>-<6hex>-app-<N>` container name.)"""
     try:
         out = subprocess.check_output(
             ["docker", "ps", "--format",
-             '{{.Names}}|{{.Label "vps.display-name"}}'],
+             '{{.Label "com.docker.compose.project"}}|{{.Label "vps.display-name"}}'],
             timeout=5, text=True,
         )
     except (subprocess.SubprocessError, FileNotFoundError):
         return {}
     m: dict[str, str] = {}
-    suffix_re = re.compile(r"-[a-z0-9]{6}-app-\d+$")
     for line in out.splitlines():
         if "|" not in line:
             continue
-        name, label = line.split("|", 1)
-        label = label.strip()
-        if not label or label == "<no value>":
+        project, label = (p.strip() for p in line.split("|", 1))
+        if not project or not label or label == "<no value>":
             continue
-        base = suffix_re.sub("", name.strip())
-        m[base] = label
+        m[project] = label
     return m
 
 
@@ -321,104 +320,62 @@ def build_infra_doc(spec_path: Path, version_map: dict[str, dict],
     return "".join(parts)
 
 
-def build_doc(projects, api_base, api_key, infra_project, skip_names,
-              auth_hostname, version_map=None, display_overrides=None,
-              slug_sink: set | None = None):
-    """Two endpoints per gated Dokploy app: internal + public. Group is
-    the Dokploy project name so the notification title reads as
-    "Gatus: <project> / <hostname> (<appName>)" -- enough context to
-    identify the failing service without opening the status page."""
+def build_doc(skip_names, auth_hostname, version_map=None,
+              display_overrides=None, slug_sink: set | None = None):
+    """One public endpoint per routed client app. Group is the Portainer
+    stack Name (compose-project label) so the notification title reads as
+    "Gatus: <stack> / <hostname>" -- enough context to identify the failing
+    service without opening the status page.
+
+    Source is `docker ps` labels (list_routed_containers), not a control-plane
+    API: a running container with a vps.route.host label IS a live app. Infra
+    stacks (skip_names) + the auth host are excluded."""
     parts = [
         "# Auto-generated by gatus-sync -- do not edit by hand.\n"
         "# Operator additions: drop a 99-<name>.yaml file in the same dir.\n"
         "endpoints:\n"
     ]
-    seen = []  # (project, kind, name, domains, decision)
+    seen = []  # (stack, host, decision)
     wrote_any = False
 
-    for proj in projects:
-        pname = proj.get("name")
-        if pname == infra_project:
-            seen.append((pname, "PROJECT", "-", "-", "skip: infra-project"))
+    for stack, host, name in list_routed_containers():
+        if stack in skip_names:
+            seen.append((stack, host, "skip: infra-list"))
             continue
-        envs = proj.get("environments", [])
-        if not envs:
-            seen.append((pname, "PROJECT", "-", "-", "skip: no-envs"))
+        if host == auth_hostname:
+            seen.append((stack, host, "skip: auth-host"))
             continue
-        env = envs[0]
-        for kind, items in (("application", env.get("applications", []) or []),
-                            ("compose", env.get("compose", []) or [])):
-            for item in items:
-                name = item.get("appName") or item.get("name") or "<noname>"
-                if name in skip_names:
-                    seen.append((pname, kind, name, [], "skip: infra-list"))
-                    continue
-                # Dokploy state gate. composeStatus / applicationStatus
-                # enum = idle | running | done | error. 'done' means
-                # successfully deployed and expected to be live -- the
-                # only state where a Gatus endpoint (and its attached
-                # Healthchecks alert) is meaningful. 'idle' covers apps
-                # that are configured in Dokploy (domain registered,
-                # Traefik route may even resolve) but never deployed;
-                # monitoring them produces noise (false-green from the
-                # oauth2-proxy redirect, or false-red from connection
-                # errors) with no actionable meaning. 'error' means the
-                # operator already knows something broke; 'running'
-                # means a deploy is in-flight. Skip all three.
-                status = (item.get("composeStatus")
-                          or item.get("applicationStatus")
-                          or "").lower()
-                if status != "done":
-                    seen.append((pname, kind, name, [],
-                                 f"skip: status={status or 'none'}"))
-                    continue
-                domains = _fetch_domains(api_base, api_key, item, kind)
-                hosts = [d for d in domains if d.get("host")
-                         and d.get("host") != auth_hostname]
-                if not hosts:
-                    seen.append((pname, kind, name, [], "skip: no-domains"))
-                    continue
-                # Look up client-app version under the appName / repo
-                # display key in version-check.json. Client services
-                # are listed there as "<repo/repo>" (see
-                # version-check.py.j2 enumerate_client_services).
-                ver = None
-                if version_map:
-                    for k, v in version_map.items():
-                        if k.lower().endswith("/" + name.lower()) or k.lower() == name.lower():
-                            ver = v
-                            break
-                # ONE endpoint per app: prefer the public probe (end-to-end
-                # signal through CF tunnel + Traefik + oauth2-proxy +
-                # Keycloak). Title is the public domain; internal alias is
-                # a fallback only when the app has no public domain
-                # (shouldn't happen here since we skip no-domain apps
-                # above, but defensive).
-                host = hosts[0]["host"]
-                # Client app can override via `vps.display-name` compose
-                # label -- keyed by Dokploy appName.
-                client_override = (display_overrides or {}).get(name)
-                host_slug = _slug(host)
-                if slug_sink is not None:
-                    slug_sink.add(host_slug)
-                parts.append(_endpoint_yaml(
-                    name=_label_with_version(host, ver, display_override=client_override),
-                    group=pname,
-                    url=f"https://{host}",
-                    accepted=[302],
-                    description=host_slug,
-                ))
-                seen.append((pname, kind, name, [d.get("host") for d in hosts],
-                             "wrote:1"))
-                wrote_any = True
+        # Look up client-app version under the appName / repo display key in
+        # version-check.json. Client services are listed there as
+        # "<repo/repo>" (see version-check.py.j2 enumerate_client_services).
+        ver = None
+        if version_map:
+            for k, v in version_map.items():
+                if k.lower().endswith("/" + name.lower()) or k.lower() == name.lower():
+                    ver = v
+                    break
+        # Client app can override the title via `vps.display-name` compose
+        # label -- keyed by the compose-project (stack) name.
+        client_override = (display_overrides or {}).get(name)
+        host_slug = _slug(host)
+        if slug_sink is not None:
+            slug_sink.add(host_slug)
+        parts.append(_endpoint_yaml(
+            name=_label_with_version(host, ver, display_override=client_override),
+            group=stack,
+            url=f"https://{host}",
+            accepted=[302],
+            description=host_slug,
+        ))
+        seen.append((stack, host, "wrote:1"))
+        wrote_any = True
 
     if not wrote_any:
-        parts.append("  []  # no gated Dokploy apps with domains\n")
+        parts.append("  []  # no routed client apps (vps.route.host)\n")
 
-    print(f"gatus-sync: examined {len(seen)} items:")
+    print(f"gatus-sync: examined {len(seen)} routed containers:")
     for row in seen:
-        print(f"  {row[4]:20s} project={row[0]!r:20s} kind={row[1]:11s} "
-              f"name={row[2]!r:20s} domains={row[3]}")
+        print(f"  {row[2]:20s} stack={row[0]!r:22s} host={row[1]}")
     return "".join(parts)
 
 
@@ -682,9 +639,6 @@ def prune_orphan_hc_checks(api_list_url: str, api_key_rw: str,
 
 
 def main():
-    api_base = _env("DOKPLOY_API_BASE")
-    api_key = _env("DOKPLOY_API_KEY")
-    infra_project = _env("DOKPLOY_INFRA_PROJECT")
     out_path = Path(_env("GATUS_CONFIG_PATH"))
     container_re = _env("GATUS_CONTAINER_NAME_RE")
     skip_names = {
@@ -707,9 +661,7 @@ def main():
     # `gatus-<slug>` HC checks whose endpoint no longer exists.
     expected_slugs: set[str] = set()
 
-    projects = dokploy_get(api_base, "/project.all", api_key)
-    new_yaml = build_doc(projects, api_base, api_key, infra_project,
-                         skip_names, auth_hostname, version_map=version_map,
+    new_yaml = build_doc(skip_names, auth_hostname, version_map=version_map,
                          display_overrides=display_overrides,
                          slug_sink=expected_slugs)
 

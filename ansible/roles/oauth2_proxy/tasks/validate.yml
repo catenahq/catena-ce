@@ -111,7 +111,7 @@
       ansible.builtin.shell: |
         set -o pipefail
         docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-          | grep -E '{{ oauth2_proxy_compose_name | dokploy_container_regex("oauth2-proxy-" + _app.slug) }}' \
+          | grep -E '{{ oauth2_proxy_compose_name | portainer_container_regex("oauth2-proxy-" + _app.slug) }}' \
           | head -n1
       args:
         executable: /bin/bash
@@ -178,7 +178,7 @@
       ansible.builtin.shell: |
         set -o pipefail
         docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-          | grep -E '{{ oauth2_proxy_compose_name | dokploy_container_regex("staff") }}' \
+          | grep -E '{{ oauth2_proxy_compose_name | portainer_container_regex("staff") }}' \
           | head -n1
       args:
         executable: /bin/bash
@@ -193,7 +193,7 @@
       ansible.builtin.shell: |
         set -o pipefail
         docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-          | grep -E '{{ oauth2_proxy_compose_name | dokploy_container_regex("admin") }}' \
+          | grep -E '{{ oauth2_proxy_compose_name | portainer_container_regex("admin") }}' \
           | head -n1
       args:
         executable: /bin/bash

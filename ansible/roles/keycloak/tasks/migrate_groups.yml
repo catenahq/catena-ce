@@ -28,7 +28,7 @@
       ansible.builtin.shell: |
         set -o pipefail
         docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-          | grep -E '{{ keycloak_compose_name | dokploy_container_regex(keycloak_server_service) }}' \
+          | grep -E '{{ keycloak_compose_name | portainer_container_regex(keycloak_server_service) }}' \
           | head -n1
       args:
         executable: /bin/bash

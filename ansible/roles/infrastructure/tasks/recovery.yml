@@ -73,7 +73,7 @@
   ansible.builtin.shell: |
     set -o pipefail
     name=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-      | grep -E '{{ recovery_compose_name | dokploy_container_regex("app") }}' || true)
+      | grep -E '{{ recovery_compose_name | portainer_container_regex("app") }}' || true)
     if [ -n "$name" ]; then
       docker restart "$name"
     fi

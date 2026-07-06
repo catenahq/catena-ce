@@ -62,3 +62,32 @@ def test_find_compose_tolerates_missing_or_null_fields():
     assert dn.dokploy_find_compose({"environments": [{"compose": None}]}, "gatus") is None
     assert dn.dokploy_find_compose({"environments": [{}]}, "gatus") is None
     assert dn.dokploy_find_compose(None, "gatus") is None
+
+
+# --- portainer_container_regex (Portainer <stack>-<svc>-<n>, no hash) -------
+import re  # noqa: E402
+
+
+def test_portainer_regex_defaults_app_index_1():
+    rx = dn.portainer_container_regex("gatus")
+    assert rx == r"^gatus-app-1$"
+    assert re.match(rx, "gatus-app-1")
+    assert not re.match(rx, "gatus-app-2")
+    # No Dokploy 6-hex hash segment -- the hashed form must NOT match.
+    assert not re.match(rx, "gatus-a1b2c3-app-1")
+
+
+def test_portainer_regex_service_and_index():
+    rx = dn.portainer_container_regex("nextcloud", "db", index=2)
+    assert re.match(rx, "nextcloud-db-2")
+    assert not re.match(rx, "nextcloud-db-1")
+
+
+def test_portainer_regex_rejects_bad_tokens():
+    import pytest
+    with pytest.raises(ValueError):
+        dn.portainer_container_regex("")
+    with pytest.raises(ValueError):
+        dn.portainer_container_regex("gatus", "bad name")
+    with pytest.raises(ValueError):
+        dn.portainer_container_regex("gatus", "app", index=0)

@@ -358,19 +358,14 @@
           tags: [dashboard_sync]
       tags: [dashboard_sync]
 
-    # gatus-sync still reads the Dokploy API for CLIENT-app monitoring
-    # (50-dokploy-apps.yaml). Self-gated on the Dokploy key so a
-    # Portainer-only converge skips it (infra monitoring is unaffected --
-    # that lives in gatus.yml's 00-base/40-infra spec). Ported to the
-    # Portainer stack API in the naming-seam migration step.
+    # gatus-sync now reads CLIENT-app monitoring from `docker ps` labels
+    # (vps.route.host + com.docker.compose.project), no control-plane API --
+    # so it runs on any converge (no Dokploy-key gate).
     - name: gatus-sync script + systemd timer
       ansible.builtin.include_tasks:
         file: gatus_sync.yml
         apply:
           tags: [gatus, gatus_sync]
-      when:
-        - vault_dokploy_api_key is defined
-        - vault_dokploy_api_key | length > 10
       tags: [gatus, gatus_sync]
 
     # Aggregate end-of-role readiness probe for the gated services.

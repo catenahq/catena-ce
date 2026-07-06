@@ -80,6 +80,26 @@ def dokploy_container_regex(compose_name, service_name="app", index=1):
     return f"^{re.escape(compose)}-[a-z0-9]+-{re.escape(service)}-{index}$"
 
 
+def portainer_container_regex(stack_name, service_name="app", index=1):
+    """Return the anchored regex matching PORTAINER's container-name pattern
+    for a `(stack, service, index)` triple.
+
+    Portainer deploys a standalone compose stack with the stack Name as the
+    compose project, so container names are `<stack>-<service>-<index>` (Compose
+    v2 hyphen separators, no per-instance hash -- unlike Dokploy's
+    `<compose>-<6hex>-<service>-<index>`). Defaults: service_name="app",
+    index=1. Replaces dokploy_container_regex in the Dokploy->Portainer
+    migration; the dokploy_ filter is removed in Phase 5."""
+    stack = _validate_token(stack_name, "stack_name")
+    service = _validate_token(service_name, "service_name")
+    if not isinstance(index, int) or index < 1:
+        raise ValueError(
+            f"portainer_container_regex: index must be a positive int "
+            f"(got {index!r})"
+        )
+    return f"^{re.escape(stack)}-{re.escape(service)}-{index}$"
+
+
 def dokploy_find_compose(project, svc_name):
     """Find a compose named (or appName-ed) ``svc_name`` ANYWHERE in a
     Dokploy ``project.all`` payload entry, searching EVERY environment.
@@ -114,5 +134,6 @@ class FilterModule:
     def filters(self):
         return {
             "dokploy_container_regex": dokploy_container_regex,
+            "portainer_container_regex": portainer_container_regex,
             "dokploy_find_compose": dokploy_find_compose,
         }

@@ -71,7 +71,7 @@
 - name: "Gatus: find running container (for base-config reload)"
   ansible.builtin.shell: |
     set -o pipefail
-    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ gatus_compose_name | dokploy_container_regex("app") }}' || true
+    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ gatus_compose_name | portainer_container_regex("app") }}' || true
   args:
     executable: /bin/bash
   register: _gatus_container_name

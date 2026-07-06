@@ -100,7 +100,7 @@
       ansible.builtin.shell: |
         set -o pipefail
         docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-          | grep -E '{{ "keycloak" | dokploy_container_regex("server") }}' \
+          | grep -E '{{ "keycloak" | portainer_container_regex("server") }}' \
           | head -n1 || true
       args:
         executable: /bin/bash

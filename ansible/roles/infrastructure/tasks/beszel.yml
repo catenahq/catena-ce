@@ -56,7 +56,7 @@
 - name: "Beszel: wait for hub container"
   ansible.builtin.shell: |
     set -o pipefail
-    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ beszel_hub_compose_name | dokploy_container_regex("app") }}' || true
+    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ beszel_hub_compose_name | portainer_container_regex("app") }}' || true
   args:
     executable: /bin/bash
   register: _beszel_hub_container
@@ -70,7 +70,7 @@
   ansible.builtin.fail:
     msg: >-
       Timed out (300s) waiting for a running container matching
-      '{{ beszel_hub_compose_name | dokploy_container_regex("app") }}'.
+      '{{ beszel_hub_compose_name | portainer_container_regex("app") }}'.
       Check the Dokploy compose status for {{ beszel_hub_compose_name }}
       at https://{{ dokploy_admin_hostname }}.
   when: (_beszel_hub_container.stdout | default('') | trim) | length == 0
