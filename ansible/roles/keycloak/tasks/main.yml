@@ -37,17 +37,18 @@
 
 
 # The compose-deploy + realm-bootstrap + post-deploy probe all hit the
-# Dokploy API. On a fresh install, vault_dokploy_api_key is undefined
-# during the FIRST site converge -- menu/flows.fresh_install runs site
-# once to bring Dokploy itself up, then bootstraps the API key, then
-# runs site again. Mirror the same gate roles/infrastructure uses, so
-# this role skips cleanly on pass 1 and converges on pass 2.
-- name: "Keycloak: Dokploy-API-gated steps (compose, validate, realm)"
+# Portainer stack API. vault_portainer_api_key is minted by roles/portainer
+# earlier in the SAME site converge (it runs before keycloak in site.yml and
+# brings the freshly-minted key into play scope via community.sops.load_vars),
+# so this block converges in a single pass -- no more Dokploy-era pass-1/pass-2
+# dance. Mirror the gate roles/infrastructure uses; the key is present here on
+# a fresh install because portainer already ran.
+- name: "Keycloak: Portainer-API-gated steps (compose, validate, realm)"
   when:
-    - vault_dokploy_api_key is defined
-    - vault_dokploy_api_key | length > 10
+    - vault_portainer_api_key is defined
+    - vault_portainer_api_key | length > 10
   block:
-    - name: "Keycloak: deploy compose via Dokploy API"
+    - name: "Keycloak: deploy compose via the Portainer stack API"
       ansible.builtin.include_tasks: compose.yml
       tags: [keycloak_compose]
 
@@ -75,11 +76,11 @@
       ansible.builtin.include_tasks: realm_export.yml
       tags: [keycloak_realm_export]
 
-- name: "Keycloak: skipped Dokploy-API steps (no API key yet)"
+- name: "Keycloak: skipped Portainer-API steps (no API key yet)"
   ansible.builtin.debug:
     msg: >-
-      Skipping Keycloak compose + realm bootstrap -- vault_dokploy_api_key
-      is not yet present. menu/flows.fresh_install bootstraps it after
-      the first site converge; the second converge will pick this back
-      up. On Converge, add the key to the vault and re-run.
-  when: vault_dokploy_api_key is not defined or (vault_dokploy_api_key | length) < 10
+      Skipping Keycloak compose + realm bootstrap -- vault_portainer_api_key
+      is not yet present. It is normally minted by roles/portainer earlier in
+      this same converge; if you see this, portainer did not run or failed to
+      mint the key. Check the portainer role, then re-run.
+  when: vault_portainer_api_key is not defined or (vault_portainer_api_key | length) < 10

@@ -50,15 +50,15 @@
 
 # Realm-config render + middleware render + compose deploy + validate
 # all assume Keycloak is up (so keycloak-config-cli can reach it) AND
-# the Dokploy API is reachable (so compose.create + domain.create work).
-# On first site converge in fresh_install, vault_dokploy_api_key is
-# undefined; Keycloak's compose deploy was skipped, so reaching this
-# role would crash. Skip cleanly until pass 2 of fresh_install (when
-# the API key is bootstrapped) -- mirrors roles/keycloak's gate.
-- name: "oauth2-proxy: Dokploy-API-gated body (realm + middleware + compose + validate)"
+# the Portainer stack API is reachable (so the compose deploy works).
+# vault_portainer_api_key is minted by roles/portainer earlier in the SAME
+# converge, and roles/keycloak (also portainer-gated) has already brought
+# Keycloak up by the time this role runs, so this body converges in a single
+# pass -- mirrors roles/keycloak's gate.
+- name: "oauth2-proxy: Portainer-API-gated body (realm + middleware + compose + validate)"
   when:
-    - vault_dokploy_api_key is defined
-    - vault_dokploy_api_key | length > 10
+    - vault_portainer_api_key is defined
+    - vault_portainer_api_key | length > 10
   block:
     - name: "oauth2-proxy: render Keycloak client into realm config dir"
       ansible.builtin.template:
@@ -157,11 +157,11 @@
       ansible.builtin.include_tasks: validate.yml
       tags: [oauth2_proxy_health]
 
-- name: "oauth2-proxy: skipped Dokploy-API steps (no API key yet)"
+- name: "oauth2-proxy: skipped Portainer-API steps (no API key yet)"
   ansible.builtin.debug:
     msg: >-
       Skipping oauth2-proxy realm + middleware + compose + validate --
-      vault_dokploy_api_key is not yet present. menu/flows.fresh_install
-      bootstraps it after the first site converge; the second converge
-      will pick this back up.
-  when: vault_dokploy_api_key is not defined or (vault_dokploy_api_key | length) < 10
+      vault_portainer_api_key is not yet present. It is normally minted by
+      roles/portainer earlier in this same converge; if you see this,
+      portainer did not run or failed to mint the key.
+  when: vault_portainer_api_key is not defined or (vault_portainer_api_key | length) < 10
