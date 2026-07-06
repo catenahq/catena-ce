@@ -32,6 +32,19 @@
     "alert_slug": "{{ infrastructure_dash_hostname | lower | replace('.', '-') }}",
     "version_key": "catena-admin"
   },
+{# Portainer, the container control plane, is public + admin-gated at
+   portainer.<zone> over the CF tunnel (as well as tailnet-only :9000). An
+   unauthenticated probe gets a 302 to the auth flow. #}
+  {
+    "label": "{{ portainer_admin_hostname }}",
+    "url": "https://{{ portainer_admin_hostname }}",
+    "group": "Infrastructure",
+    "accepted": [302],
+    "ignore_redirect": true,
+    "interval": "120s",
+    "alert_slug": "{{ portainer_admin_hostname | lower | replace('.', '-') }}",
+    "version_key": "Portainer"
+  },
   {
     "label": "{{ infrastructure_recovery_hostname }}",
     "url": "https://{{ infrastructure_recovery_hostname }}",

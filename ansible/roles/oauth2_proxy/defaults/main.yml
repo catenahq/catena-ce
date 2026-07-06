@@ -182,6 +182,20 @@ oauth2_proxy_apps:
     upstream_alias: "catena-admin-sigproxy"
     upstream_port: 4181
     allowed_groups: ["staff", "admin"]
+  # Portainer is the per-VPS container control plane -- admin-only. It is
+  # ALSO reachable operator-side on the tailnet (host-mode :9000, firewalled
+  # to tailnet+RFC1918 by roles/portainer); this entry adds the public,
+  # oauth2-gated path over the Cloudflare tunnel so a client admin can
+  # self-serve deploys from portainer.<zone> (parity with the old Dokploy
+  # admin UI). upstream_alias is the swarm service name on catena-network;
+  # 9000 is the container's internal port (target), not the published host
+  # port. An empty allowed_groups would mean "any authenticated user", so
+  # admin-only MUST be an explicit ["admin"].
+  - slug: "portainer"
+    host_var: "portainer_admin_hostname"
+    upstream_alias: "catena-portainer"
+    upstream_port: 9000
+    allowed_groups: ["admin"]
 
 # Native-OIDC apps (vps.auth.mode=public + vps.auth.oidc=true): the
 # app runs the OIDC dance itself, so Traefik writes only a force-https

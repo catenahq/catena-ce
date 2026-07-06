@@ -75,6 +75,14 @@ ntfy_topic: "{{ lookup('dotenv', 'NTFY_TOPIC', default='') }}"
 portainer_ui_port: "{{ lookup('dotenv', 'PORTAINER_UI_PORT', default='9000') }}"
 portainer_api_base: "http://{{ ansible_host }}:{{ portainer_ui_port }}/api"
 
+# Public, oauth2-gated hostname for the Portainer UI over the Cloudflare
+# tunnel (admin-only; wired by roles/oauth2_proxy oauth2_proxy_apps). This is
+# the client admin's self-serve deploy surface, parity with the old Dokploy
+# admin UI. Distinct from portainer_api_base above, which is the tailnet-only
+# operator control path -- both reach the same catena-portainer service.
+portainer_admin_subdomain: "{{ lookup('dotenv', 'PORTAINER_SUBDOMAIN', default='portainer') }}"
+portainer_admin_hostname: "{{ portainer_admin_subdomain }}.{{ cloudflare_zone }}"
+
 # --- Storage ---
 storage_mode: "{{ lookup('dotenv', 'STORAGE_MODE', default='built_in') }}"
 storage_mount_point: "{{ lookup('dotenv', 'STORAGE_MOUNT_POINT', default='/mnt/data') }}"

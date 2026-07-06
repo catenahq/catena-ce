@@ -30,6 +30,7 @@
     - { name: "gatus", url: "https://{{ infrastructure_monitor_hostname }}/" }
     - { name: "healthchecks", url: "https://{{ healthchecks_hostname }}/" }
     - { name: "recovery", url: "https://{{ infrastructure_recovery_hostname }}/" }
+    - { name: "portainer", url: "https://{{ portainer_admin_hostname }}/" }
   loop_control:
     label: "{{ item.name }} -> {{ item.url }}"
   delegate_to: localhost
@@ -49,13 +50,15 @@
 
 - name: "Verify gated services: all OK"
   ansible.builtin.debug:
-    msg: "All 3 gated services returned 200/30x (auth redirect or direct serve) -- OK."
+    msg: >-
+      All {{ _infra_gated_probes.results | default([]) | length }} gated
+      services returned 200/30x (auth redirect or direct serve) -- OK.
   when: _infra_gated_failures | length == 0
 
 - name: "Verify gated services: fail with aggregated report"
   ansible.builtin.fail:
     msg: |
-      {{ _infra_gated_failures | length }}/3 gated services failed the
+      {{ _infra_gated_failures | length }}/{{ _infra_gated_probes.results | default([]) | length }} gated services failed the
       public-URL probe: {{ _infra_gated_failures | join(', ') }}.
 
       Diagnostic next steps:
