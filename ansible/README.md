@@ -13,7 +13,7 @@ preflight  ->  bootstrap  ->  site  ->  validate          (+ restore for DR)
 - **bootstrap** -- first-contact hardening of a fresh VPS (user, SSH, ufw,
   docker), then it joins the tailnet.
 - **site** -- the converge: networking (Tailscale / Cloudflare Tunnel /
-  coturn), Dokploy, basic SSO (Keycloak + oauth2-proxy), single Restic
+  coturn), Portainer, basic SSO (Keycloak + oauth2-proxy), single Restic
   backup, the catena-admin shell.
 - **validate** -- on-host + tailnet + external checks.
 - **restore** -- whole-host disaster recovery.
@@ -49,7 +49,7 @@ unattended run, pass `-i install.yaml --no-confirm`.
 `uninstall` does **not** delete your apps or data. It unmasks and
 re-enables Debian's `apt-daily-upgrade.timer` so the box keeps patching
 itself once Catena stops managing it, and prints the remaining teardown
-steps (Dokploy, Cloudflare, Tailscale, your backup bucket) for you to do
+steps (Portainer, Cloudflare, Tailscale, your backup bucket) for you to do
 deliberately.
 
 ## Secrets

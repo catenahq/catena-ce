@@ -5,7 +5,7 @@ Single applier for every direct public port. Reads two feeders, merges them
 via helpers/public_ports.py, and idempotently applies the firewall rule plan:
 
   1. Infra declarations -- JSON fragments under /etc/catena/public-ports.d/
-     (one per owner, e.g. coturn.json, dokploy.json), dropped by each infra
+     (one per owner, e.g. coturn.json, portainer.json), dropped by each infra
      role at converge. conf.d style so roles declare independently with no
      ordering coupling.
   2. Live app ports -- vps.expose.tcp/udp labels harvested off running
@@ -22,7 +22,7 @@ Then it:
 
 Fired on every docker.service start (Docker recreates DOCKER-USER empty on
 boot) via a drop-in, plus a periodic timer. Generalizes the older
-dokploy-docker-firewall.sh (port-3000-only) guard. Runs as root.
+port-3000-only firewall guard it replaced. Runs as root.
 
 Stdlib-only. Imports public_ports + labels_schema, installed flat alongside
 this script (sys.path is pinned to the script dir below).

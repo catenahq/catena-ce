@@ -1,7 +1,7 @@
 # infrastructure
 
 Deploys everything that's NOT the auth pair (Keycloak +
-oauth2_proxy), the data plane (Dokploy + storage + backup), or
+oauth2_proxy), the data plane (Portainer + storage + backup), or
 the operator panel (`roles/catena-admin`):
 
 - **Cloudflare Tunnel** -- the cloudflared swarm service that gives
@@ -43,6 +43,6 @@ is provisioned by `roles/keycloak/tasks/_portal_realm.yml`.
 
 ## Idempotency
 
-- Every Dokploy compose deploy goes through the API and is gated
+- Every Portainer stack deploy goes through the API and is gated
   on a shape comparison; idempotent across re-runs.
 - Sync timers are templated with stable content.

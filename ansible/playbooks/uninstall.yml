@@ -7,7 +7,7 @@
 # native apt timers so the box keeps receiving security patches after Catena
 # management stops -- the unattended-upgrades handback contract.
 #
-# It deliberately does NOT remove your apps, data, Dokploy, or the VPS from
+# It deliberately does NOT remove your apps, data, Portainer, or the VPS from
 # Tailscale / Cloudflare. Those are yours; tear them down deliberately. See
 # the printed guidance at the end.
 #
@@ -36,7 +36,7 @@
         msg:
           - "Done: apt-daily-upgrade.timer is unmasked + active -- the OS keeps patching itself."
           - "Catena did NOT remove your apps, data, or accounts. You still own these steps:"
-          - "  - Dokploy + app containers: remove from the Dokploy UI, or with docker directly."
+          - "  - Portainer + app containers: remove from the Portainer UI, or with docker directly."
           - "  - Cloudflare tunnel + DNS records: delete in the Cloudflare dashboard."
           - "  - Tailscale node: remove in the Tailscale admin console."
           - "  - Backups: your restic repo on your own S3 stays until you delete it (your data, your call)."

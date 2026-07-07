@@ -114,7 +114,7 @@ VAULT_SKIP_KEYS = {
     "vault_beszel_universal_token",
 }
 
-# Minimum admin password length -- Dokploy and the SSO provider both accept
+# Minimum admin password length -- Portainer and the SSO provider both accept
 # this. 20 is the auto-generate length; operator-supplied values must be at
 # least 16 chars.
 ADMIN_PASSWORD_MIN_LEN = 16
@@ -878,7 +878,7 @@ def _resolve_admin_password(
     existing_vault: bool,
     no_confirm: bool,
 ) -> None:
-    """Resolve the shared Dokploy + Keycloak admin password. Order:
+    """Resolve the shared Portainer + Keycloak admin password. Order:
     install.yaml override (if long enough) > auto-mint on first install >
     leave alone on re-run."""
     if "vault_admin_password" in vault_values:
@@ -902,9 +902,9 @@ def _resolve_admin_password(
         15 if ADMIN_PASSWORD_AUTO_LEN == 20 else ADMIN_PASSWORD_AUTO_LEN
     )
     _print_secret_block(
-        "Generated admin password (Dokploy + Keycloak)",
+        "Generated admin password (Portainer + Keycloak)",
         """\
-This is the shared admin password for both Dokploy and Keycloak. The
+This is the shared admin password for both Portainer and Keycloak. The
 installer will provision the initial admin account on both with this
 password. It's saved into the SOPS-encrypted vault.sops.yml; recover
 later with:

@@ -71,7 +71,7 @@ silently flips one of these:
 | Setting | Value | Why we hold it |
 |---|---|---|
 | `kernel.modules_disabled` | 0 | Docker auto-loads `br_netfilter`, `overlay`, `ip_vs*` at runtime; pinning to 1 breaks any swarm change requiring a new module. |
-| `kernel.unprivileged_userns_clone` | 1 (Debian default) | Several Dokploy-managed images use unshare/userns. The escape vector is partially mitigated by the `protected_*` family above. |
+| `kernel.unprivileged_userns_clone` | 1 (Debian default) | Several managed images use unshare/userns. The escape vector is partially mitigated by the `protected_*` family above. |
 | `net.ipv4.ip_forward` | 1 (force) | Required by Docker bridge. Drop to 0 -> all container egress black-holes. |
 | `net.ipv6.conf.all.forwarding` | 1 (force) | Same for IPv6. |
 | `net.bridge.bridge-nf-call-{iptables,ip6tables}` | 1 (force) | Required by Docker swarm overlay so iptables FORWARD sees bridged traffic. |

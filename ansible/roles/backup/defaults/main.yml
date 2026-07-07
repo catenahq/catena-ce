@@ -207,7 +207,7 @@ backup_retention_policy: "{{ backup_tier | backup_tier_retention }}"
 #   - catena-postgres (the catena-owned infra DB -- hosts Keycloak) is
 #     restored RAW: its named volume (catena-postgres-data) is in the
 #     restic set and replays back byte-for-byte. Unlike the old
-#     dokploy-postgres, a raw restore is correct here because the
+#     control-plane Postgres, a raw restore is correct here because the
 #     superuser password comes from vault (a swarm secret), so the
 #     restored pg_authid hash matches the also-restored vault -- no
 #     skew, no logical-replay dance. pg_dumpall still captures it to

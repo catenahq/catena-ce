@@ -74,7 +74,7 @@ def _route_yaml_perapp(name, host, force_https_mw, proxy_port, route_slug=None):
     which authenticates then proxies to the backend via its own
     `--upstream`. Mirrors roles/oauth2_proxy/templates/app-oauth2-proxy.yml.j2
     (no callback subrouter -- the per-app proxy owns /oauth2/* on its
-    Host). Priority 100 beats Dokploy's auto-generated router.
+    Host). Priority 100 beats the default-priority app router.
 
     `route_slug` names the router + service objects (defaults to slugify(name));
     a multi-domain gated app passes a per-host slug so its domains do not

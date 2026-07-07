@@ -60,7 +60,7 @@
 
 - name: "Catalog: render extra launcher tiles ({{ catena_admin_extra_tiles_path }})"
   # Operator escape hatch for hand-authored Apps-tab tiles that are not
-  # derived from Dokploy. Replaces Homepage's 99-*.yaml mechanism.
+  # derived from Portainer. Replaces Homepage's 99-*.yaml mechanism.
   ansible.builtin.template:
     src: extra-tiles.yml.j2
     dest: "{{ catena_admin_extra_tiles_path }}"

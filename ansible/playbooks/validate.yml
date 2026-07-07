@@ -329,7 +329,7 @@
     #     marketplace) get their Traefik routes + oauth2-proxy gating from
     #     dashboard-sync (vps.route.host + vps.auth.* labels). Their auth
     #     contract is verified by verify_gated_services.yml; there is no
-    #     enumeration API call here (Dokploy's project.all/compose.one are
+    #     enumeration API call here (the old project.all/compose.one are
     #     gone -- Portainer stacks are discovered by dashboard-sync, not
     #     re-walked in validate).
     #
@@ -425,13 +425,13 @@
     # from tailnet (catena-network is host-internal), so the actual
     # attack surface is host-published ports. Enumerate every
     # listening TCP port on the host and assert the set matches the
-    # allowlist (Traefik 80/443, SSH 22, Dokploy admin 3000 on the
+    # allowlist (Traefik 80/443, SSH 22, Portainer admin 9000 on the
     # tailnet alias, anything explicitly opted-in via .env).
     #
     # Runs ON the host (no delegate_to), so it sees the full ss(8)
     # output including loopback-only binds. We filter to public-
     # facing binds (0.0.0.0 / [::]); 127.0.0.1-bound ports
-    # (gatus_host_localhost_port, dokploy postgres internals, etc)
+    # (gatus_host_localhost_port, catena-postgres internals, etc)
     # never reach tailnet so they're skipped.
     - name: "Enumerate listening TCP ports on host"
       ansible.builtin.command:
