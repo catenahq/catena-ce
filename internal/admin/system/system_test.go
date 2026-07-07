@@ -34,7 +34,7 @@ func writeStats(t *testing.T) string {
 
 func TestBuildSnapshot(t *testing.T) {
 	gatus := fakeGatus{s: []integrations.EndpointStatus{
-		{Name: "dokploy", Healthy: boolp(true), URL: "https://dok/"},
+		{Name: "portainer 2.27", Healthy: boolp(true), URL: "https://portainer/"},
 		{Name: "gatus-internal", Healthy: boolp(true), URL: "https://g/"},
 		{Name: "nextcloud", Healthy: boolp(false), URL: "https://cloud/"},
 	}}
@@ -70,15 +70,16 @@ func TestBuildSnapshot(t *testing.T) {
 		t.Error("expected the empty-last-ping alert to show (never pinged)")
 	}
 
-	// Infra rollup: dokploy matched (healthy), gatus matched via substring
-	// (gatus-internal), healthchecks/keycloak/oauth2-proxy/catena-traefik
-	// have no probe.
+	// Infra rollup: portainer matched via substring (gatus-sync names the
+	// control-plane endpoint "portainer <version>"), gatus matched via
+	// substring (gatus-internal), healthchecks/keycloak/oauth2-proxy/
+	// catena-traefik have no probe.
 	infra := map[string]InfraEntry{}
 	for _, e := range snap.Infra {
 		infra[e.Name] = e
 	}
-	if infra["dokploy"].StatusClass() != "healthy" {
-		t.Errorf("dokploy infra = %s, want healthy", infra["dokploy"].StatusClass())
+	if infra["portainer"].StatusClass() != "healthy" {
+		t.Errorf("portainer infra = %s, want healthy", infra["portainer"].StatusClass())
 	}
 	if infra["gatus"].StatusClass() != "healthy" || infra["gatus"].Detail != "gatus-internal" {
 		t.Errorf("gatus infra = %s/%q, want healthy/gatus-internal", infra["gatus"].StatusClass(), infra["gatus"].Detail)
