@@ -75,14 +75,19 @@
 
 # ── dynamic client-app auth-gate probe ────────────────────────────────────
 # The static list above only covers the fixed infra hostnames. Every
-# DEPLOYED client app that dashboard-sync gated gets a *-auto-gate.yml route
-# file; enumerate those (the on-host source of truth the route writer
-# produced) and assert none of their hosts serves HTTP 200 anonymously. A
-# 200 means the auth gate is NOT enforced -- the regression the old
-# Dokploy-era per-app enumeration used to catch. Redirects to Keycloak
-# (30x) and hard denies (401/403) are the healthy outcomes; other statuses
-# (404, 5xx, unreachable) are surfaced as a warning, not a failure -- they
-# indicate a routing problem, not an auth bypass.
+# DEPLOYED client app gets a *-auto-gate.yml route file from dashboard-sync,
+# in one of two variants: PUBLIC (vps.auth.mode=public, routes straight to
+# the backend, anonymous 200 is the DESIGNED outcome) and gated (routes to
+# the app's own oauth2-proxy instance). Only the gated variant may be held
+# to the no-anonymous-200 assertion, so filter the slurped bodies to those
+# whose loadBalancer upstream is an oauth2-proxy alias (the gate mechanism
+# itself, written by route_synth._route_yaml_perapp) before extracting
+# hosts. A 200 on a gated host means the auth gate is NOT enforced -- the
+# regression the old Dokploy-era per-app enumeration used to catch.
+# Redirects to Keycloak (30x) and hard denies (401/403) are the healthy
+# outcomes; other statuses (404, 5xx, unreachable) are surfaced as a
+# warning, not a failure -- they indicate a routing problem, not an auth
+# bypass.
 - name: "Verify gated client apps: enumerate auto-gate route files"
   ansible.builtin.find:
     paths: "{{ traefik_dynamic_dir | default('/etc/catena/traefik/dynamic') }}"
@@ -104,6 +109,7 @@
         (_client_gate_bodies.results | default([]))
         | map(attribute='content')
         | map('b64decode')
+        | select('search', 'url: "http://oauth2-proxy-')
         | map('regex_findall', 'Host\(`([^`]+)`\)')
         | flatten
         | unique
