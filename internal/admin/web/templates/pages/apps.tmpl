@@ -40,12 +40,12 @@
           {{ end }}
         </div>
       </a>
-      {{ if and $.IsAdmin (eq $tile.Kind "compose") $tile.DokployID (ne $tile.DokployID $.Globals.self_app_id) }}
+      {{ if and $.IsAdmin (eq $tile.Kind "compose") $tile.PortainerID (ne $tile.PortainerID $.Globals.self_app_id) }}
         <div class="tile-actions">
           <button
             type="button"
             class="btn-configure"
-            hx-get="/apps/{{ $tile.DokployID }}/configure"
+            hx-get="/apps/{{ $tile.PortainerID }}/configure"
             hx-target="#tile-{{ $tile.Slug }}"
             hx-swap="outerHTML"
           >{{ $.T "common.configure" }}</button>

@@ -138,9 +138,9 @@ func main() {
 		TranslationsDir: strings.TrimSpace(os.Getenv("CATENA_ADMIN_TRANSLATIONS_DIR")),
 		Gatus:           integrations.NewGatusClient(gatusBase),
 		Healthchecks:    integrations.NewHealthchecksClient(hcBase, os.Getenv("HEALTHCHECKS_API_KEY_READONLY")),
-		// Container control plane (Portainer; replaces Dokploy). Feeds the
-		// Apps tile grid via the stack API + vps.route.host labels.
-		Dokploy: integrations.NewDokployClient(
+		// Container control plane (Portainer). Feeds the Apps tile grid via
+		// the stack API + vps.route.host labels.
+		Portainer: integrations.NewPortainerClient(
 			envOr("PORTAINER_API_BASE", "http://127.0.0.1:9000"), os.Getenv("PORTAINER_API_KEY")),
 		// SSO card on the dashboard probes Keycloak's management readiness
 		// endpoint (cluster-internal, port 9000). Empty disables the probe.

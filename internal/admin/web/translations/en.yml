@@ -117,7 +117,7 @@ status:
 apps:
   empty:
     staff: "No apps available for your groups yet."
-    admin: "No apps deployed in Dokploy yet."
+    admin: "No apps deployed in Portainer yet."
   badge:
     hidden: "hidden"
     admin-only: "admin-only"
@@ -230,7 +230,7 @@ access:
   heading: "Access"
   hint: "Read-only view of which group can reach which app. catena-admin shows access; edit users and groups in Keycloak. An app reaches a group when that group is in its allowed set; admin always reaches everything; public apps reach everyone including anonymous visitors."
   edit_in_keycloak: "Edit users & groups in Keycloak"
-  empty: "No apps discovered yet. Deploy apps in Dokploy and they appear here with their resolved access posture."
+  empty: "No apps discovered yet. Deploy apps in Portainer and they appear here with their resolved access posture."
   col:
     group: "Group"
   cell:

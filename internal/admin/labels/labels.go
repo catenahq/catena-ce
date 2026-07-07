@@ -17,7 +17,7 @@ import (
 var slugRe = regexp.MustCompile(`[^a-z0-9-]+`)
 
 // Slugify lowercases, replaces non-[a-z0-9-] runs with "-", and trims dashes.
-// Used for Traefik router/service names and Dokploy compose alias matching.
+// Used for Traefik router/service names and compose alias matching.
 func Slugify(s string) string {
 	return strings.Trim(slugRe.ReplaceAllString(strings.ToLower(s), "-"), "-")
 }
@@ -118,8 +118,9 @@ var routeLabelRe = regexp.MustCompile(
 		`\s*[=:]\s*['"]?([^'"\n#]+?)['"]?\s*(?:\n|$|#)`)
 
 // RouteLabels holds the parsed vps.route.* labels. Host is the public FQDN
-// (the client-app ingress host source under Portainer -- Dokploy's domain API
-// is gone). Port defaults to 80 when a Host is present. Service names the
+// (the client-app ingress host source under Portainer -- label-based, there
+// is no control-plane domain API). Port defaults to 80 when a Host is present.
+// Service names the
 // compose service the Host fronts (blank = primary). Mirrors the Python
 // helpers/labels_schema.extract_vps_route_labels -- keep the two in lockstep.
 type RouteLabels struct {

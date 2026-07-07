@@ -117,7 +117,7 @@ status:
 apps:
   empty:
     staff: "Aucune application disponible pour vos groupes."
-    admin: "Aucune application déployée dans Dokploy."
+    admin: "Aucune application déployée dans Portainer."
   badge:
     hidden: "caché"
     admin-only: "admin seulement"
@@ -230,7 +230,7 @@ access:
   heading: "Accès"
   hint: "Vue en lecture seule indiquant quel groupe peut atteindre quelle application. catena-admin affiche les accès; modifiez les utilisateurs et les groupes dans Keycloak. Une application est accessible à un groupe lorsque ce groupe figure dans son ensemble autorisé; admin atteint toujours tout; les applications publiques sont accessibles à tous, y compris les visiteurs anonymes."
   edit_in_keycloak: "Modifier les utilisateurs et groupes dans Keycloak"
-  empty: "Aucune application détectée pour l'instant. Déployez des applications dans Dokploy et elles apparaîtront ici avec leur posture d'accès résolue."
+  empty: "Aucune application détectée pour l'instant. Déployez des applications dans Portainer et elles apparaîtront ici avec leur posture d'accès résolue."
   col:
     group: "Groupe"
   cell:

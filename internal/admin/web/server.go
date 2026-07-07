@@ -42,8 +42,8 @@ type Config struct {
 	// may be nil on an unconfigured host -- the panels degrade gracefully.
 	Gatus        GatusReader
 	Healthchecks system.HCLister
-	// Dokploy feeds the Apps tile grid; nil renders an empty grid.
-	Dokploy apps.DokployLister
+	// Portainer feeds the Apps tile grid; nil renders an empty grid.
+	Portainer apps.PortainerLister
 	// StatsDir overrides the host stats dir (default /var/lib/catena).
 	StatsDir string
 	// KeycloakProbeURL is the Keycloak readiness endpoint the dashboard's
@@ -109,7 +109,7 @@ func New(cfg Config) (http.Handler, error) {
 		version:        cfg.Version,
 		gatus:          cfg.Gatus,
 		hc:             cfg.Healthchecks,
-		dokploy:        cfg.Dokploy,
+		portainer:      cfg.Portainer,
 		statsDir:       cfg.StatsDir,
 		keycloakProbe:  cfg.KeycloakProbeURL,
 		extraTilesPath: cfg.ExtraTilesPath,
@@ -168,7 +168,7 @@ type server struct {
 	version        string
 	gatus          GatusReader
 	hc             system.HCLister
-	dokploy        apps.DokployLister
+	portainer      apps.PortainerLister
 	statsDir       string
 	keycloakProbe  string
 	extraTilesPath string
@@ -242,7 +242,7 @@ func (s *server) recoveryStart(w http.ResponseWriter, r *http.Request) {
 }
 
 // actionsStream + recoveryStream share streamRun (identical dispatch).
-func (s *server) actionsStream(w http.ResponseWriter, r *http.Request) { s.streamRun(w, r) }
+func (s *server) actionsStream(w http.ResponseWriter, r *http.Request)  { s.streamRun(w, r) }
 func (s *server) recoveryStream(w http.ResponseWriter, r *http.Request) { s.streamRun(w, r) }
 
 // startRun resolves the named action from the merged catalog filtered to the
@@ -408,7 +408,7 @@ func (s *server) rootRedirect(w http.ResponseWriter, r *http.Request) {
 // apps is the landing tile grid: every app/compose the current identity may
 // see, with live status dots. The canonical landing for everyone.
 func (s *server) apps(w http.ResponseWriter, r *http.Request) {
-	tiles := apps.BuildTiles(s.dokploy, s.gatus, identityFrom(r), s.extraTilesPath)
+	tiles := apps.BuildTiles(s.portainer, s.gatus, identityFrom(r), s.extraTilesPath)
 	s.tmpl.Render(w, r, "apps", http.StatusOK, tiles)
 }
 

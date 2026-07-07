@@ -13,9 +13,9 @@ import (
 	"github.com/catenahq/catena-ce/internal/admin/integrations"
 )
 
-type fakeDok struct{ items []integrations.DokployItem }
+type fakeDok struct{ items []integrations.PortainerItem }
 
-func (f fakeDok) ListItems(bool) []integrations.DokployItem { return f.items }
+func (f fakeDok) ListItems(bool) []integrations.PortainerItem { return f.items }
 
 type fakeGatusReader struct{}
 
@@ -356,7 +356,7 @@ func TestSafeBack(t *testing.T) {
 }
 
 func TestAppsGridRendersTiles(t *testing.T) {
-	dok := fakeDok{items: []integrations.DokployItem{{
+	dok := fakeDok{items: []integrations.PortainerItem{{
 		Kind: "compose", ItemID: "c1", AppName: "Nextcloud",
 		Domains: []integrations.Domain{{Host: "cloud.example.com"}},
 		ComposeBody: `    labels:
@@ -367,7 +367,7 @@ func TestAppsGridRendersTiles(t *testing.T) {
 	h, err := New(Config{
 		Version:        "t",
 		Globals:        map[string]any{"self_app_id": ""},
-		Dokploy:        dok,
+		Portainer:      dok,
 		Gatus:          fakeGatusReader{},
 		ExtraTilesPath: "/nonexistent",
 	})

@@ -1,5 +1,5 @@
 // Package integrations holds the read-only HTTP clients the catena-admin
-// shell reads app + infra status from (Gatus, Healthchecks, Dokploy, ...).
+// shell reads app + infra status from (Gatus, Healthchecks, Portainer, ...).
 // Each is TTL-cached and fails soft: a network error yields an empty result
 // so a page renders an "unknown" state rather than crashing. Ported from the
 // Python catena_admin.integrations.

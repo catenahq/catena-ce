@@ -7,11 +7,13 @@ import (
 	"github.com/catenahq/catena-ce/internal/admin/integrations"
 )
 
-type fakeDokploy struct{ items []integrations.DokployItem }
+type fakePortainer struct{ items []integrations.PortainerItem }
 
-func (f fakeDokploy) ListItems(bool) []integrations.DokployItem { return f.items }
+func (f fakePortainer) ListItems(bool) []integrations.PortainerItem { return f.items }
 
-type fakeGatus struct{ byHost map[string]integrations.EndpointStatus }
+type fakeGatus struct {
+	byHost map[string]integrations.EndpointStatus
+}
 
 func (f fakeGatus) GetStatusByHost(h string) (integrations.EndpointStatus, bool) {
 	s, ok := f.byHost[h]
@@ -20,8 +22,8 @@ func (f fakeGatus) GetStatusByHost(h string) (integrations.EndpointStatus, bool)
 
 func boolp(b bool) *bool { return &b }
 
-func items() []integrations.DokployItem {
-	return []integrations.DokployItem{
+func items() []integrations.PortainerItem {
+	return []integrations.PortainerItem{
 		{ // public app, healthy
 			ProjectName: "client", Kind: "compose", ItemID: "c1", AppName: "Nextcloud",
 			Domains: []integrations.Domain{{Host: "cloud.example.com"}},
@@ -56,7 +58,7 @@ func gatus() fakeGatus {
 
 func TestBuildTilesStaffVisibility(t *testing.T) {
 	staff := auth.Identity{Email: "s@x", Groups: []string{"staff"}}
-	tiles := BuildTiles(fakeDokploy{items()}, gatus(), staff, "/nonexistent")
+	tiles := BuildTiles(fakePortainer{items()}, gatus(), staff, "/nonexistent")
 
 	bySlug := map[string]Tile{}
 	for _, t := range tiles {
@@ -83,7 +85,7 @@ func TestBuildTilesStaffVisibility(t *testing.T) {
 
 func TestBuildTilesAdminSeesAll(t *testing.T) {
 	admin := auth.Identity{Email: "op@x", Groups: []string{"admin"}}
-	tiles := BuildTiles(fakeDokploy{items()}, gatus(), admin, "/nonexistent")
+	tiles := BuildTiles(fakePortainer{items()}, gatus(), admin, "/nonexistent")
 	// 3 with domains (nodomain skipped); admin sees deny + everything.
 	if len(tiles) != 3 {
 		t.Fatalf("admin tiles = %d, want 3", len(tiles))

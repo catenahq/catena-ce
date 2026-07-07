@@ -1,4 +1,4 @@
-// Package apps assembles the Apps-tab tile grid from Dokploy (app/compose
+// Package apps assembles the Apps-tab tile grid from Portainer (app/compose
 // list + domains + compose body), the vps.* labels, and live Gatus status,
 // plus optional operator-authored extra tiles. Read-only assembly + per-user
 // visibility filtering; the Configure-side mutations live elsewhere. Ported
@@ -19,21 +19,21 @@ import (
 
 const defaultIcon = "mdi-application"
 
-// DokployLister + GatusByHost are the read surfaces BuildTiles needs; the
+// PortainerLister + GatusByHost are the read surfaces BuildTiles needs; the
 // concrete integration clients satisfy them.
-type DokployLister interface {
-	ListItems(forceRefresh bool) []integrations.DokployItem
+type PortainerLister interface {
+	ListItems(forceRefresh bool) []integrations.PortainerItem
 }
 
 type GatusByHost interface {
 	GetStatusByHost(host string) (integrations.EndpointStatus, bool)
 }
 
-// Tile is one renderable Apps-grid entry. DokployID is the composeId /
+// Tile is one renderable Apps-grid entry. PortainerID is the composeId /
 // applicationId (empty for operator extras). Kind is application | compose |
 // extra (only compose supports the Configure form).
 type Tile struct {
-	DokployID     string
+	PortainerID   string
 	Slug          string
 	Kind          string
 	Name          string
@@ -75,9 +75,9 @@ func (t Tile) LocalizedDescription(locale string) string {
 // BuildTiles assembles the per-user tile list with visibility already applied:
 // staff see public tiles + tiles whose groups intersect theirs (hidden
 // excluded); admins see everything (badged).
-func BuildTiles(dokploy DokployLister, gatus GatusByHost, identity auth.Identity, extraTilesPath string) []Tile {
+func BuildTiles(portainer PortainerLister, gatus GatusByHost, identity auth.Identity, extraTilesPath string) []Tile {
 	var candidates []Tile
-	candidates = append(candidates, dokployTiles(dokploy, gatus)...)
+	candidates = append(candidates, portainerTiles(portainer, gatus)...)
 	candidates = append(candidates, extraTiles(extraTilesPath, gatus)...)
 
 	isAdmin := identity.IsAdmin()
@@ -110,12 +110,12 @@ func healthFromStatus(status integrations.EndpointStatus, ok bool) (string, *flo
 	return "unhealthy", status.LastCheckTS
 }
 
-func dokployTiles(dokploy DokployLister, gatus GatusByHost) []Tile {
-	if dokploy == nil {
+func portainerTiles(portainer PortainerLister, gatus GatusByHost) []Tile {
+	if portainer == nil {
 		return nil
 	}
 	var out []Tile
-	for _, item := range dokploy.ListItems(false) {
+	for _, item := range portainer.ListItems(false) {
 		if len(item.Domains) == 0 || item.Domains[0].Host == "" {
 			continue // no domain -> not reachable; skip the tile
 		}
@@ -151,7 +151,7 @@ func dokployTiles(dokploy DokployLister, gatus GatusByHost) []Tile {
 			slug = item.ItemID
 		}
 		out = append(out, Tile{
-			DokployID:   item.ItemID,
+			PortainerID: item.ItemID,
 			Slug:        slug,
 			Kind:        item.Kind,
 			Name:        firstNonEmpty(hpLabels.Name, item.AppName),

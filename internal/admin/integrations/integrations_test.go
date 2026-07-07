@@ -98,7 +98,7 @@ func TestHealthchecksListChecks(t *testing.T) {
 	}
 }
 
-func TestDokployListItems(t *testing.T) {
+func TestPortainerListItems(t *testing.T) {
 	// Portainer stack API: list stacks + fetch each stack's compose file; the
 	// tile host comes from the vps.route.host label. An inactive stack and a
 	// stack with no vps.route.host must both be skipped.
@@ -123,7 +123,7 @@ func TestDokployListItems(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewDokployClient(srv.URL, "dk", WithDokployHTTPClient(srv.Client()))
+	c := NewPortainerClient(srv.URL, "dk", WithPortainerHTTPClient(srv.Client()))
 	items := c.ListItems(false)
 	if len(items) != 1 {
 		t.Fatalf("ListItems = %d, want 1 (active + routed only)", len(items))
@@ -140,8 +140,8 @@ func TestDokployListItems(t *testing.T) {
 	}
 }
 
-func TestDokployBaseURLNormalizesApiSuffix(t *testing.T) {
-	c := NewDokployClient("http://dok:9000/api/", "k")
+func TestPortainerBaseURLNormalizesApiSuffix(t *testing.T) {
+	c := NewPortainerClient("http://dok:9000/api/", "k")
 	if c.baseURL != "http://dok:9000" {
 		t.Errorf("baseURL = %q, want http://dok:9000", c.baseURL)
 	}
