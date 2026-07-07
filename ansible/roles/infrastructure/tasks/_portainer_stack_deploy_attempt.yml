@@ -5,10 +5,6 @@
 # ghcr.io 5xx during image pull) it leaves it false so the next iteration
 # retries. On a non-transient failure it fails the play immediately.
 #
-# NOTE: file kept under the dokploy_* name during the Dokploy->Portainer
-# migration so the ~8 callers of portainer_stack.yml need no edit; it is
-# renamed to _portainer_stack_deploy_attempt.yml in the Phase 5 cleanup.
-#
 # Self-reconciling: each attempt RE-RESOLVES the stack (Portainer's
 # create-and-deploy is one call, and a transient pull failure can leave the
 # stack record created but not converged). So a retry after a partial create
@@ -20,7 +16,7 @@
 #   _portainer_endpoint_id
 #   _portainer_deploy_done  (false on first iter)
 # Loop var:
-#   _dokploy_deploy_attempt_n  (1-indexed)
+#   _portainer_deploy_attempt_n  (1-indexed)
 
 - name: "Portainer: re-resolve stack ({{ svc_name }})"
   ansible.builtin.uri:
@@ -56,7 +52,7 @@
     - _portainer_stack_existing is not none
     - (_portainer_stack_existing.Env | default([])) | preserved_env_keys(svc_env) | length > 0
 
-# Idempotency contract mirrors the old Dokploy path: re-running site.yml must
+# Idempotency contract: re-running site.yml must
 # never clobber an env var the operator/client typed into Portainer's stack
 # editor. merge_env_portainer folds our catalog values into the live Env
 # array (catalog wins for keys we declare, credential-shaped keys keep a
@@ -68,7 +64,7 @@
     _portainer_stack_id: "{{ _portainer_stack_existing.Id | default('') }}"
   when: not _portainer_deploy_done
 
-- name: "Portainer: deploy attempt {{ _dokploy_deploy_attempt_n }} -- create ({{ svc_name }})"
+- name: "Portainer: deploy attempt {{ _portainer_deploy_attempt_n }} -- create ({{ svc_name }})"
   ansible.builtin.uri:
     url: "{{ portainer_api_base }}/stacks/create/standalone/string?endpointId={{ _portainer_endpoint_id }}"
     method: POST
@@ -90,7 +86,7 @@
     - not _portainer_deploy_done
     - (_portainer_stack_id | string | length) == 0
 
-- name: "Portainer: deploy attempt {{ _dokploy_deploy_attempt_n }} -- update ({{ svc_name }})"
+- name: "Portainer: deploy attempt {{ _portainer_deploy_attempt_n }} -- update ({{ svc_name }})"
   ansible.builtin.uri:
     url: "{{ portainer_api_base }}/stacks/{{ _portainer_stack_id }}?endpointId={{ _portainer_endpoint_id }}"
     method: PUT
@@ -135,12 +131,12 @@
     - name: "Portainer: dump failed deploy response ({{ svc_name }})"
       ansible.builtin.debug:
         msg: >-
-          Portainer[{{ svc_name }}] attempt {{ _dokploy_deploy_attempt_n }}
+          Portainer[{{ svc_name }}] attempt {{ _portainer_deploy_attempt_n }}
           HTTP {{ _portainer_deploy_resp.status | default('n/a') }}:
           {{ _portainer_deploy_resp.content | default('(no body)') }}
 
-    # Same registry/daemon transient classes as the old Dokploy path -- a
-    # transient during image pull taints the deploy; retrying re-pulls cleanly.
+    # The registry/daemon transient classes -- a transient during image pull
+    # taints the deploy; retrying re-pulls cleanly.
     - name: "Portainer: detect transient in deploy response ({{ svc_name }})"
       ansible.builtin.set_fact:
         _portainer_deploy_transient: >-
@@ -151,7 +147,7 @@
     - name: "Portainer: report transient, will retry ({{ svc_name }})"
       ansible.builtin.debug:
         msg: >-
-          Portainer[{{ svc_name }}]: attempt {{ _dokploy_deploy_attempt_n }}
+          Portainer[{{ svc_name }}]: attempt {{ _portainer_deploy_attempt_n }}
           failed on a transient; retrying.
       when: _portainer_deploy_transient | bool
 
@@ -160,7 +156,7 @@
         msg: >-
           Portainer stack deploy for {{ svc_name }} failed with HTTP
           {{ _portainer_deploy_resp.status | default('n/a') }} on attempt
-          {{ _dokploy_deploy_attempt_n }} and the response did not match a
+          {{ _portainer_deploy_attempt_n }} and the response did not match a
           known transient pattern; not retrying. Check the Portainer UI
           (stack {{ svc_name }}) at http://{{ ansible_host }}:{{ portainer_ui_port }}.
       when: not (_portainer_deploy_transient | default(false) | bool)

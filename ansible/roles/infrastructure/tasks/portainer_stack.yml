@@ -19,14 +19,11 @@
 #
 # Requires _portainer_endpoint_id (set by portainer_endpoint.yml).
 #
-# NOTE: kept under the dokploy_* filename during the Dokploy->Portainer
-# migration so its ~8 callers (gatus/healthchecks/recovery/beszel/clamav +
-# the cross-role keycloak + oauth2_proxy compose includes) need no edit; it
-# is renamed to portainer_stack.yml in the Phase 5 cleanup. The Portainer
-# stack API (typed create/update paths, structured Env array, synchronous
-# deploy) replaces Dokploy's compose.create/update/deploy + composeStatus
-# poll. Routing returns to us (Traefik file-provider route below), so there
-# is no domain.create equivalent.
+# The ~8 callers (gatus/healthchecks/recovery/beszel/clamav + the cross-role
+# keycloak + oauth2_proxy compose includes) all route through this one helper.
+# The Portainer stack API (typed create/update paths, structured Env array,
+# synchronous deploy) is the single compose seam; routing returns to us
+# (Traefik file-provider route below), the control plane does no reverse proxy.
 
 # Deploy + wait + check, retried up to infrastructure_deploy_max_attempts
 # times when the failure looks like a registry transient. The attempt file
@@ -43,7 +40,7 @@
   ansible.builtin.include_tasks: _portainer_stack_deploy_attempt.yml
   loop: "{{ range(1, (infrastructure_deploy_max_attempts | default(3)) + 1) | list }}"
   loop_control:
-    loop_var: _dokploy_deploy_attempt_n
+    loop_var: _portainer_deploy_attempt_n
   when: not _portainer_deploy_done
 
 - name: "Portainer: fail if all retries exhausted on registry transients ({{ svc_name }})"

@@ -3,15 +3,11 @@
 # targets, and set the fact portainer_stack.yml consumes:
 #   _portainer_endpoint_id
 #
-# Portainer has no "project" concept (Dokploy's project/environment grouping
-# is gone); stacks are grouped by their Name prefix instead. The local Docker
-# endpoint is provisioned by roles/portainer (POST /api/endpoints,
-# EndpointCreationType=1) on a full converge; here we only look it up so
-# tag-filtered `--tags infrastructure` runs still resolve it independently.
-#
-# NOTE: kept under the dokploy_* filename during the Dokploy->Portainer
-# migration (renamed to portainer_endpoint.yml in the Phase 5 cleanup) so the
-# orchestrator include needs no edit.
+# Portainer has no "project" concept; stacks are grouped by their Name prefix
+# instead. The local Docker endpoint is provisioned by roles/portainer (POST
+# /api/endpoints, EndpointCreationType=1) on a full converge; here we only look
+# it up so tag-filtered `--tags infrastructure` runs still resolve it
+# independently.
 
 - name: "Portainer: list environments (endpoints)"
   ansible.builtin.uri:
