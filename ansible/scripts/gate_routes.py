@@ -62,7 +62,7 @@ def sync_gate_routes(api_base, api_key, dyn_dir, infra_compose_names,
     seen = []
 
     for name, _stack_id, compose_body in dokploy_api.iter_stacks(
-        api_base, api_key, skip_names, seen=None,
+        api_base, api_key, skip_names, seen=seen,
     ):
         route = extract_vps_route_labels(compose_body)
         host = route.get("host")
