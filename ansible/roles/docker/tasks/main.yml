@@ -120,7 +120,7 @@
 # but /usr/bin/docker is missing, plain `apt-get install --reinstall`
 # can fail under "Packages were downgraded and -y was used without
 # --allow-downgrades" if the catalog version on the host's apt index
-# differs from the dpkg-recorded version (e.g. dokploy's installer
+# differs from the dpkg-recorded version (e.g. an installer
 # pinned to a different docker-ce version). Mirror restore.sh's
 # stronger recovery: dpkg --purge --force-all the stale records
 # first, then re-install via apt module clean.
@@ -165,7 +165,7 @@
   changed_when: false
 
 # Atomicity: prove the daemon actually serves API requests before any
-# downstream role (dokploy install, infra compose, backup's `docker
+# downstream role (swarm services, infra compose, backup's `docker
 # exec`) assumes it. `systemctl is-active` alone doesn't -- the unit
 # can be active while dockerd's socket is still initializing, or the
 # daemon.json validation is mid-parse. `docker info` round-trips the
@@ -183,8 +183,8 @@
 # ─── Docker Swarm (single-node) init ─────────────────────────────────────
 # The reverse-proxy + control-plane roles that follow (traefik, postgres,
 # portainer) all deploy `docker service`s, which require an active swarm
-# manager. Dokploy's install.sh used to init the swarm; the Dokploy->Portainer
-# migration removed roles/dokploy, so this role inits it now -- right after the
+# manager. The swarm init moved here from the deleted roles/dokploy in the
+# Portainer migration, so this role inits it now -- right after the
 # daemon is confirmed serving and before any swarm-service role runs.
 #
 # Idempotent: `docker swarm init` errors on an already-active node, so gate on

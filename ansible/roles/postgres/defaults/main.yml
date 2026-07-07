@@ -1,25 +1,25 @@
 ---
 # roles/postgres -- catena-owned Postgres for infra databases (Keycloak today).
 #
-# Replaces the dokploy-postgres swarm task Dokploy's install.sh used to provide.
-# Deployed + owned directly so the Keycloak DB survives Dokploy removal. Project
-# convention stays "one Postgres per VPS, multiple DBs inside" -- per-app DBs
-# (Nextcloud, etc.) keep their own containers; this hosts the infra DBs that
-# used to live in dokploy-postgres.
+# Replaces the control-plane Postgres the old install.sh used to provide.
+# Deployed + owned directly so the Keycloak DB survives the control-plane
+# migration. Project convention stays "one Postgres per VPS, multiple DBs
+# inside" -- per-app DBs (Nextcloud, etc.) keep their own containers; this
+# hosts the infra DBs that used to live in the control-plane Postgres.
 #
 # Reversal note: roles/keycloak/defaults used to say "we do NOT spin up a
-# dedicated postgres container" -- that was true only while Dokploy provided
-# one. The Dokploy->Portainer migration removes Dokploy (Portainer uses BoltDB,
-# no shared Postgres), so a catena-owned Postgres is now required.
+# dedicated postgres container" -- that was true only while the old control
+# plane provided one. The Portainer migration removes that shared Postgres
+# (Portainer uses BoltDB), so a catena-owned Postgres is now required.
 
 catena_postgres_service_name: catena-postgres
 
-# Pinned image. Matches the Postgres major Dokploy bootstrapped (16) so a
+# Pinned image. Matches the Postgres major the old control plane bootstrapped (16) so a
 # logical dump/restore across the cutover stays on the same major.
 catena_postgres_image_tag: "16"
 catena_postgres_image: "postgres:{{ catena_postgres_image_tag }}"
 
-# Superuser. dokploy-postgres shipped POSTGRES_USER=dokploy; we standardise on
+# Superuser. The old control-plane Postgres shipped POSTGRES_USER=dokploy; we standardise on
 # the conventional `postgres`. roles/keycloak/tasks/provision_db.yml detects the
 # live superuser from the container env, so it follows this automatically.
 catena_postgres_superuser: postgres
@@ -29,10 +29,10 @@ catena_postgres_superuser: postgres
 # deferred (BACKLOG_TECHNICAL.md).
 catena_postgres_secret_name: catena_postgres_password
 
-# Named volume for the data dir. UNLIKE dokploy-postgres (excluded from restic
-# + logically replayed), this is backed up as a RAW volume by the default
-# restic set: dokploy-postgres was excluded because Dokploy's install.sh
-# regenerates the DB password on a fresh box, skewing a raw restore. We set the
+# Named volume for the data dir. UNLIKE the old control-plane Postgres (excluded
+# from restic + logically replayed), this is backed up as a RAW volume by the
+# default restic set: that one was excluded because the install.sh regenerated
+# the DB password on a fresh box, skewing a raw restore. We set the
 # password from vault (swarm secret) and Postgres skips initdb on a restored
 # (non-empty) volume, so the restored password matches the (also-restored)
 # vault -- no skew, raw restore is correct. (Backup consistency across the

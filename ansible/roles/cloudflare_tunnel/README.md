@@ -29,7 +29,7 @@ roles:
   - tailscale
   - storage
   - docker
-  - dokploy           # initializes swarm + creates catena-network
+  - traefik           # creates catena-network + owns ingress
   - cloudflare_tunnel # <- this role
   - keycloak
   - oauth2_proxy      # waits for auth.<zone>; cloudflared is up by here
@@ -39,8 +39,8 @@ roles:
 
 ## Dependencies
 
-- `catena-network` exists (provided by `roles/dokploy`).
-- Docker swarm initialized (provided by `roles/dokploy`).
+- `catena-network` exists (provided by `roles/traefik`).
+- Docker swarm initialized (provided by `roles/docker`).
 - Vault: `vault_cloudflare_api_token` (Zone:DNS:Edit + Cloudflare
   Tunnel:Edit on the target zone).
 - Inventory `.env`: `CLOUDFLARE_ZONE`, `CLOUDFLARE_ACCOUNT_ID`.

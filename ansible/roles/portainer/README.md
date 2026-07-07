@@ -1,7 +1,7 @@
 # roles/portainer
 
-Portainer CE -- the container control plane that replaces Dokploy in the
-Dokploy->Portainer migration. Spans Docker + Swarm + (later) Kubernetes;
+Portainer CE -- the container control plane. Spans Docker + Swarm + (later)
+Kubernetes;
 provides the compose/stack + env + logs + lifecycle API. Routing stays with
 `catena-traefik` (Portainer does no reverse proxy).
 
@@ -18,7 +18,7 @@ against `portainer/portainer-skills` + docs.portainer.io (2026-07), NOT guessed.
 `POST /api/stacks?type=&method=&endpointId=` form. On 2.39.4 use the typed
 create paths below. Most blog/gist snippets predate this and are wrong.
 
-### Auth (replaces Dokploy better-auth)
+### Auth
 - Fresh-install admin: `--admin-password-file <file>` at container launch (file
   holds the plaintext password; Portainer hashes it). Set once, on an empty
   BoltDB. Alternative (racy, 5-min window): `POST /api/users/admin/init`
@@ -27,7 +27,7 @@ create paths below. Most blog/gist snippets predate this and are wrong.
   header `Authorization: Bearer <jwt>`.
 - Long-lived API token (services): with a JWT,
   `POST /api/users/{id}/tokens` `{description, password}` -> `rawAPIKey`
-  (shown once) -> header **`X-API-Key`** (same header name Dokploy used).
+  (shown once) -> header **`X-API-Key`**.
 - Bootstrap flow for `vault_portainer_api_key`: `/api/auth` (JWT) ->
   `/api/users/{id}/tokens` -> store rawAPIKey in vault.
 

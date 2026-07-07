@@ -55,7 +55,7 @@
 # Host-mode publish so the port lands on the node IP (reached over the tailnet;
 # the registry fragment below firewalls it to tailnet + RFC1918). Docker socket
 # lets Portainer manage the local Docker/Swarm endpoint. /data on a named volume
-# persists its BoltDB store (replaces Dokploy's Postgres control-plane DB). The
+# persists its BoltDB store (replaces the old control-plane Postgres DB). The
 # trailing --admin-password-file arg is passed to the portainer binary.
 - name: "portainer: create catena-portainer swarm service (first run)"
   ansible.builtin.command:

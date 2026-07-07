@@ -1,6 +1,6 @@
 ---
-# Shared TURN/STUN server. Deployed as a direct swarm service (not via
-# Dokploy compose) because coturn is infrastructure -- it needs host
+# Shared TURN/STUN server. Deployed as a direct swarm service (not a
+# managed compose app) because coturn is infrastructure -- it needs host
 # networking for ICE-candidate advertisement and is not an
 # operator-managed app. Mirrors the cloudflared swarm-service pattern
 # in roles/cloudflare_tunnel/tasks/main.yml.

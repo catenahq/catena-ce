@@ -30,4 +30,4 @@ out-of-band relocation later.
 
 ## Related
 
-- Downstream: `dokploy` (single-node swarm needs Docker up first).
+- Downstream: `traefik` / `postgres` / `portainer` (swarm services need Docker + swarm up first).

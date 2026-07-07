@@ -13,7 +13,7 @@
 #     (Manual edits in CF dashboard get overwritten -- intentional.)
 #   - cloudflared swarm service exists, attached to catena-network, with
 #     the current TUNNEL_TOKEN. cloudflared stays a raw swarm service (NOT
-#     Dokploy-managed) because migrating it to Dokploy-managed would risk
+#     a managed compose app) because migrating it would risk
 #     tunnel outage during swap, and the UI-visibility gain is low for a
 #     set-and-forget component.
 #
@@ -213,7 +213,7 @@
 
 # ─── enforce tunnel ingress config ───────────────────────────────────────
 # Always PUT the desired config -- operator drift in CF dashboard loses to
-# Ansible. Single wildcard rule pointing at Dokploy's Traefik, plus fallback.
+# Ansible. Single wildcard rule pointing at catena-traefik, plus fallback.
 - name: "CF: enforce tunnel ingress (wildcard -> Traefik)"
   ansible.builtin.uri:
     url: "{{ cloudflare_api_base }}/accounts/{{ cloudflare_account_id }}/cfd_tunnel/{{ cloudflared_tunnel_id }}/configurations"
@@ -240,10 +240,10 @@
   become: false
 
 # ─── deploy cloudflared as a swarm service ────────────────────────────────
-# Created as a direct swarm service (not via Dokploy's app API) because
+# Created as a direct swarm service (not a managed compose app) because
 # cloudflared is infrastructure, not an operator-managed app. It just
-# needs to be on catena-network with the tunnel token. Dokploy's UI
-# won't show it, but `docker service ls` will.
+# needs to be on catena-network with the tunnel token. Portainer surfaces
+# it in the swarm view, and `docker service ls` shows it too.
 - name: Check if cloudflared swarm service exists
   ansible.builtin.command: docker service inspect cloudflared --format '{{ "{{" }}.ID{{ "}}" }}'
   register: _cloudflared_service

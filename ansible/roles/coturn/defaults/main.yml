@@ -5,8 +5,8 @@
 #   - Rocket.Chat's bundled Jitsi (jitsi-videobridge JVB_TURN_*) for the
 #     same reason.
 #
-# Coturn runs as a Dokploy-managed compose service so updates, logs,
-# and the dashboard panel match the rest of the stack. Its UDP ports
+# Coturn runs as a Portainer-surfaced swarm service so updates, logs,
+# and the dashboard panel match the rest of the suite. Its UDP ports
 # are published in `mode: host` so they bind directly to the VPS public
 # IP (Cloudflare Tunnel does not carry UDP).
 
