@@ -1,9 +1,15 @@
 # catena-admin (Ansible role)
 
 Host-side setup for the per-VPS admin panel -- the catena-admin Go
-shell. The container itself is deployed via Dokploy's git-source
-compose flow; this role manages everything the container expects to
-find on the host before it boots.
+shell. The container itself is deployed as a Portainer stack from
+[deploy/catena-admin/dokploy.compose.yml](../../../deploy/catena-admin/dokploy.compose.yml);
+this role manages everything the container expects to find on the host
+before it boots.
+
+> **Gap (post-Dokploy cutover):** the converge does not yet push the
+> catena-admin stack itself -- only the test bench does (via the
+> Portainer stack API). Wiring a portainer_stack-based deploy into this
+> role is tracked in the workspace BACKLOG_TECHNICAL.md.
 
 ## What this role does
 
@@ -38,11 +44,12 @@ find on the host before it boots.
 
 ## What this role does NOT do
 
-- It does **not** push the catena-admin compose via the Dokploy API.
-  The container is deployed through Dokploy's git-source flow pointed at
+- It does **not** push the catena-admin compose itself. The container
+  deploys as a Portainer stack from
   [deploy/catena-admin/dokploy.compose.yml](../../../deploy/catena-admin/dokploy.compose.yml)
-  (which builds the repo-root Dockerfile). The test bench reuses that same
-  compose, building the image on the VPS instead of via git-source.
+  (which builds the repo-root Dockerfile); today only the test bench
+  drives that deploy (Portainer stack API), and the converge-time
+  equivalent is a tracked gap (see the note at the top).
 - It does **not** create a Keycloak realm client. The admin sits
   behind the shared `oauth2-proxy` realm client and the staff/admin
   oauth2-proxy slug.

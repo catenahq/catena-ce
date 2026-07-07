@@ -9,7 +9,8 @@
 #                  dispatch table on the host.
 #
 # This role manages host-side state only. The catena-admin Go shell
-# container is deployed via Dokploy's git-source flow (see README.md);
+# container deploys as a Portainer stack (see README.md; converge-time
+# wiring is a tracked gap -- today only the bench pushes the stack);
 # the host-side state here is its prerequisite. The audit.db quiesce
 # hooks that ride this role in the Business edition (audit is a
 # license-gated module) are NOT part of Community.

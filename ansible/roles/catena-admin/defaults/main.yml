@@ -2,8 +2,8 @@
 # roles/catena-admin -- per-VPS admin panel (the catena-admin Go shell).
 #
 # The role manages HOST-SIDE state for the catena-admin container.
-# The container itself is deployed via Dokploy's git-source compose
-# flow. See README.md.
+# The container itself deploys as a Portainer stack (converge-time
+# wiring is a tracked gap; the bench drives it today). See README.md.
 
 # --- Hostname ---------------------------------------------------------
 # The admin panel is served at dash.<zone> by default. Override the

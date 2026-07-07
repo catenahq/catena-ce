@@ -201,7 +201,7 @@
 # /var/lib/catena/plugins. Docker can only create that nested mountpoint if
 # the subdir already exists on the host -- a read-only parent makes the
 # mkdirat fail ("read-only file system") and the container never starts, so
-# Dokploy settles the deploy at composeStatus=error. Pre-create the
+# Portainer settles the stack deploy in a failed state. Pre-create the
 # mountpoint here. The named volume shadows it at runtime (its perms come
 # from the image's nonroot-owned /var/lib/catena/plugins), so this host dir
 # is purely the bind target.
@@ -214,8 +214,8 @@
     mode: "0755"
 
 # Admin state volume (the container's persisted state lives here once
-# Dokploy mounts the named volume on first deploy; the host bind-mount
-# target is owned by uid 1000 so the container can write).
+# the stack deploy mounts the named volume on first run; the host
+# bind-mount target is owned by uid 1000 so the container can write).
 - name: "State dir for admin container ({{ catena_admin_state_dir }})"
   ansible.builtin.file:
     path: "{{ catena_admin_state_dir }}"

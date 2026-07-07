@@ -1,15 +1,17 @@
-# catena-admin (Community Go shell) -- Dokploy compose.
+# catena-admin (Community Go shell) -- stack compose.
 #
-# Single source of truth for deploying the admin shell. Two consumers:
-#   - Operator (production): Dokploy git-source flow points at this file;
-#     `build:` builds the repo-root Dockerfile on the Dokploy host.
+# Single source of truth for deploying the admin shell as a Portainer
+# stack. Two consumers:
+#   - Operator (production): the Portainer stack deploy points at this
+#     file. NOTE: converge-time wiring is a tracked gap (workspace
+#     BACKLOG_TECHNICAL.md); today only the bench pushes the stack.
 #   - Test bench: builds the image on the VPS and rewrites `build:` -> the
-#     pre-built `image:` (raw sourceType); it reads THIS file so there is no
-#     second copy to keep in sync.
+#     pre-built `image:`; it reads THIS file so there is no second copy to
+#     keep in sync.
 #
-# Per-host values arrive via Dokploy's ${VAR} env substitution at deploy
-# time (the env block the operator role / bench supplies); this file stays
-# static so both consumers share it verbatim.
+# Per-host values arrive via the stack Env ${VAR} substitution at deploy
+# time (the env block the deployer supplies); this file stays static so
+# both consumers share it verbatim.
 #
 # The roles/catena-admin Ansible role creates the host-side bind targets
 # (/etc/catena/admin-ssh, /etc/catena/admin-actions.yml, /etc/catena/
