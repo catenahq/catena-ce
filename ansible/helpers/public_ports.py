@@ -10,10 +10,10 @@ port, consumed everywhere.
 
 Two feeders, one merged effective set:
 
-  - Infra roles declare a `public_ports` list var (coturn, the Dokploy UI).
+  - Infra roles declare a `public_ports` list var (coturn, the Portainer UI).
     Each entry is host-bound (the service uses host networking or a swarm
     host-mode publish), so ufw INPUT actually sees the traffic.
-  - Dokploy templates declare `vps.expose.tcp/udp` compose labels. Those
+  - catena templates declare `vps.expose.tcp/udp` compose labels. Those
     apps publish ports via Docker, whose DNAT bypasses the ufw INPUT chain,
     so enforcement (when the scope is restricted) happens in DOCKER-USER.
     App ports default to scope `any` (that is the only reason to expose
@@ -44,7 +44,7 @@ except ImportError:
     from helpers.labels_schema import extract_vps_expose_labels, slugify
 
 # RFC 1918 source blocks: Docker bridge networks (catena-admin, oauth2-proxy,
-# the Dokploy UI dispatcher path) live here. Cannot be spoofed from the
+# the Portainer UI dispatcher path) live here. Cannot be spoofed from the
 # public internet, so a RETURN for these is safe.
 _RFC1918 = ("172.16.0.0/12", "10.0.0.0/8")
 
@@ -195,7 +195,7 @@ def bound_tcp_ports(entries: list[PortEntry]) -> list[int]:
     """Every individual TCP port BOUND on the host, any scope. This is what
     an on-host `ss -tlnp4` sees as a 0.0.0.0 listener, so it is the allowlist
     for validate.yml's host-port-binding drift check (which includes
-    tailnet-scoped ports like the Dokploy UI -- they are bound, just
+    tailnet-scoped ports like the Portainer UI -- they are bound, just
     firewall-restricted)."""
     ports: set[int] = set()
     for e in entries:

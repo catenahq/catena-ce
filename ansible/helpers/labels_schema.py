@@ -21,7 +21,7 @@ import re
 
 # ─── Slugification ────────────────────────────────────────────────────────
 #
-# Used for both Traefik router/service names AND Dokploy compose alias
+# Used for both Traefik router/service names AND compose alias
 # matching. Lowercase + non-[a-z0-9] -> "-", strip leading/trailing dashes.
 
 _SLUG_RE = re.compile(r"[^a-z0-9-]+")
@@ -89,8 +89,8 @@ def extract_vps_auth_labels(compose_text: str) -> dict:
 # ─── catena-network service-alias extraction ─────────────────────────────
 #
 # dashboard-sync routes each domain's Traefik backend to the catena-network
-# alias of the compose service that domain fronts (the Dokploy domain record's
-# serviceName). A multi-domain app (Nextcloud + Talk HPB) gives each service
+# alias of the compose service that domain fronts (the compose service
+# name). A multi-domain app (Nextcloud + Talk HPB) gives each service
 # its own alias (`nextcloud`, `signaling`), so the router must target the
 # service-specific alias, not blindly the appName slug. This is the host-side
 # resolver gate_routes consults. Stdlib-only (no YAML dep): an indentation
@@ -172,8 +172,8 @@ def extract_service_aliases(compose_text: str) -> dict:
 
 # ─── vps.route.* label extraction (client-app ingress host) ───────────────
 #
-# Under Dokploy, a client app's public hostname came from the Dokploy domain
-# API (domain.byComposeId). Portainer has no domain records, so the host is
+# Before the migration, a client app's public hostname came from a control-
+# plane domain API. Portainer has no domain records, so the host is
 # declared on the compose itself via:
 #   vps.route.host     the public FQDN (e.g. blog.acme.com)
 #   vps.route.port     backend port inside the container (default 80)
@@ -244,7 +244,7 @@ def extract_vps_homepage_labels(compose_text: str) -> dict:
 # ─── vps.expose.* label extraction (public non-HTTP ports) ────────────────
 #
 # Direct public ports for protocols Cloudflare Tunnel cannot carry (SMTP,
-# IMAPS, TURN media, ...). A Dokploy template declares the host ports it
+# IMAPS, TURN media, ...). A catena template declares the host ports it
 # publishes via:
 #   vps.expose.tcp   comma-separated ports / ranges (e.g. 25,465,587,993)
 #   vps.expose.udp   comma-separated ports / ranges (e.g. 3478,5349,50000-50100)

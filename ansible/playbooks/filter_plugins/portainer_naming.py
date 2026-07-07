@@ -10,8 +10,8 @@ where:
 - <service-name>  = the key from the compose file's `services:` block
 - <index>         = 1 for non-replicated services; higher for scaled
 
-(Dokploy used `<compose>-<6hex>-<service>-<index>` with a per-instance hash;
-that filter was removed in the Dokploy->Portainer migration.)
+(The previous control plane used `<compose>-<6hex>-<service>-<index>` with a
+per-instance hash; that hashed form is gone.)
 
 Many tasks need to find a running container by `(stack, service)`. The pattern
 is centralised here so a future naming-convention change is a one-file edit.

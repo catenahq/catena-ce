@@ -1,8 +1,8 @@
 """Unit tests for labels_schema.extract_vps_route_labels.
 
-The vps.route.* labels are the client-app ingress host source under the
-Dokploy->Portainer migration (Dokploy's domain.by* API is gone). dashboard-
-sync + gatus-sync + render.py (App Templates) all read them.
+The vps.route.* labels are the client-app ingress host source under Portainer
+(the old control-plane domain API is gone). dashboard-sync + gatus-sync +
+render.py (App Templates) all read them.
 
 Run: uv run pytest tests/unit/test_labels_route.py
 """

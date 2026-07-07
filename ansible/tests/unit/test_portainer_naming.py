@@ -3,7 +3,7 @@
 Focus: portainer_container_regex, the anchored regex tasks use to find a
 running container by (stack, service, index) in `docker ps` output. Portainer
 names containers `<stack>-<service>-<index>` (no per-instance hash, unlike
-Dokploy) -- the hashed form must NOT match.
+the previous control plane) -- the hashed form must NOT match.
 
 Run: uv run pytest tests/unit/test_portainer_naming.py
 """
@@ -29,7 +29,7 @@ def test_defaults_app_index_1():
     assert rx == r"^gatus-app-1$"
     assert re.match(rx, "gatus-app-1")
     assert not re.match(rx, "gatus-app-2")
-    # No Dokploy 6-hex hash segment -- the hashed form must NOT match.
+    # No 6-hex hash segment -- the hashed form must NOT match.
     assert not re.match(rx, "gatus-a1b2c3-app-1")
 
 

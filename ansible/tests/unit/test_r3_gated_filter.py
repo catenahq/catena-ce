@@ -1,8 +1,8 @@
 """Lock down the gated-host probe set in playbooks/validate.yml.
 
-The dynamic Dokploy-compose enumeration (project.all + compose.one +
+The dynamic control-plane compose enumeration (project.all + compose.one +
 composeFile `vps.auth.mode=public` classification) was removed in the
-Dokploy->Portainer migration: client-app gating is now label-based via
+Portainer migration: client-app gating is now label-based via
 dashboard-sync (route_synth / labels_schema), verified by
 verify_gated_services.yml, not re-walked in validate. This test guards
 the one remaining invariant in the static build-set step.

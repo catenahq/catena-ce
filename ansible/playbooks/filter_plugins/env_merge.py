@@ -2,17 +2,17 @@
 string, preserving operator/client edits for keys the catalog doesn't own
 AND for credential-shaped keys whose existing value is non-empty.
 
-Dokploy stores compose env vars as a single newline-separated string (the
-literal text of its in-UI env editor). Every converge that re-POSTs
-compose.update with just our catalog env would clobber anything the
-operator or client typed in that editor. This filter merges:
+A compose env block can arrive as a single newline-separated string (the
+literal text of an in-UI env editor). Every converge that re-writes the
+stack with just our catalog env would clobber anything the operator or
+client typed in that editor. This filter merges:
 
-  - Keys NOT in desired (operator/client typed them in Dokploy UI) are
+  - Keys NOT in desired (operator/client typed them in the Portainer UI) are
     preserved verbatim.
   - Credential-shaped keys (matching CLIENT_ROTATABLE_SUFFIXES) IN
     desired are preserved when the existing value is non-empty -- this
     is the reconcile-not-overwrite rule that lets a client rotate SMTP
-    or app passwords via Dokploy's env tab and survive the next
+    or app passwords via the Portainer env editor and survive the next
     converge. On first install (existing empty), the catalog value
     wins and seeds the field.
   - Other keys in desired (URLs, hostnames, feature flags) win
@@ -49,7 +49,7 @@ def _is_client_rotatable(key: str) -> bool:
 
 
 def _parse_kv(line) -> tuple[str, str] | None:
-    # Accept dict shape `{name: K, value: V}` (Dokploy's native env entry
+    # Accept dict shape `{name: K, value: V}` (the structured env entry
     # form, used by some catena_app callers) AND the legacy "K=V" string
     # shape used by the older callers. Mixing the two within a single
     # svc_env list is harmless.

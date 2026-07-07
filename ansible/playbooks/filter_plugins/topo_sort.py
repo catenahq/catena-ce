@@ -83,7 +83,7 @@ def pg_replay_order(basenames, catalog=None):
     Catalog entries map `app_name` -> `pg_replay_depends_on`. We match
     catalog entries to basenames by membership: a catalog entry with
     app_name="nextcloud" applies to a basename "nextcloud" or any
-    basename that starts with "nextcloud-" (Dokploy compose names that
+    basename that starts with "nextcloud-" (compose names that
     embed the app slug, e.g. "nextcloud-db"). Dependencies are only
     enforced when both endpoints are present in `basenames`; otherwise
     the dep is dropped (a templated app that hasn't been deployed has

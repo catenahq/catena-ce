@@ -1,7 +1,7 @@
 """Unit tests for the env_merge filter plugin.
 
 Covers the reconcile-not-overwrite merge that keeps operator/client env
-edits alive across converges, for BOTH the Dokploy newline-string shape
+edits alive across converges, for BOTH the legacy newline-string shape
 (merge_env) and the Portainer structured-array shape (merge_env_portainer).
 
 Run: uv run pytest tests/unit/test_env_merge.py
@@ -20,7 +20,7 @@ em = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(em)
 
 
-# --- merge_env (Dokploy newline-string shape) -------------------------------
+# --- merge_env (legacy newline-string shape) --------------------------------
 def test_merge_env_catalog_key_wins_for_non_credential():
     got = em.merge_env("URL=old", ["URL=new"])
     assert got == ["URL=new"]

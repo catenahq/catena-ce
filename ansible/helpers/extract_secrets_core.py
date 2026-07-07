@@ -56,8 +56,8 @@ RunCmd = Callable[[str], CommandResult]
 #     to re-mint it.
 #
 # <pat> is an fnmatch glob matched against `docker ps --format '{{.Names}}'`.
-# Dokploy names containers "<app>-<hash>-<service>-<idx>" so a pattern like
-# "<service>-*-<role>-1" pins to a Dokploy-managed container across re-deploys.
+# Portainer names containers "<stack>-<service>-<index>" so a pattern like
+# "<service>-*-<role>-1" pins to a running container across re-deploys.
 # optional=True: if no container matches, silently omit the key instead of
 # flagging it as RECOVERY-FAILED (Nextcloud-S3 + SMTP-disabled paths).
 LOCATIONS: dict[str, dict] = {
@@ -164,10 +164,10 @@ LOCATIONS: dict[str, dict] = {
         "env_key": "DASHBOARD_SYNC_CLIENT_SECRET",
         "optional": True,
     },
-    # Nextcloud's native-OIDC client secret (EP3). Dokploy compose
+    # Nextcloud's native-OIDC client secret (EP3). The compose
     # passes it as the NEXTCLOUD_OIDC_CLIENT_SECRET env var, which
     # the post-deploy `occ user_oidc:provider` task in nextcloud_oidc.yml
-    # consumes. Optional because Nextcloud is a Dokploy template the
+    # consumes. Optional because Nextcloud is a catena template the
     # operator deploys at-will -- no container exists on every host.
     "vault_nextcloud_oidc_client_secret": {
         "kind": "container-env",
@@ -237,7 +237,7 @@ LOCATIONS: dict[str, dict] = {
     # Bundled Jitsi sidecars ship as separate services in the rocket-chat
     # compose. The whole JITSI block can be commented out (chat-only
     # deployments) so all four are optional. Container names follow
-    # Dokploy "<app>-<hash>-<service>-<idx>".
+    # Portainer "<stack>-<service>-<index>".
     "vault_jitsi_jicofo_auth_password": {
         "kind": "container-env",
         "container": "rocketchat-*-jicofo-*",
