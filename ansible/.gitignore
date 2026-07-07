@@ -12,7 +12,9 @@ inventory/example/**/vault.sops.yml
 inventory/example/**/vault.yml
 
 # Galaxy collections vendored by `ansible-galaxy collection install -r requirements.yml`.
-collections/
+# Dot-prefixed (see ansible.cfg collections_path) so `go build ./...` at the
+# repo root skips the .go test fixtures these collections ship.
+.collections/
 
 # Controller-side ansible state + python bytecode from the filter/lookup plugins.
 .ansible/
