@@ -72,3 +72,102 @@
         - Re-run the probe manually:
             curl -I https://{{ infrastructure_monitor_hostname }}/
   when: _infra_gated_failures | length > 0
+
+# ── dynamic client-app auth-gate probe ────────────────────────────────────
+# The static list above only covers the fixed infra hostnames. Every
+# DEPLOYED client app that dashboard-sync gated gets a *-auto-gate.yml route
+# file; enumerate those (the on-host source of truth the route writer
+# produced) and assert none of their hosts serves HTTP 200 anonymously. A
+# 200 means the auth gate is NOT enforced -- the regression the old
+# Dokploy-era per-app enumeration used to catch. Redirects to Keycloak
+# (30x) and hard denies (401/403) are the healthy outcomes; other statuses
+# (404, 5xx, unreachable) are surfaced as a warning, not a failure -- they
+# indicate a routing problem, not an auth bypass.
+- name: "Verify gated client apps: enumerate auto-gate route files"
+  ansible.builtin.find:
+    paths: "{{ traefik_dynamic_dir | default('/etc/catena/traefik/dynamic') }}"
+    patterns: "*-auto-gate.yml"
+  register: _client_gate_files
+
+- name: "Verify gated client apps: read gate route rules"
+  ansible.builtin.slurp:
+    src: "{{ item.path }}"
+  loop: "{{ _client_gate_files.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: _client_gate_bodies
+
+- name: "Verify gated client apps: extract gated hostnames"
+  ansible.builtin.set_fact:
+    _client_gated_hosts: >-
+      {{
+        (_client_gate_bodies.results | default([]))
+        | map(attribute='content')
+        | map('b64decode')
+        | map('regex_findall', 'Host\(`([^`]+)`\)')
+        | flatten
+        | unique
+        | list
+      }}
+
+- name: "Verify gated client apps: anonymous probe must NOT return 200"
+  ansible.builtin.uri:
+    url: "https://{{ item }}/"
+    method: GET
+    follow_redirects: none
+    timeout: 10
+    status_code: [200, 301, 302, 303, 307, 308, 401, 403, 404, 502, 503]
+  loop: "{{ _client_gated_hosts }}"
+  register: _client_gate_probes
+  delegate_to: localhost
+  become: false
+  ignore_errors: true
+
+- name: "Verify gated client apps: compute bypasses + oddities"
+  ansible.builtin.set_fact:
+    _client_gate_bypasses: >-
+      {{
+        (_client_gate_probes.results | default([]))
+        | selectattr('status', 'defined')
+        | selectattr('status', 'equalto', 200)
+        | map(attribute='item')
+        | list
+      }}
+    _client_gate_oddities: >-
+      {{
+        (_client_gate_probes.results | default([]))
+        | rejectattr('status', 'defined')
+        | map(attribute='item')
+        | list
+        + ((_client_gate_probes.results | default([]))
+           | selectattr('status', 'defined')
+           | rejectattr('status', 'in', [301, 302, 303, 307, 308, 401, 403])
+           | rejectattr('status', 'equalto', 200)
+           | map(attribute='item')
+           | list)
+      }}
+
+- name: "Verify gated client apps: warn on unroutable gated hosts"
+  ansible.builtin.debug:
+    msg: >-
+      {{ _client_gate_oddities | length }} gated client host(s) did not
+      answer with an auth redirect/deny OR a 200 (routing problem, not an
+      auth bypass): {{ _client_gate_oddities | join(', ') }}.
+  when: _client_gate_oddities | length > 0
+
+- name: "Verify gated client apps: fail on anonymous 200 (auth gate bypass)"
+  ansible.builtin.fail:
+    msg: >-
+      {{ _client_gate_bypasses | length }} gated client app host(s) served
+      HTTP 200 to an ANONYMOUS request -- the oauth2 gate is not enforced:
+      {{ _client_gate_bypasses | join(', ') }}. Check the app's
+      *-auto-gate.yml / *-oauth2-proxy.yml routes under the Traefik dynamic
+      dir and the oauth2-proxy container for that slug.
+  when: _client_gate_bypasses | length > 0
+
+- name: "Verify gated client apps: all clear"
+  ansible.builtin.debug:
+    msg: >-
+      {{ _client_gated_hosts | length }} gated client host(s) probed; none
+      served an anonymous 200.
+  when: _client_gate_bypasses | length == 0
