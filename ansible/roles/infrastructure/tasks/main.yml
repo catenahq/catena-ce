@@ -308,16 +308,6 @@
           tags: [dashboard_sync]
       tags: [dashboard_sync]
 
-    # gatus-sync now reads CLIENT-app monitoring from `docker ps` labels
-    # (vps.route.host + com.docker.compose.project), no control-plane API --
-    # so it runs on any converge (no control-plane-key gate).
-    - name: gatus-sync script + systemd timer
-      ansible.builtin.include_tasks:
-        file: gatus_sync.yml
-        apply:
-          tags: [gatus, gatus_sync]
-      tags: [gatus, gatus_sync]
-
     # Aggregate end-of-role readiness probe for the gated services.
     # Deferred here (rather than per-service inside each portainer_stack
     # include) so the SSO chain (Keycloak + oauth2-proxy) has the full
@@ -331,6 +321,18 @@
         apply:
           tags: [verify_gated]
       tags: [verify_gated]
+
+# gatus-sync reads CLIENT-app monitoring from `docker ps` labels
+# (vps.route.host + com.docker.compose.project), no control-plane API -- so
+# it runs on any converge, OUTSIDE the Portainer-key-gated block above (a
+# partial --tags infrastructure run before roles/portainer ran must still
+# install it).
+- name: gatus-sync script + systemd timer
+  ansible.builtin.include_tasks:
+    file: gatus_sync.yml
+    apply:
+      tags: [gatus, gatus_sync]
+  tags: [gatus, gatus_sync]
 
 # The weekly stack-update timer (managed floating-tag container updates) and
 # the hourly external dead-man watchdog are SCHEDULED automation -- they are
