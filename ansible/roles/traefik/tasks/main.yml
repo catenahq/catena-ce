@@ -46,6 +46,42 @@
     - "{{ traefik_config_dir }}"
     - "{{ traefik_dynamic_dir }}"
 
+# acme.json backs certificatesResolvers.letsencrypt.acme.storage
+# (traefik.yml.j2). It must exist as a FILE before the container launch: a
+# docker bind-mount auto-creates a missing source as a DIRECTORY, which
+# breaks Traefik ACME storage. On a legacy host roles/common migrated the
+# Dokploy-era file in; on a fresh host nothing else creates it.
+- name: "traefik: stat acme.json (ACME cert storage must be a file)"
+  ansible.builtin.stat:
+    path: "{{ traefik_dynamic_dir }}/acme.json"
+  register: _traefik_acme_stat
+
+- name: "traefik: remove acme.json auto-created as a directory by a bind-mount"
+  ansible.builtin.file:
+    path: "{{ traefik_dynamic_dir }}/acme.json"
+    state: absent
+  when:
+    - _traefik_acme_stat.stat.exists
+    - _traefik_acme_stat.stat.isdir | default(false)
+  register: _traefik_acme_dir_rm
+
+- name: "traefik: seed empty acme.json"
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ traefik_dynamic_dir }}/acme.json"
+    owner: root
+    group: root
+    mode: "0600"
+    force: false
+
+- name: "traefik: enforce 0600 on acme.json (Traefik refuses looser modes)"
+  ansible.builtin.file:
+    path: "{{ traefik_dynamic_dir }}/acme.json"
+    state: file
+    owner: root
+    group: root
+    mode: "0600"
+
 - name: "traefik: render static traefik.yml from template"
   ansible.builtin.template:
     src: traefik.yml.j2
@@ -105,6 +141,8 @@
   failed_when: false
   when: _traefik_inspect.rc == 0
 
+# A directory-acme.json fix means any running container still holds the bad
+# mount, so it must be relaunched onto the seeded file.
 - name: "traefik: decide whether catena-traefik needs (re)launch"
   ansible.builtin.set_fact:
     _traefik_needs_relaunch: >-
@@ -112,6 +150,7 @@
         _traefik_inspect.rc != 0
         or ((_traefik_running_image.stdout | default('') | trim) != traefik_image)
         or ((_traefik_ports.stdout | default('{}') | trim) not in ['{}', 'null'])
+        or (_traefik_acme_dir_rm.changed | default(false))
       }}
 
 - name: "traefik: stop existing catena-traefik for relaunch"
