@@ -57,7 +57,9 @@ RunCmd = Callable[[str], CommandResult]
 #
 # <pat> is an fnmatch glob matched against `docker ps --format '{{.Names}}'`.
 # Portainer names containers "<stack>-<service>-<index>" so a pattern like
-# "<service>-*-<role>-1" pins to a running container across re-deploys.
+# "<stack>-<service>-*" pins to a running container across re-deploys.
+# (The Dokploy-era names carried a hash segment between stack and service;
+# that slot is gone, so the globs must NOT contain a middle "-*-".)
 # optional=True: if no container matches, silently omit the key instead of
 # flagging it as RECOVERY-FAILED (Nextcloud-S3 + SMTP-disabled paths).
 LOCATIONS: dict[str, dict] = {
@@ -122,12 +124,12 @@ LOCATIONS: dict[str, dict] = {
     # ── SSO (Keycloak Phase Two) ─────────────────────────────────────
     "vault_keycloak_db_password": {
         "kind": "container-env",
-        "container": "keycloak-*-server-*",
+        "container": "keycloak-server-*",
         "env": "KC_DB_PASSWORD",
     },
     "vault_admin_password": {
         "kind": "container-env",
-        "container": "keycloak-*-server-*",
+        "container": "keycloak-server-*",
         "env": "KC_BOOTSTRAP_ADMIN_PASSWORD",
         # Initial-admin envs are read ONLY on first boot. After that
         # the running container can have empty/rotated env values
@@ -141,13 +143,13 @@ LOCATIONS: dict[str, dict] = {
         # so the running oauth2-proxy container is the cleanest source of
         # truth for the in-use secret. Either staff or admin instance
         # works -- they share the secret.
-        "container": "oauth2-proxy-*-staff-*",
+        "container": "oauth2-proxy-staff-*",
         "env": "OAUTH2_PROXY_CLIENT_SECRET",
         "optional": True,
     },
     "vault_oauth2_proxy_cookie_secret": {
         "kind": "container-env",
-        "container": "oauth2-proxy-*-staff-*",
+        "container": "oauth2-proxy-staff-*",
         "env": "OAUTH2_PROXY_COOKIE_SECRET",
         "optional": True,
     },
@@ -171,24 +173,24 @@ LOCATIONS: dict[str, dict] = {
     # operator deploys at-will -- no container exists on every host.
     "vault_nextcloud_oidc_client_secret": {
         "kind": "container-env",
-        "container": "nextcloud-*-app-*",
+        "container": "nextcloud-app-*",
         "env": "NEXTCLOUD_OIDC_CLIENT_SECRET",
         "optional": True,
     },
     # ── Healthchecks ─────────────────────────────────────────────────
     "vault_healthchecks_secret_key": {
         "kind": "container-env",
-        "container": "healthchecks-*-app-*",
+        "container": "healthchecks-app-*",
         "env": "SECRET_KEY",
     },
     "vault_healthchecks_superuser_password": {
         "kind": "container-env",
-        "container": "healthchecks-*-app-*",
+        "container": "healthchecks-app-*",
         "env": "SUPERUSER_PASSWORD",
     },
     "vault_healthchecks_ping_key": {
         "kind": "container-env",
-        "container": "healthchecks-*-app-*",
+        "container": "healthchecks-app-*",
         "env": "PING_KEY",
     },
     "vault_healthchecks_api_key_readonly": {
@@ -211,13 +213,13 @@ LOCATIONS: dict[str, dict] = {
     # ── Nextcloud-S3 (client-specific, may not be present) ───────────
     "vault_nextcloud_s3_access_key": {
         "kind": "container-env",
-        "container": "nextcloud-*-app-*",
+        "container": "nextcloud-app-*",
         "env": "OBJECTSTORE_S3_KEY",
         "optional": True,
     },
     "vault_nextcloud_s3_secret_key": {
         "kind": "container-env",
-        "container": "nextcloud-*-app-*",
+        "container": "nextcloud-app-*",
         "env": "OBJECTSTORE_S3_SECRET",
         "optional": True,
     },
@@ -240,19 +242,19 @@ LOCATIONS: dict[str, dict] = {
     # Portainer "<stack>-<service>-<index>".
     "vault_jitsi_jicofo_auth_password": {
         "kind": "container-env",
-        "container": "rocketchat-*-jicofo-*",
+        "container": "rocketchat-jicofo-*",
         "env": "JICOFO_AUTH_PASSWORD",
         "optional": True,
     },
     "vault_jitsi_jicofo_component_secret": {
         "kind": "container-env",
-        "container": "rocketchat-*-jicofo-*",
+        "container": "rocketchat-jicofo-*",
         "env": "JICOFO_COMPONENT_SECRET",
         "optional": True,
     },
     "vault_jitsi_jvb_auth_password": {
         "kind": "container-env",
-        "container": "rocketchat-*-jvb-*",
+        "container": "rocketchat-jvb-*",
         "env": "JVB_AUTH_PASSWORD",
         "optional": True,
     },
@@ -264,7 +266,7 @@ LOCATIONS: dict[str, dict] = {
     # without a LOCATIONS bump.
     "vault_jitsi_prosody_password": {
         "kind": "container-env",
-        "container": "rocketchat-*-prosody-*",
+        "container": "rocketchat-prosody-*",
         "env": "PROSODY_PASSWORD",
         "optional": True,
     },
@@ -275,31 +277,31 @@ LOCATIONS: dict[str, dict] = {
     # templates coexist on the same host.
     "vault_element_oidc_client_secret": {
         "kind": "container-env",
-        "container": "element-*-synapse-*",
+        "container": "element-synapse-*",
         "env": "OIDC_CLIENT_SECRET",
         "optional": True,
     },
     "vault_element_jitsi_jicofo_auth_password": {
         "kind": "container-env",
-        "container": "element-*-jicofo-*",
+        "container": "element-jicofo-*",
         "env": "JICOFO_AUTH_PASSWORD",
         "optional": True,
     },
     "vault_element_jitsi_jicofo_component_secret": {
         "kind": "container-env",
-        "container": "element-*-jicofo-*",
+        "container": "element-jicofo-*",
         "env": "JICOFO_COMPONENT_SECRET",
         "optional": True,
     },
     "vault_element_jitsi_jvb_auth_password": {
         "kind": "container-env",
-        "container": "element-*-jvb-*",
+        "container": "element-jvb-*",
         "env": "JVB_AUTH_PASSWORD",
         "optional": True,
     },
     "vault_element_jigasi_xmpp_password": {
         "kind": "container-env",
-        "container": "element-*-jigasi-*",
+        "container": "element-jigasi-*",
         "env": "JIGASI_XMPP_PASSWORD",
         "optional": True,
     },
@@ -308,13 +310,13 @@ LOCATIONS: dict[str, dict] = {
     # forwarded into the talk-hpb service environment.
     "vault_nextcloud_talk_signaling_secret": {
         "kind": "container-env",
-        "container": "nextcloud-*-talk-hpb-*",
+        "container": "nextcloud-talk-hpb-*",
         "env": "SIGNALING_SECRET",
         "optional": True,
     },
     "vault_nextcloud_talk_internal_secret": {
         "kind": "container-env",
-        "container": "nextcloud-*-talk-hpb-*",
+        "container": "nextcloud-talk-hpb-*",
         "env": "TALK_INTERNAL_SECRET",
         "optional": True,
     },
@@ -325,7 +327,7 @@ LOCATIONS: dict[str, dict] = {
     # so no dms container exists on a tenant without mail.
     "vault_mailserver_relay_password": {
         "kind": "container-env",
-        "container": "mailserver-*-dms-*",
+        "container": "mailserver-dms-*",
         "env": "RELAY_PASSWORD",
         "optional": True,
     },
@@ -338,7 +340,7 @@ LOCATIONS: dict[str, dict] = {
     # no file (cat rc!=0 -> omitted) and a mail-less tenant has no dms.
     "vault_mailserver_spamhaus_dqs_key": {
         "kind": "container-exec",
-        "container": "mailserver-*-dms-*",
+        "container": "mailserver-dms-*",
         "path": "/tmp/docker-mailserver/rspamd/local.d/rbl.conf",
         "regex": r'rbl = "([^".]+)\.zen\.dq\.spamhaus\.net"',
         "optional": True,
