@@ -50,7 +50,6 @@ type Tile struct {
 	Health        string // healthy | unhealthy | unknown
 	LastCheckTS   *float64
 	RawAppName    string
-	ProjectName   string
 	ComposeBody   string
 	Badges        []string
 	Protected     bool
@@ -166,7 +165,6 @@ func portainerTiles(portainer PortainerLister, gatus GatusByHost) []Tile {
 			Health:      health,
 			LastCheckTS: ts,
 			RawAppName:  item.AppName,
-			ProjectName: item.ProjectName,
 			ComposeBody: item.ComposeBody,
 			Badges:      badges,
 			Protected:   authLabels.Protected,

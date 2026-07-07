@@ -27,7 +27,6 @@ type Domain struct {
 // ComposeBody is the stack's StackFileContent. Name/ItemID map to the stack
 // Name/Id.
 type PortainerItem struct {
-	ProjectName string
 	Kind        string
 	ItemID      string
 	AppName     string
@@ -133,7 +132,6 @@ func (c *PortainerClient) fetchAll() []PortainerItem {
 			continue // no public host declared -> not a tile
 		}
 		out = append(out, PortainerItem{
-			ProjectName: "", // Portainer has no project grouping
 			Kind:        "compose",
 			ItemID:      strconv.Itoa(st.ID),
 			AppName:     st.Name,

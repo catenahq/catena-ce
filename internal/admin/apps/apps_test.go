@@ -25,7 +25,7 @@ func boolp(b bool) *bool { return &b }
 func items() []integrations.PortainerItem {
 	return []integrations.PortainerItem{
 		{ // public app, healthy
-			ProjectName: "client", Kind: "compose", ItemID: "c1", AppName: "Nextcloud",
+			Kind: "compose", ItemID: "c1", AppName: "Nextcloud",
 			Domains: []integrations.Domain{{Host: "cloud.example.com"}},
 			ComposeBody: `    labels:
       - "vps.auth.mode=public"
@@ -33,19 +33,19 @@ func items() []integrations.PortainerItem {
 `,
 		},
 		{ // staff-gated
-			ProjectName: "client", Kind: "compose", ItemID: "c2", AppName: "Kimai",
+			Kind: "compose", ItemID: "c2", AppName: "Kimai",
 			Domains: []integrations.Domain{{Host: "time.example.com"}},
 			ComposeBody: `    labels:
       - "vps.auth.groups=staff"
 `,
 		},
 		{ // deny (no labels) -> admin-only
-			ProjectName: "client", Kind: "compose", ItemID: "c3", AppName: "Secret",
+			Kind: "compose", ItemID: "c3", AppName: "Secret",
 			Domains:     []integrations.Domain{{Host: "secret.example.com"}},
 			ComposeBody: ``,
 		},
 		{ // no domain -> skipped entirely
-			ProjectName: "client", Kind: "application", ItemID: "a1", AppName: "Nodomain",
+			Kind: "application", ItemID: "a1", AppName: "Nodomain",
 		},
 	}
 }
