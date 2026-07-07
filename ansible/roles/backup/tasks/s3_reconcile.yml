@@ -29,7 +29,7 @@
   ansible.builtin.set_fact:
     _s3_recon_targets: >-
       {{
-        (dokploy_template_catalog | default([]))
+        (catena_template_catalog | default([]))
         | selectattr('s3_reconcile', 'defined')
         | list
       }}

@@ -77,7 +77,7 @@ def pg_replay_order(basenames, catalog=None):
     """Order pg_replay basenames by catalog `pg_replay_depends_on`.
 
     `basenames` is the list of dump-file basenames seen in
-    backup-staging/pg. `catalog` is the dokploy_template_catalog list
+    backup-staging/pg. `catalog` is the catena_template_catalog list
     (or None / empty list -> falls back to lex-sort).
 
     Catalog entries map `app_name` -> `pg_replay_depends_on`. We match

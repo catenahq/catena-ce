@@ -149,7 +149,7 @@
     _pg_replay_topo_order: >-
       {{
         _pg_replay_dump_basenames
-        | pg_replay_order(dokploy_template_catalog | default([]))
+        | pg_replay_order(catena_template_catalog | default([]))
       }}
   when: _available_pg_dumps.matched > 0
 

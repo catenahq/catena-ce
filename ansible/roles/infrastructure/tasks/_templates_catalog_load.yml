@@ -1,13 +1,13 @@
 ---
 # Load the catenahq/catena-templates catalog and expose it as the
-# `dokploy_template_catalog` fact.
+# `catena_template_catalog` fact.
 #
 # Source URL defaults to the public raw URL of catenahq/catena-templates. The
 # controller running ansible-playbook can override with the env var
 # CATENAHQ_TEMPLATES_BASE (e.g. file:///path/to/local/templates checkout)
 # for bench scenarios or local dev against unpushed catalog changes.
 #
-# Idempotent: gated on `dokploy_template_catalog is not defined`. Safe
+# Idempotent: gated on `catena_template_catalog is not defined`. Safe
 # to include multiple times in the same play.
 #
 # Include this file from a task list. Do NOT include it from a play
@@ -30,13 +30,13 @@
   # not split, so file:// works either way; the explicit kwarg keeps
   # http(s) and file:// paths producing the same raw text.
   ansible.builtin.set_fact:
-    dokploy_template_catalog: >-
+    catena_template_catalog: >-
       {{
         (
           (lookup('ansible.builtin.file', _catenahq_templates_base[7:] + '/source/catalog.yml')
            if _catenahq_templates_base.startswith('file://')
            else lookup('ansible.builtin.url', _catenahq_templates_base + '/source/catalog.yml', split_lines=false))
           | from_yaml
-        ).dokploy_template_catalog
+        ).catena_template_catalog
       }}
-  when: dokploy_template_catalog is not defined
+  when: catena_template_catalog is not defined
