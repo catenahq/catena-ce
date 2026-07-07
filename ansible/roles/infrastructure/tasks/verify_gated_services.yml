@@ -11,7 +11,7 @@
 # 30x covers every gated reverse-proxy instance redirecting to
 # Keycloak.
 #
-# Why end-of-role: per-service probes inside each dokploy_compose include
+# Why end-of-role: per-service probes inside each portainer_stack include
 # can race the SSO stack's own readiness. Deferring to one aggregate
 # pass at end of role gives the auth layer the full wall-clock of the
 # other infra deploys to settle.

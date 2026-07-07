@@ -5,8 +5,8 @@
 #   /usr/local/bin/catena-wire-nextcloud-collabora
 #   /usr/local/bin/catena-wire-nextcloud-onlyoffice
 #
-# Operator deploys ONE of the two `collabora` / `onlyoffice` Dokploy
-# templates per client (both are seeded into the Templates project at
+# Operator deploys ONE of the two `collabora` / `onlyoffice` catena
+# templates per client (both are shipped as App Templates at
 # install but only one is ever Deployed at a time -- they share the
 # `office.<base>` hostname). Then the operator clicks the matching
 # Wire button. The button:

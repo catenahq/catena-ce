@@ -13,7 +13,7 @@
 #   2. POST-DEPLOY (catena-admin action "Wire Rocket.Chat Jitsi"). The
 #      RC REST API calls (POST /api/v1/settings/Jitsi_*) inside the
 #      running Rocket.Chat container, run on demand by the operator
-#      after a Dokploy deploy. Backed by
+#      after a Portainer deploy. Backed by
 #      /usr/local/bin/catena-wire-rocketchat-jitsi (installed below
 #      from vps-scripts/rocketchat-jitsi-wire.sh).
 #

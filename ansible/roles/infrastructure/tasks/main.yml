@@ -55,8 +55,8 @@
 #     converge; it skips cleanly only in the rare window before the key
 #     exists. ------------------------------------------------------------
 # The per-service stack deploys go through the Portainer stack seam
-# (portainer_stack.yml). The old Dokploy-API sub-includes (snapshot,
-# templates, github-provider) were deleted in the Dokploy teardown; gatus_sync
+# (portainer_stack.yml). The old control-plane-API sub-includes (snapshot,
+# templates, github-provider) were deleted in the migration teardown; gatus_sync
 # was ported to read docker labels instead of the control-plane API.
 - name: Has Portainer API key -> provision services via the Portainer stack API
   when:
@@ -246,7 +246,7 @@
 
     # Nextcloud office editors (Collabora / OnlyOffice). Pure host-side
     # wiring-script install; no Keycloak realm client. The matching
-    # Dokploy templates ship their own composes; the Actions-tab buttons
+    # catena templates ship their own composes; the Actions-tab buttons
     # do the post-deploy occ wiring. See nextcloud_office.yml header.
     - name: Nextcloud office editors (Collabora + OnlyOffice wire scripts)
       ansible.builtin.include_tasks:
@@ -310,7 +310,7 @@
 
     # gatus-sync now reads CLIENT-app monitoring from `docker ps` labels
     # (vps.route.host + com.docker.compose.project), no control-plane API --
-    # so it runs on any converge (no Dokploy-key gate).
+    # so it runs on any converge (no control-plane-key gate).
     - name: gatus-sync script + systemd timer
       ansible.builtin.include_tasks:
         file: gatus_sync.yml
@@ -319,7 +319,7 @@
       tags: [gatus, gatus_sync]
 
     # Aggregate end-of-role readiness probe for the gated services.
-    # Deferred here (rather than per-service inside each dokploy_compose
+    # Deferred here (rather than per-service inside each portainer_stack
     # include) so the SSO chain (Keycloak + oauth2-proxy) has the full
     # wall-clock of the other infra deploys to finish settling before
     # we test. Fails fast with diagnostic output if any gated app's

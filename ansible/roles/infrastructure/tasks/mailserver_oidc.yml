@@ -41,7 +41,7 @@
   ansible.builtin.debug:
     msg: >-
       mailserver template not deployed (no dms container); skipping SSO
-      wiring. Deploy the `mailserver` template in Dokploy, then re-converge.
+      wiring. Deploy the `mailserver` template in Portainer, then re-converge.
   when: (_dms_ct.stdout | default('') | length) == 0
 
 - name: "Mailserver OIDC: ensure host staging dir exists"

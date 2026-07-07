@@ -1,5 +1,5 @@
 ---
-# Deploy self-hosted Healthchecks as a Dokploy-managed compose app ->
+# Deploy self-hosted Healthchecks as a Portainer-managed compose app ->
 # heartbeat.<zone>. Purpose-built cron/dead-man monitoring -- the OSS
 # project behind healthchecks.io. One container, SQLite, no metrics,
 # ntfy-capable. Replaces the Netdata detour earlier in the session.
@@ -32,7 +32,7 @@
 # Forward-auth route reintroduced in plan step 4 (roles/oauth2_proxy)
 # as healthchecks-oauth2-proxy.yml.
 
-- name: "Healthchecks: deploy via Dokploy API"
+- name: "Healthchecks: deploy via Portainer API"
   ansible.builtin.include_tasks: portainer_stack.yml
   vars:
     svc_name: "{{ healthchecks_compose_name }}"
@@ -52,7 +52,7 @@
 # Seeds: (a) an ntfy Channel wired to the operator's topic, (b) a
 # "catena-backup" Check with daily schedule + 2h grace, (c) binds
 # the channel to the check. Idempotent -- re-running on an existing
-# install just reconciles. Runs on the Dokploy-assigned container
+# install just reconciles. Runs on the Portainer-assigned container
 # name; retries while the container + Django + migrations come up.
 #
 # Budget: 60 × 5s = 300s (5 min). Covers cold image pulls without
@@ -76,8 +76,8 @@
 # docker service ps --no-trunc) so a timeout on the bench -- where
 # the VM is torn down before the
 # operator can shell in -- still yields enough signal to classify
-# the failure: image pull / swarm placement / Dokploy never
-# scheduled the compose.
+# the failure: image pull / swarm placement / the control plane
+# never scheduled the compose.
 - name: "Healthchecks: diag -- docker ps -a (container-level state)"
   ansible.builtin.shell: |
     docker ps -a --format 'table {{ "{{" }}.Names{{ "}}" }}\t{{ "{{" }}.Status{{ "}}" }}\t{{ "{{" }}.Image{{ "}}" }}' \
@@ -138,9 +138,9 @@
           -> app crashed; check `docker logs` of that container.
         - Task in `docker service ps` with Rejected / Failed + an Error
           column -> image pull / placement / config failure.
-        - Service replicas=0/1 and no task history -> Dokploy accepted
-          the compose but never scheduled it; check Dokploy compose
-          status in the admin UI.
+        - Service replicas=0/1 and no task history -> the control plane
+          accepted the compose but never scheduled it; check the stack
+          status in the Portainer UI.
   when: (_healthchecks_container_name.stdout | default('') | trim) | length == 0
 
 # The Django seed lives at vps-scripts/healthchecks-seed.py -- plain

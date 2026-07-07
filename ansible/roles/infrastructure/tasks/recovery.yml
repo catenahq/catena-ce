@@ -1,5 +1,5 @@
 ---
-# Deploy the recovery-downloads nginx sidecar as a Dokploy-managed
+# Deploy the recovery-downloads nginx sidecar as a Portainer-managed
 # compose app -> recovery.<zone>.
 #
 # Purpose: SSO-gated file server exposing /var/backups/catena-
@@ -52,7 +52,7 @@
 # Forward-auth route reintroduced in plan step 4 (roles/oauth2_proxy)
 # as recovery-oauth2-proxy.yml.
 
-- name: "recovery: deploy via Dokploy API"
+- name: "recovery: deploy via Portainer API"
   ansible.builtin.include_tasks: portainer_stack.yml
   vars:
     svc_name: "{{ recovery_compose_name }}"

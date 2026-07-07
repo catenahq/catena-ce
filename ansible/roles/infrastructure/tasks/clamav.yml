@@ -67,7 +67,7 @@
 - name: "ClamAV: deploy clamd + watchdog when a consumer is running"
   when: (_clamav_consumer.stdout | default('') | trim) | length > 0
   block:
-    - name: "ClamAV: deploy shared clamd via Dokploy API"
+    - name: "ClamAV: deploy shared clamd via Portainer API"
       ansible.builtin.include_tasks: portainer_stack.yml
       vars:
         svc_name: "{{ clamav_compose_name }}"

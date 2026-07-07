@@ -2,9 +2,9 @@
 # Element / Matrix OIDC against Keycloak.
 #
 # Single-step (unlike nextcloud_oidc.yml which has a post-deploy occ
-# wiring): the element Dokploy template's catena-synapse-init.py
+# wiring): the element catena template's catena-synapse-init.py
 # renders the OIDC block straight into homeserver.yaml from env vars
-# at container start. The Dokploy template ships
+# at container start. The catena template ships
 # OIDC_CLIENT_SECRET={{ vault_element_oidc_client_secret }} in
 # env_managed_keys (re-injected on every converge), so as long as
 # Keycloak has a matching `element` client with the same secret, the

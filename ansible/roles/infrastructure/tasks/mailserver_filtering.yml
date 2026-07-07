@@ -124,7 +124,7 @@
     # than "render changed":
     #   - clean re-converge: shas match -> no change -> no restart
     #     (restore_dr stage-2.5 stays green);
-    #   - container recreate (DR restore, Dokploy redeploy) resets /etc to
+    #   - container recreate (DR restore, Portainer redeploy) resets /etc to
     #     image defaults -> shas differ -> drop-ins recopied + rspamd
     #     restarted, so filtering self-heals. Gating on render-changed would
     #     skip this and silently leave filtering OFF after a restore.

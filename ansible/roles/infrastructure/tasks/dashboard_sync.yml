@@ -7,7 +7,7 @@
 # Phase 4b: the script no longer writes Homepage's services.yaml. Its
 # only remaining job is the gate-route synthesis -- generating
 # {{ traefik_dynamic_dir }}/<app>-auto-gate.yml from every
-# Dokploy compose/application's vps.auth.* labels.
+# Portainer stack's vps.auth.* labels.
 
 - name: "dashboard-sync: script"
   # Plain stdlib-only Python under vps-scripts/ -- no Jinja in

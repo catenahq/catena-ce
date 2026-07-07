@@ -5,7 +5,7 @@
 # ("Wire Nextcloud Antivirus") runs the in-container occ wiring on
 # demand. Per project policy, converge does NOT do per-template
 # in-container config -- it cannot assume a converge runs after every
-# Dokploy template deploy.
+# template deploy.
 #
 # The shared clamd is deployed by clamav.yml and reachable as
 # clamav:3310 on the {{ clamav_network }} network, which the Nextcloud

@@ -35,7 +35,7 @@
       (the universal token must be <= 64 chars; Beszel rejects longer
       X-Token headers), then re-run ./catena site.
 
-- name: "Beszel: deploy hub via Dokploy API"
+- name: "Beszel: deploy hub via Portainer API"
   ansible.builtin.include_tasks: portainer_stack.yml
   vars:
     svc_name: "{{ beszel_hub_compose_name }}"
@@ -131,7 +131,7 @@
   until: _beszel_seed.rc == 0
   no_log: true
 
-- name: "Beszel: deploy agent via Dokploy API"
+- name: "Beszel: deploy agent via Portainer API"
   ansible.builtin.include_tasks: portainer_stack.yml
   vars:
     svc_name: "{{ beszel_agent_compose_name }}"
@@ -170,7 +170,7 @@
     group: root
     mode: "0644"
 
-- name: "Beszel: deploy alert shim via Dokploy API"
+- name: "Beszel: deploy alert shim via Portainer API"
   ansible.builtin.include_tasks: portainer_stack.yml
   vars:
     svc_name: "{{ beszel_hc_shim_compose_name }}"
