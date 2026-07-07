@@ -353,6 +353,59 @@
     - (_cloudflared_current_image.stdout | default('')).split('@')[0] != cloudflared_image
   changed_when: true
 
+# A cloudflared created in the Dokploy era is attached to dokploy-network
+# only; catena-traefik lives on catena-network only (the straddle was
+# dropped), so on a re-converged legacy host the tunnel cannot reach Traefik
+# and the whole public edge 530s. Reconcile the service's network membership
+# like the token/image above. Service specs reference networks by ID, so
+# compare against the resolved catena-network id. The update ROLLS the
+# connector (same caveat as the token push) -- it only fires when
+# catena-network is genuinely missing, and the chain probe below verifies
+# recovery. A legacy dokploy-network attachment is dropped in the SAME
+# update to avoid a second roll; when catena-network is already attached, a
+# lingering legacy attachment is left alone (harmless, and not worth a
+# connector drop to prune).
+- name: Read catena-network id (cloudflared network reconcile)
+  ansible.builtin.command: docker network inspect catena-network --format '{{ "{{" }}.Id{{ "}}" }}'
+  register: _catena_net_id
+  changed_when: false
+  when: _cloudflared_service.rc == 0
+
+- name: Read cloudflared attached network ids
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - inspect
+      - cloudflared
+      - --format
+      - "{{ '{{' }}range .Spec.TaskTemplate.Networks{{ '}}' }}{{ '{{' }}.Target{{ '}}' }} {{ '{{' }}end{{ '}}' }}"
+  register: _cloudflared_networks
+  changed_when: false
+  when: _cloudflared_service.rc == 0
+
+- name: Check whether the legacy dokploy-network is attached to cloudflared
+  ansible.builtin.command: docker network inspect dokploy-network --format '{{ "{{" }}.Id{{ "}}" }}'
+  register: _dokploy_net_id
+  changed_when: false
+  failed_when: false
+  when: _cloudflared_service.rc == 0
+
+- name: Reconnect cloudflared onto catena-network (drop legacy dokploy-network)
+  ansible.builtin.command:
+    argv: >-
+      {{ ['docker', 'service', 'update', '--network-add=catena-network']
+         + (['--network-rm=dokploy-network'] if _legacy_net_attached else [])
+         + ['cloudflared'] }}
+  vars:
+    _legacy_net_attached: >-
+      {{ _dokploy_net_id.rc == 0
+         and (_dokploy_net_id.stdout | trim) in (_cloudflared_networks.stdout | default('')) }}
+  when:
+    - _cloudflared_service.rc == 0
+    - (_catena_net_id.stdout | trim) not in (_cloudflared_networks.stdout | default(''))
+  changed_when: true
+
 # ─── atomicity: probe the full CF edge -> tunnel -> Traefik chain ──────────
 # Every previous step returned success individually -- CF API accepted
 # our tunnel config, cloudflared swarm service exists, DNS CNAME is in
