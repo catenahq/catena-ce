@@ -8,8 +8,8 @@
 # user (`keycloak`) inside the catena-postgres swarm service that
 # roles/postgres deploys. Project convention is one Postgres per VPS,
 # multiple DBs inside (see the PLANNING.md sec 2 decision in the sibling
-# catenahq/sales repo). Historically this DB lived in dokploy-postgres;
-# the Dokploy->Portainer migration moved it to catena-owned Postgres
+# catenahq/sales repo). Historically this DB lived in the control plane's
+# own Postgres; the Portainer migration moved it to catena-owned Postgres
 # (Portainer uses BoltDB, no shared Postgres to piggyback on).
 
 # --- Hostname ---

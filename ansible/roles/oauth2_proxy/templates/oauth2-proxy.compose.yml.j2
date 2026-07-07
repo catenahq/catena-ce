@@ -11,7 +11,7 @@
 # The legacy `staff:` / `admin:` services at the bottom are retained
 # while `oauth2_proxy_keep_legacy_chain` is true so dashboard-sync's
 # gate-route writer (which still emits forwardAuth-chain references
-# for client apps deployed via Dokploy) continues to work. They drop
+# for client apps deployed via Portainer) continues to work. They drop
 # out when Phase 2 of the migration switches dashboard-sync to provision
 # per-app instances itself.
 services:
@@ -87,7 +87,7 @@ services:
 {% if oauth2_proxy_keep_legacy_chain | default(true) %}
   # --- Legacy shared chain instances (Phase 2 will retire) ---
   # These keep dashboard-sync's `vps.auth.mode=private|admin-only` route
-  # writer working for client apps deployed via Dokploy. The hosts they
+  # writer working for client apps deployed via Portainer. The hosts they
   # serve do NOT appear in `oauth2_proxy_apps` -- those use the new
   # per-app pattern above.
   staff:

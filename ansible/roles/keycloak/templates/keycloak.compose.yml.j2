@@ -66,13 +66,13 @@ services:
       # is lost on restart. `cache` is a runtime option, so this is safe
       # under `start` without --optimized (no build-time rebuild loop).
       KC_CACHE: "local"
-      # --- Health (probed by validate.yml + Gatus + Dokploy domain check) ---
+      # --- Health (probed by validate.yml + Gatus + the public route probe) ---
       KC_HEALTH_ENABLED: "true"
       # --- Initial admin (idempotent: skipped after first boot) ---
       # Keycloak 26 reads these envs ONLY when no admin user exists in
       # the DB yet. On a DR converge the restored Postgres already has
       # the admin row, so these envs are ignored. Same identity as
-      # Dokploy's admin per the shared-vault contract.
+      # the Portainer admin per the shared-vault contract.
       KC_BOOTSTRAP_ADMIN_USERNAME: "{{ admin_email }}"
       KC_BOOTSTRAP_ADMIN_PASSWORD: "{{ vault_admin_password }}"
     networks:

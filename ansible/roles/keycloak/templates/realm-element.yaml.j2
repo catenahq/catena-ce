@@ -3,11 +3,11 @@
 #
 # Synapse reads the OIDC client_id + client_secret + issuer from its
 # homeserver.yaml at boot (rendered by the element template's
-# catena-synapse-init.py from env vars). The Dokploy template passes
+# catena-synapse-init.py from env vars). The catena template passes
 # OIDC_CLIENT_SECRET={{ '{{' }} vault_element_oidc_client_secret {{ '}}' }} into
 # the synapse service environment, so registering the matching client
 # here -- with the same secret -- lets the discovery URL work the
-# moment the operator clicks Deploy in the Dokploy UI.
+# moment the operator clicks Deploy in the Portainer UI.
 #
 # This file lives in the same /config dir as realm-vps.yaml so
 # keycloak-config-cli's IMPORT_FILES_LOCATIONS=/config/*.yaml glob

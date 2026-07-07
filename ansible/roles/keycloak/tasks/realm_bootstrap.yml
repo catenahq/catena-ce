@@ -38,7 +38,7 @@
 # keycloak-config-cli's MERGE semantics preserve whatever the client
 # may have edited (admin UI -> Realm settings -> Email tab).
 # Operator-driven SMTP rotation goes through the runbook (rotate at
-# upstream provider, edit Dokploy env tab, optionally rm the marker
+# upstream provider, edit the Portainer env, optionally rm the marker
 # below to force a re-bootstrap from vault).
 # On a post-restore converge the marker doesn't exist on disk (it
 # lives under /var/lib/catena/, which is NOT in backup_paths -- only
@@ -140,13 +140,13 @@
 
 # keycloak-config-cli runs as a one-shot Docker container against the
 # bind-mounted realm dir. We use `docker run --rm` directly rather than
-# Dokploy compose because:
-#   1. It must run to completion + exit, not stay alive (Dokploy's
-#      compose deploy expects long-running services).
+# a Portainer stack because:
+#   1. It must run to completion + exit, not stay alive (a stack deploy
+#      expects long-running services).
 #   2. We need stdout/stderr inline in the Ansible run for diagnostics;
-#      Dokploy buffers logs into its own log surface.
+#      the control plane buffers logs into its own log surface.
 #   3. The image is operator-internal (not part of the customer-facing
-#      stack) -- no point cluttering the Dokploy app catalog with it.
+#      suite) -- no point cluttering the App Templates catalog with it.
 #
 # Network: catena-network so we can reach keycloak-server:8080 by
 # alias. Pull policy is the default (use cached image if present;
@@ -256,7 +256,7 @@
   # with a fresh DNS resolver, so a keycloak-server lookup that missed on
   # the first attempt (alias not yet registered after a rewind-reboot /
   # redeploy, then JVM-negative-cached for that container's life) resolves
-  # on a later attempt once the alias is up -- and a transient dokploy-
+  # on a later attempt once the alias is up -- and a transient catena-
   # network attach error is ridden out too. `until` retries while rc != 0;
   # on final exhaustion failed_when=false keeps the play alive so the debug
   # + abort pair below still surface the real error. The import is

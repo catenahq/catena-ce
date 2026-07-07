@@ -1,8 +1,8 @@
 ---
-# Render keycloak.compose.yml.j2 + deploy via Dokploy API. Reuses
+# Render keycloak.compose.yml.j2 + deploy via the Portainer API. Reuses
 # roles/infrastructure/tasks/portainer_stack.yml -- single canonical
-# helper for "compose.create + domain.create + compose.deploy + ready
-# probe" against Dokploy. See its header for contract details.
+# helper for stack create/update + Traefik route + readiness probe. See
+# its header for contract details.
 #
 # The readiness probe is the public URL (auth.<zone>) which only
 # resolves once cloudflared + Traefik route this host AND Keycloak's

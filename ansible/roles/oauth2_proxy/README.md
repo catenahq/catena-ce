@@ -5,7 +5,7 @@ Configure the two oauth2-proxy instances that gate the stack:
 - **staff** -- protects every client-facing app (Outline,
   Easy!Appointments, Rocket.Chat...) via the `staff` group.
 - **admin** -- protects operator-only surfaces (admin.<zone>,
-  Dokploy UI, Healthchecks UI, OliveTin) via the `operators` /
+  Portainer UI, Healthchecks UI, OliveTin) via the `operators` /
   `client-admin` groups.
 
 ## Responsibilities
@@ -16,7 +16,7 @@ Configure the two oauth2-proxy instances that gate the stack:
 - Render per-app route files (one Traefik dynamic config per
   protected app) with the correct group filter and unprotected-path
   allowlist.
-- Deploy both compose projects via the Dokploy API.
+- Deploy both compose projects via the Portainer API.
 
 ## Inputs
 
@@ -30,7 +30,7 @@ Configure the two oauth2-proxy instances that gate the stack:
 
 - Client secret minting is gated on existence in Keycloak.
 - Traefik route files are rendered atomically per app.
-- Dokploy redeploy fires only when the rendered config differs
+- Portainer redeploy fires only when the rendered config differs
   from the running.
 
 ## Related

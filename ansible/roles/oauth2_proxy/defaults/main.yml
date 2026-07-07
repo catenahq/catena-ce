@@ -118,11 +118,10 @@ oauth2_proxy_jwks_url: "{{ oauth2_proxy_backchannel_base }}/certs"
 #                   `oauth2-proxy-<slug>` compose service name +
 #                   network alias.
 #   host_var        inventory hostname variable holding the public FQDN.
-#   upstream_alias  catena-network alias of the BACKEND app. Dokploy
-#                   compose-managed apps register an alias matching
-#                   their compose service name (e.g. `gatus`,
-#                   `homepage`); swarm services resolve via the
-#                   service name (e.g. `dokploy`).
+#   upstream_alias  catena-network alias of the BACKEND app. Compose-
+#                   managed apps register an alias matching their compose
+#                   service name (e.g. `gatus`, `homepage`); swarm services
+#                   resolve via the service name (e.g. `catena-portainer`).
 #   upstream_port   backend container's listen port.
 #   allowed_groups  list of Keycloak groups that may pass; oauth2-proxy
 #                   `--allowed-group` is repeated once per entry.
@@ -142,7 +141,7 @@ oauth2_proxy_apps:
     host_var: "infrastructure_monitor_hostname"
     upstream_alias: "gatus"
     # Gatus binds 8080 internally regardless of the public hostname --
-    # the OLD Dokploy-auto-route label `loadbalancer.server.port=8080`
+    # the OLD auto-route label `loadbalancer.server.port=8080`
     # masked this. Port 80 inside the gatus container has nothing
     # listening so the proxy gets `connection refused` and emits 502.
     upstream_port: 8080
@@ -186,8 +185,8 @@ oauth2_proxy_apps:
   # ALSO reachable operator-side on the tailnet (host-mode :9000, firewalled
   # to tailnet+RFC1918 by roles/portainer); this entry adds the public,
   # oauth2-gated path over the Cloudflare tunnel so a client admin can
-  # self-serve deploys from portainer.<zone> (parity with the old Dokploy
-  # admin UI). upstream_alias is the swarm service name on catena-network;
+  # self-serve deploys from portainer.<zone> (parity with the old control-
+  # plane admin UI). upstream_alias is the swarm service name on catena-network;
   # 9000 is the container's internal port (target), not the published host
   # port. An empty allowed_groups would mean "any authenticated user", so
   # admin-only MUST be an explicit ["admin"].

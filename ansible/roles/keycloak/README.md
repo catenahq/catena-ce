@@ -6,7 +6,7 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
 
 1. Create the `keycloak` role + database in `catena-postgres`
    (auxiliary task file: `provision_db.yml`).
-2. Deploy the Keycloak compose project via the Dokploy API.
+2. Deploy the Keycloak compose project via the Portainer API.
 3. Bootstrap the `catena` realm:
    - Phase Two extensions (theme, password policy, account console
      v3, recovery codes).

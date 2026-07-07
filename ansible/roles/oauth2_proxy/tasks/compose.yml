@@ -1,5 +1,5 @@
 ---
-# Render compose + deploy via Dokploy API. Reuses the canonical
+# Render compose + deploy via the Portainer API. Reuses the canonical
 # infrastructure helper. No public domain attached -- both oauth2-proxy
 # instances are reached via Traefik forwardAuth on catena-network only.
 

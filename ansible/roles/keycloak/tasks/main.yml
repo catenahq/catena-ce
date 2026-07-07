@@ -3,7 +3,7 @@
 # 1. Preflight: vault keys + admin email + cloudflare_zone defined.
 # 2. Provision keycloak DB + user inside catena-postgres (idempotent
 #    via `CREATE ... IF NOT EXISTS`-equivalent guards).
-# 3. Render compose + deploy via Dokploy API. Health-gated readiness
+# 3. Render compose + deploy via the Portainer API. Health-gated readiness
 #    probe.
 # 4. Realm bootstrap (Phase Two extensions, groups, IdP wizards,
 #    default clients) via realm_bootstrap.yml -- calls keycloak-config-
@@ -40,7 +40,7 @@
 # Portainer stack API. vault_portainer_api_key is minted by roles/portainer
 # earlier in the SAME site converge (it runs before keycloak in site.yml and
 # brings the freshly-minted key into play scope via community.sops.load_vars),
-# so this block converges in a single pass -- no more Dokploy-era pass-1/pass-2
+# so this block converges in a single pass -- no more two-pass pass-1/pass-2
 # dance. Mirror the gate roles/infrastructure uses; the key is present here on
 # a fresh install because portainer already ran.
 - name: "Keycloak: Portainer-API-gated steps (compose, validate, realm)"

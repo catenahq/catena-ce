@@ -25,7 +25,7 @@ http:
     # apps SHOULD use the per-app reverse-proxy pattern instead -- this
     # block stays only because dashboard-sync still emits routes
     # referencing `oauth2-proxy-staff-chain@file` /
-    # `oauth2-proxy-admin-chain@file` for Dokploy-managed client apps.
+    # `oauth2-proxy-admin-chain@file` for client apps deployed via Portainer.
     oauth2-proxy-staff:
       forwardAuth:
         address: "http://{{ oauth2_proxy_staff_alias }}:{{ oauth2_proxy_internal_port }}/oauth2/auth"

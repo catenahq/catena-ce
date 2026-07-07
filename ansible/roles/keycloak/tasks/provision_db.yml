@@ -1,9 +1,9 @@
 ---
 # Provision Keycloak's database + role inside catena-postgres.
 #
-# Why here and not via roles/dokploy: dokploy/postgres bootstrapping
-# is the swarm-secret + install.sh path, scoped to the `dokploy` DB.
-# Per-app DBs are app-role concerns.
+# Why here and not in roles/postgres: roles/postgres owns the
+# catena-postgres server + its superuser swarm secret. Per-app DBs
+# (like keycloak's) are app-role concerns.
 #
 # Idempotency: `CREATE ROLE` + `CREATE DATABASE` are not IF-NOT-EXISTS
 # in vanilla psql, so we render a SQL script that wraps the role
@@ -13,7 +13,7 @@
 #
 # Atomicity: gated on catena-postgres being `running`. Per project
 # memory `feedback_pg_password_state_machine`, catena-postgres becoming
-# reachable AFTER this point is the dokploy role's invariant, not ours.
+# reachable AFTER this point is the postgres role's invariant, not ours.
 #
 # SQL rendered to /root and piped via stdin instead of inlined in
 # `command:`/`shell:` argv -- ansible-core 2.20's stricter arg scanner

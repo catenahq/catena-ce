@@ -73,7 +73,7 @@
       ansible.builtin.fail:
         msg: |
           Keycloak server container did not appear after 30 retries
-          (~120s). Dokploy reported deploy=done but no container
+          (~120s). Portainer reported deploy=done but no container
           matches '{{ keycloak_compose_name | portainer_container_regex(keycloak_server_service) }}'.
 
           docker ps -a (filter name=keycloak):
