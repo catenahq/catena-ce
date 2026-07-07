@@ -269,33 +269,22 @@
 # an operator can prune them manually once satisfied with the cutover.
 # The dokploy-network overlay is NOT removed here -- legacy app containers
 # may still be attached to it; it dies with its last consumer.
-- name: "portainer: list legacy Dokploy swarm services"
-  ansible.builtin.command:
-    argv:
-      - docker
-      - service
-      - ls
-      - --filter
-      - name=dokploy
-      - --format
-      - "{{ '{{' }}.Name{{ '}}' }}"
-  register: _legacy_dokploy_services
-  changed_when: false
-  failed_when: false
-
+# `docker service rm` prints removed names to stdout and rc=1 for names
+# that do not exist, so one fixed-name rm is idempotent: failed_when
+# absorbs the already-gone (or raced-away) case, changed_when fires only
+# when something was actually removed.
 - name: "portainer: remove the legacy Dokploy control-plane services"
   ansible.builtin.command:
     argv:
       - docker
       - service
       - rm
-      - "{{ item }}"
-  loop: >-
-    {{ _legacy_dokploy_services.stdout_lines | default([])
-       | select('in', ['dokploy', 'dokploy-postgres', 'dokploy-redis'])
-       | list }}
+      - dokploy
+      - dokploy-postgres
+      - dokploy-redis
   when:
     - vault_portainer_api_key is defined
     - vault_portainer_api_key | length > 10
   register: _legacy_dokploy_rm
-  changed_when: _legacy_dokploy_rm.rc == 0
+  failed_when: false
+  changed_when: _legacy_dokploy_rm.stdout | default('') | length > 0
