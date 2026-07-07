@@ -80,7 +80,10 @@ portainer_api_base: "http://{{ ansible_host }}:{{ portainer_ui_port }}/api"
 # the client admin's self-serve deploy surface, parity with the old Dokploy
 # admin UI. Distinct from portainer_api_base above, which is the tailnet-only
 # operator control path -- both reach the same catena-portainer service.
-portainer_admin_subdomain: "{{ lookup('dotenv', 'PORTAINER_SUBDOMAIN', default='portainer') }}"
+# default is a nested dotenv lookup of the legacy Dokploy-era key so an
+# existing install whose .env still only has DOKPLOY_ADMIN_SUBDOMAIN
+# doesn't silently move its control-plane hostname to 'portainer'.
+portainer_admin_subdomain: "{{ lookup('dotenv', 'PORTAINER_SUBDOMAIN', default=lookup('dotenv', 'DOKPLOY_ADMIN_SUBDOMAIN', default='portainer')) }}"
 portainer_admin_hostname: "{{ portainer_admin_subdomain }}.{{ cloudflare_zone }}"
 
 # --- Storage ---
