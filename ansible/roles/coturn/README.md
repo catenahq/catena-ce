@@ -112,7 +112,7 @@ The shared-secret auth model (`use-auth-secret` +
 `static-auth-secret`) is the same RFC 7635 HMAC-SHA1 REST credential
 scheme used by Synapse, the server behind Element. **No coturn role
 changes are required** to add a third chat-video stack -- only a
-Synapse compose entry (in `catenahq/dokploy-templates`) that wires
+Synapse compose entry (in `catenahq/catena-templates`) that wires
 the existing `vault_turn_static_auth_secret` through to
 `homeserver.yaml`:
 
