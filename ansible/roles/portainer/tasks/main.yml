@@ -257,3 +257,45 @@
     - vault_portainer_api_key is defined
     - vault_portainer_api_key | length > 10
     - (_pt_endpoints.json | default([]) | selectattr('Name', 'equalto', portainer_local_endpoint_name) | list | length) == 0
+
+# ─── legacy Dokploy control-plane teardown (one-time cutover) ─────────────
+# On a host that ran the Dokploy era, the retired control plane (the
+# `dokploy` swarm service on :3000 plus its dokploy-postgres/dokploy-redis
+# backends) keeps running forever unless removed -- orphaned attack surface
+# alongside the new stack. Remove the SERVICES only, once the Portainer
+# control plane above is live (this point in the role means the admin is
+# bootstrapped and the API answered). Data volumes are deliberately left in
+# place: they hold the Dokploy-era control-plane DB and cost only disk;
+# an operator can prune them manually once satisfied with the cutover.
+# The dokploy-network overlay is NOT removed here -- legacy app containers
+# may still be attached to it; it dies with its last consumer.
+- name: "portainer: list legacy Dokploy swarm services"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - ls
+      - --filter
+      - name=dokploy
+      - --format
+      - "{{ '{{' }}.Name{{ '}}' }}"
+  register: _legacy_dokploy_services
+  changed_when: false
+  failed_when: false
+
+- name: "portainer: remove the legacy Dokploy control-plane services"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - rm
+      - "{{ item }}"
+  loop: >-
+    {{ _legacy_dokploy_services.stdout_lines | default([])
+       | select('in', ['dokploy', 'dokploy-postgres', 'dokploy-redis'])
+       | list }}
+  when:
+    - vault_portainer_api_key is defined
+    - vault_portainer_api_key | length > 10
+  register: _legacy_dokploy_rm
+  changed_when: _legacy_dokploy_rm.rc == 0
