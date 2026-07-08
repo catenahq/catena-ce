@@ -18,9 +18,46 @@ Portainer differences from Dokploy that shape this module:
 from __future__ import annotations
 
 import json
+import re
 import sys
 import urllib.error
 import urllib.request
+
+# ${VAR}, ${VAR:-default}, ${VAR-default} compose-interpolation refs. Group 1
+# is the name; group 2 is the default separator (present only when a default
+# is supplied); group 3 is the default text.
+_ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)((?::-)|-)?([^}]*)\}")
+_DOLLAR_ESCAPE = "\x00CATENA_DOLLAR\x00"
+
+
+def resolve_compose_env(text, env):
+    """Substitute ${VAR} / ${VAR:-default} / ${VAR-default} in `text` using
+    `env` (name->value), mirroring docker-compose interpolation for the
+    label-reading path.
+
+    Portainer stores a stack's compose file VERBATIM (with `${...}` refs) and
+    its resolved values in a separate Env array; docker expands the refs only
+    at `compose up`. dashboard-sync reads the stored file, so a client app's
+    `vps.route.host=${DOMAIN_HOST}` would otherwise reach gate_routes as the
+    literal string `${DOMAIN_HOST}`. Resolving here lets the route/auth/alias
+    extractors see the same values docker does.
+
+    `$$` is an escaped literal `$`. An unset `${VAR}` with no default is left
+    verbatim so a downstream gap stays visible (and no host is silently
+    blanked)."""
+    if not text:
+        return text
+    t = text.replace("$$", _DOLLAR_ESCAPE)
+
+    def _repl(m):
+        name, sep, default = m.group(1), m.group(2), m.group(3)
+        if name in env:
+            return env[name]
+        if sep:  # a default was supplied (${VAR:-x} or ${VAR-x})
+            return default
+        return m.group(0)  # unset, no default -> leave ${VAR} literal
+
+    return _ENV_REF_RE.sub(_repl, t).replace(_DOLLAR_ESCAPE, "$")
 
 
 def portainer_get(base, path, api_key):
@@ -96,12 +133,28 @@ def stack_file(api_base, api_key, stack_id):
     return ""
 
 
+def _stack_env_map(stack):
+    """Build a {name: value} map from a Portainer stack's Env array
+    ([{name, value}, ...]) so the compose body can be resolved the way docker
+    would at `compose up`."""
+    env = {}
+    for ev in stack.get("Env") or []:
+        if isinstance(ev, dict) and ev.get("name"):
+            env[ev["name"]] = ev.get("value", "")
+    return env
+
+
 def iter_stacks(api_base, api_key, skip_names, seen=None):
     """Yield `(name, stack_id, compose_body)` for every stack whose Name is
     not in `skip_names` (the infra stacks Ansible manages directly). `seen`,
     if given, records `(name, status, note)` rows so the sync debug trail
     stays complete. Only ACTIVE stacks (Status==1) are yielded -- an
-    inactive/never-deployed stack has no live backend to route to."""
+    inactive/never-deployed stack has no live backend to route to.
+
+    The compose body is env-resolved against the stack's stored Env array
+    (resolve_compose_env), so `${VAR}` refs in labels -- notably
+    `vps.route.host=${DOMAIN_HOST}` -- reach the label extractors as the value
+    docker deploys, not the literal `${...}` Portainer keeps in the file."""
     for stack in list_stacks(api_base, api_key):
         name = stack.get("Name")
         if not name:
@@ -114,4 +167,6 @@ def iter_stacks(api_base, api_key, skip_names, seen=None):
             if seen is not None:
                 seen.append((name, stack.get("Status"), "skip: inactive"))
             continue
-        yield name, stack.get("Id"), stack_file(api_base, api_key, stack.get("Id"))
+        body = stack_file(api_base, api_key, stack.get("Id"))
+        body = resolve_compose_env(body, _stack_env_map(stack))
+        yield name, stack.get("Id"), body
