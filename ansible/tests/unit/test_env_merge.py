@@ -85,3 +85,29 @@ def test_portainer_empty_desired_keeps_existing():
     existing = [{"name": "URL", "value": "keep"}]
     got = em.merge_env_portainer(existing, [])
     assert got == [{"name": "URL", "value": "keep"}]
+
+
+# --- preserved_env_keys (debug printout on the DR re-converge) ---------------
+def test_preserved_env_keys_portainer_dict_list():
+    # Regression: the DR re-converge passes Portainer's Env dict-list
+    # ([{name,value}, ...]). preserved_env_keys must NOT "\n".join it (that
+    # crashed with "expected str instance, dict found"); it reports the
+    # existing keys the catalog does not own.
+    existing = [
+        {"name": "URL", "value": "https://app"},
+        {"name": "OPERATOR_TYPED", "value": "x"},
+    ]
+    assert em.preserved_env_keys(existing, ["URL=new"]) == ["OPERATOR_TYPED"]
+
+
+def test_preserved_env_keys_string_shape_still_works():
+    assert em.preserved_env_keys("URL=old\nCUSTOM=typed", ["URL=new"]) == ["CUSTOM"]
+
+
+def test_preserved_env_keys_string_list_shape():
+    assert em.preserved_env_keys(["URL=old", "CUSTOM=typed"], ["URL=new"]) == ["CUSTOM"]
+
+
+def test_preserved_env_keys_empty_and_none():
+    assert em.preserved_env_keys(None, ["URL=new"]) == []
+    assert em.preserved_env_keys([], ["URL=new"]) == []

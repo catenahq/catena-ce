@@ -130,11 +130,16 @@ def preserved_env_keys(existing, desired):
     survived a re-converge."""
 
     if existing is None:
-        existing_text = ""
+        existing_items: list = []
     elif isinstance(existing, list):
-        existing_text = "\n".join(existing)
+        # May be Portainer's Env dict-list ({"name": K, "value": V}) -- what
+        # GET /api/stacks/{id} returns and what the DR re-converge feeds this
+        # filter -- OR a list of "K=V" strings; _parse_kv handles both. Do NOT
+        # join to text first: a dict item stringifies to "{...}" and fails the
+        # join ("expected str instance, dict found").
+        existing_items = existing
     else:
-        existing_text = str(existing)
+        existing_items = str(existing).splitlines()
 
     desired_keys: set[str] = set()
     for raw in desired or []:
@@ -143,8 +148,8 @@ def preserved_env_keys(existing, desired):
             desired_keys.add(kv[0])
 
     preserved: list[str] = []
-    for line in existing_text.splitlines():
-        kv = _parse_kv(line)
+    for item in existing_items:
+        kv = _parse_kv(item)
         if kv is None:
             continue
         if kv[0] not in desired_keys and kv[0] not in preserved:
