@@ -2,9 +2,9 @@
 
 Portainer keeps a stack's compose file verbatim (with `${...}` refs) and its
 resolved values in a separate Env array. dashboard-sync reads the stored file,
-so a client app's `vps.route.host=${DOMAIN_HOST}` must be resolved against the
+so a client app's vps.route.host=${DOMAIN_HOST} must be resolved against the
 stack Env before gate_routes extracts the host -- otherwise the Traefik rule
-becomes the literal `Host(\`${DOMAIN_HOST}\`)` and the app 404s.
+becomes a literal Host(${DOMAIN_HOST}) and the app 404s.
 
 Run: uv run pytest tests/unit/test_dokploy_env_resolve.py
 """
