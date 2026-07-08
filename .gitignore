@@ -8,5 +8,3 @@ coverage.*
 .DS_Store
 *.swp
 .token-savior-cache.json
-
-ansible/collections/
