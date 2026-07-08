@@ -7,8 +7,8 @@ name: Trivy
 # (security.yml). What stays here cannot fold into scanctl's static fs scan:
 #   - image (catena-admin): builds the distroless catena-admin image (top-level
 #     Dockerfile) and scans the runtime layers.
-#   - image (operator-stack pins): scans the cloudflared + traefik tags resolved
-#     at runtime from the Ansible role defaults.
+#   - image (operator-stack pins): scans the cloudflared + traefik + postgres +
+#     portainer tags resolved at runtime from the Ansible role defaults.
 #
 # Severity floor is HIGH+CRITICAL, ignore-unfixed:true so unpatched CVEs do not
 # block until a fix exists upstream. Tune via .trivyignore.
@@ -71,6 +71,14 @@ jobs:
             pin_file: ansible/roles/traefik/defaults/main.yml
             pin_key: traefik_image_tag
             image_repo: traefik
+          - name: postgres
+            pin_file: ansible/roles/postgres/defaults/main.yml
+            pin_key: catena_postgres_image_tag
+            image_repo: postgres
+          - name: portainer
+            pin_file: ansible/roles/portainer/defaults/main.yml
+            pin_key: portainer_image_tag
+            image_repo: portainer/portainer-ce
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:

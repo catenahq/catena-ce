@@ -14,22 +14,17 @@
       "automerge": false
     },
     {
-      "description": "Operator-stack base images pinned in role defaults. Bumps stay manual: a cloudflared/dokploy/traefik/restic upgrade can break the platform out-of-band, so the operator reviews each one (the Trivy job still gates the PR on CVEs).",
+      "description": "Operator-stack base images pinned in role defaults. Bumps stay manual: a cloudflared/traefik/postgres/portainer/restic upgrade can break the platform out-of-band, so the operator reviews each one (the Trivy job still gates the PR on CVEs).",
       "matchManagers": ["custom.regex"],
       "matchPackageNames": [
         "cloudflare/cloudflared",
-        "Dokploy/dokploy",
         "traefik",
+        "postgres",
+        "portainer/portainer-ce",
         "restic/restic"
       ],
       "groupName": "operator-stack pins",
       "automerge": false
-    },
-    {
-      "description": "Traefik feature-set + config schema are owned by Dokploy's installer. Minor/major bumps risk breaking compose syntax + middleware behaviour out-of-band; only patch bumps are safe between Dokploy releases. Dokploy upgrades carry the matching traefik minor/major.",
-      "matchPackageNames": ["traefik"],
-      "matchUpdateTypes": ["major", "minor"],
-      "enabled": false
     },
     {
       "description": "Infra app images pinned in role defaults (gatus, healthchecks, beszel hub+agent, recovery nginx, clamav). Manual review like the operator-stack pins; Trivy gates each PR.",
@@ -69,18 +64,6 @@
     },
     {
       "customType": "regex",
-      "description": "Track Dokploy installer version pinned in dokploy role defaults",
-      "managerFilePatterns": [
-        "/^ansible/roles/dokploy/defaults/main\\.yml$/"
-      ],
-      "matchStrings": [
-        "dokploy_version:\\s*\"(?<currentValue>[^\"]+)\""
-      ],
-      "depNameTemplate": "Dokploy/dokploy",
-      "datasourceTemplate": "github-releases"
-    },
-    {
-      "customType": "regex",
       "description": "Track Traefik image tag pinned in traefik role defaults",
       "managerFilePatterns": [
         "/^ansible/roles/traefik/defaults/main\\.yml$/"
@@ -89,6 +72,30 @@
         "traefik_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
       ],
       "depNameTemplate": "traefik",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Track catena-postgres image tag pinned in postgres role defaults (replaced the control-plane Postgres at the Dokploy->Portainer migration)",
+      "managerFilePatterns": [
+        "/^ansible/roles/postgres/defaults/main\\.yml$/"
+      ],
+      "matchStrings": [
+        "catena_postgres_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "postgres",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Track Portainer CE image tag pinned in portainer role defaults (the container control plane; typed stack API needs >=2.39.x)",
+      "managerFilePatterns": [
+        "/^ansible/roles/portainer/defaults/main\\.yml$/"
+      ],
+      "matchStrings": [
+        "portainer_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "portainer/portainer-ce",
       "datasourceTemplate": "docker"
     },
     {
