@@ -1,15 +1,10 @@
 # catena-admin (Ansible role)
 
-Host-side setup for the per-VPS admin panel -- the catena-admin Go
-shell. The container itself is deployed as a Portainer stack from
-[deploy/catena-admin/dokploy.compose.yml](../../../deploy/catena-admin/dokploy.compose.yml);
-this role manages everything the container expects to find on the host
-before it boots.
-
-> **Gap (post-Dokploy cutover):** the converge does not yet push the
-> catena-admin stack itself -- only the test bench does (via the
-> Portainer stack API). Wiring a portainer_stack-based deploy into this
-> role is tracked in the workspace BACKLOG_TECHNICAL.md.
+Host-side setup AND container deploy for the per-VPS admin panel -- the
+catena-admin Go shell. This role prepares everything the container
+expects to find on the host, then deploys the container itself as a
+Portainer stack from
+[deploy/catena-admin/catena-admin.compose.yml](../../../deploy/catena-admin/catena-admin.compose.yml).
 
 ## What this role does
 
@@ -30,7 +25,7 @@ before it boots.
   (chowned for the container's uid 1000) and seeds known_hosts via
   ssh-keyscan.
 - Creates the bind-mount targets the admin compose
-  ([deploy/catena-admin/dokploy.compose.yml](../../../deploy/catena-admin/dokploy.compose.yml))
+  ([deploy/catena-admin/catena-admin.compose.yml](../../../deploy/catena-admin/catena-admin.compose.yml))
   expects: `/etc/catena/admin-ssh/`, `/etc/catena/admin-actions.yml`,
   `/etc/catena/extra-tiles.yml`, `/var/lib/catena/` (read-only stats;
   populated by run-backup.sh + gatus-sync), and
@@ -41,15 +36,17 @@ before it boots.
 - Renders `/etc/catena/extra-tiles.yml` from inventory
   `catena_admin_extra_tiles` (operator escape hatch for hand-authored
   Apps-tab tiles).
+- Deploys the catena-admin container as a Portainer stack
+  ([tasks/deploy.yml](tasks/deploy.yml)) from
+  [deploy/catena-admin/catena-admin.compose.yml](../../../deploy/catena-admin/catena-admin.compose.yml),
+  pulling the published GHCR image (`catena_admin_image`). The image ref
+  and every per-host value are supplied via the stack Env array (${VAR}
+  substitution); no Traefik route is written here (oauth2-proxy owns the
+  gated `dash.<zone>` route). The test bench drives the identical path
+  but builds the image locally instead of pulling from GHCR.
 
 ## What this role does NOT do
 
-- It does **not** push the catena-admin compose itself. The container
-  deploys as a Portainer stack from
-  [deploy/catena-admin/dokploy.compose.yml](../../../deploy/catena-admin/dokploy.compose.yml)
-  (which builds the repo-root Dockerfile); today only the test bench
-  drives that deploy (Portainer stack API), and the converge-time
-  equivalent is a tracked gap (see the note at the top).
 - It does **not** create a Keycloak realm client. The admin sits
   behind the shared `oauth2-proxy` realm client and the staff/admin
   oauth2-proxy slug.

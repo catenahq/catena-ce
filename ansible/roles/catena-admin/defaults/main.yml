@@ -1,15 +1,29 @@
 ---
 # roles/catena-admin -- per-VPS admin panel (the catena-admin Go shell).
 #
-# The role manages HOST-SIDE state for the catena-admin container.
-# The container itself deploys as a Portainer stack (converge-time
-# wiring is a tracked gap; the bench drives it today). See README.md.
+# The role manages the container's HOST-SIDE state (host.yml + catalog.yml)
+# AND deploys the container itself as a Portainer stack (deploy.yml, pulling
+# catena_admin_image). See README.md.
 
 # --- Hostname ---------------------------------------------------------
 # The admin panel is served at dash.<zone> by default. Override the
 # subdomain via CATENA_ADMIN_SUBDOMAIN in the inventory's .env.
 catena_admin_subdomain: "{{ lookup('dotenv', 'CATENA_ADMIN_SUBDOMAIN', default='dash') }}"
 catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
+
+# --- Container image + port -------------------------------------------
+# Published catena-admin image the converge deploys (deploy.yml). Clients
+# PULL this at converge time -- they never build on the client box (no Go
+# toolchain on a client VPS). Published by catena-ce's publish-image.yml on
+# a v* tag from main. Defaults to the floating :latest GHCR tag; pin to an
+# immutable @sha256 digest here once the first publish lands, and let the
+# version bumper manage the pin thereafter. The bench does not use this var
+# (it builds local/catena-admin:bench on the VPS and passes that tag).
+catena_admin_image: "ghcr.io/catenahq/catena-admin:latest"
+
+# Port the Go shell listens on inside the container (CATENA_ADMIN_ADDR
+# :8000 in the compose; oauth2_proxy upstreams to catena-admin:8000).
+catena_admin_internal_port: 8000
 
 # --- Host-side runner -------------------------------------------------
 # Dedicated SSH account the admin container uses to dispatch actions on

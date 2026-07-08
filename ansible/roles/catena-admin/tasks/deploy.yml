@@ -1,0 +1,75 @@
+---
+# Deploy the catena-admin Go shell as a Portainer stack.
+#
+# Converge-time equivalent of the bench's
+# orchestrator/catena_admin_deploy.py: it pushes the SAME compose
+# (deploy/catena-admin/catena-admin.compose.yml) through the Portainer stack
+# API, supplying every per-host value -- including the image ref -- via
+# svc_env (${VAR} substitution). Production pulls the published GHCR image
+# ({{ catena_admin_image }}); the bench supplies a locally-built tag instead.
+#
+# Gated on vault_portainer_api_key (like every other stack deploy). No Traefik
+# route is written here: catena-admin is auth-gated and roles/oauth2_proxy
+# already owns the priority-100 dash.<zone> route to its own oauth2-proxy
+# container (which upstreams to catena-admin:8000). svc_domain_host is empty so
+# portainer_stack.yml removes any stale catena-admin route instead of writing a
+# competing backend route.
+#
+# License env (CATENA_LICENSE*) is intentionally NOT supplied: the compose's
+# ${VAR:-} empty defaults keep the shell Community-only, and merge_env_portainer
+# preserves any license keys an EE activation later wrote into the stack Env, so
+# a CE re-converge never clobbers an activated license.
+
+- name: "Catena-admin: resolve Portainer endpoint id"
+  # Idempotent read-only GET /endpoints. Re-included here (mirrors
+  # roles/keycloak + roles/oauth2_proxy) so a tag-scoped `--tags catena_admin`
+  # run -- where roles/infrastructure did not execute -- still has
+  # _portainer_endpoint_id in scope for portainer_stack.yml.
+  ansible.builtin.include_tasks: ../../infrastructure/tasks/portainer_endpoint.yml
+  when:
+    - vault_portainer_api_key is defined
+    - (vault_portainer_api_key | default('') | length) > 0
+
+- name: "Catena-admin: deploy the Go shell as a Portainer stack"
+  ansible.builtin.include_tasks: ../../infrastructure/tasks/portainer_stack.yml
+  vars:
+    svc_name: "catena-admin"
+    svc_compose_content: >-
+      {{ lookup('file', role_path ~ '/../../../deploy/catena-admin/catena-admin.compose.yml') }}
+    # Env array the Portainer stack API substitutes into the compose ${VAR}
+    # placeholders. Mirrors orchestrator/catena_admin_deploy.py _build_env,
+    # mapped to the canonical Ansible vars. Values with a compose ${VAR:-}
+    # default that we still supply (hostnames, ports) render the live value.
+    svc_env:
+      - "CATENA_ADMIN_IMAGE={{ catena_admin_image }}"
+      - "CATENA_DEFAULT_LANG={{ catena_admin_default_language }}"
+      - "CATENA_DEFAULT_THEME={{ catena_admin_default_theme }}"
+      - "PORTAINER_API_BASE=http://{{ portainer_service_name }}:{{ portainer_ui_port }}/api"
+      - "PORTAINER_API_KEY={{ vault_portainer_api_key }}"
+      - "KEYCLOAK_HOSTNAME={{ keycloak_hostname }}"
+      - "KEYCLOAK_REALM={{ keycloak_realm }}"
+      - "INFRA_MONITOR_HOSTNAME={{ infrastructure_monitor_hostname }}"
+      - "INFRA_HEARTBEAT_HOSTNAME={{ healthchecks_hostname }}"
+      - "INFRA_BESZEL_HOSTNAME={{ beszel_hostname }}"
+      - "CATENA_ADMIN_RECOVERY_URL=https://{{ infrastructure_recovery_hostname }}"
+      - "GATUS_COMPOSE_NAME={{ gatus_compose_name }}"
+      - "GATUS_INTERNAL_PORT={{ gatus_internal_port }}"
+      - "HEALTHCHECKS_COMPOSE_NAME={{ healthchecks_compose_name }}"
+      - "HEALTHCHECKS_INTERNAL_PORT={{ healthchecks_internal_port }}"
+      - "HEALTHCHECKS_API_KEY_READONLY={{ vault_healthchecks_api_key_readonly }}"
+      - "ADMIN_SSH_HOST=host.docker.internal"
+      - "ADMIN_SSH_USER={{ catena_admin_runner_user }}"
+    # No Traefik route -- oauth2_proxy owns the gated dash.<zone> route.
+    svc_domain_host: ""
+    svc_domain_service: "app"
+    svc_domain_port: "{{ catena_admin_internal_port | default(8000) }}"
+    # An HTTP probe of dash.<zone> is oauth2-gated: it returns 302 regardless
+    # of whether the catena-admin backend is up, so it is not a meaningful
+    # readiness signal. The Portainer stack deploy is synchronous (its 2xx
+    # means `compose up` exited); rely on that here.
+    svc_readiness_skip_reason: >-
+      dash.<zone> is oauth2-proxy gated (302 regardless of backend health); the
+      synchronous Portainer stack deploy 2xx is the readiness signal.
+  when:
+    - vault_portainer_api_key is defined
+    - (vault_portainer_api_key | default('') | length) > 0

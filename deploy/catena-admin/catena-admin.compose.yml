@@ -1,17 +1,15 @@
 # catena-admin (Community Go shell) -- stack compose.
 #
 # Single source of truth for deploying the admin shell as a Portainer
-# stack. Two consumers:
-#   - Operator (production): the Portainer stack deploy points at this
-#     file. NOTE: converge-time wiring is a tracked gap (workspace
-#     BACKLOG_TECHNICAL.md); today only the bench pushes the stack.
-#   - Test bench: builds the image on the VPS and rewrites `build:` -> the
-#     pre-built `image:`; it reads THIS file so there is no second copy to
-#     keep in sync.
-#
-# Per-host values arrive via the stack Env ${VAR} substitution at deploy
-# time (the env block the deployer supplies); this file stays static so
-# both consumers share it verbatim.
+# stack. Every per-host value -- INCLUDING the image ref -- arrives via the
+# stack Env ${VAR} substitution at deploy time, so both consumers share this
+# file verbatim with no build:/image: fork:
+#   - Operator (production): roles/catena-admin/tasks/deploy.yml pushes this
+#     file through the Portainer stack API with svc_env supplying
+#     CATENA_ADMIN_IMAGE = the published GHCR image ({{ catena_admin_image }}).
+#   - Test bench: builds the image on the VPS (local/catena-admin:bench) and
+#     supplies CATENA_ADMIN_IMAGE = that local tag through its Env array
+#     (orchestrator/catena_admin_deploy.py). It reads THIS file raw.
 #
 # The roles/catena-admin Ansible role creates the host-side bind targets
 # (/etc/catena/admin-ssh, /etc/catena/admin-actions.yml, /etc/catena/
@@ -22,9 +20,11 @@
 
 services:
   app:
-    build:
-      context: ../..
-      dockerfile: Dockerfile
+    # Image ref supplied per-consumer via the stack Env array
+    # (CATENA_ADMIN_IMAGE): the published GHCR tag/digest in production, the
+    # locally-built tag on the bench. The :- default keeps a bare
+    # `docker compose up` (no Env) pullable.
+    image: ${CATENA_ADMIN_IMAGE:-ghcr.io/catenahq/catena-admin:latest}
     restart: unless-stopped
     environment:
       # Listen on :8000 to match the oauth2-proxy slug + the dash.<zone>

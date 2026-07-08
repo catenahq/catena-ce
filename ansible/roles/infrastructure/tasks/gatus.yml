@@ -1,5 +1,5 @@
 ---
-# Deploy Gatus as a Dokploy-managed compose app -> monitor.<zone>.
+# Deploy Gatus as a Portainer compose stack -> monitor.<zone>.
 #
 # Config layout on the host:
 #   {{ gatus_host_config_dir }}/00-base.yaml          (Ansible-managed)
@@ -49,7 +49,7 @@
 # chain the new oauth2-proxy@file middleware. Until then this app
 # deploys without a forward-auth gate.
 
-- name: "Gatus: deploy via Dokploy API"
+- name: "Gatus: deploy via Portainer stack API"
   ansible.builtin.include_tasks: portainer_stack.yml
   vars:
     svc_name: "{{ gatus_compose_name }}"
