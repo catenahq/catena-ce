@@ -45,6 +45,25 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
+          # Full history so the on-main ancestry guard below can resolve
+          # origin/main and the tagged commit's relationship to it.
+          fetch-depth: 0
+
+      - name: Guard -- release tags must be on main
+        # catena-ce develops on dev and releases from main (workspace
+        # convention: never fast-forward main for catena-ce). GHCR release
+        # images are the SHIPPED product, so they publish ONLY from main:
+        # reject a v* tag (or a workflow_dispatch ref) whose commit is not an
+        # ancestor of origin/main. Stops a dev-branch tag from publishing.
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$SHA" origin/main; then
+            echo "::error::commit $SHA is not on origin/main; catena-admin images publish only from main (dev tags are rejected)."
+            exit 1
+          fi
 
       - name: Resolve version + short sha
         id: meta
