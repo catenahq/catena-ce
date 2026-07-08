@@ -1,0 +1,80 @@
+name: Publish image
+
+# Build + publish the catena-admin container image to the PUBLIC GitHub
+# Container Registry (GHCR) on a version tag. Clients pull this image at
+# converge time (roles/catena-admin deploy); they never build on the client
+# box (no Go toolchain on a client VPS). catena-ce is public, so the package
+# is public.
+#
+# Separation of duties: trivy.yml's image job stays the pre-merge CVE gate
+# (builds catena-admin:ci locally, scans, never pushes); THIS workflow is the
+# release publisher -- tag-gated, pushes to GHCR, no scan.
+#
+# Raw docker CLI (no docker/* marketplace actions) mirrors trivy.yml's
+# `docker buildx build` convention and keeps the pinned-action surface to
+# actions/checkout only. All ${{ }} values reach run: blocks via env vars
+# (never interpolated into the script body) to satisfy the zizmor
+# template-injection check the scanctl gate enforces.
+#
+# ONE-TIME operator setup: the first push creates the GHCR package private.
+# Set its visibility to Public in the catenahq org package settings, and
+# (optionally) link it to this repo, so clients can pull unauthenticated.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag to publish (e.g. v1.2.3); defaults to the git ref name'
+        required: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/catenahq/catena-admin
+
+jobs:
+  publish:
+    name: Build + push catena-admin (GHCR)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: Resolve version + short sha
+        id: meta
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          version="${INPUT_TAG:-$REF_NAME}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+
+      - name: Build + push (linux/amd64)
+        # Distroless multi-stage Go build of ./cmd/catena-admin (top-level
+        # Dockerfile). amd64 only -- client VPSes are x86_64; add a buildx
+        # multi-arch path here if an arm64 client ever appears.
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          SHA_TAG: ${{ steps.meta.outputs.sha }}
+        run: |
+          set -euo pipefail
+          docker build -f Dockerfile \
+            -t "$IMAGE:$VERSION" \
+            -t "$IMAGE:$SHA_TAG" \
+            -t "$IMAGE:latest" \
+            .
+          docker push --all-tags "$IMAGE"
