@@ -164,6 +164,24 @@
     cmd: systemctl enable --now docker
   changed_when: false
 
+# Flush the `restart docker` handler NOW, before any app role deploys a
+# container onto the daemon. Ansible runs handlers at play-end by default;
+# on a fresh install daemon.json changes above (the "Drop
+# /etc/docker/daemon.json" task) and the deferred restart would then fire
+# AFTER traefik/postgres/portainer/keycloak/oauth2-proxy/infrastructure are
+# already up. live-restore keeps most containers alive across the restart,
+# but a docker restart re-materializes the catena-network swarm overlay
+# with a NEW id; swarm SERVICES (catena-postgres, catena-portainer)
+# reconnect on their own and catena-traefik has a post-restart nudge unit,
+# but the PLAIN containers the Portainer stacks deploy (keycloak-server-1,
+# oauth2-proxy, gatus, ...) do not -- they come back with "network
+# catena-network not found" and stay Exited (143), which surfaced as
+# roles/keycloak validate finding keycloak-server-1 dead. Restarting here
+# settles the daemon before the app layer lands on it. Idempotent: a no-op
+# when daemon.json was unchanged (no handler was notified).
+- name: "docker: flush pending daemon restart before the app layer deploys"
+  meta: flush_handlers
+
 # Atomicity: prove the daemon actually serves API requests before any
 # downstream role (swarm services, infra compose, backup's `docker
 # exec`) assumes it. `systemctl is-active` alone doesn't -- the unit
