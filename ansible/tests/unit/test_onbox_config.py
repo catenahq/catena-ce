@@ -222,6 +222,41 @@ def test_cli_seeds_external_mints_internal_and_emits(oc, tmp_path, capsys):
     assert on_disk["secrets"]["vault_healthchecks_api_key_readonly"]
 
 
+def test_dispatch_read_prints_store(oc, tmp_path, capsys, monkeypatch):
+    import io
+    p = tmp_path / "config.json"
+    oc.dump({"secrets": {"vault_cloudflare_api_token": "cf"}, "config": {"BACKUP_RESTIC_REPO": "s3:x/y"}}, p)
+    monkeypatch.setattr("sys.stdin", io.StringIO('{"op":"read"}'))
+    rc = oc.main(["--path", str(p), "--dispatch-stdin"])
+    assert rc == 0
+    got = json.loads(capsys.readouterr().out)
+    assert got["secrets"]["vault_cloudflare_api_token"] == "cf"
+    assert got["config"]["BACKUP_RESTIC_REPO"] == "s3:x/y"
+
+
+def test_dispatch_write_persists_without_minting(oc, tmp_path, capsys, monkeypatch):
+    import io
+    p = tmp_path / "config.json"
+    req = '{"op":"write","secrets":{"vault_cloudflare_api_token":"cf"},"config":{"BACKUP_RESTIC_REPO":"s3:x/y"}}'
+    monkeypatch.setattr("sys.stdin", io.StringIO(req))
+    rc = oc.main(["--path", str(p), "--dispatch-stdin"])
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out) == {"ok": True}
+    store = oc.load(p)
+    assert store["secrets"]["vault_cloudflare_api_token"] == "cf"
+    assert store["config"]["BACKUP_RESTIC_REPO"] == "s3:x/y"
+    # write must NOT mint internal secrets (that happens at converge)
+    assert "vault_catena_postgres_password" not in store["secrets"]
+
+
+def test_dispatch_write_rejects_internal_secret(oc, tmp_path, monkeypatch):
+    import io
+    p = tmp_path / "config.json"
+    monkeypatch.setattr("sys.stdin", io.StringIO('{"op":"write","secrets":{"vault_admin_password":"x"}}'))
+    with pytest.raises(ValueError):
+        oc.main(["--path", str(p), "--dispatch-stdin"])
+
+
 def test_cli_no_mint_seeds_only(oc, tmp_path, capsys):
     p = tmp_path / "config.json"
     rc = oc.main(["--path", str(p), "--set-secret", "vault_cloudflare_api_token=cf", "--no-mint"])

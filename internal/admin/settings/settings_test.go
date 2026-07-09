@@ -1,6 +1,8 @@
 package settings
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"reflect"
 	"testing"
 )
@@ -57,18 +59,37 @@ func TestRedactedViewNeverEchoesSecret(t *testing.T) {
 	}
 }
 
-func TestBuildWriteArgsRejectsUnknownKey(t *testing.T) {
+// decodeWriteCmd pulls the base64 request payload out of a write command
+// ("catena-config <b64>") and decodes it back to a request for assertions.
+func decodeWriteCmd(t *testing.T, cmd string) request {
+	t.Helper()
+	const prefix = HostCommand + " "
+	if len(cmd) <= len(prefix) || cmd[:len(prefix)] != prefix {
+		t.Fatalf("command missing %q prefix: %q", prefix, cmd)
+	}
+	raw, err := base64.StdEncoding.DecodeString(cmd[len(prefix):])
+	if err != nil {
+		t.Fatalf("payload not base64: %v", err)
+	}
+	var req request
+	if err := json.Unmarshal(raw, &req); err != nil {
+		t.Fatalf("payload not json: %v", err)
+	}
+	return req
+}
+
+func TestBuildWriteCommandRejectsUnknownKey(t *testing.T) {
 	// internal secret must not be writable through the settings form
-	if _, err := BuildWriteArgs(map[string]string{"vault_admin_password": "x"}); err == nil {
+	if _, err := BuildWriteCommand(map[string]string{"vault_admin_password": "x"}); err == nil {
 		t.Fatal("expected rejection of internal-secret key")
 	}
-	if _, err := BuildWriteArgs(map[string]string{"nope": "x"}); err == nil {
+	if _, err := BuildWriteCommand(map[string]string{"nope": "x"}); err == nil {
 		t.Fatal("expected rejection of unknown key")
 	}
 }
 
-func TestBuildWriteArgsSkipsBlanksAndRoutesSections(t *testing.T) {
-	args, err := BuildWriteArgs(map[string]string{
+func TestBuildWriteCommandSkipsBlanksAndRoutesSections(t *testing.T) {
+	cmd, err := BuildWriteCommand(map[string]string{
 		"vault_cloudflare_api_token": "cf",
 		"BACKUP_RESTIC_REPO":         "s3:x/y",
 		"vault_smtp_password":        "   ", // blank -> skipped
@@ -76,31 +97,35 @@ func TestBuildWriteArgsSkipsBlanksAndRoutesSections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
-	want := []string{
-		"--path", StorePath, "--overwrite", "--emit", "none",
-		"--set-secret", "vault_cloudflare_api_token=cf",
-		"--set-config", "BACKUP_RESTIC_REPO=s3:x/y",
+	req := decodeWriteCmd(t, cmd)
+	if req.Op != "write" {
+		t.Fatalf("op = %q, want write", req.Op)
 	}
-	if !reflect.DeepEqual(args, want) {
-		t.Fatalf("args mismatch:\n got %v\nwant %v", args, want)
+	if req.Secrets["vault_cloudflare_api_token"] != "cf" {
+		t.Fatalf("secret not routed: %+v", req.Secrets)
+	}
+	if req.Config["BACKUP_RESTIC_REPO"] != "s3:x/y" {
+		t.Fatalf("config not routed: %+v", req.Config)
+	}
+	if _, ok := req.Secrets["vault_smtp_password"]; ok {
+		t.Fatal("blank value should be skipped")
 	}
 }
 
-func TestBuildWriteArgsEmptyIsNil(t *testing.T) {
-	args, err := BuildWriteArgs(map[string]string{"vault_smtp_password": ""})
+func TestBuildWriteCommandEmptyIsNoOp(t *testing.T) {
+	cmd, err := BuildWriteCommand(map[string]string{"vault_smtp_password": ""})
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
-	if args != nil {
-		t.Fatalf("expected nil args for no-op submission, got %v", args)
+	if cmd != "" {
+		t.Fatalf("expected empty command for no-op submission, got %q", cmd)
 	}
 }
 
-func TestShellCommandQuotesArgs(t *testing.T) {
-	got := ShellCommand([]string{"--set-secret", "vault_x=a'b c"})
-	want := `catena-config '--set-secret' 'vault_x=a'\''b c'`
-	if got != want {
-		t.Fatalf("shell command mismatch:\n got %s\nwant %s", got, want)
+func TestReadCommandIsReadOp(t *testing.T) {
+	req := decodeWriteCmd(t, ReadCommand())
+	if req.Op != "read" {
+		t.Fatalf("read command op = %q, want read", req.Op)
 	}
 }
 

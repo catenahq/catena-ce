@@ -21,6 +21,7 @@
 package settings
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -30,32 +31,59 @@ import (
 // StorePath is the on-box store the host CLI reads/writes.
 const StorePath = "/etc/catena/config.json"
 
-// HostCommand is the host-side wrapper the admin container dispatches through
-// the actions.Runner (installed + allow-listed by roles/catena-admin). It runs
-// onbox_config.py as root against the store, so the unprivileged container
-// never touches the root-owned 0600 file directly.
+// HostCommand is the allow-listed host dispatch action (roles/catena-admin
+// installs onbox_config.py on the host + registers this reserved action). The
+// action name is a single token; the whole request rides the runner's opaque
+// PAYLOAD slot as ONE base64 token, so no secret value ever meets a shell --
+// the host action just base64-decodes PAYLOAD and pipes it to
+// onbox_config.py --dispatch-stdin as root.
 const HostCommand = "catena-config"
 
-// ReadArgs reads the full store without minting (a settings-page GET must not
-// mint secrets as a side effect of viewing).
-func ReadArgs() []string {
-	return []string{"--path", StorePath, "--emit", "all", "--no-mint"}
+// request is the JSON the host dispatch decodes on stdin.
+type request struct {
+	Op      string            `json:"op"`
+	Secrets map[string]string `json:"secrets,omitempty"`
+	Config  map[string]string `json:"config,omitempty"`
 }
 
-// ShellCommand renders HostCommand + args as one shell-safe command string for
-// Runner.Run (executed as $SSH_ORIGINAL_COMMAND on the host). Every arg is
-// single-quoted so a secret value with shell metacharacters cannot break out.
-func ShellCommand(args []string) string {
-	parts := make([]string, 0, len(args)+1)
-	parts = append(parts, HostCommand)
-	for _, a := range args {
-		parts = append(parts, shellQuote(a))
+func encodeRequest(r request) string {
+	b, _ := json.Marshal(r)
+	return HostCommand + " " + base64.StdEncoding.EncodeToString(b)
+}
+
+// ReadCommand is the host dispatch command that prints the full store as JSON
+// on stdout. A read must never mint (viewing the settings page is read-only).
+func ReadCommand() string { return encodeRequest(request{Op: "read"}) }
+
+// BuildWriteCommand validates the submitted form against the schema and returns
+// the host dispatch command that persists the external creds + config. Blank
+// values are skipped (never clear a stored secret); an unknown or internal key
+// is rejected so a forged field cannot reach an internal secret. Returns ""
+// (no error) when there is nothing to write.
+func BuildWriteCommand(submitted map[string]string) (string, error) {
+	req := request{Op: "write", Secrets: map[string]string{}, Config: map[string]string{}}
+	changed := false
+	for _, f := range Fields {
+		val, ok := submitted[f.Key]
+		if !ok || strings.TrimSpace(val) == "" {
+			continue
+		}
+		if f.Section == SectionSecrets {
+			req.Secrets[f.Key] = val
+		} else {
+			req.Config[f.Key] = val
+		}
+		changed = true
 	}
-	return strings.Join(parts, " ")
-}
-
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+	for key := range submitted {
+		if _, ok := fieldByKey[key]; !ok {
+			return "", fmt.Errorf("unknown settings field %q", key)
+		}
+	}
+	if !changed {
+		return "", nil
+	}
+	return encodeRequest(req), nil
 }
 
 // FieldKind drives the input widget + redaction rule.
@@ -182,39 +210,6 @@ func (s Store) RedactedView() []FieldStatus {
 		out = append(out, st)
 	}
 	return out
-}
-
-// BuildWriteArgs turns a submitted {key: value} form into the onbox_config.py
-// argument list. Blank values are skipped (never clear an existing secret).
-// Any key outside the schema is rejected -- a forged/renamed field cannot
-// reach an internal secret or an arbitrary config key. Secrets and config use
-// --set-secret / --set-config respectively; --overwrite makes a submitted
-// value replace the stored one (the client is entering a correction). The args
-// are deterministic (schema order) for stable tests + logs.
-func BuildWriteArgs(submitted map[string]string) ([]string, error) {
-	for key := range submitted {
-		if _, ok := fieldByKey[key]; !ok {
-			return nil, fmt.Errorf("unknown settings field %q", key)
-		}
-	}
-	args := []string{"--path", StorePath, "--overwrite", "--emit", "none"}
-	changed := false
-	for _, f := range Fields {
-		val, ok := submitted[f.Key]
-		if !ok || strings.TrimSpace(val) == "" {
-			continue
-		}
-		flag := "--set-secret"
-		if f.Section == SectionConfig {
-			flag = "--set-config"
-		}
-		args = append(args, flag, f.Key+"="+val)
-		changed = true
-	}
-	if !changed {
-		return nil, nil // nothing to write
-	}
-	return args, nil
 }
 
 // DRKey is one row of the disaster-recovery export: the values the client must

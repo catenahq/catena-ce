@@ -392,13 +392,13 @@ func (s *server) settingsSave(w http.ResponseWriter, r *http.Request) {
 			submitted[f.Key] = v[0]
 		}
 	}
-	args, err := settings.BuildWriteArgs(submitted)
+	cmd, err := settings.BuildWriteCommand(submitted)
 	if err != nil {
 		http.Error(w, "invalid settings submission", http.StatusBadRequest)
 		return
 	}
-	if args != nil {
-		if _, rc, derr := s.dispatchCapture(settings.ShellCommand(args)); derr != nil || rc != 0 {
+	if cmd != "" {
+		if _, rc, derr := s.dispatchCapture(cmd); derr != nil || rc != 0 {
 			store, _ := s.readStore()
 			s.tmpl.Render(w, r, "settings", http.StatusOK, settingsView{
 				Fields: store.RedactedView(),
@@ -413,7 +413,7 @@ func (s *server) settingsSave(w http.ResponseWriter, r *http.Request) {
 
 // readStore reads + parses the on-box store via the host dispatcher.
 func (s *server) readStore() (settings.Store, error) {
-	out, rc, err := s.dispatchCapture(settings.ShellCommand(settings.ReadArgs()))
+	out, rc, err := s.dispatchCapture(settings.ReadCommand())
 	if err != nil {
 		return settings.Store{}, err
 	}

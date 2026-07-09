@@ -292,7 +292,33 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--emit", choices=["secrets", "all", "none"], default="secrets",
                     help="what to print as JSON on stdout (default: secrets, "
                          "for an Ansible set_fact of the vault_* names)")
+    ap.add_argument("--dispatch-stdin", action="store_true",
+                    help="serve the catena-admin settings API: read a JSON "
+                         "request {op: read|write, secrets, config} from stdin. "
+                         "read -> print the full store; write -> apply the "
+                         "external creds/config (overwrite, no mint) and print "
+                         '{"ok": true}. Rejects internal-secret keys.')
     args = ap.parse_args(argv)
+
+    # Settings-API dispatch (driven by the host runner on behalf of the admin
+    # container / the bench). A distinct, minimal surface: no minting on write
+    # (secrets mint at converge, not when the client edits vendor creds).
+    if args.dispatch_stdin:
+        req = json.loads(sys.stdin.read() or "{}")
+        if not isinstance(req, dict):
+            raise SystemExit("--dispatch-stdin: expected a JSON object")
+        store = load(args.path)
+        op = req.get("op")
+        if op == "read":
+            print(json.dumps(store))
+            return 0
+        if op == "write":
+            apply_inputs(store, secrets_in=req.get("secrets"),
+                         config_in=req.get("config"), overwrite=True)
+            dump(store, args.path)
+            print(json.dumps({"ok": True}))
+            return 0
+        raise SystemExit(f"--dispatch-stdin: unknown op {op!r}")
 
     store = load(args.path)
     adopt_raw = ""

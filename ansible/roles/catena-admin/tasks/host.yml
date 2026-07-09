@@ -88,6 +88,17 @@
     group: root
     mode: "0755"
 
+# 0b: install onbox_config.py on the host so the catena-config reserved
+# dispatch action can serve the Settings-tab read/write API as root. Stdlib-
+# only, so the host system python runs it without the CE uv venv.
+- name: "Runner: install onbox_config.py for the settings-API dispatch"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../helpers/onbox_config.py"
+    dest: "{{ catena_admin_onbox_config_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
 # --- SSH keypair for the catena-admin container ----------------------
 # Generated on the VPS so the private key never leaves the host. We
 # bind-mount the dir read-only into the admin container; the container

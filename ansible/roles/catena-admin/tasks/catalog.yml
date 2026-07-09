@@ -30,7 +30,9 @@
   # license -> the EE host binaries. Inert on Community (binary absent).
   ansible.builtin.set_fact:
     _catena_admin_actions_dispatch: >-
-      {{ _catena_admin_actions_merged + (catena_admin_ee_reserved_actions | default([])) }}
+      {{ _catena_admin_actions_merged
+         + (catena_admin_ce_reserved_actions | default([]))
+         + (catena_admin_ee_reserved_actions | default([])) }}
 
 # --- Files the admin container bind-mounts ---------------------------
 
