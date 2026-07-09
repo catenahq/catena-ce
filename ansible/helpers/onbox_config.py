@@ -33,7 +33,8 @@ Design constraints:
     via the two-phase bootstrap or the catena-admin settings API.
   - Format contracts for the minted values match seed.py exactly (oauth2
     cookie length-after-decode, Healthchecks 32-char API keys, url-safe
-    ping key, 20-char admin password).
+    ping key). The admin + restic passwords are user-held (EXTERNAL), not
+    minted here.
 """
 from __future__ import annotations
 
@@ -72,19 +73,16 @@ def mint_oauth2_proxy_cookie_secret() -> str:
     return base64.urlsafe_b64encode(os.urandom(32)).decode("ascii").rstrip("=")
 
 
-def mint_admin_password() -> str:
-    """20-char url-safe admin password (Portainer + Keycloak). token_urlsafe(15)
-    returns ceil(15*4/3) = 20 chars."""
-    return _secrets.token_urlsafe(15)
-
-
 # --- secret registries ------------------------------------------------------
-# INTERNAL: generated on-box, reconcile-not-overwrite. No human ever supplies
-# these. Mirrors seed.py's _resolve_admin_password / _resolve_restic_password /
-# _resolve_service_secrets groups.
+# INTERNAL: generated ON-BOX by the converge loader, reconcile-not-overwrite.
+# No human ever supplies these and they NEVER leave the box (they are minted
+# here, ride the restic backup inside the store, and return with the data on a
+# restore). Mirrors seed.py's _resolve_service_secrets group. The admin +
+# restic-backup passwords are NOT here: they are the user-held DR keyset /
+# first-login credential (see EXTERNAL_SECRETS) -- minting them on-box would
+# trap the restic password inside the very backup it decrypts, and leave the
+# admin with no way to log in the first time.
 INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
-    "vault_admin_password": mint_admin_password,
-    "vault_backup_restic_password": mint_strong_password,
     "vault_catena_postgres_password": mint_strong_password,
     "vault_turn_static_auth_secret": mint_strong_password,
     # SSO service credentials.
@@ -121,12 +119,22 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     "vault_beszel_universal_token": mint_url_safe,
 }
 
-# EXTERNAL: vendor credentials the client supplies. Stored, never minted. The
-# optional ones may legitimately be empty. vault_portainer_api_key is minted
-# by Portainer itself (bootstrap_portainer_admin.py), not here -- it is
-# neither internal-minted nor client-supplied, so it lives in neither set and
-# is written into the store by the portainer role after it mints it.
+# EXTERNAL: credentials the client HOLDS (never on-box-minted). Stored, never
+# minted here. Two families:
+#   - vendor creds the client supplies (Tailscale/Cloudflare/S3/SMTP/...).
+#   - the user-held DR keyset + first-login credential: vault_admin_password
+#     (needed to log in before any on-box surface is reachable) and
+#     vault_backup_restic_password (encrypts the backup -- minting it on-box
+#     would trap it inside the very snapshot it decrypts). seed mints these two
+#     on the CLIENT's machine and shows them once for the client's password
+#     manager; the on-box loader ADOPTS them (never re-mints).
+# The optional vendor creds may legitimately be empty. vault_portainer_api_key
+# is minted by Portainer itself (bootstrap_portainer_admin.py), not here -- it
+# is neither internal-minted nor client-supplied, so it lives in neither set
+# and is written into the store by the portainer role after it mints it.
 EXTERNAL_SECRETS: frozenset[str] = frozenset({
+    "vault_admin_password",
+    "vault_backup_restic_password",
     "vault_tailscale_oauth_client_id",
     "vault_tailscale_oauth_client_secret",
     "vault_cloudflare_api_token",

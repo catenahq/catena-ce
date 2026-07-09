@@ -1,19 +1,18 @@
 ---
-# 0b: on-box config store loader (gated on catena_onbox_config).
+# 0b: on-box config store loader. THE secret source of truth (SOPS was dropped).
 #
-# Inverts the secret source-of-truth from the controller-side plaintext
-# group_vars vault (the install-time seed) to a 0600 store on the box at
-# /etc/catena/config.json (which rides the
-# restic backup -- /etc is in roles/backup backup_paths). On the first flagged
-# converge it ADOPTS the vault_* values already in scope (fill-only) so the
-# on-box store matches what is deployed, mints any missing internal secret
-# (reconcile-not-overwrite), and set_facts every vault_* from the store so all
-# downstream roles read the on-box source of truth. Subsequent converges read
-# the store and ignore the (now vestigial) vault.
+# The store is a plaintext 0600 file at /etc/catena/config.json, which rides
+# the restic backup (/etc is in roles/backup backup_paths). On every converge
+# it ADOPTS the plaintext group_vars vault_* in scope (fill-only -- the
+# user-held externals: vendor creds + the admin/restic DR keyset), MINTS any
+# missing INTERNAL service secret on-box (reconcile-not-overwrite, via
+# helpers/onbox_config.py ensure_internal_secrets -- so internals never touch
+# the client's laptop), and set_facts every vault_* from the store so all
+# downstream roles read the on-box source of truth.
 #
-# Included from site.yml + validate.yml pre_tasks; a no-op unless
-# `catena_onbox_config` is true. SOPS+age has been dropped (0b); the plaintext
-# group_vars vault is now only the install-time seed this loader adopts.
+# Included UNCONDITIONALLY from site.yml + validate.yml pre_tasks (runs before
+# any role). A rebuild needs only the {restic endpoint, S3 creds, restic
+# password} keyset: the store returns with the data, internals and all.
 
 # Capture by NAME first (varnames lookup does not evaluate values), then
 # extract only the vault_* values. A blanket `vars | dict2items` would force

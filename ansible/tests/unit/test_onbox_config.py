@@ -73,26 +73,22 @@ def test_ensure_internal_is_idempotent(oc):
 
 
 def test_ensure_internal_does_not_overwrite(oc):
-    store = {"secrets": {"vault_admin_password": "keep-me"}, "config": {}}
+    store = {"secrets": {"vault_catena_postgres_password": "keep-me"}, "config": {}}
     minted = oc.ensure_internal_secrets(store)
-    assert "vault_admin_password" not in minted
-    assert store["secrets"]["vault_admin_password"] == "keep-me"
+    assert "vault_catena_postgres_password" not in minted
+    assert store["secrets"]["vault_catena_postgres_password"] == "keep-me"
 
 
 def test_ensure_internal_replaces_blank(oc):
-    store = {"secrets": {"vault_admin_password": "   "}, "config": {}}
+    store = {"secrets": {"vault_catena_postgres_password": "   "}, "config": {}}
     minted = oc.ensure_internal_secrets(store)
-    assert "vault_admin_password" in minted
-    assert store["secrets"]["vault_admin_password"].strip()
+    assert "vault_catena_postgres_password" in minted
+    assert store["secrets"]["vault_catena_postgres_password"].strip()
 
 
 # --- minted-value format contracts (mirror seed.py) -------------------------
 def test_hc_api_key_is_32_chars(oc):
     assert len(oc.mint_hc_api_key()) == 32
-
-
-def test_admin_password_is_20_chars(oc):
-    assert len(oc.mint_admin_password()) == 20
 
 
 def test_cookie_secret_decodes_to_32_bytes(oc):
@@ -115,6 +111,20 @@ def test_portainer_api_key_in_neither_registry(oc):
     # Portainer mints its own API key; the store receives it from the role.
     assert "vault_portainer_api_key" not in oc.INTERNAL_SECRETS
     assert "vault_portainer_api_key" not in oc.EXTERNAL_SECRETS
+
+
+def test_admin_and_restic_are_external_not_minted(oc):
+    """0b true on-box minting: the admin password (first-login) and restic
+    backup password (DR keyset) are USER-HELD -- external, adopted, never
+    minted on-box (minting restic on-box would trap it inside its own backup)."""
+    for key in ("vault_admin_password", "vault_backup_restic_password"):
+        assert key in oc.EXTERNAL_SECRETS
+        assert key not in oc.INTERNAL_SECRETS
+    # ensure_internal_secrets must NOT mint them.
+    store = {"secrets": {}, "config": {}}
+    minted = oc.ensure_internal_secrets(store)
+    assert "vault_admin_password" not in minted
+    assert "vault_backup_restic_password" not in minted
 
 
 # --- apply_inputs -----------------------------------------------------------
@@ -149,7 +159,7 @@ def test_apply_inputs_blank_never_clears(oc):
 def test_apply_inputs_rejects_internal_secret(oc):
     store = {"secrets": {}, "config": {}}
     with pytest.raises(ValueError):
-        oc.apply_inputs(store, secrets_in={"vault_admin_password": "smuggled"})
+        oc.apply_inputs(store, secrets_in={"vault_catena_postgres_password": "smuggled"})
 
 
 def test_apply_inputs_config_fill_and_overwrite(oc):
@@ -216,7 +226,7 @@ def test_cli_seeds_external_mints_internal_and_emits(oc, tmp_path, capsys):
     emitted = json.loads(capsys.readouterr().out)
     # emits the full secret view (external + freshly minted internal)
     assert emitted["vault_cloudflare_api_token"] == "cf"
-    assert emitted["vault_admin_password"]
+    assert emitted["vault_catena_postgres_password"]  # minted on-box
     on_disk = oc.load(p)
     assert on_disk["config"]["CLOUDFLARE_ZONE"] == "x.com"
     assert on_disk["secrets"]["vault_healthchecks_api_key_readonly"]
@@ -252,7 +262,7 @@ def test_dispatch_write_persists_without_minting(oc, tmp_path, capsys, monkeypat
 def test_dispatch_write_rejects_internal_secret(oc, tmp_path, monkeypatch):
     import io
     p = tmp_path / "config.json"
-    monkeypatch.setattr("sys.stdin", io.StringIO('{"op":"write","secrets":{"vault_admin_password":"x"}}'))
+    monkeypatch.setattr("sys.stdin", io.StringIO('{"op":"write","secrets":{"vault_catena_postgres_password":"x"}}'))
     with pytest.raises(ValueError):
         oc.main(["--path", str(p), "--dispatch-stdin"])
 

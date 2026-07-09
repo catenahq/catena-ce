@@ -37,7 +37,6 @@ import urllib.error
 import urllib.request
 import json
 from pathlib import Path
-from typing import Callable
 
 import yaml
 
@@ -75,7 +74,7 @@ VAULT_SKIP_KEYS = {
     "vault_dashboard_sync_client_secret",
     "vault_nextcloud_oidc_client_secret",
     "vault_element_oidc_client_secret",
-    # Mailserver INTERNAL SSO secrets -- auto-minted (see _resolve_service_secrets).
+    # Mailserver INTERNAL SSO secrets -- minted ON-BOX by the converge loader.
     "vault_mailserver_oidc_client_secret",
     "vault_mailserver_introspect_client_secret",
     "vault_element_jitsi_jicofo_auth_password",
@@ -678,29 +677,12 @@ def emit_hosts_yml(
 
 # --- secret minting ---------------------------------------------------------
 def _mint_strong_password() -> str:
-    """48 random bytes -> 64 base64 chars. Matches `openssl rand -base64 48`."""
+    """48 random bytes -> 64 base64 chars. Matches `openssl rand -base64 48`.
+    The only minter still on the client side: the restic backup password (part
+    of the user-held DR keyset). Every INTERNAL service secret is minted ON-BOX
+    by the converge loader (helpers/onbox_config.py), never here."""
     raw = os.urandom(48)
     return base64.b64encode(raw).decode("ascii")
-
-
-def _mint_hc_api_key() -> str:
-    """Healthchecks API keys must be EXACTLY 32 chars. 16 bytes hex = 32 chars."""
-    import secrets
-    return secrets.token_hex(16)
-
-
-def _mint_url_safe() -> str:
-    """URL-path-safe 32-char string (Healthchecks ping_key lives in URL paths)."""
-    import secrets
-    return secrets.token_urlsafe(24)
-
-
-def _mint_oauth2_proxy_cookie_secret() -> str:
-    """oauth2-proxy decodes --cookie-secret with base64.RawURLEncoding (URL-safe
-    alphabet, no padding) and rejects any decoded length that isn't 16/24/32
-    bytes. Mint URL-safe; padding is stripped because oauth2-proxy trims `=`
-    before decoding."""
-    return base64.urlsafe_b64encode(os.urandom(32)).decode("ascii").rstrip("=")
 
 
 def ensure_ssh_key(privkey_path: str, pubkey_path: str) -> None:
@@ -723,28 +705,6 @@ def ensure_ssh_key(privkey_path: str, pubkey_path: str) -> None:
 
 
 # --- secret-resolution helpers ----------------------------------------------
-def _auto_mint_group(
-    vault_values: dict[str, str],
-    *,
-    existing_vault: bool,
-    minters: dict[str, Callable[[], str]],
-    ok_message: str,
-) -> None:
-    """First-install helper: for each (key, mint_fn), mint the secret if it's
-    not already present. Skips entirely when an inventory vault already exists
-    (re-runs leave existing secrets alone). Emits one ok() banner if anything
-    was minted."""
-    if existing_vault:
-        return
-    minted_any = False
-    for k, mint_fn in minters.items():
-        if k not in vault_values:
-            vault_values[k] = mint_fn()
-            minted_any = True
-    if minted_any:
-        ok(ok_message)
-
-
 def _print_secret_block(
     title: str,
     body: str,
@@ -911,110 +871,6 @@ def _collect_vault_values(
     return vault_values
 
 
-def _resolve_service_secrets(
-    vault_values: dict[str, str],
-    *,
-    existing_vault: bool,
-) -> None:
-    """Walk every auto-mint group and mint any missing secret. Skipped
-    entirely when the inventory vault already exists.
-
-    Community ships only CE-deployable services. Operator-only secrets
-    (Semaphore), the operator's billing portal (Catena portal + Stripe),
-    and bench-only pen-test creds (ZAP) are NOT minted here."""
-    # SSO service credentials (never shown). The oauth2-proxy cookie secret
-    # has a fixed-length-after-decode contract; see _mint_oauth2_proxy_cookie_secret.
-    _auto_mint_group(
-        vault_values, existing_vault=existing_vault,
-        minters={
-            "vault_keycloak_db_password": _mint_strong_password,
-            "vault_oauth2_proxy_cookie_secret": _mint_oauth2_proxy_cookie_secret,
-            "vault_oauth2_proxy_client_secret": _mint_strong_password,
-            "vault_dashboard_sync_client_secret": _mint_strong_password,
-            "vault_nextcloud_oidc_client_secret": _mint_strong_password,
-            "vault_element_oidc_client_secret": _mint_strong_password,
-            # Self-hosted mailserver INTERNAL SSO secrets (Roundcube OIDC +
-            # Dovecot token introspection): live entirely in our own
-            # Keycloak realm, so auto-minted like the other app OIDC clients.
-            "vault_mailserver_oidc_client_secret": _mint_strong_password,
-            "vault_mailserver_introspect_client_secret": _mint_strong_password,
-        },
-        ok_message=(
-            "SSO service secrets auto-generated (keycloak DB password, "
-            "oauth2-proxy cookie + client secrets, dashboard-sync "
-            "service-account secret, nextcloud + element OIDC client "
-            "secrets, mailserver OIDC + introspection client secrets)."
-        ),
-    )
-    # Healthchecks service credentials (self-hosted heartbeat instance).
-    _auto_mint_group(
-        vault_values, existing_vault=existing_vault,
-        minters={
-            "vault_healthchecks_secret_key": _mint_strong_password,
-            "vault_healthchecks_superuser_password": _mint_strong_password,
-            "vault_healthchecks_ping_key": _mint_url_safe,
-            "vault_healthchecks_api_key_readonly": _mint_hc_api_key,
-            "vault_healthchecks_api_key_readwrite": _mint_hc_api_key,
-        },
-        ok_message="Healthchecks secrets auto-generated.",
-    )
-    # Postgres password (stable across restores) and coturn static-auth-secret
-    # (seed for ephemeral TURN credentials). catena-postgres is the catena-owned
-    # Postgres (roles/postgres) that hosts the Keycloak DB.
-    _auto_mint_group(
-        vault_values, existing_vault=existing_vault,
-        minters={
-            "vault_catena_postgres_password": _mint_strong_password,
-            "vault_turn_static_auth_secret": _mint_strong_password,
-        },
-        ok_message="catena-postgres password + coturn static-auth-secret auto-generated.",
-    )
-    # Nextcloud Talk + HPB bearer secrets. Idle when the talk-hpb service is
-    # commented out in the compose.
-    _auto_mint_group(
-        vault_values, existing_vault=existing_vault,
-        minters={
-            "vault_nextcloud_talk_signaling_secret": _mint_strong_password,
-            "vault_nextcloud_talk_internal_secret": _mint_strong_password,
-        },
-        ok_message="Nextcloud Talk + HPB bearer secrets auto-generated.",
-    )
-    # Rocket.Chat-bundled Jitsi component bearer secrets.
-    _auto_mint_group(
-        vault_values, existing_vault=existing_vault,
-        minters={
-            "vault_jitsi_prosody_password": _mint_strong_password,
-            "vault_jitsi_jicofo_auth_password": _mint_strong_password,
-            "vault_jitsi_jicofo_component_secret": _mint_strong_password,
-            "vault_jitsi_jvb_auth_password": _mint_strong_password,
-        },
-        ok_message="Bundled Jitsi component secrets auto-generated.",
-    )
-    # Element-bundled Jitsi component secrets + jigasi (SIP <-> Jitsi) XMPP
-    # password. Separate key family so the two chat stacks can coexist.
-    _auto_mint_group(
-        vault_values, existing_vault=existing_vault,
-        minters={
-            "vault_element_jitsi_jicofo_auth_password": _mint_strong_password,
-            "vault_element_jitsi_jicofo_component_secret": _mint_strong_password,
-            "vault_element_jitsi_jvb_auth_password": _mint_strong_password,
-            "vault_element_jigasi_xmpp_password": _mint_strong_password,
-        },
-        ok_message="Element-bundled Jitsi + jigasi secrets auto-generated.",
-    )
-    # Beszel resource-monitor credentials. Minted unconditionally so flipping
-    # BESZEL_ENABLED later needs no prompt round-trip. The universal token
-    # uses the url-safe minter (Beszel rejects X-Token headers over 64 chars).
-    _auto_mint_group(
-        vault_values, existing_vault=existing_vault,
-        minters={
-            "vault_beszel_admin_password": _mint_strong_password,
-            "vault_beszel_universal_token": _mint_url_safe,
-        },
-        ok_message="Beszel secrets auto-generated (used iff BESZEL_ENABLED=true).",
-    )
-
-
 def _print_summary(
     *,
     inventory: str,
@@ -1148,7 +1004,11 @@ def main(argv: list[str] | None = None) -> int:
         vault_values,
         existing_vault=existing_vault, no_confirm=args.no_confirm,
     )
-    _resolve_service_secrets(vault_values, existing_vault=existing_vault)
+    # Internal service secrets (keycloak DB, oauth2 cookie, healthchecks,
+    # postgres, jitsi, beszel, ...) are NOT minted here anymore: the converge
+    # loader (helpers/onbox_config.py ensure_internal_secrets) mints them
+    # ON-BOX so they never touch the client's laptop. seed only writes the
+    # user-held externals (vendor creds + the admin/restic DR keyset).
 
     # Deferred env keys (CF account auto-fetch needs the vault token).
     _resolve_cloudflare_account(env_values, vault_values, env_provided)

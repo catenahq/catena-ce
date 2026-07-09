@@ -2,8 +2,10 @@
 
 Source of truth for **where every secret and config value comes from, who
 holds it, and where it must end up** under the client-owned-config model
-(0b). Derived from `seed.py` (`VAULT_SKIP_KEYS` + the `_resolve_*` / `_auto_mint_group`
-minters), `inventory/example/group_vars/all/vault.yml.example`,
+(0b). Derived from `helpers/onbox_config.py` (`INTERNAL_SECRETS` minted on-box
++ `EXTERNAL_SECRETS` user-held), `seed.py` (`VAULT_SKIP_KEYS` + the
+`_resolve_admin_password` / `_resolve_restic_password` DR-keyset minters),
+`inventory/example/group_vars/all/vault.yml.example`,
 `inventory/example/.env.example`, and `roles/backup/defaults/main.yml`
 (`backup_paths`).
 
@@ -39,31 +41,35 @@ ride the backup, because it is what unlocks the backup.
 | `vault_backup_s3_access_key` | reach the restic bucket | settings page | **yes** |
 | `vault_backup_s3_secret_key` | ^ | settings page | **yes** |
 | `vault_backup_restic_password` | decrypt the restic repo | self-gen, then **exported** | **yes** |
+| `vault_admin_password` | first login (Portainer + Keycloak) | self-gen, then **exported** | no |
 | `vault_smtp_password` | outbound mail (opt) | settings page | no |
 | `vault_mailserver_relay_password` | smarthost (opt) | settings page | no |
 | `vault_mailserver_spamhaus_dqs_key` | RBL (opt) | settings page | no |
 | `vault_nextcloud_s3_access_key` | NC primary S3 (opt) | settings page | no |
 | `vault_nextcloud_s3_secret_key` | ^ | settings page | no |
 
-`vault_backup_restic_password` is special: catena mints it (48 random bytes)
-but the client MUST export + keep it, because it is the key to their own
-backup. The settings page exposes it read-once + an "I've saved this" gate.
+`vault_backup_restic_password` and `vault_admin_password` are special: catena
+mints them on the CLIENT's machine (`seed.py`, shown once) but they are
+USER-HELD, not on-box-minted. The restic password is the key to the client's
+own backup -- minting it on-box would trap it inside the very snapshot it
+decrypts. The admin password is needed to log in the first time, before any
+on-box surface is reachable. Both are adopted into the store (they ride the
+backup for convenience) but the client keeps the authoritative copy. Classified
+`EXTERNAL_SECRETS` in `onbox_config.py`.
 
-### 2. Self-generated on-box (mint at converge, persist on-box, ride backup)
+### 2. Self-generated ON-BOX (minted at converge, persist on-box, ride backup)
 
-No human ever supplies these. `seed.py` mints the initial values into the
-plaintext, gitignored, 0600 `vault.yml` as an install-time seed (SOPS+age was
-dropped, 0b). At converge time they mint/reconcile **on the box**
-(reconcile-not-overwrite) into the on-box config store
-(`/etc/catena/config.json`, 0600 root), which persists under a backed-up path.
+No human ever supplies these and they NEVER touch the client's laptop. The
+converge loader (`playbooks/tasks/load_onbox_config.yml` ->
+`helpers/onbox_config.py` `ensure_internal_secrets`) mints every missing one
+**on the box** (reconcile-not-overwrite) into the on-box config store
+(`/etc/catena/config.json`, 0600 root), which persists under a backed-up path,
+then set_facts them for the roles. `seed.py` mints NONE of these (that was the
+old laptop-minting model; dropped with the 0b true-on-box-minting cutover).
 The `roles/portainer` API-key mint (`bootstrap_portainer_admin.py`) is the
-existing on-box-mint precedent -- it writes the key into the plaintext
-`vault.yml` (reloaded into scope via `include_vars`), and the on-box loader
-adopts it into the store on the next converge.
+one exception that mints mid-converge and writes into the plaintext `vault.yml`
+(reloaded via `include_vars`); the loader adopts it into the store.
 
-- `vault_admin_password` (shared Portainer + Keycloak) -- self-gen, but
-  client-visible: surfaced + resettable via the settings page (they log in
-  with it).
 - `vault_catena_postgres_password`
 - `vault_keycloak_db_password`
 - `vault_oauth2_proxy_cookie_secret`

@@ -50,13 +50,9 @@
   pre_tasks:
     # 0b: load on-box config store so on-host validate checks that read
     # vault_* (e.g. the Keycloak admin login smoke test) see the on-box
-    # source of truth. Flag-gated no-op. See tasks/load_onbox_config.yml.
+    # source of truth. See tasks/load_onbox_config.yml.
     - name: "0b: load on-box config store"
       ansible.builtin.include_tasks: tasks/load_onbox_config.yml
-      when: >-
-        (catena_onbox_config
-         | default(lookup('env', 'CATENA_ONBOX_CONFIG', default='false')))
-        | bool
       tags: [always, onbox]
 
   tasks:

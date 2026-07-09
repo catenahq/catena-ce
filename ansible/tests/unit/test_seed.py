@@ -290,41 +290,14 @@ def test_validate_structural_rejects_client_placeholder(seed):
     assert seed.validate_install_structural(inp, _ENV_KEYS, _VAULT_KEYS) >= 1
 
 
-# --- _resolve_service_secrets (CE-only minting) -----------------------------
-def test_service_secrets_mints_ce_groups(seed):
-    v: dict[str, str] = {}
-    seed._resolve_service_secrets(v, existing_vault=False)
-    for key in (
-        "vault_keycloak_db_password",
-        "vault_oauth2_proxy_cookie_secret",
-        "vault_dashboard_sync_client_secret",
-        "vault_healthchecks_secret_key",
-        "vault_catena_postgres_password",
-        "vault_turn_static_auth_secret",
-        "vault_beszel_admin_password",
-    ):
-        assert v.get(key), f"{key} should be minted"
-
-
-def test_service_secrets_omits_operator_and_ee_groups(seed):
-    v: dict[str, str] = {}
-    seed._resolve_service_secrets(v, existing_vault=False)
-    for key in (
-        "vault_semaphore_db_password",
-        "vault_portal_db_password",
-        "vault_zap_api_key",
-    ):
-        assert key not in v, f"{key} must not be minted in Community"
-
-
-def test_service_secrets_skips_existing_vault(seed):
-    v: dict[str, str] = {}
-    seed._resolve_service_secrets(v, existing_vault=True)
-    assert v == {}
-
-
-def test_oauth2_cookie_secret_decodes_to_32_bytes(seed):
-    import base64
-    secret = seed._mint_oauth2_proxy_cookie_secret()
-    decoded = base64.urlsafe_b64decode(secret + "=" * (-len(secret) % 4))
-    assert len(decoded) == 32
+# --- true on-box minting: seed mints NO internal service secrets ------------
+def test_seed_does_not_mint_internal_service_secrets(seed):
+    """0b: internal service secrets mint ON-BOX (helpers/onbox_config.py), never
+    on the client's laptop. seed lost _resolve_service_secrets + the internal
+    minters."""
+    for gone in ("_resolve_service_secrets", "_auto_mint_group",
+                 "_mint_oauth2_proxy_cookie_secret", "_mint_hc_api_key",
+                 "_mint_url_safe"):
+        assert not hasattr(seed, gone), f"{gone} should be removed"
+    # Only the restic-backup password minter (user-held DR keyset) remains.
+    assert hasattr(seed, "_mint_strong_password")
