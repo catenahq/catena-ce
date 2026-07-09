@@ -33,7 +33,10 @@
     # on-box secret facts. See tasks/load_onbox_config.yml.
     - name: "0b: load on-box config store"
       ansible.builtin.include_tasks: tasks/load_onbox_config.yml
-      when: catena_onbox_config | default(false) | bool
+      when: >-
+        (catena_onbox_config
+         | default(lookup('env', 'CATENA_ONBOX_CONFIG', default='false')))
+        | bool
       tags: [always, onbox]
 
     - name: "Preflight (external): probe configured S3 backends (HEAD, 10s)"
