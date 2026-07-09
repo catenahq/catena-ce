@@ -17,6 +17,7 @@ import (
 	"github.com/catenahq/catena-ce/internal/admin/integrations"
 	"github.com/catenahq/catena-ce/internal/admin/maintenance"
 	"github.com/catenahq/catena-ce/internal/admin/recovery"
+	"github.com/catenahq/catena-ce/internal/admin/settings"
 	"github.com/catenahq/catena-ce/internal/admin/system"
 	"github.com/catenahq/catena-ce/internal/admin/theme"
 	"github.com/catenahq/catena-ce/internal/auditlog"
@@ -141,6 +142,8 @@ func New(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("GET /recovery", RequireAdmin(s.recoveryIndex))
 	mux.HandleFunc("POST /recovery/start/{name}", RequireAdmin(s.recoveryStart))
 	mux.HandleFunc("GET /recovery/stream/{job_id}", RequireAdmin(s.recoveryStream))
+	mux.HandleFunc("GET /settings", RequireAdmin(s.settingsIndex))
+	mux.HandleFunc("POST /settings/save", RequireAdmin(s.settingsSave))
 	mux.HandleFunc("GET /maintenance", RequireAdmin(s.maintenanceIndex))
 	mux.HandleFunc("GET /resources", RequireAdmin(s.resourcesIndex))
 	mux.HandleFunc("GET /plugin/{id}", RequireAdmin(s.pluginPanel))
@@ -350,6 +353,89 @@ func (s *server) recoveryIndex(w http.ResponseWriter, r *http.Request) {
 		Artifacts: recovery.ListArtifacts(s.exportsDir, s.recoveryURL),
 		Actions:   actions.ForRecoveryTab(catalog),
 	})
+}
+
+// settingsView is the Settings-tab render data: the redacted field rows, the
+// DR keyset export, and one-shot save/error flags.
+type settingsView struct {
+	Fields []settings.FieldStatus
+	DRKeys []settings.DRKey
+	Saved  bool
+	Error  string
+}
+
+// settingsIndex renders the admin-only Settings tab (0b): the client's on-box
+// external creds + config, read (redacted) from /etc/catena/config.json via
+// the host dispatcher. A nil/failing dispatcher renders an empty form with a
+// notice rather than 500 -- the tab still loads on a host without SSH wired.
+func (s *server) settingsIndex(w http.ResponseWriter, r *http.Request) {
+	view := settingsView{Saved: r.URL.Query().Get("saved") == "1"}
+	store, err := s.readStore()
+	if err != nil {
+		view.Error = err.Error()
+	} else {
+		view.Fields = store.RedactedView()
+		view.DRKeys = store.DRKeyset()
+	}
+	s.tmpl.Render(w, r, "settings", http.StatusOK, view)
+}
+
+// settingsSave writes the submitted external creds + config to the on-box
+// store via the host dispatcher (onbox_config.py as root), then redirects back.
+// Only schema keys are read from the form; BuildWriteArgs rejects anything
+// else, so a forged field cannot reach an internal secret.
+func (s *server) settingsSave(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	submitted := make(map[string]string)
+	for _, f := range settings.Fields {
+		if v, ok := r.PostForm[f.Key]; ok && len(v) > 0 {
+			submitted[f.Key] = v[0]
+		}
+	}
+	args, err := settings.BuildWriteArgs(submitted)
+	if err != nil {
+		http.Error(w, "invalid settings submission", http.StatusBadRequest)
+		return
+	}
+	if args != nil {
+		if _, rc, derr := s.dispatchCapture(settings.ShellCommand(args)); derr != nil || rc != 0 {
+			store, _ := s.readStore()
+			s.tmpl.Render(w, r, "settings", http.StatusOK, settingsView{
+				Fields: store.RedactedView(),
+				DRKeys: store.DRKeyset(),
+				Error:  "save failed -- the host could not write the config store",
+			})
+			return
+		}
+	}
+	http.Redirect(w, r, "/settings?saved=1", http.StatusSeeOther)
+}
+
+// readStore reads + parses the on-box store via the host dispatcher.
+func (s *server) readStore() (settings.Store, error) {
+	out, rc, err := s.dispatchCapture(settings.ShellCommand(settings.ReadArgs()))
+	if err != nil {
+		return settings.Store{}, err
+	}
+	if rc != 0 {
+		return settings.Store{}, fmt.Errorf("read config store: host exit %d", rc)
+	}
+	return settings.ParseStore([]byte(out))
+}
+
+// dispatchCapture runs a host command through the Runner, capturing stdout as a
+// string and returning the remote exit code. A nil Runner is a clear error.
+func (s *server) dispatchCapture(command string) (string, int, error) {
+	if s.runner == nil {
+		return "", -1, fmt.Errorf("no host dispatcher configured")
+	}
+	var out strings.Builder
+	rc, err := s.runner.Run(
+		context.Background(), command, nil,
+		func(line string) { out.WriteString(line); out.WriteByte('\n') },
+		func(string) {},
+	)
+	return out.String(), rc, err
 }
 
 // maintenanceIndex renders the admin-only Maintenance tab: the host-side

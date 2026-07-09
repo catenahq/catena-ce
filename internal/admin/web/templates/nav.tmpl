@@ -20,6 +20,7 @@
 <a href="/resources"{{ if hasPrefix .Path "/resources" }} class="active"{{ end }}>{{ .T "tabs.resources" }}</a>
 <a href="/actions"{{ if hasPrefix .Path "/actions" }} class="active"{{ end }}>{{ .T "tabs.actions" }}</a>
 <a href="/recovery"{{ if hasPrefix .Path "/recovery" }} class="active"{{ end }}>{{ .T "tabs.recovery" }}</a>
+<a href="/settings"{{ if hasPrefix .Path "/settings" }} class="active"{{ end }}>{{ .T "tabs.settings" }}</a>
 {{- if .Globals.clients_tab_enabled }}
 <a href="/clients"{{ if hasPrefix .Path "/clients" }} class="active"{{ end }}>{{ .T "tabs.clients" }}</a>
 {{- end }}

@@ -1,0 +1,65 @@
+{{define "content"}}
+<section class="settings-page">
+  <h1>{{ .T "settings.heading" }}</h1>
+  <p class="muted intro">{{ .T "settings.intro" }}</p>
+
+  {{ if .Data.Saved }}
+    <p class="notice notice-ok" role="status">{{ .T "settings.saved" }}</p>
+  {{ end }}
+  {{ if .Data.Error }}
+    <p class="notice notice-error" role="alert">{{ .T "settings.error" }}</p>
+  {{ end }}
+
+  <form class="settings-form" method="post" action="/settings/save" autocomplete="off">
+    <section class="settings-secrets">
+      <h2>{{ .T "settings.secrets_heading" }}</h2>
+      <p class="muted hint">{{ .T "settings.secrets_hint" }}</p>
+      {{ range $f := .Data.Fields }}
+        {{ if $f.IsSecret }}
+          <label class="settings-field">
+            <span class="settings-label">
+              {{ $.T $f.LabelKey }}
+              {{ if $f.Set }}<span class="badge badge-set">{{ $.T "settings.set" }}</span>
+              {{ else if not $f.Optional }}<span class="badge badge-required">{{ $.T "settings.required" }}</span>{{ end }}
+            </span>
+            <input type="password" name="{{ $f.Key }}"
+                   placeholder="{{ if $f.Set }}{{ $.T "settings.unchanged" }}{{ end }}"
+                   autocomplete="new-password">
+          </label>
+        {{ end }}
+      {{ end }}
+    </section>
+
+    <section class="settings-config">
+      <h2>{{ .T "settings.config_heading" }}</h2>
+      {{ range $f := .Data.Fields }}
+        {{ if $f.IsText }}
+          <label class="settings-field">
+            <span class="settings-label">
+              {{ $.T $f.LabelKey }}
+              {{ if not $f.Optional }}<span class="badge badge-required">{{ $.T "settings.required" }}</span>{{ end }}
+            </span>
+            <input type="text" name="{{ $f.Key }}" value="{{ $f.Value }}">
+          </label>
+        {{ end }}
+      {{ end }}
+    </section>
+
+    <button type="submit" class="btn-run">{{ .T "settings.save" }}</button>
+  </form>
+
+  <section class="settings-dr">
+    <h2>{{ .T "settings.dr.heading" }}</h2>
+    <p class="muted hint">{{ .T "settings.dr.hint" }}</p>
+    {{ if not .Data.DRKeys }}
+      <p class="muted empty-state-inline">{{ .T "settings.dr.empty" }}</p>
+    {{ else }}
+      <ul class="dr-keyset" role="list">
+        {{ range $k := .Data.DRKeys }}
+          <li class="dr-row"><code class="dr-key">{{ $k.Key }}</code><code class="dr-value">{{ $k.Value }}</code></li>
+        {{ end }}
+      </ul>
+    {{ end }}
+  </section>
+</section>
+{{end}}

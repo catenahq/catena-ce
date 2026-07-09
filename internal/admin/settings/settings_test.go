@@ -96,6 +96,14 @@ func TestBuildWriteArgsEmptyIsNil(t *testing.T) {
 	}
 }
 
+func TestShellCommandQuotesArgs(t *testing.T) {
+	got := ShellCommand([]string{"--set-secret", "vault_x=a'b c"})
+	want := `catena-config '--set-secret' 'vault_x=a'\''b c'`
+	if got != want {
+		t.Fatalf("shell command mismatch:\n got %s\nwant %s", got, want)
+	}
+}
+
 func TestDRKeysetOrderAndOmitsUnset(t *testing.T) {
 	s, _ := ParseStore([]byte(`{"secrets":{"vault_backup_s3_access_key":"ak","vault_backup_restic_password":"pw"},"config":{"BACKUP_RESTIC_REPO":"s3:x/y"}}`))
 	got := s.DRKeyset()

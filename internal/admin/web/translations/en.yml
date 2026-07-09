@@ -12,6 +12,7 @@ tabs:
   resources: "Resources"
   actions: "Actions"
   recovery: "Recovery"
+  settings: "Settings"
   clients: "Clients"
 
 resources:
@@ -174,6 +175,40 @@ recovery:
     heading: "Generate new"
     hint: "Click Run to start the action; output streams below the button. New artifacts appear above once the run completes -- reload the page to refresh the list."
     empty: "No recovery actions are configured."
+
+settings:
+  heading: "Settings"
+  intro: "Your external service credentials and backup configuration. Catena keeps every internal secret on this server and in every backup, so you only manage the vendor credentials below."
+  secrets_heading: "Service credentials"
+  secrets_hint: "Values you obtained from each provider. Leave a field blank to keep the current value; type a new value only to replace it."
+  config_heading: "Backup and mail configuration"
+  set: "set"
+  required: "required"
+  unchanged: "leave blank to keep current"
+  save: "Save"
+  saved: "Settings saved and stored on this server."
+  error: "Could not read or write the configuration on this server."
+  dr:
+    heading: "Disaster-recovery keyset"
+    hint: "Save these in your password manager. With only these three values you can rebuild this server from backup onto a fresh machine. Catena keeps no other copy."
+    empty: "The recovery keyset appears once your backup credentials are set above."
+  field:
+    cloudflare_api_token: "Cloudflare API token"
+    tailscale_oauth_client_id: "Tailscale OAuth client ID"
+    tailscale_oauth_client_secret: "Tailscale OAuth client secret"
+    backup_s3_access_key: "Backup S3 access key"
+    backup_s3_secret_key: "Backup S3 secret key"
+    smtp_password: "SMTP password"
+    mailserver_relay_password: "Mail relay password"
+    mailserver_spamhaus_dqs_key: "Spamhaus DQS key"
+    nextcloud_s3_access_key: "Nextcloud S3 access key"
+    nextcloud_s3_secret_key: "Nextcloud S3 secret key"
+    backup_restic_repo: "Backup repository URL"
+    smtp_host: "SMTP host"
+    smtp_port: "SMTP port"
+    smtp_from: "SMTP sender address"
+    ntfy_server: "ntfy server"
+    ntfy_topic: "ntfy topic"
 
 audit:
   chain_ok: "Audit chain verified."

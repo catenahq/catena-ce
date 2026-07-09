@@ -30,6 +30,34 @@ import (
 // StorePath is the on-box store the host CLI reads/writes.
 const StorePath = "/etc/catena/config.json"
 
+// HostCommand is the host-side wrapper the admin container dispatches through
+// the actions.Runner (installed + allow-listed by roles/catena-admin). It runs
+// onbox_config.py as root against the store, so the unprivileged container
+// never touches the root-owned 0600 file directly.
+const HostCommand = "catena-config"
+
+// ReadArgs reads the full store without minting (a settings-page GET must not
+// mint secrets as a side effect of viewing).
+func ReadArgs() []string {
+	return []string{"--path", StorePath, "--emit", "all", "--no-mint"}
+}
+
+// ShellCommand renders HostCommand + args as one shell-safe command string for
+// Runner.Run (executed as $SSH_ORIGINAL_COMMAND on the host). Every arg is
+// single-quoted so a secret value with shell metacharacters cannot break out.
+func ShellCommand(args []string) string {
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, HostCommand)
+	for _, a := range args {
+		parts = append(parts, shellQuote(a))
+	}
+	return strings.Join(parts, " ")
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // FieldKind drives the input widget + redaction rule.
 type FieldKind int
 
@@ -57,6 +85,12 @@ type Field struct {
 	Optional bool      // an empty value is acceptable
 	LabelKey string    // i18n message key
 }
+
+// IsSecret reports whether the field is a write-only secret (template helper).
+func (f Field) IsSecret() bool { return f.Kind == KindSecret }
+
+// IsText reports whether the field is a visible config value (template helper).
+func (f Field) IsText() bool { return f.Kind == KindText }
 
 // Fields is the client-facing editable schema: the external vendor
 // credentials the client supplies + the non-secret backup/mail config. It

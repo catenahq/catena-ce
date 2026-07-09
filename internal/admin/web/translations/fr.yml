@@ -12,6 +12,7 @@ tabs:
   resources: "Ressources"
   actions: "Actions"
   recovery: "Récupération"
+  settings: "Paramètres"
   clients: "Clients"
 
 resources:
@@ -174,6 +175,40 @@ recovery:
     heading: "Générer un nouvel artefact"
     hint: "Cliquez sur Exécuter pour démarrer l'action; la sortie s'affiche sous le bouton. Les nouveaux artefacts apparaissent ci-dessus une fois l'exécution terminée -- rafraîchissez la page pour mettre la liste à jour."
     empty: "Aucune action de récupération n'est configurée."
+
+settings:
+  heading: "Paramètres"
+  intro: "Vos identifiants de services externes et votre configuration de sauvegarde. Catena conserve chaque secret interne sur ce serveur et dans chaque sauvegarde; vous ne gérez donc que les identifiants de fournisseurs ci-dessous."
+  secrets_heading: "Identifiants de services"
+  secrets_hint: "Les valeurs obtenues auprès de chaque fournisseur. Laissez un champ vide pour conserver la valeur actuelle; saisissez une nouvelle valeur seulement pour la remplacer."
+  config_heading: "Configuration de sauvegarde et de courriel"
+  set: "défini"
+  required: "requis"
+  unchanged: "laisser vide pour conserver"
+  save: "Enregistrer"
+  saved: "Paramètres enregistrés et stockés sur ce serveur."
+  error: "Impossible de lire ou d'écrire la configuration sur ce serveur."
+  dr:
+    heading: "Trousse de reprise après sinistre"
+    hint: "Conservez ces valeurs dans votre gestionnaire de mots de passe. Avec ces trois valeurs seulement, vous pouvez reconstruire ce serveur à partir d'une sauvegarde sur une machine neuve. Catena n'en conserve aucune autre copie."
+    empty: "La trousse de reprise apparaît une fois vos identifiants de sauvegarde définis ci-dessus."
+  field:
+    cloudflare_api_token: "Jeton d'API Cloudflare"
+    tailscale_oauth_client_id: "Identifiant client OAuth Tailscale"
+    tailscale_oauth_client_secret: "Secret client OAuth Tailscale"
+    backup_s3_access_key: "Clé d'accès S3 de sauvegarde"
+    backup_s3_secret_key: "Clé secrète S3 de sauvegarde"
+    smtp_password: "Mot de passe SMTP"
+    mailserver_relay_password: "Mot de passe du relais de courriel"
+    mailserver_spamhaus_dqs_key: "Clé Spamhaus DQS"
+    nextcloud_s3_access_key: "Clé d'accès S3 Nextcloud"
+    nextcloud_s3_secret_key: "Clé secrète S3 Nextcloud"
+    backup_restic_repo: "URL du dépôt de sauvegarde"
+    smtp_host: "Hôte SMTP"
+    smtp_port: "Port SMTP"
+    smtp_from: "Adresse d'expédition SMTP"
+    ntfy_server: "Serveur ntfy"
+    ntfy_topic: "Sujet ntfy"
 
 audit:
   chain_ok: "Chaîne d'audit vérifiée."
