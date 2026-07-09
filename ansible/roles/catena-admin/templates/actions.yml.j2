@@ -284,26 +284,3 @@ actions:
     # the log tail so the operator can follow progress.
     timeout: 5
     shell: "systemd-run --unit=catena-snapshot-export --no-block -- /usr/local/bin/catena-snapshot-export && echo 'Snapshot export started in background. Tail progress: journalctl -u catena-snapshot-export -f' && echo && echo 'Completed exports available at /var/backups/catena-export/.'"
-
-  # Disaster-recovery archive. Builds a single AES-256 password-protected
-  # .zip containing the full client-recovery toolkit (recover.sh +
-  # restore.sh + envelope.env + vault.recovered.yml + EN/FR READMEs).
-  # The operator types a one-time passphrase into the dialog, the script
-  # writes recovery-<ts>.zip to /var/backups/catena-export/, and the
-  # operator hands the SAME passphrase to the recipient out-of-band
-  # (SMS / phone / encrypted message). One artifact, one secret, one
-  # recovery flow.
-  - name: generate-recovery-archive
-    title: "Generate recovery archive (encrypted)"
-    title_fr: "Générer l'archive de récupération (chiffrée)"
-    category: Recovery
-    icon: "&#128190;" # 💾
-    timeout: 90
-    arguments:
-      - name: passphrase
-        type: password
-    # RECOVERY_URL is the SSO-gated download surface to point the client
-    # at. The script falls back to the scp hint when this env is empty
-    # (keeps host-script unit tests simple and keeps the script usable
-    # on a host where the recovery sidecar isn't deployed).
-    shell: "RECOVERY_URL='{{ recovery_archive_download_url }}' /usr/local/bin/catena-generate-recovery-archive"

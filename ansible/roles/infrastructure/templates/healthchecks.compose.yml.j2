@@ -23,8 +23,8 @@ services:
       # superuser + default Project on first converge. SUPERUSER_EMAIL
       # and SUPERUSER_PASSWORD below are INERT to this image's
       # entrypoint (upstream runs migrations only, no auto-bootstrap);
-      # they're kept here so `docker inspect` surfaces the expected
-      # password for the vault-recovery tool (extract_secrets_core.py).
+      # they're kept here for visibility/parity so the expected
+      # superuser credentials are discoverable on the running container.
       REGISTRATION_OPEN: "False"
       SUPERUSER_EMAIL: "{{ admin_email }}"
       SUPERUSER_PASSWORD: "{{ vault_healthchecks_superuser_password }}"

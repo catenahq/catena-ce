@@ -20,7 +20,7 @@ func TestListArtifactsSortsAndClassifies(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("recovery-20260101.zip", 3*time.Hour)
+	write("old-20260101.zip", 3*time.Hour)
 	write("snapshot-20260102.tar.gz", 1*time.Hour)
 	write("misc.txt", 2*time.Hour)
 	write("blob.zip", 2*time.Hour)
@@ -29,15 +29,16 @@ func TestListArtifactsSortsAndClassifies(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("len = %d, want 3 (misc.txt ignored)", len(got))
 	}
-	// Newest first: snapshot (1h) before recovery (3h); blob (2h) between.
+	// Newest first: snapshot (1h) before the plain .zip (3h); blob (2h) between.
 	if got[0].Name != "snapshot-20260102.tar.gz" {
 		t.Errorf("newest = %q, want snapshot", got[0].Name)
 	}
 	if got[0].Kind != "snapshot" {
 		t.Errorf("kind = %q, want snapshot", got[0].Kind)
 	}
-	if got[2].Kind != "archive" {
-		t.Errorf("oldest kind = %q, want archive", got[2].Kind)
+	// snapshot-export is the only classified kind now; any other .zip is "other".
+	if got[2].Kind != "other" {
+		t.Errorf("oldest kind = %q, want other", got[2].Kind)
 	}
 	for _, a := range got {
 		if a.Name == "blob.zip" && a.Kind != "other" {
@@ -80,8 +81,8 @@ func TestHumanSize(t *testing.T) {
 }
 
 func TestIconEntity(t *testing.T) {
-	if (Artifact{Kind: "archive"}).IconEntity() != "&#128190;" {
-		t.Error("archive icon wrong")
+	if (Artifact{Kind: "snapshot"}).IconEntity() != "&#128229;" {
+		t.Error("snapshot icon wrong")
 	}
 	if (Artifact{Kind: "other"}).IconEntity() != "&#128196;" {
 		t.Error("other icon wrong")

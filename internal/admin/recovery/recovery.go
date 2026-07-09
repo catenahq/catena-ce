@@ -28,7 +28,7 @@ type Artifact struct {
 	Name        string
 	SizeBytes   int64
 	ModTime     time.Time
-	Kind        string // "archive" | "snapshot" | "other"
+	Kind        string // "snapshot" | "other"
 	DownloadURL string
 }
 
@@ -82,13 +82,11 @@ func hasSupportedSuffix(name string) bool {
 	return false
 }
 
-// kindOf distinguishes the encrypted DR archive (recovery-*.zip) from a restic
-// snapshot export (snapshot-*.tar.gz) so the template can pick an icon.
+// kindOf tags a restic snapshot export (snapshot-*.tar.gz) so the template can
+// pick an icon; everything else falls through to "other".
 func kindOf(name string) string {
 	lower := strings.ToLower(name)
 	switch {
-	case strings.HasPrefix(lower, "recovery-") && strings.HasSuffix(lower, ".zip"):
-		return "archive"
 	case strings.HasPrefix(lower, "snapshot-") && strings.HasSuffix(lower, ".tar.gz"):
 		return "snapshot"
 	default:
@@ -117,8 +115,6 @@ func (a Artifact) FormatModTime() string {
 // not user input, so the template renders it through safeHTML.
 func (a Artifact) IconEntity() string {
 	switch a.Kind {
-	case "archive":
-		return "&#128190;"
 	case "snapshot":
 		return "&#128229;"
 	default:

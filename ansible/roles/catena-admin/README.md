@@ -56,8 +56,8 @@ Portainer stack from
 ## Community vs Business actions
 
 The canonical catalog ships only Community actions: manual backup +
-snapshot browse/export, the per-app wiring buttons, recovery-archive
-generation, and Ops diagnostics. The **Upgrades** category is
+snapshot browse/export, the per-app wiring buttons, and Ops
+diagnostics. The **Upgrades** category is
 intentionally empty in Community -- managed updates and the
 catena-daily orchestrator are Business lanes whose buttons are
 contributed at runtime by license-gated plugins (the Go shell merges

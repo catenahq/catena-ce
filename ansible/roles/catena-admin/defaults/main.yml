@@ -78,17 +78,8 @@ catena_admin_state_dir: "/var/lib/catena-admin"
 
 # Source-of-truth action catalog. Rendered by catalog.yml into the
 # host dispatch table + the catalog the Go shell reads at runtime.
-# Role-relative template; carries one Jinja placeholder
-# (recovery_archive_download_url).
+# Role-relative template; the only Jinja marker is `ansible_managed`.
 catena_admin_actions_source: "{{ role_path }}/templates/actions.yml.j2"
-
-# Public URL the recovery nginx sidecar serves /var/backups/catena-export
-# from. Embedded into the generate-recovery-archive action shell at
-# converge time so the host-side script can hand a real download URL
-# to the client. infrastructure_recovery_hostname comes from
-# roles/infrastructure/defaults/main.yml.
-recovery_archive_download_url: >-
-  https://{{ infrastructure_recovery_hostname | default('recovery.' ~ cloudflare_zone | default('example.com')) }}/
 
 # Default locale + theme rendered into the admin container's env.
 # Inventory overrides via catena_default_language / catena_default_theme.

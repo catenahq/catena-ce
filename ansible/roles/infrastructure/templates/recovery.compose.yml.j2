@@ -17,9 +17,8 @@ services:
     image: {{ recovery_image }}
     restart: unless-stopped
     volumes:
-      # Recovery artifacts dir -- read-only. Contains the .yml.gpg bundles
-      # produced by the "Export recovery secrets" button and the .tar.gz
-      # produced by the "Export latest snapshot" button.
+      # Recovery artifacts dir -- read-only. Contains the .tar.gz
+      # snapshot exports produced by the "Export latest snapshot" button.
       - {{ recovery_source_dir }}:/srv/recovery:ro
       # Per-host nginx.conf replacing the base image's default -- needed
       # so workers run as root and can read the 0600 root-owned files

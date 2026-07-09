@@ -655,8 +655,8 @@ func writeMixedActionsFile(t *testing.T) string {
 		"  - name: backup-now\n" +
 		"    title: Backup now\n" +
 		"    category: Backups\n" +
-		"  - name: generate-recovery-archive\n" +
-		"    title: Generate recovery archive\n" +
+		"  - name: snapshot-export\n" +
+		"    title: Export latest snapshot\n" +
 		"    category: Recovery\n"
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
@@ -678,7 +678,7 @@ func TestRecoveryRequiresAdminAndRenders(t *testing.T) {
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("non-admin /recovery = %d, want 403", rr.Code)
 	}
-	// Admin -> 200, empty downloads + the Recovery generate button.
+	// Admin -> 200, empty downloads + the Recovery snapshot-export button.
 	rr = httptest.NewRecorder()
 	h.ServeHTTP(rr, adminReq("GET", "/recovery", ""))
 	if rr.Code != http.StatusOK {
@@ -688,8 +688,8 @@ func TestRecoveryRequiresAdminAndRenders(t *testing.T) {
 	if !strings.Contains(body, "recovery-page") {
 		t.Error("expected the Recovery page to render")
 	}
-	if !strings.Contains(body, "/recovery/start/generate-recovery-archive") {
-		t.Error("expected the Recovery-category generate button")
+	if !strings.Contains(body, "/recovery/start/snapshot-export") {
+		t.Error("expected the Recovery-category snapshot-export button")
 	}
 	// The Backups action must NOT appear on the Recovery tab.
 	if strings.Contains(body, "/recovery/start/backup-now") {
@@ -698,7 +698,7 @@ func TestRecoveryRequiresAdminAndRenders(t *testing.T) {
 }
 
 func TestRecoveryStartScopedToRecovery(t *testing.T) {
-	fr := &fakeRunner{stdout: []string{"archiving"}, rc: 0}
+	fr := &fakeRunner{stdout: []string{"exporting"}, rc: 0}
 	h, err := New(Config{Version: "t", ActionsFile: writeMixedActionsFile(t), Runner: fr})
 	if err != nil {
 		t.Fatal(err)
@@ -711,7 +711,7 @@ func TestRecoveryStartScopedToRecovery(t *testing.T) {
 	}
 	// The Recovery action starts and streams via the /recovery/stream prefix.
 	rr = httptest.NewRecorder()
-	h.ServeHTTP(rr, adminReq("POST", "/recovery/start/generate-recovery-archive", ""))
+	h.ServeHTTP(rr, adminReq("POST", "/recovery/start/snapshot-export", ""))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("recovery start = %d, want 200", rr.Code)
 	}
@@ -721,7 +721,7 @@ func TestRecoveryStartScopedToRecovery(t *testing.T) {
 	}
 	rr = httptest.NewRecorder()
 	h.ServeHTTP(rr, adminReq("GET", streamURL, ""))
-	if !strings.Contains(rr.Body.String(), "data: archiving\n\n") {
+	if !strings.Contains(rr.Body.String(), "data: exporting\n\n") {
 		t.Errorf("expected the dispatched stdout frame, got %q", rr.Body.String())
 	}
 }

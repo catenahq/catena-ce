@@ -26,8 +26,8 @@ rides every restic snapshot -- a restore returns every secret with the data.
 
 Design constraints:
   - stdlib only. Runs on a minimal target host whose system python has no
-    PyYAML (same reason ``extract_secrets_core`` hand-rolls its YAML). JSON
-    is stdlib and round-trips base64 / url-safe secret values exactly.
+    PyYAML. JSON is stdlib and round-trips base64 / url-safe secret values
+    exactly.
   - INTERNAL secrets are minted here; EXTERNAL secrets (vendor creds the
     client supplies) are only ever *stored*, never generated -- they arrive
     via the two-phase bootstrap or the catena-admin settings API.

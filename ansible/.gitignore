@@ -9,7 +9,6 @@ inventory/*
 # someone copies .env.example -> .env in place to test, it stays out of git.
 inventory/example/.env
 inventory/example/.bootstrap-output.yml
-inventory/example/**/vault.sops.yml
 inventory/example/**/vault.yml
 
 # Galaxy collections vendored by `ansible-galaxy collection install -r requirements.yml`.

@@ -266,8 +266,7 @@
     # UID/GID 1000) can list+stat the artifacts for the /recovery tab.
     # The downloads themselves are served by the recovery nginx sidecar
     # which runs as root and still has owner-rwx. Must match the
-    # matching chowns in roles/infrastructure/tasks/recovery_archive.yml
-    # and roles/infrastructure/tasks/recovery.yml.
+    # matching chown in roles/infrastructure/tasks/recovery.yml.
     group: "1000"
     mode: "0750"
 

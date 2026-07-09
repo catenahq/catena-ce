@@ -1,18 +1,14 @@
 ---
 # Orchestrator for roles/infrastructure. Order matters:
 #
-# 1. recovery_archive.yml    -- F12 recovery-archive generator (host-side
-#                              cores, restore.sh template, entry script,
-#                              p7zip-full apt dep, /var/backups/catena-export).
-#                              Independent of the Portainer API.
-# 2. portainer_endpoint.yml     -- resolve the Portainer local Docker endpoint
+# 1. portainer_endpoint.yml     -- resolve the Portainer local Docker endpoint
 #                              id; capture _portainer_endpoint_id.
 #                              Gated on vault_portainer_api_key (minted in-role
 #                              by roles/portainer earlier in site.yml).
-# 3. gatus.yml / healthchecks.yml / recovery.yml --
+# 2. gatus.yml / healthchecks.yml / recovery.yml --
 #    each calls portainer_stack.yml with its own compose YAML, env,
 #    domain, port. All gated on vault_portainer_api_key.
-# 4. dashboard_sync.yml + gatus_sync.yml -- sync scripts + systemd timers.
+# 3. dashboard_sync.yml + gatus_sync.yml -- sync scripts + systemd timers.
 #                              Gated on the API key. dashboard-sync owns
 #                              auto-gated Traefik routes (Phase 4b
 #                              retired its services.yaml writer);
@@ -37,17 +33,6 @@
 # zone are NOT removed via API (avoids destructive cross-account action).
 # Manual cleanup: dash.cloudflare.com -> Zero Trust -> Access -> Applications
 # -> delete the four `<subdomain>.<zone>` entries.
-
-# F12 recovery-archive generator (host-side cores + restore.sh template +
-# entry script + p7zip-full apt dep + /var/backups/catena-export). Backs
-# the catena-admin "Generate recovery archive (encrypted)" Recovery-tab
-# button. Independent of the Portainer API key (host-only state), runs on
-# every converge. Subsumes the older extract_secrets task -- the
-# recovery zip contains vault.recovered.yml internally, so the
-# gpg-armored vault dump it produced is no longer a separate flow.
-- name: Recovery-archive generator (host-side cores + entry script + 7z)
-  ansible.builtin.import_tasks: recovery_archive.yml
-  tags: [catena_admin, recovery_archive]
 
 # --- Everything below requires the Portainer API key. It is minted in-role
 #     by roles/portainer earlier in site.yml (and self-heals a missing/

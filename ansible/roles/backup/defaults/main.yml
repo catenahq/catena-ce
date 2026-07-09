@@ -345,12 +345,11 @@ backup_exclude_patterns:
   #   test_backup_defaults_exclude_clamav_db_volume
   - "*/docker/volumes/clamav-db"
   - "*/docker/volumes/clamav-db/*"
-  # Recovery-bundle + snapshot-export staging dir. Served read-only to
-  # client admins by the recovery-downloads nginx sidecar
-  # (recovery.<zone>). Backing it up would be self-referential -- the
-  # files are ALREADY a packaged form of the backup (encrypted vault
-  # bundle, tar.gz snapshot export) and are regenerated on demand by
-  # the "Export recovery secrets" + "Export latest snapshot" buttons.
+  # Snapshot-export staging dir. Served read-only to client admins by
+  # the recovery-downloads nginx sidecar (recovery.<zone>). Backing it
+  # up would be self-referential -- the files are ALREADY a packaged
+  # form of the backup (tar.gz snapshot export) and are regenerated on
+  # demand by the "Export latest snapshot" button.
   # No-op today (path isn't under any backup_paths prefix) but locks
   # the exclusion against any future expansion of that list into
   # /var/backups or /var.

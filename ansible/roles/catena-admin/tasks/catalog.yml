@@ -9,11 +9,11 @@
 # at converge time.
 
 - name: "Catalog: load canonical actions.yml from catena-admin source"
-  # Use `template` rather than `file` so the YAML's `{{ ... }}`
-  # placeholders (currently just recovery_archive_download_url in
-  # generate-recovery-archive's shell) expand to the per-host values.
-  # Subsequent renders (admin-allowed.yaml, admin-actions dispatch
-  # table) inherit the substituted shells via _catena_admin_actions_merged.
+  # Use `template` rather than `file` so the YAML's `{{ ... }}` markers
+  # (currently just the `ansible_managed` header) render. Any future
+  # per-host placeholder in an action shell expands here and the
+  # subsequent renders (admin-allowed.yaml, admin-actions dispatch table)
+  # inherit the substituted shells via _catena_admin_actions_merged.
   ansible.builtin.set_fact:
     _catena_admin_actions_canonical: >-
       {{ (lookup('template', catena_admin_actions_source) | from_yaml).actions | default([]) }}
@@ -37,11 +37,10 @@
 # --- Files the admin container bind-mounts ---------------------------
 
 - name: "Catalog: install canonical actions.yml ({{ catena_admin_actions_yml_path }})"
-  # Template-render so the same `{{ recovery_archive_download_url }}`
-  # placeholder used by the dispatch table also gets substituted on
-  # the container's read path. Source path is absolute
-  # ({{ '{{ role_path }}' }}/templates/actions.yml.j2), so `template`
-  # interprets it without searching templates/.
+  # Template-render so the same Jinja markers used by the dispatch table
+  # also get substituted on the container's read path. Source path is
+  # absolute ({{ '{{ role_path }}' }}/templates/actions.yml.j2), so
+  # `template` interprets it without searching templates/.
   ansible.builtin.template:
     src: "{{ catena_admin_actions_source }}"
     dest: "{{ catena_admin_actions_yml_path }}"

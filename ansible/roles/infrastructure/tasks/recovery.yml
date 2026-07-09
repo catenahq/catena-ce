@@ -3,10 +3,9 @@
 # compose app -> recovery.<zone>.
 #
 # Purpose: SSO-gated file server exposing /var/backups/catena-
-# export/ read-only so client admin can retrieve recovery
-# bundles (.yml.gpg from the "Export recovery secrets" button, .tar.gz
-# from the "Export latest snapshot" button) without needing tailnet
-# access.
+# export/ read-only so client admin can retrieve snapshot exports
+# (.tar.gz from the "Export latest snapshot" button) without needing
+# tailnet access.
 #
 # Auth: forward-auth via the shared SSO middleware (same as every other
 # *.<zone> admin surface). Group enforcement (`admin` only) is
@@ -27,8 +26,7 @@
     state: directory
     owner: root
     # group=1000 so catena-admin container (UID/GID 1000 in Dockerfile)
-    # can list artifacts for the /recovery tab. Must match roles/backup
-    # and roles/infrastructure/tasks/recovery_archive.yml.
+    # can list artifacts for the /recovery tab. Must match roles/backup.
     group: "1000"
     mode: "0750"
 

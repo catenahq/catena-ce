@@ -21,8 +21,8 @@ var ActionsTabCategories = []string{"Upgrades", "Backups", "Initial apps setup",
 // RecoveryCategory routes an action to the Recovery tab instead of Actions.
 const RecoveryCategory = "Recovery"
 
-// ActionArgument is an argument schema declared on an action (e.g. the
-// passphrase on generate-recovery-archive).
+// ActionArgument is an argument schema declared on an action (e.g. a
+// text/password prompt an EE plugin action contributes).
 type ActionArgument struct {
 	Name string
 	Type string // text | password | select | ...

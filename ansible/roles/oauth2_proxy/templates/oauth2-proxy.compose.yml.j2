@@ -5,8 +5,7 @@
 # a clean 302 to Keycloak when the user is unauthenticated.
 #
 # Cookie + client secrets via env vars (oauth2-proxy reads
-# OAUTH2_PROXY_* env vars natively) so extract_secrets_core can
-# recover them from a running container via `docker inspect`.
+# OAUTH2_PROXY_* env vars natively).
 #
 # The legacy `staff:` / `admin:` services at the bottom are retained
 # while `oauth2_proxy_keep_legacy_chain` is true so dashboard-sync's
