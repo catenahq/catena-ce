@@ -3,9 +3,10 @@
 // imports it to build license-gated plugins, which Go's internal-package
 // rule would otherwise forbid.
 //
-// For now this is the in-process contract. The go-plugin / gRPC transport
-// (so EE plugins ship as separately-downloaded binaries the shell launches
-// at runtime) wraps this same interface in a following slice.
+// This is the in-process contract. The go-plugin transport that ships EE
+// plugins as separately-downloaded binaries the shell launches at runtime
+// wraps this same interface: see transport.go here and loader/ in the
+// shell.
 package plugin
 
 import (
