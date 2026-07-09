@@ -284,19 +284,27 @@ def main(argv: list[str] | None = None) -> int:
                     help="read a JSON object of existing {key: value} secrets "
                          "from stdin and adopt them fill-only before minting "
                          "(one-time migration capture from the SOPS vault)")
+    ap.add_argument("--adopt-file", metavar="PATH",
+                    help="like --adopt-stdin but read the JSON object from a "
+                         "file (the Ansible loader stages the capture map to a "
+                         "0600 host file; this ansible-core's script module has "
+                         "no stdin passthrough)")
     ap.add_argument("--emit", choices=["secrets", "all", "none"], default="secrets",
                     help="what to print as JSON on stdout (default: secrets, "
                          "for an Ansible set_fact of the vault_* names)")
     args = ap.parse_args(argv)
 
     store = load(args.path)
+    adopt_raw = ""
     if args.adopt_stdin:
-        raw = sys.stdin.read().strip()
-        if raw:
-            incoming = json.loads(raw)
-            if not isinstance(incoming, dict):
-                raise SystemExit("--adopt-stdin: expected a JSON object")
-            adopt(store, incoming)
+        adopt_raw = sys.stdin.read().strip()
+    elif args.adopt_file:
+        adopt_raw = Path(args.adopt_file).read_text().strip()
+    if adopt_raw:
+        incoming = json.loads(adopt_raw)
+        if not isinstance(incoming, dict):
+            raise SystemExit("--adopt-*: expected a JSON object")
+        adopt(store, incoming)
     apply_inputs(
         store,
         secrets_in=_parse_kv(args.set_secret),

@@ -192,6 +192,18 @@ def test_cli_adopt_stdin_then_mint(oc, tmp_path, capsys, monkeypatch):
     assert on_disk["secrets"]["vault_portainer_api_key"] == "ptr"
 
 
+def test_cli_adopt_file_then_mint(oc, tmp_path, capsys):
+    p = tmp_path / "config.json"
+    adopt = tmp_path / "adopt.json"
+    adopt.write_text('{"vault_portainer_api_key": "ptr", "vault_admin_password": "adopted"}')
+    rc = oc.main(["--path", str(p), "--adopt-file", str(adopt), "--emit", "secrets"])
+    assert rc == 0
+    emitted = json.loads(capsys.readouterr().out)
+    assert emitted["vault_portainer_api_key"] == "ptr"
+    assert emitted["vault_admin_password"] == "adopted"
+    assert emitted["vault_catena_postgres_password"]  # minted
+
+
 # --- CLI --------------------------------------------------------------------
 def test_cli_seeds_external_mints_internal_and_emits(oc, tmp_path, capsys):
     p = tmp_path / "config.json"
