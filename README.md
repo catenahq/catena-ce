@@ -1,21 +1,21 @@
 # catena-ce
 
-The public, fair-code base of Catena: a self-hostable business suite you
-own. Run the **Community** edition yourself for free -- the full app
-catalog plus the base lifecycle (install, single sign-on, monitoring
-basics, a single backup runner, and restore/recovery). Subscribe to the
-managed **Business** edition for the parts Community does not include:
-offsite immutable backups, the automation engine (managed updates, CVE
-response), monitoring, identity governance, and a monthly assurance
-report -- with us operating the whole lifecycle for you.
+The public, fair-code base of **Catena** -- a self-hostable business suite you
+own and run yourself. Community is a complete, standalone product: the full
+app catalog plus the whole base lifecycle -- one-command install, single
+sign-on across every app, monitoring basics, on-demand backups, and
+whole-host restore/recovery onto a fresh replacement box. Source-available,
+no telemetry, no license required.
+
+> A managed **Business** edition adds operated extras on top (offsite
+> immutable backups, automated updates, and more). Learn more at
+> [catena.run](https://catena.run).
 
 This repository holds:
 
-- **catena-admin (Go shell)** -- the community admin surface: a single
-  binary hosting Community panels/actions and, when a Business license
-  validates, the license-gated enterprise plugins pulled from
-  `catenahq/catena-ee`. One image; EE rides in as downloaded
-  plugin binaries gated at runtime (no second build).
+- **catena-admin (Go shell)** -- the Community admin surface: a single
+  binary hosting the Community panels + actions, with a plugin seam that a
+  Business license extends at runtime (no second build).
 - **Base automation** -- the `preflight` / `bootstrap` / `site` /
   `validate` / `restore` flows + shared roles + the single-backup runner.
 - **Installer / CLI** -- `ansible/catena`, a thin entry point so
@@ -98,11 +98,3 @@ CATENA_LICENSE="<token>" CATENA_LICENSE_PUBKEY="<base64-ed25519>" \
 `CATENA_ADMIN_ADDR` overrides the listen address (the container sets `:8000`).
 With no (or an invalid) license the shell runs Community-only; it never fails
 closed on a missing key.
-
-## Editions
-
-| Edition | What it is | Price |
-| --- | --- | --- |
-| Community | Self-host the full app catalog plus the base lifecycle (install, SSO, monitoring basics, single backup, restore/recover). Source-available, no telemetry. Offsite immutable backups and the automation engine are NOT included -- but recovery is, so you can always read and restore from a cold backup. | Free |
-| Business | Everything in Community, operated for you, plus the parts Community does not include: offsite immutable backups (write), the automation engine (managed updates, CVE response), monitoring, identity governance, monthly assurance report. | Managed subscription |
-| Bespoke | Design a suite around your workflow. | Quoted |
