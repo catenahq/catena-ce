@@ -10,12 +10,3 @@ collections:
     version: "==3.2.2"
   - name: community.docker
     version: "==5.2.1"
-  # community.sops -- replaces ansible-vault. The collection ships:
-  #   - vars plugin: auto-decrypts group_vars/host_vars/*.sops.yml files
-  #     (enabled via ansible.cfg `vars_plugins_enabled`)
-  #   - sops module / load_vars action plugin / lookup / filter
-  # Operator age key resolved via $SOPS_AGE_KEY env var (raw key
-  # content; paste into the calling shell once per session, no file
-  # on disk).
-  - name: community.sops
-    version: "==2.4.0"

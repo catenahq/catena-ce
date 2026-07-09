@@ -1,4 +1,4 @@
-"""Unit tests for the `catena` CLI wrapper: command wiring + key bridging."""
+"""Unit tests for the `catena` CLI wrapper: command wiring."""
 from __future__ import annotations
 
 import importlib.util
@@ -60,7 +60,6 @@ def test_recover_runs_full_chain_with_snapshot(cli, monkeypatch):
     monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
     monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
     monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
     monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
 
@@ -100,7 +99,6 @@ def test_rollback_runs_chain_with_snapshot_no_bootstrap(cli, monkeypatch):
     monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
     monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
     monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
     monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
 
@@ -127,7 +125,6 @@ def test_recover_runs_single_site_pass(cli, monkeypatch):
     monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
     monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
     monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
     monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
 
@@ -189,7 +186,6 @@ def test_backup_runs_backup_now_playbook(cli, monkeypatch):
     monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
     monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
     monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
     ns = cli.build_parser().parse_args(["backup", "--inventory", "test"])
     assert ns.func(ns) == 0
@@ -217,70 +213,34 @@ def test_snapshot_extra_is_none_when_unset(cli):
 
 def test_check_prereqs_reports_missing(cli, monkeypatch):
     monkeypatch.setattr(cli.shutil, "which", lambda name: None)
-    missing = cli.check_prereqs(("ansible-playbook", "sops"))
-    assert set(missing) == {"ansible-playbook", "sops"}
+    missing = cli.check_prereqs(("ansible-playbook", "ansible"))
+    assert set(missing) == {"ansible-playbook", "ansible"}
 
 
 def test_check_prereqs_all_present(cli, monkeypatch):
     monkeypatch.setattr(cli.shutil, "which", lambda name: "/usr/bin/" + name)
-    assert cli.check_prereqs(("sops",)) == []
+    assert cli.check_prereqs(("ansible",)) == []
 
 
-def test_ensure_age_key_env_loads_from_file(cli, tmp_path, monkeypatch):
-    monkeypatch.delenv("SOPS_AGE_KEY", raising=False)
-    key_file = tmp_path / "keys.txt"
-    secret = "AGE-SECRET-KEY-1LOADEDFROMFILE000000000000000000000000000000000000"
-    key_file.write_text(f"# public key: age1x\n{secret}\n")
-    cli.ensure_age_key_env(key_file=key_file)
-    import os
-    assert os.environ.get("SOPS_AGE_KEY") == secret
-
-
-def test_ensure_age_key_env_keeps_existing(cli, tmp_path, monkeypatch):
-    monkeypatch.setenv("SOPS_AGE_KEY", "AGE-SECRET-KEY-1ALREADYSET00000000000000000000000000000000000000")
-    key_file = tmp_path / "keys.txt"
-    key_file.write_text("AGE-SECRET-KEY-1OTHER0000000000000000000000000000000000000000000\n")
-    cli.ensure_age_key_env(key_file=key_file)
-    import os
-    assert os.environ["SOPS_AGE_KEY"].endswith("ALREADYSET00000000000000000000000000000000000000")
-
-
-def test_ensure_age_key_env_noop_when_no_file(cli, tmp_path, monkeypatch):
-    monkeypatch.delenv("SOPS_AGE_KEY", raising=False)
-    cli.ensure_age_key_env(key_file=tmp_path / "absent.txt")
-    import os
-    assert not os.environ.get("SOPS_AGE_KEY")
-
-
-def test_required_binaries_core_excludes_age_keygen(cli):
-    """Core prereqs are ansible + sops (every command needs them); age-keygen
-    is seed-only (mint), so it is NOT in the always-required set."""
-    for b in ("ansible-playbook", "ansible", "sops"):
-        assert b in cli.REQUIRED_BINARIES
+def test_required_binaries_drop_sops_and_age(cli):
+    """SOPS+age was dropped (0b): the vault is plaintext, so neither sops nor
+    age-keygen is a prereq, and there is no seed-only binary set anymore."""
+    assert cli.REQUIRED_BINARIES == ("ansible-playbook", "ansible")
+    assert "sops" not in cli.REQUIRED_BINARIES
     assert "age-keygen" not in cli.REQUIRED_BINARIES
-    assert "age-keygen" in cli._SEED_BINARIES
+    assert not hasattr(cli, "_SEED_BINARIES")
+    assert not hasattr(cli, "ensure_age_key_env")
 
 
-def test_preflight_core_ignores_missing_age_keygen(cli, monkeypatch):
-    """A converge/recover/rollback runs against an existing inventory and never
-    mints, so a runner without age-keygen must not be blocked."""
-    present = set(cli.REQUIRED_BINARIES)  # age-keygen deliberately absent
+def test_preflight_passes_with_core_binaries(cli, monkeypatch):
+    """Every command runs against a plaintext inventory; only ansible is
+    required."""
+    present = set(cli.REQUIRED_BINARIES)
     monkeypatch.setattr(
         cli.shutil, "which",
         lambda name: ("/usr/bin/" + name) if name in present else None,
     )
     cli._preflight_checks()  # must NOT raise
-
-
-def test_install_preflight_requires_age_keygen(cli, monkeypatch):
-    """install may mint a new age key via seed, so it demands age-keygen."""
-    present = set(cli.REQUIRED_BINARIES)  # age-keygen absent
-    monkeypatch.setattr(
-        cli.shutil, "which",
-        lambda name: ("/usr/bin/" + name) if name in present else None,
-    )
-    with pytest.raises(SystemExit):
-        cli._preflight_checks(cli.REQUIRED_BINARIES + cli._SEED_BINARIES)
 
 
 def test_ensure_collections_uses_writable_override_path(cli, monkeypatch, tmp_path):
@@ -383,7 +343,6 @@ def test_rotate_tunnel_runs_playbook_with_token_file(cli, monkeypatch):
     monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
     monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
     monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
 
     ns = cli.build_parser().parse_args(
@@ -403,7 +362,6 @@ def test_rotate_tunnel_reads_token_from_env(cli, monkeypatch):
     monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
     monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
     monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
     monkeypatch.setenv("CATENA_CF_API_TOKEN", "env-token")
 
@@ -416,7 +374,6 @@ def test_rotate_tunnel_reads_token_from_env(cli, monkeypatch):
 def test_rotate_tunnel_dies_without_token(cli, monkeypatch):
     monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
     monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
     monkeypatch.delenv("CATENA_CF_API_TOKEN", raising=False)
     monkeypatch.setattr(cli.getpass, "getpass", lambda *a, **k: "")
@@ -431,7 +388,6 @@ def test_rotate_tailscale_runs_playbook(cli, monkeypatch):
     monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
     monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
     monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
 
     ns = cli.build_parser().parse_args(["rotate-tailscale", "--inventory", "test"])
@@ -475,7 +431,6 @@ def test_inventory_path_threads_to_ansible_playbook_i_flag(cli, monkeypatch, tmp
     monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
     monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
     monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
     monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
 

@@ -26,10 +26,9 @@ ansible-playbook. Subcommands:
              apt-daily-upgrade.timer (the unattended-upgrades handback)
              and print teardown guidance
 
-The vault is SOPS-encrypted to your own age key. seed.py mints it on first
-install and saves it to a key file; this CLI loads it into $SOPS_AGE_KEY
-automatically on every run so the Ansible community.sops vars plugin can
-decrypt. Run inside the catena-ce checkout:
+The vault is a PLAINTEXT group_vars file (SOPS+age was dropped, project 0b);
+the on-box config store (/etc/catena/config.json) is the runtime source of
+truth and rides the restic backup. Run inside the catena-ce checkout:
 
     uv run ./catena install --inventory prod
 """
@@ -66,13 +65,9 @@ RECOVER_CHAIN = ("preflight", "bootstrap", "restore", "site", "validate")
 ROLLBACK_CHAIN = ("preflight", "restore", "site", "validate")
 
 # Host binaries the wrapper shells out to. ansible-playbook/ansible run the
-# base; sops decrypts the vault -- all commands need these. age-keygen is only
-# used when seeding MINTS a new age key (first install), so it is required by
-# `install`, not by a converge/recover/rollback against an existing inventory
-# (e.g. an operator driving an already-seeded ops-side inventory from Semaphore
-# on a runner without age installed).
-REQUIRED_BINARIES = ("ansible-playbook", "ansible", "sops")
-_SEED_BINARIES = ("age-keygen",)
+# base. SOPS+age was dropped (0b): the vault is plaintext, so no sops /
+# age-keygen prereq remains.
+REQUIRED_BINARIES = ("ansible-playbook", "ansible")
 
 
 def _c(code: str, msg: str) -> str:
@@ -91,24 +86,6 @@ def die(msg: str, code: int = 1) -> None:
 def check_prereqs(binaries: tuple[str, ...] = REQUIRED_BINARIES) -> list[str]:
     """Return the list of required binaries missing from PATH."""
     return [b for b in binaries if shutil.which(b) is None]
-
-
-def ensure_age_key_env(key_file: Path | None = None) -> None:
-    """Make sure $SOPS_AGE_KEY is set so the community.sops vars plugin can
-    decrypt the vault. If it is unset, load it from the seed-written key
-    file. Best-effort: if neither is available, downstream ansible fails
-    with a clear sops error."""
-    import seed  # local import: shares ANSIBLE_DIR on sys.path
-
-    if os.environ.get("SOPS_AGE_KEY", "").strip():
-        return
-    key_file = key_file or seed.DEFAULT_AGE_KEY_FILE
-    if not key_file.is_file():
-        return
-    from helpers import age_key
-    secret = age_key.extract_secret(key_file.read_text())
-    if secret:
-        os.environ["SOPS_AGE_KEY"] = secret
 
 
 def inventory_path(inventory: str) -> Path:
@@ -233,7 +210,7 @@ def _run(cmd: list[str]) -> None:
 
 
 def ensure_collections() -> None:
-    """Install the Galaxy collections (community.sops, community.general, ...)
+    """Install the Galaxy collections (community.general, community.docker, ...)
     on first run if they are not already present. Honors
     ANSIBLE_COLLECTIONS_PATH: when set (first path wins), install there instead
     of the in-tree collections/ dir -- so the CLI can run from a READ-ONLY
@@ -259,9 +236,7 @@ def _preflight_checks(binaries: tuple[str, ...] = REQUIRED_BINARIES) -> None:
         die(
             "missing required tools on PATH: " + ", ".join(missing) + "\n"
             "  - ansible-core: run this via `uv run ./catena ...`, or "
-            "`pipx install ansible-core`\n"
-            "  - sops + age: install from your package manager "
-            "(https://github.com/getsops/sops, https://github.com/FiloSottile/age)"
+            "`pipx install ansible-core`"
         )
 
 
@@ -293,8 +268,8 @@ def _run_deploy_chain(
     The Portainer API key that the auth stack (Keycloak, oauth2-proxy) is
     gated on is minted in-band by roles/portainer during `site` (it mints
     from the initial admin, reloads the vault into play scope via
-    community.sops.load_vars, and self-heals a missing/rejected key on every
-    converge), so a single `site` pass deploys everything -- no second pass.
+    include_vars, and self-heals a missing/rejected key on every converge),
+    so a single `site` pass deploys everything -- no second pass.
 
     Shared by install + recover so the bridge logic lives in one place."""
     for stage in chain:
@@ -315,9 +290,7 @@ def _run_deploy_chain(
 
 
 def cmd_install(args: argparse.Namespace) -> int:
-    # install may MINT a new age key via seed -> age-keygen is required here
-    # (the other commands run against an already-seeded inventory).
-    _preflight_checks(REQUIRED_BINARIES + _SEED_BINARIES)
+    _preflight_checks()
 
     banner("Step 1/2 -- collect config + secrets (seed)")
     seed_cmd = [sys.executable, str(ANSIBLE_DIR / "seed.py")]
@@ -337,8 +310,6 @@ def cmd_install(args: argparse.Namespace) -> int:
         die(f"seed failed (exit {result.returncode}); nothing deployed.",
             code=result.returncode)
 
-    # seed wrote / used the age key; load it so ansible can decrypt the vault.
-    ensure_age_key_env()
     ensure_collections()
 
     banner("Step 2/2 -- deploy (preflight -> bootstrap -> site -> validate)")
@@ -361,7 +332,6 @@ def cmd_recover(args: argparse.Namespace) -> int:
     _preflight_checks()
     inv_dir = resolve_inventory(args)
     _require_inventory(inv_dir)
-    ensure_age_key_env()
     ensure_collections()
 
     banner("Recover -- preflight -> bootstrap -> restore -> site -> validate")
@@ -388,7 +358,6 @@ def cmd_rollback(args: argparse.Namespace) -> int:
     _preflight_checks()
     inv_dir = resolve_inventory(args)
     _require_inventory(inv_dir)
-    ensure_age_key_env()
     ensure_collections()
 
     banner("Rollback -- preflight -> restore -> site -> validate")
@@ -404,7 +373,6 @@ def cmd_converge(args: argparse.Namespace) -> int:
     _preflight_checks()
     inv_dir = resolve_inventory(args)
     _require_inventory(inv_dir)
-    ensure_age_key_env()
     ensure_collections()
     _run(playbook_cmd(inv_dir, "site", _tags_extra(args)))
     return 0
@@ -414,7 +382,6 @@ def cmd_validate(args: argparse.Namespace) -> int:
     _preflight_checks()
     inv_dir = resolve_inventory(args)
     _require_inventory(inv_dir)
-    ensure_age_key_env()
     ensure_collections()
     _run(playbook_cmd(inv_dir, "validate", _tags_extra(args)))
     return 0
@@ -428,7 +395,6 @@ def cmd_backup(args: argparse.Namespace) -> int:
     _preflight_checks()
     inv_dir = resolve_inventory(args)
     _require_inventory(inv_dir)
-    ensure_age_key_env()
     ensure_collections()
     banner("Backup -- trigger an on-demand snapshot")
     _run(playbook_cmd(inv_dir, "backup_now"))
@@ -439,7 +405,6 @@ def cmd_restore(args: argparse.Namespace) -> int:
     _preflight_checks()
     inv_dir = resolve_inventory(args)
     _require_inventory(inv_dir)
-    ensure_age_key_env()
     ensure_collections()
     _run(playbook_cmd(inv_dir, "restore", _snapshot_extra(args)))
     return 0
@@ -454,7 +419,6 @@ def cmd_rotate_tunnel(args: argparse.Namespace) -> int:
     _preflight_checks()
     inv_dir = resolve_inventory(args)
     _require_inventory(inv_dir)
-    ensure_age_key_env()
     ensure_collections()
     token = (args.cf_api_token or os.environ.get("CATENA_CF_API_TOKEN", "")).strip()
     if not token:
@@ -479,7 +443,6 @@ def cmd_rotate_tailscale(args: argparse.Namespace) -> int:
     _preflight_checks()
     inv_dir = resolve_inventory(args)
     _require_inventory(inv_dir)
-    ensure_age_key_env()
     ensure_collections()
     banner("Rotate -- re-authenticate Tailscale")
     _run(playbook_cmd(inv_dir, "rotate-tailscale"))
@@ -490,7 +453,6 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
     _preflight_checks()
     inv_dir = resolve_inventory(args)
     _require_inventory(inv_dir)
-    ensure_age_key_env()
     ensure_collections()
     banner("Uninstall -- hand unattended-upgrades back to Debian")
     _run(playbook_cmd(inv_dir, "uninstall"))
