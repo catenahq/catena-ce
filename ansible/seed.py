@@ -1199,6 +1199,12 @@ def main(argv: list[str] | None = None) -> int:
              "value in install.yaml and skips the prompt.",
     )
     ap.add_argument(
+        "--inventory-path",
+        help="Path to an inventory directory OUTSIDE this checkout (an operator "
+             "seeding an ops-side inventory). Alternative to --inventory; the "
+             "directory name is used as the inventory label.",
+    )
+    ap.add_argument(
         "--no-confirm",
         action="store_true",
         help="Skip the 'Proceed?' prompt and the one-shot Enter prompts "
@@ -1226,12 +1232,16 @@ def main(argv: list[str] | None = None) -> int:
         ok(f"{provider} SMTP shortcut: SMTP_* derived from {sender_key}={env.get(sender_key, '')}")
 
     banner("Target")
-    inventory = (
-        args.inventory
-        or inp.get("inventory")
-        or fill({}, "inventory", "prod", "Inventory name (directory under inventory/)")
-    )
-    inv_dir = REPO_ROOT / "inventory" / inventory
+    if args.inventory_path:
+        inv_dir = Path(args.inventory_path).expanduser()
+        inventory = inv_dir.name
+    else:
+        inventory = (
+            args.inventory
+            or inp.get("inventory")
+            or fill({}, "inventory", "prod", "Inventory name (directory under inventory/)")
+        )
+        inv_dir = REPO_ROOT / "inventory" / inventory
     if inv_dir.exists():
         warn(f"inventory '{inventory}' exists -- host will be merged into existing files.")
 

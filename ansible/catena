@@ -110,17 +110,43 @@ def inventory_path(inventory: str) -> Path:
     return ANSIBLE_DIR / "inventory" / inventory
 
 
-def playbook_cmd(inventory: str, playbook: str, extra: list[str] | None = None) -> list[str]:
-    """Build the ansible-playbook argv for one stage. Pure (no side effects)
-    so it is unit-testable."""
+def resolve_inventory(args: argparse.Namespace) -> Path:
+    """The inventory DIRECTORY a command runs against: an explicit
+    --inventory-path (an inventory OUTSIDE this checkout -- e.g. an operator's
+    ops-side inventory driven from Semaphore), else the named directory under
+    ANSIBLE_DIR/inventory. Pure -- unit-testable."""
+    path = getattr(args, "inventory_path", None)
+    if path:
+        return Path(path).expanduser()
+    return inventory_path(args.inventory)
+
+
+def playbook_cmd(inventory: str | Path, playbook: str, extra: list[str] | None = None) -> list[str]:
+    """Build the ansible-playbook argv for one stage. `inventory` is either an
+    inventory NAME (resolved under ANSIBLE_DIR/inventory) or an already-resolved
+    inventory-directory Path. Pure (no side effects) so it is unit-testable."""
+    inv = inventory if isinstance(inventory, Path) else inventory_path(inventory)
     cmd = [
         "ansible-playbook",
-        "-i", str(inventory_path(inventory)),
+        "-i", str(inv),
         str(ANSIBLE_DIR / "playbooks" / f"{playbook}.yml"),
     ]
     if extra:
         cmd.extend(extra)
     return cmd
+
+
+def _add_inventory_args(parser: argparse.ArgumentParser, *, required: bool) -> None:
+    """Add the mutually-exclusive --inventory / --inventory-path pair. A NAME
+    resolves under ansible/inventory/; a PATH points at an inventory directory
+    OUTSIDE the checkout (an operator driving an ops-side inventory from
+    Semaphore, say). `required` is False only for `install`, which prompts."""
+    group = parser.add_mutually_exclusive_group(required=required)
+    group.add_argument("--inventory",
+                       help="inventory name (directory under ansible/inventory/)")
+    group.add_argument("--inventory-path",
+                       help="path to an inventory directory outside the checkout "
+                            "(alternative to --inventory)")
 
 
 def _tags_extra(args: argparse.Namespace) -> list[str] | None:
@@ -227,16 +253,16 @@ def _preflight_checks() -> None:
         )
 
 
-def _require_inventory(inventory: str) -> None:
-    if not inventory_path(inventory).is_dir():
+def _require_inventory(inv_dir: Path) -> None:
+    if not inv_dir.is_dir():
         die(
-            f"inventory '{inventory}' not found at {inventory_path(inventory)}. "
-            "Run `./catena install --inventory " + inventory + "` first."
+            f"inventory not found at {inv_dir}. "
+            "Run `./catena install` for this inventory first."
         )
 
 
 def _run_deploy_chain(
-    inventory: str,
+    inv_dir: Path,
     chain: tuple[str, ...],
     *,
     bootstrap_extra: list[str] | None,
@@ -267,12 +293,10 @@ def _run_deploy_chain(
             extra = restore_extra
         else:
             extra = None
-        _run(playbook_cmd(inventory, stage, extra))
+        _run(playbook_cmd(inv_dir, stage, extra))
         if stage == "bootstrap":
             from helpers import bootstrap_output
-            applied = bootstrap_output.apply_to_inventory(
-                inventory_path(inventory)
-            )
+            applied = bootstrap_output.apply_to_inventory(inv_dir)
             for line in applied:
                 print(_c("1;32", f"  + bootstrap-output applied {line}"),
                       file=sys.stderr)
@@ -280,10 +304,16 @@ def _run_deploy_chain(
 
 def cmd_install(args: argparse.Namespace) -> int:
     _preflight_checks()
-    inventory = args.inventory or input("Inventory name [prod]: ").strip() or "prod"
 
     banner("Step 1/2 -- collect config + secrets (seed)")
-    seed_cmd = [sys.executable, str(ANSIBLE_DIR / "seed.py"), "--inventory", inventory]
+    seed_cmd = [sys.executable, str(ANSIBLE_DIR / "seed.py")]
+    if args.inventory_path:
+        inv_dir = Path(args.inventory_path).expanduser()
+        seed_cmd += ["--inventory-path", str(inv_dir)]
+    else:
+        inventory = args.inventory or input("Inventory name [prod]: ").strip() or "prod"
+        inv_dir = inventory_path(inventory)
+        seed_cmd += ["--inventory", inventory]
     if args.input:
         seed_cmd += ["-i", args.input]
     if args.no_confirm:
@@ -300,7 +330,7 @@ def cmd_install(args: argparse.Namespace) -> int:
     banner("Step 2/2 -- deploy (preflight -> bootstrap -> site -> validate)")
     bootstrap_extra, bootstrap_vars_tmp = _bootstrap_extra_vars(args.input)
     try:
-        _run_deploy_chain(inventory, INSTALL_CHAIN, bootstrap_extra=bootstrap_extra)
+        _run_deploy_chain(inv_dir, INSTALL_CHAIN, bootstrap_extra=bootstrap_extra)
     finally:
         if bootstrap_vars_tmp is not None:
             bootstrap_vars_tmp.unlink(missing_ok=True)
@@ -315,7 +345,8 @@ def cmd_recover(args: argparse.Namespace) -> int:
     install.yaml (same 0600-temp-file path as install, never on argv);
     --snapshot picks the restic snapshot to push (default: latest)."""
     _preflight_checks()
-    _require_inventory(args.inventory)
+    inv_dir = resolve_inventory(args)
+    _require_inventory(inv_dir)
     ensure_age_key_env()
     ensure_collections()
 
@@ -324,7 +355,7 @@ def cmd_recover(args: argparse.Namespace) -> int:
     restore_extra = _snapshot_extra(args)
     try:
         _run_deploy_chain(
-            args.inventory, RECOVER_CHAIN,
+            inv_dir, RECOVER_CHAIN,
             bootstrap_extra=bootstrap_extra, restore_extra=restore_extra,
         )
     finally:
@@ -341,13 +372,14 @@ def cmd_rollback(args: argparse.Namespace) -> int:
     (default: latest). The `site` leg is load-bearing for password coherence
     (pg_password_reconcile) -- never dropped."""
     _preflight_checks()
-    _require_inventory(args.inventory)
+    inv_dir = resolve_inventory(args)
+    _require_inventory(inv_dir)
     ensure_age_key_env()
     ensure_collections()
 
     banner("Rollback -- preflight -> restore -> site -> validate")
     _run_deploy_chain(
-        args.inventory, ROLLBACK_CHAIN,
+        inv_dir, ROLLBACK_CHAIN,
         bootstrap_extra=None, restore_extra=_snapshot_extra(args),
     )
     banner("Rollback complete.")
@@ -356,19 +388,21 @@ def cmd_rollback(args: argparse.Namespace) -> int:
 
 def cmd_converge(args: argparse.Namespace) -> int:
     _preflight_checks()
-    _require_inventory(args.inventory)
+    inv_dir = resolve_inventory(args)
+    _require_inventory(inv_dir)
     ensure_age_key_env()
     ensure_collections()
-    _run(playbook_cmd(args.inventory, "site", _tags_extra(args)))
+    _run(playbook_cmd(inv_dir, "site", _tags_extra(args)))
     return 0
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
     _preflight_checks()
-    _require_inventory(args.inventory)
+    inv_dir = resolve_inventory(args)
+    _require_inventory(inv_dir)
     ensure_age_key_env()
     ensure_collections()
-    _run(playbook_cmd(args.inventory, "validate", _tags_extra(args)))
+    _run(playbook_cmd(inv_dir, "validate", _tags_extra(args)))
     return 0
 
 
@@ -378,20 +412,22 @@ def cmd_backup(args: argparse.Namespace) -> int:
     admin shell "Backup now" button drives). CE ships a single, manual
     backup -- this is its CLI entry point. No preflight (mints no keys)."""
     _preflight_checks()
-    _require_inventory(args.inventory)
+    inv_dir = resolve_inventory(args)
+    _require_inventory(inv_dir)
     ensure_age_key_env()
     ensure_collections()
     banner("Backup -- trigger an on-demand snapshot")
-    _run(playbook_cmd(args.inventory, "backup_now"))
+    _run(playbook_cmd(inv_dir, "backup_now"))
     return 0
 
 
 def cmd_restore(args: argparse.Namespace) -> int:
     _preflight_checks()
-    _require_inventory(args.inventory)
+    inv_dir = resolve_inventory(args)
+    _require_inventory(inv_dir)
     ensure_age_key_env()
     ensure_collections()
-    _run(playbook_cmd(args.inventory, "restore", _snapshot_extra(args)))
+    _run(playbook_cmd(inv_dir, "restore", _snapshot_extra(args)))
     return 0
 
 
@@ -402,7 +438,8 @@ def cmd_rotate_tunnel(args: argparse.Namespace) -> int:
     CATENA_CF_API_TOKEN env var, or the interactive prompt. The token is
     passed to ansible via a 0600 temp file (-e @file), never on argv."""
     _preflight_checks()
-    _require_inventory(args.inventory)
+    inv_dir = resolve_inventory(args)
+    _require_inventory(inv_dir)
     ensure_age_key_env()
     ensure_collections()
     token = (args.cf_api_token or os.environ.get("CATENA_CF_API_TOKEN", "")).strip()
@@ -413,7 +450,7 @@ def cmd_rotate_tunnel(args: argparse.Namespace) -> int:
     banner("Rotate -- regenerate the Cloudflare tunnel")
     extra, tmp = _secret_extra_var("cf_api_token", token)
     try:
-        _run(playbook_cmd(args.inventory, "regenerate-cf-tunnel", extra))
+        _run(playbook_cmd(inv_dir, "regenerate-cf-tunnel", extra))
     finally:
         if tmp is not None:
             tmp.unlink(missing_ok=True)
@@ -426,21 +463,23 @@ def cmd_rotate_tailscale(args: argparse.Namespace) -> int:
     tags). The tailscale role's tailscale_force_reauth is set by the
     playbook itself, so this just runs it."""
     _preflight_checks()
-    _require_inventory(args.inventory)
+    inv_dir = resolve_inventory(args)
+    _require_inventory(inv_dir)
     ensure_age_key_env()
     ensure_collections()
     banner("Rotate -- re-authenticate Tailscale")
-    _run(playbook_cmd(args.inventory, "rotate-tailscale"))
+    _run(playbook_cmd(inv_dir, "rotate-tailscale"))
     return 0
 
 
 def cmd_uninstall(args: argparse.Namespace) -> int:
     _preflight_checks()
-    _require_inventory(args.inventory)
+    inv_dir = resolve_inventory(args)
+    _require_inventory(inv_dir)
     ensure_age_key_env()
     ensure_collections()
     banner("Uninstall -- hand unattended-upgrades back to Debian")
-    _run(playbook_cmd(args.inventory, "uninstall"))
+    _run(playbook_cmd(inv_dir, "uninstall"))
     return 0
 
 
@@ -453,21 +492,21 @@ def build_parser() -> argparse.ArgumentParser:
     sub = ap.add_subparsers(dest="command", required=True)
 
     p_install = sub.add_parser("install", help="seed + preflight/bootstrap/site/validate")
-    p_install.add_argument("--inventory", help="inventory name (prompted if omitted)")
+    _add_inventory_args(p_install, required=False)
     p_install.add_argument("-i", "--input", help="install.yaml for non-interactive values")
     p_install.add_argument("--no-confirm", action="store_true",
                            help="skip seed confirmation + one-shot secret prompts")
     p_install.set_defaults(func=cmd_install)
 
     p_conv = sub.add_parser("converge", help="re-run site.yml")
-    p_conv.add_argument("--inventory", required=True)
+    _add_inventory_args(p_conv, required=True)
     p_conv.add_argument("--tags", default="",
                         help="comma-separated ansible tags to scope the "
                              "converge (e.g. keycloak,oauth2_proxy)")
     p_conv.set_defaults(func=cmd_converge)
 
     p_val = sub.add_parser("validate", help="run validate.yml")
-    p_val.add_argument("--inventory", required=True)
+    _add_inventory_args(p_val, required=True)
     p_val.add_argument("--tags", default="",
                        help="comma-separated ansible tags to scope validation")
     p_val.set_defaults(func=cmd_validate)
@@ -475,11 +514,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_bak = sub.add_parser(
         "backup", help="trigger an on-demand snapshot (manual CE backup)",
     )
-    p_bak.add_argument("--inventory", required=True)
+    _add_inventory_args(p_bak, required=True)
     p_bak.set_defaults(func=cmd_backup)
 
     p_res = sub.add_parser("restore", help="run restore.yml (in-place restore)")
-    p_res.add_argument("--inventory", required=True)
+    _add_inventory_args(p_res, required=True)
     p_res.add_argument("--snapshot", default="",
                        help="restic snapshot id to restore (default: latest)")
     p_res.set_defaults(func=cmd_restore)
@@ -489,7 +528,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="whole-host DR onto a fresh replacement box "
              "(bootstrap -> restore -> site -> validate)",
     )
-    p_rec.add_argument("--inventory", required=True)
+    _add_inventory_args(p_rec, required=True)
     p_rec.add_argument("-i", "--input",
                        help="install.yaml supplying the replacement box's "
                             "provider user + password for bootstrap")
@@ -502,7 +541,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="roll a running host back to a prior snapshot "
              "(restore -> site -> validate, in place)",
     )
-    p_rb.add_argument("--inventory", required=True)
+    _add_inventory_args(p_rb, required=True)
     p_rb.add_argument("--snapshot", default="",
                       help="restic snapshot id to roll back to (default: latest)")
     p_rb.set_defaults(func=cmd_rollback)
@@ -511,7 +550,7 @@ def build_parser() -> argparse.ArgumentParser:
         "rotate-tunnel",
         help="regenerate the Cloudflare tunnel (manual; token consumed once)",
     )
-    p_rtun.add_argument("--inventory", required=True)
+    _add_inventory_args(p_rtun, required=True)
     p_rtun.add_argument(
         "--cf-api-token", default="",
         help="Cloudflare API token (consumed once, never stored); also read "
@@ -523,14 +562,14 @@ def build_parser() -> argparse.ArgumentParser:
         "rotate-tailscale",
         help="re-authenticate the node to the tailnet (manual force re-auth)",
     )
-    p_rts.add_argument("--inventory", required=True)
+    _add_inventory_args(p_rts, required=True)
     p_rts.set_defaults(func=cmd_rotate_tailscale)
 
     p_uni = sub.add_parser(
         "uninstall",
         help="hand unattended-upgrades back to the OS + print teardown guidance",
     )
-    p_uni.add_argument("--inventory", required=True)
+    _add_inventory_args(p_uni, required=True)
     p_uni.set_defaults(func=cmd_uninstall)
 
     return ap

@@ -387,3 +387,69 @@ def test_rotate_tailscale_runs_playbook(cli, monkeypatch):
     assert ns.func(ns) == 0
     assert len(calls) == 1
     assert _stage_of(calls[0]) == "rotate-tailscale"
+
+
+# ---- --inventory-path: drive an inventory OUTSIDE the checkout ----
+# (an operator pointing the CLI at an ops-side inventory from Semaphore).
+
+def test_resolve_inventory_name_resolves_under_checkout(cli):
+    ns = cli.build_parser().parse_args(["converge", "--inventory", "prod"])
+    inv = cli.resolve_inventory(ns)
+    assert inv == cli.inventory_path("prod")
+    assert str(inv).endswith("inventory/prod")
+
+
+def test_resolve_inventory_path_is_used_verbatim(cli, tmp_path):
+    ext = tmp_path / "ops" / "inventory" / "clientA"
+    ns = cli.build_parser().parse_args(["converge", "--inventory-path", str(ext)])
+    assert cli.resolve_inventory(ns) == ext
+
+
+def test_playbook_cmd_accepts_a_path_directly(cli, tmp_path):
+    from pathlib import Path
+
+    ext = Path(tmp_path) / "clientA"
+    cmd = cli.playbook_cmd(ext, "site")
+    assert cmd[cmd.index("-i") + 1] == str(ext)
+    assert cmd[-1].endswith("playbooks/site.yml")
+
+
+def test_inventory_path_threads_to_ansible_playbook_i_flag(cli, monkeypatch, tmp_path):
+    """A --inventory-path run passes that exact dir to `ansible-playbook -i` on
+    every stage -- so the operator's ops-side inventory is what ansible reads."""
+    from helpers import bootstrap_output
+
+    ext = tmp_path / "ops-inv" / "clientA"
+    calls: list[list[str]] = []
+    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
+    monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
+    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
+    monkeypatch.setattr(cli, "ensure_collections", lambda: None)
+    monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
+
+    ns = cli.build_parser().parse_args(["rollback", "--inventory-path", str(ext)])
+    assert ns.func(ns) == 0
+    pb_calls = [c for c in calls if c and c[0] == "ansible-playbook"]
+    assert pb_calls
+    for c in pb_calls:
+        assert c[c.index("-i") + 1] == str(ext)
+
+
+def test_inventory_and_path_are_mutually_exclusive(cli):
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(
+            ["converge", "--inventory", "prod", "--inventory-path", "/tmp/x"]
+        )
+
+
+def test_inventory_required_for_non_install_commands(cli):
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["converge"])
+
+
+def test_install_accepts_inventory_path_and_skips_the_name(cli):
+    ns = cli.build_parser().parse_args(["install", "--inventory-path", "/tmp/x"])
+    assert ns.func is cli.cmd_install
+    assert ns.inventory_path == "/tmp/x"
+    assert ns.inventory is None
