@@ -9,7 +9,7 @@ offsite immutable backups, the automation engine (managed updates, CVE
 response), monitoring, identity governance, and a monthly assurance
 report -- with us operating the whole lifecycle for you.
 
-This repository will hold:
+This repository holds:
 
 - **catena-admin (Go shell)** -- the community admin surface: a single
   binary hosting Community panels/actions and, when a Business license
@@ -18,21 +18,52 @@ This repository will hold:
   plugin binaries gated at runtime (no second build).
 - **Base automation** -- the `preflight` / `bootstrap` / `site` /
   `validate` / `restore` flows + shared roles + the single-backup runner.
-  (Migrating from `catenahq/ops`.)
-- **Installer / CLI** -- a thin entry point so self-hosters never touch
-  raw Ansible.
+- **Installer / CLI** -- `ansible/catena`, a thin entry point so
+  self-hosters never touch raw Ansible (see [Install](#install-self-host)).
 
 Enterprise (Business) code is NOT here: it lives privately in
 `catenahq/catena-ee` and ships as compiled, license-gated
 binaries. See [LICENSE](LICENSE).
 
-## Layout (so far)
+## Layout
 
 ```
+ansible/               the Community deploy automation + the CLI
+  catena               the installer / CLI entry point (see ansible/README.md)
+  playbooks/ roles/    preflight/bootstrap/site/validate/restore + shared roles
+  seed.py              config + SOPS-vault seeding (first-run secret minting)
 cmd/catena-admin/      the Go shell entry point
-internal/license/      ed25519 license-token validation (offline + grace)
-internal/plugin/       the CE/EE plugin registry seam
+license/               ed25519 license-token wire format (offline verify + grace)
+plugin/                the CE/EE plugin SDK contract (implemented by catena-ee)
+internal/registry/     host-side store that gates Business plugins on a license
+loader/                go-plugin loader for the downloaded EE plugin binaries
+deploy/catena-admin/   the catena-admin container compose
 ```
+
+## Install (self-host)
+
+Self-hosters drive everything through the bundled **`catena` CLI** -- you
+never call `ansible-playbook` directly. Prerequisites: `sops` and `age` on
+PATH (ansible-core comes from `uv`). From the `ansible/` directory:
+
+```
+uv run ./catena install   --inventory prod   # seed + preflight -> bootstrap -> site -> validate
+uv run ./catena converge  --inventory prod   # re-apply site.yml after a config / app-tag change
+uv run ./catena validate  --inventory prod   # on-host + tailnet + external checks
+uv run ./catena backup    --inventory prod   # trigger an on-demand snapshot (manual CE backup)
+uv run ./catena restore   --inventory prod   # in-place whole-host restore
+uv run ./catena recover   --inventory prod   # DR onto a FRESH replacement box
+uv run ./catena rollback  --inventory prod   # roll a still-running host back to a snapshot
+uv run ./catena rotate-tunnel    --inventory prod   # regenerate the Cloudflare tunnel
+uv run ./catena rotate-tailscale --inventory prod   # re-auth the node to the tailnet
+uv run ./catena uninstall --inventory prod   # hand unattended-upgrades back to the OS
+```
+
+`install` first runs `seed.py` (collects config, mints service secrets,
+SOPS-encrypts the vault to your own age key), then chains the playbooks. For
+an unattended run, pass `-i install.yaml --no-confirm`. Full reference
+(prerequisites, secrets model, inventory layout, every subcommand):
+[ansible/README.md](ansible/README.md).
 
 ## Develop
 
