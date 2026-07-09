@@ -1,5 +1,6 @@
-# Real inventories carry a SOPS-encrypted vault.sops.yml (the crown jewels)
-# plus a .env -- never commit them. Only the shipped example is tracked.
+# Real inventories carry a PLAINTEXT vault.yml (the crown jewels -- SOPS+age
+# was dropped, project 0b) plus a .env -- never commit them. Only the shipped
+# example is tracked.
 inventory/*
 !inventory/example/
 

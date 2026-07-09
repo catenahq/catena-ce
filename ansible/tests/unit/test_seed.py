@@ -1,8 +1,8 @@
 """Unit tests for the Community installer's seed.py.
 
-Covers the Community decomposition: single-recipient SOPS, the trimmed
-VAULT_SKIP_KEYS / ENV_OPTIONS (no managed-lifecycle knobs), the
-CE-only service-secret minting, and the file-emit helpers."""
+Covers the Community decomposition: the plaintext (post-SOPS, 0b) vault
+emit, the trimmed VAULT_SKIP_KEYS / ENV_OPTIONS (no managed-lifecycle
+knobs), the CE-only service-secret minting, and the file-emit helpers."""
 from __future__ import annotations
 
 import importlib.util
@@ -209,24 +209,36 @@ def test_emit_hosts_yml_merges_into_existing(seed, tmp_path):
     assert "old1" in vps and "prod1" in vps
 
 
-# --- emit_self_sops_yaml (single recipient) ---------------------------------
-def test_emit_self_sops_yaml_single_recipient(seed, tmp_path):
-    inv_dir = tmp_path / "inventory" / "prod"
-    inv_dir.mkdir(parents=True)
-    pub = "age1self000000000000000000000000000000000000000000000000000"
-    seed.emit_self_sops_yaml(inv_dir, pub)
-    written = yaml.safe_load((inv_dir / ".sops.yaml").read_text())
-    rules = written["creation_rules"]
-    assert len(rules) == 1
-    assert "vault\\.sops" in rules[0]["path_regex"]
-    assert rules[0]["key_groups"][0]["age"] == [pub]
+# --- emit_vault (plaintext, post-SOPS 0b) -----------------------------------
+def test_emit_vault_writes_plaintext_yaml_0600(seed, tmp_path):
+    target = tmp_path / "group_vars" / "all" / "vault.yml"
+    seed.emit_vault({"vault_admin_password": "s3cret", "vault_foo": "bar"}, target)
+    assert target.is_file()
+    # Plaintext, parseable YAML -- NOT sops-wrapped (no `sops:` metadata key).
+    data = yaml.safe_load(target.read_text())
+    assert data == {"vault_admin_password": "s3cret", "vault_foo": "bar"}
+    assert "sops" not in data
+    assert (target.stat().st_mode & 0o777) == 0o600
 
 
-def test_emit_self_sops_yaml_dies_without_pubkey(seed, tmp_path):
-    inv_dir = tmp_path / "inventory" / "broken"
-    inv_dir.mkdir(parents=True)
-    with pytest.raises(SystemExit):
-        seed.emit_self_sops_yaml(inv_dir, "")
+def test_emit_vault_empty_writes_initialized_marker(seed, tmp_path):
+    target = tmp_path / "group_vars" / "all" / "vault.yml"
+    seed.emit_vault({}, target)
+    assert yaml.safe_load(target.read_text()) == {"_initialized": "true"}
+
+
+def test_emit_vault_does_not_overwrite_existing(seed, tmp_path):
+    target = tmp_path / "group_vars" / "all" / "vault.yml"
+    target.parent.mkdir(parents=True)
+    target.write_text("vault_admin_password: keep-me\n")
+    seed.emit_vault({"vault_admin_password": "new"}, target)
+    assert yaml.safe_load(target.read_text()) == {"vault_admin_password": "keep-me"}
+
+
+def test_seed_has_no_sops_age_helpers(seed):
+    """0b dropped SOPS+age: the self-recipient / age-key machinery is gone."""
+    for gone in ("emit_self_sops_yaml", "_resolve_self_age_key"):
+        assert not hasattr(seed, gone), f"{gone} should be removed"
 
 
 # --- validate_install_structural --------------------------------------------
