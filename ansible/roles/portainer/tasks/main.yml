@@ -216,7 +216,7 @@
       changed_when: true
 
     - name: "portainer: reload vault so the freshly-minted key is in playbook scope"
-      community.sops.load_vars:
+      ansible.builtin.include_vars:
         file: "{{ _pt_apikey_vault_file }}"
 
 # ─── local Docker environment (endpoint) ─────────────────────────────────
