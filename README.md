@@ -75,21 +75,29 @@ go vet ./...
 go test ./...
 ```
 
-### Run the shell
+### Run the shell locally (dev only)
+
+This is a **developer convenience**, not an install step. It runs the
+catena-admin binary directly on your machine so you can iterate on the panel
+-- it starts the admin GUI (dashboard + CE actions + license-gated EE plugin
+panels) plus the `/healthz` and `/licensez` endpoints on a port. In a real
+deployment you never run this: `catena install` deploys the **same** binary as
+the catena-admin container (a Portainer stack on `:8000`), reached at
+`https://dash.<zone>` behind oauth2-proxy SSO -- see [Install](#install-self-host).
 
 ```
-# Community-only (no license):
+# Community-only (no license): serves the GUI + /healthz + /licensez on :8080
 go run ./cmd/catena-admin
-#   -> serves /healthz and /licensez on :8080
 
-# With a Business license (token + operator public key):
+# With a Business license (token + operator public key), to exercise the
+# license-gated EE plugin panels:
 CATENA_LICENSE="<token>" CATENA_LICENSE_PUBKEY="<base64-ed25519>" \
   go run ./cmd/catena-admin
 ```
 
-`CATENA_ADMIN_ADDR` overrides the listen address. With no (or an invalid)
-license the shell runs Community-only; it never fails closed on a missing
-key.
+`CATENA_ADMIN_ADDR` overrides the listen address (the container sets `:8000`).
+With no (or an invalid) license the shell runs Community-only; it never fails
+closed on a missing key.
 
 ## Editions
 
