@@ -65,6 +65,36 @@ an unattended run, pass `-i install.yaml --no-confirm`. Full reference
 (prerequisites, secrets model, inventory layout, every subcommand):
 [ansible/README.md](ansible/README.md).
 
+## Secrets you hold
+
+Catena generates and keeps every internal secret on the box (database
+passwords, OIDC client secrets, service tokens, ...) -- they live on the
+host and ride every backup, so you never have to hold them. You are
+responsible for only two short lists. The full classification is in
+[ansible/SECRETS.md](ansible/SECRETS.md).
+
+**Before install** -- have these vendor credentials ready to enter (you
+create them in each provider's console; catena cannot generate them):
+
+- Cloudflare API token -- tunnel + DNS (`Account > Cloudflare Tunnel > Edit`,
+  `Zone > DNS > Edit`).
+- Tailscale OAuth client id + secret -- to join the tailnet (scope
+  `Auth Keys: Write`, tag `tag:vps`).
+- S3 access key + secret key -- for the object-storage bucket that holds your
+  restic backup repository.
+- (optional) SMTP or mail-relay password -- only if you enable outbound mail.
+
+**After install** -- save these in your own password manager. Catena shows
+each once and does not keep a copy you can recover from elsewhere:
+
+- **Admin password** -- logs you into Portainer and Keycloak. Minted at
+  install, shown once.
+- **Restic encryption password** -- decrypts your backup repository. Minted at
+  install, shown once. Without it your backups cannot be restored, by anyone.
+- **Restic repo URL + S3 keys** -- together with the restic password, these
+  three are the *entire* disaster-recovery keyset: with them alone you can
+  rebuild a wiped VPS from backup onto a fresh box.
+
 ## Develop
 
 Requires Go 1.26+.
