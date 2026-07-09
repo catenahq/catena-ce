@@ -14,12 +14,20 @@
 # `catena_onbox_config` is true. Removing the SOPS path entirely is the flip
 # that follows once the bench runs green with the flag set.
 
-- name: "onbox: capture in-scope vault_* into a migration map"
+# Capture by NAME first (varnames lookup does not evaluate values), then
+# extract only the vault_* values. A blanket `vars | dict2items` would force
+# evaluation of EVERY in-scope var -- including role defaults that only
+# resolve inside their role (e.g. catena-admin's
+# catena_admin_actions_source: "{{ role_path }}/..."), which is undefined in
+# play pre_tasks scope and aborts the converge.
+- name: "onbox: list in-scope vault_* variable names"
   ansible.builtin.set_fact:
-    _onbox_capture: >-
-      {{ vars | dict2items
-         | selectattr('key', 'match', '^vault_')
-         | items2dict }}
+    _onbox_names: "{{ lookup('ansible.builtin.varnames', '^vault_.+$', wantlist=True) }}"
+  no_log: true
+
+- name: "onbox: capture those vault_* into a migration map"
+  ansible.builtin.set_fact:
+    _onbox_capture: "{{ dict(_onbox_names | zip(_onbox_names | map('extract', vars))) }}"
   no_log: true
 
 - name: "onbox: adopt existing secrets, mint missing internal, emit store"
