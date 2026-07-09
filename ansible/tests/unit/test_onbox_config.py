@@ -160,6 +160,38 @@ def test_apply_inputs_config_fill_and_overwrite(oc):
     assert store["config"]["A"] == "2"
 
 
+# --- adopt (migration capture) ----------------------------------------------
+def test_adopt_fills_only_and_captures_any_key(oc):
+    store = {"secrets": {"vault_admin_password": "keep"}, "config": {}}
+    adopted = oc.adopt(store, {
+        "vault_admin_password": "IGNORED-existing-wins",
+        "vault_portainer_api_key": "ptr",       # out-of-registry, still captured
+        "vault_cloudflare_api_token": "cf",
+        "vault_blank": "   ",                    # blank skipped
+    })
+    assert set(adopted) == {"vault_portainer_api_key", "vault_cloudflare_api_token"}
+    assert store["secrets"]["vault_admin_password"] == "keep"
+    assert store["secrets"]["vault_portainer_api_key"] == "ptr"
+    assert "vault_blank" not in store["secrets"]
+
+
+def test_cli_adopt_stdin_then_mint(oc, tmp_path, capsys, monkeypatch):
+    import io
+    p = tmp_path / "config.json"
+    monkeypatch.setattr("sys.stdin", io.StringIO(
+        '{"vault_portainer_api_key": "ptr", "vault_admin_password": "adopted-admin"}'
+    ))
+    rc = oc.main(["--path", str(p), "--adopt-stdin", "--emit", "secrets"])
+    assert rc == 0
+    emitted = json.loads(capsys.readouterr().out)
+    # adopted values survive; missing internal secrets get minted
+    assert emitted["vault_portainer_api_key"] == "ptr"
+    assert emitted["vault_admin_password"] == "adopted-admin"  # adopt beats mint
+    assert emitted["vault_catena_postgres_password"]           # minted
+    on_disk = oc.load(p)
+    assert on_disk["secrets"]["vault_portainer_api_key"] == "ptr"
+
+
 # --- CLI --------------------------------------------------------------------
 def test_cli_seeds_external_mints_internal_and_emits(oc, tmp_path, capsys):
     p = tmp_path / "config.json"

@@ -28,6 +28,14 @@
   # (dotenv), not role defaults (out of scope in pre_tasks). Bypass for
   # offline dev with -e skip_external_preflight=true.
   pre_tasks:
+    # 0b: load the on-box config store (flag-gated; no-op unless
+    # catena_onbox_config=true). Runs FIRST so downstream roles read the
+    # on-box secret facts. See tasks/load_onbox_config.yml.
+    - name: "0b: load on-box config store"
+      ansible.builtin.include_tasks: tasks/load_onbox_config.yml
+      when: catena_onbox_config | default(false) | bool
+      tags: [always, onbox]
+
     - name: "Preflight (external): probe configured S3 backends (HEAD, 10s)"
       ansible.builtin.uri:
         url: "{{ item.url }}"

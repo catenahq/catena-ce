@@ -197,6 +197,25 @@ def ensure_internal_secrets(store: dict) -> list[str]:
     return minted
 
 
+def adopt(store: dict, mapping: dict | None) -> list[str]:
+    """Capture pre-existing secret values into the store, fill-only. Used once
+    at migration to seed the store from the values already in scope (the SOPS
+    vault the converge is transitioning off of). Never overwrites a value
+    already in the store and never stores a blank. Accepts ANY key -- the
+    caller pre-filters to vault_* -- so vault_portainer_api_key and any
+    out-of-registry secret are captured too. Returns the keys adopted."""
+    secrets_map = store.setdefault("secrets", {})
+    adopted: list[str] = []
+    for key, val in (mapping or {}).items():
+        if val is None or (isinstance(val, str) and not val.strip()):
+            continue
+        if secrets_map.get(key):
+            continue
+        secrets_map[key] = val
+        adopted.append(key)
+    return adopted
+
+
 def apply_inputs(
     store: dict,
     *,
@@ -261,12 +280,23 @@ def main(argv: list[str] | None = None) -> int:
                     help="replace existing values instead of filling only blanks")
     ap.add_argument("--no-mint", action="store_true",
                     help="do not mint missing internal secrets (seed-only)")
+    ap.add_argument("--adopt-stdin", action="store_true",
+                    help="read a JSON object of existing {key: value} secrets "
+                         "from stdin and adopt them fill-only before minting "
+                         "(one-time migration capture from the SOPS vault)")
     ap.add_argument("--emit", choices=["secrets", "all", "none"], default="secrets",
                     help="what to print as JSON on stdout (default: secrets, "
                          "for an Ansible set_fact of the vault_* names)")
     args = ap.parse_args(argv)
 
     store = load(args.path)
+    if args.adopt_stdin:
+        raw = sys.stdin.read().strip()
+        if raw:
+            incoming = json.loads(raw)
+            if not isinstance(incoming, dict):
+                raise SystemExit("--adopt-stdin: expected a JSON object")
+            adopt(store, incoming)
     apply_inputs(
         store,
         secrets_in=_parse_kv(args.set_secret),

@@ -1,0 +1,43 @@
+---
+# 0b: on-box config store loader (gated on catena_onbox_config).
+#
+# Inverts the secret source-of-truth from the controller-side SOPS vault to a
+# plaintext 0600 store on the box at /etc/catena/config.json (which rides the
+# restic backup -- /etc is in roles/backup backup_paths). On the first flagged
+# converge it ADOPTS the vault_* values already in scope (fill-only) so the
+# on-box store matches what is deployed, mints any missing internal secret
+# (reconcile-not-overwrite), and set_facts every vault_* from the store so all
+# downstream roles read the on-box source of truth. Subsequent converges read
+# the store and ignore the (now vestigial) vault.
+#
+# Included from site.yml + validate.yml pre_tasks; a no-op unless
+# `catena_onbox_config` is true. Removing the SOPS path entirely is the flip
+# that follows once the bench runs green with the flag set.
+
+- name: "onbox: capture in-scope vault_* into a migration map"
+  ansible.builtin.set_fact:
+    _onbox_capture: >-
+      {{ vars | dict2items
+         | selectattr('key', 'match', '^vault_')
+         | items2dict }}
+  no_log: true
+
+- name: "onbox: adopt existing secrets, mint missing internal, emit store"
+  ansible.builtin.script:
+    cmd: >-
+      {{ playbook_dir }}/../helpers/onbox_config.py
+      --path {{ catena_onbox_config_path | default('/etc/catena/config.json') }}
+      --adopt-stdin --emit secrets
+    executable: python3
+    stdin: "{{ _onbox_capture | to_json }}"
+  register: _onbox_emit
+  changed_when: false
+  no_log: true
+
+- name: "onbox: publish store secrets as facts (on-box source of truth)"
+  ansible.builtin.set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: "{{ (_onbox_emit.stdout | from_json) | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  no_log: true
