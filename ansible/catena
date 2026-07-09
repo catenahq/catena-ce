@@ -65,9 +65,14 @@ RECOVER_CHAIN = ("preflight", "bootstrap", "restore", "site", "validate")
 # operator rotated a secret between snapshot and rollback) -- never drop it.
 ROLLBACK_CHAIN = ("preflight", "restore", "site", "validate")
 
-# Host binaries the wrapper shells out to. age-keygen + sops handle the
-# vault; ansible-playbook/ansible run the base.
-REQUIRED_BINARIES = ("ansible-playbook", "ansible", "sops", "age-keygen")
+# Host binaries the wrapper shells out to. ansible-playbook/ansible run the
+# base; sops decrypts the vault -- all commands need these. age-keygen is only
+# used when seeding MINTS a new age key (first install), so it is required by
+# `install`, not by a converge/recover/rollback against an existing inventory
+# (e.g. an operator driving an already-seeded ops-side inventory from Semaphore
+# on a runner without age installed).
+REQUIRED_BINARIES = ("ansible-playbook", "ansible", "sops")
+_SEED_BINARIES = ("age-keygen",)
 
 
 def _c(code: str, msg: str) -> str:
@@ -229,10 +234,17 @@ def _run(cmd: list[str]) -> None:
 
 def ensure_collections() -> None:
     """Install the Galaxy collections (community.sops, community.general, ...)
-    on first run if collections/ is absent."""
+    on first run if they are not already present. Honors
+    ANSIBLE_COLLECTIONS_PATH: when set (first path wins), install there instead
+    of the in-tree collections/ dir -- so the CLI can run from a READ-ONLY
+    checkout (e.g. driven from a Semaphore runner against a :ro catena-ce mount)
+    by pointing at a writable location, which ansible then also reads."""
     req = ANSIBLE_DIR / "requirements.yml"
-    coll = ANSIBLE_DIR / "collections"
-    if coll.is_dir() or not req.is_file():
+    if not req.is_file():
+        return
+    override = os.environ.get("ANSIBLE_COLLECTIONS_PATH", "").strip()
+    coll = Path(override.split(os.pathsep)[0]).expanduser() if override else ANSIBLE_DIR / "collections"
+    if coll.is_dir():
         return
     banner("Installing Ansible collections (first run)")
     _run([
@@ -241,8 +253,8 @@ def ensure_collections() -> None:
     ])
 
 
-def _preflight_checks() -> None:
-    missing = check_prereqs()
+def _preflight_checks(binaries: tuple[str, ...] = REQUIRED_BINARIES) -> None:
+    missing = check_prereqs(binaries)
     if missing:
         die(
             "missing required tools on PATH: " + ", ".join(missing) + "\n"
@@ -303,7 +315,9 @@ def _run_deploy_chain(
 
 
 def cmd_install(args: argparse.Namespace) -> int:
-    _preflight_checks()
+    # install may MINT a new age key via seed -> age-keygen is required here
+    # (the other commands run against an already-seeded inventory).
+    _preflight_checks(REQUIRED_BINARIES + _SEED_BINARIES)
 
     banner("Step 1/2 -- collect config + secrets (seed)")
     seed_cmd = [sys.executable, str(ANSIBLE_DIR / "seed.py")]

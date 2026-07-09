@@ -252,9 +252,60 @@ def test_ensure_age_key_env_noop_when_no_file(cli, tmp_path, monkeypatch):
     assert not os.environ.get("SOPS_AGE_KEY")
 
 
-def test_required_binaries_cover_vault_and_ansible(cli):
-    for b in ("ansible-playbook", "sops", "age-keygen"):
+def test_required_binaries_core_excludes_age_keygen(cli):
+    """Core prereqs are ansible + sops (every command needs them); age-keygen
+    is seed-only (mint), so it is NOT in the always-required set."""
+    for b in ("ansible-playbook", "ansible", "sops"):
         assert b in cli.REQUIRED_BINARIES
+    assert "age-keygen" not in cli.REQUIRED_BINARIES
+    assert "age-keygen" in cli._SEED_BINARIES
+
+
+def test_preflight_core_ignores_missing_age_keygen(cli, monkeypatch):
+    """A converge/recover/rollback runs against an existing inventory and never
+    mints, so a runner without age-keygen must not be blocked."""
+    present = set(cli.REQUIRED_BINARIES)  # age-keygen deliberately absent
+    monkeypatch.setattr(
+        cli.shutil, "which",
+        lambda name: ("/usr/bin/" + name) if name in present else None,
+    )
+    cli._preflight_checks()  # must NOT raise
+
+
+def test_install_preflight_requires_age_keygen(cli, monkeypatch):
+    """install may mint a new age key via seed, so it demands age-keygen."""
+    present = set(cli.REQUIRED_BINARIES)  # age-keygen absent
+    monkeypatch.setattr(
+        cli.shutil, "which",
+        lambda name: ("/usr/bin/" + name) if name in present else None,
+    )
+    with pytest.raises(SystemExit):
+        cli._preflight_checks(cli.REQUIRED_BINARIES + cli._SEED_BINARIES)
+
+
+def test_ensure_collections_uses_writable_override_path(cli, monkeypatch, tmp_path):
+    """On a read-only checkout, ANSIBLE_COLLECTIONS_PATH redirects the galaxy
+    install to a writable dir (ansible reads the same var), so the CLI can run
+    without writing into the :ro checkout's collections/ dir."""
+    target = tmp_path / "colls"  # absent -> triggers install
+    monkeypatch.setenv("ANSIBLE_COLLECTIONS_PATH", str(target))
+    calls: list[list[str]] = []
+    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
+    cli.ensure_collections()
+    assert len(calls) == 1, calls
+    cmd = calls[0]
+    assert cmd[:3] == ["ansible-galaxy", "collection", "install"]
+    assert cmd[cmd.index("-p") + 1] == str(target)
+
+
+def test_ensure_collections_skips_when_override_dir_exists(cli, monkeypatch, tmp_path):
+    existing = tmp_path / "colls"
+    existing.mkdir()
+    monkeypatch.setenv("ANSIBLE_COLLECTIONS_PATH", str(existing))
+    calls: list[list[str]] = []
+    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
+    cli.ensure_collections()
+    assert calls == []
 
 
 def test_bootstrap_extra_vars_writes_secret_to_file_not_argv(cli, tmp_path):
