@@ -1,8 +1,9 @@
 ---
 # 0b: on-box config store loader (gated on catena_onbox_config).
 #
-# Inverts the secret source-of-truth from the controller-side SOPS vault to a
-# plaintext 0600 store on the box at /etc/catena/config.json (which rides the
+# Inverts the secret source-of-truth from the controller-side plaintext
+# group_vars vault (the install-time seed) to a 0600 store on the box at
+# /etc/catena/config.json (which rides the
 # restic backup -- /etc is in roles/backup backup_paths). On the first flagged
 # converge it ADOPTS the vault_* values already in scope (fill-only) so the
 # on-box store matches what is deployed, mints any missing internal secret
@@ -11,8 +12,8 @@
 # the store and ignore the (now vestigial) vault.
 #
 # Included from site.yml + validate.yml pre_tasks; a no-op unless
-# `catena_onbox_config` is true. Removing the SOPS path entirely is the flip
-# that follows once the bench runs green with the flag set.
+# `catena_onbox_config` is true. SOPS+age has been dropped (0b); the plaintext
+# group_vars vault is now only the install-time seed this loader adopts.
 
 # Capture by NAME first (varnames lookup does not evaluate values), then
 # extract only the vault_* values. A blanket `vars | dict2items` would force
@@ -60,12 +61,11 @@
 
 # Publish every store secret as a fact EXCEPT vault_portainer_api_key.
 # That key is minted mid-converge by roles/portainer and reloaded into scope
-# via community.sops.load_vars; a set_fact here (facts outrank load_vars)
-# would pin a pre-mint / stale value and shadow the freshly-minted one -- on
-# a rewound host the stale key no longer authenticates and every Portainer
-# API call 401s. The store still persists the key (adopt); the portainer role
-# owns it in-flight. (Once SOPS is dropped, roles/portainer writes the minted
-# key into the store instead.)
+# via include_vars on the plaintext group_vars vault; a set_fact here (facts
+# outrank include_vars) would pin a pre-mint / stale value and shadow the
+# freshly-minted one -- on a rewound host the stale key no longer authenticates
+# and every Portainer API call 401s. The store still persists the key (adopt on
+# the next converge); the portainer role owns it in-flight.
 - name: "onbox: publish store secrets as facts (on-box source of truth)"
   ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"

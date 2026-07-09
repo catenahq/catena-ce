@@ -41,7 +41,7 @@
         fail_msg: >-
           Restic credentials must be in vault before restore can run.
           See inventory/example/group_vars/all/vault.yml.example for the
-          schema (the encrypted live file is vault.sops.yml).
+          schema (the live file is the plaintext, gitignored, 0600 vault.yml).
 
   roles:
     - role: common # apt update + base packages (restic needs apt)

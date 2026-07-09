@@ -12,7 +12,7 @@
     fail_msg: >-
       vault_catena_postgres_password is missing or a placeholder. The installer
       mints it on a fresh install; otherwise set it in
-      inventory/<name>/group_vars/all/vault.sops.yml.
+      inventory/<name>/group_vars/all/vault.yml.
 
 # ─── swarm secret (immutable; create-once) ───────────────────────────────
 - name: "postgres: check swarm secret exists"

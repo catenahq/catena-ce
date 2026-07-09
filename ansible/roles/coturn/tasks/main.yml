@@ -12,7 +12,7 @@
       - vault_turn_static_auth_secret | length >= 32
     fail_msg: >-
       vault_turn_static_auth_secret missing or too short. Mint a 32+ char
-      secret and set it in inventory/<name>/group_vars/all/vault.sops.yml
+      secret and set it in inventory/<name>/group_vars/all/vault.yml
       (the installer mints it for you on a fresh install).
 
 - name: "coturn: preflight public_ip"

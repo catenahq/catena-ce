@@ -404,8 +404,8 @@ def split_install_dict(raw: dict) -> dict:
     Accepts both the nested layout (top-level `host:`, `env:`, `vault:`
     mappings) and the flat layout (every key at the top with a `host_` /
     `vault_` prefix, everything else treated as a .env value). A legacy
-    `vault_password:` field is silently ignored (ansible-vault era; SOPS+age
-    replaces it with $SOPS_AGE_KEY)."""
+    `vault_password:` field is silently ignored (ansible-vault era; the vault
+    is now a plaintext, gitignored, 0600 group_vars file, project 0b)."""
     if any(isinstance(raw.get(k), dict) for k in ("host", "env", "vault")):
         return {
             "inventory": raw.get("inventory"),
@@ -819,7 +819,7 @@ def _resolve_restic_password(
     no_confirm: bool,
 ) -> None:
     """Auto-mint the restic backup encryption password on first install.
-    Shown once + saved to the SOPS vault."""
+    Shown once + saved to the plaintext group_vars vault."""
     if "vault_backup_restic_password" in vault_values or existing_vault:
         return
     restic_pw = _mint_strong_password()
@@ -896,7 +896,7 @@ def _collect_vault_values(
 ) -> dict[str, str]:
     """Walk the vault template keys, prompting for each (input hidden).
     Skips keys in VAULT_SKIP_KEYS (auto-minted later)."""
-    banner("Secrets (vault.sops.yml -- SOPS-encrypted)")
+    banner("Secrets (group_vars/all/vault.yml -- plaintext, 0600)")
     print("(input is hidden; placeholder values count as missing)\n", file=sys.stderr)
     vault_values: dict[str, str] = {}
     for key in vault_keys:

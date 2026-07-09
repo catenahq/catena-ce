@@ -3,7 +3,7 @@
 
 Bootstrap-time invocations (bootstrap.yml's IP rewrite, roles/portainer's
 admin API key mint) used to write directly into the inventory
-clone (hosts.yml, vault.sops.yml). Under a permanent Semaphore worker
+clone (hosts.yml, the plaintext vault.yml). Under a permanent Semaphore worker
 the clone is task-scoped and these mutations vanish on the next git
 pull, so the workflow is now: emit values into a gitignored
 .bootstrap-output.yml; the operator (or the bench, acting as operator)
@@ -67,8 +67,8 @@ HEADER = """\
 # Apply steps:
 #   1. Set hosts[<host>].ansible_host in <inventory>/hosts.yml under the
 #      `vps:` group (or use helpers/update_inventory_host.py).
-#   2. Merge `vault:` entries via `sops --set` on
-#      <inventory>/group_vars/all/vault.sops.yml.
+#   2. Merge `vault:` entries into the plaintext
+#      <inventory>/group_vars/all/vault.yml.
 #   3. Commit + push catenahq/inventories; bump the submodule in ops/.
 """
 

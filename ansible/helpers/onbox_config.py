@@ -19,8 +19,9 @@ Two top-level sections:
 The converge loads this store, mints any MISSING *internal* secret
 (reconcile-not-overwrite -- an existing value is never touched), writes the
 store back 0600, and emits the merged secret view as JSON for an Ansible
-``set_fact``. It replaces the laptop-side SOPS vault: the box is the source
-of truth, and ``/etc`` is in ``roles/backup`` ``backup_paths`` so the store
+``set_fact``. It supersedes the plaintext group_vars vault (SOPS+age was
+dropped, 0b): the box is the source of truth, and ``/etc`` is in
+``roles/backup`` ``backup_paths`` so the store
 rides every restic snapshot -- a restore returns every secret with the data.
 
 Design constraints:
@@ -199,8 +200,8 @@ def ensure_internal_secrets(store: dict) -> list[str]:
 
 def adopt(store: dict, mapping: dict | None) -> list[str]:
     """Capture pre-existing secret values into the store, fill-only. Used once
-    at migration to seed the store from the values already in scope (the SOPS
-    vault the converge is transitioning off of). Never overwrites a value
+    at migration to seed the store from the values already in scope (the
+    plaintext group_vars vault the converge seeds from). Never overwrites a value
     already in the store and never stores a blank. Accepts ANY key -- the
     caller pre-filters to vault_* -- so vault_portainer_api_key and any
     out-of-registry secret are captured too. Returns the keys adopted."""
@@ -283,7 +284,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--adopt-stdin", action="store_true",
                     help="read a JSON object of existing {key: value} secrets "
                          "from stdin and adopt them fill-only before minting "
-                         "(one-time migration capture from the SOPS vault)")
+                         "(migration capture from the plaintext group_vars vault)")
     ap.add_argument("--adopt-file", metavar="PATH",
                     help="like --adopt-stdin but read the JSON object from a "
                          "file (the Ansible loader stages the capture map to a "

@@ -31,8 +31,9 @@ and takes over scheduling.
 ## Installer (`./catena`)
 
 You drive everything through the bundled CLI; you never call
-`ansible-playbook` directly. Prerequisites: `sops` and `age` on PATH
-(ansible-core comes from `uv`).
+`ansible-playbook` directly. Prerequisite: `uv` on PATH (ansible-core comes
+from `uv`). SOPS+age was dropped (project 0b) -- there is no `sops`/`age`
+prerequisite anymore.
 
 ```
 uv run ./catena install --inventory prod     # seed + preflight/bootstrap/site/validate
@@ -43,7 +44,7 @@ uv run ./catena uninstall --inventory prod   # hand unattended-upgrades back to 
 ```
 
 `install` first runs `seed.py` (collects config, mints service secrets,
-SOPS-encrypts the vault), then chains the four playbooks. For an
+writes the plaintext 0600 vault), then chains the four playbooks. For an
 unattended run, pass `-i install.yaml --no-confirm`.
 
 `uninstall` does **not** delete your apps or data. It unmasks and
@@ -54,20 +55,25 @@ deliberately.
 
 ## Secrets
 
-Secrets are SOPS-encrypted with age (not ansible-vault). Each inventory
-carries `group_vars/all/vault.sops.yml`, auto-decrypted at parse time by the
-`community.sops` vars plugin. Community is self-hosted: the vault is
-encrypted to **one** recipient -- your own age key. `seed.py` mints it on
-first install, saves it to `~/.config/sops/age/keys.txt`, and shows it once
-(back it up -- there is no operator with a copy). The installer loads it
-into `$SOPS_AGE_KEY` automatically on later runs.
+SOPS+age was dropped (project 0b). Each inventory carries a **plaintext,
+gitignored, 0600** `group_vars/all/vault.yml`, loaded at parse time by the
+stock `host_group_vars` vars plugin -- no `community.sops` plugin, no age
+key, no `.sops.yaml` recipient policy, no `$SOPS_AGE_KEY`. `seed.py` mints
+the auto-generated values on first install and writes them straight into
+that file.
+
+At converge time the on-box config store (`/etc/catena/config.json`, 0600
+root) becomes the runtime source of truth: the loader adopts the vault
+values, mints any missing internal secret, and every downstream role reads
+the store. `/etc` rides the restic backup, so a rebuild needs only the
+`{restic endpoint, S3 creds, restic password}` keyset -- the plaintext vault
+is just the install-time seed.
 
 ## Inventory
 
-The installer writes `inventory/<name>/` for you (`.env`, the
-SOPS-encrypted `vault.sops.yml`, `.sops.yaml`, `hosts.yml`). Real
-inventories are gitignored; only `inventory/example/` is tracked as the
-documented schema.
+The installer writes `inventory/<name>/` for you (`.env`, the plaintext
+`group_vars/all/vault.yml`, `hosts.yml`). Real inventories are gitignored;
+only `inventory/example/` is tracked as the documented schema.
 
 ## Status
 

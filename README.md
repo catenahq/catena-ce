@@ -31,7 +31,7 @@ binaries. See [LICENSE](LICENSE).
 ansible/               the Community deploy automation + the CLI
   catena               the installer / CLI entry point (see ansible/README.md)
   playbooks/ roles/    preflight/bootstrap/site/validate/restore + shared roles
-  seed.py              config + SOPS-vault seeding (first-run secret minting)
+  seed.py              config + plaintext-vault seeding (first-run secret minting)
 cmd/catena-admin/      the Go shell entry point
 license/               ed25519 license-token wire format (offline verify + grace)
 plugin/                the CE/EE plugin SDK contract (implemented by catena-ee)
@@ -43,8 +43,8 @@ deploy/catena-admin/   the catena-admin container compose
 ## Install (self-host)
 
 Self-hosters drive everything through the bundled **`catena` CLI** -- you
-never call `ansible-playbook` directly. Prerequisites: `sops` and `age` on
-PATH (ansible-core comes from `uv`). From the `ansible/` directory:
+never call `ansible-playbook` directly. Prerequisite: `uv` on PATH
+(ansible-core comes from `uv`). From the `ansible/` directory:
 
 ```
 uv run ./catena install   --inventory prod   # seed + preflight -> bootstrap -> site -> validate
@@ -60,7 +60,7 @@ uv run ./catena uninstall --inventory prod   # hand unattended-upgrades back to 
 ```
 
 `install` first runs `seed.py` (collects config, mints service secrets,
-SOPS-encrypts the vault to your own age key), then chains the playbooks. For
+writes them to a plaintext 0600 vault), then chains the playbooks. For
 an unattended run, pass `-i install.yaml --no-confirm`. Full reference
 (prerequisites, secrets model, inventory layout, every subcommand):
 [ansible/README.md](ansible/README.md).

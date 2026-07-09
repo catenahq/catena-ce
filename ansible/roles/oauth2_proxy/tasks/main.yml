@@ -46,7 +46,8 @@
       install; on existing inventories minted before this fix,
       regenerate the cookie secret with:
         python3 -c 'import os, base64; print(base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("="))'
-      then update vault.sops.yml via `sops --set`.
+      then set it in the plaintext group_vars/all/vault.yml (or via the
+      catena-admin settings page).
 
 # Realm-config render + middleware render + compose deploy + validate
 # all assume Keycloak is up (so keycloak-config-cli can reach it) AND

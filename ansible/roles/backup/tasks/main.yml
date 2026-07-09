@@ -34,7 +34,7 @@
       Restic credentials must be in vault and BACKUP_RESTIC_REPO must be set
       in inventory/<name>/.env before the backup role can run.
       See inventory/example/group_vars/all/vault.yml.example for the schema
-      (the encrypted live file is vault.sops.yml).
+      (the live file is the plaintext, gitignored, 0600 vault.yml).
 
 - name: Install backup infrastructure
   ansible.builtin.include_tasks: install.yml

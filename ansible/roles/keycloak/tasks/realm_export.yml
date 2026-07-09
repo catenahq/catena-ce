@@ -63,8 +63,9 @@
       Master-realm credentials missing before kcadm login
       (admin_email_len={{ admin_email | default('') | length }},
        vault_admin_password_len={{ vault_admin_password | default('') | length }}).
-      Likely cause: sops re-encrypt during converge dropped a key.
-      Inspect inventory/<env>/group_vars/all/vault.sops.yml.
+      Likely cause: these keys are absent from the on-box config store or
+      the plaintext group_vars vault. Inspect /etc/catena/config.json (or
+      inventory/<env>/group_vars/all/vault.yml).
   when: (_kc_export_server_ct.stdout | default('') | length) > 0
 
 - name: "Keycloak realm export: kcadm.sh login as master-realm admin"

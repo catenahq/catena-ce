@@ -51,13 +51,15 @@ backup. The settings page exposes it read-once + an "I've saved this" gate.
 
 ### 2. Self-generated on-box (mint at converge, persist on-box, ride backup)
 
-No human ever supplies these. Today `seed.py` mints them on the operator/client
-laptop and writes them into the laptop-side `vault.sops.yml`. Under 0b they mint
-**on the box** at converge time (reconcile-not-overwrite), persist under a
-backed-up path, and never touch a laptop vault. The `roles/portainer` API-key
-mint (`bootstrap_portainer_admin.py`) is the existing on-box-mint precedent --
-except it writes the key BACK to the laptop vault via `sops --set`; 0b inverts
-that to write on-box.
+No human ever supplies these. `seed.py` mints the initial values into the
+plaintext, gitignored, 0600 `vault.yml` as an install-time seed (SOPS+age was
+dropped, 0b). At converge time they mint/reconcile **on the box**
+(reconcile-not-overwrite) into the on-box config store
+(`/etc/catena/config.json`, 0600 root), which persists under a backed-up path.
+The `roles/portainer` API-key mint (`bootstrap_portainer_admin.py`) is the
+existing on-box-mint precedent -- it writes the key into the plaintext
+`vault.yml` (reloaded into scope via `include_vars`), and the on-box loader
+adopts it into the store on the next converge.
 
 - `vault_admin_password` (shared Portainer + Keycloak) -- self-gen, but
   client-visible: surfaced + resettable via the settings page (they log in
@@ -116,20 +118,21 @@ both written reconcile-not-overwrite by `roles/backup`. That is the model
 for every category-2 secret and category-3 value: a single on-box config
 source-of-truth under `/etc/catena/`, written once, reconciled on converge,
 carried in every snapshot. Prefer ONE referenced file over today's
-`.env` + `vault.sops.yml` + `hosts.yml` split (see `project_config_layout`).
+`.env` + `vault.yml` + `hosts.yml` split (see `project_config_layout`).
 
 The swarm-secret path (catena-postgres, portainer admin) is NOT backed up
 (`/var/lib/docker/swarm` is excluded); those replay correctly because the
 data volume restores raw and the on-box-persisted password re-supplies the
 matching credential at converge.
 
-## Open decisions (resolve in Phase C)
+## Resolved decisions
 
-- **At-rest encryption of on-box config.** On a client-owned box the operator
-  is not a recipient. Options: SOPS+age with a client-held key (the client
-  keeps the age key alongside the restic password), a sealed on-box key, or
-  0600 root-only cleartext (the box is already the trust boundary; anyone
-  with root has the running secrets anyway). Leaning 0600 root-only for the
-  self-gen category, client-held age only if we keep an exportable vault.
-- **Single config file format** (YAML under `/etc/catena/config.yml`?) and
-  how the settings-write API and the converge both read/write it atomically.
+- **At-rest encryption of on-box config.** RESOLVED: 0600 root-only cleartext.
+  On a client-owned box the operator is not a recipient, and the box is
+  already the trust boundary -- anyone with root has the running secrets
+  anyway. SOPS+age was dropped entirely (project 0b); there is no client-held
+  age key.
+- **Single config file format.** RESOLVED: JSON at `/etc/catena/config.json`
+  (0600 root), with two sections (`secrets` + `config`). Both the
+  settings-write API and the converge read/write it atomically
+  (temp-file + `os.replace`) via `helpers/onbox_config.py`.

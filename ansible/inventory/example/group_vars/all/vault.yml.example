@@ -1,10 +1,13 @@
 ---
-# inventory/<name>/group_vars/all/vault.yml -- the secrets file. In practice
-# you encrypt it with SOPS+age (vault.sops.yml); this .example documents the
-# schema. This file MUST NOT be committed unencrypted. It is the crown jewels.
+# inventory/<name>/group_vars/all/vault.yml -- the secrets file. It is a
+# PLAINTEXT, gitignored, 0600 group_vars file (SOPS+age was dropped, project
+# 0b); this .example documents the schema. The live vault.yml MUST NOT be
+# committed. It is the crown jewels.
 #
 # The installer mints the auto-generated values on first install. To rotate a
-# value afterwards: edit the encrypted vault.sops.yml with `sops`.
+# value afterwards: edit vault.yml directly (or use the catena-admin settings
+# page). At converge time the on-box config store (/etc/catena/config.json,
+# 0600 root) becomes the runtime source of truth and rides the restic backup.
 
 # --- Tailscale ---
 # OAuth client credentials from the Tailscale admin console.
