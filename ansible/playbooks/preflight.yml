@@ -66,14 +66,8 @@
 
       3. Put the credentials in vault.
 
-             # Make sure your age private key is in scope (paste hidden,
-             # no echo, no shell history):
-             HISTCONTROL=ignorespace
-              read -s SOPS_AGE_KEY && export SOPS_AGE_KEY
-
-             # Open the SOPS-encrypted vault in your editor; sops decrypts
-             # in-memory + re-encrypts on save.
-             sops ansible/inventory/dev/group_vars/all/vault.sops.yml
+             # Edit the plaintext (0600, gitignored) vault directly:
+             $EDITOR ansible/inventory/dev/group_vars/all/vault.yml
              # set:
              #   vault_tailscale_oauth_client_id: "k123..."
              #   vault_tailscale_oauth_client_secret: "tskey-client-k123..."
@@ -94,21 +88,21 @@
       ansible.builtin.meta: end_play
       when: preflight_skip_oauth | bool
 
-    - name: Check vault.sops.yml exists
+    - name: Check vault.yml exists
       ansible.builtin.stat:
-        path: "{{ inventory_dir }}/group_vars/all/vault.sops.yml"
+        path: "{{ inventory_dir }}/group_vars/all/vault.yml"
       register: vault_file
 
-    - name: Show setup instructions if vault.sops.yml is missing
+    - name: Show setup instructions if vault.yml is missing
       ansible.builtin.fail:
         msg: "{{ tailscale_setup_instructions }}"
       when: not vault_file.stat.exists
 
-    # The community.sops vars plugin auto-loads + decrypts
-    # vault.sops.yml under group_vars/all/ at inventory parse time
-    # (see ansible.cfg::vars_plugins_enabled), so vault_* keys are
-    # already in scope by the time preflight runs. The check above
-    # just confirms the vault file is on disk.
+    # The host_group_vars plugin auto-loads the plaintext vault.yml under
+    # group_vars/all/ at inventory parse time (see
+    # ansible.cfg::vars_plugins_enabled), so vault_* keys are already in
+    # scope by the time preflight runs. The check above just confirms the
+    # vault file is on disk.
 
     - name: Show setup instructions if OAuth credentials are missing or placeholder
       ansible.builtin.fail:
