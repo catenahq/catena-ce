@@ -27,6 +27,7 @@
   # _portainer_endpoint_id in scope for portainer_stack.yml.
   ansible.builtin.include_tasks: ../../infrastructure/tasks/portainer_endpoint.yml
   when:
+    - catena_admin_deploy_from_converge | bool
     - vault_portainer_api_key is defined
     - (vault_portainer_api_key | default('') | length) > 0
 
@@ -71,5 +72,6 @@
       dash.<zone> is oauth2-proxy gated (302 regardless of backend health); the
       synchronous Portainer stack deploy 2xx is the readiness signal.
   when:
+    - catena_admin_deploy_from_converge | bool
     - vault_portainer_api_key is defined
     - (vault_portainer_api_key | default('') | length) > 0

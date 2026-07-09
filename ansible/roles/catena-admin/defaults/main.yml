@@ -21,6 +21,15 @@ catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
 # (it builds local/catena-admin:bench on the VPS and passes that tag).
 catena_admin_image: "ghcr.io/catenahq/catena-admin:latest"
 
+# Deploy the catena-admin container FROM the converge (deploy.yml). Production
+# pulls the published GHCR image at converge time. The test bench builds the
+# image on the VPS and deploys it OUT OF BAND (stage-2.6, build-on-host per the
+# resolved 1z decision) -- the published GHCR image does not exist there -- so
+# the bench sets CATENA_ADMIN_DEPLOY_FROM_CONVERGE=false to skip the converge
+# deploy. Production leaves it true.
+catena_admin_deploy_from_converge: >-
+  {{ lookup('env', 'CATENA_ADMIN_DEPLOY_FROM_CONVERGE', default='true') | bool }}
+
 # Port the Go shell listens on inside the container (CATENA_ADMIN_ADDR
 # :8000 in the compose; oauth2_proxy upstreams to catena-admin:8000).
 catena_admin_internal_port: 8000
