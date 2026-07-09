@@ -24,7 +24,9 @@ This helper chains those calls with the shared vault_admin_password
 (already in the vault, shared with Keycloak). On success it merges the
 minted key into the vault under vault_portainer_api_key and exits 0.
 Invoked by roles/portainer on a converge when the vault does not yet hold
-a valid Portainer API key.
+a valid Portainer API key. The vault is a PLAINTEXT group_vars YAML file
+(SOPS+age was dropped, project 0b); the on-box config loader later adopts
+the merged key into /etc/catena/config.json.
 
 Contract:
   Exit code 0  : API key minted + merged into vault.
@@ -40,11 +42,9 @@ Contract:
 
 Usage:
     python3 helpers/bootstrap_portainer_admin.py \\
-        --vault inventory/dev/group_vars/all/vault.sops.yml \\
+        --vault inventory/dev/group_vars/all/vault.yml \\
         --tailnet-ip 100.77.16.46 \\
         --port 9000
-
-Requires SOPS_AGE_KEY in env (raw operator age private key content).
 """
 from __future__ import annotations
 
@@ -56,13 +56,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-# Make helpers/ importable in both script and module modes (running this as
-# a bare script leaves REPO_ROOT off sys.path, so `from helpers import ...`
-# would fail without this insert).
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-from helpers import sops_vault  # noqa: E402
+import yaml
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -97,6 +91,27 @@ def _ok(msg: str) -> None:
 
 def _info(msg: str) -> None:
     print(f"\033[1;34m-\033[0m {msg}", file=sys.stderr)
+
+
+# --- plaintext vault I/O ---------------------------------------------------
+# SOPS+age was dropped (0b): the vault is a plaintext group_vars YAML file.
+def _read_vault(path: Path) -> dict:
+    data = yaml.safe_load(path.read_text()) or {}
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} top-level value is not a mapping")
+    return data
+
+
+def _read_value(path: Path, key: str) -> str:
+    val = _read_vault(path).get(key)
+    return val if isinstance(val, str) else ""
+
+
+def _set_value(path: Path, key: str, value: str) -> None:
+    data = _read_vault(path)
+    data[key] = value
+    path.write_text(yaml.safe_dump(data, default_flow_style=False, sort_keys=False))
+    path.chmod(0o600)
 
 
 # --- HTTP primitives -------------------------------------------------------
@@ -278,11 +293,12 @@ def main(argv: list[str] | None = None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     ap.add_argument("--vault", type=Path,
-                    help="SOPS-encrypted vault that will RECEIVE the minted "
-                         "vault_portainer_api_key. Required unless --emit-only.")
+                    help="Plaintext group_vars vault that will RECEIVE the "
+                         "minted vault_portainer_api_key. Required unless "
+                         "--emit-only.")
     ap.add_argument("--admin-password-vault", type=Path,
-                    help="SOPS-encrypted vault holding vault_admin_password. "
-                         "Defaults to --vault.")
+                    help="Plaintext group_vars vault holding "
+                         "vault_admin_password. Defaults to --vault.")
     ap.add_argument("--tailnet-ip", required=True,
                     help="Tailnet IPv4 of the Portainer host.")
     ap.add_argument("--port", type=int, default=9000,
@@ -312,9 +328,9 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_ERROR
 
     try:
-        password = sops_vault.read_value(admin_pw_vault, "vault_admin_password")
-    except sops_vault.SopsError as exc:
-        print(str(exc), file=sys.stderr)
+        password = _read_value(admin_pw_vault, "vault_admin_password")
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        print(f"could not read {admin_pw_vault}: {exc}", file=sys.stderr)
         return EXIT_ERROR
     if not password:
         _warn("vault_admin_password not in vault -- can't mint a Portainer "
@@ -341,9 +357,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.emit_only:
         try:
-            sops_vault.set_value(args.vault, "vault_portainer_api_key", api_key)
-        except sops_vault.SopsError as exc:
-            print(str(exc), file=sys.stderr)
+            _set_value(args.vault, "vault_portainer_api_key", api_key)
+        except (OSError, ValueError, yaml.YAMLError) as exc:
+            print(f"could not write {args.vault}: {exc}", file=sys.stderr)
             return EXIT_ERROR
         _ok(f"merged vault_portainer_api_key into {args.vault}")
     else:

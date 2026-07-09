@@ -158,8 +158,9 @@
 # (created at first boot via --admin-password-file above) by
 # helpers/bootstrap_portainer_admin.py: signs in with vault_admin_password,
 # resolves the admin user id, POSTs /api/users/{id}/tokens, and writes the
-# rawAPIKey into vault.sops.yml via sops --set. community.sops.load_vars
-# then brings it into the in-flight playbook scope.
+# rawAPIKey into the plaintext group_vars vault.yml (SOPS+age was dropped,
+# 0b). include_vars then brings it into the in-flight playbook scope; the
+# on-box config loader adopts it into /etc/catena/config.json next converge.
 #
 # Fires when the vault has NO key yet (first install) OR when the stored key
 # is rejected by the live Portainer (401/403 -- e.g. the operator recreated
@@ -190,9 +191,9 @@
     or (vault_portainer_api_key | length) <= 10
     or (_pt_apikey_validate.status | default(200)) in [401, 403]
   block:
-    - name: "portainer: pin the inventory vault.sops.yml path"
+    - name: "portainer: pin the inventory vault.yml path"
       ansible.builtin.set_fact:
-        _pt_apikey_vault_file: "{{ inventory_dir }}/group_vars/all/vault.sops.yml"
+        _pt_apikey_vault_file: "{{ inventory_dir }}/group_vars/all/vault.yml"
 
     - name: "portainer: invoke bootstrap_portainer_admin.py to mint an API key"
       ansible.builtin.command:
