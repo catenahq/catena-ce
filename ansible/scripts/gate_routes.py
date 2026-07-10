@@ -3,8 +3,6 @@
 Walk the Portainer stacks and, for every stack that declares a public host
 (`vps.route.host`, outside the auth.<zone> exemption + the Ansible-managed
 infra list), write a `*-auto-gate.yml` Traefik route file under DEFAULT-DENY.
-Was a Dokploy project/domain walk before the Dokploy->Portainer migration
-(Dokploy's domain.by* API is gone -- the host is now a compose label).
 Stdlib-only; installed beside dashboard-sync on the host.
 """
 from __future__ import annotations
@@ -13,7 +11,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import dokploy_api  # noqa: E402
+import portainer_api  # noqa: E402
 import route_synth  # noqa: E402
 
 try:
@@ -46,7 +44,7 @@ def derive_route_intent(api_base, api_key, skip_names, auth_hostname,
 
     Each dict: {name, host, is_public, allowed, slug, backend_alias,
     route_slug, port, fname}."""
-    for name, _stack_id, compose_body in dokploy_api.iter_stacks(
+    for name, _stack_id, compose_body in portainer_api.iter_stacks(
         api_base, api_key, skip_names, seen=seen,
     ):
         route = extract_vps_route_labels(compose_body)

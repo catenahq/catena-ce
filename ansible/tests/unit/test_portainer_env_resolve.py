@@ -1,4 +1,4 @@
-"""Unit tests for dokploy_api.resolve_compose_env + iter_stacks env resolution.
+"""Unit tests for portainer_api.resolve_compose_env + iter_stacks env resolution.
 
 Portainer keeps a stack's compose file verbatim (with `${...}` refs) and its
 resolved values in a separate Env array. dashboard-sync reads the stored file,
@@ -6,7 +6,7 @@ so a client app's vps.route.host=${DOMAIN_HOST} must be resolved against the
 stack Env before gate_routes extracts the host -- otherwise the Traefik rule
 becomes a literal Host(${DOMAIN_HOST}) and the app 404s.
 
-Run: uv run pytest tests/unit/test_dokploy_env_resolve.py
+Run: uv run pytest tests/unit/test_portainer_env_resolve.py
 """
 from __future__ import annotations
 
@@ -15,9 +15,9 @@ from pathlib import Path
 
 _MOD = (
     Path(__file__).resolve().parents[3]
-    / "ansible" / "scripts" / "dokploy_api.py"
+    / "ansible" / "scripts" / "portainer_api.py"
 )
-_spec = importlib.util.spec_from_file_location("dokploy_api", _MOD)
+_spec = importlib.util.spec_from_file_location("portainer_api", _MOD)
 da = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(da)
 

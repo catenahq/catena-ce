@@ -7,13 +7,13 @@
 #   - mount /mnt/data (storage)
 #   - install restic + write password file + restic restore into /
 #
-# NOT in scope (intentionally): docker / dokploy / infrastructure --
+# NOT in scope (intentionally): docker / portainer / infrastructure --
 # those are site.yml's job. After restore succeeds, run site.yml to bring
 # the apps back up on the restored data.
 #
 # Whole-host restic restore is the Community recovery path. The Business
 # edition layers a coupled multi-app post-restore reconcile (dependency-
-# ordered Dokploy redeploy + pg_dumpall replay); that lane is not part of
+# ordered app redeploy + pg_dumpall replay); that lane is not part of
 # Community and is not invoked here.
 #
 # Usage (cwd = ansible/):

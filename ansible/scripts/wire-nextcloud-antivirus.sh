@@ -30,7 +30,7 @@ ct=$(docker ps \
 if [ -z "$ct" ]; then
     echo "Nextcloud is not running on this host."
     echo
-    echo "Deploy first: Dokploy UI -> Templates -> nextcloud-s3 -> Deploy."
+    echo "Deploy first: Portainer -> App Templates -> nextcloud-s3 -> Deploy."
     echo "Wait for the container to come up, then click this button again."
     exit 1
 fi

@@ -37,7 +37,7 @@
     group: root
     mode: "0644"
   loop:
-    - { src: "{{ playbook_dir }}/../scripts/dokploy_api.py", dest: "dokploy_api.py" }
+    - { src: "{{ playbook_dir }}/../scripts/portainer_api.py", dest: "portainer_api.py" }
     - { src: "{{ playbook_dir }}/../scripts/route_synth.py", dest: "route_synth.py" }
     - { src: "{{ playbook_dir }}/../scripts/gate_routes.py", dest: "gate_routes.py" }
     - { src: "{{ playbook_dir }}/../scripts/verify_gated_intent.py", dest: "verify_gated_intent.py" }

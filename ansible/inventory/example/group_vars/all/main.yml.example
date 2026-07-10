@@ -32,18 +32,17 @@ cloudflare_zone: "{{ lookup('dotenv', 'CLOUDFLARE_ZONE') }}"
 # need a recognizable string for prefix-filtered cleanup.
 cloudflared_tunnel_name: "{{ lookup('dotenv', 'CLOUDFLARED_TUNNEL_NAME_PREFIX', default='') }}{{ inventory_hostname }}"
 # Cloudflared runs as a swarm service on catena-network. Ingress target is
-# Dokploy's Traefik container, reachable by service name inside the network.
+# the catena-traefik container, reachable by service name inside the network.
 cloudflared_ingress_service: "http://catena-traefik:80"
-cloudflared_dokploy_env_key: "CLOUDFLARE_TUNNEL_TOKEN"
 
 # --- Infrastructure subdomains ---
 # Public-facing hostnames, all gated by self-hosted SSO + forward-auth
 # (Keycloak + oauth2-proxy). SSO works across them via a shared auth.<zone>
 # session cookie.
-infrastructure_monitor_subdomain: "{{ lookup('dotenv', 'DOKPLOY_MONITOR_SUBDOMAIN', default='monitor') }}"
+infrastructure_monitor_subdomain: "{{ lookup('dotenv', 'MONITOR_SUBDOMAIN', default='monitor') }}"
 infrastructure_monitor_hostname: "{{ infrastructure_monitor_subdomain }}.{{ cloudflare_zone }}"
 # catena-admin (the Go shell) is served at dash.<zone>.
-infrastructure_dash_subdomain: "{{ lookup('dotenv', 'DOKPLOY_DASH_SUBDOMAIN', default='dash') }}"
+infrastructure_dash_subdomain: "{{ lookup('dotenv', 'DASH_SUBDOMAIN', default='dash') }}"
 infrastructure_dash_hostname: "{{ infrastructure_dash_subdomain }}.{{ cloudflare_zone }}"
 
 healthchecks_subdomain: "{{ lookup('dotenv', 'HEARTBEAT_SUBDOMAIN', default='heartbeat') }}"
@@ -77,13 +76,10 @@ portainer_api_base: "http://{{ ansible_host }}:{{ portainer_ui_port }}/api"
 
 # Public, oauth2-gated hostname for the Portainer UI over the Cloudflare
 # tunnel (admin-only; wired by roles/oauth2_proxy oauth2_proxy_apps). This is
-# the client admin's self-serve deploy surface, parity with the old Dokploy
-# admin UI. Distinct from portainer_api_base above, which is the tailnet-only
-# operator control path -- both reach the same catena-portainer service.
-# default is a nested dotenv lookup of the legacy Dokploy-era key so an
-# existing install whose .env still only has DOKPLOY_ADMIN_SUBDOMAIN
-# doesn't silently move its control-plane hostname to 'portainer'.
-portainer_admin_subdomain: "{{ lookup('dotenv', 'PORTAINER_SUBDOMAIN', default=lookup('dotenv', 'DOKPLOY_ADMIN_SUBDOMAIN', default='portainer')) }}"
+# the client admin's self-serve deploy surface. Distinct from
+# portainer_api_base above, which is the tailnet-only operator control
+# path -- both reach the same catena-portainer service.
+portainer_admin_subdomain: "{{ lookup('dotenv', 'PORTAINER_SUBDOMAIN', default='portainer') }}"
 portainer_admin_hostname: "{{ portainer_admin_subdomain }}.{{ cloudflare_zone }}"
 
 # --- Storage ---

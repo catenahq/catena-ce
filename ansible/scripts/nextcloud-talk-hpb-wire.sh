@@ -31,7 +31,7 @@ ct=$(docker ps \
 if [ -z "$ct" ]; then
     echo "Nextcloud is not running on this host."
     echo
-    echo "Deploy first: Dokploy UI > Templates > nextcloud-s3 > Deploy."
+    echo "Deploy first: Portainer > App Templates > nextcloud-s3 > Deploy."
     exit 1
 fi
 
@@ -85,7 +85,7 @@ if [ "${#missing[@]}" -gt 0 ]; then
     echo "error: missing required env on $ct:" >&2
     for m in "${missing[@]}"; do echo "  - $m" >&2; done
     echo >&2
-    echo "Open Dokploy UI > Templates > nextcloud-s3 > Edit > Environment" >&2
+    echo "Open Portainer > App Templates > nextcloud-s3 > Edit > Environment" >&2
     echo "and confirm the HPB env vars are set, then redeploy." >&2
     exit 2
 fi

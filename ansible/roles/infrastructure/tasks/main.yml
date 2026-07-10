@@ -13,7 +13,7 @@
 #                              auto-gated Traefik routes (Phase 4b
 #                              retired its services.yaml writer);
 #                              gatus-sync owns {{ gatus_host_config_dir }}/
-#                              50-dokploy-apps.yaml.
+#                              50-catena-apps.yaml.
 #
 # CF tunnel + DNS + cloudflared swarm service moved to roles/cloudflare_tunnel
 # on 2026-05-08 so site.yml can deploy them BEFORE keycloak/oauth2_proxy --

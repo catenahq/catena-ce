@@ -1,6 +1,6 @@
 # {{ ansible_managed }}
 # 00-base.yaml -- Ansible-managed foundation for Gatus. Two siblings:
-#   50-dokploy-apps.yaml    written by /usr/local/bin/gatus-sync on a timer
+#   50-catena-apps.yaml    written by /usr/local/bin/gatus-sync on a timer
 #                           (one internal + one public endpoint per Dokploy
 #                           app with a domain).
 #   99-<anything>.yaml      operator-added, never touched by either.
@@ -35,7 +35,6 @@
     'live_status':    'État en direct de la pile catena sur' if _lang == 'fr' else 'Live status of the catena stack on',
     'open_for':       'ouvrez' if _lang == 'fr' else 'open',
     'for_detail':     'pour détails' if _lang == 'fr' else 'for detail',
-    'dokploy_admin':  'Admin Dokploy' if _lang == 'fr' else 'Dokploy admin',
     'gatus_status':   "Page d'état Gatus" if _lang == 'fr' else 'Gatus status page',
     'auth_login':     'Connexion Keycloak' if _lang == 'fr' else 'Keycloak login',
 } %}

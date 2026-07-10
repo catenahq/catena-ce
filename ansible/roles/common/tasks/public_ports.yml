@@ -2,7 +2,7 @@
 # Install the declarative public-port reconciler. Single applier for every
 # direct public port the VPS exposes outside the Cloudflare Tunnel.
 #
-# Infra roles (coturn, dokploy) drop a JSON fragment into
+# Infra roles (coturn, portainer) drop a JSON fragment into
 # /etc/catena/public-ports.d/<owner>.json declaring their ports; Dokploy
 # templates declare ports via vps.expose.* compose labels harvested live.
 # catena-public-ports.py merges both and applies ufw + DOCKER-USER rules.

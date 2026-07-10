@@ -112,7 +112,7 @@
 # Wait for apt instead of failing fast when the dpkg lock is held by
 # another process (typical: apt-daily.timer mid-fire, cloud-init's
 # package_update finishing in the background, unattended-upgrades).
-# Without this, ANY apt step in this role or downstream (dokploy
+# Without this, ANY apt step in this role or downstream (docker
 # install.sh, tailscale install, backup install) loses a race and
 # fails with "Could not get lock" while the holder finishes in <5 min.
 # Applies system-wide via /etc/apt/apt.conf.d, so install.sh's apt
@@ -189,7 +189,7 @@
 # the apt module's `update_cache_retries` loop returns the unhelpful
 # "Failed to update cache after 10 retries: " message (empty stderr,
 # because the module folds individual retries into a summary string)
-# and every subsequent role that touches apt -- dokploy install.sh,
+# and every subsequent role that touches apt -- docker install,
 # tailscale install, backup install -- cascades. The block-then-rescue
 # below: first tries via whatever proxy is configured; on failure,
 # captures the real apt-get error for the log, then if a proxy is in

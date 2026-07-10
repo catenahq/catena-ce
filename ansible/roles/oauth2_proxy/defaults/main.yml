@@ -170,12 +170,12 @@ oauth2_proxy_apps:
   # before trusting X-Forwarded-Email / X-Forwarded-Groups.
   #
   # ROLLOUT ORDER (operator-side): the catena-admin compose at
-  # services/catena-admin/dokploy.compose.yml must be redeployed
+  # deploy/catena-admin/catena-admin.compose.yml must be redeployed
   # BEFORE this converge runs so the sigproxy container is up on
   # catena-network. Otherwise oauth2-proxy gets connection-refused
   # on the new upstream and dash.<zone> returns 502. The compose
   # change shipped in the same commit as this defaults flip;
-  # Dokploy redeploy picks it up automatically on its next poll.
+  # the stack redeploy picks it up automatically on its next poll.
   - slug: "catena-admin"
     host_var: "catena_admin_hostname"
     upstream_alias: "catena-admin-sigproxy"

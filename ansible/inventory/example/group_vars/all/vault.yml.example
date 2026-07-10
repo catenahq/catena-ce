@@ -110,7 +110,7 @@ vault_beszel_admin_password: ""
 vault_beszel_universal_token: ""
 
 # --- Self-hosted mailserver (opt-in template) --------------------------
-# Only needed when the `mailserver` Dokploy template is deployed.
+# Only needed when the `mailserver` catalog template is deployed.
 #   relay_password    -- the SMTP smarthost password (Scaleway TEM / Maileroo
 #                        / SES / etc.). Re-injected into the template's
 #                        RELAY_PASSWORD on every converge. The relay also

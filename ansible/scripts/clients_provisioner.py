@@ -1,4 +1,4 @@
-"""Per-app oauth2-proxy compose builder + Dokploy provisioner.
+"""Per-app oauth2-proxy compose builder + Portainer provisioner.
 
 Carved out of dashboard-sync.py (see BACKLOG_TECHNICAL.md "dashboard-sync.py
 decomposition"). Builds the `oauth2-proxy-clients` compose for gated CLIENT
@@ -11,7 +11,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import dokploy_api  # noqa: E402
+import portainer_api  # noqa: E402
 
 
 def build_clients_compose(specs, env):
@@ -21,7 +21,7 @@ def build_clients_compose(specs, env):
     same shared Keycloak client + cookie, differing only in --allowed-group
     (from the app's resolved groups) and --upstream (the app's backend).
     Secrets are embedded literally, matching the Ansible-managed infra
-    compose (Dokploy encrypts the stored composeFile at rest)."""
+    compose."""
     port = env["OAUTH2_PROXY_INTERNAL_PORT"]
     zone = env["CLOUDFLARE_ZONE"]
     out = [
@@ -101,14 +101,14 @@ def provision_clients_compose(api_base, api_key, specs, env):
     body = build_clients_compose(specs, env)
     headers = {"X-API-Key": api_key, "accept": "application/json"}
     try:
-        endpoint_id = dokploy_api.portainer_endpoint_id(api_base, api_key)
+        endpoint_id = portainer_api.portainer_endpoint_id(api_base, api_key)
         existing = next(
-            (s for s in dokploy_api.list_stacks(api_base, api_key)
+            (s for s in portainer_api.list_stacks(api_base, api_key)
              if s.get("Name") == name),
             None,
         )
         if existing is None:
-            dokploy_api.http_json(
+            portainer_api.http_json(
                 f"{api_base}/stacks/create/standalone/string?endpointId={endpoint_id}",
                 headers,
                 {"Name": name, "StackFileContent": body, "Env": []},
@@ -117,12 +117,12 @@ def provision_clients_compose(api_base, api_key, specs, env):
             print(f"dashboard-sync: created {name} ({len(specs)} instance(s)).")
             return
         stack_id = existing.get("Id")
-        if dokploy_api.stack_file(api_base, api_key, stack_id) == body:
+        if portainer_api.stack_file(api_base, api_key, stack_id) == body:
             print(f"dashboard-sync: {name} stack unchanged ({len(specs)} instance(s)).")
             return
         # PUT is update == synchronous redeploy. Image is pinned, so no
         # PullImage on the routine env refresh. Env preserved verbatim.
-        dokploy_api.http_json(
+        portainer_api.http_json(
             f"{api_base}/stacks/{stack_id}?endpointId={endpoint_id}",
             headers,
             {"StackFileContent": body, "Env": existing.get("Env") or [],

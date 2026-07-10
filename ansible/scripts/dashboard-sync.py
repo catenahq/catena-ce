@@ -8,7 +8,7 @@ catena-admin Actions tab "Sync all" button."""
 # vps.auth.* labels.
 #
 # Phase 4b retired the Homepage services.yaml write path. The catena-admin
-# Apps tab now renders the launcher tile grid live from the Dokploy API
+# Apps tab now renders the launcher tile grid live from the Portainer API
 # at request time (no precomputed YAML), so this script's only remaining
 # job is gate-route synthesis + the per-app oauth2-proxy provisioning that
 # enforces it.
@@ -17,7 +17,7 @@ catena-admin Actions tab "Sync all" button."""
 # former ~760-line monolith (see BACKLOG_TECHNICAL.md "dashboard-sync.py
 # decomposition") into sibling stdlib-only modules installed beside it by
 # roles/infrastructure/tasks/dashboard_sync.yml:
-#   dokploy_api          -- Dokploy REST + generic JSON HTTP.
+#   portainer_api          -- Portainer REST + generic JSON HTTP.
 #   gate_routes          -- walk projects, write *-auto-gate.yml route files.
 #   route_synth          -- render route YAML; resolve_access (delegates to
 #                           the canonical helpers/labels_schema).
@@ -38,7 +38,7 @@ catena-admin Actions tab "Sync all" button."""
 #    domain API; infra stacks to skip come from INFRA_COMPOSE_NAMES below.)
 #
 # Gate-route auto-discovery + per-app proxy provisioning (always on):
-#   TRAEFIK_DYNAMIC_DIR   -- Dokploy's Traefik dynamic-config dir
+#   TRAEFIK_DYNAMIC_DIR   -- the Traefik dynamic-config dir
 #   AUTH_HOSTNAME         -- auth.<zone>; never gates itself
 #   INFRA_COMPOSE_NAMES   -- comma-separated infra compose appNames whose
 #                            gate routes + proxies are Ansible-managed
@@ -79,7 +79,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import clients_provisioner  # noqa: E402
 import gate_routes  # noqa: E402
 import keycloak_client  # noqa: E402
-from dokploy_api import http_json  # noqa: E402
+from portainer_api import http_json  # noqa: E402
 
 
 def _env(name, default=None, required=True):

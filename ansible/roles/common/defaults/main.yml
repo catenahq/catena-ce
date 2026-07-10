@@ -19,7 +19,7 @@ common_locale: "en_CA.UTF-8"
 
 # Client-facing surfaces (catena-admin, Keycloak login UI) default
 # to this language. Operator-facing surfaces (Ansible output,
-# Dokploy admin, Gatus) stay English regardless. Set via
+# Portainer, Gatus) stay English regardless. Set via
 # CATENA_DEFAULT_LANGUAGE in inventory/<name>/.env to override.
 # Values: en | fr. French translations are upstream-provided for
 # Keycloak and bundled with catena-admin -- spot-check before
@@ -66,7 +66,7 @@ common_apt_proxy_url: "{{ lookup('dotenv', 'APT_PROXY_URL', default='') }}"
 # Reconciler + helper modules install side by side here (the reconciler
 # imports public_ports + labels_schema by bare name from its own dir).
 public_ports_lib_dir: /usr/local/lib/catena
-# conf.d-style fragment dir: each infra role (coturn, dokploy) drops
+# conf.d-style fragment dir: each infra role (coturn, portainer) drops
 # <owner>.json declaring its host-bound public ports. App ports arrive via
 # vps.expose.* labels and are NOT written here.
 public_ports_fragment_dir: /etc/catena/public-ports.d

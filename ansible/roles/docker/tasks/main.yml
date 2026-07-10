@@ -131,7 +131,7 @@
 # stale records doesn't touch on-disk binaries (there are none --
 # that's the precondition), only the dpkg DB.
 #
-# Locked in against client-tools/restore.sh::step_install_dokploy by
+# Locked in against the DR path (catena recover) by
 # tests/unit/test_restore_sh_ansible_parity.py.
 - name: "Purge stale docker dpkg state (DR phantom-installed recovery)"
   ansible.builtin.command:

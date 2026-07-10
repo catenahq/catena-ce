@@ -11,7 +11,7 @@ import sys
 import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import dokploy_api  # noqa: E402
+import portainer_api  # noqa: E402
 
 
 def sync_redirect_uris(hosts, env):
@@ -29,7 +29,7 @@ def sync_redirect_uris(hosts, env):
         return
     want = {f"https://{h}/oauth2/callback" for h in hosts}
     try:
-        tok = dokploy_api.http_json(
+        tok = portainer_api.http_json(
             env["KEYCLOAK_TOKEN_URL"],
             {"content-type": "application/x-www-form-urlencoded"},
             body=urllib.parse.urlencode({
@@ -41,7 +41,7 @@ def sync_redirect_uris(hosts, env):
         )
         access = tok["access_token"]
         auth_hdr = {"authorization": f"Bearer {access}", "accept": "application/json"}
-        clients = dokploy_api.http_json(
+        clients = portainer_api.http_json(
             f"{env['KEYCLOAK_CLIENTS_API']}?clientId={env['OAUTH2_PROXY_CLIENT_ID']}",
             auth_hdr, method="GET",
         )
@@ -58,7 +58,7 @@ def sync_redirect_uris(hosts, env):
         if want <= existing:
             return
         client["redirectUris"] = sorted(existing | want)
-        dokploy_api.http_json(
+        portainer_api.http_json(
             f"{env['KEYCLOAK_CLIENTS_API']}/{client['id']}",
             {"authorization": f"Bearer {access}", "content-type": "application/json"},
             body=client, method="PUT",

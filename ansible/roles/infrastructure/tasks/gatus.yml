@@ -3,7 +3,7 @@
 #
 # Config layout on the host:
 #   {{ gatus_host_config_dir }}/00-base.yaml          (Ansible-managed)
-#   {{ gatus_host_config_dir }}/50-dokploy-apps.yaml  (gatus-sync, per-timer)
+#   {{ gatus_host_config_dir }}/50-catena-apps.yaml  (gatus-sync, per-timer)
 #   {{ gatus_host_config_dir }}/99-<anything>.yaml    (operator-added, untouched)
 #
 # Everything in /config is bind-mounted read-only into the container. Gatus
@@ -66,7 +66,7 @@
 
 # When 00-base.yaml changes, restart the Gatus container so the new
 # endpoints / alert config take effect (Gatus loads config only at
-# startup). 50-dokploy-apps.yaml restart-triggering is owned by gatus-sync
+# startup). 50-catena-apps.yaml restart-triggering is owned by gatus-sync
 # itself. Find the container by matching the Dokploy-assigned name pattern.
 - name: "Gatus: find running container (for base-config reload)"
   ansible.builtin.shell: |

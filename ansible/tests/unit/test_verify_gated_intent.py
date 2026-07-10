@@ -72,7 +72,7 @@ def _stub_iter_stacks(stacks):
 
 def _derive(monkeypatch, stacks):
     monkeypatch.setattr(
-        gate_routes.dokploy_api, "iter_stacks", _stub_iter_stacks(stacks),
+        gate_routes.portainer_api, "iter_stacks", _stub_iter_stacks(stacks),
     )
     return list(gate_routes.derive_route_intent("http://x", "k", set(), "auth.acme.test"))
 

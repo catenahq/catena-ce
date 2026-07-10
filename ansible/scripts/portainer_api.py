@@ -1,13 +1,10 @@
 """Portainer stack API + generic JSON-HTTP helpers for dashboard-sync.
 
-Stdlib-only (urllib) so the host runs it without extra Python deps. Was the
-Dokploy REST client before the Dokploy->Portainer migration; the module keeps
-the dokploy_api.py filename during the transition so its importers
-(gate_routes, clients_provisioner, dashboard-sync, gatus-sync) need no edit --
-it is renamed to portainer_api.py in the Phase 5 cleanup. Installed beside
-dashboard-sync on the host by roles/infrastructure/tasks/dashboard_sync.yml.
+Stdlib-only (urllib) so the host runs it without extra Python deps.
+Installed beside dashboard-sync on the host by
+roles/infrastructure/tasks/dashboard_sync.yml.
 
-Portainer differences from Dokploy that shape this module:
+Portainer facts that shape this module:
   - Auth header is `X-API-Key`.
   - No project/environment grouping -- stacks are flat, grouped by Name.
   - Stack ops are scoped to an endpoint id (?endpointId=), resolved from

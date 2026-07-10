@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Regenerate Gatus endpoint config (50-dokploy-apps.yaml) from docker
+"""Regenerate Gatus endpoint config (50-catena-apps.yaml) from docker
 labels. Emits one public-domain check (expects auth-redirect / 302) per
 routed, running client app. Runs via systemd timer + on-demand from
 catena-admin."""
 # Managed by Ansible (roles/infrastructure). Do not edit by hand.
 # /usr/local/bin/gatus-sync -- regenerate $GATUS_CONFIG_PATH (default
-# .../50-dokploy-apps.yaml) from `docker ps` labels. Dokploy->Portainer
+# .../50-catena-apps.yaml) from `docker ps` labels. Dokploy->Portainer
 # migration: no control-plane API query -- every RUNNING container that
 # declares a `vps.route.host` label (and whose compose-project stack is not in
 # the infra list) is a live client app, and we emit one Gatus endpoint:
@@ -13,7 +13,7 @@ catena-admin."""
 #   <host>-public : https://<host>/   (conditions: 302, auth redirect)
 #
 # "Ensure minimum, never delete modifications" (user directive, 2026-04-17):
-# this script owns ONLY 50-dokploy-apps.yaml. Operator additions go in
+# this script owns ONLY 50-catena-apps.yaml. Operator additions go in
 # 99-*.yaml files which Gatus also loads but this script never touches.
 #
 # Stdlib-only (urllib, subprocess). Triggered by systemd timer +
@@ -24,7 +24,7 @@ catena-admin."""
 # startup; there's no in-process reload endpoint).
 #
 # Env vars (/etc/catena/gatus-sync.env):
-#   GATUS_CONFIG_PATH          -- full path of 50-dokploy-apps.yaml
+#   GATUS_CONFIG_PATH          -- full path of 50-catena-apps.yaml
 #   GATUS_CONTAINER_NAME_RE    -- regex to find Gatus container name in docker ps
 #   INFRA_COMPOSE_NAMES        -- comma-separated stack names owned by Ansible
 #                                (already covered in 00-base.yaml; skipped here)
@@ -65,7 +65,7 @@ def list_routed_containers() -> list[tuple[str, str, str]]:
     comes from the `vps.route.host` compose label (Portainer has no domain
     API). The compose-project label is the Portainer stack Name (the group +
     the infra-skip key). appName mirrors the project so the version-map +
-    display-name lookups key the same way they did on the Dokploy appName."""
+    display-name lookups key on the compose project name."""
     try:
         out = subprocess.check_output(
             ["docker", "ps", "--format",
@@ -153,7 +153,7 @@ def load_version_map(path: Path) -> dict[str, dict]:
         if ":" in image_repo:
             image_repo = image_repo.rsplit(":", 1)[0]
         # Display name comes from the SERVICE_SPECS project name
-        # (e.g., "Keycloak", "Traefik (Dokploy)"), lowercased and
+        # (e.g., "Keycloak", "Traefik"), lowercased and
         # with any trailing paren-suffix stripped. Also strip the
         # `<org>/` prefix that client-app entries carry (version-check
         # writes them as `actualbudget/actualbudget` from the image
@@ -180,7 +180,7 @@ def load_display_name_overrides() -> dict[str, str]:
 
     Keys on the `com.docker.compose.project` label -- the Portainer stack
     Name -- which is the stable identifier build_doc groups + looks up on.
-    (Was a parse of Dokploy's `<compose>-<6hex>-app-<N>` container name.)"""
+    (Was a parse of the legacy `<compose>-<6hex>-app-<N>` container name.)"""
     try:
         out = subprocess.check_output(
             ["docker", "ps", "--format",
@@ -224,7 +224,7 @@ def _label_with_version(label: str, ver: dict | None,
          runtime image doesn't reflect the app's identity (e.g., nginx
          serving MkDocs HTML -> override to `mkdocs-material`).
       2. `ver.display_name` -- version-check.json's project name
-         (`Keycloak`, `Traefik (Dokploy)`, ...), lowercased + paren
+         (`Keycloak`, `Traefik`, ...), lowercased + paren
          suffix stripped. Fixes generic image last-segments
          automatically for tracked services.
       3. Image last-path segment (`cloudflare/cloudflared` -> `cloudflared`).
@@ -544,7 +544,7 @@ def write_healthchecks_summary(api_url, api_key, out_path):
 # ─── Healthchecks orphan-check cleanup ─────────────────────────────────────
 # Gatus's custom alert URL uses `?create=1`, so Healthchecks auto-creates a
 # `gatus-<slug>` check on first failure ping. When an endpoint disappears
-# from Gatus (Dokploy project torn down, compose renamed, host changed),
+# from Gatus (stack torn down, compose renamed, host changed),
 # the Healthchecks check orphans and eventually pages on dead-man timeout.
 #
 # This pass runs at the end of every gatus-sync: for each HC check named
@@ -656,7 +656,7 @@ def main():
     # `vps.display-name` compose-label overrides (container-scoped).
     display_overrides = load_display_name_overrides()
 
-    # Accumulate every slug emitted this run (infra + dokploy apps); used
+    # Accumulate every slug emitted this run (infra + client apps); used
     # by the HC orphan-pause pass at the end of main() to identify
     # `gatus-<slug>` HC checks whose endpoint no longer exists.
     expected_slugs: set[str] = set()
