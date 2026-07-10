@@ -146,6 +146,26 @@
       {{ _docker_running_before.stdout_lines | default([]) | join(', ') or '(none)' }}
   when: _docker_running_before.rc | default(1) == 0
 
+- name: "Mask docker.service + docker.socket (block timer-driven respawn)"
+  # Stopping is not enough: host-side reconciler units declare
+  # Wants=docker.service (catena-public-ports.service, fired by its
+  # 5-minute timer; catena-traefik-nudge.service), so a timer tick
+  # inside the restore window makes systemd pull docker -- and every
+  # restart-policy container -- back up UNDER the restic restore
+  # (seen live on bench run 2026-07-10T09-56-46-001c: clean stop at
+  # 11:59:33, catena-public-ports.timer fired 11:59:47, docker back
+  # with all 24 containers). Masking first makes any such start
+  # attempt fail instead. Mask BEFORE stop so there is no window in
+  # between. failed_when: false covers the fresh-host DR path where
+  # docker isn't installed yet.
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    masked: true
+  loop:
+    - docker.service
+    - docker.socket
+  failed_when: false
+
 - name: "Stop docker.service + docker.socket (drops all containers atomically)"
   # docker.socket must go down too, otherwise the first socket probe from
   # this play (restic metrics scrape, etc.) socket-activates docker back
@@ -192,7 +212,9 @@
       running containers after a 60s drain window. Something is keeping the
       daemon up (socket activation, watchdog, operator session). Investigate
       before re-running restore -- writing into /mnt/data under live
-      containers corrupts state.
+      containers corrupts state. NOTE: this play masked docker.service +
+      docker.socket for the restore window; run `systemctl unmask
+      docker.service docker.socket` after investigating.
 
 - name: "Restic restore into / (snapshot {{ _restic_snapshot_id }})"
   # /var/lib/dpkg is in the backup set so the auto-update two-phase
@@ -229,6 +251,20 @@
   register: _restic_restore
   failed_when: false
   changed_when: _restic_restore.rc == 0
+
+- name: "Unmask docker.service + docker.socket (restore window over)"
+  # Runs on BOTH restic outcomes (the restore task never hard-fails
+  # directly; the surface task below does), so an aborted restore never
+  # leaves docker masked -- the follow-up site.yml converge must be able
+  # to start it again. Units stay STOPPED; the rollback flow's docker
+  # role does the actual start after the play hands over.
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    masked: false
+  loop:
+    - docker.service
+    - docker.socket
+  failed_when: false
 
 - name: Surface restic stdout/stderr on failure (safe fields only -- no env)
   ansible.builtin.fail:
