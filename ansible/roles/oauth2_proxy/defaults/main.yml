@@ -162,24 +162,20 @@ oauth2_proxy_apps:
   # may reach it; the admin's in-app role check (require_admin)
   # gates everything beyond /apps to the admin group only.
   #
-  # Routed via the HMAC sig-injecting sidecar
-  # (services/catena-admin-sigproxy/) which sits at
-  # `catena-admin-sigproxy:4181` and reverse-proxies to the
-  # `catena-admin:8000` upstream after setting X-Catena-Sig.
-  # auth._verify_header_sig in catena-admin validates the digest
-  # before trusting X-Forwarded-Email / X-Forwarded-Groups.
-  #
-  # ROLLOUT ORDER (operator-side): the catena-admin compose at
-  # deploy/catena-admin/catena-admin.compose.yml must be redeployed
-  # BEFORE this converge runs so the sigproxy container is up on
-  # catena-network. Otherwise oauth2-proxy gets connection-refused
-  # on the new upstream and dash.<zone> returns 502. The compose
-  # change shipped in the same commit as this defaults flip;
-  # the stack redeploy picks it up automatically on its next poll.
+  # Direct upstream: the Go shell verifies the optional X-Catena-Sig
+  # header itself (internal/admin/auth, opt-in via
+  # CATENA_ADMIN_REQUIRE_HEADER_SIG + CATENA_ADMIN_HEADER_SECRET), so
+  # the old Python-era HMAC sig-injecting sidecar
+  # (catena-admin-sigproxy:4181) no longer exists -- the compose at
+  # deploy/catena-admin/catena-admin.compose.yml ships the single
+  # `app` service with the `catena-admin` network alias. Pointing
+  # here at the deleted sidecar alias made every AUTHENTICATED
+  # dash.<zone> request 502 (unauthenticated ones 302 to the IdP
+  # before touching the upstream, which is why probes looked fine).
   - slug: "catena-admin"
     host_var: "catena_admin_hostname"
-    upstream_alias: "catena-admin-sigproxy"
-    upstream_port: 4181
+    upstream_alias: "catena-admin"
+    upstream_port: 8000
     allowed_groups: ["staff", "admin"]
   # Portainer is the per-VPS container control plane -- admin-only. It is
   # ALSO reachable operator-side on the tailnet (host-mode :9000, firewalled
