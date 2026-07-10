@@ -66,3 +66,26 @@
   delay: 10
   no_log: true
   when: (_ms_acct_dms.stdout | default('') | length) > 0
+
+# RFC 2142 requires abuse@ deliverable alongside postmaster@. An alias
+# (not a mailbox) so abuse reports land in the postmaster mailbox the
+# reconciler already preserves. Same idempotency contract as the mailbox
+# add above; postmaster@ exists by the time this runs, so no retry loop
+# is needed for the boot crash-loop window.
+- name: "Mailserver accounts: ensure abuse@ alias -> postmaster (RFC 2142)"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - "{{ _ms_acct_dms.stdout | trim }}"
+      - setup
+      - alias
+      - add
+      - "abuse@{{ cloudflare_zone }}"
+      - "postmaster@{{ cloudflare_zone }}"
+  register: _ms_alias_add
+  changed_when: _ms_alias_add.rc == 0
+  failed_when:
+    - _ms_alias_add.rc != 0
+    - "'already' not in ((_ms_alias_add.stderr | default('')) + (_ms_alias_add.stdout | default('')))"
+  when: (_ms_acct_dms.stdout | default('') | length) > 0
