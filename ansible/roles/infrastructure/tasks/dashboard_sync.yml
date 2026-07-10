@@ -40,6 +40,7 @@
     - { src: "{{ playbook_dir }}/../scripts/dokploy_api.py", dest: "dokploy_api.py" }
     - { src: "{{ playbook_dir }}/../scripts/route_synth.py", dest: "route_synth.py" }
     - { src: "{{ playbook_dir }}/../scripts/gate_routes.py", dest: "gate_routes.py" }
+    - { src: "{{ playbook_dir }}/../scripts/verify_gated_intent.py", dest: "verify_gated_intent.py" }
     - { src: "{{ playbook_dir }}/../scripts/clients_provisioner.py", dest: "clients_provisioner.py" }
     - { src: "{{ playbook_dir }}/../scripts/keycloak_client.py", dest: "keycloak_client.py" }
     - { src: "{{ playbook_dir }}/../scripts/mailbox_sync.py", dest: "mailbox_sync.py" }

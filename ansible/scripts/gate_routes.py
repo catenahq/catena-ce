@@ -34,6 +34,59 @@ except ModuleNotFoundError:
     )
 
 
+def derive_route_intent(api_base, api_key, skip_names, auth_hostname,
+                        seen=None):
+    """Yield one intent dict per routed Portainer stack.
+
+    The SINGLE source of truth for what dashboard-sync writes AND what
+    validate verifies (verify_gated_intent.py): both consume this walk,
+    so the verifier can never drift from the writer -- a stack whose
+    gate file was removed or renamed still shows up here and fails the
+    verify.
+
+    Each dict: {name, host, is_public, allowed, slug, backend_alias,
+    route_slug, port, fname}."""
+    for name, _stack_id, compose_body in dokploy_api.iter_stacks(
+        api_base, api_key, skip_names, seen=seen,
+    ):
+        route = extract_vps_route_labels(compose_body)
+        host = route.get("host")
+        if not host or host == auth_hostname:
+            if seen is not None:
+                seen.append((name, host, "skip: no-route-host"))
+            continue
+
+        labels = extract_vps_auth_labels(compose_body)
+        # service -> [catena-network aliases]: a host that fronts a non-primary
+        # service (Talk HPB's signaling.<zone>) must route to THAT service's
+        # alias, not the stack-name slug (which only the primary carries).
+        svc_aliases = extract_service_aliases(compose_body)
+        is_public, allowed = route_synth.resolve_access(labels, app_name=name)
+        this_slug = slugify(name)
+
+        port = route.get("port") or 80
+        # Backend alias = the catena-network alias of the service this host
+        # fronts (vps.route.service). Falls back to the stack-name slug for a
+        # single-service app or when the service declares no alias.
+        svc_name = (route.get("service") or "").strip()
+        svc_alias_list = svc_aliases.get(svc_name) if svc_name else None
+        backend_alias = svc_alias_list[0] if svc_alias_list else this_slug
+        route_slug = (
+            this_slug if backend_alias == this_slug else slugify(backend_alias)
+        )
+        yield {
+            "name": name,
+            "host": host,
+            "is_public": is_public,
+            "allowed": allowed,
+            "slug": this_slug,
+            "backend_alias": backend_alias,
+            "route_slug": route_slug,
+            "port": port,
+            "fname": f"{route_slug}{route_synth.AUTO_ROUTE_SUFFIX}",
+        }
+
+
 def sync_gate_routes(api_base, api_key, dyn_dir, infra_compose_names,
                      auth_hostname, force_https_mw, proxy_port):
     """For every active Portainer stack that declares `vps.route.host`
@@ -61,38 +114,17 @@ def sync_gate_routes(api_base, api_key, dyn_dir, infra_compose_names,
     skip_names = {n.strip() for n in infra_compose_names.split(",") if n.strip()}
     seen = []
 
-    for name, _stack_id, compose_body in dokploy_api.iter_stacks(
-        api_base, api_key, skip_names, seen=seen,
+    for intent in derive_route_intent(
+        api_base, api_key, skip_names, auth_hostname, seen=seen,
     ):
-        route = extract_vps_route_labels(compose_body)
-        host = route.get("host")
-        if not host or host == auth_hostname:
-            seen.append((name, host, "skip: no-route-host"))
-            continue
-
-        labels = extract_vps_auth_labels(compose_body)
-        # service -> [catena-network aliases]: a host that fronts a non-primary
-        # service (Talk HPB's signaling.<zone>) must route to THAT service's
-        # alias, not the stack-name slug (which only the primary carries).
-        svc_aliases = extract_service_aliases(compose_body)
-        is_public, allowed = route_synth.resolve_access(labels, app_name=name)
-        this_slug = slugify(name)
-
-        port = route.get("port") or 80
-        # Backend alias = the catena-network alias of the service this host
-        # fronts (vps.route.service). Falls back to the stack-name slug for a
-        # single-service app or when the service declares no alias.
-        svc_name = (route.get("service") or "").strip()
-        svc_alias_list = svc_aliases.get(svc_name) if svc_name else None
-        backend_alias = svc_alias_list[0] if svc_alias_list else this_slug
-        route_slug = (
-            this_slug if backend_alias == this_slug else slugify(backend_alias)
-        )
-        fname = f"{route_slug}{route_synth.AUTO_ROUTE_SUFFIX}"
-        if is_public:
+        name = intent["name"]
+        host = intent["host"]
+        route_slug = intent["route_slug"]
+        this_slug = intent["slug"]
+        if intent["is_public"]:
             body = route_synth._route_yaml_public(
-                name, host, backend_alias, port, force_https_mw,
-                route_slug=route_slug,
+                name, host, intent["backend_alias"], intent["port"],
+                force_https_mw, route_slug=route_slug,
             )
         else:
             body = route_synth._route_yaml_perapp(
@@ -103,8 +135,8 @@ def sync_gate_routes(api_base, api_key, dyn_dir, infra_compose_names,
                 "slug": this_slug,
                 "app_name": name,
                 "upstream_alias": this_slug,
-                "upstream_port": port,
-                "allowed_groups": allowed,
+                "upstream_port": intent["port"],
+                "allowed_groups": intent["allowed"],
             })
 
         owner = slug_owners.get(route_slug)
@@ -116,8 +148,10 @@ def sync_gate_routes(api_base, api_key, dyn_dir, infra_compose_names,
                 file=sys.stderr,
             )
         slug_owners[route_slug] = name
-        desired[fname] = body
-        posture = "public" if is_public else f"groups={allowed}"
+        desired[intent["fname"]] = body
+        posture = (
+            "public" if intent["is_public"] else f"groups={intent['allowed']}"
+        )
         seen.append((name, host, f"routed {posture}"))
 
     print(f"dashboard-sync: examined {len(seen)} stacks:")

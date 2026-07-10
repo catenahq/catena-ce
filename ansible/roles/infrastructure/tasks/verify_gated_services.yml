@@ -73,107 +73,44 @@
             curl -I https://{{ infrastructure_monitor_hostname }}/
   when: _infra_gated_failures | length > 0
 
-# ── dynamic client-app auth-gate probe ────────────────────────────────────
-# The static list above only covers the fixed infra hostnames. Every
-# DEPLOYED client app gets a *-auto-gate.yml route file from dashboard-sync,
-# in one of two variants: PUBLIC (vps.auth.mode=public, routes straight to
-# the backend, anonymous 200 is the DESIGNED outcome) and gated (routes to
-# the app's own oauth2-proxy instance). Only the gated variant may be held
-# to the no-anonymous-200 assertion, so filter the slurped bodies to those
-# whose loadBalancer upstream is an oauth2-proxy alias (the gate mechanism
-# itself, written by route_synth._route_yaml_perapp) before extracting
-# hosts. A 200 on a gated host means the auth gate is NOT enforced -- the
-# regression the old Dokploy-era per-app enumeration used to catch.
-# Redirects to Keycloak (30x) and hard denies (401/403) are the healthy
-# outcomes; other statuses (404, 5xx, unreachable) are surfaced as a
-# warning, not a failure -- they indicate a routing problem, not an auth
-# bypass.
-- name: "Verify gated client apps: enumerate auto-gate route files"
-  ansible.builtin.find:
-    paths: "{{ traefik_dynamic_dir | default('/etc/catena/traefik/dynamic') }}"
-    patterns: "*-auto-gate.yml"
-  register: _client_gate_files
+# ── dynamic client-app auth-gate probe (intent-driven, 1ad) ───────────────
+# The static list above only covers the fixed infra hostnames. Client-app
+# gating is verified by verify_gated_intent.py ON THE HOST: it derives the
+# expected route set from the SAME Portainer stack labels the route writer
+# (dashboard-sync / gate_routes) consumes, so an app whose *-auto-gate.yml
+# was removed or renamed still gets asserted (the old file-enumeration
+# probe went green on exactly that regression). Per routed app it asserts
+# the route file exists, every GATED host denies an anonymous request
+# (200 = bypass), unreachable hosts FAIL CLOSED (matching the static
+# probe), and stale route files are flagged. Probes fan out concurrently
+# inside the script, so wall-clock is ~one timeout, not 10s per host.
+- name: "Verify gated client apps: intent-driven verifier"
+  # Sources the dashboard-sync env file (PORTAINER_API_*, TRAEFIK_DYNAMIC_
+  # DIR, INFRA_COMPOSE_NAMES, AUTH_HOSTNAME) the writer itself runs with.
+  ansible.builtin.shell: >-
+    set -a &&
+    . {{ dashboard_sync_env_path }} &&
+    set +a &&
+    exec /usr/bin/python3
+    {{ dashboard_sync_script_path | dirname }}/verify_gated_intent.py
+  register: _client_gate_verify
+  changed_when: false
+  failed_when: false
+  become: true
 
-- name: "Verify gated client apps: read gate route rules"
-  ansible.builtin.slurp:
-    src: "{{ item.path }}"
-  loop: "{{ _client_gate_files.files }}"
-  loop_control:
-    label: "{{ item.path }}"
-  register: _client_gate_bodies
-
-- name: "Verify gated client apps: extract gated hostnames"
-  ansible.builtin.set_fact:
-    _client_gated_hosts: >-
-      {{
-        (_client_gate_bodies.results | default([]))
-        | map(attribute='content')
-        | map('b64decode')
-        | select('search', 'url: "http://oauth2-proxy-')
-        | map('regex_findall', 'Host\(`([^`]+)`\)')
-        | flatten
-        | unique
-        | list
-      }}
-
-- name: "Verify gated client apps: anonymous probe must NOT return 200"
-  ansible.builtin.uri:
-    url: "https://{{ item }}/"
-    method: GET
-    follow_redirects: none
-    timeout: 10
-    status_code: [200, 301, 302, 303, 307, 308, 401, 403, 404, 502, 503]
-  loop: "{{ _client_gated_hosts }}"
-  register: _client_gate_probes
-  delegate_to: localhost
-  become: false
-  ignore_errors: true
-
-- name: "Verify gated client apps: compute bypasses + oddities"
-  ansible.builtin.set_fact:
-    _client_gate_bypasses: >-
-      {{
-        (_client_gate_probes.results | default([]))
-        | selectattr('status', 'defined')
-        | selectattr('status', 'equalto', 200)
-        | map(attribute='item')
-        | list
-      }}
-    _client_gate_oddities: >-
-      {{
-        (_client_gate_probes.results | default([]))
-        | rejectattr('status', 'defined')
-        | map(attribute='item')
-        | list
-        + ((_client_gate_probes.results | default([]))
-           | selectattr('status', 'defined')
-           | rejectattr('status', 'in', [301, 302, 303, 307, 308, 401, 403])
-           | rejectattr('status', 'equalto', 200)
-           | map(attribute='item')
-           | list)
-      }}
-
-- name: "Verify gated client apps: warn on unroutable gated hosts"
-  ansible.builtin.debug:
-    msg: >-
-      {{ _client_gate_oddities | length }} gated client host(s) did not
-      answer with an auth redirect/deny OR a 200 (routing problem, not an
-      auth bypass): {{ _client_gate_oddities | join(', ') }}.
-  when: _client_gate_oddities | length > 0
-
-- name: "Verify gated client apps: fail on anonymous 200 (auth gate bypass)"
+- name: "Verify gated client apps: fail on findings"
   ansible.builtin.fail:
-    msg: >-
-      {{ _client_gate_bypasses | length }} gated client app host(s) served
-      HTTP 200 to an ANONYMOUS request -- the oauth2 gate is not enforced:
-      {{ _client_gate_bypasses | join(', ') }}. Check the app's
-      *-auto-gate.yml / *-oauth2-proxy.yml routes under the Traefik dynamic
-      dir and the oauth2-proxy container for that slug.
-  when: _client_gate_bypasses | length > 0
+    msg: |
+      Intent-driven auth-gate verification failed (rc={{ _client_gate_verify.rc }}):
+      {{ _client_gate_verify.stdout | default('') }}
+      {{ _client_gate_verify.stderr | default('') }}
+  when: _client_gate_verify.rc != 0
 
 - name: "Verify gated client apps: all clear"
   ansible.builtin.debug:
     msg: >-
-      {{ _client_gated_hosts | length }} gated client host(s) probed; none
-      served an anonymous 200.
-  when: _client_gate_bypasses | length == 0
+      Intent-driven auth-gate verification clean:
+      {{ (_client_gate_verify.stdout | from_json).report.healthy | length }}
+      gated host(s) deny anonymous access;
+      {{ (_client_gate_verify.stdout | from_json).report.public | length }}
+      public host(s) exempt by label.
