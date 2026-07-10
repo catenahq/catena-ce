@@ -1,0 +1,46 @@
+# postgres
+
+The catena-owned Postgres for INFRA databases (Keycloak today). One
+Postgres per VPS, multiple DBs inside; per-app databases (Nextcloud,
+etc.) keep their own containers -- this hosts only what used to live
+in the retired control-plane Postgres.
+
+## What it manages
+
+- The `catena-postgres` swarm service on `catena-network`, pinned to
+  the `postgres:{{ catena_postgres_image_tag }}` major (16, matching
+  the pre-cutover major so logical dump/restore stays same-major).
+- The superuser password as the create-once IMMUTABLE swarm secret
+  `catena_postgres_password`, sourced from
+  `vault_catena_postgres_password` (minted on-box by the config
+  loader). Kept out of `docker service inspect`. Rotation is a
+  create-new-secret + service-update flow (deferred; see the
+  rotate-postgres runbook for the manual procedure).
+- The `catena-postgres-data` named volume. Backed up RAW by the
+  default restic set: the password comes from the (also-backed-up)
+  on-box store and Postgres skips initdb on a restored non-empty
+  volume, so a raw restore is password-consistent by construction --
+  no post-restore reconciliation. (Exercised by the restore_dr +
+  hot-restore bench scenarios.)
+- A first-task guard that refuses the converge while
+  `vault_catena_postgres_password` is a placeholder -- BEFORE the
+  create-once secret can be minted wrong (the fi_s3 bench scenario
+  proves this fires ahead of any state change).
+
+## Boundaries
+
+- Database/user provisioning inside the instance belongs to the
+  consumer roles (roles/keycloak `provision_db.yml` detects the live
+  superuser from the container env and follows this role's default).
+- Backup/replay policy lives with roles/backup; this role only shapes
+  the volume so that policy stays raw-restore-correct.
+
+## Key defaults
+
+| Var | Default | Meaning |
+| --- | --- | --- |
+| `catena_postgres_service_name` | `catena-postgres` | swarm service + network alias |
+| `catena_postgres_image_tag` | `16` | pinned major; renovate/trivy key |
+| `catena_postgres_superuser` | `postgres` | consumer roles auto-detect |
+| `catena_postgres_secret_name` | `catena_postgres_password` | create-once swarm secret |
+| `catena_postgres_data_volume` | `catena-postgres-data` | raw-restored named volume |
