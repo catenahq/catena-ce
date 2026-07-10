@@ -32,6 +32,12 @@
 
 # Stage the capture map to a 0600 host file: this ansible-core's script
 # module has no stdin passthrough, so onbox_config.py reads --adopt-file.
+# changed_when: false on the stage + remove pair: they are loader
+# scaffolding (a temp file created and deleted within the same play,
+# zero net host delta), and reporting them changed made every converge
+# recap carry changed>=2 -- which turned the bench's strict changed=0
+# idempotency gates (assert_ce_idempotent_rerun) into guaranteed
+# failures post-0b.
 - name: "onbox: stage the capture map on the host (0600)"
   ansible.builtin.copy:
     dest: /root/.catena-onbox-adopt.json
@@ -39,6 +45,7 @@
     owner: root
     group: root
     mode: "0600"
+  changed_when: false
   no_log: true
 
 - name: "onbox: adopt existing secrets, mint missing internal, emit store"
@@ -56,6 +63,7 @@
   ansible.builtin.file:
     path: /root/.catena-onbox-adopt.json
     state: absent
+  changed_when: false
   no_log: true
 
 # Publish every store secret as a fact EXCEPT vault_portainer_api_key.

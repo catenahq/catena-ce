@@ -306,10 +306,18 @@
   no_log: true
 
 - name: Extract the tunnel id cloudflared currently holds a token for
+  # regex_search with a capture-group arg returns a LIST of groups (or
+  # None on no match), NOT a string. The original `| default('', true)`
+  # form therefore compared ["<id>"] != "<id>" -- ALWAYS true -- and
+  # the "only when different" push below fired on EVERY converge,
+  # rolling cloudflared each time (exactly the flap this block exists
+  # to prevent; caught by restore_dr's changed=0 idempotency gate on
+  # bench run 2026-07-10T09-56-46-001c). `or ['']` + `first` collapses
+  # both the no-match None and the single-group list to a plain string.
   ansible.builtin.set_fact:
     _cloudflared_running_tunnel_id: >-
-      {{ (_stored_tok | b64decode | regex_search('"t"\s*:\s*"([^"]+)"', '\1'))
-         | default('', true) }}
+      {{ ((_stored_tok | b64decode | regex_search('"t"\s*:\s*"([^"]+)"', '\1'))
+          or ['']) | first }}
   vars:
     _stored_tok: >-
       {{ (_cloudflared_current_env.stdout | default('')).split('|')
