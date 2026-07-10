@@ -5,6 +5,9 @@
 # lands on the VPS.
 
 # ─── install via Debian's codename-aware apt repo ────────────────────────
+# Both downloads retry on the same contract as the apt tasks below: a
+# fresh host's first outbound HTTPS can land in a transient no-route
+# window (bench: errno 101 right after VM boot, 2026-07-10 run ca74).
 - name: Install Tailscale apt keyring
   ansible.builtin.get_url:
     url: "{{ tailscale_apt_keyring_url }}"
@@ -12,6 +15,10 @@
     owner: root
     group: root
     mode: "0644"
+  register: tailscale_keyring
+  until: tailscale_keyring is succeeded
+  retries: 5
+  delay: 10
 
 - name: Install Tailscale apt source list
   ansible.builtin.get_url:
@@ -21,6 +28,9 @@
     group: root
     mode: "0644"
   register: tailscale_source
+  until: tailscale_source is succeeded
+  retries: 5
+  delay: 10
 
 - name: Update apt cache if sources changed
   ansible.builtin.apt:
