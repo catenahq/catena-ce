@@ -26,7 +26,7 @@ storage_mount_options: "defaults,noatime"
 #                    create with the same mode so neither Ansible nor the
 #                    daemon fights the other on re-runs.
 storage_data_subdirs:
-    - { name: apps, owner: "{{ ops_user }}", group: "{{ ops_user }}", mode: "0755" }
+  - { name: apps, owner: "{{ ops_user }}", group: "{{ ops_user }}", mode: "0755" }
   - { name: backup-staging, owner: "{{ ops_user }}", group: "{{ ops_user }}", mode: "0750" }
   - { name: docker, owner: root, group: root, mode: "0710" }
 

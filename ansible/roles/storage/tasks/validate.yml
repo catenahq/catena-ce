@@ -7,6 +7,6 @@
   vars:
     _assert_paths:
       - { path: /mnt/data, type: directory, owner: root, group: root, mode: "0755" }
-            - { path: /mnt/data/apps, type: directory, owner: ops, group: ops, mode: "0755" }
+      - { path: /mnt/data/apps, type: directory, owner: ops, group: ops, mode: "0755" }
       - { path: /mnt/data/backup-staging, type: directory, owner: ops, group: ops, mode: "0750" }
       - { path: /mnt/data/docker, type: directory, owner: root, group: root, mode: "0710" }
