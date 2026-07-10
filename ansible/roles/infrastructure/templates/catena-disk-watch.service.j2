@@ -1,0 +1,15 @@
+# {{ ansible_managed }}
+[Unit]
+Description=catena disk fill-level watchdog (warn {{ disk_watch_warn_pct }}%, page {{ disk_watch_crit_pct }}%)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile={{ disk_watch_env_file }}
+ExecStart={{ disk_watch_script_path }}
+# A couple of df calls + at most two loopback/edge curl pings.
+TimeoutStartSec=2min
+StandardOutput=journal
+StandardError=journal
+Nice=15

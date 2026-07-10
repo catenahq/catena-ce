@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Timer for the catena disk fill-level watchdog
+
+[Timer]
+OnCalendar={{ disk_watch_schedule }}
+RandomizedDelaySec=120
+Persistent=true
+Unit={{ disk_watch_systemd_unit_name }}.service
+
+[Install]
+WantedBy=timers.target

@@ -319,6 +319,17 @@
       tags: [gatus, gatus_sync]
   tags: [gatus, gatus_sync]
 
+# Disk fill-level watchdog: warn (ntfy) at disk_watch_warn_pct, page
+# (Healthchecks /fail) at disk_watch_crit_pct. Outside the Portainer-key
+# gate like gatus-sync -- the script degrades to journal-only logging
+# until Healthchecks/ntfy are wired.
+- name: disk fill-level watchdog (script + systemd timer)
+  ansible.builtin.include_tasks:
+    file: disk_watch.yml
+    apply:
+      tags: [disk_watch]
+  tags: [disk_watch]
+
 # The weekly stack-update timer (managed floating-tag container updates) and
 # the hourly external dead-man watchdog are SCHEDULED automation -- they are
 # the Business managed lane, not Community, and are not installed here.
