@@ -187,18 +187,17 @@
     group: root
     mode: "0755"
 
-- name: Drop acquire-lock helper (R21 -- mutex between backup and auto-update)
-  # catena-acquire-lock.sh atomically creates a lock file and waits
-  # for it to become available if another process holds it. Both
-  # catena-backup.service and catena-auto-update.service invoke
-  # it as ExecStartPre to prevent concurrent runs. See vps-scripts/acquire-lock.sh
-  # for the full algorithm and timeout semantics.
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../scripts/acquire-lock.sh"
-    dest: /usr/local/bin/catena-acquire-lock.sh
-    owner: root
-    group: root
-    mode: "0755"
+- name: Remove legacy acquire-lock helper (R21 mutex is flock now)
+  # Every unit sharing /run/catena.lock takes it via
+  # `flock -w <t> /run/catena.lock <cmd>` (held for the command's
+  # lifetime, kernel-released on exit or crash). The old
+  # catena-acquire-lock.sh used file EXISTENCE as the lock with a
+  # pid-content staleness check; against the empty lock file flock
+  # leaves behind it found no pid to stale-check and spun to its full
+  # timeout. Remove it from converged hosts so nothing regresses to it.
+  ansible.builtin.file:
+    path: /usr/local/bin/catena-acquire-lock.sh
+    state: absent
 
 - name: Drop restic-short-id helper (single short_id extractor for compact JSON)
   # catena-restic-short-id reads `restic snapshots --json` output

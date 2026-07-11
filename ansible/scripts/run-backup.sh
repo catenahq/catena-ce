@@ -202,7 +202,7 @@ fi
 # to release its S3-side lock, so the NEXT restic operation against
 # the same repo refuses with "repository is already locked".
 #
-# Safe to --remove-all here: catena-acquire-lock.sh (R21) already
+# Safe to --remove-all here: the unit's flock (R21) already
 # holds /run/catena.lock, which is the exclusive local mutex shared
 # with catena-auto-update.service. No concurrent catena-* process is
 # touching this repo right now, so any backend lock we find IS stale
