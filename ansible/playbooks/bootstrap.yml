@@ -49,11 +49,23 @@
   become: false
 
   tasks:
+    # Create-only: never chmod an EXISTING controller ~/.ssh. Forcing
+    # 0700 here reset a deliberately group-traversable ~/.ssh (a
+    # dispatch runner reading the operator pubkey through a bind-mount
+    # relies on g+rx) every time a recover/bootstrap ran on that
+    # controller, breaking every later dispatch with EACCES.
+    - name: Stat controller ~/.ssh
+      ansible.builtin.stat:
+        path: "{{ lookup('env', 'HOME') }}/.ssh"
+      register: _controller_ssh_dir
+      delegate_to: localhost
+
     - name: Ensure ~/.ssh exists on the controller
       ansible.builtin.file:
         path: "{{ lookup('env', 'HOME') }}/.ssh"
         state: directory
         mode: "0700"
+      when: not _controller_ssh_dir.stat.exists
       delegate_to: localhost
 
     - name: Remove any stale known_hosts entry for this host
