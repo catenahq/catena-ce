@@ -443,19 +443,63 @@
 # restarts the cloudflared task once if the first registration hits
 # the CF edge during propagation. End-to-end this took ~4 minutes
 # in one bench run -- 30 retries (5 min) gave up too early.
-- name: "CF: probe full chain (edge -> tunnel -> Traefik)"
+- name: "CF: probe full chain (edge -> tunnel -> Traefik) [first pass]"
   ansible.builtin.uri:
     url: "https://cf-chain-probe.{{ cloudflare_zone }}/"
     method: GET
     status_code: [404]
     follow_redirects: none
     timeout: 10
-  register: _cf_chain_probe
-  retries: 60
+  register: _cf_chain_probe_1
+  retries: 30
   delay: 10
-  until: _cf_chain_probe.status == 404
+  until: _cf_chain_probe_1.status == 404
+  failed_when: false
   delegate_to: localhost
   become: false
+
+# Self-heal a cloudflared connector that is Up but cannot route to its
+# origin. After a `systemctl restart docker`, a snapshot-restore, or a
+# reboot that brings the task back on a stale network sandbox, cloudflared
+# loses overlay name resolution -- its embedded resolver (127.0.0.11:53)
+# stops answering, so every origin dial fails with
+# "lookup catena-traefik ... i/o timeout" while the task still shows
+# healthy. The idempotent network + token reconciles above are no-ops in
+# this state (attachments and token already look correct), so nothing
+# recreates the task and the chain stays dark. Force-roll it once: swarm
+# schedules a fresh task with a working netns + resolver. Fires only when
+# the first probe pass could not reach 404, so a healthy chain never rolls
+# (no flap on the happy path). Runs on the VPS -- docker CLI, not the
+# controller-side probe.
+- name: "CF: force-roll cloudflared when the chain is unreachable (stale-netns self-heal)"
+  ansible.builtin.command:
+    argv: [docker, service, update, --force, cloudflared]
+  when: (_cf_chain_probe_1.status | default(-1)) != 404
+  changed_when: true
+
+- name: "CF: re-probe full chain after self-heal roll"
+  ansible.builtin.uri:
+    url: "https://cf-chain-probe.{{ cloudflare_zone }}/"
+    method: GET
+    status_code: [404]
+    follow_redirects: none
+    timeout: 10
+  register: _cf_chain_probe_2
+  retries: 30
+  delay: 10
+  until: _cf_chain_probe_2.status == 404
+  when: (_cf_chain_probe_1.status | default(-1)) != 404
+  delegate_to: localhost
+  become: false
+
+# Normalise the probe result the summary reads: the first pass when it
+# already answered 404, otherwise the post-roll re-probe.
+- name: "CF: adopt the effective chain-probe result"
+  ansible.builtin.set_fact:
+    _cf_chain_probe: >-
+      {{ _cf_chain_probe_1
+         if (_cf_chain_probe_1.status | default(-1)) == 404
+         else _cf_chain_probe_2 }}
 
 # ─── summary ─────────────────────────────────────────────────────────────
 - name: Cloudflare tunnel ready
