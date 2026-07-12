@@ -39,3 +39,25 @@ The public, fair-code base of Catena. Sibling repo under the workspace at
 - No secrets in the repo. The operator public key is supplied at runtime
   (`CATENA_LICENSE_PUBKEY`), never committed as a private key.
 - Match the surrounding Go style; keep packages small and tested.
+
+## Security invariants (machine-enforced -- do not weaken silently)
+
+Full register with stable IDs: ops
+`internal_docs/operator/threat-models/{client-vps,ce-public-repo}.md`.
+The load-bearing ones when editing THIS repo:
+
+- No secret in tree or history (CP1) -- gitleaks gate on every change.
+- Scheduled work is default-deny: ONE weekly backup timer (capped by
+  the `backup_weekly_cap` filter; a tighter OnCalendar fails the
+  converge) plus the enumerated maintenance timers in the audit's
+  CE_ALLOWED_TIMERS (CV8). A new `.timer` needs a deliberate allowlist
+  entry, and daily/sub-daily cadence is EE.
+- No EE logic, no cross-host flows, license VERIFY side only (CP2/CP3)
+  -- `audit --check-port` gates it.
+- Admin surfaces stay behind the identity gate + in-app role check
+  (CV2); the shell never fails closed on a missing license (LE3).
+- Secret-bearing Ansible tasks carry `no_log: true` (CV7 -- currently
+  review-enforced; lint gate is backlogged).
+- SPEC.md invariant pointers must resolve (`audit --check-public-specs`);
+  editing a scenario/workflow/gate name breaks the public sheet that
+  cites it -- fix the pointer in the same change.
