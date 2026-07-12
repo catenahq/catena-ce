@@ -1,13 +1,15 @@
 [Unit]
-Description=catena daily backup timer (Community single daily backup)
-# Community ships exactly one timer: a single daily backup. Sub-daily
-# cadence (backup_tier realtime/standard) and the full catena-daily
-# orchestrator chain are the Business lane. On a Business host the EE
-# catena-daily engine masks this timer and becomes the scheduler, so the
-# two never double-fire (the chain drives catena-backup.service inline).
+Description=catena weekly backup timer (Community rate-limited backup lane)
+# Community ships exactly one timer: a weekly backup, capped at weekly
+# cadence by the backup_weekly_cap filter at converge time. Daily and
+# sub-daily cadence (backup_tier realtime/standard) and the full
+# catena-daily orchestrator chain are the Business lane. On a Business
+# host the EE catena-daily engine masks this timer and becomes the
+# scheduler, so the two never double-fire (the chain drives
+# catena-backup.service inline).
 
 [Timer]
-OnCalendar={{ backup_daily_timer_oncalendar }}
+OnCalendar={{ backup_weekly_timer_oncalendar }}
 # Spread the fleet across a window so clients on a shared restic bucket
 # do not stampede the S3 endpoint at the same instant.
 RandomizedDelaySec=1h

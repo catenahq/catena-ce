@@ -6,11 +6,12 @@ provides one-shot tasks for verification, restore, and reconciliation.
 
 ## Modes (tasks_from)
 
-- `main.yml` (default) -- install restic + the single daily-backup
-  systemd timer (`catena-backup.timer`, Community's only timer) + backup
-  wrapper script, register the Healthchecks ping, ensure restic
-  repo is initialized. On a Business host the EE catena-daily engine
-  masks this timer and schedules sub-daily itself.
+- `main.yml` (default) -- install restic + the single weekly-backup
+  systemd timer (`catena-backup.timer`, Community's only timer, capped
+  at weekly cadence) + backup wrapper script, register the Healthchecks
+  ping, ensure restic repo is initialized. On a Business host the EE
+  catena-daily engine masks this timer and schedules daily/sub-daily
+  itself.
 - `verify.yml` -- run a dry-restore against the latest snapshot
   into a scratch dir; verify file count and size; emit alert on
   drift.
@@ -28,10 +29,11 @@ provides one-shot tasks for verification, restore, and reconciliation.
 - `vault_aws_access_key_id` / `vault_aws_secret_access_key` -- S3
   credentials.
 - `backup_restic_repo` -- S3 URL (e.g. `s3:s3.example.com/bucket`).
-- `backup_daily_timer_oncalendar` -- systemd `OnCalendar` for the CE
-  daily-backup timer (default `daily`; cannot be tightened below daily
-  here -- sub-daily cadence is the Business lane).
-- `backup_schedule` -- Business sub-daily cadence derived from
+- `backup_weekly_timer_oncalendar` -- systemd `OnCalendar` for the CE
+  weekly-backup timer (default `weekly`; the `backup_weekly_cap` filter
+  fails the converge on anything tighter than weekly -- daily and
+  sub-daily cadence is the Business lane).
+- `backup_schedule` -- Business daily/sub-daily cadence derived from
   `backup_tier`; consumed by the EE catena-daily chain, not the CE timer.
 
 ## Idempotency

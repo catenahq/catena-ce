@@ -18,15 +18,18 @@ preflight  ->  bootstrap  ->  site  ->  validate          (+ restore for DR)
 - **validate** -- on-host + tailnet + external checks.
 - **restore** -- whole-host disaster recovery.
 
-Community ships exactly ONE timer: a single daily backup
-(`catena-backup.timer`), plus an on-demand version/CVE check, so a
-self-hosted CE deployment is credible without a license. Everything else
-stays manual. The managed lifecycle (sub-daily backup cadence,
-secondary/cold backup, auto-update + rollback, CVE remediation,
-attestation, the catena-daily orchestrator chain) is the Business edition
-and ships separately as license-gated binaries; it is never plaintext in
-this repo. On a Business host the EE engine masks `catena-backup.timer`
-and takes over scheduling.
+Community ships ONE backup timer: a weekly backup
+(`catena-backup.timer`, rate-limited to weekly-or-sparser by the
+`backup_weekly_cap` filter -- a tighter .env value fails the converge),
+plus a handful of local maintenance timers (disk watchdog, monitor
+sync, antivirus watch, mail canary) and an on-demand version/CVE check,
+so a self-hosted CE deployment has a proven scheduled-backup lane
+without a license. Everything else stays manual. The managed lifecycle
+(daily and sub-daily backup cadence, secondary/cold backup, auto-update
++ rollback, CVE remediation, attestation, the catena-daily orchestrator
+chain) is the Business edition and ships separately as license-gated
+binaries; it is never plaintext in this repo. On a Business host the EE
+engine masks `catena-backup.timer` and takes over scheduling.
 
 ## Installer (`./catena`)
 

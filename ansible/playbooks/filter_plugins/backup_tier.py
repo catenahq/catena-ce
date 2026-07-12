@@ -115,10 +115,68 @@ def backup_tier_worm_oncalendar(tier):
     return _spec(tier)["worm_oncalendar"]
 
 
+# Community cadence cap: the single CE timer (catena-backup.timer) is
+# rate-limited to weekly or sparser. Daily and sub-daily cadence is the
+# licensed lane (the EE catena-daily engine masks the CE timer and
+# schedules backups itself). The cap is a hard converge-time gate, not
+# documentation: an operator .env that tightens the cadence fails the
+# play loudly.
+_WEEKLY_OR_SPARSER_LITERALS = frozenset({
+    "weekly", "monthly", "quarterly", "semiannually", "yearly", "annually",
+})
+
+_DAY_OF_WEEK = frozenset({
+    "mon", "tue", "wed", "thu", "fri", "sat", "sun",
+    "monday", "tuesday", "wednesday", "thursday", "friday",
+    "saturday", "sunday",
+})
+
+_CAP_HELP = (
+    "Community backup cadence is capped at weekly. Allowed forms: the "
+    "systemd shorthands ('weekly', 'monthly', 'quarterly', "
+    "'semiannually', 'yearly') or a single day-of-week expression with "
+    "one time point (e.g. 'Sun *-*-* 03:00:00'). Daily and sub-daily "
+    "backups are a Catena Pro feature."
+)
+
+
+def backup_weekly_cap(oncalendar):
+    """Validate a systemd OnCalendar value fires at most weekly.
+
+    Returns the value unchanged when it is a weekly-or-sparser
+    shorthand or a single-day-of-week expression with a single time
+    point; raises ValueError for anything tighter (daily, hourly,
+    date-only expressions, day lists/ranges, multiple time points)."""
+    if not isinstance(oncalendar, str) or not oncalendar.strip():
+        raise ValueError(f"OnCalendar must be a non-empty string. {_CAP_HELP}")
+    value = oncalendar.strip()
+    if value.lower() in _WEEKLY_OR_SPARSER_LITERALS:
+        return oncalendar
+    first, _, rest = value.partition(" ")
+    day = first.lower()
+    # 'Sun,Mon ...' or 'Mon..Fri ...' fire more than weekly.
+    if "," in day or ".." in day:
+        raise ValueError(
+            f"OnCalendar {oncalendar!r} lists multiple weekdays. {_CAP_HELP}"
+        )
+    if day not in _DAY_OF_WEEK:
+        raise ValueError(
+            f"OnCalendar {oncalendar!r} is not weekly-or-sparser. {_CAP_HELP}"
+        )
+    # A single weekday with multiple time points ('Sun *-*-* 03,15:00:00')
+    # or an hour range still fires more than once that day.
+    if "," in rest or ".." in rest:
+        raise ValueError(
+            f"OnCalendar {oncalendar!r} has multiple time points. {_CAP_HELP}"
+        )
+    return oncalendar
+
+
 class FilterModule:
     def filters(self):
         return {
             "backup_tier_schedule": backup_tier_schedule,
             "backup_tier_retention": backup_tier_retention,
             "backup_tier_worm_oncalendar": backup_tier_worm_oncalendar,
+            "backup_weekly_cap": backup_weekly_cap,
         }

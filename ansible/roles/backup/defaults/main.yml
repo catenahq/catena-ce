@@ -420,16 +420,17 @@ backup_env_file: /etc/catena/backup.env
 backup_password_file: /etc/catena/restic.pass
 backup_systemd_unit_name: catena-backup
 
-# Community single-daily-backup timer (Sprint: CE-automation-relax).
-# CE ships exactly ONE timer -- a daily backup -- so a self-hosted
-# Community deployment is credible without a license. All sub-daily
-# cadence (backup_tier realtime/standard) and the catena-daily
-# orchestrator chain stay Business: on a Business host the EE
-# catena-daily engine masks catena-backup.timer and drives scheduling
-# itself, so the two never double-fire. OnCalendar is daily; operators
-# can shift the time of day via inventory .env but cannot tighten it
-# below daily here (that is the Business lane).
-backup_daily_timer_oncalendar: "{{ lookup('dotenv', 'BACKUP_DAILY_TIMER_ONCALENDAR', default='daily') }}"
+# Community weekly-backup timer (rate-limited Community lane).
+# CE ships exactly ONE timer -- a weekly backup -- so a self-hosted
+# Community deployment has a proven scheduled-backup lane without a
+# license. Daily and sub-daily cadence (backup_tier realtime/standard)
+# and the catena-daily orchestrator chain stay Business: on a Business
+# host the EE catena-daily engine masks catena-backup.timer and drives
+# scheduling itself, so the two never double-fire. Operators can move
+# the weekly slot via inventory .env (e.g. 'Sun *-*-* 03:00:00') but
+# cannot tighten it below weekly: the backup_weekly_cap filter fails
+# the converge on a daily/sub-weekly value (that is the Business lane).
+backup_weekly_timer_oncalendar: "{{ lookup('dotenv', 'BACKUP_WEEKLY_TIMER_ONCALENDAR', default='weekly') | backup_weekly_cap }}"
 
 # Stats file written by the wrapper after each successful run. Hosts
 # both the catena-admin container's read-only bind-mount target AND
