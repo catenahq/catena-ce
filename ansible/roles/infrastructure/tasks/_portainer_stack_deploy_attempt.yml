@@ -151,7 +151,7 @@
       ansible.builtin.set_fact:
         _portainer_deploy_transient: >-
           {{ (_portainer_deploy_resp.content | default('')) is regex(
-               '(502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout|TLS handshake timeout|connection reset|i/o timeout|TOOMANYREQUESTS|context deadline exceeded|temporary failure in name resolution|received unexpected HTTP status: 5|did not receive an exit event|cannot stop container|unexpected EOF|short read: expected)'
+               '(502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout|TLS handshake timeout|connection reset|i/o timeout|TOOMANYREQUESTS|context deadline exceeded|temporary failure in name resolution|received unexpected HTTP status: 5|did not receive an exit event|cannot stop container|unexpected EOF|short read: expected|Address already in use)'
              ) }}
 
     - name: "Portainer: report transient, will retry ({{ svc_name }})"
