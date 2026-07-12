@@ -25,6 +25,11 @@ Enterprise (Business) code is NOT here: it lives privately in
 `catenahq/catena-ee` and ships as compiled, license-gated
 binaries. See [LICENSE](LICENSE).
 
+**What this repo promises and how that is enforced:** [SPEC.md](SPEC.md)
+(hand-written intent + machine-checked invariants) and
+[VALIDATION.md](VALIDATION.md) (generated test-coverage sheet; drift
+fails the maintainers' CI).
+
 ## Layout
 
 ```
