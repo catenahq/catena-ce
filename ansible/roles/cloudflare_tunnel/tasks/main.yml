@@ -451,7 +451,12 @@
     follow_redirects: none
     timeout: 10
   register: _cf_chain_probe_1
-  retries: 30
+  # Keep the full original budget (60 x 10s = 10 min) here so a chain that
+  # is merely SLOW to recover -- a freshly-created tunnel propagating, or
+  # cloudflared re-registering after an interrupted/rolled converge
+  # (fi_o2) -- reaches 404 on its own and never triggers the roll below.
+  # The self-heal is reserved for a chain that is genuinely STUCK, not slow.
+  retries: 60
   delay: 10
   until: _cf_chain_probe_1.status == 404
   failed_when: false
@@ -472,10 +477,19 @@
 # (no flap on the happy path). Runs on the VPS -- docker CLI, not the
 # controller-side probe.
 - name: "CF: force-roll cloudflared when the chain is unreachable (stale-netns self-heal)"
+  # --detach: return as soon as the roll is SUBMITTED; do not block waiting
+  # for convergence. Without it `docker service update --force` waits and
+  # exits non-zero when swarm pauses the rolling update (a fresh task that
+  # early-terminates), which would hard-fail the converge on the roll
+  # itself instead of leaving the verdict to the re-probe. This is a
+  # best-effort kick; failed_when: false keeps ANY docker hiccup here from
+  # failing the play -- the re-probe below is the sole gate.
   ansible.builtin.command:
-    argv: [docker, service, update, --force, cloudflared]
+    argv: [docker, service, update, --force, --detach, cloudflared]
   when: (_cf_chain_probe_1.status | default(-1)) != 404
+  register: _cf_cloudflared_roll
   changed_when: true
+  failed_when: false
 
 - name: "CF: re-probe full chain after self-heal roll"
   ansible.builtin.uri:
