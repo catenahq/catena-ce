@@ -42,7 +42,18 @@
     # MINTS every internal service secret on-box, and set_facts them. See
     # tasks/load_onbox_config.yml.
     - name: "0b: load on-box config store"
-      ansible.builtin.include_tasks: tasks/load_onbox_config.yml
+      # apply: propagate [always] to every task INSIDE the include. Without
+      # it, include_tasks fires the include (it is `always`) but the inner
+      # set_fact tasks are filtered out under any `converge --tags X` -- the
+      # vault_* facts never publish and every role falls back to the raw
+      # inventory (placeholder / stale) values. fi_s3 caught this as a
+      # poisoned postgres password surviving a `--tags postgres` converge.
+      # apply must nest under include_tasks (with file:), not sit as a
+      # sibling task key -- a top-level apply conflicts with the action.
+      ansible.builtin.include_tasks:
+        file: tasks/load_onbox_config.yml
+        apply:
+          tags: [always, onbox]
       tags: [always, onbox]
 
     # 0c: hard disk-space preflight. A converge onto a critically full
