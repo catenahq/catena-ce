@@ -17,6 +17,14 @@
   become: true
   gather_facts: true
 
+  vars:
+    # Converge-time disk gate. Refuse to converge onto a filesystem at or
+    # above crit_pct full. Mirrors roles/infrastructure disk_watch_crit_pct
+    # (90); the watchdog only ALERTS, this ABORTS the converge before any
+    # role writes. Paths default to the same set disk_watch monitors.
+    converge_disk_preflight_paths: ["/", "/mnt/data"]
+    converge_disk_preflight_crit_pct: 90
+
   # ─── Fail-fast external-service reachability ───────────────────────────
   # Probe every configured external backend the converge depends on BEFORE
   # any heavy role runs, so a dead / unreachable / misconfigured endpoint
@@ -36,6 +44,42 @@
     - name: "0b: load on-box config store"
       ansible.builtin.include_tasks: tasks/load_onbox_config.yml
       tags: [always, onbox]
+
+    # 0c: hard disk-space preflight. A converge onto a critically full
+    # filesystem fails deep inside a role (image pull ENOSPC, container
+    # write failure) 10-30 min in; refuse up front instead. Complements
+    # roles/backup's catena-disk-preflight (backup/restore/auto-update
+    # free-bytes aborts) and the disk_watch alerting timer -- this is the
+    # converge-time gate. gather_facts already populated ansible_mounts;
+    # /mnt/data may be absent on a fresh target (storage role mounts it
+    # later), so the selectattr filter checks only mounts that exist now.
+    # Bypass for dev with -e skip_disk_preflight=true.
+    - name: "Preflight (disk): refuse to converge on a critically full filesystem"
+      ansible.builtin.assert:
+        that:
+          - >-
+            ((mnt.size_total - mnt.size_available) / mnt.size_total * 100)
+            < (converge_disk_preflight_crit_pct | int)
+        fail_msg: >-
+          Disk preflight: {{ mnt.mount }} is
+          {{ ((mnt.size_total - mnt.size_available) / mnt.size_total * 100)
+             | round(1) }}% full
+          ({{ (mnt.size_available / 1073741824) | round(2) }} GiB free),
+          at or above the {{ converge_disk_preflight_crit_pct }}% converge
+          ceiling. Free space before re-running -- a converge onto a full
+          disk fails mid-role with no space left on device. Bypass (NOT
+          recommended): -e skip_disk_preflight=true
+        quiet: true
+      loop: >-
+        {{ ansible_mounts
+           | selectattr('mount', 'in', converge_disk_preflight_paths)
+           | selectattr('size_total', 'gt', 0)
+           | list }}
+      loop_control:
+        loop_var: mnt
+        label: "{{ mnt.mount }}"
+      when: not (skip_disk_preflight | default(false) | bool)
+      tags: [always, disk_preflight]
 
     - name: "Preflight (external): probe configured S3 backends (HEAD, 10s)"
       ansible.builtin.uri:
