@@ -1,0 +1,100 @@
+# Time-boxed Trivy suppressions for the operator-stack pinned base images.
+#
+# Every entry below is a HIGH/CRITICAL CVE in a THIRD-PARTY image Catena
+# pins by role default (postgres, portainer, cloudflared, traefik) but does
+# NOT compile: the CVEs live in vendored Go binaries baked into the upstream
+# image (postgres' gosu, portainer's bundled docker/containerd/buildkit
+# client libs, the cloudflared/traefik server binaries). The fix exists
+# upstream (Go stdlib / the vendored module) but the image has not been
+# rebuilt yet, so a pin bump cannot clear them -- postgres:16 is a rolling
+# tag whose stale gosu re-appears on every pull, and portainer 2.39.4 is
+# already the latest release.
+#
+# These do NOT weaken the gate's purpose: a Renovate PR that pins a NEW
+# vulnerable tag still trips on any CVE not listed here. expiredAt forces a
+# re-evaluation: after the date, Trivy stops ignoring the CVE and the gate
+# goes red again -- at which point bump the pin if upstream has rebuilt, or
+# renew the entry with a fresh date + reason.
+#
+# Reviewed 2026-07-13. Next review 2026-10-13.
+
+vulnerabilities:
+  # --- postgres:16 -> /usr/local/bin/gosu (stale Go stdlib; gosu is rarely
+  # rebuilt). Includes one CRITICAL (CVE-2025-68121). ---
+  - id: CVE-2025-61726
+    expiredAt: 2026-10-13
+    statement: Go stdlib in postgres image gosu binary; upstream rebuild lag.
+  - id: CVE-2025-61729
+    expiredAt: 2026-10-13
+    statement: Go stdlib in postgres image gosu binary; upstream rebuild lag.
+  - id: CVE-2025-68121
+    expiredAt: 2026-10-13
+    statement: Go stdlib in postgres image gosu binary; upstream rebuild lag.
+  - id: CVE-2026-25679
+    expiredAt: 2026-10-13
+    statement: Go stdlib in postgres image gosu binary; upstream rebuild lag.
+  - id: CVE-2026-27145
+    expiredAt: 2026-10-13
+    statement: Go stdlib in postgres image gosu binary; upstream rebuild lag.
+  - id: CVE-2026-32280
+    expiredAt: 2026-10-13
+    statement: Go stdlib in postgres image gosu binary; upstream rebuild lag.
+  - id: CVE-2026-32281
+    expiredAt: 2026-10-13
+    statement: Go stdlib in postgres image gosu binary; upstream rebuild lag.
+  - id: CVE-2026-32283
+    expiredAt: 2026-10-13
+    statement: Go stdlib in postgres image gosu binary; upstream rebuild lag.
+  - id: CVE-2026-33811
+    expiredAt: 2026-10-13
+    statement: Go stdlib in postgres image gosu binary; upstream rebuild lag.
+  - id: CVE-2026-33814
+    expiredAt: 2026-10-13
+    statement: Go stdlib in postgres image gosu binary; upstream rebuild lag.
+  - id: CVE-2026-39820
+    expiredAt: 2026-10-13
+    statement: Go stdlib in postgres image gosu binary; upstream rebuild lag.
+  - id: CVE-2026-39836
+    expiredAt: 2026-10-13
+    statement: Go stdlib in postgres image gosu binary; upstream rebuild lag.
+  - id: CVE-2026-42499
+    expiredAt: 2026-10-13
+    statement: Go stdlib in postgres image gosu binary; upstream rebuild lag.
+  - id: CVE-2026-42504
+    expiredAt: 2026-10-13
+    statement: Go stdlib in postgres image gosu binary; upstream rebuild lag.
+
+  # --- CVE-2026-39822: Go os.Root symlink traversal. Freshly published; hits
+  # the Go binary in cloudflared, traefik, postgres/gosu AND portainer. Fixed
+  # in Go 1.25.12 / 1.26.5 -- catena-admin was rebuilt on 1.26.5; these
+  # upstream images have not been rebuilt yet. ---
+  - id: CVE-2026-39822
+    expiredAt: 2026-10-13
+    statement: Go stdlib os.Root symlink CVE in cloudflared/traefik/postgres-gosu/portainer; upstream rebuild lag (catena-admin already patched to Go 1.26.5).
+
+  # --- portainer/portainer-ce:2.39.4 (latest release) -> bundled docker CLI /
+  # moby / buildkit / containerd / oras client libraries. ---
+  - id: CVE-2025-15558
+    expiredAt: 2026-10-13
+    statement: docker/cli vendored in portainer 2.39.4 (latest); upstream rebuild lag.
+  - id: CVE-2026-33747
+    expiredAt: 2026-10-13
+    statement: moby/buildkit vendored in portainer 2.39.4 (latest); upstream rebuild lag.
+  - id: CVE-2026-33748
+    expiredAt: 2026-10-13
+    statement: moby/buildkit vendored in portainer 2.39.4 (latest); upstream rebuild lag.
+  - id: CVE-2026-34040
+    expiredAt: 2026-10-13
+    statement: docker/docker (moby) vendored in portainer 2.39.4 (latest); upstream rebuild lag.
+  - id: CVE-2026-50151
+    expiredAt: 2026-10-13
+    statement: oras-go vendored in portainer 2.39.4 (latest); upstream rebuild lag.
+  - id: CVE-2026-53488
+    expiredAt: 2026-10-13
+    statement: containerd vendored in portainer 2.39.4 (latest); upstream rebuild lag.
+  - id: CVE-2026-53489
+    expiredAt: 2026-10-13
+    statement: containerd vendored in portainer 2.39.4 (latest); upstream rebuild lag.
+  - id: CVE-2026-53492
+    expiredAt: 2026-10-13
+    statement: containerd vendored in portainer 2.39.4 (latest); upstream rebuild lag.

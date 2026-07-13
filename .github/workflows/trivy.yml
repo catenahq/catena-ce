@@ -11,7 +11,9 @@ name: Trivy
 #     portainer tags resolved at runtime from the Ansible role defaults.
 #
 # Severity floor is HIGH+CRITICAL, ignore-unfixed:true so unpatched CVEs do not
-# block until a fix exists upstream. Tune via .trivyignore.
+# block until a fix exists upstream. Tune via .trivyignore.yaml (passed as the
+# trivyignores input; entries are time-boxed via expiredAt so a suppression
+# auto-expires and the gate re-fires for review).
 
 on:
   pull_request:
@@ -43,6 +45,7 @@ jobs:
           format: 'json'
           output: 'trivy-catena-admin.json'
           ignore-unfixed: true
+          trivyignores: .trivyignore.yaml
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -106,6 +109,7 @@ jobs:
           format: 'json'
           output: 'trivy-${{ matrix.name }}.json'
           ignore-unfixed: true
+          trivyignores: .trivyignore.yaml
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
