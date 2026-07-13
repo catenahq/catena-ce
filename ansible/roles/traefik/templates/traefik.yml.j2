@@ -53,6 +53,7 @@ entryPoints:
     http:
       middlewares:
         - cf-forwarded-proto-https@file
+        - catena-secure-headers@file
   websecure:
     address: :443
     http3:

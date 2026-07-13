@@ -126,6 +126,15 @@
     mode: "0644"
   register: _traefik_xfp_middleware
 
+- name: "traefik: render response security-headers middleware"
+  ansible.builtin.template:
+    src: secure-headers.yml.j2
+    dest: "{{ traefik_dynamic_dir }}/secure-headers.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  register: _traefik_secure_headers_middleware
+
 # ─── remove the install.sh-born dokploy-traefik (one-time cutover) ───────
 # On a host that previously ran the dokploy role, Dokploy's install.sh left a
 # `dokploy-traefik` plain container publishing :80/:443. We replace it with
