@@ -45,11 +45,20 @@ import secrets
 import string
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pexpect
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# Post-install key-auth verify retry budget. A freshly booted provider VM
+# can accept the interactive password install a beat before its sshd serves
+# the new authorized_keys on a fresh connection; a single immediate probe
+# then races and returns rc=5 even though the key is in place (seen on the
+# bench migrate target under load). Retry a few times before failing.
+_VERIFY_ATTEMPTS = 5
+_VERIFY_DELAY_S = 3.0
 
 # Search order for the .env when --env-file isn't passed. Mirrors the priority
 # in playbooks/lookup_plugins/dotenv.py: per-inventory first, repo-root fallback for
@@ -476,18 +485,24 @@ def main() -> int:
         print(f"Install failed: {exc}", file=sys.stderr)
         return 4
 
-    # Verify: key auth now works for the user we installed it for.
-    if _key_already_works(args.host, user, os.path.expanduser(privkey_arg)):
-        print(f"✓ Key installed and verified for {user}@{args.host}. You can now run:")
-        print("    ansible-playbook playbooks/bootstrap.yml --limit <inventory_host_name>")
-        return 0
-    else:
-        print(
-            f"Key install completed but {user}@{args.host} key auth verification failed. "
-            "Check logs; try manual SSH.",
-            file=sys.stderr,
-        )
-        return 5
+    # Verify: key auth now works for the user we installed it for. Retry a
+    # few times -- a just-booted VM's sshd can serve the new authorized_keys
+    # a beat after the interactive install returns, and a single immediate
+    # probe would race that window and fail an otherwise-good install.
+    privkey_expanded = os.path.expanduser(privkey_arg)
+    for attempt in range(_VERIFY_ATTEMPTS):
+        if _key_already_works(args.host, user, privkey_expanded):
+            print(f"✓ Key installed and verified for {user}@{args.host}. You can now run:")
+            print("    ansible-playbook playbooks/bootstrap.yml --limit <inventory_host_name>")
+            return 0
+        if attempt < _VERIFY_ATTEMPTS - 1:
+            time.sleep(_VERIFY_DELAY_S)
+    print(
+        f"Key install completed but {user}@{args.host} key auth verification failed "
+        f"after {_VERIFY_ATTEMPTS} attempts. Check logs; try manual SSH.",
+        file=sys.stderr,
+    )
+    return 5
 
 
 def _entrypoint() -> int:
