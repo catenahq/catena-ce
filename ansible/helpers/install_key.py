@@ -126,6 +126,14 @@ def _key_already_works(host: str, user: str, privkey: str) -> bool:
         "-o", "PreferredAuthentications=publickey",
         "-o", "BatchMode=yes",
         "-o", "StrictHostKeyChecking=accept-new",
+        # Do NOT consult / write the controller's persistent known_hosts.
+        # We are verifying key auth on a machine that was just (re)created;
+        # there is no host-key continuity to protect. A recycled provider IP
+        # that still carries a PREVIOUS VM's host key in known_hosts makes
+        # accept-new reject the connection ("REMOTE HOST IDENTIFICATION HAS
+        # CHANGED") and fail an otherwise-good install -- exactly what broke
+        # the bench migrate target (testvm-b relaunched on a reused IP).
+        "-o", "UserKnownHostsFile=/dev/null",
         "-o", "ConnectTimeout=5",
     ]
     if privkey and os.access(privkey, os.R_OK):
@@ -192,6 +200,10 @@ def _install_via_interactive_ssh(
         "ssh",
         [
             "-o", "StrictHostKeyChecking=accept-new",
+            # Same rationale as the verify probe: a recycled provider IP
+            # carrying a prior VM's host key must not block the password
+            # install with a host-key-changed error. Fresh VM, no continuity.
+            "-o", "UserKnownHostsFile=/dev/null",
             "-o", "PreferredAuthentications=password",
             "-o", "PubkeyAuthentication=no",
             "-o", "NumberOfPasswordPrompts=1",
