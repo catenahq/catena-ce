@@ -146,6 +146,23 @@
       {{ _docker_running_before.stdout_lines | default([]) | join(', ') or '(none)' }}
   when: _docker_running_before.rc | default(1) == 0
 
+- name: "Stop catena-backup.timer for the restore window (block scheduled backup+prune race)"
+  # A restore reads the repo; catena-backup.timer fires an independent
+  # `restic backup` + `restic forget --prune` on its own cadence
+  # (BACKUP_SCHEDULE). A scheduled run landing mid-restore takes an
+  # EXCLUSIVE prune lock that contends with the restore AND can prune
+  # the very snapshot being restored: on bench run
+  # 2026-07-13T03-47-58-151c a scheduled backup created a child
+  # snapshot and forget-pruned its parent -- the snapshot the restore
+  # had pinned -- so restic aborted with "no matching ID found". Stop
+  # the timer for the window; the tail task re-arms it on both restore
+  # outcomes. failed_when: false covers the fresh-host DR path where the
+  # unit is not installed yet (the follow-up converge installs + arms it).
+  ansible.builtin.systemd:
+    name: catena-backup.timer
+    state: stopped
+  failed_when: false
+
 - name: "Mask docker.service + docker.socket (block timer-driven respawn)"
   # Stopping is not enough: host-side reconciler units declare
   # Wants=docker.service (catena-public-ports.service, fired by its
@@ -264,6 +281,19 @@
   loop:
     - docker.service
     - docker.socket
+  failed_when: false
+
+- name: "Restart catena-backup.timer (restore window over)"
+  # Re-arm the scheduled backup we stopped before the restore. Runs on
+  # BOTH restic outcomes (placed before the failure-surface task below)
+  # so an aborted restore never leaves the timer stopped, and a
+  # standalone DR restore (no follow-up converge) keeps scheduled
+  # backups. Persistent=true makes the re-armed timer catch up the
+  # missed run, which is correct post-restore. failed_when: false covers
+  # the fresh-host DR path where the unit is not installed yet.
+  ansible.builtin.systemd:
+    name: catena-backup.timer
+    state: started
   failed_when: false
 
 - name: Surface restic stdout/stderr on failure (safe fields only -- no env)
