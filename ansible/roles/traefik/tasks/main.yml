@@ -150,6 +150,26 @@
   failed_when: false
   when: _traefik_inspect.rc == 0
 
+# Running-state check. catena-traefik is a PLAIN container that attaches to
+# catena-network by network ID. If the overlay was torn down and recreated
+# (a restore rebuilds swarm+overlay from scratch -- see roles/backup/tasks/
+# restore.yml; an interrupted converge or daemon flap can do the same), the
+# new overlay has a fresh ID and the container's baked-in reference is stale:
+# `docker start` fails with "failed to set up container networking: network
+# <old-id> not found" and the container sits Exited. Swarm services rejoin by
+# NAME so they self-heal, but this plain container cannot -- it must be
+# relaunched onto the current overlay. Detect the not-running state so the
+# relaunch below fires (the drift/ports/acme conditions never catch an exited
+# container, so before this an overlay rebuild left ingress dead).
+- name: "traefik: read running state (an exited container must be relaunched)"
+  ansible.builtin.command: >
+    docker inspect {{ traefik_container_name }}
+    --format '{{ "{{" }} .State.Running {{ "}}" }}'
+  register: _traefik_running_state
+  changed_when: false
+  failed_when: false
+  when: _traefik_inspect.rc == 0
+
 # A directory-acme.json fix means any running container still holds the bad
 # mount, so it must be relaunched onto the seeded file.
 - name: "traefik: decide whether catena-traefik needs (re)launch"
@@ -160,6 +180,10 @@
         or ((_traefik_running_image.stdout | default('') | trim) != traefik_image)
         or ((_traefik_ports.stdout | default('{}') | trim) not in ['{}', 'null'])
         or (_traefik_acme_dir_rm.changed | default(false))
+        or (
+          _traefik_inspect.rc == 0
+          and (_traefik_running_state.stdout | default('true') | trim) != 'true'
+        )
       }}
 
 - name: "traefik: stop existing catena-traefik for relaunch"
