@@ -16,9 +16,16 @@
 # pass at end of role gives the auth layer the full wall-clock of the
 # other infra deploys to settle.
 
-- name: "Verify gated services: probe public URLs (single-shot)"
-  # Single shot, no retries. If services aren't ready at this point it's
-  # a config failure, not a race.
+- name: "Verify gated services: probe public URLs (retry through transient blips)"
+  # Retry each service so a TRANSIENT failure to reach the public URL from
+  # the probe vantage -- a Cloudflare edge flap, a momentary DNS/route
+  # blip, the SSO stack taking a few more seconds to serve -- does not fail
+  # the whole converge. A genuinely misconfigured gate never starts
+  # returning 200/30x, so it still fails after the window (only slower);
+  # the aggregate report below is unchanged. Bounded: retries*delay caps
+  # the added wall-clock, and a service that comes good stops retrying
+  # immediately. `until` references the CURRENT item's result inside the
+  # loop; status=-1 is a connect-level failure (unreachable/timeout).
   ansible.builtin.uri:
     url: "{{ item.url }}"
     method: GET
@@ -36,6 +43,9 @@
   delegate_to: localhost
   become: false
   ignore_errors: true
+  retries: "{{ infrastructure_gated_probe_retries | default(12) }}"
+  delay: "{{ infrastructure_gated_probe_delay | default(10) }}"
+  until: (_infra_gated_probes.status | default(-1)) in [200, 301, 302, 307]
 
 - name: "Verify gated services: compute failure set"
   ansible.builtin.set_fact:
