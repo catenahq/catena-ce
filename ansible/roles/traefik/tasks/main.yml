@@ -34,32 +34,6 @@
     - _catena_net_create.rc != 0
     - "'already exists' not in (_catena_net_create.stderr | default(''))"
 
-# The create above is idempotent only on PRESENCE, never on HEALTH. When a
-# converge is interrupted (operator Ctrl-C) or the daemon flaps, containers
-# on the overlay are killed ungracefully and leave dangling endpoints -- the
-# overlay IP + LB sandbox for a container that no longer exists. Nothing
-# reaps them, so the next stack deploy collides on the leaked address
-# (failed to set up container networking: Address already in use) and
-# retries cannot clear a persistent ghost. Reap ghost endpoints every
-# converge, BEFORE postgres/portainer/keycloak/oauth2_proxy redeploy, so
-# their allocations land first-try. Skip the swarm LB endpoint (lb-*) and
-# the network self-entry. Runs on the VPS host (live daemon state).
-- name: "traefik: reap leaked {{ catena_network_name }} endpoints (ghost reconcile)"
-  ansible.builtin.shell: |
-    set -u
-    net="{{ catena_network_name }}"
-    docker network inspect "$net" -f '{% raw %}{{range .Containers}}{{.Name}}{{"\n"}}{{end}}{% endraw %}' 2>/dev/null | while read -r name; do
-      [ -z "$name" ] && continue
-      case "$name" in lb-*|"$net") continue ;; esac
-      if ! docker ps -a --format '{% raw %}{{.Names}}{% endraw %}' | grep -qxF "$name"; then
-        echo "reaped ghost endpoint: $name"
-        docker network disconnect -f "$net" "$name" || true
-      fi
-    done
-  register: _catena_net_reap
-  changed_when: "'reaped ghost endpoint' in (_catena_net_reap.stdout | default(''))"
-  failed_when: false
-
 # ─── config tree ─────────────────────────────────────────────────────────
 - name: "traefik: ensure config + dynamic dirs exist"
   ansible.builtin.file:
