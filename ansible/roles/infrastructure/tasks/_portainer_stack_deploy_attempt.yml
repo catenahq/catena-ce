@@ -154,11 +154,57 @@
                '(502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout|TLS handshake timeout|connection reset|i/o timeout|TOOMANYREQUESTS|context deadline exceeded|temporary failure in name resolution|received unexpected HTTP status: 5|did not receive an exit event|cannot stop container|unexpected EOF|short read: expected|Address already in use)'
              ) }}
 
+    # "Address already in use" is a transient we can RETRY but never one a bare
+    # retry can clear: an ungraceful interrupt (operator Ctrl-C mid-converge,
+    # daemon flap) leaves a container's overlay endpoint dangling on
+    # catena-network, and its IP is what the next compose-up collides on. Every
+    # identical retry hits the same leaked address (seen on fi_o2: keycloak stack
+    # exhausts all attempts, each HTTP 500 "Address already in use"). So before
+    # the loop retries, reclaim the leak: disconnect every catena-network
+    # endpoint whose backing container is ENTIRELY gone. This is the
+    # timing-safe form of the reverted pre-emptive reaps -- it runs ONLY after a
+    # real collision (never on a healthy converge, so it cannot race swarm's
+    # endpoint churn the way the every-converge blanket sweep did) and only
+    # touches endpoints with no live container, so no running service loses
+    # routing. lb-* (swarm LB), the network self-entry, and the *-endpoint
+    # gateway sandbox are skipped -- they have no backing container by design.
+    - name: "Portainer: detect overlay address conflict ({{ svc_name }})"
+      ansible.builtin.set_fact:
+        _portainer_deploy_addr_conflict: >-
+          {{ (_portainer_deploy_resp.content | default(''))
+             is regex('Address already in use') }}
+
+    - name: "Portainer: reclaim leaked {{ catena_network_name }} endpoints on address conflict ({{ svc_name }})"
+      ansible.builtin.shell: |
+        set -u
+        net="{{ catena_network_name }}"
+        reclaimed=0
+        for name in $(docker network inspect "$net" \
+          -f '{% raw %}{{range .Containers}}{{.Name}}{{"\n"}}{{end}}{% endraw %}' 2>/dev/null); do
+          [ -z "$name" ] && continue
+          # skip the swarm LB, the network self-entry, and the gateway sandbox
+          case "$name" in "$net"|lb-*|*-endpoint) continue ;; esac
+          # a live container (running OR merely stopped) is not a leak; only an
+          # endpoint whose container is entirely gone gets reclaimed
+          if docker inspect "$name" >/dev/null 2>&1; then continue; fi
+          if docker network disconnect -f "$net" "$name"; then
+            echo "reclaimed leaked endpoint: $name"
+            reclaimed=$((reclaimed + 1))
+          fi
+        done
+        echo "reclaimed_total=${reclaimed}"
+      register: _portainer_addr_reclaim
+      changed_when: "'reclaimed leaked endpoint' in (_portainer_addr_reclaim.stdout | default(''))"
+      failed_when: false
+      when: _portainer_deploy_addr_conflict | bool
+
     - name: "Portainer: report transient, will retry ({{ svc_name }})"
       ansible.builtin.debug:
         msg: >-
           Portainer[{{ svc_name }}]: attempt {{ _portainer_deploy_attempt_n }}
-          failed on a transient; retrying.
+          failed on a transient{{ ' (leaked overlay endpoint reclaimed)'
+            if (_portainer_deploy_addr_conflict | default(false) | bool) else '' }};
+          retrying.
       when: _portainer_deploy_transient | bool
 
     - name: "Portainer: fail hard on non-transient deploy error ({{ svc_name }})"

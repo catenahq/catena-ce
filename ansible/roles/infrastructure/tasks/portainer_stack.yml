@@ -35,6 +35,7 @@
   ansible.builtin.set_fact:
     _portainer_deploy_done: false
     _portainer_deploy_transient: false
+    _portainer_deploy_addr_conflict: false
 
 - name: "Portainer: deploy with retry on registry transient ({{ svc_name }})"
   ansible.builtin.include_tasks: _portainer_stack_deploy_attempt.yml
