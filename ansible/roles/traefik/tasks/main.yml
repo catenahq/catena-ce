@@ -34,6 +34,42 @@
     - _catena_net_create.rc != 0
     - "'already exists' not in (_catena_net_create.stderr | default(''))"
 
+# An ungraceful interrupt (operator Ctrl-C mid-deploy, daemon flap) can kill a
+# COMPOSE app container without tearing down its overlay endpoint, leaving a
+# ghost that holds the name/IP; the next converge then collides on redeploy
+# (failed to set up container networking: Address already in use). Reap ONLY
+# that orphan class -- surgically, because the earlier blanket "disconnect every
+# endpoint absent from docker ps" sweep raced swarm's own endpoint management on
+# a live re-converge and corrupted VIP routing (Keycloak lost the postgres VIP).
+# Two guards keep this safe:
+#   1. SWARM endpoints are never touched. Swarm task endpoints are named
+#      <service>.<slot>.<taskid> (they contain dots); swarm owns their full
+#      lifecycle and force-disconnecting one mid-transition is what broke the
+#      overlay before. Compose container names (project_service_index) carry no
+#      dot -- only those are eligible. lb-* (swarm LB) and the network self-entry
+#      are skipped explicitly.
+#   2. An endpoint is a ghost ONLY if its backing container is ENTIRELY gone
+#      (docker inspect fails, not merely stopped). On a clean re-converge the
+#      prior compose containers are still up when this runs (traefik precedes the
+#      app redeploys), so they inspect fine and nothing is reaped -- changed=false
+#      on every healthy path. A real ghost is the rare post-interrupt exception.
+- name: "traefik: reap orphaned compose endpoints on {{ catena_network_name }} (post-interrupt)"
+  ansible.builtin.shell: |
+    set -u
+    net="{{ catena_network_name }}"
+    docker network inspect "$net" -f '{% raw %}{{range .Containers}}{{.Name}}{{"\n"}}{{end}}{% endraw %}' 2>/dev/null | while read -r name; do
+      [ -z "$name" ] && continue
+      # swarm task endpoints carry dots (<svc>.<slot>.<taskid>) -- swarm-owned, never reap
+      case "$name" in *.*|lb-*|"$net") continue ;; esac
+      # backed by a live container? then it is not a ghost
+      if docker inspect "$name" >/dev/null 2>&1; then continue; fi
+      echo "reaped orphaned endpoint: $name"
+      docker network disconnect -f "$net" "$name" || true
+    done
+  register: _catena_net_reap
+  changed_when: "'reaped orphaned endpoint' in (_catena_net_reap.stdout | default(''))"
+  failed_when: false
+
 # ─── config tree ─────────────────────────────────────────────────────────
 - name: "traefik: ensure config + dynamic dirs exist"
   ansible.builtin.file:
