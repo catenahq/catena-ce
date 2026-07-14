@@ -206,8 +206,13 @@
 # daemon is confirmed serving and before any swarm-service role runs.
 #
 # Idempotent: `docker swarm init` errors on an already-active node, so gate on
-# LocalNodeState. A restored host (swarm state under /var/lib/docker/swarm is
-# in the restic set) comes back `active` and skips init.
+# LocalNodeState. Swarm raft + overlay IPAM are NOT in the restic set (backup
+# captures only {{ storage_mount_point }}/docker/volumes); they are rebuilt,
+# not restored. On a DR restore the fresh host has no swarm state -> this init
+# runs clean. On a rollback restore, roles/backup/tasks/restore.yml removes the
+# surviving {{ storage_mount_point }}/docker/{swarm,network} dirs while dockerd
+# is stopped, so this init runs clean there too instead of reconciling a stale
+# raft against just-restored volumes.
 - name: "swarm: read local node state"
   ansible.builtin.command: docker info --format '{{ "{{" }}.Swarm.LocalNodeState{{ "}}" }}'
   register: _docker_swarm_state
