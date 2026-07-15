@@ -188,10 +188,20 @@
 # can be active while dockerd's socket is still initializing, or the
 # daemon.json validation is mid-parse. `docker info` round-trips the
 # UNIX socket and only returns 0 once the API is serving. Cheap,
-# local, ~1s typical; retries bound total wait to ~30s.
+# local, ~1s typical.
+#
+# `timeout` wrapper is load-bearing: `retries`/`until` only bound the
+# wait when each attempt RETURNS. A HUNG daemon (socket accepts but the
+# API never answers -- disk-wedged dockerd, a paused/SIGSTOP'd daemon,
+# the fi_c1 fault-injection) makes a bare `docker info` BLOCK on the
+# socket forever, so ansible never re-enters the retry loop and the whole
+# converge hangs on this one task with no bound (observed: a fi_c1 run
+# wedged >30 min here). `timeout 10` forces each attempt to return
+# rc=124 on a stuck daemon, so the retries do their job and the converge
+# ABORTS cleanly after ~15*(10+2)s instead of hanging indefinitely.
 - name: "Probe docker daemon is serving API requests"
   ansible.builtin.command:
-    cmd: docker info
+    cmd: timeout 10 docker info
   register: _docker_info_probe
   retries: 15
   delay: 2
