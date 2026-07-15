@@ -1,12 +1,16 @@
 # {{ ansible_managed }}
-# Installed at /etc/systemd/system/docker.service.d/10-catena-traefik-nudge.conf
+# Installed at /etc/systemd/system/docker.service.d/10-catena-network-nudge.conf
 #
-# Fires catena-traefik-nudge on every docker.service start so the
-# plain-container traefik gets re-started once the swarm overlay
+# Fires catena-network-nudge on every docker.service start so the plain and
+# compose containers stranded by the swarm-overlay race get started once
 # `{{ catena_network_name }}` comes back. `systemd-run --no-block` dispatches
 # asynchronously so the nudge's polling (up to {{ traefik_nudge_timeout }}s)
 # doesn't hold docker.service in "activating" state. The leading `-` makes the
 # ExecStartPost failure non-fatal -- if systemd-run is unavailable for any
 # reason, docker still comes up clean.
+#
+# This dispatches the SCRIPT, not catena-network-nudge.service, so the env
+# has to be passed here too (--setenv); the unit file carries the same values
+# for the manual `systemctl start catena-network-nudge.service` path.
 [Service]
-ExecStartPost=-/usr/bin/systemd-run --no-block --unit=catena-traefik-nudge-triggered /usr/local/bin/catena-traefik-nudge
+ExecStartPost=-/usr/bin/systemd-run --no-block --unit=catena-network-nudge-triggered --setenv=CATENA_NETWORK={{ catena_network_name }} --setenv=CATENA_NETWORK_NUDGE_TIMEOUT={{ traefik_nudge_timeout }} /usr/local/bin/catena-network-nudge

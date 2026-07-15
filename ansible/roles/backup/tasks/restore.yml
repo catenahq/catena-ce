@@ -166,7 +166,7 @@
 - name: "Mask docker.service + docker.socket (block timer-driven respawn)"
   # Stopping is not enough: host-side reconciler units declare
   # Wants=docker.service (catena-public-ports.service, fired by its
-  # 5-minute timer; catena-traefik-nudge.service), so a timer tick
+  # 5-minute timer; catena-network-nudge.service), so a timer tick
   # inside the restore window makes systemd pull docker -- and every
   # restart-policy container -- back up UNDER the restic restore
   # (seen live on bench run 2026-07-10T09-56-46-001c: clean stop at

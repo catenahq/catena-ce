@@ -44,6 +44,8 @@ traefik_trusted_ips:
   - "192.168.0.0/16"
   - "127.0.0.0/8"
 
-# Nudge timeout: seconds the recovery script waits for the overlay network to
-# re-materialize after a docker.service restart before giving up.
+# Nudge timeout: seconds catena-network-nudge waits for the overlay network to
+# re-materialize after a docker.service restart before giving up. Reaches the
+# script as CATENA_NETWORK_NUDGE_TIMEOUT, via the docker.service drop-in
+# (--setenv) and the unit file (Environment=).
 traefik_nudge_timeout: 60

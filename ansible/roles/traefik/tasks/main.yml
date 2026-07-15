@@ -232,18 +232,22 @@
   changed_when: _traefik_restart.rc == 0
 
 # ─── restart resilience (nudge after docker restart) ─────────────────────
+# Heals every container the swarm-overlay race strands on a docker.service
+# start, not just traefik: dockerd restores restart-policy containers before
+# the swarm node re-materializes catena-network, and it never retries the
+# ones that lose that race. See the script header for the full mechanism.
 - name: "traefik: drop nudge script"
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../scripts/catena-traefik-nudge.sh"
-    dest: /usr/local/bin/catena-traefik-nudge
+    src: "{{ playbook_dir }}/../scripts/catena-network-nudge.sh"
+    dest: /usr/local/bin/catena-network-nudge
     owner: root
     group: root
     mode: "0755"
 
 - name: "traefik: render nudge systemd unit"
   ansible.builtin.template:
-    src: catena-traefik-nudge.service.j2
-    dest: /etc/systemd/system/catena-traefik-nudge.service
+    src: catena-network-nudge.service.j2
+    dest: /etc/systemd/system/catena-network-nudge.service
     owner: root
     group: root
     mode: "0644"
@@ -260,14 +264,18 @@
 - name: "traefik: render docker.service drop-in that fires the nudge"
   ansible.builtin.template:
     src: docker-service-nudge-dropin.conf.j2
-    dest: /etc/systemd/system/docker.service.d/10-catena-traefik-nudge.conf
+    dest: /etc/systemd/system/docker.service.d/10-catena-network-nudge.conf
     owner: root
     group: root
     mode: "0644"
   register: _traefik_nudge_dropin
 
-# Remove the superseded dokploy-named nudge artifacts on cutover.
-- name: "traefik: remove legacy dokploy-traefik nudge artifacts"
+# Remove the superseded nudge artifacts on cutover: the dokploy-named set
+# (Portainer migration) and the traefik-named set (superseded when the nudge
+# widened from traefik-only to every container the overlay race strands).
+# Left behind, the old drop-in would keep firing the old traefik-only script
+# alongside the new one on every docker start.
+- name: "traefik: remove legacy nudge artifacts"
   ansible.builtin.file:
     path: "{{ item }}"
     state: absent
@@ -275,6 +283,9 @@
     - /usr/local/bin/dokploy-traefik-nudge
     - /etc/systemd/system/dokploy-traefik-nudge.service
     - /etc/systemd/system/docker.service.d/10-dokploy-traefik-nudge.conf
+    - /usr/local/bin/catena-traefik-nudge
+    - /etc/systemd/system/catena-traefik-nudge.service
+    - /etc/systemd/system/docker.service.d/10-catena-traefik-nudge.conf
   register: _traefik_legacy_nudge_rm
 
 - name: "traefik: daemon-reload if unit or drop-in changed"

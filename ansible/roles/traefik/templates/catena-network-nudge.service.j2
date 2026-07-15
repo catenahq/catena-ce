@@ -1,18 +1,20 @@
 # {{ ansible_managed }}
 #
 # Transient unit template -- actually invoked on every docker.service
-# start via a drop-in (see 10-catena-traefik-nudge.conf). This static
+# start via a drop-in (see 10-catena-network-nudge.conf). This static
 # unit exists so the script can also be run manually via `systemctl
-# start catena-traefik-nudge.service` for diagnostics.
+# start catena-network-nudge.service` for diagnostics.
 #
 # The drop-in uses `systemd-run --no-block` to dispatch this unit
 # asynchronously so the nudge's overlay-network polling doesn't hold
 # docker.service in "activating" state.
 [Unit]
-Description=Recover catena-traefik after docker restart
+Description=Recover containers stranded by the {{ catena_network_name }} overlay race
 After=docker.service
 Requires=docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/catena-traefik-nudge
+Environment=CATENA_NETWORK={{ catena_network_name }}
+Environment=CATENA_NETWORK_NUDGE_TIMEOUT={{ traefik_nudge_timeout }}
+ExecStart=/usr/local/bin/catena-network-nudge
