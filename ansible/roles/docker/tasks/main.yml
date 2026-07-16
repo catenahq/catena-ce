@@ -222,9 +222,10 @@
 # captures only {{ storage_mount_point }}/docker/volumes); they are rebuilt,
 # not restored. On a DR restore the fresh host has no swarm state -> this init
 # runs clean. On a rollback restore, roles/backup/tasks/restore.yml removes the
-# surviving {{ storage_mount_point }}/docker/{swarm,network} dirs while dockerd
-# is stopped, so this init runs clean there too instead of reconciling a stale
-# raft against just-restored volumes.
+# surviving {{ storage_mount_point }}/docker/swarm raft while dockerd is stopped
+# (but keeps docker/network, so per-stack compose bridges survive), so this init
+# runs clean there too instead of reconciling a stale raft against just-restored
+# volumes.
 - name: "swarm: read local node state"
   ansible.builtin.command: docker info --format '{{ "{{" }}.Swarm.LocalNodeState{{ "}}" }}'
   register: _docker_swarm_state

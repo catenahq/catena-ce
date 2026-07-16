@@ -269,20 +269,19 @@
   failed_when: false
   changed_when: _restic_restore.rc == 0
 
-# ─── Discard surviving swarm + overlay runtime (rebuild, don't reuse) ────
+# ─── Discard surviving swarm raft (rebuild the overlay, don't reuse) ──────
 # The restic set deliberately EXCLUDES docker swarm raft + overlay IPAM +
 # image layers (see roles/backup/defaults/main.yml backup_paths: only
 # docker/volumes is captured). They are reproducible: the docker role
-# re-inits the single-node swarm, the traefik role recreates the
-# catena-network overlay, and post_restore_redeploy.yml redeploys every
-# app stack via the Portainer API. Volume DATA is restored; cluster
-# RUNTIME is rebuilt.
+# re-inits the single-node swarm and the traefik role recreates the
+# catena-network overlay. Volume DATA is restored; cluster RUNTIME is
+# rebuilt.
 #
 # On a fresh-host DR restore that split is automatic -- no swarm state
 # exists, so the docker role's `swarm init` runs clean. But a rollback
 # restore lands on the SAME live host, and `restic restore` never DELETES
-# files absent from the snapshot: the pre-restore {{ docker_data_root }}/
-# swarm + /network survive on disk. dockerd then comes back `active`, the
+# files absent from the snapshot: the pre-restore {{ storage_mount_point }}/
+# docker/swarm survives on disk. dockerd then comes back `active`, the
 # docker role SKIPS init, and swarm reconciles a STALE raft + endpoint
 # table against the just-restored volumes and freshly-redeployed stacks.
 # Symptom seen on the bench: keycloak (a compose container) reattaches to
@@ -290,19 +289,25 @@
 # and gets "No route to host" to the postgres VIP; a SIGINT mid-restore
 # corrupts the same surviving overlay ("network not found").
 #
-# Fix: force BOTH restore modes down the DR rebuild path. Remove the swarm
-# + libnetwork runtime dirs while dockerd is still stopped, so the
-# follow-on converge hits a clean `swarm init` + `network create` +
-# Portainer redeploy. On a fresh host both dirs are absent -> no-op. Only
-# runs on a SUCCESSFUL restore (rc==0); a failed restore leaves the
-# runtime intact for diagnosis.
-- name: "Discard surviving swarm + overlay runtime so converge rebuilds it clean"
+# Wipe ONLY docker/swarm, NOT docker/network. catena-network is an
+# OVERLAY: its definition and IPAM live in the swarm raft (docker/swarm),
+# so deleting the raft is what forces the clean overlay rebuild. The
+# per-stack COMPOSE BRIDGES (nextcloud_default, keycloak_default,
+# catena-clamav, ...) are LOCAL-scoped and live in docker/network's
+# local-kv.db -- deleting that dir wiped every app's bridge, and CE does
+# NOT redeploy template-app stacks on a converge (that coupling is EE
+# post_restore_redeploy.yml), so their bridges never came back and every
+# template app (Nextcloud, mailserver, ...) stayed Exited(128) "network
+# <id> not found" after any CE rollback. Keeping docker/network lets those
+# containers restart on their unless-stopped policy against their surviving
+# bridge, while the overlay still rebuilds clean from the wiped raft.
+#
+# Only runs on a SUCCESSFUL restore (rc==0); a failed restore leaves the
+# runtime intact for diagnosis. On a fresh host the dir is absent -> no-op.
+- name: "Discard surviving swarm raft so converge rebuilds the overlay clean"
   ansible.builtin.file:
-    path: "{{ item }}"
+    path: "{{ storage_mount_point }}/docker/swarm"
     state: absent
-  loop:
-    - "{{ storage_mount_point }}/docker/swarm"
-    - "{{ storage_mount_point }}/docker/network"
   when: _restic_restore.rc | default(1) == 0
 
 - name: "Unmask docker.service + docker.socket (restore window over)"
