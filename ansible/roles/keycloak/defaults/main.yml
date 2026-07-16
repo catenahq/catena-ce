@@ -21,11 +21,12 @@ keycloak_hostname: "{{ keycloak_subdomain }}.{{ cloudflare_zone }}"
 #   https://github.com/p2-inc/phasetwo-containers
 #   quay.io/phasetwo/phasetwo-keycloak (rolling + timestamped tags).
 # Tag form: <kc-version>[.<unix-build-time>]. Use the rolling
-# semver-like tag (e.g. 26.5.7) for stability across patch builds; the
-# fully-qualified timestamp form (26.5.7.1777058166) is available when
-# operators need an immutable pin. As of 2026-04-27, Phase Two tracks
-# Keycloak 26.5.x; no 26.6.x build is published yet.
-keycloak_image_tag: "26.5.7"
+# semver-like tag (e.g. 26.6.4) for stability across patch builds; the
+# fully-qualified timestamp form (26.6.4.1783921878) is available when
+# operators need an immutable pin. As of 2026-07-16, Phase Two tracks
+# Keycloak 26.6.x (one minor behind stock 26.7); 26.6.4 is the newest
+# rolling tag.
+keycloak_image_tag: "26.6.4"
 keycloak_image: "quay.io/phasetwo/phasetwo-keycloak:{{ keycloak_image_tag }}"
 
 # --- Compose ---
@@ -63,9 +64,14 @@ keycloak_health_path: "/health/ready"
 #   https://hub.docker.com/r/adorsys/keycloak-config-cli/tags
 # Tag form: `latest-<kc-major>.<kc-minor>.<kc-patch>`. Use the
 # specific patch when our Keycloak pin (keycloak_image_tag) is also
-# pinned to a specific patch. As of 2026-04-27, latest-26.5.4 tracks
-# Keycloak 26.5.x (closest match for our 26.5.7 pin).
-keycloak_config_cli_image_tag: "latest-26.5.4"
+# pinned to a specific patch. As of 2026-07-16, adorsys has not yet
+# published a latest-26.6.x build; latest-26.5.5 is the newest tag.
+# Our Keycloak pin is on 26.6.4, so config-cli runs one MINOR behind
+# (26.5 vs 26.6). The realm-import REST surface is stable across
+# minors -- only MAJOR drift breaks the CRD parser -- and ce_install
+# runs config-cli during bootstrap, so the bench gates this pairing.
+# Move to latest-26.6.x as soon as adorsys ships it.
+keycloak_config_cli_image_tag: "latest-26.5.5"
 keycloak_config_cli_image: "adorsys/keycloak-config-cli:{{ keycloak_config_cli_image_tag }}"
 
 # Host-side dir that holds rendered realm YAML files. Bind-mounted into
