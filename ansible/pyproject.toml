@@ -17,6 +17,19 @@ dependencies = [
     "pexpect>=4.9",
 ]
 
+[project.scripts]
+# Expose the CLI as a bare `catena` console script so self-hosters run
+# `uv run catena install` (not `uv run ./catena`). catena_cli loads the
+# extensionless `catena` script (kept extensionless because the bench + docs
+# invoke it as ./catena) and re-exports its entry point.
+catena = "catena_cli:_entry"
+
+[build-system]
+# Required so uv builds + installs this project into the env, which is what
+# creates the `catena` console script above.
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [dependency-groups]
 dev = [
     "pytest>=8",
@@ -26,5 +39,7 @@ dev = [
 testpaths = ["tests/unit"]
 
 [tool.setuptools]
-# This is a runnable tool tree, not an importable package -- no build step.
-py-modules = []
+# catena_cli is the only importable module (the console-script shim). The rest
+# of the tree (seed.py, helpers/, playbooks/, roles/) is run in place, not
+# packaged.
+py-modules = ["catena_cli"]

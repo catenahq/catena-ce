@@ -21,6 +21,8 @@ inventory/example/**/vault.yml
 **/__pycache__/
 *.pyc
 
-# Installer Python tooling (uv-managed venv + pytest cache).
+# Installer Python tooling (uv-managed venv + pytest cache + editable-build
+# metadata from the `catena` console-script package).
 .venv/
 .pytest_cache/
+*.egg-info/

@@ -31,20 +31,26 @@ chain) is the Business edition and ships separately as license-gated
 binaries; it is never plaintext in this repo. On a Business host the EE
 engine masks `catena-backup.timer` and takes over scheduling.
 
-## Installer (`./catena`)
+## Installer (`catena`)
 
 You drive everything through the bundled CLI; you never call
 `ansible-playbook` directly. Prerequisite: `uv` on PATH (ansible-core comes
 from `uv`). SOPS+age was dropped (project 0b) -- there is no `sops`/`age`
-prerequisite anymore.
+prerequisite anymore. Run the CLI **from this `ansible/` directory** (where
+`pyproject.toml` lives):
 
 ```
-uv run ./catena install --inventory prod     # seed + preflight/bootstrap/site/validate
-uv run ./catena converge --inventory prod    # re-run site.yml after a config change
-uv run ./catena validate --inventory prod    # on-host + tailnet + external checks
-uv run ./catena restore  --inventory prod    # whole-host disaster recovery
-uv run ./catena uninstall --inventory prod   # hand unattended-upgrades back to the OS
+uv run catena install --inventory prod     # seed + preflight/bootstrap/site/validate
+uv run catena converge --inventory prod    # re-run site.yml after a config change
+uv run catena validate --inventory prod    # on-host + tailnet + external checks
+uv run catena restore  --inventory prod    # whole-host disaster recovery
+uv run catena uninstall --inventory prod   # hand unattended-upgrades back to the OS
 ```
+
+Run `uv run catena` with no subcommand for an interactive menu; `catena
+--install` is an alias for `catena install`. The equivalent script form
+`uv run ./catena <cmd>` still works (the bench and the Semaphore wrapper
+invoke the `catena` file directly).
 
 `install` first runs `seed.py` (collects config, mints service secrets,
 writes the plaintext 0600 vault), then chains the four playbooks. For an

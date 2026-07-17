@@ -459,3 +459,68 @@ def test_install_accepts_inventory_path_and_skips_the_name(cli):
     assert ns.func is cli.cmd_install
     assert ns.inventory_path == "/tmp/x"
     assert ns.inventory is None
+
+
+# ---- no-argument menu + `--install` alias ----
+
+def test_bare_invocation_is_not_an_error(cli):
+    """Subparsers are not required: bare `catena` parses to command=None (the
+    dispatcher then drops into the interactive menu) instead of erroring."""
+    ns = cli.build_parser().parse_args([])
+    assert ns.command is None
+
+
+def test_install_flag_is_alias_for_install_subcommand(cli, monkeypatch):
+    """`catena --install [flags]` dispatches to cmd_install, same as
+    `catena install [flags]`."""
+    seen = {}
+    monkeypatch.setattr(cli.os, "chdir", lambda p: None)
+    monkeypatch.setattr(cli, "cmd_install", lambda ns: (seen.update(ns=ns), 0)[1])
+    assert cli.main(["--install", "--inventory", "prod"]) == 0
+    assert seen["ns"].func is cli.cmd_install
+    assert seen["ns"].inventory == "prod"
+
+
+def test_interactive_menu_install_returns_bare_install(cli, monkeypatch):
+    monkeypatch.setattr("builtins.input", lambda *a: "1")
+    assert cli.interactive_menu() == ["install"]
+
+
+def test_interactive_menu_other_command_prompts_inventory(cli, monkeypatch):
+    answers = iter(["2", "dev"])  # 2 == converge, then inventory name
+    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+    assert cli.interactive_menu() == ["converge", "--inventory", "dev"]
+
+
+def test_interactive_menu_inventory_defaults_to_prod(cli, monkeypatch):
+    answers = iter(["3", ""])  # 3 == validate, blank inventory -> prod
+    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+    assert cli.interactive_menu() == ["validate", "--inventory", "prod"]
+
+
+def test_interactive_menu_rejects_bad_choice(cli, monkeypatch):
+    monkeypatch.setattr("builtins.input", lambda *a: "99")
+    with pytest.raises(SystemExit):
+        cli.interactive_menu()
+
+
+def test_main_runs_menu_when_no_args_and_tty(cli, monkeypatch):
+    """Bare `catena` on a TTY drives interactive_menu() and dispatches the
+    chosen command."""
+    seen = {}
+    monkeypatch.setattr(cli.os, "chdir", lambda p: None)
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli, "interactive_menu", lambda: ["validate", "--inventory", "dev"])
+    monkeypatch.setattr(cli, "cmd_validate", lambda ns: (seen.update(ns=ns), 0)[1])
+    assert cli.main([]) == 0
+    assert seen["ns"].func is cli.cmd_validate
+    assert seen["ns"].inventory == "dev"
+
+
+def test_main_no_args_without_tty_dies(cli, monkeypatch):
+    """No subcommand and no TTY (e.g. the bench's DEVNULL stdin) is an error,
+    never a hung input() prompt."""
+    monkeypatch.setattr(cli.os, "chdir", lambda p: None)
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: False)
+    with pytest.raises(SystemExit):
+        cli.main([])
