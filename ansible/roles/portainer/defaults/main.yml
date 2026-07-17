@@ -14,7 +14,7 @@
 # Pinned LTS. Portainer 2.27.0 removed the old POST /api/stacks form; 2.39.4
 # (lts tag) uses the typed /api/stacks/create/{type}/{method} paths the CE +
 # EE API seams target. Renovate should track portainer_image_tag.
-portainer_image_tag: "2.39.4"
+portainer_image_tag: "2.43.0"
 portainer_image: "portainer/portainer-ce:{{ portainer_image_tag }}"
 
 portainer_service_name: catena-portainer

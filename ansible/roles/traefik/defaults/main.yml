@@ -9,7 +9,7 @@
 
 # Pinned Traefik image. Was dokploy_traefik_image_tag; renovate/trivy key off
 # `traefik_image_tag` now (see renovate.json customManagers).
-traefik_image_tag: "v3.6.21"
+traefik_image_tag: "v3.7.7"
 traefik_image: "traefik:{{ traefik_image_tag }}"
 
 # The catena-owned reverse-proxy container (was the install.sh-born
