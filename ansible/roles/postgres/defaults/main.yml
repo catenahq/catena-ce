@@ -14,9 +14,15 @@
 
 catena_postgres_service_name: catena-postgres
 
-# Pinned image. Matches the Postgres major the old control plane bootstrapped (16) so a
-# logical dump/restore across the cutover stays on the same major.
-catena_postgres_image_tag: "16"
+# Pinned image major. Was 16 to match the old control plane's Postgres across
+# the Portainer cutover; that control plane is gone (Portainer uses BoltDB), so
+# there is no shared-major constraint anymore. Bumped to 18 (current GA) pre-
+# launch -- no live client runs on 16, so fresh installs land on 18 directly
+# rather than carrying a 16->18 in-place upgrade path we would never hit in
+# prod. Per-app template DBs track the central postgres_default_image in
+# catena-templates (catalog.yml), also 18.x; this infra Postgres (Keycloak's
+# DB) is pinned independently since it follows Keycloak's support matrix.
+catena_postgres_image_tag: "18"
 catena_postgres_image: "postgres:{{ catena_postgres_image_tag }}"
 
 # Superuser. The old control-plane Postgres shipped POSTGRES_USER=dokploy; we standardise on
