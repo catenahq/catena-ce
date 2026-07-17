@@ -254,11 +254,15 @@ def _run_deploy_chain(
     *,
     bootstrap_extra: list[str] | None,
     restore_extra: list[str] | None = None,
+    global_extra: list[str] | None = None,
 ) -> None:
     """Run an ordered deploy chain (install or recover) stage by stage,
-    threading the bootstrap creds onto the bootstrap stage and (recover only)
-    the restore snapshot onto the restore stage, plus the one inter-stage
-    bridge a deploy needs:
+    threading the bootstrap creds onto the bootstrap stage, (recover only) the
+    restore snapshot onto the restore stage, and `global_extra` onto EVERY
+    stage. `global_extra` is the transient secret-adopt file (`-e @file`) that
+    carries the install-critical vendor creds / DR keyset into each play so the
+    on-box loader adopts them -- no persisted laptop vault (0b). Plus the one
+    inter-stage bridge a deploy needs:
 
       - after `bootstrap`: fold the steady-state tailnet IP that bootstrap
         emitted into .bootstrap-output.yml back into hosts.yml, so the later
@@ -275,12 +279,14 @@ def _run_deploy_chain(
     for stage in chain:
         banner(f"Stage: {stage}")
         if stage == "bootstrap":
-            extra = bootstrap_extra
+            extra = list(bootstrap_extra or [])
         elif stage == "restore":
-            extra = restore_extra
+            extra = list(restore_extra or [])
         else:
-            extra = None
-        _run(playbook_cmd(inv_dir, stage, extra))
+            extra = []
+        if global_extra:
+            extra = extra + global_extra
+        _run(playbook_cmd(inv_dir, stage, extra or None))
         if stage == "bootstrap":
             from helpers import bootstrap_output
             applied = bootstrap_output.apply_to_inventory(inv_dir)
@@ -289,11 +295,40 @@ def _run_deploy_chain(
                       file=sys.stderr)
 
 
+def _mktemp_secrets(prefix: str) -> Path:
+    """Create an empty 0600 temp file for a transient secret-adopt map."""
+    fd, name = tempfile.mkstemp(prefix=prefix, suffix=".yml")
+    os.close(fd)
+    tmp = Path(name)
+    tmp.chmod(0o600)
+    return tmp
+
+
+def _show_dr_keyset(inv_dir: Path) -> None:
+    """After a fresh install, surface the on-box-minted DR keyset (admin +
+    restic passwords) ONCE for the user's password manager. Non-fatal: a
+    failure here must never fail an otherwise-successful install (the keyset
+    is always retrievable later from catena-admin > Recovery)."""
+    banner("Your disaster-recovery keyset -- shown once, save it now")
+    cmd = playbook_cmd(inv_dir, "show_dr_keyset")
+    print(_c("1;30", "  $ " + " ".join(cmd)), file=sys.stderr)
+    if subprocess.run(cmd).returncode != 0:
+        print(_c("1;33", "! could not display the DR keyset automatically; "
+                 "retrieve it later from catena-admin > Recovery."),
+              file=sys.stderr)
+
+
 def cmd_install(args: argparse.Namespace) -> int:
     _preflight_checks()
 
-    banner("Step 1/2 -- collect config + secrets (seed)")
-    seed_cmd = [sys.executable, str(ANSIBLE_DIR / "seed.py")]
+    # The transient adopt file seed writes the vendor creds into (never a
+    # persisted inventory vault). Threaded onto every deploy stage as `-e @file`
+    # so the on-box loader adopts them, then deleted.
+    secrets_tmp = _mktemp_secrets("catena-install-secrets-")
+
+    banner("Step 1/2 -- collect config + vendor creds (seed)")
+    seed_cmd = [sys.executable, str(ANSIBLE_DIR / "seed.py"),
+                "--secrets-out", str(secrets_tmp)]
     if args.inventory_path:
         inv_dir = Path(args.inventory_path).expanduser()
         seed_cmd += ["--inventory-path", str(inv_dir)]
@@ -307,6 +342,7 @@ def cmd_install(args: argparse.Namespace) -> int:
         seed_cmd += ["--no-confirm"]
     result = subprocess.run(seed_cmd)
     if result.returncode != 0:
+        secrets_tmp.unlink(missing_ok=True)
         die(f"seed failed (exit {result.returncode}); nothing deployed.",
             code=result.returncode)
 
@@ -314,20 +350,76 @@ def cmd_install(args: argparse.Namespace) -> int:
 
     banner("Step 2/2 -- deploy (preflight -> bootstrap -> site -> validate)")
     bootstrap_extra, bootstrap_vars_tmp = _bootstrap_extra_vars(args.input)
+    adopt_extra = ["-e", f"@{secrets_tmp}"]
     try:
-        _run_deploy_chain(inv_dir, INSTALL_CHAIN, bootstrap_extra=bootstrap_extra)
+        _run_deploy_chain(inv_dir, INSTALL_CHAIN,
+                          bootstrap_extra=bootstrap_extra, global_extra=adopt_extra)
+        _show_dr_keyset(inv_dir)
     finally:
         if bootstrap_vars_tmp is not None:
             bootstrap_vars_tmp.unlink(missing_ok=True)
+        secrets_tmp.unlink(missing_ok=True)
     banner("Install complete.")
     return 0
 
 
+# The user-held DR keyset re-entered at recover time: the box is wiped, so
+# nothing is read from a persisted laptop vault (0b). (key, label, hidden?).
+DR_ADOPT_SECRETS = (
+    ("vault_backup_restic_password", "Restic backup password", True),
+    ("vault_backup_s3_access_key", "S3 access key", True),
+    ("vault_backup_s3_secret_key", "S3 secret key", True),
+    ("vault_cloudflare_api_token", "Cloudflare API token", True),
+    ("vault_tailscale_oauth_client_id", "Tailscale OAuth client id", False),
+    ("vault_tailscale_oauth_client_secret", "Tailscale OAuth client secret", True),
+)
+
+
+def _collect_dr_adopt_file(input_path: str | None) -> tuple[list[str], Path | None]:
+    """Collect the DR keyset for a fresh-box recover into a 0600 temp adopt
+    file (`-e @file`), threaded onto every recover stage so `restore` can
+    decrypt the backup and the on-box loader adopts the creds. Values come from
+    --input install.yaml when present, else an interactive prompt; the restic
+    repo URL rides as `backup_restic_repo`. Returns ([], None) when nothing was
+    collected. Mirrors _bootstrap_extra_vars: never on argv, cleaned by caller."""
+    provided_vault: dict = {}
+    provided_env: dict = {}
+    if input_path:
+        import seed  # shares ANSIBLE_DIR on sys.path
+        inp = seed.load_input(Path(input_path))
+        provided_vault = inp.get("vault") or {}
+        provided_env = inp.get("env") or {}
+
+    values: dict[str, str] = {}
+    for key, label, hidden in DR_ADOPT_SECRETS:
+        val = str(provided_vault.get(key, "") or "").strip()
+        if not val and sys.stdin.isatty():
+            val = (getpass.getpass(f"{label}: ") if hidden
+                   else input(f"{label}: ")).strip()
+        if val:
+            values[key] = val
+    repo = str(provided_env.get("BACKUP_RESTIC_REPO", "") or "").strip()
+    if not repo and sys.stdin.isatty():
+        repo = input("Restic repo URL (s3:<endpoint>/<bucket>): ").strip()
+    if repo:
+        values["backup_restic_repo"] = repo
+
+    if not values:
+        return [], None
+    import yaml
+    tmp = _mktemp_secrets("catena-recover-secrets-")
+    tmp.write_text(yaml.safe_dump(values, default_flow_style=False))
+    tmp.chmod(0o600)
+    return ["-e", f"@{tmp}"], tmp
+
+
 def cmd_recover(args: argparse.Namespace) -> int:
-    """Whole-host disaster recovery onto a FRESH replacement box, reusing the
-    existing inventory's vault + .env (no seed): preflight -> bootstrap ->
-    restore -> site -> validate. The provider creds come from --input
-    install.yaml (same 0600-temp-file path as install, never on argv);
+    """Whole-host disaster recovery onto a FRESH replacement box: preflight ->
+    bootstrap -> restore -> site -> validate. The provider creds come from
+    --input install.yaml (0600 temp file, never on argv). The DR keyset (restic
+    password + S3 keys + repo URL + Cloudflare/Tailscale creds) is re-entered
+    here -- prompted or from --input -- since nothing persists on the laptop;
+    it is threaded onto every stage so restore can decrypt the backup.
     --snapshot picks the restic snapshot to push (default: latest)."""
     _preflight_checks()
     inv_dir = resolve_inventory(args)
@@ -337,14 +429,18 @@ def cmd_recover(args: argparse.Namespace) -> int:
     banner("Recover -- preflight -> bootstrap -> restore -> site -> validate")
     bootstrap_extra, bootstrap_vars_tmp = _bootstrap_extra_vars(args.input)
     restore_extra = _snapshot_extra(args)
+    dr_extra, dr_tmp = _collect_dr_adopt_file(args.input)
     try:
         _run_deploy_chain(
             inv_dir, RECOVER_CHAIN,
             bootstrap_extra=bootstrap_extra, restore_extra=restore_extra,
+            global_extra=dr_extra or None,
         )
     finally:
         if bootstrap_vars_tmp is not None:
             bootstrap_vars_tmp.unlink(missing_ok=True)
+        if dr_tmp is not None:
+            dr_tmp.unlink(missing_ok=True)
     banner("Recovery complete.")
     return 0
 

@@ -89,45 +89,24 @@ def test_no_client_age_pubkey_field(seed):
     assert "client_age_pubkey" not in seed.load_input(None)
 
 
-# --- VAULT_SKIP_KEYS (Community trim) ---------------------------------------
-def test_vault_admin_password_is_skip_key(seed):
-    assert "vault_admin_password" in seed.VAULT_SKIP_KEYS
+# --- INSTALL_EXTERNAL_KEYS (the only secrets prompted at install) -----------
+def test_install_external_keys_are_the_three_vendor_creds(seed):
+    """0b no-laptop-vault: seed prompts only for the install-critical vendor
+    creds and writes them to the transient --secrets-out file. Everything else
+    is minted on-box."""
+    assert seed.INSTALL_EXTERNAL_KEYS == (
+        "vault_cloudflare_api_token",
+        "vault_tailscale_oauth_client_id",
+        "vault_tailscale_oauth_client_secret",
+    )
 
 
-def test_control_plane_api_key_is_skip_key(seed):
-    """The Portainer control-plane API key is minted post-install by
-    bootstrap_portainer_admin.py, so seed must not prompt for it."""
-    assert "vault_portainer_api_key" in seed.VAULT_SKIP_KEYS
-
-
-def test_ce_service_keys_are_skip_keys(seed):
-    for key in (
-        "vault_keycloak_db_password",
-        "vault_oauth2_proxy_cookie_secret",
-        "vault_dashboard_sync_client_secret",
-        "vault_healthchecks_secret_key",
-        "vault_beszel_admin_password",
-        "vault_mailserver_relay_password",
-    ):
-        assert key in seed.VAULT_SKIP_KEYS
-
-
-def test_ee_and_operator_keys_dropped_from_skip_set(seed):
-    """Operator-only (Semaphore), the operator's billing portal, bench-only
-    pen-test, and the cold/WORM mirror secrets are not Community and must be
-    gone from the skip set so seed never pre-populates dead keys."""
-    for legacy in (
-        "vault_semaphore_db_password",
-        "vault_semaphore_admin_password",
-        "vault_portal_db_password",
-        "vault_portal_stripe_secret_key",
-        "vault_portal_stripe_webhook_secret",
-        "vault_zap_api_key",
-        "vault_backup_worm_access_key",
-        "vault_backup_worm_secret_key",
-        "vault_nextcloud_worm_access_key",
-    ):
-        assert legacy not in seed.VAULT_SKIP_KEYS
+def test_vault_template_machinery_is_gone(seed):
+    """No persisted laptop vault: the vault template + skip-set + emit are
+    removed."""
+    for gone in ("VAULT_SKIP_KEYS", "VAULT_TEMPLATE", "parse_vault_template",
+                 "emit_vault", "_collect_vault_values"):
+        assert not hasattr(seed, gone), f"{gone} should be removed"
 
 
 # --- ENV_OPTIONS (no managed-lifecycle knobs) -------------------------------
@@ -147,9 +126,11 @@ def test_env_options_drop_managed_lifecycle_knobs(seed):
         assert key not in seed.ENV_OPTIONS
 
 
-def test_admin_password_constants(seed):
+def test_admin_password_min_len_only(seed):
+    """Only the override floor remains; there is no auto-mint length (the admin
+    password is minted on-box, not by seed)."""
     assert seed.ADMIN_PASSWORD_MIN_LEN >= 16
-    assert seed.ADMIN_PASSWORD_AUTO_LEN >= seed.ADMIN_PASSWORD_MIN_LEN
+    assert not hasattr(seed, "ADMIN_PASSWORD_AUTO_LEN")
 
 
 # --- emit_env ---------------------------------------------------------------
@@ -209,30 +190,42 @@ def test_emit_hosts_yml_merges_into_existing(seed, tmp_path):
     assert "old1" in vps and "prod1" in vps
 
 
-# --- emit_vault (plaintext, post-SOPS 0b) -----------------------------------
-def test_emit_vault_writes_plaintext_yaml_0600(seed, tmp_path):
-    target = tmp_path / "group_vars" / "all" / "vault.yml"
-    seed.emit_vault({"vault_admin_password": "s3cret", "vault_foo": "bar"}, target)
-    assert target.is_file()
-    # Plaintext, parseable YAML -- NOT sops-wrapped (no `sops:` metadata key).
-    data = yaml.safe_load(target.read_text())
-    assert data == {"vault_admin_password": "s3cret", "vault_foo": "bar"}
-    assert "sops" not in data
-    assert (target.stat().st_mode & 0o777) == 0o600
+# --- write_secrets_out (transient adopt map, no persisted vault) ------------
+def test_write_secrets_out_0600_and_drops_blanks(seed, tmp_path):
+    out = tmp_path / "s.yml"
+    seed.write_secrets_out(out, {
+        "vault_cloudflare_api_token": "cf",
+        "vault_tailscale_oauth_client_id": "",   # blank dropped
+        "vault_admin_password": "REPLACE",       # placeholder dropped
+    })
+    assert yaml.safe_load(out.read_text()) == {"vault_cloudflare_api_token": "cf"}
+    assert (out.stat().st_mode & 0o777) == 0o600
 
 
-def test_emit_vault_empty_writes_initialized_marker(seed, tmp_path):
-    target = tmp_path / "group_vars" / "all" / "vault.yml"
-    seed.emit_vault({}, target)
-    assert yaml.safe_load(target.read_text()) == {"_initialized": "true"}
+def test_write_secrets_out_empty_writes_empty_map(seed, tmp_path):
+    out = tmp_path / "s.yml"
+    seed.write_secrets_out(out, {})
+    # An empty (but present) 0600 file: `-e @file` loads {} -- harmless.
+    assert (yaml.safe_load(out.read_text()) or {}) == {}
+    assert (out.stat().st_mode & 0o777) == 0o600
 
 
-def test_emit_vault_does_not_overwrite_existing(seed, tmp_path):
-    target = tmp_path / "group_vars" / "all" / "vault.yml"
-    target.parent.mkdir(parents=True)
-    target.write_text("vault_admin_password: keep-me\n")
-    seed.emit_vault({"vault_admin_password": "new"}, target)
-    assert yaml.safe_load(target.read_text()) == {"vault_admin_password": "keep-me"}
+# --- admin-password override (optional install.yaml pin) --------------------
+def test_admin_override_too_short_dies(seed):
+    with pytest.raises(SystemExit):
+        seed._resolve_admin_override({}, {"vault_admin_password": "short"})
+
+
+def test_admin_override_accepts_long(seed):
+    values: dict = {}
+    seed._resolve_admin_override(values, {"vault_admin_password": "x" * 20})
+    assert values["vault_admin_password"] == "x" * 20
+
+
+def test_admin_override_noop_when_absent(seed):
+    values: dict = {}
+    seed._resolve_admin_override(values, {})
+    assert values == {}
 
 
 def test_seed_has_no_sops_age_helpers(seed):
@@ -246,26 +239,21 @@ def _good_inp():
     return {
         "inventory": "prod",
         "host": {"name": "prod1", "public_ip": "203.0.113.10", "initial_user": "root"},
-        "env": {"BACKUP_RESTIC_REPO": "s3:s3.example.net/mybucket-restic"},
+        # Backup repo is configured post-install in catena-admin, so a blank
+        # env is a valid install.
+        "env": {},
         "vault": {
+            "vault_cloudflare_api_token": "z",
             "vault_tailscale_oauth_client_id": "x",
             "vault_tailscale_oauth_client_secret": "y",
-            "vault_cloudflare_api_token": "z",
-            "vault_backup_s3_access_key": "a",
-            "vault_backup_s3_secret_key": "b",
         },
     }
 
 
-_ENV_KEYS = [("BACKUP_RESTIC_REPO", "s3:s3.example-region.example.net/<client>-restic")]
-_VAULT_KEYS = [
-    "vault_tailscale_oauth_client_id",
-    "vault_tailscale_oauth_client_secret",
-    "vault_cloudflare_api_token",
-    "vault_backup_s3_access_key",
-    "vault_backup_s3_secret_key",
-    "vault_portainer_api_key",  # skip key -- not required
-]
+_ENV_KEYS = [("BACKUP_RESTIC_REPO", "")]  # optional now (default blank)
+_VAULT_KEYS = list(("vault_cloudflare_api_token",
+                    "vault_tailscale_oauth_client_id",
+                    "vault_tailscale_oauth_client_secret"))
 
 
 def test_validate_structural_clean(seed):
@@ -278,26 +266,33 @@ def test_validate_structural_missing_required_vault(seed):
     assert seed.validate_install_structural(inp, _ENV_KEYS, _VAULT_KEYS) >= 1
 
 
-def test_validate_structural_blank_restic_repo(seed):
+def test_validate_structural_blank_restic_repo_is_ok(seed):
+    """Backup creds are deferred to catena-admin: a blank repo at seed time is
+    NOT a problem."""
     inp = _good_inp()
     inp["env"]["BACKUP_RESTIC_REPO"] = ""
-    assert seed.validate_install_structural(inp, _ENV_KEYS, _VAULT_KEYS) >= 1
+    assert seed.validate_install_structural(inp, _ENV_KEYS, _VAULT_KEYS) == 0
 
 
 def test_validate_structural_rejects_client_placeholder(seed):
+    """A MALFORMED repo (unreplaced <client> sentinel) still fails, even though
+    a blank one is allowed."""
     inp = _good_inp()
     inp["env"]["BACKUP_RESTIC_REPO"] = "s3:s3.example.net/<client>-restic"
     assert seed.validate_install_structural(inp, _ENV_KEYS, _VAULT_KEYS) >= 1
 
 
-# --- true on-box minting: seed mints NO internal service secrets ------------
-def test_seed_does_not_mint_internal_service_secrets(seed):
-    """0b: internal service secrets mint ON-BOX (helpers/onbox_config.py), never
-    on the client's laptop. seed lost _resolve_service_secrets + the internal
-    minters."""
-    for gone in ("_resolve_service_secrets", "_auto_mint_group",
-                 "_mint_oauth2_proxy_cookie_secret", "_mint_hc_api_key",
-                 "_mint_url_safe"):
+# --- true on-box minting: seed mints NOTHING --------------------------------
+def test_seed_mints_no_secrets(seed):
+    """0b no-laptop-vault: seed mints nothing. Internal service secrets AND the
+    user-held admin/restic DR keyset are all minted ON-BOX
+    (helpers/onbox_config.py)."""
+    for gone in ("_resolve_service_secrets", "_mint_strong_password",
+                 "_resolve_restic_password", "_resolve_admin_password",
+                 "_print_secret_block", "_mint_oauth2_proxy_cookie_secret",
+                 "_mint_hc_api_key", "_mint_url_safe"):
         assert not hasattr(seed, gone), f"{gone} should be removed"
-    # Only the restic-backup password minter (user-held DR keyset) remains.
-    assert hasattr(seed, "_mint_strong_password")
+    # The only secret handling left: the transient adopt-file writer + the
+    # optional admin-override passthrough.
+    assert hasattr(seed, "write_secrets_out")
+    assert hasattr(seed, "_resolve_admin_override")

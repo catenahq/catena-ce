@@ -1,38 +1,44 @@
 #!/usr/bin/env python3
 """Seed a new inventory/<name>/ for Community Catena.
 
-Reads install.yaml (`-i`) for non-interactive values, prompts for
-anything missing, mints service secrets, and writes:
+Reads install.yaml (`-i`) for non-interactive values, prompts for anything
+missing, and writes the NON-SECRET inventory files:
   - inventory/<name>/.env                            (non-secret config)
   - inventory/<name>/group_vars/all/main.yml         (copied from template)
-  - inventory/<name>/group_vars/all/vault.yml        (PLAINTEXT secrets)
   - inventory/<name>/hosts.yml                        (bootstrap + vps entries)
   - inventory/<name>/localhost.yml                    (preflight anchor)
 
-Nothing else. No ansible-playbook calls, no SSH. The installer (`./catena`)
-wraps this for the full preflight -> bootstrap -> site -> validate flow;
-seed exits cleanly once files are written.
+No secret file is written into the inventory (0b: no persisted laptop vault).
+The install-critical vendor creds (Cloudflare API token + Tailscale OAuth
+client id/secret) are prompted, live-validated, and written to the TRANSIENT
+0600 file given by `--secrets-out`. The installer (`catena`) threads that file
+onto the converge as `-e @file` (so the on-box loader ADOPTS them into
+/etc/catena/config.json) and deletes it; nothing secret persists on the
+laptop.
 
-SOPS+age was dropped (project 0b). The seed vault is now a PLAINTEXT,
-gitignored, 0600 group_vars file. On the first flagged converge the on-box
-config loader adopts these values into /etc/catena/config.json (0600 root),
-which becomes the runtime source of truth and rides the restic backup -- so
-a rebuild needs only the {restic endpoint, S3 creds, restic password}
-keyset. The self-hoster keeps the plaintext vault in their own inventory
-checkout; there is no operator with a copy (Community is self-hosted).
+Everything else is minted ON-BOX by the converge loader
+(helpers/onbox_config.py): the internal service secrets, plus the user-held
+DR keyset -- the admin (first-login) + restic (backup) passwords -- which the
+installer surfaces ONCE for the user's password manager. S3 backup creds +
+repo + schedule are NOT collected here; the user sets them post-install in
+catena-admin.
+
+Nothing else. No ansible-playbook calls, no SSH; seed exits cleanly once files
+are written.
 
 Usage:
-    python seed.py [-i install.yaml] [--inventory NAME] [--no-confirm]
+    python seed.py [-i install.yaml] [--inventory NAME] --secrets-out PATH
+                   [--no-confirm]
 """
 from __future__ import annotations
 
 import argparse
-import base64
 import getpass
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 import json
@@ -46,7 +52,6 @@ REPO_ROOT = Path(__file__).resolve().parent
 SKEL = REPO_ROOT / "inventory" / "example"
 ENV_TEMPLATE = SKEL / ".env.example"
 MAIN_YML_TEMPLATE = SKEL / "group_vars" / "all" / "main.yml.example"
-VAULT_TEMPLATE = SKEL / "group_vars" / "all" / "vault.yml.example"
 LOCALHOST_YML_SKEL = SKEL / "localhost.yml"
 
 # Make `from helpers import ...` resolve whether seed.py is run as a script
@@ -57,54 +62,24 @@ from helpers import net_retry  # noqa: E402
 
 PLACEHOLDER_VALUES = {"REPLACE", "REPLACE-LONG-RANDOM-STRING"}
 
-# Vault keys NOT prompted at seed time: either auto-generated below (restic
-# password, SSO / Healthchecks service credentials, catena-postgres
-# password) or minted post-install (Portainer API key, optional SMTP
-# password, optional Nextcloud-S3 credentials, opt-in mailserver secrets).
-VAULT_SKIP_KEYS = {
-    # Minted post-install by roles/portainer (bootstrap_portainer_admin.py) --
-    # exempt from the seed prompt.
-    "vault_portainer_api_key",
-    "vault_catena_postgres_password",
-    "vault_backup_restic_password",
-    "vault_admin_password",
-    "vault_keycloak_db_password",
-    "vault_oauth2_proxy_cookie_secret",
-    "vault_oauth2_proxy_client_secret",
-    "vault_dashboard_sync_client_secret",
-    "vault_nextcloud_oidc_client_secret",
-    "vault_element_oidc_client_secret",
-    # Mailserver INTERNAL SSO secrets -- minted ON-BOX by the converge loader.
-    "vault_mailserver_oidc_client_secret",
-    "vault_mailserver_introspect_client_secret",
-    "vault_element_jitsi_jicofo_auth_password",
-    "vault_element_jitsi_jicofo_component_secret",
-    "vault_element_jitsi_jvb_auth_password",
-    "vault_element_jigasi_xmpp_password",
-    "vault_healthchecks_secret_key",
-    "vault_healthchecks_superuser_password",
-    "vault_healthchecks_ping_key",
-    "vault_healthchecks_api_key_readonly",
-    "vault_healthchecks_api_key_readwrite",
-    "vault_smtp_password",
-    # Self-hosted mailserver (opt-in template) external secrets: the SMTP
-    # smarthost password and the free Spamhaus DQS key. Operator-pasted,
-    # same category as vault_smtp_password -- exempt from the preflight
-    # presence check so installs without mail do not fail.
-    "vault_mailserver_relay_password",
-    "vault_mailserver_spamhaus_dqs_key",
-    "vault_nextcloud_s3_access_key",
-    "vault_nextcloud_s3_secret_key",
-    # Auto-minted unconditionally; sit unused until BESZEL_ENABLED=true.
-    "vault_beszel_admin_password",
-    "vault_beszel_universal_token",
-}
+# The ONLY secrets collected at install time: the install-critical vendor
+# creds needed to build the Cloudflare tunnel and join the tailnet before any
+# on-box surface exists. They are prompted, live-validated, and written to the
+# transient --secrets-out file (never a persisted inventory vault); the on-box
+# loader adopts them on the first converge. Every other secret -- internal
+# service secrets AND the user-held admin/restic DR keyset -- is minted ON-BOX
+# (helpers/onbox_config.py). S3 backup creds + repo are set post-install in
+# catena-admin, not here.
+INSTALL_EXTERNAL_KEYS: tuple[str, ...] = (
+    "vault_cloudflare_api_token",
+    "vault_tailscale_oauth_client_id",
+    "vault_tailscale_oauth_client_secret",
+)
 
-# Minimum admin password length -- Portainer and the SSO provider both accept
-# this. 20 is the auto-generate length; operator-supplied values must be at
-# least 16 chars.
+# Minimum admin password length when a user PINS one via install.yaml (Portainer
+# and the SSO provider both accept it). With no override the admin password is
+# minted on-box and shown once -- seed never mints it.
 ADMIN_PASSWORD_MIN_LEN = 16
-ADMIN_PASSWORD_AUTO_LEN = 20
 
 
 # --- output helpers ---------------------------------------------------------
@@ -239,8 +214,6 @@ def validate_install_structural(
 
     for key in vault_keys:
         val = vault.get(key, "")
-        if key in VAULT_SKIP_KEYS:
-            continue
         if not _check(f"vault.{key} set",
                       _is_filled(val), "***" if _is_filled(val) else "(missing)"):
             problems += 1
@@ -268,8 +241,10 @@ def validate_install_structural(
         _check(f"{key} format", True, f"endpoint={endpoint} bucket={bucket}")
         return 0
 
+    # Backup repo is configured POST-INSTALL in catena-admin (deferred creds),
+    # so a blank value at seed time is fine; only a malformed one fails.
     problems += _check_s3_repo(
-        "BACKUP_RESTIC_REPO", env.get("BACKUP_RESTIC_REPO", ""), required=True
+        "BACKUP_RESTIC_REPO", env.get("BACKUP_RESTIC_REPO", ""), required=False
     )
     return problems
 
@@ -461,11 +436,6 @@ def parse_env_template(path: Path) -> tuple[list[tuple[str, str]], str]:
     return keys, text
 
 
-def parse_vault_template(path: Path) -> list[str]:
-    parsed = yaml.safe_load(path.read_text()) or {}
-    return list(parsed.keys())
-
-
 # --- prompting --------------------------------------------------------------
 def _is_filled(value) -> bool:
     if value is None:
@@ -616,28 +586,6 @@ def emit_localhost_yml(target: Path) -> None:
     shutil.copyfile(LOCALHOST_YML_SKEL, target)
 
 
-def emit_vault(values: dict[str, str], target: Path) -> None:
-    """Write the secrets dict to `target` as a PLAINTEXT YAML file (0600).
-    SOPS+age was dropped (0b): the file is gitignored and the on-box config
-    loader adopts it into /etc/catena/config.json on the first flagged
-    converge, which then rides the restic backup.
-
-    An empty values dict is written as a single _initialized marker so the
-    file always exists on disk after seed."""
-    if target.exists():
-        warn(
-            f"{target} already exists; not overwriting. "
-            f"Edit it directly to change values."
-        )
-        return
-    payload = dict(values) if values else {"_initialized": "true"}
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(
-        yaml.safe_dump(payload, default_flow_style=False, sort_keys=False)
-    )
-    target.chmod(0o600)
-
-
 def emit_hosts_yml(
     target: Path, host_name: str, public_ip: str, tailnet_ip: str,
     initial_user: str,
@@ -675,16 +623,7 @@ def emit_hosts_yml(
     target.write_text(yaml.safe_dump(data, default_flow_style=False, sort_keys=False))
 
 
-# --- secret minting ---------------------------------------------------------
-def _mint_strong_password() -> str:
-    """48 random bytes -> 64 base64 chars. Matches `openssl rand -base64 48`.
-    The only minter still on the client side: the restic backup password (part
-    of the user-held DR keyset). Every INTERNAL service secret is minted ON-BOX
-    by the converge loader (helpers/onbox_config.py), never here."""
-    raw = os.urandom(48)
-    return base64.b64encode(raw).decode("ascii")
-
-
+# --- prereqs ----------------------------------------------------------------
 def ensure_ssh_key(privkey_path: str, pubkey_path: str) -> None:
     privkey = Path(os.path.expanduser(privkey_path))
     pubkey = Path(os.path.expanduser(pubkey_path))
@@ -705,99 +644,41 @@ def ensure_ssh_key(privkey_path: str, pubkey_path: str) -> None:
 
 
 # --- secret-resolution helpers ----------------------------------------------
-def _print_secret_block(
-    title: str,
-    body: str,
-    lines: list[tuple[str, str]],
-    *,
-    no_confirm: bool,
-) -> None:
-    """Display a freshly-minted secret with a one-shot yellow-border + Enter
-    prompt. `lines` is a list of (label, value)."""
-    banner(title)
-    print(body, file=sys.stderr)
-    print("\033[1;33m" + ("=" * 70) + "\033[0m", file=sys.stderr)
-    for label, value in lines:
-        prefix = f"  {label}: " if label else "  "
-        print(f"\033[1;33m{prefix}{value}\033[0m", file=sys.stderr)
-    print("\033[1;33m" + ("=" * 70) + "\033[0m", file=sys.stderr)
-    print(file=sys.stderr)
-    if not no_confirm and sys.stdin.isatty():
-        input("Press Enter once you've copied it to your password manager...")
-
-
-def _resolve_admin_password(
-    vault_values: dict[str, str],
-    vault_provided: dict,
-    *,
-    existing_vault: bool,
-    no_confirm: bool,
-) -> None:
-    """Resolve the shared Portainer + Keycloak admin password. Order:
-    install.yaml override (if long enough) > auto-mint on first install >
-    leave alone on re-run."""
+def _resolve_admin_override(vault_values: dict[str, str], vault_provided: dict) -> None:
+    """Honor an OPTIONAL install.yaml admin-password pin. With no override the
+    admin password is minted ON-BOX by the converge loader and surfaced once by
+    the installer (seed never mints it). A too-short pin is a hard error."""
     if "vault_admin_password" in vault_values:
         return
     provided = str(vault_provided.get("vault_admin_password", "")).strip()
-    if provided and provided not in PLACEHOLDER_VALUES:
-        if len(provided) < ADMIN_PASSWORD_MIN_LEN:
-            die(
-                f"vault_admin_password in install.yaml is only "
-                f"{len(provided)} chars; need at least "
-                f"{ADMIN_PASSWORD_MIN_LEN}. Leave blank to auto-generate."
-            )
-        vault_values["vault_admin_password"] = provided
-        ok("Admin password taken from install.yaml.")
+    if not provided or provided in PLACEHOLDER_VALUES:
         return
-    if existing_vault:
-        return
-    import secrets as _secrets
-    admin_pw = _secrets.token_urlsafe(
-        # token_urlsafe(n) returns ceil(n*4/3) chars; 15 bytes -> 20 chars.
-        15 if ADMIN_PASSWORD_AUTO_LEN == 20 else ADMIN_PASSWORD_AUTO_LEN
-    )
-    _print_secret_block(
-        "Generated admin password (Portainer + Keycloak)",
-        """\
-This is the shared admin password for both Portainer and Keycloak. The
-installer will provision the initial admin account on both with this
-password. It's saved into the plaintext vault.yml; recover later with:
-  grep vault_admin_password inventory/<name>/group_vars/all/vault.yml
-
-COPY IT TO YOUR PASSWORD MANAGER NOW -- it's shown only once.
-""",
-        [("", admin_pw)],
-        no_confirm=no_confirm,
-    )
-    vault_values["vault_admin_password"] = admin_pw
+    if len(provided) < ADMIN_PASSWORD_MIN_LEN:
+        die(
+            f"vault_admin_password in install.yaml is only {len(provided)} "
+            f"chars; need at least {ADMIN_PASSWORD_MIN_LEN}. Leave it out to "
+            "have the box mint one and show it once."
+        )
+    vault_values["vault_admin_password"] = provided
+    ok("Admin password pinned from install.yaml.")
 
 
-def _resolve_restic_password(
-    vault_values: dict[str, str],
-    *,
-    existing_vault: bool,
-    no_confirm: bool,
-) -> None:
-    """Auto-mint the restic backup encryption password on first install.
-    Shown once + saved to the plaintext group_vars vault."""
-    if "vault_backup_restic_password" in vault_values or existing_vault:
-        return
-    restic_pw = _mint_strong_password()
-    _print_secret_block(
-        "Generated restic backup encryption password",
-        """\
-This password encrypts your restic backup repository. It's saved into
-the plaintext vault.yml below; recover later with:
-  grep vault_backup_restic_password inventory/<name>/group_vars/all/vault.yml
-
-COPY IT TO YOUR PASSWORD MANAGER NOW -- it is part of your disaster-recovery
-keyset ({restic endpoint, S3 creds, restic password}) and is the ONE secret
-you must hold off-box to rebuild from backup.
-""",
-        [("", restic_pw)],
-        no_confirm=no_confirm,
-    )
-    vault_values["vault_backup_restic_password"] = restic_pw
+def write_secrets_out(path: Path, secrets: dict[str, str]) -> None:
+    """Write the transient adopt map (install-critical vendor creds + any admin
+    override) to a 0600 file. The installer threads it onto the converge as
+    `-e @file` for the on-box loader to ADOPT, then deletes it -- so no secret
+    ever persists on the laptop. Blank/placeholder values are dropped."""
+    payload = {
+        k: v for k, v in secrets.items()
+        if isinstance(v, str) and v.strip() and v not in PLACEHOLDER_VALUES
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, yaml.safe_dump(payload, default_flow_style=False).encode())
+    finally:
+        os.close(fd)
+    os.chmod(str(path), 0o600)
 
 
 def _resolve_cloudflare_account(
@@ -850,25 +731,20 @@ def _collect_env_values(
     return env_values
 
 
-def _collect_vault_values(
-    vault_keys: list[str],
-    vault_provided: dict,
-) -> dict[str, str]:
-    """Walk the vault template keys, prompting for each (input hidden).
-    Skips keys in VAULT_SKIP_KEYS (auto-minted later)."""
-    banner("Secrets (group_vars/all/vault.yml -- plaintext, 0600)")
-    print("(input is hidden; placeholder values count as missing)\n", file=sys.stderr)
-    vault_values: dict[str, str] = {}
-    for key in vault_keys:
-        if key in VAULT_SKIP_KEYS:
-            provided = str(vault_provided.get(key, "")).strip()
-            if provided and provided not in PLACEHOLDER_VALUES:
-                vault_values[key] = provided
-            continue
+def _collect_install_secrets(vault_provided: dict) -> dict[str, str]:
+    """Prompt (hidden) for the install-critical vendor creds only -- the
+    Cloudflare API token + Tailscale OAuth id/secret. Everything else is minted
+    on-box. These go to the transient --secrets-out file, never a persisted
+    vault."""
+    banner("Install-critical vendor credentials (not stored on this machine)")
+    print("(input hidden; adopted on-box then discarded from the laptop)\n",
+          file=sys.stderr)
+    values: dict[str, str] = {}
+    for key in INSTALL_EXTERNAL_KEYS:
         val = fill(vault_provided, key, "", key, secret=True)
         if val:
-            vault_values[key] = val
-    return vault_values
+            values[key] = val
+    return values
 
 
 def _print_summary(
@@ -879,8 +755,7 @@ def _print_summary(
     initial_user: str,
     tailnet_ip_provided: str,
     env_values: dict[str, str],
-    vault_keys: list[str],
-    vault_values: dict[str, str],
+    secret_values: dict[str, str],
 ) -> None:
     banner("Summary")
     print(f"  Inventory:      {inventory}", file=sys.stderr)
@@ -889,8 +764,8 @@ def _print_summary(
     print(f"  Initial user:   {initial_user}", file=sys.stderr)
     print(f"  Tailnet IPv4:   {tailnet_ip_provided or '(captured by bootstrap.yml post_task)'}", file=sys.stderr)
     print(f"  CF zone:        {env_values.get('CLOUDFLARE_ZONE')}", file=sys.stderr)
-    print(f"  Restic repo:    {env_values.get('BACKUP_RESTIC_REPO')}", file=sys.stderr)
-    print(f"  Vault keys set: {len(vault_values)}/{len(vault_keys)}", file=sys.stderr)
+    print(f"  Vendor creds:   {len(secret_values)}/{len(INSTALL_EXTERNAL_KEYS)} "
+          "collected (transient; adopted on-box, not stored here)", file=sys.stderr)
     print(file=sys.stderr)
 
 
@@ -900,7 +775,6 @@ def _write_inventory_files(
     inventory: str,
     env_template: str,
     env_values: dict[str, str],
-    vault_values: dict[str, str],
     host_name: str,
     public_ip: str,
     initial_user: str,
@@ -908,17 +782,16 @@ def _write_inventory_files(
 ) -> None:
     env_target = inv_dir / ".env"
     main_target = inv_dir / "group_vars" / "all" / "main.yml"
-    vault_target = inv_dir / "group_vars" / "all" / "vault.yml"
     hosts_target = inv_dir / "hosts.yml"
-    banner(f"Writing inventory/{inventory}/")
+    banner(f"Writing inventory/{inventory}/ (non-secret files only)")
     emit_env(env_template, env_values, env_target)
     ok(f"wrote {env_target}")
     emit_main_yml(main_target)
     ok(f"wrote {main_target}")
     emit_localhost_yml(inv_dir / "localhost.yml")
     ok(f"wrote {inv_dir / 'localhost.yml'}")
-    emit_vault(vault_values, vault_target)
-    ok(f"wrote {vault_target}")
+    # No vault.yml: secrets never persist on the laptop (0b). Vendor creds go to
+    # the transient --secrets-out file; everything else is minted on-box.
     # Placeholder tailnet IP; bootstrap.yml's post_task rewrites it after the
     # VPS joins the tailnet.
     initial_tailnet_ip = tailnet_ip_provided or "0.0.0.0"
@@ -951,10 +824,16 @@ def main(argv: list[str] | None = None) -> int:
              "directory name is used as the inventory label.",
     )
     ap.add_argument(
+        "--secrets-out",
+        help="Path to write the TRANSIENT 0600 adopt map (install-critical "
+             "vendor creds + any admin override) that the installer threads "
+             "onto the converge as `-e @file` and then deletes. Defaults to a "
+             "mkstemp temp file whose path is printed.",
+    )
+    ap.add_argument(
         "--no-confirm",
         action="store_true",
-        help="Skip the 'Proceed?' prompt and the one-shot Enter prompts "
-             "after minting secrets. Intended for non-interactive installs.",
+        help="Skip the 'Proceed?' prompt. Intended for non-interactive installs.",
     )
     args = ap.parse_args(argv)
 
@@ -991,29 +870,19 @@ def main(argv: list[str] | None = None) -> int:
     env_provided = inp.get("env", {})
     env_values = _collect_env_values(env_keys, env_provided)
 
-    vault_keys = parse_vault_template(VAULT_TEMPLATE)
     vault_provided = inp.get("vault", {})
-    vault_values = _collect_vault_values(vault_keys, vault_provided)
+    secret_values = _collect_install_secrets(vault_provided)
+    # Optional install.yaml admin-password pin; otherwise the box mints it.
+    _resolve_admin_override(secret_values, vault_provided)
+    # Every other secret -- internal service secrets AND the user-held
+    # admin/restic DR keyset -- is minted ON-BOX by the converge loader
+    # (helpers/onbox_config.py), never here.
 
-    existing_vault = (inv_dir / "group_vars" / "all" / "vault.yml").exists()
-    _resolve_admin_password(
-        vault_values, vault_provided,
-        existing_vault=existing_vault, no_confirm=args.no_confirm,
-    )
-    _resolve_restic_password(
-        vault_values,
-        existing_vault=existing_vault, no_confirm=args.no_confirm,
-    )
-    # Internal service secrets (keycloak DB, oauth2 cookie, healthchecks,
-    # postgres, jitsi, beszel, ...) are NOT minted here anymore: the converge
-    # loader (helpers/onbox_config.py ensure_internal_secrets) mints them
-    # ON-BOX so they never touch the client's laptop. seed only writes the
-    # user-held externals (vendor creds + the admin/restic DR keyset).
+    # Deferred env keys (CF account auto-fetch needs the CF token).
+    _resolve_cloudflare_account(env_values, secret_values, env_provided)
 
-    # Deferred env keys (CF account auto-fetch needs the vault token).
-    _resolve_cloudflare_account(env_values, vault_values, env_provided)
-
-    # Validate before any destructive action.
+    # Validate before any destructive action. The install externals ride the
+    # `vault` slot so the structural + live-probe checks reach them.
     validation_inp = {
         "inventory": inventory,
         "host": {
@@ -1023,16 +892,16 @@ def main(argv: list[str] | None = None) -> int:
             "initial_password": host_data.get("initial_password") or "",
         },
         "env": env_values,
-        "vault": vault_values,
+        "vault": secret_values,
     }
-    problems = validate_install(validation_inp, env_keys, vault_keys)
+    problems = validate_install(validation_inp, env_keys, list(INSTALL_EXTERNAL_KEYS))
     if problems:
         die(f"{problems} problem(s) -- fix and re-run.")
 
     _print_summary(
         inventory=inventory, host_name=host_name, public_ip=public_ip,
         initial_user=initial_user, tailnet_ip_provided=tailnet_ip_provided,
-        env_values=env_values, vault_keys=vault_keys, vault_values=vault_values,
+        env_values=env_values, secret_values=secret_values,
     )
     if not args.no_confirm:
         answer = input("Proceed with seed (write inventory files)? [y/N]: ").strip().lower()
@@ -1045,11 +914,21 @@ def main(argv: list[str] | None = None) -> int:
     _write_inventory_files(
         inv_dir=inv_dir, inventory=inventory,
         env_template=env_template, env_values=env_values,
-        vault_values=vault_values,
         host_name=host_name, public_ip=public_ip,
         initial_user=initial_user,
         tailnet_ip_provided=tailnet_ip_provided,
     )
+
+    # Write the transient adopt map (never into the inventory).
+    if args.secrets_out:
+        secrets_out = Path(args.secrets_out).expanduser()
+    else:
+        fd, name = tempfile.mkstemp(prefix="catena-seed-secrets-", suffix=".yml")
+        os.close(fd)
+        secrets_out = Path(name)
+    write_secrets_out(secrets_out, secret_values)
+    ok(f"wrote transient adopt map {secrets_out} (0600) -- fed to the converge, "
+       "then deleted; not stored in the inventory")
 
     ok(f"seed complete for inventory '{inventory}'")
     return 0

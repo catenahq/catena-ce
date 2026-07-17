@@ -88,31 +88,26 @@
       ansible.builtin.meta: end_play
       when: preflight_skip_oauth | bool
 
-    - name: Check vault.yml exists
-      ansible.builtin.stat:
-        path: "{{ inventory_dir }}/group_vars/all/vault.yml"
-      register: vault_file
-
-    - name: Show setup instructions if vault.yml is missing
-      ansible.builtin.fail:
-        msg: "{{ tailscale_setup_instructions }}"
-      when: not vault_file.stat.exists
-
-    # The host_group_vars plugin auto-loads the plaintext vault.yml under
-    # group_vars/all/ at inventory parse time (see
-    # ansible.cfg::vars_plugins_enabled), so vault_* keys are already in
-    # scope by the time preflight runs. The check above just confirms the
-    # vault file is on disk.
-
-    - name: Show setup instructions if OAuth credentials are missing or placeholder
-      ansible.builtin.fail:
-        msg: "{{ tailscale_setup_instructions }}"
+    # No persisted laptop vault (0b): the Tailscale OAuth creds arrive as
+    # extra-vars that `catena install` / `catena recover` thread in from the
+    # transient adopt file (`-e @file`). When they are NOT in scope -- e.g. an
+    # in-place `catena rollback` on a box already on the tailnet -- there is
+    # nothing to validate before a fresh join, so skip the OAuth checks rather
+    # than fail. On install/recover the creds are always present (seed already
+    # live-validated them before the deploy chain started).
+    - name: Skip OAuth validation when no Tailscale creds are in scope
+      ansible.builtin.meta: end_play
       when: >-
         vault_tailscale_oauth_client_id is not defined
         or vault_tailscale_oauth_client_secret is not defined
         or vault_tailscale_oauth_client_id | length == 0
         or vault_tailscale_oauth_client_secret | length == 0
-        or 'REPLACE' in vault_tailscale_oauth_client_id
+
+    - name: Show setup instructions if OAuth credentials are placeholder
+      ansible.builtin.fail:
+        msg: "{{ tailscale_setup_instructions }}"
+      when: >-
+        'REPLACE' in vault_tailscale_oauth_client_id
         or 'REPLACE' in vault_tailscale_oauth_client_secret
 
     - name: Exchange OAuth client credentials for a bearer token

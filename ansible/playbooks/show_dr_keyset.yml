@@ -1,0 +1,43 @@
+---
+# Surface the user-held DR keyset (admin + restic passwords) ONCE, at the end
+# of a fresh `catena install`. Both are minted ON-BOX (helpers/onbox_config.py
+# USER_HELD_SECRETS) and never touch the laptop, so the installer reads them
+# back from the store here and prints them once for the user's password
+# manager. Deliberately NOT no_log on the debug: showing them once is the point.
+#
+# Usage (driven by `catena install`; cwd = ansible/):
+#   ansible-playbook -i inventory/<name> playbooks/show_dr_keyset.yml
+
+- name: Surface the DR keyset once
+  hosts: "{{ stage_hosts | default('vps') }}"
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Read the on-box config store
+      ansible.builtin.script:
+        cmd: >-
+          {{ playbook_dir }}/../helpers/onbox_config.py
+          --path {{ catena_onbox_config_path | default('/etc/catena/config.json') }}
+          --emit all --no-mint
+        executable: python3
+      register: _dr_store
+      changed_when: false
+      no_log: true
+
+    - name: Show the admin + restic passwords ONCE
+      ansible.builtin.debug:
+        msg: "{{ _banner.split('\n') }}"
+      vars:
+        _secrets: "{{ (_dr_store.stdout | from_json).secrets }}"
+        _banner: |
+          ==================================================================
+          SAVE THESE TO YOUR PASSWORD MANAGER NOW -- shown once.
+
+            Admin password (Portainer + Keycloak): {{ _secrets.vault_admin_password }}
+            Restic backup password (DR keyset):    {{ _secrets.vault_backup_restic_password }}
+
+          The restic password is the ONE secret you must hold off-box: with it
+          plus your S3 keys and repo URL you can rebuild a wiped VPS from
+          backup. Without it your backups cannot be restored, by anyone.
+          ==================================================================

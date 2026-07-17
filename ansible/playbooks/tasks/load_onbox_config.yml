@@ -1,18 +1,21 @@
 ---
-# 0b: on-box config store loader. THE secret source of truth (SOPS was dropped).
+# 0b: on-box config store loader. THE secret source of truth (SOPS was dropped;
+# no persisted laptop vault).
 #
 # The store is a plaintext 0600 file at /etc/catena/config.json, which rides
 # the restic backup (/etc is in roles/backup backup_paths). On every converge
-# it ADOPTS the plaintext group_vars vault_* in scope (fill-only -- the
-# user-held externals: vendor creds + the admin/restic DR keyset), MINTS any
-# missing INTERNAL service secret on-box (reconcile-not-overwrite, via
-# helpers/onbox_config.py ensure_internal_secrets -- so internals never touch
-# the client's laptop), and set_facts every vault_* from the store so all
+# it ADOPTS any vault_* in scope (fill-only) -- on a fresh install that is the
+# install-critical vendor creds the CLI threads in as `-e @file`; on a fresh
+# recover it is the DR keyset re-entered at the prompt; on a day-2 converge
+# nothing is in scope and the store is already the truth. It MINTS every
+# missing INTERNAL service secret AND the user-held admin/restic DR keyset
+# on-box (reconcile-not-overwrite, via helpers/onbox_config.py) so no secret is
+# minted on the laptop, then set_facts every vault_* from the store so all
 # downstream roles read the on-box source of truth.
 #
-# Included UNCONDITIONALLY from site.yml + validate.yml pre_tasks (runs before
-# any role). A rebuild needs only the {restic endpoint, S3 creds, restic
-# password} keyset: the store returns with the data, internals and all.
+# Included UNCONDITIONALLY from site.yml + validate.yml + restore.yml pre_tasks
+# (runs before any role). A rebuild needs only the {restic endpoint, S3 creds,
+# restic password} keyset: the store returns with the data, internals and all.
 
 # Capture by NAME first (varnames lookup does not evaluate values), then
 # extract only the vault_* values. A blanket `vars | dict2items` would force

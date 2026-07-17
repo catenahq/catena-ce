@@ -32,16 +32,28 @@
   # (`restore_snapshot: latest`) when unset by the caller.
 
   pre_tasks:
-    - name: Fail fast if restic password is missing
+    # 0b: load the on-box config store FIRST so restic creds are in scope with
+    # no persisted laptop vault. On an in-place rollback the live box's store
+    # supplies them; on a fresh-box `catena recover` the store is absent, so the
+    # DR keyset the CLI threads in as `-e @file` (restic password + S3 keys) is
+    # what the loader adopts and set_facts. See tasks/load_onbox_config.yml.
+    - name: "0b: load on-box config store"
+      ansible.builtin.include_tasks:
+        file: tasks/load_onbox_config.yml
+        apply:
+          tags: [always, onbox]
+      tags: [always, onbox]
+
+    - name: Fail fast if restic credentials are missing
       ansible.builtin.assert:
         that:
           - vault_backup_restic_password is defined
           - vault_backup_s3_access_key is defined
           - vault_backup_s3_secret_key is defined
         fail_msg: >-
-          Restic credentials must be in vault before restore can run.
-          See inventory/example/group_vars/all/vault.yml.example for the
-          schema (the live file is the plaintext, gitignored, 0600 vault.yml).
+          Restic credentials are not available. On a fresh-box recover, pass
+          them to `catena recover` (the DR keyset prompt); on an in-place
+          rollback they come from the box's /etc/catena/config.json store.
 
   roles:
     - role: common # apt update + base packages (restic needs apt)

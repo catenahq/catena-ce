@@ -76,6 +76,63 @@ def test_recover_runs_full_chain_with_snapshot(cli, monkeypatch):
     assert "restore_snapshot=snap42" in " ".join(restore_cmd)
 
 
+# ---- transient secret threading (0b: no persisted laptop vault) ----
+
+def test_run_deploy_chain_threads_global_extra_on_every_stage(cli, monkeypatch, tmp_path):
+    """The transient adopt file (`-e @file`) rides EVERY stage so the on-box
+    loader adopts the vendor creds / DR keyset; bootstrap also carries its own
+    creds."""
+    from helpers import bootstrap_output
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
+    cli._run_deploy_chain(
+        tmp_path, ("preflight", "bootstrap", "site"),
+        bootstrap_extra=["-e", "@boot"], global_extra=["-e", "@secrets"],
+    )
+    pb = [c for c in calls if c and c[0] == "ansible-playbook"]
+    assert pb
+    for c in pb:
+        assert "@secrets" in " ".join(c), _stage_of(c)
+    boot = next(c for c in pb if _stage_of(c) == "bootstrap")
+    assert "@boot" in " ".join(boot)
+
+
+def test_collect_dr_adopt_file_from_install_yaml(cli, tmp_path):
+    """Recover reads the DR keyset from --input, writes a 0600 temp adopt file
+    with the vault_* creds + the restic repo, referenced as `-e @file`."""
+    import yaml
+
+    iy = tmp_path / "install.yaml"
+    iy.write_text(
+        "vault_backup_restic_password: rp\n"
+        "vault_backup_s3_access_key: ak\n"
+        "vault_backup_s3_secret_key: sk\n"
+        "vault_cloudflare_api_token: cf\n"
+        "vault_tailscale_oauth_client_id: tid\n"
+        "vault_tailscale_oauth_client_secret: tsec\n"
+        "BACKUP_RESTIC_REPO: s3:ep/bucket\n"
+    )
+    extra, tmp = cli._collect_dr_adopt_file(str(iy))
+    try:
+        assert extra[0] == "-e" and extra[1].startswith("@")
+        data = yaml.safe_load(tmp.read_text())
+        assert data["vault_backup_restic_password"] == "rp"
+        assert data["vault_backup_s3_access_key"] == "ak"
+        assert data["backup_restic_repo"] == "s3:ep/bucket"
+        assert (tmp.stat().st_mode & 0o777) == 0o600
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def test_collect_dr_adopt_file_empty_without_input_or_tty(cli, monkeypatch):
+    """No --input and no TTY (the bench) -> nothing collected, no temp file."""
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: False)
+    extra, tmp = cli._collect_dr_adopt_file(None)
+    assert extra == [] and tmp is None
+
+
 def test_rollback_chain_order(cli):
     """In-place rollback runs preflight -> restore -> site -> validate, no
     bootstrap (the host is alive)."""
