@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -68,6 +69,9 @@ func BuildWriteCommand(submitted map[string]string) (string, error) {
 		if !ok || strings.TrimSpace(val) == "" {
 			continue
 		}
+		if err := validateConfigValue(f.Key, val); err != nil {
+			return "", err
+		}
 		if f.Section == SectionSecrets {
 			req.Secrets[f.Key] = val
 		} else {
@@ -84,6 +88,38 @@ func BuildWriteCommand(submitted map[string]string) (string, error) {
 		return "", nil
 	}
 	return encodeRequest(req), nil
+}
+
+// validateConfigValue enforces the small set of typed backup-config
+// constraints on submission (pure; no I/O). Unlisted keys are unconstrained.
+func validateConfigValue(key, val string) error {
+	v := strings.TrimSpace(val)
+	switch key {
+	case "BACKUP_ENABLED":
+		switch strings.ToLower(v) {
+		case "true", "false":
+			return nil
+		}
+		return fmt.Errorf("BACKUP_ENABLED must be true or false (got %q)", val)
+	case "BACKUP_MIN_INTERVAL_HOURS":
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return fmt.Errorf("BACKUP_MIN_INTERVAL_HOURS must be a non-negative integer (got %q)", val)
+		}
+		// CE weekly-cap: 0 (every base fire) or at least one week. Sub-weekly
+		// cadence is the Business managed-backup tier.
+		if n > 0 && n < CEWeeklyCapHours {
+			return fmt.Errorf("BACKUP_MIN_INTERVAL_HOURS must be 0 or >= %d (weekly) on Community; sub-weekly cadence is Business", CEWeeklyCapHours)
+		}
+		return nil
+	case "BACKUP_KEEP_HOURLY", "BACKUP_KEEP_DAILY", "BACKUP_KEEP_WEEKLY", "BACKUP_KEEP_MONTHLY":
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return fmt.Errorf("%s must be a non-negative integer (got %q)", key, val)
+		}
+		return nil
+	}
+	return nil
 }
 
 // FieldKind drives the input widget + redaction rule.
@@ -139,12 +175,27 @@ var Fields = []Field{
 	{"vault_nextcloud_s3_secret_key", SectionSecrets, KindSecret, true, "settings.field.nextcloud_s3_secret_key"},
 	// --- non-secret config ---
 	{"BACKUP_RESTIC_REPO", SectionConfig, KindText, false, "settings.field.backup_restic_repo"},
+	// Deferred-backup config: the run-backup wrapper reads these from the store
+	// at runtime (no converge). BACKUP_ENABLED gates the run; unset -> on.
+	// BACKUP_MIN_INTERVAL_HOURS lengthens the effective cadence beyond the base
+	// weekly timer (CE weekly-cap: 0 or >= 168). Retention feeds restic forget.
+	{"BACKUP_ENABLED", SectionConfig, KindText, true, "settings.field.backup_enabled"},
+	{"BACKUP_MIN_INTERVAL_HOURS", SectionConfig, KindText, true, "settings.field.backup_min_interval_hours"},
+	{"BACKUP_KEEP_HOURLY", SectionConfig, KindText, true, "settings.field.backup_keep_hourly"},
+	{"BACKUP_KEEP_DAILY", SectionConfig, KindText, true, "settings.field.backup_keep_daily"},
+	{"BACKUP_KEEP_WEEKLY", SectionConfig, KindText, true, "settings.field.backup_keep_weekly"},
+	{"BACKUP_KEEP_MONTHLY", SectionConfig, KindText, true, "settings.field.backup_keep_monthly"},
 	{"SMTP_HOST", SectionConfig, KindText, true, "settings.field.smtp_host"},
 	{"SMTP_PORT", SectionConfig, KindText, true, "settings.field.smtp_port"},
 	{"SMTP_FROM", SectionConfig, KindText, true, "settings.field.smtp_from"},
 	{"NTFY_SERVER", SectionConfig, KindText, true, "settings.field.ntfy_server"},
 	{"NTFY_TOPIC", SectionConfig, KindText, true, "settings.field.ntfy_topic"},
 }
+
+// CEWeeklyCapHours is the Community backup-cadence floor: CE ships a single
+// weekly timer, so the runtime interval must be 0 (every base fire) or at least
+// one week. Sub-weekly cadence is the Business managed-backup tier.
+const CEWeeklyCapHours = 168
 
 // fieldByKey indexes Fields for O(1) schema validation.
 var fieldByKey = func() map[string]Field {

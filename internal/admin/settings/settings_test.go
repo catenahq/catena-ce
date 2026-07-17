@@ -122,6 +122,58 @@ func TestBuildWriteCommandEmptyIsNoOp(t *testing.T) {
 	}
 }
 
+func TestBuildWriteCommandBackupConfigRouted(t *testing.T) {
+	cmd, err := BuildWriteCommand(map[string]string{
+		"BACKUP_ENABLED":            "true",
+		"BACKUP_MIN_INTERVAL_HOURS": "168",
+		"BACKUP_KEEP_DAILY":         "7",
+	})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	req := decodeWriteCmd(t, cmd)
+	if req.Config["BACKUP_ENABLED"] != "true" ||
+		req.Config["BACKUP_MIN_INTERVAL_HOURS"] != "168" ||
+		req.Config["BACKUP_KEEP_DAILY"] != "7" {
+		t.Fatalf("backup config not routed: %+v", req.Config)
+	}
+}
+
+func TestBuildWriteCommandRejectsBadEnabled(t *testing.T) {
+	if _, err := BuildWriteCommand(map[string]string{"BACKUP_ENABLED": "yes"}); err == nil {
+		t.Fatal("expected rejection of non-boolean BACKUP_ENABLED")
+	}
+}
+
+func TestBuildWriteCommandRejectsSubWeeklyInterval(t *testing.T) {
+	// CE weekly-cap: sub-weekly cadence is Business.
+	if _, err := BuildWriteCommand(map[string]string{"BACKUP_MIN_INTERVAL_HOURS": "24"}); err == nil {
+		t.Fatal("expected rejection of sub-weekly interval on Community")
+	}
+	// 0 (every base fire) and >= a week are both fine.
+	for _, ok := range []string{"0", "168", "336"} {
+		if _, err := BuildWriteCommand(map[string]string{"BACKUP_MIN_INTERVAL_HOURS": ok}); err != nil {
+			t.Fatalf("interval %q should be accepted: %v", ok, err)
+		}
+	}
+}
+
+func TestBuildWriteCommandRejectsBadRetention(t *testing.T) {
+	for _, bad := range []string{"-1", "abc"} {
+		if _, err := BuildWriteCommand(map[string]string{"BACKUP_KEEP_WEEKLY": bad}); err == nil {
+			t.Fatalf("expected rejection of retention %q", bad)
+		}
+	}
+}
+
+func TestResticPasswordIsNotSettable(t *testing.T) {
+	// USER_HELD in onbox_config: minted on-box, rotated via the dedicated
+	// action -- never a settable settings field.
+	if _, err := BuildWriteCommand(map[string]string{"vault_backup_restic_password": "x"}); err == nil {
+		t.Fatal("restic password must be rejected by the settings write path")
+	}
+}
+
 func TestReadCommandIsReadOp(t *testing.T) {
 	req := decodeWriteCmd(t, ReadCommand())
 	if req.Op != "read" {
