@@ -144,6 +144,8 @@ func New(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("GET /recovery/stream/{job_id}", RequireAdmin(s.recoveryStream))
 	mux.HandleFunc("GET /settings", RequireAdmin(s.settingsIndex))
 	mux.HandleFunc("POST /settings/save", RequireAdmin(s.settingsSave))
+	mux.HandleFunc("POST /settings/restic/validate", RequireAdmin(s.resticValidate))
+	mux.HandleFunc("POST /settings/restic/rotate", RequireAdmin(s.resticRotate))
 	mux.HandleFunc("GET /maintenance", RequireAdmin(s.maintenanceIndex))
 	mux.HandleFunc("GET /resources", RequireAdmin(s.resourcesIndex))
 	mux.HandleFunc("GET /plugin/{id}", RequireAdmin(s.pluginPanel))
@@ -362,6 +364,65 @@ type settingsView struct {
 	DRKeys []settings.DRKey
 	Saved  bool
 	Error  string
+	// NoticeKey is an i18n key for a one-shot banner from a restic
+	// validate/rotate action; NoticeOK drives its success/warn styling.
+	NoticeKey string
+	NoticeOK  bool
+}
+
+// renderSettings re-reads the store and renders the Settings tab with an
+// optional one-shot notice (used by the restic validate/rotate actions).
+func (s *server) renderSettings(w http.ResponseWriter, r *http.Request, noticeKey string, ok bool) {
+	view := settingsView{NoticeKey: noticeKey, NoticeOK: ok}
+	if store, err := s.readStore(); err != nil {
+		view.Error = err.Error()
+	} else {
+		view.Fields = store.RedactedView()
+		view.DRKeys = store.DRKeyset()
+	}
+	s.tmpl.Render(w, r, "settings", http.StatusOK, view)
+}
+
+// resticValidate checks whether the submitted password opens the backup repo
+// (read-only); the restic password is USER_HELD, never a settable field.
+func (s *server) resticValidate(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	cmd, err := settings.BuildResticValidateCommand(r.PostFormValue("restic_password"))
+	if err != nil {
+		s.renderSettings(w, r, "settings.restic.need_password", false)
+		return
+	}
+	_, rc, derr := s.dispatchCapture(cmd)
+	if derr != nil {
+		s.renderSettings(w, r, "settings.restic.error", false)
+		return
+	}
+	if rc == 0 {
+		s.renderSettings(w, r, "settings.restic.valid", true)
+	} else {
+		s.renderSettings(w, r, "settings.restic.invalid", false)
+	}
+}
+
+// resticRotate re-keys the backup repo to a new password (destructive -- the UI
+// gates it behind an explicit confirm). Persists the new password on-box.
+func (s *server) resticRotate(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	if r.PostFormValue("confirm") != "on" {
+		s.renderSettings(w, r, "settings.restic.need_confirm", false)
+		return
+	}
+	cmd, err := settings.BuildResticRotateCommand(r.PostFormValue("new_restic_password"))
+	if err != nil {
+		s.renderSettings(w, r, "settings.restic.need_password", false)
+		return
+	}
+	_, rc, derr := s.dispatchCapture(cmd)
+	if derr != nil || rc != 0 {
+		s.renderSettings(w, r, "settings.restic.rotate_failed", false)
+		return
+	}
+	s.renderSettings(w, r, "settings.restic.rotated", true)
 }
 
 // settingsIndex renders the admin-only Settings tab (0b): the client's on-box

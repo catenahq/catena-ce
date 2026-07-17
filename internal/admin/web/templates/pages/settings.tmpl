@@ -9,6 +9,10 @@
   {{ if .Data.Error }}
     <p class="notice notice-error" role="alert">{{ .T "settings.error" }}</p>
   {{ end }}
+  {{ if .Data.NoticeKey }}
+    <p class="notice {{ if .Data.NoticeOK }}notice-ok{{ else }}notice-error{{ end }}"
+       role="{{ if .Data.NoticeOK }}status{{ else }}alert{{ end }}">{{ .T .Data.NoticeKey }}</p>
+  {{ end }}
 
   <form class="settings-form" method="post" action="/settings/save" autocomplete="off">
     <section class="settings-secrets">
@@ -60,6 +64,31 @@
         {{ end }}
       </ul>
     {{ end }}
+  </section>
+
+  <section class="settings-restic">
+    <h2>{{ .T "settings.restic.heading" }}</h2>
+    <p class="muted hint">{{ .T "settings.restic.hint" }}</p>
+
+    <form class="settings-form" method="post" action="/settings/restic/validate" autocomplete="off">
+      <label class="settings-field">
+        <span class="settings-label">{{ .T "settings.restic.validate_label" }}</span>
+        <input type="password" name="restic_password" autocomplete="off" required>
+      </label>
+      <button type="submit" class="btn-run">{{ .T "settings.restic.validate_btn" }}</button>
+    </form>
+
+    <form class="settings-form" method="post" action="/settings/restic/rotate" autocomplete="off">
+      <label class="settings-field">
+        <span class="settings-label">{{ .T "settings.restic.rotate_label" }}</span>
+        <input type="password" name="new_restic_password" autocomplete="new-password" required>
+      </label>
+      <label class="settings-field settings-confirm">
+        <input type="checkbox" name="confirm" value="on" required>
+        <span>{{ .T "settings.restic.rotate_confirm" }}</span>
+      </label>
+      <button type="submit" class="btn-danger">{{ .T "settings.restic.rotate_btn" }}</button>
+    </form>
   </section>
 </section>
 {{end}}
