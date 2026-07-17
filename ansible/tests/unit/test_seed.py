@@ -228,6 +228,28 @@ def test_admin_override_noop_when_absent(seed):
     assert values == {}
 
 
+def test_absorb_provided_secrets_passes_through_full_keyset(seed):
+    """A fully-specified install.yaml (bench / power user) supplies S3 + restic
+    etc.; absorb copies every non-blank vault_* except admin (handled
+    separately) into the adopt map."""
+    values = {"vault_cloudflare_api_token": "cf"}  # already collected
+    seed._absorb_provided_secrets(values, {
+        "vault_backup_s3_access_key": "ak",
+        "vault_backup_s3_secret_key": "sk",
+        "vault_backup_restic_password": "rp",
+        "vault_admin_password": "should-be-ignored-here",
+        "vault_smtp_password": "",          # blank dropped
+        "vault_nextcloud_s3_access_key": "REPLACE",  # placeholder dropped
+        "not_a_vault_key": "x",             # ignored
+    })
+    assert values["vault_backup_s3_access_key"] == "ak"
+    assert values["vault_backup_restic_password"] == "rp"
+    assert "vault_admin_password" not in values
+    assert "vault_smtp_password" not in values
+    assert "vault_nextcloud_s3_access_key" not in values
+    assert "not_a_vault_key" not in values
+
+
 def test_seed_has_no_sops_age_helpers(seed):
     """0b dropped SOPS+age: the self-recipient / age-key machinery is gone."""
     for gone in ("emit_self_sops_yaml", "_resolve_self_age_key"):

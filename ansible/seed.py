@@ -644,6 +644,24 @@ def ensure_ssh_key(privkey_path: str, pubkey_path: str) -> None:
 
 
 # --- secret-resolution helpers ----------------------------------------------
+def _absorb_provided_secrets(secret_values: dict[str, str], vault_provided: dict) -> None:
+    """Pass through ANY `vault_*` cred supplied in install.yaml beyond the three
+    prompted ones -- S3 keys, restic password, WORM/mail/nextcloud creds, etc.
+    An interactive self-hoster only enters the three install-critical creds (the
+    rest mint on-box or are set later in catena-admin); a fully-specified
+    install.yaml (a power user, or the test bench) can supply the whole keyset,
+    which the loader adopts on the first converge. Blank/placeholder values are
+    dropped; vault_admin_password is handled by _resolve_admin_override."""
+    for key, raw in (vault_provided or {}).items():
+        if not isinstance(key, str) or not key.startswith("vault_"):
+            continue
+        if key in secret_values or key == "vault_admin_password":
+            continue
+        val = "" if raw is None else str(raw).strip()
+        if val and val not in PLACEHOLDER_VALUES:
+            secret_values[key] = val
+
+
 def _resolve_admin_override(vault_values: dict[str, str], vault_provided: dict) -> None:
     """Honor an OPTIONAL install.yaml admin-password pin. With no override the
     admin password is minted ON-BOX by the converge loader and surfaced once by
@@ -872,6 +890,9 @@ def main(argv: list[str] | None = None) -> int:
 
     vault_provided = inp.get("vault", {})
     secret_values = _collect_install_secrets(vault_provided)
+    # A fully-specified install.yaml (power user / test bench) can supply the
+    # whole keyset; pass any extra vault_* creds through to the adopt file.
+    _absorb_provided_secrets(secret_values, vault_provided)
     # Optional install.yaml admin-password pin; otherwise the box mints it.
     _resolve_admin_override(secret_values, vault_provided)
     # Every other secret -- internal service secrets AND the user-held
