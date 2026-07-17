@@ -56,6 +56,45 @@ func encodeRequest(r request) string {
 // on stdout. A read must never mint (viewing the settings page is read-only).
 func ReadCommand() string { return encodeRequest(request{Op: "read"}) }
 
+// HostResticValidate / HostResticRotate are the reserved host actions that
+// check or re-key the backup password on the box. The restic password is
+// USER_HELD (never a settable settings field): validate is read-only, rotate is
+// a deliberate confirm-gated re-key, both dispatched like catena-config.
+const (
+	HostResticValidate = "catena-restic-validate"
+	HostResticRotate   = "catena-restic-rotate"
+)
+
+type resticRequest struct {
+	Op          string `json:"op"`
+	Password    string `json:"password,omitempty"`
+	NewPassword string `json:"new_password,omitempty"`
+}
+
+func encodeRestic(action string, r resticRequest) string {
+	b, _ := json.Marshal(r)
+	return action + " " + base64.StdEncoding.EncodeToString(b)
+}
+
+// BuildResticValidateCommand returns the host action that reports whether the
+// supplied password opens the backup repo. Read-only.
+func BuildResticValidateCommand(password string) (string, error) {
+	if strings.TrimSpace(password) == "" {
+		return "", fmt.Errorf("password required")
+	}
+	return encodeRestic(HostResticValidate, resticRequest{Op: "validate", Password: password}), nil
+}
+
+// BuildResticRotateCommand returns the host action that re-keys the repo to a
+// new password. Destructive -- the old password stops opening the repo, so the
+// UI must gate this behind an explicit "are you sure" confirm.
+func BuildResticRotateCommand(newPassword string) (string, error) {
+	if strings.TrimSpace(newPassword) == "" {
+		return "", fmt.Errorf("new password required")
+	}
+	return encodeRestic(HostResticRotate, resticRequest{Op: "rotate", NewPassword: newPassword}), nil
+}
+
 // BuildWriteCommand validates the submitted form against the schema and returns
 // the host dispatch command that persists the external creds + config. Blank
 // values are skipped (never clear a stored secret); an unknown or internal key

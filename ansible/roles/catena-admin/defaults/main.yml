@@ -133,9 +133,19 @@ catena_admin_ee_reserved_actions:
 # button (the Settings page is a first-class nav tab, not an Actions button).
 catena_admin_config_store_path: "/etc/catena/config.json"
 catena_admin_onbox_config_path: "/usr/local/bin/catena-onbox-config"
+# Backup-password (restic) validate + rotate: USER_HELD, never a settings
+# field, so these are deliberate button+confirm actions dispatched to the host,
+# not part of a settings save. Same opaque-PAYLOAD pattern as catena-config.
+catena_admin_restic_key_path: "/usr/local/bin/catena-restic-key"
 catena_admin_ce_reserved_actions:
   - name: catena-config
     shell: >-
       echo "$PAYLOAD" | base64 -d |
       {{ catena_admin_onbox_config_path }} --dispatch-stdin
       --path {{ catena_admin_config_store_path }}
+  - name: catena-restic-validate
+    shell: >-
+      echo "$PAYLOAD" | base64 -d | {{ catena_admin_restic_key_path }}
+  - name: catena-restic-rotate
+    shell: >-
+      echo "$PAYLOAD" | base64 -d | {{ catena_admin_restic_key_path }}

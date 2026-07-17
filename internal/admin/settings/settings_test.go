@@ -181,6 +181,55 @@ func TestReadCommandIsReadOp(t *testing.T) {
 	}
 }
 
+func decodeRestic(t *testing.T, action, cmd string) resticRequest {
+	t.Helper()
+	prefix := action + " "
+	if len(cmd) <= len(prefix) || cmd[:len(prefix)] != prefix {
+		t.Fatalf("command missing %q prefix: %q", prefix, cmd)
+	}
+	raw, err := base64.StdEncoding.DecodeString(cmd[len(prefix):])
+	if err != nil {
+		t.Fatalf("payload not base64: %v", err)
+	}
+	var req resticRequest
+	if err := json.Unmarshal(raw, &req); err != nil {
+		t.Fatalf("payload not json: %v", err)
+	}
+	return req
+}
+
+func TestBuildResticValidateCommand(t *testing.T) {
+	if _, err := BuildResticValidateCommand("  "); err == nil {
+		t.Fatal("blank password should be rejected")
+	}
+	cmd, err := BuildResticValidateCommand("candidate-pw")
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	req := decodeRestic(t, HostResticValidate, cmd)
+	if req.Op != "validate" || req.Password != "candidate-pw" {
+		t.Fatalf("validate request wrong: %+v", req)
+	}
+}
+
+func TestBuildResticRotateCommand(t *testing.T) {
+	if _, err := BuildResticRotateCommand(""); err == nil {
+		t.Fatal("blank new password should be rejected")
+	}
+	cmd, err := BuildResticRotateCommand("brand-new-pw")
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	req := decodeRestic(t, HostResticRotate, cmd)
+	if req.Op != "rotate" || req.NewPassword != "brand-new-pw" {
+		t.Fatalf("rotate request wrong: %+v", req)
+	}
+	// the candidate/validate password must never ride a rotate request
+	if req.Password != "" {
+		t.Fatalf("rotate must not carry a validate password: %+v", req)
+	}
+}
+
 func TestDRKeysetOrderAndOmitsUnset(t *testing.T) {
 	s, _ := ParseStore([]byte(`{"secrets":{"vault_backup_s3_access_key":"ak","vault_backup_restic_password":"pw"},"config":{"BACKUP_RESTIC_REPO":"s3:x/y"}}`))
 	got := s.DRKeyset()
