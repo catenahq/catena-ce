@@ -121,6 +121,6 @@ Parsed from the committed workflow files; every job below runs on each change.
 | CI | `.github/workflows/ci.yml` | `go`, `installer`, `duplication` |
 | Publish image | `.github/workflows/publish-image.yml` | `publish` |
 | security | `.github/workflows/security.yml` | `scanctl` |
-| Trivy | `.github/workflows/trivy.yml` | `trivy-catena-admin-image`, `trivy-operator-stack-pins` |
+| Trivy | `.github/workflows/trivy.yml` | `trivy-catena-admin-image`, `trivy-operator-stack-pins`, `trivyignore-expiry` |
 
 See [SPEC.md](SPEC.md) for what this repository promises and the machine-checked invariants behind each promise.
