@@ -11,7 +11,7 @@ This sheet is **generated, not written**: it is rendered from the same machine-c
 
 Catena is exercised end-to-end by an automated rehearsal suite: each scenario provisions disposable virtual machines, drives the real product (install, converge, back up, break, restore) and asserts the outcome -- including deliberate failure injection. The counts below are those rehearsals.
 
-**Coverage: 9 Community features exercised by 84 rehearsal scenarios; 12 Catena Pro features by 40; plus 25 maintainer-internal rehearsals.**
+**Coverage: 9 Community features exercised by 84 rehearsal scenarios; 12 Catena Pro features by 40; plus 24 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -110,7 +110,7 @@ Note: features marked *see note* are maintainer-run procedures; their rehearsals
 
 ## Maintainer-internal tooling
 
-The maintainers' internal tooling (test harness, control plane, rotation and maintenance utilities) accounts for a further 3 features and 25 rehearsal scenarios; details stay private.
+The maintainers' internal tooling (test harness, control plane, rotation and maintenance utilities) accounts for a further 3 features and 24 rehearsal scenarios; details stay private.
 
 ## Continuous integration gates on this repository
 
