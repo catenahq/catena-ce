@@ -109,6 +109,15 @@ jobs:
           format: 'json'
           output: 'trivy-${{ matrix.name }}.json'
           ignore-unfixed: true
+          # CVE-only for these THIRD-PARTY images. The default vuln+secret
+          # scan flags Debian's placeholder /etc/ssl/private/ssl-cert-
+          # snakeoil.key (rule private-key, HIGH) baked into any base image
+          # carrying the ssl-cert package -- e.g. postgres:16 since it moved
+          # to a Debian 13/trixie base. That is a benign false positive we
+          # cannot remove from an upstream image, and secrets in OUR tree are
+          # already covered by the scanctl fs gate (security.yml). The
+          # catena-admin job (our image) keeps the default secret scan.
+          scanners: vuln
           trivyignores: .trivyignore.yaml
       - name: Upload report
         if: always()
