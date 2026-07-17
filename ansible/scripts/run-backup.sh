@@ -70,6 +70,81 @@ ping_hc_external() {
     fi
 }
 
+# ─── 0b: store-driven runtime gate + credential override ─────────────────
+# The on-box config store (/etc/catena/config.json) is the source of truth:
+# catena-admin writes backup creds / repo / retention / enable / interval there
+# with NO converge. Read them at RUNTIME (overriding the converge-written
+# backup.env) so a value set in the panel takes effect on the next run. Then
+# self-gate: a not-yet-configured or disabled or not-yet-due backup logs the
+# event and exits CLEAN (0) -- it is not a failure, so no /fail ping fires.
+# BACKUP_FORCE=1 (the catena-admin "Backup now" action) bypasses the enable +
+# due gates but still requires valid creds.
+STORE="${CATENA_CONFIG_STORE:-/etc/catena/config.json}"
+if [ -r "$STORE" ] && command -v python3 >/dev/null 2>&1; then
+    _store_get() {  # _store_get <section> <key>  -> value or empty
+        python3 - "$STORE" "$1" "$2" <<'PY' 2>/dev/null || true
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(0)
+v = (d.get(sys.argv[2]) or {}).get(sys.argv[3])
+if v is not None:
+    sys.stdout.write(str(v))
+PY
+    }
+    _v=$(_store_get config BACKUP_RESTIC_REPO);          [ -n "$_v" ] && RESTIC_REPOSITORY="$_v"
+    _v=$(_store_get secrets vault_backup_s3_access_key); [ -n "$_v" ] && AWS_ACCESS_KEY_ID="$_v"
+    _v=$(_store_get secrets vault_backup_s3_secret_key); [ -n "$_v" ] && AWS_SECRET_ACCESS_KEY="$_v"
+    _v=$(_store_get config BACKUP_KEEP_HOURLY);          [ -n "$_v" ] && BACKUP_KEEP_HOURLY="$_v"
+    _v=$(_store_get config BACKUP_KEEP_DAILY);           [ -n "$_v" ] && BACKUP_KEEP_DAILY="$_v"
+    _v=$(_store_get config BACKUP_KEEP_WEEKLY);          [ -n "$_v" ] && BACKUP_KEEP_WEEKLY="$_v"
+    _v=$(_store_get config BACKUP_KEEP_MONTHLY);         [ -n "$_v" ] && BACKUP_KEEP_MONTHLY="$_v"
+    BACKUP_ENABLED=$(_store_get config BACKUP_ENABLED)
+    BACKUP_MIN_INTERVAL_HOURS=$(_store_get config BACKUP_MIN_INTERVAL_HOURS)
+    _store_pw=$(_store_get secrets vault_backup_restic_password)
+    if [ -n "$_store_pw" ]; then
+        mkdir -p /run/catena && chmod 700 /run/catena
+        _rt_pass=/run/catena/restic-runtime.pass
+        ( umask 077; printf '%s\n' "$_store_pw" > "$_rt_pass" )
+        RESTIC_PASSWORD_FILE="$_rt_pass"
+    fi
+    export RESTIC_REPOSITORY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY RESTIC_PASSWORD_FILE
+fi
+
+# Credential completeness gate: skip cleanly if not fully configured.
+if [ -z "${RESTIC_REPOSITORY:-}" ] || [ -z "${AWS_ACCESS_KEY_ID:-}" ] \
+        || [ -z "${AWS_SECRET_ACCESS_KEY:-}" ] \
+        || [ ! -r "${RESTIC_PASSWORD_FILE:-/nonexistent}" ]; then
+    log "backup not configured (missing restic repo / S3 creds / password); skipping. Set it in catena-admin > Settings > Backup."
+    exit 0
+fi
+
+# Enable gate: only an EXPLICIT disable stops a configured host (unset -> on,
+# so a converge that set creds keeps backing up as before). "Backup now" forces.
+_enabled_lc=$(printf '%s' "${BACKUP_ENABLED:-true}" | tr '[:upper:]' '[:lower:]')
+if [ "${BACKUP_FORCE:-0}" != "1" ] && [ "$_enabled_lc" = "false" ]; then
+    log "backup disabled in catena-admin; skipping."
+    exit 0
+fi
+
+# Due gate: an optional runtime cadence floor (hours between SUCCESSFUL runs)
+# lets catena-admin lengthen the effective schedule beyond the base weekly
+# timer with no converge. The systemd timer is the ceiling; this only skips
+# runs firing sooner than the configured interval.
+BACKUP_LAST_SUCCESS_STAMP="${BACKUP_LAST_SUCCESS_STAMP:-/var/lib/catena/backup-last-success}"
+if [ "${BACKUP_FORCE:-0}" != "1" ] \
+        && [ -n "${BACKUP_MIN_INTERVAL_HOURS:-}" ] \
+        && [ "${BACKUP_MIN_INTERVAL_HOURS}" -gt 0 ] 2>/dev/null \
+        && [ -f "$BACKUP_LAST_SUCCESS_STAMP" ]; then
+    _age_s=$(( $(date +%s) - $(stat -c %Y "$BACKUP_LAST_SUCCESS_STAMP") ))
+    _min_s=$(( BACKUP_MIN_INTERVAL_HOURS * 3600 ))
+    if [ "$_age_s" -lt "$_min_s" ]; then
+        log "backup not due yet (${_age_s}s since last success < ${_min_s}s configured interval); skipping."
+        exit 0
+    fi
+fi
+
 on_failure() {
     rc=$?
     log "FAILED with rc=${rc}"
@@ -342,6 +417,10 @@ fi
 
 # ─── success ─────────────────────────────────────────────────────────────
 trap - EXIT
+# Stamp the last-success time so the runtime due-gate (BACKUP_MIN_INTERVAL_HOURS)
+# can lengthen the effective cadence with no converge.
+mkdir -p "$(dirname "${BACKUP_LAST_SUCCESS_STAMP:-/var/lib/catena/backup-last-success}")" 2>/dev/null || true
+: > "${BACKUP_LAST_SUCCESS_STAMP:-/var/lib/catena/backup-last-success}" 2>/dev/null || true
 log "backup run complete"
 # Succeeded lane: clean run-end ping. Attempted lane: also mark this
 # run "ok" so the attempted check stays green (it would otherwise still

@@ -3,6 +3,28 @@
 # systemd timer, initialize the restic repo on first run, and (optionally)
 # take an initial snapshot so the repo isn't empty the first time validate
 # or verify-backup runs against it.
+#
+# Backup creds are DEFERRED (0b): a fresh install may not have them yet (the
+# user sets restic repo + S3 keys in catena-admin post-install). This whole
+# file installs the units + wrapper UNCONDITIONALLY; the repo-init, cred-file
+# writes, and initial snapshot are gated on `_backup_configured` so a not-yet-
+# configured host converges cleanly and run-backup.sh self-gates at runtime.
+
+- name: "Backup: is this host backup-configured (all creds present)?"
+  ansible.builtin.set_fact:
+    _backup_configured: >-
+      {{ (vault_backup_restic_password | default('')) | length > 0
+         and (vault_backup_s3_access_key | default('')) | length > 0
+         and (vault_backup_s3_secret_key | default('')) | length > 0
+         and (backup_restic_repo | default('')) | length > 0 }}
+
+- name: "Backup: note deferred configuration when creds are absent"
+  ansible.builtin.debug:
+    msg: >-
+      Backup credentials are not set yet -- installing the backup units but
+      leaving the restic repo unconfigured. Set the repo + S3 keys in
+      catena-admin > Settings > Backup; run-backup self-gates until then.
+  when: not (_backup_configured | bool)
 
 - name: Install postgresql-client + curl + fuse3 + rclone (restic comes from upstream -- ensure_restic.yml)
   ansible.builtin.apt:
@@ -99,7 +121,7 @@
     path: "{{ backup_password_file }}"
   register: _backup_pw_stat
 
-- name: "Backup: write restic password file (only if absent)"
+- name: "Backup: write restic password file (only if absent + configured)"
   ansible.builtin.copy:
     dest: "{{ backup_password_file }}"
     content: "{{ vault_backup_restic_password }}\n"
@@ -107,7 +129,9 @@
     group: root
     mode: "0600"
   no_log: true
-  when: not _backup_pw_stat.stat.exists
+  when:
+    - not _backup_pw_stat.stat.exists
+    - _backup_configured | bool
 
 # Same rule for backup.env (holds AWS_ACCESS_KEY_ID + SECRET for
 # restic). Set once; rotation goes through the operator-only runbook.
@@ -358,6 +382,7 @@
   changed_when: false
   failed_when: false
   no_log: true
+  when: _backup_configured | bool
 
 - name: Initialize restic repo (first run only)
   ansible.builtin.command:
@@ -365,7 +390,9 @@
       - restic
       - init
   environment: "{{ backup_restic_env }}"
-  when: _restic_repo_check.rc != 0
+  when:
+    - _backup_configured | bool
+    - _restic_repo_check.rc | default(1) != 0
   no_log: true
 
 # ─── initial snapshot ────────────────────────────────────────────────────
@@ -391,6 +418,7 @@
   changed_when: false
   failed_when: false
   no_log: true
+  when: _backup_configured | bool
 
 # DR / migrate path: the post-restore marker means restore.yml has
 # extracted the source host's restic state into place. The repo
@@ -405,9 +433,10 @@
 
 - name: "Run first backup inline (sync) so verify-backup finds a snapshot"
   when:
+    - _backup_configured | bool
     - not ansible_check_mode
     - backup_run_initial_snapshot | bool
-    - _restic_has_snapshot.rc != 0
+    - _restic_has_snapshot.rc | default(1) != 0
     - not (_backup_post_restore_marker.stat.exists | default(false))
   block:
     # ansible.builtin.systemd_service has no `state: started --wait`

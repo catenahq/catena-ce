@@ -23,7 +23,14 @@
       - backup_mode in ['install', 'verify', 'restore', 'pg_replay', 's3_reconcile']
     fail_msg: "backup_mode must be install | verify | restore | pg_replay | s3_reconcile (got: {{ backup_mode }})"
 
-- name: Assert restic credentials are in vault
+# Restore / verify / replay / reconcile genuinely need the creds NOW (they
+# read or write the repo this run). The `install` (converge) path does NOT:
+# backup creds are deferred -- the user sets them post-install in catena-admin
+# and the run-backup wrapper self-gates on the on-box store at runtime. So the
+# converge installs the units unconditionally and only these active modes
+# assert. On a live box the creds come from the on-box store (load_onbox facts);
+# on a fresh recover they are threaded in as the DR keyset.
+- name: Assert restic credentials are available (active backup modes)
   ansible.builtin.assert:
     that:
       - vault_backup_restic_password is defined
@@ -31,10 +38,10 @@
       - vault_backup_s3_secret_key is defined
       - backup_restic_repo | length > 0
     fail_msg: >-
-      Restic credentials must be in vault and BACKUP_RESTIC_REPO must be set
-      in inventory/<name>/.env before the backup role can run.
-      See inventory/example/group_vars/all/vault.yml.example for the schema
-      (the live file is the plaintext, gitignored, 0600 vault.yml).
+      Restic credentials are not available for backup_mode={{ backup_mode }}.
+      On a live box they come from /etc/catena/config.json (set in catena-admin);
+      on a fresh-box recover they are the DR keyset threaded into `catena recover`.
+  when: backup_mode != 'install'
 
 - name: Install backup infrastructure
   ansible.builtin.include_tasks: install.yml

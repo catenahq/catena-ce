@@ -376,10 +376,10 @@ backup_run_initial_snapshot: true
 # `no_log: true`. The dict still expands at runtime; no_log is what
 # keeps Jinja-rendered creds out of task results / debug output.
 backup_restic_env:
-  RESTIC_REPOSITORY: "{{ backup_restic_repo }}"
+  RESTIC_REPOSITORY: "{{ backup_restic_repo | default('') }}"
   RESTIC_PASSWORD_FILE: "{{ backup_password_file }}"
-  AWS_ACCESS_KEY_ID: "{{ vault_backup_s3_access_key }}"
-  AWS_SECRET_ACCESS_KEY: "{{ vault_backup_s3_secret_key }}"
+  AWS_ACCESS_KEY_ID: "{{ vault_backup_s3_access_key | default('') }}"
+  AWS_SECRET_ACCESS_KEY: "{{ vault_backup_s3_secret_key | default('') }}"
 
 # Wrapper + config locations. Changing these also requires updating
 # tests/goss/backup.yaml.
