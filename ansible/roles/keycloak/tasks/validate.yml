@@ -33,7 +33,15 @@
   register: _keycloak_server_container
   changed_when: false
   failed_when: false
-  retries: 30
+  # 60 x 4s = 240s. A reconverge that follows a disruptive op (the bench's
+  # snapshot rewind, or an operator SIGINT mid-converge) kills the running
+  # catena-postgres task ungracefully; pg then does WAL recovery on restart and
+  # keycloak, which depends on the DB, stays "Created" until pg accepts
+  # connections again. On the pg18 + phasetwo-26.6.x stack that settle can
+  # exceed the old 120s ceiling (baseline pg16/26.5.7 recovered inside it).
+  # `until` exits the moment the container is Running, so the larger ceiling
+  # only costs wall time when pg is genuinely still recovering.
+  retries: 60
   delay: 4
   until: _keycloak_server_container.stdout | length > 0
 
@@ -72,8 +80,8 @@
     - name: "validate/keycloak: surface diagnostic dump"
       ansible.builtin.fail:
         msg: |
-          Keycloak server container did not appear after 30 retries
-          (~120s). Portainer reported deploy=done but no container
+          Keycloak server container did not appear after 60 retries
+          (~240s). Portainer reported deploy=done but no container
           matches '{{ keycloak_compose_name | portainer_container_regex(keycloak_server_service) }}'.
 
           docker ps -a (filter name=keycloak):
