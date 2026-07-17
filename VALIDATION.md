@@ -19,7 +19,7 @@ Catena is exercised end-to-end by an automated rehearsal suite: each scenario pr
 
 A scheduled weekly backup plus manual backups any time. Backups are encrypted on the server before leaving it and land in object storage the client owns; snapshots can be listed, browsed and exported without a restore. Daily and sub-daily cadence is a Catena Pro feature.
 
-Implemented in: `ansible/playbooks/backup_now.yml`, `ansible/playbooks/filter_plugins/backup_tier.py`, `ansible/roles/backup`, `ansible/scripts/backup-coverage.sh`, `ansible/scripts/restic-env.sh`, `ansible/scripts/restic-mount.sh`, `ansible/scripts/restic-short-id.sh`, `ansible/scripts/restic-unmount.sh`, `ansible/scripts/run-backup.sh`, `ansible/scripts/snapshot-export.sh`, `ansible/scripts/snapshot-list.sh`
+Implemented in: `ansible/playbooks/backup_now.yml`, `ansible/playbooks/filter_plugins/backup_tier.py`, `ansible/roles/backup`, `ansible/scripts/backup-coverage.sh`, `ansible/scripts/catena-restic-key.py`, `ansible/scripts/restic-env.sh`, `ansible/scripts/restic-mount.sh`, `ansible/scripts/restic-short-id.sh`, `ansible/scripts/restic-unmount.sh`, `ansible/scripts/run-backup.sh`, `ansible/scripts/snapshot-export.sh`, `ansible/scripts/snapshot-list.sh`
 
 Rehearsal scenarios (13): `backup_rollback`, `backup_tier_schedule_resolution`, `concurrent_backup_lock_contention`, `fi_b2_pg_dump_failed`, `fi_b3_snapshot_id_mismatch`, `fi_b4_locked_pack_rotation`, `fi_b5_s3_quota_exhausted`, `fi_b6_healthchecks_down`, `fi_b7_ntfy_delivery_fails`, `malformed_catalog_rejection`, `restic_password_rotation_round_trip`, `s3_reconcile_orphan_cleanup`, `snapshot_export_round_trip`
 
@@ -43,7 +43,7 @@ Rehearsal scenarios (9): `admin_apps_tab_admin_full`, `admin_apps_tab_staff_filt
 
 Prepares a fresh server, installs the platform, and deploys the selected applications. Re-running the same managed operation converges the server back to its declared configuration, so a drifted or half-configured server is repaired, not rebuilt by hand.
 
-Implemented in: `ansible/helpers/*.py`, `ansible/playbooks/bootstrap.yml`, `ansible/playbooks/preflight.yml`, `ansible/playbooks/site.yml`, `ansible/playbooks/tasks/load_onbox_config.yml`, `ansible/playbooks/uninstall.yml`, `ansible/roles/common`, `ansible/roles/docker`, `ansible/roles/host_hardening`, `ansible/roles/portainer`, `ansible/roles/postgres`, `ansible/roles/storage`, `ansible/roles/traefik`, `ansible/seed.py`
+Implemented in: `ansible/catena_cli.py`, `ansible/helpers/*.py`, `ansible/playbooks/bootstrap.yml`, `ansible/playbooks/preflight.yml`, `ansible/playbooks/show_dr_keyset.yml`, `ansible/playbooks/site.yml`, `ansible/playbooks/tasks/load_onbox_config.yml`, `ansible/playbooks/uninstall.yml`, `ansible/roles/common`, `ansible/roles/docker`, `ansible/roles/host_hardening`, `ansible/roles/portainer`, `ansible/roles/postgres`, `ansible/roles/storage`, `ansible/roles/traefik`, `ansible/seed.py`
 
 Rehearsal scenarios (17): `ce_converge`, `ce_install`, `ce_install_suite`, `ce_uninstall`, `converge_modify`, `dev_to_prod_cutover_round_trip`, `fi_c1_docker_daemon_hang`, `fi_c3_portainer_crash_mid_deploy`, `fi_c4_registry_pull_timeout`, `fi_c6_cloudflared_flapping`, `fi_c7_coturn_cert_expired`, `fi_c8_nextcloud_init_loop`, `fi_u1_compose_lint_reject`, `fresh_install`, `mixed_template_negative_restore`, `repair_broken_template_round_trip`, `scheduler_easyappointments`
 
