@@ -2,12 +2,13 @@
 
 Source of truth for **where every secret and config value comes from, who
 holds it, and where it must end up** under the client-owned-config model
-(0b). Derived from `helpers/onbox_config.py` (`INTERNAL_SECRETS` minted on-box
-+ `EXTERNAL_SECRETS` user-held), `seed.py` (`VAULT_SKIP_KEYS` + the
-`_resolve_admin_password` / `_resolve_restic_password` DR-keyset minters),
-`inventory/example/group_vars/all/vault.yml.example`,
+(0b). Derived from `helpers/onbox_config.py` (`INTERNAL_SECRETS` +
+`USER_HELD_SECRETS` minted on-box; `EXTERNAL_SECRETS` client-supplied),
+`seed.py` (`INSTALL_EXTERNAL_KEYS` -- the only creds prompted at install,
+written to the transient `--secrets-out` adopt file, never a persisted vault),
 `inventory/example/.env.example`, and `roles/backup/defaults/main.yml`
-(`backup_paths`).
+(`backup_paths`). There is **no persisted laptop vault** -- `catena install`
+writes no secret file into the inventory.
 
 ## North star
 
@@ -40,22 +41,25 @@ ride the backup, because it is what unlocks the backup.
 | `BACKUP_RESTIC_REPO` (.env) | restic repo URL | settings page | **yes** |
 | `vault_backup_s3_access_key` | reach the restic bucket | settings page | **yes** |
 | `vault_backup_s3_secret_key` | ^ | settings page | **yes** |
-| `vault_backup_restic_password` | decrypt the restic repo | self-gen, then **exported** | **yes** |
-| `vault_admin_password` | first login (Portainer + Keycloak) | self-gen, then **exported** | no |
+| `vault_backup_restic_password` | decrypt the restic repo | on-box mint, **shown once** | **yes** |
+| `vault_admin_password` | first login (Portainer + Keycloak) | on-box mint, **shown once** | no |
 | `vault_smtp_password` | outbound mail (opt) | settings page | no |
 | `vault_mailserver_relay_password` | smarthost (opt) | settings page | no |
 | `vault_mailserver_spamhaus_dqs_key` | RBL (opt) | settings page | no |
 | `vault_nextcloud_s3_access_key` | NC primary S3 (opt) | settings page | no |
 | `vault_nextcloud_s3_secret_key` | ^ | settings page | no |
 
-`vault_backup_restic_password` and `vault_admin_password` are special: catena
-mints them on the CLIENT's machine (`seed.py`, shown once) but they are
-USER-HELD, not on-box-minted. The restic password is the key to the client's
-own backup -- minting it on-box would trap it inside the very snapshot it
-decrypts. The admin password is needed to log in the first time, before any
-on-box surface is reachable. Both are adopted into the store (they ride the
-backup for convenience) but the client keeps the authoritative copy. Classified
-`EXTERNAL_SECRETS` in `onbox_config.py`.
+`vault_backup_restic_password` and `vault_admin_password` are special:
+`USER_HELD_SECRETS` in `onbox_config.py`. They are minted **on-box if absent**
+(like the internal secrets) but the installer reads them back and **shows them
+once** at the end of `catena install` (`playbooks/show_dr_keyset.yml`) so the
+client keeps a copy in their password manager. They are NOT settable through
+the settings config-write API (a restic re-key is a deliberate action). On
+`catena recover` the client re-enters the saved values; the loader adopts them
+into the store BEFORE the restore decrypts the backup (adopt is fill-only, so
+the freshly-minted value is only used on a first install). Minting the restic
+password on-box is safe precisely because it is surfaced once off-box: without
+that copy a lost box is unrecoverable, which is the client's responsibility.
 
 ### 2. Self-generated ON-BOX (minted at converge, persist on-box, ride backup)
 
@@ -66,9 +70,9 @@ converge loader (`playbooks/tasks/load_onbox_config.yml` ->
 (`/etc/catena/config.json`, 0600 root), which persists under a backed-up path,
 then set_facts them for the roles. `seed.py` mints NONE of these (that was the
 old laptop-minting model; dropped with the 0b true-on-box-minting cutover).
-The `roles/portainer` API-key mint (`bootstrap_portainer_admin.py`) is the
-one exception that mints mid-converge and writes into the plaintext `vault.yml`
-(reloaded via `include_vars`); the loader adopts it into the store.
+The `roles/portainer` API-key mint (`bootstrap_portainer_admin.py`) is the one
+exception that mints mid-converge (from the initial admin) rather than in the
+loader; the store persists it and the loader adopts it on the next converge.
 
 - `vault_catena_postgres_password`
 - `vault_keycloak_db_password`
@@ -123,8 +127,8 @@ already holds `backup.env` (S3 creds) + `restic.pass` (restic password),
 both written reconcile-not-overwrite by `roles/backup`. That is the model
 for every category-2 secret and category-3 value: a single on-box config
 source-of-truth under `/etc/catena/`, written once, reconciled on converge,
-carried in every snapshot. Prefer ONE referenced file over today's
-`.env` + `vault.yml` + `hosts.yml` split (see `project_config_layout`).
+carried in every snapshot. The laptop inventory is now non-secret only
+(`.env` + `hosts.yml`); the plaintext `vault.yml` was removed (0b).
 
 The swarm-secret path (catena-postgres, portainer admin) is NOT backed up
 (`/var/lib/docker/swarm` is excluded); those replay correctly because the
