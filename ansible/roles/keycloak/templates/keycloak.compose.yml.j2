@@ -87,8 +87,17 @@ services:
       # curl/wget -- only bash. Use bash + /dev/tcp to issue a minimal
       # HTTP/1.1 GET and grep for "200" in the status line. Avoids
       # baking a curl install into the image just for healthchecks.
+      #
+      # Invoke bash EXPLICITLY (CMD, not CMD-SHELL): the phasetwo 26.6.x image's
+      # /bin/sh is not bash, and /dev/tcp is a bash-only feature -- under
+      # CMD-SHELL (which runs `/bin/sh -c`) the redirect fails with
+      # "can't create /dev/tcp/...: nonexistent directory" and the container
+      # is marked unhealthy forever even though Keycloak is serving. bash is on
+      # PATH (/usr/sbin/bash) so the bare `bash` resolves.
       test:
-        - "CMD-SHELL"
+        - "CMD"
+        - "bash"
+        - "-c"
         - "exec 3<>/dev/tcp/127.0.0.1/{{ keycloak_management_port }} && printf 'GET {{ keycloak_health_path }} HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && head -1 <&3 | grep -q '200'"
       interval: 10s
       timeout: 5s
