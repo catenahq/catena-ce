@@ -103,28 +103,54 @@ def test_strong_password_is_64_b64_chars(oc):
 
 
 # --- registries -------------------------------------------------------------
-def test_internal_and_external_are_disjoint(oc):
-    assert not (set(oc.INTERNAL_SECRETS) & set(oc.EXTERNAL_SECRETS))
+def test_the_three_registries_are_pairwise_disjoint(oc):
+    internal = set(oc.INTERNAL_SECRETS)
+    external = set(oc.EXTERNAL_SECRETS)
+    userheld = set(oc.USER_HELD_SECRETS)
+    assert not (internal & external)
+    assert not (internal & userheld)
+    assert not (external & userheld)
 
 
-def test_portainer_api_key_in_neither_registry(oc):
+def test_portainer_api_key_in_no_registry(oc):
     # Portainer mints its own API key; the store receives it from the role.
-    assert "vault_portainer_api_key" not in oc.INTERNAL_SECRETS
-    assert "vault_portainer_api_key" not in oc.EXTERNAL_SECRETS
+    for reg in (oc.INTERNAL_SECRETS, oc.EXTERNAL_SECRETS, oc.USER_HELD_SECRETS):
+        assert "vault_portainer_api_key" not in reg
 
 
-def test_admin_and_restic_are_external_not_minted(oc):
-    """0b true on-box minting: the admin password (first-login) and restic
-    backup password (DR keyset) are USER-HELD -- external, adopted, never
-    minted on-box (minting restic on-box would trap it inside its own backup)."""
+def test_admin_and_restic_are_user_held_not_external(oc):
+    """The admin password (first-login) and restic backup password (DR keyset)
+    are USER_HELD: minted on-box if absent, shown once at install, but NOT
+    EXTERNAL -- so the config-write API cannot set them, and ensure_internal
+    does not mint them."""
     for key in ("vault_admin_password", "vault_backup_restic_password"):
-        assert key in oc.EXTERNAL_SECRETS
+        assert key in oc.USER_HELD_SECRETS
+        assert key not in oc.EXTERNAL_SECRETS
         assert key not in oc.INTERNAL_SECRETS
-    # ensure_internal_secrets must NOT mint them.
     store = {"secrets": {}, "config": {}}
-    minted = oc.ensure_internal_secrets(store)
-    assert "vault_admin_password" not in minted
-    assert "vault_backup_restic_password" not in minted
+    assert "vault_admin_password" not in oc.ensure_internal_secrets(store)
+
+
+def test_ensure_user_held_mints_admin_and_restic(oc):
+    store = {"secrets": {}, "config": {}}
+    minted = oc.ensure_user_held_secrets(store)
+    assert set(minted) == {"vault_admin_password", "vault_backup_restic_password"}
+    # format contracts: admin 20 url-safe chars, restic 64 base64 chars.
+    assert len(store["secrets"]["vault_admin_password"]) == 20
+    assert len(store["secrets"]["vault_backup_restic_password"]) == 64
+
+
+def test_ensure_user_held_does_not_overwrite_adopted(oc):
+    """A restic password the user re-entered on `catena recover` (adopted first)
+    is preserved; only a first install mints fresh."""
+    store = {"secrets": {"vault_backup_restic_password": "user-saved"}, "config": {}}
+    minted = oc.ensure_user_held_secrets(store)
+    assert minted == ["vault_admin_password"]
+    assert store["secrets"]["vault_backup_restic_password"] == "user-saved"
+
+
+def test_admin_password_is_20_chars(oc):
+    assert len(oc.mint_admin_password()) == 20
 
 
 # --- apply_inputs -----------------------------------------------------------
@@ -265,6 +291,28 @@ def test_dispatch_write_rejects_internal_secret(oc, tmp_path, monkeypatch):
     monkeypatch.setattr("sys.stdin", io.StringIO('{"op":"write","secrets":{"vault_catena_postgres_password":"x"}}'))
     with pytest.raises(ValueError):
         oc.main(["--path", str(p), "--dispatch-stdin"])
+
+
+def test_dispatch_write_rejects_restic_password(oc, tmp_path, monkeypatch):
+    """Restic password is USER_HELD, not EXTERNAL: the settings config-write
+    path must refuse it (a re-key is the dedicated restic action, not a save)."""
+    import io
+    p = tmp_path / "config.json"
+    monkeypatch.setattr("sys.stdin", io.StringIO(
+        '{"op":"write","secrets":{"vault_backup_restic_password":"x"}}'
+    ))
+    with pytest.raises(ValueError):
+        oc.main(["--path", str(p), "--dispatch-stdin"])
+
+
+def test_cli_mints_user_held_on_first_install(oc, tmp_path, capsys):
+    """A fresh converge (no adopt) mints the admin + restic DR keyset on-box."""
+    p = tmp_path / "config.json"
+    rc = oc.main(["--path", str(p), "--set-config", "CLOUDFLARE_ZONE=x.com"])
+    assert rc == 0
+    store = oc.load(p)
+    assert len(store["secrets"]["vault_admin_password"]) == 20
+    assert len(store["secrets"]["vault_backup_restic_password"]) == 64
 
 
 def test_cli_no_mint_seeds_only(oc, tmp_path, capsys):

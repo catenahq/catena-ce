@@ -31,10 +31,17 @@ Design constraints:
   - INTERNAL secrets are minted here; EXTERNAL secrets (vendor creds the
     client supplies) are only ever *stored*, never generated -- they arrive
     via the two-phase bootstrap or the catena-admin settings API.
-  - Format contracts for the minted values match seed.py exactly (oauth2
-    cookie length-after-decode, Healthchecks 32-char API keys, url-safe
-    ping key). The admin + restic passwords are user-held (EXTERNAL), not
-    minted here.
+  - USER_HELD secrets (the admin + restic passwords) are minted on-box IF
+    ABSENT (like internal), but are the DR / first-login keyset the user must
+    hold a copy of: the installer reads them back and shows them ONCE for the
+    user's password manager. They are NOT settable through the config-write
+    API (a restic-password change is a deliberate re-key action, not a passive
+    settings save), and they remain ADOPTABLE so `catena recover` seeds the
+    user's saved restic password into the store BEFORE the restore decrypts
+    the backup.
+  - Format contracts for the minted values match the historical seed.py
+    (oauth2 cookie length-after-decode, Healthchecks 32-char API keys,
+    url-safe ping key, 20-char admin password, 64-char base64 restic password).
 """
 from __future__ import annotations
 
@@ -73,15 +80,19 @@ def mint_oauth2_proxy_cookie_secret() -> str:
     return base64.urlsafe_b64encode(os.urandom(32)).decode("ascii").rstrip("=")
 
 
+def mint_admin_password() -> str:
+    """token_urlsafe(15) -> 20 url-safe chars. Portainer + Keycloak both
+    accept it; matches the historical seed auto-mint length."""
+    return _secrets.token_urlsafe(15)
+
+
 # --- secret registries ------------------------------------------------------
 # INTERNAL: generated ON-BOX by the converge loader, reconcile-not-overwrite.
 # No human ever supplies these and they NEVER leave the box (they are minted
 # here, ride the restic backup inside the store, and return with the data on a
-# restore). Mirrors seed.py's _resolve_service_secrets group. The admin +
-# restic-backup passwords are NOT here: they are the user-held DR keyset /
-# first-login credential (see EXTERNAL_SECRETS) -- minting them on-box would
-# trap the restic password inside the very backup it decrypts, and leave the
-# admin with no way to log in the first time.
+# restore). The admin + restic-backup passwords are NOT here: they are the
+# user-held DR keyset / first-login credential -- also on-box-minted-if-absent
+# but surfaced once for the user's password manager (see USER_HELD_SECRETS).
 INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     "vault_catena_postgres_password": mint_strong_password,
     "vault_turn_static_auth_secret": mint_strong_password,
@@ -119,22 +130,31 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     "vault_beszel_universal_token": mint_url_safe,
 }
 
-# EXTERNAL: credentials the client HOLDS (never on-box-minted). Stored, never
-# minted here. Two families:
-#   - vendor creds the client supplies (Tailscale/Cloudflare/S3/SMTP/...).
-#   - the user-held DR keyset + first-login credential: vault_admin_password
-#     (needed to log in before any on-box surface is reachable) and
-#     vault_backup_restic_password (encrypts the backup -- minting it on-box
-#     would trap it inside the very snapshot it decrypts). seed mints these two
-#     on the CLIENT's machine and shows them once for the client's password
-#     manager; the on-box loader ADOPTS them (never re-mints).
-# The optional vendor creds may legitimately be empty. vault_portainer_api_key
-# is minted by Portainer itself (bootstrap_portainer_admin.py), not here -- it
-# is neither internal-minted nor client-supplied, so it lives in neither set
-# and is written into the store by the portainer role after it mints it.
+# USER_HELD: the DR keyset + first-login credential. Minted on-box IF ABSENT
+# (same reconcile-not-overwrite as INTERNAL), but the installer shows them
+# ONCE so the user keeps an off-box copy in their password manager. NOT in
+# EXTERNAL_SECRETS, so the config-write API (settings save) cannot set them:
+#   - vault_admin_password    -- first-login credential (Portainer + Keycloak).
+#   - vault_backup_restic_password -- encrypts the backup repo. Minting it
+#     on-box would trap it inside the very snapshot it decrypts IF the user
+#     lost their copy -- so it is surfaced once at install for the password
+#     manager, and `catena recover` ADOPTS the user's saved value into the
+#     store BEFORE the restore runs (adopt is fill-only, so the freshly-minted
+#     value is only used on a first install, never a recover). A rotation is a
+#     deliberate `restic key passwd` action in catena-admin, not a store write.
+USER_HELD_SECRETS: dict[str, Callable[[], str]] = {
+    "vault_admin_password": mint_admin_password,
+    "vault_backup_restic_password": mint_strong_password,
+}
+
+# EXTERNAL: vendor credentials the client HOLDS (never on-box-minted). Stored,
+# never minted here -- they arrive via the transient bootstrap adopt file or
+# the catena-admin settings API. The optional ones may legitimately be empty.
+# vault_portainer_api_key is minted by Portainer itself
+# (bootstrap_portainer_admin.py), not here -- it is neither internal-minted nor
+# client-supplied, so it lives in neither set and is written into the store by
+# the portainer role after it mints it.
 EXTERNAL_SECRETS: frozenset[str] = frozenset({
-    "vault_admin_password",
-    "vault_backup_restic_password",
     "vault_tailscale_oauth_client_id",
     "vault_tailscale_oauth_client_secret",
     "vault_cloudflare_api_token",
@@ -199,6 +219,23 @@ def ensure_internal_secrets(store: dict) -> list[str]:
     secrets_map = store.setdefault("secrets", {})
     minted: list[str] = []
     for key, minter in INTERNAL_SECRETS.items():
+        cur = secrets_map.get(key)
+        if cur is None or (isinstance(cur, str) and not cur.strip()):
+            secrets_map[key] = minter()
+            minted.append(key)
+    return minted
+
+
+def ensure_user_held_secrets(store: dict) -> list[str]:
+    """Mint every USER_HELD secret (admin + restic passwords) missing or blank
+    from the store, reconcile-not-overwrite. Runs AFTER adopt/apply_inputs so a
+    value the user re-entered on `catena recover` (adopted before the restore)
+    is preserved and only a genuine first install mints fresh. Returns the keys
+    minted -- the installer surfaces these once for the user's password
+    manager."""
+    secrets_map = store.setdefault("secrets", {})
+    minted: list[str] = []
+    for key, minter in USER_HELD_SECRETS.items():
         cur = secrets_map.get(key)
         if cur is None or (isinstance(cur, str) and not cur.strip()):
             secrets_map[key] = minter()
@@ -348,6 +385,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     if not args.no_mint:
         ensure_internal_secrets(store)
+        ensure_user_held_secrets(store)
     dump(store, args.path)
 
     if args.emit == "secrets":
