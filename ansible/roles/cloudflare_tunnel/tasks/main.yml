@@ -259,6 +259,13 @@
       - --name=cloudflared
       - --network=catena-network
       - --restart-condition=any
+      # Swarm's default stop-grace-period is 10s: on `docker service scale
+      # cloudflared=0` (the decommission/migration drain) swarm SIGTERMs the
+      # task and SIGKILLs 10s later. cloudflared drains in-flight tunnel
+      # requests for ~30s after SIGTERM, so a 10s window guillotines live
+      # requests mid-flight. 40s > cloudflared's drain so the connector
+      # deregisters from the CF edge and finishes in-flight before exit.
+      - --stop-grace-period=40s
       - "--env=TUNNEL_TOKEN={{ cloudflared_tunnel_token }}"
       - "{{ cloudflared_image }}"
       - tunnel
