@@ -64,25 +64,31 @@ deliberately.
 
 ## Secrets
 
-SOPS+age was dropped (project 0b). Each inventory carries a **plaintext,
-gitignored, 0600** `group_vars/all/vault.yml`, loaded at parse time by the
-stock `host_group_vars` vars plugin -- no `community.sops` plugin, no age
-key, no `.sops.yaml` recipient policy, no `$SOPS_AGE_KEY`. `seed.py` mints
-the auto-generated values on first install and writes them straight into
-that file.
+**No secret ever persists on your machine** (0b). SOPS+age was dropped and
+there is no plaintext vault either: `catena install` writes only non-secret
+files into the inventory.
 
-At converge time the on-box config store (`/etc/catena/config.json`, 0600
-root) becomes the runtime source of truth: the loader adopts the vault
-values, mints any missing internal secret, and every downstream role reads
-the store. `/etc` rides the restic backup, so a rebuild needs only the
-`{restic endpoint, S3 creds, restic password}` keyset -- the plaintext vault
-is just the install-time seed.
+- The install-critical vendor creds (Cloudflare API token + Tailscale OAuth
+  id/secret) are prompted, live-validated, written to a **transient 0600 file**
+  that the CLI threads onto the converge as `-e @file`, and then deleted. The
+  on-box loader adopts them into the store.
+- Every other secret -- internal service secrets AND the user-held admin +
+  restic passwords -- is minted **on-box** (`helpers/onbox_config.py`). The
+  installer shows the admin + restic passwords **once** at the end of install
+  (`playbooks/show_dr_keyset.yml`); save them in your password manager.
+- The restic repo URL + S3 keys are set **post-install in catena-admin**
+  (Settings > Backup); `run-backup.sh` reads them from the store at runtime.
+
+The on-box config store (`/etc/catena/config.json`, 0600 root) is the sole
+runtime source of truth; `/etc` rides the restic backup, so a rebuild needs
+only the `{restic repo, S3 creds, restic password}` keyset. Full
+classification: [SECRETS.md](SECRETS.md).
 
 ## Inventory
 
-The installer writes `inventory/<name>/` for you (`.env`, the plaintext
-`group_vars/all/vault.yml`, `hosts.yml`). Real inventories are gitignored;
-only `inventory/example/` is tracked as the documented schema.
+The installer writes `inventory/<name>/` for you (`.env` + `hosts.yml` --
+non-secret only; no vault). Real inventories are gitignored; only
+`inventory/example/` is tracked as the documented schema.
 
 ## Status
 

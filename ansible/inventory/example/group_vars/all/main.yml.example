@@ -91,9 +91,11 @@ storage_bulk_enabled: >-
 storage_bulk_mount_point: "{{ lookup('dotenv', 'STORAGE_BULK_MOUNT_POINT', default='/mnt/bulk') }}"
 
 # --- Backup ---
-# Community ships a MANUAL backup (no schedule). backup_restic_repo +
-# retention + the optional healthcheck ping apply whenever run-backup runs.
-backup_restic_repo: "{{ lookup('dotenv', 'BACKUP_RESTIC_REPO') }}"
+# Deferred (0b): backup creds + repo + schedule are configured POST-INSTALL in
+# catena-admin (Settings > Backup), written to the on-box store, and read by
+# run-backup.sh at runtime. This .env value is only a converge-time fallback
+# for the repo URL; default '' so a deferred-backup install converges cleanly.
+backup_restic_repo: "{{ lookup('dotenv', 'BACKUP_RESTIC_REPO', default='') }}"
 # Default: ping the local self-hosted Healthchecks at heartbeat.<zone> using
 # the per-project ping key. Override via .env to point elsewhere (e.g. an
 # off-host healthchecks.io for whole-host-outage coverage).
