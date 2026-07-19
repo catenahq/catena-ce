@@ -127,6 +127,14 @@ def test_cloudflare_api_tokens_is_external(oc):
     assert "vault_cloudflare_api_tokens" in oc.EXTERNAL_SECRETS
 
 
+def test_headscale_credentials_are_external(oc):
+    # Headscale creds are client-supplied vendor creds, never on-box-minted.
+    for key in ("vault_headscale_api_key", "vault_headscale_preauth_key"):
+        assert key in oc.EXTERNAL_SECRETS
+        assert key not in oc.INTERNAL_SECRETS
+        assert key not in oc.USER_HELD_SECRETS
+
+
 # --- minted-value format contracts (mirror seed.py) -------------------------
 def test_hc_api_key_is_32_chars(oc):
     assert len(oc.mint_hc_api_key()) == 32

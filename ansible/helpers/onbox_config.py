@@ -193,6 +193,11 @@ USER_HELD_SECRETS: dict[str, Callable[[], str]] = {
 EXTERNAL_SECRETS: frozenset[str] = frozenset({
     "vault_tailscale_oauth_client_id",
     "vault_tailscale_oauth_client_secret",
+    # Self-hosted Headscale control server (alternative to Tailscale SaaS).
+    # api_key mints a short-lived pre-auth key per converge (preferred); the
+    # static preauth_key is the fallback. Optional -- empty on Tailscale hosts.
+    "vault_headscale_api_key",
+    "vault_headscale_preauth_key",
     "vault_cloudflare_api_token",
     # Multi-domain (EE): JSON map zone -> API token. Each token is one-zone
     # scoped; catena-admin verifies the single-zone grant before storing. The

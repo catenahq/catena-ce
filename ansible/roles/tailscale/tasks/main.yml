@@ -77,10 +77,13 @@
   ansible.builtin.set_fact:
     ts_backend_state: "{{ _ts_status_parsed.BackendState | default('NotRunning') }}"
 
-# ─── OAuth mint + tailscale up (controller runs the mint, VPS runs up) ───
+# ─── join the tailnet (controller mints the credential, VPS runs `up`) ───
+# Fork on the control server: Tailscale SaaS (OAuth mint) OR self-hosted
+# Headscale (pre-auth key + --login-server). Both converge on `tailscale up`.
 - name: Authenticate the node
   when: ts_backend_state != 'Running' or tailscale_force_reauth | bool
   block:
+    # ── Fork A: Tailscale SaaS (default -- tailnet_control_url empty) ──
     - name: Exchange OAuth client credentials for a bearer token
       ansible.builtin.uri:
         url: "{{ tailscale_api_base }}/oauth/token"
@@ -96,6 +99,7 @@
       register: ts_oauth_token
       delegate_to: localhost
       become: false
+      when: (tailnet_control_url | default('') | length) == 0
 
     - name: "Mint a single-use, tagged auth key (TTL: {{ tailscale_auth_key_ttl_seconds }})"
       ansible.builtin.uri:
@@ -118,8 +122,9 @@
       register: ts_minted_key
       delegate_to: localhost
       become: false
+      when: (tailnet_control_url | default('') | length) == 0
 
-    - name: tailscale up with minted key
+    - name: tailscale up with minted key (SaaS)
       ansible.builtin.command:
         argv:
           - tailscale
@@ -131,6 +136,69 @@
           - "--reset"
       no_log: true # minted key is in argv; keep it out of logs
       changed_when: true
+      when: (tailnet_control_url | default('') | length) == 0
+
+    # ── Fork B: self-hosted Headscale (tailnet_control_url set) ──
+    # Headscale has no OAuth API: mint a per-converge tagged pre-auth key via
+    # its API (no long-lived key on the VPS), falling back to a static key the
+    # operator supplied.
+    - name: "Headscale: mint a single-use tagged pre-auth key"
+      ansible.builtin.uri:
+        url: "{{ tailnet_control_url }}/api/v1/preauthkey"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ vault_headscale_api_key }}"
+        body_format: json
+        body:
+          user: "{{ tailnet_headscale_user }}"
+          reusable: false
+          ephemeral: "{{ tailscale_ephemeral | bool }}"
+          aclTags: "{{ tailscale_tags }}"
+          expiration: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime((now(utc=true).timestamp() | int) + (tailscale_auth_key_ttl_seconds | int)) }}"
+        status_code: 200
+        return_content: true
+      register: hs_minted_key
+      delegate_to: localhost
+      become: false
+      no_log: true
+      when:
+        - (tailnet_control_url | default('') | length) > 0
+        - (vault_headscale_api_key | default('') | length) > 0
+
+    - name: "Headscale: resolve the pre-auth key (minted or static)"
+      ansible.builtin.set_fact:
+        _hs_authkey: >-
+          {{ (hs_minted_key.json.preAuthKey.key
+              if (hs_minted_key is defined and hs_minted_key.json is defined)
+              else (vault_headscale_preauth_key | default(''))) }}
+      no_log: true
+      when: (tailnet_control_url | default('') | length) > 0
+
+    - name: "Headscale: require a pre-auth credential"
+      ansible.builtin.assert:
+        that:
+          - (_hs_authkey | default('') | length) > 0
+        fail_msg: >-
+          Headscale selected (TAILNET_CONTROL_URL set) but no credential in the
+          on-box store: set vault_headscale_api_key (to mint per-converge) or
+          vault_headscale_preauth_key (a static key). Minting also needs
+          HEADSCALE_USER.
+      when: (tailnet_control_url | default('') | length) > 0
+
+    - name: "Headscale: tailscale up via --login-server"
+      ansible.builtin.command:
+        argv:
+          - tailscale
+          - up
+          - "--login-server={{ tailnet_control_url }}"
+          - "--authkey={{ _hs_authkey }}"
+          - "--advertise-tags={{ tailscale_tags | join(',') }}"
+          - "--hostname={{ tailscale_hostname }}"
+          - "--accept-dns={{ 'true' if tailscale_accept_dns | bool else 'false' }}"
+          - "--reset"
+      no_log: true # pre-auth key is in argv; keep it out of logs
+      changed_when: true
+      when: (tailnet_control_url | default('') | length) > 0
 
 # ─── verify + expose facts ───────────────────────────────────────────────
 - name: Re-query tailscale status after join
