@@ -161,6 +161,13 @@ def _check(label: str, ok_: bool, detail: str = "") -> bool:
     return ok_
 
 
+def _access_mode(env: dict) -> str:
+    """Resolved ACCESS_MODE with the cloudflare default. Anything unrecognized
+    falls back to cloudflare (fail-safe: the CF checks stay on)."""
+    val = str(env.get("ACCESS_MODE", "cloudflare")).strip().lower()
+    return val if val in ("cloudflare", "tailnet") else "cloudflare"
+
+
 def validate_install_structural(
     inp: dict, env_keys: list, vault_keys: list
 ) -> int:
@@ -194,6 +201,10 @@ def validate_install_structural(
         "CLOUDFLARE_ACCOUNT_ID",
         "SMTP_FROM",
     }
+    # In tailnet mode the whole Cloudflare block is ignored at converge, so a
+    # blank zone is legitimate (the template default is non-empty otherwise).
+    if _access_mode(env) != "cloudflare":
+        env_allow_empty.add("CLOUDFLARE_ZONE")
     for key, default in env_keys:
         val = env.get(key, default)
         eff = _effective_options(default, ENV_OPTIONS.get(key))
@@ -288,7 +299,9 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
 
     cf_token = vault.get("vault_cloudflare_api_token", "")
     cf_zone = env.get("CLOUDFLARE_ZONE", "")
-    if _is_filled(cf_token):
+    if _access_mode(env) != "cloudflare":
+        _check("Cloudflare", True, "skipped -- ACCESS_MODE=tailnet (no Cloudflare)")
+    elif _is_filled(cf_token):
         status, body = _http_json(
             "https://api.cloudflare.com/client/v4/user/tokens/verify",
             headers={"Authorization": f"Bearer {cf_token}"},
@@ -750,16 +763,25 @@ def _collect_env_values(
     return env_values
 
 
-def _collect_install_secrets(vault_provided: dict) -> dict[str, str]:
+def _install_secret_keys(cf_required: bool) -> tuple[str, ...]:
+    """Install-critical vendor creds to prompt for. In tailnet mode the
+    Cloudflare token is dropped (no Cloudflare); it can still be added later in
+    catena-admin > Settings if the operator switches on Cloudflare."""
+    if cf_required:
+        return INSTALL_EXTERNAL_KEYS
+    return tuple(k for k in INSTALL_EXTERNAL_KEYS if k != "vault_cloudflare_api_token")
+
+
+def _collect_install_secrets(vault_provided: dict, cf_required: bool = True) -> dict[str, str]:
     """Prompt (hidden) for the install-critical vendor creds only -- the
-    Cloudflare API token + Tailscale OAuth id/secret. Everything else is minted
-    on-box. These go to the transient --secrets-out file, never a persisted
-    vault."""
+    Cloudflare API token (cloudflare mode) + Tailscale OAuth id/secret.
+    Everything else is minted on-box. These go to the transient --secrets-out
+    file, never a persisted vault."""
     banner("Install-critical vendor credentials (not stored on this machine)")
     print("(input hidden; adopted on-box then discarded from the laptop)\n",
           file=sys.stderr)
     values: dict[str, str] = {}
-    for key in INSTALL_EXTERNAL_KEYS:
+    for key in _install_secret_keys(cf_required):
         val = fill(vault_provided, key, "", key, secret=True)
         if val:
             values[key] = val
@@ -782,8 +804,12 @@ def _print_summary(
     print(f"  Public IPv4:    {public_ip}", file=sys.stderr)
     print(f"  Initial user:   {initial_user}", file=sys.stderr)
     print(f"  Tailnet IPv4:   {tailnet_ip_provided or '(captured by bootstrap.yml post_task)'}", file=sys.stderr)
-    print(f"  CF zone:        {env_values.get('CLOUDFLARE_ZONE')}", file=sys.stderr)
-    print(f"  Vendor creds:   {len(secret_values)}/{len(INSTALL_EXTERNAL_KEYS)} "
+    access_mode = _access_mode(env_values)
+    print(f"  Access mode:    {access_mode}", file=sys.stderr)
+    if access_mode == "cloudflare":
+        print(f"  CF zone:        {env_values.get('CLOUDFLARE_ZONE')}", file=sys.stderr)
+    expected_creds = len(_install_secret_keys(access_mode == "cloudflare"))
+    print(f"  Vendor creds:   {len(secret_values)}/{expected_creds} "
           "collected (transient; adopted on-box, not stored here)", file=sys.stderr)
     print(file=sys.stderr)
 
@@ -888,9 +914,10 @@ def main(argv: list[str] | None = None) -> int:
     env_keys, env_template = parse_env_template(ENV_TEMPLATE)
     env_provided = inp.get("env", {})
     env_values = _collect_env_values(env_keys, env_provided)
+    cf_required = _access_mode(env_values) == "cloudflare"
 
     vault_provided = inp.get("vault", {})
-    secret_values = _collect_install_secrets(vault_provided)
+    secret_values = _collect_install_secrets(vault_provided, cf_required)
     # A fully-specified install.yaml (power user / test bench) can supply the
     # whole keyset; pass any extra vault_* creds through to the adopt file.
     _absorb_provided_secrets(secret_values, vault_provided)
@@ -900,8 +927,10 @@ def main(argv: list[str] | None = None) -> int:
     # admin/restic DR keyset -- is minted ON-BOX by the converge loader
     # (helpers/onbox_config.py), never here.
 
-    # Deferred env keys (CF account auto-fetch needs the CF token).
-    _resolve_cloudflare_account(env_values, secret_values, env_provided)
+    # Deferred env keys (CF account auto-fetch needs the CF token). Skipped in
+    # tailnet mode -- no Cloudflare, so no account to resolve.
+    if cf_required:
+        _resolve_cloudflare_account(env_values, secret_values, env_provided)
 
     # Validate before any destructive action. The install externals ride the
     # `vault` slot so the structural + live-probe checks reach them.

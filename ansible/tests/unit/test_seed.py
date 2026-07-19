@@ -304,6 +304,48 @@ def test_validate_structural_rejects_client_placeholder(seed):
     assert seed.validate_install_structural(inp, _ENV_KEYS, _VAULT_KEYS) >= 1
 
 
+# --- ACCESS_MODE (CF-optional install) --------------------------------------
+def test_access_mode_default_is_cloudflare(seed):
+    assert seed._access_mode({}) == "cloudflare"
+    assert seed._access_mode({"ACCESS_MODE": ""}) == "cloudflare"
+    # Unrecognized falls back to cloudflare (fail-safe: keeps CF checks on).
+    assert seed._access_mode({"ACCESS_MODE": "bogus"}) == "cloudflare"
+
+
+def test_access_mode_tailnet(seed):
+    assert seed._access_mode({"ACCESS_MODE": "tailnet"}) == "tailnet"
+    assert seed._access_mode({"ACCESS_MODE": "  TAILNET "}) == "tailnet"
+
+
+def test_access_mode_is_an_env_option(seed):
+    assert seed.ENV_OPTIONS.get("ACCESS_MODE") == ["cloudflare", "tailnet"]
+
+
+def test_install_secret_keys_drops_cf_token_in_tailnet(seed):
+    assert "vault_cloudflare_api_token" in seed._install_secret_keys(True)
+    tailnet = seed._install_secret_keys(False)
+    assert "vault_cloudflare_api_token" not in tailnet
+    assert "vault_tailscale_oauth_client_id" in tailnet
+    assert "vault_tailscale_oauth_client_secret" in tailnet
+
+
+def test_validate_structural_tailnet_allows_blank_cf_zone(seed):
+    """In tailnet mode the Cloudflare zone is ignored at converge, so a blank
+    zone is not a problem even though the template default is non-empty."""
+    inp = _good_inp()
+    inp["env"] = {"ACCESS_MODE": "tailnet", "CLOUDFLARE_ZONE": ""}
+    env_keys = [("ACCESS_MODE", "cloudflare"), ("CLOUDFLARE_ZONE", "example.com")]
+    assert seed.validate_install_structural(inp, env_keys, _VAULT_KEYS) == 0
+
+
+def test_validate_structural_cloudflare_requires_cf_zone(seed):
+    """The same blank zone in cloudflare mode IS a problem."""
+    inp = _good_inp()
+    inp["env"] = {"ACCESS_MODE": "cloudflare", "CLOUDFLARE_ZONE": ""}
+    env_keys = [("ACCESS_MODE", "cloudflare"), ("CLOUDFLARE_ZONE", "example.com")]
+    assert seed.validate_install_structural(inp, env_keys, _VAULT_KEYS) >= 1
+
+
 # --- true on-box minting: seed mints NOTHING --------------------------------
 def test_seed_mints_no_secrets(seed):
     """0b no-laptop-vault: seed mints nothing. Internal service secrets AND the
