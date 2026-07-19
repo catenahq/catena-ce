@@ -30,13 +30,15 @@
     # Adding a role here without a companion roles/<role>/tasks/
     # validate.yml file will fail loudly at include time -- good, means
     # the list stays honest.
-    # Base roles run in every access mode. The self-hosted SSO + media edge
-    # (keycloak, oauth2_proxy, coturn) is deployed ONLY in cloudflare mode --
-    # site.yml gates those roles on access_mode == cloudflare -- so their
-    # containers are absent in tailnet mode and their validate.yml would fail
-    # asserting a missing container. Append them only when the converge would
-    # have deployed them, mirroring the converge's own gating.
-    validate_roles_base:
+    # The self-hosted SSO + media edge (keycloak, oauth2_proxy, coturn) is
+    # deployed ONLY in cloudflare mode -- site.yml gates those roles on
+    # access_mode == cloudflare -- so their containers are absent in tailnet
+    # mode and their validate.yml would fail asserting a missing container.
+    # The list stays a literal (the audit's ansible parser resolves the
+    # validate.yml -> role edges from it statically); the CF-only roles are
+    # skipped at runtime by the include's `when` below, mirroring the
+    # converge's own per-role gating.
+    validate_roles:
       - common
       - host_hardening
       - tailscale
@@ -46,14 +48,13 @@
       - postgres
       - backup
       - infrastructure
-    validate_roles_cloudflare:
       - keycloak
       - oauth2_proxy
       - coturn
-    validate_roles: >-
-      {{ validate_roles_base
-         + (validate_roles_cloudflare
-            if (access_mode | default('cloudflare')) == 'cloudflare' else []) }}
+    validate_roles_cloudflare_only:
+      - keycloak
+      - oauth2_proxy
+      - coturn
     # `cloudflared` intentionally absent -- it's not a standalone role;
     # CF Tunnel lives inside roles/infrastructure and is covered by
     # roles/infrastructure/tasks/validate.yml's cloudflared-swarm check.
@@ -78,6 +79,11 @@
         # from ansible-core 2.20).
         loop_var: _validate_role
         label: "{{ _validate_role }}"
+      # Skip the cloudflare-only edge roles in tailnet mode -- site.yml did
+      # not deploy them, so their validate.yml would assert absent containers.
+      when: >-
+        _validate_role not in validate_roles_cloudflare_only
+        or (access_mode | default('cloudflare')) == 'cloudflare'
 
 # Vantage 1b -- DR SMTP positive smoke test (Keycloak / Phase Two)
 #
