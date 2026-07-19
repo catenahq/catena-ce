@@ -305,6 +305,16 @@
       delegate_to: localhost
       # Asserts the Portainer control-plane UI IS reachable over tailnet.
 
+    - name: "Probe catena-admin native-login page on tailnet"
+      ansible.builtin.uri:
+        url: "http://{{ ansible_host }}:{{ catena_admin_ui_port | default(9010) }}/login"
+        status_code: [200]
+        timeout: 10
+      delegate_to: localhost
+      # The panel's host-published native-login listener serves /login without a
+      # session (200). Reachable in both access modes; in tailnet mode this is
+      # the only way in.
+
     - name: "Probe Keycloak (auth.<zone>) login page via CF"
       ansible.builtin.uri:
         url: "https://{{ keycloak_hostname | default('auth.' ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default('vps') }}/account"

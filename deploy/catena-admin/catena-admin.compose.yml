@@ -26,10 +26,28 @@ services:
     # `docker compose up` (no Env) pullable.
     image: ${CATENA_ADMIN_IMAGE:-ghcr.io/catenahq/catena-admin:latest}
     restart: unless-stopped
+    # Host-published tailnet port for the native-login listener (:8001 inside
+    # the container). Firewalled to the tailnet + RFC1918 by the public-ports
+    # registry (roles/catena-admin writes the fragment), exactly like Portainer.
+    # The internal :8000 stays cluster-only (oauth2-proxy upstream on the
+    # dash.<zone> path). Publishing ONLY the direct listener keeps the trust
+    # boundary airtight: the host port can never reach the header-trusting
+    # listener.
+    ports:
+      - target: 8001
+        published: ${CATENA_ADMIN_UI_PORT:-9010}
+        protocol: tcp
+        mode: host
     environment:
       # Listen on :8000 to match the oauth2-proxy slug + the dash.<zone>
       # domain port (the image default is :8080).
       CATENA_ADMIN_ADDR: ":8000"
+      # Native-login listener for the host-published tailnet port. Started only
+      # when a session key is set (roles/catena-admin supplies the on-box-minted
+      # vault_catena_admin_session_key); LOCAL_USER is the admin email.
+      CATENA_ADMIN_DIRECT_ADDR: ${CATENA_ADMIN_DIRECT_ADDR:-:8001}
+      CATENA_ADMIN_SESSION_KEY: ${CATENA_ADMIN_SESSION_KEY:-}
+      CATENA_ADMIN_LOCAL_USER: ${CATENA_ADMIN_LOCAL_USER:-}
       CATENA_DEFAULT_LANG: ${CATENA_DEFAULT_LANG:-en}
       CATENA_DEFAULT_THEME: ${CATENA_DEFAULT_THEME:-system}
       CATENA_CLIENTS_TAB_ENABLED: ${CATENA_CLIENTS_TAB_ENABLED:-}

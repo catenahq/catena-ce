@@ -246,6 +246,42 @@
     group: "1000"
     mode: "0700"
 
+# --- tailnet-only firewall for the native-login UI port (registry fragment) ---
+# The admin panel's host-published port (compose ports: mode=host -> :8001)
+# must be reachable only from the tailnet + RFC1918, never the public internet
+# -- same posture as Portainer's UI port. The public-ports reconciler applies
+# the DOCKER-USER rules from this fragment.
+- name: "catena-admin: ensure public-port fragment dir exists"
+  ansible.builtin.file:
+    path: "{{ public_ports_fragment_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "catena-admin: declare UI port (registry fragment, tailnet-only)"
+  ansible.builtin.copy:
+    dest: "{{ public_ports_fragment_dir }}/catena-admin.json"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {{
+        [
+          {"proto": "tcp", "port": catena_admin_ui_port | int,
+           "scope": "tailnet", "bind": "docker", "owner": "catena-admin",
+           "comment": "catena-admin native-login panel -- tailnet + RFC1918 only"}
+        ] | to_nice_json
+      }}
+  register: _catena_admin_ports_fragment
+
+- name: "catena-admin: reconcile public ports now (fragment changed)"
+  ansible.builtin.systemd_service:
+    name: catena-public-ports.service
+    state: started
+  changed_when: false
+  when: _catena_admin_ports_fragment.changed
+
 - name: Catena-admin host setup summary
   ansible.builtin.debug:
     msg: |

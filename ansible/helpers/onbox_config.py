@@ -96,6 +96,9 @@ def mint_admin_password() -> str:
 INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     "vault_catena_postgres_password": mint_strong_password,
     "vault_turn_static_auth_secret": mint_strong_password,
+    # Signs the catena-admin native-login session cookie (the host-published
+    # tailnet listener). Minted once, stable across converges, rides the backup.
+    "vault_catena_admin_session_key": mint_strong_password,
     # SSO service credentials.
     "vault_keycloak_db_password": mint_strong_password,
     "vault_oauth2_proxy_cookie_secret": mint_oauth2_proxy_cookie_secret,

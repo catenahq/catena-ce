@@ -60,6 +60,13 @@
       - "HEALTHCHECKS_API_KEY_READONLY={{ vault_healthchecks_api_key_readonly }}"
       - "ADMIN_SSH_HOST=host.docker.internal"
       - "ADMIN_SSH_USER={{ catena_admin_runner_user }}"
+      # Native-login listener (host-published tailnet port). The session key is
+      # the on-box-minted vault_catena_admin_session_key; LOCAL_USER is the
+      # admin email. UI_PORT is the host-published port (compose ${VAR}).
+      - "CATENA_ADMIN_UI_PORT={{ catena_admin_ui_port }}"
+      - "CATENA_ADMIN_DIRECT_ADDR=:{{ catena_admin_direct_port }}"
+      - "CATENA_ADMIN_SESSION_KEY={{ vault_catena_admin_session_key }}"
+      - "CATENA_ADMIN_LOCAL_USER={{ admin_email }}"
     # No Traefik route -- oauth2_proxy owns the gated dash.<zone> route.
     svc_domain_host: ""
     svc_domain_service: "app"
