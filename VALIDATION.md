@@ -11,7 +11,7 @@ This sheet is **generated, not written**: it is rendered from the same machine-c
 
 Catena is exercised end-to-end by an automated rehearsal suite: each scenario provisions disposable virtual machines, drives the real product (install, converge, back up, break, restore) and asserts the outcome -- including deliberate failure injection. The counts below are those rehearsals.
 
-**Coverage: 9 Community features exercised by 84 rehearsal scenarios; 12 Catena Pro features by 40; plus 24 maintainer-internal rehearsals.**
+**Coverage: 9 Community features exercised by 86 rehearsal scenarios; 12 Catena Pro features by 40; plus 24 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -69,7 +69,7 @@ All web traffic reaches the server through an encrypted tunnel, so no web port i
 
 Implemented in: `ansible/helpers/public_ports.py`, `ansible/playbooks/regenerate-cf-tunnel.yml`, `ansible/playbooks/rotate-tailscale.yml`, `ansible/roles/cloudflare_tunnel`, `ansible/roles/cloudflare_tunnel_regenerate`, `ansible/roles/coturn`, `ansible/roles/tailscale`, `ansible/scripts/catena-public-ports.py`
 
-Rehearsal scenarios (13): `cf_tunnel_regenerate_round_trip`, `cloudflare_api_rotation_round_trip`, `fi_n1_tailnet_partition_mid_converge`, `fi_n2_cf_tunnel_down`, `fi_n3_dns_propagation_lag`, `fi_n4_cf_zone_misconfigured`, `fi_n5_provider_outage_mid_restore`, `fi_n6_s3_endpoint_5xx`, `fi_n7_restic_repo_unreachable`, `fi_n8_ufw_concurrent_ssh`, `fi_n9_public_ip_change`, `fi_v3_tailscale_acl_misconfig`, `tailscale_oauth_rotation_round_trip`
+Rehearsal scenarios (15): `ce_install_tailnet`, `cf_tunnel_regenerate_round_trip`, `cloudflare_api_rotation_round_trip`, `fi_n10_multidomain_cap`, `fi_n1_tailnet_partition_mid_converge`, `fi_n2_cf_tunnel_down`, `fi_n3_dns_propagation_lag`, `fi_n4_cf_zone_misconfigured`, `fi_n5_provider_outage_mid_restore`, `fi_n6_s3_endpoint_5xx`, `fi_n7_restic_repo_unreachable`, `fi_n8_ufw_concurrent_ssh`, `fi_n9_public_ip_change`, `fi_v3_tailscale_acl_misconfig`, `tailscale_oauth_rotation_round_trip`
 
 ### Disaster recovery and restore
 
