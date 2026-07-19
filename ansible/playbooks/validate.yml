@@ -30,7 +30,13 @@
     # Adding a role here without a companion roles/<role>/tasks/
     # validate.yml file will fail loudly at include time -- good, means
     # the list stays honest.
-    validate_roles:
+    # Base roles run in every access mode. The self-hosted SSO + media edge
+    # (keycloak, oauth2_proxy, coturn) is deployed ONLY in cloudflare mode --
+    # site.yml gates those roles on access_mode == cloudflare -- so their
+    # containers are absent in tailnet mode and their validate.yml would fail
+    # asserting a missing container. Append them only when the converge would
+    # have deployed them, mirroring the converge's own gating.
+    validate_roles_base:
       - common
       - host_hardening
       - tailscale
@@ -40,9 +46,14 @@
       - postgres
       - backup
       - infrastructure
+    validate_roles_cloudflare:
       - keycloak
       - oauth2_proxy
       - coturn
+    validate_roles: >-
+      {{ validate_roles_base
+         + (validate_roles_cloudflare
+            if (access_mode | default('cloudflare')) == 'cloudflare' else []) }}
     # `cloudflared` intentionally absent -- it's not a standalone role;
     # CF Tunnel lives inside roles/infrastructure and is covered by
     # roles/infrastructure/tasks/validate.yml's cloudflared-swarm check.
@@ -96,11 +107,18 @@
   gather_facts: false
   tags: [smtp, vantage1]
   vars:
+    # Keycloak is only deployed in cloudflare mode (self-hosted SSO edge), so
+    # the on-host Keycloak SMTP smoke test is inapplicable in tailnet mode --
+    # there is no server container to dispatch through. Require both a
+    # configured SMTP sender AND cloudflare mode.
     _smtp_enabled: >-
       {{
-        (lookup('dotenv', 'RESEND_SENDER_EMAIL', default='') | length > 0)
-        or (lookup('dotenv', 'BREVO_SENDER_EMAIL', default='') | length > 0)
-        or (lookup('dotenv', 'SMTP_HOST', default='') | length > 0)
+        (access_mode | default('cloudflare')) == 'cloudflare'
+        and (
+          (lookup('dotenv', 'RESEND_SENDER_EMAIL', default='') | length > 0)
+          or (lookup('dotenv', 'BREVO_SENDER_EMAIL', default='') | length > 0)
+          or (lookup('dotenv', 'SMTP_HOST', default='') | length > 0)
+        )
       }}
     _bootstrap_email: "{{ lookup('dotenv', 'ADMIN_EMAIL', default='') }}"
 

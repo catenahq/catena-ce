@@ -1,15 +1,27 @@
 ---
 # Validation tasks for roles/infrastructure. Replaces tests/goss/infrastructure.yaml.
+
+# Cloudflare (edge) mode vs tailnet-only mode. Mirrors roles/infrastructure
+# main.yml's _infra_cf_mode: the CF-mode-only reconcilers (dashboard-sync,
+# gatus-sync, catena-wire-nextcloud-oidc, cloudflared) are gated off in tailnet
+# mode, so their validate assertions must gate on the same flag or they fail on
+# a tailnet install. set_fact here because main.yml's fact is not in scope during
+# a standalone validate run.
+- name: "validate/infrastructure: resolve access mode"
+  ansible.builtin.set_fact:
+    _infra_cf_mode: "{{ access_mode | default('cloudflare') == 'cloudflare' }}"
+
 - name: "validate/infrastructure: stat sync scripts + traefik dynamic dir"
   ansible.builtin.stat:
     path: "{{ item.path }}"
   register: _infra_stats
-  loop:
-    - { path: /usr/local/bin/dashboard-sync, mode: "0755" }
-    - { path: /usr/local/bin/gatus-sync, mode: "0755" }
-    - { path: /usr/local/bin/catena-wire-nextcloud-oidc, mode: "0755" }
-    - { path: /var/backups/catena-export, type: directory, mode: "0750" } # shared w/ backup role
-    - { path: /etc/catena/traefik/dynamic, type: directory }
+  loop: >-
+    {{ ([{'path': '/usr/local/bin/dashboard-sync', 'mode': '0755'},
+         {'path': '/usr/local/bin/gatus-sync', 'mode': '0755'},
+         {'path': '/usr/local/bin/catena-wire-nextcloud-oidc', 'mode': '0755'}]
+        if _infra_cf_mode | bool else [])
+       + [{'path': '/var/backups/catena-export', 'type': 'directory', 'mode': '0750'},
+          {'path': '/etc/catena/traefik/dynamic', 'type': 'directory'}] }}
   loop_control:
     label: "{{ item.path }}"
 
@@ -35,6 +47,7 @@
     label: "{{ item.0 }} {{ item.1 }}"
   failed_when: false
   changed_when: false
+  when: _infra_cf_mode | bool
 
 - name: "validate/infrastructure: all sync timers armed"
   ansible.builtin.assert:
@@ -43,9 +56,10 @@
     fail_msg: >-
       {{ item.item.0 }} {{ item.item.1 }} -> {{ item.stdout | trim }}
       (expected active/enabled)
-  loop: "{{ _infra_timer_checks.results }}"
+  loop: "{{ _infra_timer_checks.results | default([]) }}"
   loop_control:
     label: "{{ item.item.0 }} {{ item.item.1 }}"
+  when: _infra_cf_mode | bool
 
 - name: "validate/infrastructure: catena-network exists"
   ansible.builtin.command: docker network inspect catena-network
@@ -64,6 +78,7 @@
   register: _infra_cf
   failed_when: false
   changed_when: false
+  when: _infra_cf_mode | bool
 
 - name: "validate/infrastructure: cloudflared replicas healthy"
   ansible.builtin.assert:
@@ -71,6 +86,7 @@
       - _infra_cf.rc == 0
       - _infra_cf.stdout_lines | select('match', '^cloudflared\\|1/1') | list | length > 0
     fail_msg: "cloudflared swarm service not 1/1: {{ _infra_cf.stdout }}"
+  when: _infra_cf_mode | bool
 
 - name: "validate/infrastructure: host binds no port 80 or 443 (architecture invariant)"
   ansible.builtin.shell: |
