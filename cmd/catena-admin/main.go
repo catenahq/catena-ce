@@ -112,6 +112,7 @@ func main() {
 					Shell:     spec.Shell,
 					Arguments: args,
 					Source:    p.ID(),
+					Hidden:    spec.Hidden,
 				})
 			}
 		}

@@ -128,6 +128,22 @@ catena_admin_ee_reserved_actions:
   # shell MUST match catena-ee restorereport/plugin.go's ActionSpec.
   - name: verify-backup
     shell: "/usr/local/bin/catena-daily step VERIFY_HOT"
+  # Multi-domain Cloudflare zone save (EE cloudflarezones plugin). The panel's
+  # single-field form POSTs an opaque PAYLOAD: for an add it is the raw CF API
+  # token the user typed (no browser JS/base64 needed, so it survives the strict
+  # CSP); for a remove it is base64(JSON {op:remove,zone}) rendered server-side
+  # by the plugin (the zone is known). The EE host binary reads PAYLOAD on
+  # stdin, auto-detects add-token vs remove-JSON, verifies an add token grants
+  # exactly one zone, derives zone/account_id, writes the 0644 panel projection,
+  # and emits the store-write request piped to onbox_config (the sole store
+  # writer). Name + shell MUST match catena-ee cloudflarezones/plugin.go's
+  # ActionSpec. The binary exists on the host only under a Business license.
+  - name: cloudflare-zones-save
+    shell: >-
+      echo "$PAYLOAD" |
+      /usr/local/bin/catena-cloudflare-zones save |
+      {{ catena_admin_onbox_config_path }} --dispatch-stdin
+      --path {{ catena_admin_config_store_path }}
 
 # --- 0b on-box config store (settings API) ----------------------------
 # The Settings tab (internal/admin/settings) reads/writes the on-box config

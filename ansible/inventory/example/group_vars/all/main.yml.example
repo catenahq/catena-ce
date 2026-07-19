@@ -44,7 +44,7 @@ cloudflare_zone: "{{ lookup('dotenv', 'CLOUDFLARE_ZONE') }}"
 cloudflare_zones:
   - zone: "{{ cloudflare_zone }}"
     account_id: "{{ cloudflare_account_id }}"
-    token_key: "vault_cloudflare_api_token"
+    api_token: "{{ vault_cloudflare_api_token }}"
 # Per-host tunnel name. Each host owns its own tunnel. The optional .env
 # prefix CLOUDFLARED_TUNNEL_NAME_PREFIX is prepended for environments that
 # need a recognizable string for prefix-filtered cleanup.

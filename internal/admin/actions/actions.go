@@ -40,6 +40,9 @@ type Action struct {
 	Shell     string
 	Arguments []ActionArgument
 	Source    string
+	// Hidden actions dispatch by name but never render in a category grid
+	// (GroupByCategory skips them). See plugin.ActionSpec.Hidden.
+	Hidden bool
 }
 
 // LocalizedTitle returns the action title for locale, falling back to EN.
@@ -179,6 +182,9 @@ func GroupByCategory(actions []Action) []CategoryGroup {
 		buckets[c] = nil
 	}
 	for _, a := range actions {
+		if a.Hidden {
+			continue // dispatchable by name, but not rendered as a button
+		}
 		if _, ok := buckets[a.Category]; ok {
 			buckets[a.Category] = append(buckets[a.Category], a)
 		}

@@ -86,6 +86,47 @@ def test_ensure_internal_replaces_blank(oc):
     assert store["secrets"]["vault_catena_postgres_password"].strip()
 
 
+# --- per-zone (multi-domain) cookie secrets ---------------------------------
+def test_zone_slug_and_cookie_key(oc):
+    assert oc.zone_slug("Example.COM") == "example_com"
+    assert oc.zone_slug("a-b.co.uk") == "a_b_co_uk"
+    assert oc.zone_cookie_secret_key("example.com") == \
+        "vault_oauth2_proxy_cookie_secret_example_com"
+
+
+def test_configured_zone_names_accepts_list_and_json_dicts(oc):
+    assert oc.configured_zone_names(["a.com", "b.com"]) == ["a.com", "b.com"]
+    assert oc.configured_zone_names([{"zone": "a.com"}, {"zone": "b.com"}]) == \
+        ["a.com", "b.com"]
+    assert oc.configured_zone_names('[{"zone": "a.com"}]') == ["a.com"]
+    assert oc.configured_zone_names(None) == []
+    assert oc.configured_zone_names("not json") == []
+
+
+def test_ensure_internal_mints_per_zone_cookie_secret(oc):
+    store = {"secrets": {}, "config": {"CLOUDFLARE_ZONES": [
+        {"zone": "a.com"}, {"zone": "b.com"}]}}
+    minted = oc.ensure_internal_secrets(store)
+    assert "vault_oauth2_proxy_cookie_secret_a_com" in minted
+    assert "vault_oauth2_proxy_cookie_secret_b_com" in minted
+    # per-zone secrets satisfy the same 32-byte decode contract.
+    val = store["secrets"]["vault_oauth2_proxy_cookie_secret_a_com"]
+    padded = val + "=" * (-len(val) % 4)
+    assert len(base64.urlsafe_b64decode(padded)) == 32
+
+
+def test_ensure_internal_per_zone_is_reconcile_not_overwrite(oc):
+    store = {"secrets": {"vault_oauth2_proxy_cookie_secret_a_com": "keep-me"},
+             "config": {"CLOUDFLARE_ZONES": [{"zone": "a.com"}]}}
+    minted = oc.ensure_internal_secrets(store)
+    assert "vault_oauth2_proxy_cookie_secret_a_com" not in minted
+    assert store["secrets"]["vault_oauth2_proxy_cookie_secret_a_com"] == "keep-me"
+
+
+def test_cloudflare_api_tokens_is_external(oc):
+    assert "vault_cloudflare_api_tokens" in oc.EXTERNAL_SECRETS
+
+
 # --- minted-value format contracts (mirror seed.py) -------------------------
 def test_hc_api_key_is_32_chars(oc):
     assert len(oc.mint_hc_api_key()) == 32

@@ -118,6 +118,33 @@ func TestMergedCatalogSortsCEAndPlugin(t *testing.T) {
 	}
 }
 
+func TestHiddenActionDispatchableButUnlisted(t *testing.T) {
+	// A Hidden plugin action (e.g. the EE cloudflare-zones save) must be
+	// resolvable by ForActionsTab (so startRun can dispatch it) yet never
+	// appear in a rendered category grid.
+	hidden := Action{Name: "cloudflare-zones-save", Category: "Ops", Source: "cloudflare-zones", Hidden: true}
+	catalog := MergedCatalog(nil, []Action{hidden})
+
+	tab := ForActionsTab(catalog)
+	found := false
+	for _, a := range tab {
+		if a.Name == "cloudflare-zones-save" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("hidden action must survive ForActionsTab so startRun can dispatch it by name")
+	}
+
+	for _, g := range GroupByCategory(tab) {
+		for _, a := range g.Actions {
+			if a.Hidden {
+				t.Errorf("GroupByCategory must skip hidden actions, got %q in %q", a.Name, g.Category)
+			}
+		}
+	}
+}
+
 func TestJobRegistryOneShot(t *testing.T) {
 	r := NewJobRegistry()
 	j := r.Create(Job{ActionName: "backup-now", Email: "op@x"})

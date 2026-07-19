@@ -51,6 +51,11 @@ type ActionSpec struct {
 	Timeout   int // seconds; 0 = shell default
 	Shell     string
 	Arguments []ArgSpec
+	// Hidden keeps the action dispatchable by name (a plugin panel POSTs to
+	// /actions/start/<name>) while excluding it from the rendered Actions/
+	// Recovery grids. Used for panel-driven save actions that have no Ops
+	// button of their own (e.g. the EE cloudflare-zones save).
+	Hidden bool
 }
 
 // ArgSpec declares one argument prompt on an action (e.g. a passphrase).

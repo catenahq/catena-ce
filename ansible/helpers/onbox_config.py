@@ -49,6 +49,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import secrets as _secrets
 import sys
 from pathlib import Path
@@ -84,6 +85,38 @@ def mint_admin_password() -> str:
     """token_urlsafe(15) -> 20 url-safe chars. Portainer + Keycloak both
     accept it; matches the historical seed auto-mint length."""
     return _secrets.token_urlsafe(15)
+
+
+# --- per-zone (multi-domain SSO island) helpers -----------------------------
+def zone_slug(zone: str) -> str:
+    """Key/filesystem-safe slug of a Cloudflare zone name: lowercase, every
+    run of non-alphanumerics collapsed to a single underscore. e.g.
+    ``example.com`` -> ``example_com``."""
+    return re.sub(r"[^a-z0-9]+", "_", zone.strip().lower()).strip("_")
+
+
+def zone_cookie_secret_key(zone: str) -> str:
+    """Store key for a zone's oauth2-proxy cookie secret. In multi-domain mode
+    each SSO island (one Cloudflare zone) gets its own cookie secret so a
+    session cookie minted for one domain cannot be replayed against another."""
+    return f"vault_oauth2_proxy_cookie_secret_{zone_slug(zone)}"
+
+
+def configured_zone_names(zones: object) -> list[str]:
+    """Extract zone names from a CLOUDFLARE_ZONES config value. Accepts a JSON
+    string or a native list, each element either a plain zone string or a dict
+    with a ``zone`` key. Order-preserving; blanks dropped."""
+    if isinstance(zones, str):
+        try:
+            zones = json.loads(zones)
+        except (ValueError, TypeError):
+            return []
+    out: list[str] = []
+    for z in zones or []:
+        name = z.get("zone") if isinstance(z, dict) else z
+        if isinstance(name, str) and name.strip():
+            out.append(name.strip())
+    return out
 
 
 # --- secret registries ------------------------------------------------------
@@ -161,6 +194,10 @@ EXTERNAL_SECRETS: frozenset[str] = frozenset({
     "vault_tailscale_oauth_client_id",
     "vault_tailscale_oauth_client_secret",
     "vault_cloudflare_api_token",
+    # Multi-domain (EE): JSON map zone -> API token. Each token is one-zone
+    # scoped; catena-admin verifies the single-zone grant before storing. The
+    # scalar vault_cloudflare_api_token stays for the CE single-domain path.
+    "vault_cloudflare_api_tokens",
     "vault_backup_s3_access_key",
     "vault_backup_s3_secret_key",
     "vault_backup_worm_access_key",
@@ -225,6 +262,17 @@ def ensure_internal_secrets(store: dict) -> list[str]:
         cur = secrets_map.get(key)
         if cur is None or (isinstance(cur, str) and not cur.strip()):
             secrets_map[key] = minter()
+            minted.append(key)
+    # Per-zone oauth2-proxy cookie secrets: one SSO island per configured
+    # Cloudflare zone (multi-domain, EE). Reconcile-not-overwrite like the
+    # static internal set. Single-domain hosts have no CLOUDFLARE_ZONES entry
+    # and mint nothing extra (the base vault_oauth2_proxy_cookie_secret stands).
+    zones = store.get("config", {}).get("CLOUDFLARE_ZONES")
+    for zone in configured_zone_names(zones):
+        key = zone_cookie_secret_key(zone)
+        cur = secrets_map.get(key)
+        if cur is None or (isinstance(cur, str) and not cur.strip()):
+            secrets_map[key] = mint_oauth2_proxy_cookie_secret()
             minted.append(key)
     return minted
 
