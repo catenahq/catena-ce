@@ -87,6 +87,16 @@
       register: _keyscan
       changed_when: false
       delegate_to: localhost
+      # A freshly booted (or snapshot-restored) host may not have sshd
+      # accepting connections yet when this first runs -- ssh-keyscan then
+      # exits rc=1 with empty output and the converge dies before Phase 1.
+      # Retry until it captures at least one host key, so the keyscan waits
+      # for sshd instead of racing it.
+      retries: 20
+      delay: 6
+      until:
+        - _keyscan.rc == 0
+        - (_keyscan.stdout | trim | length) > 0
 
     - name: Add host keys to ~/.ssh/known_hosts (atomic, deduped)
       ansible.builtin.known_hosts:
