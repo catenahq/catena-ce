@@ -311,7 +311,9 @@
         status_code: [200, 302]
         timeout: 15
       delegate_to: localhost
-      when: keycloak_hostname is defined or cloudflare_zone is defined
+      # Gated on ACCESS_MODE: a blank/empty cloudflare_zone in tailnet mode
+      # would still satisfy `is defined`, so guard on the mode instead.
+      when: access_mode | default('cloudflare') == 'cloudflare'
       # Keycloak's Account Console redirects unauth'd hits to the login
       # page (302). Authenticated would be 200. Either is healthy.
 
@@ -377,7 +379,7 @@
           }}
         _r3_keycloak_login_prefix: >-
           https://{{ keycloak_hostname | default('auth.' ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default('vps') }}/protocol/openid-connect/auth?
-      when: cloudflare_zone is defined
+      when: access_mode | default('cloudflare') == 'cloudflare'
 
     - name: "Probe /oauth2/start on each gated host (Location -> Keycloak)"
       ansible.builtin.uri:

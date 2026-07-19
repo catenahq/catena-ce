@@ -191,20 +191,23 @@
     # single-pass site.yml (CF 530 from oauth2_proxy's wait task).
     # Idempotent: subsequent converges find the tunnel + DNS + service
     # already in the desired state and no-op.
-    - { role: cloudflare_tunnel, tags: [cloudflare_tunnel, cloudflare] } # CF tunnel + DNS + cloudflared swarm service
+    # CF/SSO edge roles are gated on ACCESS_MODE. In tailnet mode the box has
+    # no Cloudflare tunnel and no self-hosted SSO -- apps are reached over the
+    # tailnet by port. A missing access_mode is treated as cloudflare.
+    - { role: cloudflare_tunnel, tags: [cloudflare_tunnel, cloudflare], when: "access_mode | default('cloudflare') == 'cloudflare'" } # CF tunnel + DNS + cloudflared swarm service
     # Keycloak MUST come before oauth2_proxy so its realm exists before
     # oauth2_proxy registers its OIDC client via keycloak-config-cli. Both
     # MUST come before infrastructure so the gated apps' forward-auth chain
     # (rendered by oauth2_proxy) is in place when infrastructure deploys
     # those apps with their Traefik routes.
-    - { role: keycloak, tags: [keycloak, auth] } # SSO IdP
-    - { role: oauth2_proxy, tags: [oauth2_proxy, auth] } # forward-auth gateway: staff + admin instances
+    - { role: keycloak, tags: [keycloak, auth], when: "access_mode | default('cloudflare') == 'cloudflare'" } # SSO IdP
+    - { role: oauth2_proxy, tags: [oauth2_proxy, auth], when: "access_mode | default('cloudflare') == 'cloudflare'" } # forward-auth gateway: staff + admin instances
     - { role: infrastructure, tags: [infrastructure] } # recovery archive, gated apps (Gatus, Healthchecks, ...), dashboard-sync, gatus-sync
     # catena-admin host-side state -- runner user, dispatcher, action
     # catalog, bind-mount targets. The Go shell container is deployed via the
     # Portainer stack flow; this role only manages the host prerequisites.
     - { role: catena-admin, tags: [catena_admin] }
-    - { role: coturn, tags: [coturn] } # shared TURN/STUN for NC Talk HPB + RC Jitsi (UDP media plane, direct on VPS public IP)
+    - { role: coturn, tags: [coturn], when: "access_mode | default('cloudflare') == 'cloudflare'" } # shared TURN/STUN for NC Talk HPB + RC Jitsi (UDP media plane, direct on VPS public IP)
     - { role: backup, tags: [backup] } # restic + the manual oneshot catena-backup.service
 
   post_tasks:

@@ -43,6 +43,18 @@
 # (portainer_stack.yml). The old control-plane-API sub-includes (snapshot,
 # templates, github-provider) were deleted in the migration teardown; gatus_sync
 # was ported to read docker labels instead of the control-plane API.
+# ACCESS_MODE gate. In tailnet mode there is no Cloudflare edge and no
+# self-hosted SSO (Keycloak + oauth2-proxy are not deployed), so every
+# deploy that publishes a gated *.<zone> URL, registers a Keycloak OIDC
+# client, or drives Cloudflare DNS is skipped. The SSO-independent
+# host-side wire scripts (clamav network, Nextcloud/Rocket.Chat/WordPress
+# app wiring, gatus-sync, disk_watch) still run so template apps deployed
+# over raw tailnet ports keep their in-app features.
+- name: "Resolve access mode (gates SSO/CF-coupled infra deploys)"
+  ansible.builtin.set_fact:
+    _infra_cf_mode: "{{ access_mode | default('cloudflare') == 'cloudflare' }}"
+  tags: [always]
+
 - name: Has Portainer API key -> provision services via the Portainer stack API
   when:
     - vault_portainer_api_key is defined
@@ -69,6 +81,7 @@
         file: gatus.yml
         apply:
           tags: [gatus]
+      when: _infra_cf_mode
       tags: [gatus]
 
     - name: Healthchecks (heartbeat.<zone>) -- cron/dead-man monitoring
@@ -76,6 +89,7 @@
         file: healthchecks.yml
         apply:
           tags: [healthchecks]
+      when: _infra_cf_mode
       tags: [healthchecks]
 
     # Shared ClamAV (clamd). Creates the external catena-clamav network
@@ -102,7 +116,9 @@
         file: beszel.yml
         apply:
           tags: [beszel]
-      when: beszel_enabled | bool
+      when:
+        - _infra_cf_mode
+        - beszel_enabled | bool
       tags: [beszel]
 
     # Semaphore (the operator's Ansible runner) is operator-only
@@ -114,6 +130,7 @@
         file: recovery.yml
         apply:
           tags: [recovery]
+      when: _infra_cf_mode
       tags: [recovery]
 
     # EP3: Nextcloud native OIDC. Realm client is registered eagerly
@@ -127,6 +144,7 @@
         file: nextcloud_oidc.yml
         apply:
           tags: [nextcloud_oidc]
+      when: _infra_cf_mode
       tags: [nextcloud_oidc]
 
     # Element / Matrix OIDC. Synapse reads the OIDC config straight
@@ -142,6 +160,7 @@
         file: element_oidc.yml
         apply:
           tags: [element_oidc]
+      when: _infra_cf_mode
       tags: [element_oidc]
 
     # Mailserver TLS cert (mail.<zone>). Opt-in template: issues a
@@ -158,6 +177,7 @@
         file: mailserver_cert.yml
         apply:
           tags: [mailserver_cert]
+      when: _infra_cf_mode
       tags: [mailserver_cert]
 
     # Mailserver accounts. docker-mailserver will not start Dovecot until
@@ -183,6 +203,7 @@
         file: mailserver_oidc.yml
         apply:
           tags: [mailserver_oidc]
+      when: _infra_cf_mode
       tags: [mailserver_oidc]
 
     # Mailserver spam + antivirus filtering. Injects rspamd local.d
@@ -205,6 +226,7 @@
         file: mailserver_dns.yml
         apply:
           tags: [mailserver_dns]
+      when: _infra_cf_mode
       tags: [mailserver_dns]
 
     # Mail canary host timer. Proves dms is listening on 25/993 + that the
@@ -215,6 +237,7 @@
         file: mailserver_canary.yml
         apply:
           tags: [mailserver_canary]
+      when: _infra_cf_mode
       tags: [mailserver_canary]
 
     # Nextcloud Talk + HPB. Same converge / post-deploy split as OIDC:
@@ -291,6 +314,7 @@
         file: dashboard_sync.yml
         apply:
           tags: [dashboard_sync]
+      when: _infra_cf_mode
       tags: [dashboard_sync]
 
     # Aggregate end-of-role readiness probe for the gated services.
@@ -305,6 +329,7 @@
         file: verify_gated_services.yml
         apply:
           tags: [verify_gated]
+      when: _infra_cf_mode
       tags: [verify_gated]
 
 # gatus-sync reads CLIENT-app monitoring from `docker ps` labels
@@ -317,6 +342,9 @@
     file: gatus_sync.yml
     apply:
       tags: [gatus, gatus_sync]
+  # No Gatus is deployed in tailnet mode, so there is nothing for the sync to
+  # feed. disk_watch below stays on (host watchdog, degrades to journal-only).
+  when: _infra_cf_mode
   tags: [gatus, gatus_sync]
 
 # Disk fill-level watchdog: warn (ntfy) at disk_watch_warn_pct, page
