@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/catenahq/catena-ce/internal/admin/auth"
 	"github.com/catenahq/catena-ce/internal/admin/i18n"
@@ -34,6 +35,36 @@ func RequestState(next http.Handler) http.Handler {
 				return
 			}
 			http.Error(w, err.Error(), status)
+			return
+		}
+		ctx := context.WithValue(r.Context(), localeKey, i18n.ResolveLocale(r))
+		ctx = context.WithValue(ctx, themeKey, theme.Resolve(r))
+		ctx = context.WithValue(ctx, identityKey, id)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// NativeAuth is the direct (tailnet) listener's identity middleware. Unlike
+// RequestState it never reads the X-Forwarded-* identity headers -- a tailnet
+// peer could forge them -- so trust is decided by which socket received the
+// request (the host port only reaches this listener; oauth2-proxy only reaches
+// the internal one). Identity comes solely from a valid signed session cookie.
+// Unauthenticated: an HTML GET is redirected to /login, everything else gets
+// 401. Static assets + the health probe are always open (the login page needs
+// its CSS; the container healthcheck must not require a session).
+func NativeAuth(codec *auth.SessionCodec, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/_/static/") || r.URL.Path == "/health" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		id, ok := auth.IdentityFromSession(codec, r, time.Now())
+		if !ok {
+			if r.Method == http.MethodGet {
+				http.Redirect(w, r, "/login", http.StatusSeeOther)
+				return
+			}
+			http.Error(w, "Sign-in required.", http.StatusUnauthorized)
 			return
 		}
 		ctx := context.WithValue(r.Context(), localeKey, i18n.ResolveLocale(r))

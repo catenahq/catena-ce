@@ -2,6 +2,16 @@ app:
   name: "Catena Admin"
   tagline: "Panneau de l'opérateur par VPS"
 
+login:
+  title: "Connexion"
+  heading: "Connexion à Catena Admin"
+  hint: "Utilisez votre courriel administrateur et le mot de passe affiché une seule fois à l'installation."
+  username: "Courriel administrateur"
+  password: "Mot de passe"
+  submit: "Se connecter"
+  error_invalid: "Identifiants invalides."
+  error_unavailable: "Le magasin de configuration de l'hôte est indisponible; réessayez sous peu."
+
 tabs:
   apps: "Applications"
   dashboard: "Tableau de bord"

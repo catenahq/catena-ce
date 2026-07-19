@@ -1,0 +1,17 @@
+{{define "title"}}{{ .T "login.title" }} - {{ .T "app.name" }}{{end}}
+{{define "content"}}
+<section class="login">
+  <h1>{{ .T "login.heading" }}</h1>
+  <p class="login-hint">{{ .T "login.hint" }}</p>
+  {{ if .Data.Error }}
+  <p class="login-error" role="alert">{{ .Data.Error }}</p>
+  {{ end }}
+  <form class="login-form" method="post" action="/login">
+    <label for="username">{{ .T "login.username" }}</label>
+    <input id="username" name="username" type="text" autocomplete="username" autofocus required>
+    <label for="password">{{ .T "login.password" }}</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button type="submit">{{ .T "login.submit" }}</button>
+  </form>
+</section>
+{{end}}

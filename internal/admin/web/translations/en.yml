@@ -2,6 +2,16 @@ app:
   name: "Catena Admin"
   tagline: "Per-VPS operator panel"
 
+login:
+  title: "Sign in"
+  heading: "Sign in to Catena Admin"
+  hint: "Use your admin email and the admin password shown once at install."
+  username: "Admin email"
+  password: "Password"
+  submit: "Sign in"
+  error_invalid: "Invalid credentials."
+  error_unavailable: "The host config store is unavailable; try again shortly."
+
 tabs:
   apps: "Apps"
   dashboard: "Dashboard"

@@ -9,9 +9,11 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/catenahq/catena-ce/internal/admin/actions"
 	"github.com/catenahq/catena-ce/internal/admin/apps"
+	"github.com/catenahq/catena-ce/internal/admin/auth"
 	"github.com/catenahq/catena-ce/internal/admin/dashboard"
 	"github.com/catenahq/catena-ce/internal/admin/i18n"
 	"github.com/catenahq/catena-ce/internal/admin/integrations"
@@ -87,13 +89,68 @@ type PanelInfo struct {
 	Render func(ctx context.Context) (string, error)
 }
 
-// New builds the shell HTTP handler: static mount, public routes, and the
-// CE tab routes (added as they are ported), wrapped in the security-headers
-// and request-state middleware.
+// New builds the shell HTTP handler for the proxy (dash.<zone>) path: static
+// mount, public routes, and the CE tab routes, wrapped in the security-headers
+// and request-state middleware. This is the handler served behind Cloudflare +
+// oauth2-proxy, and the one the tests exercise.
 func New(cfg Config) (http.Handler, error) {
-	tr, err := loadTranslations(cfg.TranslationsDir)
+	_, mux, err := buildServer(cfg)
 	if err != nil {
 		return nil, err
+	}
+	return SecurityHeaders(RequestState(mux)), nil
+}
+
+// DirectConfig configures the native-login (direct tailnet listener) path.
+type DirectConfig struct {
+	// SessionKey signs the native-login session cookie
+	// (CATENA_ADMIN_SESSION_KEY). Blank => native login is not configured and
+	// NewWithDirect returns a nil direct handler.
+	SessionKey string
+	// LocalUser is the username the native login accepts (the admin email).
+	// Blank => "admin".
+	LocalUser string
+}
+
+// NewWithDirect builds BOTH handlers off a single shared server: the proxy
+// handler (identical to New) and, when a session key is configured, a direct
+// handler for the host-published tailnet port. The direct handler adds a native
+// login (/login, /logout) and gates every other route on a valid session
+// cookie via NativeAuth -- it never trusts the X-Forwarded-* headers. A blank
+// session key returns a nil direct handler (proxy-only host, no behavior
+// change).
+func NewWithDirect(cfg Config, dcfg DirectConfig) (proxy, direct http.Handler, err error) {
+	s, mux, err := buildServer(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	proxy = SecurityHeaders(RequestState(mux))
+
+	codec := auth.NewSessionCodec(dcfg.SessionKey)
+	if codec == nil {
+		return proxy, nil, nil
+	}
+	localUser := strings.TrimSpace(dcfg.LocalUser)
+	if localUser == "" {
+		localUser = "admin"
+	}
+	loginMux := http.NewServeMux()
+	loginMux.HandleFunc("GET /login", s.loginPage)
+	loginMux.HandleFunc("POST /login", s.loginSubmit(codec, localUser))
+	loginMux.HandleFunc("POST /logout", s.logout)
+	// Everything else requires a valid session; NativeAuth stashes the
+	// synthesized admin identity so RequireAdmin on the inner mux still applies.
+	loginMux.Handle("/", NativeAuth(codec, mux))
+	direct = SecurityHeaders(loginMux)
+	return proxy, direct, nil
+}
+
+// buildServer constructs the shared *server + route mux. Both New and
+// NewWithDirect build their outer middleware around this.
+func buildServer(cfg Config) (*server, *http.ServeMux, error) {
+	tr, err := loadTranslations(cfg.TranslationsDir)
+	if err != nil {
+		return nil, nil, err
 	}
 	if cfg.Globals == nil {
 		cfg.Globals = map[string]any{}
@@ -103,7 +160,7 @@ func New(cfg Config) (http.Handler, error) {
 	}
 	tmpl, err := NewTemplates(tr, cfg.Globals)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	s := &server{
 		tmpl:           tmpl,
@@ -128,7 +185,7 @@ func New(cfg Config) (http.Handler, error) {
 	mux := http.NewServeMux()
 	staticSub, err := fs.Sub(staticFS, "static")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	mux.Handle("GET /_/static/", http.StripPrefix("/_/static/", http.FileServer(http.FS(staticSub))))
 	mux.HandleFunc("GET /health", s.health)
@@ -152,9 +209,7 @@ func New(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("GET /_/lang/{lang}", s.setLocale)
 	mux.HandleFunc("GET /_/theme/{name}", s.setTheme)
 
-	// SecurityHeaders outermost (sets headers on the way out); RequestState
-	// inner (sets context on the way in). Matches the Python middleware order.
-	return SecurityHeaders(RequestState(mux)), nil
+	return s, mux, nil
 }
 
 func loadTranslations(dir string) (*i18n.Translations, error) {
@@ -545,6 +600,67 @@ func (s *server) pluginPanel(w http.ResponseWriter, r *http.Request) {
 func (s *server) health(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "version": s.version})
+}
+
+// loginView is the native-login page render data (direct listener only).
+type loginView struct {
+	Error string
+}
+
+// loginPage renders the native-login form. Reached only on the direct listener
+// (the proxy path authenticates via oauth2-proxy and never serves /login).
+func (s *server) loginPage(w http.ResponseWriter, r *http.Request) {
+	s.tmpl.Render(w, r, "login", http.StatusOK, loginView{})
+}
+
+// loginSubmit verifies the submitted credential against the on-box admin
+// password (vault_admin_password in the config store) and, on success, sets a
+// signed session cookie. The cookie is not Secure: the direct listener is plain
+// HTTP over the tailnet (the tailnet, not TLS, is the trust boundary here).
+func (s *server) loginSubmit(codec *auth.SessionCodec, localUser string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		user := strings.TrimSpace(r.PostFormValue("username"))
+		pass := r.PostFormValue("password")
+		store, err := s.readStore()
+		if err != nil {
+			s.tmpl.Render(w, r, "login", http.StatusServiceUnavailable,
+				loginView{Error: s.tmpl.tr.Get("login.error_unavailable", localeFrom(r), nil)})
+			return
+		}
+		if user != localUser || !auth.VerifyLocalPassword(store.Secrets["vault_admin_password"], pass) {
+			s.tmpl.Render(w, r, "login", http.StatusUnauthorized,
+				loginView{Error: s.tmpl.tr.Get("login.error_invalid", localeFrom(r), nil)})
+			return
+		}
+		value, err := codec.Encode(auth.Session{Email: localUser, Admin: true}, time.Now())
+		if err != nil {
+			http.Error(w, "session error", http.StatusInternalServerError)
+			return
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name:     auth.SessionCookieName,
+			Value:    value,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   false, // plain-HTTP tailnet listener; tailnet is the boundary
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   int(auth.SessionTTL.Seconds()),
+		})
+		http.Redirect(w, r, "/apps", http.StatusSeeOther)
+	}
+}
+
+// logout clears the native-login session cookie.
+func (s *server) logout(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     auth.SessionCookieName,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		MaxAge:   -1,
+	})
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
 // rootRedirect: / is the canonical landing for everyone -> /apps.

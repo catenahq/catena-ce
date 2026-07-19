@@ -131,8 +131,10 @@ func main() {
 	}
 
 	// The shell web app (CE pages, i18n, theme, auth) serves everything
-	// except the license status probe below.
-	shell, err := web.New(web.Config{
+	// except the license status probe below. NewWithDirect also builds an
+	// optional native-login handler for the host-published tailnet port
+	// (CATENA_ADMIN_DIRECT_ADDR); it is nil unless a session key is set.
+	shell, direct, err := web.NewWithDirect(web.Config{
 		Version:         version,
 		Globals:         web.GlobalsFromEnv(),
 		TranslationsDir: strings.TrimSpace(os.Getenv("CATENA_ADMIN_TRANSLATIONS_DIR")),
@@ -155,6 +157,9 @@ func main() {
 		Runner:        actions.NewSSHRunner(),
 		PluginActions: pluginActions,
 		Panels:        panels,
+	}, web.DirectConfig{
+		SessionKey: strings.TrimSpace(os.Getenv("CATENA_ADMIN_SESSION_KEY")),
+		LocalUser:  strings.TrimSpace(os.Getenv("CATENA_ADMIN_LOCAL_USER")),
 	})
 	if err != nil {
 		log.Fatalf("catena-admin: build shell: %v", err)
@@ -179,6 +184,24 @@ func main() {
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+
+	// Native-login listener for the host-published tailnet port (tailnet
+	// access mode). Started only when a session key is configured AND a direct
+	// address is set. Plain HTTP over the tailnet; the tailnet firewall + the
+	// native-login gate are the boundary, not TLS.
+	if directAddr := strings.TrimSpace(os.Getenv("CATENA_ADMIN_DIRECT_ADDR")); direct != nil && directAddr != "" {
+		go func() {
+			dsrv := &http.Server{
+				Addr:              directAddr,
+				Handler:           direct,
+				ReadHeaderTimeout: 10 * time.Second,
+			}
+			log.Printf("catena-admin native-login listener on %s", directAddr)
+			// nosemgrep: go.lang.security.audit.net.use-tls.use-tls
+			log.Fatal(dsrv.ListenAndServe())
+		}()
+	}
+
 	// nosemgrep: go.lang.security.audit.net.use-tls.use-tls
 	log.Fatal(srv.ListenAndServe())
 }
