@@ -55,16 +55,23 @@
   delegate_to: localhost
   become: false
 
-# ─── resolve CF zone_id ──────────────────────────────────────────────────
-- name: "CF: look up zone_id for {{ cloudflare_zone }}"
+# ─── resolve CF zone_id (per configured zone) ────────────────────────────
+# One iteration on Community (single-element cloudflare_zones); the EE overlay
+# supplies additional zones, each with its own one-zone-scoped token. Each
+# zone's DNS lives under its own zone_id + token; the tunnel + account are
+# shared (single-account v1), so the tunnel/token tasks below stay single.
+- name: "CF: look up zone_id for each configured zone"
   ansible.builtin.uri:
-    url: "{{ cloudflare_api_base }}/zones?name={{ cloudflare_zone }}"
+    url: "{{ cloudflare_api_base }}/zones?name={{ item.zone }}"
     method: GET
     headers:
-      Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+      Authorization: "Bearer {{ item.api_token }}"
     status_code: 200
     return_content: true
-  register: _cf_zones
+  register: _cf_zone_lookups
+  loop: "{{ cloudflare_zones }}"
+  loop_control:
+    label: "{{ item.zone }}"
   run_once: true
   delegate_to: localhost
   become: false
@@ -73,22 +80,43 @@
   # the whole converge.
   retries: 5
   delay: 6
-  until: _cf_zones.status == 200
+  until: _cf_zone_lookups.status == 200
 
-- name: Assert the zone is visible to this token
+- name: Assert each zone is visible to its token
   ansible.builtin.assert:
     that:
-      - _cf_zones.json.result | length == 1
+      - item.json.result | length == 1
     fail_msg: >-
-      Zone '{{ cloudflare_zone }}' not found (or token lacks access). Check
+      Zone '{{ item.item.zone }}' not found (or token lacks access). Check
       that the API token has Zone:DNS:Edit scope on this zone.
+  loop: "{{ _cf_zone_lookups.results }}"
+  loop_control:
+    label: "{{ item.item.zone }}"
   run_once: true
   delegate_to: localhost
   become: false
 
-- name: Capture zone_id
+# Pair each zone with its resolved zone_id + token for the DNS loops below.
+# no_log: the record carries the per-zone API token.
+- name: Build per-zone DNS records (zone, zone_id, api_token)
   ansible.builtin.set_fact:
-    cloudflare_zone_id: "{{ _cf_zones.json.result[0].id }}"
+    _cf_zone_records: >-
+      {{ _cf_zone_records | default([]) + [{
+           'zone': item.item.zone,
+           'zone_id': item.json.result[0].id,
+           'api_token': item.item.api_token,
+         }] }}
+  loop: "{{ _cf_zone_lookups.results }}"
+  loop_control:
+    label: "{{ item.item.zone }}"
+  run_once: true
+  no_log: true
+
+# The primary zone_id (element 0) pins the single-instance infra hostnames;
+# kept as a scalar for backward compatibility (regenerate role + templates).
+- name: Capture primary zone_id
+  ansible.builtin.set_fact:
+    cloudflare_zone_id: "{{ _cf_zone_records[0].zone_id }}"
   run_once: true
 
 # ─── find-or-create tunnel ───────────────────────────────────────────────
@@ -160,39 +188,47 @@
   ansible.builtin.set_fact:
     cloudflared_tunnel_token: "{{ _cf_tunnel_token.json.result }}"
 
-# ─── DNS: wildcard CNAME ─────────────────────────────────────────────────
-- name: "CF DNS: look up existing wildcard record"
+# ─── DNS: wildcard CNAME (per zone) ──────────────────────────────────────
+# Every zone gets *.<zone> CNAME -> <shared-tunnel-id>.cfargotunnel.com in its
+# own zone, using its own token. One iteration on Community.
+- name: "CF DNS: look up existing wildcard record per zone"
   ansible.builtin.uri:
-    url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records?type=CNAME&name=*.{{ cloudflare_zone }}"
+    url: "{{ cloudflare_api_base }}/zones/{{ item.zone_id }}/dns_records?type=CNAME&name=*.{{ item.zone }}"
     method: GET
     headers:
-      Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+      Authorization: "Bearer {{ item.api_token }}"
     status_code: 200
     return_content: true
   register: _cf_dns_existing
+  loop: "{{ _cf_zone_records }}"
+  loop_control:
+    label: "{{ item.zone }}"
   delegate_to: localhost
   become: false
   retries: 5
   delay: 6
   until: _cf_dns_existing.status == 200
 
-- name: "CF DNS: create wildcard CNAME if absent"
+- name: "CF DNS: create wildcard CNAME if absent (per zone)"
   ansible.builtin.uri:
-    url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records"
+    url: "{{ cloudflare_api_base }}/zones/{{ item.item.zone_id }}/dns_records"
     method: POST
     headers:
-      Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+      Authorization: "Bearer {{ item.item.api_token }}"
     body_format: json
     body:
       type: CNAME
-      name: "*.{{ cloudflare_zone }}"
+      name: "*.{{ item.item.zone }}"
       content: "{{ cloudflared_tunnel_id }}.cfargotunnel.com"
       proxied: true
       ttl: 1 # 1 = automatic
       comment: "Managed by catena roles/infrastructure"
     status_code: 200
   register: _cf_dns_create
-  when: _cf_dns_existing.json.result | length == 0
+  loop: "{{ _cf_dns_existing.results }}"
+  loop_control:
+    label: "{{ item.item.zone }}"
+  when: item.json.result | length == 0
   delegate_to: localhost
   become: false
   # Match the lookup task above: CF returns code=1000 "There was an
@@ -205,24 +241,27 @@
   delay: 6
   until: _cf_dns_create is not failed
 
-- name: "CF DNS: update wildcard CNAME if content drifted"
+- name: "CF DNS: update wildcard CNAME if content drifted (per zone)"
   ansible.builtin.uri:
-    url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records/{{ _cf_dns_existing.json.result[0].id }}"
+    url: "{{ cloudflare_api_base }}/zones/{{ item.item.zone_id }}/dns_records/{{ item.json.result[0].id }}"
     method: PUT
     headers:
-      Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+      Authorization: "Bearer {{ item.item.api_token }}"
     body_format: json
     body:
       type: CNAME
-      name: "*.{{ cloudflare_zone }}"
+      name: "*.{{ item.item.zone }}"
       content: "{{ cloudflared_tunnel_id }}.cfargotunnel.com"
       proxied: true
       ttl: 1
     status_code: 200
   register: _cf_dns_update
+  loop: "{{ _cf_dns_existing.results }}"
+  loop_control:
+    label: "{{ item.item.zone }}"
   when:
-    - _cf_dns_existing.json.result | length > 0
-    - _cf_dns_existing.json.result[0].content != (cloudflared_tunnel_id ~ '.cfargotunnel.com')
+    - item.json.result | length > 0
+    - item.json.result[0].content != (cloudflared_tunnel_id ~ '.cfargotunnel.com')
   delegate_to: localhost
   become: false
   retries: 5
@@ -231,8 +270,23 @@
 
 # ─── enforce tunnel ingress config ───────────────────────────────────────
 # Always PUT the desired config -- operator drift in CF dashboard loses to
-# Ansible. Single wildcard rule pointing at catena-traefik, plus fallback.
-- name: "CF: enforce tunnel ingress (wildcard -> Traefik)"
+# Ansible. One wildcard rule per configured zone pointing at catena-traefik,
+# plus the catch-all fallback. Single account -> single tunnel -> one ingress
+# config carrying every zone. On Community this is one rule (byte-identical to
+# the previous single-zone body).
+- name: "CF: build multi-zone ingress rules"
+  ansible.builtin.set_fact:
+    _cf_ingress: >-
+      {{ _cf_ingress | default([]) + [{
+           'hostname': '*.' ~ item.zone,
+           'service': cloudflared_ingress_service,
+         }] }}
+  loop: "{{ cloudflare_zones }}"
+  loop_control:
+    label: "{{ item.zone }}"
+  run_once: true
+
+- name: "CF: enforce tunnel ingress (per-zone wildcards -> Traefik)"
   ansible.builtin.uri:
     url: "{{ cloudflare_api_base }}/accounts/{{ cloudflare_account_id }}/cfd_tunnel/{{ cloudflared_tunnel_id }}/configurations"
     method: PUT
@@ -241,10 +295,7 @@
     body_format: json
     body:
       config:
-        ingress:
-          - hostname: "*.{{ cloudflare_zone }}"
-            service: "{{ cloudflared_ingress_service }}"
-          - service: "http_status:404"
+        ingress: "{{ _cf_ingress + [{'service': 'http_status:404'}] }}"
     status_code: 200
     timeout: 30
   # Cloudflare's edge API occasionally drops connections mid-PUT; this
