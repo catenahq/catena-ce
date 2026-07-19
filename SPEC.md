@@ -30,13 +30,23 @@ client-owned storage, whole-server recovery -- serves that promise.
   offsite immutable backup copies, attestation. Scheduled work in
   Community is **default-deny** -- the weekly backup plus an enumerated
   set of local maintenance watchdogs, machine-enforced, not
-  conventional.
+  conventional. Pro also unlocks **multiple domains**, each served as its
+  own sign-on island (a per-domain identity issuer + session cookie, so
+  users of one domain never see another's login); Community serves a
+  single domain.
 - **Secrets.** The repository contains none. The secrets a deployment
   needs are held by the server owner, documented in
   [ansible/SECRETS.md](ansible/SECRETS.md).
 - **Exposure.** A deployed server accepts no inbound web traffic on its
-  own ports; all web traffic arrives through an encrypted tunnel, and
-  remote administration rides a private network.
+  own ports. With the encrypted tunnel configured, all web traffic
+  arrives through it and remote administration rides a private network.
+  The tunnel is optional: without it the server runs in **private-network
+  access mode**, where the applications are reached over the private
+  network by port and the admin dashboard carries its own login -- no
+  public web edge at all.
+- **Private network.** The control server for the private network is
+  pluggable: a hosted control plane by default, or a self-hosted one the
+  operator points the server at with a URL and a join credential.
 
 ## Invariants
 
@@ -46,6 +56,9 @@ client-owned storage, whole-server recovery -- serves that promise.
 | Re-running the installer converges; it never duplicates or breaks a healthy server | `bench:ce_converge`, `bench:converge_modify` |
 | No web port is open on the server itself; an external scan proves it | `bench:security_scan`, `bench:fi_v2_external_scan_blocked` |
 | Validation checks both directions: services answer, forbidden exposure does not | `bench:ce_validate` |
+| The tunnel is optional: in private-network access mode the server stands up with no public edge | `bench:ce_install_tailnet` |
+| The admin dashboard is reachable over the private network with its own login; a forged proxy header cannot impersonate a user | `bench:ce_install_tailnet` |
+| Each domain token grants exactly one domain; Community caps at one, more is a Pro boundary | `bench:fi_n10_multidomain_cap` |
 | Backups restore -- rehearsed, not assumed | `bench:backup_rollback`, `bench:hot_restore_round_trip` |
 | The scheduled backup is rate-limited to weekly; tighter cadence fails the converge | `bench:backup_tier_schedule_resolution` |
 | Scheduled work is default-deny: weekly backup + enumerated maintenance timers only (Pro boundary) | `audit:check-port` |
