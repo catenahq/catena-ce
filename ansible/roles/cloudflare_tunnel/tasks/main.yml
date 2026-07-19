@@ -31,8 +31,26 @@
       - cloudflare_zone | length > 0
       - cloudflare_account_id | length > 0
     fail_msg: >-
-      Missing config: need vault_cloudflare_api_token in the vault, and
+      Missing config: need vault_cloudflare_api_token in the on-box store, and
       CLOUDFLARE_ZONE + CLOUDFLARE_ACCOUNT_ID in inventory/<name>/.env.
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+# CE/EE boundary: Community is single-domain. Multiple Cloudflare zones are a
+# Business feature -- the catena-ee overlay sets catena_ee_multidomain_enabled
+# (gated on an active Business license) and iterates cloudflare_zones. On CE the
+# list is a single element, so this passes; adding a second zone without the EE
+# overlay fails here rather than half-configuring a second domain.
+- name: "CF: enforce Community single-domain cap"
+  ansible.builtin.assert:
+    that:
+      - (cloudflare_zones | default([1]) | length) <= 1 or (catena_ee_multidomain_enabled | default(false) | bool)
+    fail_msg: >-
+      Multiple Cloudflare domains require the Business edition (catena-ee).
+      Community supports exactly one domain; configured zones:
+      {{ cloudflare_zones | default([]) | length }}. Manage additional domains
+      from catena-admin > Settings under a Business license.
   run_once: true
   delegate_to: localhost
   become: false

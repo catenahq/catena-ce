@@ -34,6 +34,17 @@ access_mode: "{{ lookup('dotenv', 'ACCESS_MODE', default='cloudflare') }}"
 cloudflare_api_base: "https://api.cloudflare.com/client/v4"
 cloudflare_account_id: "{{ lookup('dotenv', 'CLOUDFLARE_ACCOUNT_ID') }}"
 cloudflare_zone: "{{ lookup('dotenv', 'CLOUDFLARE_ZONE') }}"
+# Canonical zone list. Community is single-domain: this is a ONE-element list
+# derived from the scalars above, and cloudflare_zone stays the primary/first
+# element every <sub>.<zone> hostname interpolates. The Business edition
+# (catena-ee) replaces this with a multi-token, multi-zone list and sets
+# catena_ee_multidomain_enabled to lift the single-domain cap in
+# roles/cloudflare_tunnel. Do NOT add elements here on Community -- the cap
+# assert fails the converge.
+cloudflare_zones:
+  - zone: "{{ cloudflare_zone }}"
+    account_id: "{{ cloudflare_account_id }}"
+    token_key: "vault_cloudflare_api_token"
 # Per-host tunnel name. Each host owns its own tunnel. The optional .env
 # prefix CLOUDFLARED_TUNNEL_NAME_PREFIX is prepended for environments that
 # need a recognizable string for prefix-filtered cleanup.
