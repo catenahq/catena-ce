@@ -23,6 +23,13 @@ tailscale_tags: >-
 tailscale_accept_dns: >-
   {{ lookup('dotenv', 'TAILSCALE_ACCEPT_DNS', default='false') | bool }}
 
+# --- Access mode ---
+# cloudflare (default) = public *.<zone> via CF tunnel + SSO edge.
+# tailnet = no Cloudflare, no SSO; apps reached over the tailnet by port.
+# Every CF/Keycloak/oauth2-proxy role is gated on this in site.yml; treat a
+# missing value as 'cloudflare' everywhere (backward compatible).
+access_mode: "{{ lookup('dotenv', 'ACCESS_MODE', default='cloudflare') }}"
+
 # --- Cloudflare Tunnel ---
 cloudflare_api_base: "https://api.cloudflare.com/client/v4"
 cloudflare_account_id: "{{ lookup('dotenv', 'CLOUDFLARE_ACCOUNT_ID') }}"

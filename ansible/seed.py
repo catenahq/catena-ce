@@ -451,6 +451,7 @@ def _is_filled(value) -> bool:
 # knobs (auto-update mode/reboot/provider, scheduled backup tier) are
 # Business features and absent from the Community template.
 ENV_OPTIONS: dict[str, list[str]] = {
+    "ACCESS_MODE": ["cloudflare", "tailnet"],
     "CATENA_DEFAULT_LANGUAGE": ["en", "fr"],
     "STORAGE_MODE": ["built_in", "attached"],
     "NEXTCLOUD_VERSIONS_RETENTION": ["auto, 7", "auto, 14", "auto, 30"],
