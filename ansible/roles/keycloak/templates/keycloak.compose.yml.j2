@@ -46,8 +46,18 @@ services:
       KC_DB_PASSWORD: "{{ vault_keycloak_db_password }}"
       # --- HTTP / proxy ---
       KC_HTTP_ENABLED: "{{ keycloak_http_enabled | string | lower }}"
+{% if (cloudflare_zones | default([]) | length) > 1 %}
+      # Multi-domain (EE): one Keycloak serves an auth.<zone> island per
+      # attached domain. Relaxing HOSTNAME_STRICT + dropping the fixed
+      # KC_HOSTNAME lets Keycloak derive issuer/login URLs from the incoming
+      # Host per request (KC_PROXY_HEADERS=xforwarded + BACKCHANNEL_DYNAMIC
+      # below). Safe because the tunnel ingress is the hostname allow-list:
+      # Keycloak only ever receives the configured auth.<zone> hosts.
+      KC_HOSTNAME_STRICT: "false"
+{% else %}
       KC_HOSTNAME: "https://{{ keycloak_hostname }}"
       KC_HOSTNAME_STRICT: "true"
+{% endif %}
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
       KC_PROXY_HEADERS: "{{ keycloak_proxy_headers }}"
       # --- Cache ---

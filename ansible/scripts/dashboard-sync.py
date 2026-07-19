@@ -124,6 +124,12 @@ def main():
             "OAUTH2_PROXY_CLIENT_SECRET", "OAUTH2_PROXY_COOKIE_SECRET",
             "CLOUDFLARE_ZONE", "KEYCLOAK_TOKEN_URL", "KEYCLOAK_CLIENTS_API",
             "DASHBOARD_SYNC_CLIENT_ID", "DASHBOARD_SYNC_CLIENT_SECRET",
+            # Multi-domain (EE): the configured zone list + the coordinates
+            # clients_provisioner needs to island a secondary-zone app's
+            # oauth2-proxy (auth.<zone> issuer + per-zone cookie secret). Empty
+            # on single-domain hosts, where the primary-zone path is used.
+            "CLOUDFLARE_ZONES", "AUTH_SUBDOMAIN", "KEYCLOAK_REALM",
+            "OAUTH2_PROXY_ZONE_COOKIE_SECRETS",
         )
     }
     clients_provisioner.provision_clients_compose(

@@ -132,6 +132,7 @@ def sync_gate_routes(api_base, api_key, dyn_dir, infra_compose_names,
             specs.setdefault(this_slug, {
                 "slug": this_slug,
                 "app_name": name,
+                "host": host,
                 "upstream_alias": this_slug,
                 "upstream_port": intent["port"],
                 "allowed_groups": intent["allowed"],

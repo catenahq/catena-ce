@@ -17,7 +17,7 @@
 http:
   routers:
     {{ svc_name }}-route:
-      rule: "Host(`{{ svc_domain_host }}`)"
+      rule: "Host(`{{ svc_domain_host }}`){% for h in svc_domain_extra_hosts | default([]) %} || Host(`{{ h }}`){% endfor %}"
       entryPoints:
         - web
       service: {{ svc_name }}-route-svc

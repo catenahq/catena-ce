@@ -30,6 +30,15 @@
     svc_compose_content: "{{ lookup('template', 'keycloak.compose.yml.j2') }}"
     svc_env: []
     svc_domain_host: "{{ keycloak_hostname }}"
+    # Multi-domain (EE): one Keycloak serves an auth.<zone> island per attached
+    # domain. Route every secondary zone's auth host to Keycloak too (the
+    # primary is svc_domain_host above). Empty on single-domain -> the route
+    # rule stays a single Host() (byte-identical).
+    svc_domain_extra_hosts: >-
+      {{ (cloudflare_zones | default([]))[1:]
+         | map(attribute='zone')
+         | map('regex_replace', '^', keycloak_subdomain ~ '.')
+         | list }}
     svc_domain_service: "{{ keycloak_server_service }}"
     svc_domain_port: "{{ keycloak_internal_port }}"
     svc_readiness_skip_reason: >-
