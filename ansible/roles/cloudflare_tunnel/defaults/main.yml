@@ -14,6 +14,19 @@
 
 cloudflared_tunnel_name: "{{ inventory_hostname }}"
 
+# Canonical zone list, defaulted here (lowest precedence) so EVERY context
+# that runs this role has it defined -- the CE inventory group_vars sets it
+# explicitly (and wins), but fresh-target flows that converge through a
+# different var context (migrate.yml / restore onto a new box, driven from
+# the ops or catena-ee inventory) only carry the legacy scalars. Derive the
+# single-element Community list from those scalars so the per-zone loops
+# never hit an undefined `cloudflare_zones`. The Business overlay
+# (catena-ee) replaces this with a multi-zone list + catena_ee_multidomain_enabled.
+cloudflare_zones:
+  - zone: "{{ cloudflare_zone }}"
+    account_id: "{{ cloudflare_account_id | default('') }}"
+    api_token: "{{ vault_cloudflare_api_token }}"
+
 # Traefik service URL inside catena-network -- the single destination for
 # every *.<zone> wildcard ingress rule.
 cloudflared_ingress_service: "http://catena-traefik:80"
