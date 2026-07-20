@@ -30,20 +30,23 @@ Portainer stack from
   `/etc/catena/extra-tiles.yml`, `/var/lib/catena/` (read-only stats;
   populated by run-backup.sh + gatus-sync), and
   `/var/backups/catena-export/` (recovery artifacts, read-only). The
-  shell's writable state is the `admin-plugins` named volume at
-  `/var/lib/catena/plugins`, where the license-gated pull lands EE plugin
-  binaries; Community runs with it empty.
+  shell's writable bind is `/var/lib/catena/ee-payload`, where it mirrors
+  its embedded Business host payload at startup for the
+  ee-install-engines action to install; Community runs with it unused.
 - Renders `/etc/catena/extra-tiles.yml` from inventory
   `catena_admin_extra_tiles` (operator escape hatch for hand-authored
   Apps-tab tiles).
 - Deploys the catena-admin container as a Portainer stack
   ([tasks/deploy.yml](tasks/deploy.yml)) from
   [deploy/catena-admin/catena-admin.compose.yml](../../../deploy/catena-admin/catena-admin.compose.yml),
-  pulling the published GHCR image (`catena_admin_image`). The image ref
-  and every per-host value are supplied via the stack Env array (${VAR}
-  substitution); no Traefik route is written here (oauth2-proxy owns the
-  gated `dash.<zone>` route). The test bench drives the identical path
-  but builds the image locally instead of pulling from GHCR.
+  pulling the PRIVATE GHCR image (`catena_admin_image`) via the Portainer
+  registry credential built from the client's `vault_ghcr_pull_token`
+  ([tasks/registry.yml](tasks/registry.yml); empty token = deploy skipped
+  with a message). The image ref and every per-host value are supplied via
+  the stack Env array (${VAR} substitution); no Traefik route is written
+  here (oauth2-proxy owns the gated `dash.<zone>` route). The test bench
+  drives the identical path but builds the image locally instead of
+  pulling from GHCR.
 
 ## What this role does NOT do
 

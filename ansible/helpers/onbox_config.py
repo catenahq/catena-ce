@@ -199,6 +199,11 @@ EXTERNAL_SECRETS: frozenset[str] = frozenset({
     "vault_headscale_api_key",
     "vault_headscale_preauth_key",
     "vault_cloudflare_api_token",
+    # Per-client GHCR pull token for the PRIVATE catena-admin image
+    # (read:packages on ghcr.io/catenahq/catena-admin). Operator-issued;
+    # the converge feeds it to Portainer as a registry credential so the
+    # stack deploy can pull. Empty = catena-admin deploy is skipped.
+    "vault_ghcr_pull_token",
     # Multi-domain (EE): JSON map zone -> API token. Each token is one-zone
     # scoped; catena-admin verifies the single-zone grant before storing. The
     # scalar vault_cloudflare_api_token stays for the CE single-domain path.

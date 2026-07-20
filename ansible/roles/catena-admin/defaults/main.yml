@@ -12,14 +12,27 @@ catena_admin_subdomain: "{{ lookup('dotenv', 'CATENA_ADMIN_SUBDOMAIN', default='
 catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
 
 # --- Container image + port -------------------------------------------
-# Published catena-admin image the converge deploys (deploy.yml). Clients
+# PRIVATE catena-admin image the converge deploys (deploy.yml). Clients
 # PULL this at converge time -- they never build on the client box (no Go
-# toolchain on a client VPS). Published by catena-ce's publish-image.yml on
-# a v* tag from main. Defaults to the floating :latest GHCR tag; pin to an
+# toolchain on a client VPS). Published by the private catena-admin repo's
+# publish-image.yml on a v* tag from main; the pull authenticates via the
+# Portainer registry credential built from vault_ghcr_pull_token
+# (registry.yml). Defaults to the floating :latest GHCR tag; pin to an
 # immutable @sha256 digest here once the first publish lands, and let the
 # version bumper manage the pin thereafter. The bench does not use this var
 # (it builds local/catena-admin:bench on the VPS and passes that tag).
 catena_admin_image: "ghcr.io/catenahq/catena-admin:latest"
+
+# Portainer registry credential for the private GHCR pull (registry.yml).
+# Username is nominal for GHCR token auth (any non-empty string works with
+# a PAT; keep the org name for legibility).
+catena_admin_registry_url: "ghcr.io"
+catena_admin_registry_name: "catena-ghcr"
+catena_admin_registry_username: "catenahq"
+# Set true for ONE converge to push a rotated vault_ghcr_pull_token into the
+# existing Portainer registry entry (GET /registries never returns the stored
+# password, so drift cannot be detected -- rotation is deliberate).
+catena_admin_registry_force_update: false
 
 # Deploy the catena-admin container FROM the converge (deploy.yml). Production
 # pulls the published GHCR image at converge time. The test bench builds the
@@ -99,33 +112,39 @@ catena_admin_default_theme: "{{ catena_default_theme | default('system') }}"
 catena_admin_extra_actions: []
 catena_admin_extra_tiles: []
 
-# EE-reserved HOST dispatch entries. The Go shell renders EE plugin action
-# BUTTONS at runtime from the downloaded plugins (audit, daily) only under an
-# active Business license, and dispatches each by NAME through the host
+# EE-reserved HOST dispatch entries. The Go shell renders Business action
+# BUTTONS at runtime from its compiled-in panels (audit, daily, ...) only
+# under an active license, and dispatches each by NAME through the host
 # forced-command runner. The runner's dispatch table is CE-rendered, so
 # without a matching entry it rejects the EE action name. These entries
 # authorize the known EE action names -> the EE host binaries, which exist on
-# the host ONLY under a license (installed on activation); on a Community host
-# the binary is absent, so the dispatcher runs nothing and exits non-zero --
-# inert plumbing, the same pattern as the license-gated systemd timers. The
-# dispatcher already runs as root (the forced-command pipes through sudo), so
-# no extra sudoers is needed. These are appended to the host dispatch table +
-# allow-list ONLY, never to the shell-read catalog (actions.yml), so no EE
-# button ever appears on a Community host -- the plugin contributes the button
-# only when loaded. Names + commands MUST match the plugins' ActionSpec
-# (catena-ee audit/audit.go + dailyplugin/plugin.go); a drift means the shell
-# dispatches a name the host cannot resolve.
+# the host ONLY under a license (installed by ee-install-engines); on a
+# Community host the binary is absent, so the dispatcher runs nothing and
+# exits non-zero -- inert plumbing, the same pattern as the license-gated
+# systemd timers. The dispatcher already runs as root (the forced-command
+# pipes through sudo), so no extra sudoers is needed. These are appended to
+# the host dispatch table + allow-list ONLY, never to the shell-read catalog
+# (actions.yml), so no EE button ever appears on a Community host -- the
+# panel contributes the button only while enabled. Names + commands MUST
+# match the panels' ActionSpec (catena-admin audit/audit.go +
+# dailyplugin/plugin.go); a drift means the shell dispatches a name the host
+# cannot resolve.
 catena_admin_ee_reserved_actions:
+  # Payload activation: installs the shell-synced Business host payload
+  # (engines + lane scripts + units) from the ee-payload bind mount. Must
+  # match dailyplugin ee-install-engines ActionSpec.
+  - name: ee-install-engines
+    shell: "bash /var/lib/catena/ee-payload/install-ee-payload.sh"
   - name: daily-status
     shell: "/usr/local/bin/catena-daily status"
   - name: daily-run-now
     shell: "/usr/local/bin/catena-daily run"
   - name: audit-export
     shell: "/usr/local/bin/catena-audit export"
-  # restore-report plugin's on-demand restore drill. Runs the verify-hot
+  # restore-report panel's on-demand restore drill. Runs the verify-hot
   # lane standalone (single-state), which rewrites verify-hot.json so the
   # Restore report panel refreshes with a fresh pass/fail + RTO. Name +
-  # shell MUST match catena-ee restorereport/plugin.go's ActionSpec.
+  # shell MUST match catena-admin restorereport/plugin.go's ActionSpec.
   - name: verify-backup
     shell: "/usr/local/bin/catena-daily step VERIFY_HOT"
   # Multi-domain Cloudflare zone save (EE cloudflarezones plugin). The panel's
@@ -136,7 +155,7 @@ catena_admin_ee_reserved_actions:
   # stdin, auto-detects add-token vs remove-JSON, verifies an add token grants
   # exactly one zone, derives zone/account_id, writes the 0644 panel projection,
   # and emits the store-write request piped to onbox_config (the sole store
-  # writer). Name + shell MUST match catena-ee cloudflarezones/plugin.go's
+  # writer). Name + shell MUST match catena-admin cloudflarezones/plugin.go's
   # ActionSpec. The binary exists on the host only under a Business license.
   - name: cloudflare-zones-save
     shell: >-

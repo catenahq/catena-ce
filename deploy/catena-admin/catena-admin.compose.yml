@@ -1,4 +1,4 @@
-# catena-admin (Community Go shell) -- stack compose.
+# catena-admin (unified admin shell) -- stack compose.
 #
 # Single source of truth for deploying the admin shell as a Portainer
 # stack. Every per-host value -- INCLUDING the image ref -- arrives via the
@@ -6,17 +6,21 @@
 # file verbatim with no build:/image: fork:
 #   - Operator (production): roles/catena-admin/tasks/deploy.yml pushes this
 #     file through the Portainer stack API with svc_env supplying
-#     CATENA_ADMIN_IMAGE = the published GHCR image ({{ catena_admin_image }}).
+#     CATENA_ADMIN_IMAGE = the PRIVATE GHCR image ({{ catena_admin_image }});
+#     the pull authenticates via the Portainer registry credential the role
+#     ensures from the client's GHCR pull token.
 #   - Test bench: builds the image on the VPS (local/catena-admin:bench) and
 #     supplies CATENA_ADMIN_IMAGE = that local tag through its Env array
 #     (orchestrator/catena_admin_deploy.py). It reads THIS file raw.
 #
 # The roles/catena-admin Ansible role creates the host-side bind targets
 # (/etc/catena/admin-ssh, /etc/catena/admin-actions.yml, /etc/catena/
-# extra-tiles.yml, /var/lib/catena stats, /var/backups/catena-export) before
-# the container boots. EE plugin binaries are NOT baked in -- they are pulled
-# at runtime into the writable admin-plugins volume only under an active
-# Business license, then exec'd as go-plugin children.
+# extra-tiles.yml, /var/lib/catena stats + ee-payload, /var/backups/
+# catena-export) before the container boots. Every panel (CE + Business) is
+# compiled into the image; the Business set is enabled at runtime only while
+# the license token verifies. The image also carries the host-side Business
+# payload, which the shell mirrors into the ee-payload bind mount for the
+# ee-install-engines action to install host-side.
 
 services:
   app:
@@ -52,12 +56,15 @@ services:
       CATENA_DEFAULT_THEME: ${CATENA_DEFAULT_THEME:-system}
       CATENA_CLIENTS_TAB_ENABLED: ${CATENA_CLIENTS_TAB_ENABLED:-}
       # License: empty in Community. A Business activation sets the signed
-      # token + the operator public key + the endpoint; the shell then pulls
-      # the license-gated EE plugin binaries into admin-plugins and enables
-      # the EE tabs/actions. A lapse past grace disables them again.
+      # token + the operator public key; the compiled-in Business panels and
+      # actions enable while the token verifies (offline ed25519 + grace).
+      # A lapse past grace disables them again -- never the shell.
       CATENA_LICENSE: ${CATENA_LICENSE:-}
       CATENA_LICENSE_PUBKEY: ${CATENA_LICENSE_PUBKEY:-}
-      CATENA_LICENSE_ENDPOINT: ${CATENA_LICENSE_ENDPOINT:-}
+      # Host-mounted target the shell mirrors its embedded Business host
+      # payload into (engines + lane scripts + units + installer); the
+      # ee-install-engines action installs from there host-side.
+      CATENA_EE_PAYLOAD_DIR: /var/lib/catena/ee-payload
       PORTAINER_API_BASE: ${PORTAINER_API_BASE}
       PORTAINER_API_KEY: ${PORTAINER_API_KEY}
       KEYCLOAK_HOSTNAME: ${KEYCLOAK_HOSTNAME:-}
@@ -77,10 +84,11 @@ services:
       ADMIN_SSH_USER: ${ADMIN_SSH_USER:-catena-admin-runner}
       ADMIN_SSH_KEY_PATH: /etc/catena/admin-ssh/id_ed25519
     volumes:
-      # Writable: the license-gated pull lands EE plugin binaries here, and
-      # the shell exec's them. The nested ro /var/lib/catena mount below
-      # provides host stats; this volume shadows the plugins subpath rw.
-      - admin-plugins:/var/lib/catena/plugins
+      # Writable nested bind: the shell mirrors its embedded Business host
+      # payload here at startup; the host-side installer action reads it at
+      # the same path. The ro /var/lib/catena mount below provides host
+      # stats; this bind shadows the ee-payload subpath rw.
+      - /var/lib/catena/ee-payload:/var/lib/catena/ee-payload
       - /etc/catena/admin-ssh:/etc/catena/admin-ssh:ro
       - /var/backups/catena-export:/var/backups/catena-export:ro
       - /var/lib/catena:/var/lib/catena:ro
@@ -121,9 +129,6 @@ services:
       catena-network:
         aliases:
           - catena-admin
-
-volumes:
-  admin-plugins:
 
 networks:
   catena-network:
