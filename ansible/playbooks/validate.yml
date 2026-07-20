@@ -339,11 +339,17 @@
       # session (200). Reachable in both access modes; in tailnet mode this is
       # the only way in.
       # Only assert it when the converge itself deployed catena-admin. Production
-      # leaves CATENA_ADMIN_DEPLOY_FROM_CONVERGE=true, so the container is up by
-      # the time validate runs. The bench sets it false and deploys catena-admin
-      # out of band AFTER the install-time validate (stage-2.6); its own
-      # scenarios probe the native-login endpoint post-deploy instead.
-      when: lookup('env', 'CATENA_ADMIN_DEPLOY_FROM_CONVERGE', default='true') | bool
+      # leaves deploy-from-converge true, so the container is up by the time
+      # validate runs. The bench deploys catena-admin out of band AFTER the
+      # install-time validate and disables the converge deploy -- as an ANSIBLE
+      # extra-var (catena_admin_deploy_from_converge, the Semaphore migrate/DR
+      # path) OR as an ENV var (the subprocess install path). Honour the ansible
+      # var first, then fall back to the env lookup, so the probe skips in BOTH
+      # bench paths but still runs in production.
+      when: >-
+        (catena_admin_deploy_from_converge
+         | default(lookup('env', 'CATENA_ADMIN_DEPLOY_FROM_CONVERGE', default='true')))
+        | bool
 
     - name: "Probe Keycloak (auth.<zone>) login page via CF"
       ansible.builtin.uri:
