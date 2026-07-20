@@ -50,15 +50,24 @@ services:
       # Multi-domain (EE): one Keycloak serves an auth.<zone> island per
       # attached domain. Relaxing HOSTNAME_STRICT + dropping the fixed
       # KC_HOSTNAME lets Keycloak derive issuer/login URLs from the incoming
-      # Host per request (KC_PROXY_HEADERS=xforwarded + BACKCHANNEL_DYNAMIC
-      # below). Safe because the tunnel ingress is the hostname allow-list:
-      # Keycloak only ever receives the configured auth.<zone> hosts.
+      # Host per request (KC_PROXY_HEADERS=xforwarded). Safe because the
+      # tunnel ingress is the hostname allow-list: Keycloak only ever
+      # receives the configured auth.<zone> hosts. BACKCHANNEL_DYNAMIC MUST
+      # be false here: Keycloak 26 rejects backchannel-dynamic=true when no
+      # fixed hostname is set ("hostname-backchannel-dynamic must be set to
+      # false when no hostname is provided"). With no fixed hostname every
+      # URL (frontend AND backchannel) is already request-derived, so the
+      # internal keycloak-server:8080 backchannel resolves from its own Host.
       KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "false"
 {% else %}
+      # Single-domain: fixed public KC_HOSTNAME for the iss claim, with
+      # BACKCHANNEL_DYNAMIC=true so server-to-server calls on the internal
+      # keycloak-server:8080 host resolve while iss stays public.
       KC_HOSTNAME: "https://{{ keycloak_hostname }}"
       KC_HOSTNAME_STRICT: "true"
-{% endif %}
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+{% endif %}
       KC_PROXY_HEADERS: "{{ keycloak_proxy_headers }}"
       # --- Cache ---
       # Single Keycloak replica per VPS (one `server` service, no
