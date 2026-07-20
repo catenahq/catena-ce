@@ -351,7 +351,16 @@ fi
 # that do not exist, so the keep_hourly flag is harmless on a nightly
 # host.
 log "restic forget --prune"
+# --keep-tag decommission: the final archival snapshot decommission.yml
+# takes (tagged "decommission" via the systemd drop-in) is the "we tore the
+# host down but still need the data" safety net. Time-based retention alone
+# would prune it once it ages out of the hourly/daily/weekly/monthly
+# windows -- so preserve any decommission-tagged snapshot unconditionally.
+# (In the bench this is also what lets decommission_recovery still resolve
+# the tagged snapshot after other scenarios' backups run forget on the
+# shared repo.)
 restic forget \
+    --keep-tag decommission \
     --keep-hourly "${BACKUP_KEEP_HOURLY:-24}" \
     --keep-daily "${BACKUP_KEEP_DAILY}" \
     --keep-weekly "${BACKUP_KEEP_WEEKLY}" \
