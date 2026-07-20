@@ -10,9 +10,8 @@ tested and how much.
 ## Intent
 
 Catena Community is the published, fair-code base of Catena: the
-installer/CLI, the automation that prepares a server and deploys the
-application suite, and the catena-admin dashboard. It is built for one
-north star:
+installer/CLI and the automation that prepares a server and deploys the
+application suite. It is built for one north star:
 
 > **A Catena server can be rebuilt from nothing but its backup storage
 > endpoint and the backup key.**
@@ -25,9 +24,12 @@ client-owned storage, whole-server recovery -- serves that promise.
 - **Community vs Pro.** This repository is complete and functional on
   its own, including a proven scheduled-backup lane: one weekly backup
   timer, rate-limited to weekly-or-sparser cadence at converge time.
-  Catena Pro (private repository) adds the licensed automation on top:
-  daily and sub-daily backups, managed updates, daily maintenance,
-  offsite immutable backup copies, attestation. Scheduled work in
+  Catena Pro (private repository) adds the catena-admin web panel and
+  the licensed automation on top: daily and sub-daily backups, managed
+  updates, daily maintenance, offsite immutable backup copies,
+  attestation. The panel is a convenience layer over the host-native
+  automation in THIS repository -- every operation it drives (backup,
+  restore, validate, converge) runs here without it. Scheduled work in
   Community is **default-deny** -- the weekly backup plus an enumerated
   set of local maintenance watchdogs, machine-enforced, not
   conventional. Pro also unlocks **multiple domains**, each served as its
@@ -42,8 +44,7 @@ client-owned storage, whole-server recovery -- serves that promise.
   arrives through it and remote administration rides a private network.
   The tunnel is optional: without it the server runs in **private-network
   access mode**, where the applications are reached over the private
-  network by port and the admin dashboard carries its own login -- no
-  public web edge at all.
+  network by port -- no public web edge at all.
 - **Private network.** The control server for the private network is
   pluggable: a hosted control plane by default, or a self-hosted one the
   operator points the server at with a URL and a join credential.
@@ -57,17 +58,15 @@ client-owned storage, whole-server recovery -- serves that promise.
 | No web port is open on the server itself; an external scan proves it | `bench:security_scan`, `bench:fi_v2_external_scan_blocked` |
 | Validation checks both directions: services answer, forbidden exposure does not | `bench:ce_validate` |
 | The tunnel is optional: in private-network access mode the server stands up with no public edge | `bench:ce_install_tailnet` |
-| The admin dashboard is reachable over the private network with its own login; a forged proxy header cannot impersonate a user | `bench:ce_install_tailnet` |
 | Each domain token grants exactly one domain; Community caps at one, more is a Pro boundary | `bench:fi_n10_multidomain_cap` |
 | The private-network control server is pluggable: a node joins a self-hosted control server, not only the hosted one | `bench:ce_install_headscale` |
 | Backups restore -- rehearsed, not assumed | `bench:backup_rollback`, `bench:hot_restore_round_trip` |
 | The scheduled backup is rate-limited to weekly; tighter cadence fails the converge | `bench:backup_tier_schedule_resolution` |
 | Scheduled work is default-deny: weekly backup + enumerated maintenance timers only (Pro boundary) | `audit:check-port` |
 | Every file and scenario is classified against the feature manifest; nothing untracked | `audit:check-grid`, `audit:check-all` |
-| The Pro plugin seam honors its compile-time contract | `audit:check-go-plugins` |
 | Source is scanned on every change (secrets, vulnerable deps, static analysis) | `workflow:security.yml`, `scanctl:gitleaks`, `scanctl:osv-scanner`, `scanctl:semgrep`, `scanctl:govulncheck` |
-| Shipped container images are CVE-gated | `workflow:trivy.yml` |
-| The Go shell and the Python installer build, vet and test green | `workflow:ci.yml` |
+| Pinned container images are CVE-gated | `workflow:trivy.yml` |
+| The license package and the Python installer build, vet and test green | `workflow:ci.yml` |
 
 Gate pointer grammar: `bench:<scenario>` = a rehearsal scenario that
 provisions disposable virtual machines and drives the real product;

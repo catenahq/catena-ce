@@ -9,10 +9,15 @@ no vendor lock-in. Source-available (fair-code).
 Community is a complete, standalone product: the full app catalog plus the
 whole base lifecycle -- one-command install, single sign-on across every app,
 monitoring basics, on-demand backups, and whole-host restore/recovery onto a
-fresh replacement box.
+fresh replacement box. Every operation runs through the `catena` CLI; every
+byte of your data stays in standard formats you can read and restore with
+standard tools, with or without Catena.
 
-> A managed **Business** edition adds operated extras on top (offsite
-> immutable backups, automated updates, and more). Learn more at
+> A managed **Business** edition adds the catena-admin web panel plus
+> operated extras on top (offsite immutable backups, automated updates, and
+> more). The panel is a convenience layer over the same host-native
+> automation in this repo -- removing it never takes your data or your
+> ability to operate the suite. Learn more at
 > [catena.run](https://catena.run).
 
 ## Quick start
@@ -78,29 +83,28 @@ Full classification: [ansible/SECRETS.md](ansible/SECRETS.md).
 
 ## What's in this repo (for contributors)
 
-This is the public, fair-code base. Enterprise (Business) code is NOT here: it
-lives privately in `catenahq/catena-ee` and ships as compiled, license-gated
-binaries. See [LICENSE](LICENSE).
+This is the public, fair-code base: the whole orchestration + installer.
+The catena-admin web panel is NOT here: since the 2026-07 unification it
+lives privately in `catenahq/catena-admin` and ships as a private container
+image. The panel is a convenience layer over the host-native automation in
+THIS repo -- everything it does (backups, restore, validate, converge) is
+runnable here without it. See [LICENSE](LICENSE).
 
-- **catena-admin (Go shell)** -- the Community admin surface: a single binary
-  hosting the Community panels + actions, with a plugin seam that a Business
-  license extends at runtime (no second build).
 - **Base automation** -- the `preflight` / `bootstrap` / `site` / `validate` /
   `restore` flows + shared roles + the single-backup runner.
 - **Installer / CLI** -- `ansible/catena`, a thin entry point so self-hosters
   never touch raw Ansible.
+- **License wire format** -- the public `license` Go package: the ed25519
+  token format Business hosts verify OFFLINE (the verify side is public on
+  purpose, so the check is auditable).
 
 ```
 ansible/               the Community deploy automation + the CLI
   catena               the installer / CLI entry point (see ansible/README.md)
   playbooks/ roles/    preflight/bootstrap/site/validate/restore + shared roles
-  seed.py              config + plaintext-vault seeding (first-run secret minting)
-cmd/catena-admin/      the Go shell entry point
+  seed.py              config seeding (first-run secret minting happens on-box)
 license/               ed25519 license-token wire format (offline verify + grace)
-plugin/                the CE/EE plugin SDK contract (implemented by catena-ee)
-internal/registry/     host-side store that gates Business plugins on a license
-loader/                go-plugin loader for the downloaded EE plugin binaries
-deploy/catena-admin/   the catena-admin container compose
+deploy/catena-admin/   the catena-admin container compose (image is private GHCR)
 ```
 
 **What this repo promises and how that is enforced:** [SPEC.md](SPEC.md)
@@ -110,34 +114,10 @@ maintainers' CI).
 
 ### Develop
 
-Requires Go 1.26+.
+Requires Go 1.26+ (for the license package) and uv (for the installer).
 
 ```
 go build ./...
 go vet ./...
 go test ./...
 ```
-
-#### Run the shell locally (dev only)
-
-This is a **developer convenience**, not an install step. It runs the
-catena-admin binary directly on your machine so you can iterate on the panel
--- it starts the admin GUI (dashboard + CE actions + license-gated EE plugin
-panels) plus the `/healthz` and `/licensez` endpoints on a port. In a real
-deployment you never run this: `catena install` deploys the **same** binary as
-the catena-admin container (a Portainer stack on `:8000`), reached at
-`https://dash.<zone>` behind oauth2-proxy SSO.
-
-```
-# Community-only (no license): serves the GUI + /healthz + /licensez on :8080
-go run ./cmd/catena-admin
-
-# With a Business license (token + operator public key), to exercise the
-# license-gated EE plugin panels:
-CATENA_LICENSE="<token>" CATENA_LICENSE_PUBKEY="<base64-ed25519>" \
-  go run ./cmd/catena-admin
-```
-
-`CATENA_ADMIN_ADDR` overrides the listen address (the container sets `:8000`).
-With no (or an invalid) license the shell runs Community-only; it never fails
-closed on a missing key.

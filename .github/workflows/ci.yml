@@ -1,9 +1,10 @@
 name: CI
 
-# Go build/vet/test gate for the catena-admin shell + license/plugin libs,
-# plus the Python installer (ansible/) unit tests. Runs on the self-hosted
-# laptop runner; Go comes from ~/.local/go (the same toolchain used locally)
-# rather than setup-go, and Python tooling comes from uv.
+# Go build/vet/test gate for the public license package (the shell moved to
+# the private catena-admin repo at the unification), plus the Python
+# installer (ansible/) unit tests. Runs on the self-hosted laptop runner; Go
+# comes from ~/.local/go (the same toolchain used locally) rather than
+# setup-go, and Python tooling comes from uv.
 
 on:
   push:

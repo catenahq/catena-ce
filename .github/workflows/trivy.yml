@@ -1,14 +1,12 @@
 name: Trivy
 
-# Wave 4 (blocking) container-image CVE gate for catena-ce. Ported from
-# catenahq/ops at the M3.7 cutover: the catena-admin image and the operator-
-# stack base-image pins moved here with the client-facing Ansible roles. The
-# fs scan (repo deps + misconfig + secrets) is the scanctl security gate
+# Wave 4 (blocking) container-image CVE gate for catena-ce. The fs scan
+# (repo deps + misconfig + secrets) is the scanctl security gate
 # (security.yml). What stays here cannot fold into scanctl's static fs scan:
-#   - image (catena-admin): builds the distroless catena-admin image (top-level
-#     Dockerfile) and scans the runtime layers.
 #   - image (operator-stack pins): scans the cloudflared + traefik + postgres +
 #     portainer tags resolved at runtime from the Ansible role defaults.
+# The catena-admin image job moved to the private catena-admin repo at the
+# unification.
 #
 # Severity floor is HIGH+CRITICAL, ignore-unfixed:true so unpatched CVEs do not
 # block until a fix exists upstream. Tune via .trivyignore.yaml (passed as the
@@ -26,33 +24,8 @@ permissions:
   contents: read
 
 jobs:
-  trivy-catena-admin-image:
-    name: Trivy image (catena-admin)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          persist-credentials: false
-      - name: Build catena-admin image
-        # Build context is the repo root; the top-level Dockerfile is the
-        # multi-stage Go build of ./cmd/catena-admin into distroless/static.
-        run: docker buildx build -t catena-admin:ci -f Dockerfile .
-      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: catena-admin:ci
-          severity: HIGH,CRITICAL
-          exit-code: '1'
-          format: 'json'
-          output: 'trivy-catena-admin.json'
-          ignore-unfixed: true
-          trivyignores: .trivyignore.yaml
-      - name: Upload report
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: trivy-catena-admin-report
-          path: trivy-catena-admin.json
-          if-no-files-found: ignore
+  # The catena-admin image job moved to the private catena-admin repo at the
+  # unification (the Dockerfile + publish workflow live beside the shell now).
 
   # Image-CVE scan for the two operator-stack base images we pin by role
   # default (cloudflared + traefik). Renovate's docker manager does not see
