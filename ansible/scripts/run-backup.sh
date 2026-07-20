@@ -161,6 +161,28 @@ trap on_failure EXIT
 ping_hc_attempted /start
 log "backup run starting"
 
+# ─── backend reachability preflight ──────────────────────────────────────
+# restic has no connect-timeout: against an UNREACHABLE repo (endpoint down
+# / firewalled so the TCP connect hangs), `restic unlock` and `restic
+# backup` retry with backoff for ~20 min before giving up, silently wedging
+# this oneshot -- and, in the bench, the whole run (fi_n7). Probe the
+# backend up front with a HARD `timeout` bound so a hung endpoint fails in
+# seconds. `restic cat config` is a lightweight read valid for every backend
+# type. Gate ONLY on timeout (rc 124 = the probe hung = unreachable): a fast
+# non-zero (e.g. a not-yet-initialised repo, a DNS error that returns
+# immediately) is NOT a hang, so let the normal restic flow surface it
+# rather than pre-failing a first-ever backup. The EXIT trap pings /fail.
+BACKUP_REACH_TIMEOUT_S="${BACKUP_REACH_TIMEOUT_S:-45}"
+log "backend reachability preflight (restic cat config, ${BACKUP_REACH_TIMEOUT_S}s bound)"
+timeout "${BACKUP_REACH_TIMEOUT_S}" restic cat config >/dev/null 2>&1 || _reach_rc=$?
+if [ "${_reach_rc:-0}" = 124 ]; then
+    log "FATAL: restic backend did not respond within ${BACKUP_REACH_TIMEOUT_S}s"
+    log "       (${RESTIC_REPOSITORY}). Failing fast instead of retrying for"
+    log "       ~20 min. Check the S3 endpoint / network / firewall."
+    exit 3
+fi
+unset _reach_rc 2>/dev/null || true
+
 # ─── R16: disk-space preflight ───────────────────────────────────────────
 # Abort the run before pg_dumpall writes a single byte if the staging
 # mount is below the configured floor. The EXIT trap above pings /fail,
