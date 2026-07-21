@@ -67,23 +67,41 @@
          else '' }}
   no_log: true
 
+# The account id is NOT an install input on a tokenless install: the client
+# supplies only a token (catena-admin > Settings), and the tunnel engine
+# resolves the account from it at activation and persists it into the on-box
+# store. Inventory .env therefore carries an EMPTY CLOUDFLARE_ACCOUNT_ID on
+# every such host, so take the inventory value when set (an operator-provided
+# override) and fall back to the stored one.
+- name: "CF regen: bind the effective Cloudflare account id"
+  ansible.builtin.set_fact:
+    _cf_regen_account_id: >-
+      {{ cloudflare_account_id
+         if (cloudflare_account_id | default('') | length > 0)
+         else ((_cf_regen_store.content | default('') | b64decode | from_json).config
+               | default({})).get('CLOUDFLARE_ACCOUNT_ID', '')
+              if (_cf_regen_store_stat.stat.exists | default(false))
+              else '' }}
+
 - name: "CF regen: validate inputs"
   ansible.builtin.assert:
     that:
       - cf_api_token is defined
       - cf_api_token | length > 10
       - cloudflare_zone | length > 0
-      - cloudflare_account_id | length > 0
+      - _cf_regen_account_id | length > 0
     fail_msg: >-
-      Missing inputs: cf_api_token (-e cf_api_token=...) and
-      CLOUDFLARE_ZONE + CLOUDFLARE_ACCOUNT_ID from inventory .env.
+      Missing inputs: cf_api_token (-e cf_api_token=...), CLOUDFLARE_ZONE from
+      inventory .env, and a Cloudflare account id -- normally resolved at
+      activation and stored on-box as CLOUDFLARE_ACCOUNT_ID, overridable from
+      inventory .env.
   run_once: true
   delegate_to: localhost
   become: false
 
 - name: "CF regen: list existing tunnels matching this host"
   ansible.builtin.uri:
-    url: "{{ cloudflare_api_base }}/accounts/{{ cloudflare_account_id }}/cfd_tunnel?name={{ cloudflared_tunnel_name }}&is_deleted=false"
+    url: "{{ cloudflare_api_base }}/accounts/{{ _cf_regen_account_id }}/cfd_tunnel?name={{ cloudflared_tunnel_name }}&is_deleted=false"
     method: GET
     headers:
       Authorization: "Bearer {{ cf_api_token }}"
@@ -96,7 +114,7 @@
 
 - name: "CF regen: clean up stale connectors (refuses delete on tunnels with active connections)"
   ansible.builtin.uri:
-    url: "{{ cloudflare_api_base }}/accounts/{{ cloudflare_account_id }}/cfd_tunnel/{{ item.id }}/connections"
+    url: "{{ cloudflare_api_base }}/accounts/{{ _cf_regen_account_id }}/cfd_tunnel/{{ item.id }}/connections"
     method: DELETE
     headers:
       Authorization: "Bearer {{ cf_api_token }}"
@@ -110,7 +128,7 @@
 
 - name: "CF regen: delete existing tunnel(s)"
   ansible.builtin.uri:
-    url: "{{ cloudflare_api_base }}/accounts/{{ cloudflare_account_id }}/cfd_tunnel/{{ item.id }}"
+    url: "{{ cloudflare_api_base }}/accounts/{{ _cf_regen_account_id }}/cfd_tunnel/{{ item.id }}"
     method: DELETE
     headers:
       Authorization: "Bearer {{ cf_api_token }}"
@@ -131,3 +149,8 @@
     name: cloudflare_tunnel
   vars:
     vault_cloudflare_api_token: "{{ cf_api_token }}"
+    # Hand the resolved account id down too: the role's default reads the
+    # (empty on a tokenless install) inventory var, and while the engine can
+    # re-resolve it from the token, passing it keeps the delete and re-create
+    # halves of this rotation pinned to the SAME account.
+    cloudflare_account_id: "{{ _cf_regen_account_id }}"
