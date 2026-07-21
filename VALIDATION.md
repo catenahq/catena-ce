@@ -11,7 +11,7 @@ This sheet is **generated, not written**: it is rendered from the same machine-c
 
 Catena is exercised end-to-end by an automated rehearsal suite: each scenario provisions disposable virtual machines, drives the real product (install, converge, back up, break, restore) and asserts the outcome -- including deliberate failure injection. The counts below are those rehearsals.
 
-**Coverage: 9 Community features exercised by 87 rehearsal scenarios; 13 Catena Pro features by 41; plus 24 maintainer-internal rehearsals.**
+**Coverage: 10 Community features exercised by 88 rehearsal scenarios; 13 Catena Pro features by 41; plus 24 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -79,6 +79,14 @@ Implemented in: `ansible/playbooks/restore.yml`
 
 Rehearsal scenarios (16): `ce_restore`, `debian_major_upgrade_restore`, `fi_d2_pg_dumpall_replay_constraint`, `fi_d3_postgres_oom_mid_restore`, `fi_d4_disk_full_mid_snapshot`, `fi_d5_disk_full_mid_converge`, `fi_d6_volume_uid_drift`, `fi_d7_restic_corrupt_pack`, `hot_restore_round_trip`, `nc_s3_hot_recovery`, `nc_sync_wipe_restore`, `pg_major_version_cross_restore`, `pitr_fuse_round_trip`, `recover_secrets_from_running_host`, `recovery_landing_page_bilingual_parity`, `restore_dr`
 
+### No lock-in, ever
+
+Delete the admin panel and everything you own keeps working: backups run, restores work, and every application stays online, using only standard tools and the settings stored on your own server. Leaving costs you convenience, never your data.
+
+Implemented in: `ansible/roles/backup`, `ansible/scripts/run-backup.sh`
+
+Rehearsal scenarios (1): `sovereign_exit`
+
 ### Automated health and exposure checks
 
 A validation pass proves both directions: every service answers where it should (on-server and through the private network), and an external scan confirms nothing is reachable that should not be.
@@ -120,8 +128,7 @@ Parsed from the committed workflow files; every job below runs on each change.
 | Workflow | File | Jobs |
 | --- | --- | --- |
 | CI | `.github/workflows/ci.yml` | `go`, `installer`, `duplication` |
-| Publish image | `.github/workflows/publish-image.yml` | `publish` |
 | security | `.github/workflows/security.yml` | `scanctl` |
-| Trivy | `.github/workflows/trivy.yml` | `trivy-catena-admin-image`, `trivy-operator-stack-pins`, `trivyignore-expiry` |
+| Trivy | `.github/workflows/trivy.yml` | `trivy-operator-stack-pins`, `trivyignore-expiry` |
 
 See [SPEC.md](SPEC.md) for what this repository promises and the machine-checked invariants behind each promise.
