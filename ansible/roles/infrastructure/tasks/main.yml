@@ -53,6 +53,11 @@
 - name: "Resolve access mode (gates SSO/CF-coupled infra deploys)"
   ansible.builtin.set_fact:
     _infra_cf_mode: "{{ access_mode | default('cloudflare') == 'cloudflare' }}"
+    # Tunnel-deferred gate: no Cloudflare token in the on-box store yet means
+    # cloudflared is not configured (roles/cloudflare_tunnel skips), so no
+    # *.<zone> public hostname resolves. End-of-role public-URL probes must
+    # be deferred until cf_activate persists a token and re-converges.
+    _infra_cf_token_present: "{{ (vault_cloudflare_api_token | default('')) | length > 0 }}"
   tags: [always]
 
 - name: Has Portainer API key -> provision services via the Portainer stack API
@@ -324,12 +329,29 @@
     # we test. Fails fast with diagnostic output if any gated app's
     # public URL doesn't respond with 200/302/etc. Total additional
     # wall clock on a healthy run: 6 probes × ~1s each = 6s.
+    # Gated on token presence too: on a tokenless install the tunnel is
+    # deferred, so none of these public *.<zone> URLs resolve. cf_activate
+    # persists the token and re-converges, at which point this probe runs.
     - name: Verify gated services serve healthy HTTP
       ansible.builtin.include_tasks:
         file: verify_gated_services.yml
         apply:
           tags: [verify_gated]
-      when: _infra_cf_mode
+      when:
+        - _infra_cf_mode
+        - _infra_cf_token_present
+      tags: [verify_gated]
+
+    - name: "Verify gated services: tunnel deferred -- skipping public-URL probe (no Cloudflare token yet)"
+      ansible.builtin.debug:
+        msg: >-
+          No Cloudflare API token in the on-box store: the tunnel is deferred,
+          so the gated *.{{ cloudflare_zone | default('<zone>') }} URLs are not
+          resolvable. Skipping the public-URL readiness probe until cf_activate
+          persists a token and re-converges.
+      when:
+        - _infra_cf_mode
+        - not _infra_cf_token_present
       tags: [verify_gated]
 
 # gatus-sync reads CLIENT-app monitoring from `docker ps` labels
