@@ -5,14 +5,20 @@
 # unambiguous: any command through this dispatcher is sourced from the
 # admin container, never anything else.
 
-# SSH dispatch passes the clicking admin's email as an env var
-# so audit-trail-bearing actions (e.g. managed-update-pause) record who
-# fired them. The container's paramiko client calls
-# channel.set_environment_variable("X_FORWARDED_EMAIL", ...); sshd
-# rejects the env var unless it's whitelisted via AcceptEnv. Match-User
-# scope so the rule only applies to the runner account and does not
-# leak to operator-shell sessions.
-- name: "sshd: AcceptEnv X_FORWARDED_EMAIL for catena-admin-runner"
+# SSH dispatch passes several values as env vars so the reserved-action shells
+# read them without exposing them in argv/$SSH_ORIGINAL_COMMAND/the process
+# table. The container's paramiko client calls
+# channel.set_environment_variable(NAME, ...); sshd rejects each var unless it
+# is whitelisted via AcceptEnv. Match-User scope so the rule only applies to
+# the runner account and does not leak to operator-shell sessions.
+#   - X_FORWARDED_EMAIL       -- the clicking admin's email, for audit-trail
+#                                actions (e.g. managed-update-pause).
+#   - CATENA_CF_CANDIDATE_TOKEN -- a candidate Cloudflare token the Settings
+#                                panel validates via cloudflared-check BEFORE
+#                                persist; piped to the engine on stdin.
+#   - CATENA_MULTIDOMAIN_ENABLED -- the Business multi-domain license flag the
+#                                shell forwards on the cloudflared-sync dispatch.
+- name: "sshd: AcceptEnv for catena-admin-runner dispatch env vars"
   ansible.builtin.copy:
     dest: /etc/ssh/sshd_config.d/30-catena-admin-runner-acceptenv.conf
     owner: root
@@ -20,11 +26,12 @@
     mode: "0644"
     content: |
       # {{ ansible_managed }}
-      # Allow the catena-admin container's paramiko client to forward
-      # the clicking admin's email to the host dispatcher via env var.
-      # Scoped to the runner account; does not affect operator shells.
+      # Allow the catena-admin container's paramiko client to forward the
+      # clicking admin's email, a candidate Cloudflare token, and the
+      # multi-domain flag to the host dispatcher via env vars. Scoped to the
+      # runner account; does not affect operator shells.
       Match User {{ catena_admin_runner_user }}
-          AcceptEnv X_FORWARDED_EMAIL
+          AcceptEnv X_FORWARDED_EMAIL CATENA_CF_CANDIDATE_TOKEN CATENA_MULTIDOMAIN_ENABLED
       Match all
   notify: reload sshd
 

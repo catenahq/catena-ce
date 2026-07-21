@@ -4,12 +4,11 @@ A single urllib call can fail on a sporadic name-resolution blip ("Name
 or service not known" -- socket.gaierror errno -2; sometimes "Temporary
 failure in name resolution") even though the network recovers within
 seconds. A bare urlopen turns such a blip into a hard failure -- e.g.
-seed.py's Cloudflare zone lookup returning None and falling through to an
-interactive prompt that EOFErrors under --no-confirm.
+seed.py's Tailscale OAuth live-probe failing the install on a transient
+DNS hiccup instead of proving the creds.
 
 This is the single place transient-network retry lives so the per-module
-urllib wrappers (seed.fetch_cloudflare_account_id, ...) don't each
-reinvent it.
+urllib wrappers (seed._http_json, ...) don't each reinvent it.
 
 Retries every `delay_s` seconds for up to `attempts` tries (default
 15 x 60s ~= 14 min of tolerance, matching how long these blips last).

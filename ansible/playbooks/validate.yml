@@ -351,15 +351,33 @@
          | default(lookup('env', 'CATENA_ADMIN_DEPLOY_FROM_CONVERGE', default='true')))
         | bool
 
+    # The public via-tunnel probes below (Keycloak Account Console at auth.<zone>
+    # and each gated host's /oauth2/start) only work once a Cloudflare token has
+    # been saved (catena-admin > Settings) and the tunnel converged. With no
+    # token the tunnel is DEFERRED, so skip them with a clear reason. The token
+    # is a host fact from the Vantage-1 load_onbox_config pre_task.
+    - name: "Tunnel probes deferred (no Cloudflare token yet)"
+      ansible.builtin.debug:
+        msg: >-
+          Skipping the via-tunnel probes (auth.<zone>, /oauth2/start) -- no
+          Cloudflare token in the on-box store yet; tunnel deferred until one is
+          saved in catena-admin > Settings.
+      when:
+        - access_mode | default('cloudflare') == 'cloudflare'
+        - (vault_cloudflare_api_token | default('')) | length == 0
+
     - name: "Probe Keycloak (auth.<zone>) login page via CF"
       ansible.builtin.uri:
         url: "https://{{ keycloak_hostname | default('auth.' ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default('vps') }}/account"
         status_code: [200, 302]
         timeout: 15
       delegate_to: localhost
-      # Gated on ACCESS_MODE: a blank/empty cloudflare_zone in tailnet mode
-      # would still satisfy `is defined`, so guard on the mode instead.
-      when: access_mode | default('cloudflare') == 'cloudflare'
+      # Gated on ACCESS_MODE (a blank cloudflare_zone in tailnet mode would still
+      # satisfy `is defined`) AND on a present CF token (no token -> tunnel
+      # deferred -> auth.<zone> is not reachable via CF yet).
+      when:
+        - access_mode | default('cloudflare') == 'cloudflare'
+        - (vault_cloudflare_api_token | default('')) | length > 0
       # Keycloak's Account Console redirects unauth'd hits to the login
       # page (302). Authenticated would be 200. Either is healthy.
 
@@ -425,7 +443,11 @@
           }}
         _r3_keycloak_login_prefix: >-
           https://{{ keycloak_hostname | default('auth.' ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default('vps') }}/protocol/openid-connect/auth?
-      when: access_mode | default('cloudflare') == 'cloudflare'
+      # Only build the probe set when the tunnel is actually up (token present);
+      # otherwise _gated_hosts stays unset and the probe loop below skips.
+      when:
+        - access_mode | default('cloudflare') == 'cloudflare'
+        - (vault_cloudflare_api_token | default('')) | length > 0
 
     - name: "Probe /oauth2/start on each gated host (Location -> Keycloak)"
       ansible.builtin.uri:

@@ -1,607 +1,109 @@
 ---
-# Control-plane setup for the Cloudflare tunnel + wildcard DNS + ingress,
-# plus deployment of cloudflared itself as a swarm service on
-# catena-network. All CF API calls run from the controller
-# (delegate_to: localhost) -- the API token never lands on the VPS.
+# Cloudflare tunnel converge -- token-gated dispatch to the host engine.
 #
-# Desired state this file enforces:
-#   - Tunnel named {{ cloudflared_tunnel_name }} exists in CF.
-#   - DNS record *.{{ cloudflare_zone }} CNAME -> <tunnel-id>.cfargotunnel.com.
-#   - Tunnel ingress config is exactly one rule:
-#       *.{{ cloudflare_zone }} -> {{ cloudflared_ingress_service }}
-#       + catch-all http_status:404.
-#     (Manual edits in CF dashboard get overwritten -- intentional.)
-#   - cloudflared swarm service exists, attached to catena-network, with
-#     the current TUNNEL_TOKEN. cloudflared stays a raw swarm service (NOT
-#     a managed compose app) because migrating it would risk
-#     tunnel outage during swap, and the UI-visibility gain is low for a
-#     set-and-forget component.
+# The tunnel / wildcard DNS / ingress / cloudflared swarm-service logic that
+# used to live here (CF API find-or-create, DNS CNAME, ingress PUT, service
+# deploy + token/network reconcile, edge->tunnel->Traefik chain probe) now
+# lives in the Go engine catena-cloudflared-sync. That binary ships in the
+# catena-admin host payload and is installed to /usr/local/bin on EVERY
+# converge by roles/catena-admin (it is NOT license-gated -- the Cloudflare
+# tunnel is a Community feature). See catena-admin
+# cmd/catena-cloudflared-sync/SYNC.md for the contract.
 #
-# Access auth for the four UIs (admin/monitor/actions/dash) is handled
-# by self-hosted SSO + forward-auth: Keycloak (Phase Two distribution)
-# + oauth2-proxy (live since 2026-04-27). CF Access is not part of this
-# stack.
+# This role now does ONE thing: when the on-box store already holds a
+# Cloudflare API token, dispatch the engine's `sync` on the host to bring the
+# tunnel to desired state inline (idempotent -- a re-converge after the panel
+# saved a token, or a bench that adopted one, finds everything already correct
+# and no-ops). When the store holds NO token the tunnel is DEFERRED: the client
+# enters the token in catena-admin > Settings, which validates it
+# (cloudflared-check) and fires cloudflared-sync in the background. A
+# present-but-INVALID token fails the converge here (the engine exits nonzero),
+# preserving the fail-fast abort intent (fi_n4/fi_s5) rather than
+# half-configuring a broken edge.
+#
+# The Community single-domain cap is enforced by the engine (a token that
+# grants more than one zone with CATENA_MULTIDOMAIN_ENABLED unset), not here.
 
-# ─── preflight ───────────────────────────────────────────────────────────
-- name: Assert required config is present
-  ansible.builtin.assert:
-    that:
-      - vault_cloudflare_api_token is defined
-      - vault_cloudflare_api_token | length > 10
-      - cloudflare_zone | length > 0
-      - cloudflare_account_id | length > 0
-    fail_msg: >-
-      Missing config: need vault_cloudflare_api_token in the on-box store, and
-      CLOUDFLARE_ZONE + CLOUDFLARE_ACCOUNT_ID in inventory/<name>/.env.
-  run_once: true
-  delegate_to: localhost
-  become: false
-
-# CE/EE boundary: Community is single-domain. Multiple Cloudflare zones are a
-# Business feature -- the catena-ee overlay sets catena_ee_multidomain_enabled
-# (gated on an active Business license) and iterates cloudflare_zones. On CE the
-# list is a single element, so this passes; adding a second zone without the EE
-# overlay fails here rather than half-configuring a second domain.
-- name: "CF: enforce Community single-domain cap"
-  ansible.builtin.assert:
-    that:
-      - (cloudflare_zones | default([1]) | length) <= 1 or (catena_ee_multidomain_enabled | default(false) | bool)
-    fail_msg: >-
-      Multiple Cloudflare domains require the Business edition (catena-ee).
-      Community supports exactly one domain; configured zones:
-      {{ cloudflare_zones | default([]) | length }}. Manage additional domains
-      from catena-admin > Settings under a Business license.
-  run_once: true
-  delegate_to: localhost
-  become: false
-
-# ─── resolve CF zone_id (per configured zone) ────────────────────────────
-# One iteration on Community (single-element cloudflare_zones); the EE overlay
-# supplies additional zones, each with its own one-zone-scoped token. Each
-# zone's DNS lives under its own zone_id + token; the tunnel + account are
-# shared (single-account v1), so the tunnel/token tasks below stay single.
-- name: "CF: look up zone_id for each configured zone"
-  ansible.builtin.uri:
-    url: "{{ cloudflare_api_base }}/zones?name={{ item.zone }}"
-    method: GET
-    headers:
-      Authorization: "Bearer {{ item.api_token }}"
-    status_code: 200
-    return_content: true
-  register: _cf_zone_lookups
-  loop: "{{ cloudflare_zones }}"
-  loop_control:
-    label: "{{ item.zone }}"
-  run_once: true
-  delegate_to: localhost
-  become: false
-  # CF API occasionally returns transient 5xx ("An unknown API error
-  # occurred"). Retry idempotent reads so a single hiccup doesn't fail
-  # the whole converge.
-  retries: 5
-  delay: 6
-  until: _cf_zone_lookups.status == 200
-
-- name: Assert each zone is visible to its token
-  ansible.builtin.assert:
-    that:
-      - item.json.result | length == 1
-    fail_msg: >-
-      Zone '{{ item.item.zone }}' not found (or token lacks access). Check
-      that the API token has Zone:DNS:Edit scope on this zone.
-  loop: "{{ _cf_zone_lookups.results }}"
-  loop_control:
-    label: "{{ item.item.zone }}"
-  run_once: true
-  delegate_to: localhost
-  become: false
-
-# Pair each zone with its resolved zone_id + token for the DNS loops below.
-# no_log: the record carries the per-zone API token.
-- name: Build per-zone DNS records (zone, zone_id, api_token)
+- name: "CF: is a Cloudflare token present in the on-box store?"
+  # load_onbox_config.yml (site/validate/restore pre_tasks) already published
+  # every store secret as a fact; vault_cloudflare_api_token stays UNDEFINED
+  # until the client saves one in catena-admin > Settings. The regenerate role
+  # shadows it with the operator-supplied rotation token.
   ansible.builtin.set_fact:
-    _cf_zone_records: >-
-      {{ _cf_zone_records | default([]) + [{
-           'zone': item.item.zone,
-           'zone_id': item.json.result[0].id,
-           'api_token': item.item.api_token,
-         }] }}
-  loop: "{{ _cf_zone_lookups.results }}"
-  loop_control:
-    label: "{{ item.item.zone }}"
-  run_once: true
-  no_log: true
+    _cf_token_present: "{{ (vault_cloudflare_api_token | default('')) | length > 0 }}"
 
-# The primary zone_id (element 0) pins the single-instance infra hostnames;
-# kept as a scalar for backward compatibility (regenerate role + templates).
-- name: Capture primary zone_id
-  ansible.builtin.set_fact:
-    cloudflare_zone_id: "{{ _cf_zone_records[0].zone_id }}"
-  run_once: true
+- name: "CF: tunnel deferred -- no Cloudflare token yet"
+  ansible.builtin.debug:
+    msg: >-
+      Cloudflare token not yet provided -- enter it in catena-admin > Settings;
+      tunnel deferred. No cloudflared tunnel is configured until a token is
+      saved (the panel validates it and brings the tunnel up in the background).
+  when: not (_cf_token_present | bool)
 
-# ─── find-or-create tunnel ───────────────────────────────────────────────
-- name: "CF: list existing tunnels with this name"
-  ansible.builtin.uri:
-    url: "{{ cloudflare_api_base }}/accounts/{{ cloudflare_account_id }}/cfd_tunnel?name={{ cloudflared_tunnel_name }}&is_deleted=false"
-    method: GET
-    headers:
-      Authorization: "Bearer {{ vault_cloudflare_api_token }}"
-    status_code: 200
-    return_content: true
-  register: _cf_tunnel_list
-  delegate_to: localhost
-  become: false
-  retries: 5
-  delay: 6
-  until: _cf_tunnel_list.status == 200
+# The engine binary is installed by roles/catena-admin -- which runs AFTER this
+# role in site.yml -- so on a FIRST converge (or a bench that stages the
+# payload out of band) the binary may not exist yet. Skip gracefully in that
+# window: the tunnel converges on the next run (binary present) or via the
+# panel-triggered cloudflared-sync. This is ORTHOGONAL to the invalid-token
+# abort below -- a missing engine is "not installed yet", not "bad token".
+- name: "CF: stat the cloudflared-sync engine"
+  ansible.builtin.stat:
+    path: "{{ cloudflared_sync_bin }}"
+  register: _cf_sync_bin
+  when: _cf_token_present | bool
 
-# Find-or-create only. The migrate flow no longer force-deletes an
-# existing tunnel here -- during cutover both source and target keep
-# their tunnels registered so DNS re-point is a valid rollback.
-# Explicit source-tunnel deletion happens in decommission.yml after
-# the operator confirms production is on the new host.
-- name: Create tunnel if it doesn't exist
-  ansible.builtin.uri:
-    url: "{{ cloudflare_api_base }}/accounts/{{ cloudflare_account_id }}/cfd_tunnel"
-    method: POST
-    headers:
-      Authorization: "Bearer {{ vault_cloudflare_api_token }}"
-    body_format: json
-    body:
-      name: "{{ cloudflared_tunnel_name }}"
-      config_src: cloudflare # remotely-managed ingress (via API, not config.yml)
-    status_code: 200
-    return_content: true
-  register: _cf_tunnel_create
-  when: _cf_tunnel_list.json.result | length == 0
-  delegate_to: localhost
-  become: false
-
-- name: Resolve tunnel_id (existing or freshly created)
-  ansible.builtin.set_fact:
-    cloudflared_tunnel_id: >-
-      {{
-        (_cf_tunnel_list.json.result[0].id
-         if (_cf_tunnel_list.json.result | length) > 0
-         else _cf_tunnel_create.json.result.id)
-      }}
-
-# ─── fetch tunnel token (always -- the token is needed downstream) ────────
-# The token is regenerated each time it's requested? No -- `GET /token` returns
-# the current stable token for the tunnel. Safe to call on every run.
-- name: "CF: fetch tunnel token"
-  ansible.builtin.uri:
-    url: "{{ cloudflare_api_base }}/accounts/{{ cloudflare_account_id }}/cfd_tunnel/{{ cloudflared_tunnel_id }}/token"
-    method: GET
-    headers:
-      Authorization: "Bearer {{ vault_cloudflare_api_token }}"
-    status_code: 200
-    return_content: true
-  register: _cf_tunnel_token
-  delegate_to: localhost
-  become: false
-  retries: 5
-  delay: 6
-  until: _cf_tunnel_token.status == 200
-
-- name: Capture tunnel token
-  ansible.builtin.set_fact:
-    cloudflared_tunnel_token: "{{ _cf_tunnel_token.json.result }}"
-
-# ─── DNS: wildcard CNAME (per zone) ──────────────────────────────────────
-# Every zone gets *.<zone> CNAME -> <shared-tunnel-id>.cfargotunnel.com in its
-# own zone, using its own token. One iteration on Community.
-- name: "CF DNS: look up existing wildcard record per zone"
-  ansible.builtin.uri:
-    url: "{{ cloudflare_api_base }}/zones/{{ item.zone_id }}/dns_records?type=CNAME&name=*.{{ item.zone }}"
-    method: GET
-    headers:
-      Authorization: "Bearer {{ item.api_token }}"
-    status_code: 200
-    return_content: true
-  register: _cf_dns_existing
-  loop: "{{ _cf_zone_records }}"
-  loop_control:
-    label: "{{ item.zone }}"
-  delegate_to: localhost
-  become: false
-  retries: 5
-  delay: 6
-  until: _cf_dns_existing.status == 200
-
-- name: "CF DNS: create wildcard CNAME if absent (per zone)"
-  ansible.builtin.uri:
-    url: "{{ cloudflare_api_base }}/zones/{{ item.item.zone_id }}/dns_records"
-    method: POST
-    headers:
-      Authorization: "Bearer {{ item.item.api_token }}"
-    body_format: json
-    body:
-      type: CNAME
-      name: "*.{{ item.item.zone }}"
-      content: "{{ cloudflared_tunnel_id }}.cfargotunnel.com"
-      proxied: true
-      ttl: 1 # 1 = automatic
-      comment: "Managed by catena roles/infrastructure"
-    status_code: 200
-  register: _cf_dns_create
-  loop: "{{ _cf_dns_existing.results }}"
-  loop_control:
-    label: "{{ item.item.zone }}"
-  when: item.json.result | length == 0
-  delegate_to: localhost
-  become: false
-  # Match the lookup task above: CF returns code=1000 "There was an
-  # unknown error" / 503 intermittently and the create POST is just as
-  # exposed. Bench saw back-to-back 503s on this exact task on
-  # 2026-05-22 with the lookup succeeding right before. 5*6s = 30s of
-  # headroom, plenty for a transient hiccup, doesn't mask a real auth /
-  # quota failure (those return non-200 every retry).
-  retries: 5
-  delay: 6
-  until: _cf_dns_create is not failed
-
-- name: "CF DNS: update wildcard CNAME if content drifted (per zone)"
-  ansible.builtin.uri:
-    url: "{{ cloudflare_api_base }}/zones/{{ item.item.zone_id }}/dns_records/{{ item.json.result[0].id }}"
-    method: PUT
-    headers:
-      Authorization: "Bearer {{ item.item.api_token }}"
-    body_format: json
-    body:
-      type: CNAME
-      name: "*.{{ item.item.zone }}"
-      content: "{{ cloudflared_tunnel_id }}.cfargotunnel.com"
-      proxied: true
-      ttl: 1
-    status_code: 200
-  register: _cf_dns_update
-  loop: "{{ _cf_dns_existing.results }}"
-  loop_control:
-    label: "{{ item.item.zone }}"
+- name: "CF: engine not installed yet -- tunnel converges on the next run"
+  ansible.builtin.debug:
+    msg: >-
+      {{ cloudflared_sync_bin }} is not on the host yet (installed by
+      roles/catena-admin later in this converge). The Cloudflare tunnel will
+      converge on the next run, or when catena-admin dispatches cloudflared-sync
+      after the client saves a token.
   when:
-    - item.json.result | length > 0
-    - item.json.result[0].content != (cloudflared_tunnel_id ~ '.cfargotunnel.com')
-  delegate_to: localhost
-  become: false
-  retries: 5
-  delay: 6
-  until: _cf_dns_update is not failed
+    - _cf_token_present | bool
+    - not (_cf_sync_bin.stat.exists | default(false))
 
-# ─── enforce tunnel ingress config ───────────────────────────────────────
-# Always PUT the desired config -- operator drift in CF dashboard loses to
-# Ansible. One wildcard rule per configured zone pointing at catena-traefik,
-# plus the catch-all fallback. Single account -> single tunnel -> one ingress
-# config carrying every zone. On Community this is one rule (byte-identical to
-# the previous single-zone body).
-- name: "CF: build multi-zone ingress rules"
-  ansible.builtin.set_fact:
-    _cf_ingress: >-
-      {{ _cf_ingress | default([]) + [{
-           'hostname': '*.' ~ item.zone,
-           'service': cloudflared_ingress_service,
-         }] }}
-  loop: "{{ cloudflare_zones }}"
-  loop_control:
-    label: "{{ item.zone }}"
-  run_once: true
-
-- name: "CF: enforce tunnel ingress (per-zone wildcards -> Traefik)"
-  ansible.builtin.uri:
-    url: "{{ cloudflare_api_base }}/accounts/{{ cloudflare_account_id }}/cfd_tunnel/{{ cloudflared_tunnel_id }}/configurations"
-    method: PUT
-    headers:
-      Authorization: "Bearer {{ vault_cloudflare_api_token }}"
-    body_format: json
-    body:
-      config:
-        ingress: "{{ _cf_ingress + [{'service': 'http_status:404'}] }}"
-    status_code: 200
-    timeout: 30
-  # Cloudflare's edge API occasionally drops connections mid-PUT; this
-  # is a single idempotent call so retrying is safe. Without retries
-  # one transient 504 / TCP timeout fails the whole converge.
-  register: _cf_tunnel_ingress
-  retries: 5
-  delay: 10
-  until: _cf_tunnel_ingress.status == 200
-  delegate_to: localhost
-  become: false
-
-# ─── deploy cloudflared as a swarm service ────────────────────────────────
-# Created as a direct swarm service (not a managed compose app) because
-# cloudflared is infrastructure, not an operator-managed app. It just
-# needs to be on catena-network with the tunnel token. Portainer surfaces
-# it in the swarm view, and `docker service ls` shows it too.
-- name: Check if cloudflared swarm service exists
-  ansible.builtin.command: docker service inspect cloudflared --format '{{ "{{" }}.ID{{ "}}" }}'
-  register: _cloudflared_service
-  changed_when: false
-  failed_when: false
-
-- name: Create cloudflared swarm service (first run)
+# Bring the tunnel to desired state on the host. Runs on the VPS (the engine
+# drives docker + the https chain probe locally). The token is NOT passed here
+# -- the engine reads it from /etc/catena/config.json. fail-fast: a
+# present-but-invalid token (or any failed converge step) exits nonzero and
+# ABORTS the converge (fi_n4/fi_s5).
+- name: "CF: converge the tunnel via catena-cloudflared-sync (host engine)"
   ansible.builtin.command:
     argv:
-      - docker
-      - service
-      - create
-      - --name=cloudflared
-      - --network=catena-network
-      - --restart-condition=any
-      # Swarm's default stop-grace-period is 10s: on `docker service scale
-      # cloudflared=0` (the decommission/migration drain) swarm SIGTERMs the
-      # task and SIGKILLs 10s later. cloudflared drains in-flight tunnel
-      # requests for ~30s after SIGTERM, so a 10s window guillotines live
-      # requests mid-flight. 40s > cloudflared's drain so the connector
-      # deregisters from the CF edge and finishes in-flight before exit.
-      - --stop-grace-period=40s
-      - "--env=TUNNEL_TOKEN={{ cloudflared_tunnel_token }}"
-      - "{{ cloudflared_image }}"
-      - tunnel
-      - "--no-autoupdate"
-      - run
-  when: _cloudflared_service.rc != 0
-  no_log: true
-
-# Push the token to the running connector ONLY when it currently holds a
-# token for a DIFFERENT tunnel than the one we resolved above. `docker
-# service update --env-add KEY=VALUE` bumps the service spec version EVEN IF
-# the value is identical, which rolls the task: the connector drops, CF edge
-# serves 530/1033 for tunnel hostnames until it re-registers, and any
-# container doing single-shot OIDC discovery in that window (oauth2-proxy v7
-# has no retry) crashloops into Docker restart-backoff.
-#
-# The decision must distinguish two cases a raw string compare cannot:
-#   - SAME tunnel, re-encoded token: CF `GET /cfd_tunnel/{id}/token` re-
-#     serialises the base64(JSON{a,t,s}) blob per call, so the string differs
-#     every converge even though the tunnel is unchanged. Pushing here rolls
-#     cloudflared on EVERY converge -- the flap fi_c6 catches, and the
-#     upstream source of the oauth2-proxy 530 crashloops. MUST be a no-op.
-#   - DIFFERENT tunnel: a regenerate/rotate flow (or an operator deleting the
-#     tunnel in the CF dashboard) leaves cloudflared holding a token whose
-#     tunnel id no longer exists -> "Unauthorized: Tunnel not found", the
-#     whole edge is 530 until the fresh token is pushed. MUST re-push.
-# So compare the TUNNEL ID carried inside the token, not the token string:
-# decode the running token, pull its `t` (tunnel id), and push only when it
-# differs from cloudflared_tunnel_id (or cannot be read). Both cases were hit
-# on bench 2026-07-05T01-35-42-fbb4: the re-encoding flap (fi_c6) AND a
-# deleted-tunnel anchor whose cloudflared logged "Tunnel not found" for the
-# full chain-probe budget.
-- name: Read cloudflared current TUNNEL_TOKEN env from swarm spec
-  ansible.builtin.command:
-    argv:
-      - docker
-      - service
-      - inspect
-      - cloudflared
-      - --format
-      - "{{ '{{' }}range .Spec.TaskTemplate.ContainerSpec.Env{{ '}}' }}{{ '{{' }}.{{ '}}' }}|{{ '{{' }}end{{ '}}' }}"
-  register: _cloudflared_current_env
-  when: _cloudflared_service.rc == 0
+      - "{{ cloudflared_sync_bin }}"
+      - sync
+  environment:
+    CLOUDFLARED_IMAGE: "{{ cloudflared_image }}"
+    CLOUDFLARED_INGRESS_SERVICE: "{{ cloudflared_ingress_service }}"
+    CLOUDFLARED_TUNNEL_NAME: "{{ cloudflared_tunnel_name }}"
+    CATENA_NETWORK: "{{ catena_network_name | default('catena-network') }}"
+    CLOUDFLARED_STOP_GRACE: "{{ cloudflared_stop_grace }}"
+    CLOUDFLARED_PROBE_ATTEMPTS: "{{ cloudflared_probe_attempts | string }}"
+    CLOUDFLARED_REPROBE_ATTEMPTS: "{{ cloudflared_reprobe_attempts | string }}"
+    CLOUDFLARED_PROBE_DELAY_SECONDS: "{{ cloudflared_probe_delay_seconds | string }}"
+    # Business multi-domain: set to 1 ONLY under an active Business license (the
+    # EE overlay sets catena_ee_multidomain_enabled). Unset on Community -> the
+    # engine converges the PRIMARY domain only and leaves stored secondaries
+    # intact (graceful degrade, never fail-closed).
+    CATENA_MULTIDOMAIN_ENABLED: "{{ '1' if (catena_ee_multidomain_enabled | default(false) | bool) else '' }}"
+  register: _cf_sync
+  # The engine is internally idempotent (it owns the cloudflared re-encoded-
+  # token no-op that fi_c6 guarded, plus the network/self-heal reconciles), and
+  # emits no ansible-parsable changed signal, so report unchanged: a re-converge
+  # must not trip the bench changed=0 idempotency gate on this single command.
   changed_when: false
-  no_log: true
-
-- name: Extract the tunnel id cloudflared currently holds a token for
-  # regex_search with a capture-group arg returns a LIST of groups (or
-  # None on no match), NOT a string. The original `| default('', true)`
-  # form therefore compared ["<id>"] != "<id>" -- ALWAYS true -- and
-  # the "only when different" push below fired on EVERY converge,
-  # rolling cloudflared each time (exactly the flap this block exists
-  # to prevent; caught by restore_dr's changed=0 idempotency gate on
-  # bench run 2026-07-10T09-56-46-001c). `or ['']` + `first` collapses
-  # both the no-match None and the single-group list to a plain string.
-  ansible.builtin.set_fact:
-    _cloudflared_running_tunnel_id: >-
-      {{ ((_stored_tok | b64decode | regex_search('"t"\s*:\s*"([^"]+)"', '\1'))
-          or ['']) | first }}
-  vars:
-    _stored_tok: >-
-      {{ (_cloudflared_current_env.stdout | default('')).split('|')
-         | select('match', '^TUNNEL_TOKEN=')
-         | map('regex_replace', '^TUNNEL_TOKEN=', '')
-         | first | default('') }}
   when:
-    - _cloudflared_service.rc == 0
-    - (_cloudflared_current_env.stdout | default('')) | length > 0
-  no_log: true
+    - _cf_token_present | bool
+    - _cf_sync_bin.stat.exists | default(false)
 
-- name: Update cloudflared service token only when it points at a different tunnel
-  ansible.builtin.command:
-    argv:
-      - docker
-      - service
-      - update
-      - "--env-add=TUNNEL_TOKEN={{ cloudflared_tunnel_token }}"
-      - cloudflared
-  when:
-    - _cloudflared_service.rc == 0
-    - (_cloudflared_running_tunnel_id | default('')) != cloudflared_tunnel_id
-  no_log: true
-
-- name: Read cloudflared current image
-  ansible.builtin.command: docker service inspect cloudflared --format '{{ "{{" }}.Spec.TaskTemplate.ContainerSpec.Image{{ "}}" }}'
-  register: _cloudflared_current_image
-  changed_when: false
-  when: _cloudflared_service.rc == 0
-
-- name: Reconcile cloudflared image to configured pin
-  ansible.builtin.command:
-    argv:
-      - docker
-      - service
-      - update
-      - "--image={{ cloudflared_image }}"
-      - cloudflared
-  when:
-    - _cloudflared_service.rc == 0
-    - (_cloudflared_current_image.stdout | default('')).split('@')[0] != cloudflared_image
-  changed_when: true
-
-# Converge cloudflared's network attachments to exactly {catena-network}.
-# The previous add-if-missing shape only fired when catena-network was
-# absent, so a host already on catena-network while still straddling the
-# legacy dokploy-network kept the orphan forever (and dokploy-network is
-# left "to die with its last attached container" -- cloudflared WAS that
-# container). A set reconcile reaches the intended end state from any
-# starting point: attach catena-network if missing, prune every other
-# attachment (by ID -- service specs reference networks by ID, so no
-# legacy-name inspect is needed and fresh hosts pay only the two cheap
-# reads below). Adds + removes ride ONE update so the connector rolls at
-# most once (same caveat as the token push); the chain probe below
-# verifies recovery.
-- name: Read catena-network id (cloudflared network reconcile)
-  ansible.builtin.command: docker network inspect catena-network --format '{{ "{{" }}.Id{{ "}}" }}'
-  register: _catena_net_id
-  changed_when: false
-  when: _cloudflared_service.rc == 0
-
-- name: Read cloudflared attached network ids
-  ansible.builtin.command:
-    argv:
-      - docker
-      - service
-      - inspect
-      - cloudflared
-      - --format
-      - "{{ '{{' }}range .Spec.TaskTemplate.Networks{{ '}}' }}{{ '{{' }}.Target{{ '}}' }} {{ '{{' }}end{{ '}}' }}"
-  register: _cloudflared_networks
-  changed_when: false
-  when: _cloudflared_service.rc == 0
-
-- name: Reconcile cloudflared network attachments to exactly catena-network
-  ansible.builtin.command:
-    argv: >-
-      {{ ['docker', 'service', 'update']
-         + (['--network-add=catena-network'] if (_needs_catena | bool) else [])
-         + (_stale_net_ids | map('regex_replace', '^', '--network-rm=') | list)
-         + ['cloudflared'] }}
-  vars:
-    _attached_net_ids: "{{ (_cloudflared_networks.stdout | default('')).split() }}"
-    _needs_catena: "{{ (_catena_net_id.stdout | trim) not in _attached_net_ids }}"
-    _stale_net_ids: >-
-      {{ _attached_net_ids
-         | reject('equalto', _catena_net_id.stdout | trim)
-         | list }}
-  when:
-    - _cloudflared_service.rc == 0
-    - (_needs_catena | bool) or (_stale_net_ids | length > 0)
-  changed_when: true
-
-# ─── atomicity: probe the full CF edge -> tunnel -> Traefik chain ──────────
-# Every previous step returned success individually -- CF API accepted
-# our tunnel config, cloudflared swarm service exists, DNS CNAME is in
-# place. None of that proves the full chain is actually routing public
-# traffic. A broken tunnel (bad token pushed via --env-add, wrong
-# ingress service alias, DNS not yet propagated, cloudflared connector
-# failed to register) silently surfaces MUCH later, when an operator
-# can't reach admin.<zone>. Probe here, at the source of the problem.
-#
-# The probe hits a deliberately unrouted hostname under the wildcard
-# DNS record. Traefik returns its default 404 immediately for any host
-# without a matching rule, no middleware chain invoked. That decouples
-# this probe from Keycloak's startup time (which would otherwise 500
-# / serve a "starting up" page while Keycloak warms, adding minutes
-# to the converge for no validation gain here -- Keycloak readiness
-# is checked by its own role's compose HEALTHCHECK).
-#
-# What a 404 from this URL actually proves:
-#   1. CF wildcard DNS resolved -> edge received the request.
-#   2. Edge forwarded to tunnel -> cloudflared connector is registered.
-#   3. Cloudflared reached origin -> catena-traefik is serving on :80.
-#
-# Real chain failures surface differently: CF-synthesized error pages
-# (1033/1016/530), connect timeouts (cloudflared connector broken),
-# DNS NXDOMAIN (DNS not yet propagated). Those we retry through.
-# 60 × 10s = 10 min, sized for the worst case observed on the bench:
-# a freshly-created CF tunnel (via API in the preceding task) needs
-# CF's edge to propagate the registration before cloudflared can
-# register with it ("Unauthorized: Tunnel not found"), AND swarm
-# restarts the cloudflared task once if the first registration hits
-# the CF edge during propagation. End-to-end this took ~4 minutes
-# in one bench run -- 30 retries (5 min) gave up too early.
-- name: "CF: probe full chain (edge -> tunnel -> Traefik) [first pass]"
-  ansible.builtin.uri:
-    url: "https://cf-chain-probe.{{ cloudflare_zone }}/"
-    method: GET
-    status_code: [404]
-    follow_redirects: none
-    timeout: 10
-  register: _cf_chain_probe_1
-  # Keep the full original budget (60 x 10s = 10 min) here so a chain that
-  # is merely SLOW to recover -- a freshly-created tunnel propagating, or
-  # cloudflared re-registering after an interrupted/rolled converge
-  # (fi_o2) -- reaches 404 on its own and never triggers the roll below.
-  # The self-heal is reserved for a chain that is genuinely STUCK, not slow.
-  retries: 60
-  delay: 10
-  until: _cf_chain_probe_1.status == 404
-  failed_when: false
-  delegate_to: localhost
-  become: false
-
-# Self-heal a cloudflared connector that is Up but cannot route to its
-# origin. After a `systemctl restart docker`, a snapshot-restore, or a
-# reboot that brings the task back on a stale network sandbox, cloudflared
-# loses overlay name resolution -- its embedded resolver (127.0.0.11:53)
-# stops answering, so every origin dial fails with
-# "lookup catena-traefik ... i/o timeout" while the task still shows
-# healthy. The idempotent network + token reconciles above are no-ops in
-# this state (attachments and token already look correct), so nothing
-# recreates the task and the chain stays dark. Force-roll it once: swarm
-# schedules a fresh task with a working netns + resolver. Fires only when
-# the first probe pass could not reach 404, so a healthy chain never rolls
-# (no flap on the happy path). Runs on the VPS -- docker CLI, not the
-# controller-side probe.
-- name: "CF: force-roll cloudflared when the chain is unreachable (stale-netns self-heal)"
-  # --detach: return as soon as the roll is SUBMITTED; do not block waiting
-  # for convergence. Without it `docker service update --force` waits and
-  # exits non-zero when swarm pauses the rolling update (a fresh task that
-  # early-terminates), which would hard-fail the converge on the roll
-  # itself instead of leaving the verdict to the re-probe. This is a
-  # best-effort kick; failed_when: false keeps ANY docker hiccup here from
-  # failing the play -- the re-probe below is the sole gate.
-  ansible.builtin.command:
-    argv: [docker, service, update, --force, --detach, cloudflared]
-  when: (_cf_chain_probe_1.status | default(-1)) != 404
-  register: _cf_cloudflared_roll
-  changed_when: true
-  failed_when: false
-
-- name: "CF: re-probe full chain after self-heal roll"
-  ansible.builtin.uri:
-    url: "https://cf-chain-probe.{{ cloudflare_zone }}/"
-    method: GET
-    status_code: [404]
-    follow_redirects: none
-    timeout: 10
-  register: _cf_chain_probe_2
-  retries: 30
-  delay: 10
-  until: _cf_chain_probe_2.status == 404
-  when: (_cf_chain_probe_1.status | default(-1)) != 404
-  delegate_to: localhost
-  become: false
-
-# Normalise the probe result the summary reads: the first pass when it
-# already answered 404, otherwise the post-roll re-probe.
-- name: "CF: adopt the effective chain-probe result"
-  ansible.builtin.set_fact:
-    _cf_chain_probe: >-
-      {{ _cf_chain_probe_1
-         if (_cf_chain_probe_1.status | default(-1)) == 404
-         else _cf_chain_probe_2 }}
-
-# ─── summary ─────────────────────────────────────────────────────────────
-- name: Cloudflare tunnel ready
+- name: "CF: tunnel converged (engine summary)"
   ansible.builtin.debug:
     msg: |
-      Cloudflare tunnel ready:
-        tunnel name:    {{ cloudflared_tunnel_name }}
-        tunnel id:      {{ cloudflared_tunnel_id }}
-        wildcard DNS:   *.{{ cloudflare_zone }} -> {{ cloudflared_tunnel_id }}.cfargotunnel.com
-        wildcard route: *.{{ cloudflare_zone }} -> {{ cloudflared_ingress_service }}
-        container:      `docker service ls | grep cloudflared`
-        probed:         https://cf-chain-probe.{{ cloudflare_zone }}/ -> {{ _cf_chain_probe.status }}
+      {{ _cf_sync.stdout | default('(no summary line)') | trim }}
 
       DO NOT enable Let's Encrypt / HTTPS on Traefik -- Cloudflare terminates
       TLS at the edge and LE conflicts with the tunnel.
+  when:
+    - _cf_token_present | bool
+    - _cf_sync_bin.stat.exists | default(false)

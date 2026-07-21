@@ -9,12 +9,19 @@ missing, and writes the NON-SECRET inventory files:
   - inventory/<name>/localhost.yml                    (preflight anchor)
 
 No secret file is written into the inventory (0b: no persisted laptop vault).
-The install-critical vendor creds (Cloudflare API token + Tailscale OAuth
-client id/secret) are prompted, live-validated, and written to the TRANSIENT
-0600 file given by `--secrets-out`. The installer (`catena`) threads that file
-onto the converge as `-e @file` (so the on-box loader ADOPTS them into
-/etc/catena/config.json) and deletes it; nothing secret persists on the
-laptop.
+The ONLY install-critical vendor cred is the Tailscale OAuth client id/secret
+(needed to join the tailnet before any on-box surface exists): it is prompted,
+live-validated, and written to the TRANSIENT 0600 file given by
+`--secrets-out`. The installer (`catena`) threads that file onto the converge
+as `-e @file` (so the on-box loader ADOPTS it into /etc/catena/config.json) and
+deletes it; nothing secret persists on the laptop.
+
+The Cloudflare API token is NEVER an install input. It is entered ONLY in
+catena-admin > Settings, which writes it to /etc/catena/config.json; the
+tunnel is deferred until then. So seed prompts nothing for Cloudflare beyond
+the (non-secret) CLOUDFLARE_ZONE, and CLOUDFLARE_ACCOUNT_ID is left blank when
+not supplied -- the host engine (catena-cloudflared-sync) resolves + persists
+the account id from the token.
 
 Everything else is minted ON-BOX by the converge loader
 (helpers/onbox_config.py): the internal service secrets, plus the user-held
@@ -62,16 +69,16 @@ from helpers import net_retry  # noqa: E402
 
 PLACEHOLDER_VALUES = {"REPLACE", "REPLACE-LONG-RANDOM-STRING"}
 
-# The ONLY secrets collected at install time: the install-critical vendor
-# creds needed to build the Cloudflare tunnel and join the tailnet before any
-# on-box surface exists. They are prompted, live-validated, and written to the
-# transient --secrets-out file (never a persisted inventory vault); the on-box
-# loader adopts them on the first converge. Every other secret -- internal
+# The ONLY secrets collected at install time: the Tailscale OAuth client
+# id/secret, needed to join the tailnet before any on-box surface exists. They
+# are prompted, live-validated, and written to the transient --secrets-out file
+# (never a persisted inventory vault); the on-box loader adopts them on the
+# first converge. The Cloudflare API token is NOT here -- it is entered ONLY in
+# catena-admin > Settings, never at install. Every other secret -- internal
 # service secrets AND the user-held admin/restic DR keyset -- is minted ON-BOX
 # (helpers/onbox_config.py). S3 backup creds + repo are set post-install in
 # catena-admin, not here.
 INSTALL_EXTERNAL_KEYS: tuple[str, ...] = (
-    "vault_cloudflare_api_token",
     "vault_tailscale_oauth_client_id",
     "vault_tailscale_oauth_client_secret",
 )
@@ -111,30 +118,6 @@ def run_cmd(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
             code=result.returncode,
         )
     return result
-
-
-# --- Cloudflare zone lookup -------------------------------------------------
-def fetch_cloudflare_account_id(api_token: str, zone: str) -> str | None:
-    """Auto-discover the Cloudflare account ID by reading account.id off the
-    zone object. Uses Zone:DNS:Edit (already a required scope). Returns None
-    on any failure (caller falls back to prompt)."""
-    if not api_token or api_token in PLACEHOLDER_VALUES or not zone:
-        return None
-    req = urllib.request.Request(
-        f"https://api.cloudflare.com/client/v4/zones?name={zone}",
-        headers={"Authorization": f"Bearer {api_token}"},
-    )
-    try:
-        with net_retry.urlopen_retry(req, timeout=10) as r:
-            data = json.loads(r.read().decode("utf-8"))
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError):
-        return None
-    if not data.get("success"):
-        return None
-    results = data.get("result") or []
-    if len(results) == 1 and isinstance(results[0].get("account"), dict):
-        return results[0]["account"].get("id")
-    return None
 
 
 # --- validation -------------------------------------------------------------
@@ -297,38 +280,16 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
     else:
         _check("Tailscale OAuth token exchange", False, "skipped -- creds not set")
 
-    cf_token = vault.get("vault_cloudflare_api_token", "")
-    cf_zone = env.get("CLOUDFLARE_ZONE", "")
-    if _access_mode(env) != "cloudflare":
-        _check("Cloudflare", True, "skipped -- ACCESS_MODE=tailnet (no Cloudflare)")
-    elif _is_filled(cf_token):
-        status, body = _http_json(
-            "https://api.cloudflare.com/client/v4/user/tokens/verify",
-            headers={"Authorization": f"Bearer {cf_token}"},
-        )
-        if not _check("Cloudflare token valid", status == 200 and body.get("success"),
-                      f"HTTP {status}"):
-            problems += 1
-        if _is_filled(cf_zone):
-            status, body = _http_json(
-                f"https://api.cloudflare.com/client/v4/zones?name={cf_zone}",
-                headers={"Authorization": f"Bearer {cf_token}"},
-            )
-            zones = body.get("result") or []
-            if not _check(f"Cloudflare zone '{cf_zone}' reachable by token",
-                          len(zones) == 1, f"{len(zones)} zone(s) matched"):
-                problems += 1
-
-        cf_acct = env.get("CLOUDFLARE_ACCOUNT_ID", "")
-        if _is_filled(cf_acct):
-            _check("CLOUDFLARE_ACCOUNT_ID provided", True, cf_acct)
-        else:
-            fetched = fetch_cloudflare_account_id(cf_token, cf_zone)
-            _check("CLOUDFLARE_ACCOUNT_ID auto-fetchable from zone object",
-                   fetched is not None,
-                   fetched or "zone not visible to token or unexpected response; set manually")
+    # No Cloudflare live-probe: the API token is entered in catena-admin >
+    # Settings, never at install, so there is nothing to verify here. The
+    # structural check above still requires CLOUDFLARE_ZONE in cloudflare mode
+    # (hostnames derive from it); the account id + tunnel are resolved on-box
+    # from the token by the host engine (catena-cloudflared-sync).
+    if _access_mode(env) == "cloudflare":
+        _check("Cloudflare", True,
+               "API token entered later in catena-admin > Settings (tunnel deferred)")
     else:
-        _check("Cloudflare token valid", False, "skipped -- token not set")
+        _check("Cloudflare", True, "skipped -- ACCESS_MODE=tailnet (no Cloudflare)")
 
     print(file=sys.stderr)
     if problems:
@@ -713,47 +674,22 @@ def write_secrets_out(path: Path, secrets: dict[str, str]) -> None:
     os.chmod(str(path), 0o600)
 
 
-def _resolve_cloudflare_account(
-    env_values: dict[str, str],
-    vault_values: dict[str, str],
-    env_provided: dict,
-) -> None:
-    """Resolve CLOUDFLARE_ACCOUNT_ID: explicit > auto-fetch from zone >
-    prompt."""
-    provided = str(env_provided.get("CLOUDFLARE_ACCOUNT_ID", "")).strip()
-    if provided and provided not in PLACEHOLDER_VALUES:
-        env_values["CLOUDFLARE_ACCOUNT_ID"] = provided
-        return
-    fetched = fetch_cloudflare_account_id(
-        vault_values.get("vault_cloudflare_api_token", ""),
-        env_values.get("CLOUDFLARE_ZONE", ""),
-    )
-    if fetched:
-        ok(f"Cloudflare account auto-detected from zone: {fetched}")
-        env_values["CLOUDFLARE_ACCOUNT_ID"] = fetched
-        return
-    env_values["CLOUDFLARE_ACCOUNT_ID"] = prompt(
-        "CLOUDFLARE_ACCOUNT_ID (zone not visible to token -- enter manually)"
-    )
-
-
 def _collect_env_values(
     env_keys: list[tuple[str, str]],
     env_provided: dict,
 ) -> dict[str, str]:
-    """Walk the .env template keys, prompting for each. Returns the full env
-    dict EXCEPT CLOUDFLARE_ACCOUNT_ID (deferred until the vault token is
-    collected so we can auto-fetch from the zone)."""
+    """Walk the .env template keys, prompting for each. CLOUDFLARE_ACCOUNT_ID is
+    allow-empty: it is no longer auto-fetched at seed time (that needed the CF
+    token, which is now Settings-only), so a blank flows through and the host
+    engine resolves + persists it from the token."""
     banner("Configuration (.env)")
     print("(press Enter to accept the template default)\n", file=sys.stderr)
     env_values: dict[str, str] = {}
-    deferred_keys = {"CLOUDFLARE_ACCOUNT_ID"}
-    # SMTP_FROM has a non-empty placeholder default but blank is still a
-    # legitimate answer (deploy without mail).
-    allow_empty_with_default = {"SMTP_FROM"}
+    # SMTP_FROM has a non-empty placeholder default but blank is a legitimate
+    # answer (deploy without mail); CLOUDFLARE_ACCOUNT_ID is resolved on-box, so
+    # a blank at seed time is fine even if the template carries a default.
+    allow_empty_with_default = {"SMTP_FROM", "CLOUDFLARE_ACCOUNT_ID"}
     for key, default in env_keys:
-        if key in deferred_keys:
-            continue
         allow_empty = (not default) or key in allow_empty_with_default
         env_values[key] = fill(
             env_provided, key, default, key,
@@ -763,25 +699,16 @@ def _collect_env_values(
     return env_values
 
 
-def _install_secret_keys(cf_required: bool) -> tuple[str, ...]:
-    """Install-critical vendor creds to prompt for. In tailnet mode the
-    Cloudflare token is dropped (no Cloudflare); it can still be added later in
-    catena-admin > Settings if the operator switches on Cloudflare."""
-    if cf_required:
-        return INSTALL_EXTERNAL_KEYS
-    return tuple(k for k in INSTALL_EXTERNAL_KEYS if k != "vault_cloudflare_api_token")
-
-
-def _collect_install_secrets(vault_provided: dict, cf_required: bool = True) -> dict[str, str]:
+def _collect_install_secrets(vault_provided: dict) -> dict[str, str]:
     """Prompt (hidden) for the install-critical vendor creds only -- the
-    Cloudflare API token (cloudflare mode) + Tailscale OAuth id/secret.
-    Everything else is minted on-box. These go to the transient --secrets-out
-    file, never a persisted vault."""
+    Tailscale OAuth id/secret. The Cloudflare API token is NOT collected here
+    (Settings-only); everything else is minted on-box. These go to the
+    transient --secrets-out file, never a persisted vault."""
     banner("Install-critical vendor credentials (not stored on this machine)")
     print("(input hidden; adopted on-box then discarded from the laptop)\n",
           file=sys.stderr)
     values: dict[str, str] = {}
-    for key in _install_secret_keys(cf_required):
+    for key in INSTALL_EXTERNAL_KEYS:
         val = fill(vault_provided, key, "", key, secret=True)
         if val:
             values[key] = val
@@ -808,7 +735,9 @@ def _print_summary(
     print(f"  Access mode:    {access_mode}", file=sys.stderr)
     if access_mode == "cloudflare":
         print(f"  CF zone:        {env_values.get('CLOUDFLARE_ZONE')}", file=sys.stderr)
-    expected_creds = len(_install_secret_keys(access_mode == "cloudflare"))
+        print("  CF API token:   entered later in catena-admin > Settings "
+              "(never at install)", file=sys.stderr)
+    expected_creds = len(INSTALL_EXTERNAL_KEYS)
     print(f"  Vendor creds:   {len(secret_values)}/{expected_creds} "
           "collected (transient; adopted on-box, not stored here)", file=sys.stderr)
     print(file=sys.stderr)
@@ -914,10 +843,9 @@ def main(argv: list[str] | None = None) -> int:
     env_keys, env_template = parse_env_template(ENV_TEMPLATE)
     env_provided = inp.get("env", {})
     env_values = _collect_env_values(env_keys, env_provided)
-    cf_required = _access_mode(env_values) == "cloudflare"
 
     vault_provided = inp.get("vault", {})
-    secret_values = _collect_install_secrets(vault_provided, cf_required)
+    secret_values = _collect_install_secrets(vault_provided)
     # A fully-specified install.yaml (power user / test bench) can supply the
     # whole keyset; pass any extra vault_* creds through to the adopt file.
     _absorb_provided_secrets(secret_values, vault_provided)
@@ -925,15 +853,13 @@ def main(argv: list[str] | None = None) -> int:
     _resolve_admin_override(secret_values, vault_provided)
     # Every other secret -- internal service secrets AND the user-held
     # admin/restic DR keyset -- is minted ON-BOX by the converge loader
-    # (helpers/onbox_config.py), never here.
-
-    # Deferred env keys (CF account auto-fetch needs the CF token). Skipped in
-    # tailnet mode -- no Cloudflare, so no account to resolve.
-    if cf_required:
-        _resolve_cloudflare_account(env_values, secret_values, env_provided)
+    # (helpers/onbox_config.py), never here. The Cloudflare API token +
+    # CLOUDFLARE_ACCOUNT_ID are resolved on-box too: the token is entered in
+    # catena-admin > Settings, and the host engine derives + persists the
+    # account id from it.
 
     # Validate before any destructive action. The install externals ride the
-    # `vault` slot so the structural + live-probe checks reach them.
+    # `vault` slot so the structural checks reach them.
     validation_inp = {
         "inventory": inventory,
         "host": {

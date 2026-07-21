@@ -34,6 +34,39 @@
   delegate_to: localhost
   become: false
 
+# There is nothing to rotate until the client has provisioned a tunnel by
+# saving a Cloudflare token in catena-admin > Settings (the token lands in the
+# on-box store). Refuse up front rather than deleting-then-failing-to-recreate.
+# Read the store on the host (0600 root); this play has no load_onbox_config
+# pre_task, so slurp + parse directly.
+- name: "CF regen: stat the on-box config store"
+  ansible.builtin.stat:
+    path: "{{ catena_onbox_config_path | default('/etc/catena/config.json') }}"
+  register: _cf_regen_store_stat
+
+- name: "CF regen: read the on-box config store"
+  ansible.builtin.slurp:
+    src: "{{ catena_onbox_config_path | default('/etc/catena/config.json') }}"
+  register: _cf_regen_store
+  when: _cf_regen_store_stat.stat.exists | default(false)
+  no_log: true
+
+- name: "CF regen: refuse when the store holds no Cloudflare token"
+  ansible.builtin.assert:
+    that:
+      - (_cf_regen_store_token | length) > 0
+    fail_msg: >-
+      No Cloudflare token provided yet -- enter it in catena-admin > Settings
+      before regenerating the tunnel. The tunnel is provisioned on-box from the
+      stored token; there is nothing to rotate until one exists.
+  vars:
+    _cf_regen_store_token: >-
+      {{ ((_cf_regen_store.content | default('') | b64decode | from_json).secrets
+          | default({})).get('vault_cloudflare_api_token', '')
+         if (_cf_regen_store_stat.stat.exists | default(false))
+         else '' }}
+  no_log: true
+
 - name: "CF regen: validate inputs"
   ansible.builtin.assert:
     that:

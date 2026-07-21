@@ -23,15 +23,20 @@
     _catena_admin_actions_merged: >-
       {{ _catena_admin_actions_canonical + (catena_admin_extra_actions | default([])) }}
 
-- name: "Catalog: append EE-reserved entries for the HOST dispatch path only"
-  # The shell-read catalog (actions.yml) stays CE-only -- no EE button shows
-  # without a license. But the host dispatch table + allow-list must also
-  # authorize the EE action NAMES the loaded plugin dispatches under a
-  # license -> the EE host binaries. Inert on Community (binary absent).
+- name: "Catalog: append reserved entries for the HOST dispatch path only"
+  # The shell-read catalog (actions.yml) stays CE-button-only -- no Business
+  # button shows without a license. But the host dispatch table + allow-list
+  # must also authorize the reserved action NAMES the shell dispatches: the CE
+  # reserved actions (settings/restic/config), the Business action names the
+  # loaded plugins dispatch under a license, and the Cloudflare tunnel actions
+  # the Settings panel dispatches. The cloudflared actions are appended ONLY in
+  # cloudflare access mode (in tailnet mode there is no tunnel to configure).
   ansible.builtin.set_fact:
     _catena_admin_actions_dispatch: >-
       {{ _catena_admin_actions_merged
          + (catena_admin_ce_reserved_actions | default([]))
+         + ((catena_admin_cloudflared_reserved_actions | default([]))
+            if (access_mode | default('cloudflare') == 'cloudflare') else [])
          + (catena_admin_ee_reserved_actions | default([])) }}
 
 # --- Files the admin container bind-mounts ---------------------------

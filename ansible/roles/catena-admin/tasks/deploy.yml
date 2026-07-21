@@ -51,6 +51,14 @@
       - "CATENA_ADMIN_IMAGE={{ catena_admin_image }}"
       - "CATENA_DEFAULT_LANG={{ catena_admin_default_language }}"
       - "CATENA_DEFAULT_THEME={{ catena_admin_default_theme }}"
+      # Access mode drives the compliance panel's SSO posture (compliance/
+      # plugin.go reads CATENA_ACCESS_MODE): a tailnet host has no self-hosted
+      # SSO edge, so without this the panel would falsely claim SSO. Always
+      # converge-supplied, so the merge keeps it current (non-credential key
+      # the catalog owns). CATENA_MULTIDOMAIN_ENABLED is NOT set here -- the
+      # shell derives multidomain from the enabled cloudflare-zones panel
+      # (Business), not a compose env (see SYNC.md).
+      - "CATENA_ACCESS_MODE={{ access_mode | default('cloudflare') }}"
       - "PORTAINER_API_BASE=http://{{ portainer_service_name }}:{{ portainer_ui_port }}/api"
       - "PORTAINER_API_KEY={{ vault_portainer_api_key }}"
       - "KEYCLOAK_HOSTNAME={{ keycloak_hostname }}"
@@ -84,6 +92,47 @@
     svc_readiness_skip_reason: >-
       dash.<zone> is oauth2-proxy gated (302 regardless of backend health); the
       synchronous Portainer stack deploy 2xx is the readiness signal.
+  when:
+    - catena_admin_deploy_from_converge | bool
+    - vault_portainer_api_key is defined
+    - (vault_portainer_api_key | default('') | length) > 0
+
+# --- host engine payload install (UNCONDITIONAL, NOT license-gated) ---------
+# The catena-admin container mirrors its embedded host payload (all engines --
+# catena-cloudflared-sync, catena-daily, the lane scripts, units -- and the
+# installer) into the ee-payload bind mount at startup. Install it into
+# /usr/local/bin on EVERY converge so a plain Community host has the engines
+# present (the Cloudflare tunnel engine especially -- roles/cloudflare_tunnel
+# dispatches it). The license only gates which UI buttons the shell renders, it
+# does NOT gate the payload install. Idempotent (install -m over each file).
+#
+# Same converge-only gate as the container deploy above: the container must be
+# deployed by this converge to have synced the payload. The bench deploys the
+# container out of band (catena_admin_deploy_from_converge=false) and installs
+# the payload out of band too, so this block is skipped there.
+- name: "Catena-admin: wait for the host payload to sync from the container"
+  ansible.builtin.stat:
+    path: "{{ catena_admin_ee_payload_bin_dir }}"
+  register: _catena_admin_payload_bin
+  until: _catena_admin_payload_bin.stat.exists | default(false)
+  retries: 30
+  delay: 4
+  when:
+    - catena_admin_deploy_from_converge | bool
+    - vault_portainer_api_key is defined
+    - (vault_portainer_api_key | default('') | length) > 0
+
+- name: "Catena-admin: install the host engine payload (every host, ungated)"
+  ansible.builtin.command:
+    argv:
+      - bash
+      - "{{ catena_admin_ee_payload_installer }}"
+  register: _catena_admin_payload_install
+  # The installer is idempotent and emits no ansible-parsable changed signal
+  # (it install -m's byte-identical files on a re-converge), so report unchanged
+  # to keep the bench changed=0 idempotency gate green. Real installs are
+  # observable in the task stdout ("installed N binary(ies)...").
+  changed_when: false
   when:
     - catena_admin_deploy_from_converge | bool
     - vault_portainer_api_key is defined

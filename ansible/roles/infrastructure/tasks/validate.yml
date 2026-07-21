@@ -7,9 +7,15 @@
 # mode, so their validate assertions must gate on the same flag or they fail on
 # a tailnet install. set_fact here because main.yml's fact is not in scope during
 # a standalone validate run.
-- name: "validate/infrastructure: resolve access mode"
+- name: "validate/infrastructure: resolve access mode + CF token presence"
   ansible.builtin.set_fact:
     _infra_cf_mode: "{{ access_mode | default('cloudflare') == 'cloudflare' }}"
+    # The cloudflared swarm service only exists once a Cloudflare token has been
+    # saved (catena-admin > Settings) and the tunnel converged. With no token
+    # the tunnel is DEFERRED, so skip the cloudflared-service asserts rather than
+    # failing on an absent service. The token is published as a fact by
+    # playbooks/validate.yml's load_onbox_config pre_task.
+    _infra_cf_token_present: "{{ (vault_cloudflare_api_token | default('')) | length > 0 }}"
 
 - name: "validate/infrastructure: stat sync scripts + traefik dynamic dir"
   ansible.builtin.stat:
@@ -73,12 +79,24 @@
       - _infra_net.rc == 0
     fail_msg: "docker network inspect catena-network rc={{ _infra_net.rc }}"
 
+- name: "validate/infrastructure: cloudflared tunnel deferred (no token yet)"
+  ansible.builtin.debug:
+    msg: >-
+      Skipping the cloudflared swarm-service asserts -- no Cloudflare token in
+      the on-box store yet; the tunnel is deferred until one is saved in
+      catena-admin > Settings.
+  when:
+    - _infra_cf_mode | bool
+    - not (_infra_cf_token_present | bool)
+
 - name: "validate/infrastructure: cloudflared 1/1 replica"
   ansible.builtin.command: docker service ls --filter name=cloudflared --format '{% raw %}{{.Name}}|{{.Replicas}}{% endraw %}'
   register: _infra_cf
   failed_when: false
   changed_when: false
-  when: _infra_cf_mode | bool
+  when:
+    - _infra_cf_mode | bool
+    - _infra_cf_token_present | bool
 
 - name: "validate/infrastructure: cloudflared replicas healthy"
   ansible.builtin.assert:
@@ -86,7 +104,9 @@
       - _infra_cf.rc == 0
       - _infra_cf.stdout_lines | select('match', '^cloudflared\\|1/1') | list | length > 0
     fail_msg: "cloudflared swarm service not 1/1: {{ _infra_cf.stdout }}"
-  when: _infra_cf_mode | bool
+  when:
+    - _infra_cf_mode | bool
+    - _infra_cf_token_present | bool
 
 - name: "validate/infrastructure: host binds no port 80 or 443 (architecture invariant)"
   ansible.builtin.shell: |

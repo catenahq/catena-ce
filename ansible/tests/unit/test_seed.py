@@ -90,15 +90,24 @@ def test_no_client_age_pubkey_field(seed):
 
 
 # --- INSTALL_EXTERNAL_KEYS (the only secrets prompted at install) -----------
-def test_install_external_keys_are_the_three_vendor_creds(seed):
-    """0b no-laptop-vault: seed prompts only for the install-critical vendor
-    creds and writes them to the transient --secrets-out file. Everything else
-    is minted on-box."""
+def test_install_external_keys_are_the_tailscale_creds_only(seed):
+    """0b no-laptop-vault + CF-token-Settings-only: seed prompts only for the
+    Tailscale OAuth creds (needed to join the tailnet) and writes them to the
+    transient --secrets-out file. The Cloudflare API token is NOT here -- it is
+    entered in catena-admin > Settings. Everything else is minted on-box."""
     assert seed.INSTALL_EXTERNAL_KEYS == (
-        "vault_cloudflare_api_token",
         "vault_tailscale_oauth_client_id",
         "vault_tailscale_oauth_client_secret",
     )
+
+
+def test_cloudflare_token_is_not_an_install_input(seed):
+    """The CF token is never prompted / required at install (Settings-only), and
+    the seed-time auto-fetch machinery that needed it is gone."""
+    assert "vault_cloudflare_api_token" not in seed.INSTALL_EXTERNAL_KEYS
+    for gone in ("fetch_cloudflare_account_id", "_resolve_cloudflare_account",
+                 "_install_secret_keys"):
+        assert not hasattr(seed, gone), f"{gone} should be removed"
 
 
 def test_vault_template_machinery_is_gone(seed):
@@ -265,7 +274,6 @@ def _good_inp():
         # env is a valid install.
         "env": {},
         "vault": {
-            "vault_cloudflare_api_token": "z",
             "vault_tailscale_oauth_client_id": "x",
             "vault_tailscale_oauth_client_secret": "y",
         },
@@ -273,8 +281,7 @@ def _good_inp():
 
 
 _ENV_KEYS = [("BACKUP_RESTIC_REPO", "")]  # optional now (default blank)
-_VAULT_KEYS = list(("vault_cloudflare_api_token",
-                    "vault_tailscale_oauth_client_id",
+_VAULT_KEYS = list(("vault_tailscale_oauth_client_id",
                     "vault_tailscale_oauth_client_secret"))
 
 
@@ -284,7 +291,7 @@ def test_validate_structural_clean(seed):
 
 def test_validate_structural_missing_required_vault(seed):
     inp = _good_inp()
-    del inp["vault"]["vault_cloudflare_api_token"]
+    del inp["vault"]["vault_tailscale_oauth_client_id"]
     assert seed.validate_install_structural(inp, _ENV_KEYS, _VAULT_KEYS) >= 1
 
 
@@ -321,14 +328,6 @@ def test_access_mode_is_an_env_option(seed):
     assert seed.ENV_OPTIONS.get("ACCESS_MODE") == ["cloudflare", "tailnet"]
 
 
-def test_install_secret_keys_drops_cf_token_in_tailnet(seed):
-    assert "vault_cloudflare_api_token" in seed._install_secret_keys(True)
-    tailnet = seed._install_secret_keys(False)
-    assert "vault_cloudflare_api_token" not in tailnet
-    assert "vault_tailscale_oauth_client_id" in tailnet
-    assert "vault_tailscale_oauth_client_secret" in tailnet
-
-
 def test_validate_structural_tailnet_allows_blank_cf_zone(seed):
     """In tailnet mode the Cloudflare zone is ignored at converge, so a blank
     zone is not a problem even though the template default is non-empty."""
@@ -344,6 +343,32 @@ def test_validate_structural_cloudflare_requires_cf_zone(seed):
     inp["env"] = {"ACCESS_MODE": "cloudflare", "CLOUDFLARE_ZONE": ""}
     env_keys = [("ACCESS_MODE", "cloudflare"), ("CLOUDFLARE_ZONE", "example.com")]
     assert seed.validate_install_structural(inp, env_keys, _VAULT_KEYS) >= 1
+
+
+def test_validate_structural_cloudflare_allows_blank_account_id(seed):
+    """CLOUDFLARE_ACCOUNT_ID is resolved on-box from the token, so a blank at
+    seed time is fine even in cloudflare mode (the zone is still required)."""
+    inp = _good_inp()
+    inp["env"] = {"ACCESS_MODE": "cloudflare", "CLOUDFLARE_ZONE": "example.com",
+                  "CLOUDFLARE_ACCOUNT_ID": ""}
+    env_keys = [("ACCESS_MODE", "cloudflare"),
+                ("CLOUDFLARE_ZONE", "example.com"),
+                ("CLOUDFLARE_ACCOUNT_ID", "REPLACE")]
+    assert seed.validate_install_structural(inp, env_keys, _VAULT_KEYS) == 0
+
+
+def test_collect_install_secrets_never_collects_cf_token(seed):
+    """Even when a fully-specified install.yaml carries the CF token, the
+    install-secret prompt loop only iterates the Tailscale creds -- the CF token
+    is Settings-only, never collected here."""
+    got = seed._collect_install_secrets({
+        "vault_tailscale_oauth_client_id": "x",
+        "vault_tailscale_oauth_client_secret": "y",
+        "vault_cloudflare_api_token": "cf-should-not-be-collected",
+    })
+    assert got == {"vault_tailscale_oauth_client_id": "x",
+                   "vault_tailscale_oauth_client_secret": "y"}
+    assert "vault_cloudflare_api_token" not in got
 
 
 # --- true on-box minting: seed mints NOTHING --------------------------------

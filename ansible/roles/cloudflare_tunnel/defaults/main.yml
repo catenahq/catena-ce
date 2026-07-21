@@ -1,18 +1,25 @@
 ---
-# Cloudflare tunnel + DNS + cloudflared swarm service.
+# Cloudflare tunnel converge pins.
 #
-# Extracted from roles/infrastructure on 2026-05-08 because oauth2_proxy's
-# `wait for Keycloak public OIDC discovery to be reachable` task needs the
-# public auth.<zone> URL up before its compose deploys; that requires
-# cloudflared + the wildcard DNS record + tunnel ingress config to be in
-# place. Keeping cloudflared deployment inside `infrastructure` (which by
-# design runs AFTER oauth2_proxy in site.yml so the gated apps inherit
-# oauth2_proxy's forward-auth chain) made site.yml depend on a two-pass
-# converge for any fresh-target scenario (DR, migrate). With the tunnel
-# in its own role, site.yml runs cloudflare_tunnel BEFORE keycloak +
-# oauth2_proxy in a single pass.
+# The tunnel/DNS/ingress/cloudflared-service logic moved into the Go engine
+# catena-cloudflared-sync (host payload, installed by roles/catena-admin on
+# every converge). This role now only dispatches that engine's `sync` when the
+# on-box store holds a Cloudflare token (see tasks/main.yml + catena-admin
+# cmd/catena-cloudflared-sync/SYNC.md). The vars below are the NON-SECRET pins
+# the role exports into the engine's environment so production uses the pinned
+# image / tunnel name / ingress service rather than the engine's built-in
+# defaults. The token itself is read from the store by the engine, never passed
+# here.
+#
+# The role still runs BEFORE keycloak + oauth2_proxy in site.yml (single-pass
+# converge): oauth2_proxy waits for the public auth.<zone> URL, which needs the
+# tunnel up first when a token is present.
 
 cloudflared_tunnel_name: "{{ inventory_hostname }}"
+
+# Host engine binary (installed into /usr/local/bin by the catena-admin payload
+# installer). SYNC.md is the contract.
+cloudflared_sync_bin: "/usr/local/bin/catena-cloudflared-sync"
 
 # Canonical zone list, defaulted here (lowest precedence) so EVERY context
 # that runs this role has it defined -- the CE inventory group_vars sets it
@@ -40,6 +47,19 @@ cloudflared_ingress_service: "http://catena-traefik:80"
 # was running on dev1.
 cloudflared_image_tag: "2026.7.1"
 cloudflared_image: "cloudflare/cloudflared:{{ cloudflared_image_tag }}"
+
+# Remaining non-secret engine pins (SYNC.md "Environment pins"). Exported into
+# the catena-cloudflared-sync environment by tasks/main.yml AND by the
+# catena-admin cloudflared-sync reserved action, so both converge paths use the
+# same production values rather than the engine's built-in defaults.
+#   - stop-grace must outlast cloudflared's ~30s drain (40s).
+#   - probe/reprobe counts + delay size the edge->tunnel->Traefik chain probe
+#     for a freshly-created tunnel propagating (60x10s first pass, 30x10s
+#     re-probe after the self-heal roll).
+cloudflared_stop_grace: "40s"
+cloudflared_probe_attempts: 60
+cloudflared_reprobe_attempts: 30
+cloudflared_probe_delay_seconds: 10
 
 # `cloudflare_api_base` lives in group_vars/all/main.yml so playbooks
 # that hit the Cloudflare API without importing this role (e.g.

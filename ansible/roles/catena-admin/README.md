@@ -31,8 +31,16 @@ Portainer stack from
   populated by run-backup.sh + gatus-sync), and
   `/var/backups/catena-export/` (recovery artifacts, read-only). The
   shell's writable bind is `/var/lib/catena/ee-payload`, where it mirrors
-  its embedded Business host payload at startup for the
-  ee-install-engines action to install; Community runs with it unused.
+  its embedded host payload (all engines -- `catena-cloudflared-sync`,
+  `catena-daily`, the lane scripts, units) at startup.
+- Installs that host payload into `/usr/local/bin` on **every** converge
+  ([tasks/deploy.yml](tasks/deploy.yml)), ungated -- the payload is NOT
+  license-gated. Even a plain Community host gets the engines (the
+  Cloudflare tunnel engine especially: `roles/cloudflare_tunnel`
+  dispatches `catena-cloudflared-sync`). The license only gates which UI
+  features/buttons the shell renders at runtime, never the install. The
+  `ee-install-engines` reserved action remains for out-of-band re-install
+  after an image bump.
 - Renders `/etc/catena/extra-tiles.yml` from inventory
   `catena_admin_extra_tiles` (operator escape hatch for hand-authored
   Apps-tab tiles).
