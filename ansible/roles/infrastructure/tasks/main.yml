@@ -194,11 +194,19 @@
     # proceeds to start Dovecot. The dashboard-sync reconciler manages the
     # rest from Keycloak and never deletes postmaster. No-ops without the
     # mailserver (no dms container).
+    # Tunnel-deferred: adding the postmaster mailbox unblocks gate 1, and DMS
+    # then proceeds to gate 2 expecting the manual cert. On a tokenless install
+    # the cert task above is deferred, so adding the account here would strand
+    # Dovecot at gate 2 (no cert). Defer the whole mailserver wiring chain
+    # (accounts + oidc + filtering + canary) until cf_activate persists a token
+    # and a converge re-runs it in the correct cert -> account -> boot order.
+    # The dms container stays in its stable, no-account gate-1 window meanwhile.
     - name: Mailserver accounts (bootstrap postmaster mailbox so DMS can start)
       ansible.builtin.include_tasks:
         file: mailserver_accounts.yml
         apply:
           tags: [mailserver_accounts]
+      when: _infra_cf_token_present
       tags: [mailserver_accounts]
 
     # Mailserver SSO. Opt-in template: registers the roundcube +
@@ -210,7 +218,9 @@
         file: mailserver_oidc.yml
         apply:
           tags: [mailserver_oidc]
-      when: _infra_cf_mode
+      when:
+        - _infra_cf_mode
+        - _infra_cf_token_present
       tags: [mailserver_oidc]
 
     # Mailserver spam + antivirus filtering. Injects rspamd local.d
@@ -222,6 +232,7 @@
         file: mailserver_filtering.yml
         apply:
           tags: [mailserver_filtering]
+      when: _infra_cf_token_present
       tags: [mailserver_filtering]
 
     # Mailserver DNS. ops owns only the safe mail-specific records (the
@@ -246,7 +257,9 @@
         file: mailserver_canary.yml
         apply:
           tags: [mailserver_canary]
-      when: _infra_cf_mode
+      when:
+        - _infra_cf_mode
+        - _infra_cf_token_present
       tags: [mailserver_canary]
 
     # Nextcloud Talk + HPB. Same converge / post-deploy split as OIDC:
