@@ -52,6 +52,9 @@
     group: root
     mode: "0600"
   no_log: true
+  # Deferred on a tokenless install: the DNS-01 issuance below is skipped, so
+  # the creds file is written only once cf_activate persists a token.
+  when: _coturn_cf_token_present
 
 # Drop a per-cert deploy hook that SIGHUPs every running coturn
 # container after a successful renewal. certbot fires
@@ -155,7 +158,9 @@
   environment: "{{ {'REQUESTS_CA_BUNDLE': coturn_acme_system_ca_bundle}
                    if (coturn_acme_ca_bundle_b64 | length) > 0 else {} }}"
   register: _coturn_cert_issue
-  when: not _coturn_cert_stat.stat.exists
+  when:
+    - _coturn_cf_token_present
+    - not _coturn_cert_stat.stat.exists
   changed_when: _coturn_cert_issue.rc == 0
   # Boulder (LE staging especially, prod rarely) can return:
   #   - 404 "No such authorization" on a same-second authz POST after
@@ -175,7 +180,11 @@
   ansible.builtin.stat:
     path: "{{ coturn_cert_path }}"
   register: _coturn_cert_after
-  failed_when: not _coturn_cert_after.stat.exists
+  # Only assert issuance succeeded when a token was present to issue with.
+  # Tokenless installs defer the cert; coturn runs STUN-only until cf_activate.
+  failed_when:
+    - _coturn_cf_token_present
+    - not _coturn_cert_after.stat.exists
 
 # certbot's stock systemd timer (certbot.timer) handles renewal twice
 # daily. Make sure it's enabled.
