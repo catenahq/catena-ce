@@ -182,7 +182,9 @@
         file: mailserver_cert.yml
         apply:
           tags: [mailserver_cert]
-      when: _infra_cf_mode
+      when:
+        - _infra_cf_mode
+        - _infra_cf_token_present
       tags: [mailserver_cert]
 
     # Mailserver accounts. docker-mailserver will not start Dovecot until
@@ -231,7 +233,9 @@
         file: mailserver_dns.yml
         apply:
           tags: [mailserver_dns]
-      when: _infra_cf_mode
+      when:
+        - _infra_cf_mode
+        - _infra_cf_token_present
       tags: [mailserver_dns]
 
     # Mail canary host timer. Proves dms is listening on 25/993 + that the
