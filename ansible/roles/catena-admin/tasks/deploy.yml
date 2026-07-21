@@ -20,11 +20,11 @@
 # preserves any license keys an EE activation later wrote into the stack Env, so
 # a CE re-converge never clobbers an activated license.
 #
-# The image is PRIVATE GHCR (unification): the pull authenticates via a
-# Portainer registry credential built from the client's on-box GHCR pull
-# token (registry.yml). No token on the store = skip the deploy with a clear
-# message -- the host still converges (the bench builds the image locally and
-# deploys out of band, so it never needs the token).
+# The image is PUBLIC GHCR: every install deploys the panel; the Business
+# feature set inside it is gated at runtime by the license check (a pull
+# token would be theater -- anyone can install Catena, so distribution
+# gating adds no enforcement; the support contract is the moat). The bench
+# builds the image locally and deploys out of band either way.
 
 - name: "Catena-admin: resolve Portainer endpoint id"
   # Idempotent read-only GET /endpoints. Re-included here (mirrors
@@ -36,24 +36,6 @@
     - catena_admin_deploy_from_converge | bool
     - vault_portainer_api_key is defined
     - (vault_portainer_api_key | default('') | length) > 0
-
-- name: "Catena-admin: no GHCR pull token -- skipping the private-image deploy"
-  ansible.builtin.debug:
-    msg: >-
-      vault_ghcr_pull_token is empty: the private catena-admin image cannot be
-      pulled. Enter the operator-issued GHCR pull token on the Settings page
-      (or the install adopt file) and re-converge to deploy the admin panel.
-  when:
-    - catena_admin_deploy_from_converge | bool
-    - (vault_ghcr_pull_token | default('') | length) == 0
-
-- name: "Catena-admin: ensure the Portainer registry credential (private GHCR)"
-  ansible.builtin.include_tasks: registry.yml
-  when:
-    - catena_admin_deploy_from_converge | bool
-    - vault_portainer_api_key is defined
-    - (vault_portainer_api_key | default('') | length) > 0
-    - (vault_ghcr_pull_token | default('') | length) > 0
 
 - name: "Catena-admin: deploy the Go shell as a Portainer stack"
   ansible.builtin.include_tasks: ../../infrastructure/tasks/portainer_stack.yml
@@ -106,4 +88,3 @@
     - catena_admin_deploy_from_converge | bool
     - vault_portainer_api_key is defined
     - (vault_portainer_api_key | default('') | length) > 0
-    - (vault_ghcr_pull_token | default('') | length) > 0

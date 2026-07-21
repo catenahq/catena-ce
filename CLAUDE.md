@@ -13,9 +13,11 @@ branches (workspace convention). NEVER switch or fast-forward `main`.
   `license` Go package. See [LICENSE](LICENSE).
 - **NOT here:** the catena-admin shell and all Business code. Since the
   2026-07 unification they live in the private `catenahq/catena-admin`
-  repo (formerly catena-ee) and ship as ONE private GHCR image with every
-  panel compiled in. Never paste private source or operational/cross-host
-  playbooks into this repo.
+  repo (formerly catena-ee) and ship as ONE public GHCR image (obfuscated
+  build, anonymous pull -- every install deploys the panel) with every
+  panel compiled in; the license check gates the Business feature set at
+  runtime. Never paste private source or operational/cross-host playbooks
+  into this repo.
 
 ## Go
 

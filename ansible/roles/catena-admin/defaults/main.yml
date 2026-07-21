@@ -12,27 +12,17 @@ catena_admin_subdomain: "{{ lookup('dotenv', 'CATENA_ADMIN_SUBDOMAIN', default='
 catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
 
 # --- Container image + port -------------------------------------------
-# PRIVATE catena-admin image the converge deploys (deploy.yml). Clients
+# PUBLIC catena-admin image the converge deploys (deploy.yml). Clients
 # PULL this at converge time -- they never build on the client box (no Go
 # toolchain on a client VPS). Published by the private catena-admin repo's
-# publish-image.yml on a v* tag from main; the pull authenticates via the
-# Portainer registry credential built from vault_ghcr_pull_token
-# (registry.yml). Defaults to the floating :latest GHCR tag; pin to an
-# immutable @sha256 digest here once the first publish lands, and let the
-# version bumper manage the pin thereafter. The bench does not use this var
-# (it builds local/catena-admin:bench on the VPS and passes that tag).
+# publish-image.yml on a v* tag from main; the IMAGE is public (anonymous
+# pull, no registry credential) while the Business feature set inside it
+# is gated at runtime by the license check. Defaults to the floating
+# :latest GHCR tag; pin to an immutable @sha256 digest here once the first
+# publish lands, and let the version bumper manage the pin thereafter. The
+# bench does not use this var (it builds local/catena-admin:bench on the
+# VPS and passes that tag).
 catena_admin_image: "ghcr.io/catenahq/catena-admin:latest"
-
-# Portainer registry credential for the private GHCR pull (registry.yml).
-# Username is nominal for GHCR token auth (any non-empty string works with
-# a PAT; keep the org name for legibility).
-catena_admin_registry_url: "ghcr.io"
-catena_admin_registry_name: "catena-ghcr"
-catena_admin_registry_username: "catenahq"
-# Set true for ONE converge to push a rotated vault_ghcr_pull_token into the
-# existing Portainer registry entry (GET /registries never returns the stored
-# password, so drift cannot be detected -- rotation is deliberate).
-catena_admin_registry_force_update: false
 
 # Deploy the catena-admin container FROM the converge (deploy.yml). Production
 # pulls the published GHCR image at converge time. The test bench builds the

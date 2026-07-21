@@ -39,14 +39,13 @@ Portainer stack from
 - Deploys the catena-admin container as a Portainer stack
   ([tasks/deploy.yml](tasks/deploy.yml)) from
   [deploy/catena-admin/catena-admin.compose.yml](../../../deploy/catena-admin/catena-admin.compose.yml),
-  pulling the PRIVATE GHCR image (`catena_admin_image`) via the Portainer
-  registry credential built from the client's `vault_ghcr_pull_token`
-  ([tasks/registry.yml](tasks/registry.yml); empty token = deploy skipped
-  with a message). The image ref and every per-host value are supplied via
-  the stack Env array (${VAR} substitution); no Traefik route is written
-  here (oauth2-proxy owns the gated `dash.<zone>` route). The test bench
-  drives the identical path but builds the image locally instead of
-  pulling from GHCR.
+  pulling the PUBLIC GHCR image (`catena_admin_image`) anonymously --
+  every install gets the panel; the Business feature set inside it is
+  gated at runtime by the license check. The image ref and every per-host
+  value are supplied via the stack Env array (${VAR} substitution); no
+  Traefik route is written here (oauth2-proxy owns the gated
+  `dash.<zone>` route). The test bench drives the identical path but
+  builds the image locally instead of pulling from GHCR.
 
 ## What this role does NOT do
 

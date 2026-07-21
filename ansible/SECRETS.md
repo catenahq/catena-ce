@@ -37,8 +37,7 @@ ride the backup, because it is what unlocks the backup.
 | --- | --- | --- | --- |
 | `vault_tailscale_oauth_client_id` | Join YOUR OWN tailnet | minimal bootstrap | no |
 | `vault_tailscale_oauth_client_secret` | ^ | minimal bootstrap | no |
-| `vault_cloudflare_api_token` | Tunnel + DNS | minimal bootstrap | no |
-| `vault_ghcr_pull_token` | pull the private catena-admin image | settings page (operator-issued) | no |
+| `vault_cloudflare_api_token` | Tunnel + DNS | catena-admin Settings (never at install) | no |
 | `BACKUP_RESTIC_REPO` (.env) | restic repo URL | settings page | **yes** |
 | `vault_backup_s3_access_key` | reach the restic bucket | settings page | **yes** |
 | `vault_backup_s3_secret_key` | ^ | settings page | **yes** |

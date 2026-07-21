@@ -6,9 +6,9 @@
 # file verbatim with no build:/image: fork:
 #   - Operator (production): roles/catena-admin/tasks/deploy.yml pushes this
 #     file through the Portainer stack API with svc_env supplying
-#     CATENA_ADMIN_IMAGE = the PRIVATE GHCR image ({{ catena_admin_image }});
-#     the pull authenticates via the Portainer registry credential the role
-#     ensures from the client's GHCR pull token.
+#     CATENA_ADMIN_IMAGE = the PUBLIC GHCR image ({{ catena_admin_image }});
+#     anonymous pull, no registry credential -- the license check gates the
+#     Business feature set at runtime.
 #   - Test bench: builds the image on the VPS (local/catena-admin:bench) and
 #     supplies CATENA_ADMIN_IMAGE = that local tag through its Env array
 #     (orchestrator/catena_admin_deploy.py). It reads THIS file raw.

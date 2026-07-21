@@ -104,7 +104,7 @@ ansible/               the Community deploy automation + the CLI
   playbooks/ roles/    preflight/bootstrap/site/validate/restore + shared roles
   seed.py              config seeding (first-run secret minting happens on-box)
 license/               ed25519 license-token wire format (offline verify + grace)
-deploy/catena-admin/   the catena-admin container compose (image is private GHCR)
+deploy/catena-admin/   the catena-admin container compose (public GHCR image)
 ```
 
 **What this repo promises and how that is enforced:** [SPEC.md](SPEC.md)
