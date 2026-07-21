@@ -74,6 +74,10 @@
       - "{{ cloudflared_sync_bin }}"
       - sync
   environment:
+    # Base domain: the engine resolves the primary zone BY NAME, tolerating an
+    # account-scoped token that grants more than one zone. Without it the engine
+    # falls back to requiring a single-zone-scoped token (grants exactly 1).
+    CLOUDFLARE_PRIMARY_ZONE: "{{ cloudflare_zone }}"
     CLOUDFLARED_IMAGE: "{{ cloudflared_image }}"
     CLOUDFLARED_INGRESS_SERVICE: "{{ cloudflared_ingress_service }}"
     CLOUDFLARED_TUNNEL_NAME: "{{ cloudflared_tunnel_name }}"
