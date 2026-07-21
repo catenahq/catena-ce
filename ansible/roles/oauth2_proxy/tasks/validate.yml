@@ -13,7 +13,28 @@
 # is restarting" Ansible failure into actionable startup-error text
 # for bench / DR debugging.
 
+# Cloudflare token late-binding: the oauth2-proxy issuer + per-app probes
+# below reach Keycloak through its PUBLIC hostname (auth.<zone>), which only
+# resolves once the Cloudflare tunnel is up. A tokenless install defers the
+# tunnel (the token is entered later in catena-admin > Settings), so auth.<zone>
+# is not resolvable and oauth2-proxy is EXPECTED to sit in OIDC-discovery
+# restart-backoff until then. Skip this whole validation block while the store
+# holds no token -- gating it on tunnel readiness rather than hard-failing the
+# converge on a deferred edge. Once the token is saved (cf_activate / a
+# re-converge with the token present), cloudflare_tunnel brings the edge up
+# earlier in site.yml and this block runs normally.
+- name: "validate/oauth2-proxy: tunnel deferred -- skipping public-issuer validation (no Cloudflare token yet)"
+  ansible.builtin.debug:
+    msg: >-
+      No Cloudflare API token in the on-box store: the tunnel is deferred, so
+      auth.{{ cloudflare_zone | default('<zone>') }} is not resolvable and
+      oauth2-proxy is expected to be in OIDC-discovery restart-backoff until the
+      token is entered in catena-admin > Settings. Skipping the oauth2-proxy
+      public-issuer + per-app validation this converge.
+  when: (vault_cloudflare_api_token | default('')) | length == 0
+
 - name: "validate/oauth2-proxy: per-app container probes (with rescue diagnostics)"
+  when: (vault_cloudflare_api_token | default('')) | length > 0
   block:
     # Post-restore (backup_rollback, restore_dr) brings every service back
     # in parallel. oauth2-proxy crash-exits on a failed OIDC discovery
