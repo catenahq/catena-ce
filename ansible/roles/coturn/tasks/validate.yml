@@ -2,6 +2,15 @@
 # Vantage 1 (on-host) validation for coturn. Invoked by
 # playbooks/validate.yml via include_role + tasks_from: validate.
 
+# Tunnel-deferred gate. Runs via tasks_from: validate, so the fact set in
+# main.yml is not in scope -- recompute it. On a tokenless install the DNS-01
+# cert is deferred (roles/coturn/tasks/cert.yml), so coturn comes up STUN-only:
+# no cert, and the TLS-TURN listener on 5349 does not bind. Assert only the
+# STUN plane (3478 + ufw) until cf_activate persists a token and re-converges.
+- name: "validate coturn: resolve tunnel-deferred gate (Cloudflare token presence)"
+  ansible.builtin.set_fact:
+    _coturn_cf_token_present: "{{ (vault_cloudflare_api_token | default('')) | length > 0 }}"
+
 - name: "validate coturn: swarm service exists + healthy"
   ansible.builtin.command:
     argv:
@@ -29,6 +38,14 @@
         docker service ls --filter name=coturn
         docker service ps coturn --no-trunc
 
+- name: "validate coturn: TLS cert deferred -- STUN-only (no Cloudflare token yet)"
+  ansible.builtin.debug:
+    msg: >-
+      No Cloudflare API token in the on-box store: the DNS-01 cert is deferred,
+      so coturn runs STUN-only (3478/udp). Skipping the TLS cert + 5349
+      listener assertions until cf_activate persists a token and re-converges.
+  when: not _coturn_cf_token_present
+
 - name: "validate coturn: TLS cert is present + valid for at least 24h"
   ansible.builtin.command:
     argv:
@@ -42,6 +59,7 @@
   register: _v_coturn_cert
   changed_when: false
   failed_when: _v_coturn_cert.rc != 0
+  when: _coturn_cf_token_present
 
 - name: "validate coturn: capture host listening sockets (UDP)"
   ansible.builtin.command:
@@ -68,18 +86,26 @@
   changed_when: false
   when: _v_coturn_ss_udp.stdout is not search(':' ~ coturn_tls_port ~ '\s')
 
-- name: "validate coturn: assert UDP 3478 + 5349 are listening"
+- name: "validate coturn: assert UDP 3478 (STUN) is listening"
   ansible.builtin.assert:
     that:
       - _v_coturn_ss_udp.stdout is search(':' ~ coturn_listen_port ~ '\s')
+    fail_msg: |
+      coturn UDP STUN listener missing. Expected :{{ coturn_listen_port }}
+      on UDP. Got:
+      {{ _v_coturn_ss_udp.stdout }}
+
+- name: "validate coturn: assert UDP 5349 (TLS-TURN) is listening"
+  ansible.builtin.assert:
+    that:
       - _v_coturn_ss_udp.stdout is search(':' ~ coturn_tls_port ~ '\s')
     fail_msg: |
-      coturn UDP listeners missing. Expected :{{ coturn_listen_port }}
-      and :{{ coturn_tls_port }} on UDP. Got:
+      coturn UDP TLS-TURN listener missing on port {{ coturn_tls_port }}. Got:
       {{ _v_coturn_ss_udp.stdout }}
 
       Container logs (last 100 lines):
       {{ _v_coturn_logs.stdout | default('(no coturn container running)') }}
+  when: _coturn_cf_token_present
 
 - name: "validate coturn: capture host listening sockets (TCP)"
   ansible.builtin.command:
@@ -97,6 +123,7 @@
       coturn TCP TLS-TURN listener missing on port {{ coturn_tls_port }}.
       Got:
       {{ _v_coturn_ss_tcp.stdout }}
+  when: _coturn_cf_token_present
 
 - name: "validate coturn: capture ufw status"
   ansible.builtin.command: ufw status verbose
