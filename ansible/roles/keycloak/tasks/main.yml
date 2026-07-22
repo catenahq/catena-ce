@@ -50,7 +50,7 @@
     - vault_portainer_api_key | length > 10
   block:
     - name: "Keycloak: deploy compose via the Portainer stack API"
-      ansible.builtin.include_tasks: compose.yml
+      ansible.builtin.include_tasks: deploy.yml
       tags: [keycloak_compose]
 
     - name: "Keycloak: post-deploy /health/ready probe"

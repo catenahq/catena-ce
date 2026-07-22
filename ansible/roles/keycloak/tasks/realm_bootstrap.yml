@@ -8,7 +8,7 @@
 # cheap.
 #
 # Atomicity: gated on Keycloak's /health/ready (set by tasks/validate.yml's
-# in-container probe -- which runs AFTER tasks/compose.yml). Per project
+# in-container probe -- which runs AFTER tasks/deploy.yml). Per project
 # CLAUDE.md, the import MUST NOT race the server's own first-boot
 # migrate; /health/ready is the canonical "migrations are done" signal,
 # stronger than "container exists in docker ps".

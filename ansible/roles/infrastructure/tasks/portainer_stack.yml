@@ -64,7 +64,7 @@
 - name: "Route: write Traefik file-provider route ({{ svc_name ~ ' -> ' ~ svc_domain_host }})"
   ansible.builtin.template:
     # Explicit playbook_dir-relative path: portainer_stack.yml is include_tasks'd
-    # from OTHER roles (keycloak, oauth2_proxy) whose compose.yml deploys their
+    # from OTHER roles (keycloak, oauth2_proxy) whose deploy.yml deploys their
     # own stack through this helper. Ansible resolves a bare `src:` against the
     # CALLING role's templates/ dir, so a bare `app-route.yml.j2` is not found
     # when the caller is keycloak. Anchor it to infrastructure/templates so it

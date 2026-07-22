@@ -146,7 +146,7 @@
     # removes. End-to-end public login reachability is still asserted in
     # validate.yml.
     - name: "oauth2-proxy: deploy compose via Portainer API"
-      ansible.builtin.include_tasks: compose.yml
+      ansible.builtin.include_tasks: deploy.yml
       tags: [oauth2_proxy_compose]
 
     # NOTE: no post-deploy "re-confirm public OIDC discovery" gate either.
