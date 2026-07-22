@@ -1,10 +1,9 @@
 name: CI
 
-# Go build/vet/test gate for the public license package (the shell moved to
-# the private catena-admin repo at the unification), plus the Python
-# installer (ansible/) unit tests. Runs on the self-hosted laptop runner; Go
-# comes from ~/.local/go (the same toolchain used locally) rather than
-# setup-go, and Python tooling comes from uv.
+# Python installer (ansible/) unit tests. This repo carries no Go since the
+# license package moved to the private catena-admin repo (which was the last
+# Go here after the shell moved out at the unification). Python tooling comes
+# from uv.
 
 on:
   push:
@@ -15,36 +14,6 @@ permissions:
   contents: read
 
 jobs:
-  go:
-    name: Go build + vet + test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          persist-credentials: false
-      - name: Put Go on PATH
-        run: |
-          echo "$HOME/.local/go/bin" >> "$GITHUB_PATH"
-      - name: Toolchain
-        run: go version
-      - name: Build
-        run: go build ./...
-      - name: Vet
-        run: go vet ./...
-      - name: Test
-        run: go test ./...
-      - name: Staticcheck (report-only)
-        # Correctness lint folded in from the retired go-analysis.yml.
-        # govulncheck (the blocking half of that workflow) now runs via
-        # the scanctl security gate; staticcheck is not a scanctl tool.
-        run: |
-          go install honnef.co/go/tools/cmd/staticcheck@latest
-          set +e
-          "$(go env GOPATH)/bin/staticcheck" ./...
-          rc=$?
-          set -e
-          if [ $rc -ne 0 ]; then echo "::warning::staticcheck reported findings (report-only)."; fi
-
   installer:
     name: Installer (Python) tests
     runs-on: ubuntu-latest

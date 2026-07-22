@@ -66,7 +66,7 @@ client-owned storage, whole-server recovery -- serves that promise.
 | Every file and scenario is classified against the feature manifest; nothing untracked | `audit:check-grid`, `audit:check-all` |
 | Source is scanned on every change (secrets, vulnerable deps, static analysis) | `workflow:security.yml`, `scanctl:gitleaks`, `scanctl:osv-scanner`, `scanctl:semgrep`, `scanctl:govulncheck` |
 | Pinned container images are CVE-gated | `workflow:trivy.yml` |
-| The license package and the Python installer build, vet and test green | `workflow:ci.yml` |
+| The Python installer builds and tests green | `workflow:ci.yml` |
 
 Gate pointer grammar: `bench:<scenario>` = a rehearsal scenario that
 provisions disposable virtual machines and drives the real product;

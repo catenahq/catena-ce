@@ -7,12 +7,7 @@
   "gitignore": true,
   "threshold": 1,
   "path": [
-    "ansible",
-    "cmd",
-    "internal",
-    "plugin",
-    "license",
-    "loader"
+    "ansible"
   ],
   "ignore": [
     "**/collections/**",

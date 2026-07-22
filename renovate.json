@@ -3,17 +3,6 @@
   "extends": ["github>catenahq/renovate-config"],
   "packageRules": [
     {
-      "matchManagers": ["gomod"],
-      "matchUpdateTypes": ["minor", "patch"],
-      "groupName": "go modules (minor+patch)",
-      "automerge": true
-    },
-    {
-      "matchManagers": ["gomod"],
-      "matchUpdateTypes": ["major"],
-      "automerge": false
-    },
-    {
       "description": "Operator-stack base images pinned in role defaults. Bumps stay manual: a cloudflared/traefik/postgres/portainer/restic upgrade can break the platform out-of-band, so the operator reviews each one (the Trivy job still gates the PR on CVEs).",
       "matchManagers": ["custom.regex"],
       "matchPackageNames": [

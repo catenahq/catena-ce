@@ -8,28 +8,21 @@ branches (workspace convention). NEVER switch or fast-forward `main`.
 ## What lives here vs not
 
 - **Here (public, fair-code):** the base Ansible (preflight/bootstrap/site/
-  validate/restore + shared roles + single backup), the installer/CLI, the
-  catena-admin container compose (deploy/catena-admin/), and the public
-  `license` Go package. See [LICENSE](LICENSE).
+  validate/restore + shared roles + single backup), the installer/CLI, and
+  the catena-admin container compose (deploy/catena-admin/). See
+  [LICENSE](LICENSE).
 - **NOT here:** the catena-admin shell and all Business code. Since the
   2026-07 unification they live in the private `catenahq/catena-admin`
   repo (formerly catena-ee) and ship as ONE public GHCR image (obfuscated
   build, anonymous pull -- every install deploys the panel) with every
   panel compiled in; the license check gates the Business feature set at
-  runtime. Never paste private source or operational/cross-host playbooks
-  into this repo.
+  runtime. The license wire-format package (Sign/Verify, ed25519 offline)
+  also lives in catena-admin since the license repatriation -- this repo
+  carries NO Go at all. Never paste private source or operational/
+  cross-host playbooks into this repo.
 
-## Go
+## License behaviour (asserted here, implemented in catena-admin)
 
-- Module: `github.com/catenahq/catena-ce`. Go 1.26+. The only Go here is
-  `license/`.
-- `go build ./... && go vet ./... && go test ./...` must stay green.
-- `license` (public package) is the single definition of the license-token
-  wire format (ed25519, offline verify, grace window). It is public so the
-  private catena-admin module can import it: the mint CLI there signs
-  tokens with the matching private key via `Sign`, and the shell verifies
-  offline. Keep `Sign`/`Verify` in lockstep if the format changes. The
-  verify side is public ON PURPOSE (auditable check; CP2/CP3).
 - The shell must run Community-only when no/invalid license is present; it
   never fails closed on a missing key (LE3 -- enforced in the private repo,
   asserted by bench ee_lapse/ee_ce_regression).
@@ -53,8 +46,9 @@ The load-bearing ones when editing THIS repo:
   converge) plus the enumerated maintenance timers in the audit's
   CE_ALLOWED_TIMERS (CV8). A new `.timer` needs a deliberate allowlist
   entry, and daily/sub-daily cadence is EE.
-- No Business logic, no cross-host flows, license VERIFY side only
-  (CP2/CP3) -- `audit --check-port` gates it.
+- No Business logic, no cross-host flows, no Go/compiled code in the
+  tree (CP2/CP3) -- `audit --check-port` gates the automation/cross-repo
+  edges; the no-Go claim is structural since the license repatriation.
 - Admin surfaces stay behind the identity gate + in-app role check (CV2).
 - Secret-bearing Ansible tasks carry `no_log: true` (CV7 -- currently
   review-enforced; lint gate is backlogged).

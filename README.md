@@ -84,26 +84,23 @@ Full classification: [ansible/SECRETS.md](ansible/SECRETS.md).
 ## What's in this repo (for contributors)
 
 This is the public, fair-code base: the whole orchestration + installer.
-The catena-admin web panel is NOT here: since the 2026-07 unification it
-lives privately in `catenahq/catena-admin` and ships as a private container
-image. The panel is a convenience layer over the host-native automation in
-THIS repo -- everything it does (backups, restore, validate, converge) is
-runnable here without it. See [LICENSE](LICENSE).
+The catena-admin web panel is NOT here: since the 2026-07 unification its
+source lives privately in `catenahq/catena-admin` and ships as a public
+GHCR container image (obfuscated build, anonymous pull). The panel is a
+convenience layer over the host-native automation in THIS repo --
+everything it does (backups, restore, validate, converge) is runnable
+here without it. See [LICENSE](LICENSE).
 
 - **Base automation** -- the `preflight` / `bootstrap` / `site` / `validate` /
   `restore` flows + shared roles + the single-backup runner.
 - **Installer / CLI** -- `ansible/catena`, a thin entry point so self-hosters
   never touch raw Ansible.
-- **License wire format** -- the public `license` Go package: the ed25519
-  token format Business hosts verify OFFLINE (the verify side is public on
-  purpose, so the check is auditable).
 
 ```
 ansible/               the Community deploy automation + the CLI
   catena               the installer / CLI entry point (see ansible/README.md)
   playbooks/ roles/    preflight/bootstrap/site/validate/restore + shared roles
   seed.py              config seeding (first-run secret minting happens on-box)
-license/               ed25519 license-token wire format (offline verify + grace)
 deploy/catena-admin/   the catena-admin container compose (public GHCR image)
 ```
 
@@ -114,10 +111,10 @@ maintainers' CI).
 
 ### Develop
 
-Requires Go 1.26+ (for the license package) and uv (for the installer).
+Requires uv (for the installer). No Go: this repo is Ansible + Python
+only (the license wire-format package lives in catena-admin).
 
 ```
-go build ./...
-go vet ./...
-go test ./...
+cd ansible
+uv run --no-project --with pytest --with pyyaml python -m pytest tests/unit -q
 ```
