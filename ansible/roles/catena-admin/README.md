@@ -4,7 +4,7 @@ Host-side setup AND container deploy for the per-VPS admin panel -- the
 catena-admin Go shell. This role prepares everything the container
 expects to find on the host, then deploys the container itself as a
 Portainer stack from
-[deploy/catena-admin/catena-admin.compose.yml](../../../deploy/catena-admin/catena-admin.compose.yml).
+[files/catena-admin.compose.yml](files/catena-admin.compose.yml).
 
 ## What this role does
 
@@ -25,7 +25,7 @@ Portainer stack from
   (chowned for the container's uid 1000) and seeds known_hosts via
   ssh-keyscan.
 - Creates the bind-mount targets the admin compose
-  ([deploy/catena-admin/catena-admin.compose.yml](../../../deploy/catena-admin/catena-admin.compose.yml))
+  ([files/catena-admin.compose.yml](files/catena-admin.compose.yml))
   expects: `/etc/catena/admin-ssh/`, `/etc/catena/admin-actions.yml`,
   `/etc/catena/extra-tiles.yml`, `/var/lib/catena/` (read-only stats;
   populated by run-backup.sh + gatus-sync), and
@@ -46,7 +46,7 @@ Portainer stack from
   Apps-tab tiles).
 - Deploys the catena-admin container as a Portainer stack
   ([tasks/deploy.yml](tasks/deploy.yml)) from
-  [deploy/catena-admin/catena-admin.compose.yml](../../../deploy/catena-admin/catena-admin.compose.yml),
+  [files/catena-admin.compose.yml](files/catena-admin.compose.yml),
   pulling the PUBLIC GHCR image (`catena_admin_image`) anonymously --
   every install gets the panel; the Business feature set inside it is
   gated at runtime by the license check. The image ref and every per-host

@@ -9,7 +9,9 @@ branches (workspace convention). NEVER switch or fast-forward `main`.
 
 - **Here (public, fair-code):** the base Ansible (preflight/bootstrap/site/
   validate/restore + shared roles + single backup), the installer/CLI, and
-  the catena-admin container compose (deploy/catena-admin/). See
+  the catena-admin container compose
+  (ansible/roles/catena-admin/files/catena-admin.compose.yml -- plain
+  ${VAR} compose, NOT a template: the bench pushes it verbatim). See
   [LICENSE](LICENSE).
 - **NOT here:** the catena-admin shell and all Business code. Since the
   2026-07 unification they live in the private `catenahq/catena-admin`

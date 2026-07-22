@@ -3,7 +3,7 @@
 #
 # Converge-time equivalent of the bench's
 # orchestrator/catena_admin_deploy.py: it pushes the SAME compose
-# (deploy/catena-admin/catena-admin.compose.yml) through the Portainer stack
+# (files/catena-admin.compose.yml in this role) through the Portainer stack
 # API, supplying every per-host value -- including the image ref -- via
 # svc_env (${VAR} substitution). Production pulls the published GHCR image
 # ({{ catena_admin_image }}); the bench supplies a locally-built tag instead.
@@ -41,8 +41,10 @@
   ansible.builtin.include_tasks: ../../infrastructure/tasks/portainer_stack.yml
   vars:
     svc_name: "catena-admin"
+    # Plain ${VAR} compose in files/, NOT a template: the bench pushes the
+    # byte-identical file without Jinja (orchestrator/catena_admin_deploy.py).
     svc_compose_content: >-
-      {{ lookup('file', role_path ~ '/../../../deploy/catena-admin/catena-admin.compose.yml') }}
+      {{ lookup('file', role_path ~ '/files/catena-admin.compose.yml') }}
     # Env array the Portainer stack API substitutes into the compose ${VAR}
     # placeholders. Mirrors orchestrator/catena_admin_deploy.py _build_env,
     # mapped to the canonical Ansible vars. Values with a compose ${VAR:-}

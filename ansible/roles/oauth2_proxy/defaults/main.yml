@@ -167,7 +167,7 @@ oauth2_proxy_apps:
   # CATENA_ADMIN_REQUIRE_HEADER_SIG + CATENA_ADMIN_HEADER_SECRET), so
   # the old Python-era HMAC sig-injecting sidecar
   # (catena-admin-sigproxy:4181) no longer exists -- the compose at
-  # deploy/catena-admin/catena-admin.compose.yml ships the single
+  # roles/catena-admin/files/catena-admin.compose.yml ships the single
   # `app` service with the `catena-admin` network alias. Pointing
   # here at the deleted sidecar alias made every AUTHENTICATED
   # dash.<zone> request 502 (unauthenticated ones 302 to the IdP

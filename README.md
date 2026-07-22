@@ -101,7 +101,8 @@ ansible/               the Community deploy automation + the CLI
   catena               the installer / CLI entry point (see ansible/README.md)
   playbooks/ roles/    preflight/bootstrap/site/validate/restore + shared roles
   seed.py              config seeding (first-run secret minting happens on-box)
-deploy/catena-admin/   the catena-admin container compose (public GHCR image)
+  roles/catena-admin/files/catena-admin.compose.yml
+                       the catena-admin container compose (public GHCR image)
 ```
 
 **What this repo promises and how that is enforced:** [SPEC.md](SPEC.md)
