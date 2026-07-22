@@ -53,8 +53,8 @@
       - "CATENA_ADMIN_IMAGE={{ catena_admin_image }}"
       - "CATENA_DEFAULT_LANG={{ catena_admin_default_language }}"
       - "CATENA_DEFAULT_THEME={{ catena_admin_default_theme }}"
-      # Access mode drives the compliance panel's SSO posture (compliance/
-      # plugin.go reads CATENA_ACCESS_MODE): a tailnet host has no self-hosted
+      # Access mode drives the compliance panel's SSO posture (shell/panels/compliance
+      # reads CATENA_ACCESS_MODE): a tailnet host has no self-hosted
       # SSO edge, so without this the panel would falsely claim SSO. Always
       # converge-supplied, so the merge keeps it current (non-credential key
       # the catalog owns). CATENA_MULTIDOMAIN_ENABLED is NOT set here -- the

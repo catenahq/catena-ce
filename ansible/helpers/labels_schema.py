@@ -8,7 +8,7 @@ so siblings can `from labels_schema import slugify,
 extract_vps_auth_labels, resolve_auth_mode`.
 
 The catena-admin Go shell carries its own implementation of the same
-vocabulary (internal/admin/labels); the two must stay in lockstep on the
+vocabulary (shell/labels); the two must stay in lockstep on the
 `vps.*` grammar.
 
 Stdlib-only by design so it installs beside the host scripts without

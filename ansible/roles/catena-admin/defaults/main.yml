@@ -98,7 +98,7 @@ catena_admin_default_theme: "{{ catena_default_theme | default('system') }}"
 
 # Per-inventory action extras + tiles. Same shape as the canonical
 # `actions:` list in templates/actions.yml.j2 and the `tiles:` list the
-# Go shell's Apps tab consumes (internal/admin/apps).
+# Go shell's Apps tab consumes (shell/apps).
 catena_admin_extra_actions: []
 catena_admin_extra_tiles: []
 
@@ -125,7 +125,7 @@ catena_admin_ee_payload_bin_dir: "{{ catena_admin_ee_payload_dir }}/bin"
 # shell-read catalog (actions.yml), so no Business button ever appears on a
 # Community host -- the panel contributes the button only while its license is
 # active. Names + commands MUST match the panels' ActionSpec (catena-admin
-# audit/audit.go + dailyplugin/plugin.go); a drift means the shell dispatches a
+# shell/panels/audit + shell/panels/daily); a drift means the shell dispatches a
 # name the host cannot resolve.
 catena_admin_ee_reserved_actions:
   # Payload (re-)install: refreshes the shell-synced host payload (engines +
@@ -165,7 +165,7 @@ catena_admin_ee_reserved_actions:
       --path {{ catena_admin_config_store_path }}
 
 # --- 0b on-box config store (settings API) ----------------------------
-# The Settings tab (internal/admin/settings) reads/writes the on-box config
+# The Settings tab (shell/settings) reads/writes the on-box config
 # store through the host dispatcher, since the unprivileged container cannot
 # touch the root-owned 0600 store. host.yml installs onbox_config.py on the
 # host; this CE-reserved dispatch action base64-decodes the container's opaque

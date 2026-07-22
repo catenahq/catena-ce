@@ -163,7 +163,7 @@ oauth2_proxy_apps:
   # gates everything beyond /apps to the admin group only.
   #
   # Direct upstream: the Go shell verifies the optional X-Catena-Sig
-  # header itself (internal/admin/auth, opt-in via
+  # header itself (shell/auth, opt-in via
   # CATENA_ADMIN_REQUIRE_HEADER_SIG + CATENA_ADMIN_HEADER_SECRET), so
   # the old Python-era HMAC sig-injecting sidecar
   # (catena-admin-sigproxy:4181) no longer exists -- the compose at
