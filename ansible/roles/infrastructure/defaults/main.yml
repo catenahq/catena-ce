@@ -101,7 +101,7 @@ gatus_summary_file: "{{ gatus_summary_dir }}/gatus-summary.json"
 # metrics firehose. Replaces the previous Netdata-based monitoring
 # (too noisy, too broad) AND the healthchecks.io SaaS dependency.
 # Named Docker volume -> backed up by restic along with other volumes.
-healthchecks_image_tag: "v4.2"
+healthchecks_image_tag: "v4.3"
 healthchecks_image: "healthchecks/healthchecks:{{ healthchecks_image_tag }}"
 healthchecks_compose_name: "healthchecks"
 healthchecks_network_alias: "healthchecks"
@@ -243,7 +243,7 @@ dashboard_sync_interval: "*:0/5" # every 5 minutes
 # Image: the _base variant ships WITHOUT the signature DB; freshclam
 # downloads + refreshes it on start (the DB persists on a named volume).
 # Renovate manages the pin (custom manager for stack images).
-clamav_image: "clamav/clamav:1.5.2-35_base"
+clamav_image: "clamav/clamav:1.5.3_base"
 clamav_compose_name: "clamav"
 clamav_network: "catena-clamav"
 # clamd StreamMaxLength -- the largest object clamd will scan in one
