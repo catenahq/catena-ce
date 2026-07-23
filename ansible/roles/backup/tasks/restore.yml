@@ -262,6 +262,17 @@
       # serves no purpose and breaks the restore path on every DR.
       - --exclude
       - /usr/local/bin/restic
+      # Never restore the source host's SSH host keys onto the target.
+      # /etc/ssh is in backup_paths, so an older snapshot still carries
+      # ssh_host_*_key. On a fresh-host DR restore, overwriting the box's
+      # own cloud-init-minted keys clones the source's SSH identity: the
+      # recovered host then presents the dead host's key. That collides
+      # with the controller known_hosts entry TOFU-ed during bootstrap
+      # (accept-new errors on the changed key), so validate.yml Vantage 3
+      # aborts UNREACHABLE. Host keys are host IDENTITY, not data, and
+      # admin access is over the tailnet -- keep the fresh keys.
+      - --exclude
+      - /etc/ssh/ssh_host_*
       - --quiet
   environment: "{{ backup_restic_env }}"
   no_log: true # env dict carries S3 creds; censor on both paths

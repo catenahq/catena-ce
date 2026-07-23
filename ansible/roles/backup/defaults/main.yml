@@ -355,6 +355,17 @@ backup_exclude_patterns:
   # /var/backups or /var.
   - "/var/backups/catena-export"
   - "/var/backups/catena-export/*"
+  # SSH host keys (ssh_host_*_key and .pub). /etc/ssh is in backup_paths
+  # for sshd_config + moduli + ssh_config, but the host KEYS are host
+  # IDENTITY, not data, and are a private key = a secret we must not
+  # store in the restic repo. A fresh box mints its own via cloud-init,
+  # and admin access is over the tailnet, so nothing depends on carrying
+  # the source key forward. restore.yml also excludes these on the way
+  # back so an older snapshot that still holds them can never overwrite a
+  # recovered box's own keys (the DR SSH-identity-clone that aborted
+  # validate.yml Vantage 3). Locked in by
+  # tests/unit/test_backup_ssh_host_key_exclusion.py.
+  - "/etc/ssh/ssh_host_*"
 
 # Postgres superuser for pg_dumpall. catena-postgres uses the conventional
 # `postgres`. Override per-host if a client runs a bespoke setup. Auth
