@@ -3,7 +3,7 @@
   "extends": ["github>catenahq/renovate-config"],
   "packageRules": [
     {
-      "description": "Operator-stack base images pinned in role defaults. Bumps stay manual: a cloudflared/traefik/postgres/portainer/restic upgrade can break the platform out-of-band, so the operator reviews each one (the Trivy job still gates the PR on CVEs).",
+      "description": "Operator-stack base images pinned in role defaults. Bumps stay manual: a cloudflared/traefik/postgres/portainer/restic upgrade can break the platform out-of-band, so the operator reviews each one (the Trivy job still gates the PR on CVEs). NOT grouped: one PR per image, so a CVE in one pin (the path-filtered Trivy matrix scans only the bumped image) cannot hold the other pins' updates hostage -- a grouped PR bumping cloudflared+traefik went red on a cloudflared-only CVE and blocked the traefik bump with it.",
       "matchManagers": ["custom.regex"],
       "matchPackageNames": [
         "cloudflare/cloudflared",
@@ -12,7 +12,6 @@
         "portainer/portainer-ce",
         "restic/restic"
       ],
-      "groupName": "operator-stack pins",
       "automerge": false
     },
     {
