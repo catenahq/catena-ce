@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   scanctl:
-    uses: catenahq/scanctl/.github/workflows/github-reusable.yml@de42a8fd9ba8754294501b2f955348a0b6cee06b # main
+    uses: catenahq/scanctl/.github/workflows/github-reusable.yml@3d32c3a038ebc3edf8379419eb00d69423c101dd # main
     permissions:
       contents: read
       security-events: write
