@@ -129,6 +129,6 @@ Parsed from the committed workflow files; every job below runs on each change.
 | --- | --- | --- |
 | CI | `.github/workflows/ci.yml` | `installer`, `duplication` |
 | security | `.github/workflows/security.yml` | `scanctl` |
-| Trivy | `.github/workflows/trivy.yml` | `trivy-operator-stack-pins`, `trivyignore-expiry` |
+| Trivy | `.github/workflows/trivy.yml` | `resolve-matrix`, `trivy-operator-stack-pins`, `trivyignore-expiry`, `trivy-gate` |
 
 See [SPEC.md](SPEC.md) for what this repository promises and the machine-checked invariants behind each promise.
