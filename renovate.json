@@ -15,17 +15,21 @@
       "automerge": false
     },
     {
-      "description": "Infra app images pinned in role defaults (gatus, healthchecks, beszel hub+agent, recovery nginx, clamav). Manual review like the operator-stack pins; Trivy gates each PR.",
+      "description": "Infra app images pinned in role defaults (gatus, healthchecks, recovery nginx, clamav). Manual review like the operator-stack pins; Trivy gates each PR. NOT grouped: one PR per image, same rationale as the operator-stack pins -- one image's CVE must not hold the others' updates hostage.",
       "matchManagers": ["custom.regex"],
       "matchPackageNames": [
         "twinproduction/gatus",
         "healthchecks/healthchecks",
-        "henrygd/beszel",
-        "henrygd/beszel-agent",
         "nginx",
         "clamav/clamav"
       ],
-      "groupName": "infra app pins",
+      "automerge": false
+    },
+    {
+      "description": "Beszel hub + agent stay ONE PR: the agent pin is kept in lockstep with the hub (same upstream release), so splitting them would merge a hub bump without its matching agent.",
+      "matchManagers": ["custom.regex"],
+      "matchPackageNames": ["henrygd/beszel", "henrygd/beszel-agent"],
+      "groupName": "beszel hub+agent",
       "automerge": false
     },
     {
@@ -33,7 +37,6 @@
       "matchManagers": ["custom.regex"],
       "matchPackageNames": ["quay.io/phasetwo/phasetwo-keycloak"],
       "allowedVersions": "/^\\d+\\.\\d+\\.\\d+$/",
-      "groupName": "infra app pins",
       "automerge": false
     }
   ],
