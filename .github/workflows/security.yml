@@ -19,7 +19,11 @@ permissions:
 
 jobs:
   scanctl:
-    uses: catenahq/scanctl/.github/workflows/github-reusable.yml@3d32c3a038ebc3edf8379419eb00d69423c101dd # main
+    # @main on purpose: first-party reusable workflow, auto-updating, gated
+    # by the ruleset on catenahq/scanctl itself (zizmor's bundled policy
+    # allows catenahq/* ref-pins; renovate-config stops Renovate re-pinning
+    # it to a SHA, which froze callers at stale scanctl versions).
+    uses: catenahq/scanctl/.github/workflows/github-reusable.yml@main
     permissions:
       contents: read
       security-events: write
