@@ -27,34 +27,59 @@ jobs:
   # The catena-admin image job moved to the private catena-admin repo at the
   # unification (the Dockerfile + publish workflow live beside the shell now).
 
-  # Image-CVE scan for the two operator-stack base images we pin by role
-  # default (cloudflared + traefik). Renovate's docker manager does not see
+  # On pull_request, scan ONLY the images whose pin file the PR touches: a new
+  # CVE in an unrelated third-party image must not block an unrelated bump PR
+  # (push + weekly cron still sweep the full matrix, so those CVEs keep
+  # surfacing on the default branch for their own fix). An empty include list
+  # skips the scan job entirely; trivy-gate reports success for the PR.
+  resolve-matrix:
+    name: Resolve scan matrix
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.pick.outputs.include }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0 # need origin/<base> for the changed-file diff
+          persist-credentials: false
+      - id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          cat > matrix.json <<'EOF'
+          [
+            {"name": "cloudflared", "pin_file": "ansible/roles/cloudflare_tunnel/defaults/main.yml", "pin_key": "cloudflared_image_tag", "image_repo": "cloudflare/cloudflared"},
+            {"name": "traefik", "pin_file": "ansible/roles/traefik/defaults/main.yml", "pin_key": "traefik_image_tag", "image_repo": "traefik"},
+            {"name": "postgres", "pin_file": "ansible/roles/postgres/defaults/main.yml", "pin_key": "catena_postgres_image_tag", "image_repo": "postgres"},
+            {"name": "portainer", "pin_file": "ansible/roles/portainer/defaults/main.yml", "pin_key": "portainer_image_tag", "image_repo": "portainer/portainer-ce"}
+          ]
+          EOF
+          if [ "$EVENT" = "pull_request" ]; then
+            changed=$(git diff --name-only "origin/$BASE_REF"...HEAD)
+            include=$(jq -c --arg changed "$changed" \
+              '[.[] | select(.pin_file as $p | $changed | split("\n") | index($p))]' matrix.json)
+          else
+            include=$(jq -c . matrix.json)
+          fi
+          echo "include=$include" >> "$GITHUB_OUTPUT"
+          echo "scanning: $(echo "$include" | jq -r 'map(.name) | join(", ")')"
+
+  # Image-CVE scan for the operator-stack base images we pin by role
+  # default. Renovate's docker manager does not see
   # these because they live as plain YAML values, not in a Dockerfile or
   # docker-compose. The customManagers open the BUMP PRs; this job catches the
   # CVE BEFORE merging a PR that pins a vulnerable tag.
   trivy-operator-stack-pins:
     name: Trivy image (operator-stack pins)
     runs-on: ubuntu-latest
+    needs: resolve-matrix
+    if: needs.resolve-matrix.outputs.include != '[]'
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: cloudflared
-            pin_file: ansible/roles/cloudflare_tunnel/defaults/main.yml
-            pin_key: cloudflared_image_tag
-            image_repo: cloudflare/cloudflared
-          - name: traefik
-            pin_file: ansible/roles/traefik/defaults/main.yml
-            pin_key: traefik_image_tag
-            image_repo: traefik
-          - name: postgres
-            pin_file: ansible/roles/postgres/defaults/main.yml
-            pin_key: catena_postgres_image_tag
-            image_repo: postgres
-          - name: portainer
-            pin_file: ansible/roles/portainer/defaults/main.yml
-            pin_key: portainer_image_tag
-            image_repo: portainer/portainer-ce
+        include: ${{ fromJSON(needs.resolve-matrix.outputs.include) }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
@@ -115,3 +140,25 @@ jobs:
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
       - name: Warn on suppressions nearing expiry (fail on already-expired)
         run: uv run .github/scripts/check_trivyignore_expiry.py
+
+  # Single stable check for branch rulesets: succeeds when every needed job
+  # succeeded or was legitimately skipped (PR touching no pin file), fails on
+  # any failure/cancellation. Required-check lists reference THIS name so a
+  # path-dependent matrix never leaves a ruleset waiting on a check that will
+  # never report.
+  trivy-gate:
+    name: trivy-gate
+    runs-on: ubuntu-latest
+    needs: [resolve-matrix, trivy-operator-stack-pins, trivyignore-expiry]
+    if: always()
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for r in $RESULTS; do
+            case "$r" in
+              success|skipped) ;;
+              *) echo "::error::a needed job reported $r"; exit 1 ;;
+            esac
+          done
+          echo "all needed jobs green"
