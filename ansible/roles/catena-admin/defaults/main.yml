@@ -196,6 +196,32 @@ catena_admin_ce_reserved_actions:
   - name: catena-restic-rotate
     shell: >-
       echo "$PAYLOAD" | base64 -d | {{ catena_admin_restic_key_path }}
+  # State register (COMMUNITY). The Apps tab records client intent here when
+  # someone stops or starts an application, so a later restore knows not to
+  # bring back something that was deliberately switched off. Portainer's own
+  # status only covers intent up to the last backup; the register covers the
+  # window after it, and it lives under /etc so it rides the snapshot.
+  # PAYLOAD is base64(JSON {stack,desired,reason}) rendered server-side.
+  - name: catena-register-set
+    shell: >-
+      echo "$PAYLOAD" | base64 -d |
+      {{ catena_recovery_bin }} register set-stdin
+  - name: catena-register-get
+    shell: "{{ catena_recovery_bin }} register get"
+  # Quiesce (COMMUNITY -- the mechanism ships everywhere; only the migration
+  # panel that drives it is licensed). pause freezes the application tier
+  # before a snapshot; stop takes the host out of service; resume undoes
+  # exactly what those two did and nothing else. Every one records what to
+  # undo before it mutates, which is what makes an aborted migration
+  # recoverable.
+  - name: catena-quiesce-pause
+    shell: "{{ catena_recovery_bin }} quiesce pause"
+  - name: catena-quiesce-stop
+    shell: "{{ catena_recovery_bin }} quiesce stop"
+  - name: catena-quiesce-resume
+    shell: "{{ catena_recovery_bin }} quiesce resume"
+  - name: catena-quiesce-status
+    shell: "{{ catena_recovery_bin }} quiesce status"
 
 # Cloudflare tunnel reserved actions (COMMUNITY -- the tunnel is a CE feature).
 # The Settings panel dispatches these when the client saves a Cloudflare token:
