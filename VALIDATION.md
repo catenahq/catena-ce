@@ -11,7 +11,7 @@ This sheet is **generated, not written**: it is rendered from the same machine-c
 
 Catena is exercised end-to-end by an automated rehearsal suite: each scenario provisions disposable virtual machines, drives the real product (install, converge, back up, break, restore) and asserts the outcome -- including deliberate failure injection. The counts below are those rehearsals.
 
-**Coverage: 10 Community features exercised by 89 rehearsal scenarios; 13 Catena Pro features by 41; plus 24 maintainer-internal rehearsals.**
+**Coverage: 10 Community features exercised by 91 rehearsal scenarios; 12 Catena Pro features by 40; plus 24 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -21,7 +21,7 @@ A scheduled weekly backup plus manual backups any time. Backups are encrypted on
 
 Implemented in: `ansible/playbooks/backup_now.yml`, `ansible/playbooks/filter_plugins/backup_tier.py`, `ansible/roles/backup`, `ansible/scripts/backup-coverage.sh`, `ansible/scripts/catena-restic-key.py`, `ansible/scripts/restic-env.sh`, `ansible/scripts/restic-mount.sh`, `ansible/scripts/restic-short-id.sh`, `ansible/scripts/restic-unmount.sh`, `ansible/scripts/run-backup.sh`, `ansible/scripts/snapshot-export.sh`, `ansible/scripts/snapshot-list.sh`
 
-Rehearsal scenarios (13): `backup_rollback`, `backup_tier_schedule_resolution`, `concurrent_backup_lock_contention`, `fi_b2_pg_dump_failed`, `fi_b3_snapshot_id_mismatch`, `fi_b4_locked_pack_rotation`, `fi_b5_s3_quota_exhausted`, `fi_b6_healthchecks_down`, `fi_b7_ntfy_delivery_fails`, `malformed_catalog_rejection`, `restic_password_rotation_round_trip`, `s3_reconcile_orphan_cleanup`, `snapshot_export_round_trip`
+Rehearsal scenarios (12): `backup_rollback`, `backup_tier_schedule_resolution`, `concurrent_backup_lock_contention`, `fi_b2_pg_dump_failed`, `fi_b3_snapshot_id_mismatch`, `fi_b4_locked_pack_rotation`, `fi_b5_s3_quota_exhausted`, `fi_b6_healthchecks_down`, `fi_b7_ntfy_delivery_fails`, `malformed_catalog_rejection`, `restic_password_rotation_round_trip`, `snapshot_export_round_trip`
 
 ### Single sign-on across the suite
 
@@ -73,19 +73,19 @@ Rehearsal scenarios (17): `ce_install_headscale`, `ce_install_tailnet`, `cf_acti
 
 ### Disaster recovery and restore
 
-A whole server can be rebuilt from nothing but the backup endpoint and its key, and a live server can be restored in place. Both paths are rehearsed continuously, including across operating-system and database major versions.
+A whole server can be rebuilt from nothing but the backup endpoint and its key, and a live server can be restored in place. Databases and applications come back as one coordinated operation, consistent with each other rather than each from its own moment in time. Both paths are rehearsed continuously, including across operating-system and database major versions.
 
 Implemented in: `ansible/playbooks/restore.yml`
 
-Rehearsal scenarios (16): `ce_restore`, `debian_major_upgrade_restore`, `fi_d2_pg_dumpall_replay_constraint`, `fi_d3_postgres_oom_mid_restore`, `fi_d4_disk_full_mid_snapshot`, `fi_d5_disk_full_mid_converge`, `fi_d6_volume_uid_drift`, `fi_d7_restic_corrupt_pack`, `hot_restore_round_trip`, `nc_s3_hot_recovery`, `nc_sync_wipe_restore`, `pg_major_version_cross_restore`, `pitr_fuse_round_trip`, `recover_secrets_from_running_host`, `recovery_landing_page_bilingual_parity`, `restore_dr`
+Rehearsal scenarios (18): `audit_db_torn_write_recovery`, `ce_restore`, `debian_major_upgrade_restore`, `fi_d2_pg_dumpall_replay_constraint`, `fi_d3_postgres_oom_mid_restore`, `fi_d4_disk_full_mid_snapshot`, `fi_d5_disk_full_mid_converge`, `fi_d6_volume_uid_drift`, `fi_d7_restic_corrupt_pack`, `hot_restore_round_trip`, `nc_s3_hot_recovery`, `nc_sync_wipe_restore`, `pg_major_version_cross_restore`, `pitr_fuse_round_trip`, `recover_secrets_from_running_host`, `recovery_landing_page_bilingual_parity`, `restore_dr`, `s3_reconcile_orphan_cleanup`
 
 ### No lock-in, ever
 
 Delete the admin panel and everything you own keeps working: backups run, restores work, and every application stays online, using only standard tools and the settings stored on your own server. Leaving costs you convenience, never your data.
 
-Implemented in: `ansible/roles/backup`, `ansible/scripts/run-backup.sh`
+Implemented in: `ansible/roles/backup`, `ansible/scripts/run-backup.sh`, `ansible/scripts/snapshot-export.sh`, `ansible/scripts/snapshot-list.sh`
 
-Rehearsal scenarios (1): `sovereign_exit`
+Rehearsal scenarios (2): `recovery_readme_manual_restore`, `sovereign_exit`
 
 ### Automated health and exposure checks
 
@@ -113,7 +113,6 @@ Catena Pro features are exercised by the same rehearsal suite. Implementation pa
 | External availability monitoring | 1 |
 | Multiple domains, each with its own private sign-on | 1 |
 | Per-user mail and file archiving | 3 |
-| Coordinated multi-application restore | 1 |
 
 Note: features marked *see note* are maintainer-run procedures; their rehearsals are counted under maintainer-internal tooling below.
 
