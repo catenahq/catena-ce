@@ -97,6 +97,20 @@ echo "    tar -tzf <file> | head    # list"
 echo "    tar -xzf <file>           # extract"
 echo ")."
 echo
+# Sovereign-exit: the tarball IS the snapshot root, so it already carries the
+# version stamp and the manual-rebuild instructions. Say so explicitly here --
+# a downloaded tarball with no pointer looks like an opaque blob, which is the
+# opposite of the guarantee.
+echo "This tarball is self-describing. Inside it:"
+echo "    ./etc/catena/version.txt              which software version built this server"
+echo "    ./etc/catena/RECOVERY-README.en.md    how to rebuild by hand (English)"
+echo "    ./etc/catena/RECOVERY-README.fr.md    how to rebuild by hand (French)"
+if [ -r /etc/catena/version.txt ]; then
+    echo
+    echo "Version on this server right now:"
+    sed 's/^/    /' /etc/catena/version.txt
+fi
+echo
 echo "Keeping last $KEEP_LAST export(s) under $EXPORT_DIR; older ones removed."
 
 # F6: re-render recovery.<zone>'s landing page so the new tarball

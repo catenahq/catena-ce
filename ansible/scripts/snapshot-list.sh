@@ -44,14 +44,19 @@ restic snapshots --json > "${SNAPSHOTS_FILE}" 2>/dev/null || echo '[]' > "${SNAP
 
 GENERATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 ZONE="${CLOUDFLARE_ZONE:-YOUR-DOMAIN}"
+# Sovereign-exit: the page must tell the reader which version built this
+# server, because rebuilding onto a NEWER version can meet a database format
+# the snapshot predates. Same file rides every snapshot, so the page and any
+# snapshot agree. Missing file degrades to a placeholder; never fatal.
+VERSION_STAMP="$(cat /etc/catena/version.txt 2>/dev/null || echo 'unknown')"
 
-python3 - "${INDEX_HTML}" "${BACKUP_EXPORT_DIR}" "${GENERATED_AT}" "${ZONE}" "${SNAPSHOTS_FILE}" <<'PY'
+python3 - "${INDEX_HTML}" "${BACKUP_EXPORT_DIR}" "${GENERATED_AT}" "${ZONE}" "${SNAPSHOTS_FILE}" "${VERSION_STAMP}" <<'PY'
 import json
 import os
 import sys
 from html import escape
 
-index_html, export_dir, generated_at, zone, snapshots_file = sys.argv[1:6]
+index_html, export_dir, generated_at, zone, snapshots_file, version_stamp = sys.argv[1:7]
 
 with open(snapshots_file, "r", encoding="utf-8") as fh:
     try:
@@ -145,8 +150,8 @@ forget+prune. The list below reflects the live state of the restic repository.</
 <h2>Restic snapshots in repository</h2>
 <p>These are the recovery points currently retained. Older snapshots are pruned
 by the retention policy (<code>BACKUP_KEEP_DAILY</code> /
-<code>BACKUP_KEEP_WEEKLY</code> / <code>BACKUP_KEEP_MONTHLY</code> in the operator
-configuration).</p>
+<code>BACKUP_KEEP_WEEKLY</code> / <code>BACKUP_KEEP_MONTHLY</code> in this
+server's backup configuration).</p>
 <table>
   <thead><tr><th>Snapshot</th><th>Time</th><th>Host</th><th>Paths</th><th>Tags</th></tr></thead>
   <tbody>
@@ -167,9 +172,25 @@ written by the &ldquo;Export latest snapshot&rdquo; action. Click to download.</
 <div class="note">
 <strong>Need a download for a specific snapshot?</strong> Open
 <a href="https://actions.{escape(zone)}/">your actions dashboard</a> and run
-<em>Export latest snapshot</em>. To export a non-latest snapshot, ask your
-operator (the export action accepts a snapshot ID via the runbook).
+<em>Export latest snapshot</em>. To export a non-latest snapshot, get in touch
+with us.
 </div>
+
+<h2>Rebuilding this server</h2>
+<p>This server was built with the software version below. Every snapshot above
+carries the same stamp, so you can always tell which version a given recovery
+point expects.</p>
+<pre><code>{escape(version_stamp.strip())}</code></pre>
+<p>Read it straight out of any snapshot, without restoring anything:</p>
+<pre><code>restic dump latest /etc/catena/version.txt</code></pre>
+<p>If you are rebuilding a whole server rather than recovering a file, install
+that same version first: a newer one may expect a newer database format than
+your snapshot contains.</p>
+<p>Every snapshot also carries step-by-step instructions for rebuilding by hand
+with nothing but <code>restic</code>, <code>docker</code> and <code>psql</code>.
+Read them the same way:</p>
+<pre><code>restic dump latest /etc/catena/RECOVERY-README.en.md
+restic dump latest /etc/catena/RECOVERY-README.fr.md</code></pre>
 
 </body>
 </html>

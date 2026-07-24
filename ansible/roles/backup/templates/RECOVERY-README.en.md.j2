@@ -1,0 +1,99 @@
+# Rebuilding your server from a backup
+
+This file is part of every backup snapshot. If you are reading it after
+extracting a snapshot, everything described below is already in your
+hands.
+
+You do not need our software, our tools, or our help to get your data
+back. You need three ordinary programs: `restic` (reads the backup),
+`docker` (runs the applications), and `psql` (loads the databases).
+
+## 1. What is in the snapshot
+
+| What | Where in the snapshot |
+| --- | --- |
+| Application data (files, uploads, mailboxes) | `{{ storage_mount_point }}/docker/volumes/<name>/_data/` |
+| Application definitions (the compose file for each app) | `{{ storage_mount_point }}/docker/volumes/{{ portainer_data_volume | default('catena-portainer-data') }}/_data/compose/<id>/` |
+| Database exports (one file per database, plain SQL) | `{{ storage_mount_point }}/backup-staging/pg/*.sql.gz` |
+| Files stored outside a volume | `{{ storage_mount_point }}/apps/` |
+| Your settings and passwords | `/etc/catena/config.json` |
+| The software version this server ran | `/etc/catena/version.txt` |
+
+Everything is ordinary files and directories. Nothing is in a proprietary
+format, and nothing requires our software to open.
+
+## 2. What is deliberately NOT in the snapshot, and why
+
+- **Application images.** These are downloaded fresh from their public
+  sources. Storing them would multiply the size of every backup for no
+  benefit, since the exact versions are recorded in each compose file.
+- **Monitoring and antivirus history** (Gatus, Healthchecks, Beszel,
+  ClamAV signatures). These rebuild themselves within minutes and change
+  constantly, which would inflate every backup.
+- **The server's own SSH identity keys.** A rebuilt server generates its
+  own. Carrying the old ones forward would be a security problem, not a
+  convenience.
+
+## 3. Read the software version first
+
+```
+restic dump latest /etc/catena/version.txt
+```
+
+The first line is the exact version of the installation software that
+built this server. If you are rebuilding a full server rather than a
+single application, install that same version before restoring. Later
+versions may expect a newer database format than your backup contains.
+
+## 4. Restore one application by hand
+
+Extract just what that application needs:
+
+```
+restic restore latest --target /recovered \
+    --include '{{ storage_mount_point }}/docker/volumes/<volume-name>' \
+    --include '{{ storage_mount_point }}/docker/volumes/{{ portainer_data_volume | default('catena-portainer-data') }}/_data/compose'
+```
+
+Find the application's definition under the extracted `compose/`
+directory. Each subdirectory holds one application's compose file, and
+its settings alongside.
+
+Copy the data into place and start it:
+
+```
+docker volume create <volume-name>
+cp -a /recovered{{ storage_mount_point }}/docker/volumes/<volume-name>/_data/. \
+      /var/lib/docker/volumes/<volume-name>/_data/
+docker compose -f /recovered/.../docker-compose.yml up -d
+```
+
+The compose file names the exact image version that was running, so the
+application comes back at the version its data expects.
+
+## 5. Reload a database
+
+Database exports are plain SQL, readable and loadable without any of our
+software:
+
+```
+zcat <name>-<date>.sql.gz | psql -U postgres
+```
+
+They were written with instructions to replace what is already there, so
+loading one into an empty database is safe. Use these only if the
+application's own data directory did not survive; loading an export over
+newer data will overwrite it.
+
+## 6. Rebuilding the whole server
+
+Install the version recorded in step 3 on a fresh machine, then use its
+recovery process with your backup location and password. You only ever
+need those two things: where the backup lives, and the password that
+opens it. Keep both somewhere separate from the server itself.
+
+## If you get stuck
+
+Your data is not locked behind anything. If a step above does not work,
+the files are still plain files, and someone comfortable with Docker and
+PostgreSQL can work from them directly.

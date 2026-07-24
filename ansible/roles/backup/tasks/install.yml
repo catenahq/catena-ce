@@ -317,6 +317,24 @@
     group: root
     mode: "0750"
 
+# Sovereign-exit: the snapshot must carry its own instructions. /etc is in
+# backup_paths, so both files ride every snapshot and are readable straight
+# out of it (`restic dump latest /etc/catena/RECOVERY-README.en.md`) without
+# restoring anything. Bilingual because every client-facing surface is.
+# Content is deliberately tool-agnostic: restic + docker + psql only, no
+# catena command anywhere, so a client is never dependent on us to get their
+# data back.
+- name: "Sovereign-exit: drop the manual-rebuild README (EN + FR)"
+  ansible.builtin.template:
+    src: "RECOVERY-README.{{ item }}.md.j2"
+    dest: "/etc/catena/RECOVERY-README.{{ item }}.md"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - en
+    - fr
+
 - name: Drop systemd service unit
   ansible.builtin.template:
     src: catena-backup.service.j2
