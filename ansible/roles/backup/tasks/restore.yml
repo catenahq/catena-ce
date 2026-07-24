@@ -9,17 +9,15 @@
 #      underneath live containers. site.yml (which follows restore in
 #      the rollback flow) starts docker back up and swarm reconciles.
 #
-# pg_replay (roles/backup/tasks/pg_replay.yml) is a separate mode that
-# replays pg_dumpall into running per-app postgres containers. It runs
-# LATER in the same converge, driven by post_restore_redeploy.yml
-# (scope=clients) once the app stacks redeploy. catena-postgres itself
-# is restored raw, so it is not part of this replay.
-#
 # Contract with site.yml: on success, drop
-# /var/lib/catena/post-restore.needed as a marker. The marker triggers
-# the site.yml post_tasks include of post_restore_redeploy.yml, which
-# redeploys the app stacks via the Portainer API and then replays their
-# pg dumps (scope=clients). site.yml clears the marker afterwards.
+# /var/lib/catena/post-restore.needed as a marker. site.yml's post_tasks
+# run `catena-recovery post-restore` on that marker, which redeploys the
+# app stacks through the Portainer API, replays their pg dumps into the
+# now-running per-app postgres containers (scope=clients), and checks
+# stored files against the restored databases. The binary clears the
+# marker itself, and only on success, so an interrupted recovery is
+# retried by the next converge. catena-postgres is restored raw and is
+# not part of that replay.
 
 # ─── Minimal prereqs for restore on a fresh VPS ─────────────────────────
 # A disaster-recovery restore runs on a host where install.yml has never
@@ -305,9 +303,9 @@
 # so deleting the raft is what forces the clean overlay rebuild. The
 # per-stack COMPOSE BRIDGES (nextcloud_default, keycloak_default,
 # catena-clamav, ...) are LOCAL-scoped and live in docker/network's
-# local-kv.db -- deleting that dir wiped every app's bridge, and CE does
-# NOT redeploy template-app stacks on a converge (that coupling is EE
-# post_restore_redeploy.yml), so their bridges never came back and every
+# local-kv.db -- deleting that dir wiped every app's bridge, and a
+# converge only redeploys template-app stacks when a recovery is pending
+# (the marker below), so their bridges never came back and every
 # template app (Nextcloud, mailserver, ...) stayed Exited(128) "network
 # <id> not found" after any CE rollback. Keeping docker/network lets those
 # containers restart on their unless-stopped policy against their surviving

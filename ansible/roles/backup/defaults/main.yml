@@ -215,9 +215,9 @@ backup_retention_policy: "{{ backup_tier | backup_tier_retention }}"
 #   - Client postgres containers (app stacks) are restored RAW:
 #     their named volumes are in the restic set and replay back
 #     deterministically. pg_dumpall captures them too, and
-#     post_restore_redeploy.yml logically replays them (scope=clients)
-#     after the stacks redeploy -- belt-and-suspenders against a
-#     volume that doesn't survive the compose recreate.
+#     `catena-recovery post-restore` logically replays them
+#     (scope=clients) after the stacks redeploy -- belt-and-suspenders
+#     against a volume that doesn't survive the compose recreate.
 #
 # pg_dumpall failures are fatal (run-backup.sh exits non-zero) so a
 # silent dump gap can't lead to silent data loss.

@@ -117,7 +117,8 @@
       fi
       # 3. must have at least one user-db section (not just postgres/template1).
       # Regex accepts backslash-escaped quotes in the DB name; same
-      # extraction logic as pg_replay.yml so the two stay in lockstep.
+      # extraction the replay does (catena-recovery post-restore), so a
+      # dump this accepts is a dump the replay can read.
       user_dbs=$(zcat "$f" \
           | grep -E '^-- Database "([^"\\]|\\.)+" dump$' \
           | sed -E 's/^-- Database "(([^"\\]|\\.)+)" dump$/\1/' \

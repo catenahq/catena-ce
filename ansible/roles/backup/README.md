@@ -18,9 +18,8 @@ provides one-shot tasks for verification, restore, and reconciliation.
 - `restore.yml` -- full filesystem restore from a chosen snapshot.
   catena-postgres is restored raw (its vault-derived password makes a
   byte-for-byte restore correct); per-app DBs are restored raw and then
-  reconciled by a fresh `pg_dumpall` replay (scope=clients).
-- `s3_reconcile.yml` -- list the bucket via the S3 API and prune
-  snapshots not in the restic index (orphan cleanup).
+  reconciled by a fresh `pg_dumpall` replay (scope=clients), which is
+  the `catena-recovery` host binary, not a mode of this role.
 - `ensure_restic.yml` -- apt-install + binary version pin only.
 
 ## Inputs
@@ -40,8 +39,9 @@ provides one-shot tasks for verification, restore, and reconciliation.
 
 - All file/systemd resources converge.
 - restic init is a no-op against an existing repo.
-- pg_replay only fires on the post-restore marker file; cleared
-  after a successful pass.
+- The post-restore reconciliation only fires on the marker file
+  `restore.yml` drops; `catena-recovery post-restore` clears it after a
+  successful pass, so an interrupted recovery is retried.
 
 ## Related
 

@@ -13,8 +13,8 @@ The wipe targets ONLY docker/swarm, NOT docker/network. catena-network
 is an OVERLAY (definition + IPAM in the raft), so wiping the raft is
 what rebuilds it clean. The per-stack compose BRIDGES are LOCAL-scoped
 (docker/network's local-kv.db); wiping that dir destroyed every app's
-bridge and CE does not redeploy template-app stacks on a converge
-(EE post_restore_redeploy owns that), so Nextcloud/mailserver/... stayed
+bridge and a converge only redeploys template-app stacks when a recovery
+is pending, so Nextcloud/mailserver/... stayed
 Exited(128) "network not found" after every CE rollback. Keeping
 docker/network lets those containers restart on their surviving bridge.
 

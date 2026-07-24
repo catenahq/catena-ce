@@ -37,8 +37,8 @@
 
 # catena-postgres ships POSTGRES_USER=postgres (roles/postgres sets it).
 # Detect the live superuser from the container env anyway so this role
-# survives any future default-user change. Mirrors the pattern used in
-# roles/backup/tasks/pg_replay.yml.
+# survives any future default-user change. Same probe the restore
+# engine does per container (catena-recovery post-restore).
 - name: "Keycloak DB: detect POSTGRES_USER from catena-postgres env"
   ansible.builtin.shell: >-
     docker exec {{ _kc_pg_container.stdout | quote }}

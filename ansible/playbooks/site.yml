@@ -224,6 +224,56 @@
       changed_when: false
       tags: [public_ports]
 
+    # Post-restore reconciliation. A filesystem restore brings back Portainer's
+    # own database and every data volume, but the applications stay down (image
+    # layers are deliberately not in the backup) and a per-app database may not
+    # survive its compose recreate. catena-recovery brings the applications that
+    # were running at snapshot time back up, restores their database contents in
+    # dependency order, and reports stored files the object store no longer
+    # returns.
+    #
+    # Marker-gated, and the marker is the whole safety property: it is dropped
+    # by roles/backup/tasks/restore.yml and cleared by the binary only on
+    # success, so an ordinary converge is a no-op and an interrupted recovery is
+    # retried by the next one. Running this on a healthy host would drop and
+    # reload every database from the last archives, so the binary itself also
+    # refuses without the marker unless forced.
+    #
+    # The binary is installed by roles/catena-admin earlier in this converge
+    # (unconditionally, on every edition) and reads the Portainer coordinates
+    # from the on-box 0600 file, so nothing sensitive appears here.
+    - name: "Post-restore: detect a pending recovery"
+      ansible.builtin.stat:
+        path: "{{ backup_stats_dir }}/post-restore.needed"
+      register: _site_post_restore_marker
+      tags: [post_restore]
+
+    - name: "Post-restore: bring applications and their data back"
+      ansible.builtin.command:
+        argv:
+          - "{{ catena_recovery_bin }}"
+          - post-restore
+          - -marker
+          - "{{ backup_stats_dir }}/post-restore.needed"
+          - -dump-dir
+          - "{{ storage_mount_point }}/backup-staging/pg"
+          - -scope
+          - clients
+      register: _site_post_restore
+      changed_when: true
+      when: _site_post_restore_marker.stat.exists | bool
+      tags: [post_restore]
+
+    # The binary logs every step to stderr. Surfacing it unconditionally (and
+    # not only on failure) is deliberate: a recovery that half-worked is the
+    # case where someone needs the detail most, and ansible would otherwise
+    # swallow it behind a green task.
+    - name: "Post-restore: recovery log"
+      ansible.builtin.debug:
+        var: _site_post_restore.stderr_lines
+      when: _site_post_restore is not skipped
+      tags: [post_restore]
+
     # Final lockdown. Must come AFTER tailscale + infrastructure are healthy,
     # otherwise we lock ourselves out.
     - name: Lock ufw to tailscale-only ingress
