@@ -115,6 +115,13 @@ catena_admin_ee_payload_bin_dir: "{{ catena_admin_ee_payload_dir }}/bin"
 # engine. Declared here rather than at the call site because this role owns
 # where the payload lands; site.yml's post-restore hook reads it.
 catena_recovery_bin: /usr/local/bin/catena-recovery
+# Where the restore machine persists progress. Under /var/lib/catena, NOT
+# /etc: this is transient run state, and /etc is in the backup set -- a
+# snapshot taken mid-restore would otherwise carry a half-finished restore's
+# state into the next host that restored it. The panel reads both through the
+# status action.
+catena_recovery_state_file: /var/lib/catena/recovery.state
+catena_recovery_history_file: /var/lib/catena/recovery.history
 
 # EE-reserved HOST dispatch entries. The Go shell renders Business action
 # BUTTONS at runtime from its compiled-in panels (audit, daily, ...) only
@@ -222,6 +229,35 @@ catena_admin_ce_reserved_actions:
     shell: "{{ catena_recovery_bin }} quiesce resume"
   - name: catena-quiesce-status
     shell: "{{ catena_recovery_bin }} quiesce status"
+  # Data-scoped restore (COMMUNITY). Three actions, deliberately separate:
+  # one that starts a restore, one that reports on it, and one that clears a
+  # halted run. Folding the clear into the report would make a page refresh
+  # destroy the state it was refreshing.
+  #
+  # The run goes through systemd-run rather than running inline, because the
+  # dispatcher's SSH session is a child of the admin container's connection.
+  # The restore does not stop the panel -- that is the whole design -- but a
+  # panel that restarts for any other reason mid-restore would otherwise take
+  # the restore down with it. --collect reaps the unit on exit so a second
+  # attempt is not blocked by the first one's corpse, and --pipe hands the
+  # request through on stdin so no part of it travels in argv.
+  #
+  # The request is {"snapshot","preseed"} as JSON. The wizard follows progress
+  # by polling the status action, not by holding this connection open.
+  - name: catena-restore-run
+    shell: >-
+      echo "$PAYLOAD" | base64 -d |
+      systemd-run --unit catena-recovery-restore --collect --pipe
+      {{ catena_recovery_bin }} restore -stdin
+  - name: catena-restore-status
+    shell: >-
+      printf 'state=%s\n'
+      "$(cat {{ catena_recovery_state_file }} 2>/dev/null || echo idle)";
+      printf 'unit=%s\n'
+      "$(systemctl is-active catena-recovery-restore.service 2>/dev/null || true)";
+      tail -n 40 {{ catena_recovery_history_file }} 2>/dev/null || true
+  - name: catena-restore-reset
+    shell: "{{ catena_recovery_bin }} restore -reset"
 
 # Cloudflare tunnel reserved actions (COMMUNITY -- the tunnel is a CE feature).
 # The Settings panel dispatches these when the client saves a Cloudflare token:

@@ -34,6 +34,11 @@ QUIESCE_ACTIONS = {
     "catena-quiesce-status",
 }
 REGISTER_ACTIONS = {"catena-register-set", "catena-register-get"}
+RESTORE_ACTIONS = {
+    "catena-restore-run",
+    "catena-restore-status",
+    "catena-restore-reset",
+}
 
 
 def _defaults() -> dict:
@@ -48,9 +53,10 @@ def test_actions_are_community_not_business():
     ce = set(_ce_actions())
     assert QUIESCE_ACTIONS <= ce
     assert REGISTER_ACTIONS <= ce
+    assert RESTORE_ACTIONS <= ce
 
     ee = {a["name"] for a in _defaults()["catena_admin_ee_reserved_actions"]}
-    assert not (QUIESCE_ACTIONS | REGISTER_ACTIONS) & ee, (
+    assert not (QUIESCE_ACTIONS | REGISTER_ACTIONS | RESTORE_ACTIONS) & ee, (
         "the mechanism ships on every edition; only the migration panel "
         "that drives it is licensed"
     )
@@ -58,8 +64,50 @@ def test_actions_are_community_not_business():
 
 def test_every_action_targets_the_recovery_binary():
     ce = _ce_actions()
-    for name in QUIESCE_ACTIONS | REGISTER_ACTIONS:
+    for name in QUIESCE_ACTIONS | REGISTER_ACTIONS | {
+        "catena-restore-run", "catena-restore-reset",
+    }:
         assert "{{ catena_recovery_bin }}" in ce[name], name
+
+
+def test_restore_runs_detached_from_the_dispatching_session():
+    # The dispatcher's SSH session is a child of the admin container's
+    # connection. The restore deliberately does not stop the panel, but a
+    # panel restart for any other reason would otherwise kill the restore.
+    shell = _ce_actions()["catena-restore-run"]
+    assert "systemd-run" in shell
+    assert "--unit catena-recovery-restore" in shell
+    assert "--collect" in shell, (
+        "without --collect a finished unit blocks the next attempt"
+    )
+
+
+def test_restore_request_travels_on_stdin_not_in_argv():
+    shell = _ce_actions()["catena-restore-run"]
+    assert "$PAYLOAD" in shell and "base64 -d" in shell
+    assert "--pipe" in shell, "systemd-run needs --pipe to forward stdin"
+    assert "restore -stdin" in shell
+
+
+def test_status_does_not_clear_what_it_reports():
+    # A page refresh must not destroy the state it is refreshing.
+    shell = _ce_actions()["catena-restore-status"]
+    assert "-reset" not in shell
+    assert "{{ catena_recovery_state_file }}" in shell
+    assert "{{ catena_recovery_history_file }}" in shell
+
+
+def test_reset_is_its_own_deliberate_action():
+    assert _ce_actions()["catena-restore-reset"].strip().endswith("restore -reset")
+
+
+def test_run_state_lives_outside_the_backup_set():
+    # /etc rides every snapshot. A restore's progress file there would travel
+    # into the next host that restored that snapshot, which would then think a
+    # restore was already in flight.
+    d = _defaults()
+    for key in ("catena_recovery_state_file", "catena_recovery_history_file"):
+        assert d[key].startswith("/var/lib/catena/"), d[key]
 
 
 def test_quiesce_actions_take_no_argument():
