@@ -242,22 +242,47 @@ catena_admin_ce_reserved_actions:
   # attempt is not blocked by the first one's corpse, and --pipe hands the
   # request through on stdin so no part of it travels in argv.
   #
-  # The request is {"snapshot","preseed"} as JSON. The wizard follows progress
-  # by polling the status action, not by holding this connection open.
+  # The request is {"snapshot","preseed","foreign"} as JSON. Note what it does
+  # NOT carry: a path. Which repository to read is a BOOLEAN selecting one fixed
+  # file, because a path would let the panel have an arbitrary file on this box
+  # loaded as the environment of a root process.
   - name: catena-restore-run
     shell: >-
       echo "$PAYLOAD" | base64 -d |
       systemd-run --unit catena-recovery-restore --collect --pipe
       {{ catena_recovery_bin }} restore -stdin
+  # Read-only progress. The restore page reads the same two files directly
+  # through its read-only mount of {{ catena_recovery_state_file | dirname }},
+  # so this is the hand-run and bench view, not the panel's polling path -- a
+  # restore runs for as long as the data takes, and an SSH round trip every few
+  # seconds for an hour is not how to watch it.
   - name: catena-restore-status
     shell: >-
       printf 'state=%s\n'
-      "$(cat {{ catena_recovery_state_file }} 2>/dev/null || echo idle)";
+      "$(head -n 1 {{ catena_recovery_state_file }} 2>/dev/null || echo idle)";
       printf 'unit=%s\n'
       "$(systemctl is-active catena-recovery-restore.service 2>/dev/null || true)";
       tail -n 40 {{ catena_recovery_history_file }} 2>/dev/null || true
   - name: catena-restore-reset
     shell: "{{ catena_recovery_bin }} restore -reset"
+  # The snapshot list the restore page's picker renders. Read-only, JSON on
+  # stdout. Two entries rather than one taking a flag from the panel: a
+  # reserved action is a FIXED command, and "which repository" is exactly the
+  # kind of thing that must not be caller-supplied.
+  - name: catena-restore-snapshots
+    shell: "{{ catena_recovery_bin }} snapshots"
+  - name: catena-restore-snapshots-foreign
+    shell: "{{ catena_recovery_bin }} snapshots -foreign"
+  # The keyset for ANOTHER server's backup repository, for a machine that is
+  # replacing one that is gone. PAYLOAD is base64(JSON
+  # {op,repository,password,env}); the host writes it 0600 under /run, which is
+  # tmpfs, so it does not survive a reboot. The engine allow-lists the variable
+  # names it will accept -- the file is loaded into a root process's
+  # environment, so an arbitrary name would be a way to set LD_PRELOAD for it.
+  - name: catena-restore-credentials
+    shell: >-
+      echo "$PAYLOAD" | base64 -d |
+      {{ catena_recovery_bin }} credentials -stdin
 
 # Cloudflare tunnel reserved actions (COMMUNITY -- the tunnel is a CE feature).
 # The Settings panel dispatches these when the client saves a Cloudflare token:

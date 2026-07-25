@@ -38,6 +38,9 @@ RESTORE_ACTIONS = {
     "catena-restore-run",
     "catena-restore-status",
     "catena-restore-reset",
+    "catena-restore-snapshots",
+    "catena-restore-snapshots-foreign",
+    "catena-restore-credentials",
 }
 
 
@@ -66,6 +69,8 @@ def test_every_action_targets_the_recovery_binary():
     ce = _ce_actions()
     for name in QUIESCE_ACTIONS | REGISTER_ACTIONS | {
         "catena-restore-run", "catena-restore-reset",
+        "catena-restore-snapshots", "catena-restore-snapshots-foreign",
+        "catena-restore-credentials",
     }:
         assert "{{ catena_recovery_bin }}" in ce[name], name
 
@@ -138,6 +143,45 @@ def test_register_get_is_read_only():
     shell = _ce_actions()["catena-register-get"]
     assert shell.strip().endswith("register get")
     assert "$" not in shell
+
+
+def test_which_repository_is_not_caller_supplied():
+    # A restore can read another server's repository. WHICH one is chosen by a
+    # boolean in the request selecting one fixed keyset file, and by a separate
+    # fixed action for the listing. A path from the panel would let it have an
+    # arbitrary file on this box loaded as the environment of a root process.
+    ce = _ce_actions()
+    assert ce["catena-restore-snapshots"].strip().endswith("snapshots")
+    assert ce["catena-restore-snapshots-foreign"].strip().endswith("snapshots -foreign")
+    for name in ("catena-restore-snapshots", "catena-restore-snapshots-foreign"):
+        assert "$" not in ce[name], (
+            f"{name} interpolates a value; a listing takes no per-call data"
+        )
+    for name, shell in ce.items():
+        if name.startswith("catena-restore"):
+            assert "-env-file" not in shell, (
+                f"{name} lets the caller name an env file"
+            )
+
+
+def test_credentials_travel_on_stdin_and_land_on_tmpfs():
+    shell = _ce_actions()["catena-restore-credentials"]
+    assert "$PAYLOAD" in shell and "base64 -d" in shell, (
+        "a repository password must not reach argv"
+    )
+    assert "credentials -stdin" in shell
+    # The default path is the engine's, not this file's: /run is tmpfs, so the
+    # keyset does not outlive the machine's uptime. Asserting it is NOT
+    # overridden here keeps that lifetime a property of the engine.
+    assert "-path" not in shell
+
+
+def test_status_reads_one_line_of_state():
+    # The engine records the snapshot on line 2 of the state file. Without the
+    # head, this action's state= line would carry an embedded newline and every
+    # parser of it would see a state that matches nothing.
+    shell = _ce_actions()["catena-restore-status"]
+    assert "head -n 1 {{ catena_recovery_state_file }}" in shell
 
 
 def test_recovery_binary_path_is_declared_once():
