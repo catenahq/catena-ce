@@ -214,6 +214,12 @@ EXTERNAL_SECRETS: frozenset[str] = frozenset({
     "vault_mailserver_spamhaus_dqs_key",
     "vault_nextcloud_s3_access_key",
     "vault_nextcloud_s3_secret_key",
+    # Business licence token. Client-held like any other external credential:
+    # the client is given it on purchase and pastes it into catena-admin >
+    # Settings, and the panel plus the host engines read it back from here. It
+    # is a signed claim rather than a shared secret, so this repo neither mints
+    # nor verifies it -- it only stores it.
+    "vault_catena_license",
 })
 
 

@@ -16,6 +16,21 @@
 keycloak_subdomain: "{{ lookup('dotenv', 'AUTH_SUBDOMAIN', default='auth') }}"
 keycloak_hostname: "{{ keycloak_subdomain }}.{{ cloudflare_zone }}"
 
+# --- Multi-domain routing (one auth.<zone> island per attached domain) ---
+# The served-domain projection the Cloudflare tunnel engine writes after a
+# successful converge. deploy.yml reads it to route the SECONDARY domains'
+# auth hosts; the primary comes from keycloak_hostname above. Any failure to
+# read or trust it routes the primary alone.
+keycloak_zone_projection_path: "/var/lib/catena/cloudflare-zones.json"
+# Shape version the engine stamps (payload/engines/cloudflared ProjectionSchema).
+# A mismatch is refused rather than mis-parsed.
+keycloak_zone_projection_schema: 1
+# How old a projection may be and still be routed on. The tunnel converges on
+# every site.yml run, so a stamp older than this means the engine has not run in
+# a long time and the list may name a domain the edge no longer serves --
+# routing to one of those sends users to a hostname that resolves nowhere.
+keycloak_zone_projection_max_age_hours: 48
+
 # --- Image pin ---
 # Phase Two distribution image. Repo:
 #   https://github.com/p2-inc/phasetwo-containers

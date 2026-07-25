@@ -23,6 +23,32 @@
 - name: "Keycloak: ensure the Portainer endpoint id is captured"
   ansible.builtin.include_tasks: ../../infrastructure/tasks/portainer_endpoint.yml
 
+# Multi-domain: which domains this host serves. Read from the projection the
+# tunnel engine writes after a SUCCESSFUL converge (roles/cloudflare_tunnel runs
+# before this role), rather than from a fact computed here -- so an
+# auth.<zone> route can never be written for a domain the edge is not serving.
+#
+# Every failure mode collapses to the same safe answer, primary-only: a missing
+# file (single-domain host, or a converge that has not reached the tunnel yet), a
+# malformed one, an unknown schema, or a stamp older than the staleness bound. A
+# host whose subscription lapsed publishes only its primary domain, so the routes
+# follow the entitlement without this repo knowing anything about licences.
+- name: "Keycloak: read the served-domain projection"
+  ansible.builtin.slurp:
+    src: "{{ keycloak_zone_projection_path }}"
+  register: _kc_zones_raw
+  become: true
+  failed_when: false
+
+- name: "Keycloak: resolve the secondary auth domains"
+  ansible.builtin.set_fact:
+    _kc_secondary_zones: >-
+      {{ (_kc_zones_raw.content | default('') | b64decode)
+         | catena_served_zones(
+             schema=keycloak_zone_projection_schema,
+             now=ansible_date_time.iso8601 | default(''),
+             max_age_hours=keycloak_zone_projection_max_age_hours) }}
+
 - name: "Keycloak: deploy via the Portainer stack API"
   ansible.builtin.include_tasks: ../../infrastructure/tasks/portainer_stack.yml
   vars:
@@ -35,8 +61,7 @@
     # primary is svc_domain_host above). Empty on single-domain -> the route
     # rule stays a single Host() (byte-identical).
     svc_domain_extra_hosts: >-
-      {{ (cloudflare_zones | default([]))[1:]
-         | map(attribute='zone')
+      {{ _kc_secondary_zones
          | map('regex_replace', '^', keycloak_subdomain ~ '.')
          | list }}
     svc_domain_service: "{{ keycloak_server_service }}"

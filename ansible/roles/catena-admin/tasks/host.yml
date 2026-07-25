@@ -16,8 +16,11 @@
 #   - CATENA_CF_CANDIDATE_TOKEN -- a candidate Cloudflare token the Settings
 #                                panel validates via cloudflared-check BEFORE
 #                                persist; piped to the engine on stdin.
-#   - CATENA_MULTIDOMAIN_ENABLED -- the Business multi-domain license flag the
-#                                shell forwards on the cloudflared-sync dispatch.
+# The list is deliberately short: every name here is a value the container can
+# push into a root-run host process, so it stays the minimum the dispatch needs.
+# CATENA_MULTIDOMAIN_ENABLED used to be on it; the tunnel engine now reads the
+# licence out of the on-box store itself, so the panel no longer tells the host
+# what it is entitled to.
 - name: "sshd: AcceptEnv for catena-admin-runner dispatch env vars"
   ansible.builtin.copy:
     dest: /etc/ssh/sshd_config.d/30-catena-admin-runner-acceptenv.conf
@@ -27,11 +30,11 @@
     content: |
       # {{ ansible_managed }}
       # Allow the catena-admin container's paramiko client to forward the
-      # clicking admin's email, a candidate Cloudflare token, and the
-      # multi-domain flag to the host dispatcher via env vars. Scoped to the
-      # runner account; does not affect operator shells.
+      # clicking admin's email and a candidate Cloudflare token to the host
+      # dispatcher via env vars. Scoped to the runner account; does not affect
+      # operator shells.
       Match User {{ catena_admin_runner_user }}
-          AcceptEnv X_FORWARDED_EMAIL CATENA_CF_CANDIDATE_TOKEN CATENA_MULTIDOMAIN_ENABLED
+          AcceptEnv X_FORWARDED_EMAIL CATENA_CF_CANDIDATE_TOKEN
       Match all
   notify: reload sshd
 

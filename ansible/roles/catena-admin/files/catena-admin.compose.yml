@@ -55,12 +55,23 @@ services:
       CATENA_DEFAULT_LANG: ${CATENA_DEFAULT_LANG:-en}
       CATENA_DEFAULT_THEME: ${CATENA_DEFAULT_THEME:-system}
       CATENA_CLIENTS_TAB_ENABLED: ${CATENA_CLIENTS_TAB_ENABLED:-}
-      # License: empty in Community. A Business activation sets the signed
-      # token + the operator public key; the compiled-in Business panels and
-      # actions enable while the token verifies (offline ed25519 + grace).
-      # A lapse past grace disables them again -- never the shell.
+      # License FALLBACK. The token's real home is the on-box config store
+      # (secrets.vault_catena_license), which the panel reads through the
+      # catena-config host action and the host engines read directly -- so a
+      # client can paste a renewed key into Settings without anyone redeploying
+      # this stack, and the engines can see it at all. These two stay as the
+      # fallback for the window before the host dispatch is up, and for the test
+      # bench, which activates a host by redeploying with them. A released image
+      # carries the public key stamped in and ignores the PUBKEY variable: the
+      # trust root must not be replaceable by editing a compose file.
+      # A lapse past grace disables the Business set -- never the shell.
       CATENA_LICENSE: ${CATENA_LICENSE:-}
       CATENA_LICENSE_PUBKEY: ${CATENA_LICENSE_PUBKEY:-}
+      # The domain this server serves. A license token names the one domain it
+      # entitles, and the panel compares the two -- so the same key cannot
+      # unlock a second server. Normally read from the store alongside the
+      # token; supplied here for the same fallback window.
+      CLOUDFLARE_PRIMARY_ZONE: ${CLOUDFLARE_PRIMARY_ZONE:-}
       # Host-mounted target the shell mirrors its embedded Business host
       # payload into (engines + lane scripts + units + installer); the
       # ee-install-engines action installs from there host-side.

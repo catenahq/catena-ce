@@ -57,10 +57,15 @@
       # reads CATENA_ACCESS_MODE): a tailnet host has no self-hosted
       # SSO edge, so without this the panel would falsely claim SSO. Always
       # converge-supplied, so the merge keeps it current (non-credential key
-      # the catalog owns). CATENA_MULTIDOMAIN_ENABLED is NOT set here -- the
-      # shell derives multidomain from the enabled cloudflare-zones panel
-      # (Business), not a compose env (see SYNC.md).
+      # the catalog owns). No multi-domain flag is set here or anywhere else:
+      # the tunnel engine reads the licence from the on-box store and decides
+      # the cap itself (see SYNC.md).
       - "CATENA_ACCESS_MODE={{ access_mode | default('cloudflare') }}"
+      # The domain this server serves, compared against the domain a licence
+      # token names so one key cannot unlock two servers. Normally read from the
+      # store with the token; supplied here for the window before the host
+      # dispatch is up. Empty in tailnet mode, which has no domain by design.
+      - "CLOUDFLARE_PRIMARY_ZONE={{ cloudflare_zone | default('') }}"
       - "PORTAINER_API_BASE=http://{{ portainer_service_name }}:{{ portainer_ui_port }}/api"
       - "PORTAINER_API_KEY={{ vault_portainer_api_key }}"
       - "KEYCLOAK_HOSTNAME={{ keycloak_hostname }}"

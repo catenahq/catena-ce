@@ -79,7 +79,7 @@ def test_dispatches_sync_engine_with_pins():
     env = task["environment"]
     for pin in ("CLOUDFLARED_IMAGE", "CLOUDFLARED_INGRESS_SERVICE",
                 "CLOUDFLARED_TUNNEL_NAME", "CATENA_NETWORK",
-                "CLOUDFLARED_STOP_GRACE", "CATENA_MULTIDOMAIN_ENABLED"):
+                "CLOUDFLARED_STOP_GRACE"):
         assert pin in env, f"missing engine pin {pin} in the sync dispatch env"
     # The token is NEVER passed to the engine (it reads the store).
     assert not any("vault_cloudflare_api_token" in str(v) for v in env.values())
@@ -97,10 +97,25 @@ def test_sync_reports_unchanged_for_idempotency_gate():
     assert task["changed_when"] is False
 
 
-def test_multidomain_flag_gated_on_ee_license_var():
+def test_no_licence_flag_is_passed_to_the_engine():
+    """The engine reads the subscription out of the on-box store and decides the
+    multi-domain cap itself. This role used to hand it a boolean computed by a
+    second, Python implementation of licence verification, which could disagree
+    with the Go one -- and which a public repo had no business carrying."""
     task = _find("converge the tunnel via catena-cloudflared-sync")
-    md = task["environment"]["CATENA_MULTIDOMAIN_ENABLED"]
-    assert "catena_ee_multidomain_enabled" in md
+    env = task["environment"]
+    assert "CATENA_MULTIDOMAIN_ENABLED" not in env
+    blob = " ".join(f"{k}={v}" for k, v in env.items()).lower()
+    for gone in ("multidomain", "license", "licence", "catena_ee_"):
+        assert gone not in blob, f"{gone!r} still reaches the engine from this role"
+
+
+def test_no_licence_semantics_anywhere_in_the_role():
+    """CP2: no Business logic in the public repo. The role must not mention a
+    licence variable at all, in any task."""
+    body = TASKS.read_text().lower()
+    for gone in ("catena_ee_multidomain_enabled", "catena_license", "catena_licence"):
+        assert gone not in body, f"{gone!r} is licence semantics in the public repo"
 
 
 def test_le_warning_preserved():

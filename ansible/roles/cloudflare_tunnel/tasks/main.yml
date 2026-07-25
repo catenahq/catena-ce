@@ -21,8 +21,18 @@
 # preserving the fail-fast abort intent (fi_n4/fi_s5) rather than
 # half-configuring a broken edge.
 #
-# The Community single-domain cap is enforced by the engine (a token that
-# grants more than one zone with CATENA_MULTIDOMAIN_ENABLED unset), not here.
+# The single-domain cap is enforced by the engine, which reads the licence out
+# of the on-box store and decides for itself. This role passes no licence flag:
+# it used to receive one as an Ansible fact computed by a second, Python
+# implementation of licence verification, which could disagree with the Go one.
+# A host with no entitlement converges the PRIMARY domain only and leaves any
+# stored secondary domains intact for re-licensing (graceful degrade, never
+# fail-closed).
+#
+# The engine also writes /var/lib/catena/cloudflare-zones.json after a
+# successful converge: the list of domains this host actually serves. That file
+# is what roles/keycloak reads to route one auth.<zone> per attached domain, so
+# the routing cannot advertise a domain the edge is not serving.
 
 - name: "CF: is a Cloudflare token present in the on-box store?"
   # load_onbox_config.yml (site/validate/restore pre_tasks) already published
@@ -86,11 +96,6 @@
     CLOUDFLARED_PROBE_ATTEMPTS: "{{ cloudflared_probe_attempts | string }}"
     CLOUDFLARED_REPROBE_ATTEMPTS: "{{ cloudflared_reprobe_attempts | string }}"
     CLOUDFLARED_PROBE_DELAY_SECONDS: "{{ cloudflared_probe_delay_seconds | string }}"
-    # Business multi-domain: set to 1 ONLY under an active Business license (the
-    # EE overlay sets catena_ee_multidomain_enabled). Unset on Community -> the
-    # engine converges the PRIMARY domain only and leaves stored secondaries
-    # intact (graceful degrade, never fail-closed).
-    CATENA_MULTIDOMAIN_ENABLED: "{{ '1' if (catena_ee_multidomain_enabled | default(false) | bool) else '' }}"
   register: _cf_sync
   # The engine is internally idempotent (it owns the cloudflared re-encoded-
   # token no-op that fi_c6 guarded, plus the network/self-heal reconciles), and

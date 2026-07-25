@@ -21,18 +21,12 @@ cloudflared_tunnel_name: "{{ inventory_hostname }}"
 # installer). SYNC.md is the contract.
 cloudflared_sync_bin: "/usr/local/bin/catena-cloudflared-sync"
 
-# Canonical zone list, defaulted here (lowest precedence) so EVERY context
-# that runs this role has it defined -- the CE inventory group_vars sets it
-# explicitly (and wins), but fresh-target flows that converge through a
-# different var context (migrate.yml / restore onto a new box, driven from
-# the ops or catena-ee inventory) only carry the legacy scalars. Derive the
-# single-element Community list from those scalars so the per-zone loops
-# never hit an undefined `cloudflare_zones`. The Business overlay
-# (catena-ee) replaces this with a multi-zone list + catena_ee_multidomain_enabled.
-cloudflare_zones:
-  - zone: "{{ cloudflare_zone }}"
-    account_id: "{{ cloudflare_account_id | default('') }}"
-    api_token: "{{ vault_cloudflare_api_token }}"
+# There is no `cloudflare_zones` fact any more. The zone list is assembled by
+# the host engine from the on-box store (the primary scalar plus whatever the
+# Domains panel attached), capped by the licence the same store holds, and
+# published to /var/lib/catena/cloudflare-zones.json after a successful
+# converge. Nothing in this repo computes it, and nothing has to pass it
+# between roles.
 
 # Traefik service URL inside catena-network -- the single destination for
 # every *.<zone> wildcard ingress rule.
