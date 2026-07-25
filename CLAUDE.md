@@ -15,8 +15,9 @@ branches (workspace convention). NEVER switch or fast-forward `main`.
   [LICENSE](LICENSE).
 - **NOT here:** the catena-admin shell and all Business code. Since the
   2026-07 unification they live in the private `catenahq/catena-admin`
-  repo (formerly catena-ee) and ship as ONE public GHCR image (obfuscated
-  build, anonymous pull -- every install deploys the panel) with every
+  repo (formerly catena-ee) and ship as ONE public GHCR image (plain
+  reproducible build, anonymous pull -- every install deploys the panel,
+  and a client can scan the binary they run) with every
   panel compiled in; the license check gates the Business feature set at
   runtime. The license wire-format package (Sign/Verify, ed25519 offline)
   also lives in catena-admin since the license repatriation -- this repo

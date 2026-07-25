@@ -28,8 +28,9 @@ without a license. Everything else stays manual. The managed lifecycle
 (daily and sub-daily backup cadence, secondary/cold backup, auto-update
 + rollback, CVE remediation, attestation, the catena-daily orchestrator
 chain) is the Business edition: its engines ship in the public
-catena-admin payload and install on every host (obfuscated builds,
-never plaintext in this repo), but the license check gates their
+catena-admin payload and install on every host (compiled Go binaries
+whose source lives in the private repo, not in this tree), but the
+license check gates their
 features at runtime -- they stay dormant on a Community host. On a
 Business host the EE engine masks `catena-backup.timer` and takes over
 scheduling.

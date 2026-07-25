@@ -86,7 +86,8 @@ Full classification: [ansible/SECRETS.md](ansible/SECRETS.md).
 This is the public, fair-code base: the whole orchestration + installer.
 The catena-admin web panel is NOT here: since the 2026-07 unification its
 source lives privately in `catenahq/catena-admin` and ships as a public
-GHCR container image (obfuscated build, anonymous pull). The panel is a
+GHCR container image (plain build, anonymous pull -- you can inventory
+and scan exactly what runs). The panel is a
 convenience layer over the host-native automation in THIS repo --
 everything it does (backups, restore, validate, converge) is runnable
 here without it. See [LICENSE](LICENSE).
