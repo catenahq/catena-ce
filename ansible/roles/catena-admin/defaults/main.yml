@@ -123,6 +123,18 @@ catena_recovery_bin: /usr/local/bin/catena-recovery
 catena_recovery_state_file: /var/lib/catena/recovery.state
 catena_recovery_history_file: /var/lib/catena/recovery.history
 
+# The migration lane: the source side of a server-to-server move. A HOST
+# process, not a container, because a migration stops docker on this server and
+# the endpoint that puts it back has to still be answering afterwards. Installed
+# by the same payload as every other engine, on every host and every edition.
+#
+# It listens on this host's tailnet address only, and it answers nothing until
+# someone on this server arms it. The port is declared tailnet-only in the
+# public-port registry below for the same reason Portainer's UI port is: defence
+# in depth behind the bind, not instead of it.
+catena_migrate_lane_bin: /usr/local/bin/catena-migrate-lane
+catena_migrate_lane_port: 9040
+
 # EE-reserved HOST dispatch entries. The Go shell renders Business action
 # BUTTONS at runtime from its compiled-in panels (audit, daily, ...) only
 # under an active license, and dispatches each by NAME through the host
@@ -159,6 +171,27 @@ catena_admin_ee_reserved_actions:
   # shell MUST match catena-admin restorereport/plugin.go's ActionSpec.
   - name: verify-backup
     shell: "/usr/local/bin/catena-daily step VERIFY_HOT"
+  # Migration lane arming. The MECHANISM ships on every host (the lane binary
+  # is part of the ungated payload, and the quiesce verbs it drives are
+  # Community); what is licensed is the panel that opens a window, so these
+  # authorize Business action names the same way the daily/audit entries do.
+  #
+  # Arming mints a pairing code and prints it ONCE. --json is for the panel,
+  # which shows it to the person who armed it and never stores it; only an
+  # argon2id hash goes to the state register, so a stolen backup carries no way
+  # to join a migration.
+  - name: catena-migrate-arm
+    shell: "{{ catena_migrate_lane_bin }} arm -json"
+  - name: catena-migrate-disarm
+    shell: "{{ catena_migrate_lane_bin }} disarm"
+  - name: catena-migrate-status
+    shell: "{{ catena_migrate_lane_bin }} status"
+  # The abort path, dispatched from THIS server when a move failed and its
+  # applications have to come back. Deliberately the recovery engine and not
+  # the lane: resuming is not a migration operation, it is the inverse of a
+  # quiesce, and it has to work whether or not a window is still open.
+  - name: catena-migrate-resume
+    shell: "{{ catena_recovery_bin }} quiesce resume"
   # Multi-domain Cloudflare zone save (EE cloudflarezones plugin). The panel's
   # single-field form POSTs an opaque PAYLOAD: for an add it is the raw CF API
   # token the user typed (no browser JS/base64 needed, so it survives the strict

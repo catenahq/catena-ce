@@ -266,7 +266,13 @@
     group: root
     mode: "0755"
 
-- name: "catena-admin: declare UI port (registry fragment, tailnet-only)"
+- name: "catena-admin: declare UI + migration-lane ports (registry fragment, tailnet-only)"
+  # The migration lane binds this host's tailnet address directly (a host
+  # process, bind=host, not a published container port), and refuses to start
+  # with no tailnet address rather than binding every interface. The declaration
+  # is belt-and-braces behind that bind, and it is what makes the port appear in
+  # the effective set validation reads -- an undeclared listener would show up
+  # as an unexpected open port instead of an intended one.
   ansible.builtin.copy:
     dest: "{{ public_ports_fragment_dir }}/catena-admin.json"
     owner: root
@@ -277,7 +283,10 @@
         [
           {"proto": "tcp", "port": catena_admin_ui_port | int,
            "scope": "tailnet", "bind": "docker", "owner": "catena-admin",
-           "comment": "catena-admin native-login panel -- tailnet + RFC1918 only"}
+           "comment": "catena-admin native-login panel -- tailnet + RFC1918 only"},
+          {"proto": "tcp", "port": catena_migrate_lane_port | int,
+           "scope": "tailnet", "bind": "host", "owner": "catena-admin",
+           "comment": "migration lane (source side) -- tailnet only"}
         ] | to_nice_json
       }}
   register: _catena_admin_ports_fragment
