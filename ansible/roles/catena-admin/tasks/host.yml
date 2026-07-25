@@ -245,15 +245,18 @@
     group: "{{ catena_admin_container_gid }}"
     mode: "0755"
 
-# Admin state volume (the container's persisted state lives here once
-# the stack deploy mounts the named volume on first run; the host
-# bind-mount target is owned by uid 1000 so the container can write).
+# Admin state volume: the shell's own writable state, bind-mounted rw. The
+# audit hash chain and its per-host signing key live here, which is why the
+# ownership matters -- it must be the CONTAINER's uid (65532, from USER
+# nonroot in the image), not 1000. It was 1000 while the shell was the old
+# Python image; under distroless the container could not write here at all,
+# so anything that tried degraded silently.
 - name: "State dir for admin container ({{ catena_admin_state_dir }})"
   ansible.builtin.file:
     path: "{{ catena_admin_state_dir }}"
     state: directory
-    owner: "1000"
-    group: "1000"
+    owner: "{{ catena_admin_container_uid }}"
+    group: "{{ catena_admin_container_gid }}"
     mode: "0700"
 
 # --- tailnet-only firewall for the native-login UI port (registry fragment) ---

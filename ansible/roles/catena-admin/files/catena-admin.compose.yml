@@ -76,6 +76,10 @@ services:
       # payload into (engines + lane scripts + units + installer); the
       # ee-install-engines action installs from there host-side.
       CATENA_EE_PAYLOAD_DIR: /var/lib/catena/ee-payload
+      # Where the audit hash chain is written. Unset disables the chain and
+      # leaves journald as the only sink, which is what a host predating this
+      # mount does -- degraded, never broken.
+      CATENA_ADMIN_STATE_DIR: /var/lib/catena-admin
       PORTAINER_API_BASE: ${PORTAINER_API_BASE}
       PORTAINER_API_KEY: ${PORTAINER_API_KEY}
       KEYCLOAK_HOSTNAME: ${KEYCLOAK_HOSTNAME:-}
@@ -100,6 +104,11 @@ services:
       # the same path. The ro /var/lib/catena mount below provides host
       # stats; this bind shadows the ee-payload subpath rw.
       - /var/lib/catena/ee-payload:/var/lib/catena/ee-payload
+      # The shell's own writable state: the audit hash chain and the per-host
+      # key that signs its head. Separate from the ro /var/lib/catena mount
+      # below because this is state the shell WRITES, and separate from the
+      # journal because it has to survive as a file the export can ship.
+      - /var/lib/catena-admin:/var/lib/catena-admin
       - /etc/catena/admin-ssh:/etc/catena/admin-ssh:ro
       - /var/backups/catena-export:/var/backups/catena-export:ro
       - /var/lib/catena:/var/lib/catena:ro

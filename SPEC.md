@@ -71,6 +71,7 @@ client-owned storage, whole-server recovery -- serves that promise.
 | The image that ships is the image that was scanned, and the moving tag never points at an unscanned one | `threat:LE9` |
 | You can tell which build is running on your server, from the server | `threat:LE9`, `bench:ce_admin_smoke` |
 | A licence problem never costs you access to your data, your backups, or a restore | `threat:LE3`, `bench:ee_lapse`, `bench:ee_ce_regression` |
+| The record of administrative actions on your server can be exported and checked by someone who does not trust us: an edited or shortened trail fails verification | `threat:CV10`, `bench:audit_chain_tamper_evident` |
 
 Gate pointer grammar: `bench:<scenario>` = a rehearsal scenario that
 provisions disposable virtual machines and drives the real product;
