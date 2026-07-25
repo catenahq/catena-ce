@@ -192,7 +192,7 @@ beszel_hc_shim_host_dir: "/etc/catena/beszel-hc-shim"
 # The served directory is explicitly excluded from restic (see
 # roles/backup/defaults/main.yml backup_exclude_patterns) -- it IS the
 # packaged backup artifact, re-including it would be self-referential.
-recovery_image_tag: "1.31.2-alpine"
+recovery_image_tag: "1.31.3-alpine"
 recovery_image: "nginx:{{ recovery_image_tag }}"
 recovery_compose_name: "recovery"
 recovery_network_alias: "recovery"
