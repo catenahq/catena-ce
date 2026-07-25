@@ -67,13 +67,27 @@ client-owned storage, whole-server recovery -- serves that promise.
 | Source is scanned on every change (secrets, vulnerable deps, static analysis) | `workflow:security.yml`, `scanctl:gitleaks`, `scanctl:osv-scanner`, `scanctl:semgrep`, `scanctl:govulncheck` |
 | Pinned container images are CVE-gated | `workflow:trivy.yml` |
 | The Python installer builds and tests green | `workflow:ci.yml` |
+| The admin panel image is signed, and its component inventory is published with it, so you can verify what you are about to run without asking us | `threat:LE8` |
+| The image that ships is the image that was scanned, and the moving tag never points at an unscanned one | `threat:LE9` |
+| You can tell which build is running on your server, from the server | `threat:LE9`, `bench:ce_admin_smoke` |
+| A licence problem never costs you access to your data, your backups, or a restore | `threat:LE3`, `bench:ee_lapse`, `bench:ee_ce_regression` |
 
 Gate pointer grammar: `bench:<scenario>` = a rehearsal scenario that
 provisions disposable virtual machines and drives the real product;
 `audit:<gate>` = a static gate of the maintainers' audit graph, run in
 CI and before every rehearsal; `workflow:<file>` = a CI workflow in
 this repository; `scanctl:<tool>` = a scanner run by the bundled
-security workflow.
+security workflow; `threat:<ID>` = a numbered invariant in the
+maintainers' threat-model register, resolved by the same CI gate (the
+register is operator-internal, but an ID that does not exist -- or one
+that was retired -- fails the build, so a claim here cannot outlive the
+guarantee behind it).
+
+The admin panel's source is not published. Its binary is not obfuscated:
+[verify what you run](https://docs.catena.run/en/trust/verify-what-you-run/)
+walks through checking the signature, reading the component inventory,
+and scanning the image yourself. The signature and inventory arrive with
+the first release cut from the current pipeline.
 
 ## How this stays honest
 

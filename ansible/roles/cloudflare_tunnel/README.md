@@ -7,9 +7,10 @@ The tunnel find-or-create, wildcard DNS (`*.<zone>` ->
 `<tunnel-id>.cfargotunnel.com`), ingress enforcement (single rule ->
 `http://catena-traefik:80` plus a `404` fallback), the `cloudflared`
 swarm service on `catena-network`, and the edge->tunnel->Traefik chain
-probe all now live in the Go engine
-[`catena-cloudflared-sync`](../../../../catena-admin/cmd/catena-cloudflared-sync/SYNC.md)
-(private repo). That binary ships in the catena-admin host payload and
+probe all now live in the Go engine `catena-cloudflared-sync`, whose
+source is in the private catena-admin repository (a relative link out of
+this public repo would dangle for every reader who has only this one).
+That binary ships in the catena-admin host payload and
 is installed to `/usr/local/bin` on **every** converge by
 `roles/catena-admin` -- it is NOT license-gated (the Cloudflare tunnel
 is a Community feature).

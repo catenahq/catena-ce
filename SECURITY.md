@@ -14,11 +14,22 @@ it. English or French.
 
 ## Scope
 
-This repository ships the Catena Community base: the `catena-admin`
-Go shell, the installer/CLI (`ansible/catena`, `ansible/seed.py`), the
-Ansible roles + playbooks, and the host-side scripts under
-`ansible/scripts/`. Reports against the hosted services (catena.run,
-app.catena.run) are welcome at the same address.
+This repository ships the Catena Community base: the installer/CLI
+(`ansible/catena`, `ansible/seed.py`), the Ansible roles + playbooks,
+the host-side scripts under `ansible/scripts/`, and the admin panel's
+deployment surface (`ansible/roles/catena-admin`, including the compose
+file). There is no Go in this tree.
+
+The admin panel binary itself is built from a private repository, but it
+ships as a public container image with a **plain, non-obfuscated build**:
+you can pull it, read its published component inventory (CycloneDX SBOM),
+and scan it with your own tooling. Reports against the panel go to the
+same address, and the fastest report is a scanner finding against the
+published digest -- see
+[verify what you run](https://docs.catena.run/en/trust/verify-what-you-run/).
+
+Reports against the hosted services (catena.run, app.catena.run) are
+welcome at the same address.
 
 Out of scope: vulnerabilities in the upstream applications the catalog
 deploys (Nextcloud, Keycloak, etc.) -- report those upstream; we track
