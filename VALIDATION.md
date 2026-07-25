@@ -67,7 +67,7 @@ Rehearsal scenarios (1): `fi_u3_gatus_baseline_down`
 
 All web traffic reaches the server through an encrypted tunnel, so no web port is ever open on the machine itself; remote administration rides a private peer-to-peer network, and audio/video calls get their own dedicated relay.
 
-Implemented in: `ansible/helpers/public_ports.py`, `ansible/playbooks/filter_plugins/catena_multidomain.py`, `ansible/playbooks/regenerate-cf-tunnel.yml`, `ansible/playbooks/rotate-tailscale.yml`, `ansible/roles/cloudflare_tunnel`, `ansible/roles/cloudflare_tunnel_regenerate`, `ansible/roles/coturn`, `ansible/roles/tailscale`, `ansible/scripts/catena-public-ports.py`
+Implemented in: `ansible/helpers/public_ports.py`, `ansible/playbooks/regenerate-cf-tunnel.yml`, `ansible/playbooks/rotate-tailscale.yml`, `ansible/roles/cloudflare_tunnel`, `ansible/roles/cloudflare_tunnel_regenerate`, `ansible/roles/coturn`, `ansible/roles/tailscale`, `ansible/scripts/catena-public-ports.py`
 
 Rehearsal scenarios (17): `ce_install_headscale`, `ce_install_tailnet`, `cf_activate`, `cf_tunnel_regenerate_round_trip`, `cloudflare_api_rotation_round_trip`, `fi_n10_multidomain_cap`, `fi_n1_tailnet_partition_mid_converge`, `fi_n2_cf_tunnel_down`, `fi_n3_dns_propagation_lag`, `fi_n4_cf_zone_misconfigured`, `fi_n5_provider_outage_mid_restore`, `fi_n6_s3_endpoint_5xx`, `fi_n7_restic_repo_unreachable`, `fi_n8_ufw_concurrent_ssh`, `fi_n9_public_ip_change`, `fi_v3_tailscale_acl_misconfig`, `tailscale_oauth_rotation_round_trip`
 
