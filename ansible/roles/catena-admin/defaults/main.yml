@@ -115,6 +115,9 @@ catena_admin_ee_payload_bin_dir: "{{ catena_admin_ee_payload_dir }}/bin"
 # engine. Declared here rather than at the call site because this role owns
 # where the payload lands; site.yml's post-restore hook reads it.
 catena_recovery_bin: /usr/local/bin/catena-recovery
+# The host audit CLI, from the same payload. Two callers: the Business
+# audit-export action, and the Community journal-seal check.
+catena_admin_audit_bin: /usr/local/bin/catena-audit
 # Where the restore machine persists progress. Under /var/lib/catena, NOT
 # /etc: this is transient run state, and /etc is in the backup set -- a
 # snapshot taken mid-restore would otherwise carry a half-finished restore's
@@ -173,7 +176,7 @@ catena_admin_ee_reserved_actions:
   - name: daily-run-now
     shell: "/usr/local/bin/catena-daily run"
   - name: audit-export
-    shell: "/usr/local/bin/catena-audit export"
+    shell: "{{ catena_admin_audit_bin }} export"
   # restore-report panel's on-demand restore drill. Runs the verify-hot
   # lane standalone (single-state), which rewrites verify-hot.json so the
   # Restore report panel refreshes with a fresh pass/fail + RTO. Name +
@@ -310,6 +313,14 @@ catena_admin_ce_reserved_actions:
     shell: "{{ catena_recovery_bin }} quiesce resume"
   - name: catena-quiesce-status
     shell: "{{ catena_recovery_bin }} quiesce status"
+  # Journal tamper-evidence check (COMMUNITY). The common role turns Forward
+  # Secure Sealing on for EVERY host, so being able to CHECK the seal is not a
+  # paid feature -- only the panel that displays the trail is. With no argument
+  # this verifies the journal's structure and prints the command that checks
+  # the seals themselves; the verification key is deliberately not on the box,
+  # because whoever holds it can re-seal an edited journal.
+  - name: catena-audit-fss-verify
+    shell: "{{ catena_admin_audit_bin }} fss-verify"
   # Data-scoped restore (COMMUNITY). Three actions, deliberately separate:
   # one that starts a restore, one that reports on it, and one that clears a
   # halted run. Folding the clear into the report would make a page refresh

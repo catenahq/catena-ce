@@ -593,6 +593,37 @@
             '  journalctl --verify'] }}
   when: _journal_setup_keys is not skipped
 
+# Hand the key to the end-of-install keyset display, then have that display
+# DELETE it. Printing it here alone loses it: it scrolls past mid-converge and
+# a fresh install is hundreds of tasks long, so in practice nobody saved it and
+# the seal was unverifiable -- a guarantee nobody can check is not one.
+#
+# It is deliberately NOT written to the on-box config store like the other
+# user-held secrets. The verification key is the FSPRG seed: whoever holds it
+# can regenerate the sealing key for any past epoch and re-seal an ALTERED
+# journal. Leaving it on the box would hand a root-level attacker the tool that
+# defeats the tamper evidence they just tripped. It lives here for the minutes
+# between minting and display, 0600 root, and show_dr_keyset.yml removes it.
+- name: "journald: stage the FSS verification key for the one-shot keyset display"
+  when: _journal_setup_keys is not skipped
+  block:
+    - name: "journald: ensure the catena config dir exists"
+      ansible.builtin.file:
+        path: /etc/catena
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: "journald: write the FSS verification key for hand-off"
+      ansible.builtin.copy:
+        dest: /etc/catena/fss-verification-key.pending
+        content: "{{ _journal_setup_keys.stdout }}\n"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
 # ─── ufw baseline ────────────────────────────────────────────────────────
 # Public SSH is allowed for the duration of bootstrap. ufw_lockdown.yml
 # (called from site.yml post_tasks, AFTER tailscale is up) swaps this rule
