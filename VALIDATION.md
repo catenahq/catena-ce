@@ -11,7 +11,7 @@ This sheet is **generated, not written**: it is rendered from the same machine-c
 
 Catena is exercised end-to-end by an automated rehearsal suite: each scenario provisions disposable virtual machines, drives the real product (install, converge, back up, break, restore) and asserts the outcome -- including deliberate failure injection. The counts below are those rehearsals.
 
-**Coverage: 10 Community features exercised by 94 rehearsal scenarios; 12 Catena Pro features by 40; plus 24 maintainer-internal rehearsals.**
+**Coverage: 10 Community features exercised by 95 rehearsal scenarios; 13 Catena Pro features by 44; plus 24 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -37,7 +37,7 @@ A web dashboard with role-aware access (staff see status, administrators also ge
 
 Implemented in: `ansible/roles/catena-admin`, `ansible/scripts/catena-admin-runner.sh`
 
-Rehearsal scenarios (11): `admin_apps_tab_admin_full`, `admin_apps_tab_staff_filtered`, `admin_staff_cannot_reach_admin_routes`, `audit_db_torn_write_recovery`, `catena_admin_actions_round_trip`, `catena_admin_daily_tab_renders`, `catena_admin_resources_tab_links_beszel`, `catena_admin_smoke`, `ce_admin_actions`, `ce_admin_smoke`, `quiesce_resume_round_trip`
+Rehearsal scenarios (12): `admin_apps_tab_admin_full`, `admin_apps_tab_staff_filtered`, `admin_staff_cannot_reach_admin_routes`, `audit_db_torn_write_recovery`, `catena_admin_actions_round_trip`, `catena_admin_daily_tab_renders`, `catena_admin_resources_tab_links_beszel`, `catena_admin_smoke`, `ce_admin_actions`, `ce_admin_smoke`, `quiesce_resume_round_trip`, `wizard_restore_smoke`
 
 ### Installation and application deployment
 
@@ -113,6 +113,7 @@ Catena Pro features are exercised by the same rehearsal suite. Implementation pa
 | External availability monitoring | 1 |
 | Multiple domains, each with its own private sign-on | 1 |
 | Per-user mail and file archiving | 3 |
+| A move you can call off | 4 |
 
 Note: features marked *see note* are maintainer-run procedures; their rehearsals are counted under maintainer-internal tooling below.
 
