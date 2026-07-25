@@ -11,7 +11,7 @@ This sheet is **generated, not written**: it is rendered from the same machine-c
 
 Catena is exercised end-to-end by an automated rehearsal suite: each scenario provisions disposable virtual machines, drives the real product (install, converge, back up, break, restore) and asserts the outcome -- including deliberate failure injection. The counts below are those rehearsals.
 
-**Coverage: 10 Community features exercised by 92 rehearsal scenarios; 12 Catena Pro features by 40; plus 24 maintainer-internal rehearsals.**
+**Coverage: 10 Community features exercised by 94 rehearsal scenarios; 12 Catena Pro features by 40; plus 24 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -77,7 +77,7 @@ A whole server can be rebuilt from nothing but the backup endpoint and its key, 
 
 Implemented in: `ansible/playbooks/restore.yml`
 
-Rehearsal scenarios (18): `audit_db_torn_write_recovery`, `ce_restore`, `debian_major_upgrade_restore`, `fi_d2_pg_dumpall_replay_constraint`, `fi_d3_postgres_oom_mid_restore`, `fi_d4_disk_full_mid_snapshot`, `fi_d5_disk_full_mid_converge`, `fi_d6_volume_uid_drift`, `fi_d7_restic_corrupt_pack`, `hot_restore_round_trip`, `nc_s3_hot_recovery`, `nc_sync_wipe_restore`, `pg_major_version_cross_restore`, `pitr_fuse_round_trip`, `recover_secrets_from_running_host`, `recovery_landing_page_bilingual_parity`, `restore_dr`, `s3_reconcile_orphan_cleanup`
+Rehearsal scenarios (20): `audit_db_torn_write_recovery`, `ce_restore`, `debian_major_upgrade_restore`, `fi_d2_pg_dumpall_replay_constraint`, `fi_d3_postgres_oom_mid_restore`, `fi_d4_disk_full_mid_snapshot`, `fi_d5_disk_full_mid_converge`, `fi_d6_volume_uid_drift`, `fi_d7_restic_corrupt_pack`, `hot_restore_round_trip`, `nc_s3_hot_recovery`, `nc_sync_wipe_restore`, `pg_major_version_cross_restore`, `pitr_fuse_round_trip`, `recover_secrets_from_running_host`, `recovery_landing_page_bilingual_parity`, `restore_dr`, `restore_version_skew_abort`, `s3_reconcile_orphan_cleanup`, `selective_restore_round_trip`
 
 ### No lock-in, ever
 
