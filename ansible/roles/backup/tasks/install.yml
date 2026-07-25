@@ -324,6 +324,19 @@
 # Content is deliberately tool-agnostic: restic + docker + psql only, no
 # catena command anywhere, so a client is never dependent on us to get their
 # data back.
+# The seam site.yml runs at the end of a converge when a recovery is pending.
+# This repo creates it and never writes to it: whatever manages the host
+# afterwards installs its own script here, and an empty directory means a
+# converge behaves exactly as it did before the seam existed. Same shape as
+# /etc/catena/quiesce.d.
+- name: "Post-restore: the hook directory the converge runs"
+  ansible.builtin.file:
+    path: "{{ catena_post_restore_hook_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: "Sovereign-exit: drop the manual-rebuild README (EN + FR)"
   ansible.builtin.template:
     src: "RECOVERY-README.{{ item }}.md.j2"

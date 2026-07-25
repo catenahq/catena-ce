@@ -37,7 +37,7 @@ A web dashboard with role-aware access (staff see status, administrators also ge
 
 Implemented in: `ansible/roles/catena-admin`, `ansible/scripts/catena-admin-runner.sh`
 
-Rehearsal scenarios (10): `admin_apps_tab_admin_full`, `admin_apps_tab_staff_filtered`, `admin_staff_cannot_reach_admin_routes`, `catena_admin_actions_round_trip`, `catena_admin_daily_tab_renders`, `catena_admin_resources_tab_links_beszel`, `catena_admin_smoke`, `ce_admin_actions`, `ce_admin_smoke`, `quiesce_resume_round_trip`
+Rehearsal scenarios (11): `admin_apps_tab_admin_full`, `admin_apps_tab_staff_filtered`, `admin_staff_cannot_reach_admin_routes`, `audit_db_torn_write_recovery`, `catena_admin_actions_round_trip`, `catena_admin_daily_tab_renders`, `catena_admin_resources_tab_links_beszel`, `catena_admin_smoke`, `ce_admin_actions`, `ce_admin_smoke`, `quiesce_resume_round_trip`
 
 ### Installation and application deployment
 
@@ -77,7 +77,7 @@ A whole server can be rebuilt from nothing but the backup endpoint and its key, 
 
 Implemented in: `ansible/playbooks/restore.yml`
 
-Rehearsal scenarios (20): `audit_db_torn_write_recovery`, `ce_restore`, `debian_major_upgrade_restore`, `fi_d2_pg_dumpall_replay_constraint`, `fi_d3_postgres_oom_mid_restore`, `fi_d4_disk_full_mid_snapshot`, `fi_d5_disk_full_mid_converge`, `fi_d6_volume_uid_drift`, `fi_d7_restic_corrupt_pack`, `hot_restore_round_trip`, `nc_s3_hot_recovery`, `nc_sync_wipe_restore`, `pg_major_version_cross_restore`, `pitr_fuse_round_trip`, `recover_secrets_from_running_host`, `recovery_landing_page_bilingual_parity`, `restore_dr`, `restore_version_skew_abort`, `s3_reconcile_orphan_cleanup`, `selective_restore_round_trip`
+Rehearsal scenarios (19): `ce_restore`, `debian_major_upgrade_restore`, `fi_d2_pg_dumpall_replay_constraint`, `fi_d3_postgres_oom_mid_restore`, `fi_d4_disk_full_mid_snapshot`, `fi_d5_disk_full_mid_converge`, `fi_d6_volume_uid_drift`, `fi_d7_restic_corrupt_pack`, `hot_restore_round_trip`, `nc_s3_hot_recovery`, `nc_sync_wipe_restore`, `pg_major_version_cross_restore`, `pitr_fuse_round_trip`, `recover_secrets_from_running_host`, `recovery_landing_page_bilingual_parity`, `restore_dr`, `restore_version_skew_abort`, `s3_reconcile_orphan_cleanup`, `selective_restore_round_trip`
 
 ### No lock-in, ever
 

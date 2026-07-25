@@ -224,53 +224,73 @@
       changed_when: false
       tags: [public_ports]
 
-    # Post-restore reconciliation. A filesystem restore brings back Portainer's
-    # own database and every data volume, but the applications stay down (image
+    # Post-restore seam. A filesystem restore brings back Portainer's own
+    # database and every data volume, but the applications stay down (image
     # layers are deliberately not in the backup) and a per-app database may not
-    # survive its compose recreate. catena-recovery brings the applications that
-    # were running at snapshot time back up, restores their database contents in
-    # dependency order, and reports stored files the object store no longer
-    # returns.
+    # survive its compose recreate. Finishing that is day-2 work, which this
+    # repo does not own: the converge only provides the moment.
     #
-    # Marker-gated, and the marker is the whole safety property: it is dropped
-    # by roles/backup/tasks/restore.yml and cleared by the binary only on
-    # success, so an ordinary converge is a no-op and an interrupted recovery is
-    # retried by the next one. Running this on a healthy host would drop and
-    # reload every database from the last archives, so the binary itself also
-    # refuses without the marker unless forced.
+    # So this runs whatever is installed in the hook directory and knows nothing
+    # about what that is. The management layer drops its own script there; a
+    # host with no hooks converges identically to one before this existed. That
+    # keeps the dependency pointing one way -- this repo sets the scene, and
+    # whatever manages the host afterwards subscribes to it.
     #
-    # The binary is installed by roles/catena-admin earlier in this converge
-    # (unconditionally, on every edition) and reads the Portainer coordinates
-    # from the on-box 0600 file, so nothing sensitive appears here.
+    # This is the same shape as /etc/catena/quiesce.d, whose hooks the on-host
+    # daily chain runs without this repo knowing their contents.
+    #
+    # Marker-gated, and the marker is the safety property: it is dropped by
+    # roles/backup/tasks/restore.yml and cleared by whichever hook completes the
+    # recovery, so an ordinary converge runs nothing and an interrupted recovery
+    # is retried by the next one.
+    #
+    # End of the converge on purpose: the hooks need the control plane the roles
+    # above just brought up. A trigger that fired when the marker APPEARED
+    # (a systemd path unit) would run before docker exists on the DR path.
     - name: "Post-restore: detect a pending recovery"
       ansible.builtin.stat:
         path: "{{ backup_stats_dir }}/post-restore.needed"
       register: _site_post_restore_marker
       tags: [post_restore]
 
-    - name: "Post-restore: bring applications and their data back"
-      ansible.builtin.command:
-        argv:
-          - "{{ catena_recovery_bin }}"
-          - post-restore
-          - -marker
-          - "{{ backup_stats_dir }}/post-restore.needed"
-          - -dump-dir
-          - "{{ storage_mount_point }}/backup-staging/pg"
-          - -scope
-          - clients
+    - name: "Post-restore: run the installed hooks"
+      ansible.builtin.shell: |
+        set -u
+        ran=0
+        failed=0
+        for hook in {{ catena_post_restore_hook_dir }}/*.sh; do
+            [ -f "$hook" ] || continue
+            ran=$((ran + 1))
+            echo "== $hook"
+            if ! /bin/sh "$hook" 2>&1; then
+                echo "== $hook exited non-zero"
+                failed=$((failed + 1))
+            fi
+        done
+        echo "HOOKS_RAN=$ran HOOKS_FAILED=$failed"
+        [ "$failed" -eq 0 ]
+      args:
+        executable: /bin/bash
+      # The facts about the scene a hook cannot discover for itself. Passing
+      # them is the seam's whole contract: this repo says WHERE things are,
+      # the hook decides what to do about them. A hook that guessed /mnt/data
+      # would silently do nothing on a host with a different storage mount.
+      environment:
+        STORAGE_MOUNT_POINT: "{{ storage_mount_point }}"
+        CATENA_POST_RESTORE_MARKER: "{{ backup_stats_dir }}/post-restore.needed"
       register: _site_post_restore
-      changed_when: true
+      changed_when: "'HOOKS_RAN=0' not in (_site_post_restore.stdout | default(''))"
       when: _site_post_restore_marker.stat.exists | bool
       tags: [post_restore]
 
-    # The binary logs every step to stderr. Surfacing it unconditionally (and
-    # not only on failure) is deliberate: a recovery that half-worked is the
-    # case where someone needs the detail most, and ansible would otherwise
-    # swallow it behind a green task.
-    - name: "Post-restore: recovery log"
+    # Surfaced unconditionally, not only on failure: a recovery that half-worked
+    # is when someone needs the detail most, and ansible would otherwise swallow
+    # it behind a green task. A hook that failed already failed the task above,
+    # which is right -- a converge that left a recovery unfinished is not a
+    # successful converge, and the marker survives for the retry.
+    - name: "Post-restore: hook output"
       ansible.builtin.debug:
-        var: _site_post_restore.stderr_lines
+        var: _site_post_restore.stdout_lines
       when: _site_post_restore is not skipped
       tags: [post_restore]
 

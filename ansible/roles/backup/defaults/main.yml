@@ -456,6 +456,12 @@ backup_weekly_timer_oncalendar: "{{ lookup('dotenv', 'BACKUP_WEEKLY_TIMER_ONCALE
 backup_stats_dir: /var/lib/catena
 backup_stats_file: "{{ backup_stats_dir }}/backup-stats.json"
 
+# Where site.yml looks for post-restore hooks when the marker above is
+# present. Under /etc/catena because it is configuration, and because /etc is in
+# backup_paths -- a restored host keeps the hooks it had. This repo creates the
+# directory and never writes into it; see the seam's comment in site.yml.
+catena_post_restore_hook_dir: /etc/catena/post-restore.d
+
 # Snapshot-export mode (catena-admin Recovery-tab button: "Export latest snapshot")
 # Streams `restic dump latest /` through gzip into a single tarball under
 # backup_export_dir for the operator/client to scp off-host. No S3 or

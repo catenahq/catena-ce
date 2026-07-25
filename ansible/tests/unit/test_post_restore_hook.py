@@ -1,21 +1,26 @@
-"""Lock the converge's post-restore hook.
+"""Lock the converge's post-restore seam.
 
 A restore drops /var/lib/catena/post-restore.needed and stops there: the
 applications are down (image layers are not in the backup) and per-app
-databases may not have survived their compose recreate. Everything that
-closes that gap now lives in the catena-recovery host binary, invoked
-once from site.yml's post_tasks.
+databases may not have survived their compose recreate. Finishing that is
+day-2 work, which this repo does not own.
 
-Three properties have to hold for that to be safe, and none of them is
-visible from reading the binary alone:
+So the converge provides a MOMENT, not an implementation. It runs
+whatever is installed in /etc/catena/post-restore.d and knows nothing
+about the contents -- the same shape as /etc/catena/quiesce.d, whose
+hooks the on-host daily chain runs without this repo knowing them.
+
+Four properties have to hold, and none is visible from reading a hook:
 
   1. It runs ONLY on the marker. Without the gate an ordinary converge
-     would drop and reload every database from the last archives.
-  2. It runs LAST, after every role. The applications must exist and
-     Portainer must be up before anything tries to redeploy or replay.
-  3. It carries no secret. The Portainer key is read from the on-box
-     0600 file, so the task needs no no_log and its output stays
-     readable when a recovery fails -- which is when someone needs it.
+     would re-run a recovery, which drops and reloads every database.
+  2. It runs LAST, after every role, because the hooks need the control
+     plane the roles brought up. A trigger that fired when the marker
+     APPEARED would run before docker exists on the DR path.
+  3. This repo names no binary from another repo, and an empty hook
+     directory converges exactly as it did before the seam existed.
+  4. A failing hook fails the converge. A converge that left a recovery
+     unfinished is not a successful converge.
 
 Run: uv run pytest tests/unit/test_post_restore_hook.py
 """
@@ -28,9 +33,11 @@ import yaml
 ANSIBLE = Path(__file__).resolve().parents[3] / "ansible"
 SITE = ANSIBLE / "playbooks" / "site.yml"
 BACKUP_TASKS = ANSIBLE / "roles" / "backup" / "tasks" / "main.yml"
-ADMIN_DEFAULTS = ANSIBLE / "roles" / "catena-admin" / "defaults" / "main.yml"
+BACKUP_INSTALL = ANSIBLE / "roles" / "backup" / "tasks" / "install.yml"
+BACKUP_DEFAULTS = ANSIBLE / "roles" / "backup" / "defaults" / "main.yml"
 
 MARKER = "post-restore.needed"
+HOOK_DIR_VAR = "catena_post_restore_hook_dir"
 
 
 def _play() -> dict:
@@ -41,17 +48,16 @@ def _post_tasks() -> list[dict]:
     return _play()["post_tasks"]
 
 
-def _hook() -> dict:
+def _hook_task() -> dict:
     for task in _post_tasks():
-        argv = task.get("ansible.builtin.command", {}).get("argv") or []
-        if "post-restore" in argv:
+        body = task.get("ansible.builtin.shell")
+        if body and HOOK_DIR_VAR in str(body):
             return task
-    raise AssertionError("site.yml has no post-restore hook")
+    raise AssertionError("site.yml has no post-restore hook runner")
 
 
-def test_hook_is_gated_on_the_marker():
-    task = _hook()
-    when = task["when"]
+def test_hook_runner_is_gated_on_the_marker():
+    when = _hook_task()["when"]
     when = " ".join(when) if isinstance(when, list) else str(when)
     assert "stat.exists" in when, when
 
@@ -63,72 +69,90 @@ def test_hook_is_gated_on_the_marker():
     assert stat_tasks[0]["register"] in when
 
 
-def test_hook_runs_after_every_role():
-    # post_tasks is by definition after roles; the assertion that matters is
-    # that the hook did not drift into pre_tasks or the role list, where
-    # Portainer would not be up yet.
+def test_hook_runner_is_in_post_tasks_not_earlier():
+    # The hooks need the control plane the roles above brought up.
     play = _play()
-    assert not any(
-        "post-restore" in str(t) for t in play.get("pre_tasks", [])
-    ), "the hook must not run before the roles"
-    assert "post-restore" not in str(play["roles"])
+    assert not any(HOOK_DIR_VAR in str(t) for t in play.get("pre_tasks", []))
+    assert HOOK_DIR_VAR not in str(play["roles"])
 
 
-def test_hook_replays_client_databases_not_the_infrastructure_one():
-    # catena-postgres is restored byte for byte from its own volume. A
-    # logical replay over it during recovery is pointless churn against the
-    # database Keycloak is mid-start on.
-    argv = _hook()["ansible.builtin.command"]["argv"]
-    assert "-scope" in argv
-    assert argv[argv.index("-scope") + 1] == "clients"
+def test_this_repo_names_no_binary_from_another_repo():
+    # The whole point of the seam. catena-ce sets the scene; whatever manages
+    # the host afterwards subscribes by installing a hook. A named binary here
+    # would invert that and also fail the converge on a host that has not
+    # installed it.
+    body = str(_hook_task()["ansible.builtin.shell"])
+    for leaked in ("catena-recovery", "catena_recovery_bin", "post-restore -scope"):
+        assert leaked not in body, (
+            f"{leaked!r} appears in the converge; the seam must not know what "
+            "the hooks do"
+        )
 
 
-def test_hook_points_the_binary_at_the_marker_it_is_gated_on():
-    # The binary clears the marker itself, and only on success. If the task
-    # gated on one path and the binary cleared another, every converge would
-    # redo the recovery forever.
-    argv = _hook()["ansible.builtin.command"]["argv"]
-    assert MARKER in argv[argv.index("-marker") + 1]
-
-
-def test_hook_carries_no_secret():
-    task = _hook()
-    assert "environment" not in task, (
-        "the Portainer key is read from the on-box file; putting it in the "
-        "task environment would force no_log and hide the recovery log"
+def test_an_empty_hook_directory_is_a_no_op():
+    # A host with no hooks must converge exactly as it did before the seam.
+    body = str(_hook_task()["ansible.builtin.shell"])
+    assert '[ -f "$hook" ] || continue' in body, (
+        "the loop must tolerate an empty directory (the glob stays literal)"
     )
-    assert not task.get("no_log"), "the recovery log must stay readable"
-    rendered = yaml.safe_dump(task)
-    assert "vault_" not in rendered, rendered
+    changed = str(_hook_task()["changed_when"])
+    assert "HOOKS_RAN=0" in changed, (
+        "running zero hooks must report unchanged, or every converge on a "
+        "marker-less host reports changed"
+    )
 
 
-def test_recovery_log_is_surfaced():
+def test_a_failing_hook_fails_the_converge():
+    body = str(_hook_task()["ansible.builtin.shell"])
+    assert 'failed=$((failed + 1))' in body
+    assert '[ "$failed" -eq 0 ]' in body, (
+        "the script must exit non-zero when any hook failed; a converge that "
+        "left a recovery unfinished is not a successful converge"
+    )
+
+
+def test_hook_output_is_surfaced():
     debugs = [t for t in _post_tasks() if "ansible.builtin.debug" in t]
     assert any(
-        "stderr_lines" in str(t["ansible.builtin.debug"]) for t in debugs
+        "stdout_lines" in str(t["ansible.builtin.debug"]) for t in debugs
     ), "a half-finished recovery must not be swallowed behind a green task"
 
 
-def test_binary_path_is_declared_by_the_role_that_installs_it():
-    defaults = yaml.safe_load(ADMIN_DEFAULTS.read_text())
-    assert defaults["catena_recovery_bin"].endswith("/catena-recovery")
-    argv = _hook()["ansible.builtin.command"]["argv"]
-    assert argv[0] == "{{ catena_recovery_bin }}"
+def test_this_repo_creates_the_directory_and_never_writes_to_it():
+    tasks = yaml.safe_load(BACKUP_INSTALL.read_text())
+    creators = [
+        t for t in tasks
+        if HOOK_DIR_VAR in str(t.get("ansible.builtin.file", {}).get("path", ""))
+    ]
+    assert len(creators) == 1, "exactly one task should create the hook directory"
+    assert creators[0]["ansible.builtin.file"]["state"] == "directory"
+
+    # Nothing in this repo may install a hook: that is the other side's job.
+    for path in (BACKUP_INSTALL, SITE):
+        body = path.read_text()
+        assert "post-restore.d/" not in body.replace(
+            "/etc/catena/post-restore.d\n", ""
+        ), f"{path.name} writes into the hook directory"
+
+
+def test_hook_directory_rides_the_backup():
+    # Under /etc/catena, which is in backup_paths, so a restored host keeps
+    # the hooks it had.
+    defaults = yaml.safe_load(BACKUP_DEFAULTS.read_text())
+    assert defaults[HOOK_DIR_VAR].startswith("/etc/catena/")
 
 
 def test_backup_role_no_longer_dispatches_the_replay_modes():
     # Two implementations of a replay is how they drift. The role keeps the
     # mechanisms a converge genuinely needs and nothing else.
     tasks = yaml.safe_load(BACKUP_TASKS.read_text())
-    modes = set()
-    for task in tasks:
-        for key in ("ansible.builtin.include_tasks",):
-            if key in task:
-                modes.add(str(task[key]))
+    modes = {
+        str(t["ansible.builtin.include_tasks"])
+        for t in tasks if "ansible.builtin.include_tasks" in t
+    }
     assert not any("pg_replay" in m or "s3_reconcile" in m for m in modes), modes
 
-    assert_task = tasks[0]["ansible.builtin.assert"]["that"]
-    joined = " ".join(assert_task)
+    joined = " ".join(tasks[0]["ansible.builtin.assert"]["that"])
     for gone in ("pg_replay", "s3_reconcile"):
         assert gone not in joined, joined
     for kept in ("install", "verify", "restore"):
