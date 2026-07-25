@@ -37,7 +37,7 @@ A web dashboard with role-aware access (staff see status, administrators also ge
 
 Implemented in: `ansible/roles/catena-admin`, `ansible/scripts/catena-admin-runner.sh`
 
-Rehearsal scenarios (12): `admin_apps_tab_admin_full`, `admin_apps_tab_staff_filtered`, `admin_staff_cannot_reach_admin_routes`, `audit_db_torn_write_recovery`, `catena_admin_actions_round_trip`, `catena_admin_daily_tab_renders`, `catena_admin_resources_tab_links_beszel`, `catena_admin_smoke`, `ce_admin_actions`, `ce_admin_smoke`, `quiesce_resume_round_trip`, `wizard_restore_smoke`
+Rehearsal scenarios (12): `admin_apps_tab_admin_full`, `admin_apps_tab_staff_filtered`, `admin_staff_cannot_reach_admin_routes`, `audit_chain_tamper_evident`, `catena_admin_actions_round_trip`, `catena_admin_daily_tab_renders`, `catena_admin_resources_tab_links_beszel`, `catena_admin_smoke`, `ce_admin_actions`, `ce_admin_smoke`, `quiesce_resume_round_trip`, `wizard_restore_smoke`
 
 ### Installation and application deployment
 
