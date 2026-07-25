@@ -135,6 +135,15 @@ catena_recovery_history_file: /var/lib/catena/recovery.history
 catena_migrate_lane_bin: /usr/local/bin/catena-migrate-lane
 catena_migrate_lane_port: 9040
 
+# The same binary is also the TARGET side of a move, and that side keeps its own
+# progress record. Separate files from the restore machine's on purpose: a
+# migration DRIVES a restore, so the two would otherwise overwrite each other
+# and the page watching the migration would read the restore's state as its own.
+# Under /var/lib/catena for the same reason as the restore's -- transient run
+# state, and /etc rides the backup set.
+catena_migration_state_file: /var/lib/catena/migration.state
+catena_migration_history_file: /var/lib/catena/migration.history
+
 # EE-reserved HOST dispatch entries. The Go shell renders Business action
 # BUTTONS at runtime from its compiled-in panels (audit, daily, ...) only
 # under an active license, and dispatches each by NAME through the host
@@ -192,6 +201,45 @@ catena_admin_ee_reserved_actions:
   # quiesce, and it has to work whether or not a window is still open.
   - name: catena-migrate-resume
     shell: "{{ catena_recovery_bin }} quiesce resume"
+  # The TARGET side: this server pulling another one onto itself. Detached under
+  # systemd-run for the same reason a restore is -- a move runs for hours and
+  # must not die with the panel container that started it -- and --pipe hands the
+  # request through on stdin, which is what keeps the source's pairing code out
+  # of argv. A code on a command line is readable by every process on this box
+  # for the whole migration.
+  #
+  # The request is {"source","code","preseed_passes"}. The address must be the
+  # source's tailnet address and the binary refuses a NAME: the name of the
+  # server being moved is about to point at this one, so a move that resolved it
+  # could talk to itself and report that the source paused when nothing did.
+  - name: catena-migrate-run
+    shell: >-
+      echo "$PAYLOAD" | base64 -d |
+      systemd-run --unit catena-migrate-run --collect --pipe
+      {{ catena_migrate_lane_bin }} run --stdin
+  # Read-only progress, in the same shape as the restore's: the migration page
+  # reads these two files directly through its read-only mount, so this is the
+  # hand-run and bench view rather than the polling path.
+  - name: catena-migrate-run-status
+    shell: >-
+      printf 'state=%s\n'
+      "$(head -n 1 {{ catena_migration_state_file }} 2>/dev/null || echo idle)";
+      printf 'unit=%s\n'
+      "$(systemctl is-active catena-migrate-run.service 2>/dev/null || true)";
+      tail -n 40 {{ catena_migration_history_file }} 2>/dev/null || true
+  # Forgetting a move, which is NOT undoing one. Clears this host's record and
+  # touches neither the source, nor this host's data, nor DNS.
+  - name: catena-migrate-run-reset
+    shell: "{{ catena_migrate_lane_bin }} reset"
+  # The way back after a failure past the point of no return, dispatched from
+  # the TARGET (catena-migrate-resume above is the same act dispatched from the
+  # source itself, for when the target is what failed). Deliberately a separate
+  # action from the move: once the source is stopped, putting it back is a
+  # decision, and a decision belongs to a person.
+  - name: catena-migrate-resume-source
+    shell: >-
+      echo "$PAYLOAD" | base64 -d |
+      {{ catena_migrate_lane_bin }} resume-source --stdin
   # Multi-domain Cloudflare zone save (EE cloudflarezones plugin). The panel's
   # single-field form POSTs an opaque PAYLOAD: for an add it is the raw CF API
   # token the user typed (no browser JS/base64 needed, so it survives the strict

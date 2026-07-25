@@ -38,6 +38,11 @@ MIGRATE_ACTIONS = {
     "catena-migrate-disarm",
     "catena-migrate-status",
     "catena-migrate-resume",
+    # Target side: this server pulling another one onto itself.
+    "catena-migrate-run",
+    "catena-migrate-run-status",
+    "catena-migrate-run-reset",
+    "catena-migrate-resume-source",
 }
 
 
@@ -95,6 +100,69 @@ def test_resume_does_not_go_through_the_lane():
     assert "{{ catena_recovery_bin }}" in shell
     assert "catena_migrate_lane_bin" not in shell
     assert shell.strip().endswith("quiesce resume")
+
+
+def test_target_side_state_files_are_separate_from_the_restores():
+    # A migration DRIVES a restore, so sharing one state file would have the
+    # page watching the move read the restore's progress as its own.
+    d = _defaults()
+    assert d["catena_migration_state_file"] != d["catena_recovery_state_file"]
+    assert d["catena_migration_history_file"] != d["catena_recovery_history_file"]
+    # Under /var/lib, not /etc: /etc is in the backup set, and a snapshot taken
+    # mid-move would otherwise carry a half-finished migration's state into the
+    # next host that restored it.
+    for key in ("catena_migration_state_file", "catena_migration_history_file"):
+        assert d[key].startswith("/var/lib/catena/"), d[key]
+
+
+def test_the_move_runs_detached_and_takes_its_request_on_stdin():
+    shell = _ee_actions()["catena-migrate-run"]
+    # Detached, because a move runs for hours and must not die with the panel
+    # container that started it.
+    assert "systemd-run" in shell and "--collect" in shell
+    assert "--pipe" in shell, (
+        "without --pipe the request cannot reach the binary on stdin, which is "
+        "what keeps the pairing code out of argv"
+    )
+    assert shell.strip().endswith("run --stdin"), shell
+    # The pairing code travels inside $PAYLOAD and must never appear as an
+    # argument: argv is readable by every process on the host, for hours.
+    assert "--code" not in shell and "--source" not in shell
+
+
+def test_resume_source_is_a_separate_action_from_the_move():
+    # Once the source is stopped, putting it back is a decision. Folding it into
+    # the move would make a retry and an abort the same button.
+    ee = _ee_actions()
+    assert "catena-migrate-resume-source" in ee
+    assert ee["catena-migrate-resume-source"] != ee["catena-migrate-run"]
+    shell = ee["catena-migrate-resume-source"]
+    assert shell.strip().endswith("resume-source --stdin"), shell
+    # Not detached: it is a single call to the source and its answer is what the
+    # person who pressed it is waiting for.
+    assert "systemd-run" not in shell
+
+
+def test_the_move_status_action_is_read_only():
+    shell = _ee_actions()["catena-migrate-run-status"]
+    # A status action that cleared state would let a page refresh destroy what
+    # it reported.
+    assert "reset" not in shell
+    assert "{{ catena_migration_state_file }}" in shell
+    assert "{{ catena_migration_history_file }}" in shell
+    assert "head -n 1" in shell, (
+        "the state file carries the source and snapshot on later lines; reading "
+        "all of it would report them as the state"
+    )
+
+
+def test_reset_forgets_the_record_and_nothing_else():
+    shell = _ee_actions()["catena-migrate-run-reset"]
+    assert shell.strip().endswith("reset"), shell
+    # No resume, no restore, no DNS: forgetting a move and undoing one are
+    # different acts.
+    for forbidden in ("resume", "restore", "cutover", "rm "):
+        assert forbidden not in shell, shell
 
 
 def test_lane_port_is_declared_tailnet_only():
