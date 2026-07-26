@@ -11,7 +11,7 @@ This sheet is **generated, not written**: it is rendered from the same machine-c
 
 Catena is exercised end-to-end by an automated rehearsal suite: each scenario provisions disposable virtual machines, drives the real product (install, converge, back up, break, restore) and asserts the outcome -- including deliberate failure injection. The counts below are those rehearsals.
 
-**Coverage: 10 Community features exercised by 95 rehearsal scenarios; 13 Catena Pro features by 44; plus 24 maintainer-internal rehearsals.**
+**Coverage: 10 Community features exercised by 95 rehearsal scenarios; 13 Catena Pro features by 46; plus 24 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -107,7 +107,7 @@ Catena Pro features are exercised by the same rehearsal suite. Implementation pa
 | Vulnerability scanning | 1 |
 | Automated daily maintenance | 14 |
 | Managed lifecycle operations (migration, decommission) | see note |
-| Licensed feature activation | 4 |
+| Licensed feature activation | 6 |
 | Identity posture monitoring | 1 |
 | Managed updates with automatic rollback | 9 |
 | External availability monitoring | 1 |
