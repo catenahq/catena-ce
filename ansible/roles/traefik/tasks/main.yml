@@ -199,22 +199,7 @@
 # (docker socket + config mounts, restart policy).
 - name: "traefik: launch catena-traefik (pinned image, no host ports)"
   ansible.builtin.command:
-    argv:
-      - docker
-      - run
-      - -d
-      - "--name={{ traefik_container_name }}"
-      - --restart=always
-      - "--network={{ catena_network_name }}"
-      - -v
-      - /var/run/docker.sock:/var/run/docker.sock
-      - -v
-      - "{{ traefik_config_dir }}/traefik.yml:/etc/traefik/traefik.yml"
-      - -v
-      - "{{ traefik_dynamic_dir }}:{{ traefik_dynamic_dir }}"
-      - -v
-      - "{{ traefik_dynamic_dir }}/acme.json:/etc/traefik/acme.json"
-      - "{{ traefik_image }}"
+    argv: "{{ ['docker', 'run'] + traefik_run_argv + [traefik_image] }}"
   when: _traefik_needs_relaunch | bool
   register: _traefik_launch
   changed_when: _traefik_launch.rc == 0

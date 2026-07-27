@@ -188,6 +188,28 @@
   no_log: true
   when: not _backup_env_stat.stat.exists
 
+# The cold-tier half, written on EVERY converge unlike backup.env above.
+#
+# It cannot share backup.env: that file is only-if-absent so a converge never
+# clobbers a rotated credential, and the WORM coordinates have to be able to
+# change -- an operator adding a cold tier to an existing host would otherwise
+# write into a file nothing rewrites. Same reasoning that moved retention out
+# to backup-retention.env.
+#
+# The mirror units load this with a leading dash, so it is legal for every
+# value here to be blank; blank means the engine skips. That fail-soft
+# contract is also how the file's absence stayed invisible for months: every
+# mirror run reported "WORM unconfigured" and exited 0, and no host ever made
+# the offsite immutable copy the mirror exists for.
+- name: "Backup: write cold-tier mirror env file"
+  ansible.builtin.template:
+    src: backup-worm.env.j2
+    dest: "{{ backup_worm_env_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
 - name: Drop backup wrapper script
   # Plain /bin/sh under scripts/; no Jinja. Per-host values come from
   # {{ backup_env_file }} (scalars) and the paths/excludes files below.

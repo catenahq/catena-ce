@@ -131,6 +131,45 @@ catena_schedule_bin: /usr/local/bin/catena-schedule
 # the config store like everything else.
 catena_daily_env_path: /etc/catena/daily.env
 
+# Per-host configuration for the two managed-update lanes, and the spec list
+# the container lane bumps from. Same story as daily.env above, three more
+# times: catena-auto-update{,@,-resume}.service and
+# catena-stack-update-managed.service all declare their EnvironmentFile with no
+# leading dash, nothing rendered them, and the engine's --specs-file default
+# pointed at a path nothing wrote. Both lanes were unstartable on a real host
+# and neither showed it, because the bench ships its own copies.
+#
+# Same owner as daily.env for the same reason: this role installs the payload,
+# so it is the role that knows the host these files describe.
+catena_auto_update_env_path: /etc/catena/auto-update.env
+catena_stack_update_env_path: /etc/catena/stack-update.env
+catena_managed_services_path: /etc/catena/managed-services.json
+
+# What an apply run does. security-only with a reboot when the packages ask
+# for one is the shipped posture; the chain drives this lane behind its own
+# backup and cold-verify gates.
+catena_auto_update_mode: security
+catena_auto_update_reboot: if-required
+# Zero retries after a rollback: a package set that regressed once regresses
+# again, and an apply-rollback loop is worse than a pending update.
+catena_auto_update_max_rollback_retries: 0
+# Abort before apt writes anything below this much free space (3 GiB).
+catena_auto_update_preflight_min_bytes: 3221225472
+catena_auto_update_healthcheck_url: ""
+# Tier-2 provider disk snapshot. none is a no-op; see the template for why the
+# OVH credentials are blank.
+catena_auto_update_provider: none
+catena_auto_update_provider_ovh_region: ovh-ca
+catena_auto_update_provider_ovh_vps_name: ""
+
+# Container-bump gates. Seven days of tag age because a withdrawn upstream
+# release is usually withdrawn within days and this lane runs unattended; two
+# minutes of stabilisation before the next service is bumped.
+catena_stack_update_min_tag_age_days: 7
+catena_stack_update_stabilize_seconds: 120
+catena_stack_update_cve_severity: "HIGH,CRITICAL"
+catena_stack_update_portainer_api_base: "{{ portainer_api_base | default('') }}"
+
 # Health gate for the pre-update state. Blank on a host without Gatus, which
 # is a skip rather than a failure: the chain cannot ask whether the host is
 # healthy, so it does not pretend to have asked.

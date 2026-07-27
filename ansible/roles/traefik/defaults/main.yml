@@ -29,6 +29,28 @@ catena_network_name: catena-network
 traefik_config_dir: /etc/catena/traefik
 traefik_dynamic_dir: "{{ traefik_config_dir }}/dynamic"
 
+# The `docker run` arguments between the verb and the image, as one list.
+#
+# Two things need these and they must not disagree: the launch task below, and
+# the managed container-bump lane, which recreates catena-traefik on a version
+# bump and has to reproduce the container the converge would have made. When
+# they drifted the lane relaunched traefik without its config mounts. So the
+# argv lives here once, the task prepends `docker run` and appends the image,
+# and roles/catena-admin renders the same list into the lane's spec file.
+traefik_run_argv:
+  - -d
+  - "--name={{ traefik_container_name }}"
+  - --restart=always
+  - "--network={{ catena_network_name }}"
+  - -v
+  - /var/run/docker.sock:/var/run/docker.sock
+  - -v
+  - "{{ traefik_config_dir }}/traefik.yml:/etc/traefik/traefik.yml"
+  - -v
+  - "{{ traefik_dynamic_dir }}:{{ traefik_dynamic_dir }}"
+  - -v
+  - "{{ traefik_dynamic_dir }}/acme.json:/etc/traefik/acme.json"
+
 # Trusted upstream-proxy IPs for Traefik's forwardedHeaders. Only sources in
 # this list have their X-Forwarded-* headers honored; anything else gets
 # rewritten with the local-edge values (X-Forwarded-Proto: http on :80), which

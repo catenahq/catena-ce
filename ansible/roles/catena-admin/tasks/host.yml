@@ -284,6 +284,38 @@
     group: root
     mode: "0644"
 
+# The two managed-update lanes, same story as daily.env: their units declare a
+# non-optional EnvironmentFile and nothing rendered it, so both were
+# unstartable on a real host.
+#
+# 0600 rather than 0644: this one carries the provider credentials when a
+# provider is configured.
+- name: "Catena-admin: host-package update lane configuration ({{ catena_auto_update_env_path }})"
+  ansible.builtin.template:
+    src: auto-update.env.j2
+    dest: "{{ catena_auto_update_env_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: "Catena-admin: container update lane configuration ({{ catena_stack_update_env_path }})"
+  ansible.builtin.template:
+    src: stack-update.env.j2
+    dest: "{{ catena_stack_update_env_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+# Which infra services the container lane may bump, and how. With no spec file
+# the lane bumped nothing and reported a clean run for it.
+- name: "Catena-admin: managed infra spec list ({{ catena_managed_services_path }})"
+  ansible.builtin.template:
+    src: managed-services.json.j2
+    dest: "{{ catena_managed_services_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
 # --- tailnet-only firewall for the native-login UI port (registry fragment) ---
 # The admin panel's host-published port (compose ports: mode=host -> :8001)
 # must be reachable only from the tailnet + RFC1918, never the public internet

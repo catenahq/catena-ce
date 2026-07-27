@@ -1,4 +1,4 @@
-"""Scheduling and retention each have exactly one owner.
+"""Scheduling, retention, and every host config file have exactly one owner.
 
 Every defect this replaced was a second source of truth:
 
@@ -146,3 +146,95 @@ def test_the_daily_env_does_not_carry_a_schedule():
     body = _code(DAILY_ENV)
     assert "OnCalendar" not in body
     assert "DAILY_TIMER_ONCALENDAR" not in body
+
+
+# ─── the other lanes can start at all ──────────────────────────────────
+#
+# daily.env was not the only one. catena-auto-update{,@,-resume}.service and
+# catena-stack-update-managed.service declare their EnvironmentFile with no
+# leading dash too, and the container engine's --specs-file defaults to a path
+# nothing wrote. All four were missing on every real host for the same reason,
+# and stayed invisible for the same reason: the bench shipped its own copies.
+
+LANE_CONFIG_TEMPLATES = (
+    "auto-update.env.j2",
+    "stack-update.env.j2",
+    "managed-services.json.j2",
+)
+
+
+def test_every_lane_config_file_is_rendered_exactly_once():
+    tasks = yaml.safe_load(ADMIN_HOST.read_text())
+    for src in LANE_CONFIG_TEMPLATES:
+        renders = [
+            t for t in tasks
+            if str(t.get("ansible.builtin.template", {}).get("src", "")) == src
+        ]
+        assert len(renders) == 1, f"{src} must be rendered exactly once"
+        assert "when" not in renders[0], (
+            f"{src} must not be conditional: a unit whose EnvironmentFile is "
+            "sometimes absent is a unit that sometimes cannot start"
+        )
+
+
+def test_the_secret_bearing_lane_config_is_not_world_readable():
+    # auto-update.env carries the provider credentials when a provider is
+    # configured; stack-update.env carries the Portainer API key.
+    tasks = yaml.safe_load(ADMIN_HOST.read_text())
+    for src in ("auto-update.env.j2", "stack-update.env.j2"):
+        tpl = next(
+            t["ansible.builtin.template"] for t in tasks
+            if str(t.get("ansible.builtin.template", {}).get("src", "")) == src
+        )
+        assert str(tpl["mode"]) == "0600", f"{src} must be 0600"
+
+
+def test_the_worm_env_is_rendered_every_converge_not_only_if_absent():
+    # backup.env next door is only-if-absent so a converge never clobbers a
+    # rotated credential. The WORM coordinates have to be able to change --
+    # an operator adding a cold tier to an existing host would otherwise write
+    # into a file nothing rewrites, which is the retention bug again.
+    tasks = yaml.safe_load(BACKUP_INSTALL.read_text())
+    renders = [
+        t for t in tasks
+        if str(t.get("ansible.builtin.template", {}).get("src", ""))
+        == "backup-worm.env.j2"
+    ]
+    assert len(renders) == 1, "backup-worm.env must be rendered exactly once"
+    assert "when" not in renders[0], (
+        "backup-worm.env must be unconditional: every value in it is "
+        "legitimately blank, and blank means the mirror skips"
+    )
+    assert renders[0].get("no_log") is True, "it carries the cold-tier keys"
+
+
+def test_the_worm_env_is_the_only_place_the_worm_keys_are_written():
+    # They were in neither file before this, which is why the cold mirror
+    # reported "WORM unconfigured" on every host it ever ran on.
+    assert "BACKUP_WORM_REPO" not in _code(BACKUP_ENV), (
+        "the WORM coordinates cannot live in backup.env: it is written "
+        "only-if-absent and they have to be able to change"
+    )
+    worm_env = ANSIBLE / "roles" / "backup" / "templates" / "backup-worm.env.j2"
+    body = _code(worm_env)
+    for key in ("BACKUP_WORM_REPO", "BACKUP_WORM_ACCESS_KEY_ID",
+                "NEXTCLOUD_WORM_REPO"):
+        assert key in body
+
+
+def test_the_traefik_run_argv_has_one_definition():
+    # The managed-bump lane recreates catena-traefik on a version bump and has
+    # to reproduce the container the converge would have made. Two copies of
+    # the argv means the lane relaunches traefik without its config mounts the
+    # first time one of them changes.
+    traefik_tasks = _code(ANSIBLE / "roles" / "traefik" / "tasks" / "main.yml")
+    assert "traefik_run_argv" in traefik_tasks
+    assert "/etc/traefik/acme.json" not in traefik_tasks, (
+        "the run argv is inlined in the task again; it belongs in "
+        "roles/traefik/defaults so the spec file can reference the same list"
+    )
+    specs = _code(
+        ANSIBLE / "roles" / "catena-admin" / "templates"
+        / "managed-services.json.j2"
+    )
+    assert "traefik_run_argv" in specs

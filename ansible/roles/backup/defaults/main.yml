@@ -66,7 +66,11 @@ backup_worm_repo: "{{ lookup('dotenv', 'BACKUP_WORM_REPO', default='') }}"
 # The cold-mirror cadence is the `restic_mirror` lane in the admin panel, off
 # by default like every other lane -- it writes into a second provider's
 # bucket, which is exactly the quota nobody has confirmed the client has.
-backup_restic_mirror_script: /usr/local/bin/catena-restic-mirror-to-worm
+#
+# The coordinates above are rendered into {{ backup_worm_env_file }}, which
+# catena-restic-mirror.service loads. There is no *_mirror_script var: the
+# mirror is the compiled catena-restic-mirror engine named by the unit's
+# ExecStart, not a script path this role hands anyone.
 
 # Nextcloud cold-tier mirror.
 #
@@ -88,7 +92,6 @@ nextcloud_live_repo: "{{ lookup('dotenv', 'NEXTCLOUD_LIVE_REPO', default='') }}"
 nextcloud_worm_repo: "{{ lookup('dotenv', 'NEXTCLOUD_WORM_REPO', default='') }}"
 nextcloud_worm_mirror_oncalendar: >-
   {{ lookup('dotenv', 'NEXTCLOUD_WORM_MIRROR_ONCALENDAR', default='*-*-* 04:45:00') }}
-nextcloud_mirror_script: /usr/local/bin/catena-nextcloud-mirror-to-worm
 nextcloud_mirror_healthcheck_url: >-
   {{
     lookup('dotenv', 'NEXTCLOUD_MIRROR_HEALTHCHECK_URL', default='')
@@ -462,6 +465,9 @@ backup_preflight_min_bytes: 5368709120 # 5 GiB
 # loudly instead of leaving a half-restored filesystem.
 restore_preflight_min_bytes: 5368709120 # 5 GiB
 backup_env_file: /etc/catena/backup.env
+# The cold-tier half, kept separate because backup.env is only-if-absent and
+# the WORM coordinates have to be able to change on an existing host.
+backup_worm_env_file: /etc/catena/backup-worm.env
 backup_password_file: /etc/catena/restic.pass
 backup_systemd_unit_name: catena-backup
 
