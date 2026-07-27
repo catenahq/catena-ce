@@ -110,6 +110,44 @@
     - /var/lib/catena/restic-home
     - /var/lib/catena/restic-cache
 
+# ─── CV8: the Community cadence cap, enforced where it holds ─────────────
+# catena-admin refuses a tighter-than-weekly backup schedule at the moment an
+# operator types it, and `catena-schedule apply` refuses to enable one. Both
+# of those run on a machine the client owns, and /etc/catena/config.json is a
+# file they can edit. So the converge asserts it too, against the value that
+# is actually stored.
+#
+# The panel is the affordance and this is the boundary. CV8 ("scheduled work
+# is default-deny, Community ships one weekly backup") is a structural claim
+# about this repo; a claim enforced only in a UI is not one.
+- name: "Backup: read the stored backup schedule"
+  ansible.builtin.slurp:
+    src: "{{ catena_config_store_path | default('/etc/catena/config.json') }}"
+  register: _backup_store_raw
+  failed_when: false
+
+- name: "Backup: the stored cadence honours the Community cap"
+  vars:
+    _store: >-
+      {{ (_backup_store_raw.content | default('') | b64decode | from_json)
+         if (_backup_store_raw.content is defined) else {} }}
+    _lane: "{{ (_store.schedules | default({})).backup | default({}) }}"
+  ansible.builtin.assert:
+    that:
+      - (_lane.oncalendar | default('weekly')) | backup_weekly_cap
+    fail_msg: >-
+      /etc/catena/config.json schedules the backup lane at
+      "{{ _lane.oncalendar | default('weekly') }}", which is more frequent than
+      Community allows. Daily and sub-daily backups are a Catena Pro feature.
+      Set a weekly-or-sparser schedule in the Catena admin panel, or apply a
+      licence to this host.
+  # Only when the lane is actually turned on and this host has no licence
+  # token. A stored expression on a disabled lane is not doing anything, and
+  # a licensed host is uncapped.
+  when:
+    - (_lane.enabled | default(false)) | bool
+    - ((_store.secrets | default({})).vault_catena_license | default('')) | length == 0
+
 # Reconcile-not-overwrite: restic password is set ONCE at first
 # install and never re-written by converge. Operator-driven incident
 # rotation goes through the documented runbook (multi-step
@@ -378,26 +416,25 @@
     daemon_reload: true
   when: _backup_service_unit.changed or _backup_timer_unit.changed
 
-# Probe mask state so a Business host (where EE catena-daily has masked
-# the timer to take over scheduling) is left alone -- `systemctl enable`
-# errors on a masked unit. is-enabled prints "masked" and exits non-zero
-# for a masked unit; we only enable when it is NOT masked.
-- name: "Backup: probe daily-timer mask state"
-  ansible.builtin.command:
-    argv:
-      - systemctl
-      - is-enabled
-      - "{{ backup_systemd_unit_name }}.timer"
-  register: _backup_timer_enabled_state
-  changed_when: false
-  failed_when: false
-
-- name: "Backup: enable + start the daily-backup timer (skip if EE-masked)"
-  ansible.builtin.systemd_service:
-    name: "{{ backup_systemd_unit_name }}.timer"
-    enabled: true
-    state: started
-  when: "'masked' not in _backup_timer_enabled_state.stdout"
+# The timer unit is INSTALLED here and enabled nowhere in this repo.
+#
+# Whether a lane runs, and when, is `catena-schedule apply` reading
+# /etc/catena/config.json -- one owner for enable/disable across all four
+# lanes (backup, the daily chain, and the two cold mirrors). Enabling it here
+# as well would make two things responsible for the same unit, and they would
+# disagree the moment somebody turned the lane off in the panel: the next
+# converge would turn it back on.
+#
+# The consequence is deliberate and it is the point: a fresh host schedules
+# NOTHING. Scheduled work spends disk and object-store quota nobody has
+# confirmed the client has. Nothing runs, so nothing pings, so no Healthchecks
+# check is provisioned and none can go late -- the operator sees an unscheduled
+# host in the panel rather than being paged about a host nobody asked to back
+# anything up yet.
+#
+# The unit file's own OnCalendar is a safe weekly default that a drop-in from
+# catena-schedule replaces; it is what the timer would do if it were enabled by
+# hand with nothing configured.
 
 # ─── restic repo init (idempotent) ───────────────────────────────────────
 # `restic cat config` returns 0 iff the repo exists and the password is

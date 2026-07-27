@@ -259,6 +259,31 @@
     group: "{{ catena_admin_container_gid }}"
     mode: "0700"
 
+# Per-host configuration for the daily orchestrator chain.
+#
+# catena-daily.service and catena-daily-resume.service declare
+# EnvironmentFile for this path with NO leading dash, so systemd fails the
+# unit outright when it is absent -- and nothing wrote it. Not this repo, not
+# catena-admin, not ops. The scheduled Business chain could not start on any
+# real host; only the test bench had the file, because the bench writes its
+# own. The template that used to render this lived in the catena-ee ansible
+# tree and went with it at the Go port.
+#
+# Written on EVERY converge, unlike backup.env next door: this file holds no
+# secrets, only paths and toggles, so there is no rotated value for a
+# re-render to clobber. The chain reads its credentials from the config store.
+#
+# Not gated on the payload install. The file describing how the chain should
+# behave is cheap and harmless on a host that has no chain, and the ordering
+# is one less thing to get wrong on a first converge.
+- name: "Catena-admin: daily orchestrator configuration ({{ catena_daily_env_path }})"
+  ansible.builtin.template:
+    src: daily.env.j2
+    dest: "{{ catena_daily_env_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
 # --- tailnet-only firewall for the native-login UI port (registry fragment) ---
 # The admin panel's host-published port (compose ports: mode=host -> :8001)
 # must be reachable only from the tailnet + RFC1918, never the public internet

@@ -11,31 +11,22 @@ backup_restic_version: "0.19.1"
 
 backup_restic_repo: "" # e.g. s3:s3.bhs.io.cloud.ovh.net/<client>-restic
 
-# Client cadence tier (Sprint 3.1). Three named tiers ladder client
-# RPO against price tier without per-host schedule editing:
+# Cadence is not set here. It is a customizable RPO: an OnCalendar string
+# per lane, set in the Catena admin panel, stored in /etc/catena/config.json
+# and applied by `catena-schedule apply`. Community is capped at one backup a
+# week (backup_weekly_cap, asserted at converge time -- the panel refuses it
+# too, but a client can edit their own config.json, so the converge is the
+# boundary and the panel is the affordance).
 #
-#   realtime   15-min hot snapshots, daily cold mirror
-#   standard   hourly hot snapshots, daily cold mirror  (default)
-#   relaxed    6-hour hot snapshots, weekly cold mirror
+# The three named tiers that used to live here are gone. They mapped a name to
+# a cadence and a retention ladder; the cadence half was computed and rendered
+# into no unit at all, so every tier ran at the same hardcoded times and only
+# retention varied -- a `realtime` host was configured to keep 96 hourly
+# snapshots while producing one snapshot a day.
 #
-# See automation/ansible/playbooks/filter_plugins/backup_tier.py for
-# the schedule + retention mapping. Default `standard` preserves the
-# pre-Sprint-3.1 behaviour (hourly hot, daily cold). Override per host
-# via inventory `.env` BACKUP_TIER=realtime/standard/relaxed. Direct
-# overrides of backup_schedule / backup_retention_policy still work
-# and take precedence over the tier defaults -- the tier sets the
-# baseline; per-key envs are the operator's escape hatch.
-backup_tier: "{{ lookup('dotenv', 'BACKUP_TIER', default='standard') }}"
-
-# Hot-tier snapshot cadence. Default derived from backup_tier (see
-# above); pre-Sprint-3.1 `hourly` literal kept as the standard tier's
-# baseline so existing clients see no flag day. Restic's
-# content-defined chunking makes a per-hour snapshot near-free at the
-# pack-file level (only changed bytes write); the real cost is the
-# pg_dumpall (~minutes per Postgres container) + S3 API calls (cents/mo
-# on OVH BHS). Operators with sparse-write workloads can override
-# back to nightly via inventory `.env` (BACKUP_SCHEDULE=*-*-* 03:30:00).
-backup_schedule: "{{ backup_tier | backup_tier_schedule }}"
+# Every lane ships DISABLED. Scheduled work spends disk and object-store quota
+# nobody has confirmed the client has, so a fresh host schedules nothing until
+# someone turns a lane on.
 
 # WORM mirror (ransomware mitigation).
 #
@@ -72,10 +63,9 @@ backup_schedule: "{{ backup_tier | backup_tier_schedule }}"
 # and exits 0. Daily backups never read the worm config and stay
 # unaffected -- a misconfigured WORM cannot brick the primary chain.
 backup_worm_repo: "{{ lookup('dotenv', 'BACKUP_WORM_REPO', default='') }}"
-# Cold-mirror cadence derived from backup_tier (Sprint 3.1): daily
-# for realtime/standard, weekly Sunday for relaxed. Operator can
-# still override via inventory `.env` BACKUP_WORM_MIRROR_ONCALENDAR.
-backup_worm_mirror_oncalendar: "{{ backup_tier | backup_tier_worm_oncalendar }}"
+# The cold-mirror cadence is the `restic_mirror` lane in the admin panel, off
+# by default like every other lane -- it writes into a second provider's
+# bucket, which is exactly the quota nobody has confirmed the client has.
 backup_restic_mirror_script: /usr/local/bin/catena-restic-mirror-to-worm
 
 # Nextcloud cold-tier mirror.
@@ -188,7 +178,22 @@ backup_healthcheck_attempted_url: >-
 backup_healthcheck_url_client: "{{ lookup('dotenv', 'BACKUP_HEALTHCHECK_URL_CLIENT', default='') }}"
 backup_healthcheck_url_operator: "{{ lookup('dotenv', 'BACKUP_HEALTHCHECK_URL_OPERATOR', default='') }}"
 
-backup_retention_policy: "{{ backup_tier | backup_tier_retention }}"
+# Retention is not set by this repo at all.
+#
+# Five independent restic buckets, set in the Catena admin panel, stored on-box
+# in /etc/catena/config.json under `backup_retention`, rendered to
+# /etc/catena/backup-retention.env by `catena-schedule apply`, and sourced from
+# there by run-backup.sh. One source, one writer, one reader. Adding a default
+# here would make this repo a second writer of a value the panel owns, which is
+# how the old arrangement ended up with a converge-rendered copy that no host
+# ever read.
+#
+# This is what the three backup tiers used to decide. Tiers bundled a cadence
+# and a retention ladder behind one name; the cadence half was never rendered
+# into any unit, and the retention half is more useful set directly. The
+# composition is why: keep_last 8 with keep_hourly 24 on a fifteen-minute
+# schedule holds eight snapshots across two hours and twenty-two more across
+# the day, and no tier name says that.
 
 # Paths the nightly timer backs up. Restic walks each listed path
 # recursively; we pick the subtrees we want rather than listing the

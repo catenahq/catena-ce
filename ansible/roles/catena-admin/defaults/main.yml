@@ -111,6 +111,36 @@ catena_admin_ee_payload_dir: "{{ catena_admin_stats_dir }}/ee-payload"
 catena_admin_ee_payload_installer: "{{ catena_admin_ee_payload_dir }}/install-ee-payload.sh"
 catena_admin_ee_payload_bin_dir: "{{ catena_admin_ee_payload_dir }}/bin"
 
+# The scheduling owner. Installed with the rest of the ungated payload; it
+# reads /etc/catena/config.json and is the only thing that enables a timer,
+# writes a timer OnCalendar drop-in, or renders the restic retention file.
+catena_schedule_bin: /usr/local/bin/catena-schedule
+
+# Per-host configuration for the daily orchestrator chain.
+#
+# catena-daily.service and catena-daily-resume.service both declare
+# EnvironmentFile=/etc/catena/daily.env with no leading dash, so systemd
+# fails the unit outright when the file is missing -- and until now NOTHING
+# wrote it. Not this repo, not catena-admin, not ops. The scheduled Business
+# chain could not start on any real host; only the test bench had one, because
+# the bench writes its own copy.
+#
+# It belongs to this role for the same reason the payload install does: it is
+# per-host configuration, and the converge is what knows the host. The values
+# are paths and toggles, not secrets -- the chain reads its credentials from
+# the config store like everything else.
+catena_daily_env_path: /etc/catena/daily.env
+
+# Health gate for the pre-update state. Blank on a host without Gatus, which
+# is a skip rather than a failure: the chain cannot ask whether the host is
+# healthy, so it does not pretend to have asked.
+catena_daily_gatus_api_url: "{{ gatus_api_url | default('') }}"
+
+# Whether the chain takes ownership of Debian's apt-daily-upgrade.timer. True
+# is the shipped posture: the chain applies security updates behind its own
+# backup and verify gates, and two things applying updates is one too many.
+catena_daily_manage_apt_timer: true
+
 # The host restore engine, installed by the payload above like every other
 # engine. Declared here rather than at the call site because this role owns
 # where the payload lands; site.yml's post-restore hook reads it.

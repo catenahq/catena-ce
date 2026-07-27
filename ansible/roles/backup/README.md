@@ -63,8 +63,13 @@ because an unreadable answer is not evidence of a gap.
   weekly-backup timer (default `weekly`; the `backup_weekly_cap` filter
   fails the converge on anything tighter than weekly -- daily and
   sub-daily cadence is the Business lane).
-- `backup_schedule` -- Business daily/sub-daily cadence derived from
-  `backup_tier`; consumed by the EE catena-daily chain, not the CE timer.
+Cadence and retention are NOT inputs to this role. Both are set per host
+in the catena-admin panel, stored in `/etc/catena/config.json`, and
+applied by `catena-schedule` -- which is the only thing that enables a
+timer, writes a timer OnCalendar drop-in, or renders
+`/etc/catena/backup-retention.env`. This role installs the units and
+enables nothing; the converge asserts the Community cap against the
+stored value.
 
 ## Idempotency
 

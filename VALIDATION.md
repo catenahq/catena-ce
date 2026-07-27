@@ -13,7 +13,7 @@ Catena is exercised end-to-end by an automated rehearsal suite: each scenario pr
 
 Two numbers are reported everywhere: **rehearsed** means the scenario was last recorded PASSING on a real run, and is the only number treated as evidence; **declared** additionally counts scenarios that exist but have not been observed passing yet. A scenario is never counted for merely existing.
 
-**Coverage: 10 Community features, 72 of 84 rehearsal scenarios observed passing; 13 Catena Pro features, 33 of 46; plus 14 of 23 maintainer-internal rehearsals.**
+**Coverage: 10 Community features, 71 of 84 rehearsal scenarios observed passing; 13 Catena Pro features, 32 of 45; plus 14 of 23 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -21,9 +21,9 @@ Two numbers are reported everywhere: **rehearsed** means the scenario was last r
 
 A scheduled weekly backup plus manual backups any time. Backups are encrypted on the server before leaving it and land in object storage the client owns; snapshots can be listed, browsed and exported without a restore. Daily and sub-daily cadence is a Catena Pro feature.
 
-Implemented in: `ansible/playbooks/backup_now.yml`, `ansible/playbooks/filter_plugins/backup_tier.py`, `ansible/roles/backup`, `ansible/scripts/backup-coverage.sh`, `ansible/scripts/catena-restic-key.py`, `ansible/scripts/restic-env.sh`, `ansible/scripts/restic-mount.sh`, `ansible/scripts/restic-short-id.sh`, `ansible/scripts/restic-unmount.sh`, `ansible/scripts/run-backup.sh`, `ansible/scripts/snapshot-export.sh`, `ansible/scripts/snapshot-list.sh`
+Implemented in: `ansible/playbooks/backup_now.yml`, `ansible/playbooks/filter_plugins/backup_cadence_cap.py`, `ansible/roles/backup`, `ansible/scripts/backup-coverage.sh`, `ansible/scripts/catena-restic-key.py`, `ansible/scripts/restic-env.sh`, `ansible/scripts/restic-mount.sh`, `ansible/scripts/restic-short-id.sh`, `ansible/scripts/restic-unmount.sh`, `ansible/scripts/run-backup.sh`, `ansible/scripts/snapshot-export.sh`, `ansible/scripts/snapshot-list.sh`
 
-Rehearsal scenarios (10 of 11 observed passing): `backup_rollback`, `backup_tier_schedule_resolution`, `concurrent_backup_lock_contention`, `fi_b2_pg_dump_failed`, `fi_b3_snapshot_id_mismatch`, `fi_b6_healthchecks_down`, `fi_b7_ntfy_delivery_fails`, `malformed_catalog_rejection`, `restic_password_rotation_round_trip`, `snapshot_export_round_trip`; declared, not yet observed passing: `fi_b4_locked_pack_rotation`
+Rehearsal scenarios (9 of 11 observed passing): `backup_rollback`, `concurrent_backup_lock_contention`, `fi_b2_pg_dump_failed`, `fi_b3_snapshot_id_mismatch`, `fi_b6_healthchecks_down`, `fi_b7_ntfy_delivery_fails`, `malformed_catalog_rejection`, `restic_password_rotation_round_trip`, `snapshot_export_round_trip`; declared, not yet observed passing: `backup_schedule_applied`, `fi_b4_locked_pack_rotation`
 
 ### Single sign-on across the suite
 
@@ -107,7 +107,7 @@ Catena Pro features are exercised by the same rehearsal suite. Implementation pa
 | Tamper-evident central audit trail | 1 | 1 |
 | Offsite immutable backup copy | 2 | 6 |
 | Vulnerability scanning | 1 | 1 |
-| Automated daily maintenance | 14 | 14 |
+| Automated daily maintenance | 13 | 13 |
 | Managed lifecycle operations (migration, decommission) | see note | see note |
 | Licensed feature activation | 4 | 6 |
 | Identity posture monitoring | 0 | 1 |

@@ -30,6 +30,23 @@ ENV_FILE="${1:-/etc/catena/backup.env}"
 set -a
 # shellcheck disable=SC1090
 . "$ENV_FILE"
+
+# Retention, sourced after the main env file so it wins.
+#
+# Its own file because backup.env is written ONCE, deliberately: it holds the
+# repository credentials and a converge must not overwrite a rotated secret.
+# Retention has to be able to change, so it cannot live there. This file is
+# rendered by `catena-schedule apply` from /etc/catena/config.json, which the
+# admin panel writes -- one source, one writer, one reader.
+#
+# Absent means catena-schedule has never run here. Not fatal at this point:
+# the prune below refuses when it ends up with nothing to keep, and that is a
+# better place to fail than before the snapshot is even taken.
+BACKUP_RETENTION_ENV="${BACKUP_RETENTION_ENV:-/etc/catena/backup-retention.env}"
+if [ -r "$BACKUP_RETENTION_ENV" ]; then
+    # shellcheck disable=SC1090
+    . "$BACKUP_RETENTION_ENV"
+fi
 set +a
 
 log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
@@ -119,10 +136,13 @@ PY
     _v=$(_store_get config BACKUP_RESTIC_REPO);          [ -n "$_v" ] && RESTIC_REPOSITORY="$_v"
     _v=$(_store_get secrets vault_backup_s3_access_key); [ -n "$_v" ] && AWS_ACCESS_KEY_ID="$_v"
     _v=$(_store_get secrets vault_backup_s3_secret_key); [ -n "$_v" ] && AWS_SECRET_ACCESS_KEY="$_v"
-    _v=$(_store_get config BACKUP_KEEP_HOURLY);          [ -n "$_v" ] && BACKUP_KEEP_HOURLY="$_v"
-    _v=$(_store_get config BACKUP_KEEP_DAILY);           [ -n "$_v" ] && BACKUP_KEEP_DAILY="$_v"
-    _v=$(_store_get config BACKUP_KEEP_WEEKLY);          [ -n "$_v" ] && BACKUP_KEEP_WEEKLY="$_v"
-    _v=$(_store_get config BACKUP_KEEP_MONTHLY);         [ -n "$_v" ] && BACKUP_KEEP_MONTHLY="$_v"
+    # Retention is NOT read here. It used to be, from flat config.BACKUP_KEEP_*
+    # keys, while backup.env.j2 also templated the same four values -- and
+    # backup.env is written only-if-absent, so on any host that already had it
+    # the converge's copy was dead and the store's copy was live. Two writers,
+    # one of them silently ignored. It now has exactly one path:
+    # config.json `backup_retention` -> catena-schedule -> the env file sourced
+    # below.
     BACKUP_ENABLED=$(_store_get config BACKUP_ENABLED)
     BACKUP_MIN_INTERVAL_HOURS=$(_store_get config BACKUP_MIN_INTERVAL_HOURS)
     _store_pw=$(_store_get secrets vault_backup_restic_password)
@@ -481,13 +501,47 @@ fi
 "$@"
 
 # ─── retention ───────────────────────────────────────────────────────────
-# --keep-hourly added for the hourly-cadence default (BACKUP_SCHEDULE=
-# hourly). Default 24 means one full day of hourly snapshots before
-# the daily/weekly/monthly tail takes over; if an operator drops the
-# cadence back to nightly, restic forget is a no-op against snapshots
-# that do not exist, so the keep_hourly flag is harmless on a nightly
-# host.
-log "restic forget --prune"
+# Five buckets, each set independently in the admin panel, each passed
+# through only when it is non-zero. Zero and omitted mean the same thing to
+# restic -- keep nothing on that basis -- and omitting it keeps the command
+# line from mentioning a bucket the operator chose not to have.
+#
+# The composition is the point, and it is why these are five numbers rather
+# than a tier name: keep-last 8 with keep-hourly 24 on a fifteen-minute
+# schedule holds eight snapshots across the last two hours and twenty-two
+# more across the rest of the day. A bucket is also harmless on a host whose
+# cadence never fills it -- forget is a no-op against snapshots that do not
+# exist -- so a slower schedule needs no matching retention edit.
+keep_args=""
+add_keep() {
+    # $1 flag, $2 value. Anything non-numeric is treated as unset rather
+    # than passed through: restic would reject it and take the whole run
+    # down at the prune, after the snapshot it was meant to protect.
+    case "${2:-}" in
+        ''|*[!0-9]*) return 0 ;;
+    esac
+    [ "$2" -gt 0 ] || return 0
+    keep_args="${keep_args} $1 $2"
+}
+add_keep --keep-last "${BACKUP_KEEP_LAST:-}"
+add_keep --keep-hourly "${BACKUP_KEEP_HOURLY:-}"
+add_keep --keep-daily "${BACKUP_KEEP_DAILY:-}"
+add_keep --keep-weekly "${BACKUP_KEEP_WEEKLY:-}"
+add_keep --keep-monthly "${BACKUP_KEEP_MONTHLY:-}"
+
+if [ -z "$keep_args" ]; then
+    # Every bucket zero would ask restic to forget every snapshot in the
+    # repository. The panel refuses this and so does the converge; reaching
+    # it here means the env file was hand-edited, and running the prune
+    # anyway would destroy the backups on the strength of a typo.
+    log "FATAL: every retention bucket is zero or unset, which would prune"
+    log "       every snapshot in the repository. Refusing. The snapshot"
+    log "       taken by this run is safe; set retention in the Catena admin"
+    log "       panel, or BACKUP_KEEP_* in /etc/catena/backup.env, then re-run."
+    exit 5
+fi
+
+log "restic forget --prune (${keep_args# })"
 # --keep-tag decommission: the final archival snapshot decommission.yml
 # takes (tagged "decommission" via the systemd drop-in) is the "we tore the
 # host down but still need the data" safety net. Time-based retention alone
@@ -496,12 +550,13 @@ log "restic forget --prune"
 # (In the bench this is also what lets decommission_recovery still resolve
 # the tagged snapshot after other scenarios' backups run forget on the
 # shared repo.)
+#
+# Unquoted on purpose: keep_args is a built argv, not one word. Every value
+# in it went through add_keep, which admits digits only.
+# shellcheck disable=SC2086
 restic forget \
     --keep-tag decommission \
-    --keep-hourly "${BACKUP_KEEP_HOURLY:-24}" \
-    --keep-daily "${BACKUP_KEEP_DAILY}" \
-    --keep-weekly "${BACKUP_KEEP_WEEKLY}" \
-    --keep-monthly "${BACKUP_KEEP_MONTHLY}" \
+    $keep_args \
     --prune --quiet
 
 # ─── stats JSON for Homepage widget ──────────────────────────────────────

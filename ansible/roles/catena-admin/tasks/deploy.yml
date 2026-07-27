@@ -144,3 +144,38 @@
     - catena_admin_deploy_from_converge | bool
     - vault_portainer_api_key is defined
     - (vault_portainer_api_key | default('') | length) > 0
+
+# Make the host match what the config store says about scheduling.
+#
+# ONE owner for every scheduled lane: which timers are enabled, at what
+# OnCalendar, and the restic retention run-backup.sh reads. The converge does
+# not template any of that -- it calls the binary that does, so a value set in
+# the panel is not reverted by the next converge, and a value in the store is
+# not shadowed by a template.
+#
+# Ungated like the payload install above. The binary itself decides what an
+# unlicensed host may schedule: it verifies the licence offline and refuses a
+# Business lane or a tighter-than-weekly backup cadence. Community's cap is
+# also asserted below against the stored value, because a client can edit their
+# own config.json and CV8 has to hold in this repo, not only in the panel.
+#
+# Idempotent: it skips identical writes, so a converge with nothing to change
+# touches no file and reports unchanged.
+- name: "Catena-admin: apply the stored schedule (timers + retention)"
+  ansible.builtin.command:
+    argv:
+      - "{{ catena_schedule_bin }}"
+      - apply
+  register: _catena_schedule_apply
+  changed_when: false
+  when:
+    - catena_admin_deploy_from_converge | bool
+    - vault_portainer_api_key is defined
+    - (vault_portainer_api_key | default('') | length) > 0
+
+- name: "Catena-admin: schedule state"
+  ansible.builtin.debug:
+    var: _catena_schedule_apply.stderr_lines
+  when:
+    - _catena_schedule_apply is not skipped
+    - (_catena_schedule_apply.stderr | default('')) | length > 0
