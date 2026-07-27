@@ -83,10 +83,9 @@
   register: _pt_service_create
   changed_when: _pt_service_create.rc == 0
 
-# Spec reconcile (rolling). Replaces the image-only drift check: that one
-# reconciled the pinned tag and NOTHING else, so every hardening flag added to
-# the create argv would have applied to fresh installs only and never reached
-# an existing host.
+# Spec reconcile (rolling). Reconciles the FULL hardening spec, not just the
+# pinned tag, so a flag added to the desired dict reaches an existing host and
+# not only a fresh install.
 - name: "portainer: inspect the live service spec"
   ansible.builtin.command: "docker service inspect {{ portainer_service_name }}"
   register: _pt_inspect

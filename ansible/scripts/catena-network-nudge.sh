@@ -35,14 +35,13 @@
 # tasks itself, so starting a stale task container here would fight the task
 # manager.
 #
-# There used to be a second rule -- catena-traefik, started whenever it was
-# not running, on the reasoning that the ingress is always meant to be up and
-# may be mid-restart-loop with no recorded error. That special case went when
-# traefik became a swarm service: the task manager re-dispatches it by name,
-# so it self-heals, and the swarm-task skip below now excludes it anyway. The
-# containers this script protects are all Portainer compose stacks, which is
-# why it lives in roles/docker (which owns docker.service and the swarm init
-# the race happens between) rather than in roles/traefik.
+# No container is started on not-running alone. A rule that starts one by
+# name, with no recorded error, is a start-anything-named-X path with no
+# evidence gate -- and it would have no subject: every catena swarm service
+# is re-dispatched by the task manager and skipped by the swarm-task check
+# below. The containers this script protects are all Portainer compose
+# stacks, which is why it lives in roles/docker (which owns docker.service
+# and the swarm init the race happens between).
 #
 # Idempotent; exits 0 when there is nothing to do.
 

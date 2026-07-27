@@ -10,13 +10,10 @@
   and pins by tag. Client application stacks are bumped through the Portainer
   compose path and are discovered from Portainer, not listed here.
 
-  Both entries are `infra-swarm` since the traefik swarm conversion. traefik
-  used to be `infra-container`, which carried a run_argv copied from
-  roles/traefik's traefik_run_argv because the lane RECREATED the container on
-  a bump and had to reproduce what the converge would have made. That coupling
-  is gone: `docker service update --image` changes only the image, so the lane
-  no longer needs to know how the service was built, and there is no argv to
-  keep in step. The `infra-container` spec kind went with it.
+  Both entries are `infra-swarm`, which needs only the service name: the lane
+  bumps with `docker service update --image`, so it never has to reproduce how
+  the converge built the service and there is no launch argv here to keep in
+  step with the role.
 #}
 [
   {

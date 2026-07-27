@@ -96,8 +96,8 @@ def test_every_mounting_service_is_constrained(role: str):
     argv = _create_argv(role)
     mounts_something = "--mount" in argv or "traefik_mounts" in argv
     assert mounts_something, (
-        f"roles/{role} no longer mounts anything -- if that is deliberate the "
-        "constraint may be droppable, but say so explicitly"
+        f"roles/{role} mounts nothing -- if that is deliberate the constraint "
+        "may be droppable, but say so explicitly"
     )
     assert _defaults(role)[CONSTRAINTS_VAR[role]]
 

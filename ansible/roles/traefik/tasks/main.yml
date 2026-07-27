@@ -105,29 +105,24 @@
   register: _traefik_secure_headers_middleware
 
 # ─── deploy / reconcile catena-traefik (swarm service) ───────────────────
-# catena-traefik was a plain `docker run` container until the swarm
-# conversion. That shape cost three things, all now gone:
+# A swarm service rather than a plain container, for three reasons:
 #
-#   1. It attached to catena-network by network ID. When the overlay was torn
-#      down and recreated (a restore rebuilds swarm+overlay from scratch --
-#      see roles/backup/tasks/restore.yml; an interrupted converge or daemon
-#      flap does the same) the new overlay had a fresh ID, the baked-in
-#      reference went stale, and `docker start` failed with "network <old-id>
-#      not found", leaving ingress dead until something started it. A swarm
-#      service rejoins by NAME and self-heals.
-#   2. The whole `docker run` line had to be duplicated into the managed-bump
-#      lane's spec file so the lane could recreate the container on a version
-#      bump. They drifted once and the lane relaunched traefik with no config
-#      mounts at all.
-#   3. A version bump was rm + run with a hand-written restore path on
-#      failure. `docker service update --image` rolls, and the engine's
-#      `--rollback` reverts, with no argv to reproduce.
+#   1. It rejoins catena-network by NAME. A plain container attaches by
+#      network ID, so an overlay that is torn down and recreated (a restore
+#      rebuilds swarm+overlay from scratch -- see roles/backup/tasks/
+#      restore.yml; an interrupted converge or daemon flap does the same)
+#      leaves the baked-in reference stale: `docker start` fails with
+#      "network <old-id> not found" and ingress stays dead until something
+#      starts it. The task manager re-dispatches a service on its own.
+#   2. The managed-bump lane needs no copy of how the service was built.
+#      `docker service update --image` changes only the image, so there is no
+#      launch argv for the lane's spec file to reproduce and drift from.
+#   3. A version bump rolls, and the engine's `--rollback` reverts, instead
+#      of a hand-written rm + run with a restore path on failure.
 #
 # No host-port publishing: cloudflared over the overlay is the only ingress.
-# That invariant is now STRUCTURAL rather than checked -- the create argv
-# below has no --publish, so there is no port binding for a drift check to
-# find, which is why the old "read host port bindings (must stay empty)" task
-# is gone rather than ported.
+# That invariant is STRUCTURAL -- the create argv below has no --publish, so
+# there is no port binding for a drift check to find.
 - name: "traefik: check catena-traefik swarm service exists"
   ansible.builtin.command: >-
     docker service inspect {{ traefik_container_name }}
@@ -136,17 +131,17 @@
   changed_when: false
   failed_when: false
 
-# One-time cutover: drop the plain container this role used to run so it is
-# not holding the config mounts when the service starts. Idempotent -- a host
-# that never ran the plain container has nothing to remove, and a host already
-# on the service skips it.
-- name: "traefik: check for the pre-swarm plain container"
+# A plain container by this name holds the same config mounts and the same
+# overlay attachment, so it has to go before the service starts. Gated on the
+# service being ABSENT: once the service exists there is no plain container to
+# find, and an ungated removal would tear down a swarm task container by name.
+- name: "traefik: check for a plain container holding the name"
   ansible.builtin.command: docker inspect --type=container "{{ traefik_container_name }}"
   register: _traefik_plain
   changed_when: false
   failed_when: false
 
-- name: "traefik: remove the pre-swarm plain container (one-time cutover)"
+- name: "traefik: remove a plain container holding the name"
   ansible.builtin.command: "docker rm -f {{ traefik_container_name }}"
   when:
     - _traefik_plain.rc == 0
@@ -230,13 +225,9 @@
   register: _traefik_force_roll
   changed_when: _traefik_force_roll.rc == 0
 
-# catena-network-nudge moved to roles/docker at the swarm conversion. It heals
-# containers the overlay race strands on a docker.service start, which was
-# never traefik's concern -- traefik was simply the first victim found, and
-# the script kept a traefik-shaped special case long after it widened to every
-# stranded container. Now that traefik is a swarm service it re-dispatches
-# itself and the nudge skips it outright (swarm task containers are excluded
-# by label). The Portainer compose containers it actually protects
-# (keycloak-server-1, oauth2-proxy, gatus, nextcloud-talk-hpb-1, ...) still
-# need it, and roles/docker owns both docker.service and the swarm init that
-# the race happens between.
+# catena-network-nudge lives in roles/docker: it heals containers the overlay
+# race strands on a docker.service start, and roles/docker owns both ends of
+# that race. catena-traefik is a swarm service, so the task manager
+# re-dispatches it and the nudge skips it outright (swarm task containers are
+# excluded by label); what the nudge protects is the Portainer compose
+# containers (keycloak-server-1, oauth2-proxy, gatus, nextcloud-talk-hpb-1).

@@ -5,28 +5,24 @@ dockerd restores restart-policy containers during "Loading containers",
 which runs BEFORE the swarm node re-materializes the overlay -- and the
 boot-time restore gets exactly ONE attempt per container, so whatever loses
 that race stays Exited with RestartCount=0 forever. Swarm services
-re-dispatch themselves; plain/compose containers (keycloak-server-1,
+re-dispatch themselves; the Portainer compose containers (keycloak-server-1,
 nextcloud-talk-hpb-1, ...) have nothing to heal them, so a plain VPS reboot
-could strand Keycloak until the next converge (observed live: bench run
-2026-07-15T05-21-38-7c45, overlay up 2.5s after "Loading containers: done").
+can strand Keycloak until the next converge. Observed live: an overlay that
+appeared 2.5s after "Loading containers: done".
 
-The nudge widened from traefik-only to every stranded container, then lost
-its traefik special case entirely at the swarm conversion: a swarm service
-re-dispatches itself by name, and the script already skips swarm task
-containers, so traefik heals itself twice over. What it protects now is the
-Portainer COMPOSE containers, which is why it lives in roles/docker -- the
-race is between dockerd's container restore and the swarm init, both owned by
-that role.
+Those compose containers are what the nudge protects, which is why it lives
+in roles/docker -- the race is between dockerd's container restore and the
+swarm init, both owned by that role.
 
 What must hold:
   - the heal is gated on the EXACT overlay-not-found error, so a container
     the operator stopped on purpose is never started behind their back
     (the blanket-reap mistake, twice reverted);
   - swarm task containers are skipped -- swarm owns their lifecycle;
-  - NO service gets an unconditional start-if-not-running any more, because
-    that rule existed only for the plain traefik container;
-  - the old traefik-named artifacts are removed, else the stale drop-in
-    keeps firing the old script alongside the new one.
+  - NO container gets an unconditional start-if-not-running: every start is
+    downstream of the error gate;
+  - the traefik-named artifacts stay removed, else a stale drop-in fires a
+    second script alongside this one.
 
 Run: uv run pytest tests/unit/test_network_nudge_heals_stranded.py
 """
@@ -77,13 +73,12 @@ def test_waits_for_overlay_before_deciding():
 
 
 def test_no_container_gets_an_unconditional_start():
-    """The traefik special case is gone with the swarm conversion.
+    """No container is started on not-running alone.
 
-    It started catena-traefik whenever it was not running, with no error
-    evidence at all -- justified while traefik was a plain container that
-    could sit Exited forever. A swarm service re-dispatches itself, and the
-    swarm-task skip above already excludes it, so the rule now has no subject.
-    Leaving it would be a start-anything-named-X path with no evidence gate.
+    A rule that starts one by name, with no recorded error, is a
+    start-anything-named-X path with no evidence gate. It also has no subject:
+    catena-traefik is a swarm service, the task manager re-dispatches it, and
+    the swarm-task skip above excludes it from this loop anyway.
     """
     # Comment lines stripped: the header explains why the special case went,
     # and naming it there must not read as the thing still being there.

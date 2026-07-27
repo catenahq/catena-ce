@@ -7,13 +7,9 @@ Two filters over ONE desired-spec dict:
     swarm_service_drift(inspect, desired) -> flags for `docker service update`,
                                              empty list when already converged
 
-The single dict is the point. Before this, roles reconciled only the image
-tag, so any other flag applied on a fresh install and never reached an
-existing host -- and the two code paths were written separately, which is
-exactly how `traefik_run_argv` came to exist (the converge and the managed-
-bump lane each built their own container and drifted apart until the lane
-relaunched traefik with no config mounts). One dict, two renderers, no
-second definition to keep in step.
+One dict feeding two renderers is what keeps a fresh service and a converged
+one identical. A role that renders create and update separately has two
+definitions of the same spec to keep in step, and they drift.
 
 SCOPE. These filters own the HARDENING subset only: image, memory
 limit/reservation, stop-grace, update policy, placement constraints and
@@ -27,16 +23,16 @@ unmentioned field would fight an operator who ran `docker service update`
 by hand, and would silently revert a deliberate change. Declared means
 managed; undeclared means left alone.
 
-Note on update policy: `update_failure_action` is expected to be `pause`,
-never `rollback`. The managed-update engine (catena-admin
+Note on update policy: `update_failure_action` must be `pause`, never
+`rollback`. The managed-update engine (catena-admin
 payload/engines/stackupdate) is the rollback authority -- it decides on a
 whole-host health diff, keeps a persistent quarantine, and replays a DB
-snapshot. If swarm rolled back underneath it, the engine would either
-record a version that never shipped as successfully bumped (and retry it
-forever), or take its safety-net branch and re-apply the bad image, since
+snapshot. If swarm rolls back underneath it, the engine either records a
+version that never shipped as successfully bumped and retries it forever,
+or takes its safety-net branch and re-applies the bad image, because
 `docker service update --rollback` reverts to the PREVIOUS spec -- which,
-after swarm already rolled back, is the failed one. `pause` halts the
-rollout against a still-good spec and lets the engine do its job.
+after an auto-rollback, is the failed one. `pause` halts the rollout
+against a still-good spec and lets the engine do its job.
 
 End-to-end coverage:
     catena-ce ansible/tests/unit/test_swarm_service_drift.py

@@ -32,11 +32,9 @@ docker_swarm_advertise_addr: "{{ ansible_host }}"
 # The nudge lives in THIS role because the race it heals is between two things
 # this role owns: dockerd restoring restart-policy containers during "Loading
 # containers", and the swarm node re-materializing catena-network afterwards.
-# It was in roles/traefik only because traefik was the first victim found; it
-# moved here at the swarm conversion, which also removed its traefik special
-# case. What it protects now is the Portainer compose containers
-# (keycloak-server-1, oauth2-proxy, gatus, nextcloud-talk-hpb-1, ...) -- every
-# swarm service, traefik included, re-dispatches itself by name.
+# It protects the Portainer compose containers (keycloak-server-1,
+# oauth2-proxy, gatus, nextcloud-talk-hpb-1, ...); every swarm service,
+# catena-traefik included, re-dispatches itself by name and is skipped.
 docker_network_nudge_timeout: 60
 
 # The `catena.role` label put on this node, and the value every stateful swarm

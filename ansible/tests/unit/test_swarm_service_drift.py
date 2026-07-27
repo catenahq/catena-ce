@@ -8,8 +8,8 @@ unchanged host would make every re-converge report changed and break the
 bench idempotency gate.
 
 The second property is that create and update render from the SAME desired
-dict. Before this filter the roles reconciled only the image tag, so every
-other flag applied on a fresh install and never reached an existing host.
+dict. A role that renders the two separately reconciles whatever it happens
+to have taught the update path, so a flag reaches fresh installs only.
 """
 from __future__ import annotations
 
@@ -174,9 +174,9 @@ def test_constraint_added_when_missing():
 
 def test_constraint_removed_when_dropped_from_desired():
     """A constraint deleted from the spec has to be REMOVED. Leaving it
-    unmentioned would keep the service pinned to a node the spec no longer
-    names -- which, once a worker exists, is how a stateful service ends up
-    somewhere its volume is not."""
+    unmentioned keeps the service pinned to a node the spec does not name --
+    which, once a worker exists, is how a stateful service ends up somewhere
+    its volume is not."""
     payload = _inspect(constraints=["node.role==manager", "node.labels.x==y"])
     assert swarm_service_drift(payload, {"constraints": ["node.role==manager"]}) == [
         "--constraint-rm", "node.labels.x==y",
