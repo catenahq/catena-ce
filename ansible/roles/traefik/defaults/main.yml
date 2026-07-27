@@ -22,27 +22,70 @@ catena_network_name: catena-network
 traefik_config_dir: /etc/catena/traefik
 traefik_dynamic_dir: "{{ traefik_config_dir }}/dynamic"
 
-# The `docker run` arguments between the verb and the image, as one list.
+# Bind mounts, as `docker service create --mount` values.
 #
-# Two things need these and they must not disagree: the launch task below, and
-# the managed container-bump lane, which recreates catena-traefik on a version
-# bump and has to reproduce the container the converge would have made. When
-# they drifted the lane relaunched traefik without its config mounts. So the
-# argv lives here once, the task prepends `docker run` and appends the image,
-# and roles/catena-admin renders the same list into the lane's spec file.
-traefik_run_argv:
-  - -d
-  - "--name={{ traefik_container_name }}"
-  - --restart=always
-  - "--network={{ catena_network_name }}"
-  - -v
-  - /var/run/docker.sock:/var/run/docker.sock
-  - -v
-  - "{{ traefik_config_dir }}/traefik.yml:/etc/traefik/traefik.yml"
-  - -v
-  - "{{ traefik_dynamic_dir }}:{{ traefik_dynamic_dir }}"
-  - -v
-  - "{{ traefik_dynamic_dir }}/acme.json:/etc/traefik/acme.json"
+# traefik_run_argv used to live here: the whole `docker run` line, duplicated
+# into the managed container-bump lane's spec file because the lane recreated
+# the container on a version bump and had to reproduce what the converge would
+# have made. When the two drifted, the lane relaunched traefik with no config
+# mounts at all. That duplication is gone with the swarm conversion -- swarm
+# owns the spec, `docker service update --image` changes only the image, and
+# the lane no longer needs to know how the container was built.
+traefik_mounts:
+  - "type=bind,source=/var/run/docker.sock,destination=/var/run/docker.sock"
+  - "type=bind,source={{ traefik_config_dir }}/traefik.yml,destination=/etc/traefik/traefik.yml"
+  - "type=bind,source={{ traefik_dynamic_dir }},destination={{ traefik_dynamic_dir }}"
+  - "type=bind,source={{ traefik_dynamic_dir }}/acme.json,destination=/etc/traefik/acme.json"
+
+# ─── swarm-service hardening ─────────────────────────────────────────────
+# One dict, two renderers -- see playbooks/filter_plugins/swarm_service_drift.py
+# and the same block in roles/postgres/defaults for the full rationale.
+traefik_limit_memory: "512m"
+traefik_reserve_memory: "128m"
+
+# Long enough to drain in-flight requests through the tunnel.
+traefik_stop_grace_period: "30s"
+
+# FailureAction is `pause`, NEVER `rollback` -- the catena-admin managed-update
+# engine is the rollback authority. Full reasoning in roles/postgres/defaults.
+traefik_update_failure_action: "pause"
+# Outlasts health_start_period + (interval * retries) = 40s, so the window
+# covers a task that starts and then fails its ping rather than only one that
+# fails to start.
+traefik_update_monitor: "60s"
+traefik_update_max_failure_ratio: 0
+# stop-first, even though traefik publishes NO host ports and start-first
+# would otherwise give a zero-gap ingress roll (which is what cloudflared
+# gets). The blocker is acme.json: it is a single bind-mounted file holding
+# the ACME account key and certificates, and Traefik's ACME storage assumes
+# ONE writer. Two overlapping tasks sharing that mount can both decide to
+# renew. A few seconds of ingress gap on a version bump costs less than a
+# corrupted certificate store, and cloudflared retries across it.
+traefik_update_order: "stop-first"
+
+# Healthcheck. `traefik healthcheck` calls the /ping endpoint that
+# templates/traefik.yml.j2 enables; verified against traefik:v3.7.7 -- it
+# exits 0 when ping is reachable and 1 with "please enable `ping` to use
+# health check" when the endpoint is off, so a broken static config shows up
+# as an unhealthy task rather than a silently-passing one.
+traefik_health_cmd: "traefik healthcheck"
+traefik_health_interval: "10s"
+traefik_health_retries: 3
+traefik_health_start_period: "10s"
+
+traefik_desired:
+  image: "{{ traefik_image }}"
+  limit_memory: "{{ traefik_limit_memory }}"
+  reserve_memory: "{{ traefik_reserve_memory }}"
+  stop_grace_period: "{{ traefik_stop_grace_period }}"
+  update_failure_action: "{{ traefik_update_failure_action }}"
+  update_monitor: "{{ traefik_update_monitor }}"
+  update_max_failure_ratio: "{{ traefik_update_max_failure_ratio }}"
+  update_order: "{{ traefik_update_order }}"
+  health_cmd: "{{ traefik_health_cmd }}"
+  health_interval: "{{ traefik_health_interval }}"
+  health_retries: "{{ traefik_health_retries }}"
+  health_start_period: "{{ traefik_health_start_period }}"
 
 # Trusted upstream-proxy IPs for Traefik's forwardedHeaders. Only sources in
 # this list have their X-Forwarded-* headers honored; anything else gets
@@ -59,8 +102,11 @@ traefik_trusted_ips:
   - "192.168.0.0/16"
   - "127.0.0.0/8"
 
-# Nudge timeout: seconds catena-network-nudge waits for the overlay network to
-# re-materialize after a docker.service restart before giving up. Reaches the
-# script as CATENA_NETWORK_NUDGE_TIMEOUT, via the docker.service drop-in
-# (--setenv) and the unit file (Environment=).
-traefik_nudge_timeout: 60
+# catena-network-nudge moved to roles/docker at the swarm conversion. It heals
+# containers the overlay race strands on a docker.service start, which was
+# never traefik's concern -- traefik was simply the first victim found. Now
+# that traefik is a swarm service it re-dispatches itself and the nudge skips
+# it (swarm task containers are explicitly excluded), while the Portainer
+# compose containers it actually protects (keycloak-server-1, oauth2-proxy,
+# gatus, nextcloud-talk-hpb-1, ...) still need it. See
+# roles/docker/defaults/main.yml for docker_network_nudge_timeout.

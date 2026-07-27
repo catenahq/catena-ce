@@ -10,14 +10,21 @@ nextcloud-talk-hpb-1, ...) have nothing to heal them, so a plain VPS reboot
 could strand Keycloak until the next converge (observed live: bench run
 2026-07-15T05-21-38-7c45, overlay up 2.5s after "Loading containers: done").
 
-The nudge widened from traefik-only to every stranded container. What must
-hold:
+The nudge widened from traefik-only to every stranded container, then lost
+its traefik special case entirely at the swarm conversion: a swarm service
+re-dispatches itself by name, and the script already skips swarm task
+containers, so traefik heals itself twice over. What it protects now is the
+Portainer COMPOSE containers, which is why it lives in roles/docker -- the
+race is between dockerd's container restore and the swarm init, both owned by
+that role.
+
+What must hold:
   - the heal is gated on the EXACT overlay-not-found error, so a container
     the operator stopped on purpose is never started behind their back
     (the blanket-reap mistake, twice reverted);
   - swarm task containers are skipped -- swarm owns their lifecycle;
-  - traefik keeps its unconditional start-if-not-running (ingress, and it
-    may be mid-restart-loop with no recorded error);
+  - NO service gets an unconditional start-if-not-running any more, because
+    that rule existed only for the plain traefik container;
   - the old traefik-named artifacts are removed, else the stale drop-in
     keeps firing the old script alongside the new one.
 
@@ -31,9 +38,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3] / "ansible"
 SCRIPT = ROOT / "scripts" / "catena-network-nudge.sh"
-TASKS = ROOT / "roles" / "traefik" / "tasks" / "main.yml"
-UNIT = ROOT / "roles" / "traefik" / "templates" / "catena-network-nudge.service.j2"
-DROPIN = ROOT / "roles" / "traefik" / "templates" / "docker-service-nudge-dropin.conf.j2"
+TASKS = ROOT / "roles" / "docker" / "tasks" / "main.yml"
+UNIT = ROOT / "roles" / "docker" / "templates" / "catena-network-nudge.service.j2"
+DROPIN = ROOT / "roles" / "docker" / "templates" / "docker-service-nudge-dropin.conf.j2"
 
 
 def _find(name_fragment: str) -> dict:
@@ -69,30 +76,56 @@ def test_waits_for_overlay_before_deciding():
     assert body.index("network inspect") < body.index("RestartPolicy.Name")
 
 
-def test_traefik_start_is_unconditional_on_not_running():
-    body = SCRIPT.read_text()
-    # traefik is healed on not-running alone: its block precedes (and so is
-    # independent of) the error gate the other containers go through.
-    assert "$CTR not running; starting" in body
-    assert body.index("$CTR not running; starting") < body.index(".State.Error")
+def test_no_container_gets_an_unconditional_start():
+    """The traefik special case is gone with the swarm conversion.
+
+    It started catena-traefik whenever it was not running, with no error
+    evidence at all -- justified while traefik was a plain container that
+    could sit Exited forever. A swarm service re-dispatches itself, and the
+    swarm-task skip above already excludes it, so the rule now has no subject.
+    Leaving it would be a start-anything-named-X path with no evidence gate.
+    """
+    # Comment lines stripped: the header explains why the special case went,
+    # and naming it there must not read as the thing still being there.
+    body = "\n".join(
+        line for line in SCRIPT.read_text().splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    assert "CATENA_TRAEFIK_CTR" not in body
+    assert "catena-traefik" not in body
+    assert "$CTR" not in body
+    assert "not running; starting" not in body
+    # Every start is now downstream of the error gate.
+    assert body.index(".State.Error") < body.index("docker start")
 
 
-def test_role_installs_the_renamed_artifacts():
+def test_role_installs_the_artifacts():
     assert SCRIPT.exists() and UNIT.exists()
-    copy = _find("drop nudge script")["ansible.builtin.copy"]
+    copy = _find("drop network-nudge script")["ansible.builtin.copy"]
     assert copy["src"].endswith("catena-network-nudge.sh")
     assert copy["dest"] == "/usr/local/bin/catena-network-nudge"
-    tmpl = _find("render nudge systemd unit")["ansible.builtin.template"]
+    tmpl = _find("render network-nudge systemd unit")["ansible.builtin.template"]
     assert tmpl["src"] == "catena-network-nudge.service.j2"
     assert tmpl["dest"] == "/etc/systemd/system/catena-network-nudge.service"
+
+
+def test_the_nudge_is_owned_by_roles_docker_not_roles_traefik():
+    """The race is between dockerd's container restore and the swarm init.
+    roles/traefik has no plain container left and no relationship to it."""
+    traefik_tasks = (ROOT / "roles" / "traefik" / "tasks" / "main.yml").read_text()
+    assert "catena-network-nudge.service.j2" not in traefik_tasks
+    assert not (ROOT / "roles" / "traefik" / "templates"
+                / "catena-network-nudge.service.j2").exists()
 
 
 def test_timeout_reaches_the_script_on_both_paths():
     # The drop-in dispatches the SCRIPT (not the unit), so it needs its own
     # env; the unit carries the same values for the manual diagnostic path.
     dropin = DROPIN.read_text()
-    assert "--setenv=CATENA_NETWORK_NUDGE_TIMEOUT={{ traefik_nudge_timeout }}" in dropin
+    assert ("--setenv=CATENA_NETWORK_NUDGE_TIMEOUT={{ docker_network_nudge_timeout }}"
+            in dropin)
     assert "--setenv=CATENA_NETWORK={{ catena_network_name }}" in dropin
     unit = UNIT.read_text()
-    assert "Environment=CATENA_NETWORK_NUDGE_TIMEOUT={{ traefik_nudge_timeout }}" in unit
+    assert ("Environment=CATENA_NETWORK_NUDGE_TIMEOUT={{ docker_network_nudge_timeout }}"
+            in unit)
     assert "CATENA_NETWORK_NUDGE_TIMEOUT" in SCRIPT.read_text()

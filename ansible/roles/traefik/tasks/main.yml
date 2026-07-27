@@ -104,136 +104,140 @@
     mode: "0644"
   register: _traefik_secure_headers_middleware
 
-# ─── deploy / reconcile catena-traefik ───────────────────────────────────
-- name: "traefik: inspect catena-traefik state"
+# ─── deploy / reconcile catena-traefik (swarm service) ───────────────────
+# catena-traefik was a plain `docker run` container until the swarm
+# conversion. That shape cost three things, all now gone:
+#
+#   1. It attached to catena-network by network ID. When the overlay was torn
+#      down and recreated (a restore rebuilds swarm+overlay from scratch --
+#      see roles/backup/tasks/restore.yml; an interrupted converge or daemon
+#      flap does the same) the new overlay had a fresh ID, the baked-in
+#      reference went stale, and `docker start` failed with "network <old-id>
+#      not found", leaving ingress dead until something started it. A swarm
+#      service rejoins by NAME and self-heals.
+#   2. The whole `docker run` line had to be duplicated into the managed-bump
+#      lane's spec file so the lane could recreate the container on a version
+#      bump. They drifted once and the lane relaunched traefik with no config
+#      mounts at all.
+#   3. A version bump was rm + run with a hand-written restore path on
+#      failure. `docker service update --image` rolls, and the engine's
+#      `--rollback` reverts, with no argv to reproduce.
+#
+# No host-port publishing: cloudflared over the overlay is the only ingress.
+# That invariant is now STRUCTURAL rather than checked -- the create argv
+# below has no --publish, so there is no port binding for a drift check to
+# find, which is why the old "read host port bindings (must stay empty)" task
+# is gone rather than ported.
+- name: "traefik: check catena-traefik swarm service exists"
+  ansible.builtin.command: >-
+    docker service inspect {{ traefik_container_name }}
+    --format '{{ "{{" }}.ID{{ "}}" }}'
+  register: _traefik_service
+  changed_when: false
+  failed_when: false
+
+# One-time cutover: drop the plain container this role used to run so it is
+# not holding the config mounts when the service starts. Idempotent -- a host
+# that never ran the plain container has nothing to remove, and a host already
+# on the service skips it.
+- name: "traefik: check for the pre-swarm plain container"
   ansible.builtin.command: docker inspect --type=container "{{ traefik_container_name }}"
+  register: _traefik_plain
+  changed_when: false
+  failed_when: false
+
+- name: "traefik: remove the pre-swarm plain container (one-time cutover)"
+  ansible.builtin.command: "docker rm -f {{ traefik_container_name }}"
+  when:
+    - _traefik_plain.rc == 0
+    - _traefik_service.rc != 0
+  register: _traefik_plain_rm
+  changed_when: _traefik_plain_rm.rc == 0
+
+- name: "traefik: create catena-traefik swarm service (first run)"
+  ansible.builtin.command:
+    # Identity + wiring flags here; the hardening subset (memory, stop-grace,
+    # update policy, healthcheck) is rendered from traefik_desired so create
+    # and the reconcile below cannot drift apart.
+    argv: "{{ _traefik_create_argv }}"
+  vars:
+    _traefik_create_argv: >-
+      {{
+        ['docker', 'service', 'create', '--detach',
+         '--name=' ~ traefik_container_name,
+         '--network=' ~ catena_network_name,
+         '--restart-condition=any',
+         '--constraint=node.role==manager']
+        + (traefik_mounts | map('regex_replace', '^', '--mount=') | list)
+        + (traefik_desired | swarm_service_create_args)
+        + [traefik_image]
+      }}
+  when: _traefik_service.rc != 0
+  register: _traefik_service_create
+  changed_when: _traefik_service_create.rc == 0
+
+- name: "traefik: inspect the live service spec"
+  ansible.builtin.command: "docker service inspect {{ traefik_container_name }}"
   register: _traefik_inspect
   changed_when: false
   failed_when: false
+  when: _traefik_service.rc == 0
 
-- name: "traefik: read running image tag (for drift check)"
-  ansible.builtin.command: >
-    docker inspect {{ traefik_container_name }}
-    --format '{{ "{{" }} .Config.Image {{ "}}" }}'
-  register: _traefik_running_image
-  changed_when: false
-  failed_when: false
-  when: _traefik_inspect.rc == 0
-
-- name: "traefik: read host port bindings (must stay empty)"
-  ansible.builtin.command: >
-    docker inspect {{ traefik_container_name }}
-    --format '{{ "{{" }} json .HostConfig.PortBindings {{ "}}" }}'
-  register: _traefik_ports
-  changed_when: false
-  failed_when: false
-  when: _traefik_inspect.rc == 0
-
-# Running-state check. catena-traefik is a PLAIN container that attaches to
-# catena-network by network ID. If the overlay was torn down and recreated
-# (a restore rebuilds swarm+overlay from scratch -- see roles/backup/tasks/
-# restore.yml; an interrupted converge or daemon flap can do the same), the
-# new overlay has a fresh ID and the container's baked-in reference is stale:
-# `docker start` fails with "failed to set up container networking: network
-# <old-id> not found" and the container sits Exited. Swarm services rejoin by
-# NAME so they self-heal, but this plain container cannot -- it must be
-# relaunched onto the current overlay. Detect the not-running state so the
-# relaunch below fires (the drift/ports/acme conditions never catch an exited
-# container, so before this an overlay rebuild left ingress dead).
-- name: "traefik: read running state (an exited container must be relaunched)"
-  ansible.builtin.command: >
-    docker inspect {{ traefik_container_name }}
-    --format '{{ "{{" }} .State.Running {{ "}}" }}'
-  register: _traefik_running_state
-  changed_when: false
-  failed_when: false
-  when: _traefik_inspect.rc == 0
-
-# A directory-acme.json fix means any running container still holds the bad
-# mount, so it must be relaunched onto the seeded file.
-- name: "traefik: decide whether catena-traefik needs (re)launch"
+- name: "traefik: compute spec drift"
   ansible.builtin.set_fact:
-    _traefik_needs_relaunch: >-
-      {{
-        _traefik_inspect.rc != 0
-        or ((_traefik_running_image.stdout | default('') | trim) != traefik_image)
-        or ((_traefik_ports.stdout | default('{}') | trim) not in ['{}', 'null'])
-        or (_traefik_acme_dir_rm.changed | default(false))
-        or (
-          _traefik_inspect.rc == 0
-          and (_traefik_running_state.stdout | default('true') | trim) != 'true'
-        )
-      }}
-
-- name: "traefik: stop existing catena-traefik for relaunch"
-  ansible.builtin.command: "docker rm -f {{ traefik_container_name }}"
+    _traefik_drift: >-
+      {{ (_traefik_inspect.stdout | from_json)
+         | swarm_service_drift(traefik_desired) }}
   when:
+    - _traefik_service.rc == 0
     - _traefik_inspect.rc == 0
-    - _traefik_needs_relaunch | bool
-  register: _traefik_rm
-  changed_when: _traefik_rm.rc == 0
 
-# Launch on the catena-network overlay with the pinned image and NO host-port
-# publishing.
-- name: "traefik: launch catena-traefik (pinned image, no host ports)"
+- name: "traefik: reconcile the service spec (rolling)"
   ansible.builtin.command:
-    argv: "{{ ['docker', 'run'] + traefik_run_argv + [traefik_image] }}"
-  when: _traefik_needs_relaunch | bool
-  register: _traefik_launch
-  changed_when: _traefik_launch.rc == 0
+    argv: >-
+      {{ ['docker', 'service', 'update'] + _traefik_drift
+         + [traefik_container_name] }}
+  when:
+    - _traefik_service.rc == 0
+    - _traefik_drift | default([]) | length > 0
+  register: _traefik_reconcile
+  changed_when: _traefik_reconcile.rc == 0
 
 # NOTE: catena-traefik attaches to catena_network_name ONLY. Every catena app
 # stack joins catena-network via the Portainer stack seam, so that single
 # overlay is all traefik needs to route to.
 
-- name: "traefik: restart to pick up static config change"
-  ansible.builtin.command: "docker restart {{ traefik_container_name }}"
+# The static config is a bind mount, so a changed traefik.yml is already on
+# disk inside the running task -- but Traefik reads it once at startup. Only
+# the FILE PROVIDER hot-reloads, and that covers the dynamic/ dir, not this.
+# So the task has to roll. Same for the acme.json directory fix: a running
+# task still holds the bad mount. `--force` rolls a service whose spec is
+# otherwise unchanged, which is exactly this case.
+#
+# Skipped when the reconcile above already ran: that update rolls the task on
+# its own, and forcing a second roll would take ingress down twice.
+- name: "traefik: force-roll to pick up a static config or acme.json change"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - update
+      - --force
+      - "{{ traefik_container_name }}"
   when:
-    - not (_traefik_needs_relaunch | bool)
-    - _traefik_static_cfg.changed
-  register: _traefik_restart
-  changed_when: _traefik_restart.rc == 0
+    - _traefik_service.rc == 0
+    - _traefik_static_cfg.changed or (_traefik_acme_dir_rm.changed | default(false))
+    - _traefik_drift | default([]) | length == 0
+  register: _traefik_force_roll
+  changed_when: _traefik_force_roll.rc == 0
 
-# ─── restart resilience (nudge after docker restart) ─────────────────────
-# Heals every container the swarm-overlay race strands on a docker.service
-# start, not just traefik: dockerd restores restart-policy containers before
-# the swarm node re-materializes catena-network, and it never retries the
-# ones that lose that race. See the script header for the full mechanism.
-- name: "traefik: drop nudge script"
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../scripts/catena-network-nudge.sh"
-    dest: /usr/local/bin/catena-network-nudge
-    owner: root
-    group: root
-    mode: "0755"
-
-- name: "traefik: render nudge systemd unit"
-  ansible.builtin.template:
-    src: catena-network-nudge.service.j2
-    dest: /etc/systemd/system/catena-network-nudge.service
-    owner: root
-    group: root
-    mode: "0644"
-  register: _traefik_nudge_unit
-
-- name: "traefik: ensure docker.service drop-in dir exists"
-  ansible.builtin.file:
-    path: /etc/systemd/system/docker.service.d
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
-
-- name: "traefik: render docker.service drop-in that fires the nudge"
-  ansible.builtin.template:
-    src: docker-service-nudge-dropin.conf.j2
-    dest: /etc/systemd/system/docker.service.d/10-catena-network-nudge.conf
-    owner: root
-    group: root
-    mode: "0644"
-  register: _traefik_nudge_dropin
-
-- name: "traefik: daemon-reload if unit or drop-in changed"
-  ansible.builtin.systemd:
-    daemon_reload: true
-  when: _traefik_nudge_unit.changed or _traefik_nudge_dropin.changed
+# catena-network-nudge moved to roles/docker at the swarm conversion. It heals
+# containers the overlay race strands on a docker.service start, which was
+# never traefik's concern -- traefik was simply the first victim found, and
+# the script kept a traefik-shaped special case long after it widened to every
+# stranded container. Now that traefik is a swarm service it re-dispatches
+# itself and the nudge skips it outright (swarm task containers are excluded
+# by label). The Portainer compose containers it actually protects
+# (keycloak-server-1, oauth2-proxy, gatus, nextcloud-talk-hpb-1, ...) still
+# need it, and roles/docker owns both docker.service and the swarm init that
+# the race happens between.

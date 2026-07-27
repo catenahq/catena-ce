@@ -4,7 +4,7 @@
 # Fires catena-network-nudge on every docker.service start so the plain and
 # compose containers stranded by the swarm-overlay race get started once
 # `{{ catena_network_name }}` comes back. `systemd-run --no-block` dispatches
-# asynchronously so the nudge's polling (up to {{ traefik_nudge_timeout }}s)
+# asynchronously so the nudge's polling (up to {{ docker_network_nudge_timeout }}s)
 # doesn't hold docker.service in "activating" state. The leading `-` makes the
 # ExecStartPost failure non-fatal -- if systemd-run is unavailable for any
 # reason, docker still comes up clean.
@@ -13,4 +13,4 @@
 # has to be passed here too (--setenv); the unit file carries the same values
 # for the manual `systemctl start catena-network-nudge.service` path.
 [Service]
-ExecStartPost=-/usr/bin/systemd-run --no-block --unit=catena-network-nudge-triggered --setenv=CATENA_NETWORK={{ catena_network_name }} --setenv=CATENA_NETWORK_NUDGE_TIMEOUT={{ traefik_nudge_timeout }} /usr/local/bin/catena-network-nudge
+ExecStartPost=-/usr/bin/systemd-run --no-block --unit=catena-network-nudge-triggered --setenv=CATENA_NETWORK={{ catena_network_name }} --setenv=CATENA_NETWORK_NUDGE_TIMEOUT={{ docker_network_nudge_timeout }} /usr/local/bin/catena-network-nudge

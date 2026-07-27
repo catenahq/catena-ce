@@ -16,37 +16,39 @@
 # and docker does NOT retry it: the boot-time restore gets exactly one
 # attempt per container, so the container stays Exited with RestartCount=0
 # until something starts it. Swarm SERVICES reconcile themselves (the task
-# manager re-dispatches by name), but plain/compose containers -- traefik
-# and everything the Portainer stacks deploy (keycloak-server-1,
-# nextcloud-talk-hpb-1, oauth2-proxy, gatus, ...) -- have nothing to heal
-# them. Observed live: a VM boot where the overlay appeared 2.5s after
-# "Loading containers: done" left keycloak-server-1 and nextcloud-talk-hpb-1
-# dead, while every container started after the overlay appeared joined fine.
+# manager re-dispatches by name), but the compose containers the Portainer
+# stacks deploy (keycloak-server-1, nextcloud-talk-hpb-1, oauth2-proxy,
+# gatus, ...) have nothing to heal them. Observed live: a VM boot where the
+# overlay appeared 2.5s after "Loading containers: done" left
+# keycloak-server-1 and nextcloud-talk-hpb-1 dead, while every container
+# started after the overlay appeared joined fine.
 #
 # This script is invoked by catena-network-nudge.service on boot and on
 # every docker.service restart. It polls until the overlay is available,
 # then starts what the race stranded.
 #
-# Two deliberately different rules, because the two cases carry different
-# evidence:
+# ONE rule, applied uniformly: start a container ONLY when docker recorded
+# the overlay-not-found error on the last start attempt AND the restart
+# policy says docker meant to keep it running. A container the operator
+# stopped on purpose carries no such error and is never touched. Swarm task
+# containers are skipped: swarm owns their lifecycle and re-dispatches new
+# tasks itself, so starting a stale task container here would fight the task
+# manager.
 #
-#   traefik  -- started whenever it is not running. It is the ingress for
-#               every public route, it is always meant to be up, and it may
-#               be mid-restart-loop rather than carrying a recorded error.
-#   others   -- started ONLY when docker recorded the overlay-not-found
-#               error on the last start attempt AND the restart policy says
-#               docker meant to keep it running. A container the operator
-#               stopped on purpose carries no such error and is never
-#               touched. Swarm task containers are skipped: swarm owns their
-#               lifecycle and re-dispatches new tasks itself, so starting a
-#               stale task container here would fight the task manager.
+# There used to be a second rule -- catena-traefik, started whenever it was
+# not running, on the reasoning that the ingress is always meant to be up and
+# may be mid-restart-loop with no recorded error. That special case went when
+# traefik became a swarm service: the task manager re-dispatches it by name,
+# so it self-heals, and the swarm-task skip below now excludes it anyway. The
+# containers this script protects are all Portainer compose stacks, which is
+# why it lives in roles/docker (which owns docker.service and the swarm init
+# the race happens between) rather than in roles/traefik.
 #
 # Idempotent; exits 0 when there is nothing to do.
 
 set -u
 
 NET="${CATENA_NETWORK:-catena-network}"
-CTR="${CATENA_TRAEFIK_CTR:-catena-traefik}"
 MAX_WAIT="${CATENA_NETWORK_NUDGE_TIMEOUT:-60}"
 
 log() { printf '[%s] catena-network-nudge: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
@@ -79,27 +81,8 @@ sleep 3
 
 rc=0
 
-# ── traefik: the ingress, started whenever it is not running ──────────
-if docker inspect --type=container "$CTR" >/dev/null 2>&1; then
-    if [ "$(docker inspect --format='{{.State.Running}}' "$CTR" 2>/dev/null)" = "true" ]; then
-        log "$CTR running (docker restart policy handled recovery)"
-    else
-        log "$CTR not running; starting"
-        if docker start "$CTR" >/dev/null 2>&1; then
-            log "$CTR started"
-        else
-            log "docker start $CTR FAILED"
-            rc=1
-        fi
-    fi
-else
-    log "$CTR not found; nothing to do"
-fi
-
-# ── everything else stranded by the same race ─────────────────────────
+# ── everything stranded by the race ───────────────────────────────────
 for name in $(docker ps -a --format '{{.Names}}' 2>/dev/null); do
-    [ "$name" = "$CTR" ] && continue
-
     [ "$(docker inspect --format='{{.State.Running}}' "$name" 2>/dev/null)" = "true" ] && continue
 
     # Swarm owns its task containers; it re-dispatches replacements itself.

@@ -65,6 +65,16 @@ entryPoints:
       trustedIPs: {{ traefik_trusted_ips | to_yaml }}
 api:
   insecure: true
+# Enables the /ping endpoint on the internal `traefik` entrypoint (:8080,
+# created by api.insecure above). This exists for ONE reason: the swarm
+# service healthcheck runs `traefik healthcheck`, and that subcommand refuses
+# to do anything without ping -- it exits 1 with "please enable `ping` to use
+# health check". With it, `docker service ls` reporting 1/1 for catena-traefik
+# means the proxy is answering, not merely that the process started.
+#
+# Not a new exposure: :8080 is internal to the container's netns and the
+# entrypoint is not published, exactly like the api dashboard it rides on.
+ping: {}
 certificatesResolvers:
   letsencrypt:
     acme:

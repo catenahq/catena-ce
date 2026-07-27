@@ -222,19 +222,37 @@ def test_the_worm_env_is_the_only_place_the_worm_keys_are_written():
         assert key in body
 
 
-def test_the_traefik_run_argv_has_one_definition():
-    # The managed-bump lane recreates catena-traefik on a version bump and has
-    # to reproduce the container the converge would have made. Two copies of
-    # the argv means the lane relaunches traefik without its config mounts the
-    # first time one of them changes.
-    traefik_tasks = _code(ANSIBLE / "roles" / "traefik" / "tasks" / "main.yml")
-    assert "traefik_run_argv" in traefik_tasks
-    assert "/etc/traefik/acme.json" not in traefik_tasks, (
-        "the run argv is inlined in the task again; it belongs in "
-        "roles/traefik/defaults so the spec file can reference the same list"
-    )
+def test_the_managed_lane_needs_no_copy_of_how_traefik_was_built():
+    # This used to assert that traefik_run_argv had exactly ONE definition,
+    # shared between roles/traefik and the managed-bump lane's spec file. The
+    # lane recreated catena-traefik on a version bump, so it had to reproduce
+    # the container the converge would have made, and the two copies drifted
+    # once -- the lane relaunched traefik with no config mounts at all.
+    #
+    # The swarm conversion removed the reason for the copy rather than keeping
+    # the copies in step: `docker service update --image` changes only the
+    # image, so the lane never needs to know how the service was built. What
+    # has to hold now is that NO argv came back.
     specs = _code(
         ANSIBLE / "roles" / "catena-admin" / "templates"
         / "managed-services.json.j2"
     )
-    assert "traefik_run_argv" in specs
+    # Assert on the JSON keys, not bare words: the Jinja {# #} header explains
+    # why run_argv and infra-container are gone, and _code only strips `#`
+    # comment LINES, so the prose would otherwise read as the thing.
+    assert '"run_argv"' not in specs, (
+        "the managed lane is carrying a copy of how a service was built again; "
+        "an infra-swarm spec needs only the service name"
+    )
+    assert '"kind": "infra-container"' not in specs, (
+        "infra-container is gone -- the engine branch that consumed it was "
+        "deleted with the traefik swarm conversion"
+    )
+    assert '"kind": "infra-swarm"' in specs
+
+    traefik_tasks = _code(ANSIBLE / "roles" / "traefik" / "tasks" / "main.yml")
+    assert "docker run" not in traefik_tasks, (
+        "catena-traefik is a swarm service; a `docker run` here means the "
+        "plain-container shape came back, and with it the overlay-ID staleness "
+        "that stranded ingress on every daemon restart"
+    )

@@ -24,6 +24,21 @@ docker_live_restore: false
 # services onto.
 docker_swarm_advertise_addr: "{{ ansible_host }}"
 
+# catena-network-nudge: seconds to wait for the overlay to re-materialize
+# after a docker.service start before giving up. Reaches the script as
+# CATENA_NETWORK_NUDGE_TIMEOUT, via the docker.service drop-in (--setenv) and
+# the unit file (Environment=).
+#
+# The nudge lives in THIS role because the race it heals is between two things
+# this role owns: dockerd restoring restart-policy containers during "Loading
+# containers", and the swarm node re-materializing catena-network afterwards.
+# It was in roles/traefik only because traefik was the first victim found; it
+# moved here at the swarm conversion, which also removed its traefik special
+# case. What it protects now is the Portainer compose containers
+# (keycloak-server-1, oauth2-proxy, gatus, nextcloud-talk-hpb-1, ...) -- every
+# swarm service, traefik included, re-dispatches itself by name.
+docker_network_nudge_timeout: 60
+
 # Codename-aware apt repo. Matches the pattern used by roles/tailscale/.
 docker_apt_codename: "{{ ansible_facts['distribution_release'] }}"
 docker_apt_key_url: "https://download.docker.com/linux/debian/gpg"

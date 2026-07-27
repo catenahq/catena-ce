@@ -16,5 +16,5 @@ Requires=docker.service
 [Service]
 Type=oneshot
 Environment=CATENA_NETWORK={{ catena_network_name }}
-Environment=CATENA_NETWORK_NUDGE_TIMEOUT={{ traefik_nudge_timeout }}
+Environment=CATENA_NETWORK_NUDGE_TIMEOUT={{ docker_network_nudge_timeout }}
 ExecStart=/usr/local/bin/catena-network-nudge
