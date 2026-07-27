@@ -268,6 +268,21 @@
             fi
         done
         echo "HOOKS_RAN=$ran HOOKS_FAILED=$failed"
+        # This task only runs when a recovery is PENDING. Zero hooks then is not
+        # an empty directory being tolerated, it is a host that restored its data
+        # and has nothing installed that knows how to finish: applications stay
+        # down (image layers are not in the backup), databases stay unreplayed,
+        # and the marker stays. Reporting that as a green converge is how a
+        # half-finished recovery gets mistaken for a complete one.
+        if [ "$ran" -eq 0 ]; then
+            echo "A recovery is pending but {{ catena_post_restore_hook_dir }}" >&2
+            echo "holds no hook, so nothing brought the applications back up or" >&2
+            echo "replayed their databases. The host payload installs one; if it" >&2
+            echo "is absent, the catena-admin payload install did not run." >&2
+            echo "Re-run the converge, or install a hook, then re-run: the marker" >&2
+            echo "survives so the work is retried rather than skipped." >&2
+            exit 1
+        fi
         [ "$failed" -eq 0 ]
       args:
         executable: /bin/bash

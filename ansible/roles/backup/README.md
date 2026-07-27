@@ -19,8 +19,39 @@ provides one-shot tasks for verification, restore, and reconciliation.
   catena-postgres is restored raw (its vault-derived password makes a
   byte-for-byte restore correct); per-app DBs are restored raw and then
   reconciled by a fresh `pg_dumpall` replay (scope=clients), which is
-  the `catena-recovery` host binary, not a mode of this role.
+  the `catena-recovery` host binary, not a mode of this role. It also
+  records `min_dump_time` in the post-restore marker: the time of the
+  backup BEFORE the one restored, which is the staleness floor the replay
+  uses to refuse an archive an earlier pass left behind. The restored
+  snapshot's own time cannot serve -- the archives are written before
+  `restic backup` runs, so all of them predate it.
 - `ensure_restic.yml` -- apt-install + binary version pin only.
+
+## Logical dumps
+
+`run-backup.sh` writes a logical dump per database engine before the
+snapshot, alongside the raw volumes (which are also in the set):
+
+- Postgres -> `backup-staging/pg/<container>-<ts>.sql.gz` (`pg_dumpall`).
+  Replayed by `catena-recovery`.
+- MySQL / MariaDB -> `backup-staging/mysql/<container>-<ts>.sql.gz`
+  (`mariadb-dump`, falling back to `mysqldump`). A SEPARATE directory on
+  purpose: the replay feeds every `*.sql.gz` under `pg/` to psql.
+
+A dump failure is fatal for the run. It means the engine did not answer,
+and snapshotting its volume in that state while reporting success is how
+a broken database becomes a broken backup nobody looked at.
+
+## Coverage
+
+`backup-coverage.sh` runs after the snapshot and exits 2 when a running
+container bind-mounts a source outside `backup_paths`. The wrapper fails
+the run on that (rc 4, which pings the operator lane), so an application
+writing where no snapshot reaches is a page rather than a line in a green
+run's journal. It runs AFTER the backup deliberately: the covered data is
+already captured, so the finding costs a page and not a snapshot. Any
+other non-zero from the checker -- including a timeout -- stays non-fatal,
+because an unreadable answer is not evidence of a gap.
 
 ## Inputs
 

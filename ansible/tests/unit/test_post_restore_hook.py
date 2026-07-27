@@ -102,6 +102,19 @@ def test_an_empty_hook_directory_is_a_no_op():
     )
 
 
+def test_no_hook_while_a_recovery_is_pending_fails_the_converge():
+    # The task is gated on the marker, so reaching it with zero hooks means a
+    # host restored its data and has nothing installed that can finish: the
+    # applications stay down, the databases stay unreplayed, and the marker
+    # stays. That is the fifth property, and the only one whose absence looks
+    # exactly like success -- an empty directory is tolerated when there is
+    # nothing to do and must not be when there is.
+    body = str(_hook_task()["ansible.builtin.shell"])
+    assert 'if [ "$ran" -eq 0 ]; then' in body, (
+        "a pending recovery with no hook installed must not report success"
+    )
+
+
 def test_a_failing_hook_fails_the_converge():
     body = str(_hook_task()["ansible.builtin.shell"])
     assert 'failed=$((failed + 1))' in body

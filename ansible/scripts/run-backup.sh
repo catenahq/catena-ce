@@ -337,8 +337,96 @@ if command -v docker >/dev/null 2>&1; then
     else
         log "no running postgres-ish containers found; skipping pg_dumpall"
     fi
+
+    # ─── mysqldump for each running MySQL/MariaDB container ──────────────
+    # Seven catalog templates ship a MariaDB or MySQL (erpnext, wordpress,
+    # kimai, espocrm, mautic, invoiceninja, easyappointments). Their data
+    # volumes are in the restic set like every other volume, but until this
+    # existed the raw volume was the ONLY copy: no logical dump to check it
+    # against, and no way to restore one database without restoring the whole
+    # volume. A raw copy of a running InnoDB directory is crash-consistent at
+    # best, and "crash-consistent" is a thing you find out about during a
+    # restore.
+    #
+    # Deliberately a SEPARATE directory from pg/. catena-recovery's replay
+    # takes every *.sql.gz under backup-staging/pg and feeds it to psql; a
+    # MariaDB dump landing there would be fed to the wrong engine on every
+    # recovery.
+    MYSQL_DIR="${BACKUP_STAGING_DIR}/mysql"
+    mkdir -p "$MYSQL_DIR"
+    chmod 700 "$MYSQL_DIR"
+    find "$MYSQL_DIR" -type f -name '*.sql.gz' -mtime +3 -delete || true
+
+    MYSQL_CONTAINERS=$(docker ps --no-trunc --format '{{.Names}}\t{{.Image}}' \
+                         | awk -F'\t' 'tolower($2) ~ /mariadb|mysql/ {print $1}')
+    if [ -n "$MYSQL_CONTAINERS" ]; then
+        mysql_failures=""
+        for c in $MYSQL_CONTAINERS; do
+            name=$(printf '%s' "$c" | sed -E 's/\.[0-9]+\.[a-z0-9]+$//')
+            ts=$(date -u +%Y%m%dT%H%M%SZ)
+            out="${MYSQL_DIR}/${name}-${ts}.sql.gz"
+            tmp="${MYSQL_DIR}/.${name}-${ts}.sql"
+            log "mysqldump: ${c} -> ${out}"
+
+            # The root password stays INSIDE the container. It is already in
+            # that container's environment, so reading it there means it never
+            # reaches this host's process table -- which `docker exec -e PW=...`
+            # would, and which every user on the box can read.
+            #
+            # MariaDB 11 renamed the client binaries and ships mysqldump only as
+            # a compatibility symlink that some images drop, so prefer
+            # mariadb-dump and fall back. --single-transaction gives InnoDB a
+            # consistent snapshot without locking the application out;
+            # --routines --triggers --events keep the parts of a schema that are
+            # not tables, whose absence only shows up when someone restores and
+            # a report stops working.
+            if docker exec "$c" sh -c '
+                    set -e
+                    MYSQL_PWD="${MARIADB_ROOT_PASSWORD:-${MYSQL_ROOT_PASSWORD:-}}"
+                    export MYSQL_PWD
+                    if [ -z "$MYSQL_PWD" ]; then
+                        echo "no MARIADB_ROOT_PASSWORD/MYSQL_ROOT_PASSWORD in the container env" >&2
+                        exit 3
+                    fi
+                    if command -v mariadb-dump >/dev/null 2>&1; then
+                        DUMP=mariadb-dump
+                    elif command -v mysqldump >/dev/null 2>&1; then
+                        DUMP=mysqldump
+                    else
+                        echo "neither mariadb-dump nor mysqldump is in the image" >&2
+                        exit 3
+                    fi
+                    exec "$DUMP" -u root --all-databases --single-transaction \
+                        --routines --triggers --events
+                ' 2>/tmp/mysql_dump.err > "$tmp"; then
+                gzip -9 < "$tmp" > "$out"
+                rm -f "$tmp"
+            else
+                log "mysqldump FAILED for ${c}:"
+                sed 's/^/  /' /tmp/mysql_dump.err | head -40 >&2 || true
+                rm -f "$tmp" "$out"
+                mysql_failures="${mysql_failures} ${c}"
+            fi
+        done
+
+        # Fatal for the same reason a pg_dumpall failure is: the dump failing
+        # means the engine did not answer or could not be read, and snapshotting
+        # its volume in that state while calling the run a success is how a
+        # broken database becomes a broken backup nobody looked at.
+        if [ -n "$mysql_failures" ]; then
+            log "FATAL: mysqldump failed for:${mysql_failures}"
+            log "       Refusing to proceed with restic backup -- missing"
+            log "       dumps would silently lose data on restore."
+            log "       Inspect /tmp/mysql_dump.err and the container log,"
+            log "       fix the cause, then re-run the backup manually:"
+            log "           systemctl start catena-backup.service"
+            exit 2
+        fi
+    else
+        log "no running MySQL/MariaDB containers found; skipping mysqldump"
+    fi
 else
-    log "docker not installed; skipping pg_dumpall"
+    log "docker not installed; skipping pg_dumpall + mysqldump"
 fi
 
 # ─── clear stale backend locks ───────────────────────────────────────────
@@ -467,19 +555,44 @@ JSON
 fi
 
 # ─── coverage sanity check ───────────────────────────────────────────────
-# Non-fatal -- catches the class of bug where a client compose uses an
-# absolute bind-mount source outside backup_paths. Output goes to the
-# journal; OliveTin has a button wired to the same script for on-demand.
+# Catches the class of bug where a client compose uses an absolute bind-mount
+# source outside backup_paths, so an application writes to a path no snapshot
+# covers. Output goes to the journal; the admin panel runs the same script
+# on demand.
+#
+# This runs AFTER the restic backup on purpose, and it is the reason the check
+# can be fatal at all. The snapshot is already taken, so failing here does not
+# cost the run its data: everything covered is captured, and the operator is
+# paged about what is not. Failing BEFORE the backup would trade "some data
+# unbacked" for "no data backed up", which is not an improvement.
+#
+# Exit 2 from the script means uncovered paths were found. Any other non-zero,
+# including 124 from the timeout, means the check itself could not run, and
+# that stays non-fatal: an unreadable answer is not evidence of a gap.
 if [ -n "${BACKUP_COVERAGE_SCRIPT:-}" ] && [ -x "${BACKUP_COVERAGE_SCRIPT}" ]; then
     log "running backup coverage check"
     # `timeout` so a wedged `docker inspect` inside the coverage script
     # (it inspects every running container) can never hang this oneshot.
-    # The script is warn-only by contract; a HANG is not caught by the
-    # `|| log` below (that only catches a non-zero EXIT), so without the
-    # bound a stuck inspect leaves catena-backup.service in 'activating'
-    # until the caller's timeout. 120s is ample for a host's container set.
-    timeout 120 "${BACKUP_COVERAGE_SCRIPT}" 2>&1 | sed 's/^/  coverage: /' || \
-        log "coverage checker errored or timed out; non-fatal"
+    # A HANG is not caught by an exit-code check, so without the bound a stuck
+    # inspect leaves catena-backup.service in 'activating' until the caller's
+    # timeout. 120s is ample for a host's container set.
+    #
+    # The rc is captured before the pipe: this script does not run with
+    # pipefail, so `cmd | sed` would report sed's rc, which is always 0.
+    _cov_out=$(timeout 120 "${BACKUP_COVERAGE_SCRIPT}" 2>&1) || _cov_rc=$?
+    printf '%s\n' "$_cov_out" | sed 's/^/  coverage: /'
+    if [ "${_cov_rc:-0}" = 2 ]; then
+        log "FATAL: application data is being written outside the backup set."
+        log "       The snapshot above completed and covers everything else."
+        log "       The paths listed as UNCOVERED are not in any snapshot and"
+        log "       will not come back from a restore. Move them under a"
+        log "       covered prefix or add them to backup_paths, then re-run:"
+        log "           systemctl start catena-backup.service"
+        exit 4
+    elif [ "${_cov_rc:-0}" != 0 ]; then
+        log "coverage checker errored or timed out (rc ${_cov_rc}); non-fatal"
+    fi
+    unset _cov_out _cov_rc 2>/dev/null || true
 fi
 
 # ─── F6: refresh recovery.<zone> snapshot listing ────────────────────────

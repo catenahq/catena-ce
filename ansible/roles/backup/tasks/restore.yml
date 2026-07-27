@@ -440,12 +440,58 @@
     group: root
     mode: "0755"
 
+# The staleness floor for the database replay, recorded here because this is
+# the last point that knows the repository. The hook that replays the archives
+# runs at the end of a converge with no backup credentials, and giving it some
+# so it could ask this question itself would turn a converge-time helper into
+# something that can read every backup the client has.
+#
+# The floor is the time of the backup BEFORE the one being restored. An archive
+# older than that did not come out of this snapshot: it is a leftover from an
+# earlier pass, and replaying it over freshly restored volumes overwrites newer
+# data with older. The snapshot's own time cannot serve -- pg_dumpall writes the
+# archives before `restic backup` runs, so all of them predate it.
+- name: "Post-restore -- list the repository to derive the replay staleness floor"
+  ansible.builtin.command:
+    argv:
+      - restic
+      - snapshots
+      - --json
+  environment: "{{ backup_restic_env }}"
+  no_log: true # env dict carries S3 creds
+  register: _restic_snapshot_list
+  changed_when: false
+  failed_when: false
+
+- name: "Post-restore -- compute the replay staleness floor"
+  ansible.builtin.set_fact:
+    _restore_min_dump_time: >-
+      {{ (_restic_snapshot_list.stdout | default('[]'))
+         | previous_snapshot_time(_restic_snapshot_id) }}
+
+# Empty is a real answer (a repository with one snapshot has no earlier pass),
+# so it is reported rather than treated as a failure. It is reported LOUDLY
+# because the other way to get an empty answer is an unreadable snapshot list,
+# and the two are indistinguishable from here.
+- name: "Post-restore -- staleness floor"
+  ansible.builtin.debug:
+    msg: >-
+      {{ ('database replay will refuse archives taken before '
+          ~ _restore_min_dump_time)
+         if _restore_min_dump_time
+         else ('no earlier snapshot found in the repository, so the database '
+               ~ 'replay runs with no staleness floor. Expected on a first '
+               ~ 'backup; on a repository that has more than one snapshot it '
+               ~ 'means `restic snapshots` could not be read (rc '
+               ~ (_restic_snapshot_list.rc | default('?')) ~ ').') }}
+
 - name: "Drop post-restore marker for site.yml hooks"
   ansible.builtin.copy:
     dest: "{{ backup_stats_dir }}/post-restore.needed"
     content: |
       restored_at: {{ ansible_date_time.iso8601 }}
       snapshot: {{ _restic_snapshot_id }}
+      min_dump_time: {{ _restore_min_dump_time }}
     owner: root
     group: root
     mode: "0644"

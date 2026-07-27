@@ -1,7 +1,18 @@
 #!/bin/bash
 # Enumerate every bind-mount source used by running containers, flag any
-# path that ISN'T under a covered prefix. Warn-only -- never exits
-# non-zero; the backup wrapper calls this as a reporting tail.
+# path that ISN'T under a covered prefix.
+#
+# Exit codes are the contract:
+#   0  every application bind-mount source is covered (or there is nothing
+#      to check, or the paths file has not been rendered yet)
+#   2  at least one source is NOT in the backup set
+#
+# 2 is deliberate and it is new. This used to exit 0 unconditionally, which
+# made an application writing outside the backup set a line in the journal --
+# and nobody reads a green run's journal. The path stayed unbacked until
+# someone needed it. The wrapper now fails the run on 2, AFTER the snapshot is
+# taken, so what IS covered is still captured and the operator is paged about
+# what is not.
 #
 # Installed by roles/backup (ansible.builtin.copy, NOT .template) --
 # keeping it out of Jinja avoids the bash-vs-Jinja fights this file
@@ -180,4 +191,4 @@ echo "Named volumes are always covered (under /mnt/data/docker/volumes)."
 echo "Relative bind mounts in a Portainer stack (e.g. ./myapp) resolve under"
 echo "the stack's dir in the Portainer data volume, which is covered too."
 
-exit 0
+exit 2
