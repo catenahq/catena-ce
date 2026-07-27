@@ -72,7 +72,8 @@ then set_facts them for the roles. `seed.py` mints NONE of these (that was the
 old laptop-minting model; dropped with the 0b true-on-box-minting cutover).
 The `roles/portainer` API-key mint (`bootstrap_portainer_admin.py`) is the one
 exception that mints mid-converge (from the initial admin) rather than in the
-loader; the store persists it and the loader adopts it on the next converge.
+loader: the admin has to exist first. It prints the key on stdout and the role
+writes it straight into the store, so it never touches a file off-box.
 
 - `vault_catena_postgres_password`
 - `vault_keycloak_db_password`
@@ -101,8 +102,8 @@ loader; the store persists it and the loader adopts it on the next converge.
 - `vault_element_jigasi_xmpp_password`
 - `vault_beszel_admin_password`
 - `vault_beszel_universal_token`
-- `vault_portainer_api_key` (already minted on-box; 0b persists it on-box
-  instead of writing back to the laptop vault)
+- `vault_portainer_api_key` (minted by Portainer's own token API, written
+  into the store by `roles/portainer`)
 
 ### 3. Non-secret config (.env today; rides backup once on-box)
 
@@ -127,8 +128,9 @@ already holds `backup.env` (S3 creds) + `restic.pass` (restic password),
 both written reconcile-not-overwrite by `roles/backup`. That is the model
 for every category-2 secret and category-3 value: a single on-box config
 source-of-truth under `/etc/catena/`, written once, reconciled on converge,
-carried in every snapshot. The laptop inventory is now non-secret only
-(`.env` + `hosts.yml`); the plaintext `vault.yml` was removed (0b).
+carried in every snapshot. The laptop inventory is non-secret only
+(`.env`, `hosts.yml`, `group_vars/all/main.yml`); nothing writes a
+`vault.yml` there.
 
 The swarm-secret path (catena-postgres, portainer admin) is NOT backed up
 (`/var/lib/docker/swarm` is excluded); those replay correctly because the

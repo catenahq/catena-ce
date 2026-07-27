@@ -157,12 +157,12 @@
 # talk to Portainer with an X-API-Key. It is minted from the initial admin
 # (created at first boot via --admin-password-file above) by
 # helpers/bootstrap_portainer_admin.py: signs in with vault_admin_password,
-# resolves the admin user id, POSTs /api/users/{id}/tokens, and writes the
-# rawAPIKey into the plaintext group_vars vault.yml (SOPS+age was dropped,
-# 0b). include_vars then brings it into the in-flight playbook scope; the
-# on-box config loader adopts it into /etc/catena/config.json next converge.
+# resolves the admin user id, POSTs /api/users/{id}/tokens, and prints the
+# rawAPIKey. This role then publishes it as a fact for the rest of the
+# converge and writes it into the on-box store, which is where every Catena
+# secret lives (0b) -- the loader adopts it from there on every later run.
 #
-# Fires when the vault has NO key yet (first install) OR when the stored key
+# Fires when the store has NO key yet (first install) OR when the stored key
 # is rejected by the live Portainer (401/403 -- e.g. the operator recreated
 # the admin, or a /data restore replaced the BoltDB store the token lived
 # in). The validate is one cheap GET; the mint only runs on the miss.
@@ -191,10 +191,10 @@
     or (vault_portainer_api_key | length) <= 10
     or (_pt_apikey_validate.status | default(200)) in [401, 403]
   block:
-    - name: "portainer: pin the inventory vault.yml path"
-      ansible.builtin.set_fact:
-        _pt_apikey_vault_file: "{{ inventory_dir }}/group_vars/all/vault.yml"
-
+    # Runs on the CONTROLLER: it reaches Portainer's tailnet address, the
+    # same path every other API task here takes. The admin password goes in
+    # on stdin so it never lands in argv (world-readable via /proc) and no
+    # file holding it is created.
     - name: "portainer: invoke bootstrap_portainer_admin.py to mint an API key"
       ansible.builtin.command:
         # Stdlib-only helper -- skip the `uv` indirection so a minimal
@@ -202,22 +202,56 @@
         argv:
           - python3
           - "{{ playbook_dir }}/../helpers/bootstrap_portainer_admin.py"
-          - --vault
-          - "{{ _pt_apikey_vault_file }}"
-          - --admin-password-vault
-          - "{{ _pt_apikey_vault_file }}"
           - --tailnet-ip
           - "{{ ansible_host }}"
           - --port
           - "{{ portainer_ui_port }}"
+        stdin: "{{ vault_admin_password }}"
+        stdin_add_newline: false
         chdir: "{{ playbook_dir }}/../.."
+      register: _pt_apikey_mint
       delegate_to: localhost
       become: false
       changed_when: true
+      no_log: true
 
-    - name: "portainer: reload vault so the freshly-minted key is in playbook scope"
-      ansible.builtin.include_vars:
-        file: "{{ _pt_apikey_vault_file }}"
+    - name: "portainer: publish the minted key for the rest of the converge"
+      ansible.builtin.set_fact:
+        vault_portainer_api_key: "{{ _pt_apikey_mint.stdout | trim }}"
+      no_log: true
+
+    # Staged to a 0600 file rather than passed as --set-secret: the script
+    # module has no stdin passthrough, and a secret in argv is readable by
+    # any local user through /proc. Same pattern as the converge loader.
+    # --overwrite because the 401/403 arm of this block means the STORED key
+    # is the dead one; fill-only would keep it.
+    - name: "portainer: stage the minted key for the on-box store (0600)"
+      ansible.builtin.copy:
+        dest: /root/.catena-portainer-key.json
+        content: "{{ {'vault_portainer_api_key': vault_portainer_api_key} | to_json }}"
+        owner: root
+        group: root
+        mode: "0600"
+      changed_when: false
+      no_log: true
+
+    - name: "portainer: write the minted key into the on-box config store"
+      ansible.builtin.script:
+        cmd: >-
+          {{ playbook_dir }}/../helpers/onbox_config.py
+          --path {{ catena_onbox_config_path | default('/etc/catena/config.json') }}
+          --adopt-file /root/.catena-portainer-key.json
+          --overwrite --no-mint --emit none
+        executable: python3
+      changed_when: true
+      no_log: true
+
+    - name: "portainer: remove the staged key file"
+      ansible.builtin.file:
+        path: /root/.catena-portainer-key.json
+        state: absent
+      changed_when: false
+      no_log: true
 
 # ─── local Docker environment (endpoint) ─────────────────────────────────
 # Portainer does NOT auto-create a local endpoint on first boot even with the

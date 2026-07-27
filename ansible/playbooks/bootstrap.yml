@@ -294,8 +294,6 @@
           - "{{ playbook_dir }}/../helpers/bootstrap_output.py"
           - --inventory-dir
           - "{{ inventory_dir }}"
-          - --section
-          - hosts
           - --host
           - "{{ _steady_state_host }}"
           - --key

@@ -305,19 +305,28 @@ def ensure_user_held_secrets(store: dict) -> list[str]:
     return minted
 
 
-def adopt(store: dict, mapping: dict | None) -> list[str]:
-    """Capture pre-existing secret values into the store, fill-only. Used once
-    at migration to seed the store from the values already in scope (the
-    plaintext group_vars vault the converge seeds from). Never overwrites a value
-    already in the store and never stores a blank. Accepts ANY key -- the
+def adopt(store: dict, mapping: dict | None, *, overwrite: bool = False) -> list[str]:
+    """Capture secret values into the store. Fill-only by default: the
+    converge loader passes every vault_* in scope, and a value already in the
+    store is the source of truth. Never stores a blank. Accepts ANY key -- the
     caller pre-filters to vault_* -- so vault_portainer_api_key and any
-    out-of-registry secret are captured too. Returns the keys adopted."""
+    out-of-registry secret are captured too, which is why this is separate
+    from apply_inputs and its EXTERNAL_SECRETS allowlist.
+
+    ``overwrite=True`` replaces an existing value. Used by roles/portainer
+    when Portainer REJECTS the stored API key (the admin was recreated, or a
+    /data restore replaced the BoltDB the token lived in): the freshly minted
+    key has to win, and fill-only would keep serving the dead one.
+
+    Returns the keys written."""
     secrets_map = store.setdefault("secrets", {})
     adopted: list[str] = []
     for key, val in (mapping or {}).items():
         if val is None or (isinstance(val, str) and not val.strip()):
             continue
-        if secrets_map.get(key):
+        if not overwrite and secrets_map.get(key):
+            continue
+        if secrets_map.get(key) == val:
             continue
         secrets_map[key] = val
         adopted.append(key)
@@ -385,13 +394,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--set-config", action="append", default=[], metavar="KEY=VAL",
                     help="set a non-secret config value (repeatable)")
     ap.add_argument("--overwrite", action="store_true",
-                    help="replace existing values instead of filling only blanks")
+                    help="replace existing values instead of filling only "
+                         "blanks (applies to --adopt-* as well as --set-*)")
     ap.add_argument("--no-mint", action="store_true",
                     help="do not mint missing internal secrets (seed-only)")
     ap.add_argument("--adopt-stdin", action="store_true",
-                    help="read a JSON object of existing {key: value} secrets "
-                         "from stdin and adopt them fill-only before minting "
-                         "(migration capture from the plaintext group_vars vault)")
+                    help="read a JSON object of {key: value} secrets from "
+                         "stdin and adopt them before minting (fill-only "
+                         "unless --overwrite)")
     ap.add_argument("--adopt-file", metavar="PATH",
                     help="like --adopt-stdin but read the JSON object from a "
                          "file (the Ansible loader stages the capture map to a "
@@ -438,7 +448,7 @@ def main(argv: list[str] | None = None) -> int:
         incoming = json.loads(adopt_raw)
         if not isinstance(incoming, dict):
             raise SystemExit("--adopt-*: expected a JSON object")
-        adopt(store, incoming)
+        adopt(store, incoming, overwrite=args.overwrite)
     apply_inputs(
         store,
         secrets_in=_parse_kv(args.set_secret),

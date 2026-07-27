@@ -260,6 +260,52 @@ def test_adopt_fills_only_and_captures_any_key(oc):
     assert "vault_blank" not in store["secrets"]
 
 
+def test_adopt_overwrite_replaces_a_dead_value(oc):
+    """roles/portainer re-mints when Portainer REJECTS the stored key. Without
+    overwrite the store would keep serving the dead one and every API call
+    would 401 for the rest of the converge."""
+    store = {"secrets": {"vault_portainer_api_key": "revoked"}, "config": {}}
+    adopted = oc.adopt(store, {"vault_portainer_api_key": "fresh"}, overwrite=True)
+    assert adopted == ["vault_portainer_api_key"]
+    assert store["secrets"]["vault_portainer_api_key"] == "fresh"
+
+
+def test_adopt_overwrite_still_refuses_a_blank(oc):
+    store = {"secrets": {"vault_portainer_api_key": "keep"}, "config": {}}
+    assert oc.adopt(store, {"vault_portainer_api_key": "  "}, overwrite=True) == []
+    assert store["secrets"]["vault_portainer_api_key"] == "keep"
+
+
+def test_adopt_reports_no_change_when_the_value_is_identical(oc):
+    """An unchanged re-adopt must not report a write: the portainer role's
+    task reports changed from this, and a converge that changed nothing has
+    to recap changed=0 for the bench idempotency gates."""
+    store = {"secrets": {"vault_portainer_api_key": "same"}, "config": {}}
+    assert oc.adopt(store, {"vault_portainer_api_key": "same"}, overwrite=True) == []
+
+
+def test_cli_overwrite_reaches_adopt(oc, tmp_path, capsys, monkeypatch):
+    import io
+    p = tmp_path / "config.json"
+    oc.dump({"secrets": {"vault_portainer_api_key": "revoked"}, "config": {}}, p)
+    monkeypatch.setattr("sys.stdin", io.StringIO('{"vault_portainer_api_key": "fresh"}'))
+    rc = oc.main(["--path", str(p), "--adopt-stdin", "--overwrite",
+                  "--no-mint", "--emit", "none"])
+    assert rc == 0
+    assert capsys.readouterr().out == ""
+    assert oc.load(p)["secrets"]["vault_portainer_api_key"] == "fresh"
+
+
+def test_cli_adopt_without_overwrite_keeps_the_stored_value(oc, tmp_path, monkeypatch):
+    import io
+    p = tmp_path / "config.json"
+    oc.dump({"secrets": {"vault_portainer_api_key": "stored"}, "config": {}}, p)
+    monkeypatch.setattr("sys.stdin", io.StringIO('{"vault_portainer_api_key": "other"}'))
+    assert oc.main(["--path", str(p), "--adopt-stdin", "--no-mint",
+                    "--emit", "none"]) == 0
+    assert oc.load(p)["secrets"]["vault_portainer_api_key"] == "stored"
+
+
 def test_cli_adopt_stdin_then_mint(oc, tmp_path, capsys, monkeypatch):
     import io
     p = tmp_path / "config.json"

@@ -10,9 +10,9 @@
       - vault_catena_postgres_password | length >= 12
       - vault_catena_postgres_password not in ['REPLACE', 'REPLACE-LONG-RANDOM-STRING']
     fail_msg: >-
-      vault_catena_postgres_password is missing or a placeholder. The installer
-      mints it on a fresh install; otherwise set it in
-      inventory/<name>/group_vars/all/vault.yml.
+      vault_catena_postgres_password is missing or a placeholder. The converge
+      mints it on the box; a missing one means the on-box store at
+      /etc/catena/config.json was not loaded or was truncated.
 
 # ─── swarm secret (immutable; create-once) ───────────────────────────────
 - name: "postgres: check swarm secret exists"

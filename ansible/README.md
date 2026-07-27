@@ -8,8 +8,8 @@ self-hoster runs these playbooks (via the bundled installer/CLI, not raw
 preflight  ->  bootstrap  ->  site  ->  validate          (+ restore for DR)
 ```
 
-- **preflight** -- controller-side check that the Tailscale OAuth client in
-  the vault is valid before any VPS work.
+- **preflight** -- controller-side check that the supplied Tailscale OAuth
+  client is valid before any VPS work.
 - **bootstrap** -- first-contact hardening of a fresh VPS (user, SSH, ufw,
   docker), then it joins the tailnet.
 - **site** -- the converge: networking (Tailscale / Cloudflare Tunnel /
@@ -56,9 +56,10 @@ Run `uv run catena` with no subcommand for an interactive menu; `catena
 `uv run ./catena <cmd>` still works (the bench and the Semaphore wrapper
 invoke the `catena` file directly).
 
-`install` first runs `seed.py` (collects config, mints service secrets,
-writes the plaintext 0600 vault), then chains the four playbooks. For an
-unattended run, pass `-i install.yaml --no-confirm`.
+`install` first runs `seed.py` (collects config, writes the non-secret
+inventory, stages the vendor creds to a transient 0600 file), then chains
+the four playbooks. For an unattended run, pass `-i install.yaml
+--no-confirm`.
 
 `uninstall` does **not** delete your apps or data. It unmasks and
 re-enables Debian's `apt-daily-upgrade.timer` so the box keeps patching

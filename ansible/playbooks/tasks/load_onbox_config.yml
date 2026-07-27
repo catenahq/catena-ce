@@ -69,22 +69,16 @@
   changed_when: false
   no_log: true
 
-# Publish every store secret as a fact EXCEPT vault_portainer_api_key.
-# That key is minted mid-converge by roles/portainer and reloaded into scope
-# via include_vars on the plaintext group_vars vault; a set_fact here (facts
-# outrank include_vars) would pin a pre-mint / stale value and shadow the
-# freshly-minted one -- on a rewound host the stale key no longer authenticates
-# and every Portainer API call 401s. The store still persists the key (adopt on
-# the next converge); the portainer role owns it in-flight.
+# Publish every store secret as a fact, vault_portainer_api_key included.
+# That one is minted mid-converge by roles/portainer rather than here, and it
+# used to be excluded because the role brought the fresh value back with
+# include_vars, which a fact would have outranked. The role now set_facts it,
+# and a later set_fact wins, so publishing the stored value is what stops the
+# role re-minting a key on every single converge.
 - name: "onbox: publish store secrets as facts (on-box source of truth)"
   ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"
-  loop: >-
-    {{ (_onbox_emit.stdout | from_json) | dict2items
-       | rejectattr('key', 'in', catena_onbox_fact_exclude) | list }}
+  loop: "{{ (_onbox_emit.stdout | from_json) | dict2items }}"
   loop_control:
     label: "{{ item.key }}"
-  vars:
-    catena_onbox_fact_exclude:
-      - vault_portainer_api_key
   no_log: true

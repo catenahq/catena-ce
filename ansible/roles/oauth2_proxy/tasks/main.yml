@@ -42,12 +42,11 @@
       oauth2-proxy preflight, AND standard base64 with `+/` characters
       will silently decode to a 44-byte literal at oauth2-proxy boot),
       CLOUDFLARE_ZONE, and a healthy roles/keycloak pass earlier in
-      the play. The installer mints both secrets correctly on a fresh
-      install; on existing inventories minted before this fix,
-      regenerate the cookie secret with:
-        python3 -c 'import os, base64; print(base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("="))'
-      then set it in the plaintext group_vars/all/vault.yml (or via the
-      catena-admin settings page).
+      the play. The converge mints both secrets correctly on the box; to
+      regenerate the cookie secret by hand, delete
+      vault_oauth2_proxy_cookie_secret from /etc/catena/config.json and
+      re-converge (minting is fill-only, so it will not touch a value that
+      is still there).
 
 # Realm-config render + middleware render + compose deploy + validate
 # all assume Keycloak is up (so keycloak-config-cli can reach it) AND

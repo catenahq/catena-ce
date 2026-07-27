@@ -61,8 +61,8 @@ _VERIFY_ATTEMPTS = 5
 _VERIFY_DELAY_S = 3.0
 
 # Search order for the .env when --env-file isn't passed. Mirrors the priority
-# in playbooks/lookup_plugins/dotenv.py: per-inventory first, repo-root fallback for
-# legacy single-inventory installs that haven't migrated.
+# in playbooks/lookup_plugins/dotenv.py: per-inventory first, repo-root
+# fallback for a single-inventory checkout.
 DEFAULT_DOTENV_CANDIDATES = (
     REPO_ROOT / "ansible" / "inventory" / "dev" / ".env",
     REPO_ROOT / ".env",

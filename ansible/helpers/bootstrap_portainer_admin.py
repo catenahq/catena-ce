@@ -20,16 +20,17 @@ The flow (verified endpoint map: roles/portainer/README.md):
     -> 200 {"rawAPIKey": "..."}  the X-API-Key value (shown once). Portainer
                                  RE-verifies the password on this call.
 
-This helper chains those calls with the shared vault_admin_password
-(already in the vault, shared with Keycloak). On success it merges the
-minted key into the vault under vault_portainer_api_key and exits 0.
-Invoked by roles/portainer on a converge when the vault does not yet hold
-a valid Portainer API key. The vault is a PLAINTEXT group_vars YAML file
-(SOPS+age was dropped, project 0b); the on-box config loader later adopts
-the merged key into /etc/catena/config.json.
+This helper chains those calls with the shared admin password, which it
+reads on STDIN -- the caller holds it, this process never touches a file
+that stores it. On success it prints the minted rawAPIKey on stdout
+(status messages go to stderr) and exits 0; persisting the key is the
+caller's job. roles/portainer writes it into the on-box config store at
+/etc/catena/config.json, which is the only place a Catena secret lives.
 
 Contract:
-  Exit code 0  : API key minted + merged into vault.
+  stdin        : the admin password, one line.
+  stdout       : the minted rawAPIKey, on success only.
+  Exit code 0  : API key minted.
   Exit code 2  : Portainer unreachable at tailnet:port -- caller should
                  fall back / retry. Not a hard failure; Portainer may
                  still be initialising its BoltDB store.
@@ -37,12 +38,12 @@ Contract:
                  (auth returned 401/422). The operator either changed the
                  admin password in the UI or rotated vault_admin_password
                  after install. We don't try to reset it.
-  Exit code 1  : unexpected error (vault I/O, unexpected HTTP code,
+  Exit code 1  : unexpected error (empty stdin, unexpected HTTP code,
                  malformed responses, etc.).
 
 Usage:
-    python3 helpers/bootstrap_portainer_admin.py \\
-        --vault inventory/dev/group_vars/all/vault.yml \\
+    printf '%s' "$ADMIN_PASSWORD" | python3 \\
+        helpers/bootstrap_portainer_admin.py \\
         --tailnet-ip 100.77.16.46 \\
         --port 9000
 """
@@ -54,9 +55,6 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from pathlib import Path
-
-import yaml
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -91,27 +89,6 @@ def _ok(msg: str) -> None:
 
 def _info(msg: str) -> None:
     print(f"\033[1;34m-\033[0m {msg}", file=sys.stderr)
-
-
-# --- plaintext vault I/O ---------------------------------------------------
-# SOPS+age was dropped (0b): the vault is a plaintext group_vars YAML file.
-def _read_vault(path: Path) -> dict:
-    data = yaml.safe_load(path.read_text()) or {}
-    if not isinstance(data, dict):
-        raise ValueError(f"{path} top-level value is not a mapping")
-    return data
-
-
-def _read_value(path: Path, key: str) -> str:
-    val = _read_vault(path).get(key)
-    return val if isinstance(val, str) else ""
-
-
-def _set_value(path: Path, key: str, value: str) -> None:
-    data = _read_vault(path)
-    data[key] = value
-    path.write_text(yaml.safe_dump(data, default_flow_style=False, sort_keys=False))
-    path.chmod(0o600)
 
 
 # --- HTTP primitives -------------------------------------------------------
@@ -292,13 +269,6 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("--vault", type=Path,
-                    help="Plaintext group_vars vault that will RECEIVE the "
-                         "minted vault_portainer_api_key. Required unless "
-                         "--emit-only.")
-    ap.add_argument("--admin-password-vault", type=Path,
-                    help="Plaintext group_vars vault holding "
-                         "vault_admin_password. Defaults to --vault.")
     ap.add_argument("--tailnet-ip", required=True,
                     help="Tailnet IPv4 of the Portainer host.")
     ap.add_argument("--port", type=int, default=9000,
@@ -306,35 +276,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--admin-user", default=DEFAULT_ADMIN_USER,
                     help=f"Portainer admin username (default "
                          f"{DEFAULT_ADMIN_USER!r}).")
-    ap.add_argument("--emit-only", action="store_true",
-                    help="Skip the in-place vault merge; emit the minted key "
-                         "on stdout only (caller persists it).")
     args = ap.parse_args(argv)
 
-    if not args.emit_only:
-        if args.vault is None:
-            print("--vault is required unless --emit-only is set", file=sys.stderr)
-            return EXIT_ERROR
-        if not args.vault.is_file():
-            print(f"vault not found: {args.vault}", file=sys.stderr)
-            return EXIT_ERROR
-    admin_pw_vault = args.admin_password_vault or args.vault
-    if admin_pw_vault is None:
-        print("--admin-password-vault is required when --vault is not given",
-              file=sys.stderr)
-        return EXIT_ERROR
-    if not admin_pw_vault.is_file():
-        print(f"admin-password vault not found: {admin_pw_vault}", file=sys.stderr)
-        return EXIT_ERROR
-
-    try:
-        password = _read_value(admin_pw_vault, "vault_admin_password")
-    except (OSError, ValueError, yaml.YAMLError) as exc:
-        print(f"could not read {admin_pw_vault}: {exc}", file=sys.stderr)
-        return EXIT_ERROR
+    # Trailing newline only -- a Portainer password may legitimately end in
+    # whitespace, and .strip() would silently mint against a different one.
+    password = sys.stdin.read().rstrip("\r\n")
     if not password:
-        _warn("vault_admin_password not in vault -- can't mint a Portainer "
-              "API key.")
+        _warn("no admin password on stdin -- can't mint a Portainer API key.")
         return EXIT_ERROR
 
     base_url = f"http://{args.tailnet_ip}:{args.port}"
@@ -355,15 +303,6 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return EXIT_ERROR
 
-    if not args.emit_only:
-        try:
-            _set_value(args.vault, "vault_portainer_api_key", api_key)
-        except (OSError, ValueError, yaml.YAMLError) as exc:
-            print(f"could not write {args.vault}: {exc}", file=sys.stderr)
-            return EXIT_ERROR
-        _ok(f"merged vault_portainer_api_key into {args.vault}")
-    else:
-        _ok("--emit-only: skipped vault merge")
     # Emit the key on stdout (status messages go to stderr) so a caller can
     # register: it; ansible's no_log keeps it out of logs.
     print(api_key)

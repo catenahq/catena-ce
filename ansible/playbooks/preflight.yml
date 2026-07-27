@@ -64,13 +64,16 @@
          Click generate. COPY client_id AND client_secret immediately -- the
          secret is displayed once.
 
-      3. Put the credentials in vault.
+      3. Hand the credentials to the install.
 
-             # Edit the plaintext (0600, gitignored) vault directly:
-             $EDITOR ansible/inventory/dev/group_vars/all/vault.yml
-             # set:
-             #   vault_tailscale_oauth_client_id: "k123..."
-             #   vault_tailscale_oauth_client_secret: "tskey-client-k123..."
+         `catena install` prompts for them and threads them in as transient
+         extra-vars; the converge adopts them into the on-box store at
+         /etc/catena/config.json. Nothing writes them to this laptop. On an
+         already-installed host, set them from catena-admin > Settings, or
+         re-run the install stage with:
+
+             -e '{"vault_tailscale_oauth_client_id": "k123...",
+                  "vault_tailscale_oauth_client_secret": "tskey-client-k123..."}'
 
       4. Re-run your original command.
 
