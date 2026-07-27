@@ -1,8 +1,7 @@
 ---
 # Validation tasks for roles/oauth2_proxy. Each per-app instance must
 # have a running container and respond 200 on /ping (oauth2-proxy's
-# built-in health endpoint). The legacy `staff` + `admin` services
-# are also probed while `oauth2_proxy_keep_legacy_chain` is true.
+# built-in health endpoint).
 #
 # Wrapped in a block/rescue: on /ping failure (typical mode is the
 # container in a startup restart-loop, where `docker exec` returns
@@ -194,74 +193,6 @@
         loop_var: _ping
         label: "{{ _ping._app.slug }}"
       when: (_ping.stdout | default('')) | length > 0
-
-    - name: "validate/oauth2-proxy: find legacy staff container"
-      ansible.builtin.shell: |
-        set -o pipefail
-        docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-          | grep -E '{{ oauth2_proxy_compose_name | portainer_container_regex("staff") }}' \
-          | head -n1
-      args:
-        executable: /bin/bash
-      register: _oauth2_staff_container
-      changed_when: false
-      retries: 30
-      delay: 4
-      until: _oauth2_staff_container.stdout | length > 0
-      when: oauth2_proxy_keep_legacy_chain | default(true)
-
-    - name: "validate/oauth2-proxy: find legacy admin container"
-      ansible.builtin.shell: |
-        set -o pipefail
-        docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-          | grep -E '{{ oauth2_proxy_compose_name | portainer_container_regex("admin") }}' \
-          | head -n1
-      args:
-        executable: /bin/bash
-      register: _oauth2_admin_container
-      changed_when: false
-      retries: 30
-      delay: 4
-      until: _oauth2_admin_container.stdout | length > 0
-      when: oauth2_proxy_keep_legacy_chain | default(true)
-
-    - name: "validate/oauth2-proxy: legacy staff /ping returns 200"
-      ansible.builtin.command:
-        argv:
-          - docker
-          - exec
-          - "{{ _oauth2_staff_container.stdout }}"
-          - wget
-          - "-qO-"
-          - "http://localhost:{{ oauth2_proxy_internal_port }}/ping"
-      register: _oauth2_staff_ping
-      changed_when: false
-      failed_when: _oauth2_staff_ping.rc != 0
-      retries: 12
-      delay: 4
-      until: _oauth2_staff_ping.rc == 0
-      when:
-        - oauth2_proxy_keep_legacy_chain | default(true)
-        - (_oauth2_staff_container.stdout | default('')) | length > 0
-
-    - name: "validate/oauth2-proxy: legacy admin /ping returns 200"
-      ansible.builtin.command:
-        argv:
-          - docker
-          - exec
-          - "{{ _oauth2_admin_container.stdout }}"
-          - wget
-          - "-qO-"
-          - "http://localhost:{{ oauth2_proxy_internal_port }}/ping"
-      register: _oauth2_admin_ping
-      changed_when: false
-      failed_when: _oauth2_admin_ping.rc != 0
-      retries: 12
-      delay: 4
-      until: _oauth2_admin_ping.rc == 0
-      when:
-        - oauth2_proxy_keep_legacy_chain | default(true)
-        - (_oauth2_admin_container.stdout | default('')) | length > 0
 
   rescue:
     # docker logs / inspect each call swallows its own failures

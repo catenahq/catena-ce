@@ -1,20 +1,16 @@
 ---
-# roles/traefik -- deploy + own the catena-traefik reverse proxy.
+# roles/traefik -- deploy + own the catena-traefik reverse proxy. We create the
+# overlay, render the config, and run `catena-traefik` ourselves.
 #
-# Replaces the Traefik-management block that used to live at the bottom of
-# roles/dokploy. Traefik is no longer install.sh's `dokploy-traefik`: we create
-# the overlay, render the config, and run `catena-traefik` ourselves.
-#
-#   - catena-network overlay created by us (Dokploy no longer owns ingress).
+#   - catena-network overlay created by us.
 #   - No host port bindings on :80/:443 -- only path in is cloudflared over the
 #     overlay.
 #   - Plain container (not a swarm service) + a nudge unit that restarts it
 #     after a docker restart once the overlay re-materializes.
 #
-# The config tree lives under /etc/catena/traefik (roles/common migrates an
-# existing /etc/dokploy/traefik here on the first post-teardown converge).
-# catena-traefik is on catena_network_name only -- every catena app deploys
-# onto catena-network via the Portainer stack seam.
+# The config tree lives under /etc/catena/traefik. catena-traefik is on
+# catena_network_name only -- every catena app deploys onto catena-network via
+# the Portainer stack seam.
 
 # ─── overlay network ─────────────────────────────────────────────────────
 - name: "traefik: ensure {{ catena_network_name }} overlay exists"
@@ -49,8 +45,7 @@
 # acme.json backs certificatesResolvers.letsencrypt.acme.storage
 # (traefik.yml.j2). It must exist as a FILE before the container launch: a
 # docker bind-mount auto-creates a missing source as a DIRECTORY, which
-# breaks Traefik ACME storage. On a legacy host roles/common migrated the
-# Dokploy-era file in; on a fresh host nothing else creates it.
+# breaks Traefik ACME storage. Nothing else creates it.
 - name: "traefik: stat acme.json (ACME cert storage must be a file)"
   ansible.builtin.stat:
     path: "{{ traefik_dynamic_dir }}/acme.json"
@@ -108,22 +103,6 @@
     group: root
     mode: "0644"
   register: _traefik_secure_headers_middleware
-
-# ─── remove the install.sh-born dokploy-traefik (one-time cutover) ───────
-# On a host that previously ran the dokploy role, Dokploy's install.sh left a
-# `dokploy-traefik` plain container publishing :80/:443. We replace it with
-# catena-traefik; leaving the old one bound would collide on the entrypoints.
-- name: "traefik: check for legacy dokploy-traefik container"
-  ansible.builtin.command: docker inspect --type=container dokploy-traefik
-  register: _legacy_traefik
-  changed_when: false
-  failed_when: false
-
-- name: "traefik: remove legacy dokploy-traefik container"
-  ansible.builtin.command: "docker rm -f dokploy-traefik"
-  when: _legacy_traefik.rc == 0
-  register: _legacy_traefik_rm
-  changed_when: _legacy_traefik_rm.rc == 0
 
 # ─── deploy / reconcile catena-traefik ───────────────────────────────────
 - name: "traefik: inspect catena-traefik state"
@@ -195,8 +174,7 @@
   changed_when: _traefik_rm.rc == 0
 
 # Launch on the catena-network overlay with the pinned image and NO host-port
-# publishing. Mirrors the essential flags Dokploy's install.sh used for traefik
-# (docker socket + config mounts, restart policy).
+# publishing.
 - name: "traefik: launch catena-traefik (pinned image, no host ports)"
   ansible.builtin.command:
     argv: "{{ ['docker', 'run'] + traefik_run_argv + [traefik_image] }}"
@@ -255,36 +233,7 @@
     mode: "0644"
   register: _traefik_nudge_dropin
 
-# Remove the superseded nudge artifacts on cutover: the dokploy-named set
-# (Portainer migration) and the traefik-named set (superseded when the nudge
-# widened from traefik-only to every container the overlay race strands).
-# Left behind, the old drop-in would keep firing the old traefik-only script
-# alongside the new one on every docker start.
-- name: "traefik: remove legacy nudge artifacts"
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: absent
-  loop:
-    - /usr/local/bin/dokploy-traefik-nudge
-    - /etc/systemd/system/dokploy-traefik-nudge.service
-    - /etc/systemd/system/docker.service.d/10-dokploy-traefik-nudge.conf
-    - /usr/local/bin/catena-traefik-nudge
-    - /etc/systemd/system/catena-traefik-nudge.service
-    - /etc/systemd/system/docker.service.d/10-catena-traefik-nudge.conf
-  register: _traefik_legacy_nudge_rm
-
 - name: "traefik: daemon-reload if unit or drop-in changed"
   ansible.builtin.systemd:
     daemon_reload: true
-  when: >-
-    _traefik_nudge_unit.changed or _traefik_nudge_dropin.changed
-    or _traefik_legacy_nudge_rm.changed
-
-# ─── dynamic config housekeeping ─────────────────────────────────────────
-# Legacy forwardAuth admin route (admin-dokploy.yml) is superseded by the
-# per-app reverse-proxy route the oauth2_proxy role writes. Remove it so the
-# new route wins unambiguously. Idempotent.
-- name: "traefik: remove legacy admin-dokploy.yml route"
-  ansible.builtin.file:
-    path: "{{ traefik_dynamic_dir }}/admin-dokploy.yml"
-    state: absent
+  when: _traefik_nudge_unit.changed or _traefik_nudge_dropin.changed

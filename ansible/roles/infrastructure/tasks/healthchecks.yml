@@ -49,9 +49,9 @@
       Verified by the aggregate post-role probe in main.yml.
 
 # ─── Bootstrap channel + check via Django shell ──────────────────────
-# Seeds: (a) an ntfy Channel wired to the operator's topic, (b) a
-# "catena-backup" Check with daily schedule + 2h grace, (c) binds
-# the channel to the check. Idempotent -- re-running on an existing
+# Seeds: (a) an ntfy Channel wired to the operator's topic, (b) the
+# "catena-backup-succeeded" + "catena-backup-attempted" Checks, (c) binds
+# the channel to both. Idempotent -- re-running on an existing
 # install just reconciles. Runs on the Portainer-assigned container
 # name; retries while the container + Django + migrations come up.
 #

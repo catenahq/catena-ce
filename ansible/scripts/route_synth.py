@@ -22,11 +22,6 @@ except ModuleNotFoundError:
     from labels_schema import last_warnings, resolve_auth_mode, slugify
 
 AUTO_ROUTE_SUFFIX = "-auto-gate.yml"
-# Legacy filename suffix from before the Keycloak/oauth2-proxy migration.
-# The cleanup loop in sync_gate_routes scans both suffixes and removes any
-# file not in the desired set, so old "-auto-authentik.yml" files are
-# deleted within one sync after this script is updated.
-_LEGACY_AUTO_ROUTE_SUFFIX = "-auto-authentik.yml"
 
 
 def _route_yaml_public(name, host, alias, port, force_https_mw, route_slug=None):

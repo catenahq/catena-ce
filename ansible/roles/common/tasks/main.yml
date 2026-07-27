@@ -675,34 +675,6 @@
     group: root
     mode: "0755"
 
-# One-time cutover: the config tree the Dokploy era rooted at /etc/dokploy
-# (traefik + its acme.json + dynamic routes, gatus, beszel-hc-shim, recovery,
-# keycloak realm exports) moves under /etc/catena in the Dokploy->Portainer
-# teardown. Runs in common (first role) so the dirs are already at the new
-# path before traefik / infrastructure / keycloak render into them. Preserves
-# state by `mv` (Traefik's acme.json certs especially), skips any dir already
-# migrated, and drops whatever is left (stale Dokploy compose/) so no orphan
-# lingers under /etc/dokploy. Guarded on the legacy dir existing, so it is a
-# no-op on a fresh host and on every converge after the first.
-- name: "cutover: detect the legacy /etc/dokploy config tree"
-  ansible.builtin.stat:
-    path: /etc/dokploy
-  register: _legacy_dokploy_tree
-
-- name: "cutover: migrate the legacy /etc/dokploy config tree into /etc/catena"
-  ansible.builtin.shell:
-    cmd: |
-      set -eu
-      for d in traefik gatus beszel-hc-shim recovery keycloak; do
-          if [ -d "/etc/dokploy/$d" ] && [ ! -e "/etc/catena/$d" ]; then
-              mv "/etc/dokploy/$d" "/etc/catena/$d"
-          fi
-      done
-      rm -rf /etc/dokploy
-    executable: /bin/bash
-  when: _legacy_dokploy_tree.stat.exists | default(false)
-  changed_when: true
-
 # /var/lib/catena is the catena VAR-state dir (restore markers, the
 # backup stats dir, the keycloak-realm SMTP-bootstrap marker, ...).
 # Several roles WRITE under it before the backup role -- which used to be

@@ -21,8 +21,7 @@ docker_live_restore: false
 # Docker Swarm advertise address. The tailnet IP so any future multi-node
 # expansion uses the private tailnet path. This role inits a single-node
 # swarm (below) that the reverse-proxy + control-plane roles deploy their
-# services onto. (Was dokploy_advertise_addr; the `docker swarm init` moved
-# here from the deleted roles/dokploy in the Portainer migration.)
+# services onto.
 docker_swarm_advertise_addr: "{{ ansible_host }}"
 
 # Codename-aware apt repo. Matches the pattern used by roles/tailscale/.

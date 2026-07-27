@@ -67,7 +67,7 @@
     },
     {
       "customType": "regex",
-      "description": "Track catena-postgres image tag pinned in postgres role defaults (replaced the control-plane Postgres at the Dokploy->Portainer migration)",
+      "description": "Track catena-postgres image tag pinned in postgres role defaults",
       "managerFilePatterns": [
         "/^ansible/roles/postgres/defaults/main\\.yml$/"
       ],

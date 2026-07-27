@@ -213,9 +213,8 @@
 # ─── Docker Swarm (single-node) init ─────────────────────────────────────
 # The reverse-proxy + control-plane roles that follow (traefik, postgres,
 # portainer) all deploy `docker service`s, which require an active swarm
-# manager. The swarm init moved here from the deleted roles/dokploy in the
-# Portainer migration, so this role inits it now -- right after the
-# daemon is confirmed serving and before any swarm-service role runs.
+# manager, so this role inits it -- right after the daemon is confirmed
+# serving and before any swarm-service role runs.
 #
 # Idempotent: `docker swarm init` errors on an already-active node, so gate on
 # LocalNodeState. Swarm raft + overlay IPAM are NOT in the restic set (backup

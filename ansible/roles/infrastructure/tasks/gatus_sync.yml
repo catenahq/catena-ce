@@ -7,15 +7,6 @@
 # (two endpoints per gated client app: internal + public). 00-base.yaml
 # stays Ansible-owned; 99-*.yaml files are operator-owned and untouched.
 
-# One-time cutover: the file was named 50-dokploy-apps.yaml before the
-# 1af rename. Gatus merges every *.yaml in the config dir, so a lingering
-# legacy file would DUPLICATE each endpoint once gatus-sync writes the
-# new name. Absent on fresh hosts -> no-op.
-- name: "gatus-sync: remove the legacy 50-dokploy-apps.yaml"
-  ansible.builtin.file:
-    path: "{{ gatus_host_config_dir }}/50-dokploy-apps.yaml"
-    state: absent
-
 - name: "gatus-sync: script"
   # Plain Python file (no Jinja) -- per-host values come from the env
   # file below. Copy vs. template avoids Jinja chewing on docker

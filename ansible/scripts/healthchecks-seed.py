@@ -171,19 +171,6 @@ backup_attempted_check, _ = Check.objects.update_or_create(
 )
 backup_attempted_check.channel_set.add(channel)
 
-# R24 migration: the legacy single-check slug `catena-backup` no
-# longer receives pings (run-backup.sh now hits the two slugs above).
-# Delete it eagerly so the operator doesn't get a one-time "DOWN" page
-# from grace expiring on an orphaned check. Historical pings on this
-# slug are lost; the operator can rename via /admin/ before the next
-# converge if they want to preserve them.
-Check.objects.filter(project=project, slug="catena-backup").delete()
-
-# Clean up the legacy aggregate "Service alerts" check from pre-
-# per-endpoint deploys. Idempotent no-op once gone. Leaves any
-# auto-created gatus-* per-endpoint checks alone.
-Check.objects.filter(project=project, slug="gatus-alerts").delete()
-
 # Community edition seeds NO catena-daily umbrella checks: the nightly
 # orchestrator chain (cold mirror, verify-cold, managed updates, CVE
 # residual, container update) is a Business-edition lane and does not

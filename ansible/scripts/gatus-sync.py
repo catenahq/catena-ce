@@ -5,10 +5,10 @@ routed, running client app. Runs via systemd timer + on-demand from
 catena-admin."""
 # Managed by Ansible (roles/infrastructure). Do not edit by hand.
 # /usr/local/bin/gatus-sync -- regenerate $GATUS_CONFIG_PATH (default
-# .../50-catena-apps.yaml) from `docker ps` labels. Dokploy->Portainer
-# migration: no control-plane API query -- every RUNNING container that
-# declares a `vps.route.host` label (and whose compose-project stack is not in
-# the infra list) is a live client app, and we emit one Gatus endpoint:
+# .../50-catena-apps.yaml) from `docker ps` labels. No control-plane API
+# query: every RUNNING container that declares a `vps.route.host` label (and
+# whose compose-project stack is not in the infra list) is a live client app,
+# and we emit one Gatus endpoint:
 #
 #   <host>-public : https://<host>/   (conditions: 302, auth redirect)
 #
@@ -59,12 +59,10 @@ def list_routed_containers() -> list[tuple[str, str, str]]:
     """Enumerate RUNNING containers that declare a public host, reading it
     straight from docker labels: `(compose-project, vps.route.host, appName)`.
 
-    Dokploy->Portainer migration: gatus-sync no longer queries a control-plane
-    API (Dokploy project.all + domain.by*). A running container IS a live app
-    (the composeStatus=='done' gate collapses to "it's running"), and its host
-    comes from the `vps.route.host` compose label (Portainer has no domain
-    API). The compose-project label is the Portainer stack Name (the group +
-    the infra-skip key). appName mirrors the project so the version-map +
+    A running container IS a live app, and its host comes from the
+    `vps.route.host` compose label (Portainer has no domain API). The
+    compose-project label is the Portainer stack Name (the group + the
+    infra-skip key). appName mirrors the project so the version-map +
     display-name lookups key on the compose project name."""
     try:
         out = subprocess.check_output(

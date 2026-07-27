@@ -9,7 +9,7 @@ This role deploys `catena-portainer` (swarm service on catena-network, docker
 socket, `/data` BoltDB volume, admin via `--admin-password-file`, tailnet-only
 UI). See `defaults/main.yml` + `tasks/main.yml`.
 
-## Verified Portainer API endpoint map (Phase 0 deliverable)
+## Verified Portainer API endpoint map
 
 Target pin: **Portainer CE LTS 2.39.4** (`portainer/portainer-ce`). Verified
 against `portainer/portainer-skills` + docs.portainer.io (2026-07), NOT guessed.
@@ -52,17 +52,9 @@ No `composeStatus` field: derive readiness from `GET /api/stacks/{id}`
 (`Status`: 1=active, 2=inactive) + container State via
 `GET /api/endpoints/{id}/docker/containers/json`.
 
-### Dokploy call -> Portainer call (the ~10 catena consumed)
-| Dokploy | Portainer 2.39.4 |
-| --- | --- |
-| `project.create` / `project.all` | No projects; group by stack Name prefix, enumerate `GET /api/stacks`. |
-| `compose.create` (docker-compose) | `POST /api/stacks/create/standalone/string` |
-| `compose.update` (composeFile + newline env) | `PUT /api/stacks/{id}` (StackFileContent + structured Env) |
-| `compose.deploy` | `PUT /api/stacks/{id}` `PullImage:true` (update==redeploy) or start/stop |
-| `compose.one` (composeStatus) | `GET /api/stacks/{id}` + container State |
-| `domain.create` / `domain.by*` | **None** -- routing is our Traefik file-provider routes (`app-route.yml.j2` / dashboard-sync). |
-| `github.githubProviders` | git-repo stacks via `.../repository`; no provider registry. |
-| better-auth sign-up/in/createApiKey | `admin/init` + `/api/auth` + `/api/users/{id}/tokens` |
+Stacks have no project grouping: group by stack Name prefix and enumerate
+`GET /api/stacks`. There is no domain API either -- routing is our Traefik
+file-provider routes (`app-route.yml.j2` / dashboard-sync).
 
 ### App Templates (client self-serve marketplace) -- templates.json v3
 Entry for a catalog app (`render.py` re-target target):

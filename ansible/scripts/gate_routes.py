@@ -97,7 +97,7 @@ def sync_gate_routes(api_base, api_key, dyn_dir, infra_compose_names,
         resolved --allowed-group set. Unlabeled apps resolve to DENY
         (admin-only).
 
-    Stale + legacy (*-auto-authentik.yml) files are pruned on the same pass.
+    Stale *-auto-gate.yml files are pruned on the same pass.
 
     Returns (written, removed, specs, hosts):
       specs  -- per gated app, the oauth2-proxy instance to provision
@@ -166,10 +166,9 @@ def sync_gate_routes(api_base, api_key, dyn_dir, infra_compose_names,
         written += 1
 
     removed = 0
-    for suffix in (route_synth.AUTO_ROUTE_SUFFIX, route_synth._LEGACY_AUTO_ROUTE_SUFFIX):
-        for path in dyn_dir.glob(f"*{suffix}"):
-            if path.name not in desired:
-                path.unlink()
-                removed += 1
+    for path in dyn_dir.glob(f"*{route_synth.AUTO_ROUTE_SUFFIX}"):
+        if path.name not in desired:
+            path.unlink()
+            removed += 1
 
     return written, removed, list(specs.values()), hosts

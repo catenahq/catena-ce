@@ -67,7 +67,7 @@
 # When 00-base.yaml changes, restart the Gatus container so the new
 # endpoints / alert config take effect (Gatus loads config only at
 # startup). 50-catena-apps.yaml restart-triggering is owned by gatus-sync
-# itself. Find the container by matching the Dokploy-assigned name pattern.
+# itself. Find the container by matching the Portainer-assigned name pattern.
 - name: "Gatus: find running container (for base-config reload)"
   ansible.builtin.shell: |
     set -o pipefail

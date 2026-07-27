@@ -1,6 +1,5 @@
 ---
-# Validation tasks for roles/traefik. Lifted from roles/dokploy/tasks/validate.yml
-# when Traefik ownership moved out of Dokploy (Dokploy->Portainer migration).
+# Validation tasks for roles/traefik.
 
 - name: "validate/traefik: catena-traefik container running"
   ansible.builtin.command: docker inspect --format '{% raw %}{{.State.Running}}{% endraw %}' catena-traefik
@@ -27,25 +26,6 @@
       - _tr_ports.rc == 0
       - (_tr_ports.stdout | trim) in ['{}', 'null']
     fail_msg: "catena-traefik has host port bindings: {{ _tr_ports.stdout | trim }}"
-
-- name: "validate/traefik: legacy admin-dokploy.yml route is gone"
-  # Two same-Host()/same-priority routes (the old forwardAuth file and the new
-  # per-app reverse-proxy file) both matched apps.<zone>. The legacy file is
-  # removed in roles/traefik/tasks/main.yml; assert it so a partial upgrade
-  # can't silently re-introduce the 401-instead-of-302 regression.
-  ansible.builtin.stat:
-    path: "{{ traefik_dynamic_dir }}/admin-dokploy.yml"
-  register: _tr_legacy_admin_route
-
-- name: "validate/traefik: admin-dokploy.yml absent"
-  ansible.builtin.assert:
-    that:
-      - not _tr_legacy_admin_route.stat.exists
-    fail_msg: |
-      Legacy admin-dokploy.yml is still present. It conflicts with the per-app
-      reverse-proxy route on Host(apps.<zone>) and makes Traefik route to the
-      forwardAuth chain (401 + Location) instead of the reverse proxy (302).
-      Re-run the traefik role.
 
 - name: "validate/traefik: traefik.yml has forwardedHeaders.trustedIPs"
   # Without this Traefik rewrites X-Forwarded-Proto to "http" on the :80

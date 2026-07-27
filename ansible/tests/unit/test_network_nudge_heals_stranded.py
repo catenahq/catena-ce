@@ -87,18 +87,6 @@ def test_role_installs_the_renamed_artifacts():
     assert tmpl["dest"] == "/etc/systemd/system/catena-network-nudge.service"
 
 
-def test_legacy_traefik_named_artifacts_are_removed():
-    loop = _find("remove legacy nudge artifacts")["loop"]
-    for stale in (
-        "/usr/local/bin/catena-traefik-nudge",
-        "/etc/systemd/system/catena-traefik-nudge.service",
-        "/etc/systemd/system/docker.service.d/10-catena-traefik-nudge.conf",
-    ):
-        assert stale in loop
-    # the dokploy-era cutover must survive the widening
-    assert "/usr/local/bin/dokploy-traefik-nudge" in loop
-
-
 def test_timeout_reaches_the_script_on_both_paths():
     # The drop-in dispatches the SCRIPT (not the unit), so it needs its own
     # env; the unit carries the same values for the manual diagnostic path.

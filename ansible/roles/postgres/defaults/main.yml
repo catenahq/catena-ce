@@ -1,33 +1,22 @@
 ---
 # roles/postgres -- catena-owned Postgres for infra databases (Keycloak today).
 #
-# Replaces the control-plane Postgres the old install.sh used to provide.
-# Deployed + owned directly so the Keycloak DB survives the control-plane
-# migration. Project convention stays "one Postgres per VPS, multiple DBs
-# inside" -- per-app DBs (Nextcloud, etc.) keep their own containers; this
-# hosts the infra DBs that used to live in the control-plane Postgres.
-#
-# Reversal note: roles/keycloak/defaults used to say "we do NOT spin up a
-# dedicated postgres container" -- that was true only while the old control
-# plane provided one. The Portainer migration removes that shared Postgres
-# (Portainer uses BoltDB), so a catena-owned Postgres is now required.
+# Project convention is "one Postgres per VPS, multiple DBs inside" -- per-app
+# DBs (Nextcloud, etc.) keep their own containers; this hosts the infra DBs.
+# Portainer stores its own state in BoltDB, so nothing else on the host
+# provides a shared Postgres.
 
 catena_postgres_service_name: catena-postgres
 
-# Pinned image major. Was 16 to match the old control plane's Postgres across
-# the Portainer cutover; that control plane is gone (Portainer uses BoltDB), so
-# there is no shared-major constraint anymore. Bumped to 18 (current GA) pre-
-# launch -- no live client runs on 16, so fresh installs land on 18 directly
-# rather than carrying a 16->18 in-place upgrade path we would never hit in
-# prod. Per-app template DBs track the central postgres_default_image in
-# catena-templates (catalog.yml), also 18.x; this infra Postgres (Keycloak's
-# DB) is pinned independently since it follows Keycloak's support matrix.
+# Pinned image major. Per-app template DBs track the central
+# postgres_default_image in catena-templates (catalog.yml), also 18.x; this
+# infra Postgres (Keycloak's DB) is pinned independently since it follows
+# Keycloak's support matrix.
 catena_postgres_image_tag: "18"
 catena_postgres_image: "postgres:{{ catena_postgres_image_tag }}"
 
-# Superuser. The old control-plane Postgres shipped POSTGRES_USER=dokploy; we standardise on
-# the conventional `postgres`. roles/keycloak/tasks/provision_db.yml detects the
-# live superuser from the container env, so it follows this automatically.
+# Superuser. roles/keycloak/tasks/provision_db.yml detects the live superuser
+# from the container env, so it follows this automatically.
 catena_postgres_superuser: postgres
 
 # Swarm secret carrying the superuser password (kept out of `docker service

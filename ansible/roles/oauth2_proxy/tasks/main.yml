@@ -98,12 +98,11 @@
         _app_hostname: "{{ hostvars[inventory_hostname][_app.host_var] | default(lookup('vars', _app.host_var, default='')) }}"
       when: _app_hostname | length > 0
 
-    # Native-OIDC apps (EP-B): force-https + backend only, no chain.
-    # Different filename suffix (-public-oidc.yml) so the cleanup loop
-    # in dashboard-sync's gate-route writer (which only handles
-    # `-auto-gate.yml` + the legacy `-auto-authentik.yml`) leaves
-    # these alone; they're operator-managed via this role, not
-    # client-managed.
+    # Native-OIDC apps: force-https + backend only, no chain. Different
+    # filename suffix (-public-oidc.yml) so the cleanup loop in
+    # dashboard-sync's gate-route writer (which only handles
+    # `-auto-gate.yml`) leaves these alone; they're operator-managed via
+    # this role, not client-managed.
     - name: "oauth2-proxy: render per-app Traefik route files (public OIDC)"
       ansible.builtin.template:
         src: app-public-oidc.yml.j2
