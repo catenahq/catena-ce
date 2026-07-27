@@ -60,7 +60,7 @@ client-owned storage, whole-server recovery -- serves that promise.
 | The tunnel is optional: in private-network access mode the server stands up with no public edge | `bench:ce_install_tailnet` |
 | Each domain token grants exactly one domain; Community caps at one, more is a Pro boundary | `bench:fi_n10_multidomain_cap` |
 | The private-network control server is pluggable: a node joins a self-hosted control server, not only the hosted one | `bench:ce_install_headscale` |
-| Backups restore -- rehearsed, not assumed | `bench:backup_rollback`, `bench:hot_restore_round_trip` |
+| Backups restore -- rehearsed, not assumed | `bench:backup_rollback`, `bench:ce_restore` |
 | The scheduled backup is rate-limited to weekly; tighter cadence fails the converge | `bench:backup_tier_schedule_resolution` |
 | Scheduled work is default-deny: weekly backup + enumerated maintenance timers only (Pro boundary) | `audit:check-port` |
 | Every file and scenario is classified against the feature manifest; nothing untracked | `audit:check-grid`, `audit:check-all` |
