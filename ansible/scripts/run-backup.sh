@@ -41,17 +41,40 @@ log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 # abort, restic config error). The operator-side grace on the
 # "succeeded" check is what realises the "alarm on N consecutive
 # misses" semantic; the "attempted" check is the immediate-page lane.
+# hc_url inserts a Healthchecks signal suffix (/start, /fail) into the PATH,
+# ahead of any query string.
+#
+# The auto-provisioned URLs end in "?create=1" (roles/backup/defaults), and
+# these pings used to be a plain "${URL}${suffix}" concatenation. That produced
+# ".../catena-backup-attempted?create=1/fail": the signal landed in the QUERY
+# STRING, the path stayed the bare check, and Healthchecks recorded a SUCCESS.
+# So every hard failure on the default configuration -- a pg_dumpall abort, an
+# unreachable repo -- pinged the immediate-page lane as if the run had gone
+# fine. The lane existed, was wired up, and reported the opposite of the truth.
+hc_url() {
+    _base="$1"
+    _suffix="${2:-}"
+    if [ -z "$_suffix" ]; then
+        printf '%s' "$_base"
+        return
+    fi
+    case "$_base" in
+        *\?*) printf '%s%s?%s' "${_base%%\?*}" "$_suffix" "${_base#*\?}" ;;
+        *)    printf '%s%s' "$_base" "$_suffix" ;;
+    esac
+}
+
 ping_hc() {
     suffix="${1:-}"
     if [ -n "${BACKUP_HEALTHCHECK_URL:-}" ]; then
-        curl -fsS -m 10 --retry 3 "${BACKUP_HEALTHCHECK_URL}${suffix}" >/dev/null 2>&1 || true
+        curl -fsS -m 10 --retry 3 "$(hc_url "${BACKUP_HEALTHCHECK_URL}" "${suffix}")" >/dev/null 2>&1 || true
     fi
 }
 
 ping_hc_attempted() {
     suffix="${1:-}"
     if [ -n "${BACKUP_HEALTHCHECK_ATTEMPTED_URL:-}" ]; then
-        curl -fsS -m 10 --retry 3 "${BACKUP_HEALTHCHECK_ATTEMPTED_URL}${suffix}" >/dev/null 2>&1 || true
+        curl -fsS -m 10 --retry 3 "$(hc_url "${BACKUP_HEALTHCHECK_ATTEMPTED_URL}" "${suffix}")" >/dev/null 2>&1 || true
     fi
 }
 
@@ -112,19 +135,33 @@ PY
     export RESTIC_REPOSITORY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY RESTIC_PASSWORD_FILE
 fi
 
-# Credential completeness gate: skip cleanly if not fully configured.
+# Credential completeness gate: stop if not fully configured -- and SAY SO on
+# the attempted lane.
+#
+# This used to exit 0 before any ping. Combined with the check being
+# provisioned on first successful ping, a host that had never been configured
+# had no check at all: nothing to go late, nothing to alert, and the operator's
+# only signal that a client has been running unbacked for weeks was noticing
+# by hand. An unconfigured backup is not a quiet no-op, it is the most
+# important thing to know about a host.
 if [ -z "${RESTIC_REPOSITORY:-}" ] || [ -z "${AWS_ACCESS_KEY_ID:-}" ] \
         || [ -z "${AWS_SECRET_ACCESS_KEY:-}" ] \
         || [ ! -r "${RESTIC_PASSWORD_FILE:-/nonexistent}" ]; then
     log "backup not configured (missing restic repo / S3 creds / password); skipping. Set it in catena-admin > Settings > Backup."
+    ping_hc_attempted /fail
     exit 0
 fi
 
 # Enable gate: only an EXPLICIT disable stops a configured host (unset -> on,
 # so a converge that set creds keeps backing up as before). "Backup now" forces.
+#
+# Also /fail: a deliberately disabled backup is still a host with no backups,
+# and the operator lane is where that belongs. Silence here is
+# indistinguishable from a healthy host that simply has not run yet.
 _enabled_lc=$(printf '%s' "${BACKUP_ENABLED:-true}" | tr '[:upper:]' '[:lower:]')
 if [ "${BACKUP_FORCE:-0}" != "1" ] && [ "$_enabled_lc" = "false" ]; then
     log "backup disabled in catena-admin; skipping."
+    ping_hc_attempted /fail
     exit 0
 fi
 
@@ -270,12 +307,24 @@ if command -v docker >/dev/null 2>&1; then
                 dump_failures="${dump_failures} ${c}"
             fi
         done
-        # Option A in the catena restore architecture: postgres data
-        # volumes are NOT in the restic set (see roles/backup/defaults
-        # comments). The logical dumps are the sole source of truth for
-        # restoring a postgres container. If any dump fails, the backup
-        # run must fail LOUDLY -- proceeding with a missing dump means a
-        # future restore silently loses that container's data.
+        # Postgres data volumes ARE in the restic set: backup_paths lists
+        # {{ storage_mount_point }}/docker/volumes, and roles/backup/defaults
+        # says outright that catena-postgres-data is deliberately NOT
+        # excluded. Both the infra DB and client DBs restore RAW; the dumps
+        # are the cross-check and the partial-replay path
+        # (`catena-recovery post-restore` replays scope=clients after the
+        # stacks redeploy), not the sole copy.
+        #
+        # This comment used to claim the opposite -- that the volumes were
+        # excluded and the dumps were the only source of truth. That is what
+        # an operator reads while deciding how to recover, so it is worth
+        # keeping exact.
+        #
+        # A dump failure is still FATAL, for a different reason than the old
+        # comment gave: pg_dumpall failing means the database did not answer
+        # or could not be read. Taking a snapshot of a volume whose engine is
+        # in that state, and calling the run a success, is how a broken
+        # database becomes a broken backup nobody looked at.
         if [ -n "$dump_failures" ]; then
             log "FATAL: pg_dumpall failed for:${dump_failures}"
             log "       Refusing to proceed with restic backup -- missing"

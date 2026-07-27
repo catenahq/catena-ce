@@ -262,6 +262,27 @@ backup_paths:
   - /etc
   - /var/lib/dpkg
   - /usr/local/bin
+  # Catena's own runtime state. Both were outside the snapshot entirely,
+  # which made them bump-safe but not host-loss-safe -- the one failure
+  # mode the whole product is built around.
+  #
+  #   /var/lib/catena       chain + recovery + migration state, the
+  #                         verify-hot report, backup-stats. Losing it
+  #                         means a rebuilt host cannot tell what its
+  #                         predecessor had already done: whether the last
+  #                         verify passed, where a half-finished recovery
+  #                         had got to, when the last successful backup
+  #                         ran. This is also what left restore_dr's second
+  #                         converge with work to do.
+  #   /var/lib/catena-admin the hash-chained audit trail (auditlog.go
+  #                         DefaultStateDir). It is the evidence a client
+  #                         shows an auditor, and it was the one artifact
+  #                         the trust work built that a host loss erased.
+  #
+  # The restic home + cache under /var/lib/catena are excluded below: they
+  # are rebuildable and would churn every snapshot.
+  - /var/lib/catena
+  - /var/lib/catena-admin
 
 # restic --exclude patterns (fnmatch-style, applied to absolute paths).
 # Useful for large, already-redundant, or operator-disposable data --
@@ -366,6 +387,14 @@ backup_exclude_patterns:
   # validate.yml Vantage 3). Locked in by
   # tests/unit/test_backup_ssh_host_key_exclusion.py.
   - "/etc/ssh/ssh_host_*"
+  # restic's own home + cache, created by catena-backup.service's
+  # ExecStartPre under /var/lib/catena (now a backup path). The cache is a
+  # local index of the repo we are writing INTO: backing it up is circular,
+  # it churns on every run, and restic rebuilds it on demand.
+  - "/var/lib/catena/restic-cache"
+  - "/var/lib/catena/restic-cache/*"
+  - "/var/lib/catena/restic-home"
+  - "/var/lib/catena/restic-home/*"
 
 # Postgres superuser for pg_dumpall. catena-postgres uses the conventional
 # `postgres`. Override per-host if a client runs a bespoke setup. Auth
