@@ -208,17 +208,15 @@ backup_healthcheck_url_operator: "{{ lookup('dotenv', 'BACKUP_HEALTHCHECK_URL_OP
 #     from the registry. Listing /mnt/data/docker/volumes lets us keep
 #     named-volume data (app stacks rely on these) without
 #     scooping up tens of GB of reproducible image layers.
-#   - postgres (legacy empty dir from the storage role; real pg data lives
-#     under docker/volumes/<volume>/_data/).
 #
 # Postgres data on this stack:
 #   - catena-postgres (the catena-owned infra DB -- hosts Keycloak) is
 #     restored RAW: its named volume (catena-postgres-data) is in the
-#     restic set and replays back byte-for-byte. Unlike the old
-#     control-plane Postgres, a raw restore is correct here because the
-#     superuser password comes from vault (a swarm secret), so the
-#     restored pg_authid hash matches the also-restored vault -- no
-#     skew, no logical-replay dance. pg_dumpall still captures it to
+#     restic set and replays back byte-for-byte. A raw restore is correct
+#     because the superuser password comes from the on-box store (staged
+#     into a swarm secret), and /etc is in this same backup set -- so the
+#     restored pg_authid hash matches the restored password, no skew, no
+#     logical-replay dance. pg_dumpall still captures it to
 #     backup-staging/pg/ for cross-check / partial replay.
 #   - Client postgres containers (app stacks) are restored RAW:
 #     their named volumes are in the restic set and replay back
@@ -325,7 +323,7 @@ backup_paths:
 backup_exclude_patterns:
   # NOTE: catena-postgres-data (the infra DB volume) is deliberately NOT
   # excluded -- it is restored RAW (see the "Postgres data on this stack"
-  # note above; the vault-derived superuser password makes a byte-for-byte
+  # note above; the store-derived superuser password makes a byte-for-byte
   # restore correct, so no logical-replay dance and no exclusion).
   # Gatus per-minute probe history (sqlite at /data/gatus.db, see
   # roles/infrastructure/templates/gatus-base.yaml.j2). Probed every

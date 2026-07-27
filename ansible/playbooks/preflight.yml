@@ -2,16 +2,15 @@
 # Preflight for the Ansible controller (your machine).
 # Imported by the top-level playbooks ahead of any VPS work.
 #
-# Scope: verify the Tailscale OAuth client in vault is set up correctly.
+# Scope: verify the supplied Tailscale OAuth client is set up correctly.
 # Tailscale installation and login on the controller are out of scope --
 # install + `sudo tailscale up` are one-time manual steps, handled by the
 # operator outside this playbook.
 #
 # Verifies (in order):
-#   1. Inventory vault file exists.
-#   2. OAuth credentials are present and NOT placeholders.
-#   3. Tailscale OAuth token exchange actually works.
-#   4. OAuth client can mint a tagged auth key (proves scopes + ACL tag).
+#   1. OAuth credentials are in scope and NOT placeholders.
+#   2. Tailscale OAuth token exchange actually works.
+#   3. OAuth client can mint a tagged auth key (proves scopes + ACL tag).
 #
 # On any failure, admin-console setup instructions are printed inline so the
 # operator sees the exact clicks needed. Validation runs BEFORE any VPS work.
@@ -20,7 +19,7 @@
 #   -e preflight_skip=true         skip entirely
 #   -e preflight_skip_oauth=true   skip OAuth API validation (offline dev)
 # Playbooks that do not mint Tailscale auth keys (e.g. backup_now, restore)
-# skip this play -- each asserts its own vault secrets.
+# skip this play -- each asserts its own secrets.
 
 - name: "Preflight -- controller ready check"
   hosts: localhost
@@ -136,7 +135,7 @@
 
           Token exchange failed with status {{ oauth_token.status | default('unknown') }}.
           Most likely causes:
-            - client_id / client_secret in vault is wrong or from a different tailnet
+            - client_id / client_secret is wrong or from a different tailnet
             - OAuth client was revoked in the admin console
             - OAuth client is missing the `Auth Keys -> Write` scope
       when: oauth_token.status | default(0) != 200

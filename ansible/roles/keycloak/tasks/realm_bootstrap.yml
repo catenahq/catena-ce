@@ -39,7 +39,7 @@
 # may have edited (admin UI -> Realm settings -> Email tab).
 # Operator-driven SMTP rotation goes through the runbook (rotate at
 # upstream provider, edit the Portainer env, optionally rm the marker
-# below to force a re-bootstrap from vault).
+# below to force a re-bootstrap from the on-box store).
 # On a post-restore converge the marker doesn't exist on disk (it
 # lives under /var/lib/catena/, which is NOT in backup_paths -- only
 # /etc + /mnt/data + /var/lib/dpkg + /usr/local/bin are). But the
@@ -84,10 +84,9 @@
 
 # Service-account client for the host-side dashboard-sync cron. Rendered
 # into the same /config dir so the keycloak-config-cli import below picks
-# it up. Gated on the vault secret being present so realms that predate
-# the per-app gating engine import cleanly (the client is simply absent
-# until the operator adds the key). The dashboard-sync redirect-URI sync
-# no-ops without the client.
+# it up. Gated on the secret being present so a realm imports cleanly
+# when it is not (the client is simply absent). The dashboard-sync
+# redirect-URI sync no-ops without the client.
 - name: "Keycloak realm: render dashboard-sync service-account client"
   ansible.builtin.template:
     src: "{{ playbook_dir }}/../roles/keycloak/templates/realm-dashboard-sync.yaml.j2"
@@ -294,7 +293,7 @@
       rc={{ _keycloak_realm_import.rc | default('?') }}. See the
       preceding debug task for stdout/stderr; common causes are an
       invalid YAML in {{ keycloak_realm_host_dir }}/*.yaml, a missing
-      vault-derived value (e.g. vault_dashboard_sync_client_secret)
+      store-derived value (e.g. vault_dashboard_sync_client_secret)
       that left a Jinja placeholder un-substituted, or a Keycloak
       Phase Two version drift that the import schema does not yet
       handle.
@@ -305,7 +304,7 @@
 # Reconcile-not-overwrite: write the SMTP marker after the FIRST
 # successful import, so subsequent runs render the realm template
 # without the smtpServer block. Operator can `rm` the marker to
-# force a re-bootstrap of SMTP from vault.
+# force a re-bootstrap of SMTP from the on-box store.
 - name: "Keycloak realm: mark SMTP as bootstrapped"
   ansible.builtin.file:
     path: /var/lib/catena/keycloak-realm-smtp-bootstrapped
@@ -329,7 +328,8 @@
 # to "create a permanent admin account and delete the temporary one".
 #
 # In our automated stack the bootstrap admin IS the permanent admin
-# (single-operator, password lives in vault, rotated via vault edit).
+# (single-operator; the password lives in the on-box store and is rotated
+# from catena-admin).
 # The banner is noise. Clear the attribute so the WhoAmI check
 # returns false and the banner stays hidden.
 #

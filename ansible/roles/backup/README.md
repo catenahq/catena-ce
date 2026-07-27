@@ -16,7 +16,7 @@ provides one-shot tasks for verification, restore, and reconciliation.
   into a scratch dir; verify file count and size; emit alert on
   drift.
 - `restore.yml` -- full filesystem restore from a chosen snapshot.
-  catena-postgres is restored raw (its vault-derived password makes a
+  catena-postgres is restored raw (its store-derived password makes a
   byte-for-byte restore correct); per-app DBs are restored raw and then
   reconciled by a fresh `pg_dumpall` replay (scope=clients), which is
   the `catena-recovery` host binary, not a mode of this role. It also

@@ -24,7 +24,7 @@
 # Stage the password to a 0600 file and `docker secret create <name> <file>`
 # rather than piping it through a shell -- avoids any quoting/injection issue
 # with special characters in the password. Removed immediately after.
-- name: "postgres: create swarm secret from vault"
+- name: "postgres: create swarm secret from the on-box password"
   when: _pg_secret.rc != 0
   block:
     - name: "postgres: stage secret material"

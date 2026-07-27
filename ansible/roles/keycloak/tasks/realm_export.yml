@@ -121,7 +121,8 @@
       Skipping JSON export this converge -- the nightly
       catena-keycloak-realm-export.timer will retry. Likely causes:
       (1) Keycloak transient on the master token endpoint,
-      (2) master admin password drift between vault and Keycloak DB,
+      (2) master admin password drift between the on-box store and the
+          Keycloak DB,
       (3) docker exec connectivity (container restarted mid-task).
   when:
     - (_kc_export_server_ct.stdout | default('') | length) > 0

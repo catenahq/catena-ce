@@ -33,7 +33,8 @@ catena-admin Actions tab "Sync all" button."""
 #
 # Env vars (rendered by roles/infrastructure into /etc/catena/dashboard-sync.env):
 #   PORTAINER_API_BASE     -- e.g. http://<tailnet-ip>:9000/api
-#   PORTAINER_API_KEY      -- from vault (vault_portainer_api_key)
+#   PORTAINER_API_KEY      -- vault_portainer_api_key, minted by
+#                             roles/portainer into the on-box store
 #   (Client-app hosts come from the compose vps.route.host label, not a
 #    domain API; infra stacks to skip come from INFRA_COMPOSE_NAMES below.)
 #

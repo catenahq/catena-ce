@@ -1,6 +1,6 @@
 ---
 # Orchestrator for roles/keycloak. Order:
-# 1. Preflight: vault keys + admin email + cloudflare_zone defined.
+# 1. Preflight: secrets + admin email + cloudflare_zone defined.
 # 2. Provision keycloak DB + user inside catena-postgres (idempotent
 #    via `CREATE ... IF NOT EXISTS`-equivalent guards).
 # 3. Render compose + deploy via the Portainer API. Health-gated readiness
@@ -15,7 +15,7 @@
 # `running`, and the realm-config one-shot gates on Keycloak's
 # /health/ready (NOT on container-exists).
 
-- name: "Keycloak: preflight vault + env"
+- name: "Keycloak: preflight secrets + env"
   ansible.builtin.assert:
     that:
       - vault_keycloak_db_password is defined
@@ -28,8 +28,8 @@
     fail_msg: >-
       Missing Keycloak config. Expected vault_keycloak_db_password
       (>= 20 chars), vault_admin_password (>= 16 chars), ADMIN_EMAIL,
-      AUTH_SUBDOMAIN, and CLOUDFLARE_ZONE in .env. The installer mints
-      vault_keycloak_db_password automatically on a fresh install.
+      AUTH_SUBDOMAIN, and CLOUDFLARE_ZONE in .env. Both secrets are minted
+      on the box by the converge loader.
 
 - name: "Keycloak: provision DB + user inside catena-postgres"
   ansible.builtin.include_tasks: provision_db.yml
@@ -39,11 +39,10 @@
 # The compose-deploy + realm-bootstrap + post-deploy probe all hit the
 # Portainer stack API. vault_portainer_api_key is minted by roles/portainer
 # earlier in the SAME site converge (it runs before keycloak in site.yml and
-# brings the freshly-minted key into play scope via include_vars on the
-# plaintext group_vars vault -- SOPS+age was dropped, 0b), so this block
-# converges in a single pass -- no more two-pass pass-1/pass-2
-# dance. Mirror the gate roles/infrastructure uses; the key is present here on
-# a fresh install because portainer already ran.
+# set_facts the freshly-minted key into play scope), so this block converges
+# in a single pass -- no two-pass pass-1/pass-2 dance. Mirror the gate
+# roles/infrastructure uses; the key is present here on a fresh install
+# because portainer already ran.
 - name: "Keycloak: Portainer-API-gated steps (compose, validate, realm)"
   when:
     - vault_portainer_api_key is defined

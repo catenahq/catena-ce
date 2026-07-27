@@ -36,8 +36,8 @@ oauth2_proxy_cookie_name: "_oauth2_proxy"
 # --- Keycloak client wiring ---
 # The static client lives in roles/keycloak/templates/realm-oauth2-proxy.yaml.j2
 # (rendered by THIS role via realm_client.yml + reapplied via the
-# keycloak-config-cli re-import). client_id is fixed; client_secret
-# lives in the vault.
+# keycloak-config-cli re-import). client_id is fixed; client_secret is
+# minted on-box into the config store.
 oauth2_proxy_client_id: "oauth2-proxy"
 
 # OIDC issuer URL. MUST match Keycloak's KC_HOSTNAME (the issuer claim

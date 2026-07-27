@@ -288,7 +288,7 @@ disk_watch_schedule: "*:0/30"
 mailserver_hostname: "mail.{{ cloudflare_zone }}"
 mailserver_cert_live_dir: "/etc/letsencrypt/live/{{ mailserver_hostname }}"
 # Distinct from coturn's cloudflare.ini so the two roles never contend
-# for one file (identical content -- the same vault token).
+# for one file (identical content -- the same Cloudflare API token).
 mailserver_cloudflare_creds_path: "/etc/letsencrypt/cloudflare-mail.ini"
 mailserver_certbot_email: "{{ admin_email | default('hostmaster@' ~ cloudflare_zone) }}"
 # Staging CA for the bench only (production LE rate-limits re-issuance of

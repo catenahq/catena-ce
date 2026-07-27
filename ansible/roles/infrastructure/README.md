@@ -17,8 +17,8 @@ the operator panel (`roles/catena-admin`):
 - **Recovery secret export** -- cron-emit of the GPG-symmetric
   secrets bundle (driven by the
   `Generate recovery archive (encrypted)` entry in catena-admin's
-  Actions tab) so the operator can recover access even after vault
-  key loss.
+  Actions tab) so the operator can recover access even after losing
+  the on-box store.
 - **Sync timers** -- systemd timers around `dashboard-sync.py` and
   `gatus-sync.py`. `catena-version-check.py` (auto-detecting Versions
   report) runs as gatus-sync's ExecStartPre producer, not its own timer.

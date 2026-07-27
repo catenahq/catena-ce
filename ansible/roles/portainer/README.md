@@ -29,7 +29,7 @@ create paths below. Most blog/gist snippets predate this and are wrong.
   `POST /api/users/{id}/tokens` `{description, password}` -> `rawAPIKey`
   (shown once) -> header **`X-API-Key`**.
 - Bootstrap flow for `vault_portainer_api_key`: `/api/auth` (JWT) ->
-  `/api/users/{id}/tokens` -> store rawAPIKey in vault.
+  `/api/users/{id}/tokens` -> rawAPIKey into `/etc/catena/config.json`.
 
 ### Environment (endpoint) + swarm id
 - List: `GET /api/endpoints` (local Docker/Swarm is usually id `1`).

@@ -408,7 +408,7 @@
 # key-only the operator has NO way back in if the tailnet path is lost --
 # the provider web console (KVM/serial) and an on-prem physical keyboard
 # both authenticate against the local TTY via PAM, which needs a real
-# password. Set one from the vault on the persistent ops account.
+# password. Set one from vault_admin_password on the persistent ops account.
 #
 # This is console-ONLY: sshd_hardening.conf.j2 sets
 # PasswordAuthentication no, so the password is rejected over SSH and only
@@ -419,8 +419,7 @@
 # Deterministic salt (derived from the secret itself) keeps the sha512 hash
 # stable across converges so /etc/shadow does not churn -- update_password:
 # always then reports no change on a steady-state run. Gated on the key
-# being present so inventories that have not minted it yet are a safe no-op
-# (migrate_inventory.py auto-mints vault_console_recovery_password).
+# being present so a host whose store has not minted it yet is a safe no-op.
 - name: Set ops console break-glass password (key-only SSH keeps it console-only)
   ansible.builtin.user:
     name: "{{ ops_user }}"
@@ -680,8 +679,8 @@
 # Several roles WRITE under it before the backup role -- which used to be
 # its sole creator -- runs near the end of the converge. On a two-pass
 # fresh install the pass-1 backup happens to create it for pass-2's
-# keycloak, but a single-pass converge (key already in the vault) runs
-# keycloak's realm marker touch with no dir yet and fails with ENOENT.
+# keycloak, but a single-pass converge (key already in the on-box store)
+# runs keycloak's realm marker touch with no dir yet and fails with ENOENT.
 # Create it here in common (first role) so every later writer can rely on
 # it regardless of role order.
 - name: "/var/lib/catena exists"

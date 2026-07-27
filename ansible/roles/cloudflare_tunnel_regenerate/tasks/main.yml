@@ -143,7 +143,7 @@
 # Hand off to the existing find-or-create + token write + restart
 # logic. Shadow vault_cloudflare_api_token with the supplied token
 # so the tunnel role uses it for all API calls. The shadow is scoped
-# to this play -- no vault file is rewritten.
+# to this play -- the on-box store is not rewritten.
 - name: "CF regen: re-create tunnel + restart cloudflared via existing role"
   ansible.builtin.include_role:
     name: cloudflare_tunnel

@@ -19,9 +19,8 @@ Two top-level sections:
 The converge loads this store, mints any MISSING *internal* secret
 (reconcile-not-overwrite -- an existing value is never touched), writes the
 store back 0600, and emits the merged secret view as JSON for an Ansible
-``set_fact``. It supersedes the plaintext group_vars vault (SOPS+age was
-dropped, 0b): the box is the source of truth, and ``/etc`` is in
-``roles/backup`` ``backup_paths`` so the store
+``set_fact``. The box is the source of truth: nothing secret is kept on the
+laptop, and ``/etc`` is in ``roles/backup`` ``backup_paths`` so the store
 rides every restic snapshot -- a restore returns every secret with the data.
 
 Design constraints:

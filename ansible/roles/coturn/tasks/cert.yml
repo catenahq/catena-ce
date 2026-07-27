@@ -5,7 +5,7 @@
 # Why DNS-01 (not HTTP-01): tcp/80 on this VPS is owned by cloudflared
 # (rides the CF tunnel into Traefik). HTTP-01 cannot bind a temporary
 # listener there. DNS-01 talks directly to the Cloudflare zone via
-# the API token already in the vault, so port 80 is free to stay
+# the API token already on the box, so port 80 is free to stay
 # claimed by cloudflared.
 #
 # Renewal is handled by certbot's stock systemd timer

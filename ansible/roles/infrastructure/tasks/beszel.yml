@@ -16,10 +16,11 @@
 #   4. Deploy the agent (network_mode: host) with KEY + TOKEN + HUB_URL.
 #
 # The whole file is gated by `when: beszel_enabled` on the include in
-# main.yml. Secrets are minted by operator-tools/migrate_inventory.py;
-# this role only ASSERTS them (healthchecks preflight pattern).
+# main.yml. Both secrets are INTERNAL_SECRETS minted on the box by
+# helpers/onbox_config.py; this role only ASSERTS them (healthchecks
+# preflight pattern).
 
-- name: "Beszel: preflight vault keys"
+- name: "Beszel: preflight secrets"
   ansible.builtin.assert:
     that:
       - vault_beszel_admin_password is defined
@@ -28,12 +29,10 @@
       - vault_beszel_universal_token | length > 0
       - (vault_beszel_universal_token | length) <= 64
     fail_msg: >-
-      Missing or invalid Beszel vault keys -- looks like your vault was
-      minted before they were added. Run:
-        uv run operator-tools/migrate_inventory.py -i inventory/<name>/
-      to auto-mint vault_beszel_admin_password + vault_beszel_universal_token
+      Missing or invalid Beszel secrets. The converge mints them on the box
       (the universal token must be <= 64 chars; Beszel rejects longer
-      X-Token headers), then re-run ./catena site.
+      X-Token headers), so a gap here means the on-box store at
+      /etc/catena/config.json was not loaded or holds a truncated value.
 
 - name: "Beszel: deploy hub via Portainer API"
   ansible.builtin.include_tasks: portainer_stack.yml

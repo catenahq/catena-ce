@@ -10,10 +10,10 @@
 # creates the check on first ping. Zero manual UI step for the baseline
 # backup heartbeat; operator only has to log in once to wire up ntfy.
 
-# Preflight -- fail loudly if the vault is missing any of the keys the
-# compose + seed tasks need. Common case: an existing inventory that
-# predates a new vault_healthchecks_* key. Point operator at the fix.
-- name: "Healthchecks: preflight vault keys"
+# Preflight -- fail loudly if the on-box store is missing any of the keys
+# the compose + seed tasks need. They are all internal-minted, so a gap
+# here means the loader did not run or the store was truncated.
+- name: "Healthchecks: preflight secret keys"
   ansible.builtin.assert:
     that:
       - vault_healthchecks_secret_key is defined
@@ -22,12 +22,9 @@
       - vault_healthchecks_api_key_readonly is defined
       - vault_healthchecks_api_key_readwrite is defined
     fail_msg: >-
-      Missing Healthchecks vault keys -- looks like your vault was
-      minted before one of them was added. Run:
-        uv run operator-tools/migrate_inventory.py -i inventory/<name>/
-      to auto-mint any missing vault_healthchecks_* values, then
-      re-run ./catena site. On fresh installs,
-      `./catena --fresh-install` handles this automatically.
+      Missing Healthchecks secrets. Every vault_healthchecks_* value is
+      minted on the box by the converge loader, so a gap here means the
+      on-box store at /etc/catena/config.json was not loaded.
 
 # Forward-auth route reintroduced in plan step 4 (roles/oauth2_proxy)
 # as healthchecks-oauth2-proxy.yml.

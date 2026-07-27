@@ -5,7 +5,7 @@
 # operator-managed app. Mirrors the cloudflared swarm-service pattern
 # in roles/cloudflare_tunnel/tasks/main.yml.
 
-- name: "coturn: preflight vault keys"
+- name: "coturn: preflight secrets"
   ansible.builtin.assert:
     that:
       - vault_turn_static_auth_secret is defined

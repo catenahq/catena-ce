@@ -24,12 +24,12 @@ catena_postgres_superuser: postgres
 # deferred (BACKLOG_TECHNICAL.md).
 catena_postgres_secret_name: catena_postgres_password
 
-# Named volume for the data dir. UNLIKE the old control-plane Postgres (excluded
-# from restic + logically replayed), this is backed up as a RAW volume by the
-# default restic set: that one was excluded because the install.sh regenerated
-# the DB password on a fresh box, skewing a raw restore. We set the
-# password from vault (swarm secret) and Postgres skips initdb on a restored
-# (non-empty) volume, so the restored password matches the (also-restored)
-# vault -- no skew, raw restore is correct. (Backup consistency across the
-# cold-docker restore is exercised by the restore_dr / hot_restore bench.)
+# Named volume for the data dir, backed up as a RAW volume by the default
+# restic set. That is correct because the password does not move: it comes
+# from the on-box store (staged into the swarm secret below) and /etc is in
+# the same backup set, and Postgres skips initdb on a restored (non-empty)
+# volume -- so the restored pg_authid hash matches the restored password.
+# A DB whose password were REGENERATED on a fresh box would skew and need a
+# logical replay instead. (Backup consistency across the cold-docker restore
+# is exercised by the restore_dr / hot_restore bench.)
 catena_postgres_data_volume: catena-postgres-data

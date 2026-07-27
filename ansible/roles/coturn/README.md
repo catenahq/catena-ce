@@ -22,7 +22,7 @@ per call. Coturn does not maintain a per-user database.
    timer; a deploy hook SIGHUPs the running coturn container so
    cert hot-reloads land without dropping calls.
 2. Renders `turnserver.conf` from the role's Jinja template,
-   parameterized by inventory (public IP, vault secret, hostname,
+   parameterized per host (public IP, static-auth secret, hostname,
    relay port range).
 3. Deploys coturn as a Docker Swarm service in `mode=global` with
    `--network=host` so the container sees the VPS public IP directly
@@ -53,8 +53,9 @@ UDP media plane direct on VPS public IP via shared coturn at
 
 - Cert: regenerated automatically via certbot on the new host (state
   in `/etc/letsencrypt/`; restic-included by default).
-- Static auth secret: lives in the vault (`vault_turn_static_auth_secret`),
-  same DR path as every other shared secret.
+- Static auth secret: minted on-box into `/etc/catena/config.json`
+  (`vault_turn_static_auth_secret`), same DR path as every other shared
+  secret -- `/etc` rides the restic snapshot.
 - Compose / swarm spec: re-rendered on converge from this role.
 
 ## Hardening posture

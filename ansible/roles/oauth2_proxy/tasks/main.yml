@@ -1,6 +1,6 @@
 ---
 # Orchestrator for roles/oauth2_proxy. Order:
-# 1. Preflight: vault keys + Keycloak realm exists.
+# 1. Preflight: secrets + Keycloak realm exists.
 # 2. Render the Keycloak `oauth2-proxy` client into the keycloak realm
 #    config dir + re-run keycloak-config-cli (merge mode -- safe).
 # 3. Render the shared Traefik middleware definitions.
@@ -13,7 +13,7 @@
 # roles/infrastructure deploys gated apps (so the chain middleware is
 # in place when those apps' routes get registered with Traefik).
 
-- name: "oauth2-proxy: preflight vault + env"
+- name: "oauth2-proxy: preflight secrets + env"
   ansible.builtin.assert:
     that:
       - vault_oauth2_proxy_client_secret is defined

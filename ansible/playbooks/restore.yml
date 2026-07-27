@@ -32,8 +32,8 @@
   # (`restore_snapshot: latest`) when unset by the caller.
 
   pre_tasks:
-    # 0b: load the on-box config store FIRST so restic creds are in scope with
-    # no persisted laptop vault. On an in-place rollback the live box's store
+    # 0b: load the on-box config store FIRST so restic creds are in scope
+    # without any laptop-side secret. On an in-place rollback the live box's store
     # supplies them; on a fresh-box `catena recover` the store is absent, so the
     # DR keyset the CLI threads in as `-e @file` (restic password + S3 keys) is
     # what the loader adopts and set_facts. See tasks/load_onbox_config.yml.

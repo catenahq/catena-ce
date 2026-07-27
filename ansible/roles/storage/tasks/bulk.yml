@@ -36,14 +36,15 @@
 - name: Configure CIFS credentials
   when: storage_bulk_type == 'cifs'
   block:
-    - name: Assert CIFS credentials are in vault
+    - name: Assert CIFS credentials are supplied
       ansible.builtin.assert:
         that:
           - vault_storage_bulk_username is defined
           - vault_storage_bulk_password is defined
         fail_msg: >-
           storage_bulk_type=cifs but vault_storage_bulk_username /
-          vault_storage_bulk_password are not defined in the vault.
+          vault_storage_bulk_password are not set. They are client-held
+          credentials: enter them in catena-admin > Settings.
 
     - name: Ensure credentials directory exists
       ansible.builtin.file:
