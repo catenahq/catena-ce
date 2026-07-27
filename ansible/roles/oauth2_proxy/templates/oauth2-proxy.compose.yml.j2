@@ -6,13 +6,6 @@
 #
 # Cookie + client secrets via env vars (oauth2-proxy reads
 # OAUTH2_PROXY_* env vars natively).
-#
-# The legacy `staff:` / `admin:` services at the bottom are retained
-# while `oauth2_proxy_keep_legacy_chain` is true so dashboard-sync's
-# gate-route writer (which still emits forwardAuth-chain references
-# for client apps deployed via Portainer) continues to work. They drop
-# out when Phase 2 of the migration switches dashboard-sync to provision
-# per-app instances itself.
 services:
 {% for _app in oauth2_proxy_apps %}
   # NOTE: service name is `oauth2-proxy-<slug>`, NOT just <slug>.
@@ -83,106 +76,6 @@ services:
       start_period: 30s
 
 {% endfor %}
-{% if oauth2_proxy_keep_legacy_chain | default(true) %}
-  # --- Legacy shared chain instances (Phase 2 will retire) ---
-  # These keep dashboard-sync's `vps.auth.mode=private|admin-only` route
-  # writer working for client apps deployed via Portainer. The hosts they
-  # serve do NOT appear in `oauth2_proxy_apps` -- those use the new
-  # per-app pattern above.
-  staff:
-    image: "{{ oauth2_proxy_image }}"
-    environment:
-      OAUTH2_PROXY_CLIENT_SECRET: "{{ vault_oauth2_proxy_client_secret }}"
-      OAUTH2_PROXY_COOKIE_SECRET: "{{ vault_oauth2_proxy_cookie_secret }}"
-    command:
-      - "--http-address=0.0.0.0:{{ oauth2_proxy_internal_port }}"
-      - "--reverse-proxy=true"
-      - "--provider=keycloak-oidc"
-      - "--oidc-issuer-url={{ oauth2_proxy_oidc_issuer }}"
-      # Skip boot-time OIDC discovery (a public CF-tunnel GET) and pin
-      # explicit endpoints: login stays PUBLIC (browser redirect), token
-      # + JWKS go intra-cluster. Removes Cloudflare from the auth boot
-      # path so a tunnel re-register during a restore cannot crashloop
-      # this container. See defaults/main.yml for the full rationale.
-      - "--skip-oidc-discovery=true"
-      - "--login-url={{ oauth2_proxy_login_url }}"
-      - "--redeem-url={{ oauth2_proxy_redeem_url }}"
-      - "--oidc-jwks-url={{ oauth2_proxy_jwks_url }}"
-      - "--client-id={{ oauth2_proxy_client_id }}"
-      - "--cookie-name={{ oauth2_proxy_staff_cookie_name }}"
-      - "--cookie-domain=.{{ cloudflare_zone }}"
-      - "--cookie-secure=true"
-      - "--cookie-samesite=lax"
-      - "--whitelist-domain=.{{ cloudflare_zone }}"
-      - "--email-domain=*"
-      - "--scope=openid email profile groups"
-      - "--oidc-groups-claim=groups"
-      - "--allowed-group=client"
-      - "--allowed-group=staff"
-      - "--allowed-group=admin"
-      - "--set-xauthrequest=true"
-      - "--pass-user-headers=true"
-      - "--pass-access-token=false"
-      - "--silence-ping-logging=true"
-      - "--skip-provider-button=true"
-    networks:
-      catena-network:
-        aliases:
-          - "{{ oauth2_proxy_staff_alias }}"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:{{ oauth2_proxy_internal_port }}/ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 30s
-
-  admin:
-    image: "{{ oauth2_proxy_image }}"
-    environment:
-      OAUTH2_PROXY_CLIENT_SECRET: "{{ vault_oauth2_proxy_client_secret }}"
-      OAUTH2_PROXY_COOKIE_SECRET: "{{ vault_oauth2_proxy_cookie_secret }}"
-    command:
-      - "--http-address=0.0.0.0:{{ oauth2_proxy_internal_port }}"
-      - "--reverse-proxy=true"
-      - "--provider=keycloak-oidc"
-      - "--oidc-issuer-url={{ oauth2_proxy_oidc_issuer }}"
-      # Skip boot-time OIDC discovery (a public CF-tunnel GET) and pin
-      # explicit endpoints: login stays PUBLIC (browser redirect), token
-      # + JWKS go intra-cluster. Removes Cloudflare from the auth boot
-      # path so a tunnel re-register during a restore cannot crashloop
-      # this container. See defaults/main.yml for the full rationale.
-      - "--skip-oidc-discovery=true"
-      - "--login-url={{ oauth2_proxy_login_url }}"
-      - "--redeem-url={{ oauth2_proxy_redeem_url }}"
-      - "--oidc-jwks-url={{ oauth2_proxy_jwks_url }}"
-      - "--client-id={{ oauth2_proxy_client_id }}"
-      - "--cookie-name={{ oauth2_proxy_admin_cookie_name }}"
-      - "--cookie-domain=.{{ cloudflare_zone }}"
-      - "--cookie-secure=true"
-      - "--cookie-samesite=lax"
-      - "--whitelist-domain=.{{ cloudflare_zone }}"
-      - "--email-domain=*"
-      - "--scope=openid email profile groups"
-      - "--oidc-groups-claim=groups"
-      - "--allowed-group=admin"
-      - "--set-xauthrequest=true"
-      - "--pass-user-headers=true"
-      - "--pass-access-token=false"
-      - "--silence-ping-logging=true"
-      - "--skip-provider-button=true"
-    networks:
-      catena-network:
-        aliases:
-          - "{{ oauth2_proxy_admin_alias }}"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:{{ oauth2_proxy_internal_port }}/ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 30s
-{% endif %}
 
 networks:
   catena-network:
