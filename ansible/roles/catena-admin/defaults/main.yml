@@ -311,6 +311,27 @@ catena_admin_ce_reserved_actions:
       echo "$PAYLOAD" | base64 -d |
       {{ catena_admin_onbox_config_path }} --dispatch-stdin
       --path {{ catena_admin_config_store_path }}
+  # Scheduling (COMMUNITY). The backup lane is a Community feature, so a
+  # client on the free edition has to be able to say when it runs -- and
+  # nothing is scheduled until they do.
+  #
+  # Three actions rather than one taking a verb: the dispatch table maps a
+  # NAME to a fixed shell line, and that is what stops the container choosing
+  # which command runs as root. A single entry reading the verb out of PAYLOAD
+  # would hand that choice back.
+  #
+  # validate and set take their input on stdin. An OnCalendar value is
+  # punctuation by design -- spaces, commas, stars, slashes -- so the field
+  # whose whole purpose is to accept punctuation is the last one to
+  # interpolate into a command line.
+  - name: catena-schedule-show
+    shell: "{{ catena_schedule_bin }} show"
+  - name: catena-schedule-validate
+    shell: >-
+      echo "$PAYLOAD" | base64 -d | {{ catena_schedule_bin }} validate
+  - name: catena-schedule-set
+    shell: >-
+      echo "$PAYLOAD" | base64 -d | {{ catena_schedule_bin }} set
   - name: catena-restic-validate
     shell: >-
       echo "$PAYLOAD" | base64 -d | {{ catena_admin_restic_key_path }}
