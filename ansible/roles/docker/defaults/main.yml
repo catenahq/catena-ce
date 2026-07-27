@@ -39,6 +39,26 @@ docker_swarm_advertise_addr: "{{ ansible_host }}"
 # swarm service, traefik included, re-dispatches itself by name.
 docker_network_nudge_timeout: 60
 
+# The `catena.role` label put on this node, and the value every stateful swarm
+# service constrains itself to (node.labels.catena.role==data). One value today
+# because there is one node; it exists as a variable so a second node can join
+# as something else without editing every role.
+#
+# The constraint is what makes adding a worker safe. Without it swarm can
+# reschedule a service with a node-local named volume onto the new node and
+# silently create an empty volume there -- the container starts and the data is
+# gone. `audit --check-swarm` in ops fails the build if a service that mounts
+# anything is missing a constraint.
+#
+# Each stateful role spells its own constraint out literally rather than
+# referencing a var from here: role defaults are only reliably in scope after
+# that role has run, and a tag-scoped `--tags postgres` run would otherwise
+# render an undefined constraint. The coupling is enforced by the audit gate
+# (`audit --check-swarm`), which fails when the label this role SETS and the
+# label the constraints REFERENCE disagree -- a check that cannot drift, unlike
+# a shared variable that a tag-scoped run can leave undefined.
+docker_node_role_label: "data"
+
 # Codename-aware apt repo. Matches the pattern used by roles/tailscale/.
 docker_apt_codename: "{{ ansible_facts['distribution_release'] }}"
 docker_apt_key_url: "https://download.docker.com/linux/debian/gpg"

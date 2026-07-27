@@ -74,8 +74,7 @@
          '--publish=mode=host,published=' ~ portainer_ui_port ~ ',target=9000',
          '--secret=' ~ portainer_admin_secret_name,
          '--mount=type=bind,source=/var/run/docker.sock,destination=/var/run/docker.sock',
-         '--mount=type=volume,source=' ~ portainer_data_volume ~ ',destination=/data',
-         '--constraint=node.role==manager']
+         '--mount=type=volume,source=' ~ portainer_data_volume ~ ',destination=/data']
         + (portainer_desired | swarm_service_create_args)
         + [portainer_image,
            '--admin-password-file=/run/secrets/' ~ portainer_admin_secret_name]

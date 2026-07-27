@@ -242,6 +242,50 @@
   register: _docker_swarm_init
   changed_when: _docker_swarm_init.rc == 0
 
+# ─── node label: where state lives ───────────────────────────────────────
+# Every swarm service that mounts state is constrained to
+# node.labels.catena.role==data. At one node the constraint is a no-op. The
+# moment a second node joins it is the difference between a working cluster
+# and a data-loss event: swarm will happily reschedule a service with a LOCAL
+# named volume onto another node and create a fresh EMPTY volume there, with
+# no error. The container starts, the data is simply gone. That is the
+# documented, unsolved failure in Dokploy's multi-node story, and the cheapest
+# possible moment to close it is now, while there is only one node and the
+# constraint costs nothing.
+#
+# Correct by construction across DR: node labels live in the swarm raft, raft
+# is deliberately NOT in the restic set (see the swarm init below), so a
+# restored host has no labels -- and this task puts them back on the converge
+# that follows, before any role reads them.
+#
+# Idempotent: `docker node update --label-add` with an unchanged value is a
+# no-op, so this reports changed only when it actually set something.
+- name: "swarm: read the local node id"
+  ansible.builtin.command: docker info --format '{{ "{{" }}.Swarm.NodeID{{ "}}" }}'
+  register: _docker_node_id
+  changed_when: false
+
+- name: "swarm: read the local node labels"
+  ansible.builtin.command: >-
+    docker node inspect {{ _docker_node_id.stdout | trim }}
+    --format '{{ "{{" }}index .Spec.Labels "catena.role"{{ "}}" }}'
+  register: _docker_node_role
+  changed_when: false
+  failed_when: false
+
+- name: "swarm: label the local node as the data node"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - node
+      - update
+      - --label-add
+      - "catena.role={{ docker_node_role_label }}"
+      - "{{ _docker_node_id.stdout | trim }}"
+  when: (_docker_node_role.stdout | default('') | trim) != docker_node_role_label
+  register: _docker_node_label
+  changed_when: _docker_node_label.rc == 0
+
 # ─── overlay-race self-heal (catena-network-nudge) ───────────────────────
 # dockerd restores restart-policy containers during "Loading containers",
 # which runs BEFORE the swarm node re-materializes catena-network -- and the

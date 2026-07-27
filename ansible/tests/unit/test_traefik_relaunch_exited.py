@@ -83,8 +83,12 @@ def test_it_is_a_swarm_service_constrained_to_a_manager():
     argv = _find("create catena-traefik swarm service")["vars"]["_traefik_create_argv"]
     assert "'docker', 'service', 'create'" in argv
     # It bind-mounts the docker socket and drives the swarm provider, so it
-    # cannot be scheduled onto a worker.
-    assert "--constraint=node.role==manager" in argv
+    # cannot be scheduled onto a worker. The constraint lives in the desired
+    # dict rather than the argv, because swarm_service_drift reconciles the
+    # FULL constraint set and would --constraint-rm anything the dict omits;
+    # test_swarm_placement.py owns that rule for all three services.
+    constraints = yaml.safe_load(DEFAULTS.read_text())["traefik_constraints"]
+    assert "node.role==manager" in constraints
 
 
 def test_no_host_ports_is_structural_not_checked():

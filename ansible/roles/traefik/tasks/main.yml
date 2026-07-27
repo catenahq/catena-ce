@@ -166,8 +166,7 @@
         ['docker', 'service', 'create', '--detach',
          '--name=' ~ traefik_container_name,
          '--network=' ~ catena_network_name,
-         '--restart-condition=any',
-         '--constraint=node.role==manager']
+         '--restart-condition=any']
         + (traefik_mounts | map('regex_replace', '^', '--mount=') | list)
         + (traefik_desired | swarm_service_create_args)
         + [traefik_image]

@@ -77,8 +77,19 @@ catena_postgres_health_retries: 5
 # Covers initdb + the entrypoint's first-boot restart on a fresh volume.
 catena_postgres_health_start_period: "60s"
 
+# Placement. The cluster lives in a node-LOCAL named volume, so it must only
+# ever be scheduled where that volume is. At one node this is a no-op; the
+# moment a worker joins it is the difference between a working cluster and a
+# data-loss event, because swarm will reschedule onto the new node and create
+# a fresh EMPTY volume there with no error. roles/docker sets the matching
+# label; `audit --check-swarm` fails the build if the two ever disagree, or if
+# any service that mounts something has no constraint at all.
+catena_postgres_constraints:
+  - "node.labels.catena.role==data"
+
 catena_postgres_desired:
   image: "{{ catena_postgres_image }}"
+  constraints: "{{ catena_postgres_constraints }}"
   limit_memory: "{{ catena_postgres_limit_memory }}"
   reserve_memory: "{{ catena_postgres_reserve_memory }}"
   stop_grace_period: "{{ catena_postgres_stop_grace_period }}"

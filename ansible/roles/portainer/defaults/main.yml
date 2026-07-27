@@ -58,8 +58,23 @@ portainer_update_order: "stop-first"
 # catena-traefik, which do carry healthchecks, the replica count is a real
 # health signal.
 
+# Placement. BOTH constraints live here, not split between the create argv and
+# this dict: swarm_service_drift reconciles the FULL constraint set, so a
+# constraint passed in the argv but absent from the dict would be
+# --constraint-rm'd on the next converge.
+#
+#   node.role==manager -- it bind-mounts the docker socket and manages the
+#     local Docker/Swarm endpoint, which only a manager can serve.
+#   catena.role==data  -- /data is a node-LOCAL named volume holding the
+#     BoltDB store. Rescheduled elsewhere, Portainer would come up empty:
+#     no endpoint, no stacks, no admin user.
+portainer_constraints:
+  - "node.role==manager"
+  - "node.labels.catena.role==data"
+
 portainer_desired:
   image: "{{ portainer_image }}"
+  constraints: "{{ portainer_constraints }}"
   limit_memory: "{{ portainer_limit_memory }}"
   reserve_memory: "{{ portainer_reserve_memory }}"
   stop_grace_period: "{{ portainer_stop_grace_period }}"

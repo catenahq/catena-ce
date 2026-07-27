@@ -73,8 +73,26 @@ traefik_health_interval: "10s"
 traefik_health_retries: 3
 traefik_health_start_period: "10s"
 
+# Placement. BOTH constraints live here, not split between the create argv and
+# this dict: swarm_service_drift reconciles the FULL constraint set, so a
+# constraint passed in the argv but absent from the dict would be
+# --constraint-rm'd on the next converge.
+#
+#   node.role==manager -- it bind-mounts the docker socket and runs the swarm
+#     provider, which only a manager can serve.
+#   catena.role==data  -- the whole config tree is bind-mounted from
+#     /etc/catena/traefik on THIS host: traefik.yml, the dynamic/ dir every
+#     route file is written into, and acme.json. On another node those paths
+#     do not exist, and a docker bind mount silently creates a missing source
+#     as an empty DIRECTORY -- which for acme.json is exactly the failure the
+#     role already has a task to repair.
+traefik_constraints:
+  - "node.role==manager"
+  - "node.labels.catena.role==data"
+
 traefik_desired:
   image: "{{ traefik_image }}"
+  constraints: "{{ traefik_constraints }}"
   limit_memory: "{{ traefik_limit_memory }}"
   reserve_memory: "{{ traefik_reserve_memory }}"
   stop_grace_period: "{{ traefik_stop_grace_period }}"
