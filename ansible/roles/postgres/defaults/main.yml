@@ -24,6 +24,73 @@ catena_postgres_superuser: postgres
 # deferred (BACKLOG_TECHNICAL.md).
 catena_postgres_secret_name: catena_postgres_password
 
+# ─── swarm-service hardening ─────────────────────────────────────────────
+# One dict, two renderers: roles/postgres pipes this through
+# `swarm_service_create_args` to build the create argv and through
+# `swarm_service_drift` to reconcile an existing service. See
+# playbooks/filter_plugins/swarm_service_drift.py for why it is one dict and
+# what the filters do NOT own (identity + wiring flags stay in the task).
+#
+# Memory: generous rather than tight. This Postgres serves Keycloak's realm
+# DB and nothing else, so 2g is far above its working set; the limit exists to
+# stop a runaway query taking the whole VPS down with it, not to pack the box.
+# The reservation is what swarm holds back at schedule time and is deliberately
+# small -- app stacks are Portainer compose, not swarm services, so they do not
+# compete for it.
+catena_postgres_limit_memory: "2g"
+catena_postgres_reserve_memory: "256m"
+
+# Clean shutdown. Docker's 10s default SIGKILLs a cluster mid-checkpoint on a
+# stop-first update; Postgres fast shutdown normally finishes in seconds, but a
+# large checkpoint does not. cloudflared already carries the same reasoning
+# (40s, to outlast its connection drain).
+catena_postgres_stop_grace_period: "60s"
+
+# Update policy. FailureAction is `pause`, NEVER `rollback`: the catena-admin
+# managed-update engine is the rollback authority (it decides on a whole-host
+# health diff, keeps a persistent quarantine and replays a pre-bump DB
+# snapshot). If swarm rolled back underneath it the engine would either record
+# a version that never shipped as bumped and retry it forever, or take its
+# safety-net branch and re-apply the failure, because `docker service update
+# --rollback` reverts to the PREVIOUS spec -- which after an auto-rollback is
+# the bad one. Verified on docker 29.6.1: with `pause`, a bad image makes
+# `docker service update --detach=false` exit 1 with UpdateStatus.State=paused,
+# and the engine's `--rollback` then exits 0 with State=rollback_completed.
+#
+# Monitor outlasts health_start_period + (interval * retries) = 110s, so the
+# window actually covers a task that starts and then reports unhealthy. A
+# shorter monitor would only catch a task that fails to start at all.
+catena_postgres_update_failure_action: "pause"
+catena_postgres_update_monitor: "120s"
+catena_postgres_update_max_failure_ratio: 0
+# Explicit, though it matches the docker default: one volume and one cluster
+# means the old task MUST be gone before the new one opens the data dir.
+# start-first here would put two postmasters on one PGDATA.
+catena_postgres_update_order: "stop-first"
+
+# Healthcheck. `pg_isready` ships in the postgres image and is already what
+# the readiness gate below shells out to. With this set, `docker service ls`
+# replica counts mean "accepting connections" instead of "process started".
+catena_postgres_health_cmd: "pg_isready -U {{ catena_postgres_superuser }}"
+catena_postgres_health_interval: "10s"
+catena_postgres_health_retries: 5
+# Covers initdb + the entrypoint's first-boot restart on a fresh volume.
+catena_postgres_health_start_period: "60s"
+
+catena_postgres_desired:
+  image: "{{ catena_postgres_image }}"
+  limit_memory: "{{ catena_postgres_limit_memory }}"
+  reserve_memory: "{{ catena_postgres_reserve_memory }}"
+  stop_grace_period: "{{ catena_postgres_stop_grace_period }}"
+  update_failure_action: "{{ catena_postgres_update_failure_action }}"
+  update_monitor: "{{ catena_postgres_update_monitor }}"
+  update_max_failure_ratio: "{{ catena_postgres_update_max_failure_ratio }}"
+  update_order: "{{ catena_postgres_update_order }}"
+  health_cmd: "{{ catena_postgres_health_cmd }}"
+  health_interval: "{{ catena_postgres_health_interval }}"
+  health_retries: "{{ catena_postgres_health_retries }}"
+  health_start_period: "{{ catena_postgres_health_start_period }}"
+
 # Named volume for the data dir, backed up as a RAW volume by the default
 # restic set. That is correct because the password does not move: it comes
 # from the on-box store (staged into the swarm secret below) and /etc is in

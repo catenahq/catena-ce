@@ -70,51 +70,60 @@
 # below is the real readiness barrier and fails fast (120s) instead.
 - name: "postgres: create catena-postgres swarm service (first run)"
   ansible.builtin.command:
-    argv:
-      - docker
-      - service
-      - create
-      - --detach
-      - "--name={{ catena_postgres_service_name }}"
-      - --network=catena-network
-      - --restart-condition=any
-      - "--secret={{ catena_postgres_secret_name }}"
-      - "--env=POSTGRES_USER={{ catena_postgres_superuser }}"
-      - "--env=POSTGRES_PASSWORD_FILE=/run/secrets/{{ catena_postgres_secret_name }}"
-      - --env=POSTGRES_DB=postgres
-      - --env=PGDATA=/var/lib/postgresql/data/pgdata
-      - "--mount=type=volume,source={{ catena_postgres_data_volume }},destination=/var/lib/postgresql/data"
-      - "{{ catena_postgres_image }}"
+    # Identity + wiring flags here; the hardening subset (memory, stop-grace,
+    # update policy, healthcheck) is rendered from catena_postgres_desired so
+    # create and the reconcile below cannot drift apart. The image is the
+    # positional argument, so it is appended after the rendered flags.
+    argv: "{{ _pg_create_argv }}"
+  vars:
+    _pg_create_argv: >-
+      {{
+        ['docker', 'service', 'create', '--detach',
+         '--name=' ~ catena_postgres_service_name,
+         '--network=catena-network',
+         '--restart-condition=any',
+         '--secret=' ~ catena_postgres_secret_name,
+         '--env=POSTGRES_USER=' ~ catena_postgres_superuser,
+         '--env=POSTGRES_PASSWORD_FILE=/run/secrets/' ~ catena_postgres_secret_name,
+         '--env=POSTGRES_DB=postgres',
+         '--env=PGDATA=/var/lib/postgresql/data/pgdata',
+         '--mount=type=volume,source=' ~ catena_postgres_data_volume
+           ~ ',destination=/var/lib/postgresql/data']
+        + (catena_postgres_desired | swarm_service_create_args)
+        + [catena_postgres_image]
+      }}
   when: _pg_service.rc != 0
   register: _pg_service_create
   changed_when: _pg_service_create.rc == 0
 
-# Image-drift upgrade (rolling). A pinned-tag bump takes effect on the next
-# converge via `docker service update --image`.
-- name: "postgres: read running image (drift check)"
-  ansible.builtin.command: >-
-    docker service inspect {{ catena_postgres_service_name }}
-    --format '{{ "{{" }}.Spec.TaskTemplate.ContainerSpec.Image{{ "}}" }}'
-  register: _pg_running_image
+# Spec reconcile (rolling). Replaces the image-only drift check: that one
+# reconciled the pinned tag and NOTHING else, so every hardening flag added to
+# the create argv would have applied to fresh installs only and never reached
+# an existing host.
+- name: "postgres: inspect the live service spec"
+  ansible.builtin.command: "docker service inspect {{ catena_postgres_service_name }}"
+  register: _pg_inspect
   changed_when: false
   failed_when: false
   when: _pg_service.rc == 0
 
-- name: "postgres: rolling image upgrade on drift"
-  ansible.builtin.command:
-    argv:
-      - docker
-      - service
-      - update
-      - --image
-      - "{{ catena_postgres_image }}"
-      - "{{ catena_postgres_service_name }}"
+- name: "postgres: compute spec drift"
+  ansible.builtin.set_fact:
+    _pg_drift: >-
+      {{ (_pg_inspect.stdout | from_json)
+         | swarm_service_drift(catena_postgres_desired) }}
   when:
     - _pg_service.rc == 0
-    - _pg_running_image.stdout is defined
-    - catena_postgres_image not in (_pg_running_image.stdout | default(''))
-  register: _pg_upgrade
-  changed_when: _pg_upgrade.rc == 0
+    - _pg_inspect.rc == 0
+
+- name: "postgres: reconcile the service spec (rolling)"
+  ansible.builtin.command:
+    argv: "{{ ['docker', 'service', 'update'] + _pg_drift + [catena_postgres_service_name] }}"
+  when:
+    - _pg_service.rc == 0
+    - _pg_drift | default([]) | length > 0
+  register: _pg_reconcile
+  changed_when: _pg_reconcile.rc == 0
 
 # ─── readiness ───────────────────────────────────────────────────────────
 # Gate downstream (roles/keycloak provision_db) on the cluster actually

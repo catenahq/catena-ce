@@ -59,49 +59,58 @@
 # trailing --admin-password-file arg is passed to the portainer binary.
 - name: "portainer: create catena-portainer swarm service (first run)"
   ansible.builtin.command:
-    argv:
-      - docker
-      - service
-      - create
-      - "--name={{ portainer_service_name }}"
-      - --network=catena-network
-      - --restart-condition=any
-      - "--publish=mode=host,published={{ portainer_ui_port }},target=9000"
-      - "--secret={{ portainer_admin_secret_name }}"
-      - "--mount=type=bind,source=/var/run/docker.sock,destination=/var/run/docker.sock"
-      - "--mount=type=volume,source={{ portainer_data_volume }},destination=/data"
-      - --constraint=node.role==manager
-      - "{{ portainer_image }}"
-      - "--admin-password-file=/run/secrets/{{ portainer_admin_secret_name }}"
+    # Identity + wiring flags here; the hardening subset (memory, stop-grace,
+    # update policy) is rendered from portainer_desired so create and the
+    # reconcile below cannot drift apart. The image and the trailing binary
+    # argument are positional, so they follow the rendered flags.
+    argv: "{{ _pt_create_argv }}"
+  vars:
+    _pt_create_argv: >-
+      {{
+        ['docker', 'service', 'create',
+         '--name=' ~ portainer_service_name,
+         '--network=catena-network',
+         '--restart-condition=any',
+         '--publish=mode=host,published=' ~ portainer_ui_port ~ ',target=9000',
+         '--secret=' ~ portainer_admin_secret_name,
+         '--mount=type=bind,source=/var/run/docker.sock,destination=/var/run/docker.sock',
+         '--mount=type=volume,source=' ~ portainer_data_volume ~ ',destination=/data',
+         '--constraint=node.role==manager']
+        + (portainer_desired | swarm_service_create_args)
+        + [portainer_image,
+           '--admin-password-file=/run/secrets/' ~ portainer_admin_secret_name]
+      }}
   when: _pt_service.rc != 0
   register: _pt_service_create
   changed_when: _pt_service_create.rc == 0
 
-# Rolling image-drift upgrade (pinned-tag bump takes effect next converge).
-- name: "portainer: read running image (drift check)"
-  ansible.builtin.command: >-
-    docker service inspect {{ portainer_service_name }}
-    --format '{{ "{{" }}.Spec.TaskTemplate.ContainerSpec.Image{{ "}}" }}'
-  register: _pt_running_image
+# Spec reconcile (rolling). Replaces the image-only drift check: that one
+# reconciled the pinned tag and NOTHING else, so every hardening flag added to
+# the create argv would have applied to fresh installs only and never reached
+# an existing host.
+- name: "portainer: inspect the live service spec"
+  ansible.builtin.command: "docker service inspect {{ portainer_service_name }}"
+  register: _pt_inspect
   changed_when: false
   failed_when: false
   when: _pt_service.rc == 0
 
-- name: "portainer: rolling image upgrade on drift"
-  ansible.builtin.command:
-    argv:
-      - docker
-      - service
-      - update
-      - --image
-      - "{{ portainer_image }}"
-      - "{{ portainer_service_name }}"
+- name: "portainer: compute spec drift"
+  ansible.builtin.set_fact:
+    _pt_drift: >-
+      {{ (_pt_inspect.stdout | from_json) | swarm_service_drift(portainer_desired) }}
   when:
     - _pt_service.rc == 0
-    - _pt_running_image.stdout is defined
-    - portainer_image not in (_pt_running_image.stdout | default(''))
-  register: _pt_upgrade
-  changed_when: _pt_upgrade.rc == 0
+    - _pt_inspect.rc == 0
+
+- name: "portainer: reconcile the service spec (rolling)"
+  ansible.builtin.command:
+    argv: "{{ ['docker', 'service', 'update'] + _pt_drift + [portainer_service_name] }}"
+  when:
+    - _pt_service.rc == 0
+    - _pt_drift | default([]) | length > 0
+  register: _pt_reconcile
+  changed_when: _pt_reconcile.rc == 0
 
 # ─── tailnet-only firewall for the UI port (registry fragment) ───────────
 - name: "portainer: ensure public-port fragment dir exists"
