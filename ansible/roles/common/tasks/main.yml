@@ -416,10 +416,16 @@
 # or on-prem physical) and does not depend on the provider default user,
 # which root-disable + AllowUsers already lock out of SSH.
 #
+# The password is USER_HELD (helpers/onbox_config.py): minted on-box if absent
+# on every converge and surfaced once by playbooks/show_dr_keyset.yml, because
+# a break-glass credential the user does not hold a copy of is not one. It was
+# previously minted only by an ops operator tool, so a self-hoster host had no
+# console account at all and this task silently skipped.
+#
 # Deterministic salt (derived from the secret itself) keeps the sha512 hash
 # stable across converges so /etc/shadow does not churn -- update_password:
-# always then reports no change on a steady-state run. Gated on the key
-# being present so a host whose store has not minted it yet is a safe no-op.
+# always then reports no change on a steady-state run. The guard now covers
+# only a store that failed to load, not a store that never minted it.
 - name: Set ops console break-glass password (key-only SSH keeps it console-only)
   ansible.builtin.user:
     name: "{{ ops_user }}"

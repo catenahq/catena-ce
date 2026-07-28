@@ -37,7 +37,7 @@
       changed_when: false
       no_log: true
 
-    - name: Show the admin + restic passwords ONCE
+    - name: Show the admin + restic + console passwords ONCE
       ansible.builtin.debug:
         msg: "{{ _banner.split('\n') }}"
       vars:
@@ -51,10 +51,15 @@
 
             Admin password (Portainer + Keycloak): {{ _secrets.vault_admin_password }}
             Restic backup password (DR keyset):    {{ _secrets.vault_backup_restic_password }}
+            Console password for `{{ ops_user | default('ops') }}` (break-glass): {{ _secrets.vault_console_recovery_password }}
 
           The restic password is the ONE secret you must hold off-box: with it
           plus your S3 keys and repo URL you can rebuild a wiped VPS from
           backup. Without it your backups cannot be restored, by anyone.
+
+          The console password is your way back in when the network path is
+          gone. SSH refuses it (key-only); it works at the provider web
+          console (KVM/serial) or a physical keyboard, and nowhere else.
           {% if _fss %}
 
             Journal verification key (tamper evidence):

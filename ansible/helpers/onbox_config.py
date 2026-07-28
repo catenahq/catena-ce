@@ -5,12 +5,12 @@ Single plaintext source of truth at ``/etc/catena/config.json`` (0600 root).
 Two top-level sections:
 
     {
-      "secrets": {            # category (a) external + (b) internal-generated
+      "secrets": {            # external + internal-minted + role-minted
         "vault_admin_password": "...",
         "vault_catena_postgres_password": "...",
         ...
       },
-      "config": {             # category (c) non-secret
+      "config": {             # non-secret
         "CLOUDFLARE_ZONE": "...",
         ...
       }
@@ -30,9 +30,13 @@ Design constraints:
   - INTERNAL secrets are minted here; EXTERNAL secrets (vendor creds the
     client supplies) are only ever *stored*, never generated -- they arrive
     via the two-phase bootstrap or the catena-admin settings API.
-  - USER_HELD secrets (the admin + restic passwords) are minted on-box IF
-    ABSENT (like internal), but are the DR / first-login keyset the user must
-    hold a copy of: the installer reads them back and shows them ONCE for the
+  - ROLE_MINTED secrets are minted by the service itself and captured by the
+    role that provisioned it. This module neither generates nor accepts them;
+    it only names them, so "belongs to no category" is not a valid state.
+  - USER_HELD secrets (the admin, restic + console-recovery passwords) are
+    minted on-box IF ABSENT (like internal), but are the DR / break-glass /
+    first-login keyset the user must hold
+    a copy of: the installer reads them back and shows them ONCE for the
     user's password manager. They are NOT settable through the config-write
     API (a restic-password change is a deliberate re-key action, not a passive
     settings save), and they remain ADOPTABLE so `catena recover` seeds the
@@ -177,18 +181,28 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
 #     store BEFORE the restore runs (adopt is fill-only, so the freshly-minted
 #     value is only used on a first install, never a recover). A rotation is a
 #     deliberate `restic key passwd` action in catena-admin, not a store write.
+#   - vault_console_recovery_password -- the ops account's break-glass password
+#     for the provider KVM / serial console (roles/common sets it; key-only SSH
+#     keeps it console-only). Same shape as the restic password: a credential
+#     whose whole purpose is the case where the normal path is gone, so a copy
+#     that lives only inside the box is no copy at all. It was previously
+#     minted by an ops OPERATOR tool, which meant no self-hoster host had a
+#     break-glass account at all.
 USER_HELD_SECRETS: dict[str, Callable[[], str]] = {
     "vault_admin_password": mint_admin_password,
     "vault_backup_restic_password": mint_strong_password,
+    # url-safe, not base64: this one gets TYPED at a serial console.
+    "vault_console_recovery_password": mint_admin_password,
 }
 
 # EXTERNAL: vendor credentials the client HOLDS (never on-box-minted). Stored,
 # never minted here -- they arrive via the transient bootstrap adopt file or
 # the catena-admin settings API. The optional ones may legitimately be empty.
-# vault_portainer_api_key is minted by Portainer itself
-# (bootstrap_portainer_admin.py), not here -- it is neither internal-minted nor
-# client-supplied, so it lives in neither set and is written into the store by
-# the portainer role after it mints it.
+#
+# This set is also the ALLOWLIST apply_inputs enforces, so a credential a role
+# tells the client to "enter in catena-admin > Settings" and that is NOT listed
+# here has a documented path that raises. Keep it a superset of the settings
+# schema (catena-admin shell/settings/settings.go Fields).
 EXTERNAL_SECRETS: frozenset[str] = frozenset({
     "vault_tailscale_oauth_client_id",
     "vault_tailscale_oauth_client_secret",
@@ -213,6 +227,11 @@ EXTERNAL_SECRETS: frozenset[str] = frozenset({
     "vault_mailserver_spamhaus_dqs_key",
     "vault_nextcloud_s3_access_key",
     "vault_nextcloud_s3_secret_key",
+    # CIFS credentials for the optional bulk mount (roles/storage bulk.yml,
+    # storage_bulk_type=cifs). Client-held: the share is the client's NAS.
+    # NFS authenticates by source IP and supplies neither.
+    "vault_storage_bulk_username",
+    "vault_storage_bulk_password",
     # Business licence token. Client-held like any other external credential:
     # the client is given it on purchase and pastes it into catena-admin >
     # Settings, and the panel plus the host engines read it back from here. It
@@ -220,6 +239,24 @@ EXTERNAL_SECRETS: frozenset[str] = frozenset({
     # nor verifies it -- it only stores it.
     "vault_catena_license",
 })
+
+# ROLE_MINTED: minted by the SERVICE, captured by the role that provisioned it.
+# Neither internal-minted (this module never generates them) nor client-supplied
+# (no human ever sees one), so they belong to no set above -- but "belongs to no
+# set" has to be a category with members, not a sentence in a comment, or the
+# provenance gate has nothing to check them against and the next one to appear
+# is invisible.
+#
+# Value is the role that writes it into the store, so a failure names the owner.
+#   - vault_portainer_api_key -- Portainer's own token API mints it
+#     (helpers/bootstrap_portainer_admin.py); roles/portainer adopts it, with
+#     --overwrite, because a /data restore invalidates the stored one.
+#
+# NOT minted here and NOT adoptable through apply_inputs: a role-minted secret
+# has exactly one writer, and that writer is the role.
+ROLE_MINTED_SECRETS: dict[str, str] = {
+    "vault_portainer_api_key": "portainer",
+}
 
 
 # --- store I/O --------------------------------------------------------------
@@ -308,9 +345,9 @@ def adopt(store: dict, mapping: dict | None, *, overwrite: bool = False) -> list
     """Capture secret values into the store. Fill-only by default: the
     converge loader passes every vault_* in scope, and a value already in the
     store is the source of truth. Never stores a blank. Accepts ANY key -- the
-    caller pre-filters to vault_* -- so vault_portainer_api_key and any
-    out-of-registry secret are captured too, which is why this is separate
-    from apply_inputs and its EXTERNAL_SECRETS allowlist.
+    caller pre-filters to vault_* -- so the ROLE_MINTED_SECRETS are captured
+    too, which is why this is separate from apply_inputs and its
+    EXTERNAL_SECRETS allowlist.
 
     ``overwrite=True`` replaces an existing value. Used by roles/portainer
     when Portainer REJECTS the stored API key (the admin was recreated, or a

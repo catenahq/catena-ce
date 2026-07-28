@@ -152,27 +152,71 @@ def test_strong_password_is_64_b64_chars(oc):
 
 
 # --- registries -------------------------------------------------------------
-def test_the_three_registries_are_pairwise_disjoint(oc):
-    internal = set(oc.INTERNAL_SECRETS)
-    external = set(oc.EXTERNAL_SECRETS)
-    userheld = set(oc.USER_HELD_SECRETS)
-    assert not (internal & external)
-    assert not (internal & userheld)
-    assert not (external & userheld)
+def _registries(oc) -> dict[str, set[str]]:
+    return {
+        "INTERNAL_SECRETS": set(oc.INTERNAL_SECRETS),
+        "EXTERNAL_SECRETS": set(oc.EXTERNAL_SECRETS),
+        "USER_HELD_SECRETS": set(oc.USER_HELD_SECRETS),
+        "ROLE_MINTED_SECRETS": set(oc.ROLE_MINTED_SECRETS),
+    }
 
 
-def test_portainer_api_key_in_no_registry(oc):
-    # Portainer mints its own API key; the store receives it from the role.
+def test_the_four_registries_are_pairwise_disjoint(oc):
+    """A name in two registries has two provenances, which means the one the
+    reader believes is a coin flip. Enumerated pairwise rather than by total
+    length so the failure names the collision."""
+    regs = _registries(oc)
+    names = sorted(regs)
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            assert not (regs[a] & regs[b]), f"{a} and {b} share {regs[a] & regs[b]}"
+
+
+def test_every_registry_is_non_empty(oc):
+    # A registry that parses empty would make the provenance gate vacuously
+    # pass for everything it owns.
+    for name, members in _registries(oc).items():
+        assert members, f"{name} is empty"
+
+
+def test_portainer_api_key_is_role_minted(oc):
+    """Portainer mints its own API key: not internal (this module never
+    generates it), not external (no human ever supplies one). It is
+    ROLE_MINTED, which is a category with members rather than a comment
+    saying it belongs to none."""
+    assert oc.ROLE_MINTED_SECRETS["vault_portainer_api_key"] == "portainer"
     for reg in (oc.INTERNAL_SECRETS, oc.EXTERNAL_SECRETS, oc.USER_HELD_SECRETS):
         assert "vault_portainer_api_key" not in reg
 
 
-def test_admin_and_restic_are_user_held_not_external(oc):
-    """The admin password (first-login) and restic backup password (DR keyset)
-    are USER_HELD: minted on-box if absent, shown once at install, but NOT
-    EXTERNAL -- so the config-write API cannot set them, and ensure_internal
-    does not mint them."""
-    for key in ("vault_admin_password", "vault_backup_restic_password"):
+def test_role_minted_secrets_are_not_settable_through_the_api(oc):
+    # apply_inputs' allowlist is EXTERNAL_SECRETS; a role-minted secret has
+    # exactly one writer and the settings form is not it.
+    store = {"secrets": {}, "config": {}}
+    with pytest.raises(ValueError):
+        oc.apply_inputs(store, secrets_in={"vault_portainer_api_key": "x"})
+
+
+def test_install_external_keys_are_a_subset_of_external_secrets(oc):
+    """seed.py prompts for these at install and writes them to the transient
+    adopt file; the loader hands them to apply_inputs, which RAISES on any key
+    outside EXTERNAL_SECRETS. A prompt for a key not in the set is an install
+    that aborts on its own input."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("seed", ANSIBLE_DIR / "seed.py")
+    seed = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(seed)
+    assert set(seed.INSTALL_EXTERNAL_KEYS) <= set(oc.EXTERNAL_SECRETS)
+
+
+def test_dr_keyset_is_user_held_not_external(oc):
+    """The admin password (first-login), restic backup password (DR keyset)
+    and console break-glass password are USER_HELD: minted on-box if absent,
+    shown once at install, but NOT EXTERNAL -- so the config-write API cannot
+    set them, and ensure_internal does not mint them."""
+    for key in ("vault_admin_password", "vault_backup_restic_password",
+                "vault_console_recovery_password"):
         assert key in oc.USER_HELD_SECRETS
         assert key not in oc.EXTERNAL_SECRETS
         assert key not in oc.INTERNAL_SECRETS
@@ -180,13 +224,35 @@ def test_admin_and_restic_are_user_held_not_external(oc):
     assert "vault_admin_password" not in oc.ensure_internal_secrets(store)
 
 
-def test_ensure_user_held_mints_admin_and_restic(oc):
+def test_ensure_user_held_mints_the_whole_dr_keyset(oc):
     store = {"secrets": {}, "config": {}}
     minted = oc.ensure_user_held_secrets(store)
-    assert set(minted) == {"vault_admin_password", "vault_backup_restic_password"}
+    assert set(minted) == {"vault_admin_password", "vault_backup_restic_password",
+                           "vault_console_recovery_password"}
     # format contracts: admin 20 url-safe chars, restic 64 base64 chars.
     assert len(store["secrets"]["vault_admin_password"]) == 20
     assert len(store["secrets"]["vault_backup_restic_password"]) == 64
+
+
+def test_console_recovery_password_is_console_typeable(oc):
+    """It is entered at a provider KVM / serial console by hand. base64's
+    '+' and '/' are a keyboard-layout hazard there; url-safe is not."""
+    val = oc.USER_HELD_SECRETS["vault_console_recovery_password"]()
+    assert len(val) == 20
+    assert all(c.isalnum() or c in "-_" for c in val)
+
+
+def test_cifs_bulk_credentials_are_external(oc):
+    """roles/storage bulk.yml tells the client to enter these in catena-admin
+    > Settings. apply_inputs RAISES for any key outside EXTERNAL_SECRETS, so
+    absent from this set the documented path is closed by code."""
+    for key in ("vault_storage_bulk_username", "vault_storage_bulk_password"):
+        assert key in oc.EXTERNAL_SECRETS
+        assert key not in oc.INTERNAL_SECRETS
+        assert key not in oc.USER_HELD_SECRETS
+    store = {"secrets": {}, "config": {}}
+    oc.apply_inputs(store, secrets_in={"vault_storage_bulk_username": "svc"})
+    assert store["secrets"]["vault_storage_bulk_username"] == "svc"
 
 
 def test_ensure_user_held_does_not_overwrite_adopted(oc):
@@ -194,7 +260,7 @@ def test_ensure_user_held_does_not_overwrite_adopted(oc):
     is preserved; only a first install mints fresh."""
     store = {"secrets": {"vault_backup_restic_password": "user-saved"}, "config": {}}
     minted = oc.ensure_user_held_secrets(store)
-    assert minted == ["vault_admin_password"]
+    assert "vault_backup_restic_password" not in minted
     assert store["secrets"]["vault_backup_restic_password"] == "user-saved"
 
 
