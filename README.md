@@ -1,122 +1,103 @@
 # Catena Community
 
-Self-host a complete business suite you own end to end. Catena installs a
-curated catalog of open-source business apps onto your own VPS, wires them
-behind single sign-on, and hands you monitoring, backups, and whole-host
-restore -- all driven from one command. No telemetry, no license required,
-no vendor lock-in. Source-available (fair-code).
+Catena installs a curated catalog of open-source business apps onto a
+single VPS, wires them behind one sign-on, and adds monitoring, backups
+and whole-host restore -- all driven from one command. No telemetry, no
+license required, no vendor lock-in. Source-available (fair-code).
 
-Community is a complete, standalone product: the full app catalog plus the
-whole base lifecycle -- one-command install, single sign-on across every app,
-monitoring basics, on-demand backups, and whole-host restore/recovery onto a
-fresh replacement box. Every operation runs through the `catena` CLI; every
-byte of your data stays in standard formats you can read and restore with
-standard tools, with or without Catena.
+Community is a complete, standalone product, not a trial edition: the
+full app catalog plus the whole base lifecycle -- one-command install,
+single sign-on across every app, monitoring basics, a weekly backup and
+on-demand snapshots, and whole-host restore onto a fresh replacement
+box. Every operation runs through the `catena` CLI, and every byte of
+data stays in standard formats readable with standard tools, with or
+without Catena.
+
+The north star is one sentence, and everything else in this repository
+serves it:
+
+> A Catena server can be rebuilt from nothing but its backup storage
+> endpoint and the backup key.
 
 > A managed **Business** edition adds the catena-admin web panel plus
-> operated extras on top (offsite immutable backups, automated updates, and
-> more). The panel is a convenience layer over the same host-native
-> automation in this repo -- removing it never takes your data or your
-> ability to operate the suite. Learn more at
+> operated extras on top (offsite immutable backups, automated updates,
+> and more). The panel is a convenience layer over the same host-native
+> automation in this repository -- removing it takes away neither the
+> data nor the ability to operate the suite. Details at
 > [catena.run](https://catena.run).
 
-## Quick start
+## Install
 
-You need a fresh Debian VPS and [`uv`](https://docs.astral.sh/uv/) on your
-own machine -- that is the only prerequisite (ansible-core is pulled in by
-`uv`). Clone this repo, then:
+[INSTALL.md](INSTALL.md) -- prerequisites, the vendor credentials to
+have ready, the install command, and the day-two operations.
+
+## How it works
+
+A deployment passes through five flows, in order:
+
+```
+preflight  ->  bootstrap  ->  site  ->  validate          (+ restore for DR)
+```
+
+- **preflight** checks the supplied Tailscale OAuth client before any
+  VPS is touched.
+- **bootstrap** hardens a fresh VPS (user, SSH, ufw, docker) and joins it
+  to the private network.
+- **site** is the converge: networking, Portainer, sign-on, backup, the
+  admin panel. Safe to re-run; it is how every later change is applied.
+- **validate** checks the result from three vantage points -- on the
+  host, over the private network, and from the public internet.
+- **restore** is the disaster-recovery path.
+
+The installer composes them. Nothing in this tree is invoked with raw
+`ansible-playbook`.
+
+## Layout
+
+| Path | What is in it |
+| --- | --- |
+| [ansible/](ansible/) | Everything that deploys a server. Start at [ansible/README.md](ansible/README.md). |
+| [ansible/catena](ansible/catena) | The installer / CLI entry point. |
+| [ansible/playbooks/](ansible/playbooks/) | The five flows plus the day-two operations. |
+| [ansible/roles/](ansible/roles/) | One role per thing a server owns (traefik, postgres, keycloak, backup, ...). |
+| [ansible/helpers/](ansible/helpers/) | Python shared by the installer, the roles, and three host-side reconcilers. |
+| [ansible/scripts/](ansible/scripts/) | Executables installed on the server and run there. |
+| [ansible/inventory/](ansible/inventory/) | Per-deployment configuration. Only `example/` is tracked. |
+| [ansible/tests/](ansible/tests/) | Unit tests, plus the external probes `validate.yml` runs. |
+
+Every one of those directories carries its own `README.md` describing
+its children.
+
+| File | What it is |
+| --- | --- |
+| [SPEC.md](SPEC.md) | What this repository promises. Hand-written; every claim points at a machine-checked gate, and a claim whose gate disappears fails the build. |
+| [VALIDATION.md](VALIDATION.md) | What is tested and how much. Generated; drift fails CI. |
+| [ansible/SECRETS.md](ansible/SECRETS.md) | Every secret: who holds it, where it lives, what happens if it is lost. |
+| [SECURITY.md](SECURITY.md) | Reporting a vulnerability. |
+| [LICENSE](LICENSE) | Fair-code terms. |
+
+## What is not in this repository
+
+The catena-admin web panel is not built from this tree. It ships as a
+public container image, `ghcr.io/catenahq/catena-admin`, pullable
+anonymously by anyone: the binary ships as built, the image is signed,
+and its component inventory (CycloneDX SBOM) is published alongside it,
+so the thing that runs on a server can be inspected and scanned without
+asking Catena for anything.
+[Verify what you run](https://docs.catena.run/en/trust/verify-what-you-run/)
+walks through it.
+
+The panel is a convenience layer over the host-native automation here.
+Every operation it drives -- backup, restore, validate, converge -- runs
+from this repository without it, which is what keeps its absence from
+being a lock-in.
+
+## Develop
+
+Requires `uv`. This tree is Ansible and Python only; there is no Go in
+it.
 
 ```
 cd ansible
-uv run catena install
-```
-
-`install` walks you through configuration, mints and stores every internal
-secret on the box itself, then brings the host up:
-`preflight -> bootstrap -> site -> validate`. Run `uv run catena` with **no
-arguments** for an interactive menu of every operation.
-
-Day-two operations run through the same CLI:
-
-```
-uv run catena converge   # re-apply after a config or app change
-uv run catena validate   # on-host + tailnet + external health checks
-uv run catena backup     # take an on-demand snapshot
-uv run catena restore    # in-place whole-host restore
-uv run catena recover    # rebuild onto a FRESH replacement box
-```
-
-Full reference -- every subcommand, the secrets model, inventory layout:
-[ansible/README.md](ansible/README.md).
-
-## What you need before install
-
-Vendor credentials you create in each provider's console (Catena cannot
-generate these -- have them ready to paste in):
-
-- **Cloudflare API token** -- tunnel + DNS (`Account > Cloudflare Tunnel >
-  Edit`, `Zone > DNS > Edit`).
-- **Tailscale OAuth client id + secret** -- to join the private network
-  (scope `Auth Keys: Write`, tag `tag:vps`).
-- **S3 access key + secret key** -- the object-storage bucket that holds your
-  restic backup repository.
-- (optional) **SMTP or mail-relay password** -- only if you enable outbound
-  mail.
-
-## Secrets you hold
-
-Catena generates and keeps every internal secret on the box (database
-passwords, OIDC client secrets, service tokens) -- they live on the host and
-ride every backup, so you never have to hold them. You are responsible for
-only what Catena shows you once at install and cannot recover for you later:
-
-- **Admin password** -- logs you into Portainer and Keycloak.
-- **Restic encryption password + repo URL + S3 keys** -- together these three
-  are the *entire* disaster-recovery keyset: with them alone you can rebuild a
-  wiped VPS from backup onto a fresh box. Without the restic password your
-  backups cannot be restored, by anyone. Save them in your own password
-  manager.
-
-Full classification: [ansible/SECRETS.md](ansible/SECRETS.md).
-
----
-
-## What's in this repo (for contributors)
-
-This is the public, fair-code base: the whole orchestration + installer.
-The catena-admin web panel is NOT here: since the 2026-07 unification its
-source lives privately in `catenahq/catena-admin` and ships as a public
-GHCR container image (plain build, anonymous pull -- you can inventory
-and scan exactly what runs). The panel is a
-convenience layer over the host-native automation in THIS repo --
-everything it does (backups, restore, validate, converge) is runnable
-here without it. See [LICENSE](LICENSE).
-
-- **Base automation** -- the `preflight` / `bootstrap` / `site` / `validate` /
-  `restore` flows + shared roles + the single-backup runner.
-- **Installer / CLI** -- `ansible/catena`, a thin entry point so self-hosters
-  never touch raw Ansible.
-
-```
-ansible/               the Community deploy automation + the CLI
-  catena               the installer / CLI entry point (see ansible/README.md)
-  playbooks/ roles/    preflight/bootstrap/site/validate/restore + shared roles
-  seed.py              config seeding (first-run secret minting happens on-box)
-  roles/catena-admin/files/catena-admin.compose.yml
-                       the catena-admin container compose (public GHCR image)
-```
-
-**What this repo promises and how that is enforced:** [SPEC.md](SPEC.md)
-(hand-written intent + machine-checked invariants) and
-[VALIDATION.md](VALIDATION.md) (generated test-coverage sheet; drift fails the
-maintainers' CI).
-
-### Develop
-
-Requires uv (for the installer). No Go: this repo is Ansible + Python
-only (the license wire-format package lives in catena-admin).
-
-```
-cd ansible
-uv run --no-project --with pytest --with pyyaml python -m pytest tests/unit -q
+uv run pytest
 ```

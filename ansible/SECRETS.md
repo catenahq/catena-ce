@@ -40,7 +40,7 @@ ride the backup, because it is what unlocks the backup.
 
 | Key | Purpose | Phase where entered | DR-critical (client-kept) |
 | --- | --- | --- | --- |
-| `vault_tailscale_oauth_client_id` | Join YOUR OWN tailnet | minimal bootstrap | no |
+| `vault_tailscale_oauth_client_id` | Join the client's own tailnet | minimal bootstrap | no |
 | `vault_tailscale_oauth_client_secret` | ^ | minimal bootstrap | no |
 | `vault_cloudflare_api_token` | Tunnel + DNS | catena-admin Settings (never at install) | no |
 | `BACKUP_RESTIC_REPO` (.env) | restic repo URL | settings page | **yes** |
@@ -169,8 +169,9 @@ matching credential at converge.
 - **At-rest encryption of on-box config.** RESOLVED: 0600 root-only cleartext.
   On a client-owned box the operator is not a recipient, and the box is
   already the trust boundary -- anyone with root has the running secrets
-  anyway. SOPS+age was dropped entirely (project 0b); there is no client-held
-  age key.
+  anyway. Encrypting the store would add a key-management problem without
+  moving that boundary, so no encryption tool and no client-held key are in
+  play at all.
 - **Single config file format.** RESOLVED: JSON at `/etc/catena/config.json`
   (0600 root), with two sections (`secrets` + `config`). Both the
   settings-write API and the converge read/write it atomically

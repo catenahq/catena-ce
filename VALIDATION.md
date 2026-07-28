@@ -97,9 +97,11 @@ Implemented in: `ansible/playbooks/validate.yml`, `ansible/scripts/verify_gated_
 
 Rehearsal scenarios (3 of 3 observed passing): `ce_validate`, `fi_v2_external_scan_blocked`, `security_scan`
 
-## Catena Pro features (private repository)
+## Catena Pro features
 
-Catena Pro features are exercised by the same rehearsal suite. Implementation paths and scenario names stay private; the counts are generated from the same manifest as the Community section above.
+Catena Pro features are not built from this repository. They ship in the public, signed `ghcr.io/catenahq/catena-admin` image -- pullable anonymously and published with a CycloneDX component inventory, so what runs on a server can be scanned without asking anyone for access.
+
+They are exercised by the same rehearsal suite as the Community features above, and the counts below come from the same manifest. Implementation paths and scenario names are the part that stays unpublished.
 
 | Feature | Rehearsed | Declared |
 | --- | --- | --- |

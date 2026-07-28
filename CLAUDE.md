@@ -13,22 +13,21 @@ branches (workspace convention). NEVER switch or fast-forward `main`.
   (ansible/roles/catena-admin/files/catena-admin.compose.yml -- plain
   ${VAR} compose, NOT a template: the bench pushes it verbatim). See
   [LICENSE](LICENSE).
-- **NOT here:** the catena-admin shell and all Business code. Since the
-  2026-07 unification they live in the private `catenahq/catena-admin`
-  repo (formerly catena-ee) and ship as ONE public GHCR image (plain
-  reproducible build, anonymous pull -- every install deploys the panel,
-  and a client can scan the binary they run) with every
-  panel compiled in; the license check gates the Business feature set at
-  runtime. The license wire-format package (Sign/Verify, ed25519 offline)
-  also lives in catena-admin since the license repatriation -- this repo
-  carries NO Go at all. Never paste private source or operational/
-  cross-host playbooks into this repo.
+- **NOT here:** the catena-admin shell and all Business code. It is not
+  built from this tree. It ships as ONE public GHCR image,
+  `ghcr.io/catenahq/catena-admin` -- anonymous pull, signed, published
+  with a CycloneDX component inventory -- with every panel compiled in;
+  the license check gates the Business feature set at runtime. Every
+  install deploys the panel, so the binary a client runs is one they can
+  scan. The license wire-format package (Sign/Verify, ed25519 offline)
+  ships there too, so this repo carries NO Go at all. Never paste
+  unpublished source or operational/cross-host playbooks into this repo.
 
 ## License behaviour (asserted here, implemented in catena-admin)
 
 - The shell must run Community-only when no/invalid license is present; it
-  never fails closed on a missing key (LE3 -- enforced in the private repo,
-  asserted by bench ee_lapse/ee_ce_regression).
+  never fails closed on a missing key (LE3 -- enforced inside the panel
+  image, asserted by bench ee_lapse/ee_ce_regression).
 
 ## Discipline
 
@@ -39,9 +38,10 @@ branches (workspace convention). NEVER switch or fast-forward `main`.
 
 ## Security invariants (machine-enforced -- do not weaken silently)
 
-Full register with stable IDs: ops
-`internal_docs/operator/threat-models/{client-vps,ce-public-repo}.md`.
-The load-bearing ones when editing THIS repo:
+The full register with stable IDs is maintainer-internal (ops
+`internal_docs/operator/threat-models/{client-vps,ce-public-repo}.md`);
+[SPEC.md](SPEC.md) carries the public statement of each one, with the
+gate that enforces it. The load-bearing ones when editing THIS repo:
 
 - No secret in tree or history (CP1) -- gitleaks gate on every change.
 - Scheduled work is default-deny: ONE weekly backup timer (capped by

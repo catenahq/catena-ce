@@ -24,8 +24,10 @@ client-owned storage, whole-server recovery -- serves that promise.
 - **Community vs Pro.** This repository is complete and functional on
   its own, including a proven scheduled-backup lane: one weekly backup
   timer, rate-limited to weekly-or-sparser cadence at converge time.
-  Catena Pro (private repository) adds the catena-admin web panel and
-  the licensed automation on top: daily and sub-daily backups, managed
+  Catena Pro adds the catena-admin web panel -- shipped as the public,
+  signed `ghcr.io/catenahq/catena-admin` image, not built from this
+  tree -- and the licensed automation on top: daily and sub-daily
+  backups, managed
   updates, daily maintenance, offsite immutable backup copies,
   attestation. The panel is a convenience layer over the host-native
   automation in THIS repository -- every operation it drives (backup,

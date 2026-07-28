@@ -3,6 +3,7 @@
 # Still untracked, because a .env carries per-client zone/account values.
 inventory/*
 !inventory/example/
+!inventory/README.md
 
 # Defense-in-depth. `vault.yml` is NOT part of the product -- nothing writes
 # one and nothing reads one; a file by that name is either a pre-0b leftover
@@ -13,9 +14,10 @@ inventory/example/.env
 inventory/example/.bootstrap-output.yml
 inventory/example/**/vault.yml
 
-# Galaxy collections vendored by `ansible-galaxy collection install -r requirements.yml`.
-# Dot-prefixed (see ansible.cfg collections_path) so `go build ./...` at the
-# repo root skips the .go test fixtures these collections ship.
+# Galaxy collections vendored by `ansible-galaxy collection install -r
+# requirements.yml`. Dot-prefixed because ansible.cfg's collections_path says
+# so, and the installer reads that value rather than carrying its own copy --
+# the two diverged once and the install wrote where ansible never looked.
 .collections/
 
 # Controller-side ansible state + python bytecode from the filter/lookup plugins.
