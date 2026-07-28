@@ -144,3 +144,41 @@ def test_the_loader_publishes_the_stored_key():
     body = LOADER.read_text()
     assert "catena_onbox_fact_exclude" not in body
     assert "rejectattr" not in body
+
+
+def test_the_mint_decision_is_taken_before_the_block():
+    """A block's `when` is re-evaluated for EVERY task in it.
+
+    The block set_facts vault_portainer_api_key as its second task -- the
+    same variable an inline condition would read. Inline, the mint ran, the
+    key was published as a fact, and then every REMAINING task in the block
+    skipped because the condition had just flipped false. The key never
+    reached the on-box store, every later Portainer-API step logged "no API
+    key yet", and the converge reported success having deployed no gated app.
+
+    So the decision has to be a fact taken once, before the block, immune to
+    what the block does to the variable it was derived from.
+    """
+    tasks = _tasks()
+    names = [t.get("name", "") for t in tasks]
+    decide = next(i for i, n in enumerate(names)
+                  if "decide whether an API key must be minted" in n)
+    block = next(i for i, n in enumerate(names) if "mint Portainer API key" in n)
+    assert decide < block, "the decision must be taken before the block"
+
+    # The block gates on the captured fact, NOT on the mutated variable.
+    guard = str(tasks[block].get("when", ""))
+    assert "_pt_apikey_needs_mint" in guard
+    assert "vault_portainer_api_key" not in guard, (
+        "the block reads the variable its own set_fact overwrites; every task "
+        "after that set_fact will skip"
+    )
+
+
+def test_the_minted_key_is_persisted_to_the_on_box_store():
+    """Minting without persisting leaves a host that works for the rest of
+    one converge and has no key on the next."""
+    block = next(t for t in _tasks() if "mint Portainer API key" in t.get("name", ""))
+    inner = [t.get("name", "") for t in block.get("block", [])]
+    assert any("write the minted key into the on-box config store" in n for n in inner)
+    assert any("stage the minted key for the on-box store" in n for n in inner)

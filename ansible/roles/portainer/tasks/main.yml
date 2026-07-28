@@ -192,11 +192,25 @@
     - vault_portainer_api_key is defined
     - vault_portainer_api_key | length > 10
 
+# Decided ONCE, here, rather than inline on the block below. A block's `when`
+# is re-evaluated for EVERY task in it, and the block's second task set_facts
+# vault_portainer_api_key -- the very variable the condition reads. Inline,
+# the mint ran, published the key as a fact, and then every remaining task in
+# its own block skipped because the condition had just become false: the key
+# never reached the on-box store, every later Portainer-API step logged
+# "no API key yet", and the converge reported success having deployed no
+# gated app at all.
+- name: "portainer: decide whether an API key must be minted"
+  ansible.builtin.set_fact:
+    _pt_apikey_needs_mint: >-
+      {{
+        vault_portainer_api_key is not defined
+        or (vault_portainer_api_key | length) <= 10
+        or (_pt_apikey_validate.status | default(200)) in [401, 403]
+      }}
+
 - name: "portainer: mint Portainer API key (missing or rejected by live Portainer)"
-  when: >-
-    vault_portainer_api_key is not defined
-    or (vault_portainer_api_key | length) <= 10
-    or (_pt_apikey_validate.status | default(200)) in [401, 403]
+  when: _pt_apikey_needs_mint | bool
   block:
     # Runs on the CONTROLLER: it reaches Portainer's tailnet address, the
     # same path every other API task here takes. The admin password goes in
