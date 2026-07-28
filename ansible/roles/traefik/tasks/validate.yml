@@ -1,31 +1,48 @@
 ---
 # Validation tasks for roles/traefik.
 
-- name: "validate/traefik: catena-traefik container running"
-  ansible.builtin.command: docker inspect --format '{% raw %}{{.State.Running}}{% endraw %}' catena-traefik
-  register: _tr_running
+# catena-traefik is a swarm service, so the running-task count is the
+# readiness signal and there is no container by that bare name to inspect.
+# `docker service ls` reports "<running>/<desired>", and the service carries a
+# healthcheck (`traefik healthcheck` against the ping endpoint the static
+# config enables), so a task that started but is not serving reads as 0/1
+# rather than counting as up.
+- name: "validate/traefik: catena-traefik replica count"
+  ansible.builtin.command: >-
+    docker service ls --filter name=catena-traefik
+    --format '{% raw %}{{.Replicas}}{% endraw %}'
+  register: _tr_replicas
   failed_when: false
   changed_when: false
 
-- name: "validate/traefik: catena-traefik State.Running == true"
+- name: "validate/traefik: catena-traefik is converged"
   ansible.builtin.assert:
     that:
-      - _tr_running.rc == 0
-      - _tr_running.stdout | trim == 'true'
-    fail_msg: "catena-traefik not running (stdout={{ _tr_running.stdout | trim }})"
+      - _tr_replicas.rc == 0
+      - (_tr_replicas.stdout | trim) is match('^([1-9][0-9]*)/\\1( |$)')
+    fail_msg: >-
+      catena-traefik is not converged (replicas={{ _tr_replicas.stdout | trim }}).
+      0/N means the task is not running or is failing its healthcheck; an
+      empty value means the service does not exist.
 
-- name: "validate/traefik: PortBindings empty (hardening)"
-  ansible.builtin.command: docker inspect --format '{% raw %}{{json .HostConfig.PortBindings}}{% endraw %}' catena-traefik
+# No host port publishing: cloudflared over the overlay is the only ingress.
+# The service spec is the thing to assert -- an empty Ports list proves
+# nothing was published, whereas a per-container PortBindings read would only
+# ever see whichever task happened to be up.
+- name: "validate/traefik: published ports (hardening)"
+  ansible.builtin.command: >-
+    docker service inspect catena-traefik
+    --format '{% raw %}{{json .Spec.EndpointSpec.Ports}}{% endraw %}'
   register: _tr_ports
   failed_when: false
   changed_when: false
 
-- name: "validate/traefik: PortBindings is empty map"
+- name: "validate/traefik: no published ports"
   ansible.builtin.assert:
     that:
       - _tr_ports.rc == 0
-      - (_tr_ports.stdout | trim) in ['{}', 'null']
-    fail_msg: "catena-traefik has host port bindings: {{ _tr_ports.stdout | trim }}"
+      - (_tr_ports.stdout | trim) in ['[]', 'null']
+    fail_msg: "catena-traefik publishes host ports: {{ _tr_ports.stdout | trim }}"
 
 - name: "validate/traefik: traefik.yml has forwardedHeaders.trustedIPs"
   # Without this Traefik rewrites X-Forwarded-Proto to "http" on the :80
