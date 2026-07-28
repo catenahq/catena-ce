@@ -66,6 +66,13 @@ done < "$COVERAGE_PATHS_FILE"
 IGNORE_PREFIXES=(
     "/var/run/docker.sock"
     "/var/run"
+    # /var/run is a symlink to /run, and docker reports the RESOLVED source,
+    # so "/var/run" alone never matches what a container actually declares.
+    # catena-admin binds /run/systemd/journal/socket to log to the host
+    # journal, which made every backup on every host exit 4 the moment the
+    # coverage check started failing the run. /run is a tmpfs: nothing under
+    # it survives a reboot, so it cannot be data a restore needs.
+    "/run"
     "/proc"
     "/sys"
     "/dev"

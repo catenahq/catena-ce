@@ -76,6 +76,28 @@ def test_named_volumes_and_system_paths_do_not_trip_it(tmp_path: Path):
     assert res.returncode == 0, res.stdout + res.stderr
 
 
+def test_the_journald_socket_every_host_binds_is_not_a_finding(tmp_path: Path):
+    """catena-admin bind-mounts /run/systemd/journal/socket to log to the host
+    journal, so this mount exists on EVERY converged host.
+
+    /var/run was in the ignore list; /run was not. /var/run is a symlink to
+    /run and docker reports the resolved source, so the ignore never matched
+    and the socket read as uncovered application data. Harmless while the
+    check only warned -- once it started failing the run, every backup on
+    every host exited 4 after taking its snapshot (bench
+    2026-07-28T07-19-40-e969, fi_d2 stage-2).
+    """
+    res = _run(tmp_path, [("bind", "/run/systemd/journal/socket")])
+    assert res.returncode == 0, res.stdout + res.stderr
+
+
+def test_real_data_under_a_runtime_lookalike_is_still_a_finding(tmp_path: Path):
+    """Ignoring /run must not become ignoring anything that starts with it."""
+    res = _run(tmp_path, [("bind", "/runtime-data/app")])
+    assert res.returncode == 2, res.stdout + res.stderr
+    assert "/runtime-data/app" in res.stdout
+
+
 def test_an_unrendered_paths_file_is_not_a_finding_and_not_a_pass(tmp_path: Path):
     """Absence of an answer is not evidence of a gap -- so not rc 2, and the
     first backup on a converging host still succeeds. But it is not evidence
