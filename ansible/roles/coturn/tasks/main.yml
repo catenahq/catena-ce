@@ -163,6 +163,15 @@
       - --network=host
       - --user=0:0
       - --restart-condition=any
+      # Both mounts below are node-LOCAL host paths: the rendered
+      # turnserver.conf and the certbot /etc/letsencrypt tree. A bind mount
+      # whose source is missing is CREATED as an empty directory rather than
+      # refused, so a task scheduled anywhere else comes up with no config
+      # and no certificate and falls back to STUN-only -- the same silent
+      # TLS-listener failure the --user=0:0 comment above describes. global
+      # mode means "every node matching the constraint", so this pins it to
+      # the node that actually holds them.
+      - "--constraint=node.labels.catena.role==data"
       - "--mount=type=bind,source={{ coturn_host_config_path }},target=/etc/coturn/turnserver.conf,readonly"
       # Mount the entire /etc/letsencrypt subtree (not just live/<host>/)
       # so the relative symlinks under live/<host>/* -> ../../archive/...

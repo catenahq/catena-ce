@@ -43,7 +43,9 @@ set -a
 # the prune below refuses when it ends up with nothing to keep, and that is a
 # better place to fail than before the snapshot is even taken.
 BACKUP_RETENTION_ENV="${BACKUP_RETENTION_ENV:-/etc/catena/backup-retention.env}"
+BACKUP_RETENTION_CONFIGURED=0
 if [ -r "$BACKUP_RETENTION_ENV" ]; then
+    BACKUP_RETENTION_CONFIGURED=1
     # shellcheck disable=SC1090
     . "$BACKUP_RETENTION_ENV"
 fi
@@ -529,17 +531,27 @@ add_keep --keep-daily "${BACKUP_KEEP_DAILY:-}"
 add_keep --keep-weekly "${BACKUP_KEEP_WEEKLY:-}"
 add_keep --keep-monthly "${BACKUP_KEEP_MONTHLY:-}"
 
-if [ -z "$keep_args" ]; then
-    # Every bucket zero would ask restic to forget every snapshot in the
-    # repository. The panel refuses this and so does the converge; reaching
-    # it here means the env file was hand-edited, and running the prune
-    # anyway would destroy the backups on the strength of a typo.
+if [ -z "$keep_args" ] && [ "$BACKUP_RETENTION_CONFIGURED" -eq 0 ]; then
+    # No retention file at all: nobody has ever set a policy on this host.
+    # That is the state of every host between its first converge and the
+    # first time the panel writes one, and it is NOT an error -- there is
+    # nothing to prune against yet, and the snapshot this run just took is
+    # the thing worth keeping. Skip the prune and finish clean; failing here
+    # would fail the install itself.
+    log "no retention policy configured yet ($BACKUP_RETENTION_ENV absent);"
+    log "snapshot taken, skipping forget/prune. Set retention in the Catena"
+    log "admin panel to start reclaiming space."
+elif [ -z "$keep_args" ]; then
+    # The file EXISTS and every bucket in it is zero or unset. That asks
+    # restic to forget every snapshot in the repository, so it is a typo or
+    # a hand-edit rather than an unconfigured host, and running the prune
+    # would destroy the backups on the strength of it.
     log "FATAL: every retention bucket is zero or unset, which would prune"
     log "       every snapshot in the repository. Refusing. The snapshot"
     log "       taken by this run is safe; set retention in the Catena admin"
-    log "       panel, or BACKUP_KEEP_* in /etc/catena/backup.env, then re-run."
+    log "       panel, or BACKUP_KEEP_* in $BACKUP_RETENTION_ENV, then re-run."
     exit 5
-fi
+else
 
 log "restic forget --prune (${keep_args# })"
 # --keep-tag decommission: the final archival snapshot decommission.yml
@@ -558,6 +570,7 @@ restic forget \
     --keep-tag decommission \
     $keep_args \
     --prune --quiet
+fi
 
 # ─── stats JSON for Homepage widget ──────────────────────────────────────
 # Runs AFTER retention so size reflects post-prune state. Parsed by the

@@ -80,12 +80,33 @@ def test_run_backup_reads_retention_from_the_one_file():
 
 
 def test_an_empty_retention_policy_refuses_to_prune():
-    # Every bucket zero asks restic to forget every snapshot in the
-    # repository. Reaching the prune with nothing to keep means the env file
-    # was hand-edited; running it anyway destroys the backups on a typo.
+    # An EXISTING retention file with every bucket zero asks restic to forget
+    # every snapshot in the repository. That is a typo or a hand-edit, and
+    # running it anyway destroys the backups on the strength of it.
     body = _code(RUN_BACKUP)
-    assert 'if [ -z "$keep_args" ]; then' in body
+    assert 'elif [ -z "$keep_args" ]; then' in body
     assert "exit 5" in body
+
+
+def test_a_host_with_no_retention_file_yet_still_finishes_clean():
+    """Absent is not the same as emptied.
+
+    Every host is unconfigured between its first converge and the first time
+    the panel writes a policy, and the converge takes a first backup inside
+    that window. Treating absent as "prune everything to nothing" made that
+    first backup exit 5 and fail the install, on a host whose snapshot had
+    just been taken successfully. The refusal belongs to a file that exists
+    and says nothing, not to a file nobody has written yet."""
+    body = _code(RUN_BACKUP)
+    assert "BACKUP_RETENTION_CONFIGURED=0" in body
+    assert "BACKUP_RETENTION_CONFIGURED=1" in body
+    # The absent branch is checked FIRST and does not exit non-zero.
+    absent = body.index('[ "$BACKUP_RETENTION_CONFIGURED" -eq 0 ]')
+    refusal = body.index('elif [ -z "$keep_args" ]')
+    assert absent < refusal, (
+        "the configured-but-empty refusal must not swallow the "
+        "never-configured case"
+    )
 
 
 # ─── the timer has one owner ───────────────────────────────────────────
