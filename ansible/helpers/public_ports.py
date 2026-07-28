@@ -215,7 +215,7 @@ def public_open_tcp_ports(entries: list[PortEntry]) -> list[int]:
     return sorted(ports)
 
 
-def summary_json(entries: list[PortEntry]) -> str:
+def summary_json(entries: list[PortEntry], *, rules_unapplied: int = 0) -> str:
     """Precomputed integer port lists for validation consumers, so the
     Ansible side never has to expand ranges in Jinja:
       - all_tcp_bound:  TCP ports bound on the host (any scope) -> the
@@ -224,11 +224,19 @@ def summary_json(entries: list[PortEntry]) -> str:
       - public_open:    ports reachable from the public internet (scope=any,
         tcp+udp) -> documentation / completeness.
       - public_open_tcp: scope=any TCP ports -> the external nmap expectation
-        (the scanner is TCP-only)."""
+        (the scanner is TCP-only).
+      - rules_unapplied: firewall rules the last reconcile planned and could
+        NOT install. Every list above describes what the registry DECLARES;
+        this one is the only field that says whether the host is in that
+        state. Non-zero means at least one restricted port is reachable
+        despite the lists saying it is guarded -- validate.yml asserts it is
+        zero, because a scan run against a host whose guards never installed
+        would otherwise read as a clean scan of a correct host."""
     return json.dumps(
         {"all_tcp_bound": bound_tcp_ports(entries),
          "public_open": expected_open_ports(entries),
-         "public_open_tcp": public_open_tcp_ports(entries)},
+         "public_open_tcp": public_open_tcp_ports(entries),
+         "rules_unapplied": int(rules_unapplied)},
         indent=2,
     )
 

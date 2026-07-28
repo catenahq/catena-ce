@@ -602,6 +602,35 @@
           restrict the bind to 127.0.0.1 if loopback-only is needed.
         success_msg: "Host port set OK ({{ _r4_public_ports | join(', ') }} - all in allowlist)"
 
+    # Every list above describes what the registry DECLARES. This is the one
+    # field that says whether the host is in that state. The reconciler used
+    # to return early when the DOCKER-USER chain was absent, record the whole
+    # plan as applied and exit 0 -- so a host publishing every restricted port
+    # produced artifacts identical to a correctly guarded one, and this
+    # validation read them and passed.
+    - name: "Assert the port reconciler applied every rule it planned"
+      ansible.builtin.assert:
+        that:
+          - ((_pp_summary_raw.content | b64decode | from_json).rules_unapplied
+             | default(0) | int) == 0
+        fail_msg: |
+          violation: catena-public-ports could not install
+          {{ (_pp_summary_raw.content | b64decode | from_json).rules_unapplied }}
+          of its planned firewall rules. The port lists in this summary
+          describe the DECLARED set; the host is not in it, and every
+          restricted docker-bound port those rules cover is reachable.
+
+          Diagnostic:
+            systemctl status catena-public-ports.service
+            journalctl -u catena-public-ports.service -n 50
+            iptables -nL DOCKER-USER
+
+          Most likely: the reconcile ran before Docker finished creating the
+          DOCKER-USER chain. The 5-minute timer re-asserts; if it persists,
+          Docker is not managing iptables on this host.
+        success_msg: "Port reconciler applied its full rule plan"
+      when: _pp_summary_stat.stat.exists | default(false)
+
     # Direct-container-IP probe from a tailnet vantage.
     # Asserts the catena-network bridge stays host-internal: container
     # IPs (172.x.y.z by default) must NOT be reachable from the

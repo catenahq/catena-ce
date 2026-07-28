@@ -157,6 +157,46 @@
       volume did not, backup_paths has drifted.
   when: not (_verify_catena_pg_vol.stat.exists | default(false))
 
+# The stack definitions themselves. Catena posts compose to Portainer's API
+# as StackFileContent -- nothing writes a compose file to a host path -- but
+# Portainer persists each stack at /data/compose/<id>/docker-compose.yml
+# inside its named volume, which rides the backup under
+# {{ storage_mount_point }}/docker/volumes. That is the restored artifact
+# worth parse-checking: it is the only on-disk copy of what every client app
+# is, and a snapshot whose stack files are damaged restores a control plane
+# that cannot redeploy anything.
+#
+# This `find` did not exist. The two blocks below gated on
+# `_verify_compose_files`, which nothing registered, so BOTH the compose
+# check and its own tool-unavailable notice were unreachable and every
+# restore drill reported fully verified for a check it never ran.
+#
+# Volume name defaulted rather than read from roles/portainer: role defaults
+# are only reliably in scope after that role has run, and a `--tags backup`
+# run would otherwise render an undefined path. Same pattern as
+# catena_postgres_data_volume above.
+- name: "Deep verify: locate restored Portainer stack compose files"
+  ansible.builtin.find:
+    paths: >-
+      {{ verify_scratch_dir }}{{ storage_mount_point }}/docker/volumes/{{
+      portainer_data_volume | default('catena-portainer-data') }}/_data/compose
+    patterns: "*.yml,*.yaml"
+    recurse: true
+    file_type: file
+  register: _verify_compose_files
+  failed_when: false
+
+- name: "Deep verify: warn if no stack compose files in snapshot"
+  ansible.builtin.debug:
+    msg: |
+      No Portainer stack compose files under
+      {{ portainer_data_volume | default('catena-portainer-data') }}/_data/
+      compose in the restored tree. Expected on a host that has never
+      deployed a stack; on one that has, it means the Portainer data volume
+      did not come back and the control plane restores empty. Compose-syntax
+      verification is SKIPPED, not passed.
+  when: (_verify_compose_files.matched | default(0)) == 0
+
 - name: "Deep verify: detect docker compose tool"
   ansible.builtin.shell:
     cmd: |
