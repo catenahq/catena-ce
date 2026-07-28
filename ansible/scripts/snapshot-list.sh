@@ -1,6 +1,7 @@
 #!/bin/sh
-# Installed by roles/backup. Renders an HTML index of restic snapshots
-# currently present in the repo into ${BACKUP_EXPORT_DIR}/index.html.
+# Render an HTML index of the restic snapshots currently in the repo into
+# ${BACKUP_EXPORT_DIR}/index.html. Installed by roles/backup.
+#
 # That dir is served read-only by the recovery-downloads nginx sidecar
 # at recovery.<zone>; nginx serves index.html before falling through to
 # autoindex, so client admins land on a curated snapshot listing instead

@@ -1,8 +1,9 @@
 ---
-# Validation orchestrator. Three vantage points:
+# Validation orchestrator: check a converged host from three vantage points,
+# so a service that only answers on the box is not mistaken for a working one.
 #   1. On-host  -- per-role Ansible validate tasks (roles/<role>/tasks/validate.yml), executed on the target
-#   2. Tailnet  -- Ansible from operator's laptop, hitting tailnet addresses
-#   3. External -- Ansible from operator's laptop, hitting public IP / CF hostnames
+#   2. Tailnet  -- from the controller, hitting tailnet addresses
+#   3. External -- from the controller, hitting public IP / CF hostnames
 #
 # Runs standalone OR as the post-converge leg composed by the installer.
 #

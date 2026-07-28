@@ -1,5 +1,6 @@
 ---
-# Main converge. Safe to re-run. Runs over Tailscale.
+# Main converge: bring a bootstrapped host to the desired state and keep it
+# there. Safe to re-run. Runs over Tailscale.
 #
 # This file is a single atomic unit (one converge), with no cross-playbook
 # imports. Composition (preflight + site + validate) lives in the

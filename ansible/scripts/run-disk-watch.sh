@@ -1,7 +1,9 @@
 #!/bin/sh
-# Installed by roles/infrastructure (disk_watch.yml). systemd-timer-driven
-# (catena-disk-watch.timer). Watches filesystem fill level on the paths in
-# DISK_WATCH_PATHS and alerts BEFORE the disk is full:
+# Watch filesystem fill level on the paths in DISK_WATCH_PATHS and alert
+# BEFORE the disk is full.
+#
+# Installed by roles/infrastructure (disk_watch.yml), systemd-timer-driven
+# (catena-disk-watch.timer). Thresholds:
 #
 #   >= DISK_WATCH_CRIT_PCT (default 90): ntfy publish at urgent priority
 #       AND ping the Healthchecks check /fail (pages via the standard

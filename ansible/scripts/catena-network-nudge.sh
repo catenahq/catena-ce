@@ -1,6 +1,4 @@
 #!/bin/sh
-# catena-network-nudge.sh
-#
 # Recover containers stranded by the catena-network overlay race after a
 # docker.service start (boot, daemon restart, snapshot restore).
 #

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Prepare a portable tarball of the latest restic snapshot for off-host
 # download. Emits a single gzip tar stream -- restic's `dump` walks the
-# snapshot and tars stdout, so we pipe straight to gzip without an
+# snapshot and tars stdout, so the stream pipes straight to gzip with no
 # uncompressed intermediate on disk.
 #
 # Wired to an OliveTin button ("Export latest snapshot") so operators

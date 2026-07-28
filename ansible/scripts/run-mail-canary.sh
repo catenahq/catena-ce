@@ -1,10 +1,11 @@
 #!/bin/sh
-# Installed by roles/infrastructure (mailserver_canary.yml). systemd-timer
-# driven (catena-mail-canary.timer). Proves the mail server is up AND
-# actually filtering, via host-side docker-exec into the dms container --
-# no external SMTP/IMAP and no auth (the server is OAuth2-only, so there
-# is no password to log in with). Pings the self-hosted Healthchecks
-# plane; /fail on any check failure.
+# Prove the mail server is up AND actually filtering, via host-side
+# docker-exec into the dms container -- no external SMTP/IMAP and no auth
+# (the server is OAuth2-only, so there is no password to log in with).
+# Pings the self-hosted Healthchecks plane; /fail on any check failure.
+#
+# Installed by roles/infrastructure (mailserver_canary.yml), systemd-timer
+# driven (catena-mail-canary.timer).
 #
 # No-op (success-less exit) when the mailserver is not deployed (no dms
 # container), so this never pages on a host without mail.

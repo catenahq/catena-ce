@@ -1,5 +1,6 @@
 ---
-# Preflight for the Ansible controller (your machine).
+# Controller-side preflight: prove the supplied Tailscale OAuth client works
+# before any VPS is touched.
 # Imported by the top-level playbooks ahead of any VPS work.
 #
 # Scope: verify the supplied Tailscale OAuth client is set up correctly.

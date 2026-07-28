@@ -1,12 +1,13 @@
 ---
-# roles/traefik -- deploy + own the catena-traefik reverse proxy. We create the
-# overlay, render the config, and run `catena-traefik` ourselves.
+# roles/traefik -- deploy + own the catena-traefik reverse proxy. This role
+# creates the overlay, renders the config, and runs catena-traefik.
 #
-#   - catena-network overlay created by us.
+#   - catena-network overlay created here.
 #   - No host port bindings on :80/:443 -- only path in is cloudflared over the
 #     overlay.
-#   - Plain container (not a swarm service) + a nudge unit that restarts it
-#     after a docker restart once the overlay re-materializes.
+#   - A swarm service, not a plain container: it rejoins the overlay by NAME
+#     after a restore or a daemon flap, and the task manager re-dispatches it
+#     without a nudge unit. Reasons in full at the deploy block below.
 #
 # The config tree lives under /etc/catena/traefik. catena-traefik is on
 # catena_network_name only -- every catena app deploys onto catena-network via
