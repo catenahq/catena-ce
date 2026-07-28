@@ -70,6 +70,38 @@
     name: "{{ inventory_hostname }}"
     use: systemd
 
+# Take /etc/hosts off cloud-init BEFORE writing to it. Provider images
+# (OVH, and the bench's own) ship `manage_etc_hosts: True`, which
+# REGENERATES /etc/hosts from /etc/cloud/templates/hosts.debian.tmpl on
+# EVERY boot -- so the mapping the task below writes survives until the
+# next reboot and then silently disappears. The converge put it back on
+# the next run, which is why this never surfaced: the only observer that
+# converges twice with a reboot in between is the bench, and its
+# idempotency assertion only became strict in this audit (ce_converge
+# changed=2, bench 2026-07-28T13-18-43-7606).
+#
+# A drop-in rather than an edit to cloud.cfg: cloud-init merges
+# /etc/cloud/cloud.cfg.d/*.cfg over the base config, so this states the
+# one key we own without taking over the file. Ansible owns the
+# steady-state, matching how the apt-proxy config below is handled.
+- name: Check for a cloud-init config directory
+  ansible.builtin.stat:
+    path: /etc/cloud/cloud.cfg.d
+  register: _catena_cloud_cfg_d
+
+- name: Stop cloud-init regenerating /etc/hosts on every boot
+  ansible.builtin.copy:
+    dest: /etc/cloud/cloud.cfg.d/99-catena-etc-hosts.cfg
+    content: |
+      # Managed by Catena (roles/common). /etc/hosts is Ansible-owned:
+      # cloud-init rewriting it from a template on each boot drops the
+      # 127.0.1.1 <hostname> mapping the converge maintains.
+      manage_etc_hosts: false
+    owner: root
+    group: root
+    mode: "0644"
+  when: _catena_cloud_cfg_d.stat.isdir | default(false)
+
 # Atomicity: ansible.builtin.lineinfile writes via temp-file + atomic
 # rename (Ansible 2.13+), so a crash mid-write leaves /etc/hosts
 # intact with either the old content or the new. Dedupes by regexp.
@@ -204,13 +236,14 @@
       ansible.builtin.apt:
         update_cache: true
         # Skip the refresh if /var/lib/apt/periodic/update-success-stamp
-        # is younger than this. Without it the bench's stage-2.5
-        # idempotency rerun flips to changed=true whenever any upstream
-        # security/translation feed rolls between the first converge
-        # and the rerun (~5-10 min later). One hour is comfortably
-        # longer than any single converge + rerun + the inter-stage
-        # gap, but short enough that a real flake (mirror going stale
-        # mid-day) still gets re-fetched.
+        # is younger than this. An optimisation, not a correctness
+        # crutch: it saves a round-trip to every mirror on a converge
+        # that just ran. It used to carry the idempotency claim too, on
+        # the reasoning that "one hour is comfortably longer than any
+        # single converge + rerun + the inter-stage gap" -- true for
+        # fresh_install's stage-2.5 rerun ~5-10 min later, false for the
+        # DAG-scheduled ce_converge, which lands HOURS after the install
+        # it re-converges. That is what changed_when below is for.
         cache_valid_time: 3600
         # Belt-and-braces: the 05-lock-timeout conf above tells apt
         # itself to wait, the module's own lock_timeout matches so
@@ -221,6 +254,12 @@
         # Stretch that to ride out short mirror flakes.
         update_cache_retries: 10
         update_cache_retry_max_delay: 30
+      # Refreshing the package index is not a change to this host's
+      # configuration -- it is a read of the mirrors. Reporting it as
+      # `changed` makes whether the converge is idempotent depend on how
+      # long ago the last one ran, and on whether an upstream feed rolled
+      # in between. Failures still fail; the rescue below is unaffected.
+      changed_when: false
   rescue:
     - name: "apt update failed; capture diagnostic via raw apt-get update"
       ansible.builtin.command:
