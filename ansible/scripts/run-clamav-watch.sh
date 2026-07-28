@@ -12,10 +12,11 @@
 # fail-loud path, when mail is up, is rspamd's soft-reject on
 # CLAM_VIRUS_FAIL; this watch is the page.)
 #
-# Always exits 0 (diagnostic timer, not control flow). Pings are
-# best-effort. Reporting success when no consumer is up also keeps the
-# Healthchecks check from going stale (a missed ping would otherwise
-# look like an outage).
+# Exits 0 on every path it can REPORT on (diagnostic timer, not control
+# flow); pings are best-effort. Reporting success when no consumer is up
+# also keeps the Healthchecks check from going stale (a missed ping would
+# otherwise look like an outage). The one non-zero exit is an unwired
+# HC_PING_KEY, where the exit code is the only channel left -- see below.
 set -eu
 
 ENV_FILE="${1:-/etc/catena/clamav-watch.env}"
@@ -26,9 +27,18 @@ set +a
 
 log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 
+# An empty ping key is NOT a supported configuration, and the exit code is the
+# only channel left when it is empty: the check is auto-provisioned by the
+# first ping (?create=1 below), so with no key no check exists, nothing can go
+# late, and this watch reports nothing forever while Healthchecks shows a clean
+# board. vault_healthchecks_ping_key is INTERNAL_SECRETS -- minted on the box
+# on every converge -- so empty means the on-box store did not load when
+# clamav-watch.env was rendered. Fail the unit so `systemctl --failed` says so.
 if [ -z "${HC_PING_KEY:-}" ]; then
-    log "HC_PING_KEY empty (Healthchecks not wired); clamav-watch is a no-op"
-    exit 0
+    log "HC_PING_KEY empty in $ENV_FILE: no check can be provisioned, so this"
+    log "watch cannot report and its absence cannot be noticed. Re-run the"
+    log "converge to re-render the env file from the on-box config store."
+    exit 1
 fi
 
 ping_hc() {

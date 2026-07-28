@@ -4,8 +4,16 @@
 #
 # Exit codes are the contract:
 #   0  every application bind-mount source is covered (or there is nothing
-#      to check, or the paths file has not been rendered yet)
+#      to check)
 #   2  at least one source is NOT in the backup set
+#   3  the check could not run -- the covered-prefix list is missing
+#
+# 3 exists because 0 used to cover it. The caller reads 0 as "verified
+# covered", so an unrendered paths file made the one check that finds data
+# outside the backup set report that everything was inside it. An unreadable
+# answer is not evidence of a gap, but it is not evidence of coverage either,
+# and only one of those was being said. run-backup.sh treats any non-zero
+# other than 2 as "the checker could not run" and logs it non-fatally.
 #
 # 2 is deliberate and it is new. This used to exit 0 unconditionally, which
 # made an application writing outside the backup set a line in the journal --
@@ -35,7 +43,8 @@ COVERAGE_PATHS_FILE="${COVERAGE_PATHS_FILE:-/etc/catena/backup-coverage.paths}"
 
 if [ ! -r "$COVERAGE_PATHS_FILE" ]; then
     echo "backup-coverage: missing or unreadable $COVERAGE_PATHS_FILE -- was the backup role applied?" >&2
-    exit 0
+    echo "backup-coverage: NOT reporting coverage; nothing was checked." >&2
+    exit 3
 fi
 
 # Read one path per line, skipping blanks and comments.

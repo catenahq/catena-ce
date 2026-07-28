@@ -76,16 +76,19 @@ def test_named_volumes_and_system_paths_do_not_trip_it(tmp_path: Path):
     assert res.returncode == 0, res.stdout + res.stderr
 
 
-def test_an_unrendered_paths_file_is_not_a_finding(tmp_path: Path):
-    # A host converging for the first time has no paths file yet. Absence of
-    # an answer is not evidence of a gap, and failing here would fail every
-    # first backup.
+def test_an_unrendered_paths_file_is_not_a_finding_and_not_a_pass(tmp_path: Path):
+    """Absence of an answer is not evidence of a gap -- so not rc 2, and the
+    first backup on a converging host still succeeds. But it is not evidence
+    of COVERAGE either, and rc 0 said exactly that: the one check that finds
+    data outside the backup set reported that everything was inside it.
+    rc 3 lands in the wrapper's could-not-run branch instead."""
     env = dict(os.environ)
     env["COVERAGE_PATHS_FILE"] = str(tmp_path / "absent")
     res = subprocess.run(
         ["bash", str(COVERAGE)], capture_output=True, text=True, env=env,
     )
-    assert res.returncode == 0, res.stdout + res.stderr
+    assert res.returncode == 3, res.stdout + res.stderr
+    assert "nothing was checked" in res.stderr
 
 
 def test_the_wrapper_separates_a_finding_from_a_broken_check():

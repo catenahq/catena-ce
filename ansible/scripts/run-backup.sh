@@ -200,6 +200,14 @@ if [ "${BACKUP_FORCE:-0}" != "1" ] \
     _min_s=$(( BACKUP_MIN_INTERVAL_HOURS * 3600 ))
     if [ "$_age_s" -lt "$_min_s" ]; then
         log "backup not due yet (${_age_s}s since last success < ${_min_s}s configured interval); skipping."
+        # /log, not /fail and not silence. Unlike the two gates above this one
+        # is not a problem -- a recent success is why we are skipping, and the
+        # "succeeded" check is still inside its grace window, so /fail here
+        # would page on a healthy host. But it was the one guard in this file
+        # that left NO trace, which makes "the timer fired and decided not to
+        # run" and "the timer never fired" identical in the record. /log
+        # records the event without touching the check's up/down state.
+        ping_hc_attempted /log
         exit 0
     fi
 fi
@@ -634,9 +642,11 @@ fi
 # paged about what is not. Failing BEFORE the backup would trade "some data
 # unbacked" for "no data backed up", which is not an improvement.
 #
-# Exit 2 from the script means uncovered paths were found. Any other non-zero,
-# including 124 from the timeout, means the check itself could not run, and
-# that stays non-fatal: an unreadable answer is not evidence of a gap.
+# Exit 2 from the script means uncovered paths were found. Any other non-zero
+# -- 3 when the covered-prefix list is missing, 124 from the timeout -- means
+# the check itself could not run, and that stays non-fatal: an unreadable
+# answer is not evidence of a gap. It is not evidence of coverage either,
+# which is why "could not run" stopped being exit 0.
 if [ -n "${BACKUP_COVERAGE_SCRIPT:-}" ] && [ -x "${BACKUP_COVERAGE_SCRIPT}" ]; then
     log "running backup coverage check"
     # `timeout` so a wedged `docker inspect` inside the coverage script
