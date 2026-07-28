@@ -315,6 +315,31 @@ def test_ensure_collections_uses_writable_override_path(cli, monkeypatch, tmp_pa
     assert cmd[cmd.index("-p") + 1] == str(target)
 
 
+def test_collections_dir_matches_ansible_cfg(cli):
+    """The in-tree galaxy install target is READ from ansible.cfg, never
+    duplicated. A hardcoded copy drifted once (install to collections/, ansible
+    reading .collections/) and the converge silently used whatever collections
+    the controller had."""
+    import configparser
+
+    cfg = configparser.ConfigParser()
+    cfg.read(cli.ANSIBLE_DIR / "ansible.cfg")
+    assert cli.COLLECTIONS_DIR == cfg.get("defaults", "collections_path")
+
+
+def test_ensure_collections_installs_where_ansible_reads(cli, monkeypatch, tmp_path):
+    """With no override, the install target is ANSIBLE_DIR/<collections_path>."""
+    monkeypatch.delenv("ANSIBLE_COLLECTIONS_PATH", raising=False)
+    monkeypatch.setattr(cli, "ANSIBLE_DIR", tmp_path)
+    (tmp_path / "requirements.yml").write_text("collections: []\n")
+    calls: list[list[str]] = []
+    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
+    cli.ensure_collections()
+    assert len(calls) == 1, calls
+    cmd = calls[0]
+    assert cmd[cmd.index("-p") + 1] == str(tmp_path / cli.COLLECTIONS_DIR)
+
+
 def test_ensure_collections_skips_when_override_dir_exists(cli, monkeypatch, tmp_path):
     existing = tmp_path / "colls"
     existing.mkdir()

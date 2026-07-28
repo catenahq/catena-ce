@@ -35,6 +35,7 @@ truth and rides the restic backup. Run inside the catena-ce checkout:
 from __future__ import annotations
 
 import argparse
+import configparser
 import getpass
 import os
 import shutil
@@ -46,6 +47,25 @@ from pathlib import Path
 # This file lives at the root of the self-contained ansible/ tree.
 ANSIBLE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(ANSIBLE_DIR))
+
+
+def _collections_dir() -> str:
+    """Where ansible loads collections from, read out of ansible.cfg.
+
+    Derived rather than duplicated: a hardcoded copy drifted from the config
+    once already and left the galaxy install writing to a directory ansible
+    never read. Falls back to ansible's own default if the key is absent.
+    """
+    cfg = configparser.ConfigParser()
+    try:
+        cfg.read(ANSIBLE_DIR / "ansible.cfg")
+    except configparser.Error:
+        return ".collections"
+    value = cfg.get("defaults", "collections_path", fallback=".collections")
+    return value.split(os.pathsep)[0].strip() or ".collections"
+
+
+COLLECTIONS_DIR = _collections_dir()
 
 # The ordered converge chain a fresh install runs. preflight is a SEPARATE
 # invocation BEFORE bootstrap so a stray --limit can never skip it.
@@ -213,14 +233,19 @@ def ensure_collections() -> None:
     """Install the Galaxy collections (community.general, community.docker, ...)
     on first run if they are not already present. Honors
     ANSIBLE_COLLECTIONS_PATH: when set (first path wins), install there instead
-    of the in-tree collections/ dir -- so the CLI can run from a READ-ONLY
-    checkout (e.g. driven from a Semaphore runner against a :ro catena-ce mount)
-    by pointing at a writable location, which ansible then also reads."""
+    of the in-tree dir -- so the CLI can run from a READ-ONLY checkout (e.g.
+    driven from a Semaphore runner against a :ro catena-ce mount) by pointing
+    at a writable location, which ansible then also reads.
+
+    The in-tree default MUST match ansible.cfg's collections_path. It did not
+    for a release: the install landed in collections/ while ansible read
+    .collections/, so a fresh checkout installed a tree nothing loaded and fell
+    through to whatever collections the controller happened to have."""
     req = ANSIBLE_DIR / "requirements.yml"
     if not req.is_file():
         return
     override = os.environ.get("ANSIBLE_COLLECTIONS_PATH", "").strip()
-    coll = Path(override.split(os.pathsep)[0]).expanduser() if override else ANSIBLE_DIR / "collections"
+    coll = Path(override.split(os.pathsep)[0]).expanduser() if override else ANSIBLE_DIR / COLLECTIONS_DIR
     if coll.is_dir():
         return
     banner("Installing Ansible collections (first run)")
