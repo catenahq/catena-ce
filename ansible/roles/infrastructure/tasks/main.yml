@@ -262,6 +262,31 @@
         - _infra_cf_token_present
       tags: [mailserver_canary]
 
+    # The five includes above all defer on a tokenless host, and all five
+    # skipped with NO OUTPUT. The reasoning is sound -- adding the postmaster
+    # account before the cert exists strands Dovecot at gate 2 -- but the
+    # silence is not part of it: the converge printed a clean run on a host
+    # with no mail TLS, no postmaster mailbox, no rspamd antivirus and no
+    # canary, and nothing distinguished that from a host where all five had
+    # succeeded. One notice rather than five: they share one condition, and
+    # five copies of the same line trains the reader to skip it. Same shape
+    # as the verify_gated_services notice further down.
+    - name: "Mailserver chain: tunnel deferred -- five wiring steps skipped (no Cloudflare token yet)"
+      ansible.builtin.debug:
+        msg: >-
+          No Cloudflare API token in the on-box store, so the mailserver
+          wiring chain is DEFERRED, not applied: TLS cert injection, the
+          postmaster mailbox bootstrap, OIDC (Roundcube + Dovecot
+          introspection), rspamd filtering (DQS RBL + antivirus) and the mail
+          canary. The dms container stays in its stable no-account window
+          meanwhile. Order matters -- the cert has to land before the first
+          account or Dovecot strands at gate 2 -- which is why the whole
+          chain waits rather than running the half that would work. Run
+          cf_activate to persist a token, then re-converge.
+      when: not _infra_cf_token_present
+      tags: [mailserver_accounts, mailserver_cert, mailserver_oidc,
+             mailserver_filtering, mailserver_canary]
+
     # Nextcloud Talk + HPB. Same converge / post-deploy split as OIDC:
     # converge installs the wire script + ufw range when HPB is live;
     # the Actions-tab button runs the in-container occ-based wiring on
