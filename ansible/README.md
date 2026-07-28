@@ -37,10 +37,10 @@ scheduling.
 
 ## Installer (`catena`)
 
-You drive everything through the bundled CLI; you never call
-`ansible-playbook` directly. Prerequisite: `uv` on PATH (ansible-core comes
-from `uv`). SOPS+age was dropped (project 0b) -- there is no `sops`/`age`
-prerequisite anymore. Run the CLI **from this `ansible/` directory** (where
+The bundled CLI drives every playbook; `ansible-playbook` is not a
+supported entry point. Prerequisite: `uv` on PATH (ansible-core comes from
+`uv`). Nothing else -- there is no encryption tool to install and no key to
+have in scope. Run the CLI **from this `ansible/` directory** (where
 `pyproject.toml` lives):
 
 ```
@@ -69,8 +69,8 @@ deliberately.
 
 ## Secrets
 
-**No secret ever persists on your machine** (0b). SOPS+age was dropped and
-there is no plaintext vault either: `catena install` writes only non-secret
+**No secret ever persists on the controller** (0b). There is no encrypted
+vault and no plaintext one either: `catena install` writes only non-secret
 files into the inventory.
 
 - The install-critical vendor creds (Cloudflare API token + Tailscale OAuth
