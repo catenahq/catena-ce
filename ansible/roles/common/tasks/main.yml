@@ -102,6 +102,31 @@
     mode: "0644"
   when: _catena_cloud_cfg_d.stat.isdir | default(false)
 
+# The drop-in above is not always enough: cloud-init merges user-data OVER
+# cloud.cfg.d, so a provider (or the bench) that sets manage_etc_hosts in
+# user-data keeps regenerating the file no matter what we write to the
+# drop-in. cloud-init's Debian template emits
+#   127.0.1.1 <fqdn> <hostname>
+# which resolves the name correctly but is not byte-identical to the line
+# below, so a converge that rewrote it unconditionally reported `changed`
+# on every single run, forever.
+#
+# So enforce the PROPERTY -- the host resolves its own name on 127.0.1.1 --
+# not one spelling of it. Whoever wrote a satisfying line, we leave it.
+- name: Check whether /etc/hosts already maps the hostname to 127.0.1.1
+  ansible.builtin.command:
+    argv:
+      - awk
+      - -v
+      - "want={{ inventory_hostname }}"
+      - >-
+        $1 == "127.0.1.1" { for (i = 2; i <= NF; i++) if ($i == want) found = 1 }
+        END { exit found ? 0 : 1 }
+      - /etc/hosts
+  register: _catena_hosts_mapped
+  changed_when: false
+  failed_when: false
+
 # Atomicity: ansible.builtin.lineinfile writes via temp-file + atomic
 # rename (Ansible 2.13+), so a crash mid-write leaves /etc/hosts
 # intact with either the old content or the new. Dedupes by regexp.
@@ -115,6 +140,7 @@
     owner: root
     group: root
     mode: "0644"
+  when: _catena_hosts_mapped.rc != 0
 
 # Configure the apt HTTP proxy BEFORE the first dist-upgrade so every
 # apt operation in this role (and every subsequent role) routes HTTP

@@ -6,10 +6,14 @@ re-runs after an edit, and a converge that always reports work done is one
 nobody can read for the work it actually did.
 
   - /etc/hosts. Provider images ship cloud-init `manage_etc_hosts: True`,
-    which regenerates the file from a template on EVERY boot and drops the
-    127.0.1.1 mapping the converge maintains. The mapping was restored on the
-    next converge, so the only symptom was a permanent `changed` -- and a
-    window after each reboot where the host did not resolve its own name.
+    which regenerates the file from a template on EVERY boot. The drop-in that
+    was supposed to stop it is not enough on its own: cloud-init merges
+    USER-DATA over cloud.cfg.d, so anything that sets manage_etc_hosts at
+    create time wins and keeps regenerating. What the template writes --
+    `127.0.1.1 <fqdn> <hostname>` -- resolves the name correctly but is not
+    byte-identical to the converge's line, so the converge rewrote it every
+    run and reported `changed` forever. Fixed by enforcing the property (the
+    hostname is mapped) rather than one spelling of the line.
   - apt cache. `update_cache` reports `changed` whenever it actually reaches
     the mirrors, so whether the converge was idempotent depended on how long
     ago the previous one ran. cache_valid_time hid it for reruns minutes
@@ -32,6 +36,7 @@ COMMON_TASKS = ANSIBLE / "roles" / "common" / "tasks" / "main.yml"
 
 _CLOUD_INIT_DROPIN = "Stop cloud-init regenerating /etc/hosts on every boot"
 _CLOUD_INIT_STAT = "Check for a cloud-init config directory"
+_HOSTS_CHECK = "Check whether /etc/hosts already maps the hostname to 127.0.1.1"
 _HOSTS_LINE = "Ensure /etc/hosts maps the hostname to 127.0.1.1"
 _APT_BLOCK = "Refresh apt cache (with proxy-bypass fallback)"
 
@@ -64,6 +69,27 @@ def test_the_dropin_lands_before_anything_writes_etc_hosts():
         "references an undefined variable"
     )
     assert names.index(_CLOUD_INIT_DROPIN) < names.index(_HOSTS_LINE)
+
+
+def test_the_hosts_line_is_only_written_when_the_name_is_unmapped():
+    """The drop-in loses to user-data, so the converge has to tolerate a
+    cloud-init-written mapping instead of rewriting it into its own spelling
+    on every run."""
+    tasks = _tasks()
+    names = _names(tasks)
+    assert names.index(_HOSTS_CHECK) < names.index(_HOSTS_LINE)
+
+    check = next(t for t in tasks if t.get("name") == _HOSTS_CHECK)
+    assert check.get("changed_when") is False
+    assert check.get("failed_when") is False, (
+        "a host with no mapping at all must reach the write, not abort"
+    )
+
+    write = next(t for t in tasks if t.get("name") == _HOSTS_LINE)
+    assert "_catena_hosts_mapped.rc != 0" in str(write.get("when", "")), (
+        "an unconditional write reports changed on every converge of a host "
+        "whose /etc/hosts cloud-init regenerates"
+    )
 
 
 def test_refreshing_the_apt_index_is_not_a_change():
