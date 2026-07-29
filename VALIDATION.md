@@ -61,7 +61,7 @@ Rehearsal scenarios (2 of 2 observed passing): `mailserver_round_trip`, `nextclo
 
 On-server status pages, resource monitoring, a disk-space watchdog and an always-fresh report of which installed applications have updates available -- all hosted on the client's own server.
 
-Implemented in: `ansible/scripts/beszel-hc-shim.py`, `ansible/scripts/beszel-seed.py`, `ansible/scripts/catena-version-check.py`, `ansible/scripts/gatus-sync.py`, `ansible/scripts/run-disk-watch.sh`
+Implemented in: `ansible/scripts/beszel-hc-shim.py`, `ansible/scripts/beszel-seed.py`, `ansible/scripts/catena-version-check.py`, `ansible/scripts/gatus-sync.py`
 
 Rehearsal scenarios (1 of 1 observed passing): `fi_u3_gatus_baseline_down`
 

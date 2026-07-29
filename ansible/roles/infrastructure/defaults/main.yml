@@ -263,21 +263,10 @@ clamav_watch_systemd_unit_name: catena-clamav-watch
 # Every 5 minutes.
 clamav_watch_schedule: "*:0/5"
 
-# --- Disk fill-level watchdog (host timer) -------------------------------
-# Warn via ntfy at warn_pct, page via the Healthchecks /fail escalation at
-# crit_pct. Complements the hard free-bytes aborts in disk-preflight.sh
-# (refuse-to-start) with early operator alerting. RAM/CPU history is the
-# opt-in Beszel appliance; this watches only filesystem fill.
-disk_watch_paths: ["/", "/mnt/data"]
-disk_watch_warn_pct: 80
-disk_watch_crit_pct: 90
-disk_watch_slug: "disk-usage"
-disk_watch_script_path: /usr/local/bin/run-disk-watch
-disk_watch_env_file: /etc/catena/disk-watch.env
-disk_watch_systemd_unit_name: catena-disk-watch
-# Every 30 minutes -- disks fill over hours/days; sub-5-minute cadence
-# buys nothing.
-disk_watch_schedule: "*:0/30"
+# The disk fill-level watchdog was REMOVED 2026-07-29. Beszel is base plane
+# and already collects per-host disk fill with threshold alerting into the
+# same Healthchecks plane; keeping a second collector meant two thresholds
+# drifting apart and a double page. See tasks/main.yml for the full note.
 
 # --- Mailserver TLS cert (mail.<zone>) --------------------------------
 # Self-hosted mailserver runs SSL_TYPE=manual; we issue the cert here via

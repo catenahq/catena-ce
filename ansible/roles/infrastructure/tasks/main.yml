@@ -48,7 +48,7 @@
 # deploy that publishes a gated *.<zone> URL, registers a Keycloak OIDC
 # client, or drives Cloudflare DNS is skipped. The SSO-independent
 # host-side wire scripts (clamav network, Nextcloud/Rocket.Chat/WordPress
-# app wiring, gatus-sync, disk_watch) still run so template apps deployed
+# app wiring, gatus-sync) still run so template apps deployed
 # over raw tailnet ports keep their in-app features.
 - name: "Resolve access mode (gates SSO/CF-coupled infra deploys)"
   ansible.builtin.set_fact:
@@ -407,20 +407,22 @@
     apply:
       tags: [gatus, gatus_sync]
   # No Gatus is deployed in tailnet mode, so there is nothing for the sync to
-  # feed. disk_watch below stays on (host watchdog, degrades to journal-only).
+  # feed.
   when: _infra_cf_mode
   tags: [gatus, gatus_sync]
 
-# Disk fill-level watchdog: warn (ntfy) at disk_watch_warn_pct, page
-# (Healthchecks /fail) at disk_watch_crit_pct. Outside the Portainer-key
-# gate like gatus-sync -- the script degrades to journal-only logging
-# until Healthchecks/ntfy are wired.
-- name: disk fill-level watchdog (script + systemd timer)
-  ansible.builtin.include_tasks:
-    file: disk_watch.yml
-    apply:
-      tags: [disk_watch]
-  tags: [disk_watch]
+# The disk fill-level watchdog (catena-disk-watch.timer) was REMOVED
+# 2026-07-29. Beszel already collects per-host disk fill with threshold
+# alerting into the same Healthchecks plane, so the two were duplicate
+# collectors of one signal with two independently-drifting thresholds --
+# and a disk past the mark paged twice, from two checks with different
+# slugs. Beszel is base plane now, so the "unconditional host watchdog"
+# argument for keeping a second one went with the off-switch.
+#
+# Refuse-to-start protection is unaffected: disk-preflight.sh still aborts
+# backup / restore / auto-update on low free bytes (every night, not just at
+# install), and site.yml still refuses to converge onto a filesystem at or
+# above its ceiling.
 
 # The weekly stack-update timer (managed floating-tag container updates) and
 # the hourly external dead-man watchdog are SCHEDULED automation -- they are

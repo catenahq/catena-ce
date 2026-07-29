@@ -20,9 +20,10 @@
 
   vars:
     # Converge-time disk gate. Refuse to converge onto a filesystem at or
-    # above crit_pct full. Mirrors roles/infrastructure disk_watch_crit_pct
-    # (90); the watchdog only ALERTS, this ABORTS the converge before any
-    # role writes. Paths default to the same set disk_watch monitors.
+    # above crit_pct full, ABORTING before any role writes. Live disk
+    # alerting is Beszel's (the disk_watch timer this used to mirror was
+    # removed 2026-07-29); this is the install-time refusal, which Beszel
+    # cannot provide because it reports rather than blocks.
     converge_disk_preflight_paths: ["/", "/mnt/data"]
     converge_disk_preflight_crit_pct: 90
 
@@ -61,7 +62,7 @@
     # filesystem fails deep inside a role (image pull ENOSPC, container
     # write failure) 10-30 min in; refuse up front instead. Complements
     # roles/backup's catena-disk-preflight (backup/restore/auto-update
-    # free-bytes aborts) and the disk_watch alerting timer -- this is the
+    # free-bytes aborts) and Beszel's threshold alerting -- this is the
     # converge-time gate. gather_facts already populated ansible_mounts;
     # /mnt/data may be absent on a fresh target (storage role mounts it
     # later), so the selectattr filter checks only mounts that exist now.

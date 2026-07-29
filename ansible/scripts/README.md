@@ -47,7 +47,6 @@ is why they sit flat in one directory rather than in a package.
 | `route_synth.py` | Traefik gate-route rendering + access resolution for dashboard-sync. |
 | `run-backup.sh` | Take one restic snapshot of the host: dump the databases, back up the declared paths, prune to the retention policy, ping the dead-man check. |
 | `run-clamav-watch.sh` | Page when the shared clamd is down, but only while something depends on it -- the mail server's dms container or Nextcloud. |
-| `run-disk-watch.sh` | Watch filesystem fill level on the paths in DISK_WATCH_PATHS and alert BEFORE the disk is full. |
 | `run-mail-canary.sh` | Prove the mail server is up AND actually filtering, via host-side docker-exec into the dms container -- no external SMTP/IMAP and no auth (the server is OAuth2-only, so there is no password to log in with). |
 | `snapshot-export.sh` | Prepare a portable tarball of the latest restic snapshot for off-host download. |
 | `snapshot-list.sh` | Render an HTML index of the restic snapshots currently in the repo into ${BACKUP_EXPORT_DIR}/index.html. |
