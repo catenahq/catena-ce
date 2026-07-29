@@ -13,7 +13,7 @@ Catena is exercised end-to-end by an automated rehearsal suite: each scenario pr
 
 Two numbers are reported everywhere: **rehearsed** means the scenario was last recorded PASSING on a real run, and is the only number treated as evidence; **declared** additionally counts scenarios that exist but have not been observed passing yet. A scenario is never counted for merely existing.
 
-**Coverage: 10 Community features, 71 of 85 rehearsal scenarios observed passing; 12 Catena Pro features, 30 of 42; plus 14 of 23 maintainer-internal rehearsals.**
+**Coverage: 10 Community features, 71 of 85 rehearsal scenarios observed passing; 12 Catena Pro features, 30 of 42; plus 12 of 23 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -122,7 +122,7 @@ Note: features marked *see note* are maintainer-run procedures; their rehearsals
 
 ## Maintainer-internal tooling
 
-The maintainers' internal tooling (test harness, control plane, rotation and maintenance utilities) accounts for a further 3 features and 14 of 23 rehearsal scenarios observed passing; details stay private.
+The maintainers' internal tooling (test harness, control plane, rotation and maintenance utilities) accounts for a further 3 features and 12 of 23 rehearsal scenarios observed passing; details stay private.
 
 ## Continuous integration gates on this repository
 

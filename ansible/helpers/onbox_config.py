@@ -381,11 +381,11 @@ def ensure_user_held_secrets(store: dict) -> list[str]:
 
 def adopt(store: dict, mapping: dict | None, *, overwrite: bool = False) -> list[str]:
     """Capture secret values into the store. Fill-only by default: the
-    converge loader passes every vault_* in scope, and a value already in the
-    store is the source of truth. Never stores a blank. Accepts ANY key -- the
-    caller pre-filters to vault_* -- so the ROLE_MINTED_SECRETS are captured
-    too, which is why this is separate from apply_inputs and its
-    EXTERNAL_SECRETS allowlist.
+    converge loader passes every declared secret in scope, and a value already
+    in the store is the source of truth. Never stores a blank. Accepts ANY key
+    -- the caller pre-filters against secret_names() -- so the
+    ROLE_MINTED_SECRETS are captured too, which is why this is separate from
+    apply_inputs and its EXTERNAL_SECRETS allowlist.
 
     ``overwrite=True`` replaces an existing value. Used by roles/portainer
     when Portainer REJECTS the stored API key (the admin was recreated, or a

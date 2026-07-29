@@ -71,9 +71,9 @@ it unattended.
 
 ## Secrets
 
-**No secret ever persists on the controller.** There is no encrypted
-vault and no plaintext one either: `catena install` writes only
-non-secret files into the inventory.
+**No secret ever persists on the controller.** Not encrypted, not
+plaintext: `catena install` writes only non-secret files into the
+inventory.
 
 - The install-critical vendor credentials (Cloudflare API token,
   Tailscale OAuth id and secret) are prompted, live-validated, written

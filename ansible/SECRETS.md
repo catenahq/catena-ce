@@ -6,10 +6,10 @@ holds it, and where it must end up** under the client-owned-config model
 `USER_HELD_SECRETS` minted on-box; `EXTERNAL_SECRETS` client-supplied;
 `ROLE_MINTED_SECRETS` minted by the service and captured by its role),
 `seed.py` (`INSTALL_EXTERNAL_KEYS` -- the only creds prompted at install,
-written to the transient `--secrets-out` adopt file, never a persisted vault),
+written to the transient `--secrets-out` adopt file and nowhere else),
 `inventory/example/.env.example`, and `roles/backup/defaults/main.yml`
-(`backup_paths`). There is **no persisted laptop vault** -- `catena install`
-writes no secret file into the inventory.
+(`backup_paths`). **Nothing secret is persisted on the controller** --
+`catena install` writes no secret file into the inventory.
 
 ## North star
 
@@ -155,9 +155,9 @@ already holds `backup.env` (S3 creds) + `restic.pass` (restic password),
 both written reconcile-not-overwrite by `roles/backup`. That is the model
 for every category-2 secret and category-4 value: a single on-box config
 source-of-truth under `/etc/catena/`, written once, reconciled on converge,
-carried in every snapshot. The laptop inventory is non-secret only
-(`.env`, `hosts.yml`, `group_vars/all/main.yml`); nothing writes a
-`vault.yml` there.
+carried in every snapshot. The controller-side inventory is non-secret only
+(`.env`, `hosts.yml`, `group_vars/all/main.yml`); nothing writes a secrets
+file there.
 
 The swarm-secret path (catena-postgres, portainer admin) is NOT backed up
 (`/var/lib/docker/swarm` is excluded); those replay correctly because the
