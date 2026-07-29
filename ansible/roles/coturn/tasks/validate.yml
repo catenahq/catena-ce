@@ -7,10 +7,15 @@
 # conditional on the same probe. Without this, validate fails on a healthy
 # tenant that simply runs no Talk/Jitsi app. Runs via tasks_from: validate,
 # so the register from main.yml is not in scope -- reprobe.
+#
+# Byte-identical to main.yml's probe, `status=running` included: the two run
+# minutes apart in one converge, and a consumer that enters a restart loop
+# between them made the deploy gate and this one disagree about the same host
+# (bench f140 backup_rollback).
 - name: "validate coturn: detect a running consumer (Talk HPB or a Jitsi JVB)"
   ansible.builtin.shell: |
-    docker ps --filter 'label=com.docker.compose.service=talk-hpb' --format '{{ "{{" }}.Names{{ "}}" }}'
-    docker ps --filter 'label=com.docker.compose.service=jvb' --format '{{ "{{" }}.Names{{ "}}" }}'
+    docker ps --filter 'label=com.docker.compose.service=talk-hpb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
+    docker ps --filter 'label=com.docker.compose.service=jvb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
   args:
     executable: /bin/bash
   register: _v_coturn_consumer

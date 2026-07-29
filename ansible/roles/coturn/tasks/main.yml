@@ -40,9 +40,17 @@
   # one line, the upstream `docker ps` then takes SIGPIPE (rc 141), and
   # `set -o pipefail` would promote that into a task failure even though
   # detection succeeded. Two plain `docker ps` calls avoid the pipe.
+  #
+  # `status=running` is load-bearing: bare `docker ps` also lists RESTARTING
+  # containers, so a crash-looping Talk HPB reads as a live TURN consumer.
+  # It is not one -- it is a broken container -- and gating on it deploys a
+  # relay nothing can use. It also made this probe answer differently at two
+  # points of the SAME converge (bench f140 backup_rollback: deploy skipped
+  # on "no consumer", validate then demanded coturn because the consumer had
+  # entered its restart loop in between).
   ansible.builtin.shell: |
-    docker ps --filter 'label=com.docker.compose.service=talk-hpb' --format '{{ "{{" }}.Names{{ "}}" }}'
-    docker ps --filter 'label=com.docker.compose.service=jvb' --format '{{ "{{" }}.Names{{ "}}" }}'
+    docker ps --filter 'label=com.docker.compose.service=talk-hpb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
+    docker ps --filter 'label=com.docker.compose.service=jvb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
   args:
     executable: /bin/bash
   register: _coturn_consumer
