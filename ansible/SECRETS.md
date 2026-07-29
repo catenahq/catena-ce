@@ -146,7 +146,7 @@ tailnet) and the Cloudflare token (tunnel + DNS).
 
 **Settings page (post-install):** `BACKUP_RESTIC_REPO`, backup retention +
 tier, WORM/cold repo, SMTP host/port/from, `NTFY_*`, `NEXTCLOUD_*` (S3 +
-retention), `BESZEL_ENABLED`, mailserver toggles, docker/apt proxy.
+retention), mailserver toggles, docker/apt proxy.
 
 ## On-box persistence target
 

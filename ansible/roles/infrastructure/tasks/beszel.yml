@@ -15,8 +15,9 @@
 #      (createNewSystemForUniversalToken) -- no "add system" UI click.
 #   4. Deploy the agent (network_mode: host) with KEY + TOKEN + HUB_URL.
 #
-# The whole file is gated by `when: beszel_enabled` on the include in
-# main.yml. Both secrets are INTERNAL_SECRETS minted on the box by
+# Always runs on a cloudflare-mode converge (the include in main.yml is
+# gated only on _infra_cf_mode; the BESZEL_ENABLED off-switch was removed
+# 2026-07-29). Both secrets are INTERNAL_SECRETS minted on the box by
 # helpers/onbox_config.py; this role only ASSERTS them (healthchecks
 # preflight pattern).
 

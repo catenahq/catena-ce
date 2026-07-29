@@ -114,16 +114,16 @@
     # agent collects per-container + per-host metrics over docker.sock;
     # the hub stores history and serves hub.<zone> (admin-gated via
     # oauth2-proxy). A small shim forwards Beszel threshold alerts into
-    # the Healthchecks plane. Off-switch: BESZEL_ENABLED=false in
-    # inventory/<env>/.env (default off).
+    # the Healthchecks plane. Part of the base plane, not opt-in -- the
+    # BESZEL_ENABLED off-switch was removed 2026-07-29. Still gated on
+    # _infra_cf_mode: the hub's only access path is the admin oauth2-proxy
+    # chain, which does not exist in tailnet mode.
     - name: Beszel (hub + agent + Healthchecks alert shim)
       ansible.builtin.include_tasks:
         file: beszel.yml
         apply:
           tags: [beszel]
-      when:
-        - _infra_cf_mode
-        - beszel_enabled | bool
+      when: _infra_cf_mode
       tags: [beszel]
 
     # Semaphore (the operator's Ansible runner) is operator-only

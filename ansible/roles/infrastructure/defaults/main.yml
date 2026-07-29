@@ -136,10 +136,10 @@ healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
 # /fail + success pings so Beszel alerts ride the same notification plane
 # as Gatus (clients keep self-service channels). See notifications.md.
 #
-# Off by default. Set BESZEL_ENABLED=true in inventory/<env>/.env to
-# deploy. Pinned tags (Renovate-managed); the agent reads docker.sock so
-# it carries the same blast radius cAdvisor did on a single-tenant VPS.
-beszel_enabled: "{{ lookup('dotenv', 'BESZEL_ENABLED', default='false') | bool }}"
+# Always deployed -- Beszel is part of the base plane, not an opt-in. The
+# BESZEL_ENABLED off-switch was removed 2026-07-29. Pinned tags
+# (Renovate-managed); the agent reads docker.sock so it carries the same
+# blast radius cAdvisor did on a single-tenant VPS.
 beszel_image_tag: "0.18.7"
 beszel_image: "henrygd/beszel:{{ beszel_image_tag }}"
 beszel_agent_image_tag: "0.18.7"

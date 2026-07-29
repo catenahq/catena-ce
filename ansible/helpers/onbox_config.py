@@ -163,8 +163,8 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     "element_jitsi_jicofo_component_secret": mint_strong_password,
     "element_jitsi_jvb_auth_password": mint_strong_password,
     "element_jigasi_xmpp_password": mint_strong_password,
-    # Beszel resource-monitor credentials (minted unconditionally; idle until
-    # BESZEL_ENABLED=true).
+    # Beszel resource-monitor credentials. Beszel is always deployed, so
+    # these are always in use.
     "beszel_admin_password": mint_strong_password,
     "beszel_universal_token": mint_url_safe,
     # Catena portal (minted unconditionally; idle until
