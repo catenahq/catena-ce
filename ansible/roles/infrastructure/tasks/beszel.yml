@@ -80,13 +80,17 @@
 # removed immediately -- the key never lands on persistent host storage.
 # Retries because the key is written during the hub's first-boot
 # migration, a beat after the container is "running".
+#
+# `docker cp`, not `docker exec cat`: the hub image ships the binary and
+# nothing else, so there is no cat (nor any shell) to exec. cp is served
+# by the daemon and needs no in-container process.
 - name: "Beszel: derive hub public key for the agent"
   ansible.builtin.shell: |
     set -o pipefail
     umask 077
     tmp="$(mktemp)"
     trap 'rm -f "$tmp"' EXIT
-    docker exec -i {{ _beszel_hub_container.stdout | trim }} cat /beszel_data/id_ed25519 > "$tmp"
+    docker cp {{ _beszel_hub_container.stdout | trim }}:/beszel_data/id_ed25519 "$tmp"
     ssh-keygen -y -f "$tmp"
   args:
     executable: /bin/bash
@@ -97,7 +101,9 @@
   until:
     - _beszel_pubkey.rc == 0
     - (_beszel_pubkey.stdout | trim) is match('^ssh-ed25519 ')
-  no_log: true
+  # No no_log: the private key never reaches stdout (ssh-keygen -y prints
+  # only the public half, and the temp file dies with the shell). Hiding it
+  # cost a full 120s retry loop that reported nothing but "censored".
 
 - name: "Beszel: pin derived hub public key as a fact"
   ansible.builtin.set_fact:
