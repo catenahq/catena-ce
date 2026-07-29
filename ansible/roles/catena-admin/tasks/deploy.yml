@@ -1,111 +1,172 @@
 ---
-# Deploy the catena-admin Go shell as a Portainer stack.
+# Deploy the catena-admin Go shell as a TIER-1 SWARM SERVICE.
 #
-# Converge-time equivalent of the bench's
-# orchestrator/catena_admin_deploy.py: it pushes the SAME compose
-# (files/catena-admin.compose.yml in this role) through the Portainer stack
-# API, supplying every per-host value -- including the image ref -- via
-# svc_env (${VAR} substitution). Production pulls the published GHCR image
-# ({{ catena_admin_image }}); the bench supplies a locally-built tag instead.
+# It used to be a Portainer stack, which made the panel a dependent of the
+# thing it exists to drive: it holds PORTAINER_API_BASE + PORTAINER_API_KEY
+# and reconciles Portainer's stacks, yet Portainer deployed it. A Portainer
+# that would not start therefore took down the only tool that could repair
+# it, and the post-restore path that needs the panel runs at exactly the
+# moment Portainer is what did not come back.
 #
-# Gated on portainer_api_key (like every other stack deploy). No Traefik
-# route is written here: catena-admin is auth-gated and roles/oauth2_proxy
-# already owns the priority-100 dash.<zone> route to its own oauth2-proxy
-# container (which upstreams to catena-admin:8000). svc_domain_host is empty so
-# portainer_stack.yml removes any stale catena-admin route instead of writing a
-# competing backend route.
+# So it is created the same way roles/traefik, roles/postgres and
+# roles/portainer create theirs -- `docker service create` against the local
+# swarm, with the spec reconciled on every converge. Nothing in the path
+# needs Portainer to be up, or an API key to exist.
 #
-# License env (CATENA_LICENSE*) is intentionally NOT supplied: the compose's
-# ${VAR:-} empty defaults keep the shell Community-only until a token exists.
+# The argv is rendered by filter_plugins/catena_admin_service.py, which the
+# TEST BENCH imports too: the bench deploys this same container with an
+# image it built on the VPS, and the parts that must not drift between the
+# two are the eight mounts and six container labels nobody re-reads.
 #
-# The token is NOT stored here. It lives in the on-box store
-# (secrets.catena_license) and the shell reads it from there; the env var is a
-# fallback for the bench, which activates by redeploying with it. That is what
-# makes the deploy MECHANISM replaceable: an activated host keeps its licence
-# whether the panel arrives via the Portainer stack API or a swarm service,
-# because neither is where the licence lives. merge_env_portainer's preserve
-# rule still covers the fallback copy, but it is no longer load-bearing.
+# Credentials arrive as SWARM SECRETS, not --env: `docker service create`
+# has no --env-file, so an --env value sits in the host process table for
+# the duration of the create where any local user can read it. The service
+# gets <KEY>_FILE pointing into /run/secrets and catena-admin's
+# secretenv.go reads the file.
 #
-# The image is PUBLIC GHCR: every install deploys the panel; the Business
-# feature set inside it is gated at runtime by the license check (a pull
-# token would be theater -- anyone can install Catena, so distribution
-# gating adds no enforcement; the support contract is the moat). The bench
-# builds the image locally and deploys out of band either way.
+# License env (CATENA_LICENSE*) is deliberately NOT supplied. The token
+# lives in the on-box store (secrets.catena_license) and the shell reads it
+# from there, which is what makes the deploy mechanism replaceable: an
+# activated host keeps its licence across a redeploy because neither the
+# stack API nor this service is where the licence lives.
+#
+# The image is PUBLIC GHCR: every install deploys the panel, and the
+# Business feature set inside it is gated at runtime by the license check.
 
-- name: "Catena-admin: resolve Portainer endpoint id"
-  # Idempotent read-only GET /endpoints. Re-included here (mirrors
-  # roles/keycloak + roles/oauth2_proxy) so a tag-scoped `--tags catena_admin`
-  # run -- where roles/infrastructure did not execute -- still has
-  # _portainer_endpoint_id in scope for portainer_stack.yml.
-  ansible.builtin.include_tasks: ../../infrastructure/tasks/portainer_endpoint.yml
+- name: "Catena-admin: name each swarm secret after its value"
+  # Content-hashed names, because swarm secrets are IMMUTABLE: a fixed name
+  # keeps mounting the original bytes forever after a rotation, and nothing
+  # reports it. Blank values are dropped -- the shell's env fallback is the
+  # documented degraded path, an empty secret file is not.
+  ansible.builtin.set_fact:
+    _ca_secrets: "{{ catena_admin_secret_specs | catena_admin_secret_entries }}"
+  no_log: true
+  when: catena_admin_deploy_from_converge | bool
+
+- name: "Catena-admin: which swarm secrets already exist"
+  ansible.builtin.command:
+    argv: [docker, secret, inspect, "{{ item.name }}"]
+  loop: "{{ _ca_secrets }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: _ca_secret_exists
+  changed_when: false
+  failed_when: false
+  when: catena_admin_deploy_from_converge | bool
+
+- name: "Catena-admin: create the missing swarm secrets"
+  ansible.builtin.include_tasks: secret.yml
+  loop: >-
+    {{ _ca_secret_exists.results
+       | rejectattr('skipped', 'defined')
+       | selectattr('rc', 'ne', 0)
+       | map(attribute='item') | list }}
+  loop_control:
+    loop_var: ca_secret
+    label: "{{ ca_secret.name }}"
+  when: catena_admin_deploy_from_converge | bool
+
+# ─── the service spec ────────────────────────────────────────────────────
+# One dict feeding create AND reconcile, so a fresh host and a converged one
+# cannot end up with different services. The plain env holds no credential:
+# every one of those is in _ca_secrets above.
+- name: "Catena-admin: build the service spec"
+  ansible.builtin.set_fact:
+    _ca_spec:
+      name: "{{ catena_admin_service_name }}"
+      image: "{{ catena_admin_image }}"
+      network: "{{ catena_network_name | default('catena-network') }}"
+      ui_port: "{{ catena_admin_ui_port }}"
+      direct_port: "{{ catena_admin_direct_port }}"
+      group: "{{ catena_admin_supplementary_gid }}"
+      secrets: "{{ _ca_secrets }}"
+      hardening: "{{ catena_admin_desired | swarm_service_create_args }}"
+      env:
+        # :8000 to match the oauth2-proxy upstream and the dash.<zone> route;
+        # the image default is :8080.
+        CATENA_ADMIN_ADDR: ":{{ catena_admin_internal_port }}"
+        CATENA_ADMIN_DIRECT_ADDR: ":{{ catena_admin_direct_port }}"
+        CATENA_ADMIN_LOCAL_USER: "{{ admin_email }}"
+        CATENA_DEFAULT_LANG: "{{ catena_admin_default_language }}"
+        CATENA_DEFAULT_THEME: "{{ catena_admin_default_theme }}"
+        CATENA_EE_PAYLOAD_DIR: "{{ catena_admin_ee_payload_dir }}"
+        CATENA_ADMIN_STATE_DIR: "{{ catena_admin_state_dir }}"
+        # The domain this server serves, compared against the domain a
+        # licence token names so one key cannot unlock two servers.
+        CLOUDFLARE_PRIMARY_ZONE: "{{ cloudflare_zone | default('') }}"
+        PORTAINER_API_BASE: >-
+          http://{{ portainer_service_name }}:{{ portainer_ui_port }}/api
+        KEYCLOAK_HOSTNAME: "{{ keycloak_hostname }}"
+        KEYCLOAK_REALM: "{{ keycloak_realm }}"
+        INFRA_MONITOR_HOSTNAME: "{{ infrastructure_monitor_hostname }}"
+        INFRA_HEARTBEAT_HOSTNAME: "{{ healthchecks_hostname }}"
+        INFRA_BESZEL_HOSTNAME: "{{ beszel_hostname }}"
+        CATENA_ADMIN_RECOVERY_URL: >-
+          https://{{ infrastructure_recovery_hostname }}
+        GATUS_COMPOSE_NAME: "{{ gatus_compose_name }}"
+        GATUS_INTERNAL_PORT: "{{ gatus_internal_port }}"
+        HEALTHCHECKS_COMPOSE_NAME: "{{ healthchecks_compose_name }}"
+        HEALTHCHECKS_INTERNAL_PORT: "{{ healthchecks_internal_port }}"
+        ADMIN_SSH_HOST: "host.docker.internal"
+        ADMIN_SSH_USER: "{{ catena_admin_runner_user }}"
+        ADMIN_SSH_KEY_PATH: "{{ catena_admin_host_ssh_dir }}/id_ed25519"
+  when: catena_admin_deploy_from_converge | bool
+
+- name: "Catena-admin: check the swarm service exists"
+  ansible.builtin.command:
+    argv: [docker, service, inspect, "{{ catena_admin_service_name }}",
+           --format, '{{ "{{" }}.ID{{ "}}" }}']
+  register: _ca_service
+  changed_when: false
+  failed_when: false
+  when: catena_admin_deploy_from_converge | bool
+
+- name: "Catena-admin: create the swarm service (first run)"
+  ansible.builtin.command:
+    argv: "{{ _ca_spec | catena_admin_service_argv }}"
+  register: _ca_service_create
+  changed_when: _ca_service_create.rc == 0
   when:
     - catena_admin_deploy_from_converge | bool
-    - portainer_api_key is defined
-    - (portainer_api_key | default('') | length) > 0
+    - _ca_service.rc | default(1) != 0
 
-- name: "Catena-admin: deploy the Go shell as a Portainer stack"
-  ansible.builtin.include_tasks: ../../infrastructure/tasks/portainer_stack.yml
-  vars:
-    svc_name: "catena-admin"
-    # Plain ${VAR} compose in files/, NOT a template: the bench pushes the
-    # byte-identical file without Jinja (orchestrator/catena_admin_deploy.py).
-    svc_compose_content: >-
-      {{ lookup('file', role_path ~ '/files/catena-admin.compose.yml') }}
-    # Env array the Portainer stack API substitutes into the compose ${VAR}
-    # placeholders. Mirrors orchestrator/catena_admin_deploy.py _build_env,
-    # mapped to the canonical Ansible vars. Values with a compose ${VAR:-}
-    # default that we still supply (hostnames, ports) render the live value.
-    svc_env:
-      - "CATENA_ADMIN_IMAGE={{ catena_admin_image }}"
-      - "CATENA_DEFAULT_LANG={{ catena_admin_default_language }}"
-      - "CATENA_DEFAULT_THEME={{ catena_admin_default_theme }}"
-      # No multi-domain flag is set here or anywhere else: the tunnel engine
-      # reads the licence from the on-box store and decides the cap itself
-      # (see SYNC.md). CATENA_ACCESS_MODE went away with ACCESS_MODE itself --
-      # every host now has the self-hosted SSO edge, so the compliance panel
-      # has no second posture to report.
-      # The domain this server serves, compared against the domain a licence
-      # token names so one key cannot unlock two servers. Normally read from the
-      # store with the token; supplied here for the window before the host
-      # dispatch is up.
-      - "CLOUDFLARE_PRIMARY_ZONE={{ cloudflare_zone | default('') }}"
-      - "PORTAINER_API_BASE=http://{{ portainer_service_name }}:{{ portainer_ui_port }}/api"
-      - "PORTAINER_API_KEY={{ portainer_api_key }}"
-      - "KEYCLOAK_HOSTNAME={{ keycloak_hostname }}"
-      - "KEYCLOAK_REALM={{ keycloak_realm }}"
-      - "INFRA_MONITOR_HOSTNAME={{ infrastructure_monitor_hostname }}"
-      - "INFRA_HEARTBEAT_HOSTNAME={{ healthchecks_hostname }}"
-      - "INFRA_BESZEL_HOSTNAME={{ beszel_hostname }}"
-      - "CATENA_ADMIN_RECOVERY_URL=https://{{ infrastructure_recovery_hostname }}"
-      - "GATUS_COMPOSE_NAME={{ gatus_compose_name }}"
-      - "GATUS_INTERNAL_PORT={{ gatus_internal_port }}"
-      - "HEALTHCHECKS_COMPOSE_NAME={{ healthchecks_compose_name }}"
-      - "HEALTHCHECKS_INTERNAL_PORT={{ healthchecks_internal_port }}"
-      - "HEALTHCHECKS_API_KEY_READONLY={{ healthchecks_api_key_readonly }}"
-      - "ADMIN_SSH_HOST=host.docker.internal"
-      - "ADMIN_SSH_USER={{ catena_admin_runner_user }}"
-      # Native-login listener (host-published tailnet port). The session key is
-      # the on-box-minted catena_admin_session_key; LOCAL_USER is the
-      # admin email. UI_PORT is the host-published port (compose ${VAR}).
-      - "CATENA_ADMIN_UI_PORT={{ catena_admin_ui_port }}"
-      - "CATENA_ADMIN_DIRECT_ADDR=:{{ catena_admin_direct_port }}"
-      - "CATENA_ADMIN_SESSION_KEY={{ catena_admin_session_key }}"
-      - "CATENA_ADMIN_LOCAL_USER={{ admin_email }}"
-    # No Traefik route -- oauth2_proxy owns the gated dash.<zone> route.
-    svc_domain_host: ""
-    svc_domain_service: "app"
-    svc_domain_port: "{{ catena_admin_internal_port | default(8000) }}"
-    # An HTTP probe of dash.<zone> is oauth2-gated: it returns 302 regardless
-    # of whether the catena-admin backend is up, so it is not a meaningful
-    # readiness signal. The Portainer stack deploy is synchronous (its 2xx
-    # means `compose up` exited); rely on that here.
-    svc_readiness_skip_reason: >-
-      dash.<zone> is oauth2-proxy gated (302 regardless of backend health); the
-      synchronous Portainer stack deploy 2xx is the readiness signal.
+# ─── reconcile (rolling) ─────────────────────────────────────────────────
+# Three diffs against one live spec: the hardening subset, the environment,
+# and the mounted secrets. Concatenated into a SINGLE `docker service
+# update` so the task is recreated once, not three times.
+- name: "Catena-admin: inspect the live service spec"
+  ansible.builtin.command:
+    argv: [docker, service, inspect, "{{ catena_admin_service_name }}"]
+  register: _ca_inspect
+  changed_when: false
+  failed_when: false
   when:
     - catena_admin_deploy_from_converge | bool
-    - portainer_api_key is defined
-    - (portainer_api_key | default('') | length) > 0
+    - _ca_service.rc | default(1) == 0
+
+- name: "Catena-admin: compute spec drift"
+  ansible.builtin.set_fact:
+    _ca_drift: >-
+      {{ ((_ca_inspect.stdout | from_json) | swarm_service_drift(catena_admin_desired))
+         + ((_ca_inspect.stdout | from_json) | catena_admin_env_drift(_ca_spec | catena_admin_full_env))
+         + ((_ca_inspect.stdout | from_json) | catena_admin_secret_drift(_ca_secrets)) }}
+  no_log: true
+  when:
+    - catena_admin_deploy_from_converge | bool
+    - _ca_service.rc | default(1) == 0
+    - _ca_inspect.rc | default(1) == 0
+
+- name: "Catena-admin: reconcile the service spec (rolling)"
+  ansible.builtin.command:
+    argv: >-
+      {{ ['docker', 'service', 'update'] + _ca_drift
+         + [catena_admin_service_name] }}
+  register: _ca_reconcile
+  changed_when: _ca_reconcile.rc == 0
+  no_log: true
+  when:
+    - catena_admin_deploy_from_converge | bool
+    - _ca_drift | default([]) | length > 0
 
 # --- host engine payload install (UNCONDITIONAL, NOT license-gated) ---------
 # The catena-admin container mirrors its embedded host payload (all engines --
@@ -116,10 +177,10 @@
 # dispatches it). The license only gates which UI buttons the shell renders, it
 # does NOT gate the payload install. Idempotent (install -m over each file).
 #
-# Same converge-only gate as the container deploy above: the container must be
-# deployed by this converge to have synced the payload. The bench deploys the
-# container out of band (catena_admin_deploy_from_converge=false) and installs
-# the payload out of band too, so this block is skipped there.
+# Same converge-only gate as the service above: the container must be deployed
+# by this converge to have synced the payload. The bench deploys the container
+# out of band (catena_admin_deploy_from_converge=false) and installs the
+# payload out of band too, so this block is skipped there.
 - name: "Catena-admin: wait for the host payload to sync from the container"
   ansible.builtin.stat:
     path: "{{ catena_admin_ee_payload_bin_dir }}"
@@ -127,10 +188,7 @@
   until: _catena_admin_payload_bin.stat.exists | default(false)
   retries: 30
   delay: 4
-  when:
-    - catena_admin_deploy_from_converge | bool
-    - portainer_api_key is defined
-    - (portainer_api_key | default('') | length) > 0
+  when: catena_admin_deploy_from_converge | bool
 
 - name: "Catena-admin: install the host engine payload from the synced bind mount"
   ansible.builtin.command:
@@ -143,10 +201,7 @@
   # to keep the bench changed=0 idempotency gate green. Real installs are
   # observable in the task stdout ("installed N binary(ies)...").
   changed_when: false
-  when:
-    - catena_admin_deploy_from_converge | bool
-    - portainer_api_key is defined
-    - (portainer_api_key | default('') | length) > 0
+  when: catena_admin_deploy_from_converge | bool
 
 # Make the host match what the config store says about scheduling.
 #

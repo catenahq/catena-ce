@@ -9,9 +9,10 @@ branches (workspace convention). NEVER switch or fast-forward `main`.
 
 - **Here (public, fair-code):** the base Ansible (preflight/bootstrap/site/
   validate/restore + shared roles + single backup), the installer/CLI, and
-  the catena-admin container compose
-  (ansible/roles/catena-admin/files/catena-admin.compose.yml -- plain
-  ${VAR} compose, NOT a template: the bench pushes it verbatim). See
+  the catena-admin service definition
+  (ansible/playbooks/filter_plugins/catena_admin_service.py -- it renders
+  the `docker service create` argv, and the test bench imports the same
+  module so both deploys agree on the mounts and labels). See
   [LICENSE](LICENSE).
 - **NOT here:** the catena-admin shell and all Business code. It is not
   built from this tree. It ships as ONE public GHCR image,

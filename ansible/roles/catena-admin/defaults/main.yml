@@ -33,8 +33,83 @@ catena_admin_image: "ghcr.io/catenahq/catena-admin:latest"
 catena_admin_deploy_from_converge: >-
   {{ lookup('env', 'CATENA_ADMIN_DEPLOY_FROM_CONVERGE', default='true') | bool }}
 
+# --- tier-1 swarm service ---------------------------------------------
+# The panel is created directly with `docker service create`, not through
+# Portainer's stack API. It holds the key that drives Portainer, so being
+# deployed BY Portainer meant a broken Portainer took down the one tool that
+# could repair it -- and the post-restore path that needs the panel runs
+# precisely when Portainer is the thing that did not come back.
+#
+# The service NAME is also its DNS name on catena-network, which is what
+# roles/oauth2_proxy upstreams to (upstream_alias: catena-admin). Renaming
+# it here 502s every authenticated dash.<zone> request.
+catena_admin_service_name: "catena-admin"
+
+# Swarm secrets for the three values that must not travel in argv: the key
+# that signs native-login session cookies, the Healthchecks read key, and
+# the Portainer API key. Each real name gets the value's hash appended
+# (filter_plugins/catena_admin_service.py secret_name) because swarm secrets
+# are immutable -- a fixed name would make every rotation a silent no-op.
+#
+# The target name doubles as the env var: <KEY>_FILE points at
+# /run/secrets/<target>, which catena-admin's secretenv.go reads.
+catena_admin_secret_specs:
+  - base: catena_admin_session_key
+    target: CATENA_ADMIN_SESSION_KEY
+    value: "{{ catena_admin_session_key }}"
+  - base: catena_admin_healthchecks_key
+    target: HEALTHCHECKS_API_KEY_READONLY
+    value: "{{ healthchecks_api_key_readonly | default('') }}"
+  - base: catena_admin_portainer_key
+    target: PORTAINER_API_KEY
+    value: "{{ portainer_api_key | default('') }}"
+
+# Supplementary group. The recovery export dir is 0750 root:1000 (gid 1000
+# is the shared recovery-downloads group) and the image runs USER nonroot,
+# so without this the Recovery tab lists nothing even when the host wrote a
+# recovery zip.
+catena_admin_supplementary_gid: "1000"
+
+# Where a secret's bytes are staged for `docker secret create`. Root-owned
+# 0600 and removed in the same block that writes it.
+catena_admin_secret_staging_path: "/root/.catena-admin-secret"
+
+# Hardening subset, reconciled by swarm_service_drift on every converge.
+# No healthcheck: the image is distroless, so --health-cmd (executed as
+# /bin/sh -c) has no shell to run. Readiness is the oauth2-proxy route's
+# problem and the direct listener's own probe.
+#
+# stop-first for the same reason as Portainer: the UI port is published
+# mode=host, so two tasks cannot hold it at once and start-first would have
+# the new task fail its bind while the old one still listens.
+catena_admin_limit_memory: "512m"
+catena_admin_reserve_memory: "128m"
+catena_admin_stop_grace_period: "20s"
+catena_admin_update_failure_action: "pause"
+catena_admin_update_monitor: "30s"
+catena_admin_update_max_failure_ratio: 0
+catena_admin_update_order: "stop-first"
+
+# Placement. It bind-mounts node-LOCAL paths (the audit chain, the synced
+# payload, the SSH runner key), so it must land on the node that has them,
+# and it reaches the host dispatch, which is that node's.
+catena_admin_constraints:
+  - "node.role==manager"
+  - "node.labels.catena.role==data"
+
+catena_admin_desired:
+  image: "{{ catena_admin_image }}"
+  constraints: "{{ catena_admin_constraints }}"
+  limit_memory: "{{ catena_admin_limit_memory }}"
+  reserve_memory: "{{ catena_admin_reserve_memory }}"
+  stop_grace_period: "{{ catena_admin_stop_grace_period }}"
+  update_failure_action: "{{ catena_admin_update_failure_action }}"
+  update_monitor: "{{ catena_admin_update_monitor }}"
+  update_max_failure_ratio: "{{ catena_admin_update_max_failure_ratio }}"
+  update_order: "{{ catena_admin_update_order }}"
+
 # Port the Go shell listens on inside the container (CATENA_ADMIN_ADDR
-# :8000 in the compose; oauth2_proxy upstreams to catena-admin:8000).
+# in the service env; oauth2_proxy upstreams to catena-admin:8000).
 catena_admin_internal_port: 8000
 
 # Native-login listener inside the container, published on the host (tailnet-

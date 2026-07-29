@@ -149,12 +149,11 @@ oauth2_proxy_apps:
   # Direct upstream: the Go shell verifies the optional X-Catena-Sig
   # header itself (shell/auth, opt-in via
   # CATENA_ADMIN_REQUIRE_HEADER_SIG + CATENA_ADMIN_HEADER_SECRET), so
-  # there is no sidecar in front of it -- the compose at
-  # roles/catena-admin/files/catena-admin.compose.yml ships the single
-  # `app` service with the `catena-admin` network alias. upstream_alias
-  # MUST be that alias: pointing it anywhere else 502s every
-  # AUTHENTICATED dash.<zone> request while unauthenticated ones still
-  # 302 to the IdP, so probes look fine.
+  # there is no sidecar in front of it. roles/catena-admin creates a swarm
+  # service NAMED catena-admin, and a swarm service's name is its DNS name
+  # on the overlay. upstream_alias MUST be that name: pointing it anywhere
+  # else 502s every AUTHENTICATED dash.<zone> request while
+  # unauthenticated ones still 302 to the IdP, so probes look fine.
   - slug: "catena-admin"
     host_var: "catena_admin_hostname"
     upstream_alias: "catena-admin"

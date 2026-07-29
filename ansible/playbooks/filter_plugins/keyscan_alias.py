@@ -7,9 +7,9 @@ ssh-keyscan emits one entry per line as
 
 where paramiko's `HostKeys.load` matches the connection hostname
 against the literal first field. From inside a docker container,
-ssh_dispatch.py connects to `host.docker.internal` (resolved via
-extra_hosts host-gateway in
-roles/catena-admin/files/catena-admin.compose.yml),
+ssh_dispatch.py connects to `host.docker.internal` (resolved via the
+`--host host.docker.internal:host-gateway` the service carries; see
+roles/catena-admin and filter_plugins/catena_admin_service.py),
 so the entry must list that name in addition to whatever
 ssh-keyscan saw. known_hosts treats a comma-list of names as
 aliases of the same key:

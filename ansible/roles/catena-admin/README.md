@@ -2,9 +2,9 @@
 
 Host-side setup AND container deploy for the per-VPS admin panel -- the
 catena-admin Go shell. This role prepares everything the container
-expects to find on the host, then deploys the container itself as a
-Portainer stack from
-[files/catena-admin.compose.yml](files/catena-admin.compose.yml).
+expects to find on the host, then creates the container itself as a
+TIER-1 SWARM SERVICE, with the argv rendered by
+[../../playbooks/filter_plugins/catena_admin_service.py](../../playbooks/filter_plugins/catena_admin_service.py).
 
 ## What this role does
 
@@ -24,8 +24,8 @@ Portainer stack from
 - Generates an ed25519 keypair under `/etc/catena/admin-ssh/`
   (chowned for the container's uid 1000) and seeds known_hosts via
   ssh-keyscan.
-- Creates the bind-mount targets the admin compose
-  ([files/catena-admin.compose.yml](files/catena-admin.compose.yml))
+- Creates the bind-mount targets the service
+  ([../../playbooks/filter_plugins/catena_admin_service.py](../../playbooks/filter_plugins/catena_admin_service.py))
   expects: `/etc/catena/admin-ssh/`, `/etc/catena/admin-actions.yml`,
   `/etc/catena/extra-tiles.yml`, `/var/lib/catena/` (read-only stats;
   populated by run-backup.sh + gatus-sync), and
@@ -44,16 +44,19 @@ Portainer stack from
 - Renders `/etc/catena/extra-tiles.yml` from inventory
   `catena_admin_extra_tiles` (operator escape hatch for hand-authored
   Apps-tab tiles).
-- Deploys the catena-admin container as a Portainer stack
-  ([tasks/deploy.yml](tasks/deploy.yml)) from
-  [files/catena-admin.compose.yml](files/catena-admin.compose.yml),
-  pulling the PUBLIC GHCR image (`catena_admin_image`) anonymously --
-  every install gets the panel; the Business feature set inside it is
-  gated at runtime by the license check. The image ref and every per-host
-  value are supplied via the stack Env array (${VAR} substitution); no
-  Traefik route is written here (oauth2-proxy owns the gated
-  `dash.<zone>` route). The test bench drives the identical path but
-  builds the image locally instead of pulling from GHCR.
+- Creates the catena-admin container as a tier-1 swarm service
+  ([tasks/deploy.yml](tasks/deploy.yml)), pulling the PUBLIC GHCR image
+  (`catena_admin_image`) anonymously -- every install gets the panel; the
+  Business feature set inside it is gated at runtime by the license
+  check. It was a Portainer stack until the panel held the key that
+  drives Portainer *and* depended on Portainer to start, so a broken
+  control plane took down the only tool that could repair it. The three
+  credentials arrive as swarm secrets, not `--env`: `docker service
+  create` has no `--env-file`, so an `--env` value sits in the host
+  process table where any local user can read it. No Traefik route is
+  written here (oauth2-proxy owns the gated `dash.<zone>` route). The
+  test bench renders its argv from the same filter plugin and differs in
+  one value: it builds the image locally instead of pulling from GHCR.
 
 ## What this role does NOT do
 
