@@ -453,9 +453,13 @@ backup_restic_short_id_script: /usr/local/bin/catena-restic-short-id
 # auto-update two-phase driver, and roles/backup/tasks/restore.yml. One
 # implementation, three callers; see vps-scripts/disk-preflight.sh.
 backup_disk_preflight_script: /usr/local/bin/catena-disk-preflight
-# Minimum free bytes at {{ storage_mount_point }}/backup-staging before
-# a backup run is allowed to start. pg_dumpall + restic temp files for
-# an SMB-stack VPS land in the low GiB; 5 GiB is a safe headroom.
+# FLOOR for free bytes at {{ storage_mount_point }}/backup-staging before a
+# backup run is allowed to start -- not the requirement. run-backup.sh sums
+# pg_database_size across every running postgres container at runtime and
+# demands that instead whenever it exceeds this, because pg_dumpall stages
+# UNCOMPRESSED SQL locally before gzip and a number sized for a reference host
+# cannot know when it stops being right. 5 GiB covers restic's temp/cache plus
+# a small stack; the derived value takes over from there.
 backup_preflight_min_bytes: 5368709120 # 5 GiB
 # Minimum free bytes at / before a restore is allowed to start. Restic's
 # tar-style extraction can balloon transiently above the snapshot's

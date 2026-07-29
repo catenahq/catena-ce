@@ -253,17 +253,86 @@ if [ "${_reach_rc:-0}" = 124 ]; then
 fi
 unset _reach_rc 2>/dev/null || true
 
+# Resolve the superuser for one postgres container. POSTGRES_USER from the
+# live container env wins; BACKUP_PG_DUMP_USER is the fallback. A client app
+# can ship a bespoke superuser, and pg_dumpall -U postgres would then error
+# with "role does not exist". Used by BOTH the sizing probe below and the
+# dump loop further down -- one implementation, so the two can never disagree
+# about which role to connect as.
+pg_superuser_for() {
+    _pgu=$(docker exec "$1" sh -c 'printf %s "${POSTGRES_USER:-}"' 2>/dev/null \
+             | tr -d '\r\n')
+    if [ -z "$_pgu" ]; then
+        _pgu="$BACKUP_PG_DUMP_USER"
+    fi
+    printf '%s' "$_pgu"
+}
+
+# Every running container whose image name contains "postgres". Works for any
+# image derived from official postgres (pgvector, postgis, etc.). The `awk`
+# form avoids docker --format Go-templates, which is the bit that kept biting
+# us when this lived under Jinja.
+pg_containers() {
+    docker ps --no-trunc --format '{{.Names}}\t{{.Image}}' \
+      | awk -F'\t' 'tolower($2) ~ /postgres/ {print $1}'
+}
+
 # ─── R16: disk-space preflight ───────────────────────────────────────────
 # Abort the run before pg_dumpall writes a single byte if the staging
-# mount is below the configured floor. The EXIT trap above pings /fail,
+# mount is below the required free space. The EXIT trap above pings /fail,
 # so an operator dead-man alert fires the same way it would for any other
 # pre-restic failure.
+#
+# BACKUP_PREFLIGHT_MIN_BYTES is a FLOOR, not the answer. It was sized for
+# "an SMB-stack VPS" and knows nothing about the tenant in front of it, so a
+# host with a large Postgres passed this check and then filled the disk
+# mid-dump -- caught only by the fatal-pg_dumpall path, after the backup
+# window was burned and staging was left holding a partial file.
+#
+# So derive the real requirement from what is about to be written. pg_dumpall
+# emits UNCOMPRESSED SQL to an intermediate file before gzip (see the
+# two-step note in the dump loop), so peak staging demand tracks the logical
+# size of the databases, not the size of the finished .sql.gz. Sum
+# pg_database_size across every running postgres container and require that,
+# scaled by BACKUP_PREFLIGHT_DB_PCT, whenever it exceeds the floor.
+#
+# FAIL-OPEN on purpose: a container that will not answer the size query is
+# not a reason to refuse a backup. Any probe failure leaves the floor in
+# place and says so, because a preflight that blocks on its own
+# instrumentation is worse than the gap it closes.
+BACKUP_PREFLIGHT_DB_PCT="${BACKUP_PREFLIGHT_DB_PCT:-100}"
+_pf_min="${BACKUP_PREFLIGHT_MIN_BYTES:-0}"
+_pf_db_total=0
+if command -v docker >/dev/null 2>&1; then
+    for _pf_c in $(pg_containers); do
+        _pf_u=$(pg_superuser_for "$_pf_c")
+        _pf_sz=$(docker exec "$_pf_c" psql -U "$_pf_u" -tAc \
+                   'SELECT coalesce(sum(pg_database_size(datname)),0) FROM pg_database WHERE datallowconn' \
+                   2>/dev/null | tr -d '\r\n ')
+        case "$_pf_sz" in
+            ''|*[!0-9]*)
+                log "preflight sizing: ${_pf_c} did not answer the database-size query; that container is not counted"
+                ;;
+            *)
+                _pf_db_total=$((_pf_db_total + _pf_sz))
+                ;;
+        esac
+    done
+fi
+if [ "$_pf_db_total" -gt 0 ]; then
+    _pf_need=$(( _pf_db_total * BACKUP_PREFLIGHT_DB_PCT / 100 ))
+    if [ "$_pf_need" -gt "$_pf_min" ]; then
+        log "preflight sizing: databases total $((_pf_db_total / 1048576)) MiB -> requiring $((_pf_need / 1048576)) MiB free (static floor was $((_pf_min / 1048576)) MiB)"
+        _pf_min="$_pf_need"
+    fi
+fi
+
 if [ -n "${BACKUP_DISK_PREFLIGHT_SCRIPT:-}" ] \
         && [ -x "${BACKUP_DISK_PREFLIGHT_SCRIPT}" ] \
         && [ -n "${BACKUP_PREFLIGHT_MIN_BYTES:-}" ]; then
     "${BACKUP_DISK_PREFLIGHT_SCRIPT}" \
         "${BACKUP_STAGING_DIR}" \
-        "${BACKUP_PREFLIGHT_MIN_BYTES}" \
+        "${_pf_min}" \
         "backup preflight"
 fi
 
@@ -277,12 +346,7 @@ chmod 700 "$PG_DIR"
 find "$PG_DIR" -type f -name '*.sql.gz' -mtime +3 -delete || true
 
 if command -v docker >/dev/null 2>&1; then
-    # Any running container whose image name contains "postgres". Works
-    # for any image derived from official postgres (pgvector, postgis,
-    # etc.). The `awk` form avoids docker --format Go-templates, which
-    # is the bit that kept biting us when this lived under Jinja.
-    CONTAINERS=$(docker ps --no-trunc --format '{{.Names}}\t{{.Image}}' \
-                   | awk -F'\t' 'tolower($2) ~ /postgres/ {print $1}')
+    CONTAINERS=$(pg_containers)
     if [ -n "$CONTAINERS" ]; then
         dump_failures=""
         for c in $CONTAINERS; do
@@ -296,22 +360,13 @@ if command -v docker >/dev/null 2>&1; then
             # don't match the suffix pattern and pass through unchanged.
             name=$(printf '%s' "$c" | sed -E 's/\.[0-9]+\.[a-z0-9]+$//')
 
-            # Detect the right superuser per container instead of trusting
-            # BACKUP_PG_DUMP_USER as a global default. catena-postgres uses
-            # the conventional POSTGRES_USER=postgres, but a client app can
-            # ship a bespoke superuser -- pg_dumpall -U postgres would then
-            # error out with "role does not exist". Without pipefail the
-            # `... | gzip` pipeline returns gzip's rc (0 on empty input),
-            # so the error gets silently committed as a 20-byte empty-
-            # gzip "dump" and a future restore loses every row of that
-            # database. Read POSTGRES_USER from the live container env
-            # and fall back to the operator-provided default only if it's
-            # empty.
-            user=$(docker exec "$c" sh -c 'printf %s "${POSTGRES_USER:-}"' 2>/dev/null \
-                     | tr -d '\r\n')
-            if [ -z "$user" ]; then
-                user="$BACKUP_PG_DUMP_USER"
-            fi
+            # Per-container superuser, not a global default. Without pipefail
+            # the `... | gzip` pipeline returns gzip's rc (0 on empty input),
+            # so a wrong-role error gets silently committed as a 20-byte
+            # empty-gzip "dump" and a future restore loses every row of that
+            # database. See pg_superuser_for above (shared with the preflight
+            # sizing probe).
+            user=$(pg_superuser_for "$c")
 
             ts=$(date -u +%Y%m%dT%H%M%SZ)
             out="${PG_DIR}/${name}-${ts}.sql.gz"
