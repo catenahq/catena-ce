@@ -20,7 +20,7 @@ role's `tasks/main.yml`.
 | `cloudflare_tunnel` | Cloudflare tunnel converge -- token-gated dispatch to the host engine. |
 | `cloudflare_tunnel_regenerate` | Regenerate the Cloudflare tunnel for this host. |
 | `common` | Baseline host setup. |
-| `coturn` | Shared TURN/STUN server. |
+| `coturn` | Shared TURN/STUN server -- consumer-gated orchestrator. |
 | `docker` | Install Docker CE from the official apt repo (NOT distro's docker.io, which lags upstream by months-to-years and occasionally ships broken containerd combos). |
 | `host_hardening` | Drop two config files (sysctl + modprobe) and apply them. |
 | `infrastructure` | Orchestrator for roles/infrastructure. |
