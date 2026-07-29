@@ -132,6 +132,14 @@ def test_the_converge_applies_the_stored_schedule():
     ]
     assert len(applies) == 1, "exactly one task should apply the schedule"
     assert "apply" in str(applies[0]["ansible.builtin.command"]["argv"])
+    # Gated on the binary being installed, NOT on this converge having
+    # deployed the shell. It carried that gate by copy-paste once, and a host
+    # whose payload arrived any other way (bench, restore, migrate) converged
+    # with no backup-retention.env for run-backup.sh to source.
+    gate = str(applies[0].get("when", ""))
+    assert "catena_admin_deploy_from_converge" not in gate
+    assert "portainer_api_key" not in gate
+    assert "stat.exists" in gate
 
 
 # ─── the daily chain can start at all ──────────────────────────────────

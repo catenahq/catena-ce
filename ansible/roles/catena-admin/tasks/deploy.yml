@@ -129,7 +129,7 @@
     - portainer_api_key is defined
     - (portainer_api_key | default('') | length) > 0
 
-- name: "Catena-admin: install the host engine payload (every host, ungated)"
+- name: "Catena-admin: install the host engine payload from the synced bind mount"
   ansible.builtin.command:
     argv:
       - bash
@@ -153,14 +153,27 @@
 # the panel is not reverted by the next converge, and a value in the store is
 # not shadowed by a template.
 #
-# Ungated like the payload install above. The binary itself decides what an
-# unlicensed host may schedule: it verifies the licence offline and refuses a
-# Business lane or a tighter-than-weekly backup cadence. Community's cap is
-# also asserted below against the stored value, because a client can edit their
-# own config.json and CV8 has to hold in this repo, not only in the panel.
+# Gated on the BINARY, not on who deployed the container. It carried the
+# converge-deploy trio above by copy-paste, which meant a host whose payload
+# arrived any other way -- the bench, a restore, a migrate -- converged with
+# no /etc/catena/backup-retention.env at all, and run-backup.sh sources it.
+# Nothing about applying a stored schedule depends on this converge having
+# deployed the shell; it depends on catena-schedule being installed, which is
+# what the stat asks.
+#
+# The binary itself decides what an unlicensed host may schedule: it verifies
+# the licence offline and refuses a Business lane or a tighter-than-weekly
+# backup cadence. Community's cap is also asserted below against the stored
+# value, because a client can edit their own config.json and CV8 has to hold in
+# this repo, not only in the panel.
 #
 # Idempotent: it skips identical writes, so a converge with nothing to change
 # touches no file and reports unchanged.
+- name: "Catena-admin: is the schedule binary installed"
+  ansible.builtin.stat:
+    path: "{{ catena_schedule_bin }}"
+  register: _catena_schedule_bin_stat
+
 - name: "Catena-admin: apply the stored schedule (timers + retention)"
   ansible.builtin.command:
     argv:
@@ -168,10 +181,7 @@
       - apply
   register: _catena_schedule_apply
   changed_when: false
-  when:
-    - catena_admin_deploy_from_converge | bool
-    - portainer_api_key is defined
-    - (portainer_api_key | default('') | length) > 0
+  when: _catena_schedule_bin_stat.stat.exists
 
 - name: "Catena-admin: schedule state"
   ansible.builtin.debug:
