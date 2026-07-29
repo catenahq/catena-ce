@@ -117,9 +117,9 @@ keycloak_realm_export_oncalendar: "*-*-* 03:30:00"
 # fires resolves into the same `smtp_*` vars that realm-vps.yaml.j2
 # reads.
 
-_resend_sender: "{{ lookup('dotenv', 'RESEND_SENDER_EMAIL', default='') }}"
-_brevo_sender: "{{ lookup('dotenv', 'BREVO_SENDER_EMAIL', default='') }}"
-_raw_smtp_host: "{{ lookup('dotenv', 'SMTP_HOST', default='') }}"
+_resend_sender: "{{ cfg_resend_sender_email | default('') }}"
+_brevo_sender: "{{ cfg_brevo_sender_email | default('') }}"
+_raw_smtp_host: "{{ cfg_smtp_host | default('') }}"
 
 smtp_enabled: >-
   {{
@@ -138,19 +138,19 @@ smtp_host: >-
 smtp_port: >-
   {{
     587 if ((_resend_sender | length > 0) or (_brevo_sender | length > 0))
-    else (lookup('dotenv', 'SMTP_PORT', default='587') | int)
+    else (cfg_smtp_port | default('587') | int)
   }}
 smtp_user: >-
   {{
     'resend' if (_resend_sender | length > 0)
-    else (lookup('dotenv', 'BREVO_SMTP_USER', default='') if (_brevo_sender | length > 0)
-    else lookup('dotenv', 'SMTP_USER', default=''))
+    else (cfg_brevo_smtp_user | default('') if (_brevo_sender | length > 0)
+    else cfg_smtp_user | default(''))
   }}
 smtp_from: >-
   {{
     _resend_sender if (_resend_sender | length > 0)
     else (_brevo_sender if (_brevo_sender | length > 0)
-    else lookup('dotenv', 'SMTP_FROM', default=admin_email))
+    else cfg_smtp_from | default(admin_email))
   }}
 smtp_use_tls: true
 smtp_use_starttls: true

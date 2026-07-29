@@ -276,6 +276,136 @@ ROLE_MINTED_SECRETS: dict[str, str] = {
 }
 
 
+# --- non-secret config: who owns which key (SECRETS.md category 4) ----------
+#
+# Two owners, one boundary, and the boundary is the two-phase install.
+#
+# BOOTSTRAP keys are what the installer needs before there is a box to ask:
+# the zone, the subdomains, the ops user, the storage layout. They come from
+# the inventory `.env` and stay there.
+#
+# SETTINGS keys are everything the client changes AFTER the install, in
+# catena-admin. Those belong to the on-box store, and the `.env` is only their
+# first-install SEED -- adopted fill-only on the first converge, exactly like
+# an external secret, and never read again.
+#
+# Before this split both were live read paths at once. run-backup.sh had to
+# reconcile them in shell at runtime, retention drifted into two copies with
+# the converge's silently dead (see the note in backup.env.j2), and a
+# tag-scoped converge that skipped the loader fell back to a stale `.env`
+# value with no signal -- which is how a poisoned postgres password survived
+# `--tags postgres` (fi_s3, site.yml:45-51).
+#
+# Value is the Ansible variable the loader publishes the stored value as. The
+# projection is DECLARED rather than derived by lowercasing: two keys already
+# do not follow the rule (BACKUP_RESTIC_REPO -> backup_restic_repo is fine,
+# NTFY_SERVER -> ntfy_server is fine, but MAILSERVER_CERTBOT_STAGING ->
+# mailserver_certbot_staging and CATENA_ACME_* -> coturn_acme_* are not), and
+# a derived mapping fails silently by publishing a fact nothing reads.
+SETTINGS_CONFIG: dict[str, str] = {
+    # Backup: repo + cadence + the alert lanes.
+    "BACKUP_RESTIC_REPO": "cfg_backup_restic_repo",
+    "BACKUP_WEEKLY_TIMER_ONCALENDAR": "cfg_backup_weekly_timer_oncalendar",
+    "BACKUP_HEALTHCHECK_URL": "cfg_backup_healthcheck_url",
+    "BACKUP_HEALTHCHECK_ATTEMPTED_URL": "cfg_backup_healthcheck_attempted_url",
+    "BACKUP_HEALTHCHECK_URL_CLIENT": "cfg_backup_healthcheck_url_client",
+    "BACKUP_HEALTHCHECK_URL_OPERATOR": "cfg_backup_healthcheck_url_operator",
+    # WORM mirror (opt-in, configured post-install).
+    "BACKUP_WORM_REPO": "cfg_backup_worm_repo",
+    "BACKUP_WORM_HEALTHCHECK_URL": "cfg_backup_worm_healthcheck_url",
+    "BACKUP_WORM_HEALTHCHECK_ATTEMPTED_URL": "cfg_backup_worm_healthcheck_attempted_url",
+    # Nextcloud primary-storage mirror (opt-in).
+    "NEXTCLOUD_LIVE_REPO": "cfg_nextcloud_live_repo",
+    "NEXTCLOUD_WORM_REPO": "cfg_nextcloud_worm_repo",
+    "NEXTCLOUD_WORM_MIRROR_ONCALENDAR": "cfg_nextcloud_worm_mirror_oncalendar",
+    "NEXTCLOUD_MIRROR_HEALTHCHECK_URL": "cfg_nextcloud_mirror_healthcheck_url",
+    "NEXTCLOUD_MIRROR_HEALTHCHECK_ATTEMPTED_URL": "cfg_nextcloud_mirror_healthcheck_attempted_url",
+    # Outbound mail. The password is an EXTERNAL_SECRET; these are its
+    # non-secret companions.
+    "SMTP_HOST": "cfg_smtp_host",
+    "SMTP_PORT": "cfg_smtp_port",
+    "SMTP_USER": "cfg_smtp_user",
+    "SMTP_FROM": "cfg_smtp_from",
+    "SMTP_USE_TLS": "cfg_smtp_use_tls",
+    "RESEND_SENDER_EMAIL": "cfg_resend_sender_email",
+    "BREVO_SENDER_EMAIL": "cfg_brevo_sender_email",
+    "BREVO_SMTP_USER": "cfg_brevo_smtp_user",
+    # Alert delivery. Both blank by default; see roles/infrastructure.
+    "NTFY_SERVER": "cfg_ntfy_server",
+    "NTFY_TOPIC": "cfg_ntfy_topic",
+    # Egress proxies / mirrors -- a site policy, not an install input.
+    "APT_PROXY_URL": "cfg_apt_proxy_url",
+    "DOCKER_REGISTRY_MIRROR_URL": "cfg_docker_registry_mirror_url",
+    # Mailserver toggles.
+    "MAILSERVER_CERTBOT_STAGING": "cfg_mailserver_certbot_staging",
+}
+
+# Read from the inventory `.env` at converge time, by design: the installer
+# needs them before the box exists. Declared so a key that is in NEITHER set
+# is a gate failure rather than an unnoticed third owner.
+BOOTSTRAP_CONFIG: frozenset[str] = frozenset({
+    "ADMIN_EMAIL",
+    "AUTH_SUBDOMAIN",
+    "BESZEL_SUBDOMAIN",
+    "CATENA_ADMIN_SUBDOMAIN",
+    "CATENA_ADMIN_UI_PORT",
+    "CATENA_DEFAULT_LANGUAGE",
+    "CLOUDFLARED_TUNNEL_NAME_PREFIX",
+    "CLOUDFLARE_ACCOUNT_ID",
+    "CLOUDFLARE_ZONE",
+    "COMMON_LOCALE",
+    "COMMON_TIMEZONE",
+    "DASH_SUBDOMAIN",
+    "DISPLAY_NAME",
+    "HEADSCALE_USER",
+    "HEARTBEAT_SUBDOMAIN",
+    "MONITOR_SUBDOMAIN",
+    "OPS_USER",
+    "PORTAINER_SUBDOMAIN",
+    "PORTAINER_UI_PORT",
+    "RECOVERY_SUBDOMAIN",
+    "SSH_PRIVATE_KEY",
+    "SSH_PUBLIC_KEY_FILE",
+    "STORAGE_BLOCK_DEVICE",
+    "STORAGE_BULK_ENABLED",
+    "STORAGE_BULK_MOUNT_POINT",
+    "STORAGE_MODE",
+    "STORAGE_MOUNT_POINT",
+    "TAILNET_CONTROL_URL",
+    "TAILSCALE_ACCEPT_DNS",
+    "TAILSCALE_TAGS",
+    # Bench / dev overrides for the ACME path. Not client-facing: they point
+    # coturn's cert issuance at a local Pebble instead of Let's Encrypt, which
+    # is an inventory-level decision made before the host exists.
+    "CATENA_ACME_CA_BUNDLE_PEM_B64",
+    "CATENA_ACME_DIRECTORY_URL",
+    "CATENA_ACME_HOST_IP",
+    "COTURN_CERTBOT_STAGING",
+    # Retention: read by the inventory only to seed the store. The live values
+    # come from /etc/catena/backup-retention.env, rendered by catena-schedule.
+    "BACKUP_KEEP_DAILY",
+    "BACKUP_KEEP_WEEKLY",
+    "BACKUP_KEEP_MONTHLY",
+})
+
+
+def config_names() -> list[str]:
+    """Every non-secret config key with a declared owner."""
+    return sorted(set(SETTINGS_CONFIG) | BOOTSTRAP_CONFIG)
+
+
+def settings_config_vars(config: dict) -> dict:
+    """Project the store's config section onto the Ansible variable names the
+    converge reads. Unknown keys are ignored: the settings API accepts forward
+    keys a given catena-ce may not know yet, and a converge must not invent a
+    fact from one."""
+    out: dict = {}
+    for key, var in SETTINGS_CONFIG.items():
+        if key in (config or {}):
+            out[var] = config[key]
+    return out
+
+
 def secret_names() -> list[str]:
     """Every key the store recognises, across all four categories.
 
@@ -482,13 +612,20 @@ def main(argv: list[str] | None = None) -> int:
                          "0600 host file; this ansible-core's script module has "
                          "no stdin passthrough)")
     ap.add_argument("--emit",
-                    choices=["secrets", "all", "none", "secret-names"],
+                    choices=["secrets", "all", "none", "secret-names",
+                             "settings-config-names", "config-vars"],
                     default="secrets",
                     help="what to print as JSON on stdout (default: secrets, "
                          "for an Ansible set_fact of the store's keys). "
                          "secret-names prints the declared key list WITHOUT "
                          "touching the store -- the converge loader reads it "
-                         "to know which in-scope variables to capture.")
+                         "to know which in-scope variables to capture. "
+                         "settings-config-names prints the store-owned config "
+                         "keys, also without touching the store, so the loader "
+                         "knows which .env values to seed. config-vars prints "
+                         "the store's config projected onto Ansible variable "
+                         "names, for a set_fact that outranks the role "
+                         "defaults.")
     ap.add_argument("--dispatch-stdin", action="store_true",
                     help="serve the catena-admin settings API: read a JSON "
                          "request {op: read|write, secrets, config} from stdin. "
@@ -502,6 +639,9 @@ def main(argv: list[str] | None = None) -> int:
     # must never mint or write anything.
     if args.emit == "secret-names":
         print(json.dumps(secret_names()))
+        return 0
+    if args.emit == "settings-config-names":
+        print(json.dumps(sorted(SETTINGS_CONFIG)))
         return 0
 
     # Settings-API dispatch (driven by the host runner on behalf of the admin
@@ -550,6 +690,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(store.get("secrets", {})))
     elif args.emit == "all":
         print(json.dumps(store))
+    elif args.emit == "config-vars":
+        print(json.dumps(settings_config_vars(store.get("config", {}))))
     return 0
 
 

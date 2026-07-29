@@ -101,9 +101,9 @@
   vars:
     _smtp_enabled: >-
       {{
-        (lookup('dotenv', 'RESEND_SENDER_EMAIL', default='') | length > 0)
-        or (lookup('dotenv', 'BREVO_SENDER_EMAIL', default='') | length > 0)
-        or (lookup('dotenv', 'SMTP_HOST', default='') | length > 0)
+        (cfg_resend_sender_email | default('') | length > 0)
+        or (cfg_brevo_sender_email | default('') | length > 0)
+        or (cfg_smtp_host | default('') | length > 0)
       }}
     _bootstrap_email: "{{ lookup('dotenv', 'ADMIN_EMAIL', default='') }}"
 

@@ -148,6 +148,24 @@ tailnet) and the Cloudflare token (tunnel + DNS).
 tier, WORM/cold repo, SMTP host/port/from, `NTFY_*`, `NEXTCLOUD_*` (S3 +
 retention), mailserver toggles, docker/apt proxy.
 
+Both halves are DECLARED, in `helpers/onbox_config.py`: `BOOTSTRAP_CONFIG` is
+the `.env`-owned set, `SETTINGS_CONFIG` maps each store-owned key to the
+Ansible variable the converge publishes it as. A key in neither is a test
+failure, so "belongs to no owner" is not a state a new key can occupy.
+
+The settings half has ONE live reader: the store. The inventory `.env` is its
+first-install **seed** -- `load_onbox_config.yml` adopts those values
+fill-only on the first converge, exactly as it adopts an external secret, and
+never reads them again. Both being live at once is what made `run-backup.sh`
+reconcile two sources in shell at runtime, left retention with two copies and
+the converge's silently dead, and let a tag-scoped converge fall back to a
+stale `.env` with no signal.
+
+The published facts are prefixed `cfg_` rather than named after the consuming
+variable. `roles/keycloak` derives `smtp_host` from the Resend/Brevo autofill,
+so a fact named `smtp_host` would have replaced the derivation with the raw
+value -- silently, since a fact outranks a role default.
+
 ## On-box persistence target
 
 `/etc/catena/` already rides the backup (`backup_paths` includes `/etc`) and

@@ -60,7 +60,7 @@ common_baseline_packages:
 # operation that follows. HTTPS sources (docker-ce, tailscale) stay
 # DIRECT -- apt-cacher-ng's CONNECT passthrough has no cache benefit
 # and proxying HTTPS risks TLS middleboxing issues.
-common_apt_proxy_url: "{{ lookup('dotenv', 'APT_PROXY_URL', default='') }}"
+common_apt_proxy_url: "{{ cfg_apt_proxy_url | default('') }}"
 
 # ─── Declarative public-port registry ────────────────────────────────────
 # Reconciler + helper modules install side by side here (the reconciler

@@ -66,12 +66,25 @@ def test_every_host_side_ping_builds_from_the_ping_base():
         )
 
 
-def test_every_host_side_ping_keeps_its_env_override():
+def test_every_host_side_ping_keeps_its_override():
     """Loopback is the DEFAULT, not a lock-in: an operator pointing a lane at
-    an off-host endpoint must still win."""
+    an off-host endpoint must still win.
+
+    The override moved from a live `.env` read to the on-box store (the `.env`
+    seeds it once on the first converge), so what has to be present is the
+    projected `cfg_` fact ahead of the computed loopback URL."""
     backup = _defaults(BACKUP_DEFAULTS)
     for key in HOST_SIDE:
-        assert "lookup('dotenv'" in backup[key], key
+        value = backup[key]
+        assert f"cfg_{key} | default('')" in value, key
+        # And it has to come FIRST, or the computed URL would win.
+        assert value.index(f"cfg_{key}") < value.index("healthchecks_ping_base"), (
+            f"{key}: the override must be evaluated before the computed URL"
+        )
+        assert "lookup('dotenv'" not in value, (
+            f"{key} still reads .env directly; post-install config has one "
+            "reader, the store"
+        )
 
 
 def test_the_external_dead_mans_are_not_rewritten():

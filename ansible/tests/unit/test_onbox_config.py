@@ -512,3 +512,120 @@ def test_cli_no_mint_seeds_only(oc, tmp_path, capsys):
     assert rc == 0
     emitted = json.loads(capsys.readouterr().out)
     assert emitted == {"cloudflare_api_token": "cf"}
+
+
+# --- non-secret config ownership (SECRETS.md category 4) --------------------
+def test_every_config_key_has_exactly_one_owner(oc):
+    """Belonging to neither set is not a state. That is what let the .env and
+    the store both be live readers of the same key -- run-backup.sh reconciled
+    them in shell, and retention ended up with two copies, one silently dead."""
+    overlap = set(oc.SETTINGS_CONFIG) & oc.BOOTSTRAP_CONFIG
+    assert not overlap, f"claimed by both owners: {sorted(overlap)}"
+
+
+def test_every_dotenv_key_the_converge_reads_is_declared(oc):
+    """The registry has to cover what the tree actually reads, or a new key
+    quietly acquires a third owner: nobody."""
+    import re
+    root = ANSIBLE_DIR
+    pattern = re.compile(r"lookup\('dotenv',\s*'([A-Z0-9_]+)'")
+    known = set(oc.SETTINGS_CONFIG) | oc.BOOTSTRAP_CONFIG
+    undeclared: dict[str, str] = {}
+    for path in sorted(root.rglob("*")):
+        s = str(path)
+        if not path.is_file() or path.suffix not in {".yml", ".yaml", ".j2"}:
+            continue
+        if ".collections" in s or "/tests/" in s:
+            continue
+        for key in pattern.findall(path.read_text()):
+            if key not in known:
+                undeclared.setdefault(key, s)
+    assert not undeclared, (
+        "config keys read from .env with no declared owner in "
+        f"onbox_config.py: {undeclared}"
+    )
+
+
+def test_no_settings_key_is_read_from_dotenv_outside_the_seed(oc):
+    """The whole point: post-install config has ONE live reader. The inventory
+    and the loader are the seed surface; a role default reading .env directly
+    is the silent-fallback bug class returning."""
+    import re
+    pattern = re.compile(r"lookup\('dotenv',\s*'([A-Z0-9_]+)'")
+    offenders: dict[str, str] = {}
+    for path in sorted(ANSIBLE_DIR.rglob("*")):
+        s = str(path)
+        if not path.is_file() or path.suffix not in {".yml", ".yaml", ".j2"}:
+            continue
+        if ".collections" in s or "/tests/" in s or "/inventory/" in s:
+            continue
+        if path.name == "load_onbox_config.yml":
+            continue  # the seeding task, by construction
+        for key in pattern.findall(path.read_text()):
+            if key in oc.SETTINGS_CONFIG:
+                offenders.setdefault(key, s)
+    assert not offenders, f"settings keys still read from .env: {offenders}"
+
+
+def test_settings_config_vars_projects_only_present_keys(oc):
+    got = oc.settings_config_vars({"NTFY_SERVER": "https://n.example"})
+    assert got == {"cfg_ntfy_server": "https://n.example"}
+
+
+def test_settings_config_vars_ignores_unknown_keys(oc):
+    """The settings API accepts forward keys a given catena-ce may not know
+    yet; a converge must not invent a fact from one."""
+    assert oc.settings_config_vars({"SOME_FUTURE_KEY": "x"}) == {}
+    assert oc.settings_config_vars({}) == {}
+    assert oc.settings_config_vars(None) == {}
+
+
+def test_projected_var_names_are_prefixed(oc):
+    """cfg_ is not decoration. keycloak/defaults derives smtp_host from the
+    Resend/Brevo autofill, so a fact literally named smtp_host would silently
+    replace the derivation with the raw value."""
+    for key, var in oc.SETTINGS_CONFIG.items():
+        assert var.startswith("cfg_"), f"{key} projects onto {var}"
+
+
+def test_seeding_is_fill_only(oc, tmp_path):
+    """The .env seeds a fresh store and never again. A converge that
+    overwrote would undo every settings-page edit on the next run."""
+    p = tmp_path / "config.json"
+    store = oc.load(p)
+    oc.apply_inputs(store, config_in={"NTFY_SERVER": "https://seed.example"})
+    oc.dump(store, p)
+
+    store = oc.load(p)
+    store["config"]["NTFY_SERVER"] = "https://client-chose.example"
+    oc.dump(store, p)
+
+    store = oc.load(p)
+    oc.apply_inputs(store, config_in={"NTFY_SERVER": "https://seed.example"})
+    assert store["config"]["NTFY_SERVER"] == "https://client-chose.example"
+
+
+def test_a_settings_write_overwrites(oc, tmp_path):
+    """The panel edit path uses overwrite=True, which is what makes the store
+    the owner rather than a cache of the first value seen."""
+    store = {"secrets": {}, "config": {"NTFY_SERVER": "https://old.example"}}
+    oc.apply_inputs(store, config_in={"NTFY_SERVER": "https://new.example"},
+                    overwrite=True)
+    assert store["config"]["NTFY_SERVER"] == "https://new.example"
+
+
+def test_cli_emits_the_settings_key_names_without_touching_the_store(oc, tmp_path, capsys):
+    """The loader asks for this before the store exists on a fresh box."""
+    p = tmp_path / "config.json"
+    rc = oc.main(["--path", str(p), "--emit", "settings-config-names"])
+    assert rc == 0
+    assert not p.exists(), "a pure query must not create the store"
+    assert "BACKUP_RESTIC_REPO" in json.loads(capsys.readouterr().out)
+
+
+def test_cli_emits_config_vars(oc, tmp_path, capsys):
+    p = tmp_path / "config.json"
+    oc.dump({"secrets": {}, "config": {"SMTP_HOST": "mail.example"}}, p)
+    rc = oc.main(["--path", str(p), "--no-mint", "--emit", "config-vars"])
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out) == {"cfg_smtp_host": "mail.example"}

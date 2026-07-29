@@ -9,7 +9,11 @@ backup_mode: install # install | restore | verify
 # our pattern for the cloudflared binary.
 backup_restic_version: "0.19.1"
 
-backup_restic_repo: "" # e.g. s3:s3.bhs.io.cloud.ovh.net/<client>-restic
+# e.g. s3:s3.bhs.io.cloud.ovh.net/<client>-restic. Store-owned: the inventory
+# .env seeds it on the first converge and catena-admin > Settings owns it
+# after that. run-backup.sh already read the store at runtime; this makes the
+# converge read the same value instead of a second copy from .env.
+backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
 
 # Cadence is not set here. It is a customizable RPO: an OnCalendar string
 # per lane, set in the Catena admin panel, stored in /etc/catena/config.json
@@ -62,7 +66,7 @@ backup_restic_repo: "" # e.g. s3:s3.bhs.io.cloud.ovh.net/<client>-restic
 # reason, optionally pings the worm-attempted healthcheck with /skip,
 # and exits 0. Daily backups never read the worm config and stay
 # unaffected -- a misconfigured WORM cannot brick the primary chain.
-backup_worm_repo: "{{ lookup('dotenv', 'BACKUP_WORM_REPO', default='') }}"
+backup_worm_repo: "{{ cfg_backup_worm_repo | default('') }}"
 # The cold-mirror cadence is the `restic_mirror` lane in the admin panel, off
 # by default like every other lane -- it writes into a second provider's
 # bucket, which is exactly the quota nobody has confirmed the client has.
@@ -88,13 +92,13 @@ backup_worm_repo: "{{ lookup('dotenv', 'BACKUP_WORM_REPO', default='') }}"
 # Environment; the
 # live IAM creds reuse nextcloud_s3_access_key /
 # nextcloud_s3_secret_key (the same keys Nextcloud itself uses).
-nextcloud_live_repo: "{{ lookup('dotenv', 'NEXTCLOUD_LIVE_REPO', default='') }}"
-nextcloud_worm_repo: "{{ lookup('dotenv', 'NEXTCLOUD_WORM_REPO', default='') }}"
+nextcloud_live_repo: "{{ cfg_nextcloud_live_repo | default('') }}"
+nextcloud_worm_repo: "{{ cfg_nextcloud_worm_repo | default('') }}"
 nextcloud_worm_mirror_oncalendar: >-
-  {{ lookup('dotenv', 'NEXTCLOUD_WORM_MIRROR_ONCALENDAR', default='*-*-* 04:45:00') }}
+  {{ cfg_nextcloud_worm_mirror_oncalendar | default('*-*-* 04:45:00') }}
 nextcloud_mirror_healthcheck_url: >-
   {{
-    lookup('dotenv', 'NEXTCLOUD_MIRROR_HEALTHCHECK_URL', default='')
+    cfg_nextcloud_mirror_healthcheck_url | default('')
     or (healthchecks_ping_base
         ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-nextcloud-mirror-succeeded?create=1'
@@ -102,7 +106,7 @@ nextcloud_mirror_healthcheck_url: >-
   }}
 nextcloud_mirror_healthcheck_attempted_url: >-
   {{
-    lookup('dotenv', 'NEXTCLOUD_MIRROR_HEALTHCHECK_ATTEMPTED_URL', default='')
+    cfg_nextcloud_mirror_healthcheck_attempted_url | default('')
     or (healthchecks_ping_base
         ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-nextcloud-mirror-attempted?create=1'
@@ -113,7 +117,7 @@ nextcloud_mirror_healthcheck_attempted_url: >-
 # distinct slugs so the operator can set the alarm threshold per-job.
 backup_worm_healthcheck_url: >-
   {{
-    lookup('dotenv', 'BACKUP_WORM_HEALTHCHECK_URL', default='')
+    cfg_backup_worm_healthcheck_url | default('')
     or (healthchecks_ping_base
         ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-worm-mirror-succeeded?create=1'
@@ -121,7 +125,7 @@ backup_worm_healthcheck_url: >-
   }}
 backup_worm_healthcheck_attempted_url: >-
   {{
-    lookup('dotenv', 'BACKUP_WORM_HEALTHCHECK_ATTEMPTED_URL', default='')
+    cfg_backup_worm_healthcheck_attempted_url | default('')
     or (healthchecks_ping_base
         ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-worm-mirror-attempted?create=1'
@@ -150,7 +154,7 @@ backup_worm_healthcheck_attempted_url: >-
 # loss, which is the one case loopback cannot cover.
 backup_healthcheck_url: >-
   {{
-    lookup('dotenv', 'BACKUP_HEALTHCHECK_URL', default='')
+    cfg_backup_healthcheck_url | default('')
     or (healthchecks_ping_base
         ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-backup-succeeded?create=1'
@@ -158,7 +162,7 @@ backup_healthcheck_url: >-
   }}
 backup_healthcheck_attempted_url: >-
   {{
-    lookup('dotenv', 'BACKUP_HEALTHCHECK_ATTEMPTED_URL', default='')
+    cfg_backup_healthcheck_attempted_url | default('')
     or (healthchecks_ping_base
         ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-backup-attempted?create=1'
@@ -182,8 +186,8 @@ backup_healthcheck_attempted_url: >-
 # Either, both, or neither set is valid. If BOTH are empty, the backup
 # install task prints an ORANGE non-fatal warning ("no external dead-man
 # set; whole-host outage will be silent"). Never blocks the converge.
-backup_healthcheck_url_client: "{{ lookup('dotenv', 'BACKUP_HEALTHCHECK_URL_CLIENT', default='') }}"
-backup_healthcheck_url_operator: "{{ lookup('dotenv', 'BACKUP_HEALTHCHECK_URL_OPERATOR', default='') }}"
+backup_healthcheck_url_client: "{{ cfg_backup_healthcheck_url_client | default('') }}"
+backup_healthcheck_url_operator: "{{ cfg_backup_healthcheck_url_operator | default('') }}"
 
 # Retention is not set by this repo at all.
 #
@@ -487,7 +491,7 @@ backup_systemd_unit_name: catena-backup
 # the weekly slot via inventory .env (e.g. 'Sun *-*-* 03:00:00') but
 # cannot tighten it below weekly: the backup_weekly_cap filter fails
 # the converge on a daily/sub-weekly value (that is the Business lane).
-backup_weekly_timer_oncalendar: "{{ lookup('dotenv', 'BACKUP_WEEKLY_TIMER_ONCALENDAR', default='weekly') | backup_weekly_cap }}"
+backup_weekly_timer_oncalendar: "{{ cfg_backup_weekly_timer_oncalendar | default('weekly') | backup_weekly_cap }}"
 
 # Stats file written by the wrapper after each successful run. Hosts
 # both the catena-admin container's read-only bind-mount target AND

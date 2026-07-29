@@ -78,4 +78,4 @@ docker_packages:
 # insecure-registries entry (plain host:port, no scheme) is derived
 # automatically when the URL is http:// (lab use); https:// mirrors
 # need no insecure-registries listing.
-docker_registry_mirror_url: "{{ lookup('dotenv', 'DOCKER_REGISTRY_MIRROR_URL', default='') }}"
+docker_registry_mirror_url: "{{ cfg_docker_registry_mirror_url | default('') }}"

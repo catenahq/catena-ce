@@ -64,12 +64,8 @@ admin_email: "{{ lookup('dotenv', 'ADMIN_EMAIL', default='') }}"
 # smtp_host/smtp_port/etc. here -- doing so shadows the role default and
 # defeats the autofill.
 
-# --- ntfy (alert delivery) ---
-# Blank default, deliberately: https://ntfy.sh is public and unauthenticated,
-# so a host nobody configured would push its alerts somewhere the topic is the
-# only secret. Blank means "seed no channel and say so".
-ntfy_server: "{{ lookup('dotenv', 'NTFY_SERVER', default='') }}"
-ntfy_topic: "{{ lookup('dotenv', 'NTFY_TOPIC', default='') }}"
+# ntfy + backup repo are NOT set here. They are store-owned (catena-admin >
+# Settings); the converge seeds them from .env once and reads the store after.
 
 # Auth is handled entirely by self-hosted SSO at auth.<zone> + forward-auth
 # middleware on each app router. User membership in the access groups controls
@@ -103,7 +99,6 @@ storage_bulk_mount_point: "{{ lookup('dotenv', 'STORAGE_BULK_MOUNT_POINT', defau
 # catena-admin (Settings > Backup), written to the on-box store, and read by
 # run-backup.sh at runtime. This .env value is only a converge-time fallback
 # for the repo URL; default '' so a deferred-backup install converges cleanly.
-backup_restic_repo: "{{ lookup('dotenv', 'BACKUP_RESTIC_REPO', default='') }}"
 # backup_healthcheck_url is NOT set here. roles/backup/defaults owns it, and
 # an inventory copy overrides that default while drifting from it: this one
 # still built the single-lane "catena-backup" slug the two-lane succeeded /

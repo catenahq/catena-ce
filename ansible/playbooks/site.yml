@@ -106,13 +106,13 @@
       loop: >-
         {{ [
              {'name': 'BACKUP_RESTIC_REPO',
-              'url': (lookup('dotenv', 'BACKUP_RESTIC_REPO', default='')
+              'url': (cfg_backup_restic_repo | default('')
                       | restic_repo_endpoint)},
              {'name': 'BACKUP_WORM_REPO',
-              'url': (lookup('dotenv', 'BACKUP_WORM_REPO', default='')
+              'url': (cfg_backup_worm_repo | default('')
                       | restic_repo_endpoint)},
              {'name': 'NEXTCLOUD_WORM_REPO',
-              'url': (lookup('dotenv', 'NEXTCLOUD_WORM_REPO', default='')
+              'url': (cfg_nextcloud_worm_repo | default('')
                       | restic_repo_endpoint)},
            ] | selectattr('url', 'ne', '') | list }}
       loop_control:
@@ -148,11 +148,11 @@
           fail later in the converge; fix the relay host/port or network, or
           re-run with -e skip_external_preflight=true.
       vars:
-        _smtp_host: "{{ lookup('dotenv', 'SMTP_HOST', default='') }}"
-        _smtp_port: "{{ lookup('dotenv', 'SMTP_PORT', default='587') }}"
+        _smtp_host: "{{ cfg_smtp_host | default('') }}"
+        _smtp_port: "{{ cfg_smtp_port | default('587') }}"
       when:
         - not (skip_external_preflight | default(false) | bool)
-        - (lookup('dotenv', 'SMTP_HOST', default='') | length) > 0
+        - (cfg_smtp_host | default('') | length) > 0
       tags: [always, external_preflight]
 
   # Tags allow iterating on a single role:

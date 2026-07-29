@@ -131,6 +131,13 @@ healthchecks_ping_base: "http://127.0.0.1:{{ healthchecks_host_localhost_port }}
 healthchecks_subdomain: "{{ lookup('dotenv', 'HEARTBEAT_SUBDOMAIN', default='heartbeat') }}"
 healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
 
+# Alert delivery. Store-owned (the client changes these in catena-admin), so
+# they read the projected fact rather than .env; the inventory only seeds them
+# on the first converge. Both blank means no channel is seeded and the
+# converge says so -- see roles/infrastructure/tasks/healthchecks.yml.
+ntfy_server: "{{ cfg_ntfy_server | default('') }}"
+ntfy_topic: "{{ cfg_ntfy_topic | default('') }}"
+
 # --- Beszel (hub + agent resource monitor) ------------------------------
 # Replaces the cAdvisor + catena-resource-sampler lane (deleted 2026-05-31).
 # Two managed compose stacks:
@@ -296,7 +303,7 @@ mailserver_certbot_email: "{{ admin_email | default('hostmaster@' ~ cloudflare_z
 # Staging CA for the bench only (production LE rate-limits re-issuance of
 # the same identifier; the bench redeploys mail.<zone> every run). Same
 # knob shape as coturn. Production inventories MUST leave this false.
-mailserver_certbot_use_staging: "{{ lookup('dotenv', 'MAILSERVER_CERTBOT_STAGING', default='false') | bool }}"
+mailserver_certbot_use_staging: "{{ cfg_mailserver_certbot_staging | default('false') | bool }}"
 mailserver_certbot_staging_server: "https://acme-staging-v02.api.letsencrypt.org/directory"
 
 # Local-ACME override (bench Pebble). All blank in production -> certbot

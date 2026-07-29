@@ -99,3 +99,56 @@
   loop_control:
     label: "{{ item.key }}"
   no_log: true
+
+# ─── non-secret config: seed once from .env, then read only the store ───────
+#
+# Same shape as the secret adopt above, for the reason: post-install config
+# has to have ONE live reader. The inventory `.env` is the first-install SEED
+# (fill-only, so a converge never overwrites what the client later set in
+# catena-admin), and from then on the store answers.
+#
+# Before this, both were live at once: run-backup.sh reconciled them in shell
+# at runtime, retention ended up with two copies and the converge's silently
+# dead, and a tag-scoped converge that skipped this loader fell back to a
+# stale `.env` with no signal.
+- name: "onbox: read the store-owned config key names"
+  ansible.builtin.script:
+    cmd: "{{ playbook_dir }}/../helpers/onbox_config.py --emit settings-config-names"
+    executable: python3
+  register: _onbox_cfg_known
+  changed_when: false
+
+# Each declared key is read out of the inventory .env on the CONTROLLER and
+# passed as --set-config. A blank never seeds: apply_inputs skips empty values
+# the same way it skips a blank secret, so an unset key leaves the store alone
+# rather than writing "" over a value the client set.
+- name: "onbox: seed the store's config from .env (fill-only, first install)"
+  ansible.builtin.script:
+    cmd: >-
+      {{ playbook_dir }}/../helpers/onbox_config.py
+      --path {{ catena_onbox_config_path | default('/etc/catena/config.json') }}
+      --no-mint --emit none
+      {% for k in (_onbox_cfg_known.stdout | from_json) %}
+      {% set v = lookup('dotenv', k, default='') %}
+      {% if v | string | length > 0 %}--set-config {{ (k ~ '=' ~ v) | quote }} {% endif %}
+      {% endfor %}
+    executable: python3
+  register: _onbox_cfg_seeded
+  changed_when: false
+
+- name: "onbox: publish the store's config as facts (outranks role defaults)"
+  ansible.builtin.script:
+    cmd: >-
+      {{ playbook_dir }}/../helpers/onbox_config.py
+      --path {{ catena_onbox_config_path | default('/etc/catena/config.json') }}
+      --no-mint --emit config-vars
+    executable: python3
+  register: _onbox_cfg_emit
+  changed_when: false
+
+- name: "onbox: set_fact each store-owned config value"
+  ansible.builtin.set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: "{{ (_onbox_cfg_emit.stdout | from_json) | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
