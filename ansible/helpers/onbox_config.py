@@ -259,6 +259,27 @@ ROLE_MINTED_SECRETS: dict[str, str] = {
 }
 
 
+def secret_names() -> list[str]:
+    """Every key the store recognises, across all four categories.
+
+    This is the converge loader's discriminator: it selects which in-scope
+    Ansible variables get captured into the store. That used to be the regex
+    ``^vault_.+$``, which made a name PREFIX load-bearing -- a variable was
+    captured because of how it was spelled rather than because anyone said it
+    was a secret. Naming it here instead means the four category tables above
+    are the single declaration, and a key that belongs to no category is
+    already impossible by construction.
+
+    The loader must still capture BY NAME and never evaluate the whole
+    variable set: resolving every in-scope var aborts a converge on role
+    defaults that only resolve inside their own role.
+    """
+    return sorted(
+        set(INTERNAL_SECRETS) | set(USER_HELD_SECRETS)
+        | set(EXTERNAL_SECRETS) | set(ROLE_MINTED_SECRETS)
+    )
+
+
 # --- store I/O --------------------------------------------------------------
 def load(path: str | Path = DEFAULT_STORE_PATH) -> dict:
     """Load the store. Returns a dict with 'secrets' and 'config' sub-dicts
@@ -443,9 +464,14 @@ def main(argv: list[str] | None = None) -> int:
                          "file (the Ansible loader stages the capture map to a "
                          "0600 host file; this ansible-core's script module has "
                          "no stdin passthrough)")
-    ap.add_argument("--emit", choices=["secrets", "all", "none"], default="secrets",
+    ap.add_argument("--emit",
+                    choices=["secrets", "all", "none", "secret-names"],
+                    default="secrets",
                     help="what to print as JSON on stdout (default: secrets, "
-                         "for an Ansible set_fact of the vault_* names)")
+                         "for an Ansible set_fact of the store's keys). "
+                         "secret-names prints the declared key list WITHOUT "
+                         "touching the store -- the converge loader reads it "
+                         "to know which in-scope variables to capture.")
     ap.add_argument("--dispatch-stdin", action="store_true",
                     help="serve the catena-admin settings API: read a JSON "
                          "request {op: read|write, secrets, config} from stdin. "
@@ -453,6 +479,13 @@ def main(argv: list[str] | None = None) -> int:
                          "external creds/config (overwrite, no mint) and print "
                          '{"ok": true}. Rejects internal-secret keys.')
     args = ap.parse_args(argv)
+
+    # A pure query, answered before any store I/O: the converge loader asks
+    # for this BEFORE the store exists on a fresh box, and reading the answer
+    # must never mint or write anything.
+    if args.emit == "secret-names":
+        print(json.dumps(secret_names()))
+        return 0
 
     # Settings-API dispatch (driven by the host runner on behalf of the admin
     # container / the bench). A distinct, minimal surface: no minting on write

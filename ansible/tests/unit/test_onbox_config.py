@@ -179,6 +179,36 @@ def test_every_registry_is_non_empty(oc):
         assert members, f"{name} is empty"
 
 
+# --- secret_names: the converge loader's discriminator ----------------------
+def test_secret_names_is_the_union_of_the_four_registries(oc):
+    """playbooks/tasks/load_onbox_config.yml reads this list to decide which
+    in-scope Ansible variables to capture into the store. It used to decide
+    that with the regex ^vault_.+$, which made a name PREFIX load-bearing: a
+    variable was captured for how it was spelled, not because anyone had
+    declared it a secret."""
+    expected = set().union(*_registries(oc).values())
+    assert set(oc.secret_names()) == expected
+
+
+def test_secret_names_is_sorted_and_unique(oc):
+    """The loader joins these into a regex alternation. Duplicate or
+    unordered output would still work but makes a converge diff noisy for no
+    reason."""
+    names = oc.secret_names()
+    assert names == sorted(set(names))
+
+
+def test_secret_names_emit_touches_no_store(oc, tmp_path, capsys):
+    """A fresh box runs this BEFORE the store exists. Answering it must not
+    create the file, and must not mint anything into it."""
+    store_path = tmp_path / "config.json"
+    rc = oc.main(["--path", str(store_path), "--emit", "secret-names"])
+    assert rc == 0
+    assert not store_path.exists(), "the query wrote a store"
+    printed = json.loads(capsys.readouterr().out)
+    assert printed == oc.secret_names()
+
+
 def test_portainer_api_key_is_role_minted(oc):
     """Portainer mints its own API key: not internal (this module never
     generates it), not external (no human ever supplies one). It is
