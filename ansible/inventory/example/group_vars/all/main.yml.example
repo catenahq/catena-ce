@@ -108,16 +108,12 @@ storage_bulk_mount_point: "{{ lookup('dotenv', 'STORAGE_BULK_MOUNT_POINT', defau
 # run-backup.sh at runtime. This .env value is only a converge-time fallback
 # for the repo URL; default '' so a deferred-backup install converges cleanly.
 backup_restic_repo: "{{ lookup('dotenv', 'BACKUP_RESTIC_REPO', default='') }}"
-# Default: ping the local self-hosted Healthchecks at heartbeat.<zone> using
-# the per-project ping key. Override via .env to point elsewhere (e.g. an
-# off-host healthchecks.io for whole-host-outage coverage).
-backup_healthcheck_url: >-
-  {{
-    lookup('dotenv', 'BACKUP_HEALTHCHECK_URL', default='')
-    or ('https://' ~ healthchecks_hostname
-        ~ '/ping/' ~ healthchecks_ping_key
-        ~ '/catena-backup?create=1')
-  }}
+# backup_healthcheck_url is NOT set here. roles/backup/defaults owns it, and
+# an inventory copy overrides that default while drifting from it: this one
+# still built the single-lane "catena-backup" slug the two-lane succeeded /
+# attempted split replaced, so any inventory carrying it silently opted out of
+# the immediate-page lane. Override with BACKUP_HEALTHCHECK_URL in .env if you
+# want an off-host endpoint.
 backup_retention_policy:
   keep_daily: "{{ lookup('dotenv', 'BACKUP_KEEP_DAILY', default='7') | int }}"
   keep_weekly: "{{ lookup('dotenv', 'BACKUP_KEEP_WEEKLY', default='4') | int }}"

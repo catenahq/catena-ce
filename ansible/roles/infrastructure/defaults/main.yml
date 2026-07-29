@@ -114,6 +114,20 @@ healthchecks_summary_file: "{{ backup_stats_dir | default('/var/lib/catena') }}/
 # network, so it can't resolve the container alias. 127.0.0.1:18000 is
 # UFW-safe (loopback is never publicly reachable).
 healthchecks_host_localhost_port: 18000
+# Base every HOST-SIDE ping is built from. Systemd units on the box used to
+# build https://{{ healthchecks_hostname }}/ping/..., which leaves the host,
+# crosses Cloudflare's edge, and comes back in through the tunnel to reach a
+# container on the same box. That makes the alarm path depend on the thing it
+# most needs to report on: a tunnel or DNS failure silences the backup
+# dead-man instead of tripping it, and on an ACCESS_MODE=tailnet host the
+# hostname resolves to nothing at all.
+#
+# Container-to-container pings do NOT use this -- Gatus and the Beszel shim
+# post to the network alias, which is already local. The .env overrides
+# (BACKUP_HEALTHCHECK_URL_CLIENT / _OPERATOR) stay deliberately external:
+# they are the box-death half of the two-monitor model, and a loopback ping
+# cannot detect a host that is gone.
+healthchecks_ping_base: "http://127.0.0.1:{{ healthchecks_host_localhost_port }}"
 
 healthchecks_subdomain: "{{ lookup('dotenv', 'HEARTBEAT_SUBDOMAIN', default='heartbeat') }}"
 healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"

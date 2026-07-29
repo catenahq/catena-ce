@@ -95,7 +95,7 @@ nextcloud_worm_mirror_oncalendar: >-
 nextcloud_mirror_healthcheck_url: >-
   {{
     lookup('dotenv', 'NEXTCLOUD_MIRROR_HEALTHCHECK_URL', default='')
-    or ('https://' ~ healthchecks_hostname
+    or (healthchecks_ping_base
         ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-nextcloud-mirror-succeeded?create=1'
         if healthchecks_ping_key is defined else '')
@@ -103,7 +103,7 @@ nextcloud_mirror_healthcheck_url: >-
 nextcloud_mirror_healthcheck_attempted_url: >-
   {{
     lookup('dotenv', 'NEXTCLOUD_MIRROR_HEALTHCHECK_ATTEMPTED_URL', default='')
-    or ('https://' ~ healthchecks_hostname
+    or (healthchecks_ping_base
         ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-nextcloud-mirror-attempted?create=1'
         if healthchecks_ping_key is defined else '')
@@ -114,7 +114,7 @@ nextcloud_mirror_healthcheck_attempted_url: >-
 backup_worm_healthcheck_url: >-
   {{
     lookup('dotenv', 'BACKUP_WORM_HEALTHCHECK_URL', default='')
-    or ('https://' ~ healthchecks_hostname
+    or (healthchecks_ping_base
         ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-worm-mirror-succeeded?create=1'
         if healthchecks_ping_key is defined else '')
@@ -122,7 +122,7 @@ backup_worm_healthcheck_url: >-
 backup_worm_healthcheck_attempted_url: >-
   {{
     lookup('dotenv', 'BACKUP_WORM_HEALTHCHECK_ATTEMPTED_URL', default='')
-    or ('https://' ~ healthchecks_hostname
+    or (healthchecks_ping_base
         ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-worm-mirror-attempted?create=1'
         if healthchecks_ping_key is defined else '')
@@ -142,12 +142,16 @@ backup_worm_healthcheck_attempted_url: >-
 #   structural failures immediately.
 #
 # Both auto-provision on first ping (?create=1) using the same
-# healthchecks_ping_key. .env can override either with an off-host
-# URL (healthchecks.io etc.) for survivability past full VPS loss.
+# healthchecks_ping_key, against healthchecks_ping_base -- the loopback
+# publish, not the public hostname. These run from a systemd unit ON the box
+# reaching a container ON the box; routing that through Cloudflare made the
+# backup dead-man die with the edge it reports on. .env can override either
+# with an off-host URL (healthchecks.io etc.) for survivability past full VPS
+# loss, which is the one case loopback cannot cover.
 backup_healthcheck_url: >-
   {{
     lookup('dotenv', 'BACKUP_HEALTHCHECK_URL', default='')
-    or ('https://' ~ healthchecks_hostname
+    or (healthchecks_ping_base
         ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-backup-succeeded?create=1'
         if healthchecks_ping_key is defined else '')
@@ -155,7 +159,7 @@ backup_healthcheck_url: >-
 backup_healthcheck_attempted_url: >-
   {{
     lookup('dotenv', 'BACKUP_HEALTHCHECK_ATTEMPTED_URL', default='')
-    or ('https://' ~ healthchecks_hostname
+    or (healthchecks_ping_base
         ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-backup-attempted?create=1'
         if healthchecks_ping_key is defined else '')
