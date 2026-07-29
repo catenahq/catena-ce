@@ -15,7 +15,16 @@ services:
     environment:
       SITE_ROOT: "https://{{ healthchecks_hostname }}"
       SITE_NAME: "{{ cloudflare_zone }} heartbeats"
-      ALLOWED_HOSTS: "{{ healthchecks_hostname }},{{ healthchecks_network_alias }},localhost"
+      # 127.0.0.1 is not decoration. Django matches ALLOWED_HOSTS against the
+      # literal Host header, and every host-side consumer dials the loopback
+      # publish below BY IP: gatus-sync (HEALTHCHECKS_API_URL), the clamav
+      # watchdog and the mail canary (HEALTHCHECKS_LOOPBACK_PORT). With only
+      # "localhost" in this list all three got 400 DisallowedHost -- verified
+      # against healthchecks/healthchecks:v4.3 directly: Host 127.0.0.1 -> 400,
+      # Host localhost -> 401 (reached the app). Two watchdogs and the panel's
+      # check summary were failing in a way that looks exactly like "nothing to
+      # report".
+      ALLOWED_HOSTS: "{{ healthchecks_hostname }},{{ healthchecks_network_alias }},localhost,127.0.0.1"
       SECRET_KEY: "{{ healthchecks_secret_key }}"
       DEBUG: "False"
       # Closed registration -- oauth2-proxy + Keycloak gate the UI, and our seed
