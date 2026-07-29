@@ -13,7 +13,7 @@ Catena is exercised end-to-end by an automated rehearsal suite: each scenario pr
 
 Two numbers are reported everywhere: **rehearsed** means the scenario was last recorded PASSING on a real run, and is the only number treated as evidence; **declared** additionally counts scenarios that exist but have not been observed passing yet. A scenario is never counted for merely existing.
 
-**Coverage: 10 Community features, 70 of 84 rehearsal scenarios observed passing; 12 Catena Pro features, 30 of 42; plus 12 of 23 maintainer-internal rehearsals.**
+**Coverage: 10 Community features, 69 of 84 rehearsal scenarios observed passing; 12 Catena Pro features, 33 of 42; plus 16 of 23 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -23,7 +23,7 @@ A scheduled weekly backup plus manual backups any time. Backups are encrypted on
 
 Implemented in: `ansible/playbooks/backup_now.yml`, `ansible/playbooks/filter_plugins/backup_cadence_cap.py`, `ansible/roles/backup`, `ansible/scripts/backup-coverage.sh`, `ansible/scripts/catena-restic-key.py`, `ansible/scripts/restic-env.sh`, `ansible/scripts/restic-mount.sh`, `ansible/scripts/restic-short-id.sh`, `ansible/scripts/restic-unmount.sh`, `ansible/scripts/run-backup.sh`, `ansible/scripts/snapshot-export.sh`, `ansible/scripts/snapshot-list.sh`
 
-Rehearsal scenarios (9 of 11 observed passing): `backup_rollback`, `concurrent_backup_lock_contention`, `fi_b2_pg_dump_failed`, `fi_b3_snapshot_id_mismatch`, `fi_b6_healthchecks_down`, `fi_b7_ntfy_delivery_fails`, `malformed_catalog_rejection`, `restic_password_rotation_round_trip`, `snapshot_export_round_trip`; declared, not yet observed passing: `backup_schedule_applied`, `fi_b4_locked_pack_rotation`
+Rehearsal scenarios (8 of 11 observed passing): `concurrent_backup_lock_contention`, `fi_b2_pg_dump_failed`, `fi_b3_snapshot_id_mismatch`, `fi_b6_healthchecks_down`, `fi_b7_ntfy_delivery_fails`, `malformed_catalog_rejection`, `restic_password_rotation_round_trip`, `snapshot_export_round_trip`; declared, not yet observed passing: `backup_rollback`, `backup_schedule_applied`, `fi_b4_locked_pack_rotation`
 
 ### Single sign-on across the suite
 
@@ -47,7 +47,7 @@ Prepares a fresh server, installs the platform, and deploys the selected applica
 
 Implemented in: `ansible/catena_cli.py`, `ansible/helpers/*.py`, `ansible/playbooks/bootstrap.yml`, `ansible/playbooks/preflight.yml`, `ansible/playbooks/show_dr_keyset.yml`, `ansible/playbooks/site.yml`, `ansible/playbooks/tasks/load_onbox_config.yml`, `ansible/playbooks/uninstall.yml`, `ansible/roles/common`, `ansible/roles/docker`, `ansible/roles/host_hardening`, `ansible/roles/portainer`, `ansible/roles/postgres`, `ansible/roles/storage`, `ansible/roles/traefik`, `ansible/seed.py`
 
-Rehearsal scenarios (14 of 16 observed passing): `ce_converge`, `ce_install_suite`, `ce_uninstall`, `converge_modify`, `fi_c1_docker_daemon_hang`, `fi_c3_portainer_crash_mid_deploy`, `fi_c4_registry_pull_timeout`, `fi_c6_cloudflared_flapping`, `fi_c7_coturn_cert_expired`, `fi_c8_nextcloud_init_loop`, `fi_u1_compose_lint_reject`, `mixed_template_negative_restore`, `repair_broken_template_round_trip`, `scheduler_easyappointments`; declared, not yet observed passing: `dev_to_prod_cutover_round_trip`, `swarm_overlay_selfheal`
+Rehearsal scenarios (15 of 16 observed passing): `ce_converge`, `ce_install_suite`, `ce_uninstall`, `converge_modify`, `fi_c1_docker_daemon_hang`, `fi_c3_portainer_crash_mid_deploy`, `fi_c4_registry_pull_timeout`, `fi_c6_cloudflared_flapping`, `fi_c7_coturn_cert_expired`, `fi_c8_nextcloud_init_loop`, `fi_u1_compose_lint_reject`, `mixed_template_negative_restore`, `repair_broken_template_round_trip`, `scheduler_easyappointments`, `swarm_overlay_selfheal`; declared, not yet observed passing: `dev_to_prod_cutover_round_trip`
 
 ### Application catalog and suite integrations
 
@@ -95,7 +95,7 @@ A validation pass proves both directions: every service answers where it should 
 
 Implemented in: `ansible/playbooks/validate.yml`, `ansible/scripts/verify_gated_intent.py`, `ansible/tests/external/scan_ports.py`
 
-Rehearsal scenarios (3 of 3 observed passing): `ce_validate`, `fi_v2_external_scan_blocked`, `security_scan`
+Rehearsal scenarios (2 of 3 observed passing): `ce_validate`, `fi_v2_external_scan_blocked`; declared, not yet observed passing: `security_scan`
 
 ## Catena Pro features
 
@@ -105,13 +105,13 @@ They are exercised by the same rehearsal suite as the Community features above, 
 
 | Feature | Rehearsed | Declared |
 | --- | --- | --- |
-| Signed monthly compliance attestation | 0 | 1 |
+| Signed monthly compliance attestation | 1 | 1 |
 | Tamper-evident central audit trail | 1 | 1 |
-| Offsite immutable backup copy | 2 | 6 |
+| Offsite immutable backup copy | 3 | 6 |
 | Vulnerability scanning | 1 | 1 |
 | Automated daily maintenance | 13 | 13 |
 | Managed lifecycle operations (migration, decommission) | see note | see note |
-| Licensed feature activation | 4 | 6 |
+| Licensed feature activation | 5 | 6 |
 | Identity posture monitoring | 0 | 1 |
 | Managed updates with automatic rollback | 9 | 9 |
 | External availability monitoring | 0 | 1 |
@@ -122,7 +122,7 @@ Note: features marked *see note* are maintainer-run procedures; their rehearsals
 
 ## Maintainer-internal tooling
 
-The maintainers' internal tooling (test harness, control plane, rotation and maintenance utilities) accounts for a further 3 features and 12 of 23 rehearsal scenarios observed passing; details stay private.
+The maintainers' internal tooling (test harness, control plane, rotation and maintenance utilities) accounts for a further 3 features and 16 of 23 rehearsal scenarios observed passing; details stay private.
 
 ## Continuous integration gates on this repository
 
