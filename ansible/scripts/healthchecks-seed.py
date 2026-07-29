@@ -25,10 +25,13 @@ reconciles drift without wiping operator-added checks."""
 #   1. Project.api_key_readonly + ping_key + name (pinned to vault).
 #   2. Removes Healthchecks's tutorial check + default email channel if
 #      present (neither is wanted here).
-#   3. ntfy Channel for the operator's topic (update-in-place).
+#   3. ntfy Channel for the operator's topic (update-in-place) -- ONLY when
+#      both NTFY_SERVER and NTFY_TOPIC are set. Both blank is a supported
+#      end state; see the block itself for why the old ntfy.sh default was
+#      worse than no channel.
 #   4. "Daily backup ping" check (dead-man, 1d timeout + 2h grace).
-#   5. Binds ntfy channel to the backup check via .add() (not .set()),
-#      so client-added channels survive converges.
+#   5. Binds the ntfy channel, if there is one, to the backup check via
+#      .add() (not .set()), so client-added channels survive converges.
 #
 # Gatus per-endpoint checks (gatus-<slug>) are NOT seeded here: Gatus
 # creates them on first failure via `?create=1`, and Healthchecks's
@@ -111,17 +114,44 @@ project.save(update_fields=_save_fields)
 Check.objects.filter(project=project, name="My first check").delete()
 Channel.objects.filter(project=project, kind="email").delete()
 
-ntfy_value = json.dumps({
-    "topic": _hc_ntfy_topic,
-    "url": _hc_ntfy_server,
-    "priority": 3,
-    "priority_up": 3,
-})
-channel, _ = Channel.objects.update_or_create(
-    project=project,
-    kind="ntfy",
-    defaults={"value": ntfy_value, "name": "ntfy ({})".format(_hc_inventory_hostname)},
-)
+# The ntfy channel is OPTIONAL, and both halves are required to make one.
+#
+# NTFY_SERVER used to default to https://ntfy.sh -- public and
+# unauthenticated, where the topic is the only access control. A host nobody
+# configured therefore pushed its alerts to a server the operator does not
+# run, which is the wrong thing to do by default. It also produced a channel
+# with an empty topic whenever only the server was set: a route that resolves
+# and delivers nowhere, and reads in the UI as configured.
+#
+# Both blank is a supported end state, not a half-finished install: the checks
+# still record every ping and the client attaches their own channel through
+# the Healthchecks integrations UI. The delete keeps that reconcilable in both
+# directions -- clearing the values on a converge removes a channel that was
+# seeded earlier, rather than leaving a stale one nobody can see is dead.
+if _hc_ntfy_topic and _hc_ntfy_server:
+    ntfy_value = json.dumps({
+        "topic": _hc_ntfy_topic,
+        "url": _hc_ntfy_server,
+        "priority": 3,
+        "priority_up": 3,
+    })
+    channel, _ = Channel.objects.update_or_create(
+        project=project,
+        kind="ntfy",
+        defaults={
+            "value": ntfy_value,
+            "name": "ntfy ({})".format(_hc_inventory_hostname),
+        },
+    )
+else:
+    channel = None
+    removed, _ = Channel.objects.filter(project=project, kind="ntfy").delete()
+    print(
+        "healthchecks-seed: no notification channel configured "
+        "(NTFY_SERVER and NTFY_TOPIC must both be set); checks will record "
+        "pings but nothing will be pushed. Removed {} stale ntfy channel(s)."
+        .format(removed)
+    )
 
 # R24: two backup checks, not one.
 #
@@ -151,7 +181,8 @@ backup_succeeded_check, _ = Check.objects.update_or_create(
         "grace": timedelta(hours=26),
     },
 )
-backup_succeeded_check.channel_set.add(channel)
+if channel is not None:
+    backup_succeeded_check.channel_set.add(channel)
 
 backup_attempted_check, _ = Check.objects.update_or_create(
     project=project,
@@ -169,7 +200,8 @@ backup_attempted_check, _ = Check.objects.update_or_create(
         "grace": timedelta(hours=2),
     },
 )
-backup_attempted_check.channel_set.add(channel)
+if channel is not None:
+    backup_attempted_check.channel_set.add(channel)
 
 # Community edition seeds NO catena-daily umbrella checks: the nightly
 # orchestrator chain (cold mirror, verify-cold, managed updates, CVE
@@ -180,7 +212,7 @@ backup_attempted_check.channel_set.add(channel)
 # real ping starts the dead-man clock.
 print(
     "OK channel={} succeeded={} attempted={}".format(
-        channel.code,
+        channel.code if channel is not None else "none",
         backup_succeeded_check.code,
         backup_attempted_check.code,
     )

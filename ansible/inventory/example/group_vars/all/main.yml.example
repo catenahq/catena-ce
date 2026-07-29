@@ -71,8 +71,11 @@ admin_email: "{{ lookup('dotenv', 'ADMIN_EMAIL', default='') }}"
 # smtp_host/smtp_port/etc. here -- doing so shadows the role default and
 # defeats the autofill.
 
-# --- ntfy (Gatus alerting) ---
-ntfy_server: "{{ lookup('dotenv', 'NTFY_SERVER', default='https://ntfy.sh') }}"
+# --- ntfy (alert delivery) ---
+# Blank default, deliberately: https://ntfy.sh is public and unauthenticated,
+# so a host nobody configured would push its alerts somewhere the topic is the
+# only secret. Blank means "seed no channel and say so".
+ntfy_server: "{{ lookup('dotenv', 'NTFY_SERVER', default='') }}"
 ntfy_topic: "{{ lookup('dotenv', 'NTFY_TOPIC', default='') }}"
 
 # Auth is handled entirely by self-hosted SSO at auth.<zone> + forward-auth

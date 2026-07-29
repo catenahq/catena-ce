@@ -199,3 +199,18 @@
   delay: 5
   until: _healthchecks_seed.rc == 0
   no_log: true
+
+# Say it out loud on the converge. The seed script prints the same thing, but
+# that task runs no_log (it carries the superuser password), so the operator
+# would never see it. A host whose alerts go nowhere must not be a host that
+# looks exactly like a healthy one -- checks still record every ping, but
+# nothing is pushed anywhere until a channel exists.
+- name: "Healthchecks: warn when no notification channel is configured"
+  ansible.builtin.debug:
+    msg: >-
+      No alert delivery configured on this host: NTFY_SERVER and NTFY_TOPIC
+      must BOTH be set for the converge to seed a channel. Healthchecks will
+      record pings and mark checks down, but nothing will be pushed. Point
+      them at your own ntfy, or have the client attach a channel through the
+      Healthchecks integrations UI.
+  when: not (ntfy_server | default('') | trim) or not (ntfy_topic | default('') | trim)
