@@ -59,6 +59,27 @@ if [ "${#missing[@]}" -gt 0 ]; then
     exit 2
 fi
 
+# Advisory, NOT fatal -- deliberately different from
+# nextcloud-talk-hpb-wire.sh, which refuses. Jitsi's primary media path is
+# direct JVB UDP on 10000, and coturn is only the restrictive-network
+# fallback (JVB_TURN_HOST in the rocketchat compose). So calls work for most
+# participants without it; what is lost is the relay for anyone whose network
+# blocks UDP 10000. Refusing would withhold a working feature over a
+# degraded edge case.
+#
+# coturn is consumer-gated (roles/coturn/tasks/main.yml) and its consumer is
+# THIS deployment, so on a freshly deployed host the relay does not come up
+# until the next converge. Say so plainly rather than let the fallback be
+# silently missing.
+if [ -z "$(docker service ls --filter name=coturn --format '{{.Name}}')" ]; then
+    echo "Note: the fallback call relay is not running on this server yet."
+    echo "Calls will work for participants who can reach the server"
+    echo "directly. Anyone on a restrictive network will not connect until"
+    echo "the relay is set up, which happens automatically on the next"
+    echo "managed operation. Wiring continues."
+    echo
+fi
+
 echo "Wiring Rocket.Chat -> Jitsi:"
 echo "  RC URL:        $ROOT_URL"
 echo "  Jitsi domain:  $JITSI_DOMAIN"

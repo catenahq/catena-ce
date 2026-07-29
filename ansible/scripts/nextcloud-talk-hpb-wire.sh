@@ -76,6 +76,28 @@ if ! docker exec "$ct" /bin/sh -c \
     exit 0
 fi
 
+# Guard: the shared TURN relay has to exist before Talk is pointed at it.
+#
+# coturn is consumer-gated (roles/coturn/tasks/main.yml) and its consumer is
+# THIS deployment, so on a host where Nextcloud + Talk was just deployed the
+# relay does not come up until the next converge. Wiring anyway SUCCEEDS --
+# every occ talk:*:add is an upsert that never contacts the host it records --
+# and leaves Talk configured against a name that does not resolve. Calls then
+# fail with nothing pointing at TURN, which is the worst shape available.
+#
+# Fatal here, unlike rocketchat-jitsi-wire.sh: aio-talk's Janus is configured
+# TURN-ONLY (see the talk-hpb block in nextcloud-s3.compose.yml), so without
+# coturn there is no media path at all, not just a degraded one.
+if [ -z "$(docker service ls --filter name=coturn --format '{{.Name}}')" ]; then
+    echo "The call relay this server uses is not running yet, so Talk" >&2
+    echo "cannot connect calls. Nothing has been changed." >&2
+    echo >&2
+    echo "The relay is set up automatically, but not until the next" >&2
+    echo "managed operation runs on this server. Ask your contact to run" >&2
+    echo "one, then press this button again." >&2
+    exit 4
+fi
+
 missing=()
 [ -z "$NC_HOSTNAME" ]       && missing+=("NEXTCLOUD_HOSTNAME")
 [ -z "$SIGNALING_SECRET" ]  && missing+=("SIGNALING_SECRET")
