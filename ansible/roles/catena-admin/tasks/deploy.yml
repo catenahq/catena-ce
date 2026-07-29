@@ -53,18 +53,15 @@
       - "CATENA_ADMIN_IMAGE={{ catena_admin_image }}"
       - "CATENA_DEFAULT_LANG={{ catena_admin_default_language }}"
       - "CATENA_DEFAULT_THEME={{ catena_admin_default_theme }}"
-      # Access mode drives the compliance panel's SSO posture (shell/panels/compliance
-      # reads CATENA_ACCESS_MODE): a tailnet host has no self-hosted
-      # SSO edge, so without this the panel would falsely claim SSO. Always
-      # converge-supplied, so the merge keeps it current (non-credential key
-      # the catalog owns). No multi-domain flag is set here or anywhere else:
-      # the tunnel engine reads the licence from the on-box store and decides
-      # the cap itself (see SYNC.md).
-      - "CATENA_ACCESS_MODE={{ access_mode | default('cloudflare') }}"
+      # No multi-domain flag is set here or anywhere else: the tunnel engine
+      # reads the licence from the on-box store and decides the cap itself
+      # (see SYNC.md). CATENA_ACCESS_MODE went away with ACCESS_MODE itself --
+      # every host now has the self-hosted SSO edge, so the compliance panel
+      # has no second posture to report.
       # The domain this server serves, compared against the domain a licence
       # token names so one key cannot unlock two servers. Normally read from the
       # store with the token; supplied here for the window before the host
-      # dispatch is up. Empty in tailnet mode, which has no domain by design.
+      # dispatch is up.
       - "CLOUDFLARE_PRIMARY_ZONE={{ cloudflare_zone | default('') }}"
       - "PORTAINER_API_BASE=http://{{ portainer_service_name }}:{{ portainer_ui_port }}/api"
       - "PORTAINER_API_KEY={{ portainer_api_key }}"

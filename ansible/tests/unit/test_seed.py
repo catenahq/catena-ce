@@ -311,50 +311,34 @@ def test_validate_structural_rejects_client_placeholder(seed):
     assert seed.validate_install_structural(inp, _ENV_KEYS, _VAULT_KEYS) >= 1
 
 
-# --- ACCESS_MODE (CF-optional install) --------------------------------------
-def test_access_mode_default_is_cloudflare(seed):
-    assert seed._access_mode({}) == "cloudflare"
-    assert seed._access_mode({"ACCESS_MODE": ""}) == "cloudflare"
-    # Unrecognized falls back to cloudflare (fail-safe: keeps CF checks on).
-    assert seed._access_mode({"ACCESS_MODE": "bogus"}) == "cloudflare"
-
-
-def test_access_mode_tailnet(seed):
-    assert seed._access_mode({"ACCESS_MODE": "tailnet"}) == "tailnet"
-    assert seed._access_mode({"ACCESS_MODE": "  TAILNET "}) == "tailnet"
-
-
-def test_access_mode_is_an_env_option(seed):
-    assert seed.ENV_OPTIONS.get("ACCESS_MODE") == ["cloudflare", "tailnet"]
-
-
-def test_validate_structural_tailnet_allows_blank_cf_zone(seed):
-    """In tailnet mode the Cloudflare zone is ignored at converge, so a blank
-    zone is not a problem even though the template default is non-empty."""
+# --- Cloudflare zone / account id -------------------------------------------
+def test_validate_structural_requires_cf_zone(seed):
+    """A blank zone is a problem on every host. It used to be legitimate under
+    ACCESS_MODE=tailnet, which is gone: hostnames derive from the zone and
+    every host now serves them."""
     inp = _good_inp()
-    inp["env"] = {"ACCESS_MODE": "tailnet", "CLOUDFLARE_ZONE": ""}
-    env_keys = [("ACCESS_MODE", "cloudflare"), ("CLOUDFLARE_ZONE", "example.com")]
-    assert seed.validate_install_structural(inp, env_keys, _VAULT_KEYS) == 0
-
-
-def test_validate_structural_cloudflare_requires_cf_zone(seed):
-    """The same blank zone in cloudflare mode IS a problem."""
-    inp = _good_inp()
-    inp["env"] = {"ACCESS_MODE": "cloudflare", "CLOUDFLARE_ZONE": ""}
-    env_keys = [("ACCESS_MODE", "cloudflare"), ("CLOUDFLARE_ZONE", "example.com")]
+    inp["env"] = {"CLOUDFLARE_ZONE": ""}
+    env_keys = [("CLOUDFLARE_ZONE", "example.com")]
     assert seed.validate_install_structural(inp, env_keys, _VAULT_KEYS) >= 1
 
 
-def test_validate_structural_cloudflare_allows_blank_account_id(seed):
+def test_validate_structural_allows_blank_account_id(seed):
     """CLOUDFLARE_ACCOUNT_ID is resolved on-box from the token, so a blank at
-    seed time is fine even in cloudflare mode (the zone is still required)."""
+    seed time is fine (the zone is still required)."""
     inp = _good_inp()
-    inp["env"] = {"ACCESS_MODE": "cloudflare", "CLOUDFLARE_ZONE": "example.com",
+    inp["env"] = {"CLOUDFLARE_ZONE": "example.com",
                   "CLOUDFLARE_ACCOUNT_ID": ""}
-    env_keys = [("ACCESS_MODE", "cloudflare"),
-                ("CLOUDFLARE_ZONE", "example.com"),
+    env_keys = [("CLOUDFLARE_ZONE", "example.com"),
                 ("CLOUDFLARE_ACCOUNT_ID", "REPLACE")]
     assert seed.validate_install_structural(inp, env_keys, _VAULT_KEYS) == 0
+
+
+def test_access_mode_is_gone(seed):
+    """The mode did not serve apps over the tailnet, it skipped the monitoring
+    plane and the SSO edge entirely. Deleted 2026-07-29; a reintroduced helper
+    or env option means the second install shape came back."""
+    assert not hasattr(seed, "_access_mode")
+    assert "ACCESS_MODE" not in seed.ENV_OPTIONS
 
 
 def test_collect_install_secrets_never_collects_cf_token(seed):

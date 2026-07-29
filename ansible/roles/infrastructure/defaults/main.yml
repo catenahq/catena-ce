@@ -119,8 +119,7 @@ healthchecks_host_localhost_port: 18000
 # crosses Cloudflare's edge, and comes back in through the tunnel to reach a
 # container on the same box. That makes the alarm path depend on the thing it
 # most needs to report on: a tunnel or DNS failure silences the backup
-# dead-man instead of tripping it, and on an ACCESS_MODE=tailnet host the
-# hostname resolves to nothing at all.
+# dead-man instead of tripping it.
 #
 # Container-to-container pings do NOT use this -- Gatus and the Beszel shim
 # post to the network alias, which is already local. The .env overrides

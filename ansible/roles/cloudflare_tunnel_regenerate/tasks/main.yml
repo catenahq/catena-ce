@@ -22,18 +22,6 @@
 # This is INSTANT for the client (single-button flow); the rotation
 # is propagated to live state without an operator converge.
 
-- name: "CF regen: refuse in tailnet mode"
-  ansible.builtin.assert:
-    that:
-      - access_mode | default('cloudflare') == 'cloudflare'
-    fail_msg: >-
-      ACCESS_MODE=tailnet: this host has no Cloudflare tunnel to regenerate.
-      Switch ACCESS_MODE to cloudflare (and set the CLOUDFLARE_* keys + a
-      Cloudflare API token) before rotating a tunnel.
-  run_once: true
-  delegate_to: localhost
-  become: false
-
 # There is nothing to rotate until the client has provisioned a tunnel by
 # saving a Cloudflare token in catena-admin > Settings (the token lands in the
 # on-box store). Refuse up front rather than deleting-then-failing-to-recreate.

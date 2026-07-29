@@ -67,10 +67,14 @@ def test_cloudflared_actions_are_community_not_ee():
     assert "cloudflared-sync" not in ee_names
 
 
-def test_catalog_gates_cloudflared_actions_on_cloudflare_mode():
+def test_catalog_authorizes_the_cloudflared_actions_unconditionally():
+    """They used to be appended only in cloudflare access mode. That mode is
+    gone, and the gate was backwards for the deferred-tunnel path anyway: the
+    Settings panel is where the token gets entered, so the actions have to be
+    authorized on a host that has no tunnel yet."""
     text = CATALOG.read_text()
     assert "catena_admin_cloudflared_reserved_actions" in text
-    assert "access_mode | default('cloudflare') == 'cloudflare'" in text
+    assert "access_mode" not in text
 
 
 # --- sshd AcceptEnv for the dispatch env vars -------------------------------

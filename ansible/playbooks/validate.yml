@@ -31,14 +31,8 @@
     # Adding a role here without a companion roles/<role>/tasks/
     # validate.yml file will fail loudly at include time -- good, means
     # the list stays honest.
-    # The self-hosted SSO + media edge (keycloak, oauth2_proxy, coturn) is
-    # deployed ONLY in cloudflare mode -- site.yml gates those roles on
-    # access_mode == cloudflare -- so their containers are absent in tailnet
-    # mode and their validate.yml would fail asserting a missing container.
-    # The list stays a literal (the audit's ansible parser resolves the
-    # validate.yml -> role edges from it statically); the CF-only roles are
-    # skipped at runtime by the include's `when` below, mirroring the
-    # converge's own per-role gating.
+    # The list stays a literal: the audit's ansible parser resolves the
+    # validate.yml -> role edges from it statically.
     validate_roles:
       - common
       - host_hardening
@@ -49,10 +43,6 @@
       - postgres
       - backup
       - infrastructure
-      - keycloak
-      - oauth2_proxy
-      - coturn
-    validate_roles_cloudflare_only:
       - keycloak
       - oauth2_proxy
       - coturn
@@ -80,11 +70,6 @@
         # from ansible-core 2.20).
         loop_var: _validate_role
         label: "{{ _validate_role }}"
-      # Skip the cloudflare-only edge roles in tailnet mode -- site.yml did
-      # not deploy them, so their validate.yml would assert absent containers.
-      when: >-
-        _validate_role not in validate_roles_cloudflare_only
-        or (access_mode | default('cloudflare')) == 'cloudflare'
 
 # Vantage 1b -- DR SMTP positive smoke test (Keycloak / Phase Two)
 #
@@ -114,18 +99,11 @@
   gather_facts: false
   tags: [smtp, vantage1]
   vars:
-    # Keycloak is only deployed in cloudflare mode (self-hosted SSO edge), so
-    # the on-host Keycloak SMTP smoke test is inapplicable in tailnet mode --
-    # there is no server container to dispatch through. Require both a
-    # configured SMTP sender AND cloudflare mode.
     _smtp_enabled: >-
       {{
-        (access_mode | default('cloudflare')) == 'cloudflare'
-        and (
-          (lookup('dotenv', 'RESEND_SENDER_EMAIL', default='') | length > 0)
-          or (lookup('dotenv', 'BREVO_SENDER_EMAIL', default='') | length > 0)
-          or (lookup('dotenv', 'SMTP_HOST', default='') | length > 0)
-        )
+        (lookup('dotenv', 'RESEND_SENDER_EMAIL', default='') | length > 0)
+        or (lookup('dotenv', 'BREVO_SENDER_EMAIL', default='') | length > 0)
+        or (lookup('dotenv', 'SMTP_HOST', default='') | length > 0)
       }}
     _bootstrap_email: "{{ lookup('dotenv', 'ADMIN_EMAIL', default='') }}"
 
@@ -337,8 +315,8 @@
         timeout: 10
       delegate_to: localhost
       # The panel's host-published native-login listener serves /login without a
-      # session (200). Reachable in both access modes; in tailnet mode this is
-      # the only way in.
+      # session (200). It is the way in before a Cloudflare token has been saved,
+      # which is why it is unconditional rather than a mode.
       # Only assert it when the converge itself deployed catena-admin. Production
       # leaves deploy-from-converge true, so the container is up by the time
       # validate runs. The bench deploys catena-admin out of band AFTER the
@@ -363,9 +341,7 @@
           Skipping the via-tunnel probes (auth.<zone>, /oauth2/start) -- no
           Cloudflare token in the on-box store yet; tunnel deferred until one is
           saved in catena-admin > Settings.
-      when:
-        - access_mode | default('cloudflare') == 'cloudflare'
-        - (cloudflare_api_token | default('')) | length == 0
+      when: (cloudflare_api_token | default('')) | length == 0
 
     - name: "Probe Keycloak (auth.<zone>) login page via CF"
       ansible.builtin.uri:
@@ -373,12 +349,9 @@
         status_code: [200, 302]
         timeout: 15
       delegate_to: localhost
-      # Gated on ACCESS_MODE (a blank cloudflare_zone in tailnet mode would still
-      # satisfy `is defined`) AND on a present CF token (no token -> tunnel
-      # deferred -> auth.<zone> is not reachable via CF yet).
-      when:
-        - access_mode | default('cloudflare') == 'cloudflare'
-        - (cloudflare_api_token | default('')) | length > 0
+      # Gated on a present CF token: no token -> tunnel deferred ->
+      # auth.<zone> is not reachable via CF yet.
+      when: (cloudflare_api_token | default('')) | length > 0
       # Keycloak's Account Console redirects unauth'd hits to the login
       # page (302). Authenticated would be 200. Either is healthy.
 
@@ -446,9 +419,7 @@
           https://{{ keycloak_hostname | default('auth.' ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default('vps') }}/protocol/openid-connect/auth?
       # Only build the probe set when the tunnel is actually up (token present);
       # otherwise _gated_hosts stays unset and the probe loop below skips.
-      when:
-        - access_mode | default('cloudflare') == 'cloudflare'
-        - (cloudflare_api_token | default('')) | length > 0
+      when: (cloudflare_api_token | default('')) | length > 0
 
     - name: "Probe /oauth2/start on each gated host (Location -> Keycloak)"
       ansible.builtin.uri:

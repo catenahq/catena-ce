@@ -1,15 +1,10 @@
 ---
 # Validation tasks for roles/infrastructure. Replaces tests/goss/infrastructure.yaml.
 
-# Cloudflare (edge) mode vs tailnet-only mode. Mirrors roles/infrastructure
-# main.yml's _infra_cf_mode: the CF-mode-only reconcilers (dashboard-sync,
-# gatus-sync, catena-wire-nextcloud-oidc, cloudflared) are gated off in tailnet
-# mode, so their validate assertions must gate on the same flag or they fail on
-# a tailnet install. set_fact here because main.yml's fact is not in scope during
-# a standalone validate run.
-- name: "validate/infrastructure: resolve access mode + CF token presence"
+# set_fact here because main.yml's fact is not in scope during a standalone
+# validate run.
+- name: "validate/infrastructure: resolve CF token presence"
   ansible.builtin.set_fact:
-    _infra_cf_mode: "{{ access_mode | default('cloudflare') == 'cloudflare' }}"
     # The cloudflared swarm service only exists once a Cloudflare token has been
     # saved (catena-admin > Settings) and the tunnel converged. With no token
     # the tunnel is DEFERRED, so skip the cloudflared-service asserts rather than
@@ -22,12 +17,11 @@
     path: "{{ item.path }}"
   register: _infra_stats
   loop: >-
-    {{ ([{'path': '/usr/local/bin/dashboard-sync', 'mode': '0755'},
-         {'path': '/usr/local/bin/gatus-sync', 'mode': '0755'},
-         {'path': '/usr/local/bin/catena-wire-nextcloud-oidc', 'mode': '0755'}]
-        if _infra_cf_mode | bool else [])
-       + [{'path': '/var/backups/catena-export', 'type': 'directory', 'mode': '0750'},
-          {'path': '/etc/catena/traefik/dynamic', 'type': 'directory'}] }}
+    {{ [{'path': '/usr/local/bin/dashboard-sync', 'mode': '0755'},
+        {'path': '/usr/local/bin/gatus-sync', 'mode': '0755'},
+        {'path': '/usr/local/bin/catena-wire-nextcloud-oidc', 'mode': '0755'},
+        {'path': '/var/backups/catena-export', 'type': 'directory', 'mode': '0750'},
+        {'path': '/etc/catena/traefik/dynamic', 'type': 'directory'}] }}
   loop_control:
     label: "{{ item.path }}"
 
@@ -53,7 +47,6 @@
     label: "{{ item.0 }} {{ item.1 }}"
   failed_when: false
   changed_when: false
-  when: _infra_cf_mode | bool
 
 - name: "validate/infrastructure: all sync timers armed"
   ansible.builtin.assert:
@@ -65,7 +58,6 @@
   loop: "{{ _infra_timer_checks.results | default([]) }}"
   loop_control:
     label: "{{ item.item.0 }} {{ item.item.1 }}"
-  when: _infra_cf_mode | bool
 
 - name: "validate/infrastructure: catena-network exists"
   ansible.builtin.command: docker network inspect catena-network
@@ -85,18 +77,14 @@
       Skipping the cloudflared swarm-service asserts -- no Cloudflare token in
       the on-box store yet; the tunnel is deferred until one is saved in
       catena-admin > Settings.
-  when:
-    - _infra_cf_mode | bool
-    - not (_infra_cf_token_present | bool)
+  when: not (_infra_cf_token_present | bool)
 
 - name: "validate/infrastructure: cloudflared 1/1 replica"
   ansible.builtin.command: docker service ls --filter name=cloudflared --format '{% raw %}{{.Name}}|{{.Replicas}}{% endraw %}'
   register: _infra_cf
   failed_when: false
   changed_when: false
-  when:
-    - _infra_cf_mode | bool
-    - _infra_cf_token_present | bool
+  when: _infra_cf_token_present | bool
 
 - name: "validate/infrastructure: cloudflared replicas healthy"
   ansible.builtin.assert:
@@ -104,9 +92,7 @@
       - _infra_cf.rc == 0
       - _infra_cf.stdout_lines | select('match', '^cloudflared\\|1/1') | list | length > 0
     fail_msg: "cloudflared swarm service not 1/1: {{ _infra_cf.stdout }}"
-  when:
-    - _infra_cf_mode | bool
-    - _infra_cf_token_present | bool
+  when: _infra_cf_token_present | bool
 
 - name: "validate/infrastructure: host binds no port 80 or 443 (architecture invariant)"
   ansible.builtin.shell: |

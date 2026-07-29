@@ -29,14 +29,15 @@
   # must also authorize the reserved action NAMES the shell dispatches: the CE
   # reserved actions (settings/restic/config), the Business action names the
   # loaded plugins dispatch under a license, and the Cloudflare tunnel actions
-  # the Settings panel dispatches. The cloudflared actions are appended ONLY in
-  # cloudflare access mode (in tailnet mode there is no tunnel to configure).
+  # the Settings panel dispatches. The cloudflared actions are unconditional:
+  # ACCESS_MODE is gone, and the Settings panel is where the Cloudflare token
+  # is entered on a tunnel-deferred host, so the actions have to be authorized
+  # before there is a tunnel.
   ansible.builtin.set_fact:
     _catena_admin_actions_dispatch: >-
       {{ _catena_admin_actions_merged
          + (catena_admin_ce_reserved_actions | default([]))
-         + ((catena_admin_cloudflared_reserved_actions | default([]))
-            if (access_mode | default('cloudflare') == 'cloudflare') else [])
+         + (catena_admin_cloudflared_reserved_actions | default([]))
          + (catena_admin_ee_reserved_actions | default([])) }}
 
 # --- Files the admin container bind-mounts ---------------------------

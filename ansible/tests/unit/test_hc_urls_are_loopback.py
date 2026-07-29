@@ -4,9 +4,7 @@ Every one of these URLs is dialled by a systemd unit ON the box to reach a
 container ON the box. Building them from the public hostname sent the request
 out to Cloudflare's edge and back in through the tunnel, so the backup
 dead-man depended on the very thing it exists to report on: a tunnel or DNS
-failure silenced the alarm instead of tripping it. On an ACCESS_MODE=tailnet
-host the hostname resolved to nothing at all, and the nightly backup pinged a
-Healthchecks that was never deployed.
+failure silenced the alarm instead of tripping it.
 
 The two external URLs are the exception and stay external: they are the
 box-death half of the two-monitor model, and a loopback ping cannot detect a

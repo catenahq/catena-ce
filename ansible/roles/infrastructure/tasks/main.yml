@@ -43,16 +43,13 @@
 # (portainer_stack.yml). The old control-plane-API sub-includes (snapshot,
 # templates, github-provider) were deleted in the migration teardown; gatus_sync
 # was ported to read docker labels instead of the control-plane API.
-# ACCESS_MODE gate. In tailnet mode there is no Cloudflare edge and no
-# self-hosted SSO (Keycloak + oauth2-proxy are not deployed), so every
-# deploy that publishes a gated *.<zone> URL, registers a Keycloak OIDC
-# client, or drives Cloudflare DNS is skipped. The SSO-independent
-# host-side wire scripts (clamav network, Nextcloud/Rocket.Chat/WordPress
-# app wiring, gatus-sync) still run so template apps deployed
-# over raw tailnet ports keep their in-app features.
-- name: "Resolve access mode (gates SSO/CF-coupled infra deploys)"
+# ACCESS_MODE is gone (2026-07-29). The tailnet mode it gated did not serve
+# these services over the tailnet -- it skipped them, so a tailnet host had no
+# monitoring plane, no SSO and no recovery page at all. What it was actually
+# built for, an install with no Cloudflare token, is the tunnel-deferred gate
+# below, which is the default path and the bench standard.
+- name: "Resolve the tunnel-deferred gate"
   ansible.builtin.set_fact:
-    _infra_cf_mode: "{{ access_mode | default('cloudflare') == 'cloudflare' }}"
     # Tunnel-deferred gate: no Cloudflare token in the on-box store yet means
     # cloudflared is not configured (roles/cloudflare_tunnel skips), so no
     # *.<zone> public hostname resolves. End-of-role public-URL probes must
@@ -86,7 +83,6 @@
         file: gatus.yml
         apply:
           tags: [gatus]
-      when: _infra_cf_mode
       tags: [gatus]
 
     - name: Healthchecks (heartbeat.<zone>) -- cron/dead-man monitoring
@@ -94,7 +90,6 @@
         file: healthchecks.yml
         apply:
           tags: [healthchecks]
-      when: _infra_cf_mode
       tags: [healthchecks]
 
     # Shared ClamAV (clamd). Creates the external catena-clamav network
@@ -115,15 +110,12 @@
     # the hub stores history and serves hub.<zone> (admin-gated via
     # oauth2-proxy). A small shim forwards Beszel threshold alerts into
     # the Healthchecks plane. Part of the base plane, not opt-in -- the
-    # BESZEL_ENABLED off-switch was removed 2026-07-29. Still gated on
-    # _infra_cf_mode: the hub's only access path is the admin oauth2-proxy
-    # chain, which does not exist in tailnet mode.
+    # BESZEL_ENABLED off-switch was removed 2026-07-29.
     - name: Beszel (hub + agent + Healthchecks alert shim)
       ansible.builtin.include_tasks:
         file: beszel.yml
         apply:
           tags: [beszel]
-      when: _infra_cf_mode
       tags: [beszel]
 
     # Semaphore (the operator's Ansible runner) is operator-only
@@ -135,7 +127,6 @@
         file: recovery.yml
         apply:
           tags: [recovery]
-      when: _infra_cf_mode
       tags: [recovery]
 
     # EP3: Nextcloud native OIDC. Realm client is registered eagerly
@@ -149,7 +140,6 @@
         file: nextcloud_oidc.yml
         apply:
           tags: [nextcloud_oidc]
-      when: _infra_cf_mode
       tags: [nextcloud_oidc]
 
     # Element / Matrix OIDC. Synapse reads the OIDC config straight
@@ -165,7 +155,6 @@
         file: element_oidc.yml
         apply:
           tags: [element_oidc]
-      when: _infra_cf_mode
       tags: [element_oidc]
 
     # Mailserver TLS cert (mail.<zone>). Opt-in template: issues a
@@ -183,7 +172,6 @@
         apply:
           tags: [mailserver_cert]
       when:
-        - _infra_cf_mode
         - _infra_cf_token_present
       tags: [mailserver_cert]
 
@@ -219,7 +207,6 @@
         apply:
           tags: [mailserver_oidc]
       when:
-        - _infra_cf_mode
         - _infra_cf_token_present
       tags: [mailserver_oidc]
 
@@ -245,7 +232,6 @@
         apply:
           tags: [mailserver_dns]
       when:
-        - _infra_cf_mode
         - _infra_cf_token_present
       tags: [mailserver_dns]
 
@@ -258,7 +244,6 @@
         apply:
           tags: [mailserver_canary]
       when:
-        - _infra_cf_mode
         - _infra_cf_token_present
       tags: [mailserver_canary]
 
@@ -361,7 +346,6 @@
         file: dashboard_sync.yml
         apply:
           tags: [dashboard_sync]
-      when: _infra_cf_mode
       tags: [dashboard_sync]
 
     # Aggregate end-of-role readiness probe for the gated services.
@@ -380,7 +364,6 @@
         apply:
           tags: [verify_gated]
       when:
-        - _infra_cf_mode
         - _infra_cf_token_present
       tags: [verify_gated]
 
@@ -392,7 +375,6 @@
           resolvable. Skipping the public-URL readiness probe until cf_activate
           persists a token and re-converges.
       when:
-        - _infra_cf_mode
         - not _infra_cf_token_present
       tags: [verify_gated]
 
@@ -406,9 +388,6 @@
     file: gatus_sync.yml
     apply:
       tags: [gatus, gatus_sync]
-  # No Gatus is deployed in tailnet mode, so there is nothing for the sync to
-  # feed.
-  when: _infra_cf_mode
   tags: [gatus, gatus_sync]
 
 # The disk fill-level watchdog (catena-disk-watch.timer) was REMOVED

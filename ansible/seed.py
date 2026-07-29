@@ -158,13 +158,6 @@ def _check(label: str, ok_: bool, detail: str = "") -> bool:
     return ok_
 
 
-def _access_mode(env: dict) -> str:
-    """Resolved ACCESS_MODE with the cloudflare default. Anything unrecognized
-    falls back to cloudflare (fail-safe: the CF checks stay on)."""
-    val = str(env.get("ACCESS_MODE", "cloudflare")).strip().lower()
-    return val if val in ("cloudflare", "tailnet") else "cloudflare"
-
-
 def validate_install_structural(
     inp: dict, env_keys: list, vault_keys: list
 ) -> int:
@@ -198,10 +191,6 @@ def validate_install_structural(
         "CLOUDFLARE_ACCOUNT_ID",
         "SMTP_FROM",
     }
-    # In tailnet mode the whole Cloudflare block is ignored at converge, so a
-    # blank zone is legitimate (the template default is non-empty otherwise).
-    if _access_mode(env) != "cloudflare":
-        env_allow_empty.add("CLOUDFLARE_ZONE")
     for key, default in env_keys:
         val = env.get(key, default)
         eff = _effective_options(default, ENV_OPTIONS.get(key))
@@ -296,14 +285,11 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
 
     # No Cloudflare live-probe: the API token is entered in catena-admin >
     # Settings, never at install, so there is nothing to verify here. The
-    # structural check above still requires CLOUDFLARE_ZONE in cloudflare mode
-    # (hostnames derive from it); the account id + tunnel are resolved on-box
-    # from the token by the host engine (catena-cloudflared-sync).
-    if _access_mode(env) == "cloudflare":
-        _check("Cloudflare", True,
-               "API token entered later in catena-admin > Settings (tunnel deferred)")
-    else:
-        _check("Cloudflare", True, "skipped -- ACCESS_MODE=tailnet (no Cloudflare)")
+    # structural check above still requires CLOUDFLARE_ZONE (hostnames derive
+    # from it); the account id + tunnel are resolved on-box from the token by
+    # the host engine (catena-cloudflared-sync).
+    _check("Cloudflare", True,
+           "API token entered later in catena-admin > Settings (tunnel deferred)")
 
     print(file=sys.stderr)
     if problems:
@@ -443,7 +429,6 @@ def _is_filled(value) -> bool:
 # knobs (auto-update mode/reboot/provider, scheduled backup tier) are
 # Business features and absent from the Community template.
 ENV_OPTIONS: dict[str, list[str]] = {
-    "ACCESS_MODE": ["cloudflare", "tailnet"],
     "CATENA_DEFAULT_LANGUAGE": ["en", "fr"],
     "STORAGE_MODE": ["built_in", "attached"],
     "NEXTCLOUD_VERSIONS_RETENTION": ["auto, 7", "auto, 14", "auto, 30"],
@@ -754,12 +739,9 @@ def _print_summary(
     print(f"  Public IPv4:    {public_ip}", file=sys.stderr)
     print(f"  Initial user:   {initial_user}", file=sys.stderr)
     print(f"  Tailnet IPv4:   {tailnet_ip_provided or '(captured by bootstrap.yml post_task)'}", file=sys.stderr)
-    access_mode = _access_mode(env_values)
-    print(f"  Access mode:    {access_mode}", file=sys.stderr)
-    if access_mode == "cloudflare":
-        print(f"  CF zone:        {env_values.get('CLOUDFLARE_ZONE')}", file=sys.stderr)
-        print("  CF API token:   entered later in catena-admin > Settings "
-              "(never at install)", file=sys.stderr)
+    print(f"  CF zone:        {env_values.get('CLOUDFLARE_ZONE')}", file=sys.stderr)
+    print("  CF API token:   entered later in catena-admin > Settings "
+          "(never at install)", file=sys.stderr)
     expected_creds = len(INSTALL_EXTERNAL_KEYS)
     print(f"  Vendor creds:   {len(secret_values)}/{expected_creds} "
           "collected (transient; adopted on-box, not stored here)", file=sys.stderr)
