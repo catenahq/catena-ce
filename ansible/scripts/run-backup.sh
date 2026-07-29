@@ -327,9 +327,15 @@ if [ "$_pf_db_total" -gt 0 ]; then
     fi
 fi
 
+# Gate on the RESOLVED requirement, not on the static floor. Gating on
+# BACKUP_PREFLIGHT_MIN_BYTES meant a host with no floor configured skipped the
+# check even when the sizing probe had just measured its databases -- the
+# derived number was computed and then thrown away. `-gt 0` also keeps the
+# genuinely-empty case out: nothing to require is not a check worth running,
+# it is a guaranteed pass dressed up as one.
 if [ -n "${BACKUP_DISK_PREFLIGHT_SCRIPT:-}" ] \
         && [ -x "${BACKUP_DISK_PREFLIGHT_SCRIPT}" ] \
-        && [ -n "${BACKUP_PREFLIGHT_MIN_BYTES:-}" ]; then
+        && [ "$_pf_min" -gt 0 ]; then
     "${BACKUP_DISK_PREFLIGHT_SCRIPT}" \
         "${BACKUP_STAGING_DIR}" \
         "${_pf_min}" \
