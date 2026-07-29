@@ -16,9 +16,15 @@
 # competing backend route.
 #
 # License env (CATENA_LICENSE*) is intentionally NOT supplied: the compose's
-# ${VAR:-} empty defaults keep the shell Community-only, and merge_env_portainer
-# preserves any license keys an EE activation later wrote into the stack Env, so
-# a CE re-converge never clobbers an activated license.
+# ${VAR:-} empty defaults keep the shell Community-only until a token exists.
+#
+# The token is NOT stored here. It lives in the on-box store
+# (secrets.catena_license) and the shell reads it from there; the env var is a
+# fallback for the bench, which activates by redeploying with it. That is what
+# makes the deploy MECHANISM replaceable: an activated host keeps its licence
+# whether the panel arrives via the Portainer stack API or a swarm service,
+# because neither is where the licence lives. merge_env_portainer's preserve
+# rule still covers the fallback copy, but it is no longer load-bearing.
 #
 # The image is PUBLIC GHCR: every install deploys the panel; the Business
 # feature set inside it is gated at runtime by the license check (a pull
