@@ -8,10 +8,10 @@
 - name: "coturn: preflight secrets"
   ansible.builtin.assert:
     that:
-      - vault_turn_static_auth_secret is defined
-      - vault_turn_static_auth_secret | length >= 32
+      - turn_static_auth_secret is defined
+      - turn_static_auth_secret | length >= 32
     fail_msg: >-
-      vault_turn_static_auth_secret missing or too short. The converge mints
+      turn_static_auth_secret missing or too short. The converge mints
       it on the box; a missing one means the on-box store at
       /etc/catena/config.json was not loaded or was truncated.
 
@@ -76,7 +76,7 @@
   when: _coturn_ports_fragment.changed
 
 # Tunnel-deferred gate: coturn's DNS registration and the DNS-01 cert
-# issuance both call the Cloudflare API with vault_cloudflare_api_token. On a
+# issuance both call the Cloudflare API with cloudflare_api_token. On a
 # tokenless install the token is absent from the on-box store. Defer only the
 # token-dependent work (all of dns.yml; the creds-render + issue + confirm
 # steps inside cert.yml) -- certbot install, /etc/letsencrypt scaffolding, the
@@ -85,7 +85,7 @@
 # token and re-converges (which issues the cert + SIGHUPs coturn for TLS).
 - name: "coturn: resolve tunnel-deferred gate (Cloudflare token presence)"
   ansible.builtin.set_fact:
-    _coturn_cf_token_present: "{{ (vault_cloudflare_api_token | default('')) | length > 0 }}"
+    _coturn_cf_token_present: "{{ (cloudflare_api_token | default('')) | length > 0 }}"
 
 - name: "coturn: tunnel deferred -- skipping DNS + DNS-01 cert issuance (no Cloudflare token yet)"
   ansible.builtin.debug:
@@ -125,7 +125,7 @@
     group: root
     mode: "0640"
   register: _coturn_conf
-  # Template renders vault_turn_static_auth_secret. With --diff, ansible
+  # Template renders turn_static_auth_secret. With --diff, ansible
   # prints the rendered diff; no_log: true prevents the secret from
   # surfacing in that output.
   no_log: true

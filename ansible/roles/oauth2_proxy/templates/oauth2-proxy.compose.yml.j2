@@ -18,8 +18,8 @@ services:
   oauth2-proxy-{{ _app.slug }}:
     image: "{{ oauth2_proxy_image }}"
     environment:
-      OAUTH2_PROXY_CLIENT_SECRET: "{{ vault_oauth2_proxy_client_secret }}"
-      OAUTH2_PROXY_COOKIE_SECRET: "{{ vault_oauth2_proxy_cookie_secret }}"
+      OAUTH2_PROXY_CLIENT_SECRET: "{{ oauth2_proxy_client_secret }}"
+      OAUTH2_PROXY_COOKIE_SECRET: "{{ oauth2_proxy_cookie_secret }}"
     command:
       - "--http-address=0.0.0.0:{{ oauth2_proxy_internal_port }}"
       - "--reverse-proxy=true"

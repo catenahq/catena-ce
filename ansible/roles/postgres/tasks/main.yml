@@ -3,14 +3,14 @@
 # (which creates the catena-network overlay) and before roles/keycloak (which
 # provisions its DB inside this service). See defaults for ownership rationale.
 
-- name: "postgres: assert vault_catena_postgres_password is set"
+- name: "postgres: assert catena_postgres_password is set"
   ansible.builtin.assert:
     that:
-      - vault_catena_postgres_password is defined
-      - vault_catena_postgres_password | length >= 12
-      - vault_catena_postgres_password not in ['REPLACE', 'REPLACE-LONG-RANDOM-STRING']
+      - catena_postgres_password is defined
+      - catena_postgres_password | length >= 12
+      - catena_postgres_password not in ['REPLACE', 'REPLACE-LONG-RANDOM-STRING']
     fail_msg: >-
-      vault_catena_postgres_password is missing or a placeholder. The converge
+      catena_postgres_password is missing or a placeholder. The converge
       mints it on the box; a missing one means the on-box store at
       /etc/catena/config.json was not loaded or was truncated.
 
@@ -30,7 +30,7 @@
     - name: "postgres: stage secret material"
       ansible.builtin.copy:
         dest: /root/.catena-postgres-secret
-        content: "{{ vault_catena_postgres_password }}"
+        content: "{{ catena_postgres_password }}"
         owner: root
         group: root
         mode: "0600"

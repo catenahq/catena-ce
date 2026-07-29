@@ -32,14 +32,14 @@ def test_load_input_flat_layout(seed, tmp_path):
         "host_name: prod1\n"
         "host_public_ip: 203.0.113.10\n"
         "CLOUDFLARE_ZONE: example.com\n"
-        "vault_cloudflare_api_token: tok123\n"
+        "cloudflare_api_token: tok123\n"
     )
     got = seed.load_input(src)
     assert got["inventory"] == "prod"
     assert got["host"]["name"] == "prod1"
     assert got["host"]["public_ip"] == "203.0.113.10"
     assert got["env"]["CLOUDFLARE_ZONE"] == "example.com"
-    assert got["vault"]["vault_cloudflare_api_token"] == "tok123"
+    assert got["vault"]["cloudflare_api_token"] == "tok123"
 
 
 def test_load_input_nested_layout(seed, tmp_path):
@@ -51,12 +51,12 @@ def test_load_input_nested_layout(seed, tmp_path):
         "env:\n"
         "  CLOUDFLARE_ZONE: example.com\n"
         "vault:\n"
-        "  vault_cloudflare_api_token: tok123\n"
+        "  cloudflare_api_token: tok123\n"
     )
     got = seed.load_input(src)
     assert got["host"] == {"name": "prod1"}
     assert got["env"]["CLOUDFLARE_ZONE"] == "example.com"
-    assert got["vault"]["vault_cloudflare_api_token"] == "tok123"
+    assert got["vault"]["cloudflare_api_token"] == "tok123"
 
 
 def test_load_input_none_returns_empty(seed):
@@ -70,12 +70,12 @@ def test_load_input_drops_legacy_vault_password(seed, tmp_path):
     src.write_text(
         "inventory: prod\n"
         "vault_password: legacy\n"
-        "vault_cloudflare_api_token: tok123\n"
+        "cloudflare_api_token: tok123\n"
     )
     got = seed.load_input(src)
     assert "vault_password" not in got
     assert "vault_password" not in got["vault"]
-    assert got["vault"]["vault_cloudflare_api_token"] == "tok123"
+    assert got["vault"]["cloudflare_api_token"] == "tok123"
 
 
 def test_load_input_missing_path_dies(seed, tmp_path):
@@ -96,15 +96,15 @@ def test_install_external_keys_are_the_tailscale_creds_only(seed):
     transient --secrets-out file. The Cloudflare API token is NOT here -- it is
     entered in catena-admin > Settings. Everything else is minted on-box."""
     assert seed.INSTALL_EXTERNAL_KEYS == (
-        "vault_tailscale_oauth_client_id",
-        "vault_tailscale_oauth_client_secret",
+        "tailscale_oauth_client_id",
+        "tailscale_oauth_client_secret",
     )
 
 
 def test_cloudflare_token_is_not_an_install_input(seed):
     """The CF token is never prompted / required at install (Settings-only), and
     the seed-time auto-fetch machinery that needed it is gone."""
-    assert "vault_cloudflare_api_token" not in seed.INSTALL_EXTERNAL_KEYS
+    assert "cloudflare_api_token" not in seed.INSTALL_EXTERNAL_KEYS
     for gone in ("fetch_cloudflare_account_id", "_resolve_cloudflare_account",
                  "_install_secret_keys"):
         assert not hasattr(seed, gone), f"{gone} should be removed"
@@ -203,11 +203,11 @@ def test_emit_hosts_yml_merges_into_existing(seed, tmp_path):
 def test_write_secrets_out_0600_and_drops_blanks(seed, tmp_path):
     out = tmp_path / "s.yml"
     seed.write_secrets_out(out, {
-        "vault_cloudflare_api_token": "cf",
-        "vault_tailscale_oauth_client_id": "",   # blank dropped
-        "vault_admin_password": "REPLACE",       # placeholder dropped
+        "cloudflare_api_token": "cf",
+        "tailscale_oauth_client_id": "",   # blank dropped
+        "admin_password": "REPLACE",       # placeholder dropped
     })
-    assert yaml.safe_load(out.read_text()) == {"vault_cloudflare_api_token": "cf"}
+    assert yaml.safe_load(out.read_text()) == {"cloudflare_api_token": "cf"}
     assert (out.stat().st_mode & 0o777) == 0o600
 
 
@@ -222,13 +222,13 @@ def test_write_secrets_out_empty_writes_empty_map(seed, tmp_path):
 # --- admin-password override (optional install.yaml pin) --------------------
 def test_admin_override_too_short_dies(seed):
     with pytest.raises(SystemExit):
-        seed._resolve_admin_override({}, {"vault_admin_password": "short"})
+        seed._resolve_admin_override({}, {"admin_password": "short"})
 
 
 def test_admin_override_accepts_long(seed):
     values: dict = {}
-    seed._resolve_admin_override(values, {"vault_admin_password": "x" * 20})
-    assert values["vault_admin_password"] == "x" * 20
+    seed._resolve_admin_override(values, {"admin_password": "x" * 20})
+    assert values["admin_password"] == "x" * 20
 
 
 def test_admin_override_noop_when_absent(seed):
@@ -241,21 +241,21 @@ def test_absorb_provided_secrets_passes_through_full_keyset(seed):
     """A fully-specified install.yaml (bench / power user) supplies S3 + restic
     etc.; absorb copies every non-blank vault_* except admin (handled
     separately) into the adopt map."""
-    values = {"vault_cloudflare_api_token": "cf"}  # already collected
+    values = {"cloudflare_api_token": "cf"}  # already collected
     seed._absorb_provided_secrets(values, {
-        "vault_backup_s3_access_key": "ak",
-        "vault_backup_s3_secret_key": "sk",
-        "vault_backup_restic_password": "rp",
-        "vault_admin_password": "should-be-ignored-here",
-        "vault_smtp_password": "",          # blank dropped
-        "vault_nextcloud_s3_access_key": "REPLACE",  # placeholder dropped
+        "backup_s3_access_key": "ak",
+        "backup_s3_secret_key": "sk",
+        "backup_restic_password": "rp",
+        "admin_password": "should-be-ignored-here",
+        "smtp_password": "",          # blank dropped
+        "nextcloud_s3_access_key": "REPLACE",  # placeholder dropped
         "not_a_vault_key": "x",             # ignored
     })
-    assert values["vault_backup_s3_access_key"] == "ak"
-    assert values["vault_backup_restic_password"] == "rp"
-    assert "vault_admin_password" not in values
-    assert "vault_smtp_password" not in values
-    assert "vault_nextcloud_s3_access_key" not in values
+    assert values["backup_s3_access_key"] == "ak"
+    assert values["backup_restic_password"] == "rp"
+    assert "admin_password" not in values
+    assert "smtp_password" not in values
+    assert "nextcloud_s3_access_key" not in values
     assert "not_a_vault_key" not in values
 
 
@@ -274,15 +274,15 @@ def _good_inp():
         # env is a valid install.
         "env": {},
         "vault": {
-            "vault_tailscale_oauth_client_id": "x",
-            "vault_tailscale_oauth_client_secret": "y",
+            "tailscale_oauth_client_id": "x",
+            "tailscale_oauth_client_secret": "y",
         },
     }
 
 
 _ENV_KEYS = [("BACKUP_RESTIC_REPO", "")]  # optional now (default blank)
-_VAULT_KEYS = list(("vault_tailscale_oauth_client_id",
-                    "vault_tailscale_oauth_client_secret"))
+_VAULT_KEYS = list(("tailscale_oauth_client_id",
+                    "tailscale_oauth_client_secret"))
 
 
 def test_validate_structural_clean(seed):
@@ -291,7 +291,7 @@ def test_validate_structural_clean(seed):
 
 def test_validate_structural_missing_required_vault(seed):
     inp = _good_inp()
-    del inp["vault"]["vault_tailscale_oauth_client_id"]
+    del inp["vault"]["tailscale_oauth_client_id"]
     assert seed.validate_install_structural(inp, _ENV_KEYS, _VAULT_KEYS) >= 1
 
 
@@ -362,13 +362,13 @@ def test_collect_install_secrets_never_collects_cf_token(seed):
     install-secret prompt loop only iterates the Tailscale creds -- the CF token
     is Settings-only, never collected here."""
     got = seed._collect_install_secrets({
-        "vault_tailscale_oauth_client_id": "x",
-        "vault_tailscale_oauth_client_secret": "y",
-        "vault_cloudflare_api_token": "cf-should-not-be-collected",
+        "tailscale_oauth_client_id": "x",
+        "tailscale_oauth_client_secret": "y",
+        "cloudflare_api_token": "cf-should-not-be-collected",
     })
-    assert got == {"vault_tailscale_oauth_client_id": "x",
-                   "vault_tailscale_oauth_client_secret": "y"}
-    assert "vault_cloudflare_api_token" not in got
+    assert got == {"tailscale_oauth_client_id": "x",
+                   "tailscale_oauth_client_secret": "y"}
+    assert "cloudflare_api_token" not in got
 
 
 # --- true on-box minting: seed mints NOTHING --------------------------------

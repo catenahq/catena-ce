@@ -18,16 +18,16 @@
 - name: "Keycloak: preflight secrets + env"
   ansible.builtin.assert:
     that:
-      - vault_keycloak_db_password is defined
-      - vault_keycloak_db_password | length > 20
-      - vault_admin_password is defined
-      - vault_admin_password | length >= 16
+      - keycloak_db_password is defined
+      - keycloak_db_password | length > 20
+      - admin_password is defined
+      - admin_password | length >= 16
       - admin_email | length > 0
       - keycloak_hostname | length > 0
       - cloudflare_zone | length > 0
     fail_msg: >-
-      Missing Keycloak config. Expected vault_keycloak_db_password
-      (>= 20 chars), vault_admin_password (>= 16 chars), ADMIN_EMAIL,
+      Missing Keycloak config. Expected keycloak_db_password
+      (>= 20 chars), admin_password (>= 16 chars), ADMIN_EMAIL,
       AUTH_SUBDOMAIN, and CLOUDFLARE_ZONE in .env. Both secrets are minted
       on the box by the converge loader.
 
@@ -37,7 +37,7 @@
 
 
 # The compose-deploy + realm-bootstrap + post-deploy probe all hit the
-# Portainer stack API. vault_portainer_api_key is minted by roles/portainer
+# Portainer stack API. portainer_api_key is minted by roles/portainer
 # earlier in the SAME site converge (it runs before keycloak in site.yml and
 # set_facts the freshly-minted key into play scope), so this block converges
 # in a single pass -- no two-pass pass-1/pass-2 dance. Mirror the gate
@@ -45,8 +45,8 @@
 # because portainer already ran.
 - name: "Keycloak: Portainer-API-gated steps (compose, validate, realm)"
   when:
-    - vault_portainer_api_key is defined
-    - vault_portainer_api_key | length > 10
+    - portainer_api_key is defined
+    - portainer_api_key | length > 10
   block:
     - name: "Keycloak: deploy compose via the Portainer stack API"
       ansible.builtin.include_tasks: deploy.yml
@@ -79,8 +79,8 @@
 - name: "Keycloak: skipped Portainer-API steps (no API key yet)"
   ansible.builtin.debug:
     msg: >-
-      Skipping Keycloak compose + realm bootstrap -- vault_portainer_api_key
+      Skipping Keycloak compose + realm bootstrap -- portainer_api_key
       is not yet present. It is normally minted by roles/portainer earlier in
       this same converge; if you see this, portainer did not run or failed to
       mint the key. Check the portainer role, then re-run.
-  when: vault_portainer_api_key is not defined or (vault_portainer_api_key | length) < 10
+  when: portainer_api_key is not defined or (portainer_api_key | length) < 10

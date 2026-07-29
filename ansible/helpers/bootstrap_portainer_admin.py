@@ -3,7 +3,7 @@
 
 Portainer CE is the container control plane. Its admin is ALREADY created
 at container first boot via `--admin-password-file` (roles/portainer stages
-vault_admin_password into a swarm secret and passes the file to the
+admin_password into a swarm secret and passes the file to the
 portainer binary). So there is no signup step here -- we only sign in and
 mint a long-lived API token.
 
@@ -36,7 +36,7 @@ Contract:
                  still be initialising its BoltDB store.
   Exit code 3  : Portainer reachable but the admin password does not match
                  (auth returned 401/422). The operator either changed the
-                 admin password in the UI or rotated vault_admin_password
+                 admin password in the UI or rotated admin_password
                  after install. We don't try to reset it.
   Exit code 1  : unexpected error (empty stdin, unexpected HTTP code,
                  malformed responses, etc.).
@@ -97,7 +97,7 @@ class PortainerUnreachable(RuntimeError):
 
 
 class AdminCredentialsMismatch(RuntimeError):
-    """Thrown when /api/auth rejects vault_admin_password (401/422)."""
+    """Thrown when /api/auth rejects admin_password (401/422)."""
 
 
 def _request(url: str, *, method: str, body: dict | None = None,
@@ -146,9 +146,9 @@ def portainer_signin(base_url: str, user: str, password: str) -> str:
     if status in (401, 422):
         raise AdminCredentialsMismatch(
             f"Portainer /api/auth {status}: admin '{user}' exists but "
-            "vault_admin_password does not match. The operator probably "
+            "admin_password does not match. The operator probably "
             "changed the admin password in the UI, or rotated "
-            "vault_admin_password after install."
+            "admin_password after install."
         )
     if status != 200:
         raise RuntimeError(f"Portainer signin failed: HTTP {status} {_msg(body)}")

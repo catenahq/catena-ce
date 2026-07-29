@@ -48,7 +48,7 @@ services:
       CATENA_ADMIN_ADDR: ":8000"
       # Native-login listener for the host-published tailnet port. Started only
       # when a session key is set (roles/catena-admin supplies the on-box-minted
-      # vault_catena_admin_session_key); LOCAL_USER is the admin email.
+      # catena_admin_session_key); LOCAL_USER is the admin email.
       CATENA_ADMIN_DIRECT_ADDR: ${CATENA_ADMIN_DIRECT_ADDR:-:8001}
       CATENA_ADMIN_SESSION_KEY: ${CATENA_ADMIN_SESSION_KEY:-}
       CATENA_ADMIN_LOCAL_USER: ${CATENA_ADMIN_LOCAL_USER:-}
@@ -56,7 +56,7 @@ services:
       CATENA_DEFAULT_THEME: ${CATENA_DEFAULT_THEME:-system}
       CATENA_CLIENTS_TAB_ENABLED: ${CATENA_CLIENTS_TAB_ENABLED:-}
       # License FALLBACK. The token's real home is the on-box config store
-      # (secrets.vault_catena_license), which the panel reads through the
+      # (secrets.catena_license), which the panel reads through the
       # catena-config host action and the host engines read directly -- so a
       # client can paste a renewed key into Settings without anyone redeploying
       # this stack, and the engines can see it at all. These two stay as the

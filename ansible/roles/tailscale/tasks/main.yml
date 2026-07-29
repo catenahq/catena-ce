@@ -91,8 +91,8 @@
         body_format: form-urlencoded
         body:
           grant_type: client_credentials
-        url_username: "{{ vault_tailscale_oauth_client_id }}"
-        url_password: "{{ vault_tailscale_oauth_client_secret }}"
+        url_username: "{{ tailscale_oauth_client_id }}"
+        url_password: "{{ tailscale_oauth_client_secret }}"
         force_basic_auth: true
         status_code: 200
         return_content: true
@@ -147,7 +147,7 @@
         url: "{{ tailnet_control_url }}/api/v1/preauthkey"
         method: POST
         headers:
-          Authorization: "Bearer {{ vault_headscale_api_key }}"
+          Authorization: "Bearer {{ headscale_api_key }}"
         body_format: json
         body:
           user: "{{ tailnet_headscale_user }}"
@@ -163,14 +163,14 @@
       no_log: true
       when:
         - (tailnet_control_url | default('') | length) > 0
-        - (vault_headscale_api_key | default('') | length) > 0
+        - (headscale_api_key | default('') | length) > 0
 
     - name: "Headscale: resolve the pre-auth key (minted or static)"
       ansible.builtin.set_fact:
         _hs_authkey: >-
           {{ (hs_minted_key.json.preAuthKey.key
               if (hs_minted_key is defined and hs_minted_key.json is defined)
-              else (vault_headscale_preauth_key | default(''))) }}
+              else (headscale_preauth_key | default(''))) }}
       no_log: true
       when: (tailnet_control_url | default('') | length) > 0
 
@@ -180,8 +180,8 @@
           - (_hs_authkey | default('') | length) > 0
         fail_msg: >-
           Headscale selected (TAILNET_CONTROL_URL set) but no credential in the
-          on-box store: set vault_headscale_api_key (to mint per-converge) or
-          vault_headscale_preauth_key (a static key). Minting also needs
+          on-box store: set headscale_api_key (to mint per-converge) or
+          headscale_preauth_key (a static key). Minting also needs
           HEADSCALE_USER.
       when: (tailnet_control_url | default('') | length) > 0
 

@@ -57,7 +57,7 @@ def test_cloudflared_sync_exports_pins_no_token():
     assert shell.rstrip().endswith("sync")
     # The token is read from the store by the engine, never passed here.
     assert "CATENA_CF_CANDIDATE_TOKEN" not in shell
-    assert "vault_cloudflare_api_token" not in shell
+    assert "cloudflare_api_token" not in shell
 
 
 def test_cloudflared_actions_are_community_not_ee():

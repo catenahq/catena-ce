@@ -391,12 +391,12 @@ def cmd_install(args: argparse.Namespace) -> int:
 # The user-held DR keyset re-entered at recover time: the box is wiped, so
 # nothing is read from a persisted laptop vault (0b). (key, label, hidden?).
 DR_ADOPT_SECRETS = (
-    ("vault_backup_restic_password", "Restic backup password", True),
-    ("vault_backup_s3_access_key", "S3 access key", True),
-    ("vault_backup_s3_secret_key", "S3 secret key", True),
-    ("vault_cloudflare_api_token", "Cloudflare API token", True),
-    ("vault_tailscale_oauth_client_id", "Tailscale OAuth client id", False),
-    ("vault_tailscale_oauth_client_secret", "Tailscale OAuth client secret", True),
+    ("backup_restic_password", "Restic backup password", True),
+    ("backup_s3_access_key", "S3 access key", True),
+    ("backup_s3_secret_key", "S3 secret key", True),
+    ("cloudflare_api_token", "Cloudflare API token", True),
+    ("tailscale_oauth_client_id", "Tailscale OAuth client id", False),
+    ("tailscale_oauth_client_secret", "Tailscale OAuth client secret", True),
 )
 
 

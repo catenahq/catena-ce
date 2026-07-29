@@ -25,8 +25,8 @@ tailscale_auth_key_ttl_seconds: 600 # 10 minutes -- plenty for one `tailscale up
 # Set it to a Headscale base URL (https://headscale.example.net) to join a
 # self-hosted control server instead: Headscale has no OAuth API, so the node
 # joins with a pre-auth key -- minted per-converge via the Headscale API
-# (vault_headscale_api_key, preferred: no long-lived key on the VPS) or a
-# static key the operator supplies (vault_headscale_preauth_key, fallback).
+# (headscale_api_key, preferred: no long-lived key on the VPS) or a
+# static key the operator supplies (headscale_preauth_key, fallback).
 # tailnet_headscale_user names the Headscale user the minted key belongs to
 # (Headscale pre-auth keys are per-user). tag:vps must be in that user's ACL
 # tagOwners for --advertise-tags to succeed.

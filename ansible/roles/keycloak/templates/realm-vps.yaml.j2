@@ -145,7 +145,7 @@ smtpServer:
   fromDisplayName: "{{ keycloak_realm_display_name }}"
   auth: "true"
   user: "{{ smtp_user }}"
-  password: "{{ vault_smtp_password }}"
+  password: "{{ smtp_password }}"
   starttls: "{{ smtp_use_starttls | string | lower }}"
   ssl: "false"
   envelopeFrom: "{{ smtp_from }}"

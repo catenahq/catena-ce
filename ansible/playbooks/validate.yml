@@ -183,7 +183,7 @@
           - --user
           - "{{ _bootstrap_email }}"
           - --password
-          - "{{ vault_admin_password }}"
+          - "{{ admin_password }}"
       register: _kc_login
       changed_when: false
       no_log: true
@@ -365,7 +365,7 @@
           saved in catena-admin > Settings.
       when:
         - access_mode | default('cloudflare') == 'cloudflare'
-        - (vault_cloudflare_api_token | default('')) | length == 0
+        - (cloudflare_api_token | default('')) | length == 0
 
     - name: "Probe Keycloak (auth.<zone>) login page via CF"
       ansible.builtin.uri:
@@ -378,7 +378,7 @@
       # deferred -> auth.<zone> is not reachable via CF yet).
       when:
         - access_mode | default('cloudflare') == 'cloudflare'
-        - (vault_cloudflare_api_token | default('')) | length > 0
+        - (cloudflare_api_token | default('')) | length > 0
       # Keycloak's Account Console redirects unauth'd hits to the login
       # page (302). Authenticated would be 200. Either is healthy.
 
@@ -448,7 +448,7 @@
       # otherwise _gated_hosts stays unset and the probe loop below skips.
       when:
         - access_mode | default('cloudflare') == 'cloudflare'
-        - (vault_cloudflare_api_token | default('')) | length > 0
+        - (cloudflare_api_token | default('')) | length > 0
 
     - name: "Probe /oauth2/start on each gated host (Location -> Keycloak)"
       ansible.builtin.uri:

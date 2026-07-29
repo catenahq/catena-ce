@@ -33,7 +33,7 @@ log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 # only channel left when it is empty: the check is auto-provisioned by the
 # first ping (?create=1 below), so with no key no check exists, nothing can go
 # late, and this watch reports nothing forever while Healthchecks shows a clean
-# board. vault_healthchecks_ping_key is INTERNAL_SECRETS -- minted on the box
+# board. healthchecks_ping_key is INTERNAL_SECRETS -- minted on the box
 # on every converge -- so empty means the on-box store did not load when
 # clamav-watch.env was rendered. Fail the unit so `systemctl --failed` says so.
 if [ -z "${HC_PING_KEY:-}" ]; then

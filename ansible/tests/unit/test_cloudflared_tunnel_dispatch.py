@@ -60,7 +60,7 @@ def test_reads_token_presence_from_store_fact():
     task = _find("is a Cloudflare token present")
     fact = task["ansible.builtin.set_fact"]
     assert "_cf_token_present" in fact
-    assert "vault_cloudflare_api_token" in fact["_cf_token_present"]
+    assert "cloudflare_api_token" in fact["_cf_token_present"]
 
 
 def test_deferred_debug_when_no_token():
@@ -82,7 +82,7 @@ def test_dispatches_sync_engine_with_pins():
                 "CLOUDFLARED_STOP_GRACE"):
         assert pin in env, f"missing engine pin {pin} in the sync dispatch env"
     # The token is NEVER passed to the engine (it reads the store).
-    assert not any("vault_cloudflare_api_token" in str(v) for v in env.values())
+    assert not any("cloudflare_api_token" in str(v) for v in env.values())
 
 
 def test_sync_gated_on_token_and_binary():

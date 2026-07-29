@@ -96,7 +96,7 @@ alerting:
   # Derived from endpoint name so operators reading both the Gatus UI
   # and the Healthchecks UI get obvious pairings.
   custom:
-    url: "http://{{ healthchecks_network_alias }}:{{ healthchecks_internal_port }}/ping/{{ vault_healthchecks_ping_key }}/gatus-[ALERT_DESCRIPTION][ALERT_TRIGGERED_OR_RESOLVED]?create=1"
+    url: "http://{{ healthchecks_network_alias }}:{{ healthchecks_internal_port }}/ping/{{ healthchecks_ping_key }}/gatus-[ALERT_DESCRIPTION][ALERT_TRIGGERED_OR_RESOLVED]?create=1"
     method: "POST"
     body: |
       [ENDPOINT_GROUP] / [ENDPOINT_NAME]

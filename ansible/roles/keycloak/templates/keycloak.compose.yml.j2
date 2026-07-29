@@ -43,7 +43,7 @@ services:
       KC_DB: postgres
       KC_DB_URL: "jdbc:postgresql://catena-postgres:5432/{{ keycloak_db_name }}"
       KC_DB_USERNAME: "{{ keycloak_db_user }}"
-      KC_DB_PASSWORD: "{{ vault_keycloak_db_password }}"
+      KC_DB_PASSWORD: "{{ keycloak_db_password }}"
       # --- HTTP / proxy ---
       KC_HTTP_ENABLED: "{{ keycloak_http_enabled | string | lower }}"
 {% if (cloudflare_zones | default([]) | length) > 1 %}
@@ -93,7 +93,7 @@ services:
       # the admin row, so these envs are ignored. Same identity as
       # the Portainer admin per the shared-vault contract.
       KC_BOOTSTRAP_ADMIN_USERNAME: "{{ admin_email }}"
-      KC_BOOTSTRAP_ADMIN_PASSWORD: "{{ vault_admin_password }}"
+      KC_BOOTSTRAP_ADMIN_PASSWORD: "{{ admin_password }}"
     networks:
       catena-network:
         aliases:

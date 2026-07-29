@@ -43,8 +43,8 @@ def _load_store(path: str) -> dict:
 def _restic_env(store: dict) -> dict:
     env = dict(os.environ)
     env["RESTIC_REPOSITORY"] = store["config"].get("BACKUP_RESTIC_REPO", "")
-    env["AWS_ACCESS_KEY_ID"] = store["secrets"].get("vault_backup_s3_access_key", "")
-    env["AWS_SECRET_ACCESS_KEY"] = store["secrets"].get("vault_backup_s3_secret_key", "")
+    env["AWS_ACCESS_KEY_ID"] = store["secrets"].get("backup_s3_access_key", "")
+    env["AWS_SECRET_ACCESS_KEY"] = store["secrets"].get("backup_s3_secret_key", "")
     return env
 
 
@@ -82,7 +82,7 @@ def cmd_rotate(store: dict, req: dict, store_path: str, pass_file: str) -> dict:
     new_password = str(req.get("new_password") or "")
     if not new_password:
         return {"ok": False, "error": "no new password supplied"}
-    current = store["secrets"].get("vault_backup_restic_password", "")
+    current = store["secrets"].get("backup_restic_password", "")
     if not current:
         return {"ok": False, "error": "no current restic password on-box to re-key from"}
     env = _restic_env(store)
@@ -108,7 +108,7 @@ def cmd_rotate(store: dict, req: dict, store_path: str, pass_file: str) -> dict:
 
     # Persist the new password: the on-box store (rides the backup) + the
     # runtime pass file the backup service reads.
-    store["secrets"]["vault_backup_restic_password"] = new_password
+    store["secrets"]["backup_restic_password"] = new_password
     tmp = store_path + ".tmp"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:

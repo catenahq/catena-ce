@@ -36,11 +36,11 @@
 
 - name: "CF: is a Cloudflare token present in the on-box store?"
   # load_onbox_config.yml (site/validate/restore pre_tasks) already published
-  # every store secret as a fact; vault_cloudflare_api_token stays UNDEFINED
+  # every store secret as a fact; cloudflare_api_token stays UNDEFINED
   # until the client saves one in catena-admin > Settings. The regenerate role
   # shadows it with the operator-supplied rotation token.
   ansible.builtin.set_fact:
-    _cf_token_present: "{{ (vault_cloudflare_api_token | default('')) | length > 0 }}"
+    _cf_token_present: "{{ (cloudflare_api_token | default('')) | length > 0 }}"
 
 - name: "CF: tunnel deferred -- no Cloudflare token yet"
   ansible.builtin.debug:

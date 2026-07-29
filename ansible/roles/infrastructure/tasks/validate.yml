@@ -15,7 +15,7 @@
     # the tunnel is DEFERRED, so skip the cloudflared-service asserts rather than
     # failing on an absent service. The token is published as a fact by
     # playbooks/validate.yml's load_onbox_config pre_task.
-    _infra_cf_token_present: "{{ (vault_cloudflare_api_token | default('')) | length > 0 }}"
+    _infra_cf_token_present: "{{ (cloudflare_api_token | default('')) | length > 0 }}"
 
 - name: "validate/infrastructure: stat sync scripts + traefik dynamic dir"
   ansible.builtin.stat:

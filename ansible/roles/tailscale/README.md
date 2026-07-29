@@ -20,8 +20,8 @@ inline rather than carrying on with a broken client.
 
 ## Inputs
 
-- `vault_tailscale_oauth_client_id` /
-  `vault_tailscale_oauth_client_secret`
+- `tailscale_oauth_client_id` /
+  `tailscale_oauth_client_secret`
 - `tailscale_tags` -- applied to the device at join time
   (`tag:catena-vps`, `tag:client-<id>`).
 - `tailscale_advertise_tags` -- used for ACL routing.

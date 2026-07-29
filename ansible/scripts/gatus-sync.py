@@ -753,7 +753,7 @@ def main():
     #
     # Skipping this is not harmless. An orphan is a check whose endpoint no
     # longer exists; left unpaused it goes late and PAGES, forever, for a
-    # service nobody deployed any more. The vault_healthchecks_api_key_readwrite
+    # service nobody deployed any more. The healthchecks_api_key_readwrite
     # is INTERNAL_SECRETS and minted on every converge, so an empty one means
     # the env file was rendered before the store loaded.
     hc_key_rw = os.environ.get("HEALTHCHECKS_API_KEY_RW", "").strip()

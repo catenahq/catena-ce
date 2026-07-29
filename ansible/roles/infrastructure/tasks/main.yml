@@ -3,11 +3,11 @@
 #
 # 1. portainer_endpoint.yml     -- resolve the Portainer local Docker endpoint
 #                              id; capture _portainer_endpoint_id.
-#                              Gated on vault_portainer_api_key (minted in-role
+#                              Gated on portainer_api_key (minted in-role
 #                              by roles/portainer earlier in site.yml).
 # 2. gatus.yml / healthchecks.yml / recovery.yml --
 #    each calls portainer_stack.yml with its own compose YAML, env,
-#    domain, port. All gated on vault_portainer_api_key.
+#    domain, port. All gated on portainer_api_key.
 # 3. dashboard_sync.yml + gatus_sync.yml -- sync scripts + systemd timers.
 #                              Gated on the API key. dashboard-sync owns
 #                              auto-gated Traefik routes (Phase 4b
@@ -57,13 +57,13 @@
     # cloudflared is not configured (roles/cloudflare_tunnel skips), so no
     # *.<zone> public hostname resolves. End-of-role public-URL probes must
     # be deferred until cf_activate persists a token and re-converges.
-    _infra_cf_token_present: "{{ (vault_cloudflare_api_token | default('')) | length > 0 }}"
+    _infra_cf_token_present: "{{ (cloudflare_api_token | default('')) | length > 0 }}"
   tags: [always]
 
 - name: Has Portainer API key -> provision services via the Portainer stack API
   when:
-    - vault_portainer_api_key is defined
-    - vault_portainer_api_key | length > 10
+    - portainer_api_key is defined
+    - portainer_api_key | length > 10
   block:
     # Runs before any per-service include below. Tagged `always` so
     # --tags <service> filters still get _portainer_endpoint_id in scope
@@ -429,9 +429,9 @@
 - name: Note -- Portainer-managed services skipped (no API key yet)
   ansible.builtin.debug:
     msg: >-
-      vault_portainer_api_key not set. Gatus / Healthchecks / Recovery
+      portainer_api_key not set. Gatus / Healthchecks / Recovery
       deploys skipped. roles/portainer mints it on a converge (it may not be
       in scope yet on a partial --tags infrastructure run before roles/portainer
       ran); re-run a full site converge, or --tags portainer,infrastructure
       --limit {{ inventory_hostname }}.
-  when: vault_portainer_api_key is not defined or (vault_portainer_api_key | length) < 10
+  when: portainer_api_key is not defined or (portainer_api_key | length) < 10

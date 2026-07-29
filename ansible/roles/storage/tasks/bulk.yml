@@ -39,11 +39,11 @@
     - name: Assert CIFS credentials are supplied
       ansible.builtin.assert:
         that:
-          - vault_storage_bulk_username is defined
-          - vault_storage_bulk_password is defined
+          - storage_bulk_username is defined
+          - storage_bulk_password is defined
         fail_msg: >-
-          storage_bulk_type=cifs but vault_storage_bulk_username /
-          vault_storage_bulk_password are not set. They are client-held
+          storage_bulk_type=cifs but storage_bulk_username /
+          storage_bulk_password are not set. They are client-held
           credentials: enter them in catena-admin > Settings.
 
     - name: Ensure credentials directory exists
@@ -58,8 +58,8 @@
       ansible.builtin.copy:
         dest: /etc/catena/bulk.cifs
         content: |
-          username={{ vault_storage_bulk_username }}
-          password={{ vault_storage_bulk_password }}
+          username={{ storage_bulk_username }}
+          password={{ storage_bulk_password }}
         owner: root
         group: root
         mode: "0600"

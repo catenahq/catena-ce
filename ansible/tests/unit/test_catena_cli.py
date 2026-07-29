@@ -106,20 +106,20 @@ def test_collect_dr_adopt_file_from_install_yaml(cli, tmp_path):
 
     iy = tmp_path / "install.yaml"
     iy.write_text(
-        "vault_backup_restic_password: rp\n"
-        "vault_backup_s3_access_key: ak\n"
-        "vault_backup_s3_secret_key: sk\n"
-        "vault_cloudflare_api_token: cf\n"
-        "vault_tailscale_oauth_client_id: tid\n"
-        "vault_tailscale_oauth_client_secret: tsec\n"
+        "backup_restic_password: rp\n"
+        "backup_s3_access_key: ak\n"
+        "backup_s3_secret_key: sk\n"
+        "cloudflare_api_token: cf\n"
+        "tailscale_oauth_client_id: tid\n"
+        "tailscale_oauth_client_secret: tsec\n"
         "BACKUP_RESTIC_REPO: s3:ep/bucket\n"
     )
     extra, tmp = cli._collect_dr_adopt_file(str(iy))
     try:
         assert extra[0] == "-e" and extra[1].startswith("@")
         data = yaml.safe_load(tmp.read_text())
-        assert data["vault_backup_restic_password"] == "rp"
-        assert data["vault_backup_s3_access_key"] == "ak"
+        assert data["backup_restic_password"] == "rp"
+        assert data["backup_s3_access_key"] == "ak"
         assert data["backup_restic_repo"] == "s3:ep/bucket"
         assert (tmp.stat().st_mode & 0o777) == 0o600
     finally:

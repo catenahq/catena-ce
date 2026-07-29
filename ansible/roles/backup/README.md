@@ -56,7 +56,7 @@ because an unreadable answer is not evidence of a gap.
 ## Inputs
 
 - `vault_restic_password` -- restic repository password.
-- `vault_aws_access_key_id` / `vault_aws_secret_access_key` -- S3
+- `aws_access_key_id` / `aws_secret_access_key` -- S3
   credentials.
 - `backup_restic_repo` -- S3 URL (e.g. `s3:s3.example.com/bucket`).
 - `backup_weekly_timer_oncalendar` -- systemd `OnCalendar` for the CE

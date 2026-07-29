@@ -447,7 +447,7 @@
 # key-only the operator has NO way back in if the tailnet path is lost --
 # the provider web console (KVM/serial) and an on-prem physical keyboard
 # both authenticate against the local TTY via PAM, which needs a real
-# password. Set one from vault_admin_password on the persistent ops account.
+# password. Set one from admin_password on the persistent ops account.
 #
 # This is console-ONLY: sshd_hardening.conf.j2 sets
 # PasswordAuthentication no, so the password is rejected over SSH and only
@@ -469,11 +469,11 @@
   ansible.builtin.user:
     name: "{{ ops_user }}"
     password: >-
-      {{ vault_console_recovery_password
-         | password_hash('sha512', salt=(vault_console_recovery_password | hash('sha256'))[:16]) }}
+      {{ console_recovery_password
+         | password_hash('sha512', salt=(console_recovery_password | hash('sha256'))[:16]) }}
     update_password: always
   no_log: true
-  when: vault_console_recovery_password | default('') | length > 0
+  when: console_recovery_password | default('') | length > 0
 
 # ─── sshd hardening ──────────────────────────────────────────────────────
 # After this runs, root+password login stops working. The ops user with key

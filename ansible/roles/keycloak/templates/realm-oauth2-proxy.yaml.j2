@@ -25,7 +25,7 @@ clients:
     implicitFlowEnabled: false
     directAccessGrantsEnabled: false
     serviceAccountsEnabled: false
-    secret: "{{ vault_oauth2_proxy_client_secret }}"
+    secret: "{{ oauth2_proxy_client_secret }}"
     # All gated subdomains share the same /oauth2/callback path; in
     # reverse-proxy mode each per-app oauth2-proxy container owns
     # /oauth2/* on its own Host(), so the callback resolves to that

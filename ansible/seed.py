@@ -69,6 +69,20 @@ from helpers import net_retry  # noqa: E402
 
 PLACEHOLDER_VALUES = {"REPLACE", "REPLACE-LONG-RANDOM-STRING"}
 
+
+def _declared_secret_names() -> frozenset[str]:
+    """Which install.yaml keys are secrets, per the on-box store's own
+    registry. Imported lazily: onbox_config is stdlib-only by design (it runs
+    on a minimal target host) and seed.py should not pull it in at import time
+    just to answer a question about names.
+
+    This replaced a `vault_` prefix test. A prefix made spelling load-bearing:
+    an operator who wrote a credential without it had it silently filed as
+    non-secret .env config."""
+    from helpers import onbox_config
+
+    return frozenset(onbox_config.secret_names())
+
 # The ONLY secrets collected at install time: the Tailscale OAuth client
 # id/secret, needed to join the tailnet before any on-box surface exists. They
 # are prompted, live-validated, and written to the transient --secrets-out file
@@ -79,8 +93,8 @@ PLACEHOLDER_VALUES = {"REPLACE", "REPLACE-LONG-RANDOM-STRING"}
 # (helpers/onbox_config.py). S3 backup creds + repo are set post-install in
 # catena-admin, not here.
 INSTALL_EXTERNAL_KEYS: tuple[str, ...] = (
-    "vault_tailscale_oauth_client_id",
-    "vault_tailscale_oauth_client_secret",
+    "tailscale_oauth_client_id",
+    "tailscale_oauth_client_secret",
 )
 
 # Minimum admin password length when a user PINS one via install.yaml (Portainer
@@ -263,8 +277,8 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
 
     banner("Credentials -- live probes")
 
-    ts_id = vault.get("vault_tailscale_oauth_client_id", "")
-    ts_secret = vault.get("vault_tailscale_oauth_client_secret", "")
+    ts_id = vault.get("tailscale_oauth_client_id", "")
+    ts_secret = vault.get("tailscale_oauth_client_secret", "")
     if _is_filled(ts_id) and _is_filled(ts_secret):
         from base64 import b64encode
         auth = b64encode(f"{ts_id}:{ts_secret}".encode()).decode()
@@ -350,10 +364,14 @@ def split_install_dict(raw: dict) -> dict:
     {inventory, host, env, vault} shape main() consumes.
 
     Accepts both the nested layout (top-level `host:`, `env:`, `vault:`
-    mappings) and the flat layout (every key at the top with a `host_` /
-    `vault_` prefix, everything else treated as a .env value). A legacy
-    `vault_password:` field is silently ignored (ansible-vault era; the vault
-    is now a plaintext, gitignored, 0600 group_vars file, project 0b)."""
+    mappings) and the flat layout (every key at the top, `host_`-prefixed for
+    host fields, otherwise a secret if the store declares it and a .env value
+    if not). A legacy `vault_password:` field is silently ignored.
+
+    The flat layout used to spot secrets by a `vault_` prefix, which made a
+    spelling load-bearing: an operator who wrote the key without it got their
+    credential silently filed as non-secret .env config. onbox_config declares
+    which names are secrets, so ask it."""
     if any(isinstance(raw.get(k), dict) for k in ("host", "env", "vault")):
         return {
             "inventory": raw.get("inventory"),
@@ -372,7 +390,7 @@ def split_install_dict(raw: dict) -> dict:
             continue
         if key.startswith(HOST_PREFIX):
             host[key[len(HOST_PREFIX):]] = value
-        elif key.startswith("vault_"):
+        elif key in _declared_secret_names():
             vault[key] = value
         else:
             env[key] = value
@@ -620,17 +638,22 @@ def ensure_ssh_key(privkey_path: str, pubkey_path: str) -> None:
 
 # --- secret-resolution helpers ----------------------------------------------
 def _absorb_provided_secrets(secret_values: dict[str, str], vault_provided: dict) -> None:
-    """Pass through ANY `vault_*` cred supplied in install.yaml beyond the three
+    """Pass through ANY declared cred supplied in install.yaml beyond the three
     prompted ones -- S3 keys, restic password, WORM/mail/nextcloud creds, etc.
     An interactive self-hoster only enters the three install-critical creds (the
     rest mint on-box or are set later in catena-admin); a fully-specified
     install.yaml (a power user, or the test bench) can supply the whole keyset,
     which the loader adopts on the first converge. Blank/placeholder values are
-    dropped; vault_admin_password is handled by _resolve_admin_override."""
+    dropped; admin_password is handled by _resolve_admin_override.
+
+    An UNDECLARED key is skipped rather than passed through: it would reach the
+    store as a name nothing reads, and a typo that silently becomes a stored
+    secret is worse than one that visibly does nothing."""
+    known = _declared_secret_names()
     for key, raw in (vault_provided or {}).items():
-        if not isinstance(key, str) or not key.startswith("vault_"):
+        if not isinstance(key, str) or key not in known:
             continue
-        if key in secret_values or key == "vault_admin_password":
+        if key in secret_values or key == "admin_password":
             continue
         val = "" if raw is None else str(raw).strip()
         if val and val not in PLACEHOLDER_VALUES:
@@ -641,18 +664,18 @@ def _resolve_admin_override(vault_values: dict[str, str], vault_provided: dict) 
     """Honor an OPTIONAL install.yaml admin-password pin. With no override the
     admin password is minted ON-BOX by the converge loader and surfaced once by
     the installer (seed never mints it). A too-short pin is a hard error."""
-    if "vault_admin_password" in vault_values:
+    if "admin_password" in vault_values:
         return
-    provided = str(vault_provided.get("vault_admin_password", "")).strip()
+    provided = str(vault_provided.get("admin_password", "")).strip()
     if not provided or provided in PLACEHOLDER_VALUES:
         return
     if len(provided) < ADMIN_PASSWORD_MIN_LEN:
         die(
-            f"vault_admin_password in install.yaml is only {len(provided)} "
+            f"admin_password in install.yaml is only {len(provided)} "
             f"chars; need at least {ADMIN_PASSWORD_MIN_LEN}. Leave it out to "
             "have the box mint one and show it once."
         )
-    vault_values["vault_admin_password"] = provided
+    vault_values["admin_password"] = provided
     ok("Admin password pinned from install.yaml.")
 
 

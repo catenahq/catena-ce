@@ -30,10 +30,10 @@
       oauth2-proxy is expected to be in OIDC-discovery restart-backoff until the
       token is entered in catena-admin > Settings. Skipping the oauth2-proxy
       public-issuer + per-app validation this converge.
-  when: (vault_cloudflare_api_token | default('')) | length == 0
+  when: (cloudflare_api_token | default('')) | length == 0
 
 - name: "validate/oauth2-proxy: per-app container probes (with rescue diagnostics)"
-  when: (vault_cloudflare_api_token | default('')) | length > 0
+  when: (cloudflare_api_token | default('')) | length > 0
   block:
     # Post-restore (backup_rollback, restore_dr) brings every service back
     # in parallel. oauth2-proxy crash-exits on a failed OIDC discovery

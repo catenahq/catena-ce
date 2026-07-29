@@ -89,7 +89,7 @@ coturn_host_config_dir: "/etc/coturn"
 coturn_host_config_path: "{{ coturn_host_config_dir }}/turnserver.conf"
 
 # Cloudflare credentials file used by certbot-dns-cloudflare.
-# Rendered at converge time from vault_cloudflare_api_token; mode
+# Rendered at converge time from cloudflare_api_token; mode
 # 0600, root-only.
 coturn_cloudflare_creds_path: "/etc/letsencrypt/cloudflare.ini"
 

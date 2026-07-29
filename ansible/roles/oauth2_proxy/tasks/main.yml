@@ -16,9 +16,9 @@
 - name: "oauth2-proxy: preflight secrets + env"
   ansible.builtin.assert:
     that:
-      - vault_oauth2_proxy_client_secret is defined
-      - vault_oauth2_proxy_client_secret | length > 20
-      - vault_oauth2_proxy_cookie_secret is defined
+      - oauth2_proxy_client_secret is defined
+      - oauth2_proxy_client_secret | length > 20
+      - oauth2_proxy_cookie_secret is defined
       # oauth2-proxy v7 decodes --cookie-secret with `base64.RawURLEncoding`
       # (URL-safe alphabet `-_`, no padding) and rejects any decoded
       # length other than 16/24/32 bytes (AES-128/192/256). Standard
@@ -29,14 +29,14 @@
       # b64-of-{16,24,32}-bytes lengths. Works for both URL-safe and
       # standard b64; the alphabet itself is enforced at oauth2-proxy
       # boot, not here.
-      - (vault_oauth2_proxy_cookie_secret | regex_replace('=+$', '') | length) in [22, 32, 43]
+      - (oauth2_proxy_cookie_secret | regex_replace('=+$', '') | length) in [22, 32, 43]
       - cloudflare_zone | length > 0
       - keycloak_realm | length > 0
       - keycloak_server_alias | length > 0
     fail_msg: >-
       Missing or invalid oauth2-proxy config. Expected
-      vault_oauth2_proxy_client_secret (>= 20 chars),
-      vault_oauth2_proxy_cookie_secret (URL-safe base64 of 16/24/32
+      oauth2_proxy_client_secret (>= 20 chars),
+      oauth2_proxy_cookie_secret (URL-safe base64 of 16/24/32
       raw bytes -- 32 raw bytes is the canonical choice -> 43 chars
       no-pad / 44 chars with `=`; a 64-char b64 of 48 bytes WILL FAIL
       oauth2-proxy preflight, AND standard base64 with `+/` characters
@@ -44,21 +44,21 @@
       CLOUDFLARE_ZONE, and a healthy roles/keycloak pass earlier in
       the play. The converge mints both secrets correctly on the box; to
       regenerate the cookie secret by hand, delete
-      vault_oauth2_proxy_cookie_secret from /etc/catena/config.json and
+      oauth2_proxy_cookie_secret from /etc/catena/config.json and
       re-converge (minting is fill-only, so it will not touch a value that
       is still there).
 
 # Realm-config render + middleware render + compose deploy + validate
 # all assume Keycloak is up (so keycloak-config-cli can reach it) AND
 # the Portainer stack API is reachable (so the compose deploy works).
-# vault_portainer_api_key is minted by roles/portainer earlier in the SAME
+# portainer_api_key is minted by roles/portainer earlier in the SAME
 # converge, and roles/keycloak (also portainer-gated) has already brought
 # Keycloak up by the time this role runs, so this body converges in a single
 # pass -- mirrors roles/keycloak's gate.
 - name: "oauth2-proxy: Portainer-API-gated body (realm + middleware + compose + validate)"
   when:
-    - vault_portainer_api_key is defined
-    - vault_portainer_api_key | length > 10
+    - portainer_api_key is defined
+    - portainer_api_key | length > 10
   block:
     - name: "oauth2-proxy: render Keycloak client into realm config dir"
       ansible.builtin.template:
@@ -160,7 +160,7 @@
   ansible.builtin.debug:
     msg: >-
       Skipping oauth2-proxy realm + middleware + compose + validate --
-      vault_portainer_api_key is not yet present. It is normally minted by
+      portainer_api_key is not yet present. It is normally minted by
       roles/portainer earlier in this same converge; if you see this,
       portainer did not run or failed to mint the key.
-  when: vault_portainer_api_key is not defined or (vault_portainer_api_key | length) < 10
+  when: portainer_api_key is not defined or (portainer_api_key | length) < 10

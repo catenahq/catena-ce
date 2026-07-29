@@ -37,7 +37,7 @@ is provisioned by `roles/keycloak/tasks/_portal_realm.yml`.
 
 ## Inputs
 
-- `vault_cloudflare_api_token`, `cloudflare_*_id`, `cloudflare_zone`
+- `cloudflare_api_token`, `cloudflare_*_id`, `cloudflare_zone`
 - `vault_healthchecks_*` (api keys, ntfy URL)
 - `infrastructure_apps_enabled` -- toggle list per first-class app.
 

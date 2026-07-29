@@ -44,7 +44,7 @@ fi
 # otherwise), so this is a host that needs the canary and cannot run it. The
 # check is auto-provisioned by the first ping (?create=1 below): with no key
 # no check exists, nothing goes late, and the canary reports nothing forever
-# while Healthchecks shows a clean board. vault_healthchecks_ping_key is
+# while Healthchecks shows a clean board. healthchecks_ping_key is
 # INTERNAL_SECRETS, minted on the box every converge, so empty means the store
 # did not load when mail-canary.env was rendered. The exit code is the only
 # channel left -- fail the unit so `systemctl --failed` says so.

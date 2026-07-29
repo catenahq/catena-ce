@@ -4,7 +4,7 @@
 # project behind healthchecks.io. One container, SQLite, no metrics,
 # ntfy-capable. Replaces the Netdata detour earlier in the session.
 #
-# Auto-provision: vault_healthchecks_ping_key is a random value minted
+# Auto-provision: healthchecks_ping_key is a random value minted
 # at install time. The backup script pings
 # http://healthchecks:8000/ping/<ping_key>/<slug> and Healthchecks
 # creates the check on first ping. Zero manual UI step for the baseline
@@ -16,11 +16,11 @@
 - name: "Healthchecks: preflight secret keys"
   ansible.builtin.assert:
     that:
-      - vault_healthchecks_secret_key is defined
-      - vault_healthchecks_superuser_password is defined
-      - vault_healthchecks_ping_key is defined
-      - vault_healthchecks_api_key_readonly is defined
-      - vault_healthchecks_api_key_readwrite is defined
+      - healthchecks_secret_key is defined
+      - healthchecks_superuser_password is defined
+      - healthchecks_ping_key is defined
+      - healthchecks_api_key_readonly is defined
+      - healthchecks_api_key_readwrite is defined
     fail_msg: >-
       Missing Healthchecks secrets. Every vault_healthchecks_* value is
       minted on the box by the converge loader, so a gap here means the
@@ -184,11 +184,11 @@
   ansible.builtin.shell: >-
     docker exec -i
     -e CATENA_ADMIN_EMAIL={{ admin_email | quote }}
-    -e CATENA_HC_SUPERUSER_PASSWORD={{ vault_healthchecks_superuser_password | quote }}
+    -e CATENA_HC_SUPERUSER_PASSWORD={{ healthchecks_superuser_password | quote }}
     -e CATENA_INVENTORY_HOSTNAME={{ inventory_hostname | quote }}
-    -e CATENA_HC_API_KEY_READONLY={{ vault_healthchecks_api_key_readonly | quote }}
-    -e CATENA_HC_API_KEY_READWRITE={{ (vault_healthchecks_api_key_readwrite | default('')) | quote }}
-    -e CATENA_HC_PING_KEY={{ vault_healthchecks_ping_key | quote }}
+    -e CATENA_HC_API_KEY_READONLY={{ healthchecks_api_key_readonly | quote }}
+    -e CATENA_HC_API_KEY_READWRITE={{ (healthchecks_api_key_readwrite | default('')) | quote }}
+    -e CATENA_HC_PING_KEY={{ healthchecks_ping_key | quote }}
     -e CATENA_NTFY_TOPIC={{ ntfy_topic | quote }}
     -e CATENA_NTFY_SERVER={{ ntfy_server | quote }}
     {{ _healthchecks_container_name.stdout }}

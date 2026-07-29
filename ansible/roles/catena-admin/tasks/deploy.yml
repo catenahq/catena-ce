@@ -8,7 +8,7 @@
 # svc_env (${VAR} substitution). Production pulls the published GHCR image
 # ({{ catena_admin_image }}); the bench supplies a locally-built tag instead.
 #
-# Gated on vault_portainer_api_key (like every other stack deploy). No Traefik
+# Gated on portainer_api_key (like every other stack deploy). No Traefik
 # route is written here: catena-admin is auth-gated and roles/oauth2_proxy
 # already owns the priority-100 dash.<zone> route to its own oauth2-proxy
 # container (which upstreams to catena-admin:8000). svc_domain_host is empty so
@@ -34,8 +34,8 @@
   ansible.builtin.include_tasks: ../../infrastructure/tasks/portainer_endpoint.yml
   when:
     - catena_admin_deploy_from_converge | bool
-    - vault_portainer_api_key is defined
-    - (vault_portainer_api_key | default('') | length) > 0
+    - portainer_api_key is defined
+    - (portainer_api_key | default('') | length) > 0
 
 - name: "Catena-admin: deploy the Go shell as a Portainer stack"
   ansible.builtin.include_tasks: ../../infrastructure/tasks/portainer_stack.yml
@@ -67,7 +67,7 @@
       # dispatch is up. Empty in tailnet mode, which has no domain by design.
       - "CLOUDFLARE_PRIMARY_ZONE={{ cloudflare_zone | default('') }}"
       - "PORTAINER_API_BASE=http://{{ portainer_service_name }}:{{ portainer_ui_port }}/api"
-      - "PORTAINER_API_KEY={{ vault_portainer_api_key }}"
+      - "PORTAINER_API_KEY={{ portainer_api_key }}"
       - "KEYCLOAK_HOSTNAME={{ keycloak_hostname }}"
       - "KEYCLOAK_REALM={{ keycloak_realm }}"
       - "INFRA_MONITOR_HOSTNAME={{ infrastructure_monitor_hostname }}"
@@ -78,15 +78,15 @@
       - "GATUS_INTERNAL_PORT={{ gatus_internal_port }}"
       - "HEALTHCHECKS_COMPOSE_NAME={{ healthchecks_compose_name }}"
       - "HEALTHCHECKS_INTERNAL_PORT={{ healthchecks_internal_port }}"
-      - "HEALTHCHECKS_API_KEY_READONLY={{ vault_healthchecks_api_key_readonly }}"
+      - "HEALTHCHECKS_API_KEY_READONLY={{ healthchecks_api_key_readonly }}"
       - "ADMIN_SSH_HOST=host.docker.internal"
       - "ADMIN_SSH_USER={{ catena_admin_runner_user }}"
       # Native-login listener (host-published tailnet port). The session key is
-      # the on-box-minted vault_catena_admin_session_key; LOCAL_USER is the
+      # the on-box-minted catena_admin_session_key; LOCAL_USER is the
       # admin email. UI_PORT is the host-published port (compose ${VAR}).
       - "CATENA_ADMIN_UI_PORT={{ catena_admin_ui_port }}"
       - "CATENA_ADMIN_DIRECT_ADDR=:{{ catena_admin_direct_port }}"
-      - "CATENA_ADMIN_SESSION_KEY={{ vault_catena_admin_session_key }}"
+      - "CATENA_ADMIN_SESSION_KEY={{ catena_admin_session_key }}"
       - "CATENA_ADMIN_LOCAL_USER={{ admin_email }}"
     # No Traefik route -- oauth2_proxy owns the gated dash.<zone> route.
     svc_domain_host: ""
@@ -101,8 +101,8 @@
       synchronous Portainer stack deploy 2xx is the readiness signal.
   when:
     - catena_admin_deploy_from_converge | bool
-    - vault_portainer_api_key is defined
-    - (vault_portainer_api_key | default('') | length) > 0
+    - portainer_api_key is defined
+    - (portainer_api_key | default('') | length) > 0
 
 # --- host engine payload install (UNCONDITIONAL, NOT license-gated) ---------
 # The catena-admin container mirrors its embedded host payload (all engines --
@@ -126,8 +126,8 @@
   delay: 4
   when:
     - catena_admin_deploy_from_converge | bool
-    - vault_portainer_api_key is defined
-    - (vault_portainer_api_key | default('') | length) > 0
+    - portainer_api_key is defined
+    - (portainer_api_key | default('') | length) > 0
 
 - name: "Catena-admin: install the host engine payload (every host, ungated)"
   ansible.builtin.command:
@@ -142,8 +142,8 @@
   changed_when: false
   when:
     - catena_admin_deploy_from_converge | bool
-    - vault_portainer_api_key is defined
-    - (vault_portainer_api_key | default('') | length) > 0
+    - portainer_api_key is defined
+    - (portainer_api_key | default('') | length) > 0
 
 # Make the host match what the config store says about scheduling.
 #
@@ -170,8 +170,8 @@
   changed_when: false
   when:
     - catena_admin_deploy_from_converge | bool
-    - vault_portainer_api_key is defined
-    - (vault_portainer_api_key | default('') | length) > 0
+    - portainer_api_key is defined
+    - (portainer_api_key | default('') | length) > 0
 
 - name: "Catena-admin: schedule state"
   ansible.builtin.debug:

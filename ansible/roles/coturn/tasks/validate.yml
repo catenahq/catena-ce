@@ -9,7 +9,7 @@
 # STUN plane (3478 + ufw) until cf_activate persists a token and re-converges.
 - name: "validate coturn: resolve tunnel-deferred gate (Cloudflare token presence)"
   ansible.builtin.set_fact:
-    _coturn_cf_token_present: "{{ (vault_cloudflare_api_token | default('')) | length > 0 }}"
+    _coturn_cf_token_present: "{{ (cloudflare_api_token | default('')) | length > 0 }}"
 
 - name: "validate coturn: swarm service exists + healthy"
   ansible.builtin.command:

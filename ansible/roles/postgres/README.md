@@ -12,7 +12,7 @@ in the retired control-plane Postgres.
   the pre-cutover major so logical dump/restore stays same-major).
 - The superuser password as the create-once IMMUTABLE swarm secret
   `catena_postgres_password`, sourced from
-  `vault_catena_postgres_password` (minted on-box by the config
+  `catena_postgres_password` (minted on-box by the config
   loader). Kept out of `docker service inspect`. Rotation is a
   create-new-secret + service-update flow (deferred; see the
   rotate-postgres runbook for the manual procedure).
@@ -23,7 +23,7 @@ in the retired control-plane Postgres.
   no post-restore reconciliation. (Exercised by the restore_dr +
   hot-restore bench scenarios.)
 - A first-task guard that refuses the converge while
-  `vault_catena_postgres_password` is a placeholder -- BEFORE the
+  `catena_postgres_password` is a placeholder -- BEFORE the
   create-once secret can be minted wrong (the fi_s3 bench scenario
   proves this fires ahead of any state change).
 

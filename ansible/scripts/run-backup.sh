@@ -139,8 +139,8 @@ if v is not None:
 PY
     }
     _v=$(_store_get config BACKUP_RESTIC_REPO);          [ -n "$_v" ] && RESTIC_REPOSITORY="$_v"
-    _v=$(_store_get secrets vault_backup_s3_access_key); [ -n "$_v" ] && AWS_ACCESS_KEY_ID="$_v"
-    _v=$(_store_get secrets vault_backup_s3_secret_key); [ -n "$_v" ] && AWS_SECRET_ACCESS_KEY="$_v"
+    _v=$(_store_get secrets backup_s3_access_key); [ -n "$_v" ] && AWS_ACCESS_KEY_ID="$_v"
+    _v=$(_store_get secrets backup_s3_secret_key); [ -n "$_v" ] && AWS_SECRET_ACCESS_KEY="$_v"
     # Retention is NOT read here. It used to be, from flat config.BACKUP_KEEP_*
     # keys, while backup.env.j2 also templated the same four values -- and
     # backup.env is written only-if-absent, so on any host that already had it
@@ -150,7 +150,7 @@ PY
     # below.
     BACKUP_ENABLED=$(_store_get config BACKUP_ENABLED)
     BACKUP_MIN_INTERVAL_HOURS=$(_store_get config BACKUP_MIN_INTERVAL_HOURS)
-    _store_pw=$(_store_get secrets vault_backup_restic_password)
+    _store_pw=$(_store_get secrets backup_restic_password)
     if [ -n "$_store_pw" ]; then
         mkdir -p /run/catena && chmod 700 /run/catena
         _rt_pass=/run/catena/restic-runtime.pass

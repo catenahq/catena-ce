@@ -14,7 +14,7 @@
     url: "{{ portainer_api_base }}/endpoints"
     method: GET
     headers:
-      X-API-Key: "{{ vault_portainer_api_key }}"
+      X-API-Key: "{{ portainer_api_key }}"
     status_code: 200
     return_content: true
   register: _portainer_endpoints

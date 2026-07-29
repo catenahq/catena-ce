@@ -6,8 +6,8 @@ Two top-level sections:
 
     {
       "secrets": {            # external + internal-minted + role-minted
-        "vault_admin_password": "...",
-        "vault_catena_postgres_password": "...",
+        "admin_password": "...",
+        "catena_postgres_password": "...",
         ...
       },
       "config": {             # non-secret
@@ -102,7 +102,7 @@ def zone_cookie_secret_key(zone: str) -> str:
     """Store key for a zone's oauth2-proxy cookie secret. In multi-domain mode
     each SSO island (one Cloudflare zone) gets its own cookie secret so a
     session cookie minted for one domain cannot be replayed against another."""
-    return f"vault_oauth2_proxy_cookie_secret_{zone_slug(zone)}"
+    return f"oauth2_proxy_cookie_secret_{zone_slug(zone)}"
 
 
 def configured_zone_names(zones: object) -> list[str]:
@@ -130,58 +130,70 @@ def configured_zone_names(zones: object) -> list[str]:
 # user-held DR keyset / first-login credential -- also on-box-minted-if-absent
 # but surfaced once for the user's password manager (see USER_HELD_SECRETS).
 INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
-    "vault_catena_postgres_password": mint_strong_password,
-    "vault_turn_static_auth_secret": mint_strong_password,
+    "catena_postgres_password": mint_strong_password,
+    "turn_static_auth_secret": mint_strong_password,
     # Signs the catena-admin native-login session cookie (the host-published
     # tailnet listener). Minted once, stable across converges, rides the backup.
-    "vault_catena_admin_session_key": mint_strong_password,
+    "catena_admin_session_key": mint_strong_password,
     # SSO service credentials.
-    "vault_keycloak_db_password": mint_strong_password,
-    "vault_oauth2_proxy_cookie_secret": mint_oauth2_proxy_cookie_secret,
-    "vault_oauth2_proxy_client_secret": mint_strong_password,
-    "vault_dashboard_sync_client_secret": mint_strong_password,
-    "vault_nextcloud_oidc_client_secret": mint_strong_password,
-    "vault_element_oidc_client_secret": mint_strong_password,
-    "vault_mailserver_oidc_client_secret": mint_strong_password,
-    "vault_mailserver_introspect_client_secret": mint_strong_password,
+    "keycloak_db_password": mint_strong_password,
+    "oauth2_proxy_cookie_secret": mint_oauth2_proxy_cookie_secret,
+    "oauth2_proxy_client_secret": mint_strong_password,
+    "dashboard_sync_client_secret": mint_strong_password,
+    "nextcloud_oidc_client_secret": mint_strong_password,
+    "element_oidc_client_secret": mint_strong_password,
+    "mailserver_oidc_client_secret": mint_strong_password,
+    "mailserver_introspect_client_secret": mint_strong_password,
     # Healthchecks (self-hosted heartbeat instance).
-    "vault_healthchecks_secret_key": mint_strong_password,
-    "vault_healthchecks_superuser_password": mint_strong_password,
-    "vault_healthchecks_ping_key": mint_url_safe,
-    "vault_healthchecks_api_key_readonly": mint_hc_api_key,
-    "vault_healthchecks_api_key_readwrite": mint_hc_api_key,
+    "healthchecks_secret_key": mint_strong_password,
+    "healthchecks_superuser_password": mint_strong_password,
+    "healthchecks_ping_key": mint_url_safe,
+    "healthchecks_api_key_readonly": mint_hc_api_key,
+    "healthchecks_api_key_readwrite": mint_hc_api_key,
     # Nextcloud Talk + HPB bearer secrets.
-    "vault_nextcloud_talk_signaling_secret": mint_strong_password,
-    "vault_nextcloud_talk_internal_secret": mint_strong_password,
+    "nextcloud_talk_signaling_secret": mint_strong_password,
+    "nextcloud_talk_internal_secret": mint_strong_password,
     # Rocket.Chat-bundled Jitsi component secrets.
-    "vault_jitsi_prosody_password": mint_strong_password,
-    "vault_jitsi_jicofo_auth_password": mint_strong_password,
-    "vault_jitsi_jicofo_component_secret": mint_strong_password,
-    "vault_jitsi_jvb_auth_password": mint_strong_password,
+    "jitsi_prosody_password": mint_strong_password,
+    "jitsi_jicofo_auth_password": mint_strong_password,
+    "jitsi_jicofo_component_secret": mint_strong_password,
+    "jitsi_jvb_auth_password": mint_strong_password,
     # Element-bundled Jitsi + jigasi secrets.
-    "vault_element_jitsi_jicofo_auth_password": mint_strong_password,
-    "vault_element_jitsi_jicofo_component_secret": mint_strong_password,
-    "vault_element_jitsi_jvb_auth_password": mint_strong_password,
-    "vault_element_jigasi_xmpp_password": mint_strong_password,
+    "element_jitsi_jicofo_auth_password": mint_strong_password,
+    "element_jitsi_jicofo_component_secret": mint_strong_password,
+    "element_jitsi_jvb_auth_password": mint_strong_password,
+    "element_jigasi_xmpp_password": mint_strong_password,
     # Beszel resource-monitor credentials (minted unconditionally; idle until
     # BESZEL_ENABLED=true).
-    "vault_beszel_admin_password": mint_strong_password,
-    "vault_beszel_universal_token": mint_url_safe,
+    "beszel_admin_password": mint_strong_password,
+    "beszel_universal_token": mint_url_safe,
+    # Catena portal (minted unconditionally; idle until
+    # CATENA_PORTAL_ENABLED=true). The client secret pairs with the
+    # catena-portal realm client the Keycloak blueprint provisions; the auth
+    # secret is NextAuth's JWT-signing key; the DB password protects the
+    # bundled portal Postgres.
+    "keycloak_portal_client_secret": mint_strong_password,
+    "portal_auth_secret": mint_strong_password,
+    "portal_db_password": mint_strong_password,
+    # The auth header on the ZAP daemon's REST API while a pen-test scan is
+    # running. Minted regardless of bench mode so a one-off scan against any
+    # inventory needs no extra setup.
+    "zap_api_key": mint_url_safe,
 }
 
 # USER_HELD: the DR keyset + first-login credential. Minted on-box IF ABSENT
 # (same reconcile-not-overwrite as INTERNAL), but the installer shows them
 # ONCE so the user keeps an off-box copy in their password manager. NOT in
 # EXTERNAL_SECRETS, so the config-write API (settings save) cannot set them:
-#   - vault_admin_password    -- first-login credential (Portainer + Keycloak).
-#   - vault_backup_restic_password -- encrypts the backup repo. Minting it
+#   - admin_password    -- first-login credential (Portainer + Keycloak).
+#   - backup_restic_password -- encrypts the backup repo. Minting it
 #     on-box would trap it inside the very snapshot it decrypts IF the user
 #     lost their copy -- so it is surfaced once at install for the password
 #     manager, and `catena recover` ADOPTS the user's saved value into the
 #     store BEFORE the restore runs (adopt is fill-only, so the freshly-minted
 #     value is only used on a first install, never a recover). A rotation is a
 #     deliberate `restic key passwd` action in catena-admin, not a store write.
-#   - vault_console_recovery_password -- the ops account's break-glass password
+#   - console_recovery_password -- the ops account's break-glass password
 #     for the provider KVM / serial console (roles/common sets it; key-only SSH
 #     keeps it console-only). Same shape as the restic password: a credential
 #     whose whole purpose is the case where the normal path is gone, so a copy
@@ -189,10 +201,10 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
 #     minted by an ops OPERATOR tool, which meant no self-hoster host had a
 #     break-glass account at all.
 USER_HELD_SECRETS: dict[str, Callable[[], str]] = {
-    "vault_admin_password": mint_admin_password,
-    "vault_backup_restic_password": mint_strong_password,
+    "admin_password": mint_admin_password,
+    "backup_restic_password": mint_strong_password,
     # url-safe, not base64: this one gets TYPED at a serial console.
-    "vault_console_recovery_password": mint_admin_password,
+    "console_recovery_password": mint_admin_password,
 }
 
 # EXTERNAL: vendor credentials the client HOLDS (never on-box-minted). Stored,
@@ -204,40 +216,45 @@ USER_HELD_SECRETS: dict[str, Callable[[], str]] = {
 # here has a documented path that raises. Keep it a superset of the settings
 # schema (catena-admin shell/settings/settings.go Fields).
 EXTERNAL_SECRETS: frozenset[str] = frozenset({
-    "vault_tailscale_oauth_client_id",
-    "vault_tailscale_oauth_client_secret",
+    "tailscale_oauth_client_id",
+    "tailscale_oauth_client_secret",
     # Self-hosted Headscale control server (alternative to Tailscale SaaS).
     # api_key mints a short-lived pre-auth key per converge (preferred); the
     # static preauth_key is the fallback. Optional -- empty on Tailscale hosts.
-    "vault_headscale_api_key",
-    "vault_headscale_preauth_key",
-    "vault_cloudflare_api_token",
+    "headscale_api_key",
+    "headscale_preauth_key",
+    "cloudflare_api_token",
     # Multi-domain (EE): JSON map zone -> API token. Each token is one-zone
     # scoped; catena-admin verifies the single-zone grant before storing. The
-    # scalar vault_cloudflare_api_token stays for the CE single-domain path.
-    "vault_cloudflare_api_tokens",
-    "vault_backup_s3_access_key",
-    "vault_backup_s3_secret_key",
-    "vault_backup_worm_access_key",
-    "vault_backup_worm_secret_key",
-    "vault_nextcloud_worm_access_key",
-    "vault_nextcloud_worm_secret_key",
-    "vault_smtp_password",
-    "vault_mailserver_relay_password",
-    "vault_mailserver_spamhaus_dqs_key",
-    "vault_nextcloud_s3_access_key",
-    "vault_nextcloud_s3_secret_key",
+    # scalar cloudflare_api_token stays for the CE single-domain path.
+    "cloudflare_api_tokens",
+    "backup_s3_access_key",
+    "backup_s3_secret_key",
+    "backup_worm_access_key",
+    "backup_worm_secret_key",
+    "nextcloud_worm_access_key",
+    "nextcloud_worm_secret_key",
+    "smtp_password",
+    "mailserver_relay_password",
+    "mailserver_spamhaus_dqs_key",
+    "nextcloud_s3_access_key",
+    "nextcloud_s3_secret_key",
     # CIFS credentials for the optional bulk mount (roles/storage bulk.yml,
     # storage_bulk_type=cifs). Client-held: the share is the client's NAS.
     # NFS authenticates by source IP and supplies neither.
-    "vault_storage_bulk_username",
-    "vault_storage_bulk_password",
+    "storage_bulk_username",
+    "storage_bulk_password",
     # Business licence token. Client-held like any other external credential:
     # the client is given it on purchase and pastes it into catena-admin >
     # Settings, and the panel plus the host engines read it back from here. It
     # is a signed claim rather than a shared secret, so this repo neither mints
     # nor verifies it -- it only stores it.
-    "vault_catena_license",
+    "catena_license",
+    # Stripe live + webhook keys for the optional client portal. Never minted:
+    # the operator pastes them from the Stripe dashboard. Billing routes
+    # degrade gracefully while they are blank.
+    "portal_stripe_secret_key",
+    "portal_stripe_webhook_secret",
 })
 
 # ROLE_MINTED: minted by the SERVICE, captured by the role that provisioned it.
@@ -248,14 +265,14 @@ EXTERNAL_SECRETS: frozenset[str] = frozenset({
 # is invisible.
 #
 # Value is the role that writes it into the store, so a failure names the owner.
-#   - vault_portainer_api_key -- Portainer's own token API mints it
+#   - portainer_api_key -- Portainer's own token API mints it
 #     (helpers/bootstrap_portainer_admin.py); roles/portainer adopts it, with
 #     --overwrite, because a /data restore invalidates the stored one.
 #
 # NOT minted here and NOT adoptable through apply_inputs: a role-minted secret
 # has exactly one writer, and that writer is the role.
 ROLE_MINTED_SECRETS: dict[str, str] = {
-    "vault_portainer_api_key": "portainer",
+    "portainer_api_key": "portainer",
 }
 
 
@@ -334,7 +351,7 @@ def ensure_internal_secrets(store: dict) -> list[str]:
     # Per-zone oauth2-proxy cookie secrets: one SSO island per configured
     # Cloudflare zone (multi-domain, EE). Reconcile-not-overwrite like the
     # static internal set. Single-domain hosts have no CLOUDFLARE_ZONES entry
-    # and mint nothing extra (the base vault_oauth2_proxy_cookie_secret stands).
+    # and mint nothing extra (the base oauth2_proxy_cookie_secret stands).
     zones = store.get("config", {}).get("CLOUDFLARE_ZONES")
     for zone in configured_zone_names(zones):
         key = zone_cookie_secret_key(zone)

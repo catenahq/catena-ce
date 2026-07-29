@@ -24,7 +24,7 @@ services:
     environment:
       LISTEN: "{{ beszel_agent_port }}"
       HUB_URL: "http://127.0.0.1:{{ beszel_hub_host_localhost_port }}"
-      TOKEN: "{{ vault_beszel_universal_token }}"
+      TOKEN: "{{ beszel_universal_token }}"
       KEY: "{{ _beszel_hub_pubkey }}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro

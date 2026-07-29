@@ -313,7 +313,7 @@
     # the WPMS_SMTP_PASS constant in WORDPRESS_CONFIG_EXTRA wins,
     # keeping the password out of the WP database. The constant
     # itself is set from the WPMS_SMTP_PASS env var (auto-healed
-    # via env_managed_keys from vault_smtp_password).
+    # via env_managed_keys from smtp_password).
     - name: "WordPress plugins: resolve SMTP facts from inventory"
       ansible.builtin.set_fact:
         _wp_smtp_resend_sender: "{{ lookup('dotenv', 'RESEND_SENDER_EMAIL', default='') }}"

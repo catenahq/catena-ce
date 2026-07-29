@@ -66,7 +66,7 @@ healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
 admin_email: "{{ lookup('dotenv', 'ADMIN_EMAIL', default='') }}"
 
 # SMTP -- resolved by the SSO role's autofill. Set RESEND_SENDER_EMAIL or
-# BREVO_SENDER_EMAIL in .env (plus the SMTP password in vault_smtp_password)
+# BREVO_SENDER_EMAIL in .env (plus the SMTP password in smtp_password)
 # and the role picks the right host/port/user automatically. Don't re-declare
 # smtp_host/smtp_port/etc. here -- doing so shadows the role default and
 # defeats the autofill.
@@ -115,7 +115,7 @@ backup_healthcheck_url: >-
   {{
     lookup('dotenv', 'BACKUP_HEALTHCHECK_URL', default='')
     or ('https://' ~ healthchecks_hostname
-        ~ '/ping/' ~ vault_healthchecks_ping_key
+        ~ '/ping/' ~ healthchecks_ping_key
         ~ '/catena-backup?create=1')
   }}
 backup_retention_policy:

@@ -54,7 +54,7 @@
           - --user
           - "{{ admin_email }}"
           - --password
-          - "{{ vault_admin_password }}"
+          - "{{ admin_password }}"
       changed_when: false
       no_log: true
 

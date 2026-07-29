@@ -1,7 +1,7 @@
 """The Portainer API-key mint reads stdin and persists to the on-box store.
 
 Regression: the mint used to require `<inventory>/group_vars/all/vault.yml`
-as BOTH the source of vault_admin_password and the destination of the minted
+as BOTH the source of admin_password and the destination of the minted
 key. `catena install` stops writing that file (0b, seed.py: "No vault.yml:
 secrets never persist on the laptop"), so on any real install the helper
 returned EXIT_ERROR ("vault not found") and the un-guarded command task
@@ -105,10 +105,10 @@ def test_the_helper_does_not_import_yaml():
 def test_the_mint_passes_the_password_on_stdin_not_argv():
     task = _named(_mint_block(), "invoke bootstrap_portainer_admin.py")
     cmd = task["ansible.builtin.command"]
-    assert cmd["stdin"] == "{{ vault_admin_password }}"
+    assert cmd["stdin"] == "{{ admin_password }}"
     assert cmd["stdin_add_newline"] is False
     # argv is world-readable through /proc while the process lives.
-    assert not any("vault_admin_password" in str(a) for a in cmd["argv"])
+    assert not any("admin_password" in str(a) for a in cmd["argv"])
     assert not any("--vault" in str(a) for a in cmd["argv"])
     assert task["no_log"] is True
 
@@ -116,7 +116,7 @@ def test_the_mint_passes_the_password_on_stdin_not_argv():
 def test_the_minted_key_is_published_and_persisted_on_box():
     block = _mint_block()
     assert _named(block, "publish the minted key")["ansible.builtin.set_fact"] == {
-        "vault_portainer_api_key": "{{ _pt_apikey_mint.stdout | trim }}"
+        "portainer_api_key": "{{ _pt_apikey_mint.stdout | trim }}"
     }
     write = _named(block, "write the minted key into the on-box config store")
     cmd = write["ansible.builtin.script"]["cmd"]
@@ -149,7 +149,7 @@ def test_the_loader_publishes_the_stored_key():
 def test_the_mint_decision_is_taken_before_the_block():
     """A block's `when` is re-evaluated for EVERY task in it.
 
-    The block set_facts vault_portainer_api_key as its second task -- the
+    The block set_facts portainer_api_key as its second task -- the
     same variable an inline condition would read. Inline, the mint ran, the
     key was published as a fact, and then every REMAINING task in the block
     skipped because the condition had just flipped false. The key never
@@ -169,7 +169,7 @@ def test_the_mint_decision_is_taken_before_the_block():
     # The block gates on the captured fact, NOT on the mutated variable.
     guard = str(tasks[block].get("when", ""))
     assert "_pt_apikey_needs_mint" in guard
-    assert "vault_portainer_api_key" not in guard, (
+    assert "portainer_api_key" not in guard, (
         "the block reads the variable its own set_fact overwrites; every task "
         "after that set_fact will skip"
     )

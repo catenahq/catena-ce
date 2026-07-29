@@ -31,7 +31,7 @@ clients:
     implicitFlowEnabled: false
     directAccessGrantsEnabled: false
     serviceAccountsEnabled: false
-    secret: "{{ vault_nextcloud_oidc_client_secret }}"
+    secret: "{{ nextcloud_oidc_client_secret }}"
     # user_oidc lands the post-login callback at /apps/user_oidc/code.
     redirectUris:
       - "https://nextcloud.{{ cloudflare_zone }}/apps/user_oidc/code"

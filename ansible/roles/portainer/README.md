@@ -28,7 +28,7 @@ create paths below. Most blog/gist snippets predate this and are wrong.
 - Long-lived API token (services): with a JWT,
   `POST /api/users/{id}/tokens` `{description, password}` -> `rawAPIKey`
   (shown once) -> header **`X-API-Key`**.
-- Bootstrap flow for `vault_portainer_api_key`: `/api/auth` (JWT) ->
+- Bootstrap flow for `portainer_api_key`: `/api/auth` (JWT) ->
   `/api/users/{id}/tokens` -> rawAPIKey into `/etc/catena/config.json`.
 
 ### Environment (endpoint) + swarm id

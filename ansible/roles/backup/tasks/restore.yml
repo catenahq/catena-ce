@@ -51,7 +51,7 @@
 - name: "Prereq -- write restic password file"
   ansible.builtin.copy:
     dest: "{{ backup_password_file }}"
-    content: "{{ vault_backup_restic_password }}\n"
+    content: "{{ backup_restic_password }}\n"
     owner: root
     group: root
     mode: "0600"

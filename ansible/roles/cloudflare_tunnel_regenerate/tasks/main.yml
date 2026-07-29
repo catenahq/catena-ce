@@ -8,14 +8,14 @@
 # Triggered from the catena-admin Actions tab "Regenerate Cloudflare
 # tunnel" entry, which feeds cf_api_token in via -e (the action
 # payload). The token is consumed once at API call time and is NEVER
-# persisted -- vault_cloudflare_api_token is intentionally NOT updated
+# persisted -- cloudflare_api_token is intentionally NOT updated
 # by this role.
 #
 # Sequence:
 #   1. Resolve zone via CF API (using the supplied token).
 #   2. Delete the existing tunnel for this host (if any).
 #   3. Hand off to roles/cloudflare_tunnel's find-or-create logic with
-#      vault_cloudflare_api_token shadowed by the supplied token, which
+#      cloudflare_api_token shadowed by the supplied token, which
 #      then mints a new tunnel + token, writes the JSON, and restarts
 #      cloudflared.
 #
@@ -62,7 +62,7 @@
   vars:
     _cf_regen_store_token: >-
       {{ ((_cf_regen_store.content | default('') | b64decode | from_json).secrets
-          | default({})).get('vault_cloudflare_api_token', '')
+          | default({})).get('cloudflare_api_token', '')
          if (_cf_regen_store_stat.stat.exists | default(false))
          else '' }}
   no_log: true
@@ -141,14 +141,14 @@
   become: false
 
 # Hand off to the existing find-or-create + token write + restart
-# logic. Shadow vault_cloudflare_api_token with the supplied token
+# logic. Shadow cloudflare_api_token with the supplied token
 # so the tunnel role uses it for all API calls. The shadow is scoped
 # to this play -- the on-box store is not rewritten.
 - name: "CF regen: re-create tunnel + restart cloudflared via existing role"
   ansible.builtin.include_role:
     name: cloudflare_tunnel
   vars:
-    vault_cloudflare_api_token: "{{ cf_api_token }}"
+    cloudflare_api_token: "{{ cf_api_token }}"
     # Hand the resolved account id down too: the role's default reads the
     # (empty on a tokenless install) inventory var, and while the engine can
     # re-resolve it from the token, passing it keeps the delete and re-create

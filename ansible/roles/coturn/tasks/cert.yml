@@ -46,7 +46,7 @@
   ansible.builtin.copy:
     content: |
       # Managed by catena roles/coturn -- do not edit.
-      dns_cloudflare_api_token = {{ vault_cloudflare_api_token }}
+      dns_cloudflare_api_token = {{ cloudflare_api_token }}
     dest: "{{ coturn_cloudflare_creds_path }}"
     owner: root
     group: root

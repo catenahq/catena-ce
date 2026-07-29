@@ -22,8 +22,8 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
 
 ## Inputs
 
-- `vault_keycloak_admin_password` (KC_BOOTSTRAP_ADMIN_PASSWORD)
-- `vault_keycloak_db_password` -- written into the catena-postgres
+- `keycloak_admin_password` (KC_BOOTSTRAP_ADMIN_PASSWORD)
+- `keycloak_db_password` -- written into the catena-postgres
   user.
 - `keycloak_realm_name` -- defaults to `catena`.
 - `keycloak_oidc_clients` -- list of {client_id, redirect_uris,

@@ -7,7 +7,7 @@ Shared TURN/STUN server. Used by both chat-video stacks:
   `vps-scripts/nextcloud-talk-hpb-wire.sh` via `occ talk:turn:add`.
 - **Rocket.Chat's bundled Jitsi** -- jitsi-videobridge is configured
   with `JVB_TURN_HOST=turn.<base>` / `JVB_TURN_PORT=5349` /
-  `JVB_TURN_SECRET={{ vault_turn_static_auth_secret }}` for the same
+  `JVB_TURN_SECRET={{ turn_static_auth_secret }}` for the same
   relay path.
 
 One coturn deployment serves both. Auth is `static-auth-secret`
@@ -54,7 +54,7 @@ UDP media plane direct on VPS public IP via shared coturn at
 - Cert: regenerated automatically via certbot on the new host (state
   in `/etc/letsencrypt/`; restic-included by default).
 - Static auth secret: minted on-box into `/etc/catena/config.json`
-  (`vault_turn_static_auth_secret`), same DR path as every other shared
+  (`turn_static_auth_secret`), same DR path as every other shared
   secret -- `/etc` rides the restic snapshot.
 - Compose / swarm spec: re-rendered on converge from this role.
 
@@ -114,7 +114,7 @@ The shared-secret auth model (`use-auth-secret` +
 scheme used by Synapse, the server behind Element. **No coturn role
 changes are required** to add a third chat-video stack -- only a
 Synapse compose entry (in `catenahq/catena-templates`) that wires
-the existing `vault_turn_static_auth_secret` through to
+the existing `turn_static_auth_secret` through to
 `homeserver.yaml`:
 
 ```yaml
@@ -122,7 +122,7 @@ turn_uris:
   - "turn:turn.<base>:3478?transport=udp"
   - "turn:turn.<base>:3478?transport=tcp"
   - "turns:turn.<base>:5349?transport=tcp"
-turn_shared_secret: "<vault_turn_static_auth_secret>"
+turn_shared_secret: "<turn_static_auth_secret>"
 turn_user_lifetime: 86400000
 turn_allow_guests: true
 ```

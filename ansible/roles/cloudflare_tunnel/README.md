@@ -18,7 +18,7 @@ is a Community feature).
 ## What this role does now
 
 - Reads the on-box Cloudflare API token
-  (`vault_cloudflare_api_token`, published as a fact by
+  (`cloudflare_api_token`, published as a fact by
   `tasks/load_onbox_config.yml`).
 - **No token**: the tunnel is DEFERRED. The role logs a skip. The client
   enters the token in catena-admin > Settings; the panel validates it
@@ -65,7 +65,7 @@ roles:
 
 - The `catena-cloudflared-sync` engine on `/usr/local/bin` (installed by
   `roles/catena-admin`).
-- On-box store token `vault_cloudflare_api_token` (Zone:DNS:Edit +
+- On-box store token `cloudflare_api_token` (Zone:DNS:Edit +
   Cloudflare Tunnel:Edit on the target zone) -- entered ONLY in
   catena-admin > Settings, never at install.
 - `catena-network` exists (provided by `roles/traefik`); Docker swarm

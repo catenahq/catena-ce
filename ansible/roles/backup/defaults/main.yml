@@ -86,8 +86,8 @@ backup_worm_repo: "{{ lookup('dotenv', 'BACKUP_WORM_REPO', default='') }}"
 # Environment tab). Operators set NEXTCLOUD_LIVE_REPO in .env to the
 # `s3:<host>/<bucket>` form matching what they entered in the app's
 # Environment; the
-# live IAM creds reuse vault_nextcloud_s3_access_key /
-# vault_nextcloud_s3_secret_key (the same keys Nextcloud itself uses).
+# live IAM creds reuse nextcloud_s3_access_key /
+# nextcloud_s3_secret_key (the same keys Nextcloud itself uses).
 nextcloud_live_repo: "{{ lookup('dotenv', 'NEXTCLOUD_LIVE_REPO', default='') }}"
 nextcloud_worm_repo: "{{ lookup('dotenv', 'NEXTCLOUD_WORM_REPO', default='') }}"
 nextcloud_worm_mirror_oncalendar: >-
@@ -96,17 +96,17 @@ nextcloud_mirror_healthcheck_url: >-
   {{
     lookup('dotenv', 'NEXTCLOUD_MIRROR_HEALTHCHECK_URL', default='')
     or ('https://' ~ healthchecks_hostname
-        ~ '/ping/' ~ (vault_healthchecks_ping_key | default(''))
+        ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-nextcloud-mirror-succeeded?create=1'
-        if vault_healthchecks_ping_key is defined else '')
+        if healthchecks_ping_key is defined else '')
   }}
 nextcloud_mirror_healthcheck_attempted_url: >-
   {{
     lookup('dotenv', 'NEXTCLOUD_MIRROR_HEALTHCHECK_ATTEMPTED_URL', default='')
     or ('https://' ~ healthchecks_hostname
-        ~ '/ping/' ~ (vault_healthchecks_ping_key | default(''))
+        ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-nextcloud-mirror-attempted?create=1'
-        if vault_healthchecks_ping_key is defined else '')
+        if healthchecks_ping_key is defined else '')
   }}
 # Healthcheck pings for the mirror, parallel to the nightly backup's
 # pair. Auto-provision against the local Healthchecks instance with
@@ -115,17 +115,17 @@ backup_worm_healthcheck_url: >-
   {{
     lookup('dotenv', 'BACKUP_WORM_HEALTHCHECK_URL', default='')
     or ('https://' ~ healthchecks_hostname
-        ~ '/ping/' ~ (vault_healthchecks_ping_key | default(''))
+        ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-worm-mirror-succeeded?create=1'
-        if vault_healthchecks_ping_key is defined else '')
+        if healthchecks_ping_key is defined else '')
   }}
 backup_worm_healthcheck_attempted_url: >-
   {{
     lookup('dotenv', 'BACKUP_WORM_HEALTHCHECK_ATTEMPTED_URL', default='')
     or ('https://' ~ healthchecks_hostname
-        ~ '/ping/' ~ (vault_healthchecks_ping_key | default(''))
+        ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-worm-mirror-attempted?create=1'
-        if vault_healthchecks_ping_key is defined else '')
+        if healthchecks_ping_key is defined else '')
   }}
 # Two healthchecks per backup, not one. Restic / S3 are flaky
 # enough that a single nightly failure should not page; two consecutive
@@ -142,23 +142,23 @@ backup_worm_healthcheck_attempted_url: >-
 #   structural failures immediately.
 #
 # Both auto-provision on first ping (?create=1) using the same
-# vault_healthchecks_ping_key. .env can override either with an off-host
+# healthchecks_ping_key. .env can override either with an off-host
 # URL (healthchecks.io etc.) for survivability past full VPS loss.
 backup_healthcheck_url: >-
   {{
     lookup('dotenv', 'BACKUP_HEALTHCHECK_URL', default='')
     or ('https://' ~ healthchecks_hostname
-        ~ '/ping/' ~ (vault_healthchecks_ping_key | default(''))
+        ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-backup-succeeded?create=1'
-        if vault_healthchecks_ping_key is defined else '')
+        if healthchecks_ping_key is defined else '')
   }}
 backup_healthcheck_attempted_url: >-
   {{
     lookup('dotenv', 'BACKUP_HEALTHCHECK_ATTEMPTED_URL', default='')
     or ('https://' ~ healthchecks_hostname
-        ~ '/ping/' ~ (vault_healthchecks_ping_key | default(''))
+        ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-backup-attempted?create=1'
-        if vault_healthchecks_ping_key is defined else '')
+        if healthchecks_ping_key is defined else '')
   }}
 
 # External dead-man pings, client and operator.
@@ -424,8 +424,8 @@ backup_run_initial_snapshot: true
 backup_restic_env:
   RESTIC_REPOSITORY: "{{ backup_restic_repo | default('') }}"
   RESTIC_PASSWORD_FILE: "{{ backup_password_file }}"
-  AWS_ACCESS_KEY_ID: "{{ vault_backup_s3_access_key | default('') }}"
-  AWS_SECRET_ACCESS_KEY: "{{ vault_backup_s3_secret_key | default('') }}"
+  AWS_ACCESS_KEY_ID: "{{ backup_s3_access_key | default('') }}"
+  AWS_SECRET_ACCESS_KEY: "{{ backup_s3_secret_key | default('') }}"
 
 # Wrapper + config locations. Changing these also requires updating
 # tests/goss/backup.yaml.

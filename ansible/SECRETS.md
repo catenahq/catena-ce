@@ -40,25 +40,25 @@ ride the backup, because it is what unlocks the backup.
 
 | Key | Purpose | Phase where entered | DR-critical (client-kept) |
 | --- | --- | --- | --- |
-| `vault_tailscale_oauth_client_id` | Join the client's own tailnet | minimal bootstrap | no |
-| `vault_tailscale_oauth_client_secret` | ^ | minimal bootstrap | no |
-| `vault_cloudflare_api_token` | Tunnel + DNS | catena-admin Settings (never at install) | no |
+| `tailscale_oauth_client_id` | Join the client's own tailnet | minimal bootstrap | no |
+| `tailscale_oauth_client_secret` | ^ | minimal bootstrap | no |
+| `cloudflare_api_token` | Tunnel + DNS | catena-admin Settings (never at install) | no |
 | `BACKUP_RESTIC_REPO` (.env) | restic repo URL | settings page | **yes** |
-| `vault_backup_s3_access_key` | reach the restic bucket | settings page | **yes** |
-| `vault_backup_s3_secret_key` | ^ | settings page | **yes** |
-| `vault_backup_restic_password` | decrypt the restic repo | on-box mint, **shown once** | **yes** |
-| `vault_admin_password` | first login (Portainer + Keycloak) | on-box mint, **shown once** | no |
-| `vault_console_recovery_password` | break-glass login for `ops` at the provider KVM / serial console | on-box mint, **shown once** | **yes** |
-| `vault_smtp_password` | outbound mail (opt) | settings page | no |
-| `vault_mailserver_relay_password` | smarthost (opt) | settings page | no |
-| `vault_mailserver_spamhaus_dqs_key` | RBL (opt) | settings page | no |
-| `vault_nextcloud_s3_access_key` | NC primary S3 (opt) | settings page | no |
-| `vault_nextcloud_s3_secret_key` | ^ | settings page | no |
-| `vault_storage_bulk_username` | CIFS bulk mount (opt; NFS needs neither) | settings page | no |
-| `vault_storage_bulk_password` | ^ | settings page | no |
+| `backup_s3_access_key` | reach the restic bucket | settings page | **yes** |
+| `backup_s3_secret_key` | ^ | settings page | **yes** |
+| `backup_restic_password` | decrypt the restic repo | on-box mint, **shown once** | **yes** |
+| `admin_password` | first login (Portainer + Keycloak) | on-box mint, **shown once** | no |
+| `console_recovery_password` | break-glass login for `ops` at the provider KVM / serial console | on-box mint, **shown once** | **yes** |
+| `smtp_password` | outbound mail (opt) | settings page | no |
+| `mailserver_relay_password` | smarthost (opt) | settings page | no |
+| `mailserver_spamhaus_dqs_key` | RBL (opt) | settings page | no |
+| `nextcloud_s3_access_key` | NC primary S3 (opt) | settings page | no |
+| `nextcloud_s3_secret_key` | ^ | settings page | no |
+| `storage_bulk_username` | CIFS bulk mount (opt; NFS needs neither) | settings page | no |
+| `storage_bulk_password` | ^ | settings page | no |
 
-`vault_backup_restic_password`, `vault_admin_password` and
-`vault_console_recovery_password` are special: `USER_HELD_SECRETS` in
+`backup_restic_password`, `admin_password` and
+`console_recovery_password` are special: `USER_HELD_SECRETS` in
 `onbox_config.py`. They are minted **on-box if absent**
 (like the internal secrets) but the installer reads them back and **shows them
 once** at the end of `catena install` (`playbooks/show_dr_keyset.yml`) so the
@@ -85,33 +85,33 @@ converge loader (`playbooks/tasks/load_onbox_config.yml` ->
 then set_facts them for the roles. `seed.py` mints NONE of these (that was the
 old laptop-minting model; dropped with the 0b true-on-box-minting cutover).
 
-- `vault_catena_postgres_password`
-- `vault_keycloak_db_password`
-- `vault_oauth2_proxy_cookie_secret`
-- `vault_oauth2_proxy_client_secret`
-- `vault_dashboard_sync_client_secret`
-- `vault_nextcloud_oidc_client_secret`
-- `vault_element_oidc_client_secret`
-- `vault_mailserver_oidc_client_secret`
-- `vault_mailserver_introspect_client_secret`
-- `vault_healthchecks_secret_key`
-- `vault_healthchecks_superuser_password`
-- `vault_healthchecks_ping_key`
-- `vault_healthchecks_api_key_readonly`
-- `vault_healthchecks_api_key_readwrite`
-- `vault_turn_static_auth_secret`
-- `vault_nextcloud_talk_signaling_secret`
-- `vault_nextcloud_talk_internal_secret`
-- `vault_jitsi_prosody_password`
-- `vault_jitsi_jicofo_auth_password`
-- `vault_jitsi_jicofo_component_secret`
-- `vault_jitsi_jvb_auth_password`
-- `vault_element_jitsi_jicofo_auth_password`
-- `vault_element_jitsi_jicofo_component_secret`
-- `vault_element_jitsi_jvb_auth_password`
-- `vault_element_jigasi_xmpp_password`
-- `vault_beszel_admin_password`
-- `vault_beszel_universal_token`
+- `catena_postgres_password`
+- `keycloak_db_password`
+- `oauth2_proxy_cookie_secret`
+- `oauth2_proxy_client_secret`
+- `dashboard_sync_client_secret`
+- `nextcloud_oidc_client_secret`
+- `element_oidc_client_secret`
+- `mailserver_oidc_client_secret`
+- `mailserver_introspect_client_secret`
+- `healthchecks_secret_key`
+- `healthchecks_superuser_password`
+- `healthchecks_ping_key`
+- `healthchecks_api_key_readonly`
+- `healthchecks_api_key_readwrite`
+- `turn_static_auth_secret`
+- `nextcloud_talk_signaling_secret`
+- `nextcloud_talk_internal_secret`
+- `jitsi_prosody_password`
+- `jitsi_jicofo_auth_password`
+- `jitsi_jicofo_component_secret`
+- `jitsi_jvb_auth_password`
+- `element_jitsi_jicofo_auth_password`
+- `element_jitsi_jicofo_component_secret`
+- `element_jitsi_jvb_auth_password`
+- `element_jigasi_xmpp_password`
+- `beszel_admin_password`
+- `beszel_universal_token`
 
 ### 3. Service-minted, role-captured (`ROLE_MINTED_SECRETS`)
 
@@ -123,7 +123,7 @@ because it has exactly one writer and that writer is the role.
 
 | Key | Minted by | Captured by |
 | --- | --- | --- |
-| `vault_portainer_api_key` | Portainer's own token API, via `helpers/bootstrap_portainer_admin.py` | `roles/portainer` |
+| `portainer_api_key` | Portainer's own token API, via `helpers/bootstrap_portainer_admin.py` | `roles/portainer` |
 
 The mint runs mid-converge rather than in the loader: the initial admin has to
 exist first. The helper prints the key on stdout and the role writes it

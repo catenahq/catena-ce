@@ -94,7 +94,7 @@
     owner: root
     group: root
     mode: "0644"
-  when: vault_dashboard_sync_client_secret | default('') | length > 0
+  when: dashboard_sync_client_secret | default('') | length > 0
 
 # In-container /health/ready re-probe immediately before the import.
 # tasks/validate.yml's probe is run AFTER this file (see main.yml
@@ -232,7 +232,7 @@
       - "{{ keycloak_realm_host_dir }}:/config:ro"
       - "{{ keycloak_config_cli_image }}"
   environment:
-    KEYCLOAK_PASSWORD: "{{ vault_admin_password }}"
+    KEYCLOAK_PASSWORD: "{{ admin_password }}"
   register: _keycloak_realm_import
   # Tool reports its own changed/no-op state on stdout. Treat as
   # `changed_when` true if the realm YAML was re-rendered OR the
@@ -248,7 +248,7 @@
   # chance to surface stdout/stderr through the debug + fail pair
   # below. no_log: true on THIS task suppresses Ansible's default
   # task-result log (which echoes the `environment:` block and would
-  # leak vault_admin_password); the registered variable still carries
+  # leak admin_password); the registered variable still carries
   # the stdout/stderr that the debug task explicitly emits next.
   failed_when: false
   # Retry the whole run on any failure: each attempt is a FRESH container
@@ -270,7 +270,7 @@
 
 # Surface stdout + stderr from the kc-config-cli run. Restricted to
 # the two fields that are SAFE to log -- the env block (which holds
-# vault_admin_password) lives on the task definition above, not in
+# admin_password) lives on the task definition above, not in
 # _keycloak_realm_import.* fields. Without this, no_log: true on the
 # parent task blackholes the actual error message and operators are
 # left guessing across the dozens of realm YAMLs that just rendered.
@@ -293,7 +293,7 @@
       rc={{ _keycloak_realm_import.rc | default('?') }}. See the
       preceding debug task for stdout/stderr; common causes are an
       invalid YAML in {{ keycloak_realm_host_dir }}/*.yaml, a missing
-      store-derived value (e.g. vault_dashboard_sync_client_secret)
+      store-derived value (e.g. dashboard_sync_client_secret)
       that left a Jinja placeholder un-substituted, or a Keycloak
       Phase Two version drift that the import schema does not yet
       handle.
@@ -357,7 +357,7 @@
       - --user
       - "{{ admin_email }}"
       - --password
-      - "{{ vault_admin_password }}"
+      - "{{ admin_password }}"
   changed_when: false
   no_log: true
 

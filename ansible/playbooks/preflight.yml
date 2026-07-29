@@ -72,8 +72,8 @@
          already-installed host, set them from catena-admin > Settings, or
          re-run the install stage with:
 
-             -e '{"vault_tailscale_oauth_client_id": "k123...",
-                  "vault_tailscale_oauth_client_secret": "tskey-client-k123..."}'
+             -e '{"tailscale_oauth_client_id": "k123...",
+                  "tailscale_oauth_client_secret": "tskey-client-k123..."}'
 
       4. Re-run your original command.
 
@@ -101,17 +101,17 @@
     - name: Skip OAuth validation when no Tailscale creds are in scope
       ansible.builtin.meta: end_play
       when: >-
-        vault_tailscale_oauth_client_id is not defined
-        or vault_tailscale_oauth_client_secret is not defined
-        or vault_tailscale_oauth_client_id | length == 0
-        or vault_tailscale_oauth_client_secret | length == 0
+        tailscale_oauth_client_id is not defined
+        or tailscale_oauth_client_secret is not defined
+        or tailscale_oauth_client_id | length == 0
+        or tailscale_oauth_client_secret | length == 0
 
     - name: Show setup instructions if OAuth credentials are placeholder
       ansible.builtin.fail:
         msg: "{{ tailscale_setup_instructions }}"
       when: >-
-        'REPLACE' in vault_tailscale_oauth_client_id
-        or 'REPLACE' in vault_tailscale_oauth_client_secret
+        'REPLACE' in tailscale_oauth_client_id
+        or 'REPLACE' in tailscale_oauth_client_secret
 
     - name: Exchange OAuth client credentials for a bearer token
       ansible.builtin.uri:
@@ -120,8 +120,8 @@
         body_format: form-urlencoded
         body:
           grant_type: client_credentials
-        url_username: "{{ vault_tailscale_oauth_client_id }}"
-        url_password: "{{ vault_tailscale_oauth_client_secret }}"
+        url_username: "{{ tailscale_oauth_client_id }}"
+        url_password: "{{ tailscale_oauth_client_secret }}"
         force_basic_auth: true
         status_code: 200
         return_content: true

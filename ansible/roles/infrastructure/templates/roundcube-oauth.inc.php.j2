@@ -15,7 +15,7 @@
 $config['oauth_provider'] = 'generic';
 $config['oauth_provider_name'] = 'Keycloak';
 $config['oauth_client_id'] = 'roundcube';
-$config['oauth_client_secret'] = '{{ vault_mailserver_oidc_client_secret }}';
+$config['oauth_client_secret'] = '{{ mailserver_oidc_client_secret }}';
 $config['oauth_auth_uri'] = 'https://{{ keycloak_hostname | default("auth." ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default("vps") }}/protocol/openid-connect/auth';
 $config['oauth_token_uri'] = 'https://{{ keycloak_hostname | default("auth." ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default("vps") }}/protocol/openid-connect/token';
 $config['oauth_identity_uri'] = 'https://{{ keycloak_hostname | default("auth." ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default("vps") }}/protocol/openid-connect/userinfo';

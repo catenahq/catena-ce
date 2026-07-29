@@ -4,14 +4,14 @@
 # consumed by the CE infrastructure tasks + the EE managed-update engine (their
 # seam swaps land next). See defaults for the ownership rationale.
 
-- name: "portainer: assert vault_admin_password is usable as the initial admin"
+- name: "portainer: assert admin_password is usable as the initial admin"
   ansible.builtin.assert:
     that:
-      - vault_admin_password is defined
-      - vault_admin_password | length >= 12
+      - admin_password is defined
+      - admin_password | length >= 12
     fail_msg: >-
-      vault_admin_password missing or < 12 chars. Portainer's initial admin
-      needs >= 12; the installer mints vault_admin_password (>= 16).
+      admin_password missing or < 12 chars. Portainer's initial admin
+      needs >= 12; the installer mints admin_password (>= 16).
 
 # ─── admin-password swarm secret (immutable; create-once) ────────────────
 # Delivered to Portainer via --admin-password-file so the admin is set at first
@@ -29,7 +29,7 @@
     - name: "portainer: stage secret material"
       ansible.builtin.copy:
         dest: /root/.catena-portainer-admin
-        content: "{{ vault_admin_password }}"
+        content: "{{ admin_password }}"
         owner: root
         group: root
         mode: "0600"
@@ -159,11 +159,11 @@
   until: _pt_ready.status | default(-1) in [200, 307, 308]
   failed_when: false
 
-# ─── mint / heal vault_portainer_api_key ─────────────────────────────────
+# ─── mint / heal portainer_api_key ─────────────────────────────────
 # The CE compose seam (roles/infrastructure) + the EE managed-update engine
 # talk to Portainer with an X-API-Key. It is minted from the initial admin
 # (created at first boot via --admin-password-file above) by
-# helpers/bootstrap_portainer_admin.py: signs in with vault_admin_password,
+# helpers/bootstrap_portainer_admin.py: signs in with admin_password,
 # resolves the admin user id, POSTs /api/users/{id}/tokens, and prints the
 # rawAPIKey. This role then publishes it as a fact for the rest of the
 # converge and writes it into the on-box store, which is where every Catena
@@ -173,12 +173,12 @@
 # is rejected by the live Portainer (401/403 -- e.g. the operator recreated
 # the admin, or a /data restore replaced the BoltDB store the token lived
 # in). The validate is one cheap GET; the mint only runs on the miss.
-- name: "portainer: validate vault_portainer_api_key against Portainer"
+- name: "portainer: validate portainer_api_key against Portainer"
   ansible.builtin.uri:
     url: "{{ portainer_api_base }}/stacks"
     method: GET
     headers:
-      X-API-Key: "{{ vault_portainer_api_key }}"
+      X-API-Key: "{{ portainer_api_key }}"
     status_code: [200, 401, 403]
     timeout: 10
   register: _pt_apikey_validate
@@ -189,12 +189,12 @@
   # or an explicit 401/403.
   failed_when: false
   when:
-    - vault_portainer_api_key is defined
-    - vault_portainer_api_key | length > 10
+    - portainer_api_key is defined
+    - portainer_api_key | length > 10
 
 # Decided ONCE, here, rather than inline on the block below. A block's `when`
 # is re-evaluated for EVERY task in it, and the block's second task set_facts
-# vault_portainer_api_key -- the very variable the condition reads. Inline,
+# portainer_api_key -- the very variable the condition reads. Inline,
 # the mint ran, published the key as a fact, and then every remaining task in
 # its own block skipped because the condition had just become false: the key
 # never reached the on-box store, every later Portainer-API step logged
@@ -204,8 +204,8 @@
   ansible.builtin.set_fact:
     _pt_apikey_needs_mint: >-
       {{
-        vault_portainer_api_key is not defined
-        or (vault_portainer_api_key | length) <= 10
+        portainer_api_key is not defined
+        or (portainer_api_key | length) <= 10
         or (_pt_apikey_validate.status | default(200)) in [401, 403]
       }}
 
@@ -227,7 +227,7 @@
           - "{{ ansible_host }}"
           - --port
           - "{{ portainer_ui_port }}"
-        stdin: "{{ vault_admin_password }}"
+        stdin: "{{ admin_password }}"
         stdin_add_newline: false
         chdir: "{{ playbook_dir }}/../.."
       register: _pt_apikey_mint
@@ -238,7 +238,7 @@
 
     - name: "portainer: publish the minted key for the rest of the converge"
       ansible.builtin.set_fact:
-        vault_portainer_api_key: "{{ _pt_apikey_mint.stdout | trim }}"
+        portainer_api_key: "{{ _pt_apikey_mint.stdout | trim }}"
       no_log: true
 
     # Staged to a 0600 file rather than passed as --set-secret: the script
@@ -249,7 +249,7 @@
     - name: "portainer: stage the minted key for the on-box store (0600)"
       ansible.builtin.copy:
         dest: /root/.catena-portainer-key.json
-        content: "{{ {'vault_portainer_api_key': vault_portainer_api_key} | to_json }}"
+        content: "{{ {'portainer_api_key': portainer_api_key} | to_json }}"
         owner: root
         group: root
         mode: "0600"
@@ -284,7 +284,7 @@
     url: "{{ portainer_api_base }}/endpoints"
     method: GET
     headers:
-      X-API-Key: "{{ vault_portainer_api_key }}"
+      X-API-Key: "{{ portainer_api_key }}"
     status_code: 200
     return_content: true
   register: _pt_endpoints
@@ -292,15 +292,15 @@
   become: false
   failed_when: false
   when:
-    - vault_portainer_api_key is defined
-    - vault_portainer_api_key | length > 10
+    - portainer_api_key is defined
+    - portainer_api_key | length > 10
 
 - name: "portainer: create local Docker environment (create-once)"
   ansible.builtin.uri:
     url: "{{ portainer_api_base }}/endpoints"
     method: POST
     headers:
-      X-API-Key: "{{ vault_portainer_api_key }}"
+      X-API-Key: "{{ portainer_api_key }}"
     body_format: form-multipart
     body:
       Name: "{{ portainer_local_endpoint_name }}"
@@ -310,6 +310,6 @@
   delegate_to: localhost
   become: false
   when:
-    - vault_portainer_api_key is defined
-    - vault_portainer_api_key | length > 10
+    - portainer_api_key is defined
+    - portainer_api_key | length > 10
     - (_pt_endpoints.json | default([]) | selectattr('Name', 'equalto', portainer_local_endpoint_name) | list | length) == 0

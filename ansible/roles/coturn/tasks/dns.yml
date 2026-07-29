@@ -24,7 +24,7 @@
         url: "{{ cloudflare_api_base }}/zones?name={{ cloudflare_zone }}"
         method: GET
         headers:
-          Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+          Authorization: "Bearer {{ cloudflare_api_token }}"
         status_code: 200
         return_content: true
       register: _coturn_dns_zones
@@ -49,7 +49,7 @@
     url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records?type=A&name={{ coturn_hostname }}"
     method: GET
     headers:
-      Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+      Authorization: "Bearer {{ cloudflare_api_token }}"
     status_code: 200
     return_content: true
   register: _coturn_dns_existing
@@ -64,7 +64,7 @@
     url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records"
     method: POST
     headers:
-      Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+      Authorization: "Bearer {{ cloudflare_api_token }}"
     body_format: json
     body:
       type: A
@@ -83,7 +83,7 @@
     url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records/{{ _coturn_dns_existing.json.result[0].id }}"
     method: PUT
     headers:
-      Authorization: "Bearer {{ vault_cloudflare_api_token }}"
+      Authorization: "Bearer {{ cloudflare_api_token }}"
     body_format: json
     body:
       type: A

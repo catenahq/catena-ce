@@ -13,9 +13,9 @@
 - name: "Backup: is this host backup-configured (all creds present)?"
   ansible.builtin.set_fact:
     _backup_configured: >-
-      {{ (vault_backup_restic_password | default('')) | length > 0
-         and (vault_backup_s3_access_key | default('')) | length > 0
-         and (vault_backup_s3_secret_key | default('')) | length > 0
+      {{ (backup_restic_password | default('')) | length > 0
+         and (backup_s3_access_key | default('')) | length > 0
+         and (backup_s3_secret_key | default('')) | length > 0
          and (backup_restic_repo | default('')) | length > 0 }}
 
 - name: "Backup: note deferred configuration when creds are absent"
@@ -146,7 +146,7 @@
   # a licensed host is uncapped.
   when:
     - (_lane.enabled | default(false)) | bool
-    - ((_store.secrets | default({})).vault_catena_license | default('')) | length == 0
+    - ((_store.secrets | default({})).catena_license | default('')) | length == 0
 
 # Reconcile-not-overwrite: restic password is set ONCE at first
 # install and never re-written by converge. Operator-driven incident
@@ -162,7 +162,7 @@
 - name: "Backup: write restic password file (only if absent + configured)"
   ansible.builtin.copy:
     dest: "{{ backup_password_file }}"
-    content: "{{ vault_backup_restic_password }}\n"
+    content: "{{ backup_restic_password }}\n"
     owner: root
     group: root
     mode: "0600"

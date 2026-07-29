@@ -16,7 +16,7 @@ services:
       SITE_ROOT: "https://{{ healthchecks_hostname }}"
       SITE_NAME: "{{ cloudflare_zone }} heartbeats"
       ALLOWED_HOSTS: "{{ healthchecks_hostname }},{{ healthchecks_network_alias }},localhost"
-      SECRET_KEY: "{{ vault_healthchecks_secret_key }}"
+      SECRET_KEY: "{{ healthchecks_secret_key }}"
       DEBUG: "False"
       # Closed registration -- oauth2-proxy + Keycloak gate the UI, and our seed
       # task (healthchecks-seed.py.j2, step 0) creates the operator
@@ -27,7 +27,7 @@ services:
       # superuser credentials are discoverable on the running container.
       REGISTRATION_OPEN: "False"
       SUPERUSER_EMAIL: "{{ admin_email }}"
-      SUPERUSER_PASSWORD: "{{ vault_healthchecks_superuser_password }}"
+      SUPERUSER_PASSWORD: "{{ healthchecks_superuser_password }}"
       # PING_KEY is set here for convention/visibility, but Healthchecks
       # actually routes auto-provisioning against Project.ping_key in the
       # DB -- not this env var. The seed task in healthchecks.yml writes
@@ -35,7 +35,7 @@ services:
       # tooling that expects PING_KEY to be present sees it.
       # Auto-provision URL: /ping/<ping_key>/<slug>?create=1 (the ?create=1
       # is required -- without it, unknown slugs 404).
-      PING_KEY: "{{ vault_healthchecks_ping_key }}"
+      PING_KEY: "{{ healthchecks_ping_key }}"
       DB: "sqlite"
       DB_NAME: "/data/hc.sqlite"
       # Alerts route out via ntfy (seeded automatically by the bootstrap

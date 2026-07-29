@@ -7,7 +7,7 @@ and spending it on 0 means the lane runs nightly, does nothing, and leaves no
 trace anywhere: no Healthchecks check exists to go late (the checks are
 auto-provisioned by the first ping), no failed unit, nothing in the panel.
 
-vault_healthchecks_ping_key is INTERNAL_SECRETS -- minted on the box by the
+healthchecks_ping_key is INTERNAL_SECRETS -- minted on the box by the
 converge loader every run -- so an empty HC_PING_KEY is never a configuration.
 It means the on-box store did not load when the env file was rendered.
 

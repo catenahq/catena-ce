@@ -20,8 +20,8 @@ Configure the two oauth2-proxy instances that gate the stack:
 
 ## Inputs
 
-- `vault_oauth2_proxy_cookie_secret_staff` /
-  `vault_oauth2_proxy_cookie_secret_admin` -- 32-byte secrets,
+- `oauth2_proxy_cookie_secret_staff` /
+  `oauth2_proxy_cookie_secret_admin` -- 32-byte secrets,
   rotation via `runbooks/rotate-oauth2-proxy-cookie.md`.
 - `oauth2_proxy_protected_apps` -- list of {name, host, group,
   unauth_paths} per app.

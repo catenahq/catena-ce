@@ -47,9 +47,9 @@
     - name: Fail fast if restic credentials are missing
       ansible.builtin.assert:
         that:
-          - vault_backup_restic_password is defined
-          - vault_backup_s3_access_key is defined
-          - vault_backup_s3_secret_key is defined
+          - backup_restic_password is defined
+          - backup_s3_access_key is defined
+          - backup_s3_secret_key is defined
         fail_msg: >-
           Restic credentials are not available. On a fresh-box recover, pass
           them to `catena recover` (the DR keyset prompt); on an in-place

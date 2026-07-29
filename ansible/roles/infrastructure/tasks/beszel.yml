@@ -23,11 +23,11 @@
 - name: "Beszel: preflight secrets"
   ansible.builtin.assert:
     that:
-      - vault_beszel_admin_password is defined
-      - vault_beszel_admin_password | length > 0
-      - vault_beszel_universal_token is defined
-      - vault_beszel_universal_token | length > 0
-      - (vault_beszel_universal_token | length) <= 64
+      - beszel_admin_password is defined
+      - beszel_admin_password | length > 0
+      - beszel_universal_token is defined
+      - beszel_universal_token | length > 0
+      - (beszel_universal_token | length) <= 64
     fail_msg: >-
       Missing or invalid Beszel secrets. The converge mints them on the box
       (the universal token must be <= 64 chars; Beszel rejects longer
@@ -120,8 +120,8 @@
   ansible.builtin.shell: >-
     BESZEL_HUB_URL=http://127.0.0.1:{{ beszel_hub_host_localhost_port }}
     BESZEL_ADMIN_EMAIL={{ admin_email | quote }}
-    BESZEL_ADMIN_PASSWORD={{ vault_beszel_admin_password | quote }}
-    BESZEL_UNIVERSAL_TOKEN={{ vault_beszel_universal_token | quote }}
+    BESZEL_ADMIN_PASSWORD={{ beszel_admin_password | quote }}
+    BESZEL_UNIVERSAL_TOKEN={{ beszel_universal_token | quote }}
     python3 /root/catena-beszel-seed.py
   register: _beszel_seed
   changed_when: "'minted' in _beszel_seed.stdout or 'updated' in _beszel_seed.stdout"

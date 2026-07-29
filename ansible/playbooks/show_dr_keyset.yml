@@ -49,9 +49,9 @@
           ==================================================================
           SAVE THESE TO YOUR PASSWORD MANAGER NOW -- shown once.
 
-            Admin password (Portainer + Keycloak): {{ _secrets.vault_admin_password }}
-            Restic backup password (DR keyset):    {{ _secrets.vault_backup_restic_password }}
-            Console password for `{{ ops_user | default('ops') }}` (break-glass): {{ _secrets.vault_console_recovery_password }}
+            Admin password (Portainer + Keycloak): {{ _secrets.admin_password }}
+            Restic backup password (DR keyset):    {{ _secrets.backup_restic_password }}
+            Console password for `{{ ops_user | default('ops') }}` (break-glass): {{ _secrets.console_recovery_password }}
 
           The restic password is the ONE secret you must hold off-box: with it
           plus your S3 keys and repo URL you can rebuild a wiped VPS from

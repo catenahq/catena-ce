@@ -23,7 +23,7 @@
     url: "{{ portainer_api_base }}/stacks"
     method: GET
     headers:
-      X-API-Key: "{{ vault_portainer_api_key }}"
+      X-API-Key: "{{ portainer_api_key }}"
     status_code: 200
     return_content: true
   register: _portainer_stacks
@@ -73,7 +73,7 @@
     url: "{{ portainer_api_base }}/stacks/create/standalone/string?endpointId={{ _portainer_endpoint_id }}"
     method: POST
     headers:
-      X-API-Key: "{{ vault_portainer_api_key }}"
+      X-API-Key: "{{ portainer_api_key }}"
     body_format: json
     body:
       Name: "{{ svc_name }}"
@@ -99,7 +99,7 @@
     url: "{{ portainer_api_base }}/stacks/{{ _portainer_stack_id }}?endpointId={{ _portainer_endpoint_id }}"
     method: PUT
     headers:
-      X-API-Key: "{{ vault_portainer_api_key }}"
+      X-API-Key: "{{ portainer_api_key }}"
     body_format: json
     body:
       StackFileContent: "{{ svc_compose_content }}"
