@@ -13,7 +13,7 @@ Catena is exercised end-to-end by an automated rehearsal suite: each scenario pr
 
 Two numbers are reported everywhere: **rehearsed** means the scenario was last recorded PASSING on a real run, and is the only number treated as evidence; **declared** additionally counts scenarios that exist but have not been observed passing yet. A scenario is never counted for merely existing.
 
-**Coverage: 10 Community features, 71 of 85 rehearsal scenarios observed passing; 12 Catena Pro features, 30 of 42; plus 12 of 23 maintainer-internal rehearsals.**
+**Coverage: 10 Community features, 70 of 84 rehearsal scenarios observed passing; 12 Catena Pro features, 30 of 42; plus 12 of 23 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -71,7 +71,7 @@ All web traffic reaches the server through an encrypted tunnel, so no web port i
 
 Implemented in: `ansible/helpers/public_ports.py`, `ansible/playbooks/regenerate-cf-tunnel.yml`, `ansible/playbooks/rotate-tailscale.yml`, `ansible/roles/cloudflare_tunnel`, `ansible/roles/cloudflare_tunnel_regenerate`, `ansible/roles/coturn`, `ansible/roles/tailscale`, `ansible/scripts/catena-public-ports.py`
 
-Rehearsal scenarios (14 of 17 observed passing): `ce_install_headscale`, `ce_install_tailnet`, `cf_activate`, `cf_tunnel_regenerate_round_trip`, `fi_n10_multidomain_cap`, `fi_n1_tailnet_partition_mid_converge`, `fi_n2_cf_tunnel_down`, `fi_n3_dns_propagation_lag`, `fi_n4_cf_zone_misconfigured`, `fi_n5_provider_outage_mid_restore`, `fi_n6_s3_endpoint_5xx`, `fi_n7_restic_repo_unreachable`, `fi_n8_ufw_concurrent_ssh`, `fi_n9_public_ip_change`; declared, not yet observed passing: `cloudflare_api_rotation_round_trip`, `fi_v3_tailscale_acl_misconfig`, `tailscale_oauth_rotation_round_trip`
+Rehearsal scenarios (13 of 16 observed passing): `ce_install_headscale`, `cf_activate`, `cf_tunnel_regenerate_round_trip`, `fi_n10_multidomain_cap`, `fi_n1_tailnet_partition_mid_converge`, `fi_n2_cf_tunnel_down`, `fi_n3_dns_propagation_lag`, `fi_n4_cf_zone_misconfigured`, `fi_n5_provider_outage_mid_restore`, `fi_n6_s3_endpoint_5xx`, `fi_n7_restic_repo_unreachable`, `fi_n8_ufw_concurrent_ssh`, `fi_n9_public_ip_change`; declared, not yet observed passing: `cloudflare_api_rotation_round_trip`, `fi_v3_tailscale_acl_misconfig`, `tailscale_oauth_rotation_round_trip`
 
 ### Disaster recovery and restore
 

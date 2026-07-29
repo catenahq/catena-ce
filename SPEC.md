@@ -42,11 +42,12 @@ client-owned storage, whole-server recovery -- serves that promise.
   needs are held by the server owner, documented in
   [ansible/SECRETS.md](ansible/SECRETS.md).
 - **Exposure.** A deployed server accepts no inbound web traffic on its
-  own ports. With the encrypted tunnel configured, all web traffic
-  arrives through it and remote administration rides a private network.
-  The tunnel is optional: without it the server runs in **private-network
-  access mode**, where the applications are reached over the private
-  network by port -- no public web edge at all.
+  own ports. All web traffic arrives through the encrypted tunnel and
+  remote administration rides a private network. The tunnel is
+  **deferred, not required, at install**: a server stands up with no
+  tunnel credential at all, is administered over the private network
+  until the owner saves one, and brings its public edge up from that
+  point without a reinstall.
 - **Private network.** The control server for the private network is
   pluggable: a hosted control plane by default, or a self-hosted one the
   operator points the server at with a URL and a join credential.
@@ -59,7 +60,7 @@ client-owned storage, whole-server recovery -- serves that promise.
 | Re-running the installer converges; it never duplicates or breaks a healthy server | `bench:ce_converge`, `bench:converge_modify` |
 | No web port is open on the server itself; an external scan proves it | `bench:security_scan`, `bench:fi_v2_external_scan_blocked` |
 | Validation checks both directions: services answer, forbidden exposure does not | `bench:ce_validate` |
-| The tunnel is optional: in private-network access mode the server stands up with no public edge | `bench:ce_install_tailnet` |
+| The tunnel is deferred, not required: a server installs with no tunnel credential and brings its public edge up later without a reinstall | `bench:ce_install_suite`, `bench:cf_activate` |
 | Each domain token grants exactly one domain; Community caps at one, more is a Pro boundary | `bench:fi_n10_multidomain_cap` |
 | The private-network control server is pluggable: a node joins a self-hosted control server, not only the hosted one | `bench:ce_install_headscale` |
 | Backups restore -- rehearsed, not assumed | `bench:backup_rollback`, `bench:ce_restore` |
