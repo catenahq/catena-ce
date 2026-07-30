@@ -38,7 +38,11 @@ SWARM_COMPOSE = (
     ANSIBLE / "roles/infrastructure/templates/gatus.compose.yml.j2",
     ANSIBLE / "roles/infrastructure/templates/healthchecks.compose.yml.j2",
     ANSIBLE / "roles/infrastructure/templates/recovery.compose.yml.j2",
-    ANSIBLE / "roles/infrastructure/templates/clamav.compose.yml.j2",
+    # clamav.compose.yml.j2 is deliberately ABSENT: clamd is the one
+    # catena-declared stack still deployed through the Portainer compose
+    # API, so it needs the opposite shape (`restart:`, which swarm ignores
+    # and standalone compose reads). tasks/clamav.yml documents why it
+    # could not move. test_clamav_stays_on_compose below pins that.
     ANSIBLE / "roles/infrastructure/templates/beszel-hub.compose.yml.j2",
     ANSIBLE / "roles/infrastructure/templates/beszel-agent.compose.yml.j2",
     ANSIBLE / "roles/infrastructure/templates/beszel-hc-shim.compose.yml.j2",
@@ -88,6 +92,35 @@ def test_every_service_declares_a_restart_policy(path: Path):
         f"{path.name}: no deploy.restart_policy"
     )
     assert "delay:" in body, f"{path.name}: restart_policy with no delay"
+
+
+def test_clamav_stays_on_compose_with_a_local_bridge():
+    """clamd is the exception, and the two halves have to stay consistent.
+
+    A swarm service cannot attach to a bridge, and an attachable OVERLAY is
+    only materialized on a node once a swarm task there uses it -- so with
+    clamd behind its consumer gate, the standalone consumers that need the
+    network could never start, and the only thing that would materialize it
+    for them is clamd. Bench 050b: nextcloud-app-1 Created, "network
+    catena-clamav not found".
+
+    So the network stays a local bridge and the stack stays on compose. If
+    one half is ever flipped without the other, clamd silently stops
+    deploying or its consumers silently stop starting."""
+    tasks = (ANSIBLE / "roles/infrastructure/tasks/clamav.yml").read_text(
+        encoding="utf-8")
+    # Match the include DIRECTIVE, not any mention: the file's header
+    # explains the swarm_stack.yml it deliberately does not use.
+    assert "include_tasks: portainer_stack.yml" in tasks
+    assert "include_tasks: swarm_stack.yml" not in tasks
+    assert "--driver, overlay" not in tasks
+
+    compose = (
+        ANSIBLE / "roles/infrastructure/templates/clamav.compose.yml.j2"
+    ).read_text(encoding="utf-8")
+    assert "restart: unless-stopped" in compose, (
+        "standalone compose reads `restart:` and ignores deploy.restart_policy"
+    )
 
 
 def test_published_ports_use_long_syntax_host_mode():

@@ -1,0 +1,218 @@
+---
+# One deploy attempt for a Portainer stack. Caller (portainer_stack.yml)
+# wraps this in a loop with `when: not _portainer_deploy_done`. On success it
+# sets that fact true; on a registry-transient failure (quay.io / docker.io /
+# ghcr.io 5xx during image pull) it leaves it false so the next iteration
+# retries. On a non-transient failure it fails the play immediately.
+#
+# Self-reconciling: each attempt RE-RESOLVES the stack (Portainer's
+# create-and-deploy is one call, and a transient pull failure can leave the
+# stack record created but not converged). So a retry after a partial create
+# sees the existing stack and switches to an update (PUT) instead of a
+# second create that would 409.
+#
+# Caller must have set:
+#   svc_name, svc_compose_content, svc_env
+#   _portainer_endpoint_id
+#   _portainer_deploy_done  (false on first iter)
+# Loop var:
+#   _portainer_deploy_attempt_n  (1-indexed)
+
+- name: "Portainer: re-resolve stack ({{ svc_name }})"
+  ansible.builtin.uri:
+    url: "{{ portainer_api_base }}/stacks"
+    method: GET
+    headers:
+      X-API-Key: "{{ portainer_api_key }}"
+    status_code: 200
+    return_content: true
+  register: _portainer_stacks
+  delegate_to: localhost
+  become: false
+  when: not _portainer_deploy_done
+
+- name: "Portainer: find existing stack + compute deploy env ({{ svc_name }})"
+  ansible.builtin.set_fact:
+    _portainer_stack_existing: >-
+      {{
+        (_portainer_stacks.json | default([]))
+        | selectattr('Name', 'equalto', svc_name)
+        | list | first | default(None)
+      }}
+  when: not _portainer_deploy_done
+
+- name: "Portainer: report preserved operator/client env keys ({{ svc_name }})"
+  ansible.builtin.debug:
+    msg: >-
+      Portainer[{{ svc_name }}]: preserving non-catalog env keys across
+      re-converge:
+      {{ (_portainer_stack_existing.Env | default([])) | preserved_env_keys(svc_env) | join(', ') }}
+  when:
+    - not _portainer_deploy_done
+    - _portainer_stack_existing is not none
+    - (_portainer_stack_existing.Env | default([])) | preserved_env_keys(svc_env) | length > 0
+
+# Idempotency contract: re-running site.yml must
+# never clobber an env var the operator/client typed into Portainer's stack
+# editor. merge_env_portainer folds our catalog values into the live Env
+# array (catalog wins for keys we declare, credential-shaped keys keep a
+# client-rotated non-empty value, everything else survives verbatim).
+- name: "Portainer: build create/update request ({{ svc_name }})"
+  ansible.builtin.set_fact:
+    _portainer_deploy_env: >-
+      {{ (_portainer_stack_existing.Env | default([])) | merge_env_portainer(svc_env) }}
+    _portainer_stack_id: "{{ _portainer_stack_existing.Id | default('') }}"
+  # _portainer_deploy_env can carry secret-shaped svc_env values (e.g.
+  # catena-admin passes PORTAINER_API_KEY + HEALTHCHECKS_API_KEY_READONLY);
+  # keep them out of -vv task output.
+  no_log: true
+  when: not _portainer_deploy_done
+
+- name: "Portainer: deploy attempt {{ _portainer_deploy_attempt_n }} -- create ({{ svc_name }})"
+  ansible.builtin.uri:
+    url: "{{ portainer_api_base }}/stacks/create/standalone/string?endpointId={{ _portainer_endpoint_id }}"
+    method: POST
+    headers:
+      X-API-Key: "{{ portainer_api_key }}"
+    body_format: json
+    body:
+      Name: "{{ svc_name }}"
+      StackFileContent: "{{ svc_compose_content }}"
+      Env: "{{ _portainer_deploy_env }}"
+    status_code: [200, 201]
+    return_content: true
+    timeout: "{{ portainer_deploy_http_timeout | default(600) }}"
+  register: _portainer_deploy_create
+  delegate_to: localhost
+  become: false
+  failed_when: false
+  # Request body carries the X-API-Key header + the full Env array (secrets
+  # for secret-bearing svc_env callers); suppress it from task logs. The
+  # transient-classifier debug below still reports HTTP status + error body.
+  no_log: true
+  when:
+    - not _portainer_deploy_done
+    - (_portainer_stack_id | string | length) == 0
+
+- name: "Portainer: deploy attempt {{ _portainer_deploy_attempt_n }} -- update ({{ svc_name }})"
+  ansible.builtin.uri:
+    url: "{{ portainer_api_base }}/stacks/{{ _portainer_stack_id }}?endpointId={{ _portainer_endpoint_id }}"
+    method: PUT
+    headers:
+      X-API-Key: "{{ portainer_api_key }}"
+    body_format: json
+    body:
+      StackFileContent: "{{ svc_compose_content }}"
+      Env: "{{ _portainer_deploy_env }}"
+      PullImage: true
+      Prune: false
+    status_code: [200, 201]
+    return_content: true
+    timeout: "{{ portainer_deploy_http_timeout | default(600) }}"
+  register: _portainer_deploy_update
+  delegate_to: localhost
+  become: false
+  failed_when: false
+  # Same secret surface as the create request above.
+  no_log: true
+  when:
+    - not _portainer_deploy_done
+    - (_portainer_stack_id | string | length) > 0
+
+- name: "Portainer: capture this attempt's response ({{ svc_name }})"
+  ansible.builtin.set_fact:
+    _portainer_deploy_resp: >-
+      {{ _portainer_deploy_update if (_portainer_stack_id | string | length) > 0
+         else _portainer_deploy_create }}
+  when: not _portainer_deploy_done
+
+- name: "Portainer: mark deploy done ({{ svc_name }})"
+  ansible.builtin.set_fact:
+    _portainer_deploy_done: true
+  when:
+    - not _portainer_deploy_done
+    - (_portainer_deploy_resp.status | default(0)) in [200, 201]
+
+- name: "Portainer: classify + handle deploy failure ({{ svc_name }})"
+  when:
+    - not _portainer_deploy_done
+    - (_portainer_deploy_resp.status | default(0)) not in [200, 201]
+  block:
+    - name: "Portainer: dump failed deploy response ({{ svc_name }})"
+      ansible.builtin.debug:
+        msg: >-
+          Portainer[{{ svc_name }}] attempt {{ _portainer_deploy_attempt_n }}
+          HTTP {{ _portainer_deploy_resp.status | default('n/a') }}:
+          {{ _portainer_deploy_resp.content | default('(no body)') }}
+
+    # The registry/daemon transient classes -- a transient during image pull
+    # taints the deploy; retrying re-pulls cleanly.
+    - name: "Portainer: detect transient in deploy response ({{ svc_name }})"
+      ansible.builtin.set_fact:
+        _portainer_deploy_transient: >-
+          {{ (_portainer_deploy_resp.content | default('')) is regex(
+               '(502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout|TLS handshake timeout|connection reset|i/o timeout|TOOMANYREQUESTS|context deadline exceeded|temporary failure in name resolution|received unexpected HTTP status: 5|did not receive an exit event|cannot stop container|unexpected EOF|short read: expected|Address already in use)'
+             ) }}
+
+    # "Address already in use" is a transient we can RETRY but never one a bare
+    # retry can clear: an ungraceful interrupt (operator Ctrl-C mid-converge,
+    # daemon flap) leaves a container's overlay endpoint dangling on
+    # catena-network, and its IP is what the next compose-up collides on. Every
+    # identical retry hits the same leaked address (seen on fi_o2: keycloak stack
+    # exhausts all attempts, each HTTP 500 "Address already in use"). So before
+    # the loop retries, reclaim the leak: disconnect every catena-network
+    # endpoint whose backing container is ENTIRELY gone. This is the
+    # timing-safe form of the reverted pre-emptive reaps -- it runs ONLY after a
+    # real collision (never on a healthy converge, so it cannot race swarm's
+    # endpoint churn the way the every-converge blanket sweep did) and only
+    # touches endpoints with no live container, so no running service loses
+    # routing. lb-* (swarm LB), the network self-entry, and the *-endpoint
+    # gateway sandbox are skipped -- they have no backing container by design.
+    - name: "Portainer: detect overlay address conflict ({{ svc_name }})"
+      ansible.builtin.set_fact:
+        _portainer_deploy_addr_conflict: >-
+          {{ (_portainer_deploy_resp.content | default(''))
+             is regex('Address already in use') }}
+
+    - name: "Portainer: reclaim leaked {{ catena_network_name }} endpoints on address conflict ({{ svc_name }})"
+      ansible.builtin.shell: |
+        set -u
+        net="{{ catena_network_name }}"
+        reclaimed=0
+        for name in $(docker network inspect "$net" \
+          -f '{% raw %}{{range .Containers}}{{.Name}}{{"\n"}}{{end}}{% endraw %}' 2>/dev/null); do
+          [ -z "$name" ] && continue
+          # skip the swarm LB, the network self-entry, and the gateway sandbox
+          case "$name" in "$net"|lb-*|*-endpoint) continue ;; esac
+          # a live container (running OR merely stopped) is not a leak; only an
+          # endpoint whose container is entirely gone gets reclaimed
+          if docker inspect "$name" >/dev/null 2>&1; then continue; fi
+          if docker network disconnect -f "$net" "$name"; then
+            echo "reclaimed leaked endpoint: $name"
+            reclaimed=$((reclaimed + 1))
+          fi
+        done
+        echo "reclaimed_total=${reclaimed}"
+      register: _portainer_addr_reclaim
+      changed_when: "'reclaimed leaked endpoint' in (_portainer_addr_reclaim.stdout | default(''))"
+      failed_when: false
+      when: _portainer_deploy_addr_conflict | bool
+
+    - name: "Portainer: report transient, will retry ({{ svc_name }})"
+      ansible.builtin.debug:
+        msg: >-
+          Portainer[{{ svc_name }}]: attempt {{ _portainer_deploy_attempt_n }}
+          failed on a transient{{ ' (leaked overlay endpoint reclaimed)'
+            if (_portainer_deploy_addr_conflict | default(false) | bool) else '' }};
+          retrying.
+      when: _portainer_deploy_transient | bool
+
+    - name: "Portainer: fail hard on non-transient deploy error ({{ svc_name }})"
+      ansible.builtin.fail:
+        msg: >-
+          Portainer stack deploy for {{ svc_name }} failed with HTTP
+          {{ _portainer_deploy_resp.status | default('n/a') }} on attempt
+          {{ _portainer_deploy_attempt_n }} and the response did not match a
+          known transient pattern; not retrying. Check the Portainer UI
+          (stack {{ svc_name }}) at http://{{ ansible_host }}:{{ portainer_ui_port }}.
+      when: not (_portainer_deploy_transient | default(false) | bool)

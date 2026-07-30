@@ -31,14 +31,30 @@
   # report changed only on a real create. ALWAYS runs -- the templates
   # need this network to exist before they can deploy.
   #
-  # OVERLAY, not the default bridge: clamd is a swarm service now, and a
-  # swarm service cannot attach to a bridge network. --attachable is what
-  # keeps the other half working -- the mailserver and Nextcloud arrive as
-  # Portainer standalone compose stacks, and a standalone container may
-  # only join an overlay that was created attachable.
+  # A LOCAL BRIDGE, deliberately, and this is why clamd is the one
+  # catena-declared service that did NOT move to swarm.
+  #
+  # A swarm service cannot attach to a bridge, so moving clamd meant making
+  # this an attachable overlay. That deadlocks against the consumer gate
+  # below. An attachable overlay is only materialized on a node once a
+  # SWARM TASK there uses it; until then a standalone container asking for
+  # it by name gets "network catena-clamav not found" and stays Created.
+  # The consumers -- the Nextcloud and mailserver templates -- are exactly
+  # such standalone containers, and the only swarm task that would
+  # materialize the network is clamd, which does not deploy until a
+  # consumer is RUNNING. So: the consumer cannot start until clamd runs,
+  # and clamd does not run until a consumer has started. Observed on bench
+  # 050b, nextcloud-app-1 Created with that error.
+  #
+  # A bridge has no such lifecycle -- it is materialized the moment it is
+  # created -- which is why the consumer-gated design worked on one and
+  # cannot work on the other. Breaking the deadlock properly means either
+  # dropping the gate (it exists to save ~1.5 GB on a host that runs
+  # neither consumer) or moving clamd onto catena-network and re-pointing
+  # both templates in catenahq/catena-templates, which widens who can reach
+  # an unauthenticated scanner. Neither is a change to make in passing.
   ansible.builtin.command:
-    argv: [docker, network, create, --driver, overlay, --attachable,
-           "{{ clamav_network }}"]
+    argv: [docker, network, create, "{{ clamav_network }}"]
   register: _clamav_net_create
   changed_when: _clamav_net_create.rc == 0
   failed_when:
@@ -74,11 +90,17 @@
 - name: "ClamAV: deploy clamd + watchdog when a consumer is running"
   when: (_clamav_consumer.stdout | default('') | trim) | length > 0
   block:
-    - name: "ClamAV: deploy shared clamd as a swarm stack"
-      ansible.builtin.include_tasks: swarm_stack.yml
+    # The ONE remaining caller of the Portainer stack seam. Everything else
+    # catena declares deploys through swarm_stack.yml; clamd cannot, for
+    # the network-materialization reason documented at the top of this
+    # file. The helper is kept alive for it rather than clamd being left
+    # undeployed.
+    - name: "ClamAV: deploy shared clamd via the Portainer stack API"
+      ansible.builtin.include_tasks: portainer_stack.yml
       vars:
         svc_name: "{{ clamav_compose_name }}"
         svc_compose_content: "{{ lookup('template', 'clamav.compose.yml.j2') }}"
+        svc_env: []
         # No HTTP route -- clamd is TCP-only on the catena-clamav network.
         svc_domain_host: ""
         svc_readiness_skip_reason: >-
@@ -93,7 +115,7 @@
     - name: "ClamAV: find running clamd container"
       ansible.builtin.shell: |
         set -o pipefail
-        docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ clamav_compose_name | swarm_container_regex("clamav") }}' || true
+        docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ clamav_compose_name | portainer_container_regex("clamav") }}' || true
       args:
         executable: /bin/bash
       register: _clamav_container
