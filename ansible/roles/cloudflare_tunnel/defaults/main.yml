@@ -39,7 +39,7 @@ cloudflared_ingress_service: "http://catena-traefik:80"
 # and uses `docker service update --rollback` (built-in swarm primitive)
 # on health regression. Resolved at policy-rollout time (2026-04) to what
 # was running on dev1.
-cloudflared_image_tag: "2026.7.1"
+cloudflared_image_tag: "2026.7.3"
 cloudflared_image: "cloudflare/cloudflared:{{ cloudflared_image_tag }}"
 
 # Remaining non-secret engine pins (SYNC.md "Environment pins"). Exported into
