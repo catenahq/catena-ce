@@ -243,6 +243,13 @@ def validate_install_structural(
     problems += _check_s3_repo(
         "BACKUP_RESTIC_REPO", env.get("BACKUP_RESTIC_REPO", ""), required=False
     )
+    # The cold mirror's two repos, same rule: blank is legitimate (mirror off),
+    # malformed is not. They are checked here rather than left to the panel
+    # because they are seeded in the same file and a typo in a bucket name
+    # surfaces at seed time or not until a mirror silently skips for weeks.
+    for key in ("BACKUP_WORM_REPO", "NEXTCLOUD_WORM_REPO",
+                "NEXTCLOUD_LIVE_REPO"):
+        problems += _check_s3_repo(key, env.get(key, ""), required=False)
     return problems
 
 
