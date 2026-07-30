@@ -111,6 +111,25 @@ def test_addr_conflict_fact_initialized():
     assert facts.get("_swarm_deploy_addr_conflict") is False
 
 
+def test_the_deploy_itself_never_reports_changed():
+    """`docker stack deploy` is a reconcile: it sends the same spec every
+    converge and swarm restarts nothing when the spec is unchanged, so a
+    successful run is the steady state. `changed_when: rc == 0` made every
+    re-converge report changed and broke fi_a4_master_realm_idempotent,
+    which asserts `--tags keycloak` on a converged host changes nothing.
+
+    The change signal belongs to the stack-file write, which is the
+    declaration."""
+    deploy = _find(ATTEMPT, "deploy attempt")
+    assert deploy["changed_when"] is False
+
+    write = _find(STACK, "write the stack file")
+    assert "changed_when" not in write, (
+        "the file write is the declaration; suppressing its change signal "
+        "would leave nothing in the path reporting a real spec change"
+    )
+
+
 def test_deploy_is_synchronous_and_prunes():
     """--detach=false is what makes a non-zero rc mean "the stack did not come
     up". Detached, the command returns as soon as swarm ACCEPTS the spec, and

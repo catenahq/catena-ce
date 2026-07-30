@@ -34,7 +34,21 @@
       - "{{ swarm_stack_dir }}/{{ svc_name }}.yml"
       - "{{ svc_name }}"
   register: _swarm_deploy
-  changed_when: _swarm_deploy.rc == 0
+  # NOT `rc == 0`. `docker stack deploy` is a reconcile, not a create: it
+  # sends the same spec every converge and swarm restarts nothing when the
+  # spec is unchanged, so a successful run is the NORMAL steady state and
+  # reporting it as changed makes every re-converge look non-idempotent.
+  # fi_a4_master_realm_idempotent catches exactly that (`--tags keycloak`
+  # on a converged host, changed must be 0).
+  #
+  # The change signal lives on the stack-file write in swarm_stack.yml,
+  # which is the declaration: byte-identical content reports unchanged, a
+  # new image tag or env value reports changed. What this loses is a
+  # host-side edit nothing declared -- a service deleted by hand is
+  # recreated here and reported as nothing. That is the same trade the
+  # payload installer makes, and the opposite error (every converge
+  # changed) would retire a real gate.
+  changed_when: false
   failed_when: false
   when: not _swarm_deploy_done
 
