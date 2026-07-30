@@ -380,6 +380,31 @@ backup_exclude_patterns:
   #   test_backup_defaults_exclude_clamav_db_volume
   - "*/docker/volumes/clamav-db"
   - "*/docker/volumes/clamav-db/*"
+  # Postgres runtime lock files, in EVERY data dir -- the infra DB and
+  # every app that ships its own postgres. They are process state, not
+  # data: postmaster.pid holds the PID, port and shared-memory key of a
+  # server that no longer exists by the time anything reads it back, and
+  # postmaster.opts the command line it was started with.
+  #
+  # Two reasons, and the second is why this is not cosmetic:
+  #
+  #   restoring one is a STARTUP HAZARD. Postgres refuses to start when it
+  #   finds a lock file whose PID is live and owned by something else, and
+  #   a restored PID is arbitrary. The data dir is restored raw (see the
+  #   note at the top of this list), so without this exclusion the lock
+  #   file comes back with it.
+  #
+  #   it breaks the restore itself. `restic restore --delete` recreates the
+  #   file and then sets its metadata, and postgres removing its own stale
+  #   lock in between makes lchown fail on a path that no longer exists.
+  #   restic counts that as an error and exits 1, so the WHOLE restore is
+  #   reported failed over a file that should never have been in the
+  #   snapshot (bench eff2, restore_version_skew_abort stage-4).
+  #
+  # `**` because the path differs per image: /_data/pgdata/postmaster.pid
+  # for the infra volume, /_data/postmaster.pid for others.
+  - "**/postmaster.pid"
+  - "**/postmaster.opts"
   # Snapshot-export staging dir. Served read-only to client admins by
   # the recovery-downloads nginx sidecar (recovery.<zone>). Backing it
   # up would be self-referential -- the files are ALREADY a packaged
