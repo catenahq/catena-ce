@@ -59,14 +59,18 @@
 
 # ─── catena-declared services (swarm stacks, no Portainer in the path) ────
 #
-# These five used to sit INSIDE the `portainer_api_key` block below, which
-# made the monitoring plane, the shared scanner and the SSO-gated recovery
-# page dependents of the control plane they report on: a Portainer that
-# would not start took Gatus, Healthchecks, Beszel and the recovery download
-# surface with it, at exactly the moment someone needed them to find out
-# why. They deploy as swarm stacks now (swarm_stack.yml) and touch no
-# Portainer API, so the gate is not merely unnecessary -- keeping it would
-# preserve the outage it caused.
+# These four used to sit INSIDE the `portainer_api_key` block below, which
+# made the monitoring plane and the SSO-gated recovery page dependents of
+# the control plane they report on: a Portainer that would not start took
+# Gatus, Healthchecks, Beszel and the recovery download surface with it, at
+# exactly the moment someone needed them to find out why. They deploy as
+# swarm stacks now (swarm_stack.yml) and touch no Portainer API, so the gate
+# is not merely unnecessary -- keeping it would preserve the outage it
+# caused.
+#
+# clamd did NOT come with them and is still gated below: a swarm service
+# cannot attach to a bridge, and the attachable overlay it would need
+# deadlocks against its own consumer gate. clamav.yml documents it.
 #
 # Portainer's DB stays the record of CLIENT choices, which is the one piece
 # of state that cannot be recomputed. The app-wiring block below is still
@@ -91,18 +95,6 @@
     apply:
       tags: [healthchecks]
   tags: [healthchecks]
-
-# Shared ClamAV (clamd). Creates the external catena-clamav network
-# (the mailserver + nextcloud templates depend on it existing before
-# a client clicks Deploy) and deploys one clamd for both consumers.
-# Runs before the per-app wiring below so the network + scanner are
-# ready when those land.
-- name: Shared ClamAV (clamd, used by mail + Nextcloud)
-  ansible.builtin.include_tasks:
-    file: clamav.yml
-    apply:
-      tags: [clamav]
-  tags: [clamav]
 
 # Beszel -- hub + agent resource monitor (CPU/memory/network/disk +
 # temperature/load history with built-in threshold alerting). The
@@ -146,6 +138,23 @@
         apply:
           tags: [always]
       tags: [always]
+
+    # Shared ClamAV (clamd). Creates the external catena-clamav network
+    # (the mailserver + nextcloud templates depend on it existing before
+    # a client clicks Deploy) and deploys one clamd for both consumers.
+    # Runs before the per-app wiring below so the network + scanner are
+    # ready when those land.
+    #
+    # The one catena-declared service still INSIDE this gate. It deploys
+    # through the Portainer stack API -- see the header of clamav.yml for
+    # why it could not follow the others onto swarm -- so it needs both a
+    # live Portainer and the endpoint id resolved above.
+    - name: Shared ClamAV (clamd, used by mail + Nextcloud)
+      ansible.builtin.include_tasks:
+        file: clamav.yml
+        apply:
+          tags: [clamav]
+      tags: [clamav]
 
     # EP3: Nextcloud native OIDC. Realm client is registered eagerly
     # so the discovery URL works the moment the operator clicks Deploy
