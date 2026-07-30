@@ -167,14 +167,11 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     # these are always in use.
     "beszel_admin_password": mint_strong_password,
     "beszel_universal_token": mint_url_safe,
-    # Catena portal (minted unconditionally; idle until
-    # CATENA_PORTAL_ENABLED=true). The client secret pairs with the
-    # catena-portal realm client the Keycloak blueprint provisions; the auth
-    # secret is NextAuth's JWT-signing key; the DB password protects the
-    # bundled portal Postgres.
-    "keycloak_portal_client_secret": mint_strong_password,
-    "portal_auth_secret": mint_strong_password,
-    "portal_db_password": mint_strong_password,
+    # The three catena-portal secrets were REMOVED 2026-07-30 with the
+    # ordering portal itself. They were minted on every host and read by
+    # nothing: the realm client they claimed to pair with was never in the
+    # Keycloak blueprint, and CATENA_PORTAL_ENABLED -- named as their gate --
+    # was read by no code in any repo.
     # The auth header on the ZAP daemon's REST API while a pen-test scan is
     # running. Minted regardless of bench mode so a one-off scan against any
     # inventory needs no extra setup.

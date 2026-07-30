@@ -28,7 +28,7 @@ Reports against the panel go to the same address, and the fastest report
 is a scanner finding against the published digest -- see
 [verify what you run](https://docs.catena.run/en/trust/verify-what-you-run/).
 
-Reports against the hosted services (catena.run, app.catena.run) are
+Reports against the hosted services (catena.run, docs.catena.run) are
 welcome at the same address.
 
 Out of scope: vulnerabilities in the upstream applications the catalog
