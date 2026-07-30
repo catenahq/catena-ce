@@ -35,12 +35,37 @@
       X-Token headers), so a gap here means the on-box store at
       /etc/catena/config.json was not loaded or holds a truncated value.
 
-- name: "Beszel: deploy hub via Portainer API"
-  ansible.builtin.include_tasks: portainer_stack.yml
+# Host-mode publish (swarm cannot bind 127.0.0.1), so the hub port is a real
+# host bind. scope=loopback denies it everywhere but lo -- the only readers
+# are beszel-seed on the host and the host-network agent below.
+- name: "Beszel: declare the hub loopback port (registry fragment, loopback-only)"
+  ansible.builtin.copy:
+    dest: "{{ public_ports_fragment_dir }}/beszel.json"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {{
+        [
+          {"proto": "tcp", "port": beszel_hub_host_localhost_port | int,
+           "scope": "loopback", "bind": "host", "owner": "beszel",
+           "comment": "Beszel hub API for the seed + the host-network agent -- this host only"}
+        ] | to_nice_json
+      }}
+  register: _beszel_ports_fragment
+
+- name: "Beszel: reconcile public ports now (fragment changed)"
+  ansible.builtin.systemd_service:
+    name: catena-public-ports.service
+    state: started
+  changed_when: false
+  when: _beszel_ports_fragment.changed
+
+- name: "Beszel: deploy hub as a swarm stack"
+  ansible.builtin.include_tasks: swarm_stack.yml
   vars:
     svc_name: "{{ beszel_hub_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'beszel-hub.compose.yml.j2') }}"
-    svc_env: []
     svc_domain_host: "{{ beszel_hostname }}"
     svc_domain_service: "app"
     svc_domain_port: "{{ beszel_hub_internal_port }}"
@@ -56,7 +81,7 @@
 - name: "Beszel: wait for hub container"
   ansible.builtin.shell: |
     set -o pipefail
-    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ beszel_hub_compose_name | portainer_container_regex("app") }}' || true
+    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ beszel_hub_compose_name | swarm_container_regex("app") }}' || true
   args:
     executable: /bin/bash
   register: _beszel_hub_container
@@ -70,7 +95,7 @@
   ansible.builtin.fail:
     msg: >-
       Timed out (300s) waiting for a running container matching
-      '{{ beszel_hub_compose_name | portainer_container_regex("app") }}'.
+      '{{ beszel_hub_compose_name | swarm_container_regex("app") }}'.
       Check the Portainer stack status for {{ beszel_hub_compose_name }}
       at http://{{ ansible_host }}:{{ portainer_ui_port | default(9000) }}.
   when: (_beszel_hub_container.stdout | default('') | trim) | length == 0
@@ -137,14 +162,13 @@
   until: _beszel_seed.rc == 0
   no_log: true
 
-- name: "Beszel: deploy agent via Portainer API"
-  ansible.builtin.include_tasks: portainer_stack.yml
+- name: "Beszel: deploy agent as a swarm stack"
+  ansible.builtin.include_tasks: swarm_stack.yml
   vars:
     svc_name: "{{ beszel_agent_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'beszel-agent.compose.yml.j2') }}"
-    svc_env: []
     # No public domain -- agent is host-network only, dials the hub on
-    # the loopback. portainer_stack.yml skips its domain block when
+    # the loopback. swarm_stack.yml removes the route file when
     # svc_domain_host is empty.
     svc_domain_host: ""
     svc_domain_service: "app"
@@ -176,12 +200,11 @@
     group: root
     mode: "0644"
 
-- name: "Beszel: deploy alert shim via Portainer API"
-  ansible.builtin.include_tasks: portainer_stack.yml
+- name: "Beszel: deploy alert shim as a swarm stack"
+  ansible.builtin.include_tasks: swarm_stack.yml
   vars:
     svc_name: "{{ beszel_hc_shim_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'beszel-hc-shim.compose.yml.j2') }}"
-    svc_env: []
     svc_domain_host: ""
     svc_domain_service: "app"
     svc_domain_port: "{{ beszel_hc_shim_internal_port }}"

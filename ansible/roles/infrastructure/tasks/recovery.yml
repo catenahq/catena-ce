@@ -50,12 +50,11 @@
 # Forward-auth route reintroduced in plan step 4 (roles/oauth2_proxy)
 # as recovery-oauth2-proxy.yml.
 
-- name: "recovery: deploy via Portainer API"
-  ansible.builtin.include_tasks: portainer_stack.yml
+- name: "recovery: deploy as a swarm stack"
+  ansible.builtin.include_tasks: swarm_stack.yml
   vars:
     svc_name: "{{ recovery_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'recovery.compose.yml.j2') }}"
-    svc_env: []
     svc_domain_host: "{{ infrastructure_recovery_hostname }}"
     svc_domain_service: "app"
     svc_domain_port: "{{ recovery_internal_port }}"
@@ -71,7 +70,7 @@
   ansible.builtin.shell: |
     set -o pipefail
     name=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-      | grep -E '{{ recovery_compose_name | portainer_container_regex("app") }}' || true)
+      | grep -E '{{ recovery_compose_name | swarm_container_regex("app") }}' || true)
     if [ -n "$name" ]; then
       docker restart "$name"
     fi

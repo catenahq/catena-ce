@@ -67,7 +67,12 @@ services:
       catena-network:
         aliases:
           - "oauth2-proxy-{{ _app.slug }}"
-    restart: unless-stopped
+    # `restart:` is ignored by `docker stack deploy`; swarm reads
+    # deploy.restart_policy.
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 5s
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:{{ oauth2_proxy_internal_port }}/ping"]
       interval: 10s

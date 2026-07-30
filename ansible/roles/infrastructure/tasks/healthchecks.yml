@@ -29,12 +29,37 @@
 # Forward-auth route reintroduced in plan step 4 (roles/oauth2_proxy)
 # as healthchecks-oauth2-proxy.yml.
 
-- name: "Healthchecks: deploy via Portainer API"
-  ansible.builtin.include_tasks: portainer_stack.yml
+# Host-mode publish (swarm cannot bind 127.0.0.1), so the port is a real
+# host bind. scope=loopback denies it everywhere but lo, which is what the
+# ALLOWED_HOSTS 127.0.0.1 entry above assumes about who can reach it.
+- name: "Healthchecks: declare the host-side API port (registry fragment, loopback-only)"
+  ansible.builtin.copy:
+    dest: "{{ public_ports_fragment_dir }}/healthchecks.json"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {{
+        [
+          {"proto": "tcp", "port": healthchecks_host_localhost_port | int,
+           "scope": "loopback", "bind": "host", "owner": "healthchecks",
+           "comment": "Healthchecks API for gatus-sync + the host watchdogs -- this host only"}
+        ] | to_nice_json
+      }}
+  register: _healthchecks_ports_fragment
+
+- name: "Healthchecks: reconcile public ports now (fragment changed)"
+  ansible.builtin.systemd_service:
+    name: catena-public-ports.service
+    state: started
+  changed_when: false
+  when: _healthchecks_ports_fragment.changed
+
+- name: "Healthchecks: deploy as a swarm stack"
+  ansible.builtin.include_tasks: swarm_stack.yml
   vars:
     svc_name: "{{ healthchecks_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'healthchecks.compose.yml.j2') }}"
-    svc_env: []
     svc_domain_host: "{{ healthchecks_hostname }}"
     svc_domain_service: "app"
     svc_domain_port: "{{ healthchecks_internal_port }}"
@@ -59,7 +84,7 @@
 - name: "Healthchecks: find running container"
   ansible.builtin.shell: |
     set -o pipefail
-    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ healthchecks_compose_name | portainer_container_regex("app") }}' || true
+    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ healthchecks_compose_name | swarm_container_regex("app") }}' || true
   args:
     executable: /bin/bash
   register: _healthchecks_container_name
@@ -127,7 +152,7 @@
   ansible.builtin.fail:
     msg: |
       Timed out (300s) waiting for a running container matching
-      '^{{ healthchecks_compose_name }}-[a-z0-9]+-app-1$'.
+      '{{ healthchecks_compose_name | swarm_container_regex("app") }}'.
 
       Diagnostic output dumped above (docker ps -a, docker service ls,
       docker service ps --no-trunc). Interpret:

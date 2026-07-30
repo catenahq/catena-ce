@@ -49,12 +49,38 @@
 # chain the new oauth2-proxy@file middleware. Until then this app
 # deploys without a forward-auth gate.
 
-- name: "Gatus: deploy via Portainer stack API"
-  ansible.builtin.include_tasks: portainer_stack.yml
+# The publish is host-mode now (swarm cannot bind 127.0.0.1), so the port is
+# a real host bind and validate.yml's bind-drift check will see it. Declare
+# it scope=loopback: the reconciler denies it on every interface but lo,
+# which is the posture the old 127.0.0.1 bind gave for free.
+- name: "Gatus: declare the host-side API port (registry fragment, loopback-only)"
+  ansible.builtin.copy:
+    dest: "{{ public_ports_fragment_dir }}/gatus.json"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {{
+        [
+          {"proto": "tcp", "port": gatus_host_localhost_port | int,
+           "scope": "loopback", "bind": "host", "owner": "gatus",
+           "comment": "Gatus API for host-side gatus-sync -- this host only"}
+        ] | to_nice_json
+      }}
+  register: _gatus_ports_fragment
+
+- name: "Gatus: reconcile public ports now (fragment changed)"
+  ansible.builtin.systemd_service:
+    name: catena-public-ports.service
+    state: started
+  changed_when: false
+  when: _gatus_ports_fragment.changed
+
+- name: "Gatus: deploy as a swarm stack"
+  ansible.builtin.include_tasks: swarm_stack.yml
   vars:
     svc_name: "{{ gatus_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'gatus.compose.yml.j2') }}"
-    svc_env: []
     svc_domain_host: "{{ infrastructure_monitor_hostname }}"
     svc_domain_service: "app"
     svc_domain_port: "{{ gatus_internal_port }}"
@@ -71,7 +97,7 @@
 - name: "Gatus: find running container (for base-config reload)"
   ansible.builtin.shell: |
     set -o pipefail
-    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ gatus_compose_name | portainer_container_regex("app") }}' || true
+    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ gatus_compose_name | swarm_container_regex("app") }}' || true
   args:
     executable: /bin/bash
   register: _gatus_container_name

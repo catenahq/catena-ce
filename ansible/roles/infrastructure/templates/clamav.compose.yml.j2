@@ -14,7 +14,14 @@
 services:
   clamav:
     image: {{ clamav_image }}
-    restart: unless-stopped
+    # `restart:` is ignored by `docker stack deploy`; swarm reads
+    # deploy.restart_policy. The delay matters here: clamd's first start
+    # blocks on a ~250 MB freshclam download, and a zero-delay restart loop
+    # would re-pull it on every crash.
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 5s
     environment:
       # Run both clamd and freshclam inside the container (image default;
       # set explicitly so a Portainer UI edit is visible + reviewable).

@@ -3,19 +3,36 @@
 services:
   app:
     image: {{ gatus_image }}
-    restart: unless-stopped
+    # `restart:` is IGNORED by `docker stack deploy` -- swarm restarts from
+    # deploy.restart_policy, and a compose file that only carries the former
+    # gets a warning and swarm's defaults.
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 5s
     environment:
       GATUS_CONFIG_PATH: /config
       GATUS_WEB_PORT: "{{ gatus_internal_port }}"
     volumes:
       - {{ gatus_host_config_dir }}:/config:ro
       - gatus-data:/data
-    # Loopback-only publish so gatus-sync (runs on the host, not in
-    # catena-network) can reach /api/v1/endpoints/statuses at
-    # 127.0.0.1:{{ gatus_host_localhost_port }}. UFW leaves loopback
-    # traffic alone so this is never externally reachable.
+    # Host-mode publish so gatus-sync (runs on the host, not in
+    # catena-network) can reach /api/v1/endpoints/statuses on
+    # {{ gatus_host_localhost_port }}. Long syntax with mode: host is
+    # mandatory -- the short `host:container` form deploys as an INGRESS
+    # publish under swarm, putting the port on the routing mesh.
+    #
+    # host_ip is declared but swarm's PortConfig has no host-IP field, so
+    # treat it as best-effort: the port is DECLARED scope=loopback in the
+    # public-port registry (roles/infrastructure/tasks/gatus.yml), which
+    # denies it on every interface but lo. That declaration, not this line,
+    # is what holds the posture the old 127.0.0.1 bind gave.
     ports:
-      - "127.0.0.1:{{ gatus_host_localhost_port }}:{{ gatus_internal_port }}"
+      - target: {{ gatus_internal_port }}
+        published: {{ gatus_host_localhost_port }}
+        host_ip: 127.0.0.1
+        protocol: tcp
+        mode: host
     networks:
       catena-network:
         aliases:

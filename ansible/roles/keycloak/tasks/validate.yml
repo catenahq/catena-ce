@@ -26,7 +26,7 @@
   ansible.builtin.shell: |
     set -o pipefail
     docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-      | grep -E '{{ keycloak_compose_name | portainer_container_regex(keycloak_server_service) }}' \
+      | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' \
       | head -n1
   args:
     executable: /bin/bash
@@ -82,7 +82,7 @@
         msg: |
           Keycloak server container did not appear after 60 retries
           (~240s). Portainer reported deploy=done but no container
-          matches '{{ keycloak_compose_name | portainer_container_regex(keycloak_server_service) }}'.
+          matches '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}'.
 
           docker ps -a (filter name=keycloak):
           {{ _kc_diag_ps.stdout | default('(empty)') }}

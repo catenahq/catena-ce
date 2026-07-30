@@ -13,7 +13,12 @@
 services:
   app:
     image: {{ beszel_hc_shim_image }}
-    restart: unless-stopped
+    # `restart:` is ignored by `docker stack deploy`; swarm reads
+    # deploy.restart_policy.
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 5s
     command: ["python3", "/app/beszel-hc-shim.py"]
     environment:
       HC_URL: "http://{{ healthchecks_network_alias }}:{{ healthchecks_internal_port }}"

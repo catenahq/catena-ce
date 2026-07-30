@@ -15,7 +15,12 @@
 services:
   app:
     image: {{ recovery_image }}
-    restart: unless-stopped
+    # `restart:` is ignored by `docker stack deploy`; swarm reads
+    # deploy.restart_policy.
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 5s
     volumes:
       # Recovery artifacts dir -- read-only. Contains the .tar.gz
       # snapshot exports produced by the "Export latest snapshot" button.

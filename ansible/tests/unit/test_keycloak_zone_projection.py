@@ -56,7 +56,7 @@ def test_secondaries_come_from_the_filter_with_schema_and_staleness():
 
 
 def test_extra_hosts_are_built_from_the_resolved_secondaries():
-    task = _find("deploy via the Portainer stack API")
+    task = _find("deploy as a swarm stack")
     extra = task["vars"]["svc_domain_extra_hosts"]
     assert "_kc_secondary_zones" in extra
     assert "keycloak_subdomain" in extra

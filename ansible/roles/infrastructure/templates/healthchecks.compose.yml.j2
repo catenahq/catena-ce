@@ -11,7 +11,12 @@
 services:
   app:
     image: {{ healthchecks_image }}
-    restart: unless-stopped
+    # `restart:` is ignored by `docker stack deploy`; swarm reads
+    # deploy.restart_policy.
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 5s
     environment:
       SITE_ROOT: "https://{{ healthchecks_hostname }}"
       SITE_NAME: "{{ cloudflare_zone }} heartbeats"
@@ -74,11 +79,21 @@ services:
       REMOTE_USER_HEADER: "HTTP_X_FORWARDED_EMAIL"
     volumes:
       - healthchecks-data:/data
-    # Loopback-only publish so gatus-sync (host-side) can reach
-    # /api/v3/checks/ at 127.0.0.1:{{ healthchecks_host_localhost_port }}.
-    # UFW leaves loopback alone so this is never externally reachable.
+    # Host-mode publish so the host-side consumers can reach /api/v3/checks/
+    # on {{ healthchecks_host_localhost_port }}: gatus-sync, the clamav
+    # watchdog and the mail canary all dial it by IP, which is why
+    # ALLOWED_HOSTS above carries 127.0.0.1.
+    #
+    # Long syntax with mode: host is mandatory -- the short form deploys as
+    # an INGRESS publish under swarm. host_ip is best-effort (swarm's
+    # PortConfig has no host-IP field); the port is DECLARED scope=loopback
+    # in the public-port registry, and that is what denies it off-box.
     ports:
-      - "127.0.0.1:{{ healthchecks_host_localhost_port }}:{{ healthchecks_internal_port }}"
+      - target: {{ healthchecks_internal_port }}
+        published: {{ healthchecks_host_localhost_port }}
+        host_ip: 127.0.0.1
+        protocol: tcp
+        mode: host
     networks:
       catena-network:
         aliases:

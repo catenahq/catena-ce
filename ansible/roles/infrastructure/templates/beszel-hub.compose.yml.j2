@@ -19,16 +19,29 @@
 services:
   app:
     image: {{ beszel_image }}
-    restart: unless-stopped
+    # `restart:` is ignored by `docker stack deploy`; swarm reads
+    # deploy.restart_policy.
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 5s
     environment:
       USER_EMAIL: "{{ admin_email }}"
       USER_PASSWORD: "{{ beszel_admin_password }}"
       APP_URL: "https://{{ beszel_hostname }}"
     volumes:
       - {{ beszel_hub_data_volume }}:/beszel_data
-    # Loopback publish for the host-side seed + the host-network agent.
+    # Host-mode publish for the host-side seed + the host-network agent.
+    # Long syntax with mode: host is mandatory (the short form becomes an
+    # ingress publish under swarm); host_ip is best-effort, and the port is
+    # DECLARED scope=loopback in the public-port registry, which is what
+    # denies it on every interface but lo.
     ports:
-      - "127.0.0.1:{{ beszel_hub_host_localhost_port }}:{{ beszel_hub_internal_port }}"
+      - target: {{ beszel_hub_internal_port }}
+        published: {{ beszel_hub_host_localhost_port }}
+        host_ip: 127.0.0.1
+        protocol: tcp
+        mode: host
     networks:
       catena-network:
         aliases:

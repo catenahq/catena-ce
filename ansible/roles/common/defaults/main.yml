@@ -74,3 +74,15 @@ public_ports_fragment_dir: /etc/catena/public-ports.d
 # interval of deploy; DOCKER-USER guards re-assert if flushed out-of-band.
 public_ports_timer_on_boot: "2min"
 public_ports_timer_interval: "5min"
+
+# ─── Rendered swarm stack files ──────────────────────────────────────────
+# Where roles/infrastructure/tasks/swarm_stack.yml writes the compose body
+# it hands to `docker stack deploy`. Declared in common (which runs first)
+# rather than in infrastructure, because keycloak and oauth2_proxy include
+# that helper from their own roles and a role's defaults are only in scope
+# once that role has run.
+#
+# Keeping the file on disk is what makes a failed deploy diagnosable after
+# the fact: the exact converge is reproducible by hand with
+# `docker stack deploy -c <dir>/<name>.yml <name>`.
+swarm_stack_dir: /etc/catena/stacks

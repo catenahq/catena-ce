@@ -97,15 +97,16 @@
     # "kick everything" regression (all containers crashed at once)
     # cannot recur.
     #
-    # Plain shell grep against the compose-name prefix (oauth2-proxy-)
-    # rather than portainer_container_regex per app -- one docker ps
-    # round-trip covers every per-app instance, and the filter rejects
-    # wildcard service names.
+    # Plain shell grep against the stack-name prefix rather than
+    # swarm_container_regex per app -- one docker ps round-trip covers every
+    # per-app instance, and the filter rejects wildcard service names. The
+    # underscore is the stack/service separator `docker stack deploy` uses,
+    # so this matches every oauth2-proxy_oauth2-proxy-<slug>.N.<taskid>.
     - name: "validate/oauth2-proxy: list oauth2-proxy containers and their state"
       ansible.builtin.shell: |
         set -o pipefail
         docker ps -a --format '{{ "{{" }}.Names{{ "}}" }}|{{ "{{" }}.Status{{ "}}" }}' \
-          | grep -E '^{{ oauth2_proxy_compose_name }}-[a-z0-9]+-'
+          | grep -E '^{{ oauth2_proxy_compose_name }}_'
       args:
         executable: /bin/bash
       register: _oauth2_all_state
@@ -131,7 +132,7 @@
       ansible.builtin.shell: |
         set -o pipefail
         docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-          | grep -E '{{ oauth2_proxy_compose_name | portainer_container_regex("oauth2-proxy-" + _app.slug) }}' \
+          | grep -E '{{ oauth2_proxy_compose_name | swarm_container_regex("oauth2-proxy-" + _app.slug) }}' \
           | head -n1
       args:
         executable: /bin/bash

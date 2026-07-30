@@ -30,8 +30,15 @@
   # network exists), so treat the "already exists" stderr as success and
   # report changed only on a real create. ALWAYS runs -- the templates
   # need this network to exist before they can deploy.
+  #
+  # OVERLAY, not the default bridge: clamd is a swarm service now, and a
+  # swarm service cannot attach to a bridge network. --attachable is what
+  # keeps the other half working -- the mailserver and Nextcloud arrive as
+  # Portainer standalone compose stacks, and a standalone container may
+  # only join an overlay that was created attachable.
   ansible.builtin.command:
-    argv: [docker, network, create, "{{ clamav_network }}"]
+    argv: [docker, network, create, --driver, overlay, --attachable,
+           "{{ clamav_network }}"]
   register: _clamav_net_create
   changed_when: _clamav_net_create.rc == 0
   failed_when:
@@ -67,12 +74,11 @@
 - name: "ClamAV: deploy clamd + watchdog when a consumer is running"
   when: (_clamav_consumer.stdout | default('') | trim) | length > 0
   block:
-    - name: "ClamAV: deploy shared clamd via Portainer API"
-      ansible.builtin.include_tasks: portainer_stack.yml
+    - name: "ClamAV: deploy shared clamd as a swarm stack"
+      ansible.builtin.include_tasks: swarm_stack.yml
       vars:
         svc_name: "{{ clamav_compose_name }}"
         svc_compose_content: "{{ lookup('template', 'clamav.compose.yml.j2') }}"
-        svc_env: []
         # No HTTP route -- clamd is TCP-only on the catena-clamav network.
         svc_domain_host: ""
         svc_readiness_skip_reason: >-
@@ -87,7 +93,7 @@
     - name: "ClamAV: find running clamd container"
       ansible.builtin.shell: |
         set -o pipefail
-        docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ clamav_compose_name | portainer_container_regex("clamav") }}' || true
+        docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ clamav_compose_name | swarm_container_regex("clamav") }}' || true
       args:
         executable: /bin/bash
       register: _clamav_container

@@ -57,77 +57,95 @@
     _infra_cf_token_present: "{{ (cloudflare_api_token | default('')) | length > 0 }}"
   tags: [always]
 
-- name: Has Portainer API key -> provision services via the Portainer stack API
+# ─── catena-declared services (swarm stacks, no Portainer in the path) ────
+#
+# These five used to sit INSIDE the `portainer_api_key` block below, which
+# made the monitoring plane, the shared scanner and the SSO-gated recovery
+# page dependents of the control plane they report on: a Portainer that
+# would not start took Gatus, Healthchecks, Beszel and the recovery download
+# surface with it, at exactly the moment someone needed them to find out
+# why. They deploy as swarm stacks now (swarm_stack.yml) and touch no
+# Portainer API, so the gate is not merely unnecessary -- keeping it would
+# preserve the outage it caused.
+#
+# Portainer's DB stays the record of CLIENT choices, which is the one piece
+# of state that cannot be recomputed. The app-wiring block below is still
+# gated on it for that reason.
+#
+# include_tasks doesn't propagate tags to sub-tasks by default -- a
+# top-level `tags:` here applies only to the include statement itself,
+# so `--tags <name>` makes the include fire but every child task
+# silently skips. `apply: tags:` pushes the tag down to every task
+# inside the included file, which is what operators expect when they
+# run `--tags gatus` / `--tags healthchecks` / etc.
+- name: Gatus (monitor.<zone>)
+  ansible.builtin.include_tasks:
+    file: gatus.yml
+    apply:
+      tags: [gatus]
+  tags: [gatus]
+
+- name: Healthchecks (heartbeat.<zone>) -- cron/dead-man monitoring
+  ansible.builtin.include_tasks:
+    file: healthchecks.yml
+    apply:
+      tags: [healthchecks]
+  tags: [healthchecks]
+
+# Shared ClamAV (clamd). Creates the external catena-clamav network
+# (the mailserver + nextcloud templates depend on it existing before
+# a client clicks Deploy) and deploys one clamd for both consumers.
+# Runs before the per-app wiring below so the network + scanner are
+# ready when those land.
+- name: Shared ClamAV (clamd, used by mail + Nextcloud)
+  ansible.builtin.include_tasks:
+    file: clamav.yml
+    apply:
+      tags: [clamav]
+  tags: [clamav]
+
+# Beszel -- hub + agent resource monitor (CPU/memory/network/disk +
+# temperature/load history with built-in threshold alerting). The
+# agent collects per-container + per-host metrics over docker.sock;
+# the hub stores history and serves hub.<zone> (admin-gated via
+# oauth2-proxy). A small shim forwards Beszel threshold alerts into
+# the Healthchecks plane. Part of the base plane, not opt-in -- the
+# BESZEL_ENABLED off-switch was removed 2026-07-29.
+- name: Beszel (hub + agent + Healthchecks alert shim)
+  ansible.builtin.include_tasks:
+    file: beszel.yml
+    apply:
+      tags: [beszel]
+  tags: [beszel]
+
+# Semaphore (the operator's Ansible runner) is operator-only
+# infrastructure -- it is not part of the Community edition and is not
+# deployed here.
+
+- name: Recovery downloads (recovery.<zone>) -- admin-only file server
+  ansible.builtin.include_tasks:
+    file: recovery.yml
+    apply:
+      tags: [recovery]
+  tags: [recovery]
+
+# ─── client-template wiring (needs Portainer alive) ──────────────────────
+- name: Has Portainer API key -> wire the client-template apps
   when:
     - portainer_api_key is defined
     - portainer_api_key | length > 10
   block:
-    # Runs before any per-service include below. Tagged `always` so
-    # --tags <service> filters still get _portainer_endpoint_id in scope
-    # (the per-service stack includes need it for the create/update call).
+    # Reachability gate for everything below: the client apps these tasks
+    # wire are Portainer stacks, so a Portainer that does not answer means
+    # there is nothing to wire. It no longer feeds a stack create/update --
+    # the catena-declared services above went to swarm -- so what it asserts
+    # now is simply that the control plane is answering.
     - name: "Resolve the Portainer endpoint id"
       ansible.builtin.include_tasks:
         file: portainer_endpoint.yml
         apply:
           tags: [always]
       tags: [always]
-
-    # include_tasks doesn't propagate tags to sub-tasks by default -- a
-    # top-level `tags:` here applies only to the include statement itself,
-    # so `--tags <name>` makes the include fire but every child task
-    # silently skips. `apply: tags:` pushes the tag down to every task
-    # inside the included file, which is what operators expect when they
-    # run `--tags gatus` / `--tags healthchecks` / etc.
-    - name: Gatus (monitor.<zone>)
-      ansible.builtin.include_tasks:
-        file: gatus.yml
-        apply:
-          tags: [gatus]
-      tags: [gatus]
-
-    - name: Healthchecks (heartbeat.<zone>) -- cron/dead-man monitoring
-      ansible.builtin.include_tasks:
-        file: healthchecks.yml
-        apply:
-          tags: [healthchecks]
-      tags: [healthchecks]
-
-    # Shared ClamAV (clamd). Creates the external catena-clamav network
-    # (the mailserver + nextcloud templates depend on it existing before
-    # a client clicks Deploy) and deploys one clamd for both consumers.
-    # Runs before the per-app wiring below so the network + scanner are
-    # ready when those land.
-    - name: Shared ClamAV (clamd, used by mail + Nextcloud)
-      ansible.builtin.include_tasks:
-        file: clamav.yml
-        apply:
-          tags: [clamav]
-      tags: [clamav]
-
-    # Beszel -- hub + agent resource monitor (CPU/memory/network/disk +
-    # temperature/load history with built-in threshold alerting). The
-    # agent collects per-container + per-host metrics over docker.sock;
-    # the hub stores history and serves hub.<zone> (admin-gated via
-    # oauth2-proxy). A small shim forwards Beszel threshold alerts into
-    # the Healthchecks plane. Part of the base plane, not opt-in -- the
-    # BESZEL_ENABLED off-switch was removed 2026-07-29.
-    - name: Beszel (hub + agent + Healthchecks alert shim)
-      ansible.builtin.include_tasks:
-        file: beszel.yml
-        apply:
-          tags: [beszel]
-      tags: [beszel]
-
-    # Semaphore (the operator's Ansible runner) is operator-only
-    # infrastructure -- it is not part of the Community edition and is not
-    # deployed here.
-
-    - name: Recovery downloads (recovery.<zone>) -- admin-only file server
-      ansible.builtin.include_tasks:
-        file: recovery.yml
-        apply:
-          tags: [recovery]
-      tags: [recovery]
 
     # EP3: Nextcloud native OIDC. Realm client is registered eagerly
     # so the discovery URL works the moment the operator clicks Deploy
