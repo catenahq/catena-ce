@@ -11,8 +11,19 @@ port, consumed everywhere.
 Two feeders, one merged effective set:
 
   - Infra roles declare a `public_ports` list var (coturn, the Portainer UI).
-    Each entry is host-bound (the service uses host networking or a swarm
-    host-mode publish), so ufw INPUT actually sees the traffic.
+
+    `bind` says which chain can actually enforce the entry, and the two are
+    NOT interchangeable. True host networking (`--network host`) puts the
+    listener in the host's namespace, so ufw INPUT sees the traffic:
+    bind=host. Anything Docker DNATs -- an ordinary published port AND a
+    swarm `mode: host` publish -- is redirected in PREROUTING and bypasses
+    INPUT entirely: bind=docker, enforced in DOCKER-USER.
+
+    That distinction was written the wrong way here once, on the assumption
+    that a swarm host-mode publish behaves like host networking. It does
+    not. The gatus / healthchecks / beszel loopback ports were declared
+    bind=host, ufw installed their deny rules, and bench 050b then scanned
+    the bridge IP and found all three wide open.
   - catena templates declare `vps.expose.tcp/udp` compose labels. Those
     apps publish ports via Docker, whose DNAT bypasses the ufw INPUT chain,
     so enforcement (when the scope is restricted) happens in DOCKER-USER.

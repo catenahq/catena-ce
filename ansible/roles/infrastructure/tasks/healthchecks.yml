@@ -32,6 +32,9 @@
 # Host-mode publish (swarm cannot bind 127.0.0.1), so the port is a real
 # host bind. scope=loopback denies it everywhere but lo, which is what the
 # ALLOWED_HOSTS 127.0.0.1 entry above assumes about who can reach it.
+#
+# bind=docker because a swarm host-mode publish is DNAT'd and bypasses ufw
+# INPUT -- see the note in gatus.yml; the enforcing chain is DOCKER-USER.
 - name: "Healthchecks: declare the host-side API port (registry fragment, loopback-only)"
   ansible.builtin.copy:
     dest: "{{ public_ports_fragment_dir }}/healthchecks.json"
@@ -42,7 +45,7 @@
       {{
         [
           {"proto": "tcp", "port": healthchecks_host_localhost_port | int,
-           "scope": "loopback", "bind": "host", "owner": "healthchecks",
+           "scope": "loopback", "bind": "docker", "owner": "healthchecks",
            "comment": "Healthchecks API for gatus-sync + the host watchdogs -- this host only"}
         ] | to_nice_json
       }}

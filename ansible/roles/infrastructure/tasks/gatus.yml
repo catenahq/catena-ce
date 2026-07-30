@@ -51,8 +51,15 @@
 
 # The publish is host-mode now (swarm cannot bind 127.0.0.1), so the port is
 # a real host bind and validate.yml's bind-drift check will see it. Declare
-# it scope=loopback: the reconciler denies it on every interface but lo,
+# it scope=loopback so the reconciler denies it on every interface but lo,
 # which is the posture the old 127.0.0.1 bind gave for free.
+#
+# bind=docker, NOT host. A swarm host-mode publish is DNAT'd by dockerd and
+# never reaches ufw's INPUT chain, so a ufw deny alone does not close it --
+# bench 050b scanned the bridge IP and found 18080 wide open with the deny
+# rule installed. The guard that works on the DNAT path is DOCKER-USER,
+# which is what bind=docker asks for. Host-local readers are unaffected:
+# 127.0.0.1 traffic is delivered on loopback and never traverses FORWARD.
 - name: "Gatus: declare the host-side API port (registry fragment, loopback-only)"
   ansible.builtin.copy:
     dest: "{{ public_ports_fragment_dir }}/gatus.json"
@@ -63,7 +70,7 @@
       {{
         [
           {"proto": "tcp", "port": gatus_host_localhost_port | int,
-           "scope": "loopback", "bind": "host", "owner": "gatus",
+           "scope": "loopback", "bind": "docker", "owner": "gatus",
            "comment": "Gatus API for host-side gatus-sync -- this host only"}
         ] | to_nice_json
       }}

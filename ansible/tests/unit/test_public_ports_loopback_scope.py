@@ -69,9 +69,14 @@ def test_host_bind_emits_exactly_one_deny_and_no_allow():
 
 
 def test_docker_bind_adds_a_dnat_drop_with_no_allowed_source():
-    # Docker's DNAT bypasses ufw INPUT, so a docker-bound loopback port needs
-    # the DOCKER-USER guard too -- and unlike tailnet/rfc1918 there is no
-    # source to RETURN first: anything reaching that chain came from off-box.
+    # This is the bind the three real loopback ports use, and the DROP is the
+    # only rule that actually closes them. A swarm `mode: host` publish is
+    # still DNAT'd, so it bypasses ufw INPUT exactly like an ordinary
+    # published port: declared bind=host, the ufw deny installs cleanly and
+    # the port stays reachable off-box (bench 050b found 18000, 18080 and
+    # 18190 open on the bridge IP). Unlike tailnet/rfc1918 there is no source
+    # to RETURN first -- anything reaching that chain came from off-box,
+    # since 127.0.0.1 is delivered on loopback and never traverses FORWARD.
     plan = pp.rule_plan([_entry(bind="docker")])
     assert [(r["engine"], r["action"]) for r in plan] == [
         ("ufw", "deny"),
@@ -109,6 +114,24 @@ def test_ufw_spec_renders_deny_not_allow():
     # The full argv is what actually runs; a stray "allow" anywhere in it
     # would open the port.
     assert "allow" not in mod._ufw_argv(rule)
+
+
+def test_the_three_real_loopback_ports_declare_the_dnat_bind():
+    """The regression this pins is silent in the worst way: declared
+    bind=host, ufw installs a deny, `rules_unapplied` is 0, every artifact
+    validation reads says the port is guarded -- and the port answers from
+    off-box. Only an external scan sees it, which is what caught it."""
+    tasks_dir = ANSIBLE_DIR / "roles" / "infrastructure" / "tasks"
+    for name in ("gatus.yml", "healthchecks.yml", "beszel.yml"):
+        body = (tasks_dir / name).read_text(encoding="utf-8")
+        assert '"scope": "loopback", "bind": "docker"' in body, (
+            f"{name}: the loopback port must declare bind=docker. A swarm "
+            f"mode:host publish is DNAT'd and never reaches ufw INPUT, so a "
+            f"ufw deny does not close it -- the guard is DOCKER-USER."
+        )
+        assert '"bind": "host"' not in body, (
+            f"{name}: bind=host claims ufw INPUT can enforce this port"
+        )
 
 
 def test_ufw_spec_still_defaults_to_allow_for_the_existing_scopes():

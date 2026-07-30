@@ -38,6 +38,9 @@
 # Host-mode publish (swarm cannot bind 127.0.0.1), so the hub port is a real
 # host bind. scope=loopback denies it everywhere but lo -- the only readers
 # are beszel-seed on the host and the host-network agent below.
+#
+# bind=docker because a swarm host-mode publish is DNAT'd and bypasses ufw
+# INPUT -- see the note in gatus.yml; the enforcing chain is DOCKER-USER.
 - name: "Beszel: declare the hub loopback port (registry fragment, loopback-only)"
   ansible.builtin.copy:
     dest: "{{ public_ports_fragment_dir }}/beszel.json"
@@ -48,7 +51,7 @@
       {{
         [
           {"proto": "tcp", "port": beszel_hub_host_localhost_port | int,
-           "scope": "loopback", "bind": "host", "owner": "beszel",
+           "scope": "loopback", "bind": "docker", "owner": "beszel",
            "comment": "Beszel hub API for the seed + the host-network agent -- this host only"}
         ] | to_nice_json
       }}
