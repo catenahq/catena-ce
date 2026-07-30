@@ -40,7 +40,7 @@ branches (workspace convention). NEVER switch or fast-forward `main`.
 ## Security invariants (machine-enforced -- do not weaken silently)
 
 The full register with stable IDs is maintainer-internal (ops
-`internal_docs/operator/threat-models/{client-vps,ce-public-repo}.md`);
+`automation/audit/threat-models/{client-vps,ce-public-repo}.yml`);
 [SPEC.md](SPEC.md) carries the public statement of each one, with the
 gate that enforces it. The load-bearing ones when editing THIS repo:
 

@@ -30,8 +30,7 @@ the operator panel (`roles/catena-admin`):
 
 Catena's own webapps (website + portal) are no longer deployed
 by this role. They ship a compose per app that the operator deploys
-as a Portainer stack; see
-`internal_docs/operator/deploy-webapp-from-github.md`. The
+as a Portainer stack. The
 Keycloak realm client for the portal still lives in Ansible and
 is provisioned by `roles/keycloak/tasks/_portal_realm.yml`.
 
