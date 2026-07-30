@@ -332,12 +332,22 @@
     # Only coturn for now. clamav is the other presence-gated companion and
     # has the same shape, but its gate reads a deployed mailserver rather than
     # a running container, and nothing has been observed failing on it.
+    # `is defined` is not belt-and-braces: this task carries the `coturn` tag
+    # so a coturn-scoped converge can reach it, while the hook above carries
+    # only `post_restore`. A `--tags infrastructure,coturn` run therefore
+    # SELECTS this task and FILTERS OUT the one that registers the variable it
+    # reads, and `is not skipped` on an undefined name raises rather than
+    # evaluating false. `apply:` carries both tags for the same reason: with
+    # only `coturn` there, a `--tags post_restore` run would fire the include
+    # and then filter out every task inside it.
     - name: "Post-restore: re-run the consumer-gated companions"
       ansible.builtin.include_role:
         name: coturn
         apply:
-          tags: [coturn]
-      when: _site_post_restore is not skipped
+          tags: [post_restore, coturn]
+      when:
+        - _site_post_restore is defined
+        - _site_post_restore is not skipped
       tags: [post_restore, coturn]
 
     # Final lockdown. Must come AFTER tailscale + infrastructure are healthy,
