@@ -109,16 +109,32 @@
       - (_infra_ports.stdout | trim) == ''
     fail_msg: "host has processes bound to 80 or 443 directly: {{ _infra_ports.stdout }}"
 
+# Two things this pattern has to get right, and the loose version got
+# neither:
+#
+#   ANCHORED. `(80|443)/tcp` is a substring match against the whole ufw
+#   line, so any port ENDING in 80 or 443 tripped it -- gatus' loopback
+#   port 18080 is the one that did. The port is the first field of a ufw
+#   status row, so anchor to ^.
+#
+#   ALLOW ONLY. The assertion is "nothing OPENS 80/443", but it fired on
+#   any matching row, so a DENY on those ports -- the very thing you would
+#   want to see -- would have failed the validate too. Match the action.
+#
+# ` +` rather than `[[:space:]]+`: ufw pads its columns with spaces, and
+# this spelling means the same thing to grep -E and to Python's re, which
+# is what lets tests/unit/test_ufw_80_443_check.py run THIS pattern against
+# sample output instead of a restatement of it.
 - name: "validate/infrastructure: ufw does not allow public 80/443"
   ansible.builtin.shell: |
-    ufw status | grep -E '(80|443)/tcp' || true
+    ufw status | grep -E '^(80|443)/tcp( \(v6\))? +ALLOW' || true
   args:
     executable: /bin/bash
   register: _infra_ufw
   failed_when: false
   changed_when: false
 
-- name: "validate/infrastructure: no 80/443 rule in ufw"
+- name: "validate/infrastructure: no rule allowing 80/443 in ufw"
   ansible.builtin.assert:
     that:
       - (_infra_ufw.stdout | trim) == ''
