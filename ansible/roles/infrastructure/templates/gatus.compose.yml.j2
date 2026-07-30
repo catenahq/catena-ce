@@ -22,15 +22,17 @@ services:
     # mandatory -- the short `host:container` form deploys as an INGRESS
     # publish under swarm, putting the port on the routing mesh.
     #
-    # host_ip is declared but swarm's PortConfig has no host-IP field, so
-    # treat it as best-effort: the port is DECLARED scope=loopback in the
-    # public-port registry (roles/infrastructure/tasks/gatus.yml), which
-    # denies it on every interface but lo. That declaration, not this line,
-    # is what holds the posture the old 127.0.0.1 bind gave.
+    # There is NO host_ip here and there cannot be: swarm's PortConfig has
+    # no host-IP field, and `docker stack deploy` REFUSES the key outright
+    # ("services.app.ports.0 Additional property host_ip is not allowed")
+    # rather than ignoring it. So the bind is 0.0.0.0 and the port is
+    # DECLARED scope=loopback in the public-port registry
+    # (roles/infrastructure/tasks/gatus.yml), which denies it on every
+    # interface but lo. That declaration is what holds the posture the old
+    # 127.0.0.1 bind gave for free.
     ports:
       - target: {{ gatus_internal_port }}
         published: {{ gatus_host_localhost_port }}
-        host_ip: 127.0.0.1
         protocol: tcp
         mode: host
     networks:

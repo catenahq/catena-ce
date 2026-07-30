@@ -85,13 +85,14 @@ services:
     # ALLOWED_HOSTS above carries 127.0.0.1.
     #
     # Long syntax with mode: host is mandatory -- the short form deploys as
-    # an INGRESS publish under swarm. host_ip is best-effort (swarm's
-    # PortConfig has no host-IP field); the port is DECLARED scope=loopback
-    # in the public-port registry, and that is what denies it off-box.
+    # an INGRESS publish under swarm. No host_ip: swarm's PortConfig has no
+    # host-IP field and `docker stack deploy` REFUSES the key rather than
+    # ignoring it, so the bind is 0.0.0.0 and the port is DECLARED
+    # scope=loopback in the public-port registry, which is what denies it
+    # off-box.
     ports:
       - target: {{ healthchecks_internal_port }}
         published: {{ healthchecks_host_localhost_port }}
-        host_ip: 127.0.0.1
         protocol: tcp
         mode: host
     networks:

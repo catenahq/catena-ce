@@ -33,13 +33,13 @@ services:
       - {{ beszel_hub_data_volume }}:/beszel_data
     # Host-mode publish for the host-side seed + the host-network agent.
     # Long syntax with mode: host is mandatory (the short form becomes an
-    # ingress publish under swarm); host_ip is best-effort, and the port is
-    # DECLARED scope=loopback in the public-port registry, which is what
-    # denies it on every interface but lo.
+    # ingress publish under swarm). No host_ip: swarm's PortConfig has no
+    # host-IP field and `docker stack deploy` REFUSES the key rather than
+    # ignoring it, so the port is DECLARED scope=loopback in the public-port
+    # registry, which is what denies it on every interface but lo.
     ports:
       - target: {{ beszel_hub_internal_port }}
         published: {{ beszel_hub_host_localhost_port }}
-        host_ip: 127.0.0.1
         protocol: tcp
         mode: host
     networks:
