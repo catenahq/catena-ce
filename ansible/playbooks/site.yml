@@ -312,6 +312,34 @@
       when: _site_post_restore is not skipped
       tags: [post_restore]
 
+    # Consumer-gated companions, re-run now that the applications are back.
+    #
+    # The hooks above are what restart the client applications, and they run
+    # after every role has already had its turn. So roles/coturn probed for a
+    # running Talk HPB or Jitsi JVB while the apps were still down, found
+    # none, and correctly skipped -- and then the recovery brought a Talk HPB
+    # up behind it. The converge therefore ENDED with a real-time app running
+    # and no TURN relay: calls fall back to peer-to-peer and quietly fail on
+    # restrictive networks, and the validate that follows demands the relay
+    # this same converge declined to deploy (bench 51ad, backup_rollback
+    # stage-3).
+    #
+    # Re-running the gate here closes that inside the converge that opened it,
+    # rather than leaving the host wrong until someone converges again. The
+    # role is idempotent and its own gate still decides: on a host with no
+    # real-time app this re-run skips exactly as the first pass did.
+    #
+    # Only coturn for now. clamav is the other presence-gated companion and
+    # has the same shape, but its gate reads a deployed mailserver rather than
+    # a running container, and nothing has been observed failing on it.
+    - name: "Post-restore: re-run the consumer-gated companions"
+      ansible.builtin.include_role:
+        name: coturn
+        apply:
+          tags: [coturn]
+      when: _site_post_restore is not skipped
+      tags: [post_restore, coturn]
+
     # Final lockdown. Must come AFTER tailscale + infrastructure are healthy,
     # otherwise we lock ourselves out.
     - name: Lock ufw to tailscale-only ingress
