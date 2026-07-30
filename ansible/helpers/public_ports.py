@@ -380,6 +380,19 @@ def _docker_user_layer(e: PortEntry) -> list[dict]:
     is open by Docker default) or host bind (no DNAT)."""
     if e.bind != "docker" or e.scope == "any":
         return []
+    if e.lo != e.hi:
+        # The reconciler matches these on conntrack's ORIGINAL destination
+        # port, because DOCKER-USER runs after the DNAT has rewritten the
+        # port -- and --ctorigdstport takes a single port, with no range
+        # form. Refuse the declaration rather than emit a guard that
+        # silently covers one port of the range: an unenforceable rule that
+        # installs cleanly is the failure mode this whole module exists to
+        # avoid. No such entry exists today (infra ranges are host-bound,
+        # and label-declared app ranges are scope=any).
+        raise PortDeclError(
+            f"docker-bound {e.scope} range {e.port_spec}/{e.proto} cannot be "
+            f"guarded: the DNAT-path match takes a single port"
+        )
     if e.scope == "loopback":
         # Nothing RETURNs first. The DNAT path carries no loopback traffic,
         # so every packet that reaches this chain for the port arrived from

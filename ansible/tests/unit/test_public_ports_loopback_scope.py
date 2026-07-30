@@ -22,6 +22,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 ANSIBLE_DIR = Path(__file__).resolve().parents[2]
 HELPERS = ANSIBLE_DIR / "helpers"
 SCRIPT = ANSIBLE_DIR / "scripts" / "catena-public-ports.py"
@@ -132,6 +134,58 @@ def test_the_three_real_loopback_ports_declare_the_dnat_bind():
         assert '"bind": "host"' not in body, (
             f"{name}: bind=host claims ufw INPUT can enforce this port"
         )
+
+
+def test_dnat_guard_matches_the_dialled_port_not_the_container_port():
+    """DOCKER-USER hangs off FORWARD, which runs AFTER nat/PREROUTING has
+    DNAT'd the published port to the container. When the published port
+    differs from the container port -- 18080 -> 8080 for Gatus -- a
+    `--dport 18080` rule matches nothing.
+
+    Bench 050b: all three loopback ports answered from off-box with their
+    DROP rules installed and sitting at zero packets. The guard looked
+    correct for as long as it existed only because the Portainer UI, the
+    one restricted docker-bound port that predated them, publishes
+    9000 -> 9000 and is unchanged by the rewrite."""
+    mod = _reconciler()
+    rule = next(
+        r for r in pp.rule_plan([_entry(bind="docker")])
+        if r["engine"] == "docker-user"
+    )
+    match = mod._docker_user_match(rule)
+    assert "--dport" not in match, (
+        "a --dport match is evaluated after the DNAT and cannot see the "
+        "port the client dialled"
+    )
+    assert match[-3:] == ["-m", "conntrack", "--ctorigdstport"] or (
+        "--ctorigdstport" in match
+    )
+    assert match[match.index("--ctorigdstport") + 1] == "9021"
+
+
+def test_a_guarded_docker_range_is_refused_rather_than_half_covered():
+    """--ctorigdstport takes a single port. Emitting a guard that covers one
+    port of a declared range would install cleanly, report every rule
+    applied, and leave the rest of the range open -- the exact shape this
+    module exists to prevent."""
+    entries = pp.normalize_infra([
+        {"proto": "tcp", "port": "18000-18010", "scope": "loopback",
+         "bind": "docker", "owner": "hypothetical"},
+    ])
+    with pytest.raises(pp.PortDeclError, match="single port"):
+        pp.rule_plan(entries)
+
+
+def test_a_host_bound_range_is_still_fine():
+    """The refusal is specific to the DNAT path. coturn's media relay range
+    is host-bound and enforced by ufw, which takes ranges."""
+    entries = pp.normalize_infra([
+        {"proto": "udp", "port": "49160-49200", "scope": "any",
+         "bind": "host", "owner": "coturn"},
+    ])
+    plan = pp.rule_plan(entries)
+    assert [r["engine"] for r in plan] == ["ufw"]
+    assert plan[0]["port"] == "49160:49200"
 
 
 def test_ufw_spec_still_defaults_to_allow_for_the_existing_scopes():

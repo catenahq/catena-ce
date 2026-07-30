@@ -204,13 +204,33 @@ def prune_ufw(stale: list[dict]) -> None:
 
 
 def _docker_user_match(rule: dict) -> list[str]:
-    """The match portion (everything except -A/-C/-D DOCKER-USER and -j)."""
+    """The match portion (everything except -A/-C/-D DOCKER-USER and -j).
+
+    The port is matched on conntrack's ORIGINAL destination, not --dport.
+    DOCKER-USER hangs off FORWARD, which runs AFTER nat/PREROUTING has
+    already DNAT'd the published port to the container -- and that rewrite
+    changes the port number whenever the published port differs from the
+    container port. `--dport 18080` therefore matches nothing once Docker
+    has turned it into `172.18.0.12:8080`.
+
+    That is not theoretical: bench 050b found Gatus (18080 -> 8080),
+    Healthchecks (18000 -> 8000) and the Beszel hub (18190 -> 8090) all
+    answering from off-box with their DROP rules installed and sitting at
+    zero packets. The guard had been correct-looking for as long as it has
+    existed only because the one restricted docker-bound port that predated
+    them, the Portainer UI, publishes 9000 -> 9000 and so is unchanged by
+    the DNAT.
+
+    --ctorigdstport matches the port the client actually dialled, which is
+    what the declaration is about, and is unaffected by the rewrite.
+    """
     argv: list[str] = []
     if rule.get("iface"):
         argv += ["-i", rule["iface"]]
     if rule.get("from"):
         argv += ["-s", rule["from"]]
-    argv += ["-p", rule["proto"], "--dport", rule["port"]]
+    argv += ["-p", rule["proto"],
+             "-m", "conntrack", "--ctorigdstport", rule["port"]]
     return argv
 
 
