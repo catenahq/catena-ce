@@ -149,16 +149,23 @@ def save_applied(plan: list[dict]) -> None:
 
 
 def _ufw_spec(rule: dict) -> list[str]:
-    """The `allow ...` spec (no leading `ufw`, no comment). add prepends
-    `ufw`; delete prepends `ufw delete`."""
+    """The `<action> ...` spec (no leading `ufw`, no comment). add prepends
+    `ufw`; delete prepends `ufw delete`.
+
+    The action is READ from the rule, not hardcoded. A loopback-scoped port
+    is enforced by a deny, and a spec that always said `allow` would not
+    merely fail to guard it -- it would run `ufw allow` on the port it was
+    asked to close, and then record that as applied.
+    """
+    action = rule.get("action", "allow")
     proto, port = rule["proto"], rule["port"]
     if rule.get("iface"):
-        return ["allow", "in", "on", rule["iface"], "proto", proto,
+        return [action, "in", "on", rule["iface"], "proto", proto,
                 "to", "any", "port", port]
     if rule.get("from", "any") != "any":
-        return ["allow", "from", rule["from"], "proto", proto,
+        return [action, "from", rule["from"], "proto", proto,
                 "to", "any", "port", port]
-    return ["allow", f"{port}/{proto}"]
+    return [action, f"{port}/{proto}"]
 
 
 def _ufw_argv(rule: dict) -> list[str]:

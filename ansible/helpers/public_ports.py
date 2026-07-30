@@ -49,7 +49,17 @@ except ImportError:
 _RFC1918 = ("172.16.0.0/12", "10.0.0.0/8")
 
 VALID_PROTOS = ("tcp", "udp")
-VALID_SCOPES = ("any", "tailnet", "rfc1918")
+# `loopback` exists because a swarm service cannot publish to 127.0.0.1: the
+# swarm PortConfig API carries no host IP, so a port that compose bound to
+# the loopback becomes a host-wide bind the moment the service moves to
+# `docker service` / `docker stack deploy`. Gatus, Healthchecks and the
+# Beszel hub are each dialled by a HOST process (gatus-sync, the clamav
+# watchdog, the mail canary, beszel-seed, the host-network agent), so the
+# publish cannot simply be dropped. Declaring the port `loopback` keeps the
+# posture the 127.0.0.1 bind used to give -- reachable from the box, denied
+# on every other interface -- and makes it enforced and auditable rather
+# than a property of a compose string.
+VALID_SCOPES = ("any", "tailnet", "rfc1918", "loopback")
 VALID_BINDS = ("host", "docker")
 
 
@@ -109,7 +119,7 @@ def normalize_infra(public_ports: list[dict] | None) -> list[PortEntry]:
     Each raw entry: {proto, port, scope?, bind?, owner?, comment?}.
       - proto: tcp|udp (required)
       - port:  int | "n" | "lo-hi" | "lo:hi" (required)
-      - scope: any|tailnet|rfc1918 (default any)
+      - scope: any|tailnet|rfc1918|loopback (default any)
       - bind:  host|docker (default host -- infra ports are host-bound)
     Raises PortDeclError on any invalid field."""
     out: list[PortEntry] = []
@@ -282,6 +292,7 @@ def render_doc(entries: list[PortEntry]) -> str:
         "- **scope `any`** -- reachable from the public internet.",
         "- **scope `tailnet`** -- tailscale0 + RFC1918 only (enforced; public refused).",
         "- **scope `rfc1918`** -- Docker bridge networks only.",
+        "- **scope `loopback`** -- this host only; every other interface denied.",
         "",
         "| Proto | Port | Scope | Bind | Owner | Note |",
         "| --- | --- | --- | --- | --- | --- |",
@@ -313,10 +324,12 @@ def render_doc(entries: list[PortEntry]) -> str:
 #   any      -> ufw allow <spec>/<proto> (public)
 #   tailnet  -> ufw allow in on tailscale0 + ufw allow from rfc1918
 #   rfc1918  -> ufw allow from rfc1918
+#   loopback -> ufw deny <spec>/<proto> (lo is accepted by ufw's before-rules)
 # Plus, for docker bind only, the DNAT-path guard:
 #   any      -> nothing (Docker default-publishes the DNAT path open)
 #   tailnet  -> DOCKER-USER: RETURN tailscale0, RETURN rfc1918, DROP
 #   rfc1918  -> DOCKER-USER: RETURN rfc1918, DROP
+#   loopback -> DOCKER-USER: DROP (no allowed source on the DNAT path)
 #
 # This mirrors the proven two-layer port-3000 guard (ufw tailscale0 +
 # DOCKER-USER RETURN/DROP). DROP-last ordering matches it.
@@ -326,6 +339,19 @@ def _ufw_layer(e: PortEntry) -> list[dict]:
     """ufw INPUT-chain rules for one entry, by scope (bind-independent)."""
     if e.scope == "any":
         return [{"engine": "ufw", "action": "allow", "proto": e.proto,
+                 "port": e.port_spec, "from": "any", "owner": e.owner}]
+    if e.scope == "loopback":
+        # ufw's before-rules ACCEPT everything arriving on lo, so denying the
+        # port closes every other interface without touching host-local
+        # traffic -- which is the whole point: the host processes that dial
+        # this port keep working, nothing off-box can reach it.
+        #
+        # The default INPUT policy already denies. This rule is what makes
+        # the intent AUDITABLE (it shows up in `ufw status` and in the
+        # generated inventory next to the port it guards) and what stops a
+        # later broad `ufw allow` from silently widening a port nobody
+        # remembers is host-only -- ufw is first-match, so the deny wins.
+        return [{"engine": "ufw", "action": "deny", "proto": e.proto,
                  "port": e.port_spec, "from": "any", "owner": e.owner}]
     rules: list[dict] = []
     if e.scope == "tailnet":
@@ -343,6 +369,12 @@ def _docker_user_layer(e: PortEntry) -> list[dict]:
     is open by Docker default) or host bind (no DNAT)."""
     if e.bind != "docker" or e.scope == "any":
         return []
+    if e.scope == "loopback":
+        # Nothing RETURNs first. The DNAT path carries no loopback traffic,
+        # so every packet that reaches this chain for the port arrived from
+        # off-box and there is no allowed source to spare.
+        return [{"engine": "docker-user", "action": "DROP", "proto": e.proto,
+                 "port": e.port_spec, "owner": e.owner}]
     rules: list[dict] = []
     if e.scope == "tailnet":
         rules.append({"engine": "docker-user", "action": "RETURN", "proto": e.proto,
