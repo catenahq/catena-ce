@@ -92,7 +92,7 @@ hardening guide and the EnableSecurity/coturn-secure-config
   brute-force is computationally infeasible and credential-leak
   attacks produce legitimate-looking source IPs. See the
   `Explicit non-features` block in
-  [internal_docs/operator/data-security-overview.md](../../../../internal_docs/operator/data-security-overview.md).
+  [ops/internal_docs/tools/data-security-overview.md](../../../../../ops/internal_docs/tools/data-security-overview.md).
 - **No allow-list (`allowed-peer-ip`) mode.** Catena's TURN serves
   general browser-to-browser calls; allow-list would break the use
   case. Deny-list of every special-purpose IANA range is the correct

@@ -39,5 +39,5 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
 
 ## Related
 
-- Operator-facing: `internal_docs/operator/keycloak-and-oauth2-proxy-gotchas.md`.
+- Operator-facing: `ops/internal_docs/tools/keycloak-and-oauth2-proxy-gotchas.md`.
 - Downstream: `oauth2_proxy` role.

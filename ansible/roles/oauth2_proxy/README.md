@@ -36,12 +36,12 @@ Configure the two oauth2-proxy instances that gate the stack:
 ## Related
 
 - Caller: `playbooks/site.yml` (after `keycloak`).
-- Operator-facing: `internal_docs/operator/keycloak-and-oauth2-proxy-gotchas.md`.
+- Operator-facing: `ops/internal_docs/tools/keycloak-and-oauth2-proxy-gotchas.md`.
 
 ## Planned (deferred): public-with-gated-path Traefik shape
 
 When the Easy!Appointments template lands (see
-`internal_docs/operator/external-scheduler-comparison.md` section 7),
+`ops/internal_docs/operator/external-scheduler-comparison.md` section 7),
 this role will need a sibling rendering pattern under a new
 `templates/` dir:
 
