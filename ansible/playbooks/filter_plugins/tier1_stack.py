@@ -3,21 +3,27 @@
     tier1_stack_render(services) -> a compose mapping ready for
                                     `docker stack deploy --compose-file`
 
-WHY. Five roles each hand-roll `docker service create` for a service the
-converge fully owns: traefik, postgres, portainer, coturn and the admin
-panel. Each one re-derives the same shape by hand -- identity flags, then
-the shared hardening subset from swarm_service_create_args, then the image
-as the positional argument -- and each one carries its own create/inspect/
-drift/update ladder to keep an existing host in step. Tier-1 desired state
-is a pure function of the config store, so that ladder is machinery for a
+WHY. Four roles each hand-roll `docker service create` for a service the
+converge fully owns: traefik, postgres, portainer and coturn. Each one
+re-derives the same shape by hand -- identity flags, then the shared
+hardening subset from swarm_service_create_args, then the image as the
+positional argument -- and each one carries its own create/inspect/drift/
+update ladder to keep an existing host in step. Tier-1 desired state is a
+pure function of the config store, so that ladder is machinery for a
 problem the store already solves: render the whole plane and let
 `docker stack deploy` reconcile it.
 
-This renders; it does not apply. The caller writes the mapping to a file
-and hands it to `docker stack deploy`. Keeping the render pure is what
-lets the whole control plane be validated BEFORE anything is applied --
-one bad render takes traefik, postgres and portainer down together, so
-the apply has to be gated on a render that already type-checked.
+The admin panel is the tier-1 service that is NOT here, and the reason is
+the schema rather than a preference: it needs a supplementary group, which
+the compose spec cannot express (see the group_add trap below). cloudflared
+is absent for an unrelated reason -- its converge is already a Go engine.
+
+This renders; it does not apply. roles/tier1_stack writes the mapping and
+hands it to `docker stack config`; the deploy is a later step. Keeping the
+render pure is what lets the whole control plane be validated BEFORE
+anything is applied -- one bad render takes traefik, postgres and portainer
+down together, so the apply has to be gated on a render that already
+type-checked.
 
 WHAT A STACK CHANGES, AND WHY IT IS STILL RIGHT
 
@@ -65,6 +71,9 @@ under a NEW name or the container mounts the old bytes forever. Names are
 content-hashed upstream (catena_admin_service.secret_name) and referenced
 here as `external: true` -- the stack references secrets, it does not
 create them, because creation is what the rotation path owns.
+
+End-to-end coverage:
+    catena-ce ansible/tests/unit/test_tier1_stack_render.py
 """
 
 from __future__ import annotations
