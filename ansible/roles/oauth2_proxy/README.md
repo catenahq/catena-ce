@@ -40,10 +40,11 @@ Configure the two oauth2-proxy instances that gate the stack:
 
 ## Planned (deferred): public-with-gated-path Traefik shape
 
-When the Easy!Appointments template lands (see
-`ops/internal_docs/operator/external-scheduler-comparison.md` section 7),
-this role will need a sibling rendering pattern under a new
-`templates/` dir:
+Easy!Appointments configures OIDC through config-file edits rather than
+env vars, so it sits outside the label-driven wiring flow (see
+`ops/internal_docs/adr/0007-easy-appointments-as-the-scheduler.md`).
+When its template lands, this role will need a sibling rendering
+pattern under a new `templates/` dir:
 
 - `templates/app-public-with-gated-path.yml.j2` -- two Traefik routers
   on the same host, priority-100 anonymous + priority-200
