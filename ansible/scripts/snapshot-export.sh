@@ -4,7 +4,7 @@
 # snapshot and tars stdout, so the stream pipes straight to gzip with no
 # uncompressed intermediate on disk.
 #
-# Wired to an OliveTin button ("Export latest snapshot") so operators
+# Wired to the catena-admin "Export latest snapshot" action so operators
 # and clients (admin-group) can prepare a transferable copy of their
 # data on demand -- matches the portability story behind restore.yml.
 #

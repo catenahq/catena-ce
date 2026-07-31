@@ -35,7 +35,7 @@ cloudflared_ingress_service: "http://catena-traefik:80"
 # Pinned to a full semver so the managed-update engine handles bumps with
 # auto-rollback. cloudflared is the highest-blast-radius service in the
 # stack: a broken image kills the public path AND the operator's ability
-# to reach OliveTin. The managed engine bumps within YYYY.M.* by default
+# to reach catena-admin. The managed engine bumps within YYYY.M.* by default
 # and uses `docker service update --rollback` (built-in swarm primitive)
 # on health regression. Resolved at policy-rollout time (2026-04) to what
 # was running on dev1.

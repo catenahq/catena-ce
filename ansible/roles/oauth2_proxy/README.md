@@ -5,7 +5,7 @@ Configure the two oauth2-proxy instances that gate the stack:
 - **staff** -- protects every client-facing app (Outline,
   Easy!Appointments, Rocket.Chat...) via the `staff` group.
 - **admin** -- protects operator-only surfaces (admin.<zone>,
-  Portainer UI, Healthchecks UI, OliveTin) via the `operators` /
+  Portainer UI, Healthchecks UI) via the `operators` /
   `client-admin` groups.
 
 ## Responsibilities

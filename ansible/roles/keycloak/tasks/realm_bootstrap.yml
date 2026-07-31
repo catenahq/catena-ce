@@ -187,13 +187,13 @@
       - -e
       - "IMPORT_VAR_SUBSTITUTION_ENABLED=false"
       # NO_DELETE for managed entities -- per-client YAMLs (nextcloud,
-      # oauth2-proxy, olivetin, etc.) each contain only THEIR one
+      # oauth2-proxy, roundcube, etc.) each contain only THEIR one
       # client. With the default FULL behavior, each import
       # silently DELETES every other client because they're not in
       # the file's `clients:` array. Result: only the last-imported
-      # client (alphabetically -- olivetin) survives, and the rest
-      # are gone -- the apps that depend on them then fail with
-      # "Client not found" at the OIDC auth endpoint.
+      # client survives and the rest are gone -- the apps that depend
+      # on them then fail with "Client not found" at the OIDC auth
+      # endpoint.
       #
       # NO_DELETE flips merge semantics from "the file is the
       # complete state" to "the file is a delta to apply". Since our

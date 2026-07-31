@@ -117,11 +117,11 @@
         _app_hostname: "{{ hostvars[inventory_hostname][_app.host_var] | default(lookup('vars', _app.host_var, default='')) }}"
       when: _app_hostname | length > 0
 
-    # Cleanup: remove the OLD `-oauth2-proxy.yml` route files for
-    # apps that have moved to the public-oidc list (e.g. olivetin in
-    # EP-B). Without this, the old admin-chain route would remain
-    # active alongside the new public-oidc route -- two routers
-    # claiming the same Host(), Traefik picks one undefined-ly.
+    # Cleanup: remove the `-oauth2-proxy.yml` route file for any app
+    # now on the public-oidc list. Without this, an admin-chain route
+    # left over from a previous converge stays active alongside the
+    # public-oidc route -- two routers claiming the same Host(),
+    # Traefik picks one undefined-ly.
     - name: "oauth2-proxy: remove stale chain-route files for migrated public-oidc apps"
       ansible.builtin.file:
         path: "{{ traefik_dynamic_dir }}/{{ _app.slug }}-oauth2-proxy.yml"

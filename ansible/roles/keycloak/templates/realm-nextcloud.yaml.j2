@@ -14,10 +14,10 @@
 # add this client.
 #
 # Multivalued groups claim is fine here -- Nextcloud's user_oidc
-# parses the standard `groups` JSON-array claim correctly (unlike
-# OliveTin, which needed the EP-B single-valued workaround). The
-# realm-default `groups` clientScope already in defaultDefaultClientScopes
-# applies via `defaultClientScopes` below.
+# parses the standard `groups` JSON-array claim correctly, so no
+# single-valued workaround is needed. The realm-default `groups`
+# clientScope already in defaultDefaultClientScopes applies via
+# `defaultClientScopes` below.
 
 realm: {{ keycloak_realm }}
 

@@ -68,7 +68,7 @@ with open(snapshots_file, "r", encoding="utf-8") as fh:
 snapshots.sort(key=lambda s: s.get("time", ""), reverse=True)
 
 # List pre-exported tarballs sitting in BACKUP_EXPORT_DIR alongside
-# index.html. The "Export latest snapshot" OliveTin button writes one
+# index.html. The "Export latest snapshot" action writes one
 # at a time and rotates; older runs may leave additional files behind.
 exported = []
 for name in sorted(os.listdir(export_dir)):

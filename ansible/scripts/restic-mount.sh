@@ -9,8 +9,8 @@
 # the VPS; a FUSE mount lets the operator copy out one path.
 #
 # The mount is backed by a transient systemd unit
-# (catena-restic-browse.service) so it survives the OliveTin SSH
-# session that started it. A second unit
+# (catena-restic-browse.service) so it survives the catena-admin
+# action session that started it. A second unit
 # (catena-restic-browse-stop.timer) auto-unmounts after the timeout
 # argument (default 1h) so a forgotten browse session does not leave
 # a FUSE mount and a long-lived restic process behind.
