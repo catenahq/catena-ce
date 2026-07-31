@@ -176,8 +176,9 @@
   failed_when: false
 
 - name: "coturn: create or reconcile the swarm service"
-  ansible.builtin.include_tasks:
-    file: "{{ role_path }}/../tier1_stack/tasks/reconcile_one.yml"
+  ansible.builtin.include_role:
+    name: tier1_stack
+    tasks_from: reconcile_one.yml
     apply:
       tags: [coturn]
   vars:

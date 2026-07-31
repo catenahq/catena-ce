@@ -178,9 +178,14 @@
     catena_tier1_specs: >-
       {{ catena_tier1_specs | default([]) | tier1_spec_upsert(_traefik_spec) }}
 
+# include_role with a literal name + tasks_from, not include_tasks with a
+# templated role_path: the second works but hides the edge from the audit
+# graph, which resolves the first and would file reconcile_one.yml as an
+# orphan under the second.
 - name: "traefik: create or reconcile the swarm service"
-  ansible.builtin.include_tasks:
-    file: "{{ role_path }}/../tier1_stack/tasks/reconcile_one.yml"
+  ansible.builtin.include_role:
+    name: tier1_stack
+    tasks_from: reconcile_one.yml
     apply:
       tags: [traefik]
   vars:
