@@ -83,6 +83,27 @@ portainer_desired:
   update_max_failure_ratio: "{{ portainer_update_max_failure_ratio }}"
   update_order: "{{ portainer_update_order }}"
 
+# ─── wiring: one spelling, two renderers ─────────────────────────────────
+# The create argv and the tier-1 stack file both read these. They used to be
+# written inline in the argv, which meant the stack render carried a second
+# copy of every mount -- exactly the drift the stack exists to remove.
+# `docker service create --mount` form here because that is also what
+# `docker service update` takes; swarm_mount_to_compose translates for the
+# stack.
+portainer_network: catena-network
+portainer_mounts:
+  - "type=bind,source=/var/run/docker.sock,destination=/var/run/docker.sock"
+  - "type=volume,source={{ portainer_data_volume }},destination=/data"
+
+# Container-side port behind the host-mode publish of portainer_ui_port.
+portainer_target_port: 9000
+
+# Arguments to the portainer binary, after the image. --admin-password-file
+# sets the admin at FIRST BOOT, which is what avoids racing the 5-minute
+# /api/users/admin/init window.
+portainer_command:
+  - "--admin-password-file=/run/secrets/{{ portainer_admin_secret_name }}"
+
 # NOTE: portainer_ui_port + portainer_api_base are defined GLOBALLY in
 # group_vars/all/main.yml so roles/infrastructure + dashboard-sync can reference
 # them cross-role. Not redeclared here to avoid drift. portainer_ui_port default

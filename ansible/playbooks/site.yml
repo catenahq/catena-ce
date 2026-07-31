@@ -206,9 +206,11 @@
     - { role: keycloak, tags: [keycloak, auth] } # SSO IdP
     - { role: oauth2_proxy, tags: [oauth2_proxy, auth] } # forward-auth gateway: staff + admin instances
     - { role: infrastructure, tags: [infrastructure] } # recovery archive, gated apps (Gatus, Healthchecks, ...), dashboard-sync, gatus-sync
-    # catena-admin host-side state -- runner user, dispatcher, action
-    # catalog, bind-mount targets. The Go shell container is deployed via the
-    # Portainer stack flow; this role only manages the host prerequisites.
+    # catena-admin: host-side state (runner user, dispatcher, action catalog,
+    # bind-mount targets) AND the Go shell container, created directly against
+    # the local swarm. It is no longer a Portainer stack: it holds the API key
+    # that drives Portainer, so a Portainer that would not start used to take
+    # down the only tool that could repair it.
     - { role: catena-admin, tags: [catena_admin] }
     - { role: coturn, tags: [coturn] } # shared TURN/STUN for NC Talk HPB + RC Jitsi (UDP media plane, direct on VPS public IP)
     - { role: backup, tags: [backup] } # restic + the manual oneshot catena-backup.service
@@ -349,6 +351,26 @@
         - _site_post_restore is defined
         - _site_post_restore is not skipped
       tags: [post_restore, coturn]
+
+    # Render the tier-1 control plane as ONE stack file and prove it loads.
+    # Applies nothing: this is the render half of the collapse, and the apply
+    # only earns its way in once the file has been validating on real hosts.
+    #
+    # In post_tasks rather than the roles list, and AFTER the coturn re-run
+    # above, because that re-run is what deploys coturn on the recovery path:
+    # the post-restore hooks bring the TURN consumer up after roles/coturn
+    # already probed and correctly found none. Rendering from the roles list
+    # would write a coturn-less stack on exactly the path where one is needed.
+    #
+    # `apply:` carries the tag inward for the same reason the includes above
+    # do: without it, `--tags tier1_stack` fires the include and then filters
+    # out every task inside it.
+    - name: "Tier 1: render + validate the control-plane stack file"
+      ansible.builtin.include_role:
+        name: tier1_stack
+        apply:
+          tags: [tier1_stack]
+      tags: [tier1_stack]
 
     # Final lockdown. Must come AFTER tailscale + infrastructure are healthy,
     # otherwise we lock ourselves out.

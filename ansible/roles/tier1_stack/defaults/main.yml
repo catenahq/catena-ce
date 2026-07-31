@@ -1,0 +1,23 @@
+---
+# roles/tier1_stack -- render the tier-1 control plane as ONE swarm stack.
+
+tier1_stack_dir: /etc/catena/stacks
+tier1_stack_path: "{{ tier1_stack_dir }}/tier1.yml"
+
+# The stack name `docker stack deploy` would be given. Declared now, used when
+# the apply lands: it is what scopes the label swarm stamps on every service
+# in the stack, so changing it later would orphan the existing ones.
+tier1_stack_name: catena
+
+# Services that MUST have contributed a spec before the file is written.
+#
+# This is the guard against a partial render. A `--tags postgres` converge
+# runs one role, so one spec accumulates, and a stack file holding one service
+# is not an incomplete description of the control plane -- once applied it is
+# an instruction to DELETE the other three. The roster names only the
+# unconditional tier-1 services; coturn is consumer-gated and correctly absent
+# on a host with no real-time app.
+tier1_stack_required:
+  - catena-traefik
+  - catena-postgres
+  - catena-portainer

@@ -102,6 +102,34 @@ catena_postgres_desired:
   health_retries: "{{ catena_postgres_health_retries }}"
   health_start_period: "{{ catena_postgres_health_start_period }}"
 
+# ─── wiring: one spelling, two renderers ─────────────────────────────────
+# The create argv and the tier-1 stack file both read these. They used to be
+# written inline in the argv, which meant the stack render carried a second
+# copy of every mount and env value -- exactly the drift the stack exists to
+# remove. `docker service create --mount` form here because that is also what
+# `docker service update` takes; swarm_mount_to_compose translates for the
+# stack.
+#
+# PGDATA is pinned to a SUBDIRECTORY of the mounted volume. postgres:18 moved
+# its default data directory (the image now mounts /var/lib/postgresql and puts
+# the cluster in a versioned subdir), so a bare mount at
+# /var/lib/postgresql/data reads as an unused volume and the container exits 1.
+# A subdir PGDATA is version-agnostic (16/17/18) and keeps the cluster inside
+# our named volume regardless of the image default.
+# The overlay, named here rather than reached for across roles.
+# catena_network_name is roles/traefik's default and is only in scope because
+# traefik runs first; a `--tags postgres` converge would find it undefined.
+catena_postgres_network: catena-network
+
+catena_postgres_mounts:
+  - "type=volume,source={{ catena_postgres_data_volume }},destination=/var/lib/postgresql/data"
+
+catena_postgres_env:
+  POSTGRES_USER: "{{ catena_postgres_superuser }}"
+  POSTGRES_PASSWORD_FILE: "/run/secrets/{{ catena_postgres_secret_name }}"
+  POSTGRES_DB: postgres
+  PGDATA: /var/lib/postgresql/data/pgdata
+
 # Named volume for the data dir, backed up as a RAW volume by the default
 # restic set. That is correct because the password does not move: it comes
 # from the on-box store (staged into the swarm secret below) and /etc is in

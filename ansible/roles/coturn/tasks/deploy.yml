@@ -148,45 +148,26 @@
   changed_when: false
   failed_when: false
 
+# Identity + wiring from defaults, so the tier-1 stack file renders from the
+# same variables this argv is built from. The reasoning for each -- the root
+# user, the node-local bind sources, the placement constraint -- lives beside
+# the declarations.
 - name: "coturn: create swarm service (first run)"
-  # --user 0:0: the official coturn images (alpine + debian variants)
-  # ship USER coturn (non-root). certbot drops the privkey as
-  # root:root 0600 under /etc/letsencrypt/archive/<host>/, which the
-  # bind-mount preserves. Non-root coturn cannot read it -> TLS
-  # listener silently fails to bind (port 5349 never appears in
-  # `ss`) and the service falls back to STUN-only on 3478, masking
-  # the failure until validate.yml catches it. Container is the
-  # security boundary (--network=host already grants full host
-  # network), so running coturn as root inside is fine and matches
-  # the upstream Docker compose example.
   ansible.builtin.command:
-    argv:
-      - docker
-      - service
-      - create
-      - --name=coturn
-      - --mode=global
-      - --network=host
-      - --user=0:0
-      - --restart-condition=any
-      # Both mounts below are node-LOCAL host paths: the rendered
-      # turnserver.conf and the certbot /etc/letsencrypt tree. A bind mount
-      # whose source is missing is CREATED as an empty directory rather than
-      # refused, so a task scheduled anywhere else comes up with no config
-      # and no certificate and falls back to STUN-only -- the same silent
-      # TLS-listener failure the --user=0:0 comment above describes. global
-      # mode means "every node matching the constraint", so this pins it to
-      # the node that actually holds them.
-      - "--constraint=node.labels.catena.role==data"
-      - "--mount=type=bind,source={{ coturn_host_config_path }},target=/etc/coturn/turnserver.conf,readonly"
-      # Mount the entire /etc/letsencrypt subtree (not just live/<host>/)
-      # so the relative symlinks under live/<host>/* -> ../../archive/...
-      # resolve inside the container. See defaults/main.yml for the
-      # full rationale.
-      - "--mount=type=bind,source={{ coturn_host_letsencrypt_dir }},target={{ coturn_container_letsencrypt_dir }},readonly"
-      - "{{ coturn_image }}"
-      - "-c"
-      - "/etc/coturn/turnserver.conf"
+    argv: "{{ _coturn_create_argv }}"
+  vars:
+    _coturn_create_argv: >-
+      {{
+        ['docker', 'service', 'create',
+         '--name=' ~ coturn_compose_name,
+         '--mode=global',
+         '--network=' ~ coturn_network,
+         '--user=' ~ coturn_container_user,
+         '--restart-condition=any']
+        + (coturn_constraints | map('regex_replace', '^', '--constraint=') | list)
+        + (coturn_mounts | map('regex_replace', '^', '--mount=') | list)
+        + [coturn_image] + coturn_command
+      }}
   when: _coturn_service.rc != 0
 
 - name: "coturn: read current container user (drift check)"
@@ -196,18 +177,18 @@
   when: _coturn_service.rc == 0
 
 - name: "coturn: reconcile container user to root (existing service)"
-  # Existing services created before the --user=0:0 fix landed get
-  # rolled to root so the TLS listener actually binds.
+  # Existing services created before the root-user fix landed get rolled so
+  # the TLS listener actually binds.
   ansible.builtin.command:
     argv:
       - docker
       - service
       - update
-      - --user=0:0
-      - coturn
+      - "--user={{ coturn_container_user }}"
+      - "{{ coturn_compose_name }}"
   when:
     - _coturn_service.rc == 0
-    - (_coturn_current_user.stdout | default('') | trim) != "0:0"
+    - (_coturn_current_user.stdout | default('') | trim) != coturn_container_user
   changed_when: true
 
 - name: "coturn: read current image (drift check)"
@@ -245,3 +226,26 @@
     - _coturn_service.rc == 0
     - _coturn_conf.changed
   changed_when: true
+
+# ─── tier-1 stack spec ───────────────────────────────────────────────────
+# Contributed from HERE, next to the create argv, and built from the same
+# variables it is. Only reached when the consumer gate in main.yml passed, so
+# a host with no real-time app contributes no coturn spec and the rendered
+# stack has no coturn service -- which is the same answer the gate gives the
+# argv path.
+#
+# No `ports`. Host networking binds the media plane directly on the node; the
+# public-port registry fragment above is what opens the firewall for it.
+- name: "coturn: contribute the tier-1 stack spec"
+  ansible.builtin.set_fact:
+    catena_tier1_specs: >-
+      {{ catena_tier1_specs | default([]) | tier1_spec_upsert({
+           'name': coturn_compose_name,
+           'image': coturn_image,
+           'mode': 'global',
+           'networks': [coturn_network],
+           'user': coturn_container_user,
+           'constraints': coturn_constraints,
+           'command': coturn_command,
+           'volumes': coturn_mounts | map('swarm_mount_to_compose') | list,
+         }) }}

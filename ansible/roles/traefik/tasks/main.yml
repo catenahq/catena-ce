@@ -226,6 +226,26 @@
   register: _traefik_force_roll
   changed_when: _traefik_force_roll.rc == 0
 
+# ─── tier-1 stack spec ───────────────────────────────────────────────────
+# Contributed from HERE, next to the create argv, and built from the same
+# variables it is: a spec assembled anywhere else would be a second reading of
+# this role's intent, which is the drift the stack file exists to remove.
+# roles/tier1_stack renders the accumulated list at the end of the converge.
+#
+# No `ports`. The no-host-port invariant is structural in both renderers --
+# the argv has no --publish and this spec has no ports key, so there is no
+# binding for a drift check to find in either.
+- name: "traefik: contribute the tier-1 stack spec"
+  ansible.builtin.set_fact:
+    catena_tier1_specs: >-
+      {{ catena_tier1_specs | default([]) | tier1_spec_upsert(
+           traefik_desired | combine({
+             'name': traefik_container_name,
+             'networks': [catena_network_name],
+             'volumes': traefik_mounts
+                        | map('swarm_mount_to_compose') | list,
+           })) }}
+
 # catena-network-nudge lives in roles/docker: it heals containers the overlay
 # race strands on a docker.service start, and roles/docker owns both ends of
 # that race. catena-traefik is a swarm service, so the task manager

@@ -58,12 +58,10 @@
 # reschedules + service updates. No published host port -- reachable only on
 # catena-network by the service name (catena-postgres:5432).
 #
-# PGDATA is pinned to a subdirectory of the mounted volume. postgres:18 moved
-# its default data directory (the image now mounts /var/lib/postgresql and puts
-# the cluster in a versioned subdir), so a bare mount at
-# /var/lib/postgresql/data reads as an unused volume and the container exits 1.
-# A subdir PGDATA is the version-agnostic layout (works on 16/17/18) and keeps
-# the cluster inside our named volume regardless of the image default.
+# The mounts and the environment come from defaults, not from this argv: the
+# tier-1 stack file renders from the same two variables, so there is one
+# spelling of each rather than a copy per renderer. PGDATA's version-agnostic
+# subdir layout is explained where it is declared.
 #
 # --detach: do not block create on convergence. A crashlooping task would
 # otherwise hang `docker service create` indefinitely; the pg_isready gate
@@ -80,15 +78,11 @@
       {{
         ['docker', 'service', 'create', '--detach',
          '--name=' ~ catena_postgres_service_name,
-         '--network=catena-network',
+         '--network=' ~ catena_postgres_network,
          '--restart-condition=any',
-         '--secret=' ~ catena_postgres_secret_name,
-         '--env=POSTGRES_USER=' ~ catena_postgres_superuser,
-         '--env=POSTGRES_PASSWORD_FILE=/run/secrets/' ~ catena_postgres_secret_name,
-         '--env=POSTGRES_DB=postgres',
-         '--env=PGDATA=/var/lib/postgresql/data/pgdata',
-         '--mount=type=volume,source=' ~ catena_postgres_data_volume
-           ~ ',destination=/var/lib/postgresql/data']
+         '--secret=' ~ catena_postgres_secret_name]
+        + (catena_postgres_env | swarm_env_create_args)
+        + (catena_postgres_mounts | map('regex_replace', '^', '--mount=') | list)
         + (catena_postgres_desired | swarm_service_create_args)
         + [catena_postgres_image]
       }}
@@ -123,6 +117,24 @@
     - _pg_drift | default([]) | length > 0
   register: _pg_reconcile
   changed_when: _pg_reconcile.rc == 0
+
+# ─── tier-1 stack spec ───────────────────────────────────────────────────
+# Contributed from HERE, next to the create argv, and built from the same
+# variables it is: a spec assembled anywhere else would be a second reading of
+# this role's intent, which is the drift the stack file exists to remove.
+# roles/tier1_stack renders the accumulated list at the end of the converge.
+- name: "postgres: contribute the tier-1 stack spec"
+  ansible.builtin.set_fact:
+    catena_tier1_specs: >-
+      {{ catena_tier1_specs | default([]) | tier1_spec_upsert(
+           catena_postgres_desired | combine({
+             'name': catena_postgres_service_name,
+             'networks': [catena_postgres_network],
+             'secrets': [catena_postgres_secret_name],
+             'environment': catena_postgres_env,
+             'volumes': catena_postgres_mounts
+                        | map('swarm_mount_to_compose') | list,
+           })) }}
 
 # ─── readiness ───────────────────────────────────────────────────────────
 # Gate downstream (roles/keycloak provision_db) on the cluster actually

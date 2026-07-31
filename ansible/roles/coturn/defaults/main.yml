@@ -88,6 +88,40 @@ coturn_container_key_path: "{{ coturn_container_cert_dir }}/privkey.pem"
 coturn_host_config_dir: "/etc/coturn"
 coturn_host_config_path: "{{ coturn_host_config_dir }}/turnserver.conf"
 
+# ─── wiring: one spelling, two renderers ─────────────────────────────────
+# The create argv and the tier-1 stack file both read these.
+#
+# Both sources are node-LOCAL host paths. A bind mount whose source is missing
+# is CREATED as an empty directory rather than refused, so a task scheduled
+# anywhere else comes up with no config and no certificate and falls back to
+# STUN-only -- the same silent TLS-listener failure coturn_container_user
+# exists to prevent. global mode means "every node matching the constraint",
+# so coturn_constraints pins it to the node that actually holds them.
+coturn_mounts:
+  - "type=bind,source={{ coturn_host_config_path }},target=/etc/coturn/turnserver.conf,readonly"
+  - "type=bind,source={{ coturn_host_letsencrypt_dir }},target={{ coturn_container_letsencrypt_dir }},readonly"
+
+coturn_constraints:
+  - "node.labels.catena.role==data"
+
+# The official coturn images ship USER coturn (non-root). certbot drops the
+# privkey as root:root 0600 under /etc/letsencrypt/archive/<host>/, which the
+# bind mount preserves. Non-root coturn cannot read it, so the TLS listener
+# silently fails to bind (5349 never appears in `ss`) and the service falls
+# back to STUN-only on 3478, masking the failure until validate.yml catches
+# it. The container is the security boundary (--network=host already grants
+# full host network), so root inside is fine and matches upstream's compose.
+coturn_container_user: "0:0"
+
+# Host networking, so external-ip in turnserver.conf matches a real interface.
+# In a stack file this is membership in the external network literally named
+# `host`: `network_mode: host` is SILENTLY IGNORED by `docker stack deploy`.
+coturn_network: host
+
+coturn_command:
+  - "-c"
+  - "/etc/coturn/turnserver.conf"
+
 # Cloudflare credentials file used by certbot-dns-cloudflare.
 # Rendered at converge time from cloudflare_api_token; mode
 # 0600, root-only.

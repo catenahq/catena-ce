@@ -69,15 +69,14 @@
       {{
         ['docker', 'service', 'create',
          '--name=' ~ portainer_service_name,
-         '--network=catena-network',
+         '--network=' ~ portainer_network,
          '--restart-condition=any',
-         '--publish=mode=host,published=' ~ portainer_ui_port ~ ',target=9000',
-         '--secret=' ~ portainer_admin_secret_name,
-         '--mount=type=bind,source=/var/run/docker.sock,destination=/var/run/docker.sock',
-         '--mount=type=volume,source=' ~ portainer_data_volume ~ ',destination=/data']
+         '--publish=mode=host,published=' ~ portainer_ui_port
+           ~ ',target=' ~ portainer_target_port,
+         '--secret=' ~ portainer_admin_secret_name]
+        + (portainer_mounts | map('regex_replace', '^', '--mount=') | list)
         + (portainer_desired | swarm_service_create_args)
-        + [portainer_image,
-           '--admin-password-file=/run/secrets/' ~ portainer_admin_secret_name]
+        + [portainer_image] + portainer_command
       }}
   when: _pt_service.rc != 0
   register: _pt_service_create
@@ -109,6 +108,31 @@
     - _pt_drift | default([]) | length > 0
   register: _pt_reconcile
   changed_when: _pt_reconcile.rc == 0
+
+# ─── tier-1 stack spec ───────────────────────────────────────────────────
+# Contributed from HERE, next to the create argv, and built from the same
+# variables it is: a spec assembled anywhere else would be a second reading of
+# this role's intent, which is the drift the stack file exists to remove.
+# roles/tier1_stack renders the accumulated list at the end of the converge.
+#
+# mode: host on the publish, never ingress: the port is firewalled to the
+# tailnet by the registry fragment below, and an ingress publish would put it
+# on the routing mesh where that firewall does not apply.
+- name: "portainer: contribute the tier-1 stack spec"
+  ansible.builtin.set_fact:
+    catena_tier1_specs: >-
+      {{ catena_tier1_specs | default([]) | tier1_spec_upsert(
+           portainer_desired | combine({
+             'name': portainer_service_name,
+             'networks': [portainer_network],
+             'secrets': [portainer_admin_secret_name],
+             'volumes': portainer_mounts
+                        | map('swarm_mount_to_compose') | list,
+             'ports': [{'target': portainer_target_port | int,
+                        'published': portainer_ui_port | int,
+                        'mode': 'host'}],
+             'command': portainer_command,
+           })) }}
 
 # ─── tailnet-only firewall for the UI port (registry fragment) ───────────
 - name: "portainer: ensure public-port fragment dir exists"
