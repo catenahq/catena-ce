@@ -1,5 +1,5 @@
 ---
-# Cloudflare tunnel converge -- token-gated dispatch to the host engine.
+# Cloudflare tunnel converge -- unconditional dispatch to the host engine.
 #
 # The tunnel / wildcard DNS / ingress / cloudflared swarm-service logic that
 # used to live here (CF API find-or-create, DNS CNAME, ingress PUT, service
@@ -10,11 +10,12 @@
 # tunnel is a Community feature). See catena-admin
 # cmd/catena-cloudflared-sync/SYNC.md for the contract.
 #
-# This role now does ONE thing: when the on-box store already holds a
-# Cloudflare API token, dispatch the engine's `sync` on the host to bring the
-# tunnel to desired state inline (idempotent -- a re-converge after the panel
-# saved a token, or a bench that adopted one, finds everything already correct
-# and no-ops). When the store holds NO token the tunnel is DEFERRED: the client
+# This role now does ONE thing: dispatch the engine's `sync` on the host and
+# print what it says. Idempotent -- a re-converge after the panel saved a token,
+# or a bench that adopted one, finds everything already correct and no-ops.
+#
+# The engine decides whether there is anything to do. With no token in the store
+# it prints its skip line and exits 0, and the tunnel is DEFERRED: the client
 # enters the token in catena-admin > Settings, which validates it
 # (cloudflared-check) and fires cloudflared-sync in the background. A
 # present-but-INVALID token fails the converge here (the engine exits nonzero),
@@ -34,22 +35,16 @@
 # is what roles/keycloak reads to route one auth.<zone> per attached domain, so
 # the routing cannot advertise a domain the edge is not serving.
 
-- name: "CF: is a Cloudflare token present in the on-box store?"
-  # load_onbox_config.yml (site/validate/restore pre_tasks) already published
-  # every store secret as a fact; cloudflare_api_token stays UNDEFINED
-  # until the client saves one in catena-admin > Settings. The regenerate role
-  # shadows it with the operator-supplied rotation token.
-  ansible.builtin.set_fact:
-    _cf_token_present: "{{ (cloudflare_api_token | default('')) | length > 0 }}"
-
-- name: "CF: tunnel deferred -- no Cloudflare token yet"
-  ansible.builtin.debug:
-    msg: >-
-      Cloudflare token not yet provided -- enter it in catena-admin > Settings;
-      tunnel deferred. No cloudflared tunnel is configured until a token is
-      saved (the panel validates it and brings the tunnel up in the background).
-  when: not (_cf_token_present | bool)
-
+# The token gate lives in the ENGINE, not here. It reads
+# /etc/catena/config.json itself and no-ops exit 0 with
+# "cloudflared-sync: skipped (no token)" when the store holds none
+# (cmd/catena-cloudflared-sync/SYNC.md). Ansible used to make the same decision
+# from a fact first, which meant two implementations of "is there a token" that
+# could disagree -- and the Ansible one read a fact published by
+# load_onbox_config.yml, so a play that skipped the loader saw no token on a
+# host that had one. Asking the engine is asking the thing that will act on the
+# answer.
+#
 # roles/payload installs the engine right after roles/docker, four roles ahead
 # of this one, so on a converge that owns the payload the binary is there. It
 # has to be: keycloak and oauth2_proxy run next and wait on
@@ -67,7 +62,6 @@
   ansible.builtin.stat:
     path: "{{ cloudflared_sync_bin }}"
   register: _cf_sync_bin
-  when: _cf_token_present | bool
 
 - name: "CF: the tunnel engine is missing from a converge that installs it"
   ansible.builtin.fail:
@@ -79,7 +73,6 @@
       {{ catena_payload_image | default('the catena-admin image') }} did not
       land.
   when:
-    - _cf_token_present | bool
     - not (_cf_sync_bin.stat.exists | default(false))
     - catena_payload_engines_expected | default(false) | bool
 
@@ -91,7 +84,6 @@
       converge on the next run, or when catena-admin dispatches
       cloudflared-sync after the client saves a token.
   when:
-    - _cf_token_present | bool
     - not (_cf_sync_bin.stat.exists | default(false))
     - not (catena_payload_engines_expected | default(false) | bool)
 
@@ -100,6 +92,11 @@
 # -- the engine reads it from /etc/catena/config.json. fail-fast: a
 # present-but-invalid token (or any failed converge step) exits nonzero and
 # ABORTS the converge (fi_n4/fi_s5).
+#
+# Runs unconditionally. With no token the engine prints its skip line and exits
+# 0, which is the deferral this role used to decide for itself -- and running it
+# means the no-token path is exercised on every tokenless install rather than
+# being the branch nothing takes.
 - name: "CF: converge the tunnel via catena-cloudflared-sync (host engine)"
   ansible.builtin.command:
     argv:
@@ -124,17 +121,16 @@
   # emits no ansible-parsable changed signal, so report unchanged: a re-converge
   # must not trip the bench changed=0 idempotency gate on this single command.
   changed_when: false
-  when:
-    - _cf_token_present | bool
-    - _cf_sync_bin.stat.exists | default(false)
+  when: _cf_sync_bin.stat.exists | default(false)
 
-- name: "CF: tunnel converged (engine summary)"
+- name: "CF: engine summary"
+  # Either "cloudflared-sync: ok tunnel=... zones=N" or
+  # "cloudflared-sync: skipped (no token)" -- the engine says which, so this
+  # prints it rather than deciding what happened a second time.
   ansible.builtin.debug:
     msg: |
       {{ _cf_sync.stdout | default('(no summary line)') | trim }}
 
       DO NOT enable Let's Encrypt / HTTPS on Traefik -- Cloudflare terminates
       TLS at the edge and LE conflicts with the tunnel.
-  when:
-    - _cf_token_present | bool
-    - _cf_sync_bin.stat.exists | default(false)
+  when: _cf_sync_bin.stat.exists | default(false)

@@ -1,7 +1,7 @@
 # cloudflare_tunnel
 
-Token-gated dispatch of the Cloudflare-tunnel converge to the host
-engine `catena-cloudflared-sync`.
+Dispatches the Cloudflare-tunnel converge to the host engine
+`catena-cloudflared-sync`.
 
 The tunnel find-or-create, wildcard DNS (`*.<zone>` ->
 `<tunnel-id>.cfargotunnel.com`), ingress enforcement (single rule ->
@@ -11,29 +11,40 @@ probe all now live in the Go engine `catena-cloudflared-sync`, whose
 source is in the private catena-admin repository (a relative link out of
 this public repo would dangle for every reader who has only this one).
 That binary ships in the catena-admin host payload and
-is installed to `/usr/local/bin` on **every** converge by
-`roles/catena-admin` -- it is NOT license-gated (the Cloudflare tunnel
-is a Community feature).
+is installed to `/usr/local/bin` by `roles/payload`, four roles ahead of
+this one -- it is NOT license-gated (the Cloudflare tunnel is a
+Community feature).
 
 ## What this role does now
 
-- Reads the on-box Cloudflare API token
-  (`cloudflare_api_token`, published as a fact by
-  `tasks/load_onbox_config.yml`).
-- **No token**: the tunnel is DEFERRED. The role logs a skip. The client
-  enters the token in catena-admin > Settings; the panel validates it
-  (`cloudflared-check`) and fires `cloudflared-sync` in the background.
-- **Token present**: dispatches `catena-cloudflared-sync sync` on the
-  host, exporting the non-secret pins (image, tunnel name, ingress
-  service, network, stop-grace, probe counts) from `defaults/main.yml`.
-  The token itself is never passed on the command line -- the engine
-  reads it from `/etc/catena/config.json`. A present-but-invalid token
-  exits nonzero and **aborts the converge** (fail-fast, preserving the
-  fi_n4/fi_s5 abort intent).
-- **Engine not installed yet** (first converge, before `roles/catena-admin`
-  installs the payload; or a bench that stages the payload out of band):
-  the role skips gracefully -- the tunnel converges on the next run or
-  via the panel-triggered `cloudflared-sync`.
+- Dispatches `catena-cloudflared-sync sync` on the host, exporting the
+  non-secret pins (image, tunnel name, ingress service, network,
+  stop-grace, probe counts) from `defaults/main.yml`. Unconditionally:
+  the engine decides whether there is work to do.
+- Prints whatever the engine reported.
+
+The token itself is never passed on the command line -- the engine reads
+it from `/etc/catena/config.json`, and reads it whether or not this role
+looked first. That is why the role no longer looks:
+
+- **No token**: the engine prints `cloudflared-sync: skipped (no token)`
+  and exits 0, so the tunnel is DEFERRED. The client enters the token in
+  catena-admin > Settings; the panel validates it (`cloudflared-check`)
+  and fires `cloudflared-sync` in the background.
+- **Token present**: the engine converges the tunnel. A
+  present-but-invalid token exits nonzero and **aborts the converge**
+  (fail-fast, preserving the fi_n4/fi_s5 abort intent).
+
+The role used to make the no-token call itself, from a fact
+`tasks/load_onbox_config.yml` publishes. Two implementations of "is
+there a token" can disagree, and this pair did: a play that skipped the
+loader saw no token on a host that had one.
+
+- **Engine not installed**: a converge that owns the payload
+  (`CATENA_PAYLOAD_INSTALL=true`, the production default) FAILS here
+  rather than deferring, because deferring produces an `oauth2_proxy`
+  failure two roles later against an edge nobody configured. A host whose
+  engines were staged out of band still defers.
 
 ## Why a separate role (not part of `infrastructure`)
 

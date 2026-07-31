@@ -17,7 +17,7 @@ role's `tasks/main.yml`.
 | --- | --- |
 | `backup` | Dispatcher -- backup_mode picks which subfile to run. install (default, site.yml path) -- install binaries, unit files, the manual oneshot service, and the initial snapshot verify (verify-backup.yml) -- dry-restore + assert restore (restore.yml playbook) -- filesystem restore from restic |
 | `catena-admin` | Orchestrator for roles/catena-admin. |
-| `cloudflare_tunnel` | Cloudflare tunnel converge -- token-gated dispatch to the host engine. |
+| `cloudflare_tunnel` | Cloudflare tunnel converge -- unconditional dispatch to the host engine. |
 | `cloudflare_tunnel_regenerate` | Regenerate the Cloudflare tunnel for this host. |
 | `common` | Baseline host setup. |
 | `coturn` | Shared TURN/STUN server -- consumer-gated orchestrator. |

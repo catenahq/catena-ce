@@ -1,10 +1,10 @@
 """Lock down the slimmed roles/cloudflare_tunnel.
 
 The tunnel/DNS/ingress/cloudflared-service converge moved into the Go engine
-catena-cloudflared-sync (host payload). The role now only dispatches that
-engine's `sync` when the on-box store holds a Cloudflare token, and defers
-otherwise. These tests pin that shape and prove the old converge-time CF-API /
-swarm-service tasks are gone.
+catena-cloudflared-sync (host payload). The role now dispatches that engine's
+`sync` and prints what it says -- it does not decide whether there is a token,
+because the engine reads the store and no-ops on its own. These tests pin that
+shape and prove the old converge-time CF-API / swarm-service tasks are gone.
 
 Run: uv run pytest tests/unit/test_cloudflared_tunnel_dispatch.py
 """
@@ -55,20 +55,27 @@ def test_no_cloudflared_swarm_service_management():
         assert gone not in names, f"{gone!r} task should be gone from the role"
 
 
-# --- token-gated dispatch ---------------------------------------------------
-def test_reads_token_presence_from_store_fact():
-    task = _find("is a Cloudflare token present")
-    fact = task["ansible.builtin.set_fact"]
-    assert "_cf_token_present" in fact
-    assert "cloudflare_api_token" in fact["_cf_token_present"]
+# --- the role dispatches; the engine decides --------------------------------
+def test_the_role_does_not_decide_whether_there_is_a_token():
+    """One owner for the no-token call, and it is the engine.
+
+    The role used to compute _cf_token_present from a fact
+    tasks/load_onbox_config.yml publishes, then gate on it -- a second
+    implementation of a question the engine answers from the store anyway, and
+    one that saw no token on a host that had one whenever a play skipped the
+    loader. The engine's own no-op (exit 0, "cloudflared-sync: skipped (no
+    token)") is now the whole mechanism.
+    """
+    body = TASKS.read_text()
+    assert "_cf_token_present" not in body
+    for task in _tasks():
+        fact = task.get("ansible.builtin.set_fact") or {}
+        assert not any("cloudflare_api_token" in str(v) for v in fact.values())
 
 
-def test_deferred_debug_when_no_token():
-    task = _find("tunnel deferred")
-    when = task["when"]
-    cond = " ".join(when) if isinstance(when, list) else when
-    assert "not (_cf_token_present | bool)" in cond
-    assert "Settings" in task["ansible.builtin.debug"]["msg"]
+def test_the_deferral_message_is_no_longer_ansible_s_to_write():
+    names = " ".join((t.get("name") or "") for t in _tasks())
+    assert "tunnel deferred -- no Cloudflare token" not in names
 
 
 def test_dispatches_sync_engine_with_pins():
@@ -85,11 +92,31 @@ def test_dispatches_sync_engine_with_pins():
     assert not any("cloudflare_api_token" in str(v) for v in env.values())
 
 
-def test_sync_gated_on_token_and_binary():
+def test_sync_gated_on_the_binary_only():
+    """A missing engine and a missing token are different failures. The first
+    is worth stopping for; the second is the engine's own no-op."""
     task = _find("converge the tunnel via catena-cloudflared-sync")
-    cond = " ".join(task["when"])
-    assert "_cf_token_present | bool" in cond
+    when = task["when"]
+    cond = " ".join(when) if isinstance(when, list) else str(when)
     assert "_cf_sync_bin.stat.exists" in cond
+    assert "token" not in cond
+
+
+def test_a_missing_engine_fails_a_converge_that_installs_it():
+    """roles/payload puts the engine on the host four roles earlier. If it is
+    not there, deferring only moves the failure to oauth2_proxy, which waits on
+    an edge this role was supposed to bring up."""
+    task = _find("engine is missing from a converge that installs it")
+    assert "ansible.builtin.fail" in task
+    cond = " ".join(str(c) for c in task["when"])
+    assert "catena_payload_engines_expected" in cond
+    assert "_cf_sync_bin.stat.exists" in cond
+
+
+def test_a_host_with_out_of_band_engines_still_defers():
+    task = _find("engine staged out of band")
+    cond = " ".join(str(c) for c in task["when"])
+    assert "not (catena_payload_engines_expected" in cond
 
 
 def test_sync_reports_unchanged_for_idempotency_gate():
@@ -119,7 +146,7 @@ def test_no_licence_semantics_anywhere_in_the_role():
 
 
 def test_le_warning_preserved():
-    task = _find("tunnel converged")
+    task = _find("engine summary")
     assert "DO NOT enable Let's Encrypt" in task["ansible.builtin.debug"]["msg"]
 
 
