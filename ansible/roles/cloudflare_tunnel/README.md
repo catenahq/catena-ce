@@ -52,19 +52,20 @@ roles:
   - tailscale
   - storage
   - docker
+  - payload           # installs the cloudflared-sync engine (host payload)
   - traefik           # creates catena-network + owns ingress
   - cloudflare_tunnel # <- this role (dispatches catena-cloudflared-sync)
   - keycloak
   - oauth2_proxy      # waits for auth.<zone>
   - infrastructure    # gated apps using oauth2_proxy chain
-  - catena-admin      # installs the cloudflared-sync engine (host payload)
+  - catena-admin
   - ...
 ```
 
 ## Dependencies
 
 - The `catena-cloudflared-sync` engine on `/usr/local/bin` (installed by
-  `roles/catena-admin`).
+  `roles/payload`, four roles earlier).
 - On-box store token `cloudflare_api_token` (Zone:DNS:Edit +
   Cloudflare Tunnel:Edit on the target zone) -- entered ONLY in
   catena-admin > Settings, never at install.

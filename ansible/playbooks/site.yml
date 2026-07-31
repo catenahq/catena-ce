@@ -173,6 +173,14 @@
     - { role: tailscale, tags: [tailscale] }
     - { role: storage, tags: [storage] } # mount block volume at /mnt/data (+ optional bulk)
     - { role: docker, tags: [docker] } # Docker CE + single-node swarm init
+    # Host engine payload (catena-cloudflared-sync, catena-recovery,
+    # catena-schedule, catena-daily, the lanes + units), extracted from the
+    # public catena-admin image. Needs docker and nothing else, and every role
+    # from here down may assume /usr/local/bin/catena-* exists. It used to
+    # arrive from roles/catena-admin, eight roles later, which meant
+    # cloudflare_tunnel found no engine on a first converge and oauth2_proxy
+    # then waited on an edge nobody had brought up. See roles/payload/README.md.
+    - { role: payload, tags: [payload] } # host engine binaries + units
     # catena-owned reverse proxy (catena-traefik on the catena-network
     # overlay). Runs AFTER docker (which inits the swarm) and BEFORE
     # cloudflare_tunnel, which points cloudflared's ingress at catena-traefik

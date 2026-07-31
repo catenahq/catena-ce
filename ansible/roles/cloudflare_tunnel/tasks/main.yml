@@ -5,8 +5,8 @@
 # used to live here (CF API find-or-create, DNS CNAME, ingress PUT, service
 # deploy + token/network reconcile, edge->tunnel->Traefik chain probe) now
 # lives in the Go engine catena-cloudflared-sync. That binary ships in the
-# catena-admin host payload and is installed to /usr/local/bin on EVERY
-# converge by roles/catena-admin (it is NOT license-gated -- the Cloudflare
+# catena-admin host payload and is installed to /usr/local/bin by roles/payload,
+# four roles ahead of this one (it is NOT license-gated -- the Cloudflare
 # tunnel is a Community feature). See catena-admin
 # cmd/catena-cloudflared-sync/SYNC.md for the contract.
 #
@@ -50,28 +50,50 @@
       saved (the panel validates it and brings the tunnel up in the background).
   when: not (_cf_token_present | bool)
 
-# The engine binary is installed by roles/catena-admin -- which runs AFTER this
-# role in site.yml -- so on a FIRST converge (or a bench that stages the
-# payload out of band) the binary may not exist yet. Skip gracefully in that
-# window: the tunnel converges on the next run (binary present) or via the
-# panel-triggered cloudflared-sync. This is ORTHOGONAL to the invalid-token
-# abort below -- a missing engine is "not installed yet", not "bad token".
+# roles/payload installs the engine right after roles/docker, four roles ahead
+# of this one, so on a converge that owns the payload the binary is there. It
+# has to be: keycloak and oauth2_proxy run next and wait on
+# https://auth.<zone>/.well-known/openid-configuration, which only answers once
+# this role has brought the edge up. Deferring here used to look harmless and
+# then failed two roles later against an edge nobody had configured, so a
+# missing engine is now a hard stop with the reason attached.
+#
+# A host whose engines were staged OUT OF BAND (the bench does this from the
+# image it builds on the VPS) is the one case where "not there yet" is
+# legitimate: roles/payload publishes catena_payload_engines_expected=false and
+# the tunnel defers to the next converge, exactly as before. This is ORTHOGONAL
+# to the invalid-token abort below -- a missing engine is not a bad token.
 - name: "CF: stat the cloudflared-sync engine"
   ansible.builtin.stat:
     path: "{{ cloudflared_sync_bin }}"
   register: _cf_sync_bin
   when: _cf_token_present | bool
 
-- name: "CF: engine not installed yet -- tunnel converges on the next run"
-  ansible.builtin.debug:
+- name: "CF: the tunnel engine is missing from a converge that installs it"
+  ansible.builtin.fail:
     msg: >-
-      {{ cloudflared_sync_bin }} is not on the host yet (installed by
-      roles/catena-admin later in this converge). The Cloudflare tunnel will
-      converge on the next run, or when catena-admin dispatches cloudflared-sync
-      after the client saves a token.
+      {{ cloudflared_sync_bin }} is absent although roles/payload ran in this
+      converge. The Cloudflare tunnel cannot be brought up, and roles/keycloak
+      and roles/oauth2_proxy are about to wait on an edge that will never
+      answer. Check the "Payload:" tasks above for why the extract from
+      {{ catena_payload_image | default('the catena-admin image') }} did not
+      land.
   when:
     - _cf_token_present | bool
     - not (_cf_sync_bin.stat.exists | default(false))
+    - catena_payload_engines_expected | default(false) | bool
+
+- name: "CF: engine staged out of band and not present -- tunnel deferred"
+  ansible.builtin.debug:
+    msg: >-
+      {{ cloudflared_sync_bin }} is not on the host and this converge does not
+      install it (CATENA_PAYLOAD_INSTALL=false). The Cloudflare tunnel will
+      converge on the next run, or when catena-admin dispatches
+      cloudflared-sync after the client saves a token.
+  when:
+    - _cf_token_present | bool
+    - not (_cf_sync_bin.stat.exists | default(false))
+    - not (catena_payload_engines_expected | default(false) | bool)
 
 # Bring the tunnel to desired state on the host. Runs on the VPS (the engine
 # drives docker + the https chain probe locally). The token is NOT passed here

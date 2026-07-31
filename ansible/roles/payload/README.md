@@ -1,0 +1,81 @@
+# roles/payload
+
+Installs the catena host engine payload -- the Go binaries every later role
+dispatches -- onto the VPS, by extracting them from the public catena-admin
+image. No container is deployed here and Portainer is not involved.
+
+## Why it runs at position 5.5
+
+The payload used to arrive from `roles/catena-admin`, role 13 in `site.yml`.
+Three roles that run BEFORE it already depend on the engines:
+
+- `roles/cloudflare_tunnel` (9) dispatches `catena-cloudflared-sync`,
+- `roles/keycloak` (10) and `roles/oauth2_proxy` (11) need the edge that
+  engine brings up -- oauth2-proxy waits on
+  `https://auth.<zone>/.well-known/openid-configuration`.
+
+So a first converge on a host that already held a Cloudflare API token
+deferred the tunnel ("engine not installed yet"), and oauth2-proxy then failed
+against an edge nobody had configured. The tokenless install shape hid it: the
+tunnel is deferred there for a legitimate reason, the client enters the token
+in catena-admin later, and the panel fires `cloudflared-sync` itself.
+
+Running the payload install straight after `roles/docker` -- the only thing it
+needs -- removes the window. Every role from 6 onward can assume
+`/usr/local/bin/catena-*` exists.
+
+## What it does
+
+1. Pulls `catena_payload_image` (default: the same tag as
+   `catena_admin_image`).
+2. Resolves the image ID and compares it with `/etc/catena/.payload-image`.
+   Equal means the installed engines already came from this image and the role
+   stops there -- so a re-converge changes nothing.
+3. Otherwise: `docker create` a throwaway container, `docker cp` the payload
+   tree out of it, remove it, restore the directory's ownership, and run the
+   image's own `install-ee-payload.sh`.
+4. Writes the image ID into the marker.
+
+`install-ee-payload.sh` installs binaries, python lib modules, post-restore
+hooks and systemd units, and does NOT enable any unit. Enabling is the
+`catena-daily` engine's job, which keeps install and activate two separate
+observable steps.
+
+## Ownership
+
+The catena-admin container mirrors its embedded payload into
+`{{ catena_payload_dir }}` at startup, as its own nonroot uid. `docker cp`
+writes as root. The role captures the directory's ownership before the copy
+and restores it after, or the container's next startup sync fails silently and
+the host drifts onto stale engines.
+
+## Marker semantics
+
+The marker holds an image ID, not a timestamp or a bare "installed" flag:
+
+- a re-converge against the same image reinstalls nothing (idempotency),
+- an image upgrade reinstalls every engine (that is the update path),
+- an engine deliberately placed on the host out of band survives a converge as
+  long as the image has not moved. `activate_ee` ships a build-STAMPED
+  `catena-daily` carrying the run's operator public key; an unconditional
+  reinstall would replace it with an unstamped build and the scenario would
+  then pass or fail for a reason unrelated to what it asserts.
+
+## Bench
+
+The bench builds `local/catena-admin:bench` ON the VPS, after the converge,
+and stages the payload out of band from that image. It therefore sets
+`CATENA_PAYLOAD_INSTALL=false` (and `CATENA_PAYLOAD_PULL=false`): pulling the
+published GHCR tag on a bench VM would exercise the last published image
+instead of the working tree, which is the one thing a bench must never do.
+
+## Variables
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `catena_payload_image` | `{{ catena_admin_image }}` | image the engines come from |
+| `catena_payload_dir` | `/var/lib/catena/ee-payload` | extraction target (shared with the container's sync) |
+| `catena_payload_image_path` | `/usr/local/share/catena-ee` | payload tree inside the image |
+| `catena_payload_marker` | `/etc/catena/.payload-image` | image ID the installed engines came from |
+| `catena_payload_pull` | `CATENA_PAYLOAD_PULL`, `true` | pull before extracting |
+| `catena_payload_install` | `CATENA_PAYLOAD_INSTALL`, `true` | run the install at all |

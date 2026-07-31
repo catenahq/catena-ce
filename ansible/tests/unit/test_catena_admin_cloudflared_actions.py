@@ -2,8 +2,8 @@
 
 Covers: the two COMMUNITY cloudflared reserved actions (check + sync), their
 env-pin + candidate-token-via-stdin shape, the cloudflare-mode-only gate in
-catalog.yml, sshd AcceptEnv for the dispatch env vars, the unconditional host
-payload install, and the un-gated ee-install-engines wording.
+catalog.yml, sshd AcceptEnv for the dispatch env vars, the hand-off of the host
+payload install to roles/payload, and the un-gated ee-install-engines wording.
 
 Run: uv run pytest tests/unit/test_catena_admin_cloudflared_actions.py
 """
@@ -21,6 +21,7 @@ DEFAULTS = _ROLE / "defaults" / "main.yml"
 HOST = _ROLE / "tasks" / "host.yml"
 CATALOG = _ROLE / "tasks" / "catalog.yml"
 DEPLOY = _ROLE / "tasks" / "deploy.yml"
+PAYLOAD_ROLE = _ROLE.parent / "payload"
 
 
 def _defaults() -> dict:
@@ -93,15 +94,26 @@ def test_ee_install_engines_points_at_payload_installer():
     assert "catena_admin_ee_payload_installer" in ee["ee-install-engines"]
 
 
-def test_deploy_installs_payload_every_converge():
+def test_deploy_no_longer_owns_the_payload_install():
+    """The install moved to roles/payload, four roles ahead of this one.
+
+    Leaving a second installer here would reinstall the engines from the
+    container's mirrored copy after roles/payload already installed them from
+    the image -- two writers racing over /usr/local/bin, and the loser is
+    whichever image is staler.
+    """
     text = DEPLOY.read_text()
-    # A converge-time install task exists (not just the reserved action).
-    assert "install the host engine payload" in text
-    assert "catena_admin_ee_payload_installer" in text
+    assert "install the host engine payload" not in text
+    assert "wait for the host payload to sync" not in text
+
+
+def test_payload_role_owns_the_install():
+    text = (PAYLOAD_ROLE / "tasks" / "main.yml").read_text()
+    assert "install-ee-payload.sh" in text
+    assert "catena_payload_marker" in text
 
 
 def test_defaults_expose_payload_paths():
     d = _defaults()
     assert d["catena_admin_ee_payload_dir"].endswith("/ee-payload")
     assert d["catena_admin_ee_payload_installer"].endswith("install-ee-payload.sh")
-    assert d["catena_admin_ee_payload_bin_dir"].endswith("/bin")

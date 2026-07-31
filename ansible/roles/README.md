@@ -26,6 +26,7 @@ role's `tasks/main.yml`.
 | `infrastructure` | Orchestrator for roles/infrastructure. |
 | `keycloak` | Orchestrator for roles/keycloak. |
 | `oauth2_proxy` | Orchestrator for roles/oauth2_proxy. |
+| `payload` | Extract the host engine payload from the catena-admin image and install it. |
 | `portainer` | Deploy Portainer CE as the container control plane. |
 | `postgres` | Deploy the catena-owned Postgres swarm service. |
 | `storage` | Dispatcher. |
