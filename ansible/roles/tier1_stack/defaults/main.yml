@@ -4,6 +4,13 @@
 tier1_stack_dir: /etc/catena/stacks
 tier1_stack_path: "{{ tier1_stack_dir }}/tier1.yml"
 
+# The DECLARATION the Go engine reads (catena-admin payload/engines/tier1).
+# The same specs this role renders as compose, written verbatim as JSON: the
+# engine splits each flat object into the identity half it creates from and the
+# hardening half it reconciles. Not under stacks/ -- it is not a compose file
+# and `docker stack deploy` must never be pointed at the directory and find it.
+tier1_declaration_path: /etc/catena/tier1.json
+
 # The stack name `docker stack deploy` would be given. Declared now, used when
 # the apply lands: it is what scopes the label swarm stamps on every service
 # in the stack, so changing it later would orphan the existing ones.

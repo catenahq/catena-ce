@@ -89,8 +89,29 @@
       register: _tier1_stack_config
       changed_when: false
 
+    # The DECLARATION the Go engine reads (payload/engines/tier1). Same specs,
+    # same order, verbatim -- no second rendering, so the file cannot describe
+    # a control plane different from the one the Ansible ladder just applied.
+    #
+    # It is written even though nothing consumes it yet. The engine is the
+    # apply path Phase 5 moves to, and having the declaration land on every
+    # converge NOW means the switch is one caller change rather than a caller
+    # change plus a file that has never existed on a real host.
+    #
+    # Same 0640 root as the stack file and for the same reason: it names every
+    # swarm secret the control plane mounts. Not the material -- swarm holds
+    # that -- but a map of what to ask for.
+    - name: "tier1_stack: write the engine declaration"
+      ansible.builtin.copy:
+        dest: "{{ tier1_declaration_path }}"
+        owner: root
+        group: root
+        mode: "0640"
+        content: "{{ {'services': catena_tier1_specs} | to_nice_json(indent=2) }}\n"
+
     - name: "tier1_stack: rendered services"
       ansible.builtin.debug:
         msg: >-
           {{ tier1_stack_path }} validates:
           {{ _tier1_present | join(', ') }}
+          (declaration: {{ tier1_declaration_path }})
