@@ -44,6 +44,28 @@ CLAMAV_PORT="${CATENA_CLAMAV_PORT:-3310}"
 # Stream cap must be >= Nextcloud max upload AND the shared clamd
 # StreamMaxLength, else large files are skipped rather than scanned.
 STREAM_MAX="${CATENA_CLAMAV_STREAM_MAX:-104857600}"
+# Upper bound on what files_antivirus will scan (av_max_file_size, -1 =
+# no limit upstream). Two reasons to bound it rather than leave -1:
+#
+#   1. Correctness. -1 promises to scan files larger than STREAM_MAX,
+#      which clamd cannot accept -- the scan errors instead of being
+#      skipped cleanly. Pinning the two to the same value makes the
+#      policy honest: anything we cannot stream, we declare unscanned.
+#   2. Upload latency. Upstream's own description of this key is "File
+#      size limit for periodic background scans and chunked uploads",
+#      so it gates the synchronous scan on the final chunked-upload
+#      MOVE. Catena publishes Nextcloud through a Cloudflare Tunnel,
+#      and Cloudflare kills any origin request still unanswered after
+#      100s with a 524. A multi-GB assemble + full scan inside that one
+#      MOVE blows the budget, so the upload fails at 100% after the
+#      client has already shipped every byte.
+#
+# Tradeoff, stated plainly: files ABOVE this size are not scanned on
+# upload. That matches the app's existing fail-open posture (see the
+# header note) rather than adding a new hole, but it is a real gap --
+# the compensating controls are the mail-side rspamd fail-loud path and
+# clamd reachability alerting via Gatus.
+MAX_SCAN="${CATENA_CLAMAV_MAX_FILE_SIZE:-104857600}"
 # only_log keeps the file but records the detection; delete removes it.
 INFECTED_ACTION="${CATENA_CLAMAV_INFECTED_ACTION:-only_log}"
 
@@ -59,6 +81,7 @@ occ config:app:set files_antivirus av_mode --value daemon
 occ config:app:set files_antivirus av_host --value "$CLAMAV_HOST"
 occ config:app:set files_antivirus av_port --value "$CLAMAV_PORT"
 occ config:app:set files_antivirus av_stream_max_length --value "$STREAM_MAX"
+occ config:app:set files_antivirus av_max_file_size --value "$MAX_SCAN"
 occ config:app:set files_antivirus av_infected_action --value "$INFECTED_ACTION"
 
 echo
