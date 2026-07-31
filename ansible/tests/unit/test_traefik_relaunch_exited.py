@@ -75,23 +75,38 @@ def test_the_plain_container_removal_is_gated_on_the_service_being_absent():
     ]
 
 
+def _spec() -> str:
+    """The set_fact body that builds the tier-1 spec, as source text.
+
+    Read as text rather than parsed because the interesting properties are
+    about which keys the role DECLARES -- the values are Jinja that only
+    resolves against a real host."""
+    return str(_find("build the tier-1 service spec")["ansible.builtin.set_fact"])
+
+
 def test_it_is_a_swarm_service_constrained_to_a_manager():
-    argv = _find("create catena-traefik swarm service")["vars"]["_traefik_create_argv"]
-    assert "'docker', 'service', 'create'" in argv
+    """The role no longer writes a create argv; it builds a spec, and
+    roles/tier1_stack/tasks/reconcile_one.yml renders `docker service create`
+    from it. So the assertion moves to the spec."""
+    spec = _spec()
+    assert "traefik_desired" in spec
+    assert "_traefik_spec" in str(_find("build the tier-1 service spec"))
     # It bind-mounts the docker socket and drives the swarm provider, so it
     # cannot be scheduled onto a worker. The constraint lives in the desired
-    # dict rather than the argv, because swarm_service_drift reconciles the
-    # FULL constraint set and would --constraint-rm anything the dict omits;
-    # test_swarm_placement.py owns that rule for all three services.
+    # dict rather than being injected by the spec, because swarm_service_drift
+    # reconciles the FULL constraint set and would --constraint-rm anything the
+    # dict omits; test_swarm_placement.py owns that rule for all three services.
     constraints = yaml.safe_load(DEFAULTS.read_text())["traefik_constraints"]
     assert "node.role==manager" in constraints
 
 
 def test_no_host_ports_is_structural_not_checked():
-    """cloudflared over the overlay is the only ingress. The create argv has
-    no --publish, so there is no port binding for a drift check to find."""
-    argv = _find("create catena-traefik swarm service")["vars"]["_traefik_create_argv"]
-    assert "--publish" not in argv
+    """cloudflared over the overlay is the only ingress. The spec declares no
+    `ports`, and BOTH renderers key off that one absence -- no --publish in the
+    argv and no ports in the stack file -- so there is no port binding for a
+    drift check to find in either."""
+    assert "ports" not in _spec()
+    assert "--publish" not in _code(TASKS)
     assert "PortBindings" not in _code(TASKS)
 
 
@@ -99,10 +114,14 @@ def test_static_config_change_forces_exactly_one_roll():
     """Traefik reads traefik.yml once at startup -- only the FILE PROVIDER
     hot-reloads, and that covers dynamic/, not this. So a static config change
     has to roll the task. But when the spec reconcile already ran it rolled
-    the task itself, and forcing a second roll would drop ingress twice."""
+    the task itself, and forcing a second roll would drop ingress twice.
+
+    The drift fact is now _t1_drift, set by the shared ladder -- which is
+    exactly why this test matters more than it did: the variable the gate
+    reads is no longer written by this role."""
     task = _find("force-roll to pick up a static config")
     assert "--force" in task["ansible.builtin.command"]["argv"]
-    assert "_traefik_drift | default([]) | length == 0" in task["when"]
+    assert "_t1_drift | default([]) | length == 0" in task["when"]
 
 
 def test_the_healthcheck_has_its_precondition():

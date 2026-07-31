@@ -136,6 +136,11 @@
 # overlay attachment, so it has to go before the service starts. Gated on the
 # service being ABSENT: once the service exists there is no plain container to
 # find, and an ungated removal would tear down a swarm task container by name.
+#
+# This is why the existence probe above is here as well as inside the shared
+# ladder: the removal has to happen BEFORE the create, and the ladder owns the
+# create. Two cheap reads, in exchange for the pre-create hook staying local
+# to the role that needs it.
 - name: "traefik: check for a plain container holding the name"
   ansible.builtin.command: docker inspect --type=container "{{ traefik_container_name }}"
   register: _traefik_plain
@@ -150,53 +155,36 @@
   register: _traefik_plain_rm
   changed_when: _traefik_plain_rm.rc == 0
 
-- name: "traefik: create catena-traefik swarm service (first run)"
-  ansible.builtin.command:
-    # Identity + wiring flags here; the hardening subset (memory, stop-grace,
-    # update policy, healthcheck) is rendered from traefik_desired so create
-    # and the reconcile below cannot drift apart.
-    argv: "{{ _traefik_create_argv }}"
-  vars:
-    _traefik_create_argv: >-
-      {{
-        ['docker', 'service', 'create', '--detach',
-         '--name=' ~ traefik_container_name,
-         '--network=' ~ catena_network_name,
-         '--restart-condition=any']
-        + (traefik_mounts | map('regex_replace', '^', '--mount=') | list)
-        + (traefik_desired | swarm_service_create_args)
-        + [traefik_image]
-      }}
-  when: _traefik_service.rc != 0
-  register: _traefik_service_create
-  changed_when: _traefik_service_create.rc == 0
-
-- name: "traefik: inspect the live service spec"
-  ansible.builtin.command: "docker service inspect {{ traefik_container_name }}"
-  register: _traefik_inspect
-  changed_when: false
-  failed_when: false
-  when: _traefik_service.rc == 0
-
-- name: "traefik: compute spec drift"
+# ─── the service spec ────────────────────────────────────────────────────
+# One dict, two renderers: tier1_service_create_argv builds the create argv
+# from it and tier1_stack_render puts it in the stack file, so the running
+# service and the rendered plane cannot describe different things.
+#
+# No `ports`. The no-host-port invariant is structural in both renderers --
+# cloudflared over the overlay is the only ingress, and neither the argv nor
+# the compose service has a publish for a drift check to find.
+- name: "traefik: build the tier-1 service spec"
   ansible.builtin.set_fact:
-    _traefik_drift: >-
-      {{ (_traefik_inspect.stdout | from_json)
-         | swarm_service_drift(traefik_desired) }}
-  when:
-    - _traefik_service.rc == 0
-    - _traefik_inspect.rc == 0
+    _traefik_spec: >-
+      {{ traefik_desired | combine({
+           'name': traefik_container_name,
+           'networks': [catena_network_name],
+           'detach': true,
+           'volumes': traefik_mounts | map('swarm_mount_to_compose') | list,
+         }) }}
 
-- name: "traefik: reconcile the service spec (rolling)"
-  ansible.builtin.command:
-    argv: >-
-      {{ ['docker', 'service', 'update'] + _traefik_drift
-         + [traefik_container_name] }}
-  when:
-    - _traefik_service.rc == 0
-    - _traefik_drift | default([]) | length > 0
-  register: _traefik_reconcile
-  changed_when: _traefik_reconcile.rc == 0
+- name: "traefik: contribute the spec to the tier-1 stack render"
+  ansible.builtin.set_fact:
+    catena_tier1_specs: >-
+      {{ catena_tier1_specs | default([]) | tier1_spec_upsert(_traefik_spec) }}
+
+- name: "traefik: create or reconcile the swarm service"
+  ansible.builtin.include_tasks:
+    file: "{{ role_path }}/../tier1_stack/tasks/reconcile_one.yml"
+    apply:
+      tags: [traefik]
+  vars:
+    tier1_spec: "{{ _traefik_spec }}"
 
 # NOTE: catena-traefik attaches to catena_network_name ONLY. Every catena app
 # stack joins catena-network via the Portainer stack seam, so that single
@@ -222,29 +210,9 @@
   when:
     - _traefik_service.rc == 0
     - _traefik_static_cfg.changed or (_traefik_acme_dir_rm.changed | default(false))
-    - _traefik_drift | default([]) | length == 0
+    - _t1_drift | default([]) | length == 0
   register: _traefik_force_roll
   changed_when: _traefik_force_roll.rc == 0
-
-# ─── tier-1 stack spec ───────────────────────────────────────────────────
-# Contributed from HERE, next to the create argv, and built from the same
-# variables it is: a spec assembled anywhere else would be a second reading of
-# this role's intent, which is the drift the stack file exists to remove.
-# roles/tier1_stack renders the accumulated list at the end of the converge.
-#
-# No `ports`. The no-host-port invariant is structural in both renderers --
-# the argv has no --publish and this spec has no ports key, so there is no
-# binding for a drift check to find in either.
-- name: "traefik: contribute the tier-1 stack spec"
-  ansible.builtin.set_fact:
-    catena_tier1_specs: >-
-      {{ catena_tier1_specs | default([]) | tier1_spec_upsert(
-           traefik_desired | combine({
-             'name': traefik_container_name,
-             'networks': [catena_network_name],
-             'volumes': traefik_mounts
-                        | map('swarm_mount_to_compose') | list,
-           })) }}
 
 # catena-network-nudge lives in roles/docker: it heals containers the overlay
 # race strands on a docker.service start, and roles/docker owns both ends of

@@ -46,95 +46,45 @@
         path: /root/.catena-postgres-secret
         state: absent
 
-# ─── swarm service ───────────────────────────────────────────────────────
-- name: "postgres: check catena-postgres swarm service exists"
-  ansible.builtin.command: "docker service inspect {{ catena_postgres_service_name }} --format '{{ '{{' }}.ID{{ '}}' }}'"
-  register: _pg_service
-  changed_when: false
-  failed_when: false
-
+# ─── the service spec ────────────────────────────────────────────────────
+# One dict, two renderers: tier1_service_create_argv builds the create argv
+# from it and tier1_stack_render puts it in the stack file, so the running
+# service and the rendered plane cannot describe different things.
+#
 # Single-node swarm service on catena-network. POSTGRES_PASSWORD_FILE points at
 # the mounted secret; the named volume persists the cluster across task
 # reschedules + service updates. No published host port -- reachable only on
-# catena-network by the service name (catena-postgres:5432).
+# catena-network by the service name (catena-postgres:5432). PGDATA's
+# version-agnostic subdir layout is explained where it is declared.
 #
-# The mounts and the environment come from defaults, not from this argv: the
-# tier-1 stack file renders from the same two variables, so there is one
-# spelling of each rather than a copy per renderer. PGDATA's version-agnostic
-# subdir layout is explained where it is declared.
-#
-# --detach: do not block create on convergence. A crashlooping task would
+# detach: do not block create on convergence. A crashlooping task would
 # otherwise hang `docker service create` indefinitely; the pg_isready gate
 # below is the real readiness barrier and fails fast (120s) instead.
-- name: "postgres: create catena-postgres swarm service (first run)"
-  ansible.builtin.command:
-    # Identity + wiring flags here; the hardening subset (memory, stop-grace,
-    # update policy, healthcheck) is rendered from catena_postgres_desired so
-    # create and the reconcile below cannot drift apart. The image is the
-    # positional argument, so it is appended after the rendered flags.
-    argv: "{{ _pg_create_argv }}"
-  vars:
-    _pg_create_argv: >-
-      {{
-        ['docker', 'service', 'create', '--detach',
-         '--name=' ~ catena_postgres_service_name,
-         '--network=' ~ catena_postgres_network,
-         '--restart-condition=any',
-         '--secret=' ~ catena_postgres_secret_name]
-        + (catena_postgres_env | swarm_env_create_args)
-        + (catena_postgres_mounts | map('regex_replace', '^', '--mount=') | list)
-        + (catena_postgres_desired | swarm_service_create_args)
-        + [catena_postgres_image]
-      }}
-  when: _pg_service.rc != 0
-  register: _pg_service_create
-  changed_when: _pg_service_create.rc == 0
-
-# Spec reconcile (rolling). Reconciles the FULL hardening spec, not just the
-# pinned tag, so a flag added to the desired dict reaches an existing host and
-# not only a fresh install.
-- name: "postgres: inspect the live service spec"
-  ansible.builtin.command: "docker service inspect {{ catena_postgres_service_name }}"
-  register: _pg_inspect
-  changed_when: false
-  failed_when: false
-  when: _pg_service.rc == 0
-
-- name: "postgres: compute spec drift"
+- name: "postgres: build the tier-1 service spec"
   ansible.builtin.set_fact:
-    _pg_drift: >-
-      {{ (_pg_inspect.stdout | from_json)
-         | swarm_service_drift(catena_postgres_desired) }}
-  when:
-    - _pg_service.rc == 0
-    - _pg_inspect.rc == 0
+    _pg_spec: >-
+      {{ catena_postgres_desired | combine({
+           'name': catena_postgres_service_name,
+           'networks': [catena_postgres_network],
+           'secrets': [catena_postgres_secret_name],
+           'environment': catena_postgres_env,
+           'detach': true,
+           'volumes': catena_postgres_mounts
+                      | map('swarm_mount_to_compose') | list,
+         }) }}
 
-- name: "postgres: reconcile the service spec (rolling)"
-  ansible.builtin.command:
-    argv: "{{ ['docker', 'service', 'update'] + _pg_drift + [catena_postgres_service_name] }}"
-  when:
-    - _pg_service.rc == 0
-    - _pg_drift | default([]) | length > 0
-  register: _pg_reconcile
-  changed_when: _pg_reconcile.rc == 0
-
-# ─── tier-1 stack spec ───────────────────────────────────────────────────
-# Contributed from HERE, next to the create argv, and built from the same
-# variables it is: a spec assembled anywhere else would be a second reading of
-# this role's intent, which is the drift the stack file exists to remove.
-# roles/tier1_stack renders the accumulated list at the end of the converge.
-- name: "postgres: contribute the tier-1 stack spec"
+- name: "postgres: contribute the spec to the tier-1 stack render"
   ansible.builtin.set_fact:
     catena_tier1_specs: >-
-      {{ catena_tier1_specs | default([]) | tier1_spec_upsert(
-           catena_postgres_desired | combine({
-             'name': catena_postgres_service_name,
-             'networks': [catena_postgres_network],
-             'secrets': [catena_postgres_secret_name],
-             'environment': catena_postgres_env,
-             'volumes': catena_postgres_mounts
-                        | map('swarm_mount_to_compose') | list,
-           })) }}
+      {{ catena_tier1_specs | default([]) | tier1_spec_upsert(_pg_spec) }}
+
+- name: "postgres: create or reconcile the swarm service"
+  ansible.builtin.include_tasks:
+    file: "{{ role_path }}/../tier1_stack/tasks/reconcile_one.yml"
+    apply:
+      tags: [postgres]
+  vars:
+    tier1_spec: "{{ _pg_spec }}"
 
 # ─── readiness ───────────────────────────────────────────────────────────
 # Gate downstream (roles/keycloak provision_db) on the cluster actually

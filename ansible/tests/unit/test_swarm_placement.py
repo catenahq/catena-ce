@@ -11,11 +11,11 @@ makes `docker swarm join` a safe operation instead of a data-loss event.
 Two structural properties, because a behavioural test would need a cluster:
 
   - the label roles/docker SETS and the label the constraints REFERENCE agree;
-  - constraints live wholly in the desired-spec dict, never split between it
-    and the hand-written create argv. swarm_service_drift reconciles the FULL
-    constraint set, so a constraint passed only in the argv would be
-    --constraint-rm'd on the very next converge -- silently unpinning the
-    service it was protecting.
+  - constraints live wholly in the desired-spec dict, never injected on top of
+    it when the role builds its tier-1 spec. swarm_service_drift reconciles the
+    FULL constraint set, so a constraint that reached only the create path
+    would be --constraint-rm'd on the very next converge -- silently unpinning
+    the service it was protecting.
 
 The cross-repo version of the first rule is `audit --check-swarm` in ops,
 which fails the build when a service that mounts anything has no constraint.
@@ -55,12 +55,17 @@ def _tasks(role: str) -> list[dict]:
     return yaml.safe_load((ROLES / role / "tasks" / "main.yml").read_text())
 
 
-def _create_argv(role: str) -> str:
+def _spec_source(role: str) -> str:
+    """The set_fact body that builds the role's tier-1 spec, as source text.
+
+    The roles no longer hand-write a create argv: they declare one spec, and
+    roles/tier1_stack renders both `docker service create` and the stack file
+    from it. Read as text because the values are Jinja that only resolves
+    against a real host; what is being asserted is which keys are declared."""
     for task in _tasks(role):
-        name = task.get("name") or ""
-        if "swarm service (first run)" in name:
-            return str(task["vars"])
-    raise AssertionError(f"no create task found in roles/{role}")
+        if "build the tier-1 service spec" in (task.get("name") or ""):
+            return str(task["ansible.builtin.set_fact"])
+    raise AssertionError(f"no tier-1 spec task found in roles/{role}")
 
 
 def test_the_node_label_roles_docker_sets_matches_what_the_roles_constrain_to():
@@ -79,11 +84,18 @@ def test_the_node_label_roles_docker_sets_matches_what_the_roles_constrain_to():
 
 @pytest.mark.parametrize("role", STATEFUL)
 def test_constraints_are_wholly_owned_by_the_desired_dict(role: str):
-    argv = _create_argv(role)
-    assert "--constraint" not in argv, (
-        f"roles/{role} passes a constraint in the create argv. "
-        "swarm_service_drift reconciles the FULL constraint set, so the next "
-        "converge would --constraint-rm it and unpin the service"
+    """The spec is `<role>_desired | combine({...})`. A `constraints` key in
+    the combine would OVERRIDE the dict's, and swarm_service_drift reconciles
+    the full set from the dict -- so the next converge would --constraint-rm
+    the override and unpin the service."""
+    spec = _spec_source(role)
+    assert DESIRED_VAR[role] in spec, (
+        f"roles/{role} does not build its spec from {DESIRED_VAR[role]}"
+    )
+    assert "constraints" not in spec, (
+        f"roles/{role} injects a constraint on top of {DESIRED_VAR[role]}. "
+        "swarm_service_drift reconciles the FULL constraint set from the dict, "
+        "so the next converge would --constraint-rm it and unpin the service"
     )
     desired = _defaults(role)[DESIRED_VAR[role]]
     assert "constraints" in desired
@@ -93,9 +105,7 @@ def test_constraints_are_wholly_owned_by_the_desired_dict(role: str):
 def test_every_mounting_service_is_constrained(role: str):
     """The rule the ops audit gate enforces workspace-wide, checked here for
     the three services this repo deploys directly."""
-    argv = _create_argv(role)
-    mounts_something = "--mount" in argv or "traefik_mounts" in argv
-    assert mounts_something, (
+    assert "volumes" in _spec_source(role), (
         f"roles/{role} mounts nothing -- if that is deliberate the constraint "
         "may be droppable, but say so explicitly"
     )

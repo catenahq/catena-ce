@@ -1,17 +1,22 @@
 ---
 # Render the accumulated tier-1 specs into one compose file and prove it
-# loads. NOTHING IS APPLIED HERE.
+# loads. This file is the ORACLE, not the apply.
 #
-# Each tier-1 role contributes its own spec (`<role>: contribute the tier-1
-# stack spec`) from the same variables its `docker service create` argv is
-# built from, so the two renderings cannot describe different services. This
-# role is only the assembler: it renders, writes, and hands the result to
-# `docker stack config`, which is the compose loader itself rather than our
-# reading of it.
+# What applies is tasks/reconcile_one.yml, which each tier-1 role includes
+# with the very same spec it contributes here. So the stack file is not a
+# parallel description that could drift from the running services -- it is
+# the other rendering of the identical dict, and `docker stack config`
+# type-checking it every converge is what proves the specs are coherent
+# against the docker actually installed rather than against our reading of
+# the schema.
 #
-# The apply is deliberately a later step. One bad render takes traefik,
-# postgres and portainer down together, so the file earns its way in by
-# validating on every converge first, against the docker actually installed.
+# `docker stack deploy` was the other candidate for the apply and lost on
+# measurement: it always names services `<stack>_<key>`, with no flag to
+# suppress the prefix and no adoption of an existing standalone service. The
+# rename reaches 13 DNS sites, three ANCHORED matchers in catena-admin's
+# recovery engines, and 107 bench assertions -- and the anchored ones fail
+# silently, which is the class of wrong this phase exists to remove. Full
+# reasoning in playbooks/filter_plugins/tier1_stack.py.
 #
 # catena-admin is NOT in this stack, and that is a schema limit rather than a
 # choice: it joins the supplementary group owning the 0750 recovery export
@@ -26,9 +31,10 @@
       {{ catena_tier1_specs | default([]) | map(attribute='name') | list }}
 
 # A tag-scoped converge runs some roles and not others, so the accumulator
-# holds a SUBSET. Rendering that would produce a file which, once the apply
-# lands, reads as "delete everything not listed" -- so the incomplete case
-# skips loudly instead of writing something that looks finished.
+# holds a SUBSET. Writing that would leave an oracle describing three
+# services on a host running four -- something that LOOKS like the whole
+# plane and is not, which is worse than no file. So the incomplete case skips
+# loudly and leaves the last complete render in place.
 - name: "tier1_stack: skipped -- not every tier-1 role ran this converge"
   ansible.builtin.debug:
     msg: >-

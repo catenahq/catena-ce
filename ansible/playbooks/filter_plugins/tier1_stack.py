@@ -1,7 +1,8 @@
-"""Ansible filter: render the tier-1 control plane as ONE swarm stack.
+"""Ansible filters: ONE spec per tier-1 service, two renderers over it.
 
-    tier1_stack_render(services) -> a compose mapping ready for
-                                    `docker stack deploy --compose-file`
+    tier1_service_create_argv(spec) -> `docker service create` argv
+    tier1_stack_render(services)    -> a compose mapping `docker stack config`
+                                       validates
 
 WHY. Four roles each hand-roll `docker service create` for a service the
 converge fully owns: traefik, postgres, portainer and coturn. Each one
@@ -18,12 +19,31 @@ the schema rather than a preference: it needs a supplementary group, which
 the compose spec cannot express (see the group_add trap below). cloudflared
 is absent for an unrelated reason -- its converge is already a Go engine.
 
-This renders; it does not apply. roles/tier1_stack writes the mapping and
-hands it to `docker stack config`; the deploy is a later step. Keeping the
-render pure is what lets the whole control plane be validated BEFORE
-anything is applied -- one bad render takes traefik, postgres and portainer
-down together, so the apply has to be gated on a render that already
-type-checked.
+WHICH RENDERER APPLIES, AND WHY IT IS THE ARGV ONE
+
+  The services are created and reconciled by tier1_service_create_argv plus
+  swarm_service_drift, through roles/tier1_stack/tasks/reconcile_one.yml --
+  one ladder the four roles include, instead of four copies of it. That is
+  the duplication this phase set out to remove, and removing it does not
+  require changing how the services are addressed.
+
+  `docker stack deploy` was the other candidate and was measured rather
+  than assumed. It ALWAYS names services `<stack>_<key>`; there is no flag
+  to suppress the prefix, and deploying over an existing standalone service
+  does not adopt it -- it creates a second service beside it. Renaming
+  catena-traefik / catena-postgres / catena-portainer reaches 13 DNS sites
+  (Keycloak's JDBC URL, cloudflared's ingress target, the Gatus probes,
+  oauth2-proxy's upstream, PORTAINER_API_BASE), three anchored matchers in
+  catena-admin's recovery engines, and 107 bench assertions. The anchored
+  ones -- pgreplay.go's pauseExcludeRe, quiesce.go's isControlPlane,
+  restore.go's isRestoreExempt -- would stop matching SILENTLY, which is the
+  same class of wrong this phase exists to remove. Not worth the declarative
+  reset and --prune it would have bought.
+
+  So the stack render stays, and its job is to be the oracle: rendered and
+  handed to `docker stack config` on every converge, which type-checks the
+  whole plane against the docker actually installed and is what `--check-swarm`
+  can walk. It is not applied.
 
 WHAT A STACK CHANGES, AND WHY IT IS STILL RIGHT
 
@@ -321,6 +341,104 @@ def _service(spec):
     return out
 
 
+def compose_volume_to_swarm_mount(volume):
+    """The inverse of swarm_mount_to_compose: a compose `volumes:` entry back
+    to a `docker service create --mount` value.
+
+    A spec carries its mounts in compose form because that is the shape the
+    stack render needs; the create argv needs the other one. Which side of a
+    bind/volume the source is comes from the same rule the stack render uses
+    -- a leading / is a host path, anything else is a named volume -- so the
+    two renderers cannot disagree about what a mount is.
+    """
+    parts = str(volume).split(":")
+    if len(parts) < 2 or not parts[0] or not parts[1]:
+        _fail(f"volume {volume!r} is not source:destination[:opts]")
+    source, dest = parts[0], parts[1]
+    options = parts[2].split(",") if len(parts) > 2 else []
+
+    kind = "bind" if source.startswith("/") else "volume"
+    arg = f"type={kind},source={source},destination={dest}"
+    return arg + ",readonly" if "ro" in options else arg
+
+
+def tier1_service_create_argv(spec, hardening):
+    """Render `docker service create` argv for the same spec the stack render
+    consumes. This is the renderer that APPLIES.
+
+    Everything the stack render puts in the compose mapping has a flag here,
+    including the two the roles used to leave to the docker defaults:
+    --restart-condition=any and --restart-delay, which the compose side spells
+    deploy.restart_policy. Emitting both explicitly is what makes the file and
+    the live service comparable at all.
+
+    `hardening` arrives already rendered, from `spec | swarm_service_create_args`
+    -- the SAME filter swarm_service_drift reads, so a fresh service and a
+    reconciled one cannot end up with different memory limits or update
+    policy. It is passed in rather than imported because these are Ansible
+    filter plugins: the loader gives each file a synthetic module name, so a
+    sibling import is not the plain thing it looks like. Same shape as
+    catena_admin_service_argv's spec.hardening.
+    """
+    if not isinstance(spec, dict):
+        _fail("tier1_service_create_argv: spec must be a mapping")
+    for key in _REQUIRED:
+        if not str(spec.get(key) or "").strip():
+            _fail(f"service spec is missing required key {key!r}")
+
+    argv = ["docker", "service", "create"]
+
+    # Per-service, not a global default. Without --detach, create BLOCKS until
+    # the service converges -- which for postgres means a crashlooping task
+    # hangs the converge indefinitely, while for portainer the block IS the
+    # readiness the following probe builds on.
+    if spec.get("detach"):
+        argv.append("--detach")
+
+    argv.append(f"--name={spec['name']}")
+    if str(spec.get("mode") or "").strip() == "global":
+        argv.append("--mode=global")
+
+    for network in spec.get("networks") or []:
+        argv.append(f"--network={network}")
+
+    user = str(spec.get("user") or "").strip()
+    if user:
+        argv.append(f"--user={user}")
+
+    argv.append("--restart-condition=any")
+    argv.append(f"--restart-delay={RESTART_DELAY}")
+
+    for port in _ports(spec):
+        argv.append(
+            f"--publish=mode={port['mode']},published={port['published']},"
+            f"target={port['target']},protocol={port['protocol']}")
+
+    for secret in spec.get("secrets") or []:
+        if isinstance(secret, dict):
+            source = str(secret.get("name") or secret.get("source") or "")
+            argv.append(f"--secret=source={source},target={secret['target']}")
+        else:
+            argv.append(f"--secret={secret}")
+
+    argv += swarm_env_create_args(spec.get("environment") or {})
+
+    for volume in spec.get("volumes") or []:
+        argv.append("--mount=" + compose_volume_to_swarm_mount(volume))
+
+    labels = spec.get("container_labels") or {}
+    for key in sorted(labels):
+        argv.append(f"--container-label={key}={labels[key]}")
+
+    argv += [str(flag) for flag in hardening or []]
+
+    # Image is positional and goes last, followed by any arguments to the
+    # container's own entrypoint.
+    argv.append(str(spec["image"]))
+    argv += [str(arg) for arg in spec.get("command") or []]
+    return argv
+
+
 def swarm_env_create_args(env):
     """{KEY: value} -> ['--env=KEY=value', ...], sorted.
 
@@ -401,7 +519,9 @@ class FilterModule:
     def filters(self):
         return {
             "tier1_stack_render": tier1_stack_render,
+            "tier1_service_create_argv": tier1_service_create_argv,
             "tier1_spec_upsert": tier1_spec_upsert,
             "swarm_mount_to_compose": swarm_mount_to_compose,
+            "compose_volume_to_swarm_mount": compose_volume_to_swarm_mount,
             "swarm_env_create_args": swarm_env_create_args,
         }

@@ -45,94 +45,47 @@
         path: /root/.catena-portainer-admin
         state: absent
 
-# ─── swarm service ───────────────────────────────────────────────────────
-- name: "portainer: check catena-portainer swarm service exists"
-  ansible.builtin.command: "docker service inspect {{ portainer_service_name }} --format '{{ '{{' }}.ID{{ '}}' }}'"
-  register: _pt_service
-  changed_when: false
-  failed_when: false
-
-# Host-mode publish so the port lands on the node IP (reached over the tailnet;
-# the registry fragment below firewalls it to tailnet + RFC1918). Docker socket
-# lets Portainer manage the local Docker/Swarm endpoint. /data on a named volume
-# persists its BoltDB store (replaces the old control-plane Postgres DB). The
-# trailing --admin-password-file arg is passed to the portainer binary.
-- name: "portainer: create catena-portainer swarm service (first run)"
-  ansible.builtin.command:
-    # Identity + wiring flags here; the hardening subset (memory, stop-grace,
-    # update policy) is rendered from portainer_desired so create and the
-    # reconcile below cannot drift apart. The image and the trailing binary
-    # argument are positional, so they follow the rendered flags.
-    argv: "{{ _pt_create_argv }}"
-  vars:
-    _pt_create_argv: >-
-      {{
-        ['docker', 'service', 'create',
-         '--name=' ~ portainer_service_name,
-         '--network=' ~ portainer_network,
-         '--restart-condition=any',
-         '--publish=mode=host,published=' ~ portainer_ui_port
-           ~ ',target=' ~ portainer_target_port,
-         '--secret=' ~ portainer_admin_secret_name]
-        + (portainer_mounts | map('regex_replace', '^', '--mount=') | list)
-        + (portainer_desired | swarm_service_create_args)
-        + [portainer_image] + portainer_command
-      }}
-  when: _pt_service.rc != 0
-  register: _pt_service_create
-  changed_when: _pt_service_create.rc == 0
-
-# Spec reconcile (rolling). Reconciles the FULL hardening spec, not just the
-# pinned tag, so a flag added to the desired dict reaches an existing host and
-# not only a fresh install.
-- name: "portainer: inspect the live service spec"
-  ansible.builtin.command: "docker service inspect {{ portainer_service_name }}"
-  register: _pt_inspect
-  changed_when: false
-  failed_when: false
-  when: _pt_service.rc == 0
-
-- name: "portainer: compute spec drift"
-  ansible.builtin.set_fact:
-    _pt_drift: >-
-      {{ (_pt_inspect.stdout | from_json) | swarm_service_drift(portainer_desired) }}
-  when:
-    - _pt_service.rc == 0
-    - _pt_inspect.rc == 0
-
-- name: "portainer: reconcile the service spec (rolling)"
-  ansible.builtin.command:
-    argv: "{{ ['docker', 'service', 'update'] + _pt_drift + [portainer_service_name] }}"
-  when:
-    - _pt_service.rc == 0
-    - _pt_drift | default([]) | length > 0
-  register: _pt_reconcile
-  changed_when: _pt_reconcile.rc == 0
-
-# ─── tier-1 stack spec ───────────────────────────────────────────────────
-# Contributed from HERE, next to the create argv, and built from the same
-# variables it is: a spec assembled anywhere else would be a second reading of
-# this role's intent, which is the drift the stack file exists to remove.
-# roles/tier1_stack renders the accumulated list at the end of the converge.
+# ─── the service spec ────────────────────────────────────────────────────
+# One dict, two renderers: tier1_service_create_argv builds the create argv
+# from it and tier1_stack_render puts it in the stack file, so the running
+# service and the rendered plane cannot describe different things.
 #
-# mode: host on the publish, never ingress: the port is firewalled to the
-# tailnet by the registry fragment below, and an ingress publish would put it
-# on the routing mesh where that firewall does not apply.
-- name: "portainer: contribute the tier-1 stack spec"
+# Host-mode publish so the port lands on the node IP (reached over the tailnet;
+# the registry fragment below firewalls it to tailnet + RFC1918) -- never
+# ingress, which would put it on the routing mesh where that firewall does not
+# apply. Docker socket lets Portainer manage the local Docker/Swarm endpoint.
+# /data on a named volume persists its BoltDB store. The trailing
+# --admin-password-file arg is passed to the portainer binary.
+#
+# No `detach`: the create BLOCKS until the service converges, which is the
+# first half of the readiness the UI probe below completes.
+- name: "portainer: build the tier-1 service spec"
+  ansible.builtin.set_fact:
+    _pt_spec: >-
+      {{ portainer_desired | combine({
+           'name': portainer_service_name,
+           'networks': [portainer_network],
+           'secrets': [portainer_admin_secret_name],
+           'command': portainer_command,
+           'volumes': portainer_mounts
+                      | map('swarm_mount_to_compose') | list,
+           'ports': [{'target': portainer_target_port | int,
+                      'published': portainer_ui_port | int,
+                      'mode': 'host'}],
+         }) }}
+
+- name: "portainer: contribute the spec to the tier-1 stack render"
   ansible.builtin.set_fact:
     catena_tier1_specs: >-
-      {{ catena_tier1_specs | default([]) | tier1_spec_upsert(
-           portainer_desired | combine({
-             'name': portainer_service_name,
-             'networks': [portainer_network],
-             'secrets': [portainer_admin_secret_name],
-             'volumes': portainer_mounts
-                        | map('swarm_mount_to_compose') | list,
-             'ports': [{'target': portainer_target_port | int,
-                        'published': portainer_ui_port | int,
-                        'mode': 'host'}],
-             'command': portainer_command,
-           })) }}
+      {{ catena_tier1_specs | default([]) | tier1_spec_upsert(_pt_spec) }}
+
+- name: "portainer: create or reconcile the swarm service"
+  ansible.builtin.include_tasks:
+    file: "{{ role_path }}/../tier1_stack/tasks/reconcile_one.yml"
+    apply:
+      tags: [portainer]
+  vars:
+    tier1_spec: "{{ _pt_spec }}"
 
 # ─── tailnet-only firewall for the UI port (registry fragment) ───────────
 - name: "portainer: ensure public-port fragment dir exists"

@@ -137,38 +137,51 @@
   no_log: true
 
 # ── Step 5: deploy coturn as a swarm service ────────────────────────
-# Pattern mirrors cloudflared (roles/cloudflare_tunnel/tasks/
-# main.yml lines 220-277): inspect for existence, create on first run,
-# update env / image otherwise. Host networking so external-ip in
-# turnserver.conf matches a real interface.
+# One dict, two renderers: tier1_service_create_argv builds the create argv
+# from it and tier1_stack_render puts it in the stack file. The reasoning for
+# each field -- host networking, the root user, the node-local bind sources,
+# the placement constraint -- lives beside the declarations in defaults.
+#
+# No `detach`: the create blocks until the global task is dispatched, which is
+# the only readiness signal this role has (there is no probe after it).
+#
+# No `ports` either. Host networking binds the media plane directly on the
+# node, so there is nothing to publish; the public-port registry fragment
+# above is what opens the firewall for it.
 
+- name: "coturn: build the tier-1 service spec"
+  ansible.builtin.set_fact:
+    _coturn_spec:
+      name: "{{ coturn_compose_name }}"
+      image: "{{ coturn_image }}"
+      mode: global
+      networks: ["{{ coturn_network }}"]
+      user: "{{ coturn_container_user }}"
+      constraints: "{{ coturn_constraints }}"
+      command: "{{ coturn_command }}"
+      volumes: "{{ coturn_mounts | map('swarm_mount_to_compose') | list }}"
+
+- name: "coturn: contribute the spec to the tier-1 stack render"
+  ansible.builtin.set_fact:
+    catena_tier1_specs: >-
+      {{ catena_tier1_specs | default([]) | tier1_spec_upsert(_coturn_spec) }}
+
+# The existence probe the two coturn-specific reconciles below read. The
+# shared ladder runs its own; this one is for the `--user` heal and the SIGHUP,
+# neither of which is a spec diff swarm_service_drift knows about.
 - name: "coturn: check if swarm service exists"
   ansible.builtin.command: docker service inspect coturn --format '{{ "{{" }}.ID{{ "}}" }}'
   register: _coturn_service
   changed_when: false
   failed_when: false
 
-# Identity + wiring from defaults, so the tier-1 stack file renders from the
-# same variables this argv is built from. The reasoning for each -- the root
-# user, the node-local bind sources, the placement constraint -- lives beside
-# the declarations.
-- name: "coturn: create swarm service (first run)"
-  ansible.builtin.command:
-    argv: "{{ _coturn_create_argv }}"
+- name: "coturn: create or reconcile the swarm service"
+  ansible.builtin.include_tasks:
+    file: "{{ role_path }}/../tier1_stack/tasks/reconcile_one.yml"
+    apply:
+      tags: [coturn]
   vars:
-    _coturn_create_argv: >-
-      {{
-        ['docker', 'service', 'create',
-         '--name=' ~ coturn_compose_name,
-         '--mode=global',
-         '--network=' ~ coturn_network,
-         '--user=' ~ coturn_container_user,
-         '--restart-condition=any']
-        + (coturn_constraints | map('regex_replace', '^', '--constraint=') | list)
-        + (coturn_mounts | map('regex_replace', '^', '--mount=') | list)
-        + [coturn_image] + coturn_command
-      }}
-  when: _coturn_service.rc != 0
+    tier1_spec: "{{ _coturn_spec }}"
 
 - name: "coturn: read current container user (drift check)"
   ansible.builtin.command: docker service inspect coturn --format '{{ "{{" }}.Spec.TaskTemplate.ContainerSpec.User{{ "}}" }}'
@@ -191,24 +204,10 @@
     - (_coturn_current_user.stdout | default('') | trim) != coturn_container_user
   changed_when: true
 
-- name: "coturn: read current image (drift check)"
-  ansible.builtin.command: docker service inspect coturn --format '{{ "{{" }}.Spec.TaskTemplate.ContainerSpec.Image{{ "}}" }}'
-  register: _coturn_current_image
-  changed_when: false
-  when: _coturn_service.rc == 0
-
-- name: "coturn: reconcile image to configured pin"
-  ansible.builtin.command:
-    argv:
-      - docker
-      - service
-      - update
-      - "--image={{ coturn_image }}"
-      - coturn
-  when:
-    - _coturn_service.rc == 0
-    - (_coturn_current_image.stdout | default('')).split('@')[0] != coturn_image
-  changed_when: true
+# The image pin is reconciled by the shared ladder above (the spec carries
+# `image`, and swarm_service_drift compares it with the resolved digest
+# stripped). It also now reconciles the placement constraint, which the
+# hand-rolled image-only drift check never did.
 
 - name: "coturn: SIGHUP on config / cert change (graceful reload)"
   # Coturn re-reads cert + config on SIGHUP without dropping calls in
@@ -226,26 +225,3 @@
     - _coturn_service.rc == 0
     - _coturn_conf.changed
   changed_when: true
-
-# ─── tier-1 stack spec ───────────────────────────────────────────────────
-# Contributed from HERE, next to the create argv, and built from the same
-# variables it is. Only reached when the consumer gate in main.yml passed, so
-# a host with no real-time app contributes no coturn spec and the rendered
-# stack has no coturn service -- which is the same answer the gate gives the
-# argv path.
-#
-# No `ports`. Host networking binds the media plane directly on the node; the
-# public-port registry fragment above is what opens the firewall for it.
-- name: "coturn: contribute the tier-1 stack spec"
-  ansible.builtin.set_fact:
-    catena_tier1_specs: >-
-      {{ catena_tier1_specs | default([]) | tier1_spec_upsert({
-           'name': coturn_compose_name,
-           'image': coturn_image,
-           'mode': 'global',
-           'networks': [coturn_network],
-           'user': coturn_container_user,
-           'constraints': coturn_constraints,
-           'command': coturn_command,
-           'volumes': coturn_mounts | map('swarm_mount_to_compose') | list,
-         }) }}
