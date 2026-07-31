@@ -4,7 +4,7 @@
 
 # Pinned Traefik image. renovate/trivy key off `traefik_image_tag`
 # (see renovate.json customManagers).
-traefik_image_tag: "v3.7.7"
+traefik_image_tag: "v3.7.9"
 traefik_image: "traefik:{{ traefik_image_tag }}"
 
 # The catena-owned reverse-proxy container. cloudflared points its ingress at
