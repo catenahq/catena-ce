@@ -31,5 +31,5 @@ role's `tasks/main.yml`.
 | `postgres` | Deploy the catena-owned Postgres swarm service. |
 | `storage` | Dispatcher. |
 | `tailscale` | Install Tailscale on the target, then join it to the tailnet using an auth key freshly minted via OAuth on the controller. |
-| `tier1_stack` | Render the accumulated tier-1 specs into one compose file and prove it loads. |
+| `tier1_stack` | Render the accumulated specs into compose files and prove they load. |
 | `traefik` | roles/traefik -- deploy + own the catena-traefik reverse proxy. |
