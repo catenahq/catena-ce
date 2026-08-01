@@ -13,7 +13,7 @@ Catena is exercised end-to-end by an automated rehearsal suite: each scenario pr
 
 Two numbers are reported everywhere: **rehearsed** means the scenario was last recorded PASSING on a real run, and is the only number treated as evidence; **declared** additionally counts scenarios that exist but have not been observed passing yet. A scenario is never counted for merely existing.
 
-**Coverage: 10 Community features, 69 of 84 rehearsal scenarios observed passing; 12 Catena Pro features, 33 of 42; plus 16 of 23 maintainer-internal rehearsals.**
+**Coverage: 10 Community features, 75 of 84 rehearsal scenarios observed passing; 12 Catena Pro features, 36 of 42; plus 16 of 23 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -23,7 +23,7 @@ A scheduled weekly backup plus manual backups any time. Backups are encrypted on
 
 Implemented in: `ansible/playbooks/backup_now.yml`, `ansible/playbooks/filter_plugins/backup_cadence_cap.py`, `ansible/roles/backup`, `ansible/scripts/backup-coverage.sh`, `ansible/scripts/catena-restic-key.py`, `ansible/scripts/restic-env.sh`, `ansible/scripts/restic-mount.sh`, `ansible/scripts/restic-short-id.sh`, `ansible/scripts/restic-unmount.sh`, `ansible/scripts/run-backup.sh`, `ansible/scripts/snapshot-export.sh`, `ansible/scripts/snapshot-list.sh`
 
-Rehearsal scenarios (8 of 11 observed passing): `concurrent_backup_lock_contention`, `fi_b2_pg_dump_failed`, `fi_b3_snapshot_id_mismatch`, `fi_b6_healthchecks_down`, `fi_b7_ntfy_delivery_fails`, `malformed_catalog_rejection`, `restic_password_rotation_round_trip`, `snapshot_export_round_trip`; declared, not yet observed passing: `backup_rollback`, `backup_schedule_applied`, `fi_b4_locked_pack_rotation`
+Rehearsal scenarios (10 of 11 observed passing): `backup_rollback`, `backup_schedule_applied`, `concurrent_backup_lock_contention`, `fi_b2_pg_dump_failed`, `fi_b3_snapshot_id_mismatch`, `fi_b6_healthchecks_down`, `fi_b7_ntfy_delivery_fails`, `malformed_catalog_rejection`, `restic_password_rotation_round_trip`, `snapshot_export_round_trip`; declared, not yet observed passing: `fi_b4_locked_pack_rotation`
 
 ### Single sign-on across the suite
 
@@ -79,7 +79,7 @@ A whole server can be rebuilt from nothing but the backup endpoint and its key, 
 
 Implemented in: `ansible/playbooks/restore.yml`
 
-Rehearsal scenarios (12 of 18 observed passing): `ce_restore`, `fi_d2_pg_dumpall_replay_constraint`, `fi_d3_postgres_oom_mid_restore`, `fi_d4_disk_full_mid_snapshot`, `fi_d5_disk_full_mid_converge`, `fi_d6_volume_uid_drift`, `fi_d7_restic_corrupt_pack`, `nc_s3_hot_recovery`, `nc_sync_wipe_restore`, `pitr_fuse_round_trip`, `recover_secrets_from_running_host`, `recovery_landing_page_bilingual_parity`; declared, not yet observed passing: `debian_major_upgrade_restore`, `pg_major_version_cross_restore`, `restore_dr`, `restore_version_skew_abort`, `s3_reconcile_orphan_cleanup`, `selective_restore_round_trip`
+Rehearsal scenarios (15 of 18 observed passing): `ce_restore`, `fi_d2_pg_dumpall_replay_constraint`, `fi_d3_postgres_oom_mid_restore`, `fi_d4_disk_full_mid_snapshot`, `fi_d5_disk_full_mid_converge`, `fi_d6_volume_uid_drift`, `fi_d7_restic_corrupt_pack`, `nc_s3_hot_recovery`, `nc_sync_wipe_restore`, `pitr_fuse_round_trip`, `recover_secrets_from_running_host`, `recovery_landing_page_bilingual_parity`, `restore_dr`, `restore_version_skew_abort`, `s3_reconcile_orphan_cleanup`; declared, not yet observed passing: `debian_major_upgrade_restore`, `pg_major_version_cross_restore`, `selective_restore_round_trip`
 
 ### No lock-in, ever
 
@@ -95,7 +95,7 @@ A validation pass proves both directions: every service answers where it should 
 
 Implemented in: `ansible/playbooks/validate.yml`, `ansible/scripts/verify_gated_intent.py`, `ansible/tests/external/scan_ports.py`
 
-Rehearsal scenarios (2 of 3 observed passing): `ce_validate`, `fi_v2_external_scan_blocked`; declared, not yet observed passing: `security_scan`
+Rehearsal scenarios (3 of 3 observed passing): `ce_validate`, `fi_v2_external_scan_blocked`, `security_scan`
 
 ## Catena Pro features
 
@@ -107,11 +107,11 @@ They are exercised by the same rehearsal suite as the Community features above, 
 | --- | --- | --- |
 | Signed monthly compliance attestation | 1 | 1 |
 | Tamper-evident central audit trail | 1 | 1 |
-| Offsite immutable backup copy | 3 | 6 |
+| Offsite immutable backup copy | 5 | 6 |
 | Vulnerability scanning | 1 | 1 |
 | Automated daily maintenance | 13 | 13 |
 | Managed lifecycle operations (migration, decommission) | see note | see note |
-| Licensed feature activation | 5 | 6 |
+| Licensed feature activation | 6 | 6 |
 | Identity posture monitoring | 0 | 1 |
 | Managed updates with automatic rollback | 9 | 9 |
 | External availability monitoring | 0 | 1 |
