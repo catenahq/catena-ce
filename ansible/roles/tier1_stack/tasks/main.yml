@@ -48,13 +48,22 @@
 - name: "tier1_stack: render, write and validate"
   when: tier1_stack_required | difference(_tier1_present) | length == 0
   block:
+    # 0750 to MATCH roles/infrastructure swarm_stack.yml, which creates this
+    # same directory for the Portainer stack files. Two roles declaring
+    # different modes for one path is not a style disagreement: each converge
+    # resets what the other set, both report changed, and the idempotency gate
+    # can never go green. Observed as changed=2 forever on run 3642.
+    #
+    # 0750 rather than 0755 because that is what the directory's first owner
+    # chose, and its reason applies here too -- a compose body can carry a
+    # credential.
     - name: "tier1_stack: ensure the stack dir exists"
       ansible.builtin.file:
         path: "{{ tier1_stack_dir }}"
         state: directory
         owner: root
         group: root
-        mode: "0755"
+        mode: "0750"
 
     # 0640 root:root. It names every swarm secret the control plane mounts.
     # That is not the secret material -- swarm holds that -- but it is a map

@@ -90,3 +90,48 @@ def test_the_declaration_and_the_stack_file_come_from_one_accumulator():
     declaration = _task("write the engine declaration")["ansible.builtin.copy"]["content"]
     assert "catena_tier1_specs" in stack
     assert "catena_tier1_specs" in declaration
+
+
+# --- two roles, one directory ------------------------------------------------
+#
+# roles/infrastructure (swarm_stack.yml) creates /etc/catena/stacks for the
+# Portainer stack files; roles/tier1_stack creates it for the tier-1 render.
+# They declared different modes -- 0750 and 0755 -- so every converge reset
+# what the previous one set and BOTH reported changed. The idempotency gate
+# could never go green: observed as a permanent changed=2 on bench run 3642,
+# on a host where nothing else had drifted.
+
+INFRA_SWARM_STACK = (
+    ANSIBLE / "roles" / "infrastructure" / "tasks" / "swarm_stack.yml"
+)
+
+
+def _dir_task_mode(path: Path, fragment: str) -> str:
+    for task in _flatten(yaml.safe_load(path.read_text())):
+        if fragment in (task.get("name") or ""):
+            spec = task.get("ansible.builtin.file") or {}
+            if spec.get("state") == "directory":
+                return str(spec.get("mode"))
+    raise AssertionError(f"no directory task like {fragment!r} in {path}")
+
+
+def test_both_owners_of_the_stack_dir_agree_on_its_mode():
+    tier1 = _dir_task_mode(TASKS, "ensure the stack dir exists")
+    infra = _dir_task_mode(INFRA_SWARM_STACK, "stack file dir")
+    assert tier1 == infra, (
+        f"roles/tier1_stack says {tier1} and roles/infrastructure says {infra} "
+        "for /etc/catena/stacks. Each converge resets the other and both "
+        "report changed, so a re-converge is never clean."
+    )
+
+
+def test_the_agreed_mode_is_the_tighter_one():
+    """A compose body can carry a credential -- the reason the directory's
+    first owner picked 0750."""
+    assert _dir_task_mode(TASKS, "ensure the stack dir exists") == "0750"
+
+
+def test_the_two_roles_target_the_same_path():
+    """The test above is only meaningful if they are the same directory."""
+    tier1_dir = _defaults()["tier1_stack_dir"]
+    assert tier1_dir == "/etc/catena/stacks"
