@@ -1,6 +1,11 @@
-"""Unit tests for the tier-1 stack renderer.
+"""Unit tests for the swarm-service compose renderer -- the ORACLE.
 
-The swarm compose traps this pins each cost a bench run failing hours in,
+The renderer does not apply anything. What creates and reconciles these
+services is the catena-admin host engine (payload/engines/tier1); this file is
+rendered and handed to `docker stack config` on every converge so a spec docker
+would reject is caught before the engine tries to create from it.
+
+The swarm compose traps pinned here each cost a bench run failing hours in,
 so each has a test rather than a comment. Two kinds:
 
   REJECTED by `docker stack config` -- `host_ip`, `group_add`. The file
@@ -10,9 +15,8 @@ so each has a test rather than a comment. Two kinds:
 
 The renderer refuses both kinds and says why. Every claim here was checked
 against a real `docker stack config`; the converge re-checks the rendered
-file the same way on the host before anything is applied, so this file's
-memory of the schema is never the only thing standing between a bad render
-and the control plane.
+file the same way on the host, so this file's memory of the schema is never
+the only thing standing between a bad render and the control plane.
 """
 from __future__ import annotations
 
@@ -30,12 +34,7 @@ _spec.loader.exec_module(tier1_stack)
 
 render = tier1_stack.tier1_stack_render
 mount = tier1_stack.swarm_mount_to_compose
-unmount = tier1_stack.compose_volume_to_swarm_mount
 upsert = tier1_stack.tier1_spec_upsert
-
-
-def argv(spec, hardening=()):
-    return tier1_stack.tier1_service_create_argv(spec, list(hardening))
 
 
 def _pg(**over):
@@ -253,126 +252,13 @@ def test_mount_without_a_destination_is_refused() -> None:
         mount("type=bind,source=/etc/catena")
 
 
-# ── the OTHER renderer over the same spec: the create argv ──────────
-
-
-def test_the_two_renderers_agree_on_the_restart_policy() -> None:
-    """Ordering in swarm IS crash-and-retry, so the delay is load-bearing on
-    both sides. The roles used to leave both flags to the docker defaults,
-    which meant the compose file declared a policy the live service had no
-    flag for and the two were not comparable."""
-    flags = argv(_pg())
-    assert "--restart-condition=any" in flags
-    assert f"--restart-delay={tier1_stack.RESTART_DELAY}" in flags
-    policy = render([_pg()])["services"]["catena-postgres"]["deploy"][
-        "restart_policy"]
-    assert policy["delay"] == tier1_stack.RESTART_DELAY
-
-
-def test_create_argv_puts_the_image_last_with_the_command_after_it() -> None:
-    """Both are positional. Portainer's --admin-password-file is an argument
-    to the portainer binary, not a docker flag, so it must follow the image."""
-    flags = argv(_pg(image="portainer/portainer-ce:2.43.0",
-                     command=["--admin-password-file=/run/secrets/x"]))
-    assert flags[-2:] == ["portainer/portainer-ce:2.43.0",
-                          "--admin-password-file=/run/secrets/x"]
-
-
-def test_hardening_lands_between_the_flags_and_the_image() -> None:
-    flags = argv(_pg(), hardening=["--limit-memory", "2g"])
-    assert flags[-3:] == ["--limit-memory", "2g", "postgres:18"]
-
-
-def test_detach_is_per_service_not_a_global_default() -> None:
-    """Without --detach the create BLOCKS until convergence. For postgres a
-    crashlooping task would hang the converge forever; for portainer the
-    block IS the first half of readiness."""
-    assert "--detach" in argv(_pg(detach=True))
-    assert "--detach" not in argv(_pg())
-
-
 def test_detach_does_not_leak_into_the_compose_service() -> None:
-    """It is a property of the CLI call, not of the service. Compose has no
-    equivalent, so the stack render drops it rather than inventing one."""
+    """It is a property of the engine's create call, not of the service.
+    Compose has no equivalent, so the render drops it rather than inventing
+    one."""
     svc = render([_pg(detach=True)])["services"]["catena-postgres"]
     assert "detach" not in svc
     assert "detach" not in svc["deploy"]
-
-
-def test_global_mode_and_user_reach_the_argv() -> None:
-    flags = argv(_pg(mode="global", user="0:0"))
-    assert "--mode=global" in flags
-    assert "--user=0:0" in flags
-
-
-def test_a_content_hashed_secret_keeps_source_and_target_in_the_argv() -> None:
-    flags = argv(_pg(secrets=[{"name": "sess-ab12cd34", "target": "KEY"}]))
-    assert "--secret=source=sess-ab12cd34,target=KEY" in flags
-
-
-def test_a_bare_secret_name_renders_the_short_flag() -> None:
-    assert "--secret=catena_postgres_password" in argv(
-        _pg(secrets=["catena_postgres_password"]))
-
-
-def test_ports_render_host_mode_in_the_argv_too() -> None:
-    flags = argv(_pg(ports=[{"target": 9000, "published": 9443}]))
-    assert "--publish=mode=host,published=9443,target=9000,protocol=tcp" \
-        in flags
-
-
-def test_host_ip_is_refused_by_the_argv_renderer_as_well() -> None:
-    """Same spec, both renderers. A port the stack file cannot express is not
-    one the argv should quietly accept -- that would put the live service
-    beyond what the oracle can describe."""
-    with pytest.raises(ValueError, match="host_ip"):
-        argv(_pg(ports=[{"target": 80, "published": 80,
-                         "host_ip": "127.0.0.1"}]))
-
-
-def test_environment_is_sorted_so_the_argv_is_stable() -> None:
-    flags = argv(_pg())
-    envs = [f for f in flags if f.startswith("--env=")]
-    assert envs == ["--env=POSTGRES_DB=postgres",
-                    "--env=POSTGRES_USER=catena"]
-
-
-def test_container_labels_reach_the_argv_as_container_labels() -> None:
-    """--container-label, not --label: gatus-sync reads `docker ps`, which
-    reports labels on the task container."""
-    assert "--container-label=vps.auth.mode=private" in argv(
-        _pg(container_labels={"vps.auth.mode": "private"}))
-
-
-def test_create_argv_refuses_a_spec_with_no_image() -> None:
-    with pytest.raises(ValueError, match="image"):
-        argv({"name": "x"})
-
-
-# ── the mount round trip ────────────────────────────────────────────
-
-
-def test_a_mount_survives_the_round_trip_through_compose_form() -> None:
-    """The spec carries compose form because the stack render needs it; the
-    argv needs --mount form back. Whether a source is a bind or a named
-    volume is decided by the same leading-slash rule on both sides, so the
-    two renderers cannot disagree about what a mount is."""
-    for original in (
-        "type=bind,source=/var/run/docker.sock,destination=/var/run/docker.sock",
-        "type=volume,source=catena-postgres-data,destination=/var/lib/postgresql/data",
-    ):
-        assert unmount(mount(original)) == original
-
-
-def test_readonly_survives_the_round_trip() -> None:
-    original = ("type=bind,source=/etc/coturn/turnserver.conf,"
-                "destination=/etc/coturn/turnserver.conf,readonly")
-    assert unmount(mount(original)) == original
-
-
-def test_a_malformed_compose_volume_is_refused() -> None:
-    with pytest.raises(ValueError, match="source:destination"):
-        unmount("/etc/catena")
 
 
 # ── accumulating the specs across roles ─────────────────────────────
@@ -416,8 +302,8 @@ def test_empty_service_list_is_refused() -> None:
 
 
 def test_whole_control_plane_renders_together() -> None:
-    """The blast-radius case: the tier-1 set in one file. A render error in
-    any one of them must surface HERE, before an apply takes traefik,
+    """The blast-radius case: the control-plane set in one file. A render error
+    in any one of them must surface HERE, before the engine takes traefik,
     postgres and portainer down together.
 
     catena-admin is deliberately absent: it needs a supplementary group,
@@ -436,23 +322,39 @@ def test_whole_control_plane_renders_together() -> None:
          "ports": [{"target": 9000, "published": 9443}],
          "command": ["--admin-password-file=/run/secrets/"
                      "catena_portainer_admin_password"]},
-        # Host networking, global mode, pinned to the node that holds the
-        # bind sources -- a bind whose source is missing is CREATED empty.
+    ]
+    out = render(services)
+    assert set(out["services"]) == {
+        "catena-postgres", "catena-traefik", "catena-portainer",
+    }
+    assert set(out["networks"]) == {"catena-network"}
+    # Only the two NAMED volumes; the two bind sources are host paths.
+    assert set(out["volumes"]) == {
+        "catena-postgres-data", "catena-portainer-data"}
+    # Every service carries a restart policy; that IS the ordering model.
+    for svc in out["services"].values():
+        assert svc["deploy"]["restart_policy"]["condition"] == "any"
+
+
+def test_a_companion_renders_through_the_same_renderer() -> None:
+    """coturn renders into companions.yml rather than tier1.yml -- it is
+    presence-gated on a Talk or Jitsi consumer, and mixing it in made the
+    control-plane file change on a converge where the control plane had not.
+    Same renderer either way, so the traps above still hold for it: host
+    networking, global mode, and a placement constraint pinning it to the node
+    that holds the bind sources (a bind whose source is missing is CREATED
+    empty)."""
+    out = render([
         {"name": "coturn", "image": "coturn/coturn:4.10.0-alpine",
          "mode": "global", "networks": ["host"], "user": "0:0",
          "constraints": ["node.labels.catena.role==data"],
          "volumes": ["/etc/coturn/turnserver.conf:"
                      "/etc/coturn/turnserver.conf:ro"],
          "command": ["-c", "/etc/coturn/turnserver.conf"]},
-    ]
-    out = render(services)
-    assert set(out["services"]) == {
-        "catena-postgres", "catena-traefik", "catena-portainer", "coturn",
-    }
-    assert set(out["networks"]) == {"catena-network", "host"}
-    # Only the two NAMED volumes; the three bind sources are host paths.
-    assert set(out["volumes"]) == {
-        "catena-postgres-data", "catena-portainer-data"}
-    # Every service carries a restart policy; that IS the ordering model.
-    for svc in out["services"].values():
-        assert svc["deploy"]["restart_policy"]["condition"] == "any"
+    ])
+    svc = out["services"]["coturn"]
+    assert svc["deploy"]["mode"] == "global"
+    assert "replicas" not in svc["deploy"]
+    assert out["networks"] == {"host": {"external": True}}
+    # A bind source is a host path, so no named volume is declared for it.
+    assert "volumes" not in out

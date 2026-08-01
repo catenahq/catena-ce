@@ -156,9 +156,10 @@
   changed_when: _traefik_plain_rm.rc == 0
 
 # ─── the service spec ────────────────────────────────────────────────────
-# One dict, two renderers: tier1_service_create_argv builds the create argv
-# from it and tier1_stack_render puts it in the stack file, so the running
-# service and the rendered plane cannot describe different things.
+# One dict, two consumers: the catena-tier1 host engine creates and reconciles
+# the service from it, and tier1_stack_render puts it in the file
+# `docker stack config` type-checks, so the running service and the rendered
+# plane cannot describe different things.
 #
 # No `ports`. The no-host-port invariant is structural in both renderers --
 # cloudflared over the overlay is the only ingress, and neither the argv nor
@@ -173,7 +174,7 @@
            'volumes': traefik_mounts | map('swarm_mount_to_compose') | list,
          }) }}
 
-- name: "traefik: contribute the spec to the tier-1 stack render"
+- name: "traefik: contribute the spec to the control-plane render"
   ansible.builtin.set_fact:
     catena_tier1_specs: >-
       {{ catena_tier1_specs | default([]) | tier1_spec_upsert(_traefik_spec) }}
@@ -202,8 +203,10 @@
 # task still holds the bad mount. `--force` rolls a service whose spec is
 # otherwise unchanged, which is exactly this case.
 #
-# Skipped when the reconcile above already ran: that update rolls the task on
-# its own, and forcing a second roll would take ingress down twice.
+# Skipped when the engine above already changed the service: its update rolls
+# the task on its own, and forcing a second roll would take ingress down twice.
+# The engine's summary line carries changed=<n>, so this reads the same number
+# the reconcile reported rather than re-deriving whether anything happened.
 - name: "traefik: force-roll to pick up a static config or acme.json change"
   ansible.builtin.command:
     argv:
@@ -215,7 +218,7 @@
   when:
     - _traefik_service.rc == 0
     - _traefik_static_cfg.changed or (_traefik_acme_dir_rm.changed | default(false))
-    - _t1_drift | default([]) | length == 0
+    - "'changed=0' in (_t1_apply.stdout | default('changed=0'))"
   register: _traefik_force_roll
   changed_when: _traefik_force_roll.rc == 0
 

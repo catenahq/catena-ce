@@ -46,9 +46,10 @@
         state: absent
 
 # ─── the service spec ────────────────────────────────────────────────────
-# One dict, two renderers: tier1_service_create_argv builds the create argv
-# from it and tier1_stack_render puts it in the stack file, so the running
-# service and the rendered plane cannot describe different things.
+# One dict, two consumers: the catena-tier1 host engine creates and reconciles
+# the service from it, and tier1_stack_render puts it in the file
+# `docker stack config` type-checks, so the running service and the rendered
+# plane cannot describe different things.
 #
 # Host-mode publish so the port lands on the node IP (reached over the tailnet;
 # the registry fragment below firewalls it to tailnet + RFC1918) -- never
@@ -74,7 +75,7 @@
                       'mode': 'host'}],
          }) }}
 
-- name: "portainer: contribute the spec to the tier-1 stack render"
+- name: "portainer: contribute the spec to the control-plane render"
   ansible.builtin.set_fact:
     catena_tier1_specs: >-
       {{ catena_tier1_specs | default([]) | tier1_spec_upsert(_pt_spec) }}

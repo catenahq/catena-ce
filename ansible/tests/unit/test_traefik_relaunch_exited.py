@@ -86,14 +86,15 @@ def _spec() -> str:
 
 def test_it_is_a_swarm_service_constrained_to_a_manager():
     """The role no longer writes a create argv; it builds a spec, and
-    roles/tier1_stack/tasks/reconcile_one.yml renders `docker service create`
-    from it. So the assertion moves to the spec."""
+    roles/tier1_stack/tasks/reconcile_one.yml hands it to the catena-tier1
+    engine, which renders `docker service create`. So the assertion moves to
+    the spec."""
     spec = _spec()
     assert "traefik_desired" in spec
     assert "_traefik_spec" in str(_find("build the tier-1 service spec"))
     # It bind-mounts the docker socket and drives the swarm provider, so it
     # cannot be scheduled onto a worker. The constraint lives in the desired
-    # dict rather than being injected by the spec, because swarm_service_drift
+    # dict rather than being injected by the spec, because the engine
     # reconciles the FULL constraint set and would --constraint-rm anything the
     # dict omits; test_swarm_placement.py owns that rule for all three services.
     constraints = yaml.safe_load(DEFAULTS.read_text())["traefik_constraints"]
@@ -116,12 +117,16 @@ def test_static_config_change_forces_exactly_one_roll():
     has to roll the task. But when the spec reconcile already ran it rolled
     the task itself, and forcing a second roll would drop ingress twice.
 
-    The drift fact is now _t1_drift, set by the shared ladder -- which is
-    exactly why this test matters more than it did: the variable the gate
-    reads is no longer written by this role."""
+    The signal is now the catena-tier1 engine's own summary line, registered
+    as _t1_apply by the shared dispatch -- which is exactly why this test
+    matters more than it did: the variable the gate reads is not written by
+    this role, and its default has to be the one that rolls (a redundant roll
+    beats a static config the running task never picks up)."""
     task = _find("force-roll to pick up a static config")
     assert "--force" in task["ansible.builtin.command"]["argv"]
-    assert "_t1_drift | default([]) | length == 0" in task["when"]
+    gate = next(c for c in task["when"] if "_t1_apply" in str(c))
+    assert "changed=0" in gate
+    assert "default('changed=0')" in gate
 
 
 def test_the_healthcheck_has_its_precondition():

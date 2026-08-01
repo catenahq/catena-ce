@@ -47,9 +47,10 @@
         state: absent
 
 # ─── the service spec ────────────────────────────────────────────────────
-# One dict, two renderers: tier1_service_create_argv builds the create argv
-# from it and tier1_stack_render puts it in the stack file, so the running
-# service and the rendered plane cannot describe different things.
+# One dict, two consumers: the catena-tier1 host engine creates and reconciles
+# the service from it, and tier1_stack_render puts it in the file
+# `docker stack config` type-checks, so the running service and the rendered
+# plane cannot describe different things.
 #
 # Single-node swarm service on catena-network. POSTGRES_PASSWORD_FILE points at
 # the mounted secret; the named volume persists the cluster across task
@@ -73,7 +74,7 @@
                       | map('swarm_mount_to_compose') | list,
          }) }}
 
-- name: "postgres: contribute the spec to the tier-1 stack render"
+- name: "postgres: contribute the spec to the control-plane render"
   ansible.builtin.set_fact:
     catena_tier1_specs: >-
       {{ catena_tier1_specs | default([]) | tier1_spec_upsert(_pg_spec) }}

@@ -137,10 +137,18 @@
   no_log: true
 
 # ── Step 5: deploy coturn as a swarm service ────────────────────────
-# One dict, two renderers: tier1_service_create_argv builds the create argv
-# from it and tier1_stack_render puts it in the stack file. The reasoning for
-# each field -- host networking, the root user, the node-local bind sources,
-# the placement constraint -- lives beside the declarations in defaults.
+# One dict, two consumers: the catena-tier1 host engine creates and reconciles
+# the service from it, and tier1_stack_render puts it in the rendered companion
+# file that `docker stack config` type-checks. The reasoning for each field --
+# host networking, the root user, the node-local bind sources, the placement
+# constraint -- lives beside the declarations in defaults.
+#
+# A COMPANION, not the control plane. coturn is directly created for the same
+# reasons traefik and postgres are (host networking and global mode do not
+# survive a stack deploy), but it is presence-gated on a Talk or Jitsi
+# consumer: it appears the converge after one is deployed and leaves with it.
+# Rendering it into tier1.yml made the control-plane file change on a converge
+# where the control plane had not, so it renders into companions.yml instead.
 #
 # No `detach`: the create blocks until the global task is dispatched, which is
 # the only readiness signal this role has (there is no probe after it).
@@ -149,7 +157,7 @@
 # node, so there is nothing to publish; the public-port registry fragment
 # above is what opens the firewall for it.
 
-- name: "coturn: build the tier-1 service spec"
+- name: "coturn: build the companion service spec"
   ansible.builtin.set_fact:
     _coturn_spec:
       name: "{{ coturn_compose_name }}"
@@ -161,14 +169,15 @@
       command: "{{ coturn_command }}"
       volumes: "{{ coturn_mounts | map('swarm_mount_to_compose') | list }}"
 
-- name: "coturn: contribute the spec to the tier-1 stack render"
+- name: "coturn: contribute the spec to the companion render"
   ansible.builtin.set_fact:
-    catena_tier1_specs: >-
-      {{ catena_tier1_specs | default([]) | tier1_spec_upsert(_coturn_spec) }}
+    catena_companion_specs: >-
+      {{ catena_companion_specs | default([])
+         | tier1_spec_upsert(_coturn_spec) }}
 
 # The existence probe the two coturn-specific reconciles below read. The
-# shared ladder runs its own; this one is for the `--user` heal and the SIGHUP,
-# neither of which is a spec diff swarm_service_drift knows about.
+# engine runs its own; this one is for the `--user` heal and the SIGHUP,
+# neither of which is a spec diff the engine's drift comparison knows about.
 - name: "coturn: check if swarm service exists"
   ansible.builtin.command: docker service inspect coturn --format '{{ "{{" }}.ID{{ "}}" }}'
   register: _coturn_service
@@ -205,9 +214,9 @@
     - (_coturn_current_user.stdout | default('') | trim) != coturn_container_user
   changed_when: true
 
-# The image pin is reconciled by the shared ladder above (the spec carries
-# `image`, and swarm_service_drift compares it with the resolved digest
-# stripped). It also now reconciles the placement constraint, which the
+# The image pin is reconciled by the engine dispatched above (the spec carries
+# `image`, and the engine's drift comparison strips the resolved digest before
+# comparing). It also reconciles the placement constraint, which the
 # hand-rolled image-only drift check never did.
 
 - name: "coturn: SIGHUP on config / cert change (graceful reload)"

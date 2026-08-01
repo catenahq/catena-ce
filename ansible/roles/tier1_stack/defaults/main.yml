@@ -1,15 +1,23 @@
 ---
-# roles/tier1_stack -- render the tier-1 control plane as ONE swarm stack.
+# roles/tier1_stack -- render the directly-created swarm services as compose,
+# and dispatch the engine that actually creates them.
 
 tier1_stack_dir: /etc/catena/stacks
 tier1_stack_path: "{{ tier1_stack_dir }}/tier1.yml"
 
-# The DECLARATION the Go engine reads (catena-admin payload/engines/tier1).
-# The same specs this role renders as compose, written verbatim as JSON: the
-# engine splits each flat object into the identity half it creates from and the
-# hardening half it reconciles. Not under stacks/ -- it is not a compose file
-# and `docker stack deploy` must never be pointed at the directory and find it.
-tier1_declaration_path: /etc/catena/tier1.json
+# App companions render to their own file. They are directly-created swarm
+# services for the same reason the control plane is (host networking, global
+# mode), but they come and go with the applications that consume them -- coturn
+# appears the converge after a Talk or Jitsi deploy and leaves with it. Mixing
+# them into tier1.yml made the control-plane render a moving target: the file
+# gained a service on a converge where the control plane had not changed at all.
+tier1_companions_path: "{{ tier1_stack_dir }}/companions.yml"
+
+# The host engine that creates and reconciles these services
+# (catena-admin payload/engines/tier1). Installed to /usr/local/bin by
+# roles/payload, which runs right after roles/docker -- ahead of every role
+# that includes tasks/reconcile_one.yml.
+tier1_engine_bin: /usr/local/bin/catena-tier1
 
 # The stack name `docker stack deploy` would be given. Declared now, used when
 # the apply lands: it is what scopes the label swarm stamps on every service
@@ -21,9 +29,7 @@ tier1_stack_name: catena
 # This is the guard against a partial render. A `--tags postgres` converge
 # runs one role, so one spec accumulates, and a stack file holding one service
 # is not an incomplete description of the control plane -- once applied it is
-# an instruction to DELETE the other three. The roster names only the
-# unconditional tier-1 services; coturn is consumer-gated and correctly absent
-# on a host with no real-time app.
+# an instruction to DELETE the other two.
 tier1_stack_required:
   - catena-traefik
   - catena-postgres

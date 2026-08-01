@@ -360,20 +360,23 @@
         - _site_post_restore is not skipped
       tags: [post_restore, coturn]
 
-    # Render the tier-1 control plane as ONE stack file and prove it loads.
-    # Applies nothing: this is the render half of the collapse, and the apply
-    # only earns its way in once the file has been validating on real hosts.
+    # Render the control plane and the app companions as compose files and
+    # prove they load. Applies nothing: the services were already created and
+    # reconciled by the catena-tier1 engine, role by role, as each contributed
+    # its spec. This is the oracle -- `docker stack config` type-checking the
+    # same dicts against the docker actually installed.
     #
     # In post_tasks rather than the roles list, and AFTER the coturn re-run
     # above, because that re-run is what deploys coturn on the recovery path:
     # the post-restore hooks bring the TURN consumer up after roles/coturn
     # already probed and correctly found none. Rendering from the roles list
-    # would write a coturn-less stack on exactly the path where one is needed.
+    # would write a coturn-less companion file on exactly the path where one is
+    # needed.
     #
     # `apply:` carries the tag inward for the same reason the includes above
     # do: without it, `--tags tier1_stack` fires the include and then filters
     # out every task inside it.
-    - name: "Tier 1: render + validate the control-plane stack file"
+    - name: "Tier 1: render + validate the swarm-service oracle files"
       ansible.builtin.include_role:
         name: tier1_stack
         apply:
