@@ -17,7 +17,7 @@ Two numbers are reported everywhere: **rehearsed** means the scenario was last r
 
 ## Community features (this repository)
 
-### Encrypted backups to storage you own
+### Encrypted backups to client-owned storage
 
 A scheduled weekly backup plus manual backups any time. Backups are encrypted on the server before leaving it and land in object storage the client owns; snapshots can be listed, browsed and exported without a restore. Daily and sub-daily cadence is a Catena Pro feature.
 
@@ -83,7 +83,7 @@ Rehearsal scenarios (14 of 18 observed passing): `ce_restore`, `fi_d2_pg_dumpall
 
 ### No lock-in, ever
 
-Delete the admin panel and everything you own keeps working: backups run, restores work, and every application stays online, using only standard tools and the settings stored on your own server. Leaving costs you convenience, never your data.
+Delete the admin panel and everything else keeps working: backups run, restores work, and every application stays online, using only standard tools and the settings stored on the server itself. Leaving costs convenience, never data.
 
 Implemented in: `ansible/roles/backup`, `ansible/scripts/run-backup.sh`, `ansible/scripts/snapshot-export.sh`, `ansible/scripts/snapshot-list.sh`
 
@@ -116,7 +116,7 @@ They are exercised by the same rehearsal suite as the Community features above, 
 | Managed updates with automatic rollback | 9 | 9 |
 | External availability monitoring | 0 | 1 |
 | Multiple domains, each with its own private sign-on | 1 | 1 |
-| A move you can call off | 1 | 4 |
+| A move that can be called off | 1 | 4 |
 
 Note: features marked *see note* are maintainer-run procedures; their rehearsals are counted under maintainer-internal tooling below.
 
