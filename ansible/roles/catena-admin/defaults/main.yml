@@ -359,10 +359,16 @@ catena_admin_ee_reserved_actions:
   # source's tailnet address and the binary refuses a NAME: the name of the
   # server being moved is about to point at this one, so a move that resolved it
   # could talk to itself and report that the source paused when nothing did.
+  # Same clean-environment problem as catena-restore-run: the lane pre-seeds
+  # with restic, so a transient unit without a cache location fails the same
+  # way. Fixed here rather than waiting for it to be rediscovered on the
+  # migration path.
   - name: catena-migrate-run
     shell: >-
       echo "$PAYLOAD" | base64 -d |
       systemd-run --unit catena-migrate-run --collect --pipe
+      --setenv=HOME=/var/lib/catena/restic-home
+      --setenv=XDG_CACHE_HOME=/var/lib/catena/restic-cache
       {{ catena_migrate_lane_bin }} run --stdin
   # Read-only progress, in the same shape as the restore's: the migration page
   # reads these two files directly through its read-only mount, so this is the
@@ -503,10 +509,23 @@ catena_admin_ce_reserved_actions:
   # NOT carry: a path. Which repository to read is a BOOLEAN selecting one fixed
   # file, because a path would let the panel have an arbitrary file on this box
   # loaded as the environment of a root process.
+  #
+  # --setenv is not optional. A transient systemd unit starts with a CLEAN
+  # environment, and restic refuses to run without a cache location:
+  #   unable to open cache: unable to locate cache directory:
+  #   neither $XDG_CACHE_HOME nor $HOME are defined
+  # Every other action inherits the dispatcher's environment (sudo supplies
+  # HOME), which is why only the systemd-run ones need this and why the fault
+  # was invisible until wizard_restore_smoke first reached stage 4.
+  # The values MATCH catena-backup.service (roles/backup/templates/
+  # catena-backup.service.j2) so both callers share one warm cache rather than
+  # each keeping its own; test_catena_admin_systemd_run_env.py pins them equal.
   - name: catena-restore-run
     shell: >-
       echo "$PAYLOAD" | base64 -d |
       systemd-run --unit catena-recovery-restore --collect --pipe
+      --setenv=HOME=/var/lib/catena/restic-home
+      --setenv=XDG_CACHE_HOME=/var/lib/catena/restic-cache
       {{ catena_recovery_bin }} restore -stdin
   # Read-only progress. The restore page reads the same two files directly
   # through its read-only mount of {{ catena_recovery_state_file | dirname }},
