@@ -13,7 +13,7 @@ Catena is exercised end-to-end by an automated rehearsal suite: each scenario pr
 
 Two numbers are reported everywhere: **rehearsed** means the scenario was last recorded PASSING on a real run, and is the only number treated as evidence; **declared** additionally counts scenarios that exist but have not been observed passing yet. A scenario is never counted for merely existing.
 
-**Coverage: 10 Community features, 74 of 84 rehearsal scenarios observed passing; 12 Catena Pro features, 36 of 42; plus 17 of 23 maintainer-internal rehearsals.**
+**Coverage: 10 Community features, 76 of 84 rehearsal scenarios observed passing; 12 Catena Pro features, 36 of 42; plus 16 of 23 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -23,7 +23,7 @@ A scheduled weekly backup plus manual backups any time. Backups are encrypted on
 
 Implemented in: `ansible/playbooks/backup_now.yml`, `ansible/playbooks/filter_plugins/backup_cadence_cap.py`, `ansible/roles/backup`, `ansible/scripts/backup-coverage.sh`, `ansible/scripts/catena-restic-key.py`, `ansible/scripts/restic-env.sh`, `ansible/scripts/restic-mount.sh`, `ansible/scripts/restic-short-id.sh`, `ansible/scripts/restic-unmount.sh`, `ansible/scripts/run-backup.sh`, `ansible/scripts/snapshot-export.sh`, `ansible/scripts/snapshot-list.sh`
 
-Rehearsal scenarios (10 of 11 observed passing): `backup_rollback`, `backup_schedule_applied`, `concurrent_backup_lock_contention`, `fi_b2_pg_dump_failed`, `fi_b3_snapshot_id_mismatch`, `fi_b6_healthchecks_down`, `fi_b7_ntfy_delivery_fails`, `malformed_catalog_rejection`, `restic_password_rotation_round_trip`, `snapshot_export_round_trip`; declared, not yet observed passing: `fi_b4_locked_pack_rotation`
+Rehearsal scenarios (11 of 11 observed passing): `backup_rollback`, `backup_schedule_applied`, `concurrent_backup_lock_contention`, `fi_b2_pg_dump_failed`, `fi_b3_snapshot_id_mismatch`, `fi_b4_locked_pack_rotation`, `fi_b6_healthchecks_down`, `fi_b7_ntfy_delivery_fails`, `malformed_catalog_rejection`, `restic_password_rotation_round_trip`, `snapshot_export_round_trip`
 
 ### Single sign-on across the suite
 
@@ -79,7 +79,7 @@ A whole server can be rebuilt from nothing but the backup endpoint and its key, 
 
 Implemented in: `ansible/playbooks/restore.yml`
 
-Rehearsal scenarios (14 of 18 observed passing): `ce_restore`, `fi_d2_pg_dumpall_replay_constraint`, `fi_d4_disk_full_mid_snapshot`, `fi_d5_disk_full_mid_converge`, `fi_d6_volume_uid_drift`, `fi_d7_restic_corrupt_pack`, `nc_s3_hot_recovery`, `nc_sync_wipe_restore`, `pitr_fuse_round_trip`, `recover_secrets_from_running_host`, `recovery_landing_page_bilingual_parity`, `restore_dr`, `restore_version_skew_abort`, `s3_reconcile_orphan_cleanup`; declared, not yet observed passing: `debian_major_upgrade_restore`, `fi_d3_postgres_oom_mid_restore`, `pg_major_version_cross_restore`, `selective_restore_round_trip`
+Rehearsal scenarios (15 of 18 observed passing): `ce_restore`, `fi_d2_pg_dumpall_replay_constraint`, `fi_d3_postgres_oom_mid_restore`, `fi_d4_disk_full_mid_snapshot`, `fi_d5_disk_full_mid_converge`, `fi_d6_volume_uid_drift`, `fi_d7_restic_corrupt_pack`, `nc_s3_hot_recovery`, `nc_sync_wipe_restore`, `pitr_fuse_round_trip`, `recover_secrets_from_running_host`, `recovery_landing_page_bilingual_parity`, `restore_dr`, `restore_version_skew_abort`, `s3_reconcile_orphan_cleanup`; declared, not yet observed passing: `debian_major_upgrade_restore`, `pg_major_version_cross_restore`, `selective_restore_round_trip`
 
 ### No lock-in, ever
 
@@ -109,10 +109,10 @@ They are exercised by the same rehearsal suite as the Community features above, 
 | Tamper-evident central audit trail | 1 | 1 |
 | Offsite immutable backup copy | 5 | 6 |
 | Vulnerability scanning | 1 | 1 |
-| Automated daily maintenance | 13 | 13 |
+| Automated daily maintenance | 12 | 13 |
 | Managed lifecycle operations (migration, decommission) | see note | see note |
 | Licensed feature activation | 6 | 6 |
-| Identity posture monitoring | 0 | 1 |
+| Identity posture monitoring | 1 | 1 |
 | Managed updates with automatic rollback | 9 | 9 |
 | External availability monitoring | 0 | 1 |
 | Multiple domains, each with its own private sign-on | 1 | 1 |
@@ -122,7 +122,7 @@ Note: features marked *see note* are maintainer-run procedures; their rehearsals
 
 ## Maintainer-internal tooling
 
-The maintainers' internal tooling (test harness, control plane, rotation and maintenance utilities) accounts for a further 3 features and 17 of 23 rehearsal scenarios observed passing; details stay private.
+The maintainers' internal tooling (test harness, control plane, rotation and maintenance utilities) accounts for a further 3 features and 16 of 23 rehearsal scenarios observed passing; details stay private.
 
 ## Continuous integration gates on this repository
 
