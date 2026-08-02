@@ -28,6 +28,23 @@ catena_payload_image: >-
      | default(catena_admin_image
                | default('ghcr.io/catenahq/catena-admin:latest'), true) }}
 
+# Immutable digest the image must resolve to before anything is extracted from
+# it. The payload is root-executed (install-ee-payload.sh puts Go binaries into
+# /usr/local/bin and runs them as root), so a moved tag or a compromised
+# registry account owns the box. A digest check is the verification that works
+# offline, needs nothing installed on the host, and does not depend on the
+# registry being honest at extract time.
+#
+# Empty is NOT "verified", it is "unchecked", and the role says so out loud on
+# every converge. A silent skip here would read exactly like a passing
+# verification, which is the failure mode this whole gate exists to avoid.
+#
+# Set it to the digest publish-image.yml recorded for the release being
+# deployed. The bench builds local/catena-admin:bench on the VPS and leaves it
+# empty; a deliberately wrong value is how the fail-closed leg gets exercised.
+catena_payload_image_digest: >-
+  {{ lookup('env', 'CATENA_PAYLOAD_IMAGE_DIGEST', default='') }}
+
 # Where the image's payload tree is unpacked on the host. The catena-admin
 # container also mirrors its embedded payload here at startup, so both writers
 # agree on one location and the dir's ownership is preserved across an extract

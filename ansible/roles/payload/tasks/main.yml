@@ -57,6 +57,42 @@
       register: _payload_image_id
       changed_when: false
 
+    # The digest gate sits here on purpose: after the image is resolvable and
+    # BEFORE anything is copied out of it or executed. A mismatch must never
+    # reach `docker create`, let alone install-ee-payload.sh, which runs as
+    # root. The ordering is what the unit test pins.
+    - name: "Payload: resolve the image's repo digest"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - image
+          - inspect
+          - "--format={{ '{{ join .RepoDigests \",\" }}' }}"
+          - "{{ catena_payload_image }}"
+      register: _payload_repo_digests
+      changed_when: false
+      when: catena_payload_image_digest | length > 0
+
+    - name: "Payload: the image is not the pinned one -- refusing to extract"
+      ansible.builtin.fail:
+        msg: >-
+          {{ catena_payload_image }} resolved to
+          {{ _payload_repo_digests.stdout | default('') | trim | default('no repo digest', true) }}
+          but this deployment pins {{ catena_payload_image_digest }}. Refusing
+          to extract or root-execute the payload.
+      when:
+        - catena_payload_image_digest | length > 0
+        - catena_payload_image_digest not in (_payload_repo_digests.stdout | default(''))
+
+    - name: "Payload: image digest is NOT pinned"
+      ansible.builtin.debug:
+        msg: >-
+          catena_payload_image_digest is empty: {{ catena_payload_image }} is
+          being extracted and root-executed WITHOUT a digest check. Set it (or
+          CATENA_PAYLOAD_IMAGE_DIGEST) to the published image's digest. This is
+          unchecked, not verified.
+      when: catena_payload_image_digest | length == 0
+
     - name: "Payload: read the installed-image marker"
       ansible.builtin.slurp:
         src: "{{ catena_payload_marker }}"

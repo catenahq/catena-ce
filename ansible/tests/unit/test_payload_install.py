@@ -189,3 +189,64 @@ def test_cloudflare_tunnel_still_defers_when_engines_are_staged_out_of_band():
     assert deferred, "the out-of-band staging path lost its deferral"
     cond = " ".join(str(c) for c in deferred[0]["when"])
     assert "not (catena_payload_engines_expected" in cond
+
+
+# --- digest gate ------------------------------------------------------------
+# install-ee-payload.sh puts Go binaries into /usr/local/bin and runs as root,
+# so whatever the image resolves to owns the box. A moved tag or a compromised
+# registry account is the threat; a digest check is the verification that works
+# offline and needs nothing on the host.
+
+
+def _names(tasks: list[dict]) -> list[str]:
+    return [t.get("name", "") for t in tasks]
+
+
+def _index_of(tasks: list[dict], needle: str) -> int:
+    for i, name in enumerate(_names(tasks)):
+        if needle in name:
+            return i
+    raise AssertionError(f"no task matching {needle!r}; have {_names(tasks)}")
+
+
+def test_digest_mismatch_fails_before_anything_is_extracted_or_run() -> None:
+    """Ordering IS the security property. A mismatch that fails after
+    `docker create` has already copied the tree, or after
+    install-ee-payload.sh has run, has verified nothing -- the code is on the
+    host and executed by then."""
+    flat = _flatten(_tasks())
+    fail_at = _index_of(flat, "not the pinned one")
+
+    for later in ("create a throwaway container",
+                  "docker cp the payload tree",
+                  "install the engines onto the host"):
+        assert fail_at < _index_of(flat, later), (
+            f"the digest check runs AFTER {later!r}, so a wrong image is "
+            f"already on the host by the time it is refused"
+        )
+
+
+def test_digest_gate_is_conditional_on_a_pin_being_set() -> None:
+    flat = _flatten(_tasks())
+    fail_task = flat[_index_of(flat, "not the pinned one")]
+    conds = " ".join(str(c) for c in _as_list(fail_task.get("when")))
+    assert "catena_payload_image_digest | length > 0" in conds
+    assert "catena_payload_image_digest not in" in conds
+
+
+def test_an_unpinned_image_says_so_out_loud() -> None:
+    """Empty is "unchecked", not "verified". A silent skip reads exactly like
+    a passing verification, which is the failure this gate exists to avoid."""
+    flat = _flatten(_tasks())
+    notice = flat[_index_of(flat, "digest is NOT pinned")]
+    conds = " ".join(str(c) for c in _as_list(notice.get("when")))
+    assert "catena_payload_image_digest | length == 0" in conds
+    assert "WITHOUT a digest check" in notice["ansible.builtin.debug"]["msg"]
+
+
+def test_digest_is_env_overridable_and_defaults_to_empty() -> None:
+    """Empty by default: no image is published yet, and a default that
+    pretended otherwise would fail every converge."""
+    raw = _defaults()["catena_payload_image_digest"]
+    assert "CATENA_PAYLOAD_IMAGE_DIGEST" in raw
+    assert "default=''" in raw

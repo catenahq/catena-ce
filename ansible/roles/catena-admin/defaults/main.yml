@@ -24,6 +24,17 @@ catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
 # VPS and passes that tag).
 catena_admin_image: "ghcr.io/catenahq/catena-admin:latest"
 
+# The digest roles/payload refuses to extract anything from unless it matches
+# (see roles/payload/defaults/main.yml). It lives here too because the two
+# roles must agree: roles/payload takes the ENGINES out of an image and
+# roles/catena-admin runs the SHELL from one, and a host holding an engine and
+# a panel built from different images is the disagreement this role's header
+# already warns about -- one value drives both.
+#
+# Empty until the first v* tag publishes, which is also why catena_admin_image
+# is still on :latest. Pin both together, not one at a time.
+catena_admin_image_digest: "{{ catena_payload_image_digest | default('') }}"
+
 # Deploy the catena-admin container FROM the converge (deploy.yml). Production
 # pulls the published GHCR image at converge time. The test bench builds the
 # image on the VPS and deploys it OUT OF BAND (stage-2.6, build-on-host per the
