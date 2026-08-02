@@ -433,10 +433,39 @@
     mode: "0644"
   register: _backup_timer_unit
 
+# The bit-rot probe. Ships on EVERY edition, unlike the daily chain: the
+# metadata check follows each backup from run-backup.sh, and this is the half
+# that reads pack data end to end. Before both, the check existed only as a
+# state in the licensed chain, so a Community host backed up weekly and never
+# checked the repository at all.
+#
+# Installed here, enabled and scheduled by `catena-schedule apply` like every
+# other lane -- see the note below the timer tasks.
+- name: Drop the bit-rot probe service unit
+  ansible.builtin.template:
+    src: catena-restic-check-subset.service.j2
+    dest: /etc/systemd/system/catena-restic-check-subset.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: _restic_check_subset_service_unit
+
+- name: Drop the bit-rot probe timer unit
+  ansible.builtin.template:
+    src: catena-restic-check-subset.timer.j2
+    dest: /etc/systemd/system/catena-restic-check-subset.timer
+    owner: root
+    group: root
+    mode: "0644"
+  register: _restic_check_subset_timer_unit
+
 - name: Reload systemd if the backup service or timer unit changed
   ansible.builtin.systemd_service:
     daemon_reload: true
-  when: _backup_service_unit.changed or _backup_timer_unit.changed
+  when: >-
+    _backup_service_unit.changed or _backup_timer_unit.changed
+    or _restic_check_subset_service_unit.changed
+    or _restic_check_subset_timer_unit.changed
 
 # The timer unit is INSTALLED here and enabled nowhere in this repo.
 #

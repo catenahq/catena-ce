@@ -482,6 +482,25 @@ backup_restic_unmount_script: /usr/local/bin/catena-restic-unmount
 # from compact JSON, causing tag --add to fail on every prod run).
 # Source: vps-scripts/restic-short-id.sh.
 backup_restic_short_id_script: /usr/local/bin/catena-restic-short-id
+# Repo integrity probe, shipped in the engine payload. run-backup.sh calls it
+# with --metadata after every successful backup; the weekly 5% bit-rot read is
+# a separate timer (catena-restic-check-subset.timer) because that one is
+# time-based, not backup-driven.
+#
+# Before this it ran ONLY as a state in the catena-daily chain, and that chain
+# is the licensed lane -- so a Community host backed up weekly and never
+# checked the repository at all.
+backup_restic_check_script: /usr/local/bin/catena-restic-check
+# Bound on the post-backup metadata check. `restic check` is metadata-only, but
+# it still talks to the object store, so a network stall must not hold the
+# backup unit open indefinitely.
+backup_restic_check_timeout: 600
+# The bit-rot read's cadence is NOT set here. It is the `restic_check_subset`
+# lane in catena-schedule, which owns enable/disable and OnCalendar for every
+# lane out of /etc/catena/config.json. The day used to be a hardcoded
+# `date -u +%u` = 7 inside the wrapper -- the one piece of catena's scheduling
+# a client could not move; putting it in an Ansible default instead would just
+# move the immovable value, not fix it.
 # Shared disk-space preflight. Used by run-backup.sh, the
 # auto-update two-phase driver, and roles/backup/tasks/restore.yml. One
 # implementation, three callers; see vps-scripts/disk-preflight.sh.

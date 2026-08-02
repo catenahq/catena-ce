@@ -750,6 +750,32 @@ if [ -n "${BACKUP_SNAPSHOT_LIST_SCRIPT:-}" ] && [ -x "${BACKUP_SNAPSHOT_LIST_SCR
         log "snapshot-list errored or timed out; non-fatal"
 fi
 
+# ─── repo integrity: metadata check on what this run just wrote ─────────
+# Index + structure only (no pack reads), so it is cheap enough to follow
+# every backup -- which is the point. The check used to exist ONLY as a state
+# in the catena-daily chain, and that chain is the licensed lane, so a
+# Community host wrote a backup every week and never checked the repository at
+# all. Tying it here means a host is checked exactly as often as it has
+# something new to check, on every edition.
+#
+# The 5% bit-rot read is NOT here: it is time-based, driven by
+# catena-restic-check-subset.timer. Bit rot accrues with wall-clock time
+# rather than with backup count, and the deep read pulls 5% of the repo out of
+# object storage each time -- following a sub-hourly RPO with it would
+# multiply a client's egress bill and prove nothing extra.
+#
+# Non-fatal, deliberately. The snapshot is already written and pruning is
+# already done; failing the RUN here would report a backup that exists as a
+# backup that failed. The check writes its own report, the daily chain aborts
+# COLD_MIRROR on a bad one, and the panel renders it -- corruption is surfaced
+# by those, not by retroactively failing a completed backup.
+if [ -n "${BACKUP_RESTIC_CHECK_SCRIPT:-}" ] && [ -x "${BACKUP_RESTIC_CHECK_SCRIPT}" ]; then
+    log "repo integrity check (metadata)"
+    timeout "${BACKUP_RESTIC_CHECK_TIMEOUT:-600}" \
+        "${BACKUP_RESTIC_CHECK_SCRIPT}" --metadata 2>&1 | sed 's/^/  check: /' || \
+        log "repo integrity check errored or timed out; non-fatal (see restic-check.json)"
+fi
+
 # ─── success ─────────────────────────────────────────────────────────────
 trap - EXIT
 # Stamp the last-success time so the runtime due-gate (BACKUP_MIN_INTERVAL_HOURS)
