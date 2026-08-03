@@ -15,7 +15,15 @@
     _assert_paths:
       - { path: /etc/systemd/system/catena-backup.service }
       - { path: /etc/systemd/system/catena-backup.timer }
-      - { path: /usr/local/bin/run-backup.sh, mode: "0750" }
+      # 0755 rather than the 0750 this asserted while the role copied the
+      # wrapper itself: install-ee-payload.sh installs every payload binary and
+      # lane script with one mode. Nothing is lost -- the wrapper holds no
+      # secret (its per-host values come from backup.env, which stays 0600), so
+      # the tighter mode was never what kept the credentials unreadable.
+      - { path: "{{ backup_wrapper_script }}", mode: "0755" }
+      - { path: "{{ backup_coverage_script }}", mode: "0755" }
+      - { path: "{{ backup_restic_env_script }}", mode: "0755" }
+      - { path: "{{ backup_snapshot_list_script }}", mode: "0755" }
       - { path: /usr/local/bin/restic, mode: "0755" }
       - { path: /usr/local/bin/catena-disk-preflight, mode: "0755" }
 

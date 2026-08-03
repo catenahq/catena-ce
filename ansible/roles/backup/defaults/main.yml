@@ -11,7 +11,7 @@ backup_restic_version: "0.19.1"
 
 # e.g. s3:s3.bhs.io.cloud.ovh.net/<client>-restic. Store-owned: the inventory
 # .env seeds it on the first converge and catena-admin > Settings owns it
-# after that. run-backup.sh already read the store at runtime; this makes the
+# after that. catena-backup-run already read the store at runtime; this makes the
 # converge read the same value instead of a second copy from .env.
 backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
 
@@ -194,7 +194,7 @@ backup_healthcheck_url_operator: "{{ cfg_backup_healthcheck_url_operator | defau
 # Five independent restic buckets, set in the Catena admin panel, stored on-box
 # in /etc/catena/config.json under `backup_retention`, rendered to
 # /etc/catena/backup-retention.env by `catena-schedule apply`, and sourced from
-# there by run-backup.sh. One source, one writer, one reader. Adding a default
+# there by catena-backup-run. One source, one writer, one reader. Adding a default
 # here would make this repo a second writer of a value the panel owns, which is
 # how the old arrangement ended up with a converge-rendered copy that no host
 # ever read.
@@ -233,7 +233,7 @@ backup_healthcheck_url_operator: "{{ cfg_backup_healthcheck_url_operator | defau
 #     (scope=clients) after the stacks redeploy -- belt-and-suspenders
 #     against a volume that doesn't survive the compose recreate.
 #
-# pg_dumpall failures are fatal (run-backup.sh exits non-zero) so a
+# pg_dumpall failures are fatal (catena-backup-run exits non-zero) so a
 # silent dump gap can't lead to silent data loss.
 # Covered storage contract for Docker data on this stack:
 #
@@ -253,9 +253,9 @@ backup_healthcheck_url_operator: "{{ cfg_backup_healthcheck_url_operator | defau
 #      ✓ covered by {{ storage_mount_point }}/apps
 #
 #   E. Absolute bind mounts anywhere else (/srv/..., /opt/..., /home/...)
-#      ✗ NOT covered by default. roles/backup/templates/backup-coverage.sh.j2
-#      runs at the end of every nightly and prints a warning listing any
-#      uncovered bind-mount sources. If a client app needs data in a
+#      ✗ NOT covered by default. catena-backup-coverage (a lane script in the
+#      catena-admin image payload) runs at the end of every nightly and fails
+#      the run listing any uncovered bind-mount sources. If a client app needs data in a
 #      non-standard location, either move it under /mnt/data/apps OR
 #      extend this list via an inventory-level backup_paths override.
 #
@@ -325,7 +325,7 @@ backup_paths:
 # Patterns match against the ABSOLUTE path restic sees. `*` does not
 # cross slashes; use `**` if you need recursive matching. See
 # https://restic.readthedocs.io/en/stable/040_backup.html#excluding-files
-# backup-coverage.sh surfaces excluded paths in its report so operators
+# catena-backup-coverage surfaces excluded paths in its report so operators
 # can see what's deliberately NOT in the snapshot alongside what's
 # accidentally not in it.
 backup_exclude_patterns:
@@ -462,16 +462,32 @@ backup_restic_env:
 
 # Wrapper + config locations. Changing these also requires updating
 # tests/goss/backup.yaml.
-backup_wrapper_script: /usr/local/bin/run-backup.sh
+#
+# Every path below is INSTALLED BY THE IMAGE PAYLOAD, not by this role -- the
+# lane scripts live in catena-admin payload/lanes/ and roles/payload puts them
+# on PATH right after roles/docker. This role still owns the per-host
+# configuration they read (backup.env, backup-paths, the unit files), so the
+# names stay here: they are what the env file and the units point at.
+#
+# The one exception is backup_disk_preflight_script further down, which this
+# role still copies, because restore.yml calls it on a fresh DR box that has no
+# docker and therefore no payload.
+#
+# catena-backup-run was /usr/local/bin/run-backup.sh while this role copied it.
+# Renamed on the move so it matches every other host command: catena-prefixed,
+# no language suffix, same family as catena-restore-run and catena-migrate-run.
+# Nothing in backup.env names it (that file is written only-if-absent, so a
+# path recorded in it could never be corrected), and the unit that does name it
+# is re-templated on every converge.
+backup_wrapper_script: /usr/local/bin/catena-backup-run
 backup_coverage_script: /usr/local/bin/catena-backup-coverage
 # Single canonical entrypoint for running restic with backup.env loaded
-# from outside the systemd-launched scripts. Source: vps-scripts/restic-env.sh.
-# See that file's header for why this exists.
+# from outside the systemd-launched scripts. See that script's header for why
+# this exists.
 backup_restic_env_script: /usr/local/bin/catena-restic-env
 # Per-app PITR recovery via FUSE. Mounts the restic repo read-only at
 # /mnt/restic-browse so the operator can copy a single file out of a
-# past snapshot when in-app trash + soft-delete are not enough. Source:
-# vps-scripts/restic-mount.sh + restic-unmount.sh. Wired to the
+# past snapshot when in-app trash + soft-delete are not enough. Wired to the
 # catena-admin Actions tab entries "Browse past snapshots" + "Unmount
 # snapshot browser".
 backup_restic_mount_script: /usr/local/bin/catena-restic-mount
@@ -480,9 +496,8 @@ backup_restic_unmount_script: /usr/local/bin/catena-restic-unmount
 # `restic snapshots --json` output piped on stdin. Replaces the
 # previous in-tree awk extractor (which silently picked $4 = `time`
 # from compact JSON, causing tag --add to fail on every prod run).
-# Source: vps-scripts/restic-short-id.sh.
 backup_restic_short_id_script: /usr/local/bin/catena-restic-short-id
-# Repo integrity probe, shipped in the engine payload. run-backup.sh calls it
+# Repo integrity probe, shipped in the engine payload. catena-backup-run calls it
 # with --metadata after every successful backup; the weekly 5% bit-rot read is
 # a separate timer (catena-restic-check-subset.timer) because that one is
 # time-based, not backup-driven.
@@ -501,12 +516,17 @@ backup_restic_check_timeout: 600
 # `date -u +%u` = 7 inside the wrapper -- the one piece of catena's scheduling
 # a client could not move; putting it in an Ansible default instead would just
 # move the immovable value, not fix it.
-# Shared disk-space preflight. Used by run-backup.sh, the
-# auto-update two-phase driver, and roles/backup/tasks/restore.yml. One
-# implementation, three callers; see vps-scripts/disk-preflight.sh.
+# Shared disk-space preflight. Used by catena-backup-run, the auto-update
+# two-phase driver, and roles/backup/tasks/restore.yml. One implementation,
+# three callers; source is ansible/scripts/disk-preflight.sh.
+#
+# This is the ONE backup script this role still copies. restore.yml calls it on
+# a fresh DR box -- common, storage, backup, no docker -- so there is no image
+# to extract a payload from at that point. A script has to live where its
+# EARLIEST caller can reach it, and this one's earliest caller has no docker.
 backup_disk_preflight_script: /usr/local/bin/catena-disk-preflight
 # FLOOR for free bytes at {{ storage_mount_point }}/backup-staging before a
-# backup run is allowed to start -- not the requirement. run-backup.sh sums
+# backup run is allowed to start -- not the requirement. catena-backup-run sums
 # pg_database_size across every running postgres container at runtime and
 # demands that instead whenever it exceeds this, because pg_dumpall stages
 # UNCOMPRESSED SQL locally before gzip and a number sized for a reference host
@@ -541,7 +561,7 @@ backup_weekly_timer_oncalendar: "{{ cfg_backup_weekly_timer_oncalendar | default
 # both the catena-admin container's read-only bind-mount target AND
 # the post-restore.needed marker referenced by playbooks + several
 # roles. The catena-admin role binds this dir at /var/lib/catena
-# (read-only) into the container; the writers (run-backup.sh,
+# (read-only) into the container; the writers (catena-backup-run,
 # gatus-sync.py) drop *.json siblings to the marker file. Path is
 # locked by test_restore_option_a.py; don't move without updating
 # the hardcoded reference in roles/common/tasks/main.yml.
@@ -566,7 +586,7 @@ backup_export_keep_last: 1 # rotation: keep only the newest N exports
 
 # F6: snapshot-list helper. Renders ${backup_export_dir}/index.html with
 # a curated table of current restic snapshots + pre-exported tarballs.
-# Called by run-backup.sh after forget+prune so the listing tracks the
+# Called by catena-backup-run after forget+prune so the listing tracks the
 # live repo state. Served as the landing page at recovery.<zone>.
 backup_snapshot_list_script: /usr/local/bin/catena-snapshot-list
 

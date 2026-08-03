@@ -11,6 +11,12 @@ healthchecks_ping_key is INTERNAL_SECRETS -- minted on the box by the
 converge loader every run -- so an empty HC_PING_KEY is never a configuration.
 It means the on-box store did not load when the env file was rendered.
 
+The same rule applied to catena-backup-run's not-due gate and to
+catena-backup-coverage's unrendered-paths gate. Those two moved to catena-admin
+payload/lanes/backup_guards_signal_test.go when their scripts moved into the
+image payload; the clamav-watch and mail-canary lanes are still shipped from
+this repo, so their half stayed here.
+
 Run: uv run pytest tests/unit/test_lane_guards_signal.py
 """
 from __future__ import annotations
@@ -63,22 +69,3 @@ def test_the_guard_names_the_file_to_fix(script):
     assert "converge" in body, "the log must say how to fix it, not just what broke"
 
 
-def test_the_due_gate_leaves_a_trace():
-    """run-backup's not-due skip is NOT a problem -- a recent success is why
-    it skips, and the succeeded check is inside its grace window, so /fail
-    would page a healthy host. But it was the only guard in that file with no
-    ping at all, which makes "the timer fired and declined" and "the timer
-    never fired" the same record. /log records the event without touching
-    up/down state."""
-    lines = _code("run-backup.sh")
-    idx = next(i for i, ln in enumerate(lines) if "backup not due yet" in ln)
-    window = "\n".join(lines[idx:idx + 6])
-    assert "ping_hc_attempted /log" in window
-    assert "/fail" not in window, "a not-due skip must not page"
-
-
-def test_coverage_cannot_report_covered_when_it_checked_nothing():
-    """rc 0 means VERIFIED covered. An unrendered paths file used to return
-    it, so the one check that finds data outside the backup set reported that
-    everything was inside it."""
-    assert _guard_exit("backup-coverage.sh", "COVERAGE_PATHS_FILE") == "exit 3"

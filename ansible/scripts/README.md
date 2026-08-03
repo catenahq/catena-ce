@@ -19,7 +19,6 @@ is why they sit flat in one directory rather than in a package.
 
 | File | What it does |
 | --- | --- |
-| `backup-coverage.sh` | Enumerate every bind-mount source used by running containers, flag any path that ISN'T under a covered prefix. |
 | `beszel-hc-shim.py` | Beszel -> Healthchecks alert shim. |
 | `beszel-seed.py` | Seed Beszel's permanent universal token (idempotent). |
 | `catena-admin-runner.sh` | catena-admin action dispatcher -- the ONLY thing the catena-admin runner user's ssh key is allowed to run (enforced by authorized_keys' command= stanza). |
@@ -39,17 +38,10 @@ is why they sit flat in one directory rather than in a package.
 | `mailserver-cert-reload.sh` | Inject the renewed mail TLS cert into the dms container and reload Postfix + Dovecot so it takes effect without dropping established connections. |
 | `nextcloud-talk-hpb-wire.sh` | /usr/local/bin/catena-wire-nextcloud-talk-hpb -- post-deploy wiring for Nextcloud Talk's High-Performance Backend (HPB). |
 | `portainer_api.py` | Portainer stack API + generic JSON-HTTP helpers for dashboard-sync. |
-| `restic-env.sh` | catena-restic-env -- single canonical entrypoint for running a command with /etc/catena/backup.env loaded into the environment. |
-| `restic-mount.sh` | catena-restic-mount -- mount the restic repository read-only at /mnt/restic-browse so an operator can recover a single file or directory from a past snapshot without running a full restore. |
-| `restic-short-id.sh` | catena-restic-short-id -- extract the short_id of the first snapshot in `restic snapshots --json` output piped on stdin. |
-| `restic-unmount.sh` | catena-restic-unmount -- counterpart to catena-restic-mount. |
 | `rocketchat-jitsi-wire.sh` | /usr/local/bin/catena-wire-rocketchat-jitsi -- post-deploy wiring for Rocket.Chat's bundled on-server Jitsi. |
 | `route_synth.py` | Traefik gate-route rendering + access resolution for dashboard-sync. |
-| `run-backup.sh` | Take one restic snapshot of the host: dump the databases, back up the declared paths, prune to the retention policy, ping the dead-man check. |
 | `run-clamav-watch.sh` | Page when the shared clamd is down, but only while something depends on it -- the mail server's dms container or Nextcloud. |
 | `run-mail-canary.sh` | Prove the mail server is up AND actually filtering, via host-side docker-exec into the dms container -- no external SMTP/IMAP and no auth (the server is OAuth2-only, so there is no password to log in with). |
-| `snapshot-export.sh` | Prepare a portable tarball of the latest restic snapshot for off-host download. |
-| `snapshot-list.sh` | Render an HTML index of the restic snapshots currently in the repo into ${BACKUP_EXPORT_DIR}/index.html. |
 | `verify_gated_intent.py` | Intent-driven auth-gate verifier for validate (1ad). |
 | `wire-nextcloud-antivirus.sh` | /usr/local/bin/catena-wire-nextcloud-antivirus -- point Nextcloud's files_antivirus app at the shared clamd (catena-clamav network). |
 | `wire-nextcloud-collabora.sh` | /usr/local/bin/catena-wire-nextcloud-collabora -- wire Collabora CODE as the office editor inside a deployed Nextcloud instance. |

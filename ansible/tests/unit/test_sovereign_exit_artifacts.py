@@ -16,13 +16,17 @@ carry that promise, and all three are easy to break silently:
 A README that references our own CLI would defeat the point (the client
 would still depend on us), so that is asserted too.
 
+The other two artifacts -- the recovery landing page and the export summary --
+are rendered by scripts that now ship in the catena-admin image payload, so
+their assertions moved to catena-admin payload/lanes/snapshot_page_test.go.
+Both halves matter and neither is sufficient: a page that names the version
+stamp is useless if /etc stops riding snapshots, and /etc riding snapshots is
+useless if the page never says how to read it. This file owns the second half.
+
 Run: uv run pytest tests/unit/test_sovereign_exit_artifacts.py
 """
 from __future__ import annotations
 
-import json
-import subprocess
-import sys
 from pathlib import Path
 
 import yaml
@@ -32,8 +36,6 @@ _ROLE = _ANSIBLE / "roles" / "backup"
 _DEFAULTS = _ROLE / "defaults" / "main.yml"
 _INSTALL = _ROLE / "tasks" / "install.yml"
 _TEMPLATES = _ROLE / "templates"
-_SNAPSHOT_LIST = _ANSIBLE / "scripts" / "snapshot-list.sh"
-_SNAPSHOT_EXPORT = _ANSIBLE / "scripts" / "snapshot-export.sh"
 
 _LANGS = ("en", "fr")
 
@@ -84,101 +86,17 @@ def test_readme_does_not_depend_on_our_own_tooling():
             assert tool in body, f"RECOVERY-README.{lang} never mentions {tool}"
 
 
-def test_landing_page_publishes_the_version_stamp():
-    body = _SNAPSHOT_LIST.read_text()
-    assert "/etc/catena/version.txt" in body, (
-        "the recovery landing page must name the version that built this "
-        "server -- it is the skew oracle for a rebuild"
+def test_the_export_directory_is_created_for_the_payload_scripts():
+    """catena-snapshot-export and catena-snapshot-list write here, and both
+    ship in the image payload -- so the DIRECTORY is this role's job even
+    though the writers are not. Group 1000 is what lets the catena-admin
+    container list the artifacts for the /recovery tab."""
+    tasks = _install_tasks()
+    task = next(
+        (t for t in tasks if "snapshot export directory" in (t.get("name") or "")),
+        None,
     )
-    assert "restic dump latest /etc/catena/version.txt" in body, (
-        "the page must show how to read the stamp out of a snapshot without "
-        "restoring anything"
-    )
-    assert "RECOVERY-README" in body, "the page must point at the rebuild guide"
-
-
-def test_export_summary_points_at_the_self_describing_contents():
-    body = _SNAPSHOT_EXPORT.read_text()
-    assert "./etc/catena/version.txt" in body
-    for lang in _LANGS:
-        assert f"./etc/catena/RECOVERY-README.{lang}.md" in body, (
-            "a downloaded tarball must announce its own rebuild instructions"
-        )
-
-
-def _render_landing_page(tmp_path, version_stamp):
-    """Run the script's embedded python block against stub inputs.
-
-    The page body is one big f-string, so an unescaped brace or a bad
-    substitution breaks rendering at RUNTIME on a client's box, long after
-    review. Rendering it here turns that into a test failure.
-    """
-    lines = _SNAPSHOT_LIST.read_text().splitlines()
-    start = next(i for i, l in enumerate(lines) if l.startswith("python3 - "))
-    end = next(i for i, l in enumerate(lines) if l.strip() == "PY" and i > start)
-    block = tmp_path / "block.py"
-    block.write_text("\n".join(lines[start + 1 : end]))
-
-    snaps = tmp_path / "snaps.json"
-    snaps.write_text(
-        json.dumps(
-            [
-                {
-                    "short_id": "abc123",
-                    "time": "2026-07-24T10:00:00Z",
-                    "hostname": "dev1",
-                    "paths": ["/etc"],
-                    "tags": ["weekly"],
-                }
-            ]
-        )
-    )
-    export_dir = tmp_path / "exports"
-    export_dir.mkdir()
-    (export_dir / "snapshot-20260724T100000Z.tar.gz").write_bytes(b"x" * 1024)
-    out = tmp_path / "index.html"
-
-    subprocess.run(
-        [
-            sys.executable,
-            str(block),
-            str(out),
-            str(export_dir),
-            "2026-07-24T00:00:00Z",
-            "example.com",
-            str(snaps),
-            version_stamp,
-        ],
-        check=True,
-    )
-    return out.read_text()
-
-
-def test_landing_page_renders_with_the_rebuild_block(tmp_path):
-    html = _render_landing_page(tmp_path, "v1.2.3-4-gabcdef\n2026-07-20T00:00:00Z")
-    for needle in (
-        "v1.2.3-4-gabcdef",
-        "restic dump latest /etc/catena/version.txt",
-        "RECOVERY-README.en.md",
-        "RECOVERY-README.fr.md",
-        "abc123",
-        "snapshot-20260724T100000Z.tar.gz",
-    ):
-        assert needle in html, f"missing from the rendered page: {needle}"
-
-
-def test_landing_page_respects_client_copy_rules(tmp_path):
-    """recovery.<zone> is a client surface: no internal vocabulary."""
-    html = _render_landing_page(tmp_path, "v1.2.3").lower()
-    for banned in ("operator", "playbook", "ansible"):
-        assert banned not in html, (
-            f"'{banned}' is internal vocabulary and must not appear on a "
-            "client-facing page"
-        )
-
-
-def test_landing_page_survives_a_missing_version_stamp(tmp_path):
-    """cat of a missing file yields 'unknown'; the page must still render."""
-    html = _render_landing_page(tmp_path, "unknown")
-    assert "unknown" in html
-    assert "Rebuilding this server" in html
+    assert task is not None, "the export directory task went missing"
+    spec = task["ansible.builtin.file"]
+    assert spec["state"] == "directory"
+    assert str(spec["group"]) == "1000"

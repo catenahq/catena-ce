@@ -20,6 +20,13 @@ template and NOT in a `date -u +%u` inside the wrapper -- which is where it
 used to live, making it the one piece of catena's scheduling a client could
 not move.
 
+This file holds the half that asserts about THIS repo: the units, the
+templates and the role defaults. The half that read the wrapper moved to
+catena-admin payload/lanes/backup_run_integrity_test.go when the wrapper moved
+into the image payload. Each test lives with the artifact it describes; a test
+that spanned both repos could only ever run on a workstation with the whole
+catena workspace checked out.
+
 Run: uv run pytest tests/unit/test_backup_integrity_check_cadence.py
 """
 from __future__ import annotations
@@ -33,7 +40,6 @@ ROLE = ANSIBLE / "roles" / "backup"
 DEFAULTS = ROLE / "defaults" / "main.yml"
 INSTALL = ROLE / "tasks" / "install.yml"
 TEMPLATES = ROLE / "templates"
-WRAPPER = ANSIBLE / "scripts" / "run-backup.sh"
 
 
 def _defaults() -> dict:
@@ -50,49 +56,10 @@ def _names(tasks) -> list[str]:
 
 # --- the post-backup metadata check -----------------------------------------
 
-def test_backup_wrapper_runs_the_metadata_check_after_a_successful_run() -> None:
-    body = WRAPPER.read_text()
-    assert "BACKUP_RESTIC_CHECK_SCRIPT" in body, (
-        "run-backup.sh never calls the integrity check, so a Community host "
-        "still has none"
-    )
-    assert "--metadata" in body, (
-        "the wrapper must ask for the metadata half by name; the 5% pack read "
-        "would follow every backup and bill the client egress for it"
-    )
-    assert "--subset" not in body, "the deep read must not follow every backup"
-
-
-def test_the_check_runs_after_the_snapshot_not_before() -> None:
-    """It validates what the backup just wrote. Running it first would check
-    the previous run's repo and report on a snapshot that does not exist yet."""
-    body = WRAPPER.read_text()
-    check_at = body.index("BACKUP_RESTIC_CHECK_SCRIPT")
-    success_at = body.index("backup run complete")
-    assert check_at < success_at, "the check runs after the success log line"
-    assert body.index("regenerating snapshot-list page") < check_at, (
-        "the check should follow the snapshot + prune, not interleave with them"
-    )
-
-
-def test_the_check_is_non_fatal_to_the_backup() -> None:
-    """The snapshot is already written by then. Failing the RUN here would
-    report a backup that EXISTS as a backup that failed; corruption is
-    surfaced by the report, the chain's COLD_MIRROR gate and the panel."""
-    body = WRAPPER.read_text()
-    tail = body[body.index("BACKUP_RESTIC_CHECK_SCRIPT"):]
-    stanza = tail[:tail.index("backup run complete")]
-    assert "non-fatal" in stanza
-    assert "|| \\" in stanza or "||" in stanza, (
-        "a failing check must not abort the wrapper"
-    )
-
-
 def test_the_check_is_bounded() -> None:
     """Metadata-only, but it still talks to the object store; a network stall
-    must not hold the backup unit open indefinitely."""
-    body = WRAPPER.read_text()
-    assert "BACKUP_RESTIC_CHECK_TIMEOUT" in body
+    must not hold the backup unit open indefinitely. That the WRAPPER reads the
+    timeout is asserted in catena-admin; this is the value it reads."""
     assert _defaults()["backup_restic_check_timeout"] > 0
 
 

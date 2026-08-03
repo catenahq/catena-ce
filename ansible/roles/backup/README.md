@@ -27,9 +27,30 @@ provides one-shot tasks for verification, restore, and reconciliation.
   `restic backup` runs, so all of them predate it.
 - `ensure_restic.yml` -- apt-install + binary version pin only.
 
+## Where the scripts come from
+
+This role renders the per-host CONFIGURATION -- `backup.env`,
+`backup-worm.env`, `backup-paths`, the exclude patterns, the coverage
+paths and every systemd unit. It no longer ships the code that reads
+them: `catena-backup-run`, `catena-backup-coverage`, `catena-restic-env`,
+`catena-restic-mount`, `catena-restic-unmount`, `catena-restic-short-id`,
+`catena-snapshot-export` and `catena-snapshot-list` are lane scripts in
+the catena-admin image payload, installed by `roles/payload` right after
+`roles/docker`. A fix to any of them reaches a host by bumping the image,
+the same way every host engine already does.
+
+`catena-disk-preflight` is the exception and is still copied here.
+`restore.yml` calls it on a fresh disaster-recovery box that has run
+`common`, `storage` and `backup` and has no docker -- so there is no
+image to extract a payload from at that point. A script has to live
+where its earliest caller can reach it.
+
+`install.yml` fails loudly when the wrapper is absent rather than
+installing a timer that points at nothing.
+
 ## Logical dumps
 
-`run-backup.sh` writes a logical dump per database engine before the
+`catena-backup-run` writes a logical dump per database engine before the
 snapshot, alongside the raw volumes (which are also in the set):
 
 - Postgres -> `backup-staging/pg/<container>-<ts>.sql.gz` (`pg_dumpall`).
@@ -44,7 +65,7 @@ a broken database becomes a broken backup nobody looked at.
 
 ## Coverage
 
-`backup-coverage.sh` runs after the snapshot and exits 2 when a running
+`catena-backup-coverage` runs after the snapshot and exits 2 when a running
 container bind-mounts a source outside `backup_paths`. The wrapper fails
 the run on that (rc 4, which pings the operator lane), so an application
 writing where no snapshot reaches is a page rather than a line in a green

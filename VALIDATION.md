@@ -21,7 +21,7 @@ Two numbers are reported everywhere: **rehearsed** means the scenario was last r
 
 A scheduled weekly backup plus manual backups any time. Backups are encrypted on the server before leaving it and land in object storage the client owns; snapshots can be listed, browsed and exported without a restore. Daily and sub-daily cadence is a Catena Pro feature.
 
-Implemented in: `ansible/playbooks/backup_now.yml`, `ansible/playbooks/filter_plugins/backup_cadence_cap.py`, `ansible/roles/backup`, `ansible/scripts/backup-coverage.sh`, `ansible/scripts/catena-restic-key.py`, `ansible/scripts/restic-env.sh`, `ansible/scripts/restic-mount.sh`, `ansible/scripts/restic-short-id.sh`, `ansible/scripts/restic-unmount.sh`, `ansible/scripts/run-backup.sh`, `ansible/scripts/snapshot-export.sh`, `ansible/scripts/snapshot-list.sh`
+Implemented in: `ansible/playbooks/backup_now.yml`, `ansible/playbooks/filter_plugins/backup_cadence_cap.py`, `ansible/roles/backup`, `ansible/scripts/catena-restic-key.py`, `ansible/scripts/disk-preflight.sh`
 
 Rehearsal scenarios (11 of 11 observed passing): `backup_rollback`, `backup_schedule_applied`, `concurrent_backup_lock_contention`, `fi_b2_pg_dump_failed`, `fi_b3_snapshot_id_mismatch`, `fi_b4_locked_pack_rotation`, `fi_b6_healthchecks_down`, `fi_b7_ntfy_delivery_fails`, `malformed_catalog_rejection`, `restic_password_rotation_round_trip`, `snapshot_export_round_trip`
 
@@ -85,7 +85,7 @@ Rehearsal scenarios (16 of 18 observed passing): `ce_restore`, `fi_d2_pg_dumpall
 
 Delete the admin panel and everything else keeps working: backups run, restores work, and every application stays online, using only standard tools and the settings stored on the server itself. Leaving costs convenience, never data.
 
-Implemented in: `ansible/roles/backup`, `ansible/scripts/run-backup.sh`, `ansible/scripts/snapshot-export.sh`, `ansible/scripts/snapshot-list.sh`
+Implemented in: `ansible/roles/backup`
 
 Rehearsal scenarios (2 of 2 observed passing): `recovery_readme_manual_restore`, `sovereign_exit`
 
