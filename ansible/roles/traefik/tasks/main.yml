@@ -161,18 +161,36 @@
 # `docker stack config` type-checks, so the running service and the rendered
 # plane cannot describe different things.
 #
+# ASKED FOR, not assembled here -- same move roles/postgres made. The engine on
+# the host owns what the control plane IS (catena-admin
+# payload/engines/tier1/catalog.go); this reads its answer and uses it exactly
+# where the hand-built dict used to go.
+#
+# The point of asking rather than keeping a copy: a second description of one
+# service is the drift this seam exists to remove, and a copy that agrees on the
+# day it is written says nothing about the next field added to one side. The
+# engine's own test pins the declaration this role used to build and asserts
+# byte-identical create argv.
+#
+# It also means the desired state travels with the IMAGE. Bump the catena-admin
+# tag, roles/payload re-extracts the engines, and the control plane the host
+# reconciles toward moves with it -- no laptop, no inventory edit.
+#
 # No `ports`. The no-host-port invariant is structural in both renderers --
 # cloudflared over the overlay is the only ingress, and neither the argv nor
 # the compose service has a publish for a drift check to find.
-- name: "traefik: build the tier-1 service spec"
+- name: "traefik: read the built-in tier-1 spec from the host engine"
+  ansible.builtin.include_role:
+    name: tier1_stack
+    tasks_from: spec_one.yml
+    apply:
+      tags: [traefik]
+  vars:
+    tier1_spec_name: "{{ traefik_container_name }}"
+
+- name: "traefik: adopt the built-in spec"
   ansible.builtin.set_fact:
-    _traefik_spec: >-
-      {{ traefik_desired | combine({
-           'name': traefik_container_name,
-           'networks': [catena_network_name],
-           'detach': true,
-           'volumes': traefik_mounts | map('swarm_mount_to_compose') | list,
-         }) }}
+    _traefik_spec: "{{ tier1_builtin_spec }}"
 
 - name: "traefik: contribute the spec to the control-plane render"
   ansible.builtin.set_fact:

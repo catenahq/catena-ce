@@ -75,40 +75,34 @@ def test_the_plain_container_removal_is_gated_on_the_service_being_absent():
     ]
 
 
-def _spec() -> str:
-    """The set_fact body that builds the tier-1 spec, as source text.
+def test_it_is_a_swarm_service_whose_spec_comes_from_the_engine():
+    """The role no longer writes a create argv, and no longer builds a spec
+    either: it ASKS the catena-tier1 host engine for one and hands that to
+    reconcile_one.yml.
 
-    Read as text rather than parsed because the interesting properties are
-    about which keys the role DECLARES -- the values are Jinja that only
-    resolves against a real host."""
-    return str(_find("build the tier-1 service spec")["ansible.builtin.set_fact"])
-
-
-def test_it_is_a_swarm_service_constrained_to_a_manager():
-    """The role no longer writes a create argv; it builds a spec, and
-    roles/tier1_stack/tasks/reconcile_one.yml hands it to the catena-tier1
-    engine, which renders `docker service create`. So the assertion moves to
-    the spec."""
-    spec = _spec()
-    assert "traefik_desired" in spec
-    assert "_traefik_spec" in str(_find("build the tier-1 service spec"))
-    # It bind-mounts the docker socket and drives the swarm provider, so it
-    # cannot be scheduled onto a worker. The constraint lives in the desired
-    # dict rather than being injected by the spec, because the engine
-    # reconciles the FULL constraint set and would --constraint-rm anything the
-    # dict omits; test_swarm_placement.py owns that rule for all three services.
-    constraints = yaml.safe_load(DEFAULTS.read_text())["traefik_constraints"]
-    assert "node.role==manager" in constraints
+    What the constraint IS -- node.role==manager, because it bind-mounts the
+    docker socket and drives the swarm provider -- is asserted in the engine,
+    catena-admin payload/engines/tier1/catalog_test.go, against the same
+    declaration this role used to build. Re-asserting it here would mean
+    reading a dict that no longer drives anything."""
+    _find("read the built-in tier-1 spec from the host engine")
+    adopt = str(_find("adopt the built-in spec")["ansible.builtin.set_fact"])
+    assert "tier1_builtin_spec" in adopt, (
+        "the role adopts something other than the engine's answer"
+    )
+    assert "traefik_desired" not in _code(TASKS), (
+        "the role is back to declaring its own spec, which puts a second "
+        "description of catena-traefik beside the engine's"
+    )
 
 
 def test_no_host_ports_is_structural_not_checked():
-    """cloudflared over the overlay is the only ingress. The spec declares no
-    `ports`, and BOTH renderers key off that one absence -- no --publish in the
-    argv and no ports in the stack file -- so there is no port binding for a
-    drift check to find in either."""
-    assert "ports" not in _spec()
+    """cloudflared over the overlay is the only ingress. Nothing in this role
+    can add a publish: the spec comes from the engine, which declares no
+    `ports` for traefik (asserted there), and the role adds nothing on top."""
     assert "--publish" not in _code(TASKS)
     assert "PortBindings" not in _code(TASKS)
+    assert "ports" not in str(_find("adopt the built-in spec")["ansible.builtin.set_fact"])
 
 
 def test_static_config_change_forces_exactly_one_roll():

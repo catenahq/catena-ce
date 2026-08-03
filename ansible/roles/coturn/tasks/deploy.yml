@@ -157,17 +157,26 @@
 # node, so there is nothing to publish; the public-port registry fragment
 # above is what opens the firewall for it.
 
-- name: "coturn: build the companion service spec"
+# ASKED FOR, not assembled here -- same move roles/postgres, roles/traefik and
+# roles/portainer made. The engine owns what the service IS; this role keeps
+# what it alone knows: WHETHER it belongs on this host (the consumer gate above)
+# and the rendered turnserver.conf the spec only points at.
+#
+# The engine has no opinion on the gate and must not: deciding whether coturn
+# belongs here means knowing which client apps are deployed, which is exactly
+# the state a converge cannot recompute from the config store.
+- name: "coturn: read the built-in companion spec from the host engine"
+  ansible.builtin.include_role:
+    name: tier1_stack
+    tasks_from: spec_one.yml
+    apply:
+      tags: [coturn]
+  vars:
+    tier1_spec_name: "{{ coturn_compose_name }}"
+
+- name: "coturn: adopt the built-in spec"
   ansible.builtin.set_fact:
-    _coturn_spec:
-      name: "{{ coturn_compose_name }}"
-      image: "{{ coturn_image }}"
-      mode: global
-      networks: ["{{ coturn_network }}"]
-      user: "{{ coturn_container_user }}"
-      constraints: "{{ coturn_constraints }}"
-      command: "{{ coturn_command }}"
-      volumes: "{{ coturn_mounts | map('swarm_mount_to_compose') | list }}"
+    _coturn_spec: "{{ tier1_builtin_spec }}"
 
 - name: "coturn: contribute the spec to the companion render"
   ansible.builtin.set_fact:

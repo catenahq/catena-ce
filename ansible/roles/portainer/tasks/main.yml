@@ -60,20 +60,29 @@
 #
 # No `detach`: the create BLOCKS until the service converges, which is the
 # first half of the readiness the UI probe below completes.
-- name: "portainer: build the tier-1 service spec"
+# ASKED FOR, not assembled here -- same move roles/postgres and roles/traefik
+# made. The engine on the host owns what the control plane IS (catena-admin
+# payload/engines/tier1/catalog.go), so the desired state travels with the IMAGE
+# rather than with this repo.
+#
+# portainer_ui_port is threaded in because it is the one genuinely per-host
+# value in the whole control plane: the public-ports registry fragment below
+# firewalls THAT number to the tailnet, so the publish and the firewall have to
+# name the same port or the UI is reachable on neither.
+- name: "portainer: read the built-in tier-1 spec from the host engine"
+  ansible.builtin.include_role:
+    name: tier1_stack
+    tasks_from: spec_one.yml
+    apply:
+      tags: [portainer]
+  vars:
+    tier1_spec_name: "{{ portainer_service_name }}"
+    tier1_spec_args:
+      - "--portainer-ui-port={{ portainer_ui_port | int }}"
+
+- name: "portainer: adopt the built-in spec"
   ansible.builtin.set_fact:
-    _pt_spec: >-
-      {{ portainer_desired | combine({
-           'name': portainer_service_name,
-           'networks': [portainer_network],
-           'secrets': [portainer_admin_secret_name],
-           'command': portainer_command,
-           'volumes': portainer_mounts
-                      | map('swarm_mount_to_compose') | list,
-           'ports': [{'target': portainer_target_port | int,
-                      'published': portainer_ui_port | int,
-                      'mode': 'host'}],
-         }) }}
+    _pt_spec: "{{ tier1_builtin_spec }}"
 
 - name: "portainer: contribute the spec to the control-plane render"
   ansible.builtin.set_fact:

@@ -1,4 +1,4 @@
-"""Every swarm service that mounts state is pinned to the data node.
+"""The node label this repo SETS is the one the constraints REFERENCE.
 
 At one node a placement constraint is a no-op, which is exactly why this is
 easy to get wrong and expensive to discover. The moment a second node joins,
@@ -8,17 +8,23 @@ container starts and the data is simply not there. That is the documented,
 unsolved failure in Dokploy's multi-node story, and the constraint is what
 makes `docker swarm join` a safe operation instead of a data-loss event.
 
-Two structural properties, because a behavioural test would need a cluster:
+WHAT IS LEFT HERE. Every tier-1 constraint moved into the host engine
+(catena-admin payload/engines/tier1/catalog.go) as roles/postgres, roles/traefik,
+roles/portainer and roles/coturn stopped declaring dicts and started asking
+`catena-tier1 spec` for them. The constraints are asserted there, in
+catalog_test.go: every mounting service pinned to the data node, every
+socket-mounting service also requiring a manager, and postgres deliberately not
+requiring one.
 
-  - the label roles/docker SETS and the label the constraints REFERENCE agree;
-  - constraints live wholly in the desired-spec dict, never injected on top of
-    it when the role builds its tier-1 spec. swarm_service_drift reconciles the
-    FULL constraint set, so a constraint that reached only the create path
-    would be --constraint-rm'd on the very next converge -- silently unpinning
-    the service it was protecting.
+Asserting them here too would mean reading dicts that no longer drive anything
+-- the stale-oracle failure this suite exists to catch in other people's code.
 
-The cross-repo version of the first rule is `audit --check-swarm` in ops,
-which fails the build when a service that mounts anything has no constraint.
+What this repo still owns is the OTHER half of the string: roles/docker sets
+the label the engine's constraints select on. If the two disagree, every
+constrained service becomes unschedulable and the failure is a pending task
+with no explanation. The cross-repo version of this check is
+`audit --check-swarm` in ops, which walks the workspace; this is the local
+guard on the value.
 
 Run: uv run pytest tests/unit/test_swarm_placement.py
 """
@@ -26,110 +32,37 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
 ROLES = ANSIBLE / "roles"
 
-# Services deployed by this repo that mount state, and the role that owns each.
-# postgres is absent on purpose: its spec moved into the host engine
-# (catena-admin payload/engines/tier1/catalog.go) and the role now reads it
-# with `catena-tier1 spec catena-postgres` instead of declaring a dict. The
-# placement constraint is asserted there, in catalog_test.go, against the same
-# declaration this role used to build -- byte-identical create argv, which
-# covers the constraint along with everything else.
-#
-# Asserting it here too would mean reading a dict that no longer drives
-# anything, which is the stale-oracle failure this suite exists to catch in
-# other people's code.
-STATEFUL = ("portainer", "traefik")
-
-DESIRED_VAR = {
-    "portainer": "portainer_desired",
-    "traefik": "traefik_desired",
-}
-CONSTRAINTS_VAR = {
-    "portainer": "portainer_constraints",
-    "traefik": "traefik_constraints",
-}
+# The value the engine's constraints spell as
+# "node.labels.catena.role==<value>". Hardcoded rather than imported: the
+# engine is in a sibling repo, and a test that reads across the workspace
+# passes on a laptop and cannot run in CI. `audit --check-swarm` is the check
+# that actually spans the two.
+ENGINE_CONSTRAINT_LABEL_VALUE = "data"
 
 
 def _defaults(role: str) -> dict:
     return yaml.safe_load((ROLES / role / "defaults" / "main.yml").read_text())
 
 
-def _tasks(role: str) -> list[dict]:
-    return yaml.safe_load((ROLES / role / "tasks" / "main.yml").read_text())
-
-
-def _spec_source(role: str) -> str:
-    """The set_fact body that builds the role's tier-1 spec, as source text.
-
-    The roles no longer hand-write a create argv: they declare one spec, and
-    roles/tier1_stack renders both `docker service create` and the stack file
-    from it. Read as text because the values are Jinja that only resolves
-    against a real host; what is being asserted is which keys are declared."""
-    for task in _tasks(role):
-        if "build the tier-1 service spec" in (task.get("name") or ""):
-            return str(task["ansible.builtin.set_fact"])
-    raise AssertionError(f"no tier-1 spec task found in roles/{role}")
-
-
-def test_the_node_label_roles_docker_sets_matches_what_the_roles_constrain_to():
-    """A shared variable would break a tag-scoped run (role defaults are only
-    reliably in scope after that role has applied), so each role spells the
-    constraint out. This is the check that keeps the copies honest."""
+def test_the_node_label_roles_docker_sets_is_the_one_the_engine_constrains_to():
     label_value = _defaults("docker")["docker_node_role_label"]
-    expected = f"node.labels.catena.role=={label_value}"
-    for role in STATEFUL:
-        constraints = _defaults(role)[CONSTRAINTS_VAR[role]]
-        assert expected in constraints, (
-            f"roles/{role} does not pin to the label roles/docker sets "
-            f"({expected!r}); a worker could take its volume"
-        )
-
-
-@pytest.mark.parametrize("role", STATEFUL)
-def test_constraints_are_wholly_owned_by_the_desired_dict(role: str):
-    """The spec is `<role>_desired | combine({...})`. A `constraints` key in
-    the combine would OVERRIDE the dict's, and swarm_service_drift reconciles
-    the full set from the dict -- so the next converge would --constraint-rm
-    the override and unpin the service."""
-    spec = _spec_source(role)
-    assert DESIRED_VAR[role] in spec, (
-        f"roles/{role} does not build its spec from {DESIRED_VAR[role]}"
+    assert label_value == ENGINE_CONSTRAINT_LABEL_VALUE, (
+        f"roles/docker labels the data node {label_value!r}, but the tier-1 "
+        f"engine constrains to node.labels.catena.role=={ENGINE_CONSTRAINT_LABEL_VALUE}. "
+        "Every constrained service would be unschedulable, showing up as a "
+        "pending task with no explanation"
     )
-    assert "constraints" not in spec, (
-        f"roles/{role} injects a constraint on top of {DESIRED_VAR[role]}. "
-        "swarm_service_drift reconciles the FULL constraint set from the dict, "
-        "so the next converge would --constraint-rm it and unpin the service"
+
+
+def test_the_label_is_applied_to_the_node_this_repo_converges():
+    """A label the engine selects on and nothing ever sets is the same failure
+    as a mismatched one, and reads as a converge that simply did nothing."""
+    text = (ROLES / "docker" / "tasks" / "main.yml").read_text()
+    assert "docker_node_role_label" in text, (
+        "roles/docker declares the label but never applies it to the node"
     )
-    desired = _defaults(role)[DESIRED_VAR[role]]
-    assert "constraints" in desired
-
-
-@pytest.mark.parametrize("role", STATEFUL)
-def test_every_mounting_service_is_constrained(role: str):
-    """The rule the ops audit gate enforces workspace-wide, checked here for
-    the three services this repo deploys directly."""
-    assert "volumes" in _spec_source(role), (
-        f"roles/{role} mounts nothing -- if that is deliberate the constraint "
-        "may be droppable, but say so explicitly"
-    )
-    assert _defaults(role)[CONSTRAINTS_VAR[role]]
-
-
-def test_socket_mounting_services_also_require_a_manager():
-    """Portainer and Traefik bind-mount the docker socket and drive the swarm
-    API, which only a manager can serve. Losing this would let them schedule
-    onto a worker where the socket answers for nothing."""
-    for role in ("portainer", "traefik"):
-        assert "node.role==manager" in _defaults(role)[CONSTRAINTS_VAR[role]]
-
-
-def test_postgres_is_not_pinned_to_a_manager():
-    """It mounts no socket and needs no swarm API, so a data-labelled worker
-    is a legitimate home for it. Over-constraining would rule that out for no
-    reason."""
-    assert "node.role==manager" not in _defaults("postgres")["catena_postgres_constraints"]

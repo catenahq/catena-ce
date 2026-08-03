@@ -9,6 +9,12 @@
 #
 # Caller contract:
 #   tier1_spec_name   the service name (catena-postgres, catena-traefik, ...)
+#   tier1_spec_args   OPTIONAL extra argv for the engine, for the few values
+#                     that are genuinely per-deployment rather than product
+#                     constants (today: roles/portainer passes
+#                     --portainer-ui-port). Kept as opaque argv so this shared
+#                     file needs no per-service knowledge, and so every such
+#                     value is visible at ITS call site rather than buried here.
 # Sets:
 #   tier1_builtin_spec  the spec dict, in the same shape the roles used to
 #                       build and the same shape reconcile_one.yml takes
@@ -42,10 +48,9 @@
 
 - name: "tier1: read the built-in spec for {{ tier1_spec_name }}"
   ansible.builtin.command:
-    argv:
-      - "{{ tier1_engine_bin }}"
-      - spec
-      - "{{ tier1_spec_name }}"
+    argv: >-
+      {{ [tier1_engine_bin, 'spec', tier1_spec_name]
+         + (tier1_spec_args | default([])) }}
   register: _t1_spec_raw
   changed_when: false
 
