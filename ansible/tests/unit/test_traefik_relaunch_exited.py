@@ -125,7 +125,17 @@ def test_static_config_change_forces_exactly_one_roll():
 
 def test_the_healthcheck_has_its_precondition():
     """`traefik healthcheck` exits 1 with "please enable `ping`" unless the
-    static config turns the endpoint on, so shipping the health command
-    without the ping block would mark every task unhealthy."""
-    assert "traefik healthcheck" in DEFAULTS.read_text()
-    assert "ping: {}" in STATIC_CFG.read_text()
+    static config turns the endpoint on, so the health command without the ping
+    block would mark every task unhealthy.
+
+    The two halves of that coupling now live in different repos: the engine
+    ships the health command (catena-admin catalog.go, asserted there), and this
+    repo renders the static config that has to enable the endpoint it calls.
+    This is the half this repo owns, and it is the half that can silently
+    regress -- deleting one line from a Jinja template is easier than noticing
+    that a probe in another repo depends on it."""
+    assert "ping: {}" in STATIC_CFG.read_text(), (
+        "traefik.yml.j2 no longer enables the ping endpoint, but the tier-1 "
+        "engine still probes catena-traefik with `traefik healthcheck`; every "
+        "task would report unhealthy"
+    )

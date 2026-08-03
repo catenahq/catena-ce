@@ -7,9 +7,11 @@ in the retired control-plane Postgres.
 
 ## What it manages
 
-- The `catena-postgres` swarm service on `catena-network`, pinned to
-  the `postgres:{{ catena_postgres_image_tag }}` major (16, matching
-  the pre-cutover major so logical dump/restore stays same-major).
+- The `catena-postgres` swarm service, whose spec (image major, mount,
+  env, hardening, placement, health probe) comes from the tier-1 host
+  engine via `catena-tier1 spec catena-postgres` rather than from this
+  role. The major follows Keycloak's support matrix and is pinned in
+  that catalog.
 - The superuser password as the create-once IMMUTABLE swarm secret
   `catena_postgres_password`, sourced from
   `catena_postgres_password` (minted on-box by the config
@@ -40,7 +42,6 @@ in the retired control-plane Postgres.
 | Var | Default | Meaning |
 | --- | --- | --- |
 | `catena_postgres_service_name` | `catena-postgres` | swarm service + network alias |
-| `catena_postgres_image_tag` | `16` | pinned major; renovate/trivy key |
 | `catena_postgres_superuser` | `postgres` | consumer roles auto-detect |
 | `catena_postgres_secret_name` | `catena_postgres_password` | create-once swarm secret |
 | `catena_postgres_data_volume` | `catena-postgres-data` | raw-restored named volume |

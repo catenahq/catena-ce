@@ -8,12 +8,11 @@
 
 catena_postgres_service_name: catena-postgres
 
-# Pinned image major. Per-app template DBs track the central
-# postgres_default_image in catena-templates (catalog.yml), also 18.x; this
-# infra Postgres (Keycloak's DB) is pinned independently since it follows
-# Keycloak's support matrix.
-catena_postgres_image_tag: "18"
-catena_postgres_image: "postgres:{{ catena_postgres_image_tag }}"
+# The image major is pinned in the host engine's catalog, not here. Per-app
+# template DBs track the central postgres_default_image in catena-templates
+# (catalog.yml), also 18.x; this infra Postgres (Keycloak's DB) is pinned
+# independently since it follows Keycloak's support matrix -- which is why the
+# engine names it rather than deriving it from the template catalog.
 
 # Superuser. roles/keycloak/tasks/provision_db.yml detects the live superuser
 # from the container env, so it follows this automatically.
@@ -24,111 +23,23 @@ catena_postgres_superuser: postgres
 # deferred (BACKLOG_TECHNICAL.md).
 catena_postgres_secret_name: catena_postgres_password
 
-# ─── swarm-service hardening ─────────────────────────────────────────────
-# One dict, two renderers: roles/postgres pipes this through
-# `swarm_service_create_args` to build the create argv and through
-# `swarm_service_drift` to reconcile an existing service. See
-# playbooks/filter_plugins/swarm_service_drift.py for why it is one dict and
-# what the filters do NOT own (identity + wiring flags stay in the task).
-#
-# Memory: generous rather than tight. This Postgres serves Keycloak's realm
-# DB and nothing else, so 2g is far above its working set; the limit exists to
-# stop a runaway query taking the whole VPS down with it, not to pack the box.
-# The reservation is what swarm holds back at schedule time and is deliberately
-# small -- app stacks are Portainer compose, not swarm services, so they do not
-# compete for it.
-catena_postgres_limit_memory: "2g"
-catena_postgres_reserve_memory: "256m"
-
-# Clean shutdown. Docker's 10s default SIGKILLs a cluster mid-checkpoint on a
-# stop-first update; Postgres fast shutdown normally finishes in seconds, but a
-# large checkpoint does not. cloudflared already carries the same reasoning
-# (40s, to outlast its connection drain).
-catena_postgres_stop_grace_period: "60s"
-
-# Update policy. FailureAction is `pause`, NEVER `rollback`: the catena-admin
-# managed-update engine is the rollback authority (it decides on a whole-host
-# health diff, keeps a persistent quarantine and replays a pre-bump DB
-# snapshot). If swarm rolled back underneath it the engine would either record
-# a version that never shipped as bumped and retry it forever, or take its
-# safety-net branch and re-apply the failure, because `docker service update
-# --rollback` reverts to the PREVIOUS spec -- which after an auto-rollback is
-# the bad one. Verified on docker 29.6.1: with `pause`, a bad image makes
-# `docker service update --detach=false` exit 1 with UpdateStatus.State=paused,
-# and the engine's `--rollback` then exits 0 with State=rollback_completed.
-#
-# Monitor outlasts health_start_period + (interval * retries) = 110s, so the
-# window actually covers a task that starts and then reports unhealthy. A
-# shorter monitor would only catch a task that fails to start at all.
-catena_postgres_update_failure_action: "pause"
-catena_postgres_update_monitor: "120s"
-catena_postgres_update_max_failure_ratio: 0
-# Explicit, though it matches the docker default: one volume and one cluster
-# means the old task MUST be gone before the new one opens the data dir.
-# start-first here would put two postmasters on one PGDATA.
-catena_postgres_update_order: "stop-first"
-
-# Healthcheck. `pg_isready` ships in the postgres image and is already what
-# the readiness gate below shells out to. With this set, `docker service ls`
-# replica counts mean "accepting connections" instead of "process started".
-catena_postgres_health_cmd: "pg_isready -U {{ catena_postgres_superuser }}"
-catena_postgres_health_interval: "10s"
-catena_postgres_health_retries: 5
-# Covers initdb + the entrypoint's first-boot restart on a fresh volume.
-catena_postgres_health_start_period: "60s"
-
-# Placement. The cluster lives in a node-LOCAL named volume, so it must only
-# ever be scheduled where that volume is. At one node this is a no-op; the
-# moment a worker joins it is the difference between a working cluster and a
-# data-loss event, because swarm will reschedule onto the new node and create
-# a fresh EMPTY volume there with no error. roles/docker sets the matching
-# label; `audit --check-swarm` fails the build if the two ever disagree, or if
-# any service that mounts something has no constraint at all.
-catena_postgres_constraints:
-  - "node.labels.catena.role==data"
-
-# The tier-1 spec for catena-postgres is no longer assembled here. It lives in
-# the host engine, catena-admin payload/engines/tier1/catalog.go, and
+# The tier-1 SPEC for catena-postgres is not assembled here any more -- not the
+# image, the mounts, the env, the hardening or the placement constraint. It
+# lives in the host engine, catena-admin payload/engines/tier1/catalog.go, and
 # roles/postgres reads it with `catena-tier1 spec catena-postgres`.
 #
-# The scalars above are what the engine's built-in encodes, kept for now as the
-# record of what this role used to declare and as the values every comment
-# beside them explains. They feed nothing: deleting the dict is what removes
-# the second description, and a second description is the failure this seam
-# exists to prevent -- two that agree on the day they are written say nothing
-# about the next field added to one side. The engine's own test pins the
-# declaration this role used to build and asserts byte-identical create argv.
+# The comment this replaces said these scalars would go when traefik, portainer
+# and coturn followed, so the four roles lost their duplicate values in one
+# sweep rather than one orphan at a time. They have, so they do.
 #
-# They go when traefik, portainer and coturn follow, so the four roles lose
-# their duplicate values in one sweep rather than one orphan at a time.
-
-# ─── wiring: one spelling, two renderers ─────────────────────────────────
-# The create argv and the tier-1 stack file both read these. They used to be
-# written inline in the argv, which meant the stack render carried a second
-# copy of every mount and env value -- exactly the drift the stack exists to
-# remove. `docker service create --mount` form here because that is also what
-# `docker service update` takes; swarm_mount_to_compose translates for the
-# stack.
+# The image pin moved with them, and Renovate + Trivy follow it there. Keeping
+# it here would have been worse than either end state: Renovate bumps the pin,
+# Trivy scans the pin, the PR goes green, and the host runs whatever the engine
+# says -- unbumped and unscanned.
 #
-# PGDATA is pinned to a SUBDIRECTORY of the mounted volume. postgres:18 moved
-# its default data directory (the image now mounts /var/lib/postgresql and puts
-# the cluster in a versioned subdir), so a bare mount at
-# /var/lib/postgresql/data reads as an unused volume and the container exits 1.
-# A subdir PGDATA is version-agnostic (16/17/18) and keeps the cluster inside
-# our named volume regardless of the image default.
-# The overlay, named here rather than reached for across roles.
-# catena_network_name is roles/traefik's default and is only in scope because
-# traefik runs first; a `--tags postgres` converge would find it undefined.
-catena_postgres_network: catena-network
-
-catena_postgres_mounts:
-  - "type=volume,source={{ catena_postgres_data_volume }},destination=/var/lib/postgresql/data"
-
-catena_postgres_env:
-  POSTGRES_USER: "{{ catena_postgres_superuser }}"
-  POSTGRES_PASSWORD_FILE: "/run/secrets/{{ catena_postgres_secret_name }}"
-  POSTGRES_DB: postgres
-  PGDATA: /var/lib/postgresql/data/pgdata
+# What stays below is what only this repo knows: the superuser name (roles/
+# keycloak detects it from the live container), the secret this role mints, and
+# the data volume the backup set names.
 
 # Named volume for the data dir, backed up as a RAW volume by the default
 # restic set. That is correct because the password does not move: it comes

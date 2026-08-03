@@ -50,10 +50,7 @@ jobs:
           set -euo pipefail
           cat > matrix.json <<'EOF'
           [
-            {"name": "cloudflared", "pin_file": "ansible/roles/cloudflare_tunnel/defaults/main.yml", "pin_key": "cloudflared_image_tag", "image_repo": "cloudflare/cloudflared"},
-            {"name": "traefik", "pin_file": "ansible/roles/traefik/defaults/main.yml", "pin_key": "traefik_image_tag", "image_repo": "traefik"},
-            {"name": "postgres", "pin_file": "ansible/roles/postgres/defaults/main.yml", "pin_key": "catena_postgres_image_tag", "image_repo": "postgres"},
-            {"name": "portainer", "pin_file": "ansible/roles/portainer/defaults/main.yml", "pin_key": "portainer_image_tag", "image_repo": "portainer/portainer-ce"}
+            {"name": "cloudflared", "pin_file": "ansible/roles/cloudflare_tunnel/defaults/main.yml", "pin_key": "cloudflared_image_tag", "image_repo": "cloudflare/cloudflared"}
           ]
           EOF
           if [ "$EVENT" = "pull_request" ]; then
@@ -71,6 +68,13 @@ jobs:
   # these because they live as plain YAML values, not in a Dockerfile or
   # docker-compose. The customManagers open the BUMP PRs; this job catches the
   # CVE BEFORE merging a PR that pins a vulnerable tag.
+  #
+  # traefik, postgres and portainer left this matrix on 2026-08-03. Their specs
+  # moved into the catena-admin tier-1 catalog, so their image pins moved with
+  # them, and this workflow cannot follow: catena-admin is private. The
+  # equivalent job lives there now (trivy-pinned-images), reading the pins out
+  # of payload/engines/tier1/catalog.go. Scanning them here after the move would
+  # have meant gating on a tag no host runs.
   trivy-operator-stack-pins:
     name: Trivy image (operator-stack pins)
     runs-on: ubuntu-latest

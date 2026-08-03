@@ -1,22 +1,25 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>catenahq/renovate-config"],
+  "extends": [
+    "github>catenahq/renovate-config"
+  ],
   "packageRules": [
     {
-      "description": "Operator-stack base images pinned in role defaults. Bumps stay manual: a cloudflared/traefik/postgres/portainer/restic upgrade can break the platform out-of-band, so the operator reviews each one (the Trivy job still gates the PR on CVEs). NOT grouped: one PR per image, so a CVE in one pin (the path-filtered Trivy matrix scans only the bumped image) cannot hold the other pins' updates hostage -- a grouped PR bumping cloudflared+traefik went red on a cloudflared-only CVE and blocked the traefik bump with it.",
-      "matchManagers": ["custom.regex"],
+      "description": "Operator-stack pins still owned by this repo: the cloudflared image (roles/cloudflare_tunnel) and the restic binary (roles/backup). Bumps stay manual -- either can break the platform out-of-band -- and the Trivy job gates the PR on CVEs. NOT grouped: one PR per pin, so a CVE in one cannot hold the other's update hostage; a grouped cloudflared+traefik PR went red on a cloudflared-only CVE and blocked the traefik bump with it. traefik, postgres, portainer and coturn left this repo on 2026-08-03: their specs, and so their image pins, live in the catena-admin tier-1 catalog, tracked by that repo's Renovate.",
+      "matchManagers": [
+        "custom.regex"
+      ],
       "matchPackageNames": [
         "cloudflare/cloudflared",
-        "traefik",
-        "postgres",
-        "portainer/portainer-ce",
         "restic/restic"
       ],
       "automerge": false
     },
     {
       "description": "Infra app images pinned in role defaults (gatus, healthchecks, recovery nginx, clamav). Manual review like the operator-stack pins; Trivy gates each PR. NOT grouped: one PR per image, same rationale as the operator-stack pins -- one image's CVE must not hold the others' updates hostage.",
-      "matchManagers": ["custom.regex"],
+      "matchManagers": [
+        "custom.regex"
+      ],
       "matchPackageNames": [
         "twinproduction/gatus",
         "healthchecks/healthchecks",
@@ -27,15 +30,24 @@
     },
     {
       "description": "Beszel hub + agent stay ONE PR: the agent pin is kept in lockstep with the hub (same upstream release), so splitting them would merge a hub bump without its matching agent.",
-      "matchManagers": ["custom.regex"],
-      "matchPackageNames": ["henrygd/beszel", "henrygd/beszel-agent"],
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchPackageNames": [
+        "henrygd/beszel",
+        "henrygd/beszel-agent"
+      ],
       "groupName": "beszel hub+agent",
       "automerge": false
     },
     {
       "description": "Keycloak (Phase Two distribution) image pinned in the keycloak role defaults. Manual review like the other infra pins -- a Keycloak major/minor can break SSO + the oauth2-proxy wiring out-of-band; Trivy gates the PR. Restricted to the rolling X.Y.Z tag; the timestamped X.Y.Z.<unixtime> immutable builds are excluded.",
-      "matchManagers": ["custom.regex"],
-      "matchPackageNames": ["quay.io/phasetwo/phasetwo-keycloak"],
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchPackageNames": [
+        "quay.io/phasetwo/phasetwo-keycloak"
+      ],
       "allowedVersions": "/^\\d+\\.\\d+\\.\\d+$/",
       "automerge": false
     }
@@ -51,42 +63,6 @@
         "cloudflared_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
       ],
       "depNameTemplate": "cloudflare/cloudflared",
-      "datasourceTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "description": "Track Traefik image tag pinned in traefik role defaults",
-      "managerFilePatterns": [
-        "/^ansible/roles/traefik/defaults/main\\.yml$/"
-      ],
-      "matchStrings": [
-        "traefik_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
-      ],
-      "depNameTemplate": "traefik",
-      "datasourceTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "description": "Track catena-postgres image tag pinned in postgres role defaults",
-      "managerFilePatterns": [
-        "/^ansible/roles/postgres/defaults/main\\.yml$/"
-      ],
-      "matchStrings": [
-        "catena_postgres_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
-      ],
-      "depNameTemplate": "postgres",
-      "datasourceTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "description": "Track Portainer CE image tag pinned in portainer role defaults (the container control plane; typed stack API needs >=2.39.x)",
-      "managerFilePatterns": [
-        "/^ansible/roles/portainer/defaults/main\\.yml$/"
-      ],
-      "matchStrings": [
-        "portainer_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
-      ],
-      "depNameTemplate": "portainer/portainer-ce",
       "datasourceTemplate": "docker"
     },
     {

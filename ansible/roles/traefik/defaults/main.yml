@@ -2,10 +2,10 @@
 # roles/traefik -- catena-owned reverse proxy. We deploy and own the
 # `catena-traefik` container directly.
 
-# Pinned Traefik image. renovate/trivy key off `traefik_image_tag`
-# (see renovate.json customManagers).
-traefik_image_tag: "v3.7.7"
-traefik_image: "traefik:{{ traefik_image_tag }}"
+# The Traefik IMAGE is not pinned here any more. It lives in the host engine's
+# built-in catalog (catena-admin payload/engines/tier1/catalog.go), with
+# Renovate and Trivy following it there -- the version has to be tracked where
+# the host actually reads it, or a bump lands in a file nothing runs.
 
 # The catena-owned reverse-proxy container. cloudflared points its ingress at
 # this name.
@@ -22,82 +22,21 @@ catena_network_name: catena-network
 traefik_config_dir: /etc/catena/traefik
 traefik_dynamic_dir: "{{ traefik_config_dir }}/dynamic"
 
-# Bind mounts, as `docker service create --mount` values. Swarm owns the
-# spec and `docker service update --image` changes only the image, so the
-# managed-bump lane never needs to know how the service was built and there
-# is no second copy of this list anywhere.
-traefik_mounts:
-  - "type=bind,source=/var/run/docker.sock,destination=/var/run/docker.sock"
-  - "type=bind,source={{ traefik_config_dir }}/traefik.yml,destination=/etc/traefik/traefik.yml"
-  - "type=bind,source={{ traefik_dynamic_dir }},destination={{ traefik_dynamic_dir }}"
-  - "type=bind,source={{ traefik_dynamic_dir }}/acme.json,destination=/etc/traefik/acme.json"
-
-# ─── swarm-service hardening ─────────────────────────────────────────────
-# One dict, two renderers -- see playbooks/filter_plugins/swarm_service_drift.py
-# and the same block in roles/postgres/defaults for the full rationale.
-traefik_limit_memory: "512m"
-traefik_reserve_memory: "128m"
-
-# Long enough to drain in-flight requests through the tunnel.
-traefik_stop_grace_period: "30s"
-
-# FailureAction is `pause`, NEVER `rollback` -- the catena-admin managed-update
-# engine is the rollback authority. Full reasoning in roles/postgres/defaults.
-traefik_update_failure_action: "pause"
-# Outlasts health_start_period + (interval * retries) = 40s, so the window
-# covers a task that starts and then fails its ping rather than only one that
-# fails to start.
-traefik_update_monitor: "60s"
-traefik_update_max_failure_ratio: 0
-# stop-first, even though traefik publishes NO host ports and start-first
-# would otherwise give a zero-gap ingress roll (which is what cloudflared
-# gets). The blocker is acme.json: a single bind-mounted file holding the
-# ACME account key and certificates, and Traefik's ACME storage assumes ONE
-# writer. Two overlapping tasks sharing that mount can both decide to renew.
-# A few seconds of ingress gap on a version bump costs less than a corrupted
-# certificate store, and cloudflared retries across it.
-traefik_update_order: "stop-first"
-
-# Healthcheck. `traefik healthcheck` calls the /ping endpoint that
-# templates/traefik.yml.j2 enables. It exits 1 with "please enable `ping` to
-# use health check" when the endpoint is off, so a broken static config shows
-# up as an unhealthy task rather than a silently-passing one.
-traefik_health_cmd: "traefik healthcheck"
-traefik_health_interval: "10s"
-traefik_health_retries: 3
-traefik_health_start_period: "10s"
-
-# Placement. BOTH constraints live here, not split between the create argv and
-# this dict: swarm_service_drift reconciles the FULL constraint set, so a
-# constraint passed in the argv but absent from the dict would be
-# --constraint-rm'd on the next converge.
+# The tier-1 SPEC for catena-traefik is not assembled here any more -- not the
+# mounts, not the hardening, not the placement constraints, not the health
+# probe. It lives in the host engine, catena-admin
+# payload/engines/tier1/catalog.go, and roles/traefik reads it with
+# `catena-tier1 spec catena-traefik`.
 #
-#   node.role==manager -- it bind-mounts the docker socket and runs the swarm
-#     provider, which only a manager can serve.
-#   catena.role==data  -- the whole config tree is bind-mounted from
-#     /etc/catena/traefik on THIS host: traefik.yml, the dynamic/ dir every
-#     route file is written into, and acme.json. On another node those paths
-#     do not exist, and a docker bind mount silently creates a missing source
-#     as an empty DIRECTORY -- which for acme.json is exactly the failure the
-#     role already has a task to repair.
-traefik_constraints:
-  - "node.role==manager"
-  - "node.labels.catena.role==data"
-
-traefik_desired:
-  image: "{{ traefik_image }}"
-  constraints: "{{ traefik_constraints }}"
-  limit_memory: "{{ traefik_limit_memory }}"
-  reserve_memory: "{{ traefik_reserve_memory }}"
-  stop_grace_period: "{{ traefik_stop_grace_period }}"
-  update_failure_action: "{{ traefik_update_failure_action }}"
-  update_monitor: "{{ traefik_update_monitor }}"
-  update_max_failure_ratio: "{{ traefik_update_max_failure_ratio }}"
-  update_order: "{{ traefik_update_order }}"
-  health_cmd: "{{ traefik_health_cmd }}"
-  health_interval: "{{ traefik_health_interval }}"
-  health_retries: "{{ traefik_health_retries }}"
-  health_start_period: "{{ traefik_health_start_period }}"
+# The values did not change; they moved. The engine's own test pins the exact
+# declaration this file used to build and asserts byte-identical
+# `docker service create` argv, so the move is provably lossless. What it buys
+# is that the desired control plane now travels with the IMAGE: bump the
+# catena-admin tag and what the host reconciles toward moves with it, no laptop
+# and no inventory edit.
+#
+# What stays below is what only this repo knows: where the config tree lives
+# (this role renders it) and which upstream proxies Traefik may trust.
 
 # Trusted upstream-proxy IPs for Traefik's forwardedHeaders. Only sources in
 # this list have their X-Forwarded-* headers honored; anything else gets

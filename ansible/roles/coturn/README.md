@@ -98,9 +98,13 @@ hardening guide and the EnableSecurity/coturn-secure-config
   case. Deny-list of every special-purpose IANA range is the correct
   posture.
 
-**Image-update SLA:** the `coturn_image` pin in
-[defaults/main.yml](defaults/main.yml) is bumped within 7 days of
-upstream release, sooner on a CVE. CVE feed:
+**Image-update SLA:** the coturn image pin lives in the tier-1 host
+engine's built-in catalog (catena-admin
+`payload/engines/tier1/catalog.go`), not in this role. It is bumped
+within 7 days of upstream release, sooner on a CVE. That move also gave
+it a Renovate tracker and a Trivy scan for the first time -- while the
+pin lived here it had neither, so coturn was the one tier-1 image
+nothing was watching. CVE feed:
 [opencve.io/cve/?vendor=coturn_project](https://app.opencve.io/cve/?vendor=coturn_project)
 and the upstream GitHub Security Advisories for
 [coturn/coturn](https://github.com/coturn/coturn/security/advisories).

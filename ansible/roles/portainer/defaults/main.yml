@@ -11,98 +11,24 @@
 # model as the old control-plane :3000 (operators + the controller reach it over the
 # tailnet; a catena-traefik route at apps.<zone> comes later).
 
-# Pinned LTS. Portainer 2.27.0 removed the old POST /api/stacks form; 2.39.4
-# (lts tag) uses the typed /api/stacks/create/{type}/{method} paths the CE +
-# EE API seams target. Renovate should track portainer_image_tag.
-portainer_image_tag: "2.43.0"
-portainer_image: "portainer/portainer-ce:{{ portainer_image_tag }}"
-
 portainer_service_name: catena-portainer
 portainer_data_volume: catena-portainer-data
 
-# ─── swarm-service hardening ─────────────────────────────────────────────
-# One dict, two renderers -- see playbooks/filter_plugins/swarm_service_drift.py
-# and the same block in roles/postgres/defaults for the full rationale.
+# The tier-1 SPEC for catena-portainer is not assembled here any more -- not the
+# image, the mounts, the hardening, the placement constraints, the published
+# port or the admin-password argument. It lives in the host engine, catena-admin
+# payload/engines/tier1/catalog.go, and roles/portainer reads it with
+# `catena-tier1 spec catena-portainer`.
 #
-# Memory: Portainer is a Go binary over a BoltDB store; 1g is well above its
-# working set and exists to bound a leak, not to pack the box.
-portainer_limit_memory: "1g"
-portainer_reserve_memory: "128m"
-
-# Enough to close the BoltDB store cleanly.
-portainer_stop_grace_period: "30s"
-
-# FailureAction is `pause`, NEVER `rollback` -- the catena-admin managed-update
-# engine is the rollback authority and swarm rolling back underneath it
-# corrupts its outcome accounting. Full reasoning in roles/postgres/defaults.
-portainer_update_failure_action: "pause"
-# No healthcheck (see below), so the monitor window only ever catches a task
-# that fails to START. A long window would just slow every bump down for a
-# signal that cannot arrive later than the first few seconds.
-portainer_update_monitor: "30s"
-portainer_update_max_failure_ratio: 0
-# stop-first, NOT start-first, despite Portainer being replaceable in place:
-# the UI port is published `mode=host`, so the port is bound on the node
-# itself and two tasks cannot hold it at once. start-first would have the new
-# task fail its port bind while the old one is still listening.
-portainer_update_order: "stop-first"
-
-# NO healthcheck. `--health-cmd` is executed as `/bin/sh -c`, and the
-# portainer/portainer-ce image has no shell: its whole filesystem is the
-# `/portainer` binary, the web assets and a CA bundle. There is no in-image
-# probe to call. Readiness is covered instead by the HTTP probe of the SPA
-# root at the bottom of tasks/main.yml, which runs from the controller.
+# The values did not change; they moved. The engine's test pins the exact
+# declaration this file used to build and asserts byte-identical create argv.
+# The image pin moved with them, and Renovate + Trivy follow it there: a version
+# has to be tracked where the host actually reads it.
 #
-# Consequence to know: `docker service ls` showing 1/1 for catena-portainer
-# means the process started, not that it is serving. For catena-postgres and
-# catena-traefik, which do carry healthchecks, the replica count is a real
-# health signal.
-
-# Placement. BOTH constraints live here, not split between the create argv and
-# this dict: swarm_service_drift reconciles the FULL constraint set, so a
-# constraint passed in the argv but absent from the dict would be
-# --constraint-rm'd on the next converge.
-#
-#   node.role==manager -- it bind-mounts the docker socket and manages the
-#     local Docker/Swarm endpoint, which only a manager can serve.
-#   catena.role==data  -- /data is a node-LOCAL named volume holding the
-#     BoltDB store. Rescheduled elsewhere, Portainer would come up empty:
-#     no endpoint, no stacks, no admin user.
-portainer_constraints:
-  - "node.role==manager"
-  - "node.labels.catena.role==data"
-
-portainer_desired:
-  image: "{{ portainer_image }}"
-  constraints: "{{ portainer_constraints }}"
-  limit_memory: "{{ portainer_limit_memory }}"
-  reserve_memory: "{{ portainer_reserve_memory }}"
-  stop_grace_period: "{{ portainer_stop_grace_period }}"
-  update_failure_action: "{{ portainer_update_failure_action }}"
-  update_monitor: "{{ portainer_update_monitor }}"
-  update_max_failure_ratio: "{{ portainer_update_max_failure_ratio }}"
-  update_order: "{{ portainer_update_order }}"
-
-# ─── wiring: one spelling, two renderers ─────────────────────────────────
-# The create argv and the tier-1 stack file both read these. They used to be
-# written inline in the argv, which meant the stack render carried a second
-# copy of every mount -- exactly the drift the stack exists to remove.
-# `docker service create --mount` form here because that is also what
-# `docker service update` takes; swarm_mount_to_compose translates for the
-# stack.
-portainer_network: catena-network
-portainer_mounts:
-  - "type=bind,source=/var/run/docker.sock,destination=/var/run/docker.sock"
-  - "type=volume,source={{ portainer_data_volume }},destination=/data"
-
-# Container-side port behind the host-mode publish of portainer_ui_port.
-portainer_target_port: 9000
-
-# Arguments to the portainer binary, after the image. --admin-password-file
-# sets the admin at FIRST BOOT, which is what avoids racing the 5-minute
-# /api/users/admin/init window.
-portainer_command:
-  - "--admin-password-file=/run/secrets/{{ portainer_admin_secret_name }}"
+# portainer_ui_port is the exception and stays a per-host value. The role threads
+# it to the engine as --portainer-ui-port, because the public-ports registry
+# fragment firewalls THAT number to the tailnet -- the publish and the firewall
+# must name the same port or the UI is reachable on neither.
 
 # NOTE: portainer_ui_port + portainer_api_base are defined GLOBALLY in
 # group_vars/all/main.yml so roles/infrastructure + dashboard-sync can reference

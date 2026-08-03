@@ -6,7 +6,9 @@ container on the `catena-network` overlay, the single origin every
 
 ## What it manages
 
-- The pinned `traefik:{{ traefik_image_tag }}` container, published on
+- The `catena-traefik` swarm service, whose spec (image, mounts,
+  hardening, placement, health probe) comes from the tier-1 host engine
+  via `catena-tier1 spec catena-traefik` rather than from this role. Published on
   the host's :80 (Cloudflare terminates TLS at the edge; no host TLS,
   no Let's Encrypt for the web entrypoint -- LE conflicts with the
   tunnel).
@@ -39,7 +41,6 @@ container on the `catena-network` overlay, the single origin every
 
 | Var | Default | Meaning |
 | --- | --- | --- |
-| `traefik_image_tag` | pinned semver | renovate/trivy key off this |
 | `traefik_container_name` | `catena-traefik` | cloudflared ingress target |
 | `catena_network_name` | `catena-network` | shared attachable overlay |
 | `traefik_config_dir` | `/etc/catena/traefik` | static + dynamic config root |
