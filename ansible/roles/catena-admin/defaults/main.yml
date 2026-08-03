@@ -595,15 +595,16 @@ catena_admin_cloudflared_reserved_actions:
       printf '%s' "$CATENA_CF_CANDIDATE_TOKEN" |
       {{ cloudflared_sync_bin | default('/usr/local/bin/catena-cloudflared-sync') }}
       check --token-stdin
+  # Only the tunnel NAME is exported. The image, ingress service, network, stop
+  # grace and probe counts used to be listed here too, duplicating both the
+  # cloudflare_tunnel role defaults and the engine's own -- three copies of each
+  # value, kept in agreement by hand, with a `default(...)` fallback here that
+  # was a fourth. The engine owns them; this passes only what it cannot know.
+  #
+  # The tunnel name is the exception because the engine's fallback is the box's
+  # hostname, which is not always the inventory name.
   - name: cloudflared-sync
     shell: >-
       env
-      CLOUDFLARED_IMAGE={{ cloudflared_image | default('cloudflare/cloudflared:2026.7.1') }}
-      CLOUDFLARED_INGRESS_SERVICE={{ cloudflared_ingress_service | default('http://catena-traefik:80') }}
       CLOUDFLARED_TUNNEL_NAME={{ cloudflared_tunnel_name | default(inventory_hostname) }}
-      CATENA_NETWORK={{ catena_network_name | default('catena-network') }}
-      CLOUDFLARED_STOP_GRACE={{ cloudflared_stop_grace | default('40s') }}
-      CLOUDFLARED_PROBE_ATTEMPTS={{ cloudflared_probe_attempts | default(60) }}
-      CLOUDFLARED_REPROBE_ATTEMPTS={{ cloudflared_reprobe_attempts | default(30) }}
-      CLOUDFLARED_PROBE_DELAY_SECONDS={{ cloudflared_probe_delay_seconds | default(10) }}
       {{ cloudflared_sync_bin | default('/usr/local/bin/catena-cloudflared-sync') }} sync

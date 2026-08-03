@@ -103,18 +103,25 @@
       - "{{ cloudflared_sync_bin }}"
       - sync
   environment:
+    # ONLY the two per-host values. Everything else the engine used to be handed
+    # here -- image, ingress service, network, stop grace, probe counts -- are
+    # product constants it already carries as its own defaults, and passing them
+    # made three copies of each: this file, the catena-admin reserved action,
+    # and the engine. Three copies kept in agreement by hand is not a contract.
+    #
+    # It also made the two dispatch paths structurally different. The panel
+    # fires this same engine, and an engine that reads its caller's environment
+    # works from the caller written beside it and fails from every other one --
+    # which is exactly how the migration lane died at PRETUNNEL.
+    #
     # Base domain: the engine resolves the primary zone BY NAME, tolerating an
     # account-scoped token that grants more than one zone. Without it the engine
     # falls back to requiring a single-zone-scoped token (grants exactly 1).
     CLOUDFLARE_PRIMARY_ZONE: "{{ cloudflare_zone }}"
-    CLOUDFLARED_IMAGE: "{{ cloudflared_image }}"
-    CLOUDFLARED_INGRESS_SERVICE: "{{ cloudflared_ingress_service }}"
+    # The tunnel's identity. The engine defaults to the box's own hostname,
+    # which is NOT always the inventory name -- so this one is genuinely
+    # per-host and stays.
     CLOUDFLARED_TUNNEL_NAME: "{{ cloudflared_tunnel_name }}"
-    CATENA_NETWORK: "{{ catena_network_name | default('catena-network') }}"
-    CLOUDFLARED_STOP_GRACE: "{{ cloudflared_stop_grace }}"
-    CLOUDFLARED_PROBE_ATTEMPTS: "{{ cloudflared_probe_attempts | string }}"
-    CLOUDFLARED_REPROBE_ATTEMPTS: "{{ cloudflared_reprobe_attempts | string }}"
-    CLOUDFLARED_PROBE_DELAY_SECONDS: "{{ cloudflared_probe_delay_seconds | string }}"
   register: _cf_sync
   # The engine is internally idempotent (it owns the cloudflared re-encoded-
   # token no-op that fi_c6 guarded, plus the network/self-heal reconciles), and

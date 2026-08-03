@@ -78,16 +78,31 @@ def test_the_deferral_message_is_no_longer_ansible_s_to_write():
     assert "tunnel deferred -- no Cloudflare token" not in names
 
 
-def test_dispatches_sync_engine_with_pins():
+def test_dispatches_sync_engine_with_only_the_per_host_values():
+    """The engine owns its own spec; this passes what it cannot know.
+
+    It used to export the image, ingress service, network, stop grace and probe
+    counts too -- values that also existed in this role's defaults AND in the
+    engine's own, three copies agreeing only by hand. Worse, it made the two
+    dispatch paths structurally different: the panel fires the same engine, and
+    an engine that reads its caller's environment works from the caller written
+    beside it and fails from every other one.
+
+    Two survive, and both are things the engine genuinely cannot resolve:
+    the zone (an account-scoped token grants many) and the tunnel name (the
+    engine falls back to the box's hostname, which is not the inventory name).
+    """
     task = _find("converge the tunnel via catena-cloudflared-sync")
     argv = task["ansible.builtin.command"]["argv"]
     assert argv[-1] == "sync"
     assert "cloudflared_sync_bin" in argv[0]
+
     env = task["environment"]
-    for pin in ("CLOUDFLARED_IMAGE", "CLOUDFLARED_INGRESS_SERVICE",
-                "CLOUDFLARED_TUNNEL_NAME", "CATENA_NETWORK",
-                "CLOUDFLARED_STOP_GRACE"):
-        assert pin in env, f"missing engine pin {pin} in the sync dispatch env"
+    assert set(env) == {"CLOUDFLARE_PRIMARY_ZONE", "CLOUDFLARED_TUNNEL_NAME"}, (
+        f"the sync dispatch exports {sorted(env)}; anything beyond the two "
+        "per-host values is a second copy of a product constant the engine "
+        "already carries"
+    )
     # The token is NEVER passed to the engine (it reads the store).
     assert not any("cloudflare_api_token" in str(v) for v in env.values())
 
@@ -150,11 +165,23 @@ def test_le_warning_preserved():
     assert "DO NOT enable Let's Encrypt" in task["ansible.builtin.debug"]["msg"]
 
 
-# --- defaults carry the non-secret engine pins ------------------------------
-def test_defaults_expose_engine_bin_and_pins():
+# --- defaults carry the engine bin and nothing the engine already owns -------
+def test_defaults_expose_the_engine_bin():
     d = _defaults()
     assert d["cloudflared_sync_bin"] == "/usr/local/bin/catena-cloudflared-sync"
-    assert d["cloudflared_stop_grace"] == "40s"
-    assert d["cloudflared_probe_attempts"] == 60
-    assert d["cloudflared_reprobe_attempts"] == 30
-    assert d["cloudflared_probe_delay_seconds"] == 10
+
+
+def test_defaults_no_longer_duplicate_the_engine_s_own_pins():
+    """The image, ingress service, stop grace and probe counts are product
+    constants the engine defaults to. Their VALUES are asserted in catena-admin
+    (payload/cmd/catena-cloudflared-sync); keeping a copy here would make this
+    repo a second writer of a value it does not pass any more, which is the
+    worst of both -- editable, and read by nothing."""
+    d = _defaults()
+    for gone in ("cloudflared_image", "cloudflared_image_tag",
+                 "cloudflared_ingress_service", "cloudflared_stop_grace",
+                 "cloudflared_probe_attempts", "cloudflared_reprobe_attempts",
+                 "cloudflared_probe_delay_seconds"):
+        assert gone not in d, (
+            f"{gone} is back in the role defaults; the engine already carries it"
+        )

@@ -47,14 +47,29 @@ def test_cloudflared_check_reads_candidate_token_on_stdin():
     assert "catena-cloudflared-sync" in shell
 
 
-def test_cloudflared_sync_exports_pins_no_token():
+def test_cloudflared_sync_exports_only_the_tunnel_name_and_no_token():
+    """The panel path and the converge path must hand the engine the SAME thing.
+
+    This action used to re-list the image, ingress service, network, stop grace
+    and probe counts, each with its own `default(...)` fallback -- a fourth copy
+    of values that already existed in the cloudflare_tunnel role defaults and in
+    the engine itself. Two dispatch paths each carrying their own copy is how
+    they drift apart, and the panel path is the one nobody watches converge.
+
+    Only the tunnel name survives: the engine falls back to the box's hostname,
+    which is not necessarily the inventory name.
+    """
     d = _defaults()
     shell = _by_name(d["catena_admin_cloudflared_reserved_actions"])["cloudflared-sync"]
     assert shell.strip().startswith("env")
-    for pin in ("CLOUDFLARED_IMAGE=", "CLOUDFLARED_INGRESS_SERVICE=",
-                "CLOUDFLARED_TUNNEL_NAME=", "CATENA_NETWORK=",
-                "CLOUDFLARED_STOP_GRACE="):
-        assert pin in shell, f"cloudflared-sync missing pin {pin}"
+    assert "CLOUDFLARED_TUNNEL_NAME=" in shell
+    for gone in ("CLOUDFLARED_IMAGE=", "CLOUDFLARED_INGRESS_SERVICE=",
+                 "CATENA_NETWORK=", "CLOUDFLARED_STOP_GRACE=",
+                 "CLOUDFLARED_PROBE_ATTEMPTS=", "CLOUDFLARED_REPROBE_ATTEMPTS=",
+                 "CLOUDFLARED_PROBE_DELAY_SECONDS="):
+        assert gone not in shell, (
+            f"cloudflared-sync re-exports {gone}, which the engine already defaults"
+        )
     assert shell.rstrip().endswith("sync")
     # The token is read from the store by the engine, never passed here.
     assert "CATENA_CF_CANDIDATE_TOKEN" not in shell

@@ -1,17 +1,26 @@
 name: Trivy
 
-# Wave 4 (blocking) container-image CVE gate for catena-ce. The fs scan
-# (repo deps + misconfig + secrets) is the scanctl security gate
-# (security.yml). What stays here cannot fold into scanctl's static fs scan:
-#   - image (operator-stack pins): scans the cloudflared + traefik + postgres +
-#     portainer tags resolved at runtime from the Ansible role defaults.
-# The catena-admin image job moved to the private catena-admin repo at the
-# unification.
+# Wave 4 (blocking) CVE gate for catena-ce. The fs scan (repo deps + misconfig
+# + secrets) is the scanctl security gate (security.yml).
 #
-# Severity floor is HIGH+CRITICAL, ignore-unfixed:true so unpatched CVEs do not
-# block until a fix exists upstream. Tune via .trivyignore.yaml (passed as the
-# trivyignores input; entries are time-boxed via expiredAt so a suppression
-# auto-expires and the gate re-fires for review).
+# This workflow no longer scans any image. It used to resolve the cloudflared +
+# traefik + postgres + portainer tags out of the Ansible role defaults, and all
+# four have left this repo: the tier-1 three when their specs moved into the
+# catena-admin engine catalog (2026-08-03), cloudflared when its pin stopped
+# being duplicated out of the tunnel engine's own default. Their scans live in
+# catena-admin's trivy.yml now, reading the pins where the host reads them.
+# Scanning them here after the move would have gated a PR on a tag no host runs.
+#
+# What remains is the suppression-expiry guard, which is repo-local: the
+# .trivyignore.yaml it polices is this repo's.
+#
+# KNOWN GAP, pre-existing and not introduced here: the infra app images pinned
+# in roles/infrastructure + roles/keycloak defaults (gatus, healthchecks,
+# recovery nginx, clamav, beszel hub+agent, keycloak) are Renovate-tracked and
+# their packageRule claims "Trivy gates each PR" -- nothing has ever scanned
+# them. The machinery that would have hosted them left with the pins above, so
+# the claim is now visibly unbacked rather than quietly so. Tracked in
+# ops/BACKLOG_TECHNICAL.md.
 
 on:
   pull_request:
@@ -24,110 +33,6 @@ permissions:
   contents: read
 
 jobs:
-  # The catena-admin image job moved to the private catena-admin repo at the
-  # unification (the Dockerfile + publish workflow live beside the shell now).
-
-  # On pull_request, scan ONLY the images whose pin file the PR touches: a new
-  # CVE in an unrelated third-party image must not block an unrelated bump PR
-  # (push + weekly cron still sweep the full matrix, so those CVEs keep
-  # surfacing on the default branch for their own fix). An empty include list
-  # skips the scan job entirely; trivy-gate reports success for the PR.
-  resolve-matrix:
-    name: Resolve scan matrix
-    runs-on: ubuntu-latest
-    outputs:
-      include: ${{ steps.pick.outputs.include }}
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          fetch-depth: 0 # need origin/<base> for the changed-file diff
-          persist-credentials: false
-      - id: pick
-        env:
-          EVENT: ${{ github.event_name }}
-          BASE_REF: ${{ github.base_ref }}
-        run: |
-          set -euo pipefail
-          cat > matrix.json <<'EOF'
-          [
-            {"name": "cloudflared", "pin_file": "ansible/roles/cloudflare_tunnel/defaults/main.yml", "pin_key": "cloudflared_image_tag", "image_repo": "cloudflare/cloudflared"}
-          ]
-          EOF
-          if [ "$EVENT" = "pull_request" ]; then
-            changed=$(git diff --name-only "origin/$BASE_REF"...HEAD)
-            include=$(jq -c --arg changed "$changed" \
-              '[.[] | select(.pin_file as $p | $changed | split("\n") | index($p))]' matrix.json)
-          else
-            include=$(jq -c . matrix.json)
-          fi
-          echo "include=$include" >> "$GITHUB_OUTPUT"
-          echo "scanning: $(echo "$include" | jq -r 'map(.name) | join(", ")')"
-
-  # Image-CVE scan for the operator-stack base images we pin by role
-  # default. Renovate's docker manager does not see
-  # these because they live as plain YAML values, not in a Dockerfile or
-  # docker-compose. The customManagers open the BUMP PRs; this job catches the
-  # CVE BEFORE merging a PR that pins a vulnerable tag.
-  #
-  # traefik, postgres and portainer left this matrix on 2026-08-03. Their specs
-  # moved into the catena-admin tier-1 catalog, so their image pins moved with
-  # them, and this workflow cannot follow: catena-admin is private. The
-  # equivalent job lives there now (trivy-pinned-images), reading the pins out
-  # of payload/engines/tier1/catalog.go. Scanning them here after the move would
-  # have meant gating on a tag no host runs.
-  trivy-operator-stack-pins:
-    name: Trivy image (operator-stack pins)
-    runs-on: ubuntu-latest
-    needs: resolve-matrix
-    if: needs.resolve-matrix.outputs.include != '[]'
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJSON(needs.resolve-matrix.outputs.include) }}
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          persist-credentials: false
-      - name: Install uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          enable-cache: true
-          python-version: '3.14'
-      - name: Resolve pinned image ref
-        id: resolve
-        env:
-          PIN_FILE: ${{ matrix.pin_file }}
-          PIN_KEY: ${{ matrix.pin_key }}
-        run: |
-          set -euo pipefail
-          tag=$(uv run --with pyyaml python -c 'import os, yaml; print(yaml.safe_load(open(os.environ["PIN_FILE"]))[os.environ["PIN_KEY"]])')
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "image=${{ matrix.image_repo }}:$tag" >> "$GITHUB_OUTPUT"
-      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ steps.resolve.outputs.image }}
-          severity: HIGH,CRITICAL
-          exit-code: '1'
-          format: 'json'
-          output: 'trivy-${{ matrix.name }}.json'
-          ignore-unfixed: true
-          # CVE-only for these THIRD-PARTY images. The default vuln+secret
-          # scan flags Debian's placeholder /etc/ssl/private/ssl-cert-
-          # snakeoil.key (rule private-key, HIGH) baked into any base image
-          # carrying the ssl-cert package -- e.g. postgres:16 since it moved
-          # to a Debian 13/trixie base. That is a benign false positive we
-          # cannot remove from an upstream image, and secrets in OUR tree are
-          # already covered by the scanctl fs gate (security.yml). The
-          # catena-admin job (our image) keeps the default secret scan.
-          scanners: vuln
-          trivyignores: .trivyignore.yaml
-      - name: Upload report
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: trivy-${{ matrix.name }}-report
-          path: trivy-${{ matrix.name }}.json
-          if-no-files-found: ignore
 
   # Advance-warning guard for the time-boxed .trivyignore.yaml suppressions:
   # warns (::warning::) when an entry is within 30 days of expiredAt and FAILS
@@ -146,14 +51,14 @@ jobs:
         run: uv run .github/scripts/check_trivyignore_expiry.py
 
   # Single stable check for branch rulesets: succeeds when every needed job
-  # succeeded or was legitimately skipped (PR touching no pin file), fails on
-  # any failure/cancellation. Required-check lists reference THIS name so a
-  # path-dependent matrix never leaves a ruleset waiting on a check that will
-  # never report.
+  # succeeded or was legitimately skipped, fails on any failure/cancellation.
+  # Required-check lists reference THIS name, so it is kept even though only
+  # one job feeds it now -- renaming or removing it would leave every ruleset
+  # waiting on a check that never reports.
   trivy-gate:
     name: trivy-gate
     runs-on: ubuntu-latest
-    needs: [resolve-matrix, trivy-operator-stack-pins, trivyignore-expiry]
+    needs: [trivyignore-expiry]
     if: always()
     steps:
       - env:

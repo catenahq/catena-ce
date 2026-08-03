@@ -5,18 +5,17 @@
   ],
   "packageRules": [
     {
-      "description": "Operator-stack pins still owned by this repo: the cloudflared image (roles/cloudflare_tunnel) and the restic binary (roles/backup). Bumps stay manual -- either can break the platform out-of-band -- and the Trivy job gates the PR on CVEs. NOT grouped: one PR per pin, so a CVE in one cannot hold the other's update hostage; a grouped cloudflared+traefik PR went red on a cloudflared-only CVE and blocked the traefik bump with it. traefik, postgres, portainer and coturn left this repo on 2026-08-03: their specs, and so their image pins, live in the catena-admin tier-1 catalog, tracked by that repo's Renovate.",
+      "description": "The restic BINARY version pinned in roles/backup. Bumps stay manual: restic is what every backup and every restore runs through. It is a github-releases pin, not an image, so no Trivy image scan applies -- the scanctl fs gate covers the repo side. cloudflared, traefik, postgres, portainer and coturn all left this repo by 2026-08-03; their pins live where the host engines read them, in catena-admin.",
       "matchManagers": [
         "custom.regex"
       ],
       "matchPackageNames": [
-        "cloudflare/cloudflared",
         "restic/restic"
       ],
       "automerge": false
     },
     {
-      "description": "Infra app images pinned in role defaults (gatus, healthchecks, recovery nginx, clamav). Manual review like the operator-stack pins; Trivy gates each PR. NOT grouped: one PR per image, same rationale as the operator-stack pins -- one image's CVE must not hold the others' updates hostage.",
+      "description": "Infra app images pinned in role defaults (gatus, healthchecks, recovery nginx, clamav). Manual review. NOT Trivy-gated: this described them as gated, and nothing ever scanned them -- the image matrix only ever carried the operator-stack four, which have since moved to catena-admin. Tracked as a known gap in ops/BACKLOG_TECHNICAL.md rather than left as a false claim here.",
       "matchManagers": [
         "custom.regex"
       ],
@@ -53,18 +52,6 @@
     }
   ],
   "customManagers": [
-    {
-      "customType": "regex",
-      "description": "Track cloudflared image tag pinned in cloudflare_tunnel role defaults",
-      "managerFilePatterns": [
-        "/^ansible/roles/cloudflare_tunnel/defaults/main\\.yml$/"
-      ],
-      "matchStrings": [
-        "cloudflared_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
-      ],
-      "depNameTemplate": "cloudflare/cloudflared",
-      "datasourceTemplate": "docker"
-    },
     {
       "customType": "regex",
       "description": "Track restic binary version pinned in backup role defaults",
