@@ -342,14 +342,50 @@ if [ -n "${BACKUP_DISK_PREFLIGHT_SCRIPT:-}" ] \
         "backup preflight"
 fi
 
+# Keep the newest BACKUP_DUMP_KEEP logical dumps per container under $1.
+#
+# The rule here used to be `find -mtime +3`, which deletes by AGE, not by
+# count. It never matched the comment beside it ("keep last 3 dumps per
+# container"), and on any host backing up more often than daily -- which the
+# licensed lane does -- it deletes nothing at all. Measured on bench run 5534:
+# a source four and a half hours into the run carried five catena-postgres
+# dumps and four nextcloud-db-1, and every snapshot restic took carried all of
+# them.
+#
+# That is more than staging bloat. `restic restore --delete` makes a restored
+# host match the snapshot, so a migration target or a rebuilt server inherits
+# the whole pile, and every archive older than the volumes beside it is
+# something `catena-recovery`'s replay could put on top of newer data. The
+# staleness floor refuses them, and it is a last line rather than a reason to
+# ship the hazard.
+#
+# Pruning here loses nothing: older dumps stay inside older restic snapshots,
+# which is what the repository is for.
+BACKUP_DUMP_KEEP="${BACKUP_DUMP_KEEP:-3}"
+
+prune_dumps() {
+    _pd_dir="$1"
+    [ -d "$_pd_dir" ] || return 0
+    # "<container>-<YYYYmmddTHHMMSSZ>.sql.gz". The stamp is fixed-width and
+    # zero-padded, so a lexical reverse sort is newest-first and everything
+    # past the keep count goes.
+    for _pd_name in $(ls -1 "$_pd_dir" 2>/dev/null \
+            | sed -n 's/^\(.*\)-[0-9]\{8\}T[0-9]\{6\}Z\.sql\.gz$/\1/p' \
+            | sort -u); do
+        ls -1 "$_pd_dir/${_pd_name}"-*.sql.gz 2>/dev/null \
+            | sort -r \
+            | tail -n +"$((BACKUP_DUMP_KEEP + 1))" \
+            | while IFS= read -r _pd_old; do
+                  log "pruning stale dump $(basename "$_pd_old")"
+                  rm -f "$_pd_old"
+              done
+    done
+}
+
 # ─── pg_dumpall for each running postgres container ──────────────────────
 PG_DIR="${BACKUP_STAGING_DIR}/pg"
 mkdir -p "$PG_DIR"
 chmod 700 "$PG_DIR"
-
-# Retention on staging -- keep last 3 dumps per container; restic handles
-# longer-term retention over in the repo.
-find "$PG_DIR" -type f -name '*.sql.gz' -mtime +3 -delete || true
 
 if command -v docker >/dev/null 2>&1; then
     CONTAINERS=$(pg_containers)
@@ -431,6 +467,16 @@ if command -v docker >/dev/null 2>&1; then
     else
         log "no running postgres-ish containers found; skipping pg_dumpall"
     fi
+    # After the dumps, not before: pruning first would keep N old archives and
+    # then add a new one, so the snapshot restic is about to take would always
+    # carry N+1. A failed pass exits above and prunes nothing -- the newest
+    # dump on disk stays the newest good one.
+    #
+    # Outside the container check, not inside it: an application that has been
+    # REMOVED leaves its dumps behind, and those are exactly the archives with
+    # nothing left to compare them against. The age-based rule this replaced
+    # ran unconditionally too.
+    prune_dumps "$PG_DIR"
 
     # ─── mysqldump for each running MySQL/MariaDB container ──────────────
     # Seven catalog templates ship a MariaDB or MySQL (erpnext, wordpress,
@@ -449,7 +495,6 @@ if command -v docker >/dev/null 2>&1; then
     MYSQL_DIR="${BACKUP_STAGING_DIR}/mysql"
     mkdir -p "$MYSQL_DIR"
     chmod 700 "$MYSQL_DIR"
-    find "$MYSQL_DIR" -type f -name '*.sql.gz' -mtime +3 -delete || true
 
     MYSQL_CONTAINERS=$(docker ps --no-trunc --format '{{.Names}}\t{{.Image}}' \
                          | awk -F'\t' 'tolower($2) ~ /mariadb|mysql/ {print $1}')
@@ -519,6 +564,7 @@ if command -v docker >/dev/null 2>&1; then
     else
         log "no running MySQL/MariaDB containers found; skipping mysqldump"
     fi
+    prune_dumps "$MYSQL_DIR"
 else
     log "docker not installed; skipping pg_dumpall + mysqldump"
 fi
