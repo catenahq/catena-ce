@@ -87,20 +87,20 @@ catena_postgres_health_start_period: "60s"
 catena_postgres_constraints:
   - "node.labels.catena.role==data"
 
-catena_postgres_desired:
-  image: "{{ catena_postgres_image }}"
-  constraints: "{{ catena_postgres_constraints }}"
-  limit_memory: "{{ catena_postgres_limit_memory }}"
-  reserve_memory: "{{ catena_postgres_reserve_memory }}"
-  stop_grace_period: "{{ catena_postgres_stop_grace_period }}"
-  update_failure_action: "{{ catena_postgres_update_failure_action }}"
-  update_monitor: "{{ catena_postgres_update_monitor }}"
-  update_max_failure_ratio: "{{ catena_postgres_update_max_failure_ratio }}"
-  update_order: "{{ catena_postgres_update_order }}"
-  health_cmd: "{{ catena_postgres_health_cmd }}"
-  health_interval: "{{ catena_postgres_health_interval }}"
-  health_retries: "{{ catena_postgres_health_retries }}"
-  health_start_period: "{{ catena_postgres_health_start_period }}"
+# The tier-1 spec for catena-postgres is no longer assembled here. It lives in
+# the host engine, catena-admin payload/engines/tier1/catalog.go, and
+# roles/postgres reads it with `catena-tier1 spec catena-postgres`.
+#
+# The scalars above are what the engine's built-in encodes, kept for now as the
+# record of what this role used to declare and as the values every comment
+# beside them explains. They feed nothing: deleting the dict is what removes
+# the second description, and a second description is the failure this seam
+# exists to prevent -- two that agree on the day they are written say nothing
+# about the next field added to one side. The engine's own test pins the
+# declaration this role used to build and asserts byte-identical create argv.
+#
+# They go when traefik, portainer and coturn follow, so the four roles lose
+# their duplicate values in one sweep rather than one orphan at a time.
 
 # ─── wiring: one spelling, two renderers ─────────────────────────────────
 # The create argv and the tier-1 stack file both read these. They used to be

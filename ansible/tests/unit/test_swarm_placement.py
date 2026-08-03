@@ -33,15 +33,23 @@ ANSIBLE = Path(__file__).resolve().parents[2]
 ROLES = ANSIBLE / "roles"
 
 # Services deployed by this repo that mount state, and the role that owns each.
-STATEFUL = ("postgres", "portainer", "traefik")
+# postgres is absent on purpose: its spec moved into the host engine
+# (catena-admin payload/engines/tier1/catalog.go) and the role now reads it
+# with `catena-tier1 spec catena-postgres` instead of declaring a dict. The
+# placement constraint is asserted there, in catalog_test.go, against the same
+# declaration this role used to build -- byte-identical create argv, which
+# covers the constraint along with everything else.
+#
+# Asserting it here too would mean reading a dict that no longer drives
+# anything, which is the stale-oracle failure this suite exists to catch in
+# other people's code.
+STATEFUL = ("portainer", "traefik")
 
 DESIRED_VAR = {
-    "postgres": "catena_postgres_desired",
     "portainer": "portainer_desired",
     "traefik": "traefik_desired",
 }
 CONSTRAINTS_VAR = {
-    "postgres": "catena_postgres_constraints",
     "portainer": "portainer_constraints",
     "traefik": "traefik_constraints",
 }
