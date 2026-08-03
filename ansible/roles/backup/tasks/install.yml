@@ -236,18 +236,45 @@
     path: "{{ backup_wrapper_script }}"
   register: _backup_wrapper_stat
 
-- name: "Backup: the backup wrapper is missing"
+# Two branches, the same shape roles/cloudflare_tunnel uses, and for the same
+# reason: "the payload did not land" and "the payload has not landed YET" are
+# different failures and only the first is worth stopping a converge for.
+#
+# catena_payload_engines_expected is published by roles/payload and says whether
+# THIS converge owns the engines. When it does, a missing wrapper means the
+# extract failed and carrying on would install a timer pointing at nothing.
+# When it does not (CATENA_PAYLOAD_INSTALL=false -- the bench, which builds the
+# image on the VPS and installs the payload at a later stage), the wrapper
+# legitimately arrives after this role runs.
+#
+# Deferring is safe here in a way it is not for the tier-1 engine: this role
+# installs the units but ENABLES nothing -- `catena-schedule apply` owns
+# enable/disable for every lane -- so a host in the gap has a disabled timer
+# pointing at a path that is about to exist, and nothing fires in between.
+- name: "Backup: the backup wrapper is missing from a converge that installs it"
   ansible.builtin.fail:
     msg: >-
-      {{ backup_wrapper_script }} is absent, so catena-backup.service would be
-      installed pointing at nothing and every scheduled backup would fail
-      silently at the unit level. The wrapper ships in the catena-admin host
-      payload and roles/payload installs it right after roles/docker -- check
+      {{ backup_wrapper_script }} is absent although roles/payload ran in this
+      converge, so catena-backup.service would be installed pointing at nothing
+      and every scheduled backup would fail silently at the unit level. Check
       the "Payload:" tasks above for why the extract from
       {{ catena_payload_image | default('the catena-admin image') }} did not
-      land. A host whose payload is staged out of band
-      (CATENA_PAYLOAD_INSTALL=false) must be staged BEFORE this converge.
-  when: not (_backup_wrapper_stat.stat.exists | default(false))
+      land.
+  when:
+    - not (_backup_wrapper_stat.stat.exists | default(false))
+    - catena_payload_engines_expected | default(false) | bool
+
+- name: "Backup: wrapper staged out of band and not present yet -- units only"
+  ansible.builtin.debug:
+    msg: >-
+      {{ backup_wrapper_script }} is not on the host and this converge does not
+      install it (CATENA_PAYLOAD_INSTALL=false). The units and the configuration
+      are being written now; the wrapper arrives with the payload install. No
+      lane is enabled by this role, so nothing fires in the gap, and the initial
+      inline snapshot below is skipped rather than run against a missing binary.
+  when:
+    - not (_backup_wrapper_stat.stat.exists | default(false))
+    - not (catena_payload_engines_expected | default(false) | bool)
 
 - name: Drop disk-preflight helper (R16 -- shared across backup/restore/auto-update)
   # Single source of truth for the "is there enough free disk to start"
@@ -495,6 +522,11 @@
     - backup_run_initial_snapshot | bool
     - _restic_has_snapshot.rc | default(1) != 0
     - not (_backup_post_restore_marker.stat.exists | default(false))
+    # No wrapper, no snapshot. On a host whose payload arrives after this role
+    # (CATENA_PAYLOAD_INSTALL=false) the unit would exec a path that does not
+    # exist yet and fail the converge. The next converge, or the first scheduled
+    # run once a lane is enabled, takes it.
+    - _backup_wrapper_stat.stat.exists | default(false)
   block:
     # ansible.builtin.systemd_service has no `state: started --wait`
     # equivalent; we need the synchronous block so verify-backup finds
