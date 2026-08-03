@@ -13,7 +13,7 @@ Catena is exercised end-to-end by an automated rehearsal suite: each scenario pr
 
 Two numbers are reported everywhere: **rehearsed** means the scenario was last recorded PASSING on a real run, and is the only number treated as evidence; **declared** additionally counts scenarios that exist but have not been observed passing yet. A scenario is never counted for merely existing.
 
-**Coverage: 10 Community features, 77 of 84 rehearsal scenarios observed passing; 12 Catena Pro features, 38 of 42; plus 17 of 23 maintainer-internal rehearsals.**
+**Coverage: 10 Community features, 78 of 84 rehearsal scenarios observed passing; 12 Catena Pro features, 39 of 42; plus 17 of 23 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -23,7 +23,7 @@ A scheduled weekly backup plus manual backups any time. Backups are encrypted on
 
 Implemented in: `ansible/playbooks/backup_now.yml`, `ansible/playbooks/filter_plugins/backup_cadence_cap.py`, `ansible/roles/backup`, `ansible/scripts/backup-coverage.sh`, `ansible/scripts/catena-restic-key.py`, `ansible/scripts/restic-env.sh`, `ansible/scripts/restic-mount.sh`, `ansible/scripts/restic-short-id.sh`, `ansible/scripts/restic-unmount.sh`, `ansible/scripts/run-backup.sh`, `ansible/scripts/snapshot-export.sh`, `ansible/scripts/snapshot-list.sh`
 
-Rehearsal scenarios (10 of 11 observed passing): `backup_schedule_applied`, `concurrent_backup_lock_contention`, `fi_b2_pg_dump_failed`, `fi_b3_snapshot_id_mismatch`, `fi_b4_locked_pack_rotation`, `fi_b6_healthchecks_down`, `fi_b7_ntfy_delivery_fails`, `malformed_catalog_rejection`, `restic_password_rotation_round_trip`, `snapshot_export_round_trip`; declared, not yet observed passing: `backup_rollback`
+Rehearsal scenarios (11 of 11 observed passing): `backup_rollback`, `backup_schedule_applied`, `concurrent_backup_lock_contention`, `fi_b2_pg_dump_failed`, `fi_b3_snapshot_id_mismatch`, `fi_b4_locked_pack_rotation`, `fi_b6_healthchecks_down`, `fi_b7_ntfy_delivery_fails`, `malformed_catalog_rejection`, `restic_password_rotation_round_trip`, `snapshot_export_round_trip`
 
 ### Single sign-on across the suite
 
@@ -116,7 +116,7 @@ They are exercised by the same rehearsal suite as the Community features above, 
 | Managed updates with automatic rollback | 9 | 9 |
 | External availability monitoring | 0 | 1 |
 | Multiple domains, each with its own private sign-on | 1 | 1 |
-| A move that can be called off | 1 | 4 |
+| A move that can be called off | 2 | 4 |
 
 Note: features marked *see note* are maintainer-run procedures; their rehearsals are counted under maintainer-internal tooling below.
 
