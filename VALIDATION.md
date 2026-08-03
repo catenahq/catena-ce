@@ -13,7 +13,7 @@ Catena is exercised end-to-end by an automated rehearsal suite: each scenario pr
 
 Two numbers are reported everywhere: **rehearsed** means the scenario was last recorded PASSING on a real run, and is the only number treated as evidence; **declared** additionally counts scenarios that exist but have not been observed passing yet. A scenario is never counted for merely existing.
 
-**Coverage: 10 Community features, 76 of 84 rehearsal scenarios observed passing; 12 Catena Pro features, 36 of 42; plus 16 of 23 maintainer-internal rehearsals.**
+**Coverage: 10 Community features, 78 of 84 rehearsal scenarios observed passing; 12 Catena Pro features, 38 of 42; plus 17 of 23 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -39,7 +39,7 @@ A web dashboard with role-aware access (staff see status, administrators also ge
 
 Implemented in: `ansible/roles/catena-admin`, `ansible/scripts/catena-admin-runner.sh`
 
-Rehearsal scenarios (4 of 5 observed passing): `audit_chain_tamper_evident`, `ce_admin_actions`, `ce_admin_smoke`, `quiesce_resume_round_trip`; declared, not yet observed passing: `wizard_restore_smoke`
+Rehearsal scenarios (5 of 5 observed passing): `audit_chain_tamper_evident`, `ce_admin_actions`, `ce_admin_smoke`, `quiesce_resume_round_trip`, `wizard_restore_smoke`
 
 ### Installation and application deployment
 
@@ -79,7 +79,7 @@ A whole server can be rebuilt from nothing but the backup endpoint and its key, 
 
 Implemented in: `ansible/playbooks/restore.yml`
 
-Rehearsal scenarios (15 of 18 observed passing): `ce_restore`, `fi_d2_pg_dumpall_replay_constraint`, `fi_d3_postgres_oom_mid_restore`, `fi_d4_disk_full_mid_snapshot`, `fi_d5_disk_full_mid_converge`, `fi_d6_volume_uid_drift`, `fi_d7_restic_corrupt_pack`, `nc_s3_hot_recovery`, `nc_sync_wipe_restore`, `pitr_fuse_round_trip`, `recover_secrets_from_running_host`, `recovery_landing_page_bilingual_parity`, `restore_dr`, `restore_version_skew_abort`, `s3_reconcile_orphan_cleanup`; declared, not yet observed passing: `debian_major_upgrade_restore`, `pg_major_version_cross_restore`, `selective_restore_round_trip`
+Rehearsal scenarios (16 of 18 observed passing): `ce_restore`, `fi_d2_pg_dumpall_replay_constraint`, `fi_d3_postgres_oom_mid_restore`, `fi_d4_disk_full_mid_snapshot`, `fi_d5_disk_full_mid_converge`, `fi_d6_volume_uid_drift`, `fi_d7_restic_corrupt_pack`, `nc_s3_hot_recovery`, `nc_sync_wipe_restore`, `pitr_fuse_round_trip`, `recover_secrets_from_running_host`, `recovery_landing_page_bilingual_parity`, `restore_dr`, `restore_version_skew_abort`, `s3_reconcile_orphan_cleanup`, `selective_restore_round_trip`; declared, not yet observed passing: `debian_major_upgrade_restore`, `pg_major_version_cross_restore`
 
 ### No lock-in, ever
 
@@ -107,9 +107,9 @@ They are exercised by the same rehearsal suite as the Community features above, 
 | --- | --- | --- |
 | Signed monthly compliance attestation | 1 | 1 |
 | Tamper-evident central audit trail | 1 | 1 |
-| Offsite immutable backup copy | 5 | 6 |
+| Offsite immutable backup copy | 6 | 6 |
 | Vulnerability scanning | 1 | 1 |
-| Automated daily maintenance | 12 | 13 |
+| Automated daily maintenance | 13 | 13 |
 | Managed lifecycle operations (migration, decommission) | see note | see note |
 | Licensed feature activation | 6 | 6 |
 | Identity posture monitoring | 1 | 1 |
@@ -122,7 +122,7 @@ Note: features marked *see note* are maintainer-run procedures; their rehearsals
 
 ## Maintainer-internal tooling
 
-The maintainers' internal tooling (test harness, control plane, rotation and maintenance utilities) accounts for a further 3 features and 16 of 23 rehearsal scenarios observed passing; details stay private.
+The maintainers' internal tooling (test harness, control plane, rotation and maintenance utilities) accounts for a further 3 features and 17 of 23 rehearsal scenarios observed passing; details stay private.
 
 ## Continuous integration gates on this repository
 
