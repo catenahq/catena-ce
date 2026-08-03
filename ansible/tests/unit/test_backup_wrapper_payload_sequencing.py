@@ -37,16 +37,27 @@ import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
 INSTALL = ANSIBLE / "roles" / "backup" / "tasks" / "install.yml"
+VALIDATE = ANSIBLE / "roles" / "backup" / "tasks" / "validate.yml"
 
 EXPECTED = "catena_payload_engines_expected"
 
+# Every backup script that now arrives with the image payload rather than from
+# this role. catena-disk-preflight is deliberately absent: restore.yml calls it
+# on a fresh DR box with no docker, so it is still copied here.
+PAYLOAD_SCRIPTS = (
+    "backup_wrapper_script",
+    "backup_coverage_script",
+    "backup_restic_env_script",
+    "backup_snapshot_list_script",
+)
 
-def _tasks() -> list[dict]:
-    return yaml.safe_load(INSTALL.read_text())
+
+def _tasks(path: Path = INSTALL) -> list[dict]:
+    return yaml.safe_load(path.read_text())
 
 
-def _find(fragment: str) -> dict:
-    for t in _tasks():
+def _find(fragment: str, path: Path = INSTALL) -> dict:
+    for t in _tasks(path):
         if fragment in (t.get("name") or ""):
             return t
     raise AssertionError(f"task not found: {fragment!r}")
@@ -100,6 +111,56 @@ def test_the_inline_first_snapshot_needs_the_wrapper():
         "payload lands after this role it starts a unit whose ExecStart does "
         "not exist"
     )
+
+
+def test_validate_does_not_assert_payload_scripts_on_a_role_owned_fixture_list():
+    """The always-present list must not name a payload script.
+
+    validate.yml asserted all four in one flat list with the units and restic,
+    which failed the bench's stage-1 validate for the same reason the guard did
+    -- the payload had not landed yet. The role-owned fixtures and the
+    payload-shipped ones now assert separately because they arrive at different
+    times."""
+    task = _find("role-owned fixtures exist", VALIDATE)
+    listed = str(task["vars"]["_assert_paths"])
+    for var in PAYLOAD_SCRIPTS:
+        assert var not in listed, (
+            f"{var} is in validate's always-present fixture list; it ships in "
+            "the image payload and can legitimately arrive after a converge"
+        )
+    # The one script this role still copies must stay asserted unconditionally.
+    assert "catena-disk-preflight" in listed
+
+
+def test_validate_still_asserts_the_payload_scripts_once_any_is_present():
+    """Deferring must not become never-checking.
+
+    The gate is "this deployment installs the payload, OR some of it is already
+    here". `some` rather than `all` is the point: a host holding three of four
+    is a broken payload install, and requiring all four would make that case
+    indistinguishable from the not-yet case and skip the only check that would
+    have caught it."""
+    task = _find("decide whether the payload scripts are expected", VALIDATE)
+    expr = str(task["ansible.builtin.set_fact"]["_bk_payload_expected"])
+    assert "CATENA_PAYLOAD_INSTALL" in expr
+    assert "selectattr('stat.exists')" in expr
+    assert "> 0" in expr, (
+        "the presence half of the gate requires ALL scripts, so a partial "
+        "payload install is skipped instead of caught"
+    )
+
+    assertion = _find("payload-shipped scripts installed + executable", VALIDATE)
+    assert "_bk_payload_expected" in str(assertion["when"])
+    that = str(assertion["ansible.builtin.assert"]["that"])
+    assert "item.stat.exists" in that
+    assert "0755" in that
+
+
+def test_validate_gates_the_restic_reachability_probe_on_the_entrypoint():
+    """It shells out to catena-restic-env, which is itself a payload script. Left
+    ungated it reports on a repository it never managed to ask about."""
+    for name in ("restic can reach the repo", "restic cat config exited 0"):
+        assert "_bk_payload_expected" in str(_find(name, VALIDATE)["when"])
 
 
 def test_the_role_still_installs_the_units_when_the_wrapper_is_absent():
