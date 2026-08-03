@@ -350,6 +350,57 @@
     # evaluating false. `apply:` carries both tags for the same reason: with
     # only `coturn` there, a `--tags post_restore` run would fire the include
     # and then filter out every task inside it.
+    # ...but the hooks return when the stacks are DEPLOYED, not when their
+    # containers are up, and the companion gate reads `status=running`. So the
+    # re-run above still probed too early and skipped again: bench
+    # 2026-08-03T21-33-27-7a33 ended the converge with no relay and validate
+    # then found nextcloud-talk-hpb-1 "Up 51 seconds" -- it had come up in the
+    # gap between the two. The re-run fixed the ordering and left the race.
+    #
+    # So wait for a consumer the recovery just brought back to actually reach
+    # running, but only when one EXISTS to wait for. `docker ps -a` answers
+    # that: a host with no real-time app has no such container in any state, and
+    # pays nothing. A host that has one waits up to 90s for it rather than
+    # deciding against a container that is still starting.
+    #
+    # This cannot use the running-only probe to decide whether to wait -- that
+    # is the question being waited on. And it stays a WAIT rather than a
+    # relaxation of the gate: a crash-looping HPB never reaches `running`, so it
+    # still reads as no consumer, which is what `status=running` is there for.
+    - name: "Post-restore: is a TURN consumer deployed at all (any state)?"
+      ansible.builtin.shell: |
+        docker ps -a --filter 'label=com.docker.compose.service=talk-hpb' --format '{{ "{{" }}.Names{{ "}}" }}'
+        docker ps -a --filter 'label=com.docker.compose.service=jvb' --format '{{ "{{" }}.Names{{ "}}" }}'
+      args:
+        executable: /bin/bash
+      register: _site_turn_any
+      changed_when: false
+      when:
+        - _site_post_restore is defined
+        - _site_post_restore is not skipped
+      tags: [post_restore, coturn]
+
+    - name: "Post-restore: wait for the redeployed TURN consumer to reach running"
+      ansible.builtin.shell: |
+        docker ps --filter 'label=com.docker.compose.service=talk-hpb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
+        docker ps --filter 'label=com.docker.compose.service=jvb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
+      args:
+        executable: /bin/bash
+      register: _site_turn_running
+      changed_when: false
+      retries: 18
+      delay: 5
+      until: (_site_turn_running.stdout | default('') | trim | length) > 0
+      # Exhausting the window is not a converge failure. The consumer may be
+      # genuinely broken, and that is roles/coturn's gate to report by skipping
+      # -- not this task's to turn into a red converge.
+      failed_when: false
+      when:
+        - _site_turn_any is defined
+        - _site_turn_any is not skipped
+        - (_site_turn_any.stdout | default('') | trim | length) > 0
+      tags: [post_restore, coturn]
+
     - name: "Post-restore: re-run the consumer-gated companions"
       ansible.builtin.include_role:
         name: coturn

@@ -105,3 +105,48 @@ def test_the_coturn_rerun_applies_both_tags_to_the_included_role():
     )
     applied = task["ansible.builtin.include_role"]["apply"]["tags"]
     assert set(applied) == _tags(task)
+
+
+def test_the_rerun_waits_for_a_redeployed_consumer_to_reach_running():
+    """The hooks return when the stacks are DEPLOYED, not when their containers
+    are up, and the companion gate reads `status=running`. Re-running the gate
+    straight after them fixed the ordering and left a race: bench
+    2026-08-03T21-33-27-7a33 ended the converge with no relay, and validate then
+    found nextcloud-talk-hpb-1 "Up 51 seconds" -- it had come up in the gap.
+
+    The wait must sit BETWEEN the hooks and the re-run, and must be bounded."""
+    names = [t.get("name") or "" for t in _post_tasks()]
+    probe = next(i for i, n in enumerate(names) if "TURN consumer deployed at all" in n)
+    wait = next(i for i, n in enumerate(names) if "reach running" in n)
+    rerun = next(i for i, n in enumerate(names) if "consumer-gated companions" in n)
+    assert probe < wait < rerun, (
+        "the wait does not sit between the existence probe and the companion "
+        f"re-run (probe={probe}, wait={wait}, rerun={rerun})"
+    )
+
+    task = _post_tasks()[wait]
+    assert task["until"], "the wait has no until condition, so it is not a wait"
+    assert int(task["retries"]) > 0 and int(task["delay"]) > 0
+    assert task["failed_when"] is False, (
+        "exhausting the window must not fail the converge -- a genuinely broken "
+        "consumer is roles/coturn's gate to report by skipping"
+    )
+
+
+def test_the_wait_is_skipped_when_no_consumer_is_deployed():
+    """A restored host with no real-time app must pay nothing. The existence
+    probe uses `docker ps -a` precisely so a still-starting container counts,
+    which the running-only probe cannot answer -- that is what is being waited
+    on."""
+    names = [t.get("name") or "" for t in _post_tasks()]
+    probe = _post_tasks()[next(i for i, n in enumerate(names)
+                               if "TURN consumer deployed at all" in n)]
+    assert "docker ps -a" in probe["ansible.builtin.shell"]
+    assert "status=running" not in probe["ansible.builtin.shell"], (
+        "the existence probe filters on running, so it answers the same "
+        "question as the wait and the wait can never help"
+    )
+
+    wait = _post_tasks()[next(i for i, n in enumerate(names) if "reach running" in n)]
+    cond = " ".join(str(c) for c in wait["when"])
+    assert "_site_turn_any" in cond and "length) > 0" in cond
