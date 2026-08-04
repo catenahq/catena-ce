@@ -67,17 +67,51 @@ def test_addr_conflict_detected_separately():
     assert "Address already in use" in expr
 
 
-def test_classifiers_read_both_streams():
+def test_classifiers_read_both_streams_and_the_per_task_errors():
     """`docker stack deploy --detach=false` reports per-task errors on its
     stdout progress stream and CLI-level failures on stderr. Classifying on
     one half alone silently drops whole failure classes into "non-transient",
-    which fails the converge on something a retry would have cleared."""
+    which fails the converge on something a retry would have cleared.
+
+    Neither stream is enough. When swarm PAUSES a rolling update the stderr is
+    only "<svcid>: service update paused: update paused due to failure or early
+    termination of task <taskid>" -- an ID, not a reason. The reason is in that
+    task's Error field, so the classifiers must read `docker service ps` too.
+    Without it, "failed to set up container networking: Address already in
+    use" -- listed as transient right here, with a reclaim step written for it
+    -- failed the play (fi_a2_oidc_secret_rotation, bench
+    2026-08-04T05-25-31-68a4) while the next task on that service came up
+    Running.
+    """
     for fragment, fact in (
         ("detect transient in deploy output", "_swarm_deploy_transient"),
         ("detect overlay address conflict", "_swarm_deploy_addr_conflict"),
     ):
         expr = _find(ATTEMPT, fragment)["ansible.builtin.set_fact"][fact]
         assert "stdout" in expr and "stderr" in expr
+        assert "_swarm_diag_taskps" in expr, (
+            f"{fragment} cannot see a paused update's cause without the "
+            f"per-task errors"
+        )
+
+
+def test_the_per_task_diag_runs_before_classification_and_is_ungated():
+    """It was a pre-fail diagnostic, gated on `not transient` and placed after
+    the classifiers -- so the one output that carries a paused update's cause
+    was collected only once the code had already decided the cause was
+    unknown."""
+    names = [t.get("name") or "" for t in _walk(_tasks(ATTEMPT))]
+    diag = next(i for i, n in enumerate(names) if "diag -- per-task state" in n)
+    classify = next(
+        i for i, n in enumerate(names) if "detect transient in deploy output" in n
+    )
+    assert diag < classify, (
+        "the classifier reads _swarm_diag_taskps; collecting it afterwards "
+        "leaves the fact undefined at the moment it is needed"
+    )
+    assert "when" not in _find(ATTEMPT, "diag -- per-task state"), (
+        "gating the collection on the classification it feeds is circular"
+    )
 
 
 def test_reclaim_gated_on_conflict_only():

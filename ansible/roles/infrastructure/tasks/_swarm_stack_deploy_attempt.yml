@@ -71,15 +71,49 @@
           rc={{ _swarm_deploy.rc | default('n/a') }}:
           {{ (_swarm_deploy.stdout | default('')) ~ ' ' ~ (_swarm_deploy.stderr | default('(no output)')) }}
 
+    # Per-task state, collected BEFORE classification rather than after it.
+    #
+    # `docker stack deploy --detach=false` does not always carry the cause.
+    # When swarm pauses a rolling update its stderr is only
+    #
+    #   <svcid>: service update paused: update paused due to failure or early
+    #   termination of task <taskid>
+    #
+    # -- a task ID, not a reason. The reason lives in that task's Error field
+    # and nowhere else. Classifying on the deploy's own output alone therefore
+    # cannot see it, which is how a textbook transient
+    # ("failed to set up container networking: Address already in use", already
+    # in the pattern list below AND with a reclaim step written for it) failed
+    # the play instead of retrying: fi_a2_oidc_secret_rotation on bench run
+    # 2026-08-04T05-25-31-68a4, where the very next task on the same service
+    # came up Running.
+    #
+    # Three views separate image-pull from placement from a crash loop, and on
+    # the bench the VM is torn down before anyone can shell in, so this is also
+    # the only forensic record.
+    - name: "Swarm: diag -- per-task state + error ({{ svc_name }})"
+      ansible.builtin.shell: |
+        for svc in $(docker stack services "{{ svc_name }}" --format '{{ "{{" }}.Name{{ "}}" }}' 2>/dev/null); do
+          echo "==== $svc ===="
+          docker service ps "$svc" --no-trunc \
+            --format 'table {{ "{{" }}.ID{{ "}}" }}\t{{ "{{" }}.CurrentState{{ "}}" }}\t{{ "{{" }}.Error{{ "}}" }}' 2>&1 || true
+        done
+      args:
+        executable: /bin/bash
+      register: _swarm_diag_taskps
+      changed_when: false
+      failed_when: false
+
     # The registry/daemon transient classes -- a transient during image pull
-    # taints the deploy; retrying re-pulls cleanly. Matched against stdout
-    # AND stderr: `docker stack deploy --detach=false` reports the per-task
-    # error on stdout in its progress stream and CLI-level failures on
-    # stderr, so checking only one half misses whole classes.
+    # taints the deploy; retrying re-pulls cleanly. Matched against stdout AND
+    # stderr AND the per-task errors above: `docker stack deploy --detach=false`
+    # reports some per-task errors on stdout in its progress stream, CLI-level
+    # failures on stderr, and a paused update's cause on neither.
     - name: "Swarm: detect transient in deploy output ({{ svc_name }})"
       ansible.builtin.set_fact:
         _swarm_deploy_transient: >-
-          {{ ((_swarm_deploy.stdout | default('')) ~ (_swarm_deploy.stderr | default(''))) is regex(
+          {{ ((_swarm_deploy.stdout | default('')) ~ (_swarm_deploy.stderr | default(''))
+              ~ (_swarm_diag_taskps.stdout | default(''))) is regex(
                '(502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout|TLS handshake timeout|connection reset|i/o timeout|TOOMANYREQUESTS|context deadline exceeded|temporary failure in name resolution|received unexpected HTTP status: 5|did not receive an exit event|cannot stop container|unexpected EOF|short read: expected|Address already in use)'
              ) }}
 
@@ -98,7 +132,8 @@
     - name: "Swarm: detect overlay address conflict ({{ svc_name }})"
       ansible.builtin.set_fact:
         _swarm_deploy_addr_conflict: >-
-          {{ ((_swarm_deploy.stdout | default('')) ~ (_swarm_deploy.stderr | default('')))
+          {{ ((_swarm_deploy.stdout | default('')) ~ (_swarm_deploy.stderr | default(''))
+              ~ (_swarm_diag_taskps.stdout | default('')))
              is regex('Address already in use') }}
 
     - name: "Swarm: reclaim leaked {{ catena_network_name }} endpoints on address conflict ({{ svc_name }})"
@@ -133,23 +168,6 @@
             if (_swarm_deploy_addr_conflict | default(false) | bool) else '' }};
           retrying.
       when: _swarm_deploy_transient | bool
-
-    # Diagnostics BEFORE the hard fail: on the bench the VM is torn down
-    # before anyone can shell in, so a bare "rc=1" classifies nothing.
-    # Three views separate image-pull from placement from a crash loop.
-    - name: "Swarm: diag -- per-task state + error ({{ svc_name }})"
-      ansible.builtin.shell: |
-        for svc in $(docker stack services "{{ svc_name }}" --format '{{ "{{" }}.Name{{ "}}" }}' 2>/dev/null); do
-          echo "==== $svc ===="
-          docker service ps "$svc" --no-trunc \
-            --format 'table {{ "{{" }}.ID{{ "}}" }}\t{{ "{{" }}.CurrentState{{ "}}" }}\t{{ "{{" }}.Error{{ "}}" }}' 2>&1 || true
-        done
-      args:
-        executable: /bin/bash
-      register: _swarm_diag_taskps
-      changed_when: false
-      failed_when: false
-      when: not (_swarm_deploy_transient | default(false) | bool)
 
     - name: "Swarm: fail hard on non-transient deploy error ({{ svc_name }})"
       ansible.builtin.fail:
