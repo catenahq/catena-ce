@@ -15,7 +15,7 @@
       "automerge": false
     },
     {
-      "description": "Infra app images pinned in role defaults (gatus, healthchecks, recovery nginx, clamav). Manual review. NOT Trivy-gated: this described them as gated, and nothing ever scanned them -- the image matrix only ever carried the operator-stack four, which have since moved to catena-admin. Tracked as a known gap in ops/BACKLOG_TECHNICAL.md rather than left as a false claim here.",
+      "description": "Infra app images pinned in role defaults (gatus, healthchecks, recovery nginx, clamav). Manual review, and Trivy-gated -- for real this time. This rule claimed a gate for months while nothing scanned them: the image matrix only ever carried the operator-stack four, which have since moved to catena-admin. The matrix in .github/workflows/trivy.yml now resolves these pins where Renovate reads them, so a bump PR to a tag with a known fixable HIGH/CRITICAL fails CI.",
       "matchManagers": [
         "custom.regex"
       ],

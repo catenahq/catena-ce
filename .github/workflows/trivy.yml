@@ -11,16 +11,17 @@ name: Trivy
 # catena-admin's trivy.yml now, reading the pins where the host reads them.
 # Scanning them here after the move would have gated a PR on a tag no host runs.
 #
-# What remains is the suppression-expiry guard, which is repo-local: the
-# .trivyignore.yaml it polices is this repo's.
+# What it DOES scan is the infra app images this repo still pins in role
+# defaults: gatus, healthchecks, the recovery nginx, clamav, the beszel hub +
+# agent + its python shim, the Phase Two Keycloak, keycloak-config-cli and
+# oauth2-proxy. Renovate has tracked every one of them for months and its
+# packageRule claimed "Trivy gates each PR"; nothing had ever scanned them.
+# The claim is now backed.
 #
-# KNOWN GAP, pre-existing and not introduced here: the infra app images pinned
-# in roles/infrastructure + roles/keycloak defaults (gatus, healthchecks,
-# recovery nginx, clamav, beszel hub+agent, keycloak) are Renovate-tracked and
-# their packageRule claims "Trivy gates each PR" -- nothing has ever scanned
-# them. The machinery that would have hosted them left with the pins above, so
-# the claim is now visibly unbacked rather than quietly so. Tracked in
-# ops/BACKLOG_TECHNICAL.md.
+# Expect this to go red on its first run. That is the finding, not a
+# regression: these images run on every client host -- Keycloak is the
+# identity plane and clamav the mail scanner -- and nothing has been looking.
+# Triage each into .trivyignore.yaml with an expiredAt, or bump the pin.
 
 on:
   pull_request:
@@ -33,6 +34,130 @@ permissions:
   contents: read
 
 jobs:
+
+  # On pull_request, scan ONLY the pins whose SOURCE FILE the PR touches: a new
+  # CVE in an unrelated upstream image must not block an unrelated bump PR
+  # (push + weekly cron still sweep the full matrix). An empty include list
+  # skips the pins job; trivy-gate still reports for the PR.
+  #
+  # Same {name, pin_file, image_repo} shape catena-admin uses, with one
+  # difference forced by how these pins are written. catena-admin pins a whole
+  # ref on one line (`c.TraefikImage = "traefik:v3.7.7"`); these role defaults
+  # split it in two --
+  #
+  #     gatus_image_tag: "v5.36.0"
+  #     gatus_image: "twinproduction/gatus:{{ gatus_image_tag }}"
+  #
+  # -- because Renovate's customManager reads the TAG line. So the pattern
+  # targets whichever line actually carries the version, and the resolve step
+  # composes the ref when it got a bare tag. Matching the `_image:` line
+  # instead would resolve to a literal `{{ gatus_image_tag }}`.
+  #
+  # Each entry carries its own pin_pattern rather than the job guessing from
+  # the file type. A loose `<repo>:<tag>` grep over a defaults file also
+  # matches prose in the comments above each pin -- right answer today by
+  # luck, silently wrong the day a comment and a pin disagree.
+  resolve-pins-matrix:
+    name: Resolve pins matrix
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.pick.outputs.include }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0 # need origin/<base> for the changed-file diff
+          persist-credentials: false
+      - id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          cat > matrix.json <<'EOF'
+          [
+            {"name": "gatus", "pin_file": "ansible/roles/infrastructure/defaults/main.yml", "pin_pattern": "gatus_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "twinproduction/gatus"},
+            {"name": "healthchecks", "pin_file": "ansible/roles/infrastructure/defaults/main.yml", "pin_pattern": "healthchecks_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "healthchecks/healthchecks"},
+            {"name": "recovery-nginx", "pin_file": "ansible/roles/infrastructure/defaults/main.yml", "pin_pattern": "recovery_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "nginx"},
+            {"name": "clamav", "pin_file": "ansible/roles/infrastructure/defaults/main.yml", "pin_pattern": "clamav_image: *\"clamav/clamav:[A-Za-z0-9._-]+\"", "image_repo": "clamav/clamav"},
+            {"name": "beszel", "pin_file": "ansible/roles/infrastructure/defaults/main.yml", "pin_pattern": "beszel_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "henrygd/beszel"},
+            {"name": "beszel-agent", "pin_file": "ansible/roles/infrastructure/defaults/main.yml", "pin_pattern": "beszel_agent_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "henrygd/beszel-agent"},
+            {"name": "beszel-hc-shim", "pin_file": "ansible/roles/infrastructure/defaults/main.yml", "pin_pattern": "beszel_hc_shim_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "python"},
+            {"name": "keycloak", "pin_file": "ansible/roles/keycloak/defaults/main.yml", "pin_pattern": "keycloak_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "quay.io/phasetwo/phasetwo-keycloak"},
+            {"name": "keycloak-config-cli", "pin_file": "ansible/roles/keycloak/defaults/main.yml", "pin_pattern": "keycloak_config_cli_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "adorsys/keycloak-config-cli"},
+            {"name": "oauth2-proxy", "pin_file": "ansible/roles/oauth2_proxy/defaults/main.yml", "pin_pattern": "oauth2_proxy_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "quay.io/oauth2-proxy/oauth2-proxy"}
+          ]
+          EOF
+          if [ "$EVENT" = "pull_request" ]; then
+            changed=$(git diff --name-only "origin/$BASE_REF"...HEAD)
+            include=$(jq -c --arg changed "$changed" \
+              '[.[] | select(.pin_file as $p | $changed | split("\n") | index($p))]' matrix.json)
+          else
+            include=$(jq -c . matrix.json)
+          fi
+          echo "include=$include" >> "$GITHUB_OUTPUT"
+          echo "scanning: $(echo "$include" | jq -r 'map(.name) | join(", ")')"
+
+  trivy-pinned-images:
+    name: Trivy image (pinned)
+    runs-on: ubuntu-latest
+    needs: resolve-pins-matrix
+    if: needs.resolve-pins-matrix.outputs.include != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.resolve-pins-matrix.outputs.include) }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - name: Resolve the pinned image ref from its source file
+        id: resolve
+        env:
+          PIN_FILE: ${{ matrix.pin_file }}
+          PIN_PATTERN: ${{ matrix.pin_pattern }}
+          IMAGE_REPO: ${{ matrix.image_repo }}
+        run: |
+          set -euo pipefail
+          # Two stages: the pattern narrows to the pinning line, then the
+          # value is extracted from it. One stage would have to be either
+          # file-format specific or loose enough to match prose.
+          line=$(grep -Eo "$PIN_PATTERN" "$PIN_FILE" | head -n1 || true)
+          if [ -z "$line" ]; then
+            echo "::error::no pin matching /${PIN_PATTERN}/ in ${PIN_FILE}" >&2
+            exit 1
+          fi
+          value=$(printf '%s' "$line" | grep -Eo '"[^"]+"' | tail -n1 | tr -d '"')
+          case "$value" in
+            # Already a whole ref (clamav pins repo and tag on one line).
+            */*:*|*:*/*) image="$value" ;;
+            *)           image="${IMAGE_REPO}:${value}" ;;
+          esac
+          case "$image" in
+            *:) echo "::error::resolved an empty tag from ${PIN_FILE}" >&2; exit 1 ;;
+          esac
+          echo "resolved ${IMAGE_REPO} -> ${image}"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.resolve.outputs.image }}
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: 'json'
+          output: 'trivy-${{ matrix.name }}.json'
+          ignore-unfixed: true
+          # CVE-only for these THIRD-PARTY images. A full scan re-reports the
+          # snakeoil TLS keys that ship in several of them as leaked secrets,
+          # which is a false positive independent of PR content; secrets in
+          # OUR tree are covered by the scanctl fs gate in security.yml.
+          scanners: vuln
+          trivyignores: .trivyignore.yaml
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: trivy-${{ matrix.name }}-report
+          path: trivy-${{ matrix.name }}.json
+          if-no-files-found: ignore
 
   # Advance-warning guard for the time-boxed .trivyignore.yaml suppressions:
   # warns (::warning::) when an entry is within 30 days of expiredAt and FAILS
@@ -58,7 +183,7 @@ jobs:
   trivy-gate:
     name: trivy-gate
     runs-on: ubuntu-latest
-    needs: [trivyignore-expiry]
+    needs: [resolve-pins-matrix, trivy-pinned-images, trivyignore-expiry]
     if: always()
     steps:
       - env:
