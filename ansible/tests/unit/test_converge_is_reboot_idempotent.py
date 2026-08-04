@@ -27,6 +27,7 @@ Run: uv run pytest tests/unit/test_converge_is_reboot_idempotent.py
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
@@ -102,3 +103,89 @@ def test_refreshing_the_apt_index_is_not_a_change():
         "apt update must not report changed; cache_valid_time only narrows "
         "the window in which it happens to be quiet"
     )
+
+
+# ── lineinfile regexps are PYTHON regexps ────────────────────────────────
+# A POSIX bracket expression such as `[[:space:]]` is not a syntax error in
+# Python's re -- it silently parses as a character class of the literal
+# characters [ : s p a c e followed by a stray `]`. It therefore matches no
+# real line, lineinfile concludes there is nothing to replace, and APPENDS.
+# The result is a fresh duplicate line every converge: permanent changed=1,
+# and nothing in the module's output says why.
+#
+# Both Pebble host-mapping tasks shipped that way. They are gated on the
+# bench's local ACME server being reachable, which never happened on this
+# bench until the bridge-detection fix (ops d0e55ed7), so the tasks first ran
+# for real on run 2026-08-04T05-25-31-68a4 and failed ce_converge on their
+# first contact with a second converge.
+
+_POSIX_CLASS = re.compile(r"\[\[:(?:alpha|digit|alnum|space|blank|upper|lower|punct):\]\]")
+
+_LINEINFILE_KEYS = ("ansible.builtin.lineinfile", "lineinfile")
+
+
+def _walk_tasks(node):
+    """Yield every task mapping, descending into block/rescue/always."""
+    if isinstance(node, list):
+        for item in node:
+            yield from _walk_tasks(item)
+        return
+    if not isinstance(node, dict):
+        return
+    yield node
+    for key in ("block", "rescue", "always"):
+        if key in node:
+            yield from _walk_tasks(node[key])
+
+
+def _role_task_files() -> list[Path]:
+    return sorted((ANSIBLE / "roles").rglob("tasks/*.yml"))
+
+
+def test_no_lineinfile_regexp_uses_a_posix_bracket_expression():
+    offenders = []
+    for path in _role_task_files():
+        try:
+            doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except yaml.YAMLError:
+            continue
+        for task in _walk_tasks(doc):
+            for key in _LINEINFILE_KEYS:
+                args = task.get(key)
+                if not isinstance(args, dict):
+                    continue
+                pattern = str(args.get("regexp", ""))
+                if _POSIX_CLASS.search(pattern):
+                    offenders.append(
+                        f"{path.relative_to(ANSIBLE)}: "
+                        f"{task.get('name')!r} -> {pattern!r}"
+                    )
+    assert not offenders, (
+        "lineinfile regexps are Python, not POSIX. These match nothing and "
+        "append a duplicate line on every converge:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_the_pebble_host_mapping_regexp_matches_the_line_it_writes():
+    """The regexp has to recognise the task's OWN previous output, or the
+    task cannot be idempotent no matter what the pattern is made of."""
+    written = "10.139.244.91 pebble"
+    for rel in (
+        "roles/coturn/tasks/cert.yml",
+        "roles/infrastructure/tasks/mailserver_cert.yml",
+    ):
+        doc = yaml.safe_load((ANSIBLE / rel).read_text(encoding="utf-8"))
+        task = next(
+            t for t in _walk_tasks(doc)
+            if "map Pebble ACME host" in str(t.get("name", ""))
+        )
+        pattern = task["ansible.builtin.lineinfile"]["regexp"]
+        assert re.search(pattern, written), (
+            f"{rel}: {pattern!r} does not match {written!r}, so the task "
+            f"appends instead of replacing"
+        )
+        # And it must not swallow an unrelated hosts entry.
+        assert not re.search(pattern, "10.0.0.1 pebble.example.test"), (
+            f"{rel}: {pattern!r} is too loose"
+        )

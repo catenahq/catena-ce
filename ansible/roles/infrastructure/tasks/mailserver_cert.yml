@@ -104,7 +104,10 @@
     - name: "Mailserver cert: map Pebble ACME host (bench local CA)"
       ansible.builtin.lineinfile:
         path: /etc/hosts
-        regexp: '[[:space:]]pebble$'
+        # Python regex, NOT POSIX -- see the note on the identical task in
+        # roles/coturn/tasks/cert.yml. `[[:space:]]` never matches a hosts
+        # line, so lineinfile appends a duplicate on every converge.
+        regexp: '^\S+\s+pebble$'
         line: "{{ mailserver_acme_host_ip }} pebble"
         state: present
       when:

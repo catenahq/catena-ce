@@ -103,7 +103,12 @@
 - name: "coturn cert: map Pebble ACME host (bench local CA)"
   ansible.builtin.lineinfile:
     path: /etc/hosts
-    regexp: '[[:space:]]pebble$'
+    # Python regex, NOT POSIX. `[[:space:]]` parses as a character class of
+    # the literal chars [ : s p a c e followed by a stray `]`, so it never
+    # matches a hosts line, lineinfile finds nothing to replace and APPENDS
+    # -- a fresh duplicate on every converge, which is a permanent changed=1.
+    # The same trap is called out in roles/infrastructure/tasks/validate.yml.
+    regexp: '^\S+\s+pebble$'
     line: "{{ coturn_acme_host_ip }} pebble"
     state: present
   when:
