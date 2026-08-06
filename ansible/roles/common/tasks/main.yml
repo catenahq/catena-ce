@@ -301,10 +301,25 @@
           retry-loop artifact). Real diagnostic from apt-get update:
             rc={{ _apt_update_diag.rc }}
             stderr={{ _apt_update_diag.stderr | default('') | trim }}
-          {% if common_apt_proxy_url | length > 0 %}
+          {% if _apt_update_diag.rc == 0 %}
+          That succeeded, so the index IS refreshed and the module failure
+          was the retry-loop artifact. Nothing further to do.
+          {% elif common_apt_proxy_url | length > 0 %}
           Retrying without HTTP proxy ({{ common_apt_proxy_url }}).
           {% endif %}
 
+    # rc == 0 means the diagnostic WAS the successful retry: apt-get refreshed
+    # the index, so there is no failure left to report or work around. Every
+    # task below is therefore gated on rc != 0.
+    #
+    # Without that gate this rescue aborted the bootstrap while printing its
+    # own proof that apt worked -- "Real apt-get error: rc=0, stderr=" -- which
+    # is a contradiction on its face. Observed on bench run
+    # 2026-08-06T21-55-42-fcd1, stage-1: the apt module exhausted its 10
+    # retries against a cold mirror, the raw retry seconds later returned 0,
+    # and the play failed anyway. It is a client-facing defect, not a bench
+    # one: any install with no APT_PROXY_URL (the default) aborts on a
+    # transient flake that already healed.
     - name: "No proxy to bypass; fail with the real error"
       ansible.builtin.fail:
         msg: |
@@ -312,12 +327,15 @@
           there is nothing to bypass. Real apt-get error:
             rc={{ _apt_update_diag.rc }}
             stderr={{ _apt_update_diag.stderr | default('') | trim }}
-      when: common_apt_proxy_url | length == 0
+      when:
+        - common_apt_proxy_url | length == 0
+        - _apt_update_diag.rc != 0
 
     - name: "Temporarily drop proxy conf for direct retry"
       ansible.builtin.file:
         path: /etc/apt/apt.conf.d/01proxy
         state: absent
+      when: _apt_update_diag.rc != 0
 
     - name: "apt update (direct, no proxy)"
       ansible.builtin.apt:
@@ -325,7 +343,12 @@
         lock_timeout: 300
         update_cache_retries: 5
         update_cache_retry_max_delay: 30
+      when: _apt_update_diag.rc != 0
 
+    # Also gated on a proxy actually being configured: with none, this wrote
+    # `Acquire::http::Proxy "";` -- re-creating the very file the main path's
+    # "Remove apt HTTP proxy (when APT_PROXY_URL is unset)" task deletes, so a
+    # converge that entered this rescue stopped being idempotent.
     - name: "Restore proxy conf so subsequent apt calls hit the cacher"
       ansible.builtin.copy:
         dest: /etc/apt/apt.conf.d/01proxy
@@ -335,6 +358,9 @@
         owner: root
         group: root
         mode: "0644"
+      when:
+        - _apt_update_diag.rc != 0
+        - common_apt_proxy_url | length > 0
 
 # ── Keep host port 25 free for the mail server (MX) ──────────────────────
 # Debian's default-mta (exim4-daemon-light) binds 127.0.0.1:25 + [::1]:25
