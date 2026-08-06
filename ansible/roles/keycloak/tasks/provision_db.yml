@@ -55,9 +55,31 @@
 # probe roles/postgres and the bench's own _fi_helpers.pg_settled_sample use.
 # It goes here, before the POSTGRES_USER probe, because that probe is itself a
 # `docker exec` that can race the same window.
+#
+# -U is NOT about auth (pg_isready exits 0 whenever the server responds at
+# all, error included -- which is why the omission was invisible). It is about
+# what postgres LOGS. `docker exec` runs as root inside the container, so
+# without -U the startup packet carries `root` and postgres writes
+# `FATAL: role "root" does not exist` on every attempt -- up to 30 of them via
+# the retry below, on a host slow enough to need them. Found by the bench's
+# stage-3f control-plane log gate on run 2026-08-06T20-24-17-5ccd; the noise
+# matters because a REAL auth failure is indistinguishable inside it.
+#
+# The literal default is deliberate: this task runs BEFORE the role derives
+# POSTGRES_USER from the container env (see the note above), so the derived
+# fact does not exist yet, and depending on roles/postgres' defaults being in
+# scope here would couple the two roles. Both sibling call sites
+# (roles/postgres tasks/main.yml + tasks/validate.yml) already pass -U.
 - name: "Keycloak DB: wait for postgres to accept connections"
   ansible.builtin.command:
-    argv: [docker, exec, "{{ _kc_pg_container.stdout | trim }}", pg_isready, -q]
+    argv:
+      - docker
+      - exec
+      - "{{ _kc_pg_container.stdout | trim }}"
+      - pg_isready
+      - -q
+      - -U
+      - "{{ catena_postgres_superuser | default('postgres') }}"
   register: _kc_pg_ready
   until: _kc_pg_ready.rc == 0
   retries: 30

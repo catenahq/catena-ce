@@ -113,3 +113,29 @@ def test_the_gate_precedes_every_docker_exec() -> None:
         f"docker exec tasks at {earlier} run BEFORE the readiness gate at "
         f"{gate_at}"
     )
+
+
+def test_the_gate_names_a_role_that_exists() -> None:
+    """`docker exec` runs as root inside the container, so a pg_isready with
+    no -U puts `root` in the startup packet and postgres logs
+    `FATAL: role "root" does not exist` -- once per attempt, up to the 30
+    retries above.
+
+    Not about auth: pg_isready exits 0 whenever the server responds at all,
+    error included, which is exactly why this survived unnoticed until the
+    bench's stage-3f control-plane log gate read the log on run
+    2026-08-06T20-24-17-5ccd. It is about what postgres WRITES, because a
+    real auth failure is indistinguishable inside that noise.
+    """
+    gate = next(t for t in _tasks() if "pg_isready" in _module_body(t))
+    argv = gate["ansible.builtin.command"]["argv"]
+    assert "-U" in argv, (
+        "pg_isready runs without -U, so it authenticates as root and postgres "
+        "logs a FATAL on every attempt. Both sibling call sites in "
+        "roles/postgres already pass -U."
+    )
+    user = argv[argv.index("-U") + 1]
+    assert user.strip(), "-U was passed with no role after it"
+    assert "root" not in user, (
+        f"-U resolves to {user!r}; root is the very role that does not exist"
+    )
