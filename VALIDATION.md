@@ -13,7 +13,7 @@ Catena is exercised end-to-end by an automated rehearsal suite: each scenario pr
 
 Two numbers are reported everywhere: **rehearsed** means the scenario was last recorded PASSING on a real run, and is the only number treated as evidence; **declared** additionally counts scenarios that exist but have not been observed passing yet. A scenario is never counted for merely existing.
 
-**Coverage: 10 Community features, 78 of 84 rehearsal scenarios observed passing; 12 Catena Pro features, 41 of 42; plus 17 of 23 maintainer-internal rehearsals.**
+**Coverage: 10 Community features, 78 of 84 rehearsal scenarios observed passing; 12 Catena Pro features, 40 of 42; plus 17 of 23 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -113,7 +113,7 @@ They are exercised by the same rehearsal suite as the Community features above, 
 | Managed lifecycle operations (migration, decommission) | see note | see note |
 | Licensed feature activation | 6 | 6 |
 | Identity posture monitoring | 1 | 1 |
-| Managed updates with automatic rollback | 9 | 9 |
+| Managed updates with automatic rollback | 8 | 9 |
 | External availability monitoring | 0 | 1 |
 | Multiple domains, each with its own private sign-on | 1 | 1 |
 | A move that can be called off | 4 | 4 |
