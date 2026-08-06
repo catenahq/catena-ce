@@ -245,7 +245,7 @@ backup_healthcheck_url_operator: "{{ cfg_backup_healthcheck_url_operator | defau
 #      -> the stack's working dir inside the Portainer data volume
 #      ✓ covered by {{ storage_mount_point }}/docker/volumes
 #
-#   C. catena host config (traefik + acme.json, gatus, keycloak realms, ...)
+#   C. catena host config (traefik, gatus, keycloak realms, ...)
 #      -> /etc/catena/<component>
 #      ✓ covered by /etc (below)
 #

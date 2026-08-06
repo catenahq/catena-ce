@@ -54,15 +54,35 @@ entryPoints:
       middlewares:
         - cf-forwarded-proto-https@file
         - catena-secure-headers@file
-  websecure:
-    address: :443
-    http3:
-      advertisedPort: 443
-    http:
-      tls:
-        certResolver: letsencrypt
-    forwardedHeaders:
-      trustedIPs: {{ traefik_trusted_ips | to_yaml }}
+# NO `websecure` entrypoint, and no certificatesResolvers. Both were removed
+# 2026-08-06 after measuring that nothing used them and that they were doing
+# active harm.
+#
+# TLS terminates at Cloudflare. cloudflared reaches this proxy at
+# http://catena-traefik:80 over catena-network, and the service publishes NO
+# host ports, so :443 was never reachable from anywhere. Every route catena
+# generates is `web`-only: app-route.yml.j2 (portainer_stack) and both
+# route_synth variants (dashboard-sync).
+#
+# So the only routers that ever landed on websecure were ones Traefik invented
+# itself. Four stacks carried traefik.enable=true as a container label with no
+# rule, the docker provider applied its built-in Host(`{{ '{{' }} normalize .Name {{ '}}' }}`)
+# default, and the resulting DOTLESS routers inherited this entrypoint's
+# certResolver -- so every converge asked PRODUCTION Let's Encrypt for
+# certificates for names no CA can issue, burning failed-validation quota on
+# the operator's account. Labels fixed in 0b6c98f; this removes the mechanism
+# that turned an accidental router into an ACME order.
+#
+# Confirmed by run 2026-08-06T16-46-08-e2de before the removal: acme.json 0
+# bytes, zero contact with acme-v02.api.letsencrypt.org, and the only ACME
+# artefact left was Traefik's own acme-http@internal challenge router, which
+# existed solely because a resolver was configured and logged an error of its
+# own. ce_install_suite's stage-3e-no-public-acme now guards the property.
+#
+# Restoring TLS here means an entrypoint, a resolver with a REAL email (the
+# removed one was the placeholder test@localhost.com, so expiry notices went
+# nowhere), a published :443, and a caServer so a bench never talks to a public
+# CA again.
 api:
   insecure: true
 # Enables the /ping endpoint on the internal `traefik` entrypoint (:8080,
@@ -75,10 +95,3 @@ api:
 # Not a new exposure: :8080 is internal to the container's netns and the
 # entrypoint is not published, exactly like the api dashboard it rides on.
 ping: {}
-certificatesResolvers:
-  letsencrypt:
-    acme:
-      email: test@localhost.com
-      storage: {{ traefik_dynamic_dir }}/acme.json
-      httpChallenge:
-        entryPoint: web

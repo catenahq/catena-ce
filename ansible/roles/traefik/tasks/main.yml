@@ -43,40 +43,17 @@
     - "{{ traefik_config_dir }}"
     - "{{ traefik_dynamic_dir }}"
 
-# acme.json backs certificatesResolvers.letsencrypt.acme.storage
-# (traefik.yml.j2). It must exist as a FILE before the container launch: a
-# docker bind-mount auto-creates a missing source as a DIRECTORY, which
-# breaks Traefik ACME storage. Nothing else creates it.
-- name: "traefik: stat acme.json (ACME cert storage must be a file)"
-  ansible.builtin.stat:
-    path: "{{ traefik_dynamic_dir }}/acme.json"
-  register: _traefik_acme_stat
-
-- name: "traefik: remove acme.json auto-created as a directory by a bind-mount"
-  ansible.builtin.file:
-    path: "{{ traefik_dynamic_dir }}/acme.json"
-    state: absent
-  when:
-    - _traefik_acme_stat.stat.exists
-    - _traefik_acme_stat.stat.isdir | default(false)
-  register: _traefik_acme_dir_rm
-
-- name: "traefik: seed empty acme.json"
-  ansible.builtin.copy:
-    content: ""
-    dest: "{{ traefik_dynamic_dir }}/acme.json"
-    owner: root
-    group: root
-    mode: "0600"
-    force: false
-
-- name: "traefik: enforce 0600 on acme.json (Traefik refuses looser modes)"
-  ansible.builtin.file:
-    path: "{{ traefik_dynamic_dir }}/acme.json"
-    state: file
-    owner: root
-    group: root
-    mode: "0600"
+# The acme.json seed/self-heal tasks were removed 2026-08-06 with
+# certificatesResolvers itself (see traefik.yml.j2). They existed only to make
+# ACME storage safe: create it as a FILE before container launch, because a
+# docker bind-mount auto-creates a missing source as a DIRECTORY, and re-heal
+# it when that had already happened. With no resolver there is no storage, and
+# the spec no longer mounts the path at all, so there is nothing to seed and
+# nothing to repair.
+#
+# Left ON DISK where it already exists: deleting a file that once held ACME
+# account keys is not this role's call to make silently, and an unmounted file
+# harms nothing.
 
 - name: "traefik: render static traefik.yml from template"
   ansible.builtin.template:
