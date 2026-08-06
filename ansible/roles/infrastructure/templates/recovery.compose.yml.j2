@@ -36,7 +36,13 @@ services:
         aliases:
           - {{ recovery_network_alias }}
     labels:
-      - traefik.enable=true
+      # FALSE on purpose -- see the note in gatus.compose.yml.j2. This service
+      # is served at infrastructure_recovery_hostname, but by the FILE-provider
+      # route portainer_stack.yml renders from app-route.yml.j2 (real Host(),
+      # `web` entrypoint), not by anything the docker provider derives. `true`
+      # only minted a dotless `recovery-app-1-<taskid>` router that asked a
+      # public CA for an impossible certificate on every converge.
+      - traefik.enable=false
 
 networks:
   catena-network:

@@ -49,7 +49,17 @@ services:
     # authoritative signal -- a second Docker-level check added nothing
     # except a failure mode.
     labels:
-      - traefik.enable=true
+      # FALSE on purpose. This service IS served, but its route is synthesised
+      # by dashboard-sync from the vps.auth.* labels below into Traefik's FILE
+      # provider, with the real hostname. Nothing reads traefik.enable --
+      # not dashboard-sync, not gate_routes, not labels_schema -- so `true`
+      # bought no routing and cost a bogus one: the docker provider saw an
+      # enabled container with no rule, applied Traefik's built-in
+      # `Host(<container name>)` default, and produced a DOTLESS router like
+      # `gatus-app-1-<taskid>`. Every websecure router inherits
+      # entryPoints.websecure.http.tls.certResolver, so Traefik then asked a
+      # public CA for a certificate for a name that cannot have one, forever.
+      - traefik.enable=false
       # Auth posture (vps.auth.* convention, see
       # docs/operator/client-app-templates/README.md). Pinned to
       # oauth2_proxy_staff_apps in defaults/main.yml by the unit test

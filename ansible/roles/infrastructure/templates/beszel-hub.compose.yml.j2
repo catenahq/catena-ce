@@ -47,7 +47,12 @@ services:
         aliases:
           - {{ beszel_hub_network_alias }}
     labels:
-      - traefik.enable=true
+      # FALSE on purpose -- see the note in gatus.compose.yml.j2. The route is
+      # synthesised from the vps.auth.* labels below into the FILE provider;
+      # `true` only made the docker provider mint a dotless
+      # `beszel-hub-app-1-<taskid>` router that asked a public CA for an
+      # impossible certificate on every converge.
+      - traefik.enable=false
       # Admin-only auth posture (vps.auth.* convention). dashboard-sync
       # renders the forward-auth Traefik route + unions the /oauth2/callback
       # redirect URI into the shared oauth2-proxy Keycloak client.

@@ -100,7 +100,12 @@ services:
         aliases:
           - {{ healthchecks_network_alias }}
     labels:
-      - traefik.enable=true
+      # FALSE on purpose -- see the note in gatus.compose.yml.j2. The route is
+      # synthesised from the vps.auth.* labels below into the FILE provider;
+      # `true` only made the docker provider mint a dotless
+      # `healthchecks-app-1-<taskid>` router that asked a public CA for an
+      # impossible certificate on every converge.
+      - traefik.enable=false
       # Auth posture (vps.auth.* convention, see
       # docs/operator/client-app-templates/README.md). Pinned to
       # oauth2_proxy_staff_apps in defaults/main.yml by the unit test
