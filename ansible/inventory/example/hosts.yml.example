@@ -1,35 +1,37 @@
 ---
-# inventory/<name>/hosts.yml -- bootstrap.yml auto-writes the steady-state
-# tailnet IP after a successful first run (via helpers/bootstrap_output.py).
-# This skeleton is here for reference and for manual edits.
+# Copy to hosts.yml (gitignored) as-is -- every field reads from .env, same
+# as group_vars. Only reason to hand-edit: a second host in this inventory,
+# or a non-default host name.
 #
 # Two groups:
 #   vps:       steady-state -- targeted by every playbook except bootstrap.
-#              Uses the Tailscale network.
+#              Uses the Tailscale network. ansible_host starts as a
+#              placeholder; bootstrap.yml overwrites it with the real
+#              tailnet IPv4 after the VPS joins (helpers/bootstrap_output.py).
 #   bootstrap: public-IP entries used ONLY by playbooks/bootstrap.yml to bring
 #              up a fresh VPS. After site.yml closes public port 22, these
 #              become unreachable -- which is the point.
 
 all:
   children:
-    # ── Steady-state group ────────────────────────────────────────────────
     vps:
       hosts:
-        # ansible_host: Tailscale IPv4 assigned when the VPS joined the
-        # tailnet. bootstrap.yml auto-writes this value after a successful
-        # first run; you normally don't hand-edit it.
         host1:
-          ansible_host: 100.x.y.z           # Tailscale IPv4 (bootstrap fills this in)
-          ansible_user: ops
-          ansible_port: 22
+          ansible_host: 0.0.0.0
+          ansible_user: "{{ lookup('dotenv', 'OPS_USER', default='ops') }}"
+          ansible_port: "{{ lookup('dotenv', 'HOST_SSH_PORT', default='22') }}"
+          # Routable public IP, for roles that can't use the tailnet address
+          # (coturn TURN URI / ICE candidates). validate.yml derives this from
+          # host egress when absent, but the provider already told us.
+          public_ip: "{{ lookup('dotenv', 'HOST_PUBLIC_IP') }}"
 
-    # ── Bootstrap-only group ──────────────────────────────────────────────
-    # ansible_user is intentionally omitted -- bootstrap.yml forces the
-    # initial user via play vars, regardless of which user the provider exposes.
     bootstrap:
       hosts:
-        # ansible_host: VPS provider public IPv4. Update when provisioning a
-        # new or replacement VPS.
         host1-bootstrap:
-          ansible_host: 203.0.113.10        # VPS provider public IPv4
-          ansible_port: 22
+          ansible_host: "{{ lookup('dotenv', 'HOST_PUBLIC_IP') }}"
+          ansible_port: "{{ lookup('dotenv', 'HOST_SSH_PORT', default='22') }}"
+          # bootstrap.yml forces this user via play vars regardless of what
+          # the provider exposes as ansible_user -- set here too since a
+          # play-scoped vars_prompt default doesn't reach a non-interactive
+          # (--no-confirm) run.
+          bootstrap_initial_user: "{{ lookup('dotenv', 'HOST_INITIAL_USER', default='root') }}"

@@ -30,7 +30,10 @@ The vault is a PLAINTEXT group_vars file (SOPS+age was dropped, project 0b);
 the on-box config store (/etc/catena/config.json) is the runtime source of
 truth and rides the restic backup. Run inside the catena-ce checkout:
 
-    uv run ./catena install --inventory prod
+    uv run ./catena prod install
+
+Inventory name first, subcommand second; either can be left off and gets
+prompted for. `--inventory <name>` before the subcommand still works too.
 """
 from __future__ import annotations
 
@@ -186,32 +189,39 @@ def _secret_extra_var(name: str, value: str) -> tuple[list[str], Path | None]:
     return ["-e", f"@{tmp}"], tmp
 
 
-def _bootstrap_extra_vars(input_path: str | None) -> tuple[list[str], Path | None]:
-    """Non-interactive bootstrap needs bootstrap_initial_user +
-    bootstrap_root_password, but bootstrap.yml only collects them via a
-    play-scoped vars_prompt (skipped with no TTY, so Phase 0.5 never installs
-    the key and Phase 1 connects as the wrong/keyless user). Read them from
-    the install.yaml and hand them to the bootstrap stage as extra-vars
-    (highest precedence -> they satisfy the prompt across every play).
+def _bootstrap_extra_vars(
+    inv_dir: Path, input_path: str | None,
+) -> tuple[list[str], Path | None]:
+    """bootstrap.yml collects bootstrap_initial_user + bootstrap_root_password
+    via a play-scoped vars_prompt, which outranks any inventory hostvar --
+    with no TTY it silently takes its own default ("root"), never the real
+    provider user. Extra-vars (-e) are the only thing that outranks
+    vars_prompt, so both are injected there when available:
+    bootstrap_initial_user from the inventory's own .env (HOST_INITIAL_USER;
+    on disk by now regardless of install.yaml -- seed.py already wrote or
+    confirmed it), bootstrap_root_password only from install.yaml (a secret,
+    never in .env; blank is meaningful -- Phase 0.5 then skips key install,
+    the host assumed already keyed, matching the vars_prompt default).
 
     The provider password is written to a 0600 temp file passed as `-e @file`
     (NOT `-e key=value`), so it never lands on argv, in `ps`, or in the
     printed command / bench logs. Returns (extra_args, tmp_path_to_clean).
-    With no install.yaml the interactive vars_prompt handles it, so this is a
-    no-op."""
-    if not input_path:
-        return [], None
+    With a TTY and no install.yaml, the interactive vars_prompt handles both,
+    so this is a no-op."""
     import seed  # shares ANSIBLE_DIR on sys.path
     import yaml
 
-    host = (seed.load_input(Path(input_path)).get("host") or {})
-    overrides: dict[str, str] = {
-        # Blank password is meaningful: Phase 0.5 then skips key install (the
-        # host is assumed already keyed), matching the vars_prompt default.
-        "bootstrap_root_password": host.get("initial_password") or "",
-    }
-    if host.get("initial_user"):
-        overrides["bootstrap_initial_user"] = host["initial_user"]
+    overrides: dict[str, str] = {}
+    env_path = inv_dir / ".env"
+    if env_path.is_file():
+        initial_user = seed.read_existing_env(env_path).get("HOST_INITIAL_USER", "")
+        if initial_user:
+            overrides["bootstrap_initial_user"] = initial_user
+    if input_path:
+        host = (seed.load_input(Path(input_path)).get("host") or {})
+        overrides["bootstrap_root_password"] = host.get("initial_password") or ""
+    if not overrides:
+        return [], None
 
     fd, name = tempfile.mkstemp(prefix="catena-bootstrap-vars-", suffix=".yml")
     os.close(fd)
@@ -268,8 +278,9 @@ def _preflight_checks(binaries: tuple[str, ...] = REQUIRED_BINARIES) -> None:
 def _require_inventory(inv_dir: Path) -> None:
     if not inv_dir.is_dir():
         die(
-            f"inventory not found at {inv_dir}. "
-            "Run `./catena install` for this inventory first."
+            f"inventory not found at {inv_dir}. Copy inventory/example/ "
+            f"there, fill in .env and hosts.yml, then run "
+            f"`./catena {inv_dir.name} install` first."
         )
 
 
@@ -374,7 +385,7 @@ def cmd_install(args: argparse.Namespace) -> int:
     ensure_collections()
 
     banner("Step 2/2 -- deploy (preflight -> bootstrap -> site -> validate)")
-    bootstrap_extra, bootstrap_vars_tmp = _bootstrap_extra_vars(args.input)
+    bootstrap_extra, bootstrap_vars_tmp = _bootstrap_extra_vars(inv_dir, args.input)
     adopt_extra = ["-e", f"@{secrets_tmp}"]
     try:
         _run_deploy_chain(inv_dir, INSTALL_CHAIN,
@@ -452,7 +463,7 @@ def cmd_recover(args: argparse.Namespace) -> int:
     ensure_collections()
 
     banner("Recover -- preflight -> bootstrap -> restore -> site -> validate")
-    bootstrap_extra, bootstrap_vars_tmp = _bootstrap_extra_vars(args.input)
+    bootstrap_extra, bootstrap_vars_tmp = _bootstrap_extra_vars(inv_dir, args.input)
     restore_extra = _snapshot_extra(args)
     dr_extra, dr_tmp = _collect_dr_adopt_file(args.input)
     try:
@@ -580,9 +591,9 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
     return 0
 
 
-# Subcommands offered by the no-argument interactive menu, in run order.
-# `install` prompts for its own inventory; every other command needs one, so
-# the menu prompts and passes --inventory.
+# Subcommands offered by the interactive menu, in run order. Also the set of
+# argv[0] tokens `_normalize_argv` recognizes as "this is a subcommand, not
+# an inventory name".
 MENU_COMMANDS = (
     ("install", "Set up a new host (seed + deploy)"),
     ("converge", "Re-apply configuration or app changes"),
@@ -595,24 +606,51 @@ MENU_COMMANDS = (
     ("rotate-tailscale", "Re-authenticate the node to the tailnet"),
     ("uninstall", "Hand unattended-upgrades back to the OS"),
 )
+KNOWN_COMMANDS = tuple(name for name, _ in MENU_COMMANDS)
 
 
-def interactive_menu() -> list[str]:
-    """Bare `catena` (no subcommand): print a numbered menu and return the argv
-    for the chosen subcommand. Pure of side effects beyond stdin/stdout, so the
-    caller just feeds the result back through the parser."""
+def _choose_command() -> str:
+    """Print the numbered menu and return the chosen subcommand name."""
     print(_c("1;34", "catena -- choose an operation:"), file=sys.stderr)
     for i, (name, desc) in enumerate(MENU_COMMANDS, 1):
         print(f"  {i:>2}) {name:<18} {desc}", file=sys.stderr)
     choice = input("\nNumber [1=install]: ").strip() or "1"
     try:
-        name = MENU_COMMANDS[int(choice) - 1][0]
+        return MENU_COMMANDS[int(choice) - 1][0]
     except (ValueError, IndexError):
         die(f"not a valid choice: {choice!r}")
-    if name == "install":
-        return ["install"]
+
+
+def interactive_menu() -> list[str]:
+    """Bare `catena` (no args): prompt for inventory, then the operation, and
+    return the argv for the chosen subcommand. Pure of side effects beyond
+    stdin/stdout, so the caller just feeds the result back through the
+    parser."""
     inv = input("Inventory name [prod]: ").strip() or "prod"
-    return [name, "--inventory", inv]
+    return [_choose_command(), "--inventory", inv]
+
+
+def _normalize_argv(argv: list[str]) -> list[str]:
+    """Accept the documented `catena <inventory> <command> [rest]` shape
+    (inventory first) as well as the older `catena <command> --inventory
+    <inventory> [rest]`: a first token that isn't a known subcommand or a
+    flag is the inventory name, rewritten to the flag form the existing
+    subparsers already handle. A lone inventory name (no command) prompts
+    for one, same as bare `catena` prompts for both."""
+    if not argv or argv[0] in KNOWN_COMMANDS or argv[0].startswith("-"):
+        return argv
+    inventory = argv[0]
+    if len(argv) == 1:
+        if not sys.stdin.isatty():
+            die(f"no command given for inventory {inventory!r} (and no TTY "
+                f"to prompt). Try `catena {inventory} install` or "
+                "`catena --help`.", code=2)
+        return _normalize_argv([inventory, _choose_command()])
+    command, rest = argv[1], argv[2:]
+    if command not in KNOWN_COMMANDS:
+        die(f"unknown command {command!r} for inventory {inventory!r}. "
+            f"Choices: {', '.join(KNOWN_COMMANDS)}.")
+    return [command, "--inventory", inventory, *rest]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -719,12 +757,14 @@ def main(argv: list[str] | None = None) -> int:
     # let install's own parser handle any trailing flags.
     if argv and argv[0] == "--install":
         argv = ["install", *argv[1:]]
-    # Bare `catena` (no subcommand): interactive menu, when a TTY is present.
+    # Bare `catena` (no args): interactive menu, when a TTY is present.
     if not argv:
         if not sys.stdin.isatty():
-            die("no subcommand given (and no TTY for the menu). "
-                "Try `catena install` or `catena --help`.", code=2)
+            die("no inventory or subcommand given (and no TTY for the menu). "
+                "Try `catena <inventory> install` or `catena --help`.", code=2)
         argv = interactive_menu()
+    else:
+        argv = _normalize_argv(argv)
     args = build_parser().parse_args(argv)
     return args.func(args)
 

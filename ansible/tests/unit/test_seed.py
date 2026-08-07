@@ -169,35 +169,39 @@ def test_emit_env_quotes_values_with_whitespace(seed, tmp_path):
     assert '"topic with spaces"' in target.read_text()
 
 
+# --- read_existing_env -------------------------------------------------------
+def test_read_existing_env_parses_a_hand_filled_file(seed, tmp_path):
+    """A self-hoster's own inventory/<name>/.env feeds _collect_env_values as
+    `provided` the same way install.yaml's env: block does -- no prompting for
+    anything already answered in the file."""
+    target = tmp_path / ".env"
+    target.write_text(
+        "# comment\n"
+        "CLOUDFLARE_ZONE=client.example.com\n"
+        "NTFY_TOPIC=\"topic with spaces\"\n"
+        "\n"
+    )
+    assert seed.read_existing_env(target) == {
+        "CLOUDFLARE_ZONE": "client.example.com",
+        "NTFY_TOPIC": "topic with spaces",
+    }
+
+
 # --- emit_hosts_yml ---------------------------------------------------------
-def test_emit_hosts_yml_creates_both_groups(seed, tmp_path):
+def test_emit_hosts_yml_copies_the_skeleton(seed, tmp_path):
+    """hosts.yml is now static -- every field reads from .env at ansible
+    runtime via the dotenv lookup, so seed just copies the skeleton once,
+    same as emit_localhost_yml."""
     target = tmp_path / "hosts.yml"
-    seed.emit_hosts_yml(target, "prod1", "203.0.113.10", "100.1.2.3", "debian")
-    data = yaml.safe_load(target.read_text())
-    vps = data["all"]["children"]["vps"]["hosts"]
-    boot = data["all"]["children"]["bootstrap"]["hosts"]
-    assert vps["prod1"]["ansible_host"] == "100.1.2.3"
-    assert boot["prod1-bootstrap"]["ansible_host"] == "203.0.113.10"
-    assert vps["prod1"]["ansible_user"] == "ops"
-    # bootstrap_initial_user is pinned as an inventory var so the Phase 1/2
-    # bootstrap plays (which connect as this user) see it under --no-confirm,
-    # where the play-scoped vars_prompt does not reach them.
-    assert boot["prod1-bootstrap"]["bootstrap_initial_user"] == "debian"
+    seed.emit_hosts_yml(target)
+    assert target.read_text() == seed.HOSTS_YML_SKEL.read_text()
 
 
-def test_emit_hosts_yml_merges_into_existing(seed, tmp_path):
+def test_emit_hosts_yml_does_not_overwrite_existing(seed, tmp_path):
     target = tmp_path / "hosts.yml"
-    target.write_text(yaml.safe_dump({
-        "all": {"children": {
-            "vps": {"hosts": {"old1": {"ansible_host": "100.9.9.9",
-                                       "ansible_user": "ops",
-                                       "ansible_port": 22}}},
-            "bootstrap": {"hosts": {}},
-        }}
-    }))
-    seed.emit_hosts_yml(target, "prod1", "203.0.113.10", "100.1.2.3", "root")
-    vps = yaml.safe_load(target.read_text())["all"]["children"]["vps"]["hosts"]
-    assert "old1" in vps and "prod1" in vps
+    target.write_text("# hand-edited, e.g. a second host\n")
+    seed.emit_hosts_yml(target)
+    assert target.read_text() == "# hand-edited, e.g. a second host\n"
 
 
 # --- write_secrets_out (transient adopt map, no persisted vault) ------------
@@ -270,7 +274,9 @@ def test_seed_has_no_sops_age_helpers(seed):
 def _good_inp():
     return {
         "inventory": "prod",
-        "host": {"name": "prod1", "public_ip": "203.0.113.10", "initial_user": "root"},
+        # host.initial_password is the only host.* field left -- public IP,
+        # initial SSH user and host name all live in .env / hosts.yml now.
+        "host": {},
         # Backup repo is configured post-install in catena-admin, so a blank
         # env is a valid install.
         "env": {},

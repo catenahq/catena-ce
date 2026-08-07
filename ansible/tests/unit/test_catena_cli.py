@@ -353,13 +353,15 @@ def test_ensure_collections_skips_when_override_dir_exists(cli, monkeypatch, tmp
 def test_bootstrap_extra_vars_writes_secret_to_file_not_argv(cli, tmp_path):
     import yaml
 
+    inv_dir = tmp_path / "inv"
+    inv_dir.mkdir()
+    (inv_dir / ".env").write_text("HOST_INITIAL_USER=debian\n")
     iy = tmp_path / "install.yaml"
     iy.write_text(
         "inventory: test\n"
-        "host_initial_user: debian\n"
         "host_initial_password: s3cr3t-provider-pw\n"
     )
-    extra, tmp = cli._bootstrap_extra_vars(str(iy))
+    extra, tmp = cli._bootstrap_extra_vars(inv_dir, str(iy))
     try:
         # The provider password is referenced as -e @file, never inline on
         # argv (would otherwise leak via `ps` and the printed command).
@@ -367,6 +369,8 @@ def test_bootstrap_extra_vars_writes_secret_to_file_not_argv(cli, tmp_path):
         assert extra[1].startswith("@")
         assert "s3cr3t-provider-pw" not in " ".join(extra)
         data = yaml.safe_load(tmp.read_text())
+        # bootstrap_initial_user comes from the inventory's own .env, not
+        # install.yaml -- HOST_INITIAL_USER, not a host.initial_user field.
         assert data["bootstrap_initial_user"] == "debian"
         assert data["bootstrap_root_password"] == "s3cr3t-provider-pw"
         # 0600 so the provider password is not world-readable on disk.
@@ -375,10 +379,28 @@ def test_bootstrap_extra_vars_writes_secret_to_file_not_argv(cli, tmp_path):
         tmp.unlink(missing_ok=True)
 
 
-def test_bootstrap_extra_vars_noop_without_install_yaml(cli):
-    extra, tmp = cli._bootstrap_extra_vars(None)
+def test_bootstrap_extra_vars_noop_without_install_yaml_or_env(cli, tmp_path):
+    inv_dir = tmp_path / "inv"
+    inv_dir.mkdir()
+    extra, tmp = cli._bootstrap_extra_vars(inv_dir, None)
     assert extra == []
     assert tmp is None
+
+
+def test_bootstrap_extra_vars_reads_initial_user_without_install_yaml(cli, tmp_path):
+    """A self-hoster driving an already-filled-in inventory with no -i still
+    gets the correct bootstrap_initial_user injected (just no root password
+    override -- vars_prompt handles that one live)."""
+    inv_dir = tmp_path / "inv"
+    inv_dir.mkdir()
+    (inv_dir / ".env").write_text("HOST_INITIAL_USER=ubuntu\n")
+    extra, tmp = cli._bootstrap_extra_vars(inv_dir, None)
+    try:
+        import yaml
+        data = yaml.safe_load(tmp.read_text())
+        assert data == {"bootstrap_initial_user": "ubuntu"}
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def test_rotate_tunnel_parser_wires_token(cli):
@@ -563,19 +585,22 @@ def test_install_flag_is_alias_for_install_subcommand(cli, monkeypatch):
     assert seen["ns"].inventory == "prod"
 
 
-def test_interactive_menu_install_returns_bare_install(cli, monkeypatch):
-    monkeypatch.setattr("builtins.input", lambda *a: "1")
-    assert cli.interactive_menu() == ["install"]
+def test_interactive_menu_prompts_inventory_before_command(cli, monkeypatch):
+    """Inventory first, then the numbered menu -- every command (install
+    included) comes back with --inventory attached."""
+    answers = iter(["dev", "1"])  # inventory, then 1 == install
+    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+    assert cli.interactive_menu() == ["install", "--inventory", "dev"]
 
 
-def test_interactive_menu_other_command_prompts_inventory(cli, monkeypatch):
-    answers = iter(["2", "dev"])  # 2 == converge, then inventory name
+def test_interactive_menu_other_command(cli, monkeypatch):
+    answers = iter(["dev", "2"])  # inventory, then 2 == converge
     monkeypatch.setattr("builtins.input", lambda *a: next(answers))
     assert cli.interactive_menu() == ["converge", "--inventory", "dev"]
 
 
 def test_interactive_menu_inventory_defaults_to_prod(cli, monkeypatch):
-    answers = iter(["3", ""])  # 3 == validate, blank inventory -> prod
+    answers = iter(["", "3"])  # blank inventory -> prod, then 3 == validate
     monkeypatch.setattr("builtins.input", lambda *a: next(answers))
     assert cli.interactive_menu() == ["validate", "--inventory", "prod"]
 
@@ -584,6 +609,44 @@ def test_interactive_menu_rejects_bad_choice(cli, monkeypatch):
     monkeypatch.setattr("builtins.input", lambda *a: "99")
     with pytest.raises(SystemExit):
         cli.interactive_menu()
+
+
+# --- _normalize_argv ---------------------------------------------------------
+def test_normalize_argv_rewrites_inventory_first_shape(cli):
+    """The documented `catena <inventory> <command> [rest]` shape rewrites to
+    the flag form the existing subparsers already handle."""
+    assert cli._normalize_argv(["prod", "converge", "--tags", "keycloak"]) == [
+        "converge", "--inventory", "prod", "--tags", "keycloak",
+    ]
+
+
+def test_normalize_argv_passes_through_command_first_shape(cli):
+    """`catena <command> --inventory <name>` (docs, scripts, the bench)
+    keeps working unchanged -- a known command as argv[0] is never mistaken
+    for an inventory name."""
+    argv = ["install", "--inventory", "prod", "--no-confirm"]
+    assert cli._normalize_argv(argv) == argv
+
+
+def test_normalize_argv_passes_through_a_leading_flag(cli):
+    assert cli._normalize_argv(["-h"]) == ["-h"]
+
+
+def test_normalize_argv_lone_inventory_prompts_for_command(cli, monkeypatch):
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda *a: "2")  # 2 == converge
+    assert cli._normalize_argv(["prod"]) == ["converge", "--inventory", "prod"]
+
+
+def test_normalize_argv_lone_inventory_without_tty_dies(cli, monkeypatch):
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: False)
+    with pytest.raises(SystemExit):
+        cli._normalize_argv(["prod"])
+
+
+def test_normalize_argv_unknown_command_dies(cli):
+    with pytest.raises(SystemExit):
+        cli._normalize_argv(["prod", "frobnicate"])
 
 
 def test_main_runs_menu_when_no_args_and_tty(cli, monkeypatch):
@@ -606,3 +669,14 @@ def test_main_no_args_without_tty_dies(cli, monkeypatch):
     monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: False)
     with pytest.raises(SystemExit):
         cli.main([])
+
+
+def test_main_dispatches_inventory_first_shape(cli, monkeypatch):
+    """`catena <inventory> <command>` end to end: main() normalizes argv and
+    dispatches to the right subcommand with the right inventory."""
+    seen = {}
+    monkeypatch.setattr(cli.os, "chdir", lambda p: None)
+    monkeypatch.setattr(cli, "cmd_converge", lambda ns: (seen.update(ns=ns), 0)[1])
+    assert cli.main(["dev", "converge"]) == 0
+    assert seen["ns"].func is cli.cmd_converge
+    assert seen["ns"].inventory == "dev"

@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
-"""Seed a new inventory/<name>/ for Community Catena.
+"""Seed inventory/<name>/ for Community Catena.
 
-Reads install.yaml (`-i`) for non-interactive values, prompts for anything
-missing, and writes the NON-SECRET inventory files:
+With `-i install.yaml` (bench / power user), generates a fresh inventory:
+reads env/host/vault values from the file, prompts for anything missing.
+
+Without one, inventory/<name>/ must already exist -- copied from
+inventory/example/ and hand-filled, same as any other config file -- and
+seed reads its .env directly instead of prompting field by field. Either
+way it writes only the NON-SECRET inventory files, reconcile-not-overwrite
+(an existing file's values win):
   - inventory/<name>/.env                            (non-secret config)
   - inventory/<name>/hosts.yml                        (bootstrap + vps entries)
   - inventory/<name>/localhost.yml                    (preflight anchor)
@@ -63,6 +69,7 @@ REPO_ROOT = Path(__file__).resolve().parent
 SKEL = REPO_ROOT / "inventory" / "example"
 ENV_TEMPLATE = SKEL / ".env.example"
 LOCALHOST_YML_SKEL = SKEL / "localhost.yml"
+HOSTS_YML_SKEL = SKEL / "hosts.yml.example"
 
 # Make `from helpers import ...` resolve whether seed.py is run as a script
 # or loaded via importlib spec_from_file_location (the test fixture pattern).
@@ -175,10 +182,6 @@ def validate_install_structural(
     banner("install.yaml -- structural checks")
     if not _check("inventory set", bool(inventory), str(inventory or "(missing)")):
         problems += 1
-
-    for f in ("name", "public_ip", "initial_user"):
-        if not _check(f"host_{f} set", _is_filled(host.get(f)), str(host.get(f) or "(missing)")):
-            problems += 1
 
     if host.get("initial_password"):
         _check("host_initial_password provided (install_key.py won't prompt)", True)
@@ -422,6 +425,15 @@ def parse_env_template(path: Path) -> tuple[list[tuple[str, str]], str]:
     return keys, text
 
 
+def read_existing_env(path: Path) -> dict[str, str]:
+    """Parse an already-filled-in inventory/<name>/.env (same KEY=value shape
+    as the template) into a provided-values dict, so _collect_env_values()
+    takes the already-in-provided fast path for every key instead of
+    prompting for it."""
+    pairs, _ = parse_env_template(path)
+    return dict(pairs)
+
+
 # --- prompting --------------------------------------------------------------
 def _is_filled(value) -> bool:
     if value is None:
@@ -565,41 +577,11 @@ def emit_localhost_yml(target: Path) -> None:
     shutil.copyfile(LOCALHOST_YML_SKEL, target)
 
 
-def emit_hosts_yml(
-    target: Path, host_name: str, public_ip: str, tailnet_ip: str,
-    initial_user: str,
-) -> None:
+def emit_hosts_yml(target: Path) -> None:
     if target.exists():
-        data = yaml.safe_load(target.read_text()) or {}
-    else:
-        data = {}
-    children = data.setdefault("all", {}).setdefault("children", {})
-    vps_hosts = children.setdefault("vps", {}).setdefault("hosts", {})
-    bootstrap_hosts = children.setdefault("bootstrap", {}).setdefault("hosts", {})
-    # bootstrap_initial_user must be an inventory var (not only the Phase 0.5
-    # vars_prompt in bootstrap.yml): vars_prompt is play-scoped, so Phase 1
-    # (harden) and Phase 2 (tailscale) -- separate plays that connect as this
-    # user -- would otherwise see it undefined under a non-interactive
-    # `catena install --no-confirm`. Seed already collected it, so pin it here.
-    bootstrap_hosts[f"{host_name}-bootstrap"] = {
-        "ansible_host": public_ip,
-        "ansible_port": 22,
-        "bootstrap_initial_user": initial_user,
-    }
-    # The bootstrap host's ansible_host is the public IP (how we reach a
-    # fresh box before tailscale joins); the vps host's ansible_host is the
-    # tailnet address. Roles that need the routable public IP (coturn TURN
-    # URI / ICE candidates) read public_ip directly.
-    vps_host_vars: dict = {
-        "ansible_host": tailnet_ip,
-        "ansible_user": "ops",
-        "ansible_port": 22,
-    }
-    if public_ip:
-        vps_host_vars["public_ip"] = public_ip
-    vps_hosts[host_name] = vps_host_vars
+        return
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(yaml.safe_dump(data, default_flow_style=False, sort_keys=False))
+    shutil.copyfile(HOSTS_YML_SKEL, target)
 
 
 # --- prereqs ----------------------------------------------------------------
@@ -762,19 +744,12 @@ def _collect_install_secrets(vault_provided: dict) -> dict[str, str]:
 def _print_summary(
     *,
     inventory: str,
-    host_name: str,
-    public_ip: str,
-    initial_user: str,
-    tailnet_ip_provided: str,
     env_values: dict[str, str],
     secret_values: dict[str, str],
 ) -> None:
     banner("Summary")
     print(f"  Inventory:      {inventory}", file=sys.stderr)
-    print(f"  Host:           {host_name}", file=sys.stderr)
-    print(f"  Public IPv4:    {public_ip}", file=sys.stderr)
-    print(f"  Initial user:   {initial_user}", file=sys.stderr)
-    print(f"  Tailnet IPv4:   {tailnet_ip_provided or '(captured by bootstrap.yml post_task)'}", file=sys.stderr)
+    print(f"  Public IPv4:    {env_values.get('HOST_PUBLIC_IP')}", file=sys.stderr)
     print(f"  CF zone:        {env_values.get('CLOUDFLARE_ZONE')}", file=sys.stderr)
     print("  CF API token:   entered later in catena-admin > Settings "
           "(never at install)", file=sys.stderr)
@@ -790,13 +765,8 @@ def _write_inventory_files(
     inventory: str,
     env_template: str,
     env_values: dict[str, str],
-    host_name: str,
-    public_ip: str,
-    initial_user: str,
-    tailnet_ip_provided: str,
 ) -> None:
     env_target = inv_dir / ".env"
-    hosts_target = inv_dir / "hosts.yml"
     banner(f"Writing inventory/{inventory}/ (non-secret files only)")
     emit_env(env_template, env_values, env_target)
     ok(f"wrote {env_target}")
@@ -804,13 +774,8 @@ def _write_inventory_files(
     ok(f"wrote {inv_dir / 'localhost.yml'}")
     # No vault.yml: secrets never persist on the laptop (0b). Vendor creds go to
     # the transient --secrets-out file; everything else is minted on-box.
-    # Placeholder tailnet IP; bootstrap.yml's post_task rewrites it after the
-    # VPS joins the tailnet.
-    initial_tailnet_ip = tailnet_ip_provided or "0.0.0.0"
-    emit_hosts_yml(
-        hosts_target, host_name, public_ip, initial_tailnet_ip, initial_user,
-    )
-    ok(f"wrote {hosts_target}")
+    emit_hosts_yml(inv_dir / "hosts.yml")
+    ok(f"wrote {inv_dir / 'hosts.yml'}")
 
 
 # --- main -------------------------------------------------------------------
@@ -868,19 +833,33 @@ def main(argv: list[str] | None = None) -> int:
             or fill({}, "inventory", "prod", "Inventory name (directory under inventory/)")
         )
         inv_dir = REPO_ROOT / "inventory" / inventory
-    if inv_dir.exists():
-        warn(f"inventory '{inventory}' exists -- host will be merged into existing files.")
-
-    host_data = inp.get("host", {})
-    host_name = fill(host_data, "name", f"{inventory}1", "Host name (e.g. prod1)")
-    public_ip = fill(host_data, "public_ip", "", "Public IPv4 (from provider)")
-    initial_user = fill(host_data, "initial_user", "root",
-                        "Initial SSH user (root, ubuntu, debian, ec2-user...)")
-    tailnet_ip_provided = host_data.get("tailnet_ip", "").strip() if isinstance(host_data.get("tailnet_ip"), str) else ""
 
     env_keys, env_template = parse_env_template(ENV_TEMPLATE)
-    env_provided = inp.get("env", {})
+    # install.yaml (bench / power user) supplies env values directly and
+    # generates the inventory from scratch. Without one, the inventory must
+    # already exist -- copied from inventory/example/ and hand-filled -- so
+    # its .env answers every field instead of prompting for it one at a time.
+    if args.input:
+        if inv_dir.exists():
+            warn(f"inventory '{inventory}' exists -- host will be merged into existing files.")
+        env_provided = inp.get("env", {})
+    else:
+        env_path = inv_dir / ".env"
+        if not env_path.is_file():
+            die(
+                f"{env_path} not found. Copy inventory/example/ to "
+                f"inventory/{inventory}/, fill in .env and hosts.yml, then "
+                "re-run."
+            )
+        env_provided = read_existing_env(env_path)
     env_values = _collect_env_values(env_keys, env_provided)
+
+    # host.initial_password is the one host.* field left: the VPS provider's
+    # initial root password, a genuine secret that never belongs in .env.
+    # Everything else that used to live here (name, public IP, initial SSH
+    # user) is now HOST_PUBLIC_IP / HOST_INITIAL_USER in .env, read straight
+    # into hosts.yml by the dotenv lookup -- seed doesn't need to know them.
+    host_data = inp.get("host", {})
 
     vault_provided = inp.get("vault", {})
     secret_values = _collect_install_secrets(vault_provided)
@@ -891,21 +870,15 @@ def main(argv: list[str] | None = None) -> int:
     _resolve_admin_override(secret_values, vault_provided)
     # Every other secret -- internal service secrets AND the user-held
     # admin/restic DR keyset -- is minted ON-BOX by the converge loader
-    # (helpers/onbox_config.py), never here. The Cloudflare API token +
-    # CLOUDFLARE_ACCOUNT_ID are resolved on-box too: the token is entered in
-    # catena-admin > Settings, and the host engine derives + persists the
-    # account id from it.
+    # (helpers/onbox_config.py), never here. The Cloudflare API token is
+    # resolved on-box too: entered in catena-admin > Settings, which also
+    # derives and persists the account id from it.
 
     # Validate before any destructive action. The install externals ride the
     # `vault` slot so the structural checks reach them.
     validation_inp = {
         "inventory": inventory,
-        "host": {
-            "name": host_name,
-            "public_ip": public_ip,
-            "initial_user": initial_user,
-            "initial_password": host_data.get("initial_password") or "",
-        },
+        "host": {"initial_password": host_data.get("initial_password") or ""},
         "env": env_values,
         "vault": secret_values,
     }
@@ -914,9 +887,7 @@ def main(argv: list[str] | None = None) -> int:
         die(f"{problems} problem(s) -- fix and re-run.")
 
     _print_summary(
-        inventory=inventory, host_name=host_name, public_ip=public_ip,
-        initial_user=initial_user, tailnet_ip_provided=tailnet_ip_provided,
-        env_values=env_values, secret_values=secret_values,
+        inventory=inventory, env_values=env_values, secret_values=secret_values,
     )
     if not args.no_confirm:
         answer = input("Proceed with seed (write inventory files)? [y/N]: ").strip().lower()
@@ -929,9 +900,6 @@ def main(argv: list[str] | None = None) -> int:
     _write_inventory_files(
         inv_dir=inv_dir, inventory=inventory,
         env_template=env_template, env_values=env_values,
-        host_name=host_name, public_ip=public_ip,
-        initial_user=initial_user,
-        tailnet_ip_provided=tailnet_ip_provided,
     )
 
     # Write the transient adopt map (never into the inventory).
