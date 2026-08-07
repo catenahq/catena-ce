@@ -19,9 +19,9 @@ deletes it; nothing secret persists on the laptop.
 The Cloudflare API token is NEVER an install input. It is entered ONLY in
 catena-admin > Settings, which writes it to /etc/catena/config.json; the
 tunnel is deferred until then. So seed prompts nothing for Cloudflare beyond
-the (non-secret) CLOUDFLARE_ZONE, and CLOUDFLARE_ACCOUNT_ID is left blank when
-not supplied -- the host engine (catena-cloudflared-sync) resolves + persists
-the account id from the token.
+the (non-secret) CLOUDFLARE_ZONE -- the account id is not a seed input at
+all, the host engine (catena-cloudflared-sync) resolves it from the token at
+activation.
 
 Everything else is minted ON-BOX by the converge loader
 (helpers/onbox_config.py): the internal service secrets, plus the user-held
@@ -182,13 +182,11 @@ def validate_install_structural(
     else:
         _check("host_initial_password blank (install_key.py will prompt)", True)
 
-    # CLOUDFLARE_ACCOUNT_ID is auto-detected from the zone, so blank is ok.
     # SMTP_FROM has a non-empty placeholder default but blank is legitimate
     # (deploy without mail). All other "optional" env keys are inferred from
     # an empty template default -- the template author's signal that blank
     # is acceptable.
     env_allow_empty = {
-        "CLOUDFLARE_ACCOUNT_ID",
         "SMTP_FROM",
     }
     for key, default in env_keys:
@@ -722,17 +720,13 @@ def _collect_env_values(
     env_keys: list[tuple[str, str]],
     env_provided: dict,
 ) -> dict[str, str]:
-    """Walk the .env template keys, prompting for each. CLOUDFLARE_ACCOUNT_ID is
-    allow-empty: it is no longer auto-fetched at seed time (that needed the CF
-    token, which is now Settings-only), so a blank flows through and the host
-    engine resolves + persists it from the token."""
+    """Walk the .env template keys, prompting for each."""
     banner("Configuration (.env)")
     print("(press Enter to accept the template default)\n", file=sys.stderr)
     env_values: dict[str, str] = {}
     # SMTP_FROM has a non-empty placeholder default but blank is a legitimate
-    # answer (deploy without mail); CLOUDFLARE_ACCOUNT_ID is resolved on-box, so
-    # a blank at seed time is fine even if the template carries a default.
-    allow_empty_with_default = {"SMTP_FROM", "CLOUDFLARE_ACCOUNT_ID"}
+    # answer (deploy without mail).
+    allow_empty_with_default = {"SMTP_FROM"}
     defaults = dict(env_keys)
     for key, default in env_keys:
         if key == "TAILSCALE_TAGS":

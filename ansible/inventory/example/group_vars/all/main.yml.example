@@ -25,7 +25,6 @@ tailscale_accept_dns: >-
 
 # --- Cloudflare Tunnel ---
 cloudflare_api_base: "https://api.cloudflare.com/client/v4"
-cloudflare_account_id: "{{ lookup('dotenv', 'CLOUDFLARE_ACCOUNT_ID') }}"
 cloudflare_zone: "{{ lookup('dotenv', 'CLOUDFLARE_ZONE') }}"
 # cloudflare_zone above is the primary domain every <sub>.<zone> hostname
 # interpolates, and the only one a Community host serves. Additional domains

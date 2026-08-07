@@ -137,7 +137,7 @@ is not sufficient here.
 Split by the two-phase install boundary:
 
 **Minimal bootstrap (needed to bring the stack + auth up):** `CLOUDFLARE_ZONE`,
-`CLOUDFLARE_ACCOUNT_ID`, the subdomain set (`PORTAINER_SUBDOMAIN`,
+the subdomain set (`PORTAINER_SUBDOMAIN`,
 `MONITOR_SUBDOMAIN`, `DASH_SUBDOMAIN`, `HEARTBEAT_SUBDOMAIN`,
 `AUTH_SUBDOMAIN`), `ADMIN_EMAIL`, `CATENA_DEFAULT_LANGUAGE`, `TAILSCALE_TAGS`,
 `OPS_USER`, `COMMON_TIMEZONE`, `COMMON_LOCALE`, `STORAGE_MODE` + mount points.

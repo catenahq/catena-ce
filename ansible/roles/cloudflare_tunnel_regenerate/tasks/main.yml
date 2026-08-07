@@ -55,37 +55,52 @@
          else '' }}
   no_log: true
 
-# The account id is NOT an install input on a tokenless install: the client
-# supplies only a token (catena-admin > Settings), and the tunnel engine
-# resolves the account from it at activation and persists it into the on-box
-# store. Inventory .env therefore carries an EMPTY CLOUDFLARE_ACCOUNT_ID on
-# every such host, so take the inventory value when set (an operator-provided
-# override) and fall back to the stored one.
-- name: "CF regen: bind the effective Cloudflare account id"
-  ansible.builtin.set_fact:
-    _cf_regen_account_id: >-
-      {{ cloudflare_account_id
-         if (cloudflare_account_id | default('') | length > 0)
-         else ((_cf_regen_store.content | default('') | b64decode | from_json).config
-               | default({})).get('CLOUDFLARE_ACCOUNT_ID', '')
-              if (_cf_regen_store_stat.stat.exists | default(false))
-              else '' }}
-
 - name: "CF regen: validate inputs"
   ansible.builtin.assert:
     that:
       - cf_api_token is defined
       - cf_api_token | length > 10
       - cloudflare_zone | length > 0
-      - _cf_regen_account_id | length > 0
     fail_msg: >-
-      Missing inputs: cf_api_token (-e cf_api_token=...), CLOUDFLARE_ZONE from
-      inventory .env, and a Cloudflare account id -- normally resolved at
-      activation and stored on-box as CLOUDFLARE_ACCOUNT_ID, overridable from
-      inventory .env.
+      Missing inputs: cf_api_token (-e cf_api_token=...) and CLOUDFLARE_ZONE
+      from inventory .env.
   run_once: true
   delegate_to: localhost
   become: false
+
+# The account id is not an install input at all: the client supplies only a
+# token (catena-admin > Settings). Resolve it fresh from the zone, on the
+# SAME Zone:DNS:Edit scope cf_api_token already needs (mirrors
+# roles/coturn/tasks/dns.yml's zone_id lookup), rather than trusting a value
+# threaded through inventory .env or read back off the on-box store -- both
+# of which are stale for a rotated token that has never touched either.
+- name: "CF regen: resolve Cloudflare account id from the zone"
+  ansible.builtin.uri:
+    url: "{{ cloudflare_api_base }}/zones?name={{ cloudflare_zone }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ cf_api_token }}"
+    status_code: 200
+    return_content: true
+  register: _cf_regen_zone_lookup
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: "CF regen: assert the zone is visible to the supplied token"
+  ansible.builtin.assert:
+    that:
+      - _cf_regen_zone_lookup.json.result | length == 1
+    fail_msg: >-
+      Zone '{{ cloudflare_zone }}' not found (or token lacks access). The
+      supplied cf_api_token needs Zone:DNS:Edit scope on this zone.
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: "CF regen: bind the resolved Cloudflare account id"
+  ansible.builtin.set_fact:
+    _cf_regen_account_id: "{{ _cf_regen_zone_lookup.json.result[0].account.id }}"
 
 - name: "CF regen: list existing tunnels matching this host"
   ansible.builtin.uri:
@@ -137,8 +152,3 @@
     name: cloudflare_tunnel
   vars:
     cloudflare_api_token: "{{ cf_api_token }}"
-    # Hand the resolved account id down too: the role's default reads the
-    # (empty on a tokenless install) inventory var, and while the engine can
-    # re-resolve it from the token, passing it keeps the delete and re-create
-    # halves of this rotation pinned to the SAME account.
-    cloudflare_account_id: "{{ _cf_regen_account_id }}"

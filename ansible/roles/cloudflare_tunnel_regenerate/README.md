@@ -11,9 +11,12 @@ rather than firing on every converge.
 
 ## Inputs
 
-- `cloudflare_api_token` -- token with `Cloudflare Tunnel:Edit`.
-- `cloudflare_account_id` / `cloudflare_zone_id` -- host inventory.
-- `cloudflare_tunnel_name` -- defaults to the Ansible inventory_hostname.
+- `cf_api_token` -- Cloudflare API token, `-e cf_api_token=...` (Zone:DNS:Edit
+  + Account:Cloudflare Tunnel:Edit). Consumed once, never persisted.
+- `cloudflare_zone` -- from inventory `.env`. The Cloudflare account id is
+  not a separate input -- it is resolved from the zone via the API, on the
+  same token and scope.
+- `cloudflared_tunnel_name` -- defaults to the Ansible inventory_hostname.
 
 ## Side effects
 

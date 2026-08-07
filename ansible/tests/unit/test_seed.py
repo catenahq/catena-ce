@@ -312,7 +312,7 @@ def test_validate_structural_rejects_client_placeholder(seed):
     assert seed.validate_install_structural(inp, _ENV_KEYS, _VAULT_KEYS) >= 1
 
 
-# --- Cloudflare zone / account id -------------------------------------------
+# --- Cloudflare zone ---------------------------------------------------------
 def test_validate_structural_requires_cf_zone(seed):
     """A blank zone is a problem on every host. It used to be legitimate under
     ACCESS_MODE=tailnet, which is gone: hostnames derive from the zone and
@@ -321,17 +321,6 @@ def test_validate_structural_requires_cf_zone(seed):
     inp["env"] = {"CLOUDFLARE_ZONE": ""}
     env_keys = [("CLOUDFLARE_ZONE", "example.com")]
     assert seed.validate_install_structural(inp, env_keys, _VAULT_KEYS) >= 1
-
-
-def test_validate_structural_allows_blank_account_id(seed):
-    """CLOUDFLARE_ACCOUNT_ID is resolved on-box from the token, so a blank at
-    seed time is fine (the zone is still required)."""
-    inp = _good_inp()
-    inp["env"] = {"CLOUDFLARE_ZONE": "example.com",
-                  "CLOUDFLARE_ACCOUNT_ID": ""}
-    env_keys = [("CLOUDFLARE_ZONE", "example.com"),
-                ("CLOUDFLARE_ACCOUNT_ID", "REPLACE")]
-    assert seed.validate_install_structural(inp, env_keys, _VAULT_KEYS) == 0
 
 
 def test_access_mode_is_gone(seed):
