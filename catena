@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Root-level shim: the real CLI lives in the self-contained ansible/ tree
+# (see ansible/catena's own docstring). This just saves the cd.
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/ansible"
+exec uv run ./catena "$@"

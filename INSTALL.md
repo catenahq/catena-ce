@@ -20,21 +20,20 @@ these; they come from each provider's console:
 ## Install
 
 ```
-cd ansible
-uv run catena install
+./catena install
 ```
 
 `install` collects the configuration, mints every internal secret on the
 server itself, then runs the four flows in order:
 `preflight -> bootstrap -> site -> validate`.
 
-Run `uv run catena` with no arguments for an interactive menu of every
+Run `./catena` with no arguments for an interactive menu of every
 operation.
 
 For an unattended run, answer the questions once into a file and pass it:
 
 ```
-uv run catena install -i install.yaml --no-confirm
+./catena install -i install.yaml --no-confirm
 ```
 
 ## Write down what the installer shows once
@@ -59,12 +58,12 @@ classification: [ansible/SECRETS.md](ansible/SECRETS.md).
 ## Day two
 
 ```
-uv run catena converge   # re-apply after a configuration or app change
-uv run catena validate   # on-host + tailnet + external health checks
-uv run catena backup     # take an on-demand snapshot
-uv run catena restore    # in-place whole-host restore
-uv run catena recover    # rebuild onto a FRESH replacement box
-uv run catena uninstall  # hand unattended-upgrades back to the OS
+./catena converge   # re-apply after a configuration or app change
+./catena validate   # on-host + tailnet + external health checks
+./catena backup     # take an on-demand snapshot
+./catena restore    # in-place whole-host restore
+./catena recover    # rebuild onto a FRESH replacement box
+./catena uninstall  # hand unattended-upgrades back to the OS
 ```
 
 Each takes `--inventory <name>` to pick a deployment when there is more
