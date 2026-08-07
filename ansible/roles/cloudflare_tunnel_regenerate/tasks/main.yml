@@ -68,12 +68,10 @@
   delegate_to: localhost
   become: false
 
-# The account id is not an install input at all: the client supplies only a
-# token (catena-admin > Settings). Resolve it fresh from the zone, on the
-# SAME Zone:DNS:Edit scope cf_api_token already needs (mirrors
-# roles/coturn/tasks/dns.yml's zone_id lookup), rather than trusting a value
-# threaded through inventory .env or read back off the on-box store -- both
-# of which are stale for a rotated token that has never touched either.
+# Resolved fresh every run, on the SAME Zone:DNS:Edit scope cf_api_token
+# already needs (mirrors roles/coturn/tasks/dns.yml's zone_id lookup): a
+# rotated cf_api_token may never have touched the on-box store, so that
+# value can be for a different account than the token in hand.
 - name: "CF regen: resolve Cloudflare account id from the zone"
   ansible.builtin.uri:
     url: "{{ cloudflare_api_base }}/zones?name={{ cloudflare_zone }}"
