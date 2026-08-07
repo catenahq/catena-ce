@@ -48,9 +48,9 @@ the inventory name and the operation.
 
 For an unattended run -- CI, a bench, an operator scripting many
 installs -- generate the inventory instead of hand-editing it, from a
-single answers file (`inventory:` / `host:` / `env:` / `vault:` blocks,
-same fields as `.env` plus the Tailscale credential; see `uv run
-ansible/seed.py --help`):
+single answers file (the inventory name, host details, the same fields
+as `.env`, plus the Tailscale credential; see `uv run ansible/seed.py
+--help`):
 
 ```
 ./catena install -i install.yaml --no-confirm
