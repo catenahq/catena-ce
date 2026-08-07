@@ -204,6 +204,51 @@ def test_emit_hosts_yml_does_not_overwrite_existing(seed, tmp_path):
     assert target.read_text() == "# hand-edited, e.g. a second host\n"
 
 
+# --- emit_hosts_yml_entry (the -i install.yaml generate path) ---------------
+def test_emit_hosts_yml_entry_creates_both_groups(seed, tmp_path):
+    target = tmp_path / "hosts.yml"
+    seed.emit_hosts_yml_entry(target, "prod1", {
+        "HOST_PUBLIC_IP": "203.0.113.10",
+        "HOST_INITIAL_USER": "debian",
+        "HOST_SSH_PORT": "22",
+        "OPS_USER": "ops",
+    })
+    data = yaml.safe_load(target.read_text())
+    vps = data["all"]["children"]["vps"]["hosts"]
+    boot = data["all"]["children"]["bootstrap"]["hosts"]
+    assert boot["prod1-bootstrap"]["ansible_host"] == "203.0.113.10"
+    assert boot["prod1-bootstrap"]["bootstrap_initial_user"] == "debian"
+    assert vps["prod1"]["ansible_host"] == "0.0.0.0"  # bootstrap.yml rewrites this
+    assert vps["prod1"]["ansible_user"] == "ops"
+    assert vps["prod1"]["public_ip"] == "203.0.113.10"
+
+
+def test_emit_hosts_yml_entry_merges_into_existing(seed, tmp_path):
+    """The bench adds a distinctly-named host per run/slot to the same
+    inventory -- an existing entry must survive, not just the new one."""
+    target = tmp_path / "hosts.yml"
+    target.write_text(yaml.safe_dump({
+        "all": {"children": {
+            "vps": {"hosts": {"old1": {"ansible_host": "100.9.9.9",
+                                       "ansible_user": "ops",
+                                       "ansible_port": 22}}},
+            "bootstrap": {"hosts": {}},
+        }}
+    }))
+    seed.emit_hosts_yml_entry(target, "prod1", {"HOST_PUBLIC_IP": "203.0.113.10"})
+    vps = yaml.safe_load(target.read_text())["all"]["children"]["vps"]["hosts"]
+    assert "old1" in vps and "prod1" in vps
+
+
+def test_emit_hosts_yml_entry_defaults_when_env_values_sparse(seed, tmp_path):
+    target = tmp_path / "hosts.yml"
+    seed.emit_hosts_yml_entry(target, "prod1", {})
+    data = yaml.safe_load(target.read_text())
+    boot = data["all"]["children"]["bootstrap"]["hosts"]["prod1-bootstrap"]
+    assert boot["bootstrap_initial_user"] == "root"
+    assert boot["ansible_port"] == "22"
+
+
 # --- write_secrets_out (transient adopt map, no persisted vault) ------------
 def test_write_secrets_out_0600_and_drops_blanks(seed, tmp_path):
     out = tmp_path / "s.yml"

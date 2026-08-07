@@ -584,6 +584,48 @@ def emit_hosts_yml(target: Path) -> None:
     shutil.copyfile(HOSTS_YML_SKEL, target)
 
 
+def emit_hosts_yml_entry(
+    target: Path, host_name: str, env_values: dict[str, str],
+) -> None:
+    """-i install.yaml path only: writes a LITERAL (non-templated) entry for
+    host_name, merging alongside any other hosts already in the file -- an
+    install.yaml-driven caller (the test bench) can add a second host to
+    the same inventory across separate seed.py runs. public_ip/initial_user/
+    ssh_port/ops_user come from the already-collected env_values (the same
+    HOST_PUBLIC_IP / HOST_INITIAL_USER / HOST_SSH_PORT / OPS_USER keys
+    hosts.yml.example reads via dotenv for the read-existing-inventory
+    path), so both paths agree on where these values live."""
+    if target.exists():
+        data = yaml.safe_load(target.read_text()) or {}
+    else:
+        data = {}
+    children = data.setdefault("all", {}).setdefault("children", {})
+    vps_hosts = children.setdefault("vps", {}).setdefault("hosts", {})
+    bootstrap_hosts = children.setdefault("bootstrap", {}).setdefault("hosts", {})
+    public_ip = env_values.get("HOST_PUBLIC_IP", "")
+    ssh_port = env_values.get("HOST_SSH_PORT") or "22"
+    # bootstrap_initial_user must be an inventory var (not only the Phase 0.5
+    # vars_prompt in bootstrap.yml): vars_prompt outranks it and silently
+    # takes its own default ("root") under --no-confirm's no TTY.
+    bootstrap_hosts[f"{host_name}-bootstrap"] = {
+        "ansible_host": public_ip,
+        "ansible_port": ssh_port,
+        "bootstrap_initial_user": env_values.get("HOST_INITIAL_USER") or "root",
+    }
+    vps_host_vars: dict = {
+        # Placeholder; bootstrap.yml's post_task rewrites it once the VPS
+        # joins the tailnet.
+        "ansible_host": "0.0.0.0",
+        "ansible_user": env_values.get("OPS_USER") or "ops",
+        "ansible_port": ssh_port,
+    }
+    if public_ip:
+        vps_host_vars["public_ip"] = public_ip
+    vps_hosts[host_name] = vps_host_vars
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(yaml.safe_dump(data, default_flow_style=False, sort_keys=False))
+
+
 # --- prereqs ----------------------------------------------------------------
 def ensure_ssh_key(privkey_path: str, pubkey_path: str) -> None:
     privkey = Path(os.path.expanduser(privkey_path))
@@ -765,6 +807,7 @@ def _write_inventory_files(
     inventory: str,
     env_template: str,
     env_values: dict[str, str],
+    host_name: str | None,
 ) -> None:
     env_target = inv_dir / ".env"
     banner(f"Writing inventory/{inventory}/ (non-secret files only)")
@@ -774,8 +817,13 @@ def _write_inventory_files(
     ok(f"wrote {inv_dir / 'localhost.yml'}")
     # No vault.yml: secrets never persist on the laptop (0b). Vendor creds go to
     # the transient --secrets-out file; everything else is minted on-box.
-    emit_hosts_yml(inv_dir / "hosts.yml")
-    ok(f"wrote {inv_dir / 'hosts.yml'}")
+    hosts_target = inv_dir / "hosts.yml"
+    if host_name is not None:
+        # -i install.yaml: a caller-chosen host name, merged into the file.
+        emit_hosts_yml_entry(hosts_target, host_name, env_values)
+    else:
+        emit_hosts_yml(hosts_target)
+    ok(f"wrote {hosts_target}")
 
 
 # --- main -------------------------------------------------------------------
@@ -854,12 +902,15 @@ def main(argv: list[str] | None = None) -> int:
         env_provided = read_existing_env(env_path)
     env_values = _collect_env_values(env_keys, env_provided)
 
-    # host.initial_password is the one host.* field left: the VPS provider's
-    # initial root password, a genuine secret that never belongs in .env.
-    # Everything else that used to live here (name, public IP, initial SSH
-    # user) is now HOST_PUBLIC_IP / HOST_INITIAL_USER in .env, read straight
-    # into hosts.yml by the dotenv lookup -- seed doesn't need to know them.
+    # host.initial_password is a genuine secret (the VPS provider's initial
+    # root password) that never belongs in .env. host.name only matters on
+    # the -i path: the hosts.yml entry seed writes for install.yaml-driven
+    # generation (the bench adds a distinctly-named host per run/slot to the
+    # same inventory). Public IP and initial SSH user are HOST_PUBLIC_IP /
+    # HOST_INITIAL_USER in .env either way, read straight into hosts.yml by
+    # the dotenv lookup on the read-existing-inventory path.
     host_data = inp.get("host", {})
+    host_name = (host_data.get("name") or f"{inventory}1") if args.input else None
 
     vault_provided = inp.get("vault", {})
     secret_values = _collect_install_secrets(vault_provided)
@@ -900,6 +951,7 @@ def main(argv: list[str] | None = None) -> int:
     _write_inventory_files(
         inv_dir=inv_dir, inventory=inventory,
         env_template=env_template, env_values=env_values,
+        host_name=host_name,
     )
 
     # Write the transient adopt map (never into the inventory).
