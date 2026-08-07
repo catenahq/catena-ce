@@ -15,7 +15,7 @@ these; they come from each provider's console:
 | Cloudflare API token | Cloudflare dashboard: `Account > Cloudflare Tunnel > Edit` plus `Zone > DNS > Edit` | The encrypted tunnel and its DNS records |
 | Tailscale OAuth client id + secret | Tailscale admin console, scope `Auth Keys: Write`, tag `tag:vps` | Joining the server to the private network |
 | S3 access key + secret key | The object-storage provider holding the backup bucket | The restic backup repository |
-| SMTP or mail-relay password | The mail provider | Outbound mail, only if it is enabled |
+| SMTP or mail-relay password | The mail provider | Admin emails, password resets, etc. |
 
 ## Install
 
