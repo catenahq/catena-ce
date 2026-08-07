@@ -369,12 +369,31 @@ def test_bootstrap_extra_vars_writes_secret_to_file_not_argv(cli, tmp_path):
         assert extra[1].startswith("@")
         assert "s3cr3t-provider-pw" not in " ".join(extra)
         data = yaml.safe_load(tmp.read_text())
-        # bootstrap_initial_user comes from the inventory's own .env, not
-        # install.yaml -- HOST_INITIAL_USER, not a host.initial_user field.
+        # install.yaml has no host_initial_user in this case, so
+        # bootstrap_initial_user falls back to the inventory's own .env.
         assert data["bootstrap_initial_user"] == "debian"
         assert data["bootstrap_root_password"] == "s3cr3t-provider-pw"
         # 0600 so the provider password is not world-readable on disk.
         assert (tmp.stat().st_mode & 0o777) == 0o600
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def test_bootstrap_extra_vars_install_yaml_initial_user_overrides_env(cli, tmp_path):
+    """`catena recover` reuses the OLD inventory's .env, whose
+    HOST_INITIAL_USER reflects the dead box, not necessarily the fresh
+    replacement -- install.yaml's host_initial_user (write_dr_install_yaml
+    in the bench) must win when given."""
+    inv_dir = tmp_path / "inv"
+    inv_dir.mkdir()
+    (inv_dir / ".env").write_text("HOST_INITIAL_USER=debian\n")  # the dead box
+    iy = tmp_path / "install.yaml"
+    iy.write_text("host_initial_user: root\n")  # the fresh replacement
+    extra, tmp = cli._bootstrap_extra_vars(inv_dir, str(iy))
+    try:
+        import yaml
+        data = yaml.safe_load(tmp.read_text())
+        assert data["bootstrap_initial_user"] == "root"
     finally:
         tmp.unlink(missing_ok=True)
 

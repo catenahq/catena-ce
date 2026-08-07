@@ -196,10 +196,14 @@ def _bootstrap_extra_vars(
     via a play-scoped vars_prompt, which outranks any inventory hostvar --
     with no TTY it silently takes its own default ("root"), never the real
     provider user. Extra-vars (-e) are the only thing that outranks
-    vars_prompt, so both are injected there when available:
-    bootstrap_initial_user from the inventory's own .env (HOST_INITIAL_USER;
-    on disk by now regardless of install.yaml -- seed.py already wrote or
-    confirmed it), bootstrap_root_password only from install.yaml (a secret,
+    vars_prompt, so both are injected there when available.
+    bootstrap_initial_user: install.yaml's host.initial_user when given --
+    `catena recover` reuses the OLD inventory's .env, whose HOST_INITIAL_USER
+    reflects the box that died, not necessarily the fresh replacement (a
+    different provider/image can mean a different login) -- else the
+    inventory's own .env (HOST_INITIAL_USER; on disk by now regardless of
+    install.yaml, since seed.py already wrote or confirmed it for a normal
+    install). bootstrap_root_password only from install.yaml (a secret,
     never in .env; blank is meaningful -- Phase 0.5 then skips key install,
     the host assumed already keyed, matching the vars_prompt default).
 
@@ -211,14 +215,16 @@ def _bootstrap_extra_vars(
     import seed  # shares ANSIBLE_DIR on sys.path
     import yaml
 
+    host = (seed.load_input(Path(input_path)).get("host") or {}) if input_path else {}
     overrides: dict[str, str] = {}
-    env_path = inv_dir / ".env"
-    if env_path.is_file():
-        initial_user = seed.read_existing_env(env_path).get("HOST_INITIAL_USER", "")
-        if initial_user:
-            overrides["bootstrap_initial_user"] = initial_user
+    initial_user = host.get("initial_user") or ""
+    if not initial_user:
+        env_path = inv_dir / ".env"
+        if env_path.is_file():
+            initial_user = seed.read_existing_env(env_path).get("HOST_INITIAL_USER", "")
+    if initial_user:
+        overrides["bootstrap_initial_user"] = initial_user
     if input_path:
-        host = (seed.load_input(Path(input_path)).get("host") or {})
         overrides["bootstrap_root_password"] = host.get("initial_password") or ""
     if not overrides:
         return [], None
