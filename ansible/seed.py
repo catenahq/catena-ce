@@ -735,13 +735,15 @@ def _collect_env_values(
     allow_empty_with_default = {"SMTP_FROM", "CLOUDFLARE_ACCOUNT_ID"}
     defaults = dict(env_keys)
     for key, default in env_keys:
-        if key == "HEADSCALE_USER":
-            continue  # resolved alongside TAILNET_CONTROL_URL below
-        if key == "TAILNET_CONTROL_URL":
-            env_values[key], env_values["HEADSCALE_USER"] = (
+        if key == "TAILSCALE_TAGS":
+            # Ask the control-server choice before any other tailnet field --
+            # it's the first thing in the Tailscale block, so it can filter
+            # out the Headscale-only fields that come later in the template.
+            env_values["TAILNET_CONTROL_URL"], env_values["HEADSCALE_USER"] = (
                 _collect_control_server(env_provided, defaults)
             )
-            continue
+        if key in ("TAILNET_CONTROL_URL", "HEADSCALE_USER"):
+            continue  # resolved above, ahead of TAILSCALE_TAGS
         allow_empty = (not default) or key in allow_empty_with_default
         env_values[key] = fill(
             env_provided, key, default, key,

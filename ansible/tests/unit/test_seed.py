@@ -412,4 +412,30 @@ def test_control_server_non_interactive_falls_back_to_defaults(seed, monkeypatch
     monkeypatch.setattr(seed.sys.stdin, "isatty", lambda: False)
     url, user = seed._collect_control_server({}, _CONTROL_DEFAULTS)
     assert (url, user) == ("", "")
+
+
+def test_control_server_choice_runs_before_tailscale_tags_prompt(seed, monkeypatch):
+    """The choice sits at the START of the Tailscale block (fired off
+    TAILSCALE_TAGS, the block's first key) so it can filter out the
+    Headscale-only fields that follow later in the template -- it must not
+    fire only once the loop reaches TAILNET_CONTROL_URL's own position."""
+    calls = []
+    real_fill = seed.fill
+
+    def spy_fill(provided, key, default, *a, **kw):
+        calls.append(("fill", key))
+        return real_fill(provided, key, default, *a, **kw)
+
+    def spy_control_server(env_provided, defaults):
+        calls.append(("control_server",))
+        return "", ""
+
+    monkeypatch.setattr(seed, "fill", spy_fill)
+    monkeypatch.setattr(seed, "_collect_control_server", spy_control_server)
+    env_keys, _ = seed.parse_env_template(seed.ENV_TEMPLATE)
+    # Every key pre-answered so fill() short-circuits on the provided value
+    # without needing a real stdin -- only the call order is under test.
+    provided = dict(env_keys)
+    seed._collect_env_values(env_keys, provided)
+    assert calls.index(("control_server",)) < calls.index(("fill", "TAILSCALE_TAGS"))
     assert hasattr(seed, "_resolve_admin_override")
