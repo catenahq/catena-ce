@@ -6,6 +6,7 @@ knobs), the CE-only service-secret minting, and the file-emit helpers."""
 from __future__ import annotations
 
 import importlib.util
+import io
 from pathlib import Path
 
 import pytest
@@ -368,4 +369,47 @@ def test_seed_mints_no_secrets(seed):
     # The only secret handling left: the transient adopt-file writer + the
     # optional admin-override passthrough.
     assert hasattr(seed, "write_secrets_out")
+
+
+# --- _collect_control_server -------------------------------------------------
+_CONTROL_DEFAULTS = {"TAILNET_CONTROL_URL": "", "HEADSCALE_USER": ""}
+
+
+def _fake_tty_stdin(monkeypatch, text):
+    """A StringIO that reports isatty()=True, installed as sys.stdin. The
+    isatty patch must land on the StringIO instance itself -- patching the
+    real stdin's isatty and then replacing sys.stdin discards the patch."""
+    fake = io.StringIO(text)
+    fake.isatty = lambda: True
+    monkeypatch.setattr("sys.stdin", fake)
+
+
+def test_control_server_tailscale_choice_skips_headscale_fields(seed, monkeypatch):
+    """Choosing tailscale (the default) answers both keys blank without
+    prompting for a Headscale URL/user that would go unused."""
+    _fake_tty_stdin(monkeypatch, "tailscale\n")
+    url, user = seed._collect_control_server({}, _CONTROL_DEFAULTS)
+    assert (url, user) == ("", "")
+
+
+def test_control_server_headscale_choice_prompts_both_fields(seed, monkeypatch):
+    _fake_tty_stdin(monkeypatch, "headscale\nhttps://hs.example.net\nalice\n")
+    url, user = seed._collect_control_server({}, _CONTROL_DEFAULTS)
+    assert (url, user) == ("https://hs.example.net", "alice")
+
+
+def test_control_server_install_yaml_answer_skips_the_choice_prompt(seed, monkeypatch):
+    """install.yaml already carrying either field means the choice was already
+    made -- no interactive prompt, even on a TTY."""
+    _fake_tty_stdin(monkeypatch, "SHOULD_NOT_BE_READ\n")
+    provided = {"TAILNET_CONTROL_URL": "https://hs2.example.net", "HEADSCALE_USER": "bob"}
+    url, user = seed._collect_control_server(provided, _CONTROL_DEFAULTS)
+    assert (url, user) == ("https://hs2.example.net", "bob")
+
+
+def test_control_server_non_interactive_falls_back_to_defaults(seed, monkeypatch):
+    """No TTY and nothing provided (CI / bench) must not hang on input()."""
+    monkeypatch.setattr(seed.sys.stdin, "isatty", lambda: False)
+    url, user = seed._collect_control_server({}, _CONTROL_DEFAULTS)
+    assert (url, user) == ("", "")
     assert hasattr(seed, "_resolve_admin_override")

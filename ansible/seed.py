@@ -689,6 +689,35 @@ def write_secrets_out(path: Path, secrets: dict[str, str]) -> None:
     os.chmod(str(path), 0o600)
 
 
+def _collect_control_server(
+    env_provided: dict, defaults: dict[str, str],
+) -> tuple[str, str]:
+    """TAILNET_CONTROL_URL + HEADSCALE_USER together pick Tailscale SaaS vs a
+    self-hosted Headscale server. install.yaml answering either, or a
+    non-interactive run, falls through to the plain per-key default;
+    interactive asks the choice once and only prompts the Headscale fields
+    when that's the answer, instead of two blank-default prompts every time."""
+    already_answered = (
+        _is_filled(env_provided.get("TAILNET_CONTROL_URL"))
+        or _is_filled(env_provided.get("HEADSCALE_USER"))
+    )
+    if already_answered or not sys.stdin.isatty():
+        url = fill(env_provided, "TAILNET_CONTROL_URL",
+                   defaults["TAILNET_CONTROL_URL"], allow_empty=True)
+        user = fill(env_provided, "HEADSCALE_USER",
+                    defaults["HEADSCALE_USER"], allow_empty=True)
+        return url, user
+    choice = prompt("Control server", default="tailscale",
+                     options=["tailscale", "headscale"])
+    if choice == "tailscale":
+        return "", ""
+    url = fill(env_provided, "TAILNET_CONTROL_URL", "",
+               "Headscale base URL (e.g. https://headscale.example.net)")
+    user = fill(env_provided, "HEADSCALE_USER", "",
+                "Headscale user (tag:vps must be in its ACL tagOwners)")
+    return url, user
+
+
 def _collect_env_values(
     env_keys: list[tuple[str, str]],
     env_provided: dict,
@@ -704,7 +733,15 @@ def _collect_env_values(
     # answer (deploy without mail); CLOUDFLARE_ACCOUNT_ID is resolved on-box, so
     # a blank at seed time is fine even if the template carries a default.
     allow_empty_with_default = {"SMTP_FROM", "CLOUDFLARE_ACCOUNT_ID"}
+    defaults = dict(env_keys)
     for key, default in env_keys:
+        if key == "HEADSCALE_USER":
+            continue  # resolved alongside TAILNET_CONTROL_URL below
+        if key == "TAILNET_CONTROL_URL":
+            env_values[key], env_values["HEADSCALE_USER"] = (
+                _collect_control_server(env_provided, defaults)
+            )
+            continue
         allow_empty = (not default) or key in allow_empty_with_default
         env_values[key] = fill(
             env_provided, key, default, key,
