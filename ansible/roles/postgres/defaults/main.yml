@@ -1,0 +1,52 @@
+---
+# roles/postgres -- catena-owned Postgres for infra databases (Keycloak today).
+#
+# Project convention is "one Postgres per VPS, multiple DBs inside" -- per-app
+# DBs (Nextcloud, etc.) keep their own containers; this hosts the infra DBs.
+# Portainer stores its own state in BoltDB, so nothing else on the host
+# provides a shared Postgres.
+
+catena_postgres_service_name: catena-postgres
+
+# The image major is pinned in the host engine's catalog, not here. Per-app
+# template DBs track the central postgres_default_image in catena-templates
+# (catalog.yml), also 18.x; this infra Postgres (Keycloak's DB) is pinned
+# independently since it follows Keycloak's support matrix -- which is why the
+# engine names it rather than deriving it from the template catalog.
+
+# Superuser. roles/keycloak/tasks/provision_db.yml detects the live superuser
+# from the container env, so it follows this automatically.
+catena_postgres_superuser: postgres
+
+# Swarm secret carrying the superuser password (kept out of `docker service
+# inspect`). Immutable -- rotation is a create-new + service-update flow,
+# deferred (BACKLOG_TECHNICAL.md).
+catena_postgres_secret_name: catena_postgres_password
+
+# The tier-1 SPEC for catena-postgres is not assembled here any more -- not the
+# image, the mounts, the env, the hardening or the placement constraint. It
+# lives in the host engine, catena-admin payload/engines/tier1/catalog.go, and
+# roles/postgres reads it with `catena-tier1 spec catena-postgres`.
+#
+# The comment this replaces said these scalars would go when traefik, portainer
+# and coturn followed, so the four roles lost their duplicate values in one
+# sweep rather than one orphan at a time. They have, so they do.
+#
+# The image pin moved with them, and Renovate + Trivy follow it there. Keeping
+# it here would have been worse than either end state: Renovate bumps the pin,
+# Trivy scans the pin, the PR goes green, and the host runs whatever the engine
+# says -- unbumped and unscanned.
+#
+# What stays below is what only this repo knows: the superuser name (roles/
+# keycloak detects it from the live container), the secret this role mints, and
+# the data volume the backup set names.
+
+# Named volume for the data dir, backed up as a RAW volume by the default
+# restic set. That is correct because the password does not move: it comes
+# from the on-box store (staged into the swarm secret below) and /etc is in
+# the same backup set, and Postgres skips initdb on a restored (non-empty)
+# volume -- so the restored pg_authid hash matches the restored password.
+# A DB whose password were REGENERATED on a fresh box would skew and need a
+# logical replay instead. (Backup consistency across the cold-docker restore
+# is exercised by the restore_dr / hot_restore bench.)
+catena_postgres_data_volume: catena-postgres-data

@@ -1,0 +1,24 @@
+[Unit]
+Description=catena repo bit-rot probe (restic check --read-data-subset)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Same restic cache contract as catena-backup.service: without HOME or
+# XDG_CACHE_HOME restic re-downloads the repo index on every run, which for a
+# probe that already pulls 5% of the packs would double the egress it costs.
+Environment=HOME=/var/lib/catena/restic-home
+Environment=XDG_CACHE_HOME=/var/lib/catena/restic-cache
+EnvironmentFile={{ backup_env_file }}
+ExecStartPre=/bin/mkdir -p /var/lib/catena/restic-home /var/lib/catena/restic-cache
+# The same /run/catena.lock the backup, auto-update and stack-update lanes
+# take. A deep read that overlapped a backup would contend on the repo and on
+# the disk the backup is staging dumps to. -w 3600: wait an hour for a holder,
+# then fail loudly rather than run concurrently.
+ExecStart=/usr/bin/flock -w 3600 /run/catena.lock {{ backup_restic_check_script }} --subset
+# Bounded well above the backup's own check: this one reads pack data over the
+# network and its duration scales with repo size.
+TimeoutStartSec=6h
+Nice=15
+IOSchedulingClass=idle

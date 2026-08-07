@@ -11,14 +11,21 @@
 # 30x covers every gated reverse-proxy instance redirecting to
 # Keycloak.
 #
-# Why end-of-role: per-service probes inside each dokploy_compose include
+# Why end-of-role: per-service probes inside each portainer_stack include
 # can race the SSO stack's own readiness. Deferring to one aggregate
 # pass at end of role gives the auth layer the full wall-clock of the
 # other infra deploys to settle.
 
-- name: "Verify gated services: probe public URLs (single-shot)"
-  # Single shot, no retries. If services aren't ready at this point it's
-  # a config failure, not a race.
+- name: "Verify gated services: probe public URLs (retry through transient blips)"
+  # Retry each service so a TRANSIENT failure to reach the public URL from
+  # the probe vantage -- a Cloudflare edge flap, a momentary DNS/route
+  # blip, the SSO stack taking a few more seconds to serve -- does not fail
+  # the whole converge. A genuinely misconfigured gate never starts
+  # returning 200/30x, so it still fails after the window (only slower);
+  # the aggregate report below is unchanged. Bounded: retries*delay caps
+  # the added wall-clock, and a service that comes good stops retrying
+  # immediately. `until` references the CURRENT item's result inside the
+  # loop; status=-1 is a connect-level failure (unreachable/timeout).
   ansible.builtin.uri:
     url: "{{ item.url }}"
     method: GET
@@ -30,11 +37,15 @@
     - { name: "gatus", url: "https://{{ infrastructure_monitor_hostname }}/" }
     - { name: "healthchecks", url: "https://{{ healthchecks_hostname }}/" }
     - { name: "recovery", url: "https://{{ infrastructure_recovery_hostname }}/" }
+    - { name: "portainer", url: "https://{{ portainer_admin_hostname }}/" }
   loop_control:
     label: "{{ item.name }} -> {{ item.url }}"
   delegate_to: localhost
   become: false
   ignore_errors: true
+  retries: "{{ infrastructure_gated_probe_retries | default(12) }}"
+  delay: "{{ infrastructure_gated_probe_delay | default(10) }}"
+  until: (_infra_gated_probes.status | default(-1)) in [200, 301, 302, 307]
 
 - name: "Verify gated services: compute failure set"
   ansible.builtin.set_fact:
@@ -49,18 +60,20 @@
 
 - name: "Verify gated services: all OK"
   ansible.builtin.debug:
-    msg: "All 3 gated services returned 200/30x (auth redirect or direct serve) -- OK."
+    msg: >-
+      All {{ _infra_gated_probes.results | default([]) | length }} gated
+      services returned 200/30x (auth redirect or direct serve) -- OK.
   when: _infra_gated_failures | length == 0
 
 - name: "Verify gated services: fail with aggregated report"
   ansible.builtin.fail:
     msg: |
-      {{ _infra_gated_failures | length }}/3 gated services failed the
+      {{ _infra_gated_failures | length }}/{{ _infra_gated_probes.results | default([]) | length }} gated services failed the
       public-URL probe: {{ _infra_gated_failures | join(', ') }}.
 
       Diagnostic next steps:
         - Inspect Traefik dynamic-config dir for the per-app reverse-proxy route:
-            ls /etc/dokploy/traefik/dynamic/*-oauth2-proxy.yml
+            ls /etc/catena/traefik/dynamic/*-oauth2-proxy.yml
         - Check the per-app oauth2-proxy container logs:
             docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep oauth2-proxy
             docker logs <oauth2-proxy-<slug>> --tail 200
@@ -69,3 +82,45 @@
         - Re-run the probe manually:
             curl -I https://{{ infrastructure_monitor_hostname }}/
   when: _infra_gated_failures | length > 0
+
+# ── dynamic client-app auth-gate probe (intent-driven, 1ad) ───────────────
+# The static list above only covers the fixed infra hostnames. Client-app
+# gating is verified by verify_gated_intent.py ON THE HOST: it derives the
+# expected route set from the SAME Portainer stack labels the route writer
+# (dashboard-sync / gate_routes) consumes, so an app whose *-auto-gate.yml
+# was removed or renamed still gets asserted (the old file-enumeration
+# probe went green on exactly that regression). Per routed app it asserts
+# the route file exists, every GATED host denies an anonymous request
+# (200 = bypass), unreachable hosts FAIL CLOSED (matching the static
+# probe), and stale route files are flagged. Probes fan out concurrently
+# inside the script, so wall-clock is ~one timeout, not 10s per host.
+- name: "Verify gated client apps: intent-driven verifier"
+  # Sources the dashboard-sync env file (PORTAINER_API_*, TRAEFIK_DYNAMIC_
+  # DIR, INFRA_COMPOSE_NAMES, AUTH_HOSTNAME) the writer itself runs with.
+  ansible.builtin.shell: >-
+    set -a &&
+    . {{ dashboard_sync_env_path }} &&
+    set +a &&
+    exec /usr/bin/python3
+    {{ dashboard_sync_script_path | dirname }}/verify_gated_intent.py
+  register: _client_gate_verify
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: "Verify gated client apps: fail on findings"
+  ansible.builtin.fail:
+    msg: |
+      Intent-driven auth-gate verification failed (rc={{ _client_gate_verify.rc }}):
+      {{ _client_gate_verify.stdout | default('') }}
+      {{ _client_gate_verify.stderr | default('') }}
+  when: _client_gate_verify.rc != 0
+
+- name: "Verify gated client apps: all clear"
+  ansible.builtin.debug:
+    msg: >-
+      Intent-driven auth-gate verification clean:
+      {{ (_client_gate_verify.stdout | from_json).report.healthy | length }}
+      gated host(s) deny anonymous access;
+      {{ (_client_gate_verify.stdout | from_json).report.public | length }}
+      public host(s) exempt by label.

@@ -1,8 +1,8 @@
 """Unit tests for the Community installer's seed.py.
 
-Covers the Community decomposition: single-recipient SOPS, the trimmed
-VAULT_SKIP_KEYS / ENV_OPTIONS (no managed-lifecycle knobs), the
-CE-only service-secret minting, and the file-emit helpers."""
+Covers the Community decomposition: the plaintext (post-SOPS, 0b) vault
+emit, the trimmed VAULT_SKIP_KEYS / ENV_OPTIONS (no managed-lifecycle
+knobs), the CE-only service-secret minting, and the file-emit helpers."""
 from __future__ import annotations
 
 import importlib.util
@@ -32,14 +32,14 @@ def test_load_input_flat_layout(seed, tmp_path):
         "host_name: prod1\n"
         "host_public_ip: 203.0.113.10\n"
         "CLOUDFLARE_ZONE: example.com\n"
-        "vault_cloudflare_api_token: tok123\n"
+        "cloudflare_api_token: tok123\n"
     )
     got = seed.load_input(src)
     assert got["inventory"] == "prod"
     assert got["host"]["name"] == "prod1"
     assert got["host"]["public_ip"] == "203.0.113.10"
     assert got["env"]["CLOUDFLARE_ZONE"] == "example.com"
-    assert got["vault"]["vault_cloudflare_api_token"] == "tok123"
+    assert got["vault"]["cloudflare_api_token"] == "tok123"
 
 
 def test_load_input_nested_layout(seed, tmp_path):
@@ -51,12 +51,12 @@ def test_load_input_nested_layout(seed, tmp_path):
         "env:\n"
         "  CLOUDFLARE_ZONE: example.com\n"
         "vault:\n"
-        "  vault_cloudflare_api_token: tok123\n"
+        "  cloudflare_api_token: tok123\n"
     )
     got = seed.load_input(src)
     assert got["host"] == {"name": "prod1"}
     assert got["env"]["CLOUDFLARE_ZONE"] == "example.com"
-    assert got["vault"]["vault_cloudflare_api_token"] == "tok123"
+    assert got["vault"]["cloudflare_api_token"] == "tok123"
 
 
 def test_load_input_none_returns_empty(seed):
@@ -70,12 +70,12 @@ def test_load_input_drops_legacy_vault_password(seed, tmp_path):
     src.write_text(
         "inventory: prod\n"
         "vault_password: legacy\n"
-        "vault_cloudflare_api_token: tok123\n"
+        "cloudflare_api_token: tok123\n"
     )
     got = seed.load_input(src)
     assert "vault_password" not in got
     assert "vault_password" not in got["vault"]
-    assert got["vault"]["vault_cloudflare_api_token"] == "tok123"
+    assert got["vault"]["cloudflare_api_token"] == "tok123"
 
 
 def test_load_input_missing_path_dies(seed, tmp_path):
@@ -89,39 +89,33 @@ def test_no_client_age_pubkey_field(seed):
     assert "client_age_pubkey" not in seed.load_input(None)
 
 
-# --- VAULT_SKIP_KEYS (Community trim) ---------------------------------------
-def test_vault_admin_password_is_skip_key(seed):
-    assert "vault_admin_password" in seed.VAULT_SKIP_KEYS
+# --- INSTALL_EXTERNAL_KEYS (the only secrets prompted at install) -----------
+def test_install_external_keys_are_the_tailscale_creds_only(seed):
+    """0b no-laptop-vault + CF-token-Settings-only: seed prompts only for the
+    Tailscale OAuth creds (needed to join the tailnet) and writes them to the
+    transient --secrets-out file. The Cloudflare API token is NOT here -- it is
+    entered in catena-admin > Settings. Everything else is minted on-box."""
+    assert seed.INSTALL_EXTERNAL_KEYS == (
+        "tailscale_oauth_client_id",
+        "tailscale_oauth_client_secret",
+    )
 
 
-def test_ce_service_keys_are_skip_keys(seed):
-    for key in (
-        "vault_keycloak_db_password",
-        "vault_oauth2_proxy_cookie_secret",
-        "vault_dashboard_sync_client_secret",
-        "vault_healthchecks_secret_key",
-        "vault_beszel_admin_password",
-        "vault_mailserver_relay_password",
-    ):
-        assert key in seed.VAULT_SKIP_KEYS
+def test_cloudflare_token_is_not_an_install_input(seed):
+    """The CF token is never prompted / required at install (Settings-only), and
+    the seed-time auto-fetch machinery that needed it is gone."""
+    assert "cloudflare_api_token" not in seed.INSTALL_EXTERNAL_KEYS
+    for gone in ("fetch_cloudflare_account_id", "_resolve_cloudflare_account",
+                 "_install_secret_keys"):
+        assert not hasattr(seed, gone), f"{gone} should be removed"
 
 
-def test_ee_and_operator_keys_dropped_from_skip_set(seed):
-    """Operator-only (Semaphore), the operator's billing portal, bench-only
-    pen-test, and the cold/WORM mirror secrets are not Community and must be
-    gone from the skip set so seed never pre-populates dead keys."""
-    for legacy in (
-        "vault_semaphore_db_password",
-        "vault_semaphore_admin_password",
-        "vault_portal_db_password",
-        "vault_portal_stripe_secret_key",
-        "vault_portal_stripe_webhook_secret",
-        "vault_zap_api_key",
-        "vault_backup_worm_access_key",
-        "vault_backup_worm_secret_key",
-        "vault_nextcloud_worm_access_key",
-    ):
-        assert legacy not in seed.VAULT_SKIP_KEYS
+def test_vault_template_machinery_is_gone(seed):
+    """No persisted laptop vault: the vault template + skip-set + emit are
+    removed."""
+    for gone in ("VAULT_SKIP_KEYS", "VAULT_TEMPLATE", "parse_vault_template",
+                 "emit_vault", "_collect_vault_values"):
+        assert not hasattr(seed, gone), f"{gone} should be removed"
 
 
 # --- ENV_OPTIONS (no managed-lifecycle knobs) -------------------------------
@@ -141,9 +135,11 @@ def test_env_options_drop_managed_lifecycle_knobs(seed):
         assert key not in seed.ENV_OPTIONS
 
 
-def test_admin_password_constants(seed):
+def test_admin_password_min_len_only(seed):
+    """Only the override floor remains; there is no auto-mint length (the admin
+    password is minted on-box, not by seed)."""
     assert seed.ADMIN_PASSWORD_MIN_LEN >= 16
-    assert seed.ADMIN_PASSWORD_AUTO_LEN >= seed.ADMIN_PASSWORD_MIN_LEN
+    assert not hasattr(seed, "ADMIN_PASSWORD_AUTO_LEN")
 
 
 # --- emit_env ---------------------------------------------------------------
@@ -203,24 +199,70 @@ def test_emit_hosts_yml_merges_into_existing(seed, tmp_path):
     assert "old1" in vps and "prod1" in vps
 
 
-# --- emit_self_sops_yaml (single recipient) ---------------------------------
-def test_emit_self_sops_yaml_single_recipient(seed, tmp_path):
-    inv_dir = tmp_path / "inventory" / "prod"
-    inv_dir.mkdir(parents=True)
-    pub = "age1self000000000000000000000000000000000000000000000000000"
-    seed.emit_self_sops_yaml(inv_dir, pub)
-    written = yaml.safe_load((inv_dir / ".sops.yaml").read_text())
-    rules = written["creation_rules"]
-    assert len(rules) == 1
-    assert "vault\\.sops" in rules[0]["path_regex"]
-    assert rules[0]["key_groups"][0]["age"] == [pub]
+# --- write_secrets_out (transient adopt map, no persisted vault) ------------
+def test_write_secrets_out_0600_and_drops_blanks(seed, tmp_path):
+    out = tmp_path / "s.yml"
+    seed.write_secrets_out(out, {
+        "cloudflare_api_token": "cf",
+        "tailscale_oauth_client_id": "",   # blank dropped
+        "admin_password": "REPLACE",       # placeholder dropped
+    })
+    assert yaml.safe_load(out.read_text()) == {"cloudflare_api_token": "cf"}
+    assert (out.stat().st_mode & 0o777) == 0o600
 
 
-def test_emit_self_sops_yaml_dies_without_pubkey(seed, tmp_path):
-    inv_dir = tmp_path / "inventory" / "broken"
-    inv_dir.mkdir(parents=True)
+def test_write_secrets_out_empty_writes_empty_map(seed, tmp_path):
+    out = tmp_path / "s.yml"
+    seed.write_secrets_out(out, {})
+    # An empty (but present) 0600 file: `-e @file` loads {} -- harmless.
+    assert (yaml.safe_load(out.read_text()) or {}) == {}
+    assert (out.stat().st_mode & 0o777) == 0o600
+
+
+# --- admin-password override (optional install.yaml pin) --------------------
+def test_admin_override_too_short_dies(seed):
     with pytest.raises(SystemExit):
-        seed.emit_self_sops_yaml(inv_dir, "")
+        seed._resolve_admin_override({}, {"admin_password": "short"})
+
+
+def test_admin_override_accepts_long(seed):
+    values: dict = {}
+    seed._resolve_admin_override(values, {"admin_password": "x" * 20})
+    assert values["admin_password"] == "x" * 20
+
+
+def test_admin_override_noop_when_absent(seed):
+    values: dict = {}
+    seed._resolve_admin_override(values, {})
+    assert values == {}
+
+
+def test_absorb_provided_secrets_passes_through_full_keyset(seed):
+    """A fully-specified install.yaml (bench / power user) supplies S3 + restic
+    etc.; absorb copies every non-blank vault_* except admin (handled
+    separately) into the adopt map."""
+    values = {"cloudflare_api_token": "cf"}  # already collected
+    seed._absorb_provided_secrets(values, {
+        "backup_s3_access_key": "ak",
+        "backup_s3_secret_key": "sk",
+        "backup_restic_password": "rp",
+        "admin_password": "should-be-ignored-here",
+        "smtp_password": "",          # blank dropped
+        "nextcloud_s3_access_key": "REPLACE",  # placeholder dropped
+        "not_a_vault_key": "x",             # ignored
+    })
+    assert values["backup_s3_access_key"] == "ak"
+    assert values["backup_restic_password"] == "rp"
+    assert "admin_password" not in values
+    assert "smtp_password" not in values
+    assert "nextcloud_s3_access_key" not in values
+    assert "not_a_vault_key" not in values
+
+
+def test_seed_has_no_sops_age_helpers(seed):
+    """0b dropped SOPS+age: the self-recipient / age-key machinery is gone."""
+    for gone in ("emit_self_sops_yaml", "_resolve_self_age_key"):
+        assert not hasattr(seed, gone), f"{gone} should be removed"
 
 
 # --- validate_install_structural --------------------------------------------
@@ -228,26 +270,19 @@ def _good_inp():
     return {
         "inventory": "prod",
         "host": {"name": "prod1", "public_ip": "203.0.113.10", "initial_user": "root"},
-        "env": {"BACKUP_RESTIC_REPO": "s3:s3.example.net/mybucket-restic"},
+        # Backup repo is configured post-install in catena-admin, so a blank
+        # env is a valid install.
+        "env": {},
         "vault": {
-            "vault_tailscale_oauth_client_id": "x",
-            "vault_tailscale_oauth_client_secret": "y",
-            "vault_cloudflare_api_token": "z",
-            "vault_backup_s3_access_key": "a",
-            "vault_backup_s3_secret_key": "b",
+            "tailscale_oauth_client_id": "x",
+            "tailscale_oauth_client_secret": "y",
         },
     }
 
 
-_ENV_KEYS = [("BACKUP_RESTIC_REPO", "s3:s3.example-region.example.net/<client>-restic")]
-_VAULT_KEYS = [
-    "vault_tailscale_oauth_client_id",
-    "vault_tailscale_oauth_client_secret",
-    "vault_cloudflare_api_token",
-    "vault_backup_s3_access_key",
-    "vault_backup_s3_secret_key",
-    "vault_dokploy_api_key",  # skip key -- not required
-]
+_ENV_KEYS = [("BACKUP_RESTIC_REPO", "")]  # optional now (default blank)
+_VAULT_KEYS = list(("tailscale_oauth_client_id",
+                    "tailscale_oauth_client_secret"))
 
 
 def test_validate_structural_clean(seed):
@@ -256,57 +291,81 @@ def test_validate_structural_clean(seed):
 
 def test_validate_structural_missing_required_vault(seed):
     inp = _good_inp()
-    del inp["vault"]["vault_cloudflare_api_token"]
+    del inp["vault"]["tailscale_oauth_client_id"]
     assert seed.validate_install_structural(inp, _ENV_KEYS, _VAULT_KEYS) >= 1
 
 
-def test_validate_structural_blank_restic_repo(seed):
+def test_validate_structural_blank_restic_repo_is_ok(seed):
+    """Backup creds are deferred to catena-admin: a blank repo at seed time is
+    NOT a problem."""
     inp = _good_inp()
     inp["env"]["BACKUP_RESTIC_REPO"] = ""
-    assert seed.validate_install_structural(inp, _ENV_KEYS, _VAULT_KEYS) >= 1
+    assert seed.validate_install_structural(inp, _ENV_KEYS, _VAULT_KEYS) == 0
 
 
 def test_validate_structural_rejects_client_placeholder(seed):
+    """A MALFORMED repo (unreplaced <client> sentinel) still fails, even though
+    a blank one is allowed."""
     inp = _good_inp()
     inp["env"]["BACKUP_RESTIC_REPO"] = "s3:s3.example.net/<client>-restic"
     assert seed.validate_install_structural(inp, _ENV_KEYS, _VAULT_KEYS) >= 1
 
 
-# --- _resolve_service_secrets (CE-only minting) -----------------------------
-def test_service_secrets_mints_ce_groups(seed):
-    v: dict[str, str] = {}
-    seed._resolve_service_secrets(v, existing_vault=False)
-    for key in (
-        "vault_keycloak_db_password",
-        "vault_oauth2_proxy_cookie_secret",
-        "vault_dashboard_sync_client_secret",
-        "vault_healthchecks_secret_key",
-        "vault_dokploy_postgres_password",
-        "vault_turn_static_auth_secret",
-        "vault_beszel_admin_password",
-    ):
-        assert v.get(key), f"{key} should be minted"
+# --- Cloudflare zone / account id -------------------------------------------
+def test_validate_structural_requires_cf_zone(seed):
+    """A blank zone is a problem on every host. It used to be legitimate under
+    ACCESS_MODE=tailnet, which is gone: hostnames derive from the zone and
+    every host now serves them."""
+    inp = _good_inp()
+    inp["env"] = {"CLOUDFLARE_ZONE": ""}
+    env_keys = [("CLOUDFLARE_ZONE", "example.com")]
+    assert seed.validate_install_structural(inp, env_keys, _VAULT_KEYS) >= 1
 
 
-def test_service_secrets_omits_operator_and_ee_groups(seed):
-    v: dict[str, str] = {}
-    seed._resolve_service_secrets(v, existing_vault=False)
-    for key in (
-        "vault_semaphore_db_password",
-        "vault_portal_db_password",
-        "vault_zap_api_key",
-    ):
-        assert key not in v, f"{key} must not be minted in Community"
+def test_validate_structural_allows_blank_account_id(seed):
+    """CLOUDFLARE_ACCOUNT_ID is resolved on-box from the token, so a blank at
+    seed time is fine (the zone is still required)."""
+    inp = _good_inp()
+    inp["env"] = {"CLOUDFLARE_ZONE": "example.com",
+                  "CLOUDFLARE_ACCOUNT_ID": ""}
+    env_keys = [("CLOUDFLARE_ZONE", "example.com"),
+                ("CLOUDFLARE_ACCOUNT_ID", "REPLACE")]
+    assert seed.validate_install_structural(inp, env_keys, _VAULT_KEYS) == 0
 
 
-def test_service_secrets_skips_existing_vault(seed):
-    v: dict[str, str] = {}
-    seed._resolve_service_secrets(v, existing_vault=True)
-    assert v == {}
+def test_access_mode_is_gone(seed):
+    """The mode did not serve apps over the tailnet, it skipped the monitoring
+    plane and the SSO edge entirely. Deleted 2026-07-29; a reintroduced helper
+    or env option means the second install shape came back."""
+    assert not hasattr(seed, "_access_mode")
+    assert "ACCESS_MODE" not in seed.ENV_OPTIONS
 
 
-def test_oauth2_cookie_secret_decodes_to_32_bytes(seed):
-    import base64
-    secret = seed._mint_oauth2_proxy_cookie_secret()
-    decoded = base64.urlsafe_b64decode(secret + "=" * (-len(secret) % 4))
-    assert len(decoded) == 32
+def test_collect_install_secrets_never_collects_cf_token(seed):
+    """Even when a fully-specified install.yaml carries the CF token, the
+    install-secret prompt loop only iterates the Tailscale creds -- the CF token
+    is Settings-only, never collected here."""
+    got = seed._collect_install_secrets({
+        "tailscale_oauth_client_id": "x",
+        "tailscale_oauth_client_secret": "y",
+        "cloudflare_api_token": "cf-should-not-be-collected",
+    })
+    assert got == {"tailscale_oauth_client_id": "x",
+                   "tailscale_oauth_client_secret": "y"}
+    assert "cloudflare_api_token" not in got
+
+
+# --- true on-box minting: seed mints NOTHING --------------------------------
+def test_seed_mints_no_secrets(seed):
+    """0b no-laptop-vault: seed mints nothing. Internal service secrets AND the
+    user-held admin/restic DR keyset are all minted ON-BOX
+    (helpers/onbox_config.py)."""
+    for gone in ("_resolve_service_secrets", "_mint_strong_password",
+                 "_resolve_restic_password", "_resolve_admin_password",
+                 "_print_secret_block", "_mint_oauth2_proxy_cookie_secret",
+                 "_mint_hc_api_key", "_mint_url_safe"):
+        assert not hasattr(seed, gone), f"{gone} should be removed"
+    # The only secret handling left: the transient adopt-file writer + the
+    # optional admin-override passthrough.
+    assert hasattr(seed, "write_secrets_out")
+    assert hasattr(seed, "_resolve_admin_override")

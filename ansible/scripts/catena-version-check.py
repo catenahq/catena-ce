@@ -106,8 +106,9 @@ def _docker(*args: str) -> str:
 # Swarm task containers are named "<service>.<slot>.<id>"; their image is
 # already covered by the `docker service ls` row, so skip them in `ps`.
 _SWARM_TASK_RE = re.compile(r"^.+\.\d+\.[a-z0-9]+$")
-# Dokploy app containers: "<app>-<6hex>-app-<n>" -> stable base "<app>".
-_DOKPLOY_SUFFIX_RE = re.compile(r"-[a-z0-9]{6}-app-\d+$")
+# Portainer app containers: "<stack>-app-<n>" -> stable base "<stack>"
+# (no per-instance hash, unlike the previous control plane).
+_PORTAINER_SUFFIX_RE = re.compile(r"-app-\d+$")
 
 
 def discover_running_services() -> list[dict]:
@@ -116,7 +117,7 @@ def discover_running_services() -> list[dict]:
     reference (replicas collapse to one row)."""
     found: dict[str, dict] = {}
 
-    # Swarm services first (authoritative for replicated infra like dokploy).
+    # Swarm services first (authoritative for replicated infra like catena-portainer).
     for line in _docker("service", "ls", "--format", "{{.Name}}|{{.Image}}").splitlines():
         name, _, image = line.partition("|")
         image = image.strip()
@@ -136,7 +137,7 @@ def discover_running_services() -> list[dict]:
         label = parts[2].strip() if len(parts) > 2 else ""
         if not image or _SWARM_TASK_RE.match(name):
             continue
-        base = _DOKPLOY_SUFFIX_RE.sub("", name)
+        base = _PORTAINER_SUFFIX_RE.sub("", name)
         row = found.setdefault(image, {"name": base, "image": image,
                                        "display_override": ""})
         if label and label != "<no value>" and not row["display_override"]:

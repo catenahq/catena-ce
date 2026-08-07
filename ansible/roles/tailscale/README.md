@@ -8,10 +8,10 @@ edits) and join the operator's tailnet.
 ## Auth flow
 
 This role NEVER uses pre-auth keys. Every join mints a fresh,
-ephemeral, single-use auth key via the OAuth client kept in the
-inventory vault. Lifetime: 10 minutes; consumed by `tailscale up`
-on the host. The OAuth client itself stays in vault; if it leaks,
-rotation is the runbook (no auth keys to revoke retroactively).
+ephemeral, single-use auth key via the OAuth client held in the
+on-box config store. Lifetime: 10 minutes; consumed by `tailscale up`
+on the host. The OAuth client itself never leaves the box; if it
+leaks, rotation is the runbook (no auth keys to revoke retroactively).
 
 The OAuth client must have `Auth Keys: Write` + `Devices Core: Write`
 scopes (validated by `playbooks/preflight.yml`). If a join fails
@@ -20,8 +20,8 @@ inline rather than carrying on with a broken client.
 
 ## Inputs
 
-- `vault_tailscale_oauth_client_id` /
-  `vault_tailscale_oauth_client_secret`
+- `tailscale_oauth_client_id` /
+  `tailscale_oauth_client_secret`
 - `tailscale_tags` -- applied to the device at join time
   (`tag:catena-vps`, `tag:client-<id>`).
 - `tailscale_advertise_tags` -- used for ACL routing.

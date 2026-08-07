@@ -11,7 +11,7 @@ rather than firing on every converge.
 
 ## Inputs
 
-- `vault_cloudflare_api_token` -- token with `Cloudflare Tunnel:Edit`.
+- `cloudflare_api_token` -- token with `Cloudflare Tunnel:Edit`.
 - `cloudflare_account_id` / `cloudflare_zone_id` -- host inventory.
 - `cloudflare_tunnel_name` -- defaults to the Ansible inventory_hostname.
 

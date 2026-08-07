@@ -1,40 +1,43 @@
 ---
-# Dispatcher -- backup_mode picks which subfile to run. These are all
-# restore/backup MECHANISMS (fair-code); the Business edition adds the
-# scheduling (timer -- dropped here) and the multi-app post-restore
-# ORCHESTRATION (post_restore_redeploy.yml, which lives in the private
-# repo and drives the mechanisms below in dependency order).
+# Dispatcher -- backup_mode picks which subfile to run.
 #   install   (default, site.yml path) -- install binaries, unit files,
 #             the manual oneshot service, and the initial snapshot
 #   verify    (verify-backup.yml)      -- dry-restore + assert
 #   restore   (restore.yml playbook)   -- filesystem restore from restic
-#   pg_replay (pg_replay.yml) -- replay pg_dumpall into running postgres
-#             containers. dokploy-postgres is EXCLUDED from the raw restic
-#             set, so scope=dokploy is the ONLY restore path for the
-#             Dokploy control DB -- the dokploy role calls it directly
-#             (scope=dokploy) on a post-restore converge. scope=clients
-#             is driven by the Business post-restore orchestration.
-#   s3_reconcile (s3_reconcile.yml) -- post-restore DB<->S3 reference
-#             reconcile; driven by the Business post-restore orchestration.
+#
+# What used to be modes 4 and 5 (pg_replay + s3_reconcile) is now the
+# catena-recovery host binary, invoked from site.yml's post_tasks on the
+# post-restore marker. They were only ever reachable through a restore, they
+# needed a controller to drive them, and each had a second implementation
+# elsewhere; the binary is one implementation the panel and the converge share.
+# Its scope flag keeps the operator escape hatch for a corrupt infra database:
+#   catena-recovery post-restore -scope infra -force
 
 - name: Assert backup_mode is valid
   ansible.builtin.assert:
     that:
-      - backup_mode in ['install', 'verify', 'restore', 'pg_replay', 's3_reconcile']
-    fail_msg: "backup_mode must be install | verify | restore | pg_replay | s3_reconcile (got: {{ backup_mode }})"
+      - backup_mode in ['install', 'verify', 'restore']
+    fail_msg: "backup_mode must be install | verify | restore (got: {{ backup_mode }})"
 
-- name: Assert restic credentials are in vault
+# Restore / verify / replay / reconcile genuinely need the creds NOW (they
+# read or write the repo this run). The `install` (converge) path does NOT:
+# backup creds are deferred -- the user sets them post-install in catena-admin
+# and the run-backup wrapper self-gates on the on-box store at runtime. So the
+# converge installs the units unconditionally and only these active modes
+# assert. On a live box the creds come from the on-box store (load_onbox facts);
+# on a fresh recover they are threaded in as the DR keyset.
+- name: Assert restic credentials are available (active backup modes)
   ansible.builtin.assert:
     that:
-      - vault_backup_restic_password is defined
-      - vault_backup_s3_access_key is defined
-      - vault_backup_s3_secret_key is defined
+      - backup_restic_password is defined
+      - backup_s3_access_key is defined
+      - backup_s3_secret_key is defined
       - backup_restic_repo | length > 0
     fail_msg: >-
-      Restic credentials must be in vault and BACKUP_RESTIC_REPO must be set
-      in inventory/<name>/.env before the backup role can run.
-      See inventory/example/group_vars/all/vault.yml.example for the schema
-      (the encrypted live file is vault.sops.yml).
+      Restic credentials are not available for backup_mode={{ backup_mode }}.
+      On a live box they come from /etc/catena/config.json (set in catena-admin);
+      on a fresh-box recover they are the DR keyset threaded into `catena recover`.
+  when: backup_mode != 'install'
 
 - name: Install backup infrastructure
   ansible.builtin.include_tasks: install.yml
@@ -47,11 +50,3 @@
 - name: Restore from backup
   ansible.builtin.include_tasks: restore.yml
   when: backup_mode == 'restore'
-
-- name: Replay pg_dumpall into running postgres containers
-  ansible.builtin.include_tasks: pg_replay.yml
-  when: backup_mode == 'pg_replay'
-
-- name: Reconcile DB <-> S3 references
-  ansible.builtin.include_tasks: s3_reconcile.yml
-  when: backup_mode == 's3_reconcile'

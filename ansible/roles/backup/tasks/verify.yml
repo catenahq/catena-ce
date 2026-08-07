@@ -117,7 +117,8 @@
       fi
       # 3. must have at least one user-db section (not just postgres/template1).
       # Regex accepts backslash-escaped quotes in the DB name; same
-      # extraction logic as pg_replay.yml so the two stay in lockstep.
+      # extraction the replay does (catena-recovery post-restore), so a
+      # dump this accepts is a dump the replay can read.
       user_dbs=$(zcat "$f" \
           | grep -E '^-- Database "([^"\\]|\\.)+" dump$' \
           | sed -E 's/^-- Database "(([^"\\]|\\.)+)" dump$/\1/' \
@@ -137,23 +138,63 @@
   changed_when: false
   when: (_verify_pg_archives.matched | default(0)) > 0
 
-- name: "Deep verify: locate restored Dokploy compose files"
+- name: "Deep verify: confirm the catena-postgres data volume restored"
+  ansible.builtin.stat:
+    path: "{{ verify_scratch_dir }}{{ storage_mount_point }}/docker/volumes/{{ catena_postgres_data_volume | default('catena-postgres-data') }}"
+  register: _verify_catena_pg_vol
+
+- name: "Deep verify: warn if the catena-postgres data volume is missing"
+  ansible.builtin.debug:
+    msg: |
+      The catena-postgres data volume
+      ({{ catena_postgres_data_volume | default('catena-postgres-data') }}) is
+      not present under {{ verify_scratch_dir }}{{ storage_mount_point }}/
+      docker/volumes after restore. The infra DB is restored RAW from this
+      volume (see roles/backup/defaults "Postgres data on this stack"); if it
+      is missing the snapshot predates the catena-postgres cutover OR
+      {{ storage_mount_point }}/docker/volumes drifted out of backup_paths.
+      The path-stat block above asserts /etc/ssh; if THAT came back but the
+      volume did not, backup_paths has drifted.
+  when: not (_verify_catena_pg_vol.stat.exists | default(false))
+
+# The stack definitions themselves. Catena posts compose to Portainer's API
+# as StackFileContent -- nothing writes a compose file to a host path -- but
+# Portainer persists each stack at /data/compose/<id>/docker-compose.yml
+# inside its named volume, which rides the backup under
+# {{ storage_mount_point }}/docker/volumes. That is the restored artifact
+# worth parse-checking: it is the only on-disk copy of what every client app
+# is, and a snapshot whose stack files are damaged restores a control plane
+# that cannot redeploy anything.
+#
+# This `find` did not exist. The two blocks below gated on
+# `_verify_compose_files`, which nothing registered, so BOTH the compose
+# check and its own tool-unavailable notice were unreachable and every
+# restore drill reported fully verified for a check it never ran.
+#
+# Volume name defaulted rather than read from roles/portainer: role defaults
+# are only reliably in scope after that role has run, and a `--tags backup`
+# run would otherwise render an undefined path. Same pattern as
+# catena_postgres_data_volume above.
+- name: "Deep verify: locate restored Portainer stack compose files"
   ansible.builtin.find:
-    paths: "{{ verify_scratch_dir }}/etc/dokploy/compose"
-    patterns: "docker-compose.yml,compose.yml,docker-compose.yaml,compose.yaml"
+    paths: >-
+      {{ verify_scratch_dir }}{{ storage_mount_point }}/docker/volumes/{{
+      portainer_data_volume | default('catena-portainer-data') }}/_data/compose
+    patterns: "*.yml,*.yaml"
     recurse: true
     file_type: file
   register: _verify_compose_files
   failed_when: false
 
-- name: "Deep verify: warn if no compose files in restored tree"
+- name: "Deep verify: warn if no stack compose files in snapshot"
   ansible.builtin.debug:
     msg: |
-      No Dokploy compose files under {{ verify_scratch_dir }}/etc/dokploy/compose
-      after restore. Either Dokploy never seeded any composes (fresh
-      install pre-Templates-seed) or /etc/dokploy didn't make it into
-      the snapshot. The path-stat block above asserts /etc/ssh; if THAT
-      came back but compose did not, the backup_paths config has drifted.
+      No Portainer stack compose files under
+      {{ portainer_data_volume | default('catena-portainer-data') }}/_data/
+      compose in the restored tree. Expected on a host that has never
+      deployed a stack; on one that has, it means the Portainer data volume
+      did not come back and the control plane restores empty. Compose-syntax
+      verification is SKIPPED, not passed.
   when: (_verify_compose_files.matched | default(0)) == 0
 
 - name: "Deep verify: detect docker compose tool"
@@ -219,7 +260,7 @@
   # AWS_SECRET_ACCESS_KEY + BACKUP_HEALTHCHECK_URL -- without it, a
   # restore-to-new-vps would have no way to hit the same S3 bucket on
   # the next nightly backup. If the snapshot lacks it, the operator
-  # has to extract creds from vault by hand on the fresh host.
+  # has to re-enter the S3 creds by hand on the fresh host.
   ansible.builtin.stat:
     path: "{{ verify_scratch_dir }}/etc/catena/backup.env"
   register: _verify_backup_env

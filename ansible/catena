@@ -26,16 +26,16 @@ ansible-playbook. Subcommands:
              apt-daily-upgrade.timer (the unattended-upgrades handback)
              and print teardown guidance
 
-The vault is SOPS-encrypted to your own age key. seed.py mints it on first
-install and saves it to a key file; this CLI loads it into $SOPS_AGE_KEY
-automatically on every run so the Ansible community.sops vars plugin can
-decrypt. Run inside the catena-ce checkout:
+The vault is a PLAINTEXT group_vars file (SOPS+age was dropped, project 0b);
+the on-box config store (/etc/catena/config.json) is the runtime source of
+truth and rides the restic backup. Run inside the catena-ce checkout:
 
     uv run ./catena install --inventory prod
 """
 from __future__ import annotations
 
 import argparse
+import configparser
 import getpass
 import os
 import shutil
@@ -47,6 +47,25 @@ from pathlib import Path
 # This file lives at the root of the self-contained ansible/ tree.
 ANSIBLE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(ANSIBLE_DIR))
+
+
+def _collections_dir() -> str:
+    """Where ansible loads collections from, read out of ansible.cfg.
+
+    Derived rather than duplicated: a hardcoded copy drifted from the config
+    once already and left the galaxy install writing to a directory ansible
+    never read. Falls back to ansible's own default if the key is absent.
+    """
+    cfg = configparser.ConfigParser()
+    try:
+        cfg.read(ANSIBLE_DIR / "ansible.cfg")
+    except configparser.Error:
+        return ".collections"
+    value = cfg.get("defaults", "collections_path", fallback=".collections")
+    return value.split(os.pathsep)[0].strip() or ".collections"
+
+
+COLLECTIONS_DIR = _collections_dir()
 
 # The ordered converge chain a fresh install runs. preflight is a SEPARATE
 # invocation BEFORE bootstrap so a stray --limit can never skip it.
@@ -65,9 +84,10 @@ RECOVER_CHAIN = ("preflight", "bootstrap", "restore", "site", "validate")
 # operator rotated a secret between snapshot and rollback) -- never drop it.
 ROLLBACK_CHAIN = ("preflight", "restore", "site", "validate")
 
-# Host binaries the wrapper shells out to. age-keygen + sops handle the
-# vault; ansible-playbook/ansible run the base.
-REQUIRED_BINARIES = ("ansible-playbook", "ansible", "sops", "age-keygen")
+# Host binaries the wrapper shells out to. ansible-playbook/ansible run the
+# base. SOPS+age was dropped (0b): the vault is plaintext, so no sops /
+# age-keygen prereq remains.
+REQUIRED_BINARIES = ("ansible-playbook", "ansible")
 
 
 def _c(code: str, msg: str) -> str:
@@ -88,39 +108,47 @@ def check_prereqs(binaries: tuple[str, ...] = REQUIRED_BINARIES) -> list[str]:
     return [b for b in binaries if shutil.which(b) is None]
 
 
-def ensure_age_key_env(key_file: Path | None = None) -> None:
-    """Make sure $SOPS_AGE_KEY is set so the community.sops vars plugin can
-    decrypt the vault. If it is unset, load it from the seed-written key
-    file. Best-effort: if neither is available, downstream ansible fails
-    with a clear sops error."""
-    import seed  # local import: shares ANSIBLE_DIR on sys.path
-
-    if os.environ.get("SOPS_AGE_KEY", "").strip():
-        return
-    key_file = key_file or seed.DEFAULT_AGE_KEY_FILE
-    if not key_file.is_file():
-        return
-    from helpers import age_key
-    secret = age_key.extract_secret(key_file.read_text())
-    if secret:
-        os.environ["SOPS_AGE_KEY"] = secret
-
-
 def inventory_path(inventory: str) -> Path:
     return ANSIBLE_DIR / "inventory" / inventory
 
 
-def playbook_cmd(inventory: str, playbook: str, extra: list[str] | None = None) -> list[str]:
-    """Build the ansible-playbook argv for one stage. Pure (no side effects)
-    so it is unit-testable."""
+def resolve_inventory(args: argparse.Namespace) -> Path:
+    """The inventory DIRECTORY a command runs against: an explicit
+    --inventory-path (an inventory OUTSIDE this checkout -- e.g. an operator's
+    ops-side inventory driven from Semaphore), else the named directory under
+    ANSIBLE_DIR/inventory. Pure -- unit-testable."""
+    path = getattr(args, "inventory_path", None)
+    if path:
+        return Path(path).expanduser()
+    return inventory_path(args.inventory)
+
+
+def playbook_cmd(inventory: str | Path, playbook: str, extra: list[str] | None = None) -> list[str]:
+    """Build the ansible-playbook argv for one stage. `inventory` is either an
+    inventory NAME (resolved under ANSIBLE_DIR/inventory) or an already-resolved
+    inventory-directory Path. Pure (no side effects) so it is unit-testable."""
+    inv = inventory if isinstance(inventory, Path) else inventory_path(inventory)
     cmd = [
         "ansible-playbook",
-        "-i", str(inventory_path(inventory)),
+        "-i", str(inv),
         str(ANSIBLE_DIR / "playbooks" / f"{playbook}.yml"),
     ]
     if extra:
         cmd.extend(extra)
     return cmd
+
+
+def _add_inventory_args(parser: argparse.ArgumentParser, *, required: bool) -> None:
+    """Add the mutually-exclusive --inventory / --inventory-path pair. A NAME
+    resolves under ansible/inventory/; a PATH points at an inventory directory
+    OUTSIDE the checkout (an operator driving an ops-side inventory from
+    Semaphore, say). `required` is False only for `install`, which prompts."""
+    group = parser.add_mutually_exclusive_group(required=required)
+    group.add_argument("--inventory",
+                       help="inventory name (directory under ansible/inventory/)")
+    group.add_argument("--inventory-path",
+                       help="path to an inventory directory outside the checkout "
+                            "(alternative to --inventory)")
 
 
 def _tags_extra(args: argparse.Namespace) -> list[str] | None:
@@ -201,72 +229,24 @@ def _run(cmd: list[str]) -> None:
             code=result.returncode)
 
 
-def _host_tailnet_ip(inventory: str) -> str:
-    """Return the vps host's tailnet ansible_host from the inventory hosts.yml
-    (folded in from .bootstrap-output.yml after the bootstrap stage by
-    bootstrap_output.apply_to_inventory). Returns "" when absent or still the
-    0.0.0.0 placeholder."""
-    import yaml
-
-    hosts_yml = inventory_path(inventory) / "hosts.yml"
-    if not hosts_yml.is_file():
-        return ""
-    data = yaml.safe_load(hosts_yml.read_text()) or {}
-    vps = (
-        ((data.get("all") or {}).get("children") or {})
-        .get("vps", {}).get("hosts") or {}
-    )
-    for entry in vps.values():
-        ip = (entry or {}).get("ansible_host", "")
-        if ip and ip != "0.0.0.0":
-            return ip
-    return ""
-
-
-def _ensure_dokploy_api_key(inventory: str) -> bool:
-    """Bridge between the two site passes a fresh install needs.
-
-    After site pass 1 Dokploy is up, but the auth stack (Keycloak compose,
-    oauth2-proxy per-app routes, the gated apps' Traefik chain) is all gated
-    behind vault_dokploy_api_key -- which does not exist until an admin
-    account is created and a key minted. helpers/bootstrap_dokploy_admin.py
-    does that over better-auth's public endpoints (signup -> signin -> mint)
-    and merges the key into the vault, so a SECOND site pass -- a fresh
-    ansible process that re-reads the now-updated vault (community.sops caches
-    decrypted vault contents per-process, so an in-place re-read would not see
-    it) -- deploys the auth stack.
-
-    Returns True when a key was minted (caller runs the second pass); False
-    when the vault already held one (a single pass already deployed
-    everything, e.g. a re-install over an existing inventory)."""
-    from helpers import sops_vault
-
-    inv = inventory_path(inventory)
-    vault = inv / "group_vars" / "all" / "vault.sops.yml"
-    if len(sops_vault.read_value(vault, "vault_dokploy_api_key")) > 10:
-        return False
-    tailnet_ip = _host_tailnet_ip(inventory)
-    if not tailnet_ip:
-        die("cannot mint the Dokploy API key: the host's tailnet IP is "
-            "unknown (hosts.yml still has the 0.0.0.0 placeholder -- did "
-            "bootstrap join the tailnet and emit .bootstrap-output.yml?).")
-    banner("Bootstrap Dokploy admin + API key (unlocks the auth stack)")
-    _run([
-        sys.executable,
-        str(ANSIBLE_DIR / "helpers" / "bootstrap_dokploy_admin.py"),
-        "--vault", str(vault),
-        "--env-file", str(inv / ".env"),
-        "--tailnet-ip", tailnet_ip,
-    ])
-    return True
-
-
 def ensure_collections() -> None:
-    """Install the Galaxy collections (community.sops, community.general, ...)
-    on first run if collections/ is absent."""
+    """Install the Galaxy collections (community.general, community.docker, ...)
+    on first run if they are not already present. Honors
+    ANSIBLE_COLLECTIONS_PATH: when set (first path wins), install there instead
+    of the in-tree dir -- so the CLI can run from a READ-ONLY checkout (e.g.
+    driven from a Semaphore runner against a :ro catena-ce mount) by pointing
+    at a writable location, which ansible then also reads.
+
+    The in-tree default MUST match ansible.cfg's collections_path. It did not
+    for a release: the install landed in collections/ while ansible read
+    .collections/, so a fresh checkout installed a tree nothing loaded and fell
+    through to whatever collections the controller happened to have."""
     req = ANSIBLE_DIR / "requirements.yml"
-    coll = ANSIBLE_DIR / "collections"
-    if coll.is_dir() or not req.is_file():
+    if not req.is_file():
+        return
+    override = os.environ.get("ANSIBLE_COLLECTIONS_PATH", "").strip()
+    coll = Path(override.split(os.pathsep)[0]).expanduser() if override else ANSIBLE_DIR / COLLECTIONS_DIR
+    if coll.is_dir():
         return
     banner("Installing Ansible collections (first run)")
     _run([
@@ -275,122 +255,217 @@ def ensure_collections() -> None:
     ])
 
 
-def _preflight_checks() -> None:
-    missing = check_prereqs()
+def _preflight_checks(binaries: tuple[str, ...] = REQUIRED_BINARIES) -> None:
+    missing = check_prereqs(binaries)
     if missing:
         die(
             "missing required tools on PATH: " + ", ".join(missing) + "\n"
             "  - ansible-core: run this via `uv run ./catena ...`, or "
-            "`pipx install ansible-core`\n"
-            "  - sops + age: install from your package manager "
-            "(https://github.com/getsops/sops, https://github.com/FiloSottile/age)"
+            "`pipx install ansible-core`"
         )
 
 
-def _require_inventory(inventory: str) -> None:
-    if not inventory_path(inventory).is_dir():
+def _require_inventory(inv_dir: Path) -> None:
+    if not inv_dir.is_dir():
         die(
-            f"inventory '{inventory}' not found at {inventory_path(inventory)}. "
-            "Run `./catena install --inventory " + inventory + "` first."
+            f"inventory not found at {inv_dir}. "
+            "Run `./catena install` for this inventory first."
         )
 
 
 def _run_deploy_chain(
-    inventory: str,
+    inv_dir: Path,
     chain: tuple[str, ...],
     *,
     bootstrap_extra: list[str] | None,
     restore_extra: list[str] | None = None,
+    global_extra: list[str] | None = None,
 ) -> None:
     """Run an ordered deploy chain (install or recover) stage by stage,
-    threading the bootstrap creds onto the bootstrap stage and (recover only)
-    the restore snapshot onto the restore stage, plus the two inter-stage
-    bridges a deploy needs:
+    threading the bootstrap creds onto the bootstrap stage, (recover only) the
+    restore snapshot onto the restore stage, and `global_extra` onto EVERY
+    stage. `global_extra` is the transient secret-adopt file (`-e @file`) that
+    carries the install-critical vendor creds / DR keyset into each play so the
+    on-box loader adopts them -- no persisted laptop vault (0b). Plus the one
+    inter-stage bridge a deploy needs:
 
       - after `bootstrap`: fold the steady-state tailnet IP that bootstrap
         emitted into .bootstrap-output.yml back into hosts.yml, so the later
         stages (each a separate ansible invocation) reach the host instead of
         the 0.0.0.0 placeholder.
-      - after the first `site`: mint the Dokploy admin + API key if the vault
-        lacks one, then run a SECOND site pass so the auth stack deploys
-        before validate. On recovery the reused vault already holds the key,
-        so this is a single pass.
+
+    The Portainer API key that the auth stack (Keycloak, oauth2-proxy) is
+    gated on is minted in-band by roles/portainer during `site` (it mints
+    from the initial admin, reloads the vault into play scope via
+    include_vars, and self-heals a missing/rejected key on every converge),
+    so a single `site` pass deploys everything -- no second pass.
 
     Shared by install + recover so the bridge logic lives in one place."""
     for stage in chain:
         banner(f"Stage: {stage}")
         if stage == "bootstrap":
-            extra = bootstrap_extra
+            extra = list(bootstrap_extra or [])
         elif stage == "restore":
-            extra = restore_extra
+            extra = list(restore_extra or [])
         else:
-            extra = None
-        _run(playbook_cmd(inventory, stage, extra))
+            extra = []
+        if global_extra:
+            extra = extra + global_extra
+        _run(playbook_cmd(inv_dir, stage, extra or None))
         if stage == "bootstrap":
             from helpers import bootstrap_output
-            applied = bootstrap_output.apply_to_inventory(
-                inventory_path(inventory)
-            )
+            applied = bootstrap_output.apply_to_inventory(inv_dir)
             for line in applied:
                 print(_c("1;32", f"  + bootstrap-output applied {line}"),
                       file=sys.stderr)
-        if stage == "site" and _ensure_dokploy_api_key(inventory):
-            banner("Stage: site (pass 2 -- auth stack)")
-            _run(playbook_cmd(inventory, "site"))
+
+
+def _mktemp_secrets(prefix: str) -> Path:
+    """Create an empty 0600 temp file for a transient secret-adopt map."""
+    fd, name = tempfile.mkstemp(prefix=prefix, suffix=".yml")
+    os.close(fd)
+    tmp = Path(name)
+    tmp.chmod(0o600)
+    return tmp
+
+
+def _show_dr_keyset(inv_dir: Path) -> None:
+    """After a fresh install, surface the on-box-minted DR keyset (admin +
+    restic passwords) ONCE for the user's password manager. Non-fatal: a
+    failure here must never fail an otherwise-successful install (the keyset
+    is always retrievable later from catena-admin > Recovery)."""
+    banner("Your disaster-recovery keyset -- shown once, save it now")
+    cmd = playbook_cmd(inv_dir, "show_dr_keyset")
+    print(_c("1;30", "  $ " + " ".join(cmd)), file=sys.stderr)
+    if subprocess.run(cmd).returncode != 0:
+        print(_c("1;33", "! could not display the DR keyset automatically; "
+                 "retrieve it later from catena-admin > Recovery."),
+              file=sys.stderr)
 
 
 def cmd_install(args: argparse.Namespace) -> int:
     _preflight_checks()
-    inventory = args.inventory or input("Inventory name [prod]: ").strip() or "prod"
 
-    banner("Step 1/2 -- collect config + secrets (seed)")
-    seed_cmd = [sys.executable, str(ANSIBLE_DIR / "seed.py"), "--inventory", inventory]
+    # The transient adopt file seed writes the vendor creds into (never a
+    # persisted inventory vault). Threaded onto every deploy stage as `-e @file`
+    # so the on-box loader adopts them, then deleted.
+    secrets_tmp = _mktemp_secrets("catena-install-secrets-")
+
+    banner("Step 1/2 -- collect config + vendor creds (seed)")
+    seed_cmd = [sys.executable, str(ANSIBLE_DIR / "seed.py"),
+                "--secrets-out", str(secrets_tmp)]
+    if args.inventory_path:
+        inv_dir = Path(args.inventory_path).expanduser()
+        seed_cmd += ["--inventory-path", str(inv_dir)]
+    else:
+        inventory = args.inventory or input("Inventory name [prod]: ").strip() or "prod"
+        inv_dir = inventory_path(inventory)
+        seed_cmd += ["--inventory", inventory]
     if args.input:
         seed_cmd += ["-i", args.input]
     if args.no_confirm:
         seed_cmd += ["--no-confirm"]
     result = subprocess.run(seed_cmd)
     if result.returncode != 0:
+        secrets_tmp.unlink(missing_ok=True)
         die(f"seed failed (exit {result.returncode}); nothing deployed.",
             code=result.returncode)
 
-    # seed wrote / used the age key; load it so ansible can decrypt the vault.
-    ensure_age_key_env()
     ensure_collections()
 
     banner("Step 2/2 -- deploy (preflight -> bootstrap -> site -> validate)")
     bootstrap_extra, bootstrap_vars_tmp = _bootstrap_extra_vars(args.input)
+    adopt_extra = ["-e", f"@{secrets_tmp}"]
     try:
-        _run_deploy_chain(inventory, INSTALL_CHAIN, bootstrap_extra=bootstrap_extra)
+        _run_deploy_chain(inv_dir, INSTALL_CHAIN,
+                          bootstrap_extra=bootstrap_extra, global_extra=adopt_extra)
+        _show_dr_keyset(inv_dir)
     finally:
         if bootstrap_vars_tmp is not None:
             bootstrap_vars_tmp.unlink(missing_ok=True)
+        secrets_tmp.unlink(missing_ok=True)
     banner("Install complete.")
     return 0
 
 
+# The user-held DR keyset re-entered at recover time: the box is wiped, so
+# nothing is read from a persisted laptop vault (0b). (key, label, hidden?).
+DR_ADOPT_SECRETS = (
+    ("backup_restic_password", "Restic backup password", True),
+    ("backup_s3_access_key", "S3 access key", True),
+    ("backup_s3_secret_key", "S3 secret key", True),
+    ("cloudflare_api_token", "Cloudflare API token", True),
+    ("tailscale_oauth_client_id", "Tailscale OAuth client id", False),
+    ("tailscale_oauth_client_secret", "Tailscale OAuth client secret", True),
+)
+
+
+def _collect_dr_adopt_file(input_path: str | None) -> tuple[list[str], Path | None]:
+    """Collect the DR keyset for a fresh-box recover into a 0600 temp adopt
+    file (`-e @file`), threaded onto every recover stage so `restore` can
+    decrypt the backup and the on-box loader adopts the creds. Values come from
+    --input install.yaml when present, else an interactive prompt; the restic
+    repo URL rides as `backup_restic_repo`. Returns ([], None) when nothing was
+    collected. Mirrors _bootstrap_extra_vars: never on argv, cleaned by caller."""
+    provided_vault: dict = {}
+    provided_env: dict = {}
+    if input_path:
+        import seed  # shares ANSIBLE_DIR on sys.path
+        inp = seed.load_input(Path(input_path))
+        provided_vault = inp.get("vault") or {}
+        provided_env = inp.get("env") or {}
+
+    values: dict[str, str] = {}
+    for key, label, hidden in DR_ADOPT_SECRETS:
+        val = str(provided_vault.get(key, "") or "").strip()
+        if not val and sys.stdin.isatty():
+            val = (getpass.getpass(f"{label}: ") if hidden
+                   else input(f"{label}: ")).strip()
+        if val:
+            values[key] = val
+    repo = str(provided_env.get("BACKUP_RESTIC_REPO", "") or "").strip()
+    if not repo and sys.stdin.isatty():
+        repo = input("Restic repo URL (s3:<endpoint>/<bucket>): ").strip()
+    if repo:
+        values["backup_restic_repo"] = repo
+
+    if not values:
+        return [], None
+    import yaml
+    tmp = _mktemp_secrets("catena-recover-secrets-")
+    tmp.write_text(yaml.safe_dump(values, default_flow_style=False))
+    tmp.chmod(0o600)
+    return ["-e", f"@{tmp}"], tmp
+
+
 def cmd_recover(args: argparse.Namespace) -> int:
-    """Whole-host disaster recovery onto a FRESH replacement box, reusing the
-    existing inventory's vault + .env (no seed): preflight -> bootstrap ->
-    restore -> site -> validate. The provider creds come from --input
-    install.yaml (same 0600-temp-file path as install, never on argv);
+    """Whole-host disaster recovery onto a FRESH replacement box: preflight ->
+    bootstrap -> restore -> site -> validate. The provider creds come from
+    --input install.yaml (0600 temp file, never on argv). The DR keyset (restic
+    password + S3 keys + repo URL + Cloudflare/Tailscale creds) is re-entered
+    here -- prompted or from --input -- since nothing persists on the laptop;
+    it is threaded onto every stage so restore can decrypt the backup.
     --snapshot picks the restic snapshot to push (default: latest)."""
     _preflight_checks()
-    _require_inventory(args.inventory)
-    ensure_age_key_env()
+    inv_dir = resolve_inventory(args)
+    _require_inventory(inv_dir)
     ensure_collections()
 
     banner("Recover -- preflight -> bootstrap -> restore -> site -> validate")
     bootstrap_extra, bootstrap_vars_tmp = _bootstrap_extra_vars(args.input)
     restore_extra = _snapshot_extra(args)
+    dr_extra, dr_tmp = _collect_dr_adopt_file(args.input)
     try:
         _run_deploy_chain(
-            args.inventory, RECOVER_CHAIN,
+            inv_dir, RECOVER_CHAIN,
             bootstrap_extra=bootstrap_extra, restore_extra=restore_extra,
+            global_extra=dr_extra or None,
         )
     finally:
         if bootstrap_vars_tmp is not None:
             bootstrap_vars_tmp.unlink(missing_ok=True)
+        if dr_tmp is not None:
+            dr_tmp.unlink(missing_ok=True)
     banner("Recovery complete.")
     return 0
 
@@ -402,13 +477,13 @@ def cmd_rollback(args: argparse.Namespace) -> int:
     (default: latest). The `site` leg is load-bearing for password coherence
     (pg_password_reconcile) -- never dropped."""
     _preflight_checks()
-    _require_inventory(args.inventory)
-    ensure_age_key_env()
+    inv_dir = resolve_inventory(args)
+    _require_inventory(inv_dir)
     ensure_collections()
 
     banner("Rollback -- preflight -> restore -> site -> validate")
     _run_deploy_chain(
-        args.inventory, ROLLBACK_CHAIN,
+        inv_dir, ROLLBACK_CHAIN,
         bootstrap_extra=None, restore_extra=_snapshot_extra(args),
     )
     banner("Rollback complete.")
@@ -417,19 +492,19 @@ def cmd_rollback(args: argparse.Namespace) -> int:
 
 def cmd_converge(args: argparse.Namespace) -> int:
     _preflight_checks()
-    _require_inventory(args.inventory)
-    ensure_age_key_env()
+    inv_dir = resolve_inventory(args)
+    _require_inventory(inv_dir)
     ensure_collections()
-    _run(playbook_cmd(args.inventory, "site", _tags_extra(args)))
+    _run(playbook_cmd(inv_dir, "site", _tags_extra(args)))
     return 0
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
     _preflight_checks()
-    _require_inventory(args.inventory)
-    ensure_age_key_env()
+    inv_dir = resolve_inventory(args)
+    _require_inventory(inv_dir)
     ensure_collections()
-    _run(playbook_cmd(args.inventory, "validate", _tags_extra(args)))
+    _run(playbook_cmd(inv_dir, "validate", _tags_extra(args)))
     return 0
 
 
@@ -439,20 +514,20 @@ def cmd_backup(args: argparse.Namespace) -> int:
     admin shell "Backup now" button drives). CE ships a single, manual
     backup -- this is its CLI entry point. No preflight (mints no keys)."""
     _preflight_checks()
-    _require_inventory(args.inventory)
-    ensure_age_key_env()
+    inv_dir = resolve_inventory(args)
+    _require_inventory(inv_dir)
     ensure_collections()
     banner("Backup -- trigger an on-demand snapshot")
-    _run(playbook_cmd(args.inventory, "backup_now"))
+    _run(playbook_cmd(inv_dir, "backup_now"))
     return 0
 
 
 def cmd_restore(args: argparse.Namespace) -> int:
     _preflight_checks()
-    _require_inventory(args.inventory)
-    ensure_age_key_env()
+    inv_dir = resolve_inventory(args)
+    _require_inventory(inv_dir)
     ensure_collections()
-    _run(playbook_cmd(args.inventory, "restore", _snapshot_extra(args)))
+    _run(playbook_cmd(inv_dir, "restore", _snapshot_extra(args)))
     return 0
 
 
@@ -463,8 +538,8 @@ def cmd_rotate_tunnel(args: argparse.Namespace) -> int:
     CATENA_CF_API_TOKEN env var, or the interactive prompt. The token is
     passed to ansible via a 0600 temp file (-e @file), never on argv."""
     _preflight_checks()
-    _require_inventory(args.inventory)
-    ensure_age_key_env()
+    inv_dir = resolve_inventory(args)
+    _require_inventory(inv_dir)
     ensure_collections()
     token = (args.cf_api_token or os.environ.get("CATENA_CF_API_TOKEN", "")).strip()
     if not token:
@@ -474,7 +549,7 @@ def cmd_rotate_tunnel(args: argparse.Namespace) -> int:
     banner("Rotate -- regenerate the Cloudflare tunnel")
     extra, tmp = _secret_extra_var("cf_api_token", token)
     try:
-        _run(playbook_cmd(args.inventory, "regenerate-cf-tunnel", extra))
+        _run(playbook_cmd(inv_dir, "regenerate-cf-tunnel", extra))
     finally:
         if tmp is not None:
             tmp.unlink(missing_ok=True)
@@ -487,22 +562,57 @@ def cmd_rotate_tailscale(args: argparse.Namespace) -> int:
     tags). The tailscale role's tailscale_force_reauth is set by the
     playbook itself, so this just runs it."""
     _preflight_checks()
-    _require_inventory(args.inventory)
-    ensure_age_key_env()
+    inv_dir = resolve_inventory(args)
+    _require_inventory(inv_dir)
     ensure_collections()
     banner("Rotate -- re-authenticate Tailscale")
-    _run(playbook_cmd(args.inventory, "rotate-tailscale"))
+    _run(playbook_cmd(inv_dir, "rotate-tailscale"))
     return 0
 
 
 def cmd_uninstall(args: argparse.Namespace) -> int:
     _preflight_checks()
-    _require_inventory(args.inventory)
-    ensure_age_key_env()
+    inv_dir = resolve_inventory(args)
+    _require_inventory(inv_dir)
     ensure_collections()
     banner("Uninstall -- hand unattended-upgrades back to Debian")
-    _run(playbook_cmd(args.inventory, "uninstall"))
+    _run(playbook_cmd(inv_dir, "uninstall"))
     return 0
+
+
+# Subcommands offered by the no-argument interactive menu, in run order.
+# `install` prompts for its own inventory; every other command needs one, so
+# the menu prompts and passes --inventory.
+MENU_COMMANDS = (
+    ("install", "Set up a new host (seed + deploy)"),
+    ("converge", "Re-apply configuration or app changes"),
+    ("validate", "On-host + tailnet + external health checks"),
+    ("backup", "Take an on-demand backup snapshot"),
+    ("restore", "In-place whole-host restore"),
+    ("recover", "Rebuild onto a fresh replacement box"),
+    ("rollback", "Roll a running host back to a snapshot"),
+    ("rotate-tunnel", "Regenerate the Cloudflare tunnel"),
+    ("rotate-tailscale", "Re-authenticate the node to the tailnet"),
+    ("uninstall", "Hand unattended-upgrades back to the OS"),
+)
+
+
+def interactive_menu() -> list[str]:
+    """Bare `catena` (no subcommand): print a numbered menu and return the argv
+    for the chosen subcommand. Pure of side effects beyond stdin/stdout, so the
+    caller just feeds the result back through the parser."""
+    print(_c("1;34", "catena -- choose an operation:"), file=sys.stderr)
+    for i, (name, desc) in enumerate(MENU_COMMANDS, 1):
+        print(f"  {i:>2}) {name:<18} {desc}", file=sys.stderr)
+    choice = input("\nNumber [1=install]: ").strip() or "1"
+    try:
+        name = MENU_COMMANDS[int(choice) - 1][0]
+    except (ValueError, IndexError):
+        die(f"not a valid choice: {choice!r}")
+    if name == "install":
+        return ["install"]
+    inv = input("Inventory name [prod]: ").strip() or "prod"
+    return [name, "--inventory", inv]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -511,24 +621,26 @@ def build_parser() -> argparse.ArgumentParser:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    sub = ap.add_subparsers(dest="command", required=True)
+    # Not required: bare `catena` drops into interactive_menu() instead of
+    # erroring, so a self-hoster can discover the subcommands.
+    sub = ap.add_subparsers(dest="command", required=False)
 
     p_install = sub.add_parser("install", help="seed + preflight/bootstrap/site/validate")
-    p_install.add_argument("--inventory", help="inventory name (prompted if omitted)")
+    _add_inventory_args(p_install, required=False)
     p_install.add_argument("-i", "--input", help="install.yaml for non-interactive values")
     p_install.add_argument("--no-confirm", action="store_true",
                            help="skip seed confirmation + one-shot secret prompts")
     p_install.set_defaults(func=cmd_install)
 
     p_conv = sub.add_parser("converge", help="re-run site.yml")
-    p_conv.add_argument("--inventory", required=True)
+    _add_inventory_args(p_conv, required=True)
     p_conv.add_argument("--tags", default="",
                         help="comma-separated ansible tags to scope the "
                              "converge (e.g. keycloak,oauth2_proxy)")
     p_conv.set_defaults(func=cmd_converge)
 
     p_val = sub.add_parser("validate", help="run validate.yml")
-    p_val.add_argument("--inventory", required=True)
+    _add_inventory_args(p_val, required=True)
     p_val.add_argument("--tags", default="",
                        help="comma-separated ansible tags to scope validation")
     p_val.set_defaults(func=cmd_validate)
@@ -536,11 +648,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_bak = sub.add_parser(
         "backup", help="trigger an on-demand snapshot (manual CE backup)",
     )
-    p_bak.add_argument("--inventory", required=True)
+    _add_inventory_args(p_bak, required=True)
     p_bak.set_defaults(func=cmd_backup)
 
     p_res = sub.add_parser("restore", help="run restore.yml (in-place restore)")
-    p_res.add_argument("--inventory", required=True)
+    _add_inventory_args(p_res, required=True)
     p_res.add_argument("--snapshot", default="",
                        help="restic snapshot id to restore (default: latest)")
     p_res.set_defaults(func=cmd_restore)
@@ -550,7 +662,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="whole-host DR onto a fresh replacement box "
              "(bootstrap -> restore -> site -> validate)",
     )
-    p_rec.add_argument("--inventory", required=True)
+    _add_inventory_args(p_rec, required=True)
     p_rec.add_argument("-i", "--input",
                        help="install.yaml supplying the replacement box's "
                             "provider user + password for bootstrap")
@@ -563,7 +675,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="roll a running host back to a prior snapshot "
              "(restore -> site -> validate, in place)",
     )
-    p_rb.add_argument("--inventory", required=True)
+    _add_inventory_args(p_rb, required=True)
     p_rb.add_argument("--snapshot", default="",
                       help="restic snapshot id to roll back to (default: latest)")
     p_rb.set_defaults(func=cmd_rollback)
@@ -572,7 +684,7 @@ def build_parser() -> argparse.ArgumentParser:
         "rotate-tunnel",
         help="regenerate the Cloudflare tunnel (manual; token consumed once)",
     )
-    p_rtun.add_argument("--inventory", required=True)
+    _add_inventory_args(p_rtun, required=True)
     p_rtun.add_argument(
         "--cf-api-token", default="",
         help="Cloudflare API token (consumed once, never stored); also read "
@@ -584,14 +696,14 @@ def build_parser() -> argparse.ArgumentParser:
         "rotate-tailscale",
         help="re-authenticate the node to the tailnet (manual force re-auth)",
     )
-    p_rts.add_argument("--inventory", required=True)
+    _add_inventory_args(p_rts, required=True)
     p_rts.set_defaults(func=cmd_rotate_tailscale)
 
     p_uni = sub.add_parser(
         "uninstall",
         help="hand unattended-upgrades back to the OS + print teardown guidance",
     )
-    p_uni.add_argument("--inventory", required=True)
+    _add_inventory_args(p_uni, required=True)
     p_uni.set_defaults(func=cmd_uninstall)
 
     return ap
@@ -601,13 +713,31 @@ def main(argv: list[str] | None = None) -> int:
     # Run from the ansible/ dir so ansible.cfg + relative inventory/playbook
     # paths resolve regardless of where the user invoked us.
     os.chdir(ANSIBLE_DIR)
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # `--install` is an alias for the `install` subcommand (so `catena
+    # --install` == `catena install`); rewrite it to the positional form and
+    # let install's own parser handle any trailing flags.
+    if argv and argv[0] == "--install":
+        argv = ["install", *argv[1:]]
+    # Bare `catena` (no subcommand): interactive menu, when a TTY is present.
+    if not argv:
+        if not sys.stdin.isatty():
+            die("no subcommand given (and no TTY for the menu). "
+                "Try `catena install` or `catena --help`.", code=2)
+        argv = interactive_menu()
     args = build_parser().parse_args(argv)
     return args.func(args)
 
 
-if __name__ == "__main__":
+def _entry(argv: list[str] | None = None) -> int:
+    """Entry point for both `./catena` and the `catena` console script; keeps
+    the Ctrl-C handling in one place."""
     try:
-        raise SystemExit(main())
+        return main(argv)
     except KeyboardInterrupt:
         print("\nCancelled (interrupted).", file=sys.stderr)
-        raise SystemExit(130)
+        return 130
+
+
+if __name__ == "__main__":
+    raise SystemExit(_entry())

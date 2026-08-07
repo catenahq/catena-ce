@@ -22,11 +22,6 @@ except ModuleNotFoundError:
     from labels_schema import last_warnings, resolve_auth_mode, slugify
 
 AUTO_ROUTE_SUFFIX = "-auto-gate.yml"
-# Legacy filename suffix from before the Keycloak/oauth2-proxy migration.
-# The cleanup loop in sync_gate_routes scans both suffixes and removes any
-# file not in the desired set, so old "-auto-authentik.yml" files are
-# deleted within one sync after this script is updated.
-_LEGACY_AUTO_ROUTE_SUFFIX = "-auto-authentik.yml"
 
 
 def _route_yaml_public(name, host, alias, port, force_https_mw, route_slug=None):
@@ -61,7 +56,7 @@ def _route_yaml_public(name, host, alias, port, force_https_mw, route_slug=None)
 
 
 def _proxy_alias(name):
-    """dokploy-network alias of the per-app oauth2-proxy instance for this
+    """catena-network alias of the per-app oauth2-proxy instance for this
     app. Matches the service name dashboard-sync renders in the
     oauth2-proxy-clients compose."""
     return f"oauth2-proxy-{slugify(name)}"
@@ -74,7 +69,7 @@ def _route_yaml_perapp(name, host, force_https_mw, proxy_port, route_slug=None):
     which authenticates then proxies to the backend via its own
     `--upstream`. Mirrors roles/oauth2_proxy/templates/app-oauth2-proxy.yml.j2
     (no callback subrouter -- the per-app proxy owns /oauth2/* on its
-    Host). Priority 100 beats Dokploy's auto-generated router.
+    Host). Priority 100 beats the default-priority app router.
 
     `route_slug` names the router + service objects (defaults to slugify(name));
     a multi-domain gated app passes a per-host slug so its domains do not

@@ -1,9 +1,9 @@
 name: CI
 
-# Go build/vet/test gate for the catena-admin shell + license/plugin libs,
-# plus the Python installer (ansible/) unit tests. Runs on the self-hosted
-# laptop runner; Go comes from ~/.local/go (the same toolchain used locally)
-# rather than setup-go, and Python tooling comes from uv.
+# Python installer (ansible/) unit tests. This repo carries no Go since the
+# license package moved to the private catena-admin repo (which was the last
+# Go here after the shell moved out at the unification). Python tooling comes
+# from uv.
 
 on:
   push:
@@ -14,36 +14,6 @@ permissions:
   contents: read
 
 jobs:
-  go:
-    name: Go build + vet + test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          persist-credentials: false
-      - name: Put Go on PATH
-        run: |
-          echo "$HOME/.local/go/bin" >> "$GITHUB_PATH"
-      - name: Toolchain
-        run: go version
-      - name: Build
-        run: go build ./...
-      - name: Vet
-        run: go vet ./...
-      - name: Test
-        run: go test ./...
-      - name: Staticcheck (report-only)
-        # Correctness lint folded in from the retired go-analysis.yml.
-        # govulncheck (the blocking half of that workflow) now runs via
-        # the scanctl security gate; staticcheck is not a scanctl tool.
-        run: |
-          go install honnef.co/go/tools/cmd/staticcheck@latest
-          set +e
-          "$(go env GOPATH)/bin/staticcheck" ./...
-          rc=$?
-          set -e
-          if [ $rc -ne 0 ]; then echo "::warning::staticcheck reported findings (report-only)."; fi
-
   installer:
     name: Installer (Python) tests
     runs-on: ubuntu-latest
@@ -52,10 +22,26 @@ jobs:
         with:
           persist-credentials: false
       - name: Install uv
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
       # The installer tests import only seed.py + helpers (no ansible-core), so
       # run them in a lightweight ephemeral env instead of syncing the project
       # (which would pull ansible-core for nothing here).
       - name: Unit tests
         working-directory: ansible
         run: uv run --no-project --with pytest --with pyyaml python -m pytest tests/unit -q
+
+  duplication:
+    # Copy-paste ratchet: .jscpd.json carries the baseline threshold;
+    # exceeding it fails. Lower the threshold as duplication is paid
+    # down, never raise it to admit new copy-paste.
+    name: Duplication (jscpd)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+      - name: jscpd (threshold in .jscpd.json)
+        run: npx --yes jscpd@4 --silent

@@ -26,20 +26,3 @@
   loop: "{{ storage_data_subdirs }}"
   loop_control:
     label: "{{ item.name }}"
-
-# Remove legacy /mnt/data/postgres that earlier versions created but never
-# used (real Postgres data lives in /mnt/data/docker/volumes/postgres_data/
-# via Dokploy's named-volume convention). rmdir refuses to delete non-empty
-# directories, so this cannot destroy data -- worst case it's a no-op.
-# `removes:` skips the task if the path doesn't exist (fresh hosts).
-- name: Remove legacy unused /mnt/data/postgres (no-op if missing or non-empty)
-  ansible.builtin.command:
-    cmd: "rmdir --ignore-fail-on-non-empty {{ storage_mount_point }}/postgres"
-    removes: "{{ storage_mount_point }}/postgres"
-  register: _rmdir_legacy_postgres
-  # `removes:` skips execution when the path is absent but Ansible still
-  # returns rc=0/changed=true. Distinguish a real rmdir (has `start` / `end`
-  # timestamps) from a skipped one to avoid lying about idempotency.
-  changed_when:
-    - _rmdir_legacy_postgres.rc == 0
-    - _rmdir_legacy_postgres.start is not none

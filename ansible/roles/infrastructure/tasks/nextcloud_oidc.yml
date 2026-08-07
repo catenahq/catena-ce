@@ -6,11 +6,11 @@
 #   1. CONVERGE (this file). Render realm-nextcloud.yaml + re-run
 #      keycloak-config-cli on change so the Keycloak side has a
 #      `nextcloud` client registered the moment the operator clicks
-#      Deploy in Dokploy. Mirrors the oauth2_proxy pattern.
+#      Deploy in Portainer. Mirrors the oauth2_proxy pattern.
 #
 #   2. POST-DEPLOY (catena-admin action "Wire Nextcloud OIDC"). The
 #      actual `occ user_oidc:provider` call inside the running Nextcloud
-#      container, run on demand by the operator after a Dokploy
+#      container, run on demand by the operator after a Portainer
 #      deploy. Backed by /usr/local/bin/catena-wire-nextcloud-oidc
 #      (installed below from scripts/wire-nextcloud-oidc.sh).
 #

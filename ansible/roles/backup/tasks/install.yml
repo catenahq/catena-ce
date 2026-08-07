@@ -3,6 +3,28 @@
 # systemd timer, initialize the restic repo on first run, and (optionally)
 # take an initial snapshot so the repo isn't empty the first time validate
 # or verify-backup runs against it.
+#
+# Backup creds are DEFERRED (0b): a fresh install may not have them yet (the
+# user sets restic repo + S3 keys in catena-admin post-install). This whole
+# file installs the units + wrapper UNCONDITIONALLY; the repo-init, cred-file
+# writes, and initial snapshot are gated on `_backup_configured` so a not-yet-
+# configured host converges cleanly and catena-backup-run self-gates at runtime.
+
+- name: "Backup: is this host backup-configured (all creds present)?"
+  ansible.builtin.set_fact:
+    _backup_configured: >-
+      {{ (backup_restic_password | default('')) | length > 0
+         and (backup_s3_access_key | default('')) | length > 0
+         and (backup_s3_secret_key | default('')) | length > 0
+         and (backup_restic_repo | default('')) | length > 0 }}
+
+- name: "Backup: note deferred configuration when creds are absent"
+  ansible.builtin.debug:
+    msg: >-
+      Backup credentials are not set yet -- installing the backup units but
+      leaving the restic repo unconfigured. Set the repo + S3 keys in
+      catena-admin > Settings > Backup; run-backup self-gates until then.
+  when: not (_backup_configured | bool)
 
 - name: Install postgresql-client + curl + fuse3 + rclone (restic comes from upstream -- ensure_restic.yml)
   ansible.builtin.apt:
@@ -88,6 +110,44 @@
     - /var/lib/catena/restic-home
     - /var/lib/catena/restic-cache
 
+# ─── CV8: the Community cadence cap, enforced where it holds ─────────────
+# catena-admin refuses a tighter-than-weekly backup schedule at the moment an
+# operator types it, and `catena-schedule apply` refuses to enable one. Both
+# of those run on a machine the client owns, and /etc/catena/config.json is a
+# file they can edit. So the converge asserts it too, against the value that
+# is actually stored.
+#
+# The panel is the affordance and this is the boundary. CV8 ("scheduled work
+# is default-deny, Community ships one weekly backup") is a structural claim
+# about this repo; a claim enforced only in a UI is not one.
+- name: "Backup: read the stored backup schedule"
+  ansible.builtin.slurp:
+    src: "{{ catena_config_store_path | default('/etc/catena/config.json') }}"
+  register: _backup_store_raw
+  failed_when: false
+
+- name: "Backup: the stored cadence honours the Community cap"
+  vars:
+    _store: >-
+      {{ (_backup_store_raw.content | default('') | b64decode | from_json)
+         if (_backup_store_raw.content is defined) else {} }}
+    _lane: "{{ (_store.schedules | default({})).backup | default({}) }}"
+  ansible.builtin.assert:
+    that:
+      - (_lane.oncalendar | default('weekly')) | backup_weekly_cap
+    fail_msg: >-
+      /etc/catena/config.json schedules the backup lane at
+      "{{ _lane.oncalendar | default('weekly') }}", which is more frequent than
+      Community allows. Daily and sub-daily backups are a Catena Pro feature.
+      Set a weekly-or-sparser schedule in the Catena admin panel, or apply a
+      licence to this host.
+  # Only when the lane is actually turned on and this host has no licence
+  # token. A stored expression on a disabled lane is not doing anything, and
+  # a licensed host is uncapped.
+  when:
+    - (_lane.enabled | default(false)) | bool
+    - ((_store.secrets | default({})).catena_license | default('')) | length == 0
+
 # Reconcile-not-overwrite: restic password is set ONCE at first
 # install and never re-written by converge. Operator-driven incident
 # rotation goes through the documented runbook (multi-step
@@ -99,15 +159,17 @@
     path: "{{ backup_password_file }}"
   register: _backup_pw_stat
 
-- name: "Backup: write restic password file (only if absent)"
+- name: "Backup: write restic password file (only if absent + configured)"
   ansible.builtin.copy:
     dest: "{{ backup_password_file }}"
-    content: "{{ vault_backup_restic_password }}\n"
+    content: "{{ backup_restic_password }}\n"
     owner: root
     group: root
     mode: "0600"
   no_log: true
-  when: not _backup_pw_stat.stat.exists
+  when:
+    - not _backup_pw_stat.stat.exists
+    - _backup_configured | bool
 
 # Same rule for backup.env (holds AWS_ACCESS_KEY_ID + SECRET for
 # restic). Set once; rotation goes through the operator-only runbook.
@@ -126,34 +188,97 @@
   no_log: true
   when: not _backup_env_stat.stat.exists
 
-- name: Drop backup wrapper script
-  # Plain /bin/sh under scripts/; no Jinja. Per-host values come from
-  # {{ backup_env_file }} (scalars) and the paths/excludes files below.
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../scripts/run-backup.sh"
-    dest: "{{ backup_wrapper_script }}"
+# The cold-tier half, written on EVERY converge unlike backup.env above.
+#
+# It cannot share backup.env: that file is only-if-absent so a converge never
+# clobbers a rotated credential, and the WORM coordinates have to be able to
+# change -- an operator adding a cold tier to an existing host would otherwise
+# write into a file nothing rewrites. Same reasoning that moved retention out
+# to backup-retention.env.
+#
+# The mirror units load this with a leading dash, so it is legal for every
+# value here to be blank; blank means the engine skips. That fail-soft
+# contract is also how the file's absence stayed invisible for months: every
+# mirror run reported "WORM unconfigured" and exited 0, and no host ever made
+# the offsite immutable copy the mirror exists for.
+- name: "Backup: write cold-tier mirror env file"
+  ansible.builtin.template:
+    src: backup-worm.env.j2
+    dest: "{{ backup_worm_env_file }}"
     owner: root
     group: root
-    mode: "0750"
+    mode: "0600"
+  no_log: true
 
-- name: Drop restic-env helper (single source of truth for sourcing backup.env)
-  # catena-restic-env loads backup.env with `set -a` and execs the
-  # command passed as args. Every caller outside the systemd-launched
-  # scripts (Ansible shell, catena-admin Actions tab, test bench,
-  # ad-hoc operator commands) goes through here so no one re-rolls the
-  # source pattern and forgets to export AWS creds. Mode 0755 so the
-  # binary is executable system-wide; reading backup.env still
-  # requires sudo because the env file itself is 0600.
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../scripts/restic-env.sh"
-    dest: "{{ backup_restic_env_script }}"
-    owner: root
-    group: root
-    mode: "0755"
+# ─── the backup scripts ship in the image payload, not from here ─────────
+# run-backup, coverage, snapshot-list/export and the restic helpers used to be
+# copied out of ansible/scripts/ by this file. They are now lane scripts in the
+# catena-admin image payload, installed by roles/payload right after
+# roles/docker.
+#
+# WHY. A fix to the backup wrapper could only reach a host through a converge,
+# which means through someone's laptop. Every other piece of host code -- the
+# recovery engine, the migrate lane, the schedule engine -- reaches a host by
+# bumping the image. The wrapper was the odd one out, and it is the piece most
+# likely to need a correction: the dump-retention fix that prompted this move
+# was in it.
+#
+# The split that decides where a script lives is what its EARLIEST caller can
+# reach. catena-disk-preflight is still copied below because restore.yml calls
+# it on a fresh DR box that has no docker yet, so no payload can exist. Every
+# script moved out has a converged host as its earliest caller.
+#
+# The per-host half did NOT move: backup.env, backup-paths, the excludes and
+# the unit files are still rendered here. Code ships in the image, configuration
+# stays with the converge.
+- name: "Backup: verify the payload-shipped backup scripts are installed"
+  ansible.builtin.stat:
+    path: "{{ backup_wrapper_script }}"
+  register: _backup_wrapper_stat
+
+# Two branches, the same shape roles/cloudflare_tunnel uses, and for the same
+# reason: "the payload did not land" and "the payload has not landed YET" are
+# different failures and only the first is worth stopping a converge for.
+#
+# catena_payload_engines_expected is published by roles/payload and says whether
+# THIS converge owns the engines. When it does, a missing wrapper means the
+# extract failed and carrying on would install a timer pointing at nothing.
+# When it does not (CATENA_PAYLOAD_INSTALL=false -- the bench, which builds the
+# image on the VPS and installs the payload at a later stage), the wrapper
+# legitimately arrives after this role runs.
+#
+# Deferring is safe here in a way it is not for the tier-1 engine: this role
+# installs the units but ENABLES nothing -- `catena-schedule apply` owns
+# enable/disable for every lane -- so a host in the gap has a disabled timer
+# pointing at a path that is about to exist, and nothing fires in between.
+- name: "Backup: the backup wrapper is missing from a converge that installs it"
+  ansible.builtin.fail:
+    msg: >-
+      {{ backup_wrapper_script }} is absent although roles/payload ran in this
+      converge, so catena-backup.service would be installed pointing at nothing
+      and every scheduled backup would fail silently at the unit level. Check
+      the "Payload:" tasks above for why the extract from
+      {{ catena_payload_image | default('the catena-admin image') }} did not
+      land.
+  when:
+    - not (_backup_wrapper_stat.stat.exists | default(false))
+    - catena_payload_engines_expected | default(false) | bool
+
+- name: "Backup: wrapper staged out of band and not present yet -- units only"
+  ansible.builtin.debug:
+    msg: >-
+      {{ backup_wrapper_script }} is not on the host and this converge does not
+      install it (CATENA_PAYLOAD_INSTALL=false). The units and the configuration
+      are being written now; the wrapper arrives with the payload install. No
+      lane is enabled by this role, so nothing fires in the gap, and the initial
+      inline snapshot below is skipped rather than run against a missing binary.
+  when:
+    - not (_backup_wrapper_stat.stat.exists | default(false))
+    - not (catena_payload_engines_expected | default(false) | bool)
 
 - name: Drop disk-preflight helper (R16 -- shared across backup/restore/auto-update)
   # Single source of truth for the "is there enough free disk to start"
-  # check. run-backup.sh, auto-update-two-phase.sh, and
+  # check. catena-backup-run, auto-update-two-phase.sh, and
   # roles/backup/tasks/restore.yml all invoke this script with their own
   # mountpoint + threshold. Plain /bin/sh, world-readable, 0755 so any
   # caller (including root-only systemd-launched scripts and Ansible's
@@ -165,56 +290,17 @@
     group: root
     mode: "0755"
 
-- name: Drop restic-mount helper (per-app PITR recovery via FUSE)
-  # catena-restic-mount opens a read-only FUSE mount of the restic repo
-  # at /mnt/restic-browse so the operator can copy a single file or
-  # directory out of a past snapshot when in-app trash + soft-delete are
-  # not enough. Runs as a transient systemd unit + 1h auto-unmount timer.
-  # Plain /bin/sh, world-readable, 0755 so the catena-admin runner can
-  # exec it without sudo gymnastics (the script itself sudos as needed).
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../scripts/restic-mount.sh"
-    dest: "{{ backup_restic_mount_script }}"
-    owner: root
-    group: root
-    mode: "0755"
-
-- name: Drop restic-unmount helper (counterpart to restic-mount)
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../scripts/restic-unmount.sh"
-    dest: "{{ backup_restic_unmount_script }}"
-    owner: root
-    group: root
-    mode: "0755"
-
-- name: Drop acquire-lock helper (R21 -- mutex between backup and auto-update)
-  # catena-acquire-lock.sh atomically creates a lock file and waits
-  # for it to become available if another process holds it. Both
-  # catena-backup.service and catena-auto-update.service invoke
-  # it as ExecStartPre to prevent concurrent runs. See vps-scripts/acquire-lock.sh
-  # for the full algorithm and timeout semantics.
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../scripts/acquire-lock.sh"
-    dest: /usr/local/bin/catena-acquire-lock.sh
-    owner: root
-    group: root
-    mode: "0755"
-
-- name: Drop restic-short-id helper (single short_id extractor for compact JSON)
-  # catena-restic-short-id reads `restic snapshots --json` output
-  # from stdin and prints the first snapshot's short_id. Replaces four
-  # duplicate awk-by-field-index extractors that all silently produced
-  # the wrong field on compact JSON (one record on one line lands the
-  # fixed index on `time` instead of `short_id`). Used by
-  # auto-update-two-phase.sh::do_snapshot + do_rollback AND by the
-  # test bench scenarios. World-readable because it does not touch
-  # secrets -- pure stdin/stdout text manipulation.
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../scripts/restic-short-id.sh"
-    dest: "{{ backup_restic_short_id_script }}"
-    owner: root
-    group: root
-    mode: "0755"
+- name: Remove legacy acquire-lock helper (R21 mutex is flock now)
+  # Every unit sharing /run/catena.lock takes it via
+  # `flock -w <t> /run/catena.lock <cmd>` (held for the command's
+  # lifetime, kernel-released on exit or crash). The old
+  # catena-acquire-lock.sh used file EXISTENCE as the lock with a
+  # pid-content staleness check; against the empty lock file flock
+  # leaves behind it found no pid to stale-check and spun to its full
+  # timeout. Remove it from converged hosts so nothing regresses to it.
+  ansible.builtin.file:
+    path: /usr/local/bin/catena-acquire-lock.sh
+    state: absent
 
 - name: Write backup paths data file
   ansible.builtin.template:
@@ -233,29 +319,15 @@
     mode: "0644"
 
 - name: Drop backup coverage paths data file
-  # Plain-text one-path-per-line file consumed by backup-coverage.sh.
-  # Templating lives HERE (pure data, no shell code) so the script
-  # itself stays a .sh under scripts/ and never meets Jinja.
+  # Plain-text one-path-per-line file consumed by catena-backup-coverage.
+  # Templating lives HERE (pure data, no shell code) so the checker itself
+  # never meets Jinja -- which is what let it ship in the image payload.
   ansible.builtin.template:
     src: backup-coverage.paths.j2
     dest: /etc/catena/backup-coverage.paths
     owner: root
     group: root
     mode: "0644"
-
-- name: Drop backup coverage checker
-  # Enumerates every bind-mount source across running containers and
-  # warns on any path not under backup_paths. Invoked by run-backup.sh
-  # at the end of each nightly run AND available as a standalone
-  # catena-admin Actions tab entry for on-demand verification.
-  # Ships via ansible.builtin.copy (plain script, no Jinja) -- the
-  # per-host data lives in backup-coverage.paths next door.
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../scripts/backup-coverage.sh"
-    dest: "{{ backup_coverage_script }}"
-    owner: root
-    group: root
-    mode: "0755"
 
 - name: "Ensure snapshot export directory exists ({{ backup_export_dir }})"
   ansible.builtin.file:
@@ -266,34 +338,40 @@
     # UID/GID 1000) can list+stat the artifacts for the /recovery tab.
     # The downloads themselves are served by the recovery nginx sidecar
     # which runs as root and still has owner-rwx. Must match the
-    # matching chowns in roles/infrastructure/tasks/recovery_archive.yml
-    # and roles/infrastructure/tasks/recovery.yml.
+    # matching chown in roles/infrastructure/tasks/recovery.yml.
     group: "1000"
     mode: "0750"
 
-- name: Drop snapshot-export helper script
-  # Plain bash under scripts/; per-host values (export dir, scp hint,
-  # retention count) all come from {{ backup_env_file }}.
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../scripts/snapshot-export.sh"
-    dest: "{{ backup_export_script }}"
+# Sovereign-exit: the snapshot must carry its own instructions. /etc is in
+# backup_paths, so both files ride every snapshot and are readable straight
+# out of it (`restic dump latest /etc/catena/RECOVERY-README.en.md`) without
+# restoring anything. Bilingual because every client-facing surface is.
+# Content is deliberately tool-agnostic: restic + docker + psql only, no
+# catena command anywhere, so a client is never dependent on us to get their
+# data back.
+# The seam site.yml runs at the end of a converge when a recovery is pending.
+# This repo creates it and never writes to it: whatever manages the host
+# afterwards installs its own script here, and an empty directory means a
+# converge behaves exactly as it did before the seam existed. Same shape as
+# /etc/catena/quiesce.d.
+- name: "Post-restore: the hook directory the converge runs"
+  ansible.builtin.file:
+    path: "{{ catena_post_restore_hook_dir }}"
+    state: directory
     owner: root
     group: root
-    mode: "0750"
+    mode: "0755"
 
-- name: "F6: drop snapshot-list helper script"
-  # Renders {{ backup_export_dir }}/index.html with a curated table of
-  # current restic snapshots + pre-exported tarballs. Invoked from
-  # run-backup.sh after forget+prune so the listing always matches the
-  # repo state. The recovery-downloads nginx sidecar serves index.html
-  # before falling through to autoindex, so client admins land on this
-  # page when they visit recovery.<zone>.
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../scripts/snapshot-list.sh"
-    dest: "{{ backup_snapshot_list_script }}"
+- name: "Sovereign-exit: drop the manual-rebuild README (EN + FR)"
+  ansible.builtin.template:
+    src: "RECOVERY-README.{{ item }}.md.j2"
+    dest: "/etc/catena/RECOVERY-README.{{ item }}.md"
     owner: root
     group: root
-    mode: "0750"
+    mode: "0644"
+  loop:
+    - en
+    - fr
 
 - name: Drop systemd service unit
   ansible.builtin.template:
@@ -320,31 +398,59 @@
     mode: "0644"
   register: _backup_timer_unit
 
+# The bit-rot probe. Ships on EVERY edition, unlike the daily chain: the
+# metadata check follows each backup from catena-backup-run, and this is the half
+# that reads pack data end to end. Before both, the check existed only as a
+# state in the licensed chain, so a Community host backed up weekly and never
+# checked the repository at all.
+#
+# Installed here, enabled and scheduled by `catena-schedule apply` like every
+# other lane -- see the note below the timer tasks.
+- name: Drop the bit-rot probe service unit
+  ansible.builtin.template:
+    src: catena-restic-check-subset.service.j2
+    dest: /etc/systemd/system/catena-restic-check-subset.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: _restic_check_subset_service_unit
+
+- name: Drop the bit-rot probe timer unit
+  ansible.builtin.template:
+    src: catena-restic-check-subset.timer.j2
+    dest: /etc/systemd/system/catena-restic-check-subset.timer
+    owner: root
+    group: root
+    mode: "0644"
+  register: _restic_check_subset_timer_unit
+
 - name: Reload systemd if the backup service or timer unit changed
   ansible.builtin.systemd_service:
     daemon_reload: true
-  when: _backup_service_unit.changed or _backup_timer_unit.changed
+  when: >-
+    _backup_service_unit.changed or _backup_timer_unit.changed
+    or _restic_check_subset_service_unit.changed
+    or _restic_check_subset_timer_unit.changed
 
-# Probe mask state so a Business host (where EE catena-daily has masked
-# the timer to take over scheduling) is left alone -- `systemctl enable`
-# errors on a masked unit. is-enabled prints "masked" and exits non-zero
-# for a masked unit; we only enable when it is NOT masked.
-- name: "Backup: probe daily-timer mask state"
-  ansible.builtin.command:
-    argv:
-      - systemctl
-      - is-enabled
-      - "{{ backup_systemd_unit_name }}.timer"
-  register: _backup_timer_enabled_state
-  changed_when: false
-  failed_when: false
-
-- name: "Backup: enable + start the daily-backup timer (skip if EE-masked)"
-  ansible.builtin.systemd_service:
-    name: "{{ backup_systemd_unit_name }}.timer"
-    enabled: true
-    state: started
-  when: "'masked' not in _backup_timer_enabled_state.stdout"
+# The timer unit is INSTALLED here and enabled nowhere in this repo.
+#
+# Whether a lane runs, and when, is `catena-schedule apply` reading
+# /etc/catena/config.json -- one owner for enable/disable across all four
+# lanes (backup, the daily chain, and the two cold mirrors). Enabling it here
+# as well would make two things responsible for the same unit, and they would
+# disagree the moment somebody turned the lane off in the panel: the next
+# converge would turn it back on.
+#
+# The consequence is deliberate and it is the point: a fresh host schedules
+# NOTHING. Scheduled work spends disk and object-store quota nobody has
+# confirmed the client has. Nothing runs, so nothing pings, so no Healthchecks
+# check is provisioned and none can go late -- the operator sees an unscheduled
+# host in the panel rather than being paged about a host nobody asked to back
+# anything up yet.
+#
+# The unit file's own OnCalendar is a safe weekly default that a drop-in from
+# catena-schedule replaces; it is what the timer would do if it were enabled by
+# hand with nothing configured.
 
 # ─── restic repo init (idempotent) ───────────────────────────────────────
 # `restic cat config` returns 0 iff the repo exists and the password is
@@ -360,6 +466,7 @@
   changed_when: false
   failed_when: false
   no_log: true
+  when: _backup_configured | bool
 
 - name: Initialize restic repo (first run only)
   ansible.builtin.command:
@@ -367,7 +474,9 @@
       - restic
       - init
   environment: "{{ backup_restic_env }}"
-  when: _restic_repo_check.rc != 0
+  when:
+    - _backup_configured | bool
+    - _restic_repo_check.rc | default(1) != 0
   no_log: true
 
 # ─── initial snapshot ────────────────────────────────────────────────────
@@ -393,6 +502,7 @@
   changed_when: false
   failed_when: false
   no_log: true
+  when: _backup_configured | bool
 
 # DR / migrate path: the post-restore marker means restore.yml has
 # extracted the source host's restic state into place. The repo
@@ -407,10 +517,16 @@
 
 - name: "Run first backup inline (sync) so verify-backup finds a snapshot"
   when:
+    - _backup_configured | bool
     - not ansible_check_mode
     - backup_run_initial_snapshot | bool
-    - _restic_has_snapshot.rc != 0
+    - _restic_has_snapshot.rc | default(1) != 0
     - not (_backup_post_restore_marker.stat.exists | default(false))
+    # No wrapper, no snapshot. On a host whose payload arrives after this role
+    # (CATENA_PAYLOAD_INSTALL=false) the unit would exec a path that does not
+    # exist yet and fail the converge. The next converge, or the first scheduled
+    # run once a lane is enabled, takes it.
+    - _backup_wrapper_stat.stat.exists | default(false)
   block:
     # ansible.builtin.systemd_service has no `state: started --wait`
     # equivalent; we need the synchronous block so verify-backup finds

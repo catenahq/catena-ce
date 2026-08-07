@@ -25,7 +25,7 @@ max-port={{ coturn_max_relay_port }}
 
 # ── Auth ───────────────────────────────────────────────────────────
 use-auth-secret
-static-auth-secret={{ vault_turn_static_auth_secret }}
+static-auth-secret={{ turn_static_auth_secret }}
 realm={{ coturn_realm }}
 
 # ── Quotas ─────────────────────────────────────────────────────────
@@ -56,7 +56,7 @@ cipher-list="ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECD
 # ── Hardening ──────────────────────────────────────────────────────
 # Refuse to relay to RFC1918, link-local, loopback, multicast, and
 # every IANA special-purpose range. Without this, an authenticated
-# TURN client can SSRF into the dokploy-network or reach the cloud
+# TURN client can SSRF into the catena-network or reach the cloud
 # metadata endpoint. List sourced from Enable Security's 2026 coturn
 # hardening guide and the EnableSecurity/coturn-secure-config
 # "recommended" profile.

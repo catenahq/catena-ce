@@ -53,7 +53,7 @@
       ansible.builtin.copy:
         content: |
           # Managed by catena roles/infrastructure mailserver_cert.yml -- do not edit.
-          dns_cloudflare_api_token = {{ vault_cloudflare_api_token }}
+          dns_cloudflare_api_token = {{ cloudflare_api_token }}
         dest: "{{ mailserver_cloudflare_creds_path }}"
         owner: root
         group: root
@@ -104,7 +104,10 @@
     - name: "Mailserver cert: map Pebble ACME host (bench local CA)"
       ansible.builtin.lineinfile:
         path: /etc/hosts
-        regexp: '[[:space:]]pebble$'
+        # Python regex, NOT POSIX -- see the note on the identical task in
+        # roles/coturn/tasks/cert.yml. `[[:space:]]` never matches a hosts
+        # line, so lineinfile appends a duplicate on every converge.
+        regexp: '^\S+\s+pebble$'
         line: "{{ mailserver_acme_host_ip }} pebble"
         state: present
       when:

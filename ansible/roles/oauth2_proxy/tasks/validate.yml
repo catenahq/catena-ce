@@ -1,8 +1,7 @@
 ---
 # Validation tasks for roles/oauth2_proxy. Each per-app instance must
 # have a running container and respond 200 on /ping (oauth2-proxy's
-# built-in health endpoint). The legacy `staff` + `admin` services
-# are also probed while `oauth2_proxy_keep_legacy_chain` is true.
+# built-in health endpoint).
 #
 # Wrapped in a block/rescue: on /ping failure (typical mode is the
 # container in a startup restart-loop, where `docker exec` returns
@@ -13,7 +12,28 @@
 # is restarting" Ansible failure into actionable startup-error text
 # for bench / DR debugging.
 
+# Cloudflare token late-binding: the oauth2-proxy issuer + per-app probes
+# below reach Keycloak through its PUBLIC hostname (auth.<zone>), which only
+# resolves once the Cloudflare tunnel is up. A tokenless install defers the
+# tunnel (the token is entered later in catena-admin > Settings), so auth.<zone>
+# is not resolvable and oauth2-proxy is EXPECTED to sit in OIDC-discovery
+# restart-backoff until then. Skip this whole validation block while the store
+# holds no token -- gating it on tunnel readiness rather than hard-failing the
+# converge on a deferred edge. Once the token is saved (cf_activate / a
+# re-converge with the token present), cloudflare_tunnel brings the edge up
+# earlier in site.yml and this block runs normally.
+- name: "validate/oauth2-proxy: tunnel deferred -- skipping public-issuer validation (no Cloudflare token yet)"
+  ansible.builtin.debug:
+    msg: >-
+      No Cloudflare API token in the on-box store: the tunnel is deferred, so
+      auth.{{ cloudflare_zone | default('<zone>') }} is not resolvable and
+      oauth2-proxy is expected to be in OIDC-discovery restart-backoff until the
+      token is entered in catena-admin > Settings. Skipping the oauth2-proxy
+      public-issuer + per-app validation this converge.
+  when: (cloudflare_api_token | default('')) | length == 0
+
 - name: "validate/oauth2-proxy: per-app container probes (with rescue diagnostics)"
+  when: (cloudflare_api_token | default('')) | length > 0
   block:
     # Post-restore (backup_rollback, restore_dr) brings every service back
     # in parallel. oauth2-proxy crash-exits on a failed OIDC discovery
@@ -77,15 +97,16 @@
     # "kick everything" regression (all containers crashed at once)
     # cannot recur.
     #
-    # Plain shell grep against the compose-name prefix (oauth2-proxy-)
-    # rather than dokploy_container_regex per app -- one docker ps
-    # round-trip covers every per-app instance, and the filter rejects
-    # wildcard service names.
+    # Plain shell grep against the stack-name prefix rather than
+    # swarm_container_regex per app -- one docker ps round-trip covers every
+    # per-app instance, and the filter rejects wildcard service names. The
+    # underscore is the stack/service separator `docker stack deploy` uses,
+    # so this matches every oauth2-proxy_oauth2-proxy-<slug>.N.<taskid>.
     - name: "validate/oauth2-proxy: list oauth2-proxy containers and their state"
       ansible.builtin.shell: |
         set -o pipefail
         docker ps -a --format '{{ "{{" }}.Names{{ "}}" }}|{{ "{{" }}.Status{{ "}}" }}' \
-          | grep -E '^{{ oauth2_proxy_compose_name }}-[a-z0-9]+-'
+          | grep -E '^{{ oauth2_proxy_compose_name }}_'
       args:
         executable: /bin/bash
       register: _oauth2_all_state
@@ -111,7 +132,7 @@
       ansible.builtin.shell: |
         set -o pipefail
         docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-          | grep -E '{{ oauth2_proxy_compose_name | dokploy_container_regex("oauth2-proxy-" + _app.slug) }}' \
+          | grep -E '{{ oauth2_proxy_compose_name | swarm_container_regex("oauth2-proxy-" + _app.slug) }}' \
           | head -n1
       args:
         executable: /bin/bash
@@ -173,74 +194,6 @@
         loop_var: _ping
         label: "{{ _ping._app.slug }}"
       when: (_ping.stdout | default('')) | length > 0
-
-    - name: "validate/oauth2-proxy: find legacy staff container"
-      ansible.builtin.shell: |
-        set -o pipefail
-        docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-          | grep -E '{{ oauth2_proxy_compose_name | dokploy_container_regex("staff") }}' \
-          | head -n1
-      args:
-        executable: /bin/bash
-      register: _oauth2_staff_container
-      changed_when: false
-      retries: 30
-      delay: 4
-      until: _oauth2_staff_container.stdout | length > 0
-      when: oauth2_proxy_keep_legacy_chain | default(true)
-
-    - name: "validate/oauth2-proxy: find legacy admin container"
-      ansible.builtin.shell: |
-        set -o pipefail
-        docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-          | grep -E '{{ oauth2_proxy_compose_name | dokploy_container_regex("admin") }}' \
-          | head -n1
-      args:
-        executable: /bin/bash
-      register: _oauth2_admin_container
-      changed_when: false
-      retries: 30
-      delay: 4
-      until: _oauth2_admin_container.stdout | length > 0
-      when: oauth2_proxy_keep_legacy_chain | default(true)
-
-    - name: "validate/oauth2-proxy: legacy staff /ping returns 200"
-      ansible.builtin.command:
-        argv:
-          - docker
-          - exec
-          - "{{ _oauth2_staff_container.stdout }}"
-          - wget
-          - "-qO-"
-          - "http://localhost:{{ oauth2_proxy_internal_port }}/ping"
-      register: _oauth2_staff_ping
-      changed_when: false
-      failed_when: _oauth2_staff_ping.rc != 0
-      retries: 12
-      delay: 4
-      until: _oauth2_staff_ping.rc == 0
-      when:
-        - oauth2_proxy_keep_legacy_chain | default(true)
-        - (_oauth2_staff_container.stdout | default('')) | length > 0
-
-    - name: "validate/oauth2-proxy: legacy admin /ping returns 200"
-      ansible.builtin.command:
-        argv:
-          - docker
-          - exec
-          - "{{ _oauth2_admin_container.stdout }}"
-          - wget
-          - "-qO-"
-          - "http://localhost:{{ oauth2_proxy_internal_port }}/ping"
-      register: _oauth2_admin_ping
-      changed_when: false
-      failed_when: _oauth2_admin_ping.rc != 0
-      retries: 12
-      delay: 4
-      until: _oauth2_admin_ping.rc == 0
-      when:
-        - oauth2_proxy_keep_legacy_chain | default(true)
-        - (_oauth2_admin_container.stdout | default('')) | length > 0
 
   rescue:
     # docker logs / inspect each call swallows its own failures

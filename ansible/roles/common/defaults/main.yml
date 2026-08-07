@@ -19,7 +19,7 @@ common_locale: "en_CA.UTF-8"
 
 # Client-facing surfaces (catena-admin, Keycloak login UI) default
 # to this language. Operator-facing surfaces (Ansible output,
-# Dokploy admin, Gatus) stay English regardless. Set via
+# Portainer, Gatus) stay English regardless. Set via
 # CATENA_DEFAULT_LANGUAGE in inventory/<name>/.env to override.
 # Values: en | fr. French translations are upstream-provided for
 # Keycloak and bundled with catena-admin -- spot-check before
@@ -60,13 +60,13 @@ common_baseline_packages:
 # operation that follows. HTTPS sources (docker-ce, tailscale) stay
 # DIRECT -- apt-cacher-ng's CONNECT passthrough has no cache benefit
 # and proxying HTTPS risks TLS middleboxing issues.
-common_apt_proxy_url: "{{ lookup('dotenv', 'APT_PROXY_URL', default='') }}"
+common_apt_proxy_url: "{{ cfg_apt_proxy_url | default('') }}"
 
 # ─── Declarative public-port registry ────────────────────────────────────
 # Reconciler + helper modules install side by side here (the reconciler
 # imports public_ports + labels_schema by bare name from its own dir).
 public_ports_lib_dir: /usr/local/lib/catena
-# conf.d-style fragment dir: each infra role (coturn, dokploy) drops
+# conf.d-style fragment dir: each infra role (coturn, portainer) drops
 # <owner>.json declaring its host-bound public ports. App ports arrive via
 # vps.expose.* labels and are NOT written here.
 public_ports_fragment_dir: /etc/catena/public-ports.d
@@ -74,3 +74,15 @@ public_ports_fragment_dir: /etc/catena/public-ports.d
 # interval of deploy; DOCKER-USER guards re-assert if flushed out-of-band.
 public_ports_timer_on_boot: "2min"
 public_ports_timer_interval: "5min"
+
+# ─── Rendered swarm stack files ──────────────────────────────────────────
+# Where roles/infrastructure/tasks/swarm_stack.yml writes the compose body
+# it hands to `docker stack deploy`. Declared in common (which runs first)
+# rather than in infrastructure, because keycloak and oauth2_proxy include
+# that helper from their own roles and a role's defaults are only in scope
+# once that role has run.
+#
+# Keeping the file on disk is what makes a failed deploy diagnosable after
+# the fact: the exact converge is reproducible by hand with
+# `docker stack deploy -c <dir>/<name>.yml <name>`.
+swarm_stack_dir: /etc/catena/stacks

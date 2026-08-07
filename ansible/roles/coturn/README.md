@@ -7,7 +7,7 @@ Shared TURN/STUN server. Used by both chat-video stacks:
   `vps-scripts/nextcloud-talk-hpb-wire.sh` via `occ talk:turn:add`.
 - **Rocket.Chat's bundled Jitsi** -- jitsi-videobridge is configured
   with `JVB_TURN_HOST=turn.<base>` / `JVB_TURN_PORT=5349` /
-  `JVB_TURN_SECRET={{ vault_turn_static_auth_secret }}` for the same
+  `JVB_TURN_SECRET={{ turn_static_auth_secret }}` for the same
   relay path.
 
 One coturn deployment serves both. Auth is `static-auth-secret`
@@ -22,7 +22,7 @@ per call. Coturn does not maintain a per-user database.
    timer; a deploy hook SIGHUPs the running coturn container so
    cert hot-reloads land without dropping calls.
 2. Renders `turnserver.conf` from the role's Jinja template,
-   parameterized by inventory (public IP, vault secret, hostname,
+   parameterized per host (public IP, static-auth secret, hostname,
    relay port range).
 3. Deploys coturn as a Docker Swarm service in `mode=global` with
    `--network=host` so the container sees the VPS public IP directly
@@ -53,8 +53,9 @@ UDP media plane direct on VPS public IP via shared coturn at
 
 - Cert: regenerated automatically via certbot on the new host (state
   in `/etc/letsencrypt/`; restic-included by default).
-- Static auth secret: lives in the vault (`vault_turn_static_auth_secret`),
-  same DR path as every other shared secret.
+- Static auth secret: minted on-box into `/etc/catena/config.json`
+  (`turn_static_auth_secret`), same DR path as every other shared
+  secret -- `/etc` rides the restic snapshot.
 - Compose / swarm spec: re-rendered on converge from this role.
 
 ## Hardening posture
@@ -91,15 +92,19 @@ hardening guide and the EnableSecurity/coturn-secure-config
   brute-force is computationally infeasible and credential-leak
   attacks produce legitimate-looking source IPs. See the
   `Explicit non-features` block in
-  [internal_docs/operator/data-security-overview.md](../../../../internal_docs/operator/data-security-overview.md).
+  [ops/internal_docs/tools/data-security-overview.md](../../../../../ops/internal_docs/tools/data-security-overview.md).
 - **No allow-list (`allowed-peer-ip`) mode.** Catena's TURN serves
   general browser-to-browser calls; allow-list would break the use
   case. Deny-list of every special-purpose IANA range is the correct
   posture.
 
-**Image-update SLA:** the `coturn_image` pin in
-[defaults/main.yml](defaults/main.yml) is bumped within 7 days of
-upstream release, sooner on a CVE. CVE feed:
+**Image-update SLA:** the coturn image pin lives in the tier-1 host
+engine's built-in catalog (catena-admin
+`payload/engines/tier1/catalog.go`), not in this role. It is bumped
+within 7 days of upstream release, sooner on a CVE. That move also gave
+it a Renovate tracker and a Trivy scan for the first time -- while the
+pin lived here it had neither, so coturn was the one tier-1 image
+nothing was watching. CVE feed:
 [opencve.io/cve/?vendor=coturn_project](https://app.opencve.io/cve/?vendor=coturn_project)
 and the upstream GitHub Security Advisories for
 [coturn/coturn](https://github.com/coturn/coturn/security/advisories).
@@ -112,8 +117,8 @@ The shared-secret auth model (`use-auth-secret` +
 `static-auth-secret`) is the same RFC 7635 HMAC-SHA1 REST credential
 scheme used by Synapse, the server behind Element. **No coturn role
 changes are required** to add a third chat-video stack -- only a
-Synapse compose entry (in `catenahq/dokploy-templates`) that wires
-the existing `vault_turn_static_auth_secret` through to
+Synapse compose entry (in `catenahq/catena-templates`) that wires
+the existing `turn_static_auth_secret` through to
 `homeserver.yaml`:
 
 ```yaml
@@ -121,7 +126,7 @@ turn_uris:
   - "turn:turn.<base>:3478?transport=udp"
   - "turn:turn.<base>:3478?transport=tcp"
   - "turns:turn.<base>:5349?transport=tcp"
-turn_shared_secret: "<vault_turn_static_auth_secret>"
+turn_shared_secret: "<turn_static_auth_secret>"
 turn_user_lifetime: 86400000
 turn_allow_guests: true
 ```

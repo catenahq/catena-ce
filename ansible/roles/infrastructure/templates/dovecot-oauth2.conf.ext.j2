@@ -13,7 +13,7 @@
 # user's email; Dovecot keys the mailbox on it. Roundcube and the mailbox
 # local-part must therefore agree on the address.
 
-introspection_url = https://mailserver-introspect:{{ vault_mailserver_introspect_client_secret }}@{{ keycloak_hostname | default('auth.' ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default('vps') }}/protocol/openid-connect/token/introspect
+introspection_url = https://mailserver-introspect:{{ mailserver_introspect_client_secret }}@{{ keycloak_hostname | default('auth.' ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default('vps') }}/protocol/openid-connect/token/introspect
 introspection_mode = post
 force_introspection = yes
 active_attribute = active

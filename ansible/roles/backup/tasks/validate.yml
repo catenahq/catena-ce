@@ -7,7 +7,15 @@
 # host the EE engine MASKS catena-backup.timer and schedules itself, so
 # this validate only asserts the units exist; it does NOT assert the
 # timer is enabled (it is legitimately masked on Business).
-- name: "validate/backup: fixture files exist + correct mode"
+#
+# The fixtures split in two, because since 2026-08-03 they no longer all arrive
+# at the same time. The units and the config are written by THIS role; the
+# scripts are lane scripts in the catena-admin image payload, and on a host that
+# stages its payload out of band (CATENA_PAYLOAD_INSTALL=false -- the bench
+# builds the image on the VPS and installs it at a later stage) they land AFTER
+# a converge, so a validate in between would be asserting on a host that is
+# legitimately mid-assembly.
+- name: "validate/backup: role-owned fixtures exist + correct mode"
   ansible.builtin.include_role:
     name: common
     tasks_from: _assert_path_perms
@@ -15,14 +23,72 @@
     _assert_paths:
       - { path: /etc/systemd/system/catena-backup.service }
       - { path: /etc/systemd/system/catena-backup.timer }
-      - { path: /usr/local/bin/run-backup.sh, mode: "0750" }
       - { path: /usr/local/bin/restic, mode: "0755" }
+      # The one backup script this role still copies: restore.yml calls it on a
+      # fresh DR box with no docker, so it cannot come from the image payload.
       - { path: /usr/local/bin/catena-disk-preflight, mode: "0755" }
+
+- name: "validate/backup: stat the payload-shipped scripts"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ backup_wrapper_script }}"
+    - "{{ backup_coverage_script }}"
+    - "{{ backup_restic_env_script }}"
+    - "{{ backup_snapshot_list_script }}"
+  register: _bk_payload_scripts
+
+# Assert when the payload is EXPECTED here -- either this deployment installs it
+# from the converge (production), or some of it is already on the host.
+#
+# "some" rather than "all" on purpose: a host holding three of the four is a
+# broken payload install, which is exactly what this should catch. Requiring all
+# four would make the partial case indistinguishable from the not-yet case and
+# skip the only check that would have found it.
+- name: "validate/backup: decide whether the payload scripts are expected here"
+  ansible.builtin.set_fact:
+    _bk_payload_expected: >-
+      {{ (lookup('env', 'CATENA_PAYLOAD_INSTALL', default='true') | bool)
+         or (_bk_payload_scripts.results
+             | selectattr('stat.exists') | list | length > 0) }}
+
+- name: "validate/backup: payload not installed yet -- script checks deferred"
+  ansible.builtin.debug:
+    msg: >-
+      None of the payload-shipped backup scripts are on this host and this
+      deployment does not install the payload from the converge
+      (CATENA_PAYLOAD_INSTALL=false). They arrive with the payload install; the
+      units and configuration above are already in place.
+  when: not (_bk_payload_expected | bool)
+
+- name: "validate/backup: payload-shipped scripts installed + executable"
+  # 0755 rather than the 0750 this asserted while the role copied the wrapper
+  # itself: install-ee-payload.sh installs every payload binary and lane script
+  # with one mode. Nothing is lost -- these hold no secret (their per-host values
+  # come from backup.env, which stays 0600 root-owned), so the tighter mode was
+  # never what kept the credentials unreadable.
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.mode == "0755"
+    fail_msg: >-
+      {{ item.item }} is missing or not 0755 (exists={{ item.stat.exists }},
+      mode={{ item.stat.mode | default('n/a') }}). It ships in the catena-admin
+      host payload; check that roles/payload extracted it, or that the
+      out-of-band payload install ran.
+  loop: "{{ _bk_payload_scripts.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: _bk_payload_expected | bool
 
 - name: "validate/backup: restic can reach the repo"
   # End-to-end reachability check: cat config decrypts the repo header,
   # failing cleanly on wrong password, unreachable bucket, or missing
   # credentials. Doesn't require any snapshots to exist.
+  #
+  # Gated on the entrypoint existing for the same reason as the block above --
+  # it is itself a payload script, so before the payload lands this would be
+  # reporting on a repository it never managed to ask about.
   ansible.builtin.command:
     argv:
       - "{{ backup_restic_env_script }}"
@@ -32,9 +98,11 @@
   register: _bk_restic_cat
   failed_when: false
   changed_when: false
+  when: _bk_payload_expected | bool
 
 - name: "validate/backup: restic cat config exited 0"
   ansible.builtin.assert:
     that:
       - _bk_restic_cat.rc == 0
     fail_msg: "restic cat config failed (rc={{ _bk_restic_cat.rc }}, stderr={{ _bk_restic_cat.stderr }})"
+  when: _bk_payload_expected | bool

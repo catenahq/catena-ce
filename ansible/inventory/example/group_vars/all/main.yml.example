@@ -27,26 +27,27 @@ tailscale_accept_dns: >-
 cloudflare_api_base: "https://api.cloudflare.com/client/v4"
 cloudflare_account_id: "{{ lookup('dotenv', 'CLOUDFLARE_ACCOUNT_ID') }}"
 cloudflare_zone: "{{ lookup('dotenv', 'CLOUDFLARE_ZONE') }}"
+# cloudflare_zone above is the primary domain every <sub>.<zone> hostname
+# interpolates, and the only one a Community host serves. Additional domains
+# are attached in the catena-admin Domains panel and live in the on-box store;
+# the host engine assembles the full list from there and caps it on the
+# subscription, so there is no zone list to set here.
 # Per-host tunnel name. Each host owns its own tunnel. The optional .env
 # prefix CLOUDFLARED_TUNNEL_NAME_PREFIX is prepended for environments that
 # need a recognizable string for prefix-filtered cleanup.
 cloudflared_tunnel_name: "{{ lookup('dotenv', 'CLOUDFLARED_TUNNEL_NAME_PREFIX', default='') }}{{ inventory_hostname }}"
-# Cloudflared runs as a swarm service on dokploy-network. Ingress target is
-# Dokploy's Traefik container, reachable by service name inside the network.
-cloudflared_ingress_service: "http://dokploy-traefik:80"
-cloudflared_dokploy_env_key: "CLOUDFLARE_TUNNEL_TOKEN"
+# Cloudflared runs as a swarm service on catena-network. Ingress target is
+# the catena-traefik container, reachable by service name inside the network.
+cloudflared_ingress_service: "http://catena-traefik:80"
 
 # --- Infrastructure subdomains ---
 # Public-facing hostnames, all gated by self-hosted SSO + forward-auth
 # (Keycloak + oauth2-proxy). SSO works across them via a shared auth.<zone>
 # session cookie.
-dokploy_admin_subdomain: "{{ lookup('dotenv', 'DOKPLOY_ADMIN_SUBDOMAIN', default='apps') }}"
-dokploy_admin_hostname: "{{ dokploy_admin_subdomain }}.{{ cloudflare_zone }}"
-
-infrastructure_monitor_subdomain: "{{ lookup('dotenv', 'DOKPLOY_MONITOR_SUBDOMAIN', default='monitor') }}"
+infrastructure_monitor_subdomain: "{{ lookup('dotenv', 'MONITOR_SUBDOMAIN', default='monitor') }}"
 infrastructure_monitor_hostname: "{{ infrastructure_monitor_subdomain }}.{{ cloudflare_zone }}"
 # catena-admin (the Go shell) is served at dash.<zone>.
-infrastructure_dash_subdomain: "{{ lookup('dotenv', 'DOKPLOY_DASH_SUBDOMAIN', default='dash') }}"
+infrastructure_dash_subdomain: "{{ lookup('dotenv', 'DASH_SUBDOMAIN', default='dash') }}"
 infrastructure_dash_hostname: "{{ infrastructure_dash_subdomain }}.{{ cloudflare_zone }}"
 
 healthchecks_subdomain: "{{ lookup('dotenv', 'HEARTBEAT_SUBDOMAIN', default='heartbeat') }}"
@@ -58,22 +59,32 @@ healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
 admin_email: "{{ lookup('dotenv', 'ADMIN_EMAIL', default='') }}"
 
 # SMTP -- resolved by the SSO role's autofill. Set RESEND_SENDER_EMAIL or
-# BREVO_SENDER_EMAIL in .env (plus the SMTP password in vault_smtp_password)
+# BREVO_SENDER_EMAIL in .env (plus the SMTP password in smtp_password)
 # and the role picks the right host/port/user automatically. Don't re-declare
 # smtp_host/smtp_port/etc. here -- doing so shadows the role default and
 # defeats the autofill.
 
-# --- ntfy (Gatus alerting) ---
-ntfy_server: "{{ lookup('dotenv', 'NTFY_SERVER', default='https://ntfy.sh') }}"
-ntfy_topic: "{{ lookup('dotenv', 'NTFY_TOPIC', default='') }}"
+# ntfy + backup repo are NOT set here. They are store-owned (catena-admin >
+# Settings); the converge seeds them from .env once and reads the store after.
 
 # Auth is handled entirely by self-hosted SSO at auth.<zone> + forward-auth
 # middleware on each app router. User membership in the access groups controls
 # access to the gated subdomains.
 
-# --- Dokploy API ---
-dokploy_api_base: "http://{{ ansible_host }}:{{ dokploy_port }}/api"
-dokploy_project_name: "{{ lookup('dotenv', 'DOKPLOY_PROJECT_NAME', default='infrastructure') }}"
+# --- Portainer API (container control plane) ---
+# Global so any role (infrastructure stack seam, dashboard-sync env) can
+# reference it. roles/portainer consumes the same names. Reached from the
+# controller over the tailnet.
+portainer_ui_port: "{{ lookup('dotenv', 'PORTAINER_UI_PORT', default='9000') }}"
+portainer_api_base: "http://{{ ansible_host }}:{{ portainer_ui_port }}/api"
+
+# Public, oauth2-gated hostname for the Portainer UI over the Cloudflare
+# tunnel (admin-only; wired by roles/oauth2_proxy oauth2_proxy_apps). This is
+# the client admin's self-serve deploy surface. Distinct from
+# portainer_api_base above, which is the tailnet-only operator control
+# path -- both reach the same catena-portainer service.
+portainer_admin_subdomain: "{{ lookup('dotenv', 'PORTAINER_SUBDOMAIN', default='portainer') }}"
+portainer_admin_hostname: "{{ portainer_admin_subdomain }}.{{ cloudflare_zone }}"
 
 # --- Storage ---
 storage_mode: "{{ lookup('dotenv', 'STORAGE_MODE', default='built_in') }}"
@@ -83,27 +94,17 @@ storage_bulk_enabled: >-
   {{ lookup('dotenv', 'STORAGE_BULK_ENABLED', default='false') | bool }}
 storage_bulk_mount_point: "{{ lookup('dotenv', 'STORAGE_BULK_MOUNT_POINT', default='/mnt/bulk') }}"
 
-# --- Dokploy ---
-# dokploy_version reads its .env override inside the role default
-# (roles/dokploy/defaults/main.yml). Uncomment + set to pin explicitly.
-# dokploy_version: "v0.29.0"
-dokploy_bind_interface: "{{ lookup('dotenv', 'DOKPLOY_BIND_INTERFACE', default='tailscale0') }}"
-dokploy_port: "{{ lookup('dotenv', 'DOKPLOY_PORT', default='3000') | int }}"
-
 # --- Backup ---
-# Community ships a MANUAL backup (no schedule). backup_restic_repo +
-# retention + the optional healthcheck ping apply whenever run-backup runs.
-backup_restic_repo: "{{ lookup('dotenv', 'BACKUP_RESTIC_REPO') }}"
-# Default: ping the local self-hosted Healthchecks at heartbeat.<zone> using
-# the per-project ping key. Override via .env to point elsewhere (e.g. an
-# off-host healthchecks.io for whole-host-outage coverage).
-backup_healthcheck_url: >-
-  {{
-    lookup('dotenv', 'BACKUP_HEALTHCHECK_URL', default='')
-    or ('https://' ~ healthchecks_hostname
-        ~ '/ping/' ~ vault_healthchecks_ping_key
-        ~ '/catena-backup?create=1')
-  }}
+# Deferred (0b): backup creds + repo + schedule are configured POST-INSTALL in
+# catena-admin (Settings > Backup), written to the on-box store, and read by
+# run-backup.sh at runtime. This .env value is only a converge-time fallback
+# for the repo URL; default '' so a deferred-backup install converges cleanly.
+# backup_healthcheck_url is NOT set here. roles/backup/defaults owns it, and
+# an inventory copy overrides that default while drifting from it: this one
+# still built the single-lane "catena-backup" slug the two-lane succeeded /
+# attempted split replaced, so any inventory carrying it silently opted out of
+# the immediate-page lane. Override with BACKUP_HEALTHCHECK_URL in .env if you
+# want an off-host endpoint.
 backup_retention_policy:
   keep_daily: "{{ lookup('dotenv', 'BACKUP_KEEP_DAILY', default='7') | int }}"
   keep_weekly: "{{ lookup('dotenv', 'BACKUP_KEEP_WEEKLY', default='4') | int }}"

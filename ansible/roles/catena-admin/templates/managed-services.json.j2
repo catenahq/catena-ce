@@ -1,0 +1,41 @@
+{#
+  The infra services eligible for a managed version bump between converges.
+
+  catena-stack-update-managed reads this as its --specs-file. Without it the
+  lane runs, finds no specs, and bumps nothing -- which is indistinguishable
+  from "nothing needed bumping", and was the state of every real host until
+  this template existed.
+
+  Scope is the control plane only: the two services this repo deploys directly
+  and pins by tag. Client application stacks are bumped through the Portainer
+  compose path and are discovered from Portainer, not listed here.
+
+  Both entries are `infra-swarm`, which needs only the service name: the lane
+  bumps with `docker service update --image`, so it never has to reproduce how
+  the converge built the service and there is no launch argv here to keep in
+  step with the role.
+#}
+[
+  {
+    "name": "{{ portainer_service_name }}",
+    "kind": "infra-swarm",
+    "swarm_service": "{{ portainer_service_name }}",
+    "policy": "patch+minor",
+    "upstream": {
+      "source": "dockerhub",
+      "repo": "portainer/portainer-ce",
+      "tag_pattern": "^\\d+\\.\\d+\\.\\d+$"
+    }
+  },
+  {
+    "name": "{{ traefik_container_name }}",
+    "kind": "infra-swarm",
+    "swarm_service": "{{ traefik_container_name }}",
+    "policy": "patch",
+    "upstream": {
+      "source": "github",
+      "repo": "traefik/traefik",
+      "tag_pattern": "^v\\d+\\.\\d+\\.\\d+$"
+    }
+  }
+]

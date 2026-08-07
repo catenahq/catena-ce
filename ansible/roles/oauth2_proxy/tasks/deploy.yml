@@ -1,0 +1,17 @@
+---
+# Render compose + deploy via the Portainer API. Reuses the canonical
+# infrastructure helper. No public domain attached -- both oauth2-proxy
+# instances are reached via Traefik forwardAuth on catena-network only.
+
+- name: "oauth2-proxy: deploy per-app instance stack"
+  ansible.builtin.include_tasks: ../../infrastructure/tasks/swarm_stack.yml
+  vars:
+    svc_name: "{{ oauth2_proxy_compose_name }}"
+    svc_compose_content: "{{ lookup('template', 'oauth2-proxy.compose.yml.j2') }}"
+    # No svc_domain_host: the proxies are intra-cluster only.
+    svc_domain_host: ""
+    svc_domain_service: ""
+    svc_domain_port: 0
+    svc_readiness_skip_reason: >-
+      oauth2-proxy is not publicly routed; readiness is verified by
+      tasks/validate.yml's docker-exec /ping probe.

@@ -2,7 +2,7 @@
 # Keycloak realm export sidecar.
 #
 # Realm clients, mappers, scopes, signing keys, SMTP config all live
-# in dokploy-postgres so they recover with the rest of the DB. But
+# in catena-postgres so they recover with the rest of the DB. But
 # realm-level UI customizations (logos, themes) and any operator-edited
 # client redirect_uris that were not re-applied via blueprint are
 # DB-only state with no easy diff surface. A nightly JSON export gives
@@ -38,7 +38,7 @@
   ansible.builtin.shell: |
     set -o pipefail
     docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-      | grep -E '{{ keycloak_compose_name | dokploy_container_regex(keycloak_server_service) }}' \
+      | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' \
       | head -n1 || true
   args:
     executable: /bin/bash
@@ -58,13 +58,13 @@
   ansible.builtin.assert:
     that:
       - admin_email is string and admin_email | length > 0
-      - vault_admin_password is string and vault_admin_password | length > 0
+      - admin_password is string and admin_password | length > 0
     fail_msg: >-
       Master-realm credentials missing before kcadm login
       (admin_email_len={{ admin_email | default('') | length }},
-       vault_admin_password_len={{ vault_admin_password | default('') | length }}).
-      Likely cause: sops re-encrypt during converge dropped a key.
-      Inspect inventory/<env>/group_vars/all/vault.sops.yml.
+       vault_admin_password_len={{ admin_password | default('') | length }}).
+      Likely cause: these keys are absent from the on-box config store.
+      Inspect /etc/catena/config.json.
   when: (_kc_export_server_ct.stdout | default('') | length) > 0
 
 - name: "Keycloak realm export: kcadm.sh login as master-realm admin"
@@ -83,7 +83,7 @@
       - --user
       - "{{ admin_email }}"
       - --password
-      - "{{ vault_admin_password }}"
+      - "{{ admin_password }}"
   register: _kc_export_login
   changed_when: false
   # no_log: true is correct for the kcadm invocation itself (the
@@ -121,7 +121,8 @@
       Skipping JSON export this converge -- the nightly
       catena-keycloak-realm-export.timer will retry. Likely causes:
       (1) Keycloak transient on the master token endpoint,
-      (2) master admin password drift between vault and Keycloak DB,
+      (2) master admin password drift between the on-box store and the
+          Keycloak DB,
       (3) docker exec connectivity (container restarted mid-task).
   when:
     - (_kc_export_server_ct.stdout | default('') | length) > 0

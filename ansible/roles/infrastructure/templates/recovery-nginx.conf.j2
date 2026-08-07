@@ -3,8 +3,8 @@
 # /etc/nginx/nginx.conf, replacing the base image's default nginx.conf.
 #
 # Why replace the whole file instead of dropping a site under conf.d/:
-# the files we serve in /srv/recovery (.yml.gpg + .tar.gz) are produced
-# on the host as root:root mode 0600. nginx:alpine's stock config runs
+# the files we serve in /srv/recovery (.tar.gz snapshot exports) are
+# produced on the host as root:root. nginx:alpine's stock config runs
 # workers as `nginx` (UID 101) which cannot read root-owned files. The
 # `user` directive is only valid at the main config level, so the only
 # way to run workers as root is to replace this file.
@@ -40,9 +40,8 @@ http {
         listen 80;
         server_name _;
 
-        # Recovery bundles are already AES-256 encrypted (.yml.gpg) or
-        # plain tar.gz of a snapshot export; either way they're single-
-        # consumption artifacts. Never cache.
+        # Snapshot exports are single-consumption artifacts (a plain
+        # tar.gz of a restic snapshot). Never cache.
         add_header Cache-Control "no-store, no-cache, must-revalidate" always;
         add_header Pragma "no-cache" always;
         add_header X-Content-Type-Options "nosniff" always;

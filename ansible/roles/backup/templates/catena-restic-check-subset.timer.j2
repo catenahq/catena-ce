@@ -1,0 +1,29 @@
+[Unit]
+Description=catena weekly bit-rot probe timer (restic check --read-data-subset)
+# Ships on EVERY edition, unlike the daily chain. The metadata check follows
+# each backup from run-backup.sh; this is the other half -- the 5% end-to-end
+# pack read that catches silent corruption in the object store, which a
+# metadata check cannot see.
+#
+# Time-based rather than backup-driven on purpose: bit rot accrues with
+# wall-clock time, not with how often a client backs up, and the read pulls 5%
+# of the repo out of object storage every time it runs. Following a sub-hourly
+# RPO with it would multiply a client's egress bill and prove nothing extra.
+
+[Timer]
+# NO OnCalendar here, and none by default. `catena-schedule apply` writes the
+# drop-in that carries it, reading /etc/catena/config.json -- one owner for
+# every lane's enable/disable and cadence. Templating a schedule into the unit
+# would make this file a second owner, and the two would disagree the moment
+# somebody changed the cadence in the panel: the next converge would put the
+# old one back.
+#
+# Same fleet-spreading rationale as the backup timer: clients on a shared
+# endpoint must not all start reading pack data at the same instant.
+RandomizedDelaySec=1h
+# A host that was off at the scheduled time still gets its probe.
+Persistent=true
+Unit=catena-restic-check-subset.service
+
+[Install]
+WantedBy=timers.target

@@ -5,7 +5,7 @@ Configure the two oauth2-proxy instances that gate the stack:
 - **staff** -- protects every client-facing app (Outline,
   Easy!Appointments, Rocket.Chat...) via the `staff` group.
 - **admin** -- protects operator-only surfaces (admin.<zone>,
-  Dokploy UI, Healthchecks UI, OliveTin) via the `operators` /
+  Portainer UI, Healthchecks UI) via the `operators` /
   `client-admin` groups.
 
 ## Responsibilities
@@ -16,12 +16,12 @@ Configure the two oauth2-proxy instances that gate the stack:
 - Render per-app route files (one Traefik dynamic config per
   protected app) with the correct group filter and unprotected-path
   allowlist.
-- Deploy both compose projects via the Dokploy API.
+- Deploy both compose projects via the Portainer API.
 
 ## Inputs
 
-- `vault_oauth2_proxy_cookie_secret_staff` /
-  `vault_oauth2_proxy_cookie_secret_admin` -- 32-byte secrets,
+- `oauth2_proxy_cookie_secret_staff` /
+  `oauth2_proxy_cookie_secret_admin` -- 32-byte secrets,
   rotation via `runbooks/rotate-oauth2-proxy-cookie.md`.
 - `oauth2_proxy_protected_apps` -- list of {name, host, group,
   unauth_paths} per app.
@@ -30,20 +30,21 @@ Configure the two oauth2-proxy instances that gate the stack:
 
 - Client secret minting is gated on existence in Keycloak.
 - Traefik route files are rendered atomically per app.
-- Dokploy redeploy fires only when the rendered config differs
+- Portainer redeploy fires only when the rendered config differs
   from the running.
 
 ## Related
 
 - Caller: `playbooks/site.yml` (after `keycloak`).
-- Operator-facing: `internal_docs/operator/keycloak-and-oauth2-proxy-gotchas.md`.
+- Operator-facing: `ops/internal_docs/tools/keycloak-and-oauth2-proxy-gotchas.md`.
 
 ## Planned (deferred): public-with-gated-path Traefik shape
 
-When the Easy!Appointments template lands (see
-`internal_docs/operator/external-scheduler-comparison.md` section 7),
-this role will need a sibling rendering pattern under a new
-`templates/` dir:
+Easy!Appointments configures OIDC through config-file edits rather than
+env vars, so it sits outside the label-driven wiring flow (see
+`ops/internal_docs/adr/0007-easy-appointments-as-the-scheduler.md`).
+When its template lands, this role will need a sibling rendering
+pattern under a new `templates/` dir:
 
 - `templates/app-public-with-gated-path.yml.j2` -- two Traefik routers
   on the same host, priority-100 anonymous + priority-200

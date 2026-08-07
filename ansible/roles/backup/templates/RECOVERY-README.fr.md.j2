@@ -1,0 +1,106 @@
+# Reconstruire votre serveur à partir d'une sauvegarde
+
+Ce fichier fait partie de chaque sauvegarde. Si vous le lisez après avoir
+extrait une sauvegarde, tout ce qui est décrit ci-dessous est déjà entre
+vos mains.
+
+Vous n'avez besoin ni de notre logiciel, ni de nos outils, ni de notre
+aide pour récupérer vos données. Il vous faut trois programmes courants :
+`restic` (lit la sauvegarde), `docker` (exécute les applications) et
+`psql` (charge les bases de données).
+
+## 1. Ce que contient la sauvegarde
+
+| Quoi | Où dans la sauvegarde |
+| --- | --- |
+| Données des applications (fichiers, téléversements, boîtes courriel) | `{{ storage_mount_point }}/docker/volumes/<nom>/_data/` |
+| Définitions des applications (le fichier compose de chacune) | `{{ storage_mount_point }}/docker/volumes/{{ portainer_data_volume | default('catena-portainer-data') }}/_data/compose/<id>/` |
+| Exports de bases de données (un fichier par base, SQL en clair) | `{{ storage_mount_point }}/backup-staging/pg/*.sql.gz` |
+| Fichiers stockés hors volume | `{{ storage_mount_point }}/apps/` |
+| Vos paramètres et mots de passe | `/etc/catena/config.json` |
+| La version du logiciel utilisée par ce serveur | `/etc/catena/version.txt` |
+
+Tout est constitué de fichiers et de répertoires ordinaires. Aucun format
+propriétaire, aucun besoin de notre logiciel pour les ouvrir.
+
+## 2. Ce qui est volontairement ABSENT de la sauvegarde, et pourquoi
+
+- **Les images des applications.** Elles se téléchargent à neuf depuis
+  leurs sources publiques. Les conserver multiplierait la taille de
+  chaque sauvegarde sans aucun bénéfice, puisque les versions exactes
+  sont inscrites dans chaque fichier compose.
+- **L'historique de surveillance et d'antivirus** (Gatus, Healthchecks,
+  Beszel, signatures ClamAV). Ces données se reconstruisent en quelques
+  minutes et changent sans arrêt, ce qui gonflerait chaque sauvegarde.
+- **Les clés d'identité SSH du serveur.** Un serveur reconstruit génère
+  les siennes. Transporter les anciennes serait un problème de sécurité,
+  pas une commodité.
+
+## 3. Lisez d'abord la version du logiciel
+
+```
+restic dump latest /etc/catena/version.txt
+```
+
+La première ligne indique la version exacte du logiciel d'installation
+qui a construit ce serveur. Si vous reconstruisez un serveur complet
+plutôt qu'une seule application, installez cette même version avant de
+restaurer. Une version plus récente pourrait attendre un format de base
+de données plus récent que celui de votre sauvegarde.
+
+## 4. Restaurer une application à la main
+
+Extrayez uniquement ce dont cette application a besoin :
+
+```
+restic restore latest --target /recovered \
+    --include '{{ storage_mount_point }}/docker/volumes/<nom-du-volume>' \
+    --include '{{ storage_mount_point }}/docker/volumes/{{ portainer_data_volume | default('catena-portainer-data') }}/_data/compose'
+```
+
+Repérez la définition de l'application dans le répertoire `compose/`
+extrait. Chaque sous-répertoire contient le fichier compose d'une
+application, accompagné de ses paramètres.
+
+Remettez les données en place et démarrez :
+
+```
+docker volume create <nom-du-volume>
+cp -a /recovered{{ storage_mount_point }}/docker/volumes/<nom-du-volume>/_data/. \
+      /var/lib/docker/volumes/<nom-du-volume>/_data/
+docker compose -f /recovered/.../docker-compose.yml up -d
+```
+
+Le fichier compose nomme la version exacte de l'image qui était en
+service : l'application redémarre donc dans la version que ses données
+attendent.
+
+## 5. Recharger une base de données
+
+Les exports de bases sont du SQL en clair, lisible et chargeable sans
+aucun de nos logiciels :
+
+```
+zcat <nom>-<date>.sql.gz | psql -U postgres
+```
+
+Ils ont été écrits avec l'instruction de remplacer ce qui existe déjà :
+charger un export dans une base vide est donc sans danger. Ne les
+utilisez que si le répertoire de données de l'application n'a pas
+survécu ; charger un export par-dessus des données plus récentes les
+écrasera.
+
+## 6. Reconstruire le serveur au complet
+
+Installez la version relevée à l'étape 3 sur une machine neuve, puis
+utilisez son processus de récupération avec l'emplacement et le mot de
+passe de votre sauvegarde. Vous n'avez jamais besoin que de ces deux
+éléments : où se trouve la sauvegarde, et le mot de passe qui l'ouvre.
+Conservez les deux ailleurs que sur le serveur lui-même.
+
+## Si vous bloquez
+
+Vos données ne sont verrouillées derrière rien. Si une étape ci-dessus ne
+fonctionne pas, les fichiers restent des fichiers ordinaires, et toute
+personne à l'aise avec Docker et PostgreSQL peut travailler directement à
+partir d'eux.

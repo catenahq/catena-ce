@@ -10,7 +10,7 @@
 #   ansible-playbook -i inventory/prod playbooks/regenerate-cf-tunnel.yml \
 #       -e cf_api_token=$TOKEN
 #
-# The token is consumed once per call. It is NEVER persisted to the vault.
+# The token is consumed once per call and is never persisted anywhere.
 
 - name: Regenerate Cloudflare tunnel
   hosts: "{{ stage_hosts | default('vps') }}"

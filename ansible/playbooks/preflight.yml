@@ -1,17 +1,17 @@
 ---
-# Preflight for the Ansible controller (your machine).
+# Controller-side preflight: prove the supplied Tailscale OAuth client works
+# before any VPS is touched.
 # Imported by the top-level playbooks ahead of any VPS work.
 #
-# Scope: verify the Tailscale OAuth client in vault is set up correctly.
+# Scope: verify the supplied Tailscale OAuth client is set up correctly.
 # Tailscale installation and login on the controller are out of scope --
 # install + `sudo tailscale up` are one-time manual steps, handled by the
 # operator outside this playbook.
 #
 # Verifies (in order):
-#   1. Inventory vault file exists.
-#   2. OAuth credentials are present and NOT placeholders.
-#   3. Tailscale OAuth token exchange actually works.
-#   4. OAuth client can mint a tagged auth key (proves scopes + ACL tag).
+#   1. OAuth credentials are in scope and NOT placeholders.
+#   2. Tailscale OAuth token exchange actually works.
+#   3. OAuth client can mint a tagged auth key (proves scopes + ACL tag).
 #
 # On any failure, admin-console setup instructions are printed inline so the
 # operator sees the exact clicks needed. Validation runs BEFORE any VPS work.
@@ -20,7 +20,7 @@
 #   -e preflight_skip=true         skip entirely
 #   -e preflight_skip_oauth=true   skip OAuth API validation (offline dev)
 # Playbooks that do not mint Tailscale auth keys (e.g. backup_now, restore)
-# skip this play -- each asserts its own vault secrets.
+# skip this play -- each asserts its own secrets.
 
 - name: "Preflight -- controller ready check"
   hosts: localhost
@@ -64,19 +64,16 @@
          Click generate. COPY client_id AND client_secret immediately -- the
          secret is displayed once.
 
-      3. Put the credentials in vault.
+      3. Hand the credentials to the install.
 
-             # Make sure your age private key is in scope (paste hidden,
-             # no echo, no shell history):
-             HISTCONTROL=ignorespace
-              read -s SOPS_AGE_KEY && export SOPS_AGE_KEY
+         `catena install` prompts for them and threads them in as transient
+         extra-vars; the converge adopts them into the on-box store at
+         /etc/catena/config.json. Nothing writes them to this laptop. On an
+         already-installed host, set them from catena-admin > Settings, or
+         re-run the install stage with:
 
-             # Open the SOPS-encrypted vault in your editor; sops decrypts
-             # in-memory + re-encrypts on save.
-             sops ansible/inventory/dev/group_vars/all/vault.sops.yml
-             # set:
-             #   vault_tailscale_oauth_client_id: "k123..."
-             #   vault_tailscale_oauth_client_secret: "tskey-client-k123..."
+             -e '{"tailscale_oauth_client_id": "k123...",
+                  "tailscale_oauth_client_secret": "tskey-client-k123..."}'
 
       4. Re-run your original command.
 
@@ -94,32 +91,27 @@
       ansible.builtin.meta: end_play
       when: preflight_skip_oauth | bool
 
-    - name: Check vault.sops.yml exists
-      ansible.builtin.stat:
-        path: "{{ inventory_dir }}/group_vars/all/vault.sops.yml"
-      register: vault_file
+    # No persisted laptop vault (0b): the Tailscale OAuth creds arrive as
+    # extra-vars that `catena install` / `catena recover` thread in from the
+    # transient adopt file (`-e @file`). When they are NOT in scope -- e.g. an
+    # in-place `catena rollback` on a box already on the tailnet -- there is
+    # nothing to validate before a fresh join, so skip the OAuth checks rather
+    # than fail. On install/recover the creds are always present (seed already
+    # live-validated them before the deploy chain started).
+    - name: Skip OAuth validation when no Tailscale creds are in scope
+      ansible.builtin.meta: end_play
+      when: >-
+        tailscale_oauth_client_id is not defined
+        or tailscale_oauth_client_secret is not defined
+        or tailscale_oauth_client_id | length == 0
+        or tailscale_oauth_client_secret | length == 0
 
-    - name: Show setup instructions if vault.sops.yml is missing
-      ansible.builtin.fail:
-        msg: "{{ tailscale_setup_instructions }}"
-      when: not vault_file.stat.exists
-
-    # The community.sops vars plugin auto-loads + decrypts
-    # vault.sops.yml under group_vars/all/ at inventory parse time
-    # (see ansible.cfg::vars_plugins_enabled), so vault_* keys are
-    # already in scope by the time preflight runs. The check above
-    # just confirms the vault file is on disk.
-
-    - name: Show setup instructions if OAuth credentials are missing or placeholder
+    - name: Show setup instructions if OAuth credentials are placeholder
       ansible.builtin.fail:
         msg: "{{ tailscale_setup_instructions }}"
       when: >-
-        vault_tailscale_oauth_client_id is not defined
-        or vault_tailscale_oauth_client_secret is not defined
-        or vault_tailscale_oauth_client_id | length == 0
-        or vault_tailscale_oauth_client_secret | length == 0
-        or 'REPLACE' in vault_tailscale_oauth_client_id
-        or 'REPLACE' in vault_tailscale_oauth_client_secret
+        'REPLACE' in tailscale_oauth_client_id
+        or 'REPLACE' in tailscale_oauth_client_secret
 
     - name: Exchange OAuth client credentials for a bearer token
       ansible.builtin.uri:
@@ -128,8 +120,8 @@
         body_format: form-urlencoded
         body:
           grant_type: client_credentials
-        url_username: "{{ vault_tailscale_oauth_client_id }}"
-        url_password: "{{ vault_tailscale_oauth_client_secret }}"
+        url_username: "{{ tailscale_oauth_client_id }}"
+        url_password: "{{ tailscale_oauth_client_secret }}"
         force_basic_auth: true
         status_code: 200
         return_content: true
@@ -144,7 +136,7 @@
 
           Token exchange failed with status {{ oauth_token.status | default('unknown') }}.
           Most likely causes:
-            - client_id / client_secret in vault is wrong or from a different tailnet
+            - client_id / client_secret is wrong or from a different tailnet
             - OAuth client was revoked in the admin console
             - OAuth client is missing the `Auth Keys -> Write` scope
       when: oauth_token.status | default(0) != 200

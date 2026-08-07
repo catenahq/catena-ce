@@ -1,96 +1,57 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>catenahq/renovate-config"],
+  "extends": [
+    "github>catenahq/renovate-config"
+  ],
   "packageRules": [
     {
-      "matchManagers": ["gomod"],
-      "matchUpdateTypes": ["minor", "patch"],
-      "groupName": "go modules (minor+patch)",
-      "automerge": true
-    },
-    {
-      "matchManagers": ["gomod"],
-      "matchUpdateTypes": ["major"],
-      "automerge": false
-    },
-    {
-      "description": "Operator-stack base images pinned in role defaults. Bumps stay manual: a cloudflared/dokploy/traefik/restic upgrade can break the platform out-of-band, so the operator reviews each one (the Trivy job still gates the PR on CVEs).",
-      "matchManagers": ["custom.regex"],
+      "description": "The restic BINARY version pinned in roles/backup. Bumps stay manual: restic is what every backup and every restore runs through. It is a github-releases pin, not an image, so no Trivy image scan applies -- the scanctl fs gate covers the repo side. cloudflared, traefik, postgres, portainer and coturn all left this repo by 2026-08-03; their pins live where the host engines read them, in catena-admin.",
+      "matchManagers": [
+        "custom.regex"
+      ],
       "matchPackageNames": [
-        "cloudflare/cloudflared",
-        "Dokploy/dokploy",
-        "traefik",
         "restic/restic"
       ],
-      "groupName": "operator-stack pins",
       "automerge": false
     },
     {
-      "description": "Traefik feature-set + config schema are owned by Dokploy's installer. Minor/major bumps risk breaking compose syntax + middleware behaviour out-of-band; only patch bumps are safe between Dokploy releases. Dokploy upgrades carry the matching traefik minor/major.",
-      "matchPackageNames": ["traefik"],
-      "matchUpdateTypes": ["major", "minor"],
-      "enabled": false
-    },
-    {
-      "description": "Infra app images pinned in role defaults (gatus, healthchecks, beszel hub+agent, recovery nginx, clamav). Manual review like the operator-stack pins; Trivy gates each PR.",
-      "matchManagers": ["custom.regex"],
+      "description": "Infra app images pinned in role defaults (gatus, healthchecks, recovery nginx, clamav). Manual review, and Trivy-gated -- for real this time. This rule claimed a gate for months while nothing scanned them: the image matrix only ever carried the operator-stack four, which have since moved to catena-admin. The matrix in .github/workflows/trivy.yml now resolves these pins where Renovate reads them, so a bump PR to a tag with a known fixable HIGH/CRITICAL fails CI.",
+      "matchManagers": [
+        "custom.regex"
+      ],
       "matchPackageNames": [
         "twinproduction/gatus",
         "healthchecks/healthchecks",
-        "henrygd/beszel",
-        "henrygd/beszel-agent",
         "nginx",
         "clamav/clamav"
       ],
-      "groupName": "infra app pins",
+      "automerge": false
+    },
+    {
+      "description": "Beszel hub + agent stay ONE PR: the agent pin is kept in lockstep with the hub (same upstream release), so splitting them would merge a hub bump without its matching agent.",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchPackageNames": [
+        "henrygd/beszel",
+        "henrygd/beszel-agent"
+      ],
+      "groupName": "beszel hub+agent",
       "automerge": false
     },
     {
       "description": "Keycloak (Phase Two distribution) image pinned in the keycloak role defaults. Manual review like the other infra pins -- a Keycloak major/minor can break SSO + the oauth2-proxy wiring out-of-band; Trivy gates the PR. Restricted to the rolling X.Y.Z tag; the timestamped X.Y.Z.<unixtime> immutable builds are excluded.",
-      "matchManagers": ["custom.regex"],
-      "matchPackageNames": ["quay.io/phasetwo/phasetwo-keycloak"],
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchPackageNames": [
+        "quay.io/phasetwo/phasetwo-keycloak"
+      ],
       "allowedVersions": "/^\\d+\\.\\d+\\.\\d+$/",
-      "groupName": "infra app pins",
       "automerge": false
     }
   ],
   "customManagers": [
-    {
-      "customType": "regex",
-      "description": "Track cloudflared image tag pinned in cloudflare_tunnel role defaults",
-      "managerFilePatterns": [
-        "/^ansible/roles/cloudflare_tunnel/defaults/main\\.yml$/"
-      ],
-      "matchStrings": [
-        "cloudflared_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
-      ],
-      "depNameTemplate": "cloudflare/cloudflared",
-      "datasourceTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "description": "Track Dokploy installer version pinned in dokploy role defaults",
-      "managerFilePatterns": [
-        "/^ansible/roles/dokploy/defaults/main\\.yml$/"
-      ],
-      "matchStrings": [
-        "dokploy_version:\\s*\"(?<currentValue>[^\"]+)\""
-      ],
-      "depNameTemplate": "Dokploy/dokploy",
-      "datasourceTemplate": "github-releases"
-    },
-    {
-      "customType": "regex",
-      "description": "Track Traefik image tag pinned in dokploy role defaults",
-      "managerFilePatterns": [
-        "/^ansible/roles/dokploy/defaults/main\\.yml$/"
-      ],
-      "matchStrings": [
-        "dokploy_traefik_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
-      ],
-      "depNameTemplate": "traefik",
-      "datasourceTemplate": "docker"
-    },
     {
       "customType": "regex",
       "description": "Track restic binary version pinned in backup role defaults",

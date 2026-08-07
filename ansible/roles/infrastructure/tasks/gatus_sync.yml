@@ -3,8 +3,8 @@
 # + the systemd service and timer that runs it every {{ gatus_sync_interval }}.
 # Also exposed via the catena-admin "Sync all (apps + monitors)" action.
 #
-# The script regenerates ONLY {{ gatus_host_config_dir }}/50-dokploy-apps.yaml
-# (two endpoints per gated Dokploy app: internal + public). 00-base.yaml
+# The script regenerates ONLY {{ gatus_host_config_dir }}/50-catena-apps.yaml
+# (two endpoints per gated client app: internal + public). 00-base.yaml
 # stays Ansible-owned; 99-*.yaml files are operator-owned and untouched.
 
 - name: "gatus-sync: script"
@@ -74,7 +74,7 @@
     enabled: true
     state: started
 
-- name: "gatus-sync: run once now (populate 50-dokploy-apps.yaml)"
+- name: "gatus-sync: run once now (populate 50-catena-apps.yaml)"
   ansible.builtin.systemd:
     name: gatus-sync.service
     state: started

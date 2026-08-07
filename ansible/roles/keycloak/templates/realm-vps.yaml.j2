@@ -137,7 +137,7 @@ users:
 # realm_bootstrap.yml). Subsequent imports omit this block; under
 # keycloak-config-cli's MERGE semantics the realm's existing
 # smtpServer config (which the client may have edited via Keycloak
-# admin UI / Dokploy env tab) is preserved untouched.
+# admin UI / Portainer env) is preserved untouched.
 smtpServer:
   host: "{{ smtp_host }}"
   port: "{{ smtp_port }}"
@@ -145,7 +145,7 @@ smtpServer:
   fromDisplayName: "{{ keycloak_realm_display_name }}"
   auth: "true"
   user: "{{ smtp_user }}"
-  password: "{{ vault_smtp_password }}"
+  password: "{{ smtp_password }}"
   starttls: "{{ smtp_use_starttls | string | lower }}"
   ssl: "false"
   envelopeFrom: "{{ smtp_from }}"

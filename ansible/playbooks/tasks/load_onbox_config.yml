@@ -1,0 +1,154 @@
+---
+# 0b: on-box config store loader. THE secret source of truth (SOPS was dropped;
+# no persisted laptop vault).
+#
+# The store is a plaintext 0600 file at /etc/catena/config.json, which rides
+# the restic backup (/etc is in roles/backup backup_paths). On every converge
+# it ADOPTS any declared secret in scope (fill-only) -- on a fresh install that
+# is the install-critical vendor creds the CLI threads in as `-e @file`; on a
+# fresh recover it is the DR keyset re-entered at the prompt; on a day-2
+# converge nothing is in scope and the store is already the truth. It MINTS
+# every missing INTERNAL service secret AND the user-held admin/restic DR
+# keyset on-box (reconcile-not-overwrite, via helpers/onbox_config.py) so no
+# secret is minted on the laptop, then set_facts each one from the store so
+# all downstream roles read the on-box source of truth.
+#
+# Included UNCONDITIONALLY from site.yml + validate.yml + restore.yml pre_tasks
+# (runs before any role). A rebuild needs only the {restic endpoint, S3 creds,
+# restic password} keyset: the store returns with the data, internals and all.
+
+# Which variables count as secrets is DECLARED, in the four category tables
+# in helpers/onbox_config.py, and read back here. It used to be the regex
+# `^vault_.+$`, which made a name prefix load-bearing: a variable was captured
+# because of how it was spelled rather than because anyone had said it was a
+# secret. Asking the module keeps one declaration.
+#
+# Pure query, no store I/O -- it answers before the store exists on a fresh box.
+- name: "onbox: read the declared secret names"
+  ansible.builtin.script:
+    cmd: "{{ playbook_dir }}/../helpers/onbox_config.py --emit secret-names"
+    executable: python3
+  register: _onbox_known
+  changed_when: false
+
+# Capture by NAME first (the varnames lookup does not evaluate values), then
+# extract only those values. A blanket `vars | dict2items` would force
+# evaluation of EVERY in-scope var -- including role defaults that only
+# resolve inside their role (e.g. catena-admin's
+# catena_admin_actions_source: "{{ role_path }}/..."), which is undefined in
+# play pre_tasks scope and aborts the converge.
+- name: "onbox: list the in-scope secret variable names"
+  ansible.builtin.set_fact:
+    _onbox_names: >-
+      {{ lookup('ansible.builtin.varnames',
+                '^(' ~ (_onbox_known.stdout | from_json | join('|')) ~ ')$',
+                wantlist=True) }}
+  no_log: true
+
+- name: "onbox: capture those into a migration map"
+  ansible.builtin.set_fact:
+    _onbox_capture: "{{ dict(_onbox_names | zip(_onbox_names | map('extract', vars))) }}"
+  no_log: true
+
+# Stage the capture map to a 0600 host file: this ansible-core's script
+# module has no stdin passthrough, so onbox_config.py reads --adopt-file.
+# changed_when: false on the stage + remove pair: they are loader
+# scaffolding (a temp file created and deleted within the same play,
+# zero net host delta), and reporting them changed made every converge
+# recap carry changed>=2 -- which turned the bench's strict changed=0
+# idempotency gates (assert_ce_idempotent_rerun) into guaranteed
+# failures post-0b.
+- name: "onbox: stage the capture map on the host (0600)"
+  ansible.builtin.copy:
+    dest: /root/.catena-onbox-adopt.json
+    content: "{{ _onbox_capture | to_json }}"
+    owner: root
+    group: root
+    mode: "0600"
+  changed_when: false
+  no_log: true
+
+- name: "onbox: adopt existing secrets, mint missing internal, emit store"
+  ansible.builtin.script:
+    cmd: >-
+      {{ playbook_dir }}/../helpers/onbox_config.py
+      --path {{ catena_onbox_config_path | default('/etc/catena/config.json') }}
+      --adopt-file /root/.catena-onbox-adopt.json --emit secrets
+    executable: python3
+  register: _onbox_emit
+  changed_when: false
+  no_log: true
+
+- name: "onbox: remove the staged capture map"
+  ansible.builtin.file:
+    path: /root/.catena-onbox-adopt.json
+    state: absent
+  changed_when: false
+  no_log: true
+
+# Publish every store secret as a fact, the Portainer API key included.
+# That one is minted mid-converge by roles/portainer rather than here, and it
+# used to be excluded because the role brought the fresh value back with
+# include_vars, which a fact would have outranked. The role now set_facts it,
+# and a later set_fact wins, so publishing the stored value is what stops the
+# role re-minting a key on every single converge.
+- name: "onbox: publish store secrets as facts (on-box source of truth)"
+  ansible.builtin.set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: "{{ (_onbox_emit.stdout | from_json) | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  no_log: true
+
+# ─── non-secret config: seed once from .env, then read only the store ───────
+#
+# Same shape as the secret adopt above, for the reason: post-install config
+# has to have ONE live reader. The inventory `.env` is the first-install SEED
+# (fill-only, so a converge never overwrites what the client later set in
+# catena-admin), and from then on the store answers.
+#
+# Before this, both were live at once: run-backup.sh reconciled them in shell
+# at runtime, retention ended up with two copies and the converge's silently
+# dead, and a tag-scoped converge that skipped this loader fell back to a
+# stale `.env` with no signal.
+- name: "onbox: read the store-owned config key names"
+  ansible.builtin.script:
+    cmd: "{{ playbook_dir }}/../helpers/onbox_config.py --emit settings-config-names"
+    executable: python3
+  register: _onbox_cfg_known
+  changed_when: false
+
+# Each declared key is read out of the inventory .env on the CONTROLLER and
+# passed as --set-config. A blank never seeds: apply_inputs skips empty values
+# the same way it skips a blank secret, so an unset key leaves the store alone
+# rather than writing "" over a value the client set.
+- name: "onbox: seed the store's config from .env (fill-only, first install)"
+  ansible.builtin.script:
+    cmd: >-
+      {{ playbook_dir }}/../helpers/onbox_config.py
+      --path {{ catena_onbox_config_path | default('/etc/catena/config.json') }}
+      --no-mint --emit none
+      {% for k in (_onbox_cfg_known.stdout | from_json) %}
+      {% set v = lookup('dotenv', k, default='') %}
+      {% if v | string | length > 0 %}--set-config {{ (k ~ '=' ~ v) | quote }} {% endif %}
+      {% endfor %}
+    executable: python3
+  register: _onbox_cfg_seeded
+  changed_when: false
+
+- name: "onbox: publish the store's config as facts (outranks role defaults)"
+  ansible.builtin.script:
+    cmd: >-
+      {{ playbook_dir }}/../helpers/onbox_config.py
+      --path {{ catena_onbox_config_path | default('/etc/catena/config.json') }}
+      --no-mint --emit config-vars
+    executable: python3
+  register: _onbox_cfg_emit
+  changed_when: false
+
+- name: "onbox: set_fact each store-owned config value"
+  ansible.builtin.set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: "{{ (_onbox_cfg_emit.stdout | from_json) | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"

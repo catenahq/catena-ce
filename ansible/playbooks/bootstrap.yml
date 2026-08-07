@@ -49,11 +49,23 @@
   become: false
 
   tasks:
+    # Create-only: never chmod an EXISTING controller ~/.ssh. Forcing
+    # 0700 here reset a deliberately group-traversable ~/.ssh (a
+    # dispatch runner reading the operator pubkey through a bind-mount
+    # relies on g+rx) every time a recover/bootstrap ran on that
+    # controller, breaking every later dispatch with EACCES.
+    - name: Stat controller ~/.ssh
+      ansible.builtin.stat:
+        path: "{{ lookup('env', 'HOME') }}/.ssh"
+      register: _controller_ssh_dir
+      delegate_to: localhost
+
     - name: Ensure ~/.ssh exists on the controller
       ansible.builtin.file:
         path: "{{ lookup('env', 'HOME') }}/.ssh"
         state: directory
         mode: "0700"
+      when: not _controller_ssh_dir.stat.exists
       delegate_to: localhost
 
     - name: Remove any stale known_hosts entry for this host
@@ -75,6 +87,16 @@
       register: _keyscan
       changed_when: false
       delegate_to: localhost
+      # A freshly booted (or snapshot-restored) host may not have sshd
+      # accepting connections yet when this first runs -- ssh-keyscan then
+      # exits rc=1 with empty output and the converge dies before Phase 1.
+      # Retry until it captures at least one host key, so the keyscan waits
+      # for sshd instead of racing it.
+      retries: 20
+      delay: 6
+      until:
+        - _keyscan.rc == 0
+        - (_keyscan.stdout | trim | length) > 0
 
     - name: Add host keys to ~/.ssh/known_hosts (atomic, deduped)
       ansible.builtin.known_hosts:
@@ -272,8 +294,6 @@
           - "{{ playbook_dir }}/../helpers/bootstrap_output.py"
           - --inventory-dir
           - "{{ inventory_dir }}"
-          - --section
-          - hosts
           - --host
           - "{{ _steady_state_host }}"
           - --key

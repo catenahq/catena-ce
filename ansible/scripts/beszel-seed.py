@@ -16,8 +16,8 @@ loudly on any wiring break):
 
     BESZEL_HUB_URL           e.g. http://127.0.0.1:18190
     BESZEL_ADMIN_EMAIL       superuser identity (== inventory admin_email)
-    BESZEL_ADMIN_PASSWORD    superuser password (vault_beszel_admin_password)
-    BESZEL_UNIVERSAL_TOKEN   the token to seed (vault_beszel_universal_token)
+    BESZEL_ADMIN_PASSWORD    superuser password (beszel_admin_password)
+    BESZEL_UNIVERSAL_TOKEN   the token to seed (beszel_universal_token)
 
 Exit 0 on success (prints one of: minted / updated / ok-exists). Any
 failure exits non-zero with a stderr message so the calling Ansible

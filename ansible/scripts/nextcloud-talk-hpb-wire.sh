@@ -8,7 +8,7 @@
 #
 # Auto-detect: the HPB block in nextcloud-s3.compose.yml may be
 # commented out (operator opted to disable HPB). Probe whether the
-# `signaling` service is reachable on dokploy-network; if not, log
+# `signaling` service is reachable on catena-network; if not, log
 # and exit 0 -- this script is safe to wire into a single catena-admin
 # action that fires unconditionally.
 #
@@ -31,7 +31,7 @@ ct=$(docker ps \
 if [ -z "$ct" ]; then
     echo "Nextcloud is not running on this host."
     echo
-    echo "Deploy first: Dokploy UI > Templates > nextcloud-s3 > Deploy."
+    echo "Deploy first: Portainer > App Templates > nextcloud-s3 > Deploy."
     exit 1
 fi
 
@@ -57,10 +57,10 @@ TURN_HOSTNAME="turn.$TURN_HOST"
 STUN_HOSTNAME="$TURN_HOSTNAME" # coturn STUN + TURN share the host
 SIGNALING_HOSTNAME="signaling.$NC_HOSTNAME"
 
-# Auto-detect: is the signaling service alive on dokploy-network? The
-# Nextcloud container is on dokploy-network so a short curl from inside
+# Auto-detect: is the signaling service alive on catena-network? The
+# Nextcloud container is on catena-network so a short curl from inside
 # it is the cheapest probe. aio-talk's signaling layer listens on
-# port 8081 inside the container; the dokploy-network alias `signaling`
+# port 8081 inside the container; the catena-network alias `signaling`
 # points at the talk-hpb service (set in nextcloud-s3.compose.yml).
 if ! docker exec "$ct" /bin/sh -c \
         "curl -fsS --max-time 3 http://signaling:8081/api/v1/welcome >/dev/null 2>&1"; then
@@ -76,6 +76,28 @@ if ! docker exec "$ct" /bin/sh -c \
     exit 0
 fi
 
+# Guard: the shared TURN relay has to exist before Talk is pointed at it.
+#
+# coturn is consumer-gated (roles/coturn/tasks/main.yml) and its consumer is
+# THIS deployment, so on a host where Nextcloud + Talk was just deployed the
+# relay does not come up until the next converge. Wiring anyway SUCCEEDS --
+# every occ talk:*:add is an upsert that never contacts the host it records --
+# and leaves Talk configured against a name that does not resolve. Calls then
+# fail with nothing pointing at TURN, which is the worst shape available.
+#
+# Fatal here, unlike rocketchat-jitsi-wire.sh: aio-talk's Janus is configured
+# TURN-ONLY (see the talk-hpb block in nextcloud-s3.compose.yml), so without
+# coturn there is no media path at all, not just a degraded one.
+if [ -z "$(docker service ls --filter name=coturn --format '{{.Name}}')" ]; then
+    echo "The call relay this server uses is not running yet, so Talk" >&2
+    echo "cannot connect calls. Nothing has been changed." >&2
+    echo >&2
+    echo "The relay is set up automatically, but not until the next" >&2
+    echo "managed operation runs on this server. Ask your contact to run" >&2
+    echo "one, then press this button again." >&2
+    exit 4
+fi
+
 missing=()
 [ -z "$NC_HOSTNAME" ]       && missing+=("NEXTCLOUD_HOSTNAME")
 [ -z "$SIGNALING_SECRET" ]  && missing+=("SIGNALING_SECRET")
@@ -85,7 +107,7 @@ if [ "${#missing[@]}" -gt 0 ]; then
     echo "error: missing required env on $ct:" >&2
     for m in "${missing[@]}"; do echo "  - $m" >&2; done
     echo >&2
-    echo "Open Dokploy UI > Templates > nextcloud-s3 > Edit > Environment" >&2
+    echo "Open Portainer > App Templates > nextcloud-s3 > Edit > Environment" >&2
     echo "and confirm the HPB env vars are set, then redeploy." >&2
     exit 2
 fi

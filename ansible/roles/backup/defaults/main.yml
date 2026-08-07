@@ -2,40 +2,35 @@
 backup_mode: install # install | restore | verify
 
 # Restic binary version, pulled directly from upstream GitHub releases
-# (not Debian's repo -- trixie's restic is pinned to 0.18.0 while upstream
-# is on 0.19.0). Installed into /usr/local/bin/restic which shadows any
-# apt-shipped /usr/bin/restic thanks to $PATH order. Bump this to pick
-# up new releases -- the role will download + verify SHA256 + swap the
-# binary atomically. Matches our pattern for Dokploy + cloudflared.
-backup_restic_version: "0.19.0"
+# (not Debian's repo -- trixie's restic lags upstream). Installed into
+# /usr/local/bin/restic which shadows any apt-shipped /usr/bin/restic
+# thanks to $PATH order. Bump this to pick up new releases -- the role
+# will download + verify SHA256 + swap the binary atomically. Matches
+# our pattern for the cloudflared binary.
+backup_restic_version: "0.19.1"
 
-backup_restic_repo: "" # e.g. s3:s3.bhs.io.cloud.ovh.net/<client>-restic
+# e.g. s3:s3.bhs.io.cloud.ovh.net/<client>-restic. Store-owned: the inventory
+# .env seeds it on the first converge and catena-admin > Settings owns it
+# after that. catena-backup-run already read the store at runtime; this makes the
+# converge read the same value instead of a second copy from .env.
+backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
 
-# Client cadence tier (Sprint 3.1). Three named tiers ladder client
-# RPO against price tier without per-host schedule editing:
+# Cadence is not set here. It is a customizable RPO: an OnCalendar string
+# per lane, set in the Catena admin panel, stored in /etc/catena/config.json
+# and applied by `catena-schedule apply`. Community is capped at one backup a
+# week (backup_weekly_cap, asserted at converge time -- the panel refuses it
+# too, but a client can edit their own config.json, so the converge is the
+# boundary and the panel is the affordance).
 #
-#   realtime   15-min hot snapshots, daily cold mirror
-#   standard   hourly hot snapshots, daily cold mirror  (default)
-#   relaxed    6-hour hot snapshots, weekly cold mirror
+# The three named tiers that used to live here are gone. They mapped a name to
+# a cadence and a retention ladder; the cadence half was computed and rendered
+# into no unit at all, so every tier ran at the same hardcoded times and only
+# retention varied -- a `realtime` host was configured to keep 96 hourly
+# snapshots while producing one snapshot a day.
 #
-# See automation/ansible/playbooks/filter_plugins/backup_tier.py for
-# the schedule + retention mapping. Default `standard` preserves the
-# pre-Sprint-3.1 behaviour (hourly hot, daily cold). Override per host
-# via inventory `.env` BACKUP_TIER=realtime/standard/relaxed. Direct
-# overrides of backup_schedule / backup_retention_policy still work
-# and take precedence over the tier defaults -- the tier sets the
-# baseline; per-key envs are the operator's escape hatch.
-backup_tier: "{{ lookup('dotenv', 'BACKUP_TIER', default='standard') }}"
-
-# Hot-tier snapshot cadence. Default derived from backup_tier (see
-# above); pre-Sprint-3.1 `hourly` literal kept as the standard tier's
-# baseline so existing clients see no flag day. Restic's
-# content-defined chunking makes a per-hour snapshot near-free at the
-# pack-file level (only changed bytes write); the real cost is the
-# pg_dumpall (~minutes per Dokploy postgres) + S3 API calls (cents/mo
-# on OVH BHS). Operators with sparse-write workloads can override
-# back to nightly via inventory `.env` (BACKUP_SCHEDULE=*-*-* 03:30:00).
-backup_schedule: "{{ backup_tier | backup_tier_schedule }}"
+# Every lane ships DISABLED. Scheduled work spends disk and object-store quota
+# nobody has confirmed the client has, so a fresh host schedules nothing until
+# someone turns a lane on.
 
 # WORM mirror (ransomware mitigation).
 #
@@ -71,12 +66,15 @@ backup_schedule: "{{ backup_tier | backup_tier_schedule }}"
 # reason, optionally pings the worm-attempted healthcheck with /skip,
 # and exits 0. Daily backups never read the worm config and stay
 # unaffected -- a misconfigured WORM cannot brick the primary chain.
-backup_worm_repo: "{{ lookup('dotenv', 'BACKUP_WORM_REPO', default='') }}"
-# Cold-mirror cadence derived from backup_tier (Sprint 3.1): daily
-# for realtime/standard, weekly Sunday for relaxed. Operator can
-# still override via inventory `.env` BACKUP_WORM_MIRROR_ONCALENDAR.
-backup_worm_mirror_oncalendar: "{{ backup_tier | backup_tier_worm_oncalendar }}"
-backup_restic_mirror_script: /usr/local/bin/catena-restic-mirror-to-worm
+backup_worm_repo: "{{ cfg_backup_worm_repo | default('') }}"
+# The cold-mirror cadence is the `restic_mirror` lane in the admin panel, off
+# by default like every other lane -- it writes into a second provider's
+# bucket, which is exactly the quota nobody has confirmed the client has.
+#
+# The coordinates above are rendered into {{ backup_worm_env_file }}, which
+# catena-restic-mirror.service loads. There is no *_mirror_script var: the
+# mirror is the compiled catena-restic-mirror engine named by the unit's
+# ExecStart, not a script path this role hands anyone.
 
 # Nextcloud cold-tier mirror.
 #
@@ -87,51 +85,51 @@ backup_restic_mirror_script: /usr/local/bin/catena-restic-mirror-to-worm
 # ping when only the cold half is unconfigured, and skips on
 # unreachable cold buckets.
 #
-# Live-bucket coords come from the operator-managed Nextcloud Dokploy
+# Live-bucket coords come from the operator-managed Nextcloud app
 # template (S3_HOST, S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY in the
 # Environment tab). Operators set NEXTCLOUD_LIVE_REPO in .env to the
-# `s3:<host>/<bucket>` form matching what they entered in Dokploy; the
-# live IAM creds reuse vault_nextcloud_s3_access_key /
-# vault_nextcloud_s3_secret_key (the same keys Nextcloud itself uses).
-nextcloud_live_repo: "{{ lookup('dotenv', 'NEXTCLOUD_LIVE_REPO', default='') }}"
-nextcloud_worm_repo: "{{ lookup('dotenv', 'NEXTCLOUD_WORM_REPO', default='') }}"
+# `s3:<host>/<bucket>` form matching what they entered in the app's
+# Environment; the
+# live IAM creds reuse nextcloud_s3_access_key /
+# nextcloud_s3_secret_key (the same keys Nextcloud itself uses).
+nextcloud_live_repo: "{{ cfg_nextcloud_live_repo | default('') }}"
+nextcloud_worm_repo: "{{ cfg_nextcloud_worm_repo | default('') }}"
 nextcloud_worm_mirror_oncalendar: >-
-  {{ lookup('dotenv', 'NEXTCLOUD_WORM_MIRROR_ONCALENDAR', default='*-*-* 04:45:00') }}
-nextcloud_mirror_script: /usr/local/bin/catena-nextcloud-mirror-to-worm
+  {{ cfg_nextcloud_worm_mirror_oncalendar | default('*-*-* 04:45:00') }}
 nextcloud_mirror_healthcheck_url: >-
   {{
-    lookup('dotenv', 'NEXTCLOUD_MIRROR_HEALTHCHECK_URL', default='')
-    or ('https://' ~ healthchecks_hostname
-        ~ '/ping/' ~ (vault_healthchecks_ping_key | default(''))
+    cfg_nextcloud_mirror_healthcheck_url | default('')
+    or (healthchecks_ping_base
+        ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-nextcloud-mirror-succeeded?create=1'
-        if vault_healthchecks_ping_key is defined else '')
+        if healthchecks_ping_key is defined else '')
   }}
 nextcloud_mirror_healthcheck_attempted_url: >-
   {{
-    lookup('dotenv', 'NEXTCLOUD_MIRROR_HEALTHCHECK_ATTEMPTED_URL', default='')
-    or ('https://' ~ healthchecks_hostname
-        ~ '/ping/' ~ (vault_healthchecks_ping_key | default(''))
+    cfg_nextcloud_mirror_healthcheck_attempted_url | default('')
+    or (healthchecks_ping_base
+        ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-nextcloud-mirror-attempted?create=1'
-        if vault_healthchecks_ping_key is defined else '')
+        if healthchecks_ping_key is defined else '')
   }}
 # Healthcheck pings for the mirror, parallel to the nightly backup's
 # pair. Auto-provision against the local Healthchecks instance with
 # distinct slugs so the operator can set the alarm threshold per-job.
 backup_worm_healthcheck_url: >-
   {{
-    lookup('dotenv', 'BACKUP_WORM_HEALTHCHECK_URL', default='')
-    or ('https://' ~ healthchecks_hostname
-        ~ '/ping/' ~ (vault_healthchecks_ping_key | default(''))
+    cfg_backup_worm_healthcheck_url | default('')
+    or (healthchecks_ping_base
+        ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-worm-mirror-succeeded?create=1'
-        if vault_healthchecks_ping_key is defined else '')
+        if healthchecks_ping_key is defined else '')
   }}
 backup_worm_healthcheck_attempted_url: >-
   {{
-    lookup('dotenv', 'BACKUP_WORM_HEALTHCHECK_ATTEMPTED_URL', default='')
-    or ('https://' ~ healthchecks_hostname
-        ~ '/ping/' ~ (vault_healthchecks_ping_key | default(''))
+    cfg_backup_worm_healthcheck_attempted_url | default('')
+    or (healthchecks_ping_base
+        ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-worm-mirror-attempted?create=1'
-        if vault_healthchecks_ping_key is defined else '')
+        if healthchecks_ping_key is defined else '')
   }}
 # Two healthchecks per backup, not one. Restic / S3 are flaky
 # enough that a single nightly failure should not page; two consecutive
@@ -148,23 +146,27 @@ backup_worm_healthcheck_attempted_url: >-
 #   structural failures immediately.
 #
 # Both auto-provision on first ping (?create=1) using the same
-# vault_healthchecks_ping_key. .env can override either with an off-host
-# URL (healthchecks.io etc.) for survivability past full VPS loss.
+# healthchecks_ping_key, against healthchecks_ping_base -- the loopback
+# publish, not the public hostname. These run from a systemd unit ON the box
+# reaching a container ON the box; routing that through Cloudflare made the
+# backup dead-man die with the edge it reports on. .env can override either
+# with an off-host URL (healthchecks.io etc.) for survivability past full VPS
+# loss, which is the one case loopback cannot cover.
 backup_healthcheck_url: >-
   {{
-    lookup('dotenv', 'BACKUP_HEALTHCHECK_URL', default='')
-    or ('https://' ~ healthchecks_hostname
-        ~ '/ping/' ~ (vault_healthchecks_ping_key | default(''))
+    cfg_backup_healthcheck_url | default('')
+    or (healthchecks_ping_base
+        ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-backup-succeeded?create=1'
-        if vault_healthchecks_ping_key is defined else '')
+        if healthchecks_ping_key is defined else '')
   }}
 backup_healthcheck_attempted_url: >-
   {{
-    lookup('dotenv', 'BACKUP_HEALTHCHECK_ATTEMPTED_URL', default='')
-    or ('https://' ~ healthchecks_hostname
-        ~ '/ping/' ~ (vault_healthchecks_ping_key | default(''))
+    cfg_backup_healthcheck_attempted_url | default('')
+    or (healthchecks_ping_base
+        ~ '/ping/' ~ (healthchecks_ping_key | default(''))
         ~ '/catena-backup-attempted?create=1'
-        if vault_healthchecks_ping_key is defined else '')
+        if healthchecks_ping_key is defined else '')
   }}
 
 # External dead-man pings, client and operator.
@@ -184,10 +186,25 @@ backup_healthcheck_attempted_url: >-
 # Either, both, or neither set is valid. If BOTH are empty, the backup
 # install task prints an ORANGE non-fatal warning ("no external dead-man
 # set; whole-host outage will be silent"). Never blocks the converge.
-backup_healthcheck_url_client: "{{ lookup('dotenv', 'BACKUP_HEALTHCHECK_URL_CLIENT', default='') }}"
-backup_healthcheck_url_operator: "{{ lookup('dotenv', 'BACKUP_HEALTHCHECK_URL_OPERATOR', default='') }}"
+backup_healthcheck_url_client: "{{ cfg_backup_healthcheck_url_client | default('') }}"
+backup_healthcheck_url_operator: "{{ cfg_backup_healthcheck_url_operator | default('') }}"
 
-backup_retention_policy: "{{ backup_tier | backup_tier_retention }}"
+# Retention is not set by this repo at all.
+#
+# Five independent restic buckets, set in the Catena admin panel, stored on-box
+# in /etc/catena/config.json under `backup_retention`, rendered to
+# /etc/catena/backup-retention.env by `catena-schedule apply`, and sourced from
+# there by catena-backup-run. One source, one writer, one reader. Adding a default
+# here would make this repo a second writer of a value the panel owns, which is
+# how the old arrangement ended up with a converge-rendered copy that no host
+# ever read.
+#
+# This is what the three backup tiers used to decide. Tiers bundled a cadence
+# and a retention ladder behind one name; the cadence half was never rendered
+# into any unit, and the retention half is more useful set directly. The
+# composition is why: keep_last 8 with keep_hourly 24 on a fifteen-minute
+# schedule holds eight snapshots across two hours and twenty-two more across
+# the day, and no tier name says that.
 
 # Paths the nightly timer backs up. Restic walks each listed path
 # recursively; we pick the subtrees we want rather than listing the
@@ -197,63 +214,57 @@ backup_retention_policy: "{{ backup_tier | backup_tier_retention }}"
 #   - docker/overlay2, image, buildkit, containers, network, plugins, runtimes,
 #     swarm, tmp, trust -- image layers and runtime state, all reproducible
 #     from the registry. Listing /mnt/data/docker/volumes lets us keep
-#     named-volume data (Dokploy templates rely on these) without
+#     named-volume data (app stacks rely on these) without
 #     scooping up tens of GB of reproducible image layers.
-#   - postgres (legacy empty dir from the storage role; real pg data lives
-#     under docker/volumes/<volume>/_data/).
 #
 # Postgres data on this stack:
-#   - dokploy-postgres (the platform's embedded DB) is restored
-#     LOGICALLY: pg_dumpall writes a per-host snapshot to
-#     backup-staging/pg/, which IS in the restic set. The raw
-#     dokploy-postgres volume is EXCLUDED below -- restoring it
-#     byte-for-byte brings back snapshot-time pg_authid hashes
-#     that don't match the fresh secret install.sh creates on a
-#     DR converge, producing migration.mjs auth-loop crashes.
-#     Replay path: roles/dokploy/tasks/main.yml includes
-#     pg_replay.yml with scope=dokploy on a DR converge (gated on
-#     the post-restore.needed marker).
-#   - Client postgres containers (Dokploy-deployed apps) are
-#     restored RAW: their named volumes are in the restic set
-#     and replay back deterministically. pg_dumpall captures
-#     them too so an operator can cross-check or do a partial
-#     replay; raw-volume is the default path.
+#   - catena-postgres (the catena-owned infra DB -- hosts Keycloak) is
+#     restored RAW: its named volume (catena-postgres-data) is in the
+#     restic set and replays back byte-for-byte. A raw restore is correct
+#     because the superuser password comes from the on-box store (staged
+#     into a swarm secret), and /etc is in this same backup set -- so the
+#     restored pg_authid hash matches the restored password, no skew, no
+#     logical-replay dance. pg_dumpall still captures it to
+#     backup-staging/pg/ for cross-check / partial replay.
+#   - Client postgres containers (app stacks) are restored RAW:
+#     their named volumes are in the restic set and replay back
+#     deterministically. pg_dumpall captures them too, and
+#     `catena-recovery post-restore` logically replays them
+#     (scope=clients) after the stacks redeploy -- belt-and-suspenders
+#     against a volume that doesn't survive the compose recreate.
 #
-# pg_dumpall failures are fatal (run-backup.sh exits non-zero) so
-# a silent dump gap can't lead to silent data loss on the dokploy
-# branch where pg_dumpall is the only source.
+# pg_dumpall failures are fatal (catena-backup-run exits non-zero) so a
+# silent dump gap can't lead to silent data loss.
 # Covered storage contract for Docker data on this stack:
 #
 #   A. Named volumes (compose `volumes: [myapp_data:/data]`)
 #      -> /mnt/data/docker/volumes/<name>/_data/
 #      ✓ covered by {{ storage_mount_point }}/docker/volumes
 #
-#   B. Relative bind mounts in Dokploy compose (`- ./myapp:/app`)
-#      -> /etc/dokploy/compose/<project>/code/myapp
-#      ✓ covered by /etc/dokploy
+#   B. Relative bind mounts in a Portainer stack (`- ./myapp:/app`)
+#      -> the stack's working dir inside the Portainer data volume
+#      ✓ covered by {{ storage_mount_point }}/docker/volumes
 #
-#   C. Dokploy Files UI ("Files" tab per project)
-#      -> /etc/dokploy/compose/<project>/files/
-#      ✓ covered by /etc/dokploy
+#   C. catena host config (traefik, gatus, keycloak realms, ...)
+#      -> /etc/catena/<component>
+#      ✓ covered by /etc (below)
 #
 #   D. Absolute bind mounts under /mnt/data/apps (operator convention)
 #      ✓ covered by {{ storage_mount_point }}/apps
 #
 #   E. Absolute bind mounts anywhere else (/srv/..., /opt/..., /home/...)
-#      ✗ NOT covered by default. roles/backup/templates/backup-coverage.sh.j2
-#      runs at the end of every nightly and prints a warning listing any
-#      uncovered bind-mount sources. If a client app needs data in a
+#      ✗ NOT covered by default. catena-backup-coverage (a lane script in the
+#      catena-admin image payload) runs at the end of every nightly and fails
+#      the run listing any uncovered bind-mount sources. If a client app needs data in a
 #      non-standard location, either move it under /mnt/data/apps OR
 #      extend this list via an inventory-level backup_paths override.
 #
 # pg_dumpall output gets its own dedicated path (backup-staging/pg)
 # populated by the wrapper before restic walks the tree.
 backup_paths:
-  - "{{ storage_mount_point }}/dokploy"
   - "{{ storage_mount_point }}/apps"
   - "{{ storage_mount_point }}/backup-staging"
   - "{{ storage_mount_point }}/docker/volumes"
-  - /etc/dokploy
   - /etc/ssh
   - /etc/ufw
   - /etc/fstab
@@ -265,6 +276,27 @@ backup_paths:
   - /etc
   - /var/lib/dpkg
   - /usr/local/bin
+  # Catena's own runtime state. Both were outside the snapshot entirely,
+  # which made them bump-safe but not host-loss-safe -- the one failure
+  # mode the whole product is built around.
+  #
+  #   /var/lib/catena       chain + recovery + migration state, the
+  #                         verify-hot report, backup-stats. Losing it
+  #                         means a rebuilt host cannot tell what its
+  #                         predecessor had already done: whether the last
+  #                         verify passed, where a half-finished recovery
+  #                         had got to, when the last successful backup
+  #                         ran. This is also what left restore_dr's second
+  #                         converge with work to do.
+  #   /var/lib/catena-admin the hash-chained audit trail (auditlog.go
+  #                         DefaultStateDir). It is the evidence a client
+  #                         shows an auditor, and it was the one artifact
+  #                         the trust work built that a host loss erased.
+  #
+  # The restic home + cache under /var/lib/catena are excluded below: they
+  # are rebuildable and would churn every snapshot.
+  - /var/lib/catena
+  - /var/lib/catena-admin
 
 # restic --exclude patterns (fnmatch-style, applied to absolute paths).
 # Useful for large, already-redundant, or operator-disposable data --
@@ -293,27 +325,14 @@ backup_paths:
 # Patterns match against the ABSOLUTE path restic sees. `*` does not
 # cross slashes; use `**` if you need recursive matching. See
 # https://restic.readthedocs.io/en/stable/040_backup.html#excluding-files
-# backup-coverage.sh surfaces excluded paths in its report so operators
+# catena-backup-coverage surfaces excluded paths in its report so operators
 # can see what's deliberately NOT in the snapshot alongside what's
 # accidentally not in it.
 backup_exclude_patterns:
-  # dokploy-postgres volume EXCLUDED -- pg_dumpall snapshots in
-  # backup-staging/pg/ are authoritative for dokploy database state.
-  # Replay path: roles/dokploy/tasks/main.yml includes pg_replay.yml
-  # with scope=dokploy on a DR converge (gated on the post-restore.needed
-  # marker). Including the raw volume
-  # would bring back snapshot-time pg_authid hashes that don't match
-  # the fresh secret install.sh creates on a DR converge, producing
-  # migration.mjs auth-loop crashes. Locked in by
-  # tests/unit/test_restore_option_a.py::
-  #   test_backup_defaults_exclude_dokploy_postgres_volume
-  - "*/docker/volumes/dokploy-postgres"
-  - "*/docker/volumes/dokploy-postgres/*"
-  # Dokploy's redis -- ephemeral queue/session state; fresh volume on
-  # restore is correct behaviour, any stale queued work is lost by
-  # design (nothing load-bearing lives here).
-  - "*/docker/volumes/dokploy-redis"
-  - "*/docker/volumes/dokploy-redis/*"
+  # NOTE: catena-postgres-data (the infra DB volume) is deliberately NOT
+  # excluded -- it is restored RAW (see the "Postgres data on this stack"
+  # note above; the store-derived superuser password makes a byte-for-byte
+  # restore correct, so no logical-replay dance and no exclusion).
   # Gatus per-minute probe history (sqlite at /data/gatus.db, see
   # roles/infrastructure/templates/gatus-base.yaml.j2). Probed every
   # minute against every internal alias + public URL, so the on-disk
@@ -361,21 +380,64 @@ backup_exclude_patterns:
   #   test_backup_defaults_exclude_clamav_db_volume
   - "*/docker/volumes/clamav-db"
   - "*/docker/volumes/clamav-db/*"
-  # Recovery-bundle + snapshot-export staging dir. Served read-only to
-  # client admins by the recovery-downloads nginx sidecar
-  # (recovery.<zone>). Backing it up would be self-referential -- the
-  # files are ALREADY a packaged form of the backup (encrypted vault
-  # bundle, tar.gz snapshot export) and are regenerated on demand by
-  # the "Export recovery secrets" + "Export latest snapshot" buttons.
+  # Postgres runtime lock files, in EVERY data dir -- the infra DB and
+  # every app that ships its own postgres. They are process state, not
+  # data: postmaster.pid holds the PID, port and shared-memory key of a
+  # server that no longer exists by the time anything reads it back, and
+  # postmaster.opts the command line it was started with.
+  #
+  # Two reasons, and the second is why this is not cosmetic:
+  #
+  #   restoring one is a STARTUP HAZARD. Postgres refuses to start when it
+  #   finds a lock file whose PID is live and owned by something else, and
+  #   a restored PID is arbitrary. The data dir is restored raw (see the
+  #   note at the top of this list), so without this exclusion the lock
+  #   file comes back with it.
+  #
+  #   it breaks the restore itself. `restic restore --delete` recreates the
+  #   file and then sets its metadata, and postgres removing its own stale
+  #   lock in between makes lchown fail on a path that no longer exists.
+  #   restic counts that as an error and exits 1, so the WHOLE restore is
+  #   reported failed over a file that should never have been in the
+  #   snapshot (bench eff2, restore_version_skew_abort stage-4).
+  #
+  # `**` because the path differs per image: /_data/pgdata/postmaster.pid
+  # for the infra volume, /_data/postmaster.pid for others.
+  - "**/postmaster.pid"
+  - "**/postmaster.opts"
+  # Snapshot-export staging dir. Served read-only to client admins by
+  # the recovery-downloads nginx sidecar (recovery.<zone>). Backing it
+  # up would be self-referential -- the files are ALREADY a packaged
+  # form of the backup (tar.gz snapshot export) and are regenerated on
+  # demand by the "Export latest snapshot" button.
   # No-op today (path isn't under any backup_paths prefix) but locks
   # the exclusion against any future expansion of that list into
   # /var/backups or /var.
   - "/var/backups/catena-export"
   - "/var/backups/catena-export/*"
+  # SSH host keys (ssh_host_*_key and .pub). /etc/ssh is in backup_paths
+  # for sshd_config + moduli + ssh_config, but the host KEYS are host
+  # IDENTITY, not data, and are a private key = a secret we must not
+  # store in the restic repo. A fresh box mints its own via cloud-init,
+  # and admin access is over the tailnet, so nothing depends on carrying
+  # the source key forward. restore.yml also excludes these on the way
+  # back so an older snapshot that still holds them can never overwrite a
+  # recovered box's own keys (the DR SSH-identity-clone that aborted
+  # validate.yml Vantage 3). Locked in by
+  # tests/unit/test_backup_ssh_host_key_exclusion.py.
+  - "/etc/ssh/ssh_host_*"
+  # restic's own home + cache, created by catena-backup.service's
+  # ExecStartPre under /var/lib/catena (now a backup path). The cache is a
+  # local index of the repo we are writing INTO: backing it up is circular,
+  # it churns on every run, and restic rebuilds it on demand.
+  - "/var/lib/catena/restic-cache"
+  - "/var/lib/catena/restic-cache/*"
+  - "/var/lib/catena/restic-home"
+  - "/var/lib/catena/restic-home/*"
 
-# Postgres superuser for pg_dumpall. Dokploy's default is `postgres`. Override
-# per-host if a client runs a bespoke setup. Auth failures per-container are
-# logged and skipped -- they don't fail the backup run.
+# Postgres superuser for pg_dumpall. catena-postgres uses the conventional
+# `postgres`. Override per-host if a client runs a bespoke setup. Auth
+# failures per-container are logged and skipped -- they don't fail the run.
 backup_pg_dump_user: postgres
 
 # Run an initial snapshot during install so there's something to verify
@@ -393,23 +455,39 @@ backup_run_initial_snapshot: true
 # `no_log: true`. The dict still expands at runtime; no_log is what
 # keeps Jinja-rendered creds out of task results / debug output.
 backup_restic_env:
-  RESTIC_REPOSITORY: "{{ backup_restic_repo }}"
+  RESTIC_REPOSITORY: "{{ backup_restic_repo | default('') }}"
   RESTIC_PASSWORD_FILE: "{{ backup_password_file }}"
-  AWS_ACCESS_KEY_ID: "{{ vault_backup_s3_access_key }}"
-  AWS_SECRET_ACCESS_KEY: "{{ vault_backup_s3_secret_key }}"
+  AWS_ACCESS_KEY_ID: "{{ backup_s3_access_key | default('') }}"
+  AWS_SECRET_ACCESS_KEY: "{{ backup_s3_secret_key | default('') }}"
 
 # Wrapper + config locations. Changing these also requires updating
 # tests/goss/backup.yaml.
-backup_wrapper_script: /usr/local/bin/run-backup.sh
+#
+# Every path below is INSTALLED BY THE IMAGE PAYLOAD, not by this role -- the
+# lane scripts live in catena-admin payload/lanes/ and roles/payload puts them
+# on PATH right after roles/docker. This role still owns the per-host
+# configuration they read (backup.env, backup-paths, the unit files), so the
+# names stay here: they are what the env file and the units point at.
+#
+# The one exception is backup_disk_preflight_script further down, which this
+# role still copies, because restore.yml calls it on a fresh DR box that has no
+# docker and therefore no payload.
+#
+# catena-backup-run was /usr/local/bin/run-backup.sh while this role copied it.
+# Renamed on the move so it matches every other host command: catena-prefixed,
+# no language suffix, same family as catena-restore-run and catena-migrate-run.
+# Nothing in backup.env names it (that file is written only-if-absent, so a
+# path recorded in it could never be corrected), and the unit that does name it
+# is re-templated on every converge.
+backup_wrapper_script: /usr/local/bin/catena-backup-run
 backup_coverage_script: /usr/local/bin/catena-backup-coverage
 # Single canonical entrypoint for running restic with backup.env loaded
-# from outside the systemd-launched scripts. Source: vps-scripts/restic-env.sh.
-# See that file's header for why this exists.
+# from outside the systemd-launched scripts. See that script's header for why
+# this exists.
 backup_restic_env_script: /usr/local/bin/catena-restic-env
 # Per-app PITR recovery via FUSE. Mounts the restic repo read-only at
 # /mnt/restic-browse so the operator can copy a single file out of a
-# past snapshot when in-app trash + soft-delete are not enough. Source:
-# vps-scripts/restic-mount.sh + restic-unmount.sh. Wired to the
+# past snapshot when in-app trash + soft-delete are not enough. Wired to the
 # catena-admin Actions tab entries "Browse past snapshots" + "Unmount
 # snapshot browser".
 backup_restic_mount_script: /usr/local/bin/catena-restic-mount
@@ -418,15 +496,42 @@ backup_restic_unmount_script: /usr/local/bin/catena-restic-unmount
 # `restic snapshots --json` output piped on stdin. Replaces the
 # previous in-tree awk extractor (which silently picked $4 = `time`
 # from compact JSON, causing tag --add to fail on every prod run).
-# Source: vps-scripts/restic-short-id.sh.
 backup_restic_short_id_script: /usr/local/bin/catena-restic-short-id
-# Shared disk-space preflight. Used by run-backup.sh, the
-# auto-update two-phase driver, and roles/backup/tasks/restore.yml. One
-# implementation, three callers; see vps-scripts/disk-preflight.sh.
+# Repo integrity probe, shipped in the engine payload. catena-backup-run calls it
+# with --metadata after every successful backup; the weekly 5% bit-rot read is
+# a separate timer (catena-restic-check-subset.timer) because that one is
+# time-based, not backup-driven.
+#
+# Before this it ran ONLY as a state in the catena-daily chain, and that chain
+# is the licensed lane -- so a Community host backed up weekly and never
+# checked the repository at all.
+backup_restic_check_script: /usr/local/bin/catena-restic-check
+# Bound on the post-backup metadata check. `restic check` is metadata-only, but
+# it still talks to the object store, so a network stall must not hold the
+# backup unit open indefinitely.
+backup_restic_check_timeout: 600
+# The bit-rot read's cadence is NOT set here. It is the `restic_check_subset`
+# lane in catena-schedule, which owns enable/disable and OnCalendar for every
+# lane out of /etc/catena/config.json. The day used to be a hardcoded
+# `date -u +%u` = 7 inside the wrapper -- the one piece of catena's scheduling
+# a client could not move; putting it in an Ansible default instead would just
+# move the immovable value, not fix it.
+# Shared disk-space preflight. Used by catena-backup-run, the auto-update
+# two-phase driver, and roles/backup/tasks/restore.yml. One implementation,
+# three callers; source is ansible/scripts/disk-preflight.sh.
+#
+# This is the ONE backup script this role still copies. restore.yml calls it on
+# a fresh DR box -- common, storage, backup, no docker -- so there is no image
+# to extract a payload from at that point. A script has to live where its
+# EARLIEST caller can reach it, and this one's earliest caller has no docker.
 backup_disk_preflight_script: /usr/local/bin/catena-disk-preflight
-# Minimum free bytes at {{ storage_mount_point }}/backup-staging before
-# a backup run is allowed to start. pg_dumpall + restic temp files for
-# an SMB-stack VPS land in the low GiB; 5 GiB is a safe headroom.
+# FLOOR for free bytes at {{ storage_mount_point }}/backup-staging before a
+# backup run is allowed to start -- not the requirement. catena-backup-run sums
+# pg_database_size across every running postgres container at runtime and
+# demands that instead whenever it exceeds this, because pg_dumpall stages
+# UNCOMPRESSED SQL locally before gzip and a number sized for a reference host
+# cannot know when it stops being right. 5 GiB covers restic's temp/cache plus
+# a small stack; the derived value takes over from there.
 backup_preflight_min_bytes: 5368709120 # 5 GiB
 # Minimum free bytes at / before a restore is allowed to start. Restic's
 # tar-style extraction can balloon transiently above the snapshot's
@@ -434,25 +539,29 @@ backup_preflight_min_bytes: 5368709120 # 5 GiB
 # loudly instead of leaving a half-restored filesystem.
 restore_preflight_min_bytes: 5368709120 # 5 GiB
 backup_env_file: /etc/catena/backup.env
+# The cold-tier half, kept separate because backup.env is only-if-absent and
+# the WORM coordinates have to be able to change on an existing host.
+backup_worm_env_file: /etc/catena/backup-worm.env
 backup_password_file: /etc/catena/restic.pass
 backup_systemd_unit_name: catena-backup
 
-# Community single-daily-backup timer (Sprint: CE-automation-relax).
-# CE ships exactly ONE timer -- a daily backup -- so a self-hosted
-# Community deployment is credible without a license. All sub-daily
-# cadence (backup_tier realtime/standard) and the catena-daily
-# orchestrator chain stay Business: on a Business host the EE
-# catena-daily engine masks catena-backup.timer and drives scheduling
-# itself, so the two never double-fire. OnCalendar is daily; operators
-# can shift the time of day via inventory .env but cannot tighten it
-# below daily here (that is the Business lane).
-backup_daily_timer_oncalendar: "{{ lookup('dotenv', 'BACKUP_DAILY_TIMER_ONCALENDAR', default='daily') }}"
+# Community weekly-backup timer (rate-limited Community lane).
+# CE ships exactly ONE timer -- a weekly backup -- so a self-hosted
+# Community deployment has a proven scheduled-backup lane without a
+# license. Daily and sub-daily cadence (backup_tier realtime/standard)
+# and the catena-daily orchestrator chain stay Business: on a Business
+# host the EE catena-daily engine masks catena-backup.timer and drives
+# scheduling itself, so the two never double-fire. Operators can move
+# the weekly slot via inventory .env (e.g. 'Sun *-*-* 03:00:00') but
+# cannot tighten it below weekly: the backup_weekly_cap filter fails
+# the converge on a daily/sub-weekly value (that is the Business lane).
+backup_weekly_timer_oncalendar: "{{ cfg_backup_weekly_timer_oncalendar | default('weekly') | backup_weekly_cap }}"
 
 # Stats file written by the wrapper after each successful run. Hosts
 # both the catena-admin container's read-only bind-mount target AND
 # the post-restore.needed marker referenced by playbooks + several
 # roles. The catena-admin role binds this dir at /var/lib/catena
-# (read-only) into the container; the writers (run-backup.sh,
+# (read-only) into the container; the writers (catena-backup-run,
 # gatus-sync.py) drop *.json siblings to the marker file. Path is
 # locked by test_restore_option_a.py; don't move without updating
 # the hardcoded reference in roles/common/tasks/main.yml.
@@ -460,6 +569,12 @@ backup_daily_timer_oncalendar: "{{ lookup('dotenv', 'BACKUP_DAILY_TIMER_ONCALEND
 # inside their containers.
 backup_stats_dir: /var/lib/catena
 backup_stats_file: "{{ backup_stats_dir }}/backup-stats.json"
+
+# Where site.yml looks for post-restore hooks when the marker above is
+# present. Under /etc/catena because it is configuration, and because /etc is in
+# backup_paths -- a restored host keeps the hooks it had. This repo creates the
+# directory and never writes into it; see the seam's comment in site.yml.
+catena_post_restore_hook_dir: /etc/catena/post-restore.d
 
 # Snapshot-export mode (catena-admin Recovery-tab button: "Export latest snapshot")
 # Streams `restic dump latest /` through gzip into a single tarball under
@@ -471,7 +586,7 @@ backup_export_keep_last: 1 # rotation: keep only the newest N exports
 
 # F6: snapshot-list helper. Renders ${backup_export_dir}/index.html with
 # a curated table of current restic snapshots + pre-exported tarballs.
-# Called by run-backup.sh after forget+prune so the listing tracks the
+# Called by catena-backup-run after forget+prune so the listing tracks the
 # live repo state. Served as the landing page at recovery.<zone>.
 backup_snapshot_list_script: /usr/local/bin/catena-snapshot-list
 

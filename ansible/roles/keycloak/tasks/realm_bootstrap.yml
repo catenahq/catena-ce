@@ -8,13 +8,13 @@
 # cheap.
 #
 # Atomicity: gated on Keycloak's /health/ready (set by tasks/validate.yml's
-# in-container probe -- which runs AFTER tasks/compose.yml). Per project
+# in-container probe -- which runs AFTER tasks/deploy.yml). Per project
 # CLAUDE.md, the import MUST NOT race the server's own first-boot
 # migrate; /health/ready is the canonical "migrations are done" signal,
 # stronger than "container exists in docker ps".
 
 # DR detection: realm + clients + users come back via the
-# dokploy-postgres pg_dumpall replay. Re-importing on top of that
+# catena-postgres pg_dumpall replay. Re-importing on top of that
 # triggers Keycloak 500s on user-create (Phase Two image returns 500
 # instead of 409 on the duplicate-username path), so on a post-
 # restore converge we skip the entire keycloak-config-cli step. The
@@ -38,12 +38,12 @@
 # keycloak-config-cli's MERGE semantics preserve whatever the client
 # may have edited (admin UI -> Realm settings -> Email tab).
 # Operator-driven SMTP rotation goes through the runbook (rotate at
-# upstream provider, edit Dokploy env tab, optionally rm the marker
-# below to force a re-bootstrap from vault).
+# upstream provider, edit the Portainer env, optionally rm the marker
+# below to force a re-bootstrap from the on-box store).
 # On a post-restore converge the marker doesn't exist on disk (it
 # lives under /var/lib/catena/, which is NOT in backup_paths -- only
 # /etc + /mnt/data + /var/lib/dpkg + /usr/local/bin are). But the
-# restored dokploy-postgres DB already carries the smtpServer config
+# restored catena-postgres DB already carries the smtpServer config
 # from the source host (pg_dumpall replay path). Drop the marker
 # pre-import so the "render without smtpServer" + "skip mark" paths
 # below both behave the same way they would on a normal converge.
@@ -84,10 +84,9 @@
 
 # Service-account client for the host-side dashboard-sync cron. Rendered
 # into the same /config dir so the keycloak-config-cli import below picks
-# it up. Gated on the vault secret being present so realms that predate
-# the per-app gating engine import cleanly (the client is simply absent
-# until the operator adds the key). The dashboard-sync redirect-URI sync
-# no-ops without the client.
+# it up. Gated on the secret being present so a realm imports cleanly
+# when it is not (the client is simply absent). The dashboard-sync
+# redirect-URI sync no-ops without the client.
 - name: "Keycloak realm: render dashboard-sync service-account client"
   ansible.builtin.template:
     src: "{{ playbook_dir }}/../roles/keycloak/templates/realm-dashboard-sync.yaml.j2"
@@ -95,7 +94,7 @@
     owner: root
     group: root
     mode: "0644"
-  when: vault_dashboard_sync_client_secret | default('') | length > 0
+  when: dashboard_sync_client_secret | default('') | length > 0
 
 # In-container /health/ready re-probe immediately before the import.
 # tasks/validate.yml's probe is run AFTER this file (see main.yml
@@ -106,7 +105,7 @@
   ansible.builtin.shell: |
     set -o pipefail
     docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-      | grep -E '{{ keycloak_compose_name | dokploy_container_regex(keycloak_server_service) }}' \
+      | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' \
       | head -n1
   args:
     executable: /bin/bash
@@ -140,15 +139,15 @@
 
 # keycloak-config-cli runs as a one-shot Docker container against the
 # bind-mounted realm dir. We use `docker run --rm` directly rather than
-# Dokploy compose because:
-#   1. It must run to completion + exit, not stay alive (Dokploy's
-#      compose deploy expects long-running services).
+# a Portainer stack because:
+#   1. It must run to completion + exit, not stay alive (a stack deploy
+#      expects long-running services).
 #   2. We need stdout/stderr inline in the Ansible run for diagnostics;
-#      Dokploy buffers logs into its own log surface.
+#      the control plane buffers logs into its own log surface.
 #   3. The image is operator-internal (not part of the customer-facing
-#      stack) -- no point cluttering the Dokploy app catalog with it.
+#      suite) -- no point cluttering the App Templates catalog with it.
 #
-# Network: dokploy-network so we can reach keycloak-server:8080 by
+# Network: catena-network so we can reach keycloak-server:8080 by
 # alias. Pull policy is the default (use cached image if present;
 # fall back to registry pull on first run).
 - name: "Keycloak realm: keycloak-config-cli import-update-merge"
@@ -158,7 +157,7 @@
       - run
       - --rm
       - --network
-      - dokploy-network
+      - catena-network
       - -e
       - "KEYCLOAK_URL=http://{{ keycloak_server_alias }}:{{ keycloak_internal_port }}"
       - -e
@@ -172,20 +171,29 @@
       - KEYCLOAK_PASSWORD
       - -e
       - "KEYCLOAK_AVAILABILITYCHECK_ENABLED=true"
+      # Short per-attempt wait: kc-config-cli resolves keycloak-server via
+      # the JVM, which negative-DNS-caches a first-lookup miss for the life
+      # of the container -- so a long in-container wait never recovers if
+      # the catena-network alias was not yet registered at startup (the
+      # network-attachment race after an anchor-rewind reboot / redeploy).
+      # We instead retry the WHOLE run at the Ansible level below: each
+      # retry is a fresh container with a fresh resolver, so the lookup
+      # succeeds once the alias is up. Keep this short so a doomed attempt
+      # fails fast into the next retry.
       - -e
-      - "KEYCLOAK_AVAILABILITYCHECK_TIMEOUT=120s"
+      - "KEYCLOAK_AVAILABILITYCHECK_TIMEOUT=25s"
       - -e
       - "IMPORT_FILES_LOCATIONS=/config/*.yaml"
       - -e
       - "IMPORT_VAR_SUBSTITUTION_ENABLED=false"
       # NO_DELETE for managed entities -- per-client YAMLs (nextcloud,
-      # oauth2-proxy, olivetin, etc.) each contain only THEIR one
+      # oauth2-proxy, roundcube, etc.) each contain only THEIR one
       # client. With the default FULL behavior, each import
       # silently DELETES every other client because they're not in
       # the file's `clients:` array. Result: only the last-imported
-      # client (alphabetically -- olivetin) survives, and the rest
-      # are gone -- the apps that depend on them then fail with
-      # "Client not found" at the OIDC auth endpoint.
+      # client survives and the rest are gone -- the apps that depend
+      # on them then fail with "Client not found" at the OIDC auth
+      # endpoint.
       #
       # NO_DELETE flips merge semantics from "the file is the
       # complete state" to "the file is a delta to apply". Since our
@@ -224,7 +232,7 @@
       - "{{ keycloak_realm_host_dir }}:/config:ro"
       - "{{ keycloak_config_cli_image }}"
   environment:
-    KEYCLOAK_PASSWORD: "{{ vault_admin_password }}"
+    KEYCLOAK_PASSWORD: "{{ admin_password }}"
   register: _keycloak_realm_import
   # Tool reports its own changed/no-op state on stdout. Treat as
   # `changed_when` true if the realm YAML was re-rendered OR the
@@ -240,15 +248,29 @@
   # chance to surface stdout/stderr through the debug + fail pair
   # below. no_log: true on THIS task suppresses Ansible's default
   # task-result log (which echoes the `environment:` block and would
-  # leak vault_admin_password); the registered variable still carries
+  # leak admin_password); the registered variable still carries
   # the stdout/stderr that the debug task explicitly emits next.
   failed_when: false
+  # Retry the whole run on any failure: each attempt is a FRESH container
+  # with a fresh DNS resolver, so a keycloak-server lookup that missed on
+  # the first attempt (alias not yet registered after a rewind-reboot /
+  # redeploy, then JVM-negative-cached for that container's life) resolves
+  # on a later attempt once the alias is up -- and a transient catena-
+  # network attach error is ridden out too. `until` retries while rc != 0;
+  # on final exhaustion failed_when=false keeps the play alive so the debug
+  # + abort pair below still surface the real error. The import is
+  # idempotent (import-update-merge, NO_DELETE), so re-running is safe.
+  # Bench 2026-07-05T01-35-42-fbb4 fi_a2: a single attempt died with
+  # `UnknownHostException: keycloak-server` for the full availability wait.
+  retries: 6
+  delay: 8
+  until: _keycloak_realm_import.rc == 0
   when: not (_keycloak_realm_post_restore_marker.stat.exists | default(false))
   no_log: true
 
 # Surface stdout + stderr from the kc-config-cli run. Restricted to
 # the two fields that are SAFE to log -- the env block (which holds
-# vault_admin_password) lives on the task definition above, not in
+# admin_password) lives on the task definition above, not in
 # _keycloak_realm_import.* fields. Without this, no_log: true on the
 # parent task blackholes the actual error message and operators are
 # left guessing across the dozens of realm YAMLs that just rendered.
@@ -271,7 +293,7 @@
       rc={{ _keycloak_realm_import.rc | default('?') }}. See the
       preceding debug task for stdout/stderr; common causes are an
       invalid YAML in {{ keycloak_realm_host_dir }}/*.yaml, a missing
-      vault-derived value (e.g. vault_dashboard_sync_client_secret)
+      store-derived value (e.g. dashboard_sync_client_secret)
       that left a Jinja placeholder un-substituted, or a Keycloak
       Phase Two version drift that the import schema does not yet
       handle.
@@ -282,7 +304,7 @@
 # Reconcile-not-overwrite: write the SMTP marker after the FIRST
 # successful import, so subsequent runs render the realm template
 # without the smtpServer block. Operator can `rm` the marker to
-# force a re-bootstrap of SMTP from vault.
+# force a re-bootstrap of SMTP from the on-box store.
 - name: "Keycloak realm: mark SMTP as bootstrapped"
   ansible.builtin.file:
     path: /var/lib/catena/keycloak-realm-smtp-bootstrapped
@@ -306,7 +328,8 @@
 # to "create a permanent admin account and delete the temporary one".
 #
 # In our automated stack the bootstrap admin IS the permanent admin
-# (single-operator, password lives in vault, rotated via vault edit).
+# (single-operator; the password lives in the on-box store and is rotated
+# from catena-admin).
 # The banner is noise. Clear the attribute so the WhoAmI check
 # returns false and the banner stays hidden.
 #
@@ -334,7 +357,7 @@
       - --user
       - "{{ admin_email }}"
       - --password
-      - "{{ vault_admin_password }}"
+      - "{{ admin_password }}"
   changed_when: false
   no_log: true
 

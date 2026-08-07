@@ -1,10 +1,10 @@
 # {{ ansible_managed }}
 # Keycloak (Phase Two distribution). One service: `server`. Postgres
-# lives inside the shared dokploy-postgres swarm task; we connect to
-# it by service name on dokploy-network.
+# lives inside the shared catena-postgres swarm task; we connect to
+# it by service name on catena-network.
 #
 # Networks:
-#   - dokploy-network (external): Traefik routes auth.<zone> to us via
+#   - catena-network (external): Traefik routes auth.<zone> to us via
 #     this network; oauth2-proxy (plan step 4) reaches us by the
 #     `keycloak-server` alias.
 #   - default (project-local): not currently used because Postgres is
@@ -41,14 +41,33 @@ services:
       KC_SPI_EMAIL_TEMPLATE_FREEMARKER_PLUS_MUSTACHE_ENABLED: "true"
       # --- DB ---
       KC_DB: postgres
-      KC_DB_URL: "jdbc:postgresql://dokploy-postgres:5432/{{ keycloak_db_name }}"
+      KC_DB_URL: "jdbc:postgresql://catena-postgres:5432/{{ keycloak_db_name }}"
       KC_DB_USERNAME: "{{ keycloak_db_user }}"
-      KC_DB_PASSWORD: "{{ vault_keycloak_db_password }}"
+      KC_DB_PASSWORD: "{{ keycloak_db_password }}"
       # --- HTTP / proxy ---
       KC_HTTP_ENABLED: "{{ keycloak_http_enabled | string | lower }}"
+{% if (cloudflare_zones | default([]) | length) > 1 %}
+      # Multi-domain (EE): one Keycloak serves an auth.<zone> island per
+      # attached domain. Relaxing HOSTNAME_STRICT + dropping the fixed
+      # KC_HOSTNAME lets Keycloak derive issuer/login URLs from the incoming
+      # Host per request (KC_PROXY_HEADERS=xforwarded). Safe because the
+      # tunnel ingress is the hostname allow-list: Keycloak only ever
+      # receives the configured auth.<zone> hosts. BACKCHANNEL_DYNAMIC MUST
+      # be false here: Keycloak 26 rejects backchannel-dynamic=true when no
+      # fixed hostname is set ("hostname-backchannel-dynamic must be set to
+      # false when no hostname is provided"). With no fixed hostname every
+      # URL (frontend AND backchannel) is already request-derived, so the
+      # internal keycloak-server:8080 backchannel resolves from its own Host.
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "false"
+{% else %}
+      # Single-domain: fixed public KC_HOSTNAME for the iss claim, with
+      # BACKCHANNEL_DYNAMIC=true so server-to-server calls on the internal
+      # keycloak-server:8080 host resolve while iss stays public.
       KC_HOSTNAME: "https://{{ keycloak_hostname }}"
       KC_HOSTNAME_STRICT: "true"
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+{% endif %}
       KC_PROXY_HEADERS: "{{ keycloak_proxy_headers }}"
       # --- Cache ---
       # Single Keycloak replica per VPS (one `server` service, no
@@ -66,17 +85,17 @@ services:
       # is lost on restart. `cache` is a runtime option, so this is safe
       # under `start` without --optimized (no build-time rebuild loop).
       KC_CACHE: "local"
-      # --- Health (probed by validate.yml + Gatus + Dokploy domain check) ---
+      # --- Health (probed by validate.yml + Gatus + the public route probe) ---
       KC_HEALTH_ENABLED: "true"
       # --- Initial admin (idempotent: skipped after first boot) ---
       # Keycloak 26 reads these envs ONLY when no admin user exists in
       # the DB yet. On a DR converge the restored Postgres already has
       # the admin row, so these envs are ignored. Same identity as
-      # Dokploy's admin per the shared-vault contract.
+      # the Portainer admin per the shared-vault contract.
       KC_BOOTSTRAP_ADMIN_USERNAME: "{{ admin_email }}"
-      KC_BOOTSTRAP_ADMIN_PASSWORD: "{{ vault_admin_password }}"
+      KC_BOOTSTRAP_ADMIN_PASSWORD: "{{ admin_password }}"
     networks:
-      dokploy-network:
+      catena-network:
         aliases:
           - "{{ keycloak_server_alias }}"
       default: {}
@@ -87,16 +106,32 @@ services:
       # curl/wget -- only bash. Use bash + /dev/tcp to issue a minimal
       # HTTP/1.1 GET and grep for "200" in the status line. Avoids
       # baking a curl install into the image just for healthchecks.
+      #
+      # Invoke bash EXPLICITLY (CMD, not CMD-SHELL): the phasetwo 26.6.x image's
+      # /bin/sh is not bash, and /dev/tcp is a bash-only feature -- under
+      # CMD-SHELL (which runs `/bin/sh -c`) the redirect fails with
+      # "can't create /dev/tcp/...: nonexistent directory" and the container
+      # is marked unhealthy forever even though Keycloak is serving. bash is on
+      # PATH (/usr/sbin/bash) so the bare `bash` resolves.
       test:
-        - "CMD-SHELL"
+        - "CMD"
+        - "bash"
+        - "-c"
         - "exec 3<>/dev/tcp/127.0.0.1/{{ keycloak_management_port }} && printf 'GET {{ keycloak_health_path }} HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && head -1 <&3 | grep -q '200'"
       interval: 10s
       timeout: 5s
       retries: 30
       start_period: 60s
-    restart: unless-stopped
+    # `restart:` is ignored by `docker stack deploy`; swarm reads
+    # deploy.restart_policy. The delay is not decoration: `start` re-runs
+    # the augmentation/build step on every boot, so a hot restart loop
+    # against a Postgres still doing WAL recovery burns CPU for minutes.
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 5s
 
 networks:
-  dokploy-network:
+  catena-network:
     external: true
   default: {}

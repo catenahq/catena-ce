@@ -1,0 +1,97 @@
+# {{ ansible_managed }}
+#
+# Managed by roles/traefik. Do NOT edit by hand -- changes are
+# clobbered on the next `./catena site` run.
+#
+# Static Traefik config for the catena-owned `catena-traefik` container.
+# Same content Dokploy's install.sh writes at first boot PLUS:
+#
+#   1. entryPoints.<entrypoint>.forwardedHeaders.trustedIPs
+#      Tells Traefik to trust X-Forwarded-* headers from the overlay
+#      (10/8) and Docker bridges (172.16/12, 127/8).
+#
+#   2. entryPoints.web.http.middlewares with a request-header
+#      injector that sets X-Forwarded-Proto: https.
+#      Required because cloudflared (the ONLY ingress on the :80
+#      entrypoint, given the UFW + DOCKER-USER lockdown) does NOT
+#      send X-Forwarded-Proto -- it sends Cf-Visitor:
+#      {"scheme":"https"} instead, which Keycloak (and most other
+#      backends) does not read. Without injection, Keycloak sees the
+#      :80 connection as a plain-HTTP request, logs "Non-secure
+#      context detected" twice per second, refuses Secure cookies,
+#      and the account-console SPA loops on cross-origin POSTs.
+#
+# Lockdown invariant: ONLY cloudflared can reach :80. UFW blocks
+# public ingress on :80; DOCKER-USER drops port 3000 from
+# non-tailnet/non-RFC1918; the overlay is the only path that can hit
+# :80 from outside the host. Therefore we can safely declare the :80
+# entrypoint "always behind HTTPS at the edge" and rewrite
+# X-Forwarded-Proto unconditionally.
+global:
+  sendAnonymousUsage: false
+providers:
+  swarm:
+    exposedByDefault: false
+    watch: true
+  docker:
+    exposedByDefault: false
+    watch: true
+    network: {{ catena_network_name }}
+  file:
+    directory: {{ traefik_dynamic_dir }}
+    watch: true
+entryPoints:
+  web:
+    address: :80
+    forwardedHeaders:
+      trustedIPs: {{ traefik_trusted_ips | to_yaml }}
+    # Inject X-Forwarded-Proto: https on every request because the
+    # only ingress on :80 is cloudflared, and cloudflared does NOT
+    # set the header itself (only Cf-Visitor). Middleware ref points
+    # at the file provider's `cf-forwarded-proto-https` definition
+    # in dynamic/cf-forwarded-proto-https.yml.
+    http:
+      middlewares:
+        - cf-forwarded-proto-https@file
+        - catena-secure-headers@file
+# NO `websecure` entrypoint, and no certificatesResolvers. Both were removed
+# 2026-08-06 after measuring that nothing used them and that they were doing
+# active harm.
+#
+# TLS terminates at Cloudflare. cloudflared reaches this proxy at
+# http://catena-traefik:80 over catena-network, and the service publishes NO
+# host ports, so :443 was never reachable from anywhere. Every route catena
+# generates is `web`-only: app-route.yml.j2 (portainer_stack) and both
+# route_synth variants (dashboard-sync).
+#
+# So the only routers that ever landed on websecure were ones Traefik invented
+# itself. Four stacks carried traefik.enable=true as a container label with no
+# rule, the docker provider applied its built-in Host(`{{ '{{' }} normalize .Name {{ '}}' }}`)
+# default, and the resulting DOTLESS routers inherited this entrypoint's
+# certResolver -- so every converge asked PRODUCTION Let's Encrypt for
+# certificates for names no CA can issue, burning failed-validation quota on
+# the operator's account. Labels fixed in 0b6c98f; this removes the mechanism
+# that turned an accidental router into an ACME order.
+#
+# Confirmed by run 2026-08-06T16-46-08-e2de before the removal: acme.json 0
+# bytes, zero contact with acme-v02.api.letsencrypt.org, and the only ACME
+# artefact left was Traefik's own acme-http@internal challenge router, which
+# existed solely because a resolver was configured and logged an error of its
+# own. ce_install_suite's stage-3e-no-public-acme now guards the property.
+#
+# Restoring TLS here means an entrypoint, a resolver with a REAL email (the
+# removed one was the placeholder test@localhost.com, so expiry notices went
+# nowhere), a published :443, and a caServer so a bench never talks to a public
+# CA again.
+api:
+  insecure: true
+# Enables the /ping endpoint on the internal `traefik` entrypoint (:8080,
+# created by api.insecure above). This exists for ONE reason: the swarm
+# service healthcheck runs `traefik healthcheck`, and that subcommand refuses
+# to do anything without ping -- it exits 1 with "please enable `ping` to use
+# health check". With it, `docker service ls` reporting 1/1 for catena-traefik
+# means the proxy is answering, not merely that the process started.
+#
+# Not a new exposure: :8080 is internal to the container's netns and the
+# entrypoint is not published, exactly like the api dashboard it rides on.
+ping: {}

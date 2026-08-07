@@ -1,13 +1,13 @@
 ---
 # Install /usr/local/bin/dashboard-sync (stdlib-only Python), its env file
-# (contains vault_dokploy_api_key, 0600), and the systemd service + timer
+# (contains portainer_api_key, 0600), and the systemd service + timer
 # that runs it every 5 minutes. Also exposed via the catena-admin Actions
 # tab "Sync all" button for on-demand refresh.
 #
 # Phase 4b: the script no longer writes Homepage's services.yaml. Its
 # only remaining job is the gate-route synthesis -- generating
-# {{ dokploy_traefik_dynamic_dir }}/<app>-auto-gate.yml from every
-# Dokploy compose/application's vps.auth.* labels.
+# {{ traefik_dynamic_dir }}/<app>-auto-gate.yml from every
+# Portainer stack's vps.auth.* labels.
 
 - name: "dashboard-sync: script"
   # Plain stdlib-only Python under vps-scripts/ -- no Jinja in
@@ -37,9 +37,10 @@
     group: root
     mode: "0644"
   loop:
-    - { src: "{{ playbook_dir }}/../scripts/dokploy_api.py", dest: "dokploy_api.py" }
+    - { src: "{{ playbook_dir }}/../scripts/portainer_api.py", dest: "portainer_api.py" }
     - { src: "{{ playbook_dir }}/../scripts/route_synth.py", dest: "route_synth.py" }
     - { src: "{{ playbook_dir }}/../scripts/gate_routes.py", dest: "gate_routes.py" }
+    - { src: "{{ playbook_dir }}/../scripts/verify_gated_intent.py", dest: "verify_gated_intent.py" }
     - { src: "{{ playbook_dir }}/../scripts/clients_provisioner.py", dest: "clients_provisioner.py" }
     - { src: "{{ playbook_dir }}/../scripts/keycloak_client.py", dest: "keycloak_client.py" }
     - { src: "{{ playbook_dir }}/../scripts/mailbox_sync.py", dest: "mailbox_sync.py" }

@@ -70,6 +70,63 @@
     name: "{{ inventory_hostname }}"
     use: systemd
 
+# Take /etc/hosts off cloud-init BEFORE writing to it. Provider images
+# (OVH, and the bench's own) ship `manage_etc_hosts: True`, which
+# REGENERATES /etc/hosts from /etc/cloud/templates/hosts.debian.tmpl on
+# EVERY boot -- so the mapping the task below writes survives until the
+# next reboot and then silently disappears. The converge put it back on
+# the next run, which is why this never surfaced: the only observer that
+# converges twice with a reboot in between is the bench, and its
+# idempotency assertion only became strict in this audit (ce_converge
+# changed=2, bench 2026-07-28T13-18-43-7606).
+#
+# A drop-in rather than an edit to cloud.cfg: cloud-init merges
+# /etc/cloud/cloud.cfg.d/*.cfg over the base config, so this states the
+# one key we own without taking over the file. Ansible owns the
+# steady-state, matching how the apt-proxy config below is handled.
+- name: Check for a cloud-init config directory
+  ansible.builtin.stat:
+    path: /etc/cloud/cloud.cfg.d
+  register: _catena_cloud_cfg_d
+
+- name: Stop cloud-init regenerating /etc/hosts on every boot
+  ansible.builtin.copy:
+    dest: /etc/cloud/cloud.cfg.d/99-catena-etc-hosts.cfg
+    content: |
+      # Managed by Catena (roles/common). /etc/hosts is Ansible-owned:
+      # cloud-init rewriting it from a template on each boot drops the
+      # 127.0.1.1 <hostname> mapping the converge maintains.
+      manage_etc_hosts: false
+    owner: root
+    group: root
+    mode: "0644"
+  when: _catena_cloud_cfg_d.stat.isdir | default(false)
+
+# The drop-in above is not always enough: cloud-init merges user-data OVER
+# cloud.cfg.d, so a provider (or the bench) that sets manage_etc_hosts in
+# user-data keeps regenerating the file no matter what we write to the
+# drop-in. cloud-init's Debian template emits
+#   127.0.1.1 <fqdn> <hostname>
+# which resolves the name correctly but is not byte-identical to the line
+# below, so a converge that rewrote it unconditionally reported `changed`
+# on every single run, forever.
+#
+# So enforce the PROPERTY -- the host resolves its own name on 127.0.1.1 --
+# not one spelling of it. Whoever wrote a satisfying line, we leave it.
+- name: Check whether /etc/hosts already maps the hostname to 127.0.1.1
+  ansible.builtin.command:
+    argv:
+      - awk
+      - -v
+      - "want={{ inventory_hostname }}"
+      - >-
+        $1 == "127.0.1.1" { for (i = 2; i <= NF; i++) if ($i == want) found = 1 }
+        END { exit found ? 0 : 1 }
+      - /etc/hosts
+  register: _catena_hosts_mapped
+  changed_when: false
+  failed_when: false
+
 # Atomicity: ansible.builtin.lineinfile writes via temp-file + atomic
 # rename (Ansible 2.13+), so a crash mid-write leaves /etc/hosts
 # intact with either the old content or the new. Dedupes by regexp.
@@ -83,6 +140,7 @@
     owner: root
     group: root
     mode: "0644"
+  when: _catena_hosts_mapped.rc != 0
 
 # Configure the apt HTTP proxy BEFORE the first dist-upgrade so every
 # apt operation in this role (and every subsequent role) routes HTTP
@@ -112,7 +170,7 @@
 # Wait for apt instead of failing fast when the dpkg lock is held by
 # another process (typical: apt-daily.timer mid-fire, cloud-init's
 # package_update finishing in the background, unattended-upgrades).
-# Without this, ANY apt step in this role or downstream (dokploy
+# Without this, ANY apt step in this role or downstream (docker
 # install.sh, tailscale install, backup install) loses a race and
 # fails with "Could not get lock" while the holder finishes in <5 min.
 # Applies system-wide via /etc/apt/apt.conf.d, so install.sh's apt
@@ -189,7 +247,7 @@
 # the apt module's `update_cache_retries` loop returns the unhelpful
 # "Failed to update cache after 10 retries: " message (empty stderr,
 # because the module folds individual retries into a summary string)
-# and every subsequent role that touches apt -- dokploy install.sh,
+# and every subsequent role that touches apt -- docker install,
 # tailscale install, backup install -- cascades. The block-then-rescue
 # below: first tries via whatever proxy is configured; on failure,
 # captures the real apt-get error for the log, then if a proxy is in
@@ -204,13 +262,14 @@
       ansible.builtin.apt:
         update_cache: true
         # Skip the refresh if /var/lib/apt/periodic/update-success-stamp
-        # is younger than this. Without it the bench's stage-2.5
-        # idempotency rerun flips to changed=true whenever any upstream
-        # security/translation feed rolls between the first converge
-        # and the rerun (~5-10 min later). One hour is comfortably
-        # longer than any single converge + rerun + the inter-stage
-        # gap, but short enough that a real flake (mirror going stale
-        # mid-day) still gets re-fetched.
+        # is younger than this. An optimisation, not a correctness
+        # crutch: it saves a round-trip to every mirror on a converge
+        # that just ran. It used to carry the idempotency claim too, on
+        # the reasoning that "one hour is comfortably longer than any
+        # single converge + rerun + the inter-stage gap" -- true for
+        # fresh_install's stage-2.5 rerun ~5-10 min later, false for the
+        # DAG-scheduled ce_converge, which lands HOURS after the install
+        # it re-converges. That is what changed_when below is for.
         cache_valid_time: 3600
         # Belt-and-braces: the 05-lock-timeout conf above tells apt
         # itself to wait, the module's own lock_timeout matches so
@@ -221,6 +280,12 @@
         # Stretch that to ride out short mirror flakes.
         update_cache_retries: 10
         update_cache_retry_max_delay: 30
+      # Refreshing the package index is not a change to this host's
+      # configuration -- it is a read of the mirrors. Reporting it as
+      # `changed` makes whether the converge is idempotent depend on how
+      # long ago the last one ran, and on whether an upstream feed rolled
+      # in between. Failures still fail; the rescue below is unaffected.
+      changed_when: false
   rescue:
     - name: "apt update failed; capture diagnostic via raw apt-get update"
       ansible.builtin.command:
@@ -236,10 +301,25 @@
           retry-loop artifact). Real diagnostic from apt-get update:
             rc={{ _apt_update_diag.rc }}
             stderr={{ _apt_update_diag.stderr | default('') | trim }}
-          {% if common_apt_proxy_url | length > 0 %}
+          {% if _apt_update_diag.rc == 0 %}
+          That succeeded, so the index IS refreshed and the module failure
+          was the retry-loop artifact. Nothing further to do.
+          {% elif common_apt_proxy_url | length > 0 %}
           Retrying without HTTP proxy ({{ common_apt_proxy_url }}).
           {% endif %}
 
+    # rc == 0 means the diagnostic WAS the successful retry: apt-get refreshed
+    # the index, so there is no failure left to report or work around. Every
+    # task below is therefore gated on rc != 0.
+    #
+    # Without that gate this rescue aborted the bootstrap while printing its
+    # own proof that apt worked -- "Real apt-get error: rc=0, stderr=" -- which
+    # is a contradiction on its face. Observed on bench run
+    # 2026-08-06T21-55-42-fcd1, stage-1: the apt module exhausted its 10
+    # retries against a cold mirror, the raw retry seconds later returned 0,
+    # and the play failed anyway. It is a client-facing defect, not a bench
+    # one: any install with no APT_PROXY_URL (the default) aborts on a
+    # transient flake that already healed.
     - name: "No proxy to bypass; fail with the real error"
       ansible.builtin.fail:
         msg: |
@@ -247,12 +327,15 @@
           there is nothing to bypass. Real apt-get error:
             rc={{ _apt_update_diag.rc }}
             stderr={{ _apt_update_diag.stderr | default('') | trim }}
-      when: common_apt_proxy_url | length == 0
+      when:
+        - common_apt_proxy_url | length == 0
+        - _apt_update_diag.rc != 0
 
     - name: "Temporarily drop proxy conf for direct retry"
       ansible.builtin.file:
         path: /etc/apt/apt.conf.d/01proxy
         state: absent
+      when: _apt_update_diag.rc != 0
 
     - name: "apt update (direct, no proxy)"
       ansible.builtin.apt:
@@ -260,7 +343,12 @@
         lock_timeout: 300
         update_cache_retries: 5
         update_cache_retry_max_delay: 30
+      when: _apt_update_diag.rc != 0
 
+    # Also gated on a proxy actually being configured: with none, this wrote
+    # `Acquire::http::Proxy "";` -- re-creating the very file the main path's
+    # "Remove apt HTTP proxy (when APT_PROXY_URL is unset)" task deletes, so a
+    # converge that entered this rescue stopped being idempotent.
     - name: "Restore proxy conf so subsequent apt calls hit the cacher"
       ansible.builtin.copy:
         dest: /etc/apt/apt.conf.d/01proxy
@@ -270,6 +358,9 @@
         owner: root
         group: root
         mode: "0644"
+      when:
+        - _apt_update_diag.rc != 0
+        - common_apt_proxy_url | length > 0
 
 # ── Keep host port 25 free for the mail server (MX) ──────────────────────
 # Debian's default-mta (exim4-daemon-light) binds 127.0.0.1:25 + [::1]:25
@@ -408,7 +499,7 @@
 # key-only the operator has NO way back in if the tailnet path is lost --
 # the provider web console (KVM/serial) and an on-prem physical keyboard
 # both authenticate against the local TTY via PAM, which needs a real
-# password. Set one from the vault on the persistent ops account.
+# password. Set one from admin_password on the persistent ops account.
 #
 # This is console-ONLY: sshd_hardening.conf.j2 sets
 # PasswordAuthentication no, so the password is rejected over SSH and only
@@ -416,20 +507,25 @@
 # or on-prem physical) and does not depend on the provider default user,
 # which root-disable + AllowUsers already lock out of SSH.
 #
+# The password is USER_HELD (helpers/onbox_config.py): minted on-box if absent
+# on every converge and surfaced once by playbooks/show_dr_keyset.yml, because
+# a break-glass credential the user does not hold a copy of is not one. It was
+# previously minted only by an ops operator tool, so a self-hoster host had no
+# console account at all and this task silently skipped.
+#
 # Deterministic salt (derived from the secret itself) keeps the sha512 hash
 # stable across converges so /etc/shadow does not churn -- update_password:
-# always then reports no change on a steady-state run. Gated on the key
-# being present so inventories that have not minted it yet are a safe no-op
-# (migrate_inventory.py auto-mints vault_console_recovery_password).
+# always then reports no change on a steady-state run. The guard now covers
+# only a store that failed to load, not a store that never minted it.
 - name: Set ops console break-glass password (key-only SSH keeps it console-only)
   ansible.builtin.user:
     name: "{{ ops_user }}"
     password: >-
-      {{ vault_console_recovery_password
-         | password_hash('sha512', salt=(vault_console_recovery_password | hash('sha256'))[:16]) }}
+      {{ console_recovery_password
+         | password_hash('sha512', salt=(console_recovery_password | hash('sha256'))[:16]) }}
     update_password: always
   no_log: true
-  when: vault_console_recovery_password | default('') | length > 0
+  when: console_recovery_password | default('') | length > 0
 
 # ─── sshd hardening ──────────────────────────────────────────────────────
 # After this runs, root+password login stops working. The ops user with key
@@ -593,6 +689,37 @@
             '  journalctl --verify'] }}
   when: _journal_setup_keys is not skipped
 
+# Hand the key to the end-of-install keyset display, then have that display
+# DELETE it. Printing it here alone loses it: it scrolls past mid-converge and
+# a fresh install is hundreds of tasks long, so in practice nobody saved it and
+# the seal was unverifiable -- a guarantee nobody can check is not one.
+#
+# It is deliberately NOT written to the on-box config store like the other
+# user-held secrets. The verification key is the FSPRG seed: whoever holds it
+# can regenerate the sealing key for any past epoch and re-seal an ALTERED
+# journal. Leaving it on the box would hand a root-level attacker the tool that
+# defeats the tamper evidence they just tripped. It lives here for the minutes
+# between minting and display, 0600 root, and show_dr_keyset.yml removes it.
+- name: "journald: stage the FSS verification key for the one-shot keyset display"
+  when: _journal_setup_keys is not skipped
+  block:
+    - name: "journald: ensure the catena config dir exists"
+      ansible.builtin.file:
+        path: /etc/catena
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: "journald: write the FSS verification key for hand-off"
+      ansible.builtin.copy:
+        dest: /etc/catena/fss-verification-key.pending
+        content: "{{ _journal_setup_keys.stdout }}\n"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
 # ─── ufw baseline ────────────────────────────────────────────────────────
 # Public SSH is allowed for the duration of bootstrap. ufw_lockdown.yml
 # (called from site.yml post_tasks, AFTER tailscale is up) swaps this rule
@@ -649,8 +776,8 @@
 # Several roles WRITE under it before the backup role -- which used to be
 # its sole creator -- runs near the end of the converge. On a two-pass
 # fresh install the pass-1 backup happens to create it for pass-2's
-# keycloak, but a single-pass converge (key already in the vault) runs
-# keycloak's realm marker touch with no dir yet and fails with ENOENT.
+# keycloak, but a single-pass converge (key already in the on-box store)
+# runs keycloak's realm marker touch with no dir yet and fails with ENOENT.
 # Create it here in common (first role) so every later writer can rely on
 # it regardless of role order.
 - name: "/var/lib/catena exists"

@@ -2,8 +2,8 @@
 # Install the declarative public-port reconciler. Single applier for every
 # direct public port the VPS exposes outside the Cloudflare Tunnel.
 #
-# Infra roles (coturn, dokploy) drop a JSON fragment into
-# /etc/catena/public-ports.d/<owner>.json declaring their ports; Dokploy
+# Infra roles (coturn, portainer) drop a JSON fragment into
+# /etc/catena/public-ports.d/<owner>.json declaring their ports; app
 # templates declare ports via vps.expose.* compose labels harvested live.
 # catena-public-ports.py merges both and applies ufw + DOCKER-USER rules.
 # See vps-scripts/catena-public-ports.py for the full rationale.
@@ -62,15 +62,13 @@
   register: _pp_timer_unit
 
 # Re-apply DOCKER-USER guards on every docker.service start -- Docker
-# flushes the chain on restart/reboot. Mirrors the (now-retired)
-# dokploy-docker-firewall drop-in. systemd-run --no-block dispatches async
+# flushes the chain on restart/reboot. systemd-run --no-block dispatches async
 # so iptables churn does not hold docker.service in "activating"; the
 # leading - makes the dispatch non-fatal.
 #
 # common runs BEFORE the docker role installs Docker, so the drop-in dir
 # does not exist yet. Create it (harmless pre-Docker; systemd reads drop-ins
-# only once docker.service is defined). The old dokploy-firewall drop-in
-# avoided this because it lived in the post-Docker dokploy role.
+# only once docker.service is defined).
 - name: "public-ports: ensure docker.service.d drop-in dir exists"
   ansible.builtin.file:
     path: /etc/systemd/system/docker.service.d
@@ -101,33 +99,3 @@
     enabled: true
     state: started
   changed_when: false
-
-# ─── Retire the port-3000-only predecessor ───────────────────────────────
-# dokploy-docker-firewall (script + unit + drop-in) is superseded by the
-# registry. dokploy now declares port 3000 as a fragment and the reconciler
-# applies its DOCKER-USER guard. Remove the old units on already-provisioned
-# hosts so the two mechanisms never both manage the chain.
-- name: "public-ports: stop + disable retired dokploy-docker-firewall units"
-  ansible.builtin.systemd_service:
-    name: "{{ item }}"
-    state: stopped
-    enabled: false
-  loop:
-    - dokploy-docker-firewall.service
-  failed_when: false
-  changed_when: false
-
-- name: "public-ports: remove retired dokploy-docker-firewall files"
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: absent
-  loop:
-    - /usr/local/bin/dokploy-docker-firewall
-    - /etc/systemd/system/dokploy-docker-firewall.service
-    - /etc/systemd/system/docker.service.d/20-dokploy-docker-firewall.conf
-  register: _pp_retired_removed
-
-- name: "public-ports: daemon-reload after removing retired units"
-  ansible.builtin.systemd_service:
-    daemon_reload: true
-  when: _pp_retired_removed.changed

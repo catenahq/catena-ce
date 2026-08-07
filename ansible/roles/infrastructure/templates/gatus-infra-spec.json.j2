@@ -1,23 +1,13 @@
 [
   {
-    "label": "{{ dokploy_admin_hostname }}",
-    "url": "https://{{ dokploy_admin_hostname }}",
-    "group": "Infrastructure",
-    "accepted": [302],
-    "ignore_redirect": true,
-    "interval": "120s",
-    "alert_slug": "{{ dokploy_admin_hostname | lower | replace('.', '-') }}",
-    "version_key": "Dokploy"
-  },
-  {
-    "label": "dokploy-traefik",
-    "url": "http://dokploy-traefik:80/",
+    "label": "catena-traefik",
+    "url": "http://catena-traefik:80/",
     "group": "Infrastructure",
     "accepted": [200, 404],
     "ignore_redirect": false,
     "interval": "60s",
     "alert_slug": "traefik-internal",
-    "version_key": "Traefik (Dokploy)"
+    "version_key": "Traefik"
   },
   {
     "label": "{{ infrastructure_monitor_hostname }}",
@@ -41,6 +31,19 @@
     "interval": "120s",
     "alert_slug": "{{ infrastructure_dash_hostname | lower | replace('.', '-') }}",
     "version_key": "catena-admin"
+  },
+{# Portainer, the container control plane, is public + admin-gated at
+   portainer.<zone> over the CF tunnel (as well as tailnet-only :9000). An
+   unauthenticated probe gets a 302 to the auth flow. #}
+  {
+    "label": "{{ portainer_admin_hostname }}",
+    "url": "https://{{ portainer_admin_hostname }}",
+    "group": "Infrastructure",
+    "accepted": [302],
+    "ignore_redirect": true,
+    "interval": "120s",
+    "alert_slug": "{{ portainer_admin_hostname | lower | replace('.', '-') }}",
+    "version_key": "Portainer"
   },
   {
     "label": "{{ infrastructure_recovery_hostname }}",
@@ -92,7 +95,7 @@
   },
   {
     "label": "cloudflared",
-    "url": "http://dokploy-traefik:80/",
+    "url": "http://catena-traefik:80/",
     "group": "Infrastructure",
     "accepted": [200, 404],
     "ignore_redirect": false,

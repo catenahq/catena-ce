@@ -1,0 +1,183 @@
+# Time-boxed Trivy suppressions for the infra app images catena-ce pins by
+# role default: gatus, healthchecks, the beszel hub + agent + its python
+# shim, the Phase Two Keycloak, keycloak-config-cli and oauth2-proxy.
+# (clamav and the recovery nginx are clean and need no entry.)
+#
+# Every entry is a fixable HIGH or CRITICAL CVE in a THIRD-PARTY image
+# Catena pins but does NOT compile: the fix exists upstream -- in a vendored
+# Go module, a shaded jar, or a distro package -- and the image has not been
+# rebuilt. EVERY image listed here is already the newest published tag, so no
+# pin bump can clear any of it. That was checked at the registry per image,
+# not assumed; where a newer tag did exist the pin moved instead.
+#
+# oauth2-proxy is worth naming because it carries the only CRITICAL and the
+# obvious move does not work: v7.15.3-alpine, the latest release, ships the
+# IDENTICAL package set as the pinned v7.15.2-alpine -- libcrypto3 and
+# libssl3 3.5.5-r0, musl 1.2.5-r21, zlib 1.3.1-r2 -- while alpine v3.23 has
+# carried openssl 3.5.6-r0 and 3.5.7-r0 for weeks. Bumping the tag would
+# change the vendored Go modules and clear nothing here.
+#
+# These do NOT weaken the gate: a Renovate PR that pins a NEW vulnerable tag
+# still trips on any CVE not listed here, and this gate is ABSOLUTE (no
+# baseline), so a suppression is the only way debt stays visible. expiredAt
+# forces re-evaluation -- after the date Trivy stops ignoring the CVE and the
+# gate goes red again. Rebuild-watch: when upstream ships a rebuilt image,
+# bump the pin to clear these for real instead of renewing the date.
+#
+# The postgres / portainer / cloudflared / traefik entries that used to live
+# here are GONE, not expired: those pins moved into catena-admin's engine
+# catalog on 2026-08-03 and this repo no longer scans them. Their
+# suppressions moved with them.
+#
+# Reviewed 2026-08-07. Next review 2026-10-13.
+
+vulnerabilities:
+  # --- Vendored Go modules in beszel, beszel-agent, gatus,
+  # keycloak-config-cli and oauth2-proxy. ---
+  - id: CVE-2026-25681
+    expiredAt: 2026-10-13
+    statement: golang.org/x/net vendored in beszel/gatus/keycloak-config-cli/oauth2-proxy; upstream rebuild lag.
+  - id: CVE-2026-27136
+    expiredAt: 2026-10-13
+    statement: golang.org/x/net vendored in beszel/gatus/keycloak-config-cli/oauth2-proxy; upstream rebuild lag.
+  - id: CVE-2026-33810
+    expiredAt: 2026-10-13
+    statement: Go stdlib in the beszel/beszel-agent binaries; upstream rebuild lag.
+  - id: CVE-2026-39821
+    expiredAt: 2026-10-13
+    statement: golang.org/x/net vendored in beszel/gatus/keycloak-config-cli/oauth2-proxy; upstream rebuild lag.
+  - id: CVE-2026-39828
+    expiredAt: 2026-10-13
+    statement: golang.org/x/crypto vendored in beszel/beszel-agent/gatus/oauth2-proxy; upstream rebuild lag.
+  - id: CVE-2026-39829
+    expiredAt: 2026-10-13
+    statement: golang.org/x/crypto vendored in beszel/beszel-agent/gatus/oauth2-proxy; upstream rebuild lag.
+  - id: CVE-2026-39830
+    expiredAt: 2026-10-13
+    statement: golang.org/x/crypto vendored in beszel/beszel-agent/gatus/oauth2-proxy; upstream rebuild lag.
+  - id: CVE-2026-39831
+    expiredAt: 2026-10-13
+    statement: golang.org/x/crypto vendored in beszel/beszel-agent/gatus/oauth2-proxy; upstream rebuild lag.
+  - id: CVE-2026-39832
+    expiredAt: 2026-10-13
+    statement: golang.org/x/crypto vendored in beszel/beszel-agent/gatus/oauth2-proxy; upstream rebuild lag.
+  - id: CVE-2026-39835
+    expiredAt: 2026-10-13
+    statement: golang.org/x/crypto vendored in beszel/beszel-agent/gatus/oauth2-proxy; upstream rebuild lag.
+  - id: CVE-2026-42508
+    expiredAt: 2026-10-13
+    statement: golang.org/x/crypto vendored in beszel/beszel-agent/gatus/oauth2-proxy; upstream rebuild lag.
+  - id: CVE-2026-46595
+    expiredAt: 2026-10-13
+    statement: golang.org/x/crypto vendored in beszel/beszel-agent/gatus/oauth2-proxy; upstream rebuild lag.
+  - id: CVE-2026-46597
+    expiredAt: 2026-10-13
+    statement: golang.org/x/crypto vendored in beszel/beszel-agent/gatus/oauth2-proxy; upstream rebuild lag.
+  - id: CVE-2026-46602
+    expiredAt: 2026-10-13
+    statement: golang.org/x/image vendored in beszel/gatus; upstream rebuild lag.
+  - id: CVE-2026-46604
+    expiredAt: 2026-10-13
+    statement: golang.org/x/image vendored in beszel/gatus; upstream rebuild lag.
+  - id: CVE-2026-56852
+    expiredAt: 2026-10-13
+    statement: golang.org/x/text vendored in beszel/gatus/oauth2-proxy; upstream rebuild lag.
+  - id: GHSA-hrxh-6v49-42gf
+    expiredAt: 2026-10-13
+    statement: google.golang.org/grpc vendored in gatus/oauth2-proxy; upstream rebuild lag.
+
+  # --- Distro packages in the oauth2-proxy alpine base (see the header note
+  # on why v7.15.3 does not help) and the keycloak-config-cli ubuntu base. ---
+  - id: CVE-2026-22184
+    expiredAt: 2026-10-13
+    statement: zlib in the oauth2-proxy alpine base; fixed in alpine (1.3.2-r0), image rebuild lag.
+  - id: CVE-2026-28387
+    expiredAt: 2026-10-13
+    statement: openssl in the oauth2-proxy alpine base; fixed in alpine v3.23 (3.5.6-r0), image rebuild lag.
+  - id: CVE-2026-28388
+    expiredAt: 2026-10-13
+    statement: openssl in the oauth2-proxy alpine base; fixed in alpine v3.23 (3.5.6-r0), image rebuild lag.
+  - id: CVE-2026-28389
+    expiredAt: 2026-10-13
+    statement: openssl in the oauth2-proxy alpine base; fixed in alpine v3.23 (3.5.6-r0), image rebuild lag.
+  - id: CVE-2026-28390
+    expiredAt: 2026-10-13
+    statement: openssl in the oauth2-proxy alpine base; fixed in alpine v3.23 (3.5.6-r0), image rebuild lag.
+  - id: CVE-2026-31789
+    expiredAt: 2026-10-13
+    statement: openssl in the oauth2-proxy alpine base; fixed in alpine v3.23 (3.5.6-r0), image rebuild lag. CRITICAL.
+  - id: CVE-2026-40200
+    expiredAt: 2026-10-13
+    statement: musl in the oauth2-proxy alpine base; fixed in alpine (1.2.5-r23), image rebuild lag.
+  - id: CVE-2026-45447
+    expiredAt: 2026-10-13
+    statement: openssl in the oauth2-proxy alpine base and the keycloak-config-cli ubuntu base; fixed in alpine v3.23 (3.5.7-r0) and ubuntu (3.5.5-1ubuntu3.2), image rebuild lag.
+
+  # --- Java libraries shaded into phasetwo-keycloak 26.6.4 and
+  # keycloak-config-cli latest-26.5.5, both the newest published tags. ---
+  - id: CVE-2025-59250
+    expiredAt: 2026-10-13
+    statement: mssql-jdbc vendored in phasetwo-keycloak 26.6.4 (latest); Catena never configures a SQL Server store.
+  - id: CVE-2026-29062
+    expiredAt: 2026-10-13
+    statement: jackson vendored in keycloak-config-cli (latest-26.5.5); upstream rebuild lag.
+  - id: CVE-2026-40973
+    expiredAt: 2026-10-13
+    statement: spring-boot vendored in keycloak-config-cli (latest-26.5.5); upstream rebuild lag.
+  - id: CVE-2026-40983
+    expiredAt: 2026-10-13
+    statement: micrometer vendored in phasetwo-keycloak 26.6.4 (latest); upstream rebuild lag.
+  - id: CVE-2026-40984
+    expiredAt: 2026-10-13
+    statement: micrometer vendored in phasetwo-keycloak 26.6.4 (latest); upstream rebuild lag.
+  - id: CVE-2026-41850
+    expiredAt: 2026-10-13
+    statement: spring-expression vendored in keycloak-config-cli (latest-26.5.5); upstream rebuild lag.
+  - id: CVE-2026-54291
+    expiredAt: 2026-10-13
+    statement: postgresql JDBC vendored in phasetwo-keycloak 26.6.4 (latest); upstream rebuild lag.
+  - id: CVE-2026-54512
+    expiredAt: 2026-10-13
+    statement: jackson-databind vendored in phasetwo-keycloak 26.6.4 and keycloak-config-cli (both latest); upstream rebuild lag.
+  - id: CVE-2026-54513
+    expiredAt: 2026-10-13
+    statement: jackson-databind vendored in phasetwo-keycloak 26.6.4 and keycloak-config-cli (both latest); upstream rebuild lag.
+  - id: CVE-2026-55831
+    expiredAt: 2026-10-13
+    statement: netty-codec-http vendored in phasetwo-keycloak 26.6.4 (latest); upstream rebuild lag.
+  - id: CVE-2026-55833
+    expiredAt: 2026-10-13
+    statement: netty-codec-http vendored in phasetwo-keycloak 26.6.4 (latest); upstream rebuild lag.
+  - id: CVE-2026-55851
+    expiredAt: 2026-10-13
+    statement: netty-codec-haproxy vendored in phasetwo-keycloak 26.6.4 (latest); upstream rebuild lag.
+  - id: CVE-2026-56745
+    expiredAt: 2026-10-13
+    statement: netty-codec-http vendored in phasetwo-keycloak 26.6.4 (latest); upstream rebuild lag.
+  - id: CVE-2026-56819
+    expiredAt: 2026-10-13
+    statement: netty-codec-http2 vendored in phasetwo-keycloak 26.6.4 (latest); upstream rebuild lag.
+  - id: CVE-2026-59901
+    expiredAt: 2026-10-13
+    statement: netty-codec vendored in phasetwo-keycloak 26.6.4 (latest); upstream rebuild lag.
+  - id: GHSA-2m67-wjpj-xhg9
+    expiredAt: 2026-10-13
+    statement: jackson-core vendored in keycloak-config-cli (latest-26.5.5); upstream rebuild lag.
+  - id: GHSA-r7wm-3cxj-wff9
+    expiredAt: 2026-10-13
+    statement: jackson-core vendored in phasetwo-keycloak 26.6.4 and keycloak-config-cli (both latest); upstream rebuild lag.
+
+  # --- python:3.14-alpine, the base for the beszel Healthchecks shim. Both
+  # findings are shipped BY the base image (setuptools; msgpack is vendored
+  # inside pip), not installed by anything Catena runs. ---
+  - id: CVE-2025-47273
+    expiredAt: 2026-10-13
+    statement: setuptools bundled in the python:3.14-alpine base; not installed by Catena, base rebuild lag.
+  - id: GHSA-6v7p-g79w-8964
+    expiredAt: 2026-10-13
+    statement: msgpack vendored inside pip in the python:3.14-alpine base; not installed by Catena, base rebuild lag.
+
+  # --- healthchecks v4.3 (latest) python dependencies. ---
+  - id: CVE-2026-69247
+    expiredAt: 2026-10-13
+    statement: pyca/cryptography in the healthchecks v4.3 image (latest); upstream rebuild lag.

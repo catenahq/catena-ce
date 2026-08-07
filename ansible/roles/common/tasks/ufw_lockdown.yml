@@ -55,7 +55,7 @@
     comment: "ssh via tailnet only"
 
 # Allow SSH from RFC 1918 Docker bridge networks. catena-admin runs as
-# a container on dokploy-network and SSHs to the host's tailnet IP to
+# a container on catena-network and SSHs to the host's tailnet IP to
 # hit the forced-command dispatcher. Its packets arrive via the Docker
 # bridge interface (not tailscale0), so the rule above doesn't match
 # them. RFC 1918 can't be spoofed from the public internet; the

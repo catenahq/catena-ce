@@ -4,9 +4,9 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
 
 ## Steps
 
-1. Create the `keycloak` role + database in `dokploy-postgres`
+1. Create the `keycloak` role + database in `catena-postgres`
    (auxiliary task file: `provision_db.yml`).
-2. Deploy the Keycloak compose project via the Dokploy API.
+2. Deploy the Keycloak compose project via the Portainer API.
 3. Bootstrap the `catena` realm:
    - Phase Two extensions (theme, password policy, account console
      v3, recovery codes).
@@ -22,8 +22,8 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
 
 ## Inputs
 
-- `vault_keycloak_admin_password` (KC_BOOTSTRAP_ADMIN_PASSWORD)
-- `vault_keycloak_db_password` -- written into the dokploy-postgres
+- `keycloak_admin_password` (KC_BOOTSTRAP_ADMIN_PASSWORD)
+- `keycloak_db_password` -- written into the catena-postgres
   user.
 - `keycloak_realm_name` -- defaults to `catena`.
 - `keycloak_oidc_clients` -- list of {client_id, redirect_uris,
@@ -39,5 +39,5 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
 
 ## Related
 
-- Operator-facing: `internal_docs/operator/keycloak-and-oauth2-proxy-gotchas.md`.
+- Operator-facing: `ops/internal_docs/tools/keycloak-and-oauth2-proxy-gotchas.md`.
 - Downstream: `oauth2_proxy` role.

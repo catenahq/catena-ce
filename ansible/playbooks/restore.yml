@@ -7,13 +7,13 @@
 #   - mount /mnt/data (storage)
 #   - install restic + write password file + restic restore into /
 #
-# NOT in scope (intentionally): docker / dokploy / infrastructure --
+# NOT in scope (intentionally): docker / portainer / infrastructure --
 # those are site.yml's job. After restore succeeds, run site.yml to bring
 # the apps back up on the restored data.
 #
 # Whole-host restic restore is the Community recovery path. The Business
 # edition layers a coupled multi-app post-restore reconcile (dependency-
-# ordered Dokploy redeploy + pg_dumpall replay); that lane is not part of
+# ordered app redeploy + pg_dumpall replay); that lane is not part of
 # Community and is not invoked here.
 #
 # Usage (cwd = ansible/):
@@ -32,16 +32,28 @@
   # (`restore_snapshot: latest`) when unset by the caller.
 
   pre_tasks:
-    - name: Fail fast if restic password is missing
+    # 0b: load the on-box config store FIRST so restic creds are in scope
+    # without any laptop-side secret. On an in-place rollback the live box's store
+    # supplies them; on a fresh-box `catena recover` the store is absent, so the
+    # DR keyset the CLI threads in as `-e @file` (restic password + S3 keys) is
+    # what the loader adopts and set_facts. See tasks/load_onbox_config.yml.
+    - name: "0b: load on-box config store"
+      ansible.builtin.include_tasks:
+        file: tasks/load_onbox_config.yml
+        apply:
+          tags: [always, onbox]
+      tags: [always, onbox]
+
+    - name: Fail fast if restic credentials are missing
       ansible.builtin.assert:
         that:
-          - vault_backup_restic_password is defined
-          - vault_backup_s3_access_key is defined
-          - vault_backup_s3_secret_key is defined
+          - backup_restic_password is defined
+          - backup_s3_access_key is defined
+          - backup_s3_secret_key is defined
         fail_msg: >-
-          Restic credentials must be in vault before restore can run.
-          See inventory/example/group_vars/all/vault.yml.example for the
-          schema (the encrypted live file is vault.sops.yml).
+          Restic credentials are not available. On a fresh-box recover, pass
+          them to `catena recover` (the DR keyset prompt); on an in-place
+          rollback they come from the box's /etc/catena/config.json store.
 
   roles:
     - role: common # apt update + base packages (restic needs apt)

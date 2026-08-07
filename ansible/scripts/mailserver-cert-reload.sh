@@ -1,11 +1,13 @@
 #!/bin/sh
+# Inject the renewed mail TLS cert into the dms container and reload
+# Postfix + Dovecot so it takes effect without dropping established
+# connections.
+#
 # Installed verbatim to
 # /etc/letsencrypt/renewal-hooks/deploy/mailserver-reload.sh by
 # roles/infrastructure mailserver_cert.yml.
 #
-# Catena: inject the renewed mail TLS cert into the dms container and
-# reload Postfix + Dovecot so it takes effect without dropping
-# established connections. certbot fires deploy hooks after every
+# certbot fires deploy hooks after every
 # successful renewal (for ALL certs that renewed in the run); this also
 # runs once at converge for first issuance.
 #

@@ -40,14 +40,14 @@
     - name: "Mailserver filtering: warn when Spamhaus DQS key is unset"
       ansible.builtin.debug:
         msg: >-
-          vault_mailserver_spamhaus_dqs_key is empty -- skipping the
+          mailserver_spamhaus_dqs_key is empty -- skipping the
           Spamhaus DQS RBL drop-in. rspamd still scores on content +
           DKIM/SPF/DMARC + antivirus, but loses the IP/domain reputation
-          layer. Get a free DQS key at spamhaus.com and add it to the
-          vault for full coverage.
+          layer. Get a free DQS key at spamhaus.com and enter it in
+          catena-admin > Settings for full coverage.
       when: >-
-        vault_mailserver_spamhaus_dqs_key is not defined
-        or (vault_mailserver_spamhaus_dqs_key | trim | length) == 0
+        mailserver_spamhaus_dqs_key is not defined
+        or (mailserver_spamhaus_dqs_key | trim | length) == 0
 
     # Base drop-ins (always). rbl.conf is appended only when the DQS key
     # is set, so an empty key never renders a broken zone.
@@ -62,8 +62,8 @@
       ansible.builtin.set_fact:
         _ms_rspamd_confs: "{{ _ms_rspamd_confs + [{'src': 'rspamd-rbl.conf.j2', 'name': 'rbl.conf'}] }}"
       when: >-
-        vault_mailserver_spamhaus_dqs_key is defined
-        and (vault_mailserver_spamhaus_dqs_key | trim | length) > 0
+        mailserver_spamhaus_dqs_key is defined
+        and (mailserver_spamhaus_dqs_key | trim | length) > 0
 
     - name: "Mailserver filtering: ensure host staging dir exists"
       ansible.builtin.file:
@@ -124,7 +124,7 @@
     # than "render changed":
     #   - clean re-converge: shas match -> no change -> no restart
     #     (restore_dr stage-2.5 stays green);
-    #   - container recreate (DR restore, Dokploy redeploy) resets /etc to
+    #   - container recreate (DR restore, Portainer redeploy) resets /etc to
     #     image defaults -> shas differ -> drop-ins recopied + rspamd
     #     restarted, so filtering self-heals. Gating on render-changed would
     #     skip this and silently leave filtering OFF after a restore.

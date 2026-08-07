@@ -1,9 +1,9 @@
 ---
-# Provision Keycloak's database + role inside dokploy-postgres.
+# Provision Keycloak's database + role inside catena-postgres.
 #
-# Why here and not via roles/dokploy: dokploy/postgres bootstrapping
-# is the swarm-secret + install.sh path, scoped to the `dokploy` DB.
-# Per-app DBs are app-role concerns.
+# Why here and not in roles/postgres: roles/postgres owns the
+# catena-postgres server + its superuser swarm secret. Per-app DBs
+# (like keycloak's) are app-role concerns.
 #
 # Idempotency: `CREATE ROLE` + `CREATE DATABASE` are not IF-NOT-EXISTS
 # in vanilla psql, so we render a SQL script that wraps the role
@@ -11,9 +11,9 @@
 # existence probe (run as a separate task because CREATE DATABASE
 # cannot run inside a transaction block).
 #
-# Atomicity: gated on dokploy-postgres being `running`. Per project
-# memory `feedback_pg_password_state_machine`, dokploy-postgres becoming
-# reachable AFTER this point is the dokploy role's invariant, not ours.
+# Atomicity: gated on catena-postgres being `running`. Per project
+# memory `feedback_pg_password_state_machine`, catena-postgres becoming
+# reachable AFTER this point is the postgres role's invariant, not ours.
 #
 # SQL rendered to /root and piped via stdin instead of inlined in
 # `command:`/`shell:` argv -- ansible-core 2.20's stricter arg scanner
@@ -21,11 +21,11 @@
 # cause as the Healthchecks seed-script-to-file refactor recorded in
 # memory `feedback_pg_password_state_machine`).
 
-- name: "Keycloak DB: find dokploy-postgres swarm task"
+- name: "Keycloak DB: find catena-postgres swarm task"
   ansible.builtin.shell: |
     set -o pipefail
     docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-      | grep -E '^dokploy-postgres\..*' \
+      | grep -E '^catena-postgres\..*' \
       | head -n1
   args:
     executable: /bin/bash
@@ -35,11 +35,62 @@
   delay: 4
   until: _kc_pg_container.stdout | length > 0
 
-# dokploy-postgres ships POSTGRES_USER=dokploy (no `postgres` superuser
-# exists). Detect the live superuser from the container env so this
-# role survives any future Dokploy default-user change. Mirrors the
-# pattern used in roles/backup/tasks/pg_replay.yml.
-- name: "Keycloak DB: detect POSTGRES_USER from dokploy-postgres env"
+# A container that EXISTS is not a postgres that ACCEPTS CONNECTIONS, and
+# after a rewind the gap between the two is seconds wide. The task above
+# retries until the swarm task appears and then every psql below ran with no
+# readiness gate at all, which failed fi_a2_oidc_secret_rotation's converge:
+#
+#     psql: error: connection to server on socket
+#     "/var/run/postgresql/.s.PGSQL.5432" failed:
+#     FATAL:  the database system is starting up
+#
+# It surfaced only once the bench got FASTER. Before ops 9ffea356 a rewind
+# spent up to 300s failing to reach a stale address, which gave postgres all
+# the time it needed; with the address resolved correctly the converge starts
+# as soon as SSH answers. Removing an accidental delay exposed a role that was
+# relying on it.
+#
+# pg_isready checks server acceptance only -- no auth, no role, no database --
+# so it needs none of the facts the tasks after it derive, and it is the same
+# probe roles/postgres and the bench's own _fi_helpers.pg_settled_sample use.
+# It goes here, before the POSTGRES_USER probe, because that probe is itself a
+# `docker exec` that can race the same window.
+#
+# -U is NOT about auth (pg_isready exits 0 whenever the server responds at
+# all, error included -- which is why the omission was invisible). It is about
+# what postgres LOGS. `docker exec` runs as root inside the container, so
+# without -U the startup packet carries `root` and postgres writes
+# `FATAL: role "root" does not exist` on every attempt -- up to 30 of them via
+# the retry below, on a host slow enough to need them. Found by the bench's
+# stage-3f control-plane log gate on run 2026-08-06T20-24-17-5ccd; the noise
+# matters because a REAL auth failure is indistinguishable inside it.
+#
+# The literal default is deliberate: this task runs BEFORE the role derives
+# POSTGRES_USER from the container env (see the note above), so the derived
+# fact does not exist yet, and depending on roles/postgres' defaults being in
+# scope here would couple the two roles. Both sibling call sites
+# (roles/postgres tasks/main.yml + tasks/validate.yml) already pass -U.
+- name: "Keycloak DB: wait for postgres to accept connections"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - "{{ _kc_pg_container.stdout | trim }}"
+      - pg_isready
+      - -q
+      - -U
+      - "{{ catena_postgres_superuser | default('postgres') }}"
+  register: _kc_pg_ready
+  until: _kc_pg_ready.rc == 0
+  retries: 30
+  delay: 4
+  changed_when: false
+
+# catena-postgres ships POSTGRES_USER=postgres (roles/postgres sets it).
+# Detect the live superuser from the container env anyway so this role
+# survives any future default-user change. Same probe the restore
+# engine does per container (catena-recovery post-restore).
+- name: "Keycloak DB: detect POSTGRES_USER from catena-postgres env"
   ansible.builtin.shell: >-
     docker exec {{ _kc_pg_container.stdout | quote }}
     sh -c 'printf %s "${POSTGRES_USER:-}"'

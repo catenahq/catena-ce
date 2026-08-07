@@ -4,30 +4,35 @@
 # webhook and maps triggered/resolved to Healthchecks /fail + success
 # pings so Beszel threshold alerts ride the same notification plane as
 # Gatus (clients keep their self-service channels). See
-# internal_docs/operator/notifications.md and vps-scripts/beszel-hc-shim.py.
+# internal_docs/tools/notifications.md and vps-scripts/beszel-hc-shim.py.
 #
-# No public surface (traefik.enable=false). Reachable on dokploy-network
+# No public surface (traefik.enable=false). Reachable on catena-network
 # at {{ beszel_hc_shim_network_alias }}:{{ beszel_hc_shim_internal_port }};
 # the operator points Beszel's webhook notification at
 # generic+http://{{ beszel_hc_shim_network_alias }}:{{ beszel_hc_shim_internal_port }}/notify
 services:
   app:
     image: {{ beszel_hc_shim_image }}
-    restart: unless-stopped
+    # `restart:` is ignored by `docker stack deploy`; swarm reads
+    # deploy.restart_policy.
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 5s
     command: ["python3", "/app/beszel-hc-shim.py"]
     environment:
       HC_URL: "http://{{ healthchecks_network_alias }}:{{ healthchecks_internal_port }}"
-      HC_PING_KEY: "{{ vault_healthchecks_ping_key }}"
+      HC_PING_KEY: "{{ healthchecks_ping_key }}"
       LISTEN_PORT: "{{ beszel_hc_shim_internal_port }}"
     volumes:
       - {{ beszel_hc_shim_host_dir }}:/app:ro
     networks:
-      dokploy-network:
+      catena-network:
         aliases:
           - {{ beszel_hc_shim_network_alias }}
     labels:
       - traefik.enable=false
 
 networks:
-  dokploy-network:
+  catena-network:
     external: true

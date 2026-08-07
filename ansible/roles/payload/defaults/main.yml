@@ -1,0 +1,77 @@
+---
+# roles/payload -- install the catena host engine payload onto the VPS.
+#
+# The engines (catena-cloudflared-sync, catena-recovery, catena-schedule,
+# catena-daily, the lane scripts, the systemd units, the post-restore hooks)
+# are Go binaries built into the PUBLIC catena-admin image. This role extracts
+# them from that image and installs them to /usr/local/bin -- WITHOUT deploying
+# the container, and without Portainer.
+#
+# It runs immediately after roles/docker so every later role can rely on the
+# engines being present. That ordering is the point: roles/cloudflare_tunnel
+# (role 9) dispatches catena-cloudflared-sync, and the payload used to arrive
+# from roles/catena-admin (role 13) -- so a first converge on a host that
+# already held a Cloudflare token deferred the tunnel, and roles/oauth2_proxy
+# (role 11) then failed waiting for https://auth.<zone>/.well-known/
+# openid-configuration through an edge that was never brought up.
+
+# Image the payload is extracted from. Same default as catena_admin_image
+# (roles/catena-admin) and it must stay in step with it: extracting the engines
+# from one image while running the shell from another is how a host ends up
+# with an engine and a panel that disagree about the config schema.
+#
+# CATENA_PAYLOAD_IMAGE overrides it for a host that has the image already: the
+# bench builds local/catena-admin:bench on the VPS and points this at that tag
+# to exercise the extract against the working tree instead of a published one.
+catena_payload_image: >-
+  {{ lookup('env', 'CATENA_PAYLOAD_IMAGE')
+     | default(catena_admin_image
+               | default('ghcr.io/catenahq/catena-admin:latest'), true) }}
+
+# Immutable digest the image must resolve to before anything is extracted from
+# it. The payload is root-executed (install-ee-payload.sh puts Go binaries into
+# /usr/local/bin and runs them as root), so a moved tag or a compromised
+# registry account owns the box. A digest check is the verification that works
+# offline, needs nothing installed on the host, and does not depend on the
+# registry being honest at extract time.
+#
+# Empty is NOT "verified", it is "unchecked", and the role says so out loud on
+# every converge. A silent skip here would read exactly like a passing
+# verification, which is the failure mode this whole gate exists to avoid.
+#
+# Set it to the digest publish-image.yml recorded for the release being
+# deployed. The bench builds local/catena-admin:bench on the VPS and leaves it
+# empty; a deliberately wrong value is how the fail-closed leg gets exercised.
+catena_payload_image_digest: >-
+  {{ lookup('env', 'CATENA_PAYLOAD_IMAGE_DIGEST', default='') }}
+
+# Where the image's payload tree is unpacked on the host. The catena-admin
+# container also mirrors its embedded payload here at startup, so both writers
+# agree on one location and the dir's ownership is preserved across an extract
+# (the container syncs as its nonroot uid; see tasks/main.yml).
+catena_payload_dir: "/var/lib/catena/ee-payload"
+
+# Path inside the image that holds the assembled payload (bin/, lib/, units/,
+# hooks/, install-ee-payload.sh). Set by the catena-admin image build.
+catena_payload_image_path: "/usr/local/share/catena-ee"
+
+# Records the image ID the installed engines came from. A converge whose image
+# resolves to the same ID reinstalls nothing; a new image reinstalls every
+# engine. Keyed on the ID rather than mere existence so an image upgrade is
+# picked up, and so a build-STAMPED engine deliberately placed on the host
+# (activate_ee ships a catena-daily carrying the run's operator public key) is
+# not silently replaced by an unstamped build on the next converge.
+catena_payload_marker: "/etc/catena/.payload-image"
+
+# Pull the image before extracting. Production pulls the published GHCR tag.
+# The test bench builds local/catena-admin:bench ON the VPS and has no
+# published tag to pull -- and must never exercise the last published image in
+# place of the working tree -- so it sets CATENA_PAYLOAD_PULL=false.
+catena_payload_pull: >-
+  {{ lookup('env', 'CATENA_PAYLOAD_PULL', default='true') | bool }}
+
+# Install the payload FROM the converge at all. The bench stages the payload
+# out of band (first-time-only, from the image it just built on the VPS) and
+# sets CATENA_PAYLOAD_INSTALL=false. Production leaves it true.
+catena_payload_install: >-
+  {{ lookup('env', 'CATENA_PAYLOAD_INSTALL', default='true') | bool }}

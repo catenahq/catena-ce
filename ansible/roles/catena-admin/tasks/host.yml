@@ -5,14 +5,23 @@
 # unambiguous: any command through this dispatcher is sourced from the
 # admin container, never anything else.
 
-# SSH dispatch passes the clicking admin's email as an env var
-# so audit-trail-bearing actions (e.g. managed-update-pause) record who
-# fired them. The container's paramiko client calls
-# channel.set_environment_variable("X_FORWARDED_EMAIL", ...); sshd
-# rejects the env var unless it's whitelisted via AcceptEnv. Match-User
-# scope so the rule only applies to the runner account and does not
-# leak to operator-shell sessions.
-- name: "sshd: AcceptEnv X_FORWARDED_EMAIL for catena-admin-runner"
+# SSH dispatch passes several values as env vars so the reserved-action shells
+# read them without exposing them in argv/$SSH_ORIGINAL_COMMAND/the process
+# table. The container's paramiko client calls
+# channel.set_environment_variable(NAME, ...); sshd rejects each var unless it
+# is whitelisted via AcceptEnv. Match-User scope so the rule only applies to
+# the runner account and does not leak to operator-shell sessions.
+#   - X_FORWARDED_EMAIL       -- the clicking admin's email, for audit-trail
+#                                actions (e.g. managed-update-pause).
+#   - CATENA_CF_CANDIDATE_TOKEN -- a candidate Cloudflare token the Settings
+#                                panel validates via cloudflared-check BEFORE
+#                                persist; piped to the engine on stdin.
+# The list is deliberately short: every name here is a value the container can
+# push into a root-run host process, so it stays the minimum the dispatch needs.
+# CATENA_MULTIDOMAIN_ENABLED used to be on it; the tunnel engine now reads the
+# licence out of the on-box store itself, so the panel no longer tells the host
+# what it is entitled to.
+- name: "sshd: AcceptEnv for catena-admin-runner dispatch env vars"
   ansible.builtin.copy:
     dest: /etc/ssh/sshd_config.d/30-catena-admin-runner-acceptenv.conf
     owner: root
@@ -20,11 +29,12 @@
     mode: "0644"
     content: |
       # {{ ansible_managed }}
-      # Allow the catena-admin container's paramiko client to forward
-      # the clicking admin's email to the host dispatcher via env var.
-      # Scoped to the runner account; does not affect operator shells.
+      # Allow the catena-admin container's paramiko client to forward the
+      # clicking admin's email and a candidate Cloudflare token to the host
+      # dispatcher via env vars. Scoped to the runner account; does not affect
+      # operator shells.
       Match User {{ catena_admin_runner_user }}
-          AcceptEnv X_FORWARDED_EMAIL
+          AcceptEnv X_FORWARDED_EMAIL CATENA_CF_CANDIDATE_TOKEN
       Match all
   notify: reload sshd
 
@@ -84,6 +94,28 @@
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../scripts/catena-admin-runner.sh"
     dest: "{{ catena_admin_dispatcher_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+# 0b: install onbox_config.py on the host so the catena-config reserved
+# dispatch action can serve the Settings-tab read/write API as root. Stdlib-
+# only, so the host system python runs it without the CE uv venv.
+- name: "Runner: install onbox_config.py for the settings-API dispatch"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../helpers/onbox_config.py"
+    dest: "{{ catena_admin_onbox_config_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+# 0b: install the restic-key helper so the catena-restic-validate /
+# catena-restic-rotate reserved actions can check or re-key the backup
+# password as root (the restic password is USER_HELD, never a settings field).
+- name: "Runner: install catena-restic-key for the backup-password actions"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/catena-restic-key.py"
+    dest: "{{ catena_admin_restic_key_path }}"
     owner: root
     group: root
     mode: "0755"
@@ -197,32 +229,137 @@
     mode: "0755"
 
 # The admin compose mounts {{ catena_admin_stats_dir }} (/var/lib/catena)
-# READ-ONLY and then mounts the admin-plugins named volume NESTED at
-# /var/lib/catena/plugins. Docker can only create that nested mountpoint if
-# the subdir already exists on the host -- a read-only parent makes the
+# READ-ONLY and then bind-mounts the ee-payload subdir NESTED (rw) at
+# /var/lib/catena/ee-payload. Docker can only create that nested mountpoint
+# if the subdir already exists on the host -- a read-only parent makes the
 # mkdirat fail ("read-only file system") and the container never starts, so
-# Dokploy settles the deploy at composeStatus=error. Pre-create the
-# mountpoint here. The named volume shadows it at runtime (its perms come
-# from the image's nonroot-owned /var/lib/catena/plugins), so this host dir
-# is purely the bind target.
-- name: "Plugins mountpoint for the admin container ({{ catena_admin_stats_dir }}/plugins)"
+# Portainer settles the stack deploy in a failed state. Pre-create it here,
+# owned by the container's nonroot uid: the shell WRITES its embedded
+# Business host payload into this dir at startup (payload sync), and the
+# ee-install-engines host action installs from it.
+- name: "EE payload mountpoint for the admin container ({{ catena_admin_stats_dir }}/ee-payload)"
   ansible.builtin.file:
-    path: "{{ catena_admin_stats_dir }}/plugins"
+    path: "{{ catena_admin_stats_dir }}/ee-payload"
+    state: directory
+    owner: "{{ catena_admin_container_uid }}"
+    group: "{{ catena_admin_container_gid }}"
+    mode: "0755"
+
+# Admin state volume: the shell's own writable state, bind-mounted rw. The
+# audit hash chain and its per-host signing key live here, which is why the
+# ownership matters -- it must be the CONTAINER's uid (65532, from USER
+# nonroot in the image), not 1000. It was 1000 while the shell was the old
+# Python image; under distroless the container could not write here at all,
+# so anything that tried degraded silently.
+- name: "State dir for admin container ({{ catena_admin_state_dir }})"
+  ansible.builtin.file:
+    path: "{{ catena_admin_state_dir }}"
+    state: directory
+    owner: "{{ catena_admin_container_uid }}"
+    group: "{{ catena_admin_container_gid }}"
+    mode: "0700"
+
+# Per-host configuration for the daily orchestrator chain.
+#
+# catena-daily.service and catena-daily-resume.service declare
+# EnvironmentFile for this path with NO leading dash, so systemd fails the
+# unit outright when it is absent -- and nothing wrote it. Not this repo, not
+# catena-admin, not ops. The scheduled Business chain could not start on any
+# real host; only the test bench had the file, because the bench writes its
+# own. The template that used to render this lived in the catena-ee ansible
+# tree and went with it at the Go port.
+#
+# Written on EVERY converge, unlike backup.env next door: this file holds no
+# secrets, only paths and toggles, so there is no rotated value for a
+# re-render to clobber. The chain reads its credentials from the config store.
+#
+# Not gated on the payload install. The file describing how the chain should
+# behave is cheap and harmless on a host that has no chain, and the ordering
+# is one less thing to get wrong on a first converge.
+- name: "Catena-admin: daily orchestrator configuration ({{ catena_daily_env_path }})"
+  ansible.builtin.template:
+    src: daily.env.j2
+    dest: "{{ catena_daily_env_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+# The two managed-update lanes, same story as daily.env: their units declare a
+# non-optional EnvironmentFile and nothing rendered it, so both were
+# unstartable on a real host.
+#
+# 0600 rather than 0644: this one carries the provider credentials when a
+# provider is configured.
+- name: "Catena-admin: host-package update lane configuration ({{ catena_auto_update_env_path }})"
+  ansible.builtin.template:
+    src: auto-update.env.j2
+    dest: "{{ catena_auto_update_env_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: "Catena-admin: container update lane configuration ({{ catena_stack_update_env_path }})"
+  ansible.builtin.template:
+    src: stack-update.env.j2
+    dest: "{{ catena_stack_update_env_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+# Which infra services the container lane may bump, and how. With no spec file
+# the lane bumped nothing and reported a clean run for it.
+- name: "Catena-admin: managed infra spec list ({{ catena_managed_services_path }})"
+  ansible.builtin.template:
+    src: managed-services.json.j2
+    dest: "{{ catena_managed_services_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+# --- tailnet-only firewall for the native-login UI port (registry fragment) ---
+# The admin panel's host-published port (compose ports: mode=host -> :8001)
+# must be reachable only from the tailnet + RFC1918, never the public internet
+# -- same posture as Portainer's UI port. The public-ports reconciler applies
+# the DOCKER-USER rules from this fragment.
+- name: "catena-admin: ensure public-port fragment dir exists"
+  ansible.builtin.file:
+    path: "{{ public_ports_fragment_dir }}"
     state: directory
     owner: root
     group: root
     mode: "0755"
 
-# Admin state volume (the container's persisted state lives here once
-# Dokploy mounts the named volume on first deploy; the host bind-mount
-# target is owned by uid 1000 so the container can write).
-- name: "State dir for admin container ({{ catena_admin_state_dir }})"
-  ansible.builtin.file:
-    path: "{{ catena_admin_state_dir }}"
-    state: directory
-    owner: "1000"
-    group: "1000"
-    mode: "0700"
+- name: "catena-admin: declare UI + migration-lane ports (registry fragment, tailnet-only)"
+  # The migration lane binds this host's tailnet address directly (a host
+  # process, bind=host, not a published container port), and refuses to start
+  # with no tailnet address rather than binding every interface. The declaration
+  # is belt-and-braces behind that bind, and it is what makes the port appear in
+  # the effective set validation reads -- an undeclared listener would show up
+  # as an unexpected open port instead of an intended one.
+  ansible.builtin.copy:
+    dest: "{{ public_ports_fragment_dir }}/catena-admin.json"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {{
+        [
+          {"proto": "tcp", "port": catena_admin_ui_port | int,
+           "scope": "tailnet", "bind": "docker", "owner": "catena-admin",
+           "comment": "catena-admin native-login panel -- tailnet + RFC1918 only"},
+          {"proto": "tcp", "port": catena_migrate_lane_port | int,
+           "scope": "tailnet", "bind": "host", "owner": "catena-admin",
+           "comment": "migration lane (source side) -- tailnet only"}
+        ] | to_nice_json
+      }}
+  register: _catena_admin_ports_fragment
+
+- name: "catena-admin: reconcile public ports now (fragment changed)"
+  ansible.builtin.systemd_service:
+    name: catena-public-ports.service
+    state: started
+  changed_when: false
+  when: _catena_admin_ports_fragment.changed
 
 - name: Catena-admin host setup summary
   ansible.builtin.debug:

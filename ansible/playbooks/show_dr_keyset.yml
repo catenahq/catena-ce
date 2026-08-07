@@ -1,0 +1,83 @@
+---
+# Surface the user-held DR keyset (admin + restic passwords) ONCE, at the end
+# of a fresh `catena install`. Both are minted ON-BOX (helpers/onbox_config.py
+# USER_HELD_SECRETS) and never touch the laptop, so the installer reads them
+# back from the store here and prints them once for the user's password
+# manager. Deliberately NOT no_log on the debug: showing them once is the point.
+#
+# Usage (driven by `catena install`; cwd = ansible/):
+#   ansible-playbook -i inventory/<name> playbooks/show_dr_keyset.yml
+
+- name: Surface the DR keyset once
+  hosts: "{{ stage_hosts | default('vps') }}"
+  become: true
+  gather_facts: false
+
+  tasks:
+    # The journal's tamper-evidence key (roles/common stages it at mint time).
+    # Read it, show it, then DELETE it below: whoever holds this key can
+    # re-seal an altered journal, so a copy left on the box would defeat the
+    # very thing it proves. Absent = FSS was already set up on an earlier run
+    # and the key was surfaced then.
+    - name: Read the staged FSS verification key
+      ansible.builtin.slurp:
+        src: /etc/catena/fss-verification-key.pending
+      register: _fss_pending
+      failed_when: false
+      no_log: true
+
+    - name: Read the on-box config store
+      ansible.builtin.script:
+        cmd: >-
+          {{ playbook_dir }}/../helpers/onbox_config.py
+          --path {{ catena_onbox_config_path | default('/etc/catena/config.json') }}
+          --emit all --no-mint
+        executable: python3
+      register: _dr_store
+      changed_when: false
+      no_log: true
+
+    - name: Show the admin + restic + console passwords ONCE
+      ansible.builtin.debug:
+        msg: "{{ _banner.split('\n') }}"
+      vars:
+        _secrets: "{{ (_dr_store.stdout | from_json).secrets }}"
+        _fss: >-
+          {{ (_fss_pending.content | b64decode).strip()
+             if (_fss_pending.content is defined) else '' }}
+        _banner: |
+          ==================================================================
+          SAVE THESE TO YOUR PASSWORD MANAGER NOW -- shown once.
+
+            Admin password (Portainer + Keycloak): {{ _secrets.admin_password }}
+            Restic backup password (DR keyset):    {{ _secrets.backup_restic_password }}
+            Console password for `{{ ops_user | default('ops') }}` (break-glass): {{ _secrets.console_recovery_password }}
+
+          The restic password is the ONE secret you must hold off-box: with it
+          plus your S3 keys and repo URL you can rebuild a wiped VPS from
+          backup. Without it your backups cannot be restored, by anyone.
+
+          The console password is your way back in when the network path is
+          gone. SSH refuses it (key-only); it works at the provider web
+          console (KVM/serial) or a physical keyboard, and nowhere else.
+          {% if _fss %}
+
+            Journal verification key (tamper evidence):
+
+          {{ _fss }}
+
+          This key proves the server's own log of administrative actions was
+          not altered after the fact (`journalctl --verify` on the server).
+          Store it OFF the server: anyone holding it can re-seal an edited
+          journal, which is why this copy is deleted from the server as soon
+          as this message is printed.
+          {% endif %}
+          ==================================================================
+
+    # Deleted immediately after display, for the reason printed above. Runs
+    # even if the banner failed to render: a key left behind is worse than a
+    # key never shown, because it silently voids the seal.
+    - name: Remove the staged FSS verification key from the server
+      ansible.builtin.file:
+        path: /etc/catena/fss-verification-key.pending
+        state: absent

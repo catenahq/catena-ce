@@ -186,5 +186,5 @@
       auditd is installed on this host. host_hardening does not install
       it; some other role or a re-introduced hardening collection did.
       Audit-syscall logging is an explicit non-feature (see
-      internal_docs/operator/data-security-overview.md "Explicit
+      internal_docs/tools/data-security-overview.md "Explicit
       non-features").

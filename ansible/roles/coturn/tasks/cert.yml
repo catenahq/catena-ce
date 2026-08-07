@@ -5,13 +5,20 @@
 # Why DNS-01 (not HTTP-01): tcp/80 on this VPS is owned by cloudflared
 # (rides the CF tunnel into Traefik). HTTP-01 cannot bind a temporary
 # listener there. DNS-01 talks directly to the Cloudflare zone via
-# the API token already in the vault, so port 80 is free to stay
+# the API token already on the box, so port 80 is free to stay
 # claimed by cloudflared.
 #
 # Renewal is handled by certbot's stock systemd timer
 # (certbot.timer ships with the apt package). The deploy hook below
 # SIGHUPs the running coturn container so cert hot-reloads land
 # without dropping calls.
+
+- name: "coturn cert: check certbot + Cloudflare DNS plugin already installed"
+  ansible.builtin.command:
+    cmd: dpkg-query -W -f='${Status}\n' certbot python3-certbot-dns-cloudflare
+  register: _coturn_certbot_present
+  changed_when: false
+  failed_when: false
 
 - name: "coturn cert: install certbot + Cloudflare DNS plugin"
   ansible.builtin.apt:
@@ -21,6 +28,15 @@
     state: present
     update_cache: true
     cache_valid_time: 3600
+  # Skip the install (and its forced apt cache refresh) when both packages
+  # are already present. A re-converge -- e.g. certbot renewing after the
+  # clock has advanced far enough that the repo Release files read as
+  # expired (Valid-Until in the past) -- otherwise forces an `apt update`
+  # that fails on the stale Release, aborting a converge that had no package
+  # work to do. `state: present` never upgrades, so gating on presence is
+  # equivalent + idempotent.
+  when: >-
+    _coturn_certbot_present.stdout.count('install ok installed') < 2
   retries: 3
   delay: 10
   register: _coturn_apt_install
@@ -30,12 +46,15 @@
   ansible.builtin.copy:
     content: |
       # Managed by catena roles/coturn -- do not edit.
-      dns_cloudflare_api_token = {{ vault_cloudflare_api_token }}
+      dns_cloudflare_api_token = {{ cloudflare_api_token }}
     dest: "{{ coturn_cloudflare_creds_path }}"
     owner: root
     group: root
     mode: "0600"
   no_log: true
+  # Deferred on a tokenless install: the DNS-01 issuance below is skipped, so
+  # the creds file is written only once cf_activate persists a token.
+  when: _coturn_cf_token_present
 
 # Drop a per-cert deploy hook that SIGHUPs every running coturn
 # container after a successful renewal. certbot fires
@@ -84,7 +103,12 @@
 - name: "coturn cert: map Pebble ACME host (bench local CA)"
   ansible.builtin.lineinfile:
     path: /etc/hosts
-    regexp: '[[:space:]]pebble$'
+    # Python regex, NOT POSIX. `[[:space:]]` parses as a character class of
+    # the literal chars [ : s p a c e followed by a stray `]`, so it never
+    # matches a hosts line, lineinfile finds nothing to replace and APPENDS
+    # -- a fresh duplicate on every converge, which is a permanent changed=1.
+    # The same trap is called out in roles/infrastructure/tasks/validate.yml.
+    regexp: '^\S+\s+pebble$'
     line: "{{ coturn_acme_host_ip }} pebble"
     state: present
   when:
@@ -139,7 +163,9 @@
   environment: "{{ {'REQUESTS_CA_BUNDLE': coturn_acme_system_ca_bundle}
                    if (coturn_acme_ca_bundle_b64 | length) > 0 else {} }}"
   register: _coturn_cert_issue
-  when: not _coturn_cert_stat.stat.exists
+  when:
+    - _coturn_cf_token_present
+    - not _coturn_cert_stat.stat.exists
   changed_when: _coturn_cert_issue.rc == 0
   # Boulder (LE staging especially, prod rarely) can return:
   #   - 404 "No such authorization" on a same-second authz POST after
@@ -159,7 +185,11 @@
   ansible.builtin.stat:
     path: "{{ coturn_cert_path }}"
   register: _coturn_cert_after
-  failed_when: not _coturn_cert_after.stat.exists
+  # Only assert issuance succeeded when a token was present to issue with.
+  # Tokenless installs defer the cert; coturn runs STUN-only until cf_activate.
+  failed_when:
+    - _coturn_cf_token_present
+    - not _coturn_cert_after.stat.exists
 
 # certbot's stock systemd timer (certbot.timer) handles renewal twice
 # daily. Make sure it's enabled.

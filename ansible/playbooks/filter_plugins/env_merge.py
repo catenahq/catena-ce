@@ -2,17 +2,17 @@
 string, preserving operator/client edits for keys the catalog doesn't own
 AND for credential-shaped keys whose existing value is non-empty.
 
-Dokploy stores compose env vars as a single newline-separated string (the
-literal text of its in-UI env editor). Every converge that re-POSTs
-compose.update with just our catalog env would clobber anything the
-operator or client typed in that editor. This filter merges:
+A compose env block can arrive as a single newline-separated string (the
+literal text of an in-UI env editor). Every converge that re-writes the
+stack with just our catalog env would clobber anything the operator or
+client typed in that editor. This filter merges:
 
-  - Keys NOT in desired (operator/client typed them in Dokploy UI) are
+  - Keys NOT in desired (operator/client typed them in the Portainer UI) are
     preserved verbatim.
   - Credential-shaped keys (matching CLIENT_ROTATABLE_SUFFIXES) IN
     desired are preserved when the existing value is non-empty -- this
     is the reconcile-not-overwrite rule that lets a client rotate SMTP
-    or app passwords via Dokploy's env tab and survive the next
+    or app passwords via the Portainer env editor and survive the next
     converge. On first install (existing empty), the catalog value
     wins and seeds the field.
   - Other keys in desired (URLs, hostnames, feature flags) win
@@ -49,7 +49,7 @@ def _is_client_rotatable(key: str) -> bool:
 
 
 def _parse_kv(line) -> tuple[str, str] | None:
-    # Accept dict shape `{name: K, value: V}` (Dokploy's native env entry
+    # Accept dict shape `{name: K, value: V}` (the structured env entry
     # form, used by some catena_app callers) AND the legacy "K=V" string
     # shape used by the older callers. Mixing the two within a single
     # svc_env list is harmless.
@@ -130,11 +130,16 @@ def preserved_env_keys(existing, desired):
     survived a re-converge."""
 
     if existing is None:
-        existing_text = ""
+        existing_items: list = []
     elif isinstance(existing, list):
-        existing_text = "\n".join(existing)
+        # May be Portainer's Env dict-list ({"name": K, "value": V}) -- what
+        # GET /api/stacks/{id} returns and what the DR re-converge feeds this
+        # filter -- OR a list of "K=V" strings; _parse_kv handles both. Do NOT
+        # join to text first: a dict item stringifies to "{...}" and fails the
+        # join ("expected str instance, dict found").
+        existing_items = existing
     else:
-        existing_text = str(existing)
+        existing_items = str(existing).splitlines()
 
     desired_keys: set[str] = set()
     for raw in desired or []:
@@ -143,8 +148,8 @@ def preserved_env_keys(existing, desired):
             desired_keys.add(kv[0])
 
     preserved: list[str] = []
-    for line in existing_text.splitlines():
-        kv = _parse_kv(line)
+    for item in existing_items:
+        kv = _parse_kv(item)
         if kv is None:
             continue
         if kv[0] not in desired_keys and kv[0] not in preserved:
@@ -152,9 +157,46 @@ def preserved_env_keys(existing, desired):
     return preserved
 
 
+def merge_env_portainer(existing, desired):
+    """Same reconcile-not-overwrite merge as merge_env, but for Portainer's
+    stack Env shape (a list of {"name": K, "value": V} dicts) on BOTH sides.
+
+    Portainer's GET /api/stacks/{id} returns Env as such a list, and its
+    create/update bodies take the same shape. This wraps merge_env: it turns
+    the existing dict-list into the newline "K=V" text merge_env expects,
+    runs the merge, then re-emits Portainer's dict-list. On a first deploy
+    (existing empty) it just normalises `desired` to the dict-list shape.
+
+    Called like:
+        {{ (current_env | default([])) | merge_env_portainer(svc_env) }}
+    """
+    if existing is None:
+        existing_pairs = []
+    elif isinstance(existing, list):
+        existing_pairs = existing
+    else:
+        existing_pairs = [existing]
+
+    existing_lines: list[str] = []
+    for item in existing_pairs:
+        kv = _parse_kv(item)
+        if kv is not None:
+            existing_lines.append(f"{kv[0]}={kv[1]}")
+
+    merged_lines = merge_env(existing_lines, desired)
+
+    out: list[dict] = []
+    for line in merged_lines:
+        kv = _parse_kv(line)
+        if kv is not None:
+            out.append({"name": kv[0], "value": kv[1]})
+    return out
+
+
 class FilterModule:
     def filters(self):
         return {
             "merge_env": merge_env,
             "preserved_env_keys": preserved_env_keys,
+            "merge_env_portainer": merge_env_portainer,
         }

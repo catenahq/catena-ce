@@ -120,7 +120,7 @@
 # but /usr/bin/docker is missing, plain `apt-get install --reinstall`
 # can fail under "Packages were downgraded and -y was used without
 # --allow-downgrades" if the catalog version on the host's apt index
-# differs from the dpkg-recorded version (e.g. dokploy's installer
+# differs from the dpkg-recorded version (e.g. an installer
 # pinned to a different docker-ce version). Mirror restore.sh's
 # stronger recovery: dpkg --purge --force-all the stale records
 # first, then re-install via apt module clean.
@@ -131,7 +131,7 @@
 # stale records doesn't touch on-disk binaries (there are none --
 # that's the precondition), only the dpkg DB.
 #
-# Locked in against client-tools/restore.sh::step_install_dokploy by
+# Locked in against the DR path (catena recover) by
 # tests/unit/test_restore_sh_ansible_parity.py.
 - name: "Purge stale docker dpkg state (DR phantom-installed recovery)"
   ansible.builtin.command:
@@ -164,21 +164,178 @@
     cmd: systemctl enable --now docker
   changed_when: false
 
+# Flush the `restart docker` handler NOW, before any app role deploys a
+# container onto the daemon. Ansible runs handlers at play-end by default;
+# on a fresh install daemon.json changes above (the "Drop
+# /etc/docker/daemon.json" task) and the deferred restart would then fire
+# AFTER traefik/postgres/portainer/keycloak/oauth2-proxy/infrastructure are
+# already up. live-restore keeps most containers alive across the restart,
+# but a docker restart re-materializes the catena-network swarm overlay
+# with a NEW id; swarm SERVICES (catena-postgres, catena-portainer)
+# reconnect on their own, while the PLAIN containers the Portainer stacks
+# deploy (keycloak-server-1, oauth2-proxy, gatus, ...) come back with
+# "network catena-network not found" and stay Exited, which surfaced as
+# roles/keycloak validate finding keycloak-server-1 dead. Those are healed
+# out-of-band by catena-network-nudge (installed by roles/traefik, fired
+# from a docker.service drop-in on every daemon start), but restarting here
+# still settles the daemon before the app layer lands on it rather than
+# leaning on the nudge to clean up afterwards. Idempotent: a no-op when
+# daemon.json was unchanged (no handler was notified).
+- name: "docker: flush pending daemon restart before the app layer deploys"
+  meta: flush_handlers
+
 # Atomicity: prove the daemon actually serves API requests before any
-# downstream role (dokploy install, infra compose, backup's `docker
+# downstream role (swarm services, infra compose, backup's `docker
 # exec`) assumes it. `systemctl is-active` alone doesn't -- the unit
 # can be active while dockerd's socket is still initializing, or the
 # daemon.json validation is mid-parse. `docker info` round-trips the
 # UNIX socket and only returns 0 once the API is serving. Cheap,
-# local, ~1s typical; retries bound total wait to ~30s.
+# local, ~1s typical.
+#
+# `timeout` wrapper is load-bearing: `retries`/`until` only bound the
+# wait when each attempt RETURNS. A HUNG daemon (socket accepts but the
+# API never answers -- disk-wedged dockerd, a paused/SIGSTOP'd daemon,
+# the fi_c1 fault-injection) makes a bare `docker info` BLOCK on the
+# socket forever, so ansible never re-enters the retry loop and the whole
+# converge hangs on this one task with no bound (observed: a fi_c1 run
+# wedged >30 min here). `timeout 10` forces each attempt to return
+# rc=124 on a stuck daemon, so the retries do their job and the converge
+# ABORTS cleanly after ~15*(10+2)s instead of hanging indefinitely.
 - name: "Probe docker daemon is serving API requests"
   ansible.builtin.command:
-    cmd: docker info
+    cmd: timeout 10 docker info
   register: _docker_info_probe
   retries: 15
   delay: 2
   until: _docker_info_probe.rc == 0
   changed_when: false
+
+# ─── Docker Swarm (single-node) init ─────────────────────────────────────
+# The reverse-proxy + control-plane roles that follow (traefik, postgres,
+# portainer) all deploy `docker service`s, which require an active swarm
+# manager, so this role inits it -- right after the daemon is confirmed
+# serving and before any swarm-service role runs.
+#
+# Idempotent: `docker swarm init` errors on an already-active node, so gate on
+# LocalNodeState. Swarm raft + overlay IPAM are NOT in the restic set (backup
+# captures only {{ storage_mount_point }}/docker/volumes); they are rebuilt,
+# not restored. On a DR restore the fresh host has no swarm state -> this init
+# runs clean. On a rollback restore, roles/backup/tasks/restore.yml removes the
+# surviving {{ storage_mount_point }}/docker/swarm raft while dockerd is stopped
+# (but keeps docker/network, so per-stack compose bridges survive), so this init
+# runs clean there too instead of reconciling a stale raft against just-restored
+# volumes.
+- name: "swarm: read local node state"
+  ansible.builtin.command: docker info --format '{{ "{{" }}.Swarm.LocalNodeState{{ "}}" }}'
+  register: _docker_swarm_state
+  changed_when: false
+
+- name: "swarm: init single-node swarm (advertise on the tailnet)"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - swarm
+      - init
+      - --advertise-addr
+      - "{{ docker_swarm_advertise_addr }}"
+  when: (_docker_swarm_state.stdout | trim) != 'active'
+  register: _docker_swarm_init
+  changed_when: _docker_swarm_init.rc == 0
+
+# ─── node label: where state lives ───────────────────────────────────────
+# Every swarm service that mounts state is constrained to
+# node.labels.catena.role==data. At one node the constraint is a no-op. The
+# moment a second node joins it is the difference between a working cluster
+# and a data-loss event: swarm will happily reschedule a service with a LOCAL
+# named volume onto another node and create a fresh EMPTY volume there, with
+# no error. The container starts, the data is simply gone. That is the
+# documented, unsolved failure in Dokploy's multi-node story, and the cheapest
+# possible moment to close it is now, while there is only one node and the
+# constraint costs nothing.
+#
+# Correct by construction across DR: node labels live in the swarm raft, raft
+# is deliberately NOT in the restic set (see the swarm init below), so a
+# restored host has no labels -- and this task puts them back on the converge
+# that follows, before any role reads them.
+#
+# Idempotent: `docker node update --label-add` with an unchanged value is a
+# no-op, so this reports changed only when it actually set something.
+- name: "swarm: read the local node id"
+  ansible.builtin.command: docker info --format '{{ "{{" }}.Swarm.NodeID{{ "}}" }}'
+  register: _docker_node_id
+  changed_when: false
+
+- name: "swarm: read the local node labels"
+  ansible.builtin.command: >-
+    docker node inspect {{ _docker_node_id.stdout | trim }}
+    --format '{{ "{{" }}index .Spec.Labels "catena.role"{{ "}}" }}'
+  register: _docker_node_role
+  changed_when: false
+  failed_when: false
+
+- name: "swarm: label the local node as the data node"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - node
+      - update
+      - --label-add
+      - "catena.role={{ docker_node_role_label }}"
+      - "{{ _docker_node_id.stdout | trim }}"
+  when: (_docker_node_role.stdout | default('') | trim) != docker_node_role_label
+  register: _docker_node_label
+  changed_when: _docker_node_label.rc == 0
+
+# ─── overlay-race self-heal (catena-network-nudge) ───────────────────────
+# dockerd restores restart-policy containers during "Loading containers",
+# which runs BEFORE the swarm node re-materializes catena-network -- and the
+# boot-time restore gets exactly ONE attempt per container, so whatever loses
+# that race stays Exited with RestartCount=0 until something starts it.
+#
+# Swarm services re-dispatch themselves by name, so catena-traefik,
+# catena-postgres, catena-portainer and cloudflared all self-heal. The
+# Portainer COMPOSE containers (keycloak-server-1, oauth2-proxy, gatus,
+# nextcloud-talk-hpb-1, ...) have nothing to heal them, and they are what this
+# nudge is for. It lives here rather than in roles/traefik because the race is
+# between the daemon start and the swarm init, both of which this role owns.
+- name: "docker: drop network-nudge script"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/catena-network-nudge.sh"
+    dest: /usr/local/bin/catena-network-nudge
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "docker: render network-nudge systemd unit"
+  ansible.builtin.template:
+    src: catena-network-nudge.service.j2
+    dest: /etc/systemd/system/catena-network-nudge.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: _docker_nudge_unit
+
+- name: "docker: ensure docker.service drop-in dir exists"
+  ansible.builtin.file:
+    path: /etc/systemd/system/docker.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "docker: render docker.service drop-in that fires the nudge"
+  ansible.builtin.template:
+    src: docker-service-nudge-dropin.conf.j2
+    dest: /etc/systemd/system/docker.service.d/10-catena-network-nudge.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: _docker_nudge_dropin
+
+- name: "docker: daemon-reload if the nudge unit or drop-in changed"
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: _docker_nudge_unit.changed or _docker_nudge_dropin.changed
 
 # ─── UFW FORWARD policy ──────────────────────────────────────────────────
 # /etc/default/ufw ships with DEFAULT_FORWARD_POLICY="DROP" by default

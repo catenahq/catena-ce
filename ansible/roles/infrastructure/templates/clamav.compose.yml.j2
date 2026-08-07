@@ -14,10 +14,15 @@
 services:
   clamav:
     image: {{ clamav_image }}
+    # `restart:`, not deploy.restart_policy: this is the one catena-declared
+    # stack still deployed through the Portainer compose API rather than
+    # `docker stack deploy` (see the header of tasks/clamav.yml for why),
+    # and standalone compose reads the former and ignores the latter --
+    # exactly the inverse of swarm.
     restart: unless-stopped
     environment:
       # Run both clamd and freshclam inside the container (image default;
-      # set explicitly so a Dokploy UI edit is visible + reviewable).
+      # set explicitly so a Portainer UI edit is visible + reviewable).
       CLAMAV_NO_CLAMD: "false"
       CLAMAV_NO_FRESHCLAMD: "false"
       # First start blocks until freshclam has pulled the DB; give it
@@ -29,7 +34,7 @@ services:
       # Persist the signature DB across restarts.
       - clamav-db:/var/lib/clamav
     # The official image ships clamdcheck.sh (PING/PONG against the local
-    # clamd socket). Surface it as the compose healthcheck so Dokploy and
+    # clamd socket). Surface it as the compose healthcheck so Portainer and
     # the Step-7 monitor see a real ready signal, not just "process up".
     # start_period covers the first freshclam download.
     healthcheck:

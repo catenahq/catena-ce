@@ -2,7 +2,7 @@
 # /usr/local/bin/catena-wire-nextcloud-collabora -- wire Collabora CODE
 # as the office editor inside a deployed Nextcloud instance. Backs the
 # "Wire Nextcloud Collabora" catena-admin action. Operator runs it
-# once after deploying the `collabora` template via Dokploy.
+# once after deploying the `collabora` template from the app catalog.
 #
 # Idempotent: re-clicking after a redeploy or config change converges
 # to the same state. occ app:install no-ops when present;
@@ -18,7 +18,7 @@
 #
 # Probe-before-mutate: refuses to run if office.<base> is currently
 # serving the OTHER editor (operator forgot to swap templates in
-# Dokploy). Tells the operator how to fix it and exits non-zero
+# Portainer). Tells the operator how to fix it and exits non-zero
 # without changing state. Net result: clicking the wrong button on
 # top of the wrong template never corrupts NC config.
 #
@@ -31,7 +31,7 @@ set -euo pipefail
 NC_ROOT=/var/www/html
 
 # --- 1. Locate the running Nextcloud app container ----------------------
-# Dokploy compose names look like nextcloud-<hash>-app-<n>. Match the
+# Compose container names look like nextcloud-app-<n>. Match the
 # name prefix AND the compose service label: two name= filters are ORed
 # by docker (they would also match -cron-/-db-/-redis-), but a name=
 # plus a label= are different keys and get ANDed, pinning the app
@@ -44,7 +44,7 @@ ct=$(docker ps \
 if [ -z "$ct" ]; then
     echo "Nextcloud is not running on this host."
     echo
-    echo "Deploy first: Dokploy UI > Templates > nextcloud-s3 > Deploy."
+    echo "Deploy first: Portainer > App Templates > nextcloud-s3 > Deploy."
     echo "Wait for the container to come up, then click this button again."
     exit 1
 fi
@@ -61,7 +61,7 @@ get_env() {
 NC_HOSTNAME=$(get_env NEXTCLOUD_HOSTNAME)
 if [ -z "$NC_HOSTNAME" ]; then
     echo "error: NEXTCLOUD_HOSTNAME is not set in the Nextcloud container env." >&2
-    echo "       Check the Dokploy compose environment for nextcloud-s3." >&2
+    echo "       Check the stack environment for nextcloud-s3 in Portainer." >&2
     exit 2
 fi
 
@@ -74,7 +74,7 @@ fi
 OFFICE_URL="https://office.$BASE"
 
 # --- 3. Probe office.<base> to detect which editor is deployed ----------
-# Internal aliases on dokploy-network:
+# Internal aliases on catena-network:
 #   - Collabora:  collabora:9980     /hosting/discovery -> XML <wopi-discovery>
 #   - OnlyOffice: documentserver:80  /healthcheck       -> "true"
 # Probe both from inside NC so the right error message can be rendered
@@ -98,8 +98,8 @@ if is_onlyoffice_alive && ! is_collabora_alive; then
 error: this button wires Collabora, but office.$BASE is serving OnlyOffice.
 
 To switch:
-  1. Dokploy UI > Templates > onlyoffice > Stop
-  2. Dokploy UI > Templates > collabora  > Deploy
+  1. Portainer > App Templates > onlyoffice > Stop
+  2. Portainer > App Templates > collabora  > Deploy
   3. Re-click "Wire Nextcloud Collabora" here.
 
 Nextcloud-side state was NOT changed. Safe to dismiss + retry once
@@ -110,9 +110,9 @@ fi
 
 if ! is_collabora_alive; then
     cat >&2 <<EOF
-error: Collabora is not reachable on the dokploy-network alias collabora:9980.
+error: Collabora is not reachable on the catena-network alias collabora:9980.
 
-Check: Dokploy UI > Templates > collabora > Logs.
+Check: Portainer > App Templates > collabora > Logs.
        The container should answer GET /hosting/discovery with XML.
        Wait ~30 s after Deploy for coolwsd to start, then retry.
 EOF
@@ -122,7 +122,7 @@ fi
 if is_onlyoffice_alive; then
     echo "warning: BOTH Collabora and OnlyOffice are running. Traefik may"
     echo "         pick either route for office.$BASE. Stop OnlyOffice in"
-    echo "         Dokploy to avoid the conflict. Continuing with Collabora..."
+    echo "         Portainer to avoid the conflict. Continuing with Collabora..."
 fi
 
 echo "Detected: Collabora at $OFFICE_URL (internal alias collabora:9980)"

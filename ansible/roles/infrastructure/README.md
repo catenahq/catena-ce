@@ -1,7 +1,7 @@
 # infrastructure
 
 Deploys everything that's NOT the auth pair (Keycloak +
-oauth2_proxy), the data plane (Dokploy + storage + backup), or
+oauth2_proxy), the data plane (Portainer + storage + backup), or
 the operator panel (`roles/catena-admin`):
 
 - **Cloudflare Tunnel** -- the cloudflared swarm service that gives
@@ -17,8 +17,8 @@ the operator panel (`roles/catena-admin`):
 - **Recovery secret export** -- cron-emit of the GPG-symmetric
   secrets bundle (driven by the
   `Generate recovery archive (encrypted)` entry in catena-admin's
-  Actions tab) so the operator can recover access even after vault
-  key loss.
+  Actions tab) so the operator can recover access even after losing
+  the on-box store.
 - **Sync timers** -- systemd timers around `dashboard-sync.py` and
   `gatus-sync.py`. `catena-version-check.py` (auto-detecting Versions
   report) runs as gatus-sync's ExecStartPre producer, not its own timer.
@@ -27,30 +27,21 @@ the operator panel (`roles/catena-admin`):
 
 - `_seed_bind_mount_file.yml` -- helper for templates that ship a
   config file via bind-mount.
-- `_github_provider_assert.yml` -- preflight assertion that every
-  GitHub App alias declared in `expected_github_providers` is
-  registered in this Dokploy instance. Manual one-time browser
-  flow per alias; this task fails with the operator walkthrough
-  if any are missing. Used by webapps deployed via Dokploy's
-  native git-source compose flow (catena's own + per-client).
-- `snapshot_dokploy_state.yml` -- capture compose state for the
-  pre-rotate snapshot used by the auto-update tier 2 flow.
 
 Catena's own webapps (website + portal) are no longer deployed
-by this role. They ship a `dokploy.compose.yml` per app and the
-operator creates the Dokploy compose manually from the UI; see
-`internal_docs/operator/deploy-webapp-from-github.md`. The
+by this role. They ship a compose per app that the operator deploys
+as a Portainer stack. The
 Keycloak realm client for the portal still lives in Ansible and
 is provisioned by `roles/keycloak/tasks/_portal_realm.yml`.
 
 ## Inputs
 
-- `vault_cloudflare_api_token`, `cloudflare_*_id`, `cloudflare_zone`
+- `cloudflare_api_token`, `cloudflare_*_id`, `cloudflare_zone`
 - `vault_healthchecks_*` (api keys, ntfy URL)
 - `infrastructure_apps_enabled` -- toggle list per first-class app.
 
 ## Idempotency
 
-- Every Dokploy compose deploy goes through the API and is gated
+- Every Portainer stack deploy goes through the API and is gated
   on a shape comparison; idempotent across re-runs.
 - Sync timers are templated with stable content.

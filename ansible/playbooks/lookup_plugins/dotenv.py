@@ -18,7 +18,8 @@ silent defaults hide misconfiguration.
 Why a custom plugin rather than system env vars:
   - No "source .env" step in operator workflow, no wrapper script required.
   - `.env` is the single source of truth -- edit one file, ansible sees it.
-  - Secrets never go here (vault.yml handles those); .env is non-secret only.
+  - Secrets never go here: they live in the on-box store at
+    /etc/catena/config.json. `.env` is non-secret only.
 """
 
 from __future__ import annotations
@@ -59,8 +60,8 @@ class LookupModule(LookupBase):
         if inventory_dir:
             candidates.append(os.path.join(inventory_dir, ".env"))
 
-        # Legacy fallbacks -- preserved so single-inventory installs that
-        # haven't migrated their .env yet keep working.
+        # Fallbacks for a single-inventory checkout whose .env sits at the
+        # repo root rather than under inventory/<name>/.
         candidates.append(os.path.join(os.getcwd(), ".env"))
 
         playbook_dir = variables.get("playbook_dir")

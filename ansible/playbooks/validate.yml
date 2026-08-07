@@ -1,8 +1,9 @@
 ---
-# Validation orchestrator. Three vantage points:
+# Validation orchestrator: check a converged host from three vantage points,
+# so a service that only answers on the box is not mistaken for a working one.
 #   1. On-host  -- per-role Ansible validate tasks (roles/<role>/tasks/validate.yml), executed on the target
-#   2. Tailnet  -- Ansible from operator's laptop, hitting tailnet addresses
-#   3. External -- Ansible from operator's laptop, hitting public IP / CF hostnames
+#   2. Tailnet  -- from the controller, hitting tailnet addresses
+#   3. External -- from the controller, hitting public IP / CF hostnames
 #
 # Runs standalone OR as the post-converge leg composed by the installer.
 #
@@ -30,13 +31,16 @@
     # Adding a role here without a companion roles/<role>/tasks/
     # validate.yml file will fail loudly at include time -- good, means
     # the list stays honest.
+    # The list stays a literal: the audit's ansible parser resolves the
+    # validate.yml -> role edges from it statically.
     validate_roles:
       - common
       - host_hardening
       - tailscale
       - storage
       - docker
-      - dokploy
+      - traefik
+      - postgres
       - backup
       - infrastructure
       - keycloak
@@ -45,6 +49,14 @@
     # `cloudflared` intentionally absent -- it's not a standalone role;
     # CF Tunnel lives inside roles/infrastructure and is covered by
     # roles/infrastructure/tasks/validate.yml's cloudflared-swarm check.
+
+  pre_tasks:
+    # 0b: load on-box config store so on-host validate checks that read
+    # vault_* (e.g. the Keycloak admin login smoke test) see the on-box
+    # source of truth. See tasks/load_onbox_config.yml.
+    - name: "0b: load on-box config store"
+      ansible.builtin.include_tasks: tasks/load_onbox_config.yml
+      tags: [always, onbox]
 
   tasks:
     - name: "validate: run each role's validate.yml"
@@ -89,9 +101,9 @@
   vars:
     _smtp_enabled: >-
       {{
-        (lookup('dotenv', 'RESEND_SENDER_EMAIL', default='') | length > 0)
-        or (lookup('dotenv', 'BREVO_SENDER_EMAIL', default='') | length > 0)
-        or (lookup('dotenv', 'SMTP_HOST', default='') | length > 0)
+        (cfg_resend_sender_email | default('') | length > 0)
+        or (cfg_brevo_sender_email | default('') | length > 0)
+        or (cfg_smtp_host | default('') | length > 0)
       }}
     _bootstrap_email: "{{ lookup('dotenv', 'ADMIN_EMAIL', default='') }}"
 
@@ -100,7 +112,7 @@
       ansible.builtin.shell: |
         set -o pipefail
         docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-          | grep -E '{{ "keycloak" | dokploy_container_regex("server") }}' \
+          | grep -E '{{ "keycloak" | swarm_container_regex("server") }}' \
           | head -n1 || true
       args:
         executable: /bin/bash
@@ -149,7 +161,7 @@
           - --user
           - "{{ _bootstrap_email }}"
           - --password
-          - "{{ vault_admin_password }}"
+          - "{{ admin_password }}"
       register: _kc_login
       changed_when: false
       no_log: true
@@ -288,13 +300,48 @@
         timeout: 10
       delegate_to: localhost
 
-    - name: Probe Dokploy UI on tailnet
+    - name: "Probe Portainer UI on tailnet"
       ansible.builtin.uri:
-        url: "http://{{ ansible_host }}:{{ dokploy_port | default(3000) }}"
-        status_code: [200, 301, 302]
+        url: "http://{{ ansible_host }}:{{ portainer_ui_port | default(9000) }}/"
+        status_code: [200, 301, 302, 307, 308]
         timeout: 10
       delegate_to: localhost
-      # Asserts Dokploy IS reachable over tailnet (positive).
+      # Asserts the Portainer control-plane UI IS reachable over tailnet.
+
+    - name: "Probe catena-admin native-login page on tailnet"
+      ansible.builtin.uri:
+        url: "http://{{ ansible_host }}:{{ catena_admin_ui_port | default(9010) }}/login"
+        status_code: [200]
+        timeout: 10
+      delegate_to: localhost
+      # The panel's host-published native-login listener serves /login without a
+      # session (200). It is the way in before a Cloudflare token has been saved,
+      # which is why it is unconditional rather than a mode.
+      # Only assert it when the converge itself deployed catena-admin. Production
+      # leaves deploy-from-converge true, so the container is up by the time
+      # validate runs. The bench deploys catena-admin out of band AFTER the
+      # install-time validate and disables the converge deploy -- as an ANSIBLE
+      # extra-var (catena_admin_deploy_from_converge, the Semaphore migrate/DR
+      # path) OR as an ENV var (the subprocess install path). Honour the ansible
+      # var first, then fall back to the env lookup, so the probe skips in BOTH
+      # bench paths but still runs in production.
+      when: >-
+        (catena_admin_deploy_from_converge
+         | default(lookup('env', 'CATENA_ADMIN_DEPLOY_FROM_CONVERGE', default='true')))
+        | bool
+
+    # The public via-tunnel probes below (Keycloak Account Console at auth.<zone>
+    # and each gated host's /oauth2/start) only work once a Cloudflare token has
+    # been saved (catena-admin > Settings) and the tunnel converged. With no
+    # token the tunnel is DEFERRED, so skip them with a clear reason. The token
+    # is a host fact from the Vantage-1 load_onbox_config pre_task.
+    - name: "Tunnel probes deferred (no Cloudflare token yet)"
+      ansible.builtin.debug:
+        msg: >-
+          Skipping the via-tunnel probes (auth.<zone>, /oauth2/start) -- no
+          Cloudflare token in the on-box store yet; tunnel deferred until one is
+          saved in catena-admin > Settings.
+      when: (cloudflare_api_token | default('')) | length == 0
 
     - name: "Probe Keycloak (auth.<zone>) login page via CF"
       ansible.builtin.uri:
@@ -302,40 +349,11 @@
         status_code: [200, 302]
         timeout: 15
       delegate_to: localhost
-      when: keycloak_hostname is defined or cloudflare_zone is defined
+      # Gated on a present CF token: no token -> tunnel deferred ->
+      # auth.<zone> is not reachable via CF yet.
+      when: (cloudflare_api_token | default('')) | length > 0
       # Keycloak's Account Console redirects unauth'd hits to the login
       # page (302). Authenticated would be 200. Either is healthy.
-
-    - name: "Probe a gated app (Dokploy admin) requires auth when unauth'd"
-      ansible.builtin.uri:
-        url: "https://{{ dokploy_admin_hostname }}"
-        status_code: [302, 303, 307]
-        follow_redirects: none
-        timeout: 15
-      delegate_to: localhost
-      register: _auth_redirect
-      when: dokploy_admin_hostname is defined
-      failed_when:
-        - _auth_redirect.status not in [302, 303, 307]
-        # Reverse-proxy mode (Phase 1 of the oauth2-proxy migration):
-        # the per-app oauth2-proxy container in front of dokploy-admin
-        # emits a real 302 to Keycloak when the request lacks a session.
-        # The OLD forward-auth + errors-middleware pattern preserved
-        # 401 on the response while body-substituting /oauth2/start's
-        # 302; that workaround is gone. A 401 here now means the
-        # reverse-proxy path is broken; a 200 means the proxy is
-        # bypassed entirely (regression).
-
-    - name: "Probe Gatus health endpoint directly on tailnet (via Dokploy internal)"
-      ansible.builtin.uri:
-        url: "http://{{ ansible_host }}:{{ dokploy_port | default(3000) }}"
-        status_code: [200, 301, 302]
-        timeout: 10
-      delegate_to: localhost
-      # Proxy check -- proves the tailnet path still works. Real Gatus
-      # health lives at its own /health endpoint inside dokploy-network
-      # and isn't reachable from the controller; Gatus's own self-monitor
-      # in 00-base.yaml covers it.
 
     # Assert the auth-redirect chain
     # actually lands on Keycloak's login URL with state + redirect_uri +
@@ -350,17 +368,18 @@
     # defined in the inventory (skips silently on partial deploys).
     #
     # Coverage:
-    #   - Static infrastructure apps (gatus, catena-admin at
-    #     dash.<zone>, healthchecks, recovery, dokploy-admin) are
-    #     always probed. The dash.<zone> entry reaches catena-admin
-    #     via infrastructure_dash_hostname.
-    #   - Dynamic Dokploy-managed composes are enumerated via the API
-    #     (project.all + compose.one) and any compose whose composeFile
-    #     does NOT carry `vps.auth.mode=public` is treated as gated.
-    #     Gated by default per catenahq/dokploy-templates source/compose/ convention
-    #     ("Default if unset = `private`").
+    #   - Static infrastructure apps (gatus, catena-admin at dash.<zone>,
+    #     healthchecks, recovery) are always probed. The dash.<zone> entry
+    #     reaches catena-admin via infrastructure_dash_hostname.
     #   - Operators can add ad-hoc gated hostnames via the
     #     `validate_extra_gated_hosts` inventory variable.
+    #   - Dynamic client-app gated hosts (deployed via the Portainer
+    #     marketplace) get their Traefik routes + oauth2-proxy gating from
+    #     dashboard-sync (vps.route.host + vps.auth.* labels). Their auth
+    #     contract is verified by verify_gated_services.yml; there is no
+    #     enumeration API call here (the old project.all/compose.one are
+    #     gone -- Portainer stacks are discovered by dashboard-sync, not
+    #     re-walked in validate).
     #
     # Native-OIDC hosts (vps.auth.mode=public + vps.auth.oidc=true)
     # are EXCLUDED here. Native-OIDC apps run their own OAuth dance
@@ -373,79 +392,6 @@
     # Native-OIDC apps (e.g. Nextcloud, Element) are excluded from the
     # /oauth2/start probe set; the comment shape is retained for future
     # client-deployed native-OIDC apps.
-    - name: "Enumerate Dokploy projects via API (dynamic gated apps)"
-      ansible.builtin.uri:
-        url: "{{ dokploy_api_base }}/project.all"
-        method: GET
-        headers:
-          x-api-key: "{{ vault_dokploy_api_key }}"
-        status_code: 200
-        return_content: true
-      register: _dyn_projects
-      delegate_to: localhost
-      become: false
-      when:
-        - vault_dokploy_api_key is defined
-        - vault_dokploy_api_key | length > 10
-        - cloudflare_zone is defined
-      failed_when: false
-
-    - name: "Collect compose IDs from project.all"
-      ansible.builtin.set_fact:
-        _r3_dyn_compose_ids: >-
-          {{
-            (_dyn_projects.json | default([]))
-            | map(attribute='environments', default=[]) | flatten
-            | map(attribute='compose', default=[]) | flatten
-            | map(attribute='composeId') | select('string') | list
-          }}
-      when: _dyn_projects.json is defined
-
-    - name: "Fetch each compose record (composeFile + domains)"
-      ansible.builtin.uri:
-        url: "{{ dokploy_api_base }}/compose.one?composeId={{ item }}"
-        method: GET
-        headers:
-          x-api-key: "{{ vault_dokploy_api_key }}"
-        status_code: 200
-        return_content: true
-      register: _r3_dyn_records
-      delegate_to: localhost
-      become: false
-      loop: "{{ _r3_dyn_compose_ids | default([]) }}"
-      loop_control:
-        label: "{{ item }}"
-      when: (_r3_dyn_compose_ids | default([])) | length > 0
-      failed_when: false
-
-    - name: "Derive gated hosts (no vps.auth.mode=public label)"
-      ansible.builtin.set_fact:
-        # A compose is "gated" if its composeFile does NOT carry
-        # `vps.auth.mode=public`. The default per the convention
-        # (catenahq/dokploy-templates source/compose/ convention) is `private`,
-        # so unset == gated.
-        #
-        # Pattern note: the YAML single-quoted scalar does not process
-        # backslash escapes, so '\.' reaches Jinja's `search` test as
-        # literal '\.' -- the regex form of "match a dot". Doubling the
-        # backslashes here produces the regex '\\.', which requires a
-        # literal backslash in the input and silently never matches the
-        # composeFile labels.
-        _r3_dyn_gated_hosts: >-
-          {{
-            (_r3_dyn_records.results | default([]))
-            | selectattr('json', 'defined')
-            | selectattr('json.composeFile', 'defined')
-            | rejectattr('json.composeFile', 'search', 'vps\.auth\.mode=public')
-            | map(attribute='json.domains', default=[])
-            | flatten
-            | map(attribute='host')
-            | select('string')
-            | reject('equalto', '')
-            | list
-          }}
-      when: _r3_dyn_records.results is defined
-
     - name: "Build gated-host probe set"
       ansible.builtin.set_fact:
         # Keycloak's own host (auth.<zone>) is the IdP, not an oauth2-
@@ -460,9 +406,8 @@
                 infrastructure_dash_hostname | default(''),
                 healthchecks_hostname | default(''),
                 infrastructure_recovery_hostname | default(''),
-                dokploy_admin_hostname | default(''),
+                portainer_admin_hostname | default(''),
               ]
-              + (_r3_dyn_gated_hosts | default([]))
               + (validate_extra_gated_hosts | default([]))
             )
             | reject('equalto', '')
@@ -472,7 +417,9 @@
           }}
         _r3_keycloak_login_prefix: >-
           https://{{ keycloak_hostname | default('auth.' ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default('vps') }}/protocol/openid-connect/auth?
-      when: cloudflare_zone is defined
+      # Only build the probe set when the tunnel is actually up (token present);
+      # otherwise _gated_hosts stays unset and the probe loop below skips.
+      when: (cloudflare_api_token | default('')) | length > 0
 
     - name: "Probe /oauth2/start on each gated host (Location -> Keycloak)"
       ansible.builtin.uri:
@@ -525,16 +472,16 @@
     # client compose with `ports: ["8080:80"]` would expose its
     # container directly to the tailnet, bypassing Traefik's
     # forward-auth chain. Container IPs themselves aren't routable
-    # from tailnet (dokploy-network is host-internal), so the actual
+    # from tailnet (catena-network is host-internal), so the actual
     # attack surface is host-published ports. Enumerate every
     # listening TCP port on the host and assert the set matches the
-    # allowlist (Traefik 80/443, SSH 22, Dokploy admin 3000 on the
+    # allowlist (Traefik 80/443, SSH 22, Portainer admin 9000 on the
     # tailnet alias, anything explicitly opted-in via .env).
     #
     # Runs ON the host (no delegate_to), so it sees the full ss(8)
     # output including loopback-only binds. We filter to public-
     # facing binds (0.0.0.0 / [::]); 127.0.0.1-bound ports
-    # (gatus_host_localhost_port, dokploy postgres internals, etc)
+    # (gatus_host_localhost_port, catena-postgres internals, etc)
     # never reach tailnet so they're skipped.
     - name: "Enumerate listening TCP ports on host"
       ansible.builtin.command:
@@ -586,7 +533,7 @@
             | list
           }}
         # Allowlist = always-present infra ports + the registry's bound TCP
-        # ports (Dokploy 3000, coturn 5349, mailserver 25/465/587/993, ...).
+        # ports (Portainer 9000, coturn 5349, mailserver 25/465/587/993, ...).
         #   22  - SSH (UFW limits ingress to tailnet)
         #   80  - Traefik HTTP (CF Tunnel only; UFW blocks public)
         #   443 - Traefik HTTPS (CF Tunnel only; UFW blocks public)
@@ -599,7 +546,7 @@
             ([22, 80, 443] +
               ((_pp_summary_raw.content | b64decode | from_json).all_tcp_bound
                if (_pp_summary_stat.stat.exists | default(false))
-               else [dokploy_port | default(3000) | int, 5349]))
+               else [portainer_ui_port | default(9000) | int, 5349]))
             | map('int') | unique | sort | list
           }}
 
@@ -627,8 +574,37 @@
           restrict the bind to 127.0.0.1 if loopback-only is needed.
         success_msg: "Host port set OK ({{ _r4_public_ports | join(', ') }} - all in allowlist)"
 
+    # Every list above describes what the registry DECLARES. This is the one
+    # field that says whether the host is in that state. The reconciler used
+    # to return early when the DOCKER-USER chain was absent, record the whole
+    # plan as applied and exit 0 -- so a host publishing every restricted port
+    # produced artifacts identical to a correctly guarded one, and this
+    # validation read them and passed.
+    - name: "Assert the port reconciler applied every rule it planned"
+      ansible.builtin.assert:
+        that:
+          - ((_pp_summary_raw.content | b64decode | from_json).rules_unapplied
+             | default(0) | int) == 0
+        fail_msg: |
+          violation: catena-public-ports could not install
+          {{ (_pp_summary_raw.content | b64decode | from_json).rules_unapplied }}
+          of its planned firewall rules. The port lists in this summary
+          describe the DECLARED set; the host is not in it, and every
+          restricted docker-bound port those rules cover is reachable.
+
+          Diagnostic:
+            systemctl status catena-public-ports.service
+            journalctl -u catena-public-ports.service -n 50
+            iptables -nL DOCKER-USER
+
+          Most likely: the reconcile ran before Docker finished creating the
+          DOCKER-USER chain. The 5-minute timer re-asserts; if it persists,
+          Docker is not managing iptables on this host.
+        success_msg: "Port reconciler applied its full rule plan"
+      when: _pp_summary_stat.stat.exists | default(false)
+
     # Direct-container-IP probe from a tailnet vantage.
-    # Asserts the dokploy-network bridge stays host-internal: container
+    # Asserts the catena-network bridge stays host-internal: container
     # IPs (172.x.y.z by default) must NOT be reachable from the
     # operator's controller. The host-port allowlist above catches the
     # `ports: "8080:80"` shape; this catches the orthogonal case where
@@ -636,13 +612,13 @@
     # itself. A successful TCP connect from controller -> container IP
     # would mean the network isolation is broken (Traefik bypass: clients
     # could hit the gated app's container directly).
-    - name: "tailnet: list container IPs on dokploy-network"
+    - name: "tailnet: list container IPs on catena-network"
       ansible.builtin.command:
         argv:
           - docker
           - network
           - inspect
-          - "{{ dokploy_network_name | default('dokploy-network') }}"
+          - "{{ catena_network_name | default('catena-network') }}"
           - --format
           - '{% raw %}{{range $k, $v := .Containers}}{{$v.IPv4Address}}{{"\n"}}{{end}}{% endraw %}'
       register: _r4_ct_ips_raw
@@ -680,7 +656,7 @@
       ansible.builtin.debug:
         msg: |
           {{ (_container_ips | default([])) | length }} container IP(s)
-          on dokploy-network: none reachable from controller (good).
+          on catena-network: none reachable from controller (good).
       when: (_container_ips | default([])) | length > 0
 
 - name: "Vantage 3 -- external checks"

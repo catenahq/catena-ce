@@ -1,9 +1,10 @@
 # catena-admin (Ansible role)
 
-Host-side setup for the per-VPS admin panel -- the catena-admin Go
-shell. The container itself is deployed via Dokploy's git-source
-compose flow; this role manages everything the container expects to
-find on the host before it boots.
+Host-side setup AND container deploy for the per-VPS admin panel -- the
+catena-admin Go shell. This role prepares everything the container
+expects to find on the host, then creates the container itself as a
+TIER-1 SWARM SERVICE, with the argv rendered by
+[../../playbooks/filter_plugins/catena_admin_service.py](../../playbooks/filter_plugins/catena_admin_service.py).
 
 ## What this role does
 
@@ -23,26 +24,42 @@ find on the host before it boots.
 - Generates an ed25519 keypair under `/etc/catena/admin-ssh/`
   (chowned for the container's uid 1000) and seeds known_hosts via
   ssh-keyscan.
-- Creates the bind-mount targets the admin compose
-  ([deploy/catena-admin/dokploy.compose.yml](../../../deploy/catena-admin/dokploy.compose.yml))
+- Creates the bind-mount targets the service
+  ([../../playbooks/filter_plugins/catena_admin_service.py](../../playbooks/filter_plugins/catena_admin_service.py))
   expects: `/etc/catena/admin-ssh/`, `/etc/catena/admin-actions.yml`,
   `/etc/catena/extra-tiles.yml`, `/var/lib/catena/` (read-only stats;
   populated by run-backup.sh + gatus-sync), and
   `/var/backups/catena-export/` (recovery artifacts, read-only). The
-  shell's writable state is the `admin-plugins` named volume at
-  `/var/lib/catena/plugins`, where the license-gated pull lands EE plugin
-  binaries; Community runs with it empty.
+  shell's writable bind is `/var/lib/catena/ee-payload`, where it mirrors
+  its embedded host payload (all engines -- `catena-cloudflared-sync`,
+  `catena-daily`, the lane scripts, units) at startup.
+- Installs that host payload into `/usr/local/bin` on **every** converge
+  ([tasks/deploy.yml](tasks/deploy.yml)), ungated -- the payload is NOT
+  license-gated. Even a plain Community host gets the engines (the
+  Cloudflare tunnel engine especially: `roles/cloudflare_tunnel`
+  dispatches `catena-cloudflared-sync`). The license only gates which UI
+  features/buttons the shell renders at runtime, never the install. The
+  `ee-install-engines` reserved action remains for out-of-band re-install
+  after an image bump.
 - Renders `/etc/catena/extra-tiles.yml` from inventory
   `catena_admin_extra_tiles` (operator escape hatch for hand-authored
   Apps-tab tiles).
+- Creates the catena-admin container as a tier-1 swarm service
+  ([tasks/deploy.yml](tasks/deploy.yml)), pulling the PUBLIC GHCR image
+  (`catena_admin_image`) anonymously -- every install gets the panel; the
+  Business feature set inside it is gated at runtime by the license
+  check. It was a Portainer stack until the panel held the key that
+  drives Portainer *and* depended on Portainer to start, so a broken
+  control plane took down the only tool that could repair it. The three
+  credentials arrive as swarm secrets, not `--env`: `docker service
+  create` has no `--env-file`, so an `--env` value sits in the host
+  process table where any local user can read it. No Traefik route is
+  written here (oauth2-proxy owns the gated `dash.<zone>` route). The
+  test bench renders its argv from the same filter plugin and differs in
+  one value: it builds the image locally instead of pulling from GHCR.
 
 ## What this role does NOT do
 
-- It does **not** push the catena-admin compose via the Dokploy API.
-  The container is deployed through Dokploy's git-source flow pointed at
-  [deploy/catena-admin/dokploy.compose.yml](../../../deploy/catena-admin/dokploy.compose.yml)
-  (which builds the repo-root Dockerfile). The test bench reuses that same
-  compose, building the image on the VPS instead of via git-source.
 - It does **not** create a Keycloak realm client. The admin sits
   behind the shared `oauth2-proxy` realm client and the staff/admin
   oauth2-proxy slug.
@@ -52,8 +69,8 @@ find on the host before it boots.
 ## Community vs Business actions
 
 The canonical catalog ships only Community actions: manual backup +
-snapshot browse/export, the per-app wiring buttons, recovery-archive
-generation, and Ops diagnostics. The **Upgrades** category is
+snapshot browse/export, the per-app wiring buttons, and Ops
+diagnostics. The **Upgrades** category is
 intentionally empty in Community -- managed updates and the
 catena-daily orchestrator are Business lanes whose buttons are
 contributed at runtime by license-gated plugins (the Go shell merges

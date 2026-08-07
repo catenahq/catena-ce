@@ -36,11 +36,11 @@ OUT_DIR="${STORAGE_MOUNT_POINT}/backup-staging/keycloak"
 mkdir -p "$OUT_DIR"
 chmod 0750 "$OUT_DIR"
 
-# Resolve the running Keycloak server container by Dokploy naming
-# convention. <compose>-<6-char-hash>-<svc>-<idx>; the hash rotates
-# on recreate so we cannot pin it. Match prefix + suffix + first.
+# Resolve the running Keycloak server container by the Portainer naming
+# convention: <stack>-<service>-<index> (no per-instance hash). Match
+# prefix + service + index, first hit.
 CT=$(docker ps --format '{{.Names}}' \
-    | grep -E "^${KEYCLOAK_COMPOSE_NAME}-[a-z0-9]+-${KEYCLOAK_SERVER_SERVICE}-[0-9]+$" \
+    | grep -E "^${KEYCLOAK_COMPOSE_NAME}-${KEYCLOAK_SERVER_SERVICE}-[0-9]+$" \
     | head -n1 || true)
 if [ -z "$CT" ]; then
     echo "[realm-export] no running Keycloak server container; skipping." >&2

@@ -35,7 +35,7 @@ clients:
     implicitFlowEnabled: false
     directAccessGrantsEnabled: false
     serviceAccountsEnabled: false
-    secret: "{{ vault_mailserver_oidc_client_secret }}"
+    secret: "{{ mailserver_oidc_client_secret }}"
     redirectUris:
       - "https://webmail.{{ cloudflare_zone }}/index.php/login/oauth"
     webOrigins:
@@ -69,7 +69,7 @@ clients:
     # Service account so the client can authenticate itself to the
     # introspection endpoint via client_credentials.
     serviceAccountsEnabled: true
-    secret: "{{ vault_mailserver_introspect_client_secret }}"
+    secret: "{{ mailserver_introspect_client_secret }}"
     # No browser redirect -- this client never does an auth-code flow.
     redirectUris: []
     webOrigins: []

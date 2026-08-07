@@ -1,9 +1,9 @@
 ---
-# Deploy Gatus as a Dokploy-managed compose app -> monitor.<zone>.
+# Deploy Gatus as a Portainer compose stack -> monitor.<zone>.
 #
 # Config layout on the host:
 #   {{ gatus_host_config_dir }}/00-base.yaml          (Ansible-managed)
-#   {{ gatus_host_config_dir }}/50-dokploy-apps.yaml  (gatus-sync, per-timer)
+#   {{ gatus_host_config_dir }}/50-catena-apps.yaml  (gatus-sync, per-timer)
 #   {{ gatus_host_config_dir }}/99-<anything>.yaml    (operator-added, untouched)
 #
 # Everything in /config is bind-mounted read-only into the container. Gatus
@@ -49,12 +49,45 @@
 # chain the new oauth2-proxy@file middleware. Until then this app
 # deploys without a forward-auth gate.
 
-- name: "Gatus: deploy via Dokploy API"
-  ansible.builtin.include_tasks: dokploy_compose.yml
+# The publish is host-mode now (swarm cannot bind 127.0.0.1), so the port is
+# a real host bind and validate.yml's bind-drift check will see it. Declare
+# it scope=loopback so the reconciler denies it on every interface but lo,
+# which is the posture the old 127.0.0.1 bind gave for free.
+#
+# bind=docker, NOT host. A swarm host-mode publish is DNAT'd by dockerd and
+# never reaches ufw's INPUT chain, so a ufw deny alone does not close it --
+# bench 050b scanned the bridge IP and found 18080 wide open with the deny
+# rule installed. The guard that works on the DNAT path is DOCKER-USER,
+# which is what bind=docker asks for. Host-local readers are unaffected:
+# 127.0.0.1 traffic is delivered on loopback and never traverses FORWARD.
+- name: "Gatus: declare the host-side API port (registry fragment, loopback-only)"
+  ansible.builtin.copy:
+    dest: "{{ public_ports_fragment_dir }}/gatus.json"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {{
+        [
+          {"proto": "tcp", "port": gatus_host_localhost_port | int,
+           "scope": "loopback", "bind": "docker", "owner": "gatus",
+           "comment": "Gatus API for host-side gatus-sync -- this host only"}
+        ] | to_nice_json
+      }}
+  register: _gatus_ports_fragment
+
+- name: "Gatus: reconcile public ports now (fragment changed)"
+  ansible.builtin.systemd_service:
+    name: catena-public-ports.service
+    state: started
+  changed_when: false
+  when: _gatus_ports_fragment.changed
+
+- name: "Gatus: deploy as a swarm stack"
+  ansible.builtin.include_tasks: swarm_stack.yml
   vars:
     svc_name: "{{ gatus_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'gatus.compose.yml.j2') }}"
-    svc_env: []
     svc_domain_host: "{{ infrastructure_monitor_hostname }}"
     svc_domain_service: "app"
     svc_domain_port: "{{ gatus_internal_port }}"
@@ -66,12 +99,12 @@
 
 # When 00-base.yaml changes, restart the Gatus container so the new
 # endpoints / alert config take effect (Gatus loads config only at
-# startup). 50-dokploy-apps.yaml restart-triggering is owned by gatus-sync
-# itself. Find the container by matching the Dokploy-assigned name pattern.
+# startup). 50-catena-apps.yaml restart-triggering is owned by gatus-sync
+# itself. Find the container by matching the Portainer-assigned name pattern.
 - name: "Gatus: find running container (for base-config reload)"
   ansible.builtin.shell: |
     set -o pipefail
-    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ gatus_compose_name | dokploy_container_regex("app") }}' || true
+    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ gatus_compose_name | swarm_container_regex("app") }}' || true
   args:
     executable: /bin/bash
   register: _gatus_container_name

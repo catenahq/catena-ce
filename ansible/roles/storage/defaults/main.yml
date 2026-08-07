@@ -17,7 +17,6 @@ storage_mount_options: "defaults,noatime"
 
 # Subdirectory layout under storage_mount_point. Consumed by both built_in and
 # attached modes. Ownership + mode chosen for the consumer:
-#   dokploy        -- Dokploy's own state (configs, deploy history).
 #   apps           -- per-app compose files, logs, bind-mounted app data.
 #   backup-staging -- pg_dumpall output + restic scratch. Ops-owned.
 #   docker         -- Docker daemon data-root. Named volumes live under
@@ -27,7 +26,6 @@ storage_mount_options: "defaults,noatime"
 #                    create with the same mode so neither Ansible nor the
 #                    daemon fights the other on re-runs.
 storage_data_subdirs:
-  - { name: dokploy, owner: root, group: root, mode: "0755" }
   - { name: apps, owner: "{{ ops_user }}", group: "{{ ops_user }}", mode: "0755" }
   - { name: backup-staging, owner: "{{ ops_user }}", group: "{{ ops_user }}", mode: "0750" }
   - { name: docker, owner: root, group: root, mode: "0710" }

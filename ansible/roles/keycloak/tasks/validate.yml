@@ -2,7 +2,7 @@
 # Validation tasks for roles/keycloak. One probe surface:
 #
 # In-container /health/ready -- proves the server booted, ran its
-# schema migrations against dokploy-postgres, and accepted the DB
+# schema migrations against catena-postgres, and accepted the DB
 # credentials. This is the canonical "safe to issue admin API calls
 # now" gate (used by realm_bootstrap.yml's keycloak-config-cli one-
 # shot, and by playbooks/validate.yml Vantage 1b's DR SMTP smoke test).
@@ -26,14 +26,22 @@
   ansible.builtin.shell: |
     set -o pipefail
     docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-      | grep -E '{{ keycloak_compose_name | dokploy_container_regex(keycloak_server_service) }}' \
+      | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' \
       | head -n1
   args:
     executable: /bin/bash
   register: _keycloak_server_container
   changed_when: false
   failed_when: false
-  retries: 30
+  # 60 x 4s = 240s. A reconverge that follows a disruptive op (the bench's
+  # snapshot rewind, or an operator SIGINT mid-converge) kills the running
+  # catena-postgres task ungracefully; pg then does WAL recovery on restart and
+  # keycloak, which depends on the DB, stays "Created" until pg accepts
+  # connections again. On the pg18 + phasetwo-26.6.x stack that settle can
+  # exceed the old 120s ceiling (baseline pg16/26.5.7 recovered inside it).
+  # `until` exits the moment the container is Running, so the larger ceiling
+  # only costs wall time when pg is genuinely still recovering.
+  retries: 60
   delay: 4
   until: _keycloak_server_container.stdout | length > 0
 
@@ -72,9 +80,9 @@
     - name: "validate/keycloak: surface diagnostic dump"
       ansible.builtin.fail:
         msg: |
-          Keycloak server container did not appear after 30 retries
-          (~120s). Dokploy reported deploy=done but no container
-          matches '{{ keycloak_compose_name | dokploy_container_regex(keycloak_server_service) }}'.
+          Keycloak server container did not appear after 60 retries
+          (~240s). Portainer reported deploy=done but no container
+          matches '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}'.
 
           docker ps -a (filter name=keycloak):
           {{ _kc_diag_ps.stdout | default('(empty)') }}

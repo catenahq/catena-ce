@@ -1,0 +1,36 @@
+---
+# roles/tier1_stack -- render the directly-created swarm services as compose,
+# and dispatch the engine that actually creates them.
+
+tier1_stack_dir: /etc/catena/stacks
+tier1_stack_path: "{{ tier1_stack_dir }}/tier1.yml"
+
+# App companions render to their own file. They are directly-created swarm
+# services for the same reason the control plane is (host networking, global
+# mode), but they come and go with the applications that consume them -- coturn
+# appears the converge after a Talk or Jitsi deploy and leaves with it. Mixing
+# them into tier1.yml made the control-plane render a moving target: the file
+# gained a service on a converge where the control plane had not changed at all.
+tier1_companions_path: "{{ tier1_stack_dir }}/companions.yml"
+
+# The host engine that creates and reconciles these services
+# (catena-admin payload/engines/tier1). Installed to /usr/local/bin by
+# roles/payload, which runs right after roles/docker -- ahead of every role
+# that includes tasks/reconcile_one.yml.
+tier1_engine_bin: /usr/local/bin/catena-tier1
+
+# The stack name `docker stack deploy` would be given. Declared now, used when
+# the apply lands: it is what scopes the label swarm stamps on every service
+# in the stack, so changing it later would orphan the existing ones.
+tier1_stack_name: catena
+
+# Services that MUST have contributed a spec before the file is written.
+#
+# This is the guard against a partial render. A `--tags postgres` converge
+# runs one role, so one spec accumulates, and a stack file holding one service
+# is not an incomplete description of the control plane -- once applied it is
+# an instruction to DELETE the other two.
+tier1_stack_required:
+  - catena-traefik
+  - catena-postgres
+  - catena-portainer

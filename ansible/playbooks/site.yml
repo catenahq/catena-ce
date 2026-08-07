@@ -1,5 +1,6 @@
 ---
-# Main converge. Safe to re-run. Runs over Tailscale.
+# Main converge: bring a bootstrapped host to the desired state and keep it
+# there. Safe to re-run. Runs over Tailscale.
 #
 # This file is a single atomic unit (one converge), with no cross-playbook
 # imports. Composition (preflight + site + validate) lives in the
@@ -17,6 +18,15 @@
   become: true
   gather_facts: true
 
+  vars:
+    # Converge-time disk gate. Refuse to converge onto a filesystem at or
+    # above crit_pct full, ABORTING before any role writes. Live disk
+    # alerting is Beszel's (the disk_watch timer this used to mirror was
+    # removed 2026-07-29); this is the install-time refusal, which Beszel
+    # cannot provide because it reports rather than blocks.
+    converge_disk_preflight_paths: ["/", "/mnt/data"]
+    converge_disk_preflight_crit_pct: 90
+
   # ─── Fail-fast external-service reachability ───────────────────────────
   # Probe every configured external backend the converge depends on BEFORE
   # any heavy role runs, so a dead / unreachable / misconfigured endpoint
@@ -28,6 +38,62 @@
   # (dotenv), not role defaults (out of scope in pre_tasks). Bypass for
   # offline dev with -e skip_external_preflight=true.
   pre_tasks:
+    # 0b: load the on-box config store (/etc/catena/config.json). Runs FIRST so
+    # downstream roles read the on-box secret facts. This is the source of
+    # truth now that SOPS was dropped: it adopts the seed's plaintext externals,
+    # MINTS every internal service secret on-box, and set_facts them. See
+    # tasks/load_onbox_config.yml.
+    - name: "0b: load on-box config store"
+      # apply: propagate [always] to every task INSIDE the include. Without
+      # it, include_tasks fires the include (it is `always`) but the inner
+      # set_fact tasks are filtered out under any `converge --tags X` -- the
+      # vault_* facts never publish and every role falls back to the raw
+      # inventory (placeholder / stale) values. fi_s3 caught this as a
+      # poisoned postgres password surviving a `--tags postgres` converge.
+      # apply must nest under include_tasks (with file:), not sit as a
+      # sibling task key -- a top-level apply conflicts with the action.
+      ansible.builtin.include_tasks:
+        file: tasks/load_onbox_config.yml
+        apply:
+          tags: [always, onbox]
+      tags: [always, onbox]
+
+    # 0c: hard disk-space preflight. A converge onto a critically full
+    # filesystem fails deep inside a role (image pull ENOSPC, container
+    # write failure) 10-30 min in; refuse up front instead. Complements
+    # roles/backup's catena-disk-preflight (backup/restore/auto-update
+    # free-bytes aborts) and Beszel's threshold alerting -- this is the
+    # converge-time gate. gather_facts already populated ansible_mounts;
+    # /mnt/data may be absent on a fresh target (storage role mounts it
+    # later), so the selectattr filter checks only mounts that exist now.
+    # Bypass for dev with -e skip_disk_preflight=true.
+    - name: "Preflight (disk): refuse to converge on a critically full filesystem"
+      ansible.builtin.assert:
+        that:
+          - >-
+            ((mnt.size_total - mnt.size_available) / mnt.size_total * 100)
+            < (converge_disk_preflight_crit_pct | int)
+        fail_msg: >-
+          Disk preflight: {{ mnt.mount }} is
+          {{ ((mnt.size_total - mnt.size_available) / mnt.size_total * 100)
+             | round(1) }}% full
+          ({{ (mnt.size_available / 1073741824) | round(2) }} GiB free),
+          at or above the {{ converge_disk_preflight_crit_pct }}% converge
+          ceiling. Free space before re-running -- a converge onto a full
+          disk fails mid-role with no space left on device. Bypass (NOT
+          recommended): -e skip_disk_preflight=true
+        quiet: true
+      loop: >-
+        {{ ansible_mounts
+           | selectattr('mount', 'in', converge_disk_preflight_paths)
+           | selectattr('size_total', 'gt', 0)
+           | list }}
+      loop_control:
+        loop_var: mnt
+        label: "{{ mnt.mount }}"
+      when: not (skip_disk_preflight | default(false) | bool)
+      tags: [always, disk_preflight]
+
     - name: "Preflight (external): probe configured S3 backends (HEAD, 10s)"
       ansible.builtin.uri:
         url: "{{ item.url }}"
@@ -40,13 +106,13 @@
       loop: >-
         {{ [
              {'name': 'BACKUP_RESTIC_REPO',
-              'url': (lookup('dotenv', 'BACKUP_RESTIC_REPO', default='')
+              'url': (cfg_backup_restic_repo | default('')
                       | restic_repo_endpoint)},
              {'name': 'BACKUP_WORM_REPO',
-              'url': (lookup('dotenv', 'BACKUP_WORM_REPO', default='')
+              'url': (cfg_backup_worm_repo | default('')
                       | restic_repo_endpoint)},
              {'name': 'NEXTCLOUD_WORM_REPO',
-              'url': (lookup('dotenv', 'NEXTCLOUD_WORM_REPO', default='')
+              'url': (cfg_nextcloud_worm_repo | default('')
                       | restic_repo_endpoint)},
            ] | selectattr('url', 'ne', '') | list }}
       loop_control:
@@ -82,11 +148,11 @@
           fail later in the converge; fix the relay host/port or network, or
           re-run with -e skip_external_preflight=true.
       vars:
-        _smtp_host: "{{ lookup('dotenv', 'SMTP_HOST', default='') }}"
-        _smtp_port: "{{ lookup('dotenv', 'SMTP_PORT', default='587') }}"
+        _smtp_host: "{{ cfg_smtp_host | default('') }}"
+        _smtp_port: "{{ cfg_smtp_port | default('587') }}"
       when:
         - not (skip_external_preflight | default(false) | bool)
-        - (lookup('dotenv', 'SMTP_HOST', default='') | length) > 0
+        - (cfg_smtp_host | default('') | length) > 0
       tags: [always, external_preflight]
 
   # Tags allow iterating on a single role:
@@ -106,8 +172,28 @@
     - { role: host_hardening, tags: [host_hardening, hardening] }
     - { role: tailscale, tags: [tailscale] }
     - { role: storage, tags: [storage] } # mount block volume at /mnt/data (+ optional bulk)
-    - { role: docker, tags: [docker] }
-    - { role: dokploy, tags: [dokploy] } # app platform, bound to tailscale0 only
+    - { role: docker, tags: [docker] } # Docker CE + single-node swarm init
+    # Host engine payload (catena-cloudflared-sync, catena-recovery,
+    # catena-schedule, catena-daily, the lanes + units), extracted from the
+    # public catena-admin image. Needs docker and nothing else, and every role
+    # from here down may assume /usr/local/bin/catena-* exists. It used to
+    # arrive from roles/catena-admin, eight roles later, which meant
+    # cloudflare_tunnel found no engine on a first converge and oauth2_proxy
+    # then waited on an edge nobody had brought up. See roles/payload/README.md.
+    - { role: payload, tags: [payload] } # host engine binaries + units
+    # catena-owned reverse proxy (catena-traefik on the catena-network
+    # overlay). Runs AFTER docker (which inits the swarm) and BEFORE
+    # cloudflare_tunnel, which points cloudflared's ingress at catena-traefik
+    # and joins catena-network.
+    - { role: traefik, tags: [traefik] } # reverse proxy: catena-traefik + catena-network
+    # catena-owned Postgres (catena-postgres swarm service on catena-network),
+    # hosting the Keycloak DB. Runs after traefik (needs catena-network) and
+    # BEFORE keycloak (which provisions its DB inside it).
+    - { role: postgres, tags: [postgres] } # infra Postgres (Keycloak DB)
+    # Portainer CE -- the container control plane (Docker + Swarm + later K8s).
+    # The CE + EE API seams + catena-admin drive it via its stack API. Runs
+    # after postgres (both are swarm services on catena-network).
+    - { role: portainer, tags: [portainer] } # container control plane
     # cloudflared swarm service + CF tunnel + wildcard DNS. Runs BEFORE
     # keycloak + oauth2_proxy so the public auth.<zone> URL is reachable
     # by the time oauth2_proxy waits for Keycloak's OIDC discovery doc.
@@ -115,6 +201,10 @@
     # single-pass site.yml (CF 530 from oauth2_proxy's wait task).
     # Idempotent: subsequent converges find the tunnel + DNS + service
     # already in the desired state and no-op.
+    # Not gated on an access mode any more. The role self-defers when the store
+    # holds no Cloudflare token (_infra_cf_token_present + cf_activate), which
+    # is what ACCESS_MODE=tailnet was originally for and covers it without a
+    # second install shape.
     - { role: cloudflare_tunnel, tags: [cloudflare_tunnel, cloudflare] } # CF tunnel + DNS + cloudflared swarm service
     # Keycloak MUST come before oauth2_proxy so its realm exists before
     # oauth2_proxy registers its OIDC client via keycloak-config-cli. Both
@@ -124,62 +214,16 @@
     - { role: keycloak, tags: [keycloak, auth] } # SSO IdP
     - { role: oauth2_proxy, tags: [oauth2_proxy, auth] } # forward-auth gateway: staff + admin instances
     - { role: infrastructure, tags: [infrastructure] } # recovery archive, gated apps (Gatus, Healthchecks, ...), dashboard-sync, gatus-sync
-    # catena-admin host-side state -- runner user, dispatcher, action
-    # catalog, bind-mount targets. The Go shell container is deployed via
-    # Dokploy's git-source flow; this role only manages the host
-    # prerequisites.
+    # catena-admin: host-side state (runner user, dispatcher, action catalog,
+    # bind-mount targets) AND the Go shell container, created directly against
+    # the local swarm. It is no longer a Portainer stack: it holds the API key
+    # that drives Portainer, so a Portainer that would not start used to take
+    # down the only tool that could repair it.
     - { role: catena-admin, tags: [catena_admin] }
     - { role: coturn, tags: [coturn] } # shared TURN/STUN for NC Talk HPB + RC Jitsi (UDP media plane, direct on VPS public IP)
     - { role: backup, tags: [backup] } # restic + the manual oneshot catena-backup.service
 
   post_tasks:
-    # ─── Dokploy admin-domain ────────────────────────────────────────────
-    # Configures Dokploy's "Web Server" domain so origin validation passes
-    # when accessing via admin.<zone>. Single canonical caller. Runs AFTER
-    # all roles so dokploy-postgres + the dokploy app are healthy.
-    # Idempotent: re-runs are no-ops once the host record matches.
-    #
-    # Retry-through-restart: end-of-play handlers (docker: restart docker,
-    # fired when the docker role freshly dropped daemon.json on a first/
-    # single-pass install) bounce the whole swarm right before post_tasks,
-    # so dokploy :3000 is briefly Connection-refused while swarm reschedules
-    # the task. Without a wait this post_task races that reconverge and
-    # fails. Retry until the API answers 200. (A two-pass install masks this
-    # because pass-2 leaves daemon.json unchanged -> no restart handler.)
-    - name: "Dokploy API: set admin domain"
-      ansible.builtin.uri:
-        url: "{{ dokploy_api_base }}/settings.assignDomainServer"
-        method: POST
-        headers:
-          x-api-key: "{{ vault_dokploy_api_key }}"
-        body_format: json
-        body:
-          host: "{{ dokploy_admin_hostname }}"
-          certificateType: "none"
-          https: false
-        status_code: 200
-      register: _dok_set_domain
-      retries: 30
-      delay: 5
-      until: _dok_set_domain.status | default(-1) == 200
-      delegate_to: localhost
-      become: false
-      when:
-        - vault_dokploy_api_key is defined
-        - vault_dokploy_api_key | length > 10
-      tags: [post_admin_domain]
-
-    - name: "Note -- admin domain not set (no API key yet)"
-      ansible.builtin.debug:
-        msg: >-
-          Skipped setting admin domain -- vault_dokploy_api_key not in vault yet.
-          After creating your admin account at http://{{ ansible_host }}:{{ dokploy_port }},
-          generate an API key (Settings -> Profile), add it to the vault as
-          vault_dokploy_api_key, and re-run the installer (or:
-          ansible-playbook playbooks/site.yml --limit {{ inventory_hostname }}).
-      when: vault_dokploy_api_key is not defined or (vault_dokploy_api_key | length) < 10
-      tags: [post_admin_domain]
-
     # Reconcile the declarative public-port registry. Runs AFTER every role
     # has dropped its /etc/catena/public-ports.d/ fragment + deployed its
     # containers (vps.expose.* labels), so the merged effective set is
@@ -192,6 +236,203 @@
         state: started
       changed_when: false
       tags: [public_ports]
+
+    # Post-restore seam. A filesystem restore brings back Portainer's own
+    # database and every data volume, but the applications stay down (image
+    # layers are deliberately not in the backup) and a per-app database may not
+    # survive its compose recreate. Finishing that is day-2 work, which this
+    # repo does not own: the converge only provides the moment.
+    #
+    # So this runs whatever is installed in the hook directory and knows nothing
+    # about what that is. The management layer drops its own script there; a
+    # host with no hooks converges identically to one before this existed. That
+    # keeps the dependency pointing one way -- this repo sets the scene, and
+    # whatever manages the host afterwards subscribes to it.
+    #
+    # This is the same shape as /etc/catena/quiesce.d, whose hooks the on-host
+    # daily chain runs without this repo knowing their contents.
+    #
+    # Marker-gated, and the marker is the safety property: it is dropped by
+    # roles/backup/tasks/restore.yml and cleared by whichever hook completes the
+    # recovery, so an ordinary converge runs nothing and an interrupted recovery
+    # is retried by the next one.
+    #
+    # End of the converge on purpose: the hooks need the control plane the roles
+    # above just brought up. A trigger that fired when the marker APPEARED
+    # (a systemd path unit) would run before docker exists on the DR path.
+    - name: "Post-restore: detect a pending recovery"
+      ansible.builtin.stat:
+        path: "{{ backup_stats_dir }}/post-restore.needed"
+      register: _site_post_restore_marker
+      tags: [post_restore]
+
+    - name: "Post-restore: run the installed hooks"
+      ansible.builtin.shell: |
+        set -u
+        ran=0
+        failed=0
+        for hook in {{ catena_post_restore_hook_dir }}/*.sh; do
+            [ -f "$hook" ] || continue
+            ran=$((ran + 1))
+            echo "== $hook"
+            if ! /bin/sh "$hook" 2>&1; then
+                echo "== $hook exited non-zero"
+                failed=$((failed + 1))
+            fi
+        done
+        echo "HOOKS_RAN=$ran HOOKS_FAILED=$failed"
+        # This task only runs when a recovery is PENDING. Zero hooks then is not
+        # an empty directory being tolerated, it is a host that restored its data
+        # and has nothing installed that knows how to finish: applications stay
+        # down (image layers are not in the backup), databases stay unreplayed,
+        # and the marker stays. Reporting that as a green converge is how a
+        # half-finished recovery gets mistaken for a complete one.
+        if [ "$ran" -eq 0 ]; then
+            echo "A recovery is pending but {{ catena_post_restore_hook_dir }}" >&2
+            echo "holds no hook, so nothing brought the applications back up or" >&2
+            echo "replayed their databases. The host payload installs one; if it" >&2
+            echo "is absent, the catena-admin payload install did not run." >&2
+            echo "Re-run the converge, or install a hook, then re-run: the marker" >&2
+            echo "survives so the work is retried rather than skipped." >&2
+            exit 1
+        fi
+        [ "$failed" -eq 0 ]
+      args:
+        executable: /bin/bash
+      # The facts about the scene a hook cannot discover for itself. Passing
+      # them is the seam's whole contract: this repo says WHERE things are,
+      # the hook decides what to do about them. A hook that guessed /mnt/data
+      # would silently do nothing on a host with a different storage mount.
+      environment:
+        STORAGE_MOUNT_POINT: "{{ storage_mount_point }}"
+        CATENA_POST_RESTORE_MARKER: "{{ backup_stats_dir }}/post-restore.needed"
+      register: _site_post_restore
+      changed_when: "'HOOKS_RAN=0' not in (_site_post_restore.stdout | default(''))"
+      when: _site_post_restore_marker.stat.exists | bool
+      tags: [post_restore]
+
+    # Surfaced unconditionally, not only on failure: a recovery that half-worked
+    # is when someone needs the detail most, and ansible would otherwise swallow
+    # it behind a green task. A hook that failed already failed the task above,
+    # which is right -- a converge that left a recovery unfinished is not a
+    # successful converge, and the marker survives for the retry.
+    - name: "Post-restore: hook output"
+      ansible.builtin.debug:
+        var: _site_post_restore.stdout_lines
+      when: _site_post_restore is not skipped
+      tags: [post_restore]
+
+    # Consumer-gated companions, re-run now that the applications are back.
+    #
+    # The hooks above are what restart the client applications, and they run
+    # after every role has already had its turn. So roles/coturn probed for a
+    # running Talk HPB or Jitsi JVB while the apps were still down, found
+    # none, and correctly skipped -- and then the recovery brought a Talk HPB
+    # up behind it. The converge therefore ENDED with a real-time app running
+    # and no TURN relay: calls fall back to peer-to-peer and quietly fail on
+    # restrictive networks, and the validate that follows demands the relay
+    # this same converge declined to deploy (bench 51ad, backup_rollback
+    # stage-3).
+    #
+    # Re-running the gate here closes that inside the converge that opened it,
+    # rather than leaving the host wrong until someone converges again. The
+    # role is idempotent and its own gate still decides: on a host with no
+    # real-time app this re-run skips exactly as the first pass did.
+    #
+    # Only coturn for now. clamav is the other presence-gated companion and
+    # has the same shape, but its gate reads a deployed mailserver rather than
+    # a running container, and nothing has been observed failing on it.
+    # `is defined` is not belt-and-braces: this task carries the `coturn` tag
+    # so a coturn-scoped converge can reach it, while the hook above carries
+    # only `post_restore`. A `--tags infrastructure,coturn` run therefore
+    # SELECTS this task and FILTERS OUT the one that registers the variable it
+    # reads, and `is not skipped` on an undefined name raises rather than
+    # evaluating false. `apply:` carries both tags for the same reason: with
+    # only `coturn` there, a `--tags post_restore` run would fire the include
+    # and then filter out every task inside it.
+    # ...but the hooks return when the stacks are DEPLOYED, not when their
+    # containers are up, and the companion gate reads `status=running`. So the
+    # re-run above still probed too early and skipped again: bench
+    # 2026-08-03T21-33-27-7a33 ended the converge with no relay and validate
+    # then found nextcloud-talk-hpb-1 "Up 51 seconds" -- it had come up in the
+    # gap between the two. The re-run fixed the ordering and left the race.
+    #
+    # So wait for a consumer the recovery just brought back to actually reach
+    # running, but only when one EXISTS to wait for. `docker ps -a` answers
+    # that: a host with no real-time app has no such container in any state, and
+    # pays nothing. A host that has one waits up to 90s for it rather than
+    # deciding against a container that is still starting.
+    #
+    # This cannot use the running-only probe to decide whether to wait -- that
+    # is the question being waited on. And it stays a WAIT rather than a
+    # relaxation of the gate: a crash-looping HPB never reaches `running`, so it
+    # still reads as no consumer, which is what `status=running` is there for.
+    - name: "Post-restore: is a TURN consumer deployed at all (any state)?"
+      ansible.builtin.shell: |
+        docker ps -a --filter 'label=com.docker.compose.service=talk-hpb' --format '{{ "{{" }}.Names{{ "}}" }}'
+        docker ps -a --filter 'label=com.docker.compose.service=jvb' --format '{{ "{{" }}.Names{{ "}}" }}'
+      args:
+        executable: /bin/bash
+      register: _site_turn_any
+      changed_when: false
+      when:
+        - _site_post_restore is defined
+        - _site_post_restore is not skipped
+      tags: [post_restore, coturn]
+
+    - name: "Post-restore: wait for the redeployed TURN consumer to reach running"
+      ansible.builtin.shell: |
+        docker ps --filter 'label=com.docker.compose.service=talk-hpb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
+        docker ps --filter 'label=com.docker.compose.service=jvb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
+      args:
+        executable: /bin/bash
+      register: _site_turn_running
+      changed_when: false
+      retries: 18
+      delay: 5
+      until: (_site_turn_running.stdout | default('') | trim | length) > 0
+      # Exhausting the window is not a converge failure. The consumer may be
+      # genuinely broken, and that is roles/coturn's gate to report by skipping
+      # -- not this task's to turn into a red converge.
+      failed_when: false
+      when:
+        - _site_turn_any is defined
+        - _site_turn_any is not skipped
+        - (_site_turn_any.stdout | default('') | trim | length) > 0
+      tags: [post_restore, coturn]
+
+    - name: "Post-restore: re-run the consumer-gated companions"
+      ansible.builtin.include_role:
+        name: coturn
+        apply:
+          tags: [post_restore, coturn]
+      when:
+        - _site_post_restore is defined
+        - _site_post_restore is not skipped
+      tags: [post_restore, coturn]
+
+    # Render the control plane and the app companions as compose files and
+    # prove they load. Applies nothing: the services were already created and
+    # reconciled by the catena-tier1 engine, role by role, as each contributed
+    # its spec. This is the oracle -- `docker stack config` type-checking the
+    # same dicts against the docker actually installed.
+    #
+    # In post_tasks rather than the roles list, and AFTER the coturn re-run
+    # above, because that re-run is what deploys coturn on the recovery path:
+    # the post-restore hooks bring the TURN consumer up after roles/coturn
+    # already probed and correctly found none. Rendering from the roles list
+    # would write a coturn-less companion file on exactly the path where one is
+    # needed.
+    #
+    # `apply:` carries the tag inward for the same reason the includes above
+    # do: without it, `--tags tier1_stack` fires the include and then filters
+    # out every task inside it.
+    - name: "Tier 1: render + validate the swarm-service oracle files"
+      ansible.builtin.include_role:
+        name: tier1_stack
+        apply:
+          tags: [tier1_stack]
+      tags: [tier1_stack]
 
     # Final lockdown. Must come AFTER tailscale + infrastructure are healthy,
     # otherwise we lock ourselves out.

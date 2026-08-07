@@ -1,4 +1,4 @@
-"""Unit tests for the `catena` CLI wrapper: command wiring + key bridging."""
+"""Unit tests for the `catena` CLI wrapper: command wiring."""
 from __future__ import annotations
 
 import importlib.util
@@ -60,9 +60,7 @@ def test_recover_runs_full_chain_with_snapshot(cli, monkeypatch):
     monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
     monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
     monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
-    monkeypatch.setattr(cli, "_ensure_dokploy_api_key", lambda inv: False)
     monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
 
     ns = cli.build_parser().parse_args(
@@ -76,6 +74,63 @@ def test_recover_runs_full_chain_with_snapshot(cli, monkeypatch):
     ]
     restore_cmd = next(c for c in pb_calls if _stage_of(c) == "restore")
     assert "restore_snapshot=snap42" in " ".join(restore_cmd)
+
+
+# ---- transient secret threading (0b: no persisted laptop vault) ----
+
+def test_run_deploy_chain_threads_global_extra_on_every_stage(cli, monkeypatch, tmp_path):
+    """The transient adopt file (`-e @file`) rides EVERY stage so the on-box
+    loader adopts the vendor creds / DR keyset; bootstrap also carries its own
+    creds."""
+    from helpers import bootstrap_output
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
+    cli._run_deploy_chain(
+        tmp_path, ("preflight", "bootstrap", "site"),
+        bootstrap_extra=["-e", "@boot"], global_extra=["-e", "@secrets"],
+    )
+    pb = [c for c in calls if c and c[0] == "ansible-playbook"]
+    assert pb
+    for c in pb:
+        assert "@secrets" in " ".join(c), _stage_of(c)
+    boot = next(c for c in pb if _stage_of(c) == "bootstrap")
+    assert "@boot" in " ".join(boot)
+
+
+def test_collect_dr_adopt_file_from_install_yaml(cli, tmp_path):
+    """Recover reads the DR keyset from --input, writes a 0600 temp adopt file
+    with the vault_* creds + the restic repo, referenced as `-e @file`."""
+    import yaml
+
+    iy = tmp_path / "install.yaml"
+    iy.write_text(
+        "backup_restic_password: rp\n"
+        "backup_s3_access_key: ak\n"
+        "backup_s3_secret_key: sk\n"
+        "cloudflare_api_token: cf\n"
+        "tailscale_oauth_client_id: tid\n"
+        "tailscale_oauth_client_secret: tsec\n"
+        "BACKUP_RESTIC_REPO: s3:ep/bucket\n"
+    )
+    extra, tmp = cli._collect_dr_adopt_file(str(iy))
+    try:
+        assert extra[0] == "-e" and extra[1].startswith("@")
+        data = yaml.safe_load(tmp.read_text())
+        assert data["backup_restic_password"] == "rp"
+        assert data["backup_s3_access_key"] == "ak"
+        assert data["backup_restic_repo"] == "s3:ep/bucket"
+        assert (tmp.stat().st_mode & 0o777) == 0o600
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def test_collect_dr_adopt_file_empty_without_input_or_tty(cli, monkeypatch):
+    """No --input and no TTY (the bench) -> nothing collected, no temp file."""
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: False)
+    extra, tmp = cli._collect_dr_adopt_file(None)
+    assert extra == [] and tmp is None
 
 
 def test_rollback_chain_order(cli):
@@ -101,9 +156,7 @@ def test_rollback_runs_chain_with_snapshot_no_bootstrap(cli, monkeypatch):
     monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
     monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
     monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
-    monkeypatch.setattr(cli, "_ensure_dokploy_api_key", lambda inv: False)
     monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
 
     ns = cli.build_parser().parse_args(
@@ -119,29 +172,25 @@ def test_rollback_runs_chain_with_snapshot_no_bootstrap(cli, monkeypatch):
     assert "restore_snapshot=snap7" in " ".join(restore_cmd)
 
 
-def test_recover_second_site_pass_when_vault_lacks_key(cli, monkeypatch):
-    """If the reused vault somehow lacks the Dokploy key (key was rotated out
-    / fresh repo), recover still mints + runs the second site pass -- same
-    bridge as install."""
+def test_recover_runs_single_site_pass(cli, monkeypatch):
+    """Post-Portainer-migration there is no CLI-driven second site pass: the
+    Portainer API key the auth stack needs is minted in-band by
+    roles/portainer during `site`, so the chain runs `site` exactly once."""
     from helpers import bootstrap_output
 
     calls: list[list[str]] = []
     monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
     monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
     monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
-    # First site pass -> key minted -> second pass requested.
-    monkeypatch.setattr(cli, "_ensure_dokploy_api_key", lambda inv: True)
     monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
 
     ns = cli.build_parser().parse_args(["recover", "--inventory", "test"])
     assert ns.func(ns) == 0
 
     stages = [_stage_of(c) for c in calls if c and c[0] == "ansible-playbook"]
-    assert stages == [
-        "preflight", "bootstrap", "restore", "site", "site", "validate",
-    ]
+    assert stages == ["preflight", "bootstrap", "restore", "site", "validate"]
+    assert stages.count("site") == 1
 
 
 def test_playbook_cmd_shape(cli):
@@ -194,7 +243,6 @@ def test_backup_runs_backup_now_playbook(cli, monkeypatch):
     monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
     monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
     monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
     ns = cli.build_parser().parse_args(["backup", "--inventory", "test"])
     assert ns.func(ns) == 0
@@ -222,44 +270,84 @@ def test_snapshot_extra_is_none_when_unset(cli):
 
 def test_check_prereqs_reports_missing(cli, monkeypatch):
     monkeypatch.setattr(cli.shutil, "which", lambda name: None)
-    missing = cli.check_prereqs(("ansible-playbook", "sops"))
-    assert set(missing) == {"ansible-playbook", "sops"}
+    missing = cli.check_prereqs(("ansible-playbook", "ansible"))
+    assert set(missing) == {"ansible-playbook", "ansible"}
 
 
 def test_check_prereqs_all_present(cli, monkeypatch):
     monkeypatch.setattr(cli.shutil, "which", lambda name: "/usr/bin/" + name)
-    assert cli.check_prereqs(("sops",)) == []
+    assert cli.check_prereqs(("ansible",)) == []
 
 
-def test_ensure_age_key_env_loads_from_file(cli, tmp_path, monkeypatch):
-    monkeypatch.delenv("SOPS_AGE_KEY", raising=False)
-    key_file = tmp_path / "keys.txt"
-    secret = "AGE-SECRET-KEY-1LOADEDFROMFILE000000000000000000000000000000000000"
-    key_file.write_text(f"# public key: age1x\n{secret}\n")
-    cli.ensure_age_key_env(key_file=key_file)
-    import os
-    assert os.environ.get("SOPS_AGE_KEY") == secret
+def test_required_binaries_drop_sops_and_age(cli):
+    """SOPS+age was dropped (0b): the vault is plaintext, so neither sops nor
+    age-keygen is a prereq, and there is no seed-only binary set anymore."""
+    assert cli.REQUIRED_BINARIES == ("ansible-playbook", "ansible")
+    assert "sops" not in cli.REQUIRED_BINARIES
+    assert "age-keygen" not in cli.REQUIRED_BINARIES
+    assert not hasattr(cli, "_SEED_BINARIES")
+    assert not hasattr(cli, "ensure_age_key_env")
 
 
-def test_ensure_age_key_env_keeps_existing(cli, tmp_path, monkeypatch):
-    monkeypatch.setenv("SOPS_AGE_KEY", "AGE-SECRET-KEY-1ALREADYSET00000000000000000000000000000000000000")
-    key_file = tmp_path / "keys.txt"
-    key_file.write_text("AGE-SECRET-KEY-1OTHER0000000000000000000000000000000000000000000\n")
-    cli.ensure_age_key_env(key_file=key_file)
-    import os
-    assert os.environ["SOPS_AGE_KEY"].endswith("ALREADYSET00000000000000000000000000000000000000")
+def test_preflight_passes_with_core_binaries(cli, monkeypatch):
+    """Every command runs against a plaintext inventory; only ansible is
+    required."""
+    present = set(cli.REQUIRED_BINARIES)
+    monkeypatch.setattr(
+        cli.shutil, "which",
+        lambda name: ("/usr/bin/" + name) if name in present else None,
+    )
+    cli._preflight_checks()  # must NOT raise
 
 
-def test_ensure_age_key_env_noop_when_no_file(cli, tmp_path, monkeypatch):
-    monkeypatch.delenv("SOPS_AGE_KEY", raising=False)
-    cli.ensure_age_key_env(key_file=tmp_path / "absent.txt")
-    import os
-    assert not os.environ.get("SOPS_AGE_KEY")
+def test_ensure_collections_uses_writable_override_path(cli, monkeypatch, tmp_path):
+    """On a read-only checkout, ANSIBLE_COLLECTIONS_PATH redirects the galaxy
+    install to a writable dir (ansible reads the same var), so the CLI can run
+    without writing into the :ro checkout's collections/ dir."""
+    target = tmp_path / "colls"  # absent -> triggers install
+    monkeypatch.setenv("ANSIBLE_COLLECTIONS_PATH", str(target))
+    calls: list[list[str]] = []
+    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
+    cli.ensure_collections()
+    assert len(calls) == 1, calls
+    cmd = calls[0]
+    assert cmd[:3] == ["ansible-galaxy", "collection", "install"]
+    assert cmd[cmd.index("-p") + 1] == str(target)
 
 
-def test_required_binaries_cover_vault_and_ansible(cli):
-    for b in ("ansible-playbook", "sops", "age-keygen"):
-        assert b in cli.REQUIRED_BINARIES
+def test_collections_dir_matches_ansible_cfg(cli):
+    """The in-tree galaxy install target is READ from ansible.cfg, never
+    duplicated. A hardcoded copy drifted once (install to collections/, ansible
+    reading .collections/) and the converge silently used whatever collections
+    the controller had."""
+    import configparser
+
+    cfg = configparser.ConfigParser()
+    cfg.read(cli.ANSIBLE_DIR / "ansible.cfg")
+    assert cli.COLLECTIONS_DIR == cfg.get("defaults", "collections_path")
+
+
+def test_ensure_collections_installs_where_ansible_reads(cli, monkeypatch, tmp_path):
+    """With no override, the install target is ANSIBLE_DIR/<collections_path>."""
+    monkeypatch.delenv("ANSIBLE_COLLECTIONS_PATH", raising=False)
+    monkeypatch.setattr(cli, "ANSIBLE_DIR", tmp_path)
+    (tmp_path / "requirements.yml").write_text("collections: []\n")
+    calls: list[list[str]] = []
+    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
+    cli.ensure_collections()
+    assert len(calls) == 1, calls
+    cmd = calls[0]
+    assert cmd[cmd.index("-p") + 1] == str(tmp_path / cli.COLLECTIONS_DIR)
+
+
+def test_ensure_collections_skips_when_override_dir_exists(cli, monkeypatch, tmp_path):
+    existing = tmp_path / "colls"
+    existing.mkdir()
+    monkeypatch.setenv("ANSIBLE_COLLECTIONS_PATH", str(existing))
+    calls: list[list[str]] = []
+    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
+    cli.ensure_collections()
+    assert calls == []
 
 
 def test_bootstrap_extra_vars_writes_secret_to_file_not_argv(cli, tmp_path):
@@ -291,74 +379,6 @@ def test_bootstrap_extra_vars_noop_without_install_yaml(cli):
     extra, tmp = cli._bootstrap_extra_vars(None)
     assert extra == []
     assert tmp is None
-
-
-def _seed_hosts_yml(inv_dir: Path, ansible_host: str) -> None:
-    import yaml
-
-    inv_dir.mkdir(parents=True, exist_ok=True)
-    (inv_dir / "hosts.yml").write_text(
-        yaml.safe_dump(
-            {"all": {"children": {"vps": {"hosts": {
-                "host1": {"ansible_host": ansible_host, "ansible_user": "ops"},
-            }}}}},
-            sort_keys=False,
-        )
-    )
-
-
-def test_host_tailnet_ip_reads_vps_host(cli, tmp_path, monkeypatch):
-    inv = tmp_path / "inventory" / "prod"
-    _seed_hosts_yml(inv, "100.77.16.46")
-    monkeypatch.setattr(cli, "inventory_path", lambda name: tmp_path / "inventory" / name)
-    assert cli._host_tailnet_ip("prod") == "100.77.16.46"
-
-
-def test_host_tailnet_ip_skips_placeholder(cli, tmp_path, monkeypatch):
-    inv = tmp_path / "inventory" / "prod"
-    _seed_hosts_yml(inv, "0.0.0.0")
-    monkeypatch.setattr(cli, "inventory_path", lambda name: tmp_path / "inventory" / name)
-    assert cli._host_tailnet_ip("prod") == ""
-
-
-def test_host_tailnet_ip_missing_file(cli, tmp_path, monkeypatch):
-    monkeypatch.setattr(cli, "inventory_path", lambda name: tmp_path / "inventory" / name)
-    assert cli._host_tailnet_ip("prod") == ""
-
-
-def test_ensure_dokploy_api_key_skips_when_present(cli, tmp_path, monkeypatch):
-    from helpers import sops_vault
-
-    inv = tmp_path / "inventory" / "prod"
-    (inv / "group_vars" / "all").mkdir(parents=True)
-    (inv / "group_vars" / "all" / "vault.sops.yml").write_text("encrypted")
-    monkeypatch.setattr(cli, "inventory_path", lambda name: tmp_path / "inventory" / name)
-    monkeypatch.setattr(sops_vault, "read_value", lambda *a, **k: "a-real-dokploy-api-key")
-    # No second pass needed; must NOT shell out to the bootstrap helper.
-    called = []
-    monkeypatch.setattr(cli, "_run", lambda cmd: called.append(cmd))
-    assert cli._ensure_dokploy_api_key("prod") is False
-    assert called == []
-
-
-def test_ensure_dokploy_api_key_mints_when_absent(cli, tmp_path, monkeypatch):
-    from helpers import sops_vault
-
-    inv = tmp_path / "inventory" / "prod"
-    (inv / "group_vars" / "all").mkdir(parents=True)
-    (inv / "group_vars" / "all" / "vault.sops.yml").write_text("encrypted")
-    _seed_hosts_yml(inv, "100.77.16.46")
-    monkeypatch.setattr(cli, "inventory_path", lambda name: tmp_path / "inventory" / name)
-    monkeypatch.setattr(sops_vault, "read_value", lambda *a, **k: "")
-    called = []
-    monkeypatch.setattr(cli, "_run", lambda cmd: called.append(cmd))
-    assert cli._ensure_dokploy_api_key("prod") is True
-    assert len(called) == 1
-    cmd = called[0]
-    assert cmd[1].endswith("helpers/bootstrap_dokploy_admin.py")
-    assert "--tailnet-ip" in cmd
-    assert cmd[cmd.index("--tailnet-ip") + 1] == "100.77.16.46"
-    assert cmd[cmd.index("--vault") + 1].endswith("vault.sops.yml")
 
 
 def test_rotate_tunnel_parser_wires_token(cli):
@@ -405,7 +425,6 @@ def test_rotate_tunnel_runs_playbook_with_token_file(cli, monkeypatch):
     monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
     monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
     monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
 
     ns = cli.build_parser().parse_args(
@@ -425,7 +444,6 @@ def test_rotate_tunnel_reads_token_from_env(cli, monkeypatch):
     monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
     monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
     monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
     monkeypatch.setenv("CATENA_CF_API_TOKEN", "env-token")
 
@@ -438,7 +456,6 @@ def test_rotate_tunnel_reads_token_from_env(cli, monkeypatch):
 def test_rotate_tunnel_dies_without_token(cli, monkeypatch):
     monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
     monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
     monkeypatch.delenv("CATENA_CF_API_TOKEN", raising=False)
     monkeypatch.setattr(cli.getpass, "getpass", lambda *a, **k: "")
@@ -453,7 +470,6 @@ def test_rotate_tailscale_runs_playbook(cli, monkeypatch):
     monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
     monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
     monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_age_key_env", lambda *a, **k: None)
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
 
     ns = cli.build_parser().parse_args(["rotate-tailscale", "--inventory", "test"])
@@ -462,14 +478,131 @@ def test_rotate_tailscale_runs_playbook(cli, monkeypatch):
     assert _stage_of(calls[0]) == "rotate-tailscale"
 
 
-def test_ensure_dokploy_api_key_dies_without_tailnet_ip(cli, tmp_path, monkeypatch):
-    from helpers import sops_vault
+# ---- --inventory-path: drive an inventory OUTSIDE the checkout ----
+# (an operator pointing the CLI at an ops-side inventory from Semaphore).
 
-    inv = tmp_path / "inventory" / "prod"
-    (inv / "group_vars" / "all").mkdir(parents=True)
-    (inv / "group_vars" / "all" / "vault.sops.yml").write_text("encrypted")
-    _seed_hosts_yml(inv, "0.0.0.0")  # placeholder -> no usable tailnet IP
-    monkeypatch.setattr(cli, "inventory_path", lambda name: tmp_path / "inventory" / name)
-    monkeypatch.setattr(sops_vault, "read_value", lambda *a, **k: "")
+def test_resolve_inventory_name_resolves_under_checkout(cli):
+    ns = cli.build_parser().parse_args(["converge", "--inventory", "prod"])
+    inv = cli.resolve_inventory(ns)
+    assert inv == cli.inventory_path("prod")
+    assert str(inv).endswith("inventory/prod")
+
+
+def test_resolve_inventory_path_is_used_verbatim(cli, tmp_path):
+    ext = tmp_path / "ops" / "inventory" / "clientA"
+    ns = cli.build_parser().parse_args(["converge", "--inventory-path", str(ext)])
+    assert cli.resolve_inventory(ns) == ext
+
+
+def test_playbook_cmd_accepts_a_path_directly(cli, tmp_path):
+    from pathlib import Path
+
+    ext = Path(tmp_path) / "clientA"
+    cmd = cli.playbook_cmd(ext, "site")
+    assert cmd[cmd.index("-i") + 1] == str(ext)
+    assert cmd[-1].endswith("playbooks/site.yml")
+
+
+def test_inventory_path_threads_to_ansible_playbook_i_flag(cli, monkeypatch, tmp_path):
+    """A --inventory-path run passes that exact dir to `ansible-playbook -i` on
+    every stage -- so the operator's ops-side inventory is what ansible reads."""
+    from helpers import bootstrap_output
+
+    ext = tmp_path / "ops-inv" / "clientA"
+    calls: list[list[str]] = []
+    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
+    monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
+    monkeypatch.setattr(cli, "ensure_collections", lambda: None)
+    monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
+
+    ns = cli.build_parser().parse_args(["rollback", "--inventory-path", str(ext)])
+    assert ns.func(ns) == 0
+    pb_calls = [c for c in calls if c and c[0] == "ansible-playbook"]
+    assert pb_calls
+    for c in pb_calls:
+        assert c[c.index("-i") + 1] == str(ext)
+
+
+def test_inventory_and_path_are_mutually_exclusive(cli):
     with pytest.raises(SystemExit):
-        cli._ensure_dokploy_api_key("prod")
+        cli.build_parser().parse_args(
+            ["converge", "--inventory", "prod", "--inventory-path", "/tmp/x"]
+        )
+
+
+def test_inventory_required_for_non_install_commands(cli):
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["converge"])
+
+
+def test_install_accepts_inventory_path_and_skips_the_name(cli):
+    ns = cli.build_parser().parse_args(["install", "--inventory-path", "/tmp/x"])
+    assert ns.func is cli.cmd_install
+    assert ns.inventory_path == "/tmp/x"
+    assert ns.inventory is None
+
+
+# ---- no-argument menu + `--install` alias ----
+
+def test_bare_invocation_is_not_an_error(cli):
+    """Subparsers are not required: bare `catena` parses to command=None (the
+    dispatcher then drops into the interactive menu) instead of erroring."""
+    ns = cli.build_parser().parse_args([])
+    assert ns.command is None
+
+
+def test_install_flag_is_alias_for_install_subcommand(cli, monkeypatch):
+    """`catena --install [flags]` dispatches to cmd_install, same as
+    `catena install [flags]`."""
+    seen = {}
+    monkeypatch.setattr(cli.os, "chdir", lambda p: None)
+    monkeypatch.setattr(cli, "cmd_install", lambda ns: (seen.update(ns=ns), 0)[1])
+    assert cli.main(["--install", "--inventory", "prod"]) == 0
+    assert seen["ns"].func is cli.cmd_install
+    assert seen["ns"].inventory == "prod"
+
+
+def test_interactive_menu_install_returns_bare_install(cli, monkeypatch):
+    monkeypatch.setattr("builtins.input", lambda *a: "1")
+    assert cli.interactive_menu() == ["install"]
+
+
+def test_interactive_menu_other_command_prompts_inventory(cli, monkeypatch):
+    answers = iter(["2", "dev"])  # 2 == converge, then inventory name
+    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+    assert cli.interactive_menu() == ["converge", "--inventory", "dev"]
+
+
+def test_interactive_menu_inventory_defaults_to_prod(cli, monkeypatch):
+    answers = iter(["3", ""])  # 3 == validate, blank inventory -> prod
+    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+    assert cli.interactive_menu() == ["validate", "--inventory", "prod"]
+
+
+def test_interactive_menu_rejects_bad_choice(cli, monkeypatch):
+    monkeypatch.setattr("builtins.input", lambda *a: "99")
+    with pytest.raises(SystemExit):
+        cli.interactive_menu()
+
+
+def test_main_runs_menu_when_no_args_and_tty(cli, monkeypatch):
+    """Bare `catena` on a TTY drives interactive_menu() and dispatches the
+    chosen command."""
+    seen = {}
+    monkeypatch.setattr(cli.os, "chdir", lambda p: None)
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli, "interactive_menu", lambda: ["validate", "--inventory", "dev"])
+    monkeypatch.setattr(cli, "cmd_validate", lambda ns: (seen.update(ns=ns), 0)[1])
+    assert cli.main([]) == 0
+    assert seen["ns"].func is cli.cmd_validate
+    assert seen["ns"].inventory == "dev"
+
+
+def test_main_no_args_without_tty_dies(cli, monkeypatch):
+    """No subcommand and no TTY (e.g. the bench's DEVNULL stdin) is an error,
+    never a hung input() prompt."""
+    monkeypatch.setattr(cli.os, "chdir", lambda p: None)
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: False)
+    with pytest.raises(SystemExit):
+        cli.main([])

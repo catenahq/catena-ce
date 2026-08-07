@@ -3,7 +3,7 @@
 # DocumentServer as the office editor inside a deployed Nextcloud
 # instance. Backs the "Wire Nextcloud OnlyOffice" catena-admin action.
 # Operator runs it once after deploying the `onlyoffice`
-# template via Dokploy.
+# template from the app catalog.
 #
 # Idempotent: re-clicking after a redeploy or JWT rotation converges
 # to the same state. occ app:install no-ops when present;
@@ -19,13 +19,13 @@
 #
 # Probe-before-mutate: refuses to run if office.<base> is currently
 # serving the OTHER editor (operator forgot to swap templates in
-# Dokploy). Tells the operator how to fix it and exits non-zero
+# Portainer). Tells the operator how to fix it and exits non-zero
 # without changing state.
 #
 # JWT secret: read from the running documentserver container's env, so
 # the secret never travels through host argv or files. The catalog
 # mints JWT_SECRET via lookup('password', ...) at deploy time and
-# Dokploy injects it into the container env -- this script just reads
+# The stack env injects it into the container -- this script just reads
 # it back at wire time.
 
 set -euo pipefail
@@ -45,7 +45,7 @@ ct=$(docker ps \
 if [ -z "$ct" ]; then
     echo "Nextcloud is not running on this host."
     echo
-    echo "Deploy first: Dokploy UI > Templates > nextcloud-s3 > Deploy."
+    echo "Deploy first: Portainer > App Templates > nextcloud-s3 > Deploy."
     echo "Wait for the container to come up, then click this button again."
     exit 1
 fi
@@ -60,7 +60,7 @@ get_env() {
 NC_HOSTNAME=$(get_env "$ct" NEXTCLOUD_HOSTNAME)
 if [ -z "$NC_HOSTNAME" ]; then
     echo "error: NEXTCLOUD_HOSTNAME is not set in the Nextcloud container env." >&2
-    echo "       Check the Dokploy compose environment for nextcloud-s3." >&2
+    echo "       Check the stack environment for nextcloud-s3 in Portainer." >&2
     exit 2
 fi
 
@@ -71,7 +71,7 @@ fi
 OFFICE_URL="https://office.$BASE"
 
 # --- 3. Probe office.<base> to detect which editor is deployed ----------
-# Internal aliases on dokploy-network:
+# Internal aliases on catena-network:
 #   - OnlyOffice: documentserver:80  /healthcheck       -> "true"
 #   - Collabora:  collabora:9980     /hosting/discovery -> XML <wopi-discovery>
 exec_in_nc() {
@@ -93,8 +93,8 @@ if is_collabora_alive && ! is_onlyoffice_alive; then
 error: this button wires OnlyOffice, but office.$BASE is serving Collabora.
 
 To switch:
-  1. Dokploy UI > Templates > collabora  > Stop
-  2. Dokploy UI > Templates > onlyoffice > Deploy
+  1. Portainer > App Templates > collabora  > Stop
+  2. Portainer > App Templates > onlyoffice > Deploy
   3. Re-click "Wire Nextcloud OnlyOffice" here.
 
 Nextcloud-side state was NOT changed. Safe to dismiss + retry once
@@ -105,9 +105,9 @@ fi
 
 if ! is_onlyoffice_alive; then
     cat >&2 <<EOF
-error: OnlyOffice is not reachable on the dokploy-network alias documentserver:80.
+error: OnlyOffice is not reachable on the catena-network alias documentserver:80.
 
-Check: Dokploy UI > Templates > onlyoffice > Logs.
+Check: Portainer > App Templates > onlyoffice > Logs.
        The container should answer GET /healthcheck with the literal "true".
        Wait ~1 min after Deploy for the document server to boot, then retry.
 EOF
@@ -117,14 +117,14 @@ fi
 if is_collabora_alive; then
     echo "warning: BOTH OnlyOffice and Collabora are running. Traefik may"
     echo "         pick either route for office.$BASE. Stop Collabora in"
-    echo "         Dokploy to avoid the conflict. Continuing with OnlyOffice..."
+    echo "         Portainer to avoid the conflict. Continuing with OnlyOffice..."
 fi
 
 echo "Detected: OnlyOffice at $OFFICE_URL (internal alias documentserver:80)"
 
 # --- 4. Read JWT_SECRET from the running documentserver container -------
 # The catalog mints JWT_SECRET via lookup('password', ...) at deploy
-# time; Dokploy injects it into the container env. Read it back here
+# time; The stack env injects it into the container. Read it back here
 # so the script stays stateless (no vault dependency, no host file).
 ds=$(docker ps \
     --filter 'name=onlyoffice-' \
@@ -133,14 +133,14 @@ ds=$(docker ps \
 
 if [ -z "$ds" ]; then
     echo "error: documentserver container not found despite the healthcheck probe passing." >&2
-    echo "       Check Dokploy UI > Templates > onlyoffice > status." >&2
+    echo "       Check Portainer > App Templates > onlyoffice > status." >&2
     exit 5
 fi
 
 JWT_SECRET=$(get_env "$ds" JWT_SECRET)
 if [ -z "$JWT_SECRET" ]; then
     echo "error: JWT_SECRET is not set in the documentserver container env." >&2
-    echo "       Open Dokploy UI > Templates > onlyoffice > Edit > Environment" >&2
+    echo "       Open Portainer > App Templates > onlyoffice > Edit > Environment" >&2
     echo "       and confirm JWT_SECRET is non-empty, then redeploy + retry." >&2
     exit 6
 fi

@@ -15,32 +15,60 @@
 #      (createNewSystemForUniversalToken) -- no "add system" UI click.
 #   4. Deploy the agent (network_mode: host) with KEY + TOKEN + HUB_URL.
 #
-# The whole file is gated by `when: beszel_enabled` on the include in
-# main.yml. Secrets are minted by operator-tools/migrate_inventory.py;
-# this role only ASSERTS them (healthchecks preflight pattern).
+# Always runs: the include in main.yml carries no gate at all (the
+# BESZEL_ENABLED off-switch was removed 2026-07-29, the access-mode gate with
+# ACCESS_MODE itself). Both secrets are INTERNAL_SECRETS minted on the box by
+# helpers/onbox_config.py; this role only ASSERTS them (healthchecks
+# preflight pattern).
 
-- name: "Beszel: preflight vault keys"
+- name: "Beszel: preflight secrets"
   ansible.builtin.assert:
     that:
-      - vault_beszel_admin_password is defined
-      - vault_beszel_admin_password | length > 0
-      - vault_beszel_universal_token is defined
-      - vault_beszel_universal_token | length > 0
-      - (vault_beszel_universal_token | length) <= 64
+      - beszel_admin_password is defined
+      - beszel_admin_password | length > 0
+      - beszel_universal_token is defined
+      - beszel_universal_token | length > 0
+      - (beszel_universal_token | length) <= 64
     fail_msg: >-
-      Missing or invalid Beszel vault keys -- looks like your vault was
-      minted before they were added. Run:
-        uv run operator-tools/migrate_inventory.py -i inventory/<name>/
-      to auto-mint vault_beszel_admin_password + vault_beszel_universal_token
+      Missing or invalid Beszel secrets. The converge mints them on the box
       (the universal token must be <= 64 chars; Beszel rejects longer
-      X-Token headers), then re-run ./catena site.
+      X-Token headers), so a gap here means the on-box store at
+      /etc/catena/config.json was not loaded or holds a truncated value.
 
-- name: "Beszel: deploy hub via Dokploy API"
-  ansible.builtin.include_tasks: dokploy_compose.yml
+# Host-mode publish (swarm cannot bind 127.0.0.1), so the hub port is a real
+# host bind. scope=loopback denies it everywhere but lo -- the only readers
+# are beszel-seed on the host and the host-network agent below.
+#
+# bind=docker because a swarm host-mode publish is DNAT'd and bypasses ufw
+# INPUT -- see the note in gatus.yml; the enforcing chain is DOCKER-USER.
+- name: "Beszel: declare the hub loopback port (registry fragment, loopback-only)"
+  ansible.builtin.copy:
+    dest: "{{ public_ports_fragment_dir }}/beszel.json"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {{
+        [
+          {"proto": "tcp", "port": beszel_hub_host_localhost_port | int,
+           "scope": "loopback", "bind": "docker", "owner": "beszel",
+           "comment": "Beszel hub API for the seed + the host-network agent -- this host only"}
+        ] | to_nice_json
+      }}
+  register: _beszel_ports_fragment
+
+- name: "Beszel: reconcile public ports now (fragment changed)"
+  ansible.builtin.systemd_service:
+    name: catena-public-ports.service
+    state: started
+  changed_when: false
+  when: _beszel_ports_fragment.changed
+
+- name: "Beszel: deploy hub as a swarm stack"
+  ansible.builtin.include_tasks: swarm_stack.yml
   vars:
     svc_name: "{{ beszel_hub_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'beszel-hub.compose.yml.j2') }}"
-    svc_env: []
     svc_domain_host: "{{ beszel_hostname }}"
     svc_domain_service: "app"
     svc_domain_port: "{{ beszel_hub_internal_port }}"
@@ -56,7 +84,7 @@
 - name: "Beszel: wait for hub container"
   ansible.builtin.shell: |
     set -o pipefail
-    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ beszel_hub_compose_name | dokploy_container_regex("app") }}' || true
+    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ beszel_hub_compose_name | swarm_container_regex("app") }}' || true
   args:
     executable: /bin/bash
   register: _beszel_hub_container
@@ -70,9 +98,9 @@
   ansible.builtin.fail:
     msg: >-
       Timed out (300s) waiting for a running container matching
-      '{{ beszel_hub_compose_name | dokploy_container_regex("app") }}'.
-      Check the Dokploy compose status for {{ beszel_hub_compose_name }}
-      at https://{{ dokploy_admin_hostname }}.
+      '{{ beszel_hub_compose_name | swarm_container_regex("app") }}'.
+      Check the Portainer stack status for {{ beszel_hub_compose_name }}
+      at http://{{ ansible_host }}:{{ portainer_ui_port | default(9000) }}.
   when: (_beszel_hub_container.stdout | default('') | trim) | length == 0
 
 # Read the hub-generated private key out of the container and derive the
@@ -80,13 +108,17 @@
 # removed immediately -- the key never lands on persistent host storage.
 # Retries because the key is written during the hub's first-boot
 # migration, a beat after the container is "running".
+#
+# `docker cp`, not `docker exec cat`: the hub image ships the binary and
+# nothing else, so there is no cat (nor any shell) to exec. cp is served
+# by the daemon and needs no in-container process.
 - name: "Beszel: derive hub public key for the agent"
   ansible.builtin.shell: |
     set -o pipefail
     umask 077
     tmp="$(mktemp)"
     trap 'rm -f "$tmp"' EXIT
-    docker exec -i {{ _beszel_hub_container.stdout | trim }} cat /beszel_data/id_ed25519 > "$tmp"
+    docker cp {{ _beszel_hub_container.stdout | trim }}:/beszel_data/id_ed25519 "$tmp"
     ssh-keygen -y -f "$tmp"
   args:
     executable: /bin/bash
@@ -97,7 +129,9 @@
   until:
     - _beszel_pubkey.rc == 0
     - (_beszel_pubkey.stdout | trim) is match('^ssh-ed25519 ')
-  no_log: true
+  # No no_log: the private key never reaches stdout (ssh-keygen -y prints
+  # only the public half, and the temp file dies with the shell). Hiding it
+  # cost a full 120s retry loop that reported nothing but "censored".
 
 - name: "Beszel: pin derived hub public key as a fact"
   ansible.builtin.set_fact:
@@ -121,8 +155,8 @@
   ansible.builtin.shell: >-
     BESZEL_HUB_URL=http://127.0.0.1:{{ beszel_hub_host_localhost_port }}
     BESZEL_ADMIN_EMAIL={{ admin_email | quote }}
-    BESZEL_ADMIN_PASSWORD={{ vault_beszel_admin_password | quote }}
-    BESZEL_UNIVERSAL_TOKEN={{ vault_beszel_universal_token | quote }}
+    BESZEL_ADMIN_PASSWORD={{ beszel_admin_password | quote }}
+    BESZEL_UNIVERSAL_TOKEN={{ beszel_universal_token | quote }}
     python3 /root/catena-beszel-seed.py
   register: _beszel_seed
   changed_when: "'minted' in _beszel_seed.stdout or 'updated' in _beszel_seed.stdout"
@@ -131,14 +165,13 @@
   until: _beszel_seed.rc == 0
   no_log: true
 
-- name: "Beszel: deploy agent via Dokploy API"
-  ansible.builtin.include_tasks: dokploy_compose.yml
+- name: "Beszel: deploy agent as a swarm stack"
+  ansible.builtin.include_tasks: swarm_stack.yml
   vars:
     svc_name: "{{ beszel_agent_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'beszel-agent.compose.yml.j2') }}"
-    svc_env: []
     # No public domain -- agent is host-network only, dials the hub on
-    # the loopback. dokploy_compose.yml skips its domain block when
+    # the loopback. swarm_stack.yml removes the route file when
     # svc_domain_host is empty.
     svc_domain_host: ""
     svc_domain_service: "app"
@@ -170,15 +203,14 @@
     group: root
     mode: "0644"
 
-- name: "Beszel: deploy alert shim via Dokploy API"
-  ansible.builtin.include_tasks: dokploy_compose.yml
+- name: "Beszel: deploy alert shim as a swarm stack"
+  ansible.builtin.include_tasks: swarm_stack.yml
   vars:
     svc_name: "{{ beszel_hc_shim_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'beszel-hc-shim.compose.yml.j2') }}"
-    svc_env: []
     svc_domain_host: ""
     svc_domain_service: "app"
     svc_domain_port: "{{ beszel_hc_shim_internal_port }}"
     svc_readiness_skip_reason: >-
-      Internal webhook receiver on dokploy-network; no public surface.
+      Internal webhook receiver on catena-network; no public surface.
       Exercised by a Beszel alert firing (see notifications.md).

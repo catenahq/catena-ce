@@ -8,7 +8,7 @@ so siblings can `from labels_schema import slugify,
 extract_vps_auth_labels, resolve_auth_mode`.
 
 The catena-admin Go shell carries its own implementation of the same
-vocabulary (internal/admin/labels); the two must stay in lockstep on the
+vocabulary (shell/labels); the two must stay in lockstep on the
 `vps.*` grammar.
 
 Stdlib-only by design so it installs beside the host scripts without
@@ -21,7 +21,7 @@ import re
 
 # ─── Slugification ────────────────────────────────────────────────────────
 #
-# Used for both Traefik router/service names AND Dokploy compose alias
+# Used for both Traefik router/service names AND compose alias
 # matching. Lowercase + non-[a-z0-9] -> "-", strip leading/trailing dashes.
 
 _SLUG_RE = re.compile(r"[^a-z0-9-]+")
@@ -86,11 +86,11 @@ def extract_vps_auth_labels(compose_text: str) -> dict:
     return labels
 
 
-# ─── dokploy-network service-alias extraction ─────────────────────────────
+# ─── catena-network service-alias extraction ─────────────────────────────
 #
-# dashboard-sync routes each domain's Traefik backend to the dokploy-network
-# alias of the compose service that domain fronts (the Dokploy domain record's
-# serviceName). A multi-domain app (Nextcloud + Talk HPB) gives each service
+# dashboard-sync routes each domain's Traefik backend to the catena-network
+# alias of the compose service that domain fronts (the compose service
+# name). A multi-domain app (Nextcloud + Talk HPB) gives each service
 # its own alias (`nextcloud`, `signaling`), so the router must target the
 # service-specific alias, not blindly the appName slug. This is the host-side
 # resolver gate_routes consults. Stdlib-only (no YAML dep): an indentation
@@ -102,15 +102,15 @@ def _line_indent(line: str) -> int:
 
 
 def extract_service_aliases(compose_text: str) -> dict:
-    """Return {service_name: [dokploy-network aliases]} parsed from a compose
-    body. Only dokploy-network aliases are collected (the handle Traefik
+    """Return {service_name: [catena-network aliases]} parsed from a compose
+    body. Only catena-network aliases are collected (the handle Traefik
     resolves backends through); a service with none maps to []. Handles both
     the block list form
 
         services:
           app:
             networks:
-              dokploy-network:
+              catena-network:
                 aliases:
                   - nextcloud
 
@@ -128,12 +128,12 @@ def extract_service_aliases(compose_text: str) -> dict:
         stripped = raw.strip()
         if stripped.startswith("- "):
             # List item: contributes only under services.<svc>.networks.
-            # dokploy-network.aliases.
+            # catena-network.aliases.
             path = [k for _, k in stack]
             if (
                 len(path) >= 5
                 and path[-1] == "aliases"
-                and path[-2] == "dokploy-network"
+                and path[-2] == "catena-network"
                 and path[-3] == "networks"
                 and path[-5] == "services"
             ):
@@ -154,19 +154,63 @@ def extract_service_aliases(compose_text: str) -> dict:
         # "unknown service".
         if len(path) == 2 and path[-2] == "services":
             out.setdefault(key, [])
-        # Flow-list aliases: dokploy-network: aliases: [a, b]
+        # Flow-list aliases: catena-network: aliases: [a, b]
         if (
             key == "aliases"
             and val.startswith("[")
             and val.endswith("]")
             and len(path) >= 5
-            and path[-2] == "dokploy-network"
+            and path[-2] == "catena-network"
             and path[-3] == "networks"
             and path[-5] == "services"
         ):
             out.setdefault(path[-4], []).extend(
                 x.strip().strip("\"'") for x in val[1:-1].split(",") if x.strip()
             )
+    return out
+
+
+# ─── vps.route.* label extraction (client-app ingress host) ───────────────
+#
+# Before the migration, a client app's public hostname came from a control-
+# plane domain API. Portainer has no domain records, so the host is
+# declared on the compose itself via:
+#   vps.route.host     the public FQDN (e.g. blog.acme.com)
+#   vps.route.port     backend port inside the container (default 80)
+#   vps.route.service  compose service the host fronts (default: primary/app);
+#                      dashboard-sync routes to that service's catena-network
+#                      alias. render.py (App Templates) populates these from
+#                      the catalog. A compose with no vps.route.host is
+#                      intra-cluster only (no auto-gate route written).
+
+_VPS_ROUTE_LABEL_RE = re.compile(
+    r"['\"]?vps\.route\.(host|port|service)['\"]?"
+    r"\s*[=:]\s*['\"]?([^'\"\n#]+?)['\"]?\s*(?:\n|$|#)",
+    re.IGNORECASE,
+)
+
+
+def extract_vps_route_labels(compose_text: str) -> dict:
+    """Return {'host': str, 'port': int, 'service': str} from vps.route.*
+    compose labels. Only keys that appear are present, EXCEPT that a missing
+    'port' defaults to 80 whenever a 'host' is set (so a bare vps.route.host
+    is routable). Empty dict if no vps.route.host is present."""
+    if not compose_text:
+        return {}
+    out: dict = {}
+    for m in _VPS_ROUTE_LABEL_RE.finditer(compose_text):
+        key = m.group(1).lower()
+        val = m.group(2).strip()
+        if key == "port":
+            try:
+                out["port"] = int(val)
+            except ValueError:
+                continue
+        else:
+            out[key] = val
+    if not out.get("host"):
+        return {}
+    out.setdefault("port", 80)
     return out
 
 
@@ -200,7 +244,7 @@ def extract_vps_homepage_labels(compose_text: str) -> dict:
 # ─── vps.expose.* label extraction (public non-HTTP ports) ────────────────
 #
 # Direct public ports for protocols Cloudflare Tunnel cannot carry (SMTP,
-# IMAPS, TURN media, ...). A Dokploy template declares the host ports it
+# IMAPS, TURN media, ...). A catena template declares the host ports it
 # publishes via:
 #   vps.expose.tcp   comma-separated ports / ranges (e.g. 25,465,587,993)
 #   vps.expose.udp   comma-separated ports / ranges (e.g. 3478,5349,50000-50100)

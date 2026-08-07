@@ -1,20 +1,27 @@
 ---
 # Validation tasks for roles/infrastructure. Replaces tests/goss/infrastructure.yaml.
+
+# set_fact here because main.yml's fact is not in scope during a standalone
+# validate run.
+- name: "validate/infrastructure: resolve CF token presence"
+  ansible.builtin.set_fact:
+    # The cloudflared swarm service only exists once a Cloudflare token has been
+    # saved (catena-admin > Settings) and the tunnel converged. With no token
+    # the tunnel is DEFERRED, so skip the cloudflared-service asserts rather than
+    # failing on an absent service. The token is published as a fact by
+    # playbooks/validate.yml's load_onbox_config pre_task.
+    _infra_cf_token_present: "{{ (cloudflare_api_token | default('')) | length > 0 }}"
+
 - name: "validate/infrastructure: stat sync scripts + traefik dynamic dir"
   ansible.builtin.stat:
     path: "{{ item.path }}"
   register: _infra_stats
-  loop:
-    - { path: /usr/local/bin/dashboard-sync, mode: "0755" }
-    - { path: /usr/local/bin/gatus-sync, mode: "0755" }
-    - { path: /usr/local/bin/catena-generate-recovery-archive, mode: "0755" }
-    - { path: /usr/local/bin/catena-wire-nextcloud-oidc, mode: "0755" }
-    - { path: /usr/local/lib/catena/extract_secrets_core.py, mode: "0644" }
-    - { path: /usr/local/lib/catena/recovery_archive_core.py, mode: "0644" }
-    - { path: /usr/local/lib/catena/restore.sh, mode: "0644" }
-    - { path: /usr/bin/7z, mode: "0755" }  # F12 generator dep (p7zip-full / 7zip)
-    - { path: /var/backups/catena-export, type: directory, mode: "0750" } # shared w/ backup role
-    - { path: /etc/dokploy/traefik/dynamic, type: directory }
+  loop: >-
+    {{ [{'path': '/usr/local/bin/dashboard-sync', 'mode': '0755'},
+        {'path': '/usr/local/bin/gatus-sync', 'mode': '0755'},
+        {'path': '/usr/local/bin/catena-wire-nextcloud-oidc', 'mode': '0755'},
+        {'path': '/var/backups/catena-export', 'type': 'directory', 'mode': '0750'},
+        {'path': '/etc/catena/traefik/dynamic', 'type': 'directory'}] }}
   loop_control:
     label: "{{ item.path }}"
 
@@ -48,27 +55,36 @@
     fail_msg: >-
       {{ item.item.0 }} {{ item.item.1 }} -> {{ item.stdout | trim }}
       (expected active/enabled)
-  loop: "{{ _infra_timer_checks.results }}"
+  loop: "{{ _infra_timer_checks.results | default([]) }}"
   loop_control:
     label: "{{ item.item.0 }} {{ item.item.1 }}"
 
-- name: "validate/infrastructure: dokploy-network exists"
-  ansible.builtin.command: docker network inspect dokploy-network
+- name: "validate/infrastructure: catena-network exists"
+  ansible.builtin.command: docker network inspect catena-network
   register: _infra_net
   failed_when: false
   changed_when: false
 
-- name: "validate/infrastructure: dokploy-network reachable"
+- name: "validate/infrastructure: catena-network reachable"
   ansible.builtin.assert:
     that:
       - _infra_net.rc == 0
-    fail_msg: "docker network inspect dokploy-network rc={{ _infra_net.rc }}"
+    fail_msg: "docker network inspect catena-network rc={{ _infra_net.rc }}"
+
+- name: "validate/infrastructure: cloudflared tunnel deferred (no token yet)"
+  ansible.builtin.debug:
+    msg: >-
+      Skipping the cloudflared swarm-service asserts -- no Cloudflare token in
+      the on-box store yet; the tunnel is deferred until one is saved in
+      catena-admin > Settings.
+  when: not (_infra_cf_token_present | bool)
 
 - name: "validate/infrastructure: cloudflared 1/1 replica"
   ansible.builtin.command: docker service ls --filter name=cloudflared --format '{% raw %}{{.Name}}|{{.Replicas}}{% endraw %}'
   register: _infra_cf
   failed_when: false
   changed_when: false
+  when: _infra_cf_token_present | bool
 
 - name: "validate/infrastructure: cloudflared replicas healthy"
   ansible.builtin.assert:
@@ -76,6 +92,7 @@
       - _infra_cf.rc == 0
       - _infra_cf.stdout_lines | select('match', '^cloudflared\\|1/1') | list | length > 0
     fail_msg: "cloudflared swarm service not 1/1: {{ _infra_cf.stdout }}"
+  when: _infra_cf_token_present | bool
 
 - name: "validate/infrastructure: host binds no port 80 or 443 (architecture invariant)"
   ansible.builtin.shell: |
@@ -92,16 +109,32 @@
       - (_infra_ports.stdout | trim) == ''
     fail_msg: "host has processes bound to 80 or 443 directly: {{ _infra_ports.stdout }}"
 
+# Two things this pattern has to get right, and the loose version got
+# neither:
+#
+#   ANCHORED. `(80|443)/tcp` is a substring match against the whole ufw
+#   line, so any port ENDING in 80 or 443 tripped it -- gatus' loopback
+#   port 18080 is the one that did. The port is the first field of a ufw
+#   status row, so anchor to ^.
+#
+#   ALLOW ONLY. The assertion is "nothing OPENS 80/443", but it fired on
+#   any matching row, so a DENY on those ports -- the very thing you would
+#   want to see -- would have failed the validate too. Match the action.
+#
+# ` +` rather than `[[:space:]]+`: ufw pads its columns with spaces, and
+# this spelling means the same thing to grep -E and to Python's re, which
+# is what lets tests/unit/test_ufw_80_443_check.py run THIS pattern against
+# sample output instead of a restatement of it.
 - name: "validate/infrastructure: ufw does not allow public 80/443"
   ansible.builtin.shell: |
-    ufw status | grep -E '(80|443)/tcp' || true
+    ufw status | grep -E '^(80|443)/tcp( \(v6\))? +ALLOW' || true
   args:
     executable: /bin/bash
   register: _infra_ufw
   failed_when: false
   changed_when: false
 
-- name: "validate/infrastructure: no 80/443 rule in ufw"
+- name: "validate/infrastructure: no rule allowing 80/443 in ufw"
   ansible.builtin.assert:
     that:
       - (_infra_ufw.stdout | trim) == ''

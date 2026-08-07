@@ -6,7 +6,7 @@
 # (see roles/infrastructure/tasks/nextcloud_oidc.yml) on the running
 # Nextcloud container; this realm template just registers the
 # confidential client so the discovery URL works the moment the
-# operator clicks Deploy in the Dokploy UI.
+# operator clicks Deploy in the Portainer UI.
 #
 # This file lives in the same /config dir as realm-vps.yaml so
 # keycloak-config-cli's IMPORT_FILES_LOCATIONS=/config/*.yaml glob
@@ -14,10 +14,10 @@
 # add this client.
 #
 # Multivalued groups claim is fine here -- Nextcloud's user_oidc
-# parses the standard `groups` JSON-array claim correctly (unlike
-# OliveTin, which needed the EP-B single-valued workaround). The
-# realm-default `groups` clientScope already in defaultDefaultClientScopes
-# applies via `defaultClientScopes` below.
+# parses the standard `groups` JSON-array claim correctly, so no
+# single-valued workaround is needed. The realm-default `groups`
+# clientScope already in defaultDefaultClientScopes applies via
+# `defaultClientScopes` below.
 
 realm: {{ keycloak_realm }}
 
@@ -31,7 +31,7 @@ clients:
     implicitFlowEnabled: false
     directAccessGrantsEnabled: false
     serviceAccountsEnabled: false
-    secret: "{{ vault_nextcloud_oidc_client_secret }}"
+    secret: "{{ nextcloud_oidc_client_secret }}"
     # user_oidc lands the post-login callback at /apps/user_oidc/code.
     redirectUris:
       - "https://nextcloud.{{ cloudflare_zone }}/apps/user_oidc/code"

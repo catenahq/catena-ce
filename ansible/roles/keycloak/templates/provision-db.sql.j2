@@ -1,6 +1,6 @@
 -- {{ ansible_managed }}
 -- Idempotent role + database provisioner for the Keycloak DB inside
--- dokploy-postgres. CREATE ROLE / CREATE DATABASE are not IF NOT EXISTS
+-- catena-postgres. CREATE ROLE / CREATE DATABASE are not IF NOT EXISTS
 -- in vanilla psql, so the role is wrapped in a DO block + pg_database
 -- existence is guarded inline via SELECT.
 \set ON_ERROR_STOP on
@@ -8,7 +8,7 @@
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{{ keycloak_db_user }}') THEN
-    CREATE ROLE {{ keycloak_db_user }} LOGIN PASSWORD '{{ vault_keycloak_db_password | regex_replace("'", "''") }}';
+    CREATE ROLE {{ keycloak_db_user }} LOGIN PASSWORD '{{ keycloak_db_password | regex_replace("'", "''") }}';
   END IF;
 END
 $$;
@@ -17,7 +17,7 @@ $$;
 -- records the same hash if unchanged. Drift between vault + DB surfaces
 -- as auth failure on the next compose deploy, so this is the canonical
 -- writer of the live password.
-ALTER USER {{ keycloak_db_user }} WITH PASSWORD '{{ vault_keycloak_db_password | regex_replace("'", "''") }}';
+ALTER USER {{ keycloak_db_user }} WITH PASSWORD '{{ keycloak_db_password | regex_replace("'", "''") }}';
 
 -- CREATE DATABASE cannot run inside a transaction block, so it lives
 -- outside the DO. The Ansible task that wraps this script gates

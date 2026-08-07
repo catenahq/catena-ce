@@ -1,0 +1,170 @@
+---
+# Render the accumulated specs into compose files and prove they load. These
+# files are the ORACLE, not the apply.
+#
+# What applies is tasks/reconcile_one.yml, which each role includes with the
+# very same spec it contributes here, handing it to the catena-tier1 host
+# engine. So the rendered files are not a parallel description that could drift
+# from the running services -- they are the other rendering of the identical
+# dict, and `docker stack config` type-checking them every converge is what
+# proves the specs are coherent against the docker actually installed rather
+# than against our reading of the schema.
+#
+# TWO FILES, TWO LIFECYCLES.
+#
+#   tier1.yml       the control plane: traefik, postgres, portainer. Present on
+#                   every host, always the same set, so the file is stable and
+#                   a change to it is a change somebody made.
+#   companions.yml  app companions: coturn today. Directly-created swarm
+#                   services for the same reasons (coturn needs host networking
+#                   and global mode, neither of which survives a Portainer
+#                   stack), but presence-gated on a consumer application. They
+#                   appear the converge after a Talk or Jitsi deploy.
+#
+# They were one file. That made the control-plane render change on a converge
+# where the control plane had not: deploy an app with a TURN consumer and
+# tier1.yml gained a fourth service, which reads as control-plane drift to
+# anything watching it and is not.
+#
+# `docker stack deploy` was the other candidate for the apply and lost on
+# measurement: it always names services `<stack>_<key>`, with no flag to
+# suppress the prefix and no adoption of an existing standalone service. The
+# rename reaches 13 DNS sites, three ANCHORED matchers in catena-admin's
+# recovery engines, and 107 bench assertions -- and the anchored ones fail
+# silently, which is the class of wrong this phase exists to remove. Full
+# reasoning in playbooks/filter_plugins/tier1_stack.py.
+#
+# catena-admin is in NEITHER file, and that is a schema limit rather than a
+# choice: it joins the supplementary group owning the 0750 recovery export dir,
+# `docker stack config` answers "Additional property group_add is not allowed",
+# and the compose schema has no other spelling. It keeps its own create argv
+# (playbooks/filter_plugins/catena_admin_service.py). cloudflared is absent for
+# a different reason -- its converge is already its own Go engine.
+
+- name: "tier1_stack: which control-plane services contributed a spec"
+  ansible.builtin.set_fact:
+    _tier1_present: >-
+      {{ catena_tier1_specs | default([]) | map(attribute='name') | list }}
+
+# A tag-scoped converge runs some roles and not others, so the accumulator
+# holds a SUBSET. Writing that would leave an oracle describing two services
+# on a host running three -- something that LOOKS like the whole plane and is
+# not, which is worse than no file. So the incomplete case skips loudly and
+# leaves the last complete render in place.
+- name: "tier1_stack: skipped -- not every control-plane role ran this converge"
+  ansible.builtin.debug:
+    msg: >-
+      Rendered no stack file: {{ tier1_stack_required
+        | difference(_tier1_present) | join(', ') }} contributed no spec
+      (present: {{ _tier1_present | join(', ') | default('none', true) }}).
+      Expected under a tag-scoped converge; a FULL converge reaching this
+      message means a control-plane role failed before its contribute task.
+  when: tier1_stack_required | difference(_tier1_present) | length > 0
+
+- name: "tier1_stack: render, write and validate the control plane"
+  when: tier1_stack_required | difference(_tier1_present) | length == 0
+  block:
+    # 0750 to MATCH roles/infrastructure swarm_stack.yml, which creates this
+    # same directory for the app stack files. Two roles declaring different
+    # modes for one path is not a style disagreement: each converge resets what
+    # the other set, both report changed, and the idempotency gate can never go
+    # green. Observed as changed=2 forever on run 3642.
+    #
+    # 0750 rather than 0755 because that is what the directory's first owner
+    # chose, and its reason applies here too -- a compose body can carry a
+    # credential.
+    - name: "tier1_stack: ensure the stack dir exists"
+      ansible.builtin.file:
+        path: "{{ tier1_stack_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0750"
+
+    # 0640 root:root. It names every swarm secret the control plane mounts.
+    # That is not the secret material -- swarm holds that -- but it is a map
+    # of what to ask for, and nothing on this host needs to read it but root.
+    - name: "tier1_stack: write the rendered control-plane file"
+      ansible.builtin.copy:
+        dest: "{{ tier1_stack_path }}"
+        owner: root
+        group: root
+        mode: "0640"
+        content: |
+          # GENERATED by roles/tier1_stack -- do not edit.
+          # Rendered from the specs each control-plane role contributes during
+          # the converge. Edits here are overwritten on the next run; change
+          # the role defaults instead.
+          {{ catena_tier1_specs | tier1_stack_render
+             | to_nice_yaml(indent=2, width=200) }}
+      register: _tier1_stack_written
+
+    # The compose loader, not our reading of it. It catches what the renderer
+    # cannot know: a property this docker rejects, a duration it will not
+    # parse, an external it cannot resolve a name for. Failing here is the
+    # whole point of rendering before applying.
+    - name: "tier1_stack: validate the rendered control-plane file loads"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - stack
+          - config
+          - --compose-file
+          - "{{ tier1_stack_path }}"
+      register: _tier1_stack_config
+      changed_when: false
+
+    - name: "tier1_stack: rendered control-plane services"
+      ansible.builtin.debug:
+        msg: >-
+          {{ tier1_stack_path }} validates: {{ _tier1_present | join(', ') }}
+
+# ── app companions ───────────────────────────────────────────────────────
+# No completeness roster: there is nothing to be incomplete about. A companion
+# is present exactly when its consumer is, so the accumulator holding fewer
+# than last converge is the answer, not a partial one. The file is REMOVED when
+# none contributed, rather than left behind describing services this host no
+# longer runs.
+
+- name: "tier1_stack: which companions contributed a spec"
+  ansible.builtin.set_fact:
+    _tier1_companions: >-
+      {{ catena_companion_specs | default([]) | map(attribute='name') | list }}
+
+- name: "tier1_stack: write and validate the companion file"
+  when: _tier1_companions | length > 0
+  block:
+    - name: "tier1_stack: write the rendered companion file"
+      ansible.builtin.copy:
+        dest: "{{ tier1_companions_path }}"
+        owner: root
+        group: root
+        mode: "0640"
+        content: |
+          # GENERATED by roles/tier1_stack -- do not edit.
+          # Presence-gated swarm services, rendered from the specs their roles
+          # contribute when a consuming application is running.
+          {{ catena_companion_specs | tier1_stack_render
+             | to_nice_yaml(indent=2, width=200) }}
+
+    - name: "tier1_stack: validate the rendered companion file loads"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - stack
+          - config
+          - --compose-file
+          - "{{ tier1_companions_path }}"
+      changed_when: false
+
+    - name: "tier1_stack: rendered companions"
+      ansible.builtin.debug:
+        msg: >-
+          {{ tier1_companions_path }} validates:
+          {{ _tier1_companions | join(', ') }}
+
+- name: "tier1_stack: no companions on this host"
+  ansible.builtin.file:
+    path: "{{ tier1_companions_path }}"
+    state: absent
+  when: _tier1_companions | length == 0

@@ -1,7 +1,7 @@
 # {{ ansible_managed }}
 # Service-account client used by the host-side dashboard-sync cron to
 # register per-app /oauth2/callback redirect URIs on the shared
-# `oauth2-proxy` client as client apps are deployed via Dokploy.
+# `oauth2-proxy` client as client apps are deployed via Portainer.
 #
 # Scope: a confidential client with serviceAccountsEnabled and a SINGLE
 # realm-management role -- `manage-clients`. That is the least privilege
@@ -32,7 +32,7 @@ clients:
     implicitFlowEnabled: false
     directAccessGrantsEnabled: false
     serviceAccountsEnabled: true
-    secret: "{{ vault_dashboard_sync_client_secret }}"
+    secret: "{{ dashboard_sync_client_secret }}"
     attributes:
       access.token.lifespan: "600"
 

@@ -8,14 +8,14 @@
 # oc_mail_accounts table. The Mail app has to be enabled before any
 # user can configure an account; this script makes it part of the
 # standard wiring sweep so the operator does not need a separate occ
-# run after deploying Nextcloud from the Dokploy catalog.
+# run after deploying Nextcloud from the app catalog.
 #
 # Idempotent: probes `occ app:list` for the mail row and only installs
 # when missing on disk; `occ app:enable` is itself idempotent.
 
 set -euo pipefail
 
-# Locate the running Nextcloud app container. Dokploy compose names
+# Locate the running Nextcloud app container. Compose container names
 # look like nextcloud-<hash>-app-<n>. Match the name prefix AND the
 # compose service label: two name= filters are ORed by docker (they
 # would also match -cron-/-db-/-redis-), but a name= plus a label= are
@@ -28,7 +28,7 @@ ct=$(docker ps \
 if [ -z "$ct" ]; then
     echo "Nextcloud is not running on this host."
     echo
-    echo "Deploy first: Dokploy UI -> Templates -> nextcloud-s3 -> Deploy."
+    echo "Deploy first: Portainer -> App Templates -> nextcloud-s3 -> Deploy."
     echo "Wait for the container to come up, then click this button again."
     exit 1
 fi

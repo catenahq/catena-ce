@@ -9,19 +9,15 @@
 #      underneath live containers. site.yml (which follows restore in
 #      the rollback flow) starts docker back up and swarm reconciles.
 #
-# pg_replay (roles/backup/tasks/pg_replay.yml) is a separate mode that
-# replays pg_dumpall into running Dokploy-managed postgres containers.
-# It runs LATER in the same converge: from the dokploy role
-# (scope=dokploy, marker-gated) once dokploy-postgres is up.
-#
 # Contract with site.yml: on success, drop
-# /var/lib/catena/post-restore.needed as a marker. The marker
-# triggers two distinct hooks:
-#   - the dokploy role's pg_replay include (scope=dokploy), inside the
-#     dokploy role mid-converge so downstream roles see the replayed DB;
-#   - site.yml post_tasks include of post_restore_redeploy.yml (Dokploy
-#     compose redeploy via the API).
-# site.yml clears the marker after compose redeploy succeeds.
+# /var/lib/catena/post-restore.needed as a marker. site.yml's post_tasks
+# run `catena-recovery post-restore` on that marker, which redeploys the
+# app stacks through the Portainer API, replays their pg dumps into the
+# now-running per-app postgres containers (scope=clients), and checks
+# stored files against the restored databases. The binary clears the
+# marker itself, and only on success, so an interrupted recovery is
+# retried by the next converge. catena-postgres is restored raw and is
+# not part of that replay.
 
 # ─── Minimal prereqs for restore on a fresh VPS ─────────────────────────
 # A disaster-recovery restore runs on a host where install.yml has never
@@ -55,7 +51,7 @@
 - name: "Prereq -- write restic password file"
   ansible.builtin.copy:
     dest: "{{ backup_password_file }}"
-    content: "{{ vault_backup_restic_password }}\n"
+    content: "{{ backup_restic_password }}\n"
     owner: root
     group: root
     mode: "0600"
@@ -115,16 +111,16 @@
 
 # Restore is a cold operation -- restoring /mnt/data (and friends)
 # underneath live containers corrupts state. Operators can't stop
-# dokploy / cloudflared / dokploy-traefik by hand: they're swarm
-# services (auto-reconciled) or `restart=always` containers. So we
-# stop the docker daemon itself, which drops every container in one
-# shot. `docker_live_restore` is false for this project (swarm requires
-# it), so stopping docker really does kill containers.
+# catena-portainer / catena-postgres / cloudflared / catena-traefik by
+# hand: they're swarm services (auto-reconciled) or `restart=always`
+# containers. So we stop the docker daemon itself, which drops every
+# container in one shot. `docker_live_restore` is false for this project
+# (swarm requires it), so stopping docker really does kill containers.
 #
 # Restart: site.yml follows restore in the rollback flow; its docker
 # role starts docker back up, swarm reconciles the services, and
 # restart-policy containers come back. The post-restore.needed marker
-# additionally triggers a full Dokploy compose redeploy.
+# additionally triggers a full app-stack redeploy via the Portainer API.
 
 - name: "Snapshot running containers before stopping docker (for the log)"
   # Best-effort: if docker isn't installed (fresh-host DR path) this is
@@ -148,6 +144,43 @@
       {{ _docker_running_before.stdout_lines | default([]) | join(', ') or '(none)' }}
   when: _docker_running_before.rc | default(1) == 0
 
+- name: "Stop catena-backup.timer for the restore window (block scheduled backup+prune race)"
+  # A restore reads the repo; catena-backup.timer fires an independent
+  # `restic backup` + `restic forget --prune` on its own cadence
+  # (BACKUP_SCHEDULE). A scheduled run landing mid-restore takes an
+  # EXCLUSIVE prune lock that contends with the restore AND can prune
+  # the very snapshot being restored: on bench run
+  # 2026-07-13T03-47-58-151c a scheduled backup created a child
+  # snapshot and forget-pruned its parent -- the snapshot the restore
+  # had pinned -- so restic aborted with "no matching ID found". Stop
+  # the timer for the window; the tail task re-arms it on both restore
+  # outcomes. failed_when: false covers the fresh-host DR path where the
+  # unit is not installed yet (the follow-up converge installs + arms it).
+  ansible.builtin.systemd:
+    name: catena-backup.timer
+    state: stopped
+  failed_when: false
+
+- name: "Mask docker.service + docker.socket (block timer-driven respawn)"
+  # Stopping is not enough: host-side reconciler units declare
+  # Wants=docker.service (catena-public-ports.service, fired by its
+  # 5-minute timer; catena-network-nudge.service), so a timer tick
+  # inside the restore window makes systemd pull docker -- and every
+  # restart-policy container -- back up UNDER the restic restore
+  # (seen live on bench run 2026-07-10T09-56-46-001c: clean stop at
+  # 11:59:33, catena-public-ports.timer fired 11:59:47, docker back
+  # with all 24 containers). Masking first makes any such start
+  # attempt fail instead. Mask BEFORE stop so there is no window in
+  # between. failed_when: false covers the fresh-host DR path where
+  # docker isn't installed yet.
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    masked: true
+  loop:
+    - docker.service
+    - docker.socket
+  failed_when: false
+
 - name: "Stop docker.service + docker.socket (drops all containers atomically)"
   # docker.socket must go down too, otherwise the first socket probe from
   # this play (restic metrics scrape, etc.) socket-activates docker back
@@ -162,9 +195,15 @@
   failed_when: false
 
 - name: "Verify no containers are running after docker stop"
-  # If `docker ps` still returns running containers after stopping the
-  # daemon, something is socket-activating it or the stop didn't take.
-  # Hard-fail before restic writes underneath them.
+  # Poll: dockerd takes a few seconds to drain swarm tasks + release
+  # /var/run/docker.sock after `systemctl stop`. A single-shot probe right
+  # after stop catches dockerd MID-SHUTDOWN (rc=0, containers still listed)
+  # and trips the assert below on a perfectly healthy stop -- a flaky
+  # backup_rollback stage-3 failure. Mirror catena-ee stop-services.yml:
+  # 12 retries * 5s = 60s, comfortably above any observed drain time but
+  # short enough to flag a real socket-activation respawn loop. If `docker
+  # ps` still returns running containers after that window, something is
+  # keeping the daemon up and the assert hard-fails before restic writes.
   ansible.builtin.command:
     argv:
       - docker
@@ -173,6 +212,11 @@
   register: _docker_running_after
   changed_when: false
   failed_when: false
+  retries: 12
+  delay: 5
+  until: >-
+    _docker_running_after.rc != 0
+    or (_docker_running_after.stdout | trim) | length == 0
 
 - name: "Assert docker is down before restic restore"
   ansible.builtin.assert:
@@ -180,10 +224,12 @@
       - _docker_running_after.rc != 0 or (_docker_running_after.stdout | trim) | length == 0
     fail_msg: >-
       Stopped docker.service + docker.socket but `docker ps` still lists
-      running containers. Something is keeping the daemon up (socket
-      activation, watchdog, operator session). Investigate before
-      re-running restore -- writing into /mnt/data under live containers
-      corrupts state.
+      running containers after a 60s drain window. Something is keeping the
+      daemon up (socket activation, watchdog, operator session). Investigate
+      before re-running restore -- writing into /mnt/data under live
+      containers corrupts state. NOTE: this play masked docker.service +
+      docker.socket for the restore window; run `systemctl unmask
+      docker.service docker.socket` after investigating.
 
 - name: "Restic restore into / (snapshot {{ _restic_snapshot_id }})"
   # /var/lib/dpkg is in the backup set so the auto-update two-phase
@@ -214,12 +260,91 @@
       # serves no purpose and breaks the restore path on every DR.
       - --exclude
       - /usr/local/bin/restic
+      # Never restore the source host's SSH host keys onto the target.
+      # /etc/ssh is in backup_paths, so an older snapshot still carries
+      # ssh_host_*_key. On a fresh-host DR restore, overwriting the box's
+      # own cloud-init-minted keys clones the source's SSH identity: the
+      # recovered host then presents the dead host's key. That collides
+      # with the controller known_hosts entry TOFU-ed during bootstrap
+      # (accept-new errors on the changed key), so validate.yml Vantage 3
+      # aborts UNREACHABLE. Host keys are host IDENTITY, not data, and
+      # admin access is over the tailnet -- keep the fresh keys.
+      - --exclude
+      - /etc/ssh/ssh_host_*
       - --quiet
   environment: "{{ backup_restic_env }}"
   no_log: true # env dict carries S3 creds; censor on both paths
   register: _restic_restore
   failed_when: false
   changed_when: _restic_restore.rc == 0
+
+# ─── Discard surviving swarm raft (rebuild the overlay, don't reuse) ──────
+# The restic set deliberately EXCLUDES docker swarm raft + overlay IPAM +
+# image layers (see roles/backup/defaults/main.yml backup_paths: only
+# docker/volumes is captured). They are reproducible: the docker role
+# re-inits the single-node swarm and the traefik role recreates the
+# catena-network overlay. Volume DATA is restored; cluster RUNTIME is
+# rebuilt.
+#
+# On a fresh-host DR restore that split is automatic -- no swarm state
+# exists, so the docker role's `swarm init` runs clean. But a rollback
+# restore lands on the SAME live host, and `restic restore` never DELETES
+# files absent from the snapshot: the pre-restore {{ storage_mount_point }}/
+# docker/swarm survives on disk. dockerd then comes back `active`, the
+# docker role SKIPS init, and swarm reconciles a STALE raft + endpoint
+# table against the just-restored volumes and freshly-redeployed stacks.
+# Symptom seen on the bench: keycloak (a compose container) reattaches to
+# catena-network with an IPAM address allocated for the pre-restore world
+# and gets "No route to host" to the postgres VIP; a SIGINT mid-restore
+# corrupts the same surviving overlay ("network not found").
+#
+# Wipe ONLY docker/swarm, NOT docker/network. catena-network is an
+# OVERLAY: its definition and IPAM live in the swarm raft (docker/swarm),
+# so deleting the raft is what forces the clean overlay rebuild. The
+# per-stack COMPOSE BRIDGES (nextcloud_default, keycloak_default,
+# catena-clamav, ...) are LOCAL-scoped and live in docker/network's
+# local-kv.db -- deleting that dir wiped every app's bridge, and a
+# converge only redeploys template-app stacks when a recovery is pending
+# (the marker below), so their bridges never came back and every
+# template app (Nextcloud, mailserver, ...) stayed Exited(128) "network
+# <id> not found" after any CE rollback. Keeping docker/network lets those
+# containers restart on their unless-stopped policy against their surviving
+# bridge, while the overlay still rebuilds clean from the wiped raft.
+#
+# Only runs on a SUCCESSFUL restore (rc==0); a failed restore leaves the
+# runtime intact for diagnosis. On a fresh host the dir is absent -> no-op.
+- name: "Discard surviving swarm raft so converge rebuilds the overlay clean"
+  ansible.builtin.file:
+    path: "{{ storage_mount_point }}/docker/swarm"
+    state: absent
+  when: _restic_restore.rc | default(1) == 0
+
+- name: "Unmask docker.service + docker.socket (restore window over)"
+  # Runs on BOTH restic outcomes (the restore task never hard-fails
+  # directly; the surface task below does), so an aborted restore never
+  # leaves docker masked -- the follow-up site.yml converge must be able
+  # to start it again. Units stay STOPPED; the rollback flow's docker
+  # role does the actual start after the play hands over.
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    masked: false
+  loop:
+    - docker.service
+    - docker.socket
+  failed_when: false
+
+- name: "Restart catena-backup.timer (restore window over)"
+  # Re-arm the scheduled backup we stopped before the restore. Runs on
+  # BOTH restic outcomes (placed before the failure-surface task below)
+  # so an aborted restore never leaves the timer stopped, and a
+  # standalone DR restore (no follow-up converge) keeps scheduled
+  # backups. Persistent=true makes the re-armed timer catch up the
+  # missed run, which is correct post-restore. failed_when: false covers
+  # the fresh-host DR path where the unit is not installed yet.
+  ansible.builtin.systemd:
+    name: catena-backup.timer
+    state: started
+  failed_when: false
 
 - name: Surface restic stdout/stderr on failure (safe fields only -- no env)
   ansible.builtin.fail:
@@ -301,9 +426,9 @@
       run (Keycloak OIDC will reject tokens issued under a skewed clock).
 
 # ─── Hand-off to site.yml ───────────────────────────────────────────────
-# Drop a marker so site.yml's post_tasks know to (a) redeploy every
-# Dokploy compose project (containers are stopped post-restore -- image
-# layers aren't in the backup) and (b) replay pg_dumpall into them.
+# Drop a marker so site.yml's post_tasks know to (a) redeploy every app
+# stack via the Portainer API (containers are stopped post-restore --
+# image layers aren't in the backup) and (b) replay pg_dumpall into them.
 # Marker is cleared by site.yml after both hooks succeed; operator can
 # `touch` it manually to re-run hooks out-of-band.
 
@@ -315,21 +440,58 @@
     group: root
     mode: "0755"
 
+# The staleness floor for the database replay, recorded here because this is
+# the last point that knows the repository. The hook that replays the archives
+# runs at the end of a converge with no backup credentials, and giving it some
+# so it could ask this question itself would turn a converge-time helper into
+# something that can read every backup the client has.
+#
+# The floor is the time of the backup BEFORE the one being restored. An archive
+# older than that did not come out of this snapshot: it is a leftover from an
+# earlier pass, and replaying it over freshly restored volumes overwrites newer
+# data with older. The snapshot's own time cannot serve -- pg_dumpall writes the
+# archives before `restic backup` runs, so all of them predate it.
+- name: "Post-restore -- list the repository to derive the replay staleness floor"
+  ansible.builtin.command:
+    argv:
+      - restic
+      - snapshots
+      - --json
+  environment: "{{ backup_restic_env }}"
+  no_log: true # env dict carries S3 creds
+  register: _restic_snapshot_list
+  changed_when: false
+  failed_when: false
+
+- name: "Post-restore -- compute the replay staleness floor"
+  ansible.builtin.set_fact:
+    _restore_min_dump_time: >-
+      {{ (_restic_snapshot_list.stdout | default('[]'))
+         | previous_snapshot_time(_restic_snapshot_id) }}
+
+# Empty is a real answer (a repository with one snapshot has no earlier pass),
+# so it is reported rather than treated as a failure. It is reported LOUDLY
+# because the other way to get an empty answer is an unreadable snapshot list,
+# and the two are indistinguishable from here.
+- name: "Post-restore -- staleness floor"
+  ansible.builtin.debug:
+    msg: >-
+      {{ ('database replay will refuse archives taken before '
+          ~ _restore_min_dump_time)
+         if _restore_min_dump_time
+         else ('no earlier snapshot found in the repository, so the database '
+               ~ 'replay runs with no staleness floor. Expected on a first '
+               ~ 'backup; on a repository that has more than one snapshot it '
+               ~ 'means `restic snapshots` could not be read (rc '
+               ~ (_restic_snapshot_list.rc | default('?')) ~ ').') }}
+
 - name: "Drop post-restore marker for site.yml hooks"
   ansible.builtin.copy:
     dest: "{{ backup_stats_dir }}/post-restore.needed"
     content: |
       restored_at: {{ ansible_date_time.iso8601 }}
       snapshot: {{ _restic_snapshot_id }}
+      min_dump_time: {{ _restore_min_dump_time }}
     owner: root
     group: root
     mode: "0644"
-
-# Clear the dokploy pg_replay-done sub-marker so THIS fresh restore re-runs
-# the dokploy-scope replay (the dokploy role gates the replay on this marker
-# being absent for idempotency across plain re-converges). A new restore
-# brings a fresh empty dokploy-postgres, so the replay MUST run again.
-- name: "Clear dokploy pg_replay-done sub-marker (fresh restore must re-replay)"
-  ansible.builtin.file:
-    path: "{{ backup_stats_dir }}/dokploy-pg-replayed.done"
-    state: absent

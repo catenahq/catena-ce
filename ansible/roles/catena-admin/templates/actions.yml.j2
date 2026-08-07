@@ -103,10 +103,10 @@ actions:
     shell: "echo '=== mountpoint ==='; mountpoint /mnt/restic-browse 2>&1 || true; echo; echo '=== top-level entries ==='; ls /mnt/restic-browse 2>&1 | head -10 || true; echo; echo '=== service unit ==='; systemctl status catena-restic-browse.service --no-pager -n 5 2>&1 | head -10 || true; echo; echo '=== auto-unmount timer ==='; systemctl status catena-restic-browse-stop.timer --no-pager -n 5 2>&1 | head -10 || true"
 
   # ─── Initial apps setup ──────────────────────────────────────────────
-  # One-shot wiring buttons that finish provisioning a Dokploy-deployed
+  # One-shot wiring buttons that finish provisioning a Portainer-deployed
   # template the first time it comes up. Per project policy, converge
   # runs only at initial install or full VPS repair -- these are the
-  # on-demand path operators take after `Deploy` in the Dokploy UI.
+  # on-demand path operators take after `Deploy` in the Portainer UI.
   # All buttons in this section are idempotent: re-running after a secret
   # rotation, image bump, or redeploy converges to the same state.
 
@@ -192,13 +192,13 @@ actions:
     timeout: 30
     shell: "docker service update --force cloudflared"
 
-  - name: dokploy-restart
-    title: "Restart Dokploy"
-    title_fr: "Redémarrer Dokploy"
+  - name: portainer-restart
+    title: "Restart Portainer"
+    title_fr: "Redémarrer Portainer"
     category: Ops
     icon: "&#128260;" # 🔄
     timeout: 60
-    shell: "docker service update --force dokploy"
+    shell: "docker service update --force catena-portainer"
 
   - name: disk-usage
     title: "Disk breakdown"
@@ -248,11 +248,11 @@ actions:
     timeout: 45
     # Single button, non-destructive by design -- safe to spam.
     #
-    # Covers both sync paths operators actually need after a Dokploy
-    # compose change:
+    # Covers both sync paths operators actually need after a Portainer
+    # stack change:
     #   - dashboard-sync: Traefik routes + SSO-provider CRUD
     #     (groups/providers/apps/bindings). The Apps-tab tile grid is
-    #     rendered live from the Dokploy API, so it does not need a
+    #     rendered live from the Portainer API, so it does not need a
     #     sync step.
     #   - gatus-sync: Gatus endpoint catalog + restart Gatus if changed.
     #
@@ -284,26 +284,3 @@ actions:
     # the log tail so the operator can follow progress.
     timeout: 5
     shell: "systemd-run --unit=catena-snapshot-export --no-block -- /usr/local/bin/catena-snapshot-export && echo 'Snapshot export started in background. Tail progress: journalctl -u catena-snapshot-export -f' && echo && echo 'Completed exports available at /var/backups/catena-export/.'"
-
-  # Disaster-recovery archive. Builds a single AES-256 password-protected
-  # .zip containing the full client-recovery toolkit (recover.sh +
-  # restore.sh + envelope.env + vault.recovered.yml + EN/FR READMEs).
-  # The operator types a one-time passphrase into the dialog, the script
-  # writes recovery-<ts>.zip to /var/backups/catena-export/, and the
-  # operator hands the SAME passphrase to the recipient out-of-band
-  # (SMS / phone / encrypted message). One artifact, one secret, one
-  # recovery flow.
-  - name: generate-recovery-archive
-    title: "Generate recovery archive (encrypted)"
-    title_fr: "Générer l'archive de récupération (chiffrée)"
-    category: Recovery
-    icon: "&#128190;" # 💾
-    timeout: 90
-    arguments:
-      - name: passphrase
-        type: password
-    # RECOVERY_URL is the SSO-gated download surface to point the client
-    # at. The script falls back to the scp hint when this env is empty
-    # (keeps host-script unit tests simple and keeps the script usable
-    # on a host where the recovery sidecar isn't deployed).
-    shell: "RECOVERY_URL='{{ recovery_archive_download_url }}' /usr/local/bin/catena-generate-recovery-archive"

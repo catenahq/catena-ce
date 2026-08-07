@@ -8,7 +8,7 @@
 # that must report HOST metrics (not just its own container's): it reads
 # the host network + cgroup state directly, and reaches the docker daemon
 # via the read-only socket mount. With host networking the agent dials
-# the hub over the host loopback publish rather than a dokploy-network
+# the hub over the host loopback publish rather than a catena-network
 # alias.
 #
 # Auth: KEY is the hub's public SSH key, read back from the running hub
@@ -19,14 +19,34 @@
 services:
   app:
     image: {{ beszel_agent_image }}
-    restart: unless-stopped
-    network_mode: host
+    # `restart:` is ignored by `docker stack deploy`; swarm reads
+    # deploy.restart_policy.
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 5s
+    # `network_mode: host` is a COMPOSE key that `docker stack deploy`
+    # ignores in silence -- the agent would land on the stack's default
+    # overlay, report that network's namespace as "the host", and dial a
+    # 127.0.0.1 hub that is not there. Under swarm the host namespace is
+    # requested by attaching to the predefined `host` network, declared
+    # external below.
+    networks:
+      - hostnet
     environment:
       LISTEN: "{{ beszel_agent_port }}"
       HUB_URL: "http://127.0.0.1:{{ beszel_hub_host_localhost_port }}"
-      TOKEN: "{{ vault_beszel_universal_token }}"
+      TOKEN: "{{ beszel_universal_token }}"
       KEY: "{{ _beszel_hub_pubkey }}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     labels:
       - traefik.enable=false
+
+networks:
+  # Docker's predefined host network. Not created by us and not removed by
+  # `--prune`; the alias exists only because a compose service can attach to
+  # a network by key, not by literal name.
+  hostnet:
+    external: true
+    name: host

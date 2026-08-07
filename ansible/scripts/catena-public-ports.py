@@ -5,7 +5,7 @@ Single applier for every direct public port. Reads two feeders, merges them
 via helpers/public_ports.py, and idempotently applies the firewall rule plan:
 
   1. Infra declarations -- JSON fragments under /etc/catena/public-ports.d/
-     (one per owner, e.g. coturn.json, dokploy.json), dropped by each infra
+     (one per owner, e.g. coturn.json, portainer.json), dropped by each infra
      role at converge. conf.d style so roles declare independently with no
      ordering coupling.
   2. Live app ports -- vps.expose.tcp/udp labels harvested off running
@@ -22,7 +22,7 @@ Then it:
 
 Fired on every docker.service start (Docker recreates DOCKER-USER empty on
 boot) via a drop-in, plus a periodic timer. Generalizes the older
-dokploy-docker-firewall.sh (port-3000-only) guard. Runs as root.
+port-3000-only firewall guard it replaced. Runs as root.
 
 Stdlib-only. Imports public_ports + labels_schema, installed flat alongside
 this script (sys.path is pinned to the script dir below).
@@ -149,16 +149,23 @@ def save_applied(plan: list[dict]) -> None:
 
 
 def _ufw_spec(rule: dict) -> list[str]:
-    """The `allow ...` spec (no leading `ufw`, no comment). add prepends
-    `ufw`; delete prepends `ufw delete`."""
+    """The `<action> ...` spec (no leading `ufw`, no comment). add prepends
+    `ufw`; delete prepends `ufw delete`.
+
+    The action is READ from the rule, not hardcoded. A loopback-scoped port
+    is enforced by a deny, and a spec that always said `allow` would not
+    merely fail to guard it -- it would run `ufw allow` on the port it was
+    asked to close, and then record that as applied.
+    """
+    action = rule.get("action", "allow")
     proto, port = rule["proto"], rule["port"]
     if rule.get("iface"):
-        return ["allow", "in", "on", rule["iface"], "proto", proto,
+        return [action, "in", "on", rule["iface"], "proto", proto,
                 "to", "any", "port", port]
     if rule.get("from", "any") != "any":
-        return ["allow", "from", rule["from"], "proto", proto,
+        return [action, "from", rule["from"], "proto", proto,
                 "to", "any", "port", port]
-    return ["allow", f"{port}/{proto}"]
+    return [action, f"{port}/{proto}"]
 
 
 def _ufw_argv(rule: dict) -> list[str]:
@@ -167,11 +174,21 @@ def _ufw_argv(rule: dict) -> list[str]:
     return ["ufw", *_ufw_spec(rule), "comment", comment]
 
 
-def apply_ufw(rules: list[dict]) -> None:
-    """ufw is idempotent (skips existing rules), so a plain add converges."""
+def apply_ufw(rules: list[dict]) -> list[dict]:
+    """ufw is idempotent (skips existing rules), so a plain add converges.
+
+    Returns the rules actually applied. A failed add used to log WARNING and
+    be recorded as applied anyway, so the applied-state, the effective
+    artifacts validation reads, and the unit's exit code all agreed that a
+    rule existed which did not.
+    """
+    applied: list[dict] = []
     for rule in rules:
         if _run(_ufw_argv(rule)) != 0:
             log(f"WARNING: ufw add failed: {rule}")
+            continue
+        applied.append(rule)
+    return applied
 
 
 def prune_ufw(stale: list[dict]) -> None:
@@ -187,13 +204,33 @@ def prune_ufw(stale: list[dict]) -> None:
 
 
 def _docker_user_match(rule: dict) -> list[str]:
-    """The match portion (everything except -A/-C/-D DOCKER-USER and -j)."""
+    """The match portion (everything except -A/-C/-D DOCKER-USER and -j).
+
+    The port is matched on conntrack's ORIGINAL destination, not --dport.
+    DOCKER-USER hangs off FORWARD, which runs AFTER nat/PREROUTING has
+    already DNAT'd the published port to the container -- and that rewrite
+    changes the port number whenever the published port differs from the
+    container port. `--dport 18080` therefore matches nothing once Docker
+    has turned it into `172.18.0.12:8080`.
+
+    That is not theoretical: bench 050b found Gatus (18080 -> 8080),
+    Healthchecks (18000 -> 8000) and the Beszel hub (18190 -> 8090) all
+    answering from off-box with their DROP rules installed and sitting at
+    zero packets. The guard had been correct-looking for as long as it has
+    existed only because the one restricted docker-bound port that predated
+    them, the Portainer UI, publishes 9000 -> 9000 and so is unchanged by
+    the DNAT.
+
+    --ctorigdstport matches the port the client actually dialled, which is
+    what the declaration is about, and is unaffected by the rewrite.
+    """
     argv: list[str] = []
     if rule.get("iface"):
         argv += ["-i", rule["iface"]]
     if rule.get("from"):
         argv += ["-s", rule["from"]]
-    argv += ["-p", rule["proto"], "--dport", rule["port"]]
+    argv += ["-p", rule["proto"],
+             "-m", "conntrack", "--ctorigdstport", rule["port"]]
     return argv
 
 
@@ -201,22 +238,38 @@ def _docker_user_chain_present() -> bool:
     return _run(["iptables", "-nL", "DOCKER-USER"]) == 0
 
 
-def apply_docker_user(rules: list[dict]) -> None:
+def apply_docker_user(rules: list[dict]) -> list[dict]:
     """Append RETURN/DROP guards in plan order (RETURN before DROP), each
     guarded by `iptables -C` so re-runs are no-ops. Docker recreates the
-    chain empty on restart; on a clean chain the append order is correct."""
+    chain empty on restart; on a clean chain the append order is correct.
+
+    Returns the rules actually applied. These are the guards that keep a
+    docker-bound RESTRICTED port off the public internet -- Docker's DNAT
+    bypasses ufw INPUT entirely, so with no DOCKER-USER rule the port is
+    simply open. Returning early on an absent chain and letting the caller
+    record the plan as applied meant a host could publish every restricted
+    port while its own artifacts said otherwise.
+    """
     if not rules:
-        return
+        return []
     if not _docker_user_chain_present():
-        log("DOCKER-USER chain absent (docker not up yet); deferring to next start")
-        return
+        log("ERROR: DOCKER-USER chain absent; "
+            f"{len(rules)} restricted port guard(s) NOT applied and every "
+            "port they cover is reachable. Deferred to the next docker.service "
+            "start, which the drop-in fires -- but until then this is open.")
+        return []
+    applied: list[dict] = []
     for rule in rules:
         full = ["DOCKER-USER", *_docker_user_match(rule), "-j", rule["action"]]
-        if _run(["iptables", "-C", *full]) != 0:
-            if _run(["iptables", "-A", *full]) == 0:
-                log(f"appended DOCKER-USER {rule['action']} {rule['proto']}/{rule['port']}")
-            else:
-                log(f"WARNING: iptables append failed: {full}")
+        if _run(["iptables", "-C", *full]) == 0:
+            applied.append(rule)
+            continue
+        if _run(["iptables", "-A", *full]) == 0:
+            log(f"appended DOCKER-USER {rule['action']} {rule['proto']}/{rule['port']}")
+            applied.append(rule)
+        else:
+            log(f"WARNING: iptables append failed: {full}")
+    return applied
 
 
 def prune_docker_user(stale: list[dict]) -> None:
@@ -233,11 +286,18 @@ def prune_docker_user(stale: list[dict]) -> None:
 # ─── Effective-set output (read by validation) ─────────────────────────────
 
 
-def write_effective(entries: list[pp.PortEntry]) -> None:
+def write_effective(entries: list[pp.PortEntry], unapplied: int = 0) -> None:
+    """Write the three artifacts validation reads.
+
+    They describe what the registry DECLARES. `unapplied` rides in the
+    summary because it is the only field that says whether the host is
+    actually in that state -- without it a scan of a host whose DOCKER-USER
+    guards never installed reads exactly like a scan of a correct one.
+    """
     for path, content in (
         (EFFECTIVE_JSON, pp.to_effective_json(entries)),
         (EFFECTIVE_DOC, pp.render_doc(entries)),
-        (EFFECTIVE_SUMMARY, pp.summary_json(entries)),
+        (EFFECTIVE_SUMMARY, pp.summary_json(entries, rules_unapplied=unapplied)),
     ):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = f"{path}.tmp"
@@ -248,7 +308,8 @@ def write_effective(entries: list[pp.PortEntry]) -> None:
         os.replace(tmp, path)
 
 
-def reconcile() -> list[pp.PortEntry]:
+def reconcile() -> tuple[list[pp.PortEntry], int]:
+    """Apply the plan. Returns (effective entries, count NOT applied)."""
     infra = load_infra_fragments()
     labels = harvest_label_entries()
     entries = pp.merge(infra, labels)  # infra wins ties
@@ -263,16 +324,32 @@ def reconcile() -> list[pp.PortEntry]:
     prune_ufw([r for r in stale if r["engine"] == "ufw"])
     prune_docker_user([r for r in stale if r["engine"] == "docker-user"])
 
-    apply_ufw([r for r in plan if r["engine"] == "ufw"])
-    apply_docker_user([r for r in plan if r["engine"] == "docker-user"])
-    save_applied(plan)
-    write_effective(entries)
+    applied = apply_ufw([r for r in plan if r["engine"] == "ufw"])
+    applied += apply_docker_user([r for r in plan if r["engine"] == "docker-user"])
+
+    # Record what was APPLIED, not what was planned. The two used to be the
+    # same variable, so a rule that failed to install was indistinguishable
+    # from one that installed cleanly on every subsequent run.
+    save_applied(applied)
+    unapplied = len(plan) - len(applied)
+    write_effective(entries, unapplied)
+
     log(
         f"reconciled {len(entries)} port entries "
-        f"({len([e for e in entries if e.scope == 'any'])} public)"
+        f"({len([e for e in entries if e.scope == 'any'])} public), "
+        f"{len(applied)}/{len(plan)} firewall rules applied"
     )
-    return entries
+    if unapplied:
+        log(f"ERROR: {unapplied} firewall rule(s) NOT applied -- the effective "
+            f"set written to {EFFECTIVE_JSON} describes what is DECLARED, and "
+            "the host is not in that state")
+    return entries, unapplied
 
 
 if __name__ == "__main__":
-    reconcile()
+    # Non-zero when the plan was not fully applied. The unit exiting 0 while
+    # restricted ports sat unguarded is the whole defect: systemd recorded
+    # success, validation read artifacts that described the declared state,
+    # and nothing anywhere said the rules were missing.
+    _entries, _unapplied = reconcile()
+    sys.exit(1 if _unapplied else 0)

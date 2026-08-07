@@ -3,11 +3,11 @@
 #
 # Synapse reads the OIDC client_id + client_secret + issuer from its
 # homeserver.yaml at boot (rendered by the element template's
-# catena-synapse-init.py from env vars). The Dokploy template passes
-# OIDC_CLIENT_SECRET={{ '{{' }} vault_element_oidc_client_secret {{ '}}' }} into
+# catena-synapse-init.py from env vars). The catena template passes
+# OIDC_CLIENT_SECRET={{ '{{' }} element_oidc_client_secret {{ '}}' }} into
 # the synapse service environment, so registering the matching client
 # here -- with the same secret -- lets the discovery URL work the
-# moment the operator clicks Deploy in the Dokploy UI.
+# moment the operator clicks Deploy in the Portainer UI.
 #
 # This file lives in the same /config dir as realm-vps.yaml so
 # keycloak-config-cli's IMPORT_FILES_LOCATIONS=/config/*.yaml glob
@@ -15,7 +15,7 @@
 # preserve the base realm and add this client.
 #
 # Per-call REST credentials for TURN are HMAC-SHA1 over the shared
-# vault_turn_static_auth_secret -- not Keycloak's business. This file
+# turn_static_auth_secret -- not Keycloak's business. This file
 # governs only browser-to-homeserver login.
 
 realm: {{ keycloak_realm }}
@@ -30,7 +30,7 @@ clients:
     implicitFlowEnabled: false
     directAccessGrantsEnabled: false
     serviceAccountsEnabled: false
-    secret: "{{ vault_element_oidc_client_secret }}"
+    secret: "{{ element_oidc_client_secret }}"
     # Synapse's OIDC callback path is well-known + version-stable.
     redirectUris:
       - "https://matrix.{{ cloudflare_zone }}/_synapse/client/oidc/callback"

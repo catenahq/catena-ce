@@ -21,10 +21,10 @@ triggered -> /fail ping (check flips DOWN + fans out to every project
 channel). `?create=1` auto-provisions the beszel-<slug> check on first
 fire, exactly like the Gatus path in notifications.md.
 
-Runs inside a python:alpine container on dokploy-network. Config via env:
+Runs inside a python:alpine container on catena-network. Config via env:
 
     HC_URL        Healthchecks base, e.g. http://healthchecks:8000
-    HC_PING_KEY   the project ping key (vault_healthchecks_ping_key)
+    HC_PING_KEY   the project ping key (healthchecks_ping_key)
     LISTEN_PORT   port to listen on (default 8099)
 """
 

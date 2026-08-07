@@ -11,23 +11,37 @@
 services:
   app:
     image: {{ healthchecks_image }}
-    restart: unless-stopped
+    # `restart:` is ignored by `docker stack deploy`; swarm reads
+    # deploy.restart_policy.
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 5s
     environment:
       SITE_ROOT: "https://{{ healthchecks_hostname }}"
       SITE_NAME: "{{ cloudflare_zone }} heartbeats"
-      ALLOWED_HOSTS: "{{ healthchecks_hostname }},{{ healthchecks_network_alias }},localhost"
-      SECRET_KEY: "{{ vault_healthchecks_secret_key }}"
+      # 127.0.0.1 is not decoration. Django matches ALLOWED_HOSTS against the
+      # literal Host header, and every host-side consumer dials the loopback
+      # publish below BY IP: gatus-sync (HEALTHCHECKS_API_URL), the clamav
+      # watchdog and the mail canary (HEALTHCHECKS_LOOPBACK_PORT). With only
+      # "localhost" in this list all three got 400 DisallowedHost -- verified
+      # against healthchecks/healthchecks:v4.3 directly: Host 127.0.0.1 -> 400,
+      # Host localhost -> 401 (reached the app). Two watchdogs and the panel's
+      # check summary were failing in a way that looks exactly like "nothing to
+      # report".
+      ALLOWED_HOSTS: "{{ healthchecks_hostname }},{{ healthchecks_network_alias }},localhost,127.0.0.1"
+      SECRET_KEY: "{{ healthchecks_secret_key }}"
       DEBUG: "False"
       # Closed registration -- oauth2-proxy + Keycloak gate the UI, and our seed
       # task (healthchecks-seed.py.j2, step 0) creates the operator
       # superuser + default Project on first converge. SUPERUSER_EMAIL
       # and SUPERUSER_PASSWORD below are INERT to this image's
       # entrypoint (upstream runs migrations only, no auto-bootstrap);
-      # they're kept here so `docker inspect` surfaces the expected
-      # password for the vault-recovery tool (extract_secrets_core.py).
+      # they're kept here for visibility/parity so the expected
+      # superuser credentials are discoverable on the running container.
       REGISTRATION_OPEN: "False"
       SUPERUSER_EMAIL: "{{ admin_email }}"
-      SUPERUSER_PASSWORD: "{{ vault_healthchecks_superuser_password }}"
+      SUPERUSER_PASSWORD: "{{ healthchecks_superuser_password }}"
       # PING_KEY is set here for convention/visibility, but Healthchecks
       # actually routes auto-provisioning against Project.ping_key in the
       # DB -- not this env var. The seed task in healthchecks.yml writes
@@ -35,7 +49,7 @@ services:
       # tooling that expects PING_KEY to be present sees it.
       # Auto-provision URL: /ping/<ping_key>/<slug>?create=1 (the ?create=1
       # is required -- without it, unknown slugs 404).
-      PING_KEY: "{{ vault_healthchecks_ping_key }}"
+      PING_KEY: "{{ healthchecks_ping_key }}"
       DB: "sqlite"
       DB_NAME: "/data/hc.sqlite"
       # Alerts route out via ntfy (seeded automatically by the bootstrap
@@ -65,17 +79,33 @@ services:
       REMOTE_USER_HEADER: "HTTP_X_FORWARDED_EMAIL"
     volumes:
       - healthchecks-data:/data
-    # Loopback-only publish so gatus-sync (host-side) can reach
-    # /api/v3/checks/ at 127.0.0.1:{{ healthchecks_host_localhost_port }}.
-    # UFW leaves loopback alone so this is never externally reachable.
+    # Host-mode publish so the host-side consumers can reach /api/v3/checks/
+    # on {{ healthchecks_host_localhost_port }}: gatus-sync, the clamav
+    # watchdog and the mail canary all dial it by IP, which is why
+    # ALLOWED_HOSTS above carries 127.0.0.1.
+    #
+    # Long syntax with mode: host is mandatory -- the short form deploys as
+    # an INGRESS publish under swarm. No host_ip: swarm's PortConfig has no
+    # host-IP field and `docker stack deploy` REFUSES the key rather than
+    # ignoring it, so the bind is 0.0.0.0 and the port is DECLARED
+    # scope=loopback in the public-port registry, which is what denies it
+    # off-box.
     ports:
-      - "127.0.0.1:{{ healthchecks_host_localhost_port }}:{{ healthchecks_internal_port }}"
+      - target: {{ healthchecks_internal_port }}
+        published: {{ healthchecks_host_localhost_port }}
+        protocol: tcp
+        mode: host
     networks:
-      dokploy-network:
+      catena-network:
         aliases:
           - {{ healthchecks_network_alias }}
     labels:
-      - traefik.enable=true
+      # FALSE on purpose -- see the note in gatus.compose.yml.j2. The route is
+      # synthesised from the vps.auth.* labels below into the FILE provider;
+      # `true` only made the docker provider mint a dotless
+      # `healthchecks-app-1-<taskid>` router that asked a public CA for an
+      # impossible certificate on every converge.
+      - traefik.enable=false
       # Auth posture (vps.auth.* convention, see
       # docs/operator/client-app-templates/README.md). Pinned to
       # oauth2_proxy_staff_apps in defaults/main.yml by the unit test
@@ -87,5 +117,5 @@ volumes:
   healthchecks-data:
 
 networks:
-  dokploy-network:
+  catena-network:
     external: true

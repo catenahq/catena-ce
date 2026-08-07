@@ -1,43 +1,68 @@
 ---
-# Deploy self-hosted Healthchecks as a Dokploy-managed compose app ->
+# Deploy self-hosted Healthchecks as a Portainer-managed compose app ->
 # heartbeat.<zone>. Purpose-built cron/dead-man monitoring -- the OSS
 # project behind healthchecks.io. One container, SQLite, no metrics,
 # ntfy-capable. Replaces the Netdata detour earlier in the session.
 #
-# Auto-provision: vault_healthchecks_ping_key is a random value minted
+# Auto-provision: healthchecks_ping_key is a random value minted
 # at install time. The backup script pings
 # http://healthchecks:8000/ping/<ping_key>/<slug> and Healthchecks
 # creates the check on first ping. Zero manual UI step for the baseline
 # backup heartbeat; operator only has to log in once to wire up ntfy.
 
-# Preflight -- fail loudly if the vault is missing any of the keys the
-# compose + seed tasks need. Common case: an existing inventory that
-# predates a new vault_healthchecks_* key. Point operator at the fix.
-- name: "Healthchecks: preflight vault keys"
+# Preflight -- fail loudly if the on-box store is missing any of the keys
+# the compose + seed tasks need. They are all internal-minted, so a gap
+# here means the loader did not run or the store was truncated.
+- name: "Healthchecks: preflight secret keys"
   ansible.builtin.assert:
     that:
-      - vault_healthchecks_secret_key is defined
-      - vault_healthchecks_superuser_password is defined
-      - vault_healthchecks_ping_key is defined
-      - vault_healthchecks_api_key_readonly is defined
-      - vault_healthchecks_api_key_readwrite is defined
+      - healthchecks_secret_key is defined
+      - healthchecks_superuser_password is defined
+      - healthchecks_ping_key is defined
+      - healthchecks_api_key_readonly is defined
+      - healthchecks_api_key_readwrite is defined
     fail_msg: >-
-      Missing Healthchecks vault keys -- looks like your vault was
-      minted before one of them was added. Run:
-        uv run operator-tools/migrate_inventory.py -i inventory/<name>/
-      to auto-mint any missing vault_healthchecks_* values, then
-      re-run ./catena site. On fresh installs,
-      `./catena --fresh-install` handles this automatically.
+      Missing Healthchecks secrets. Every vault_healthchecks_* value is
+      minted on the box by the converge loader, so a gap here means the
+      on-box store at /etc/catena/config.json was not loaded.
 
 # Forward-auth route reintroduced in plan step 4 (roles/oauth2_proxy)
 # as healthchecks-oauth2-proxy.yml.
 
-- name: "Healthchecks: deploy via Dokploy API"
-  ansible.builtin.include_tasks: dokploy_compose.yml
+# Host-mode publish (swarm cannot bind 127.0.0.1), so the port is a real
+# host bind. scope=loopback denies it everywhere but lo, which is what the
+# ALLOWED_HOSTS 127.0.0.1 entry above assumes about who can reach it.
+#
+# bind=docker because a swarm host-mode publish is DNAT'd and bypasses ufw
+# INPUT -- see the note in gatus.yml; the enforcing chain is DOCKER-USER.
+- name: "Healthchecks: declare the host-side API port (registry fragment, loopback-only)"
+  ansible.builtin.copy:
+    dest: "{{ public_ports_fragment_dir }}/healthchecks.json"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {{
+        [
+          {"proto": "tcp", "port": healthchecks_host_localhost_port | int,
+           "scope": "loopback", "bind": "docker", "owner": "healthchecks",
+           "comment": "Healthchecks API for gatus-sync + the host watchdogs -- this host only"}
+        ] | to_nice_json
+      }}
+  register: _healthchecks_ports_fragment
+
+- name: "Healthchecks: reconcile public ports now (fragment changed)"
+  ansible.builtin.systemd_service:
+    name: catena-public-ports.service
+    state: started
+  changed_when: false
+  when: _healthchecks_ports_fragment.changed
+
+- name: "Healthchecks: deploy as a swarm stack"
+  ansible.builtin.include_tasks: swarm_stack.yml
   vars:
     svc_name: "{{ healthchecks_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'healthchecks.compose.yml.j2') }}"
-    svc_env: []
     svc_domain_host: "{{ healthchecks_hostname }}"
     svc_domain_service: "app"
     svc_domain_port: "{{ healthchecks_internal_port }}"
@@ -49,10 +74,10 @@
       Verified by the aggregate post-role probe in main.yml.
 
 # ─── Bootstrap channel + check via Django shell ──────────────────────
-# Seeds: (a) an ntfy Channel wired to the operator's topic, (b) a
-# "catena-backup" Check with daily schedule + 2h grace, (c) binds
-# the channel to the check. Idempotent -- re-running on an existing
-# install just reconciles. Runs on the Dokploy-assigned container
+# Seeds: (a) an ntfy Channel wired to the operator's topic, (b) the
+# "catena-backup-succeeded" + "catena-backup-attempted" Checks, (c) binds
+# the channel to both. Idempotent -- re-running on an existing
+# install just reconciles. Runs on the Portainer-assigned container
 # name; retries while the container + Django + migrations come up.
 #
 # Budget: 60 × 5s = 300s (5 min). Covers cold image pulls without
@@ -62,7 +87,7 @@
 - name: "Healthchecks: find running container"
   ansible.builtin.shell: |
     set -o pipefail
-    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ healthchecks_compose_name | dokploy_container_regex("app") }}' || true
+    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ healthchecks_compose_name | swarm_container_regex("app") }}' || true
   args:
     executable: /bin/bash
   register: _healthchecks_container_name
@@ -76,8 +101,8 @@
 # docker service ps --no-trunc) so a timeout on the bench -- where
 # the VM is torn down before the
 # operator can shell in -- still yields enough signal to classify
-# the failure: image pull / swarm placement / Dokploy never
-# scheduled the compose.
+# the failure: image pull / swarm placement / the control plane
+# never scheduled the compose.
 - name: "Healthchecks: diag -- docker ps -a (container-level state)"
   ansible.builtin.shell: |
     docker ps -a --format 'table {{ "{{" }}.Names{{ "}}" }}\t{{ "{{" }}.Status{{ "}}" }}\t{{ "{{" }}.Image{{ "}}" }}' \
@@ -130,7 +155,7 @@
   ansible.builtin.fail:
     msg: |
       Timed out (300s) waiting for a running container matching
-      '^{{ healthchecks_compose_name }}-[a-z0-9]+-app-1$'.
+      '{{ healthchecks_compose_name | swarm_container_regex("app") }}'.
 
       Diagnostic output dumped above (docker ps -a, docker service ls,
       docker service ps --no-trunc). Interpret:
@@ -138,9 +163,9 @@
           -> app crashed; check `docker logs` of that container.
         - Task in `docker service ps` with Rejected / Failed + an Error
           column -> image pull / placement / config failure.
-        - Service replicas=0/1 and no task history -> Dokploy accepted
-          the compose but never scheduled it; check Dokploy compose
-          status in the admin UI.
+        - Service replicas=0/1 and no task history -> the control plane
+          accepted the compose but never scheduled it; check the stack
+          status in the Portainer UI.
   when: (_healthchecks_container_name.stdout | default('') | trim) | length == 0
 
 # The Django seed lives at vps-scripts/healthchecks-seed.py -- plain
@@ -187,11 +212,11 @@
   ansible.builtin.shell: >-
     docker exec -i
     -e CATENA_ADMIN_EMAIL={{ admin_email | quote }}
-    -e CATENA_HC_SUPERUSER_PASSWORD={{ vault_healthchecks_superuser_password | quote }}
+    -e CATENA_HC_SUPERUSER_PASSWORD={{ healthchecks_superuser_password | quote }}
     -e CATENA_INVENTORY_HOSTNAME={{ inventory_hostname | quote }}
-    -e CATENA_HC_API_KEY_READONLY={{ vault_healthchecks_api_key_readonly | quote }}
-    -e CATENA_HC_API_KEY_READWRITE={{ (vault_healthchecks_api_key_readwrite | default('')) | quote }}
-    -e CATENA_HC_PING_KEY={{ vault_healthchecks_ping_key | quote }}
+    -e CATENA_HC_API_KEY_READONLY={{ healthchecks_api_key_readonly | quote }}
+    -e CATENA_HC_API_KEY_READWRITE={{ (healthchecks_api_key_readwrite | default('')) | quote }}
+    -e CATENA_HC_PING_KEY={{ healthchecks_ping_key | quote }}
     -e CATENA_NTFY_TOPIC={{ ntfy_topic | quote }}
     -e CATENA_NTFY_SERVER={{ ntfy_server | quote }}
     {{ _healthchecks_container_name.stdout }}
@@ -202,3 +227,18 @@
   delay: 5
   until: _healthchecks_seed.rc == 0
   no_log: true
+
+# Say it out loud on the converge. The seed script prints the same thing, but
+# that task runs no_log (it carries the superuser password), so the operator
+# would never see it. A host whose alerts go nowhere must not be a host that
+# looks exactly like a healthy one -- checks still record every ping, but
+# nothing is pushed anywhere until a channel exists.
+- name: "Healthchecks: warn when no notification channel is configured"
+  ansible.builtin.debug:
+    msg: >-
+      No alert delivery configured on this host: NTFY_SERVER and NTFY_TOPIC
+      must BOTH be set for the converge to seed a channel. Healthchecks will
+      record pings and mark checks down, but nothing will be pushed. Point
+      them at your own ntfy, or have the client attach a channel through the
+      Healthchecks integrations UI.
+  when: not (ntfy_server | default('') | trim) or not (ntfy_topic | default('') | trim)

@@ -61,10 +61,9 @@
 - name: "WordPress plugins: skip wiring (no running container)"
   ansible.builtin.debug:
     msg: >-
-      WordPress not yet deployed in Dokploy ({{ dokploy_admin_hostname }}
-      / Templates / wordpress). On the next converge AFTER the operator
-      clicks Deploy and runs the install wizard, this task will
-      auto-install the curated plugin set.
+      WordPress not yet deployed (Portainer marketplace / wordpress). On
+      the next converge AFTER the operator clicks Deploy and runs the
+      install wizard, this task will auto-install the curated plugin set.
   when: (_wp_ct.stdout | default('') | length) == 0
 
 - name: "WordPress plugins: wire when container is up"
@@ -314,12 +313,12 @@
     # the WPMS_SMTP_PASS constant in WORDPRESS_CONFIG_EXTRA wins,
     # keeping the password out of the WP database. The constant
     # itself is set from the WPMS_SMTP_PASS env var (auto-healed
-    # via env_managed_keys from vault_smtp_password).
+    # via env_managed_keys from smtp_password).
     - name: "WordPress plugins: resolve SMTP facts from inventory"
       ansible.builtin.set_fact:
-        _wp_smtp_resend_sender: "{{ lookup('dotenv', 'RESEND_SENDER_EMAIL', default='') }}"
-        _wp_smtp_brevo_sender: "{{ lookup('dotenv', 'BREVO_SENDER_EMAIL', default='') }}"
-        _wp_smtp_raw_host: "{{ lookup('dotenv', 'SMTP_HOST', default='') }}"
+        _wp_smtp_resend_sender: "{{ cfg_resend_sender_email | default('') }}"
+        _wp_smtp_brevo_sender: "{{ cfg_brevo_sender_email | default('') }}"
+        _wp_smtp_raw_host: "{{ cfg_smtp_host | default('') }}"
       when: _wp_installed.rc == 0
 
     - name: "WordPress plugins: derive consolidated SMTP config"
@@ -339,19 +338,19 @@
         _wp_smtp_port: >-
           {{
             587 if ((_wp_smtp_resend_sender | length > 0) or (_wp_smtp_brevo_sender | length > 0))
-            else (lookup('dotenv', 'SMTP_PORT', default='587') | int)
+            else (cfg_smtp_port | default('587') | int)
           }}
         _wp_smtp_user: >-
           {{
             'resend' if (_wp_smtp_resend_sender | length > 0)
-            else (lookup('dotenv', 'BREVO_SMTP_USER', default='') if (_wp_smtp_brevo_sender | length > 0)
-            else lookup('dotenv', 'SMTP_USER', default=''))
+            else (cfg_brevo_smtp_user | default('') if (_wp_smtp_brevo_sender | length > 0)
+            else cfg_smtp_user | default(''))
           }}
         _wp_smtp_from: >-
           {{
             _wp_smtp_resend_sender if (_wp_smtp_resend_sender | length > 0)
             else (_wp_smtp_brevo_sender if (_wp_smtp_brevo_sender | length > 0)
-            else lookup('dotenv', 'SMTP_FROM', default=''))
+            else cfg_smtp_from | default(''))
           }}
       when: _wp_installed.rc == 0
 

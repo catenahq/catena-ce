@@ -8,3 +8,7 @@ coverage.*
 .DS_Store
 *.swp
 .token-savior-cache.json
+
+# Python (PEP723 scripts under .github/scripts leave bytecode caches)
+__pycache__/
+*.pyc

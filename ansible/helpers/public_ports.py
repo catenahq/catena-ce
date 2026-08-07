@@ -10,10 +10,21 @@ port, consumed everywhere.
 
 Two feeders, one merged effective set:
 
-  - Infra roles declare a `public_ports` list var (coturn, the Dokploy UI).
-    Each entry is host-bound (the service uses host networking or a swarm
-    host-mode publish), so ufw INPUT actually sees the traffic.
-  - Dokploy templates declare `vps.expose.tcp/udp` compose labels. Those
+  - Infra roles declare a `public_ports` list var (coturn, the Portainer UI).
+
+    `bind` says which chain can actually enforce the entry, and the two are
+    NOT interchangeable. True host networking (`--network host`) puts the
+    listener in the host's namespace, so ufw INPUT sees the traffic:
+    bind=host. Anything Docker DNATs -- an ordinary published port AND a
+    swarm `mode: host` publish -- is redirected in PREROUTING and bypasses
+    INPUT entirely: bind=docker, enforced in DOCKER-USER.
+
+    That distinction was written the wrong way here once, on the assumption
+    that a swarm host-mode publish behaves like host networking. It does
+    not. The gatus / healthchecks / beszel loopback ports were declared
+    bind=host, ufw installed their deny rules, and bench 050b then scanned
+    the bridge IP and found all three wide open.
+  - catena templates declare `vps.expose.tcp/udp` compose labels. Those
     apps publish ports via Docker, whose DNAT bypasses the ufw INPUT chain,
     so enforcement (when the scope is restricted) happens in DOCKER-USER.
     App ports default to scope `any` (that is the only reason to expose
@@ -44,12 +55,22 @@ except ImportError:
     from helpers.labels_schema import extract_vps_expose_labels, slugify
 
 # RFC 1918 source blocks: Docker bridge networks (catena-admin, oauth2-proxy,
-# the Dokploy UI dispatcher path) live here. Cannot be spoofed from the
+# the Portainer UI dispatcher path) live here. Cannot be spoofed from the
 # public internet, so a RETURN for these is safe.
 _RFC1918 = ("172.16.0.0/12", "10.0.0.0/8")
 
 VALID_PROTOS = ("tcp", "udp")
-VALID_SCOPES = ("any", "tailnet", "rfc1918")
+# `loopback` exists because a swarm service cannot publish to 127.0.0.1: the
+# swarm PortConfig API carries no host IP, so a port that compose bound to
+# the loopback becomes a host-wide bind the moment the service moves to
+# `docker service` / `docker stack deploy`. Gatus, Healthchecks and the
+# Beszel hub are each dialled by a HOST process (gatus-sync, the clamav
+# watchdog, the mail canary, beszel-seed, the host-network agent), so the
+# publish cannot simply be dropped. Declaring the port `loopback` keeps the
+# posture the 127.0.0.1 bind used to give -- reachable from the box, denied
+# on every other interface -- and makes it enforced and auditable rather
+# than a property of a compose string.
+VALID_SCOPES = ("any", "tailnet", "rfc1918", "loopback")
 VALID_BINDS = ("host", "docker")
 
 
@@ -109,7 +130,7 @@ def normalize_infra(public_ports: list[dict] | None) -> list[PortEntry]:
     Each raw entry: {proto, port, scope?, bind?, owner?, comment?}.
       - proto: tcp|udp (required)
       - port:  int | "n" | "lo-hi" | "lo:hi" (required)
-      - scope: any|tailnet|rfc1918 (default any)
+      - scope: any|tailnet|rfc1918|loopback (default any)
       - bind:  host|docker (default host -- infra ports are host-bound)
     Raises PortDeclError on any invalid field."""
     out: list[PortEntry] = []
@@ -195,7 +216,7 @@ def bound_tcp_ports(entries: list[PortEntry]) -> list[int]:
     """Every individual TCP port BOUND on the host, any scope. This is what
     an on-host `ss -tlnp4` sees as a 0.0.0.0 listener, so it is the allowlist
     for validate.yml's host-port-binding drift check (which includes
-    tailnet-scoped ports like the Dokploy UI -- they are bound, just
+    tailnet-scoped ports like the Portainer UI -- they are bound, just
     firewall-restricted)."""
     ports: set[int] = set()
     for e in entries:
@@ -215,7 +236,7 @@ def public_open_tcp_ports(entries: list[PortEntry]) -> list[int]:
     return sorted(ports)
 
 
-def summary_json(entries: list[PortEntry]) -> str:
+def summary_json(entries: list[PortEntry], *, rules_unapplied: int = 0) -> str:
     """Precomputed integer port lists for validation consumers, so the
     Ansible side never has to expand ranges in Jinja:
       - all_tcp_bound:  TCP ports bound on the host (any scope) -> the
@@ -224,11 +245,19 @@ def summary_json(entries: list[PortEntry]) -> str:
       - public_open:    ports reachable from the public internet (scope=any,
         tcp+udp) -> documentation / completeness.
       - public_open_tcp: scope=any TCP ports -> the external nmap expectation
-        (the scanner is TCP-only)."""
+        (the scanner is TCP-only).
+      - rules_unapplied: firewall rules the last reconcile planned and could
+        NOT install. Every list above describes what the registry DECLARES;
+        this one is the only field that says whether the host is in that
+        state. Non-zero means at least one restricted port is reachable
+        despite the lists saying it is guarded -- validate.yml asserts it is
+        zero, because a scan run against a host whose guards never installed
+        would otherwise read as a clean scan of a correct host."""
     return json.dumps(
         {"all_tcp_bound": bound_tcp_ports(entries),
          "public_open": expected_open_ports(entries),
-         "public_open_tcp": public_open_tcp_ports(entries)},
+         "public_open_tcp": public_open_tcp_ports(entries),
+         "rules_unapplied": int(rules_unapplied)},
         indent=2,
     )
 
@@ -274,6 +303,7 @@ def render_doc(entries: list[PortEntry]) -> str:
         "- **scope `any`** -- reachable from the public internet.",
         "- **scope `tailnet`** -- tailscale0 + RFC1918 only (enforced; public refused).",
         "- **scope `rfc1918`** -- Docker bridge networks only.",
+        "- **scope `loopback`** -- this host only; every other interface denied.",
         "",
         "| Proto | Port | Scope | Bind | Owner | Note |",
         "| --- | --- | --- | --- | --- | --- |",
@@ -305,10 +335,12 @@ def render_doc(entries: list[PortEntry]) -> str:
 #   any      -> ufw allow <spec>/<proto> (public)
 #   tailnet  -> ufw allow in on tailscale0 + ufw allow from rfc1918
 #   rfc1918  -> ufw allow from rfc1918
+#   loopback -> ufw deny <spec>/<proto> (lo is accepted by ufw's before-rules)
 # Plus, for docker bind only, the DNAT-path guard:
 #   any      -> nothing (Docker default-publishes the DNAT path open)
 #   tailnet  -> DOCKER-USER: RETURN tailscale0, RETURN rfc1918, DROP
 #   rfc1918  -> DOCKER-USER: RETURN rfc1918, DROP
+#   loopback -> DOCKER-USER: DROP (no allowed source on the DNAT path)
 #
 # This mirrors the proven two-layer port-3000 guard (ufw tailscale0 +
 # DOCKER-USER RETURN/DROP). DROP-last ordering matches it.
@@ -318,6 +350,19 @@ def _ufw_layer(e: PortEntry) -> list[dict]:
     """ufw INPUT-chain rules for one entry, by scope (bind-independent)."""
     if e.scope == "any":
         return [{"engine": "ufw", "action": "allow", "proto": e.proto,
+                 "port": e.port_spec, "from": "any", "owner": e.owner}]
+    if e.scope == "loopback":
+        # ufw's before-rules ACCEPT everything arriving on lo, so denying the
+        # port closes every other interface without touching host-local
+        # traffic -- which is the whole point: the host processes that dial
+        # this port keep working, nothing off-box can reach it.
+        #
+        # The default INPUT policy already denies. This rule is what makes
+        # the intent AUDITABLE (it shows up in `ufw status` and in the
+        # generated inventory next to the port it guards) and what stops a
+        # later broad `ufw allow` from silently widening a port nobody
+        # remembers is host-only -- ufw is first-match, so the deny wins.
+        return [{"engine": "ufw", "action": "deny", "proto": e.proto,
                  "port": e.port_spec, "from": "any", "owner": e.owner}]
     rules: list[dict] = []
     if e.scope == "tailnet":
@@ -335,6 +380,25 @@ def _docker_user_layer(e: PortEntry) -> list[dict]:
     is open by Docker default) or host bind (no DNAT)."""
     if e.bind != "docker" or e.scope == "any":
         return []
+    if e.lo != e.hi:
+        # The reconciler matches these on conntrack's ORIGINAL destination
+        # port, because DOCKER-USER runs after the DNAT has rewritten the
+        # port -- and --ctorigdstport takes a single port, with no range
+        # form. Refuse the declaration rather than emit a guard that
+        # silently covers one port of the range: an unenforceable rule that
+        # installs cleanly is the failure mode this whole module exists to
+        # avoid. No such entry exists today (infra ranges are host-bound,
+        # and label-declared app ranges are scope=any).
+        raise PortDeclError(
+            f"docker-bound {e.scope} range {e.port_spec}/{e.proto} cannot be "
+            f"guarded: the DNAT-path match takes a single port"
+        )
+    if e.scope == "loopback":
+        # Nothing RETURNs first. The DNAT path carries no loopback traffic,
+        # so every packet that reaches this chain for the port arrived from
+        # off-box and there is no allowed source to spare.
+        return [{"engine": "docker-user", "action": "DROP", "proto": e.proto,
+                 "port": e.port_spec, "owner": e.owner}]
     rules: list[dict] = []
     if e.scope == "tailnet":
         rules.append({"engine": "docker-user", "action": "RETURN", "proto": e.proto,

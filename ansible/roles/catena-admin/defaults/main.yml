@@ -1,15 +1,134 @@
 ---
 # roles/catena-admin -- per-VPS admin panel (the catena-admin Go shell).
 #
-# The role manages HOST-SIDE state for the catena-admin container.
-# The container itself is deployed via Dokploy's git-source compose
-# flow. See README.md.
+# The role manages the container's HOST-SIDE state (host.yml + catalog.yml)
+# AND deploys the container itself as a Portainer stack (deploy.yml, pulling
+# catena_admin_image). See README.md.
 
 # --- Hostname ---------------------------------------------------------
 # The admin panel is served at dash.<zone> by default. Override the
 # subdomain via CATENA_ADMIN_SUBDOMAIN in the inventory's .env.
 catena_admin_subdomain: "{{ lookup('dotenv', 'CATENA_ADMIN_SUBDOMAIN', default='dash') }}"
 catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
+
+# --- Container image + port -------------------------------------------
+# PUBLIC catena-admin image the converge deploys (deploy.yml). Clients
+# PULL this at converge time -- they never build on the client box (no Go
+# toolchain on a client VPS). Published by the private catena-admin repo's
+# publish-image.yml on a v* tag from main; the IMAGE is public (anonymous
+# pull, no registry credential) while the Business feature set inside it
+# is gated at runtime by the license check. Defaults to the floating
+# :latest GHCR tag; pin to an immutable @sha256 digest here once the first
+# publish lands, and let the version bumper manage the pin thereafter. The
+# bench does not use this var (it builds local/catena-admin:bench on the
+# VPS and passes that tag).
+catena_admin_image: "ghcr.io/catenahq/catena-admin:latest"
+
+# The digest roles/payload refuses to extract anything from unless it matches
+# (see roles/payload/defaults/main.yml). It lives here too because the two
+# roles must agree: roles/payload takes the ENGINES out of an image and
+# roles/catena-admin runs the SHELL from one, and a host holding an engine and
+# a panel built from different images is the disagreement this role's header
+# already warns about -- one value drives both.
+#
+# Empty until the first v* tag publishes, which is also why catena_admin_image
+# is still on :latest. Pin both together, not one at a time.
+catena_admin_image_digest: "{{ catena_payload_image_digest | default('') }}"
+
+# Deploy the catena-admin container FROM the converge (deploy.yml). Production
+# pulls the published GHCR image at converge time. The test bench builds the
+# image on the VPS and deploys it OUT OF BAND (stage-2.6, build-on-host per the
+# resolved 1z decision) -- the published GHCR image does not exist there -- so
+# the bench sets CATENA_ADMIN_DEPLOY_FROM_CONVERGE=false to skip the converge
+# deploy. Production leaves it true.
+catena_admin_deploy_from_converge: >-
+  {{ lookup('env', 'CATENA_ADMIN_DEPLOY_FROM_CONVERGE', default='true') | bool }}
+
+# --- tier-1 swarm service ---------------------------------------------
+# The panel is created directly with `docker service create`, not through
+# Portainer's stack API. It holds the key that drives Portainer, so being
+# deployed BY Portainer meant a broken Portainer took down the one tool that
+# could repair it -- and the post-restore path that needs the panel runs
+# precisely when Portainer is the thing that did not come back.
+#
+# The service NAME is also its DNS name on catena-network, which is what
+# roles/oauth2_proxy upstreams to (upstream_alias: catena-admin). Renaming
+# it here 502s every authenticated dash.<zone> request.
+catena_admin_service_name: "catena-admin"
+
+# Swarm secrets for the three values that must not travel in argv: the key
+# that signs native-login session cookies, the Healthchecks read key, and
+# the Portainer API key. Each real name gets the value's hash appended
+# (filter_plugins/catena_admin_service.py secret_name) because swarm secrets
+# are immutable -- a fixed name would make every rotation a silent no-op.
+#
+# The target name doubles as the env var: <KEY>_FILE points at
+# /run/secrets/<target>, which catena-admin's secretenv.go reads.
+catena_admin_secret_specs:
+  - base: catena_admin_session_key
+    target: CATENA_ADMIN_SESSION_KEY
+    value: "{{ catena_admin_session_key }}"
+  - base: catena_admin_healthchecks_key
+    target: HEALTHCHECKS_API_KEY_READONLY
+    value: "{{ healthchecks_api_key_readonly | default('') }}"
+  - base: catena_admin_portainer_key
+    target: PORTAINER_API_KEY
+    value: "{{ portainer_api_key | default('') }}"
+
+# Supplementary group. The recovery export dir is 0750 root:1000 (gid 1000
+# is the shared recovery-downloads group) and the image runs USER nonroot,
+# so without this the Recovery tab lists nothing even when the host wrote a
+# recovery zip.
+catena_admin_supplementary_gid: "1000"
+
+# Where a secret's bytes are staged for `docker secret create`. Root-owned
+# 0600 and removed in the same block that writes it.
+catena_admin_secret_staging_path: "/root/.catena-admin-secret"
+
+# Hardening subset, reconciled by swarm_service_drift on every converge.
+# No healthcheck: the image is distroless, so --health-cmd (executed as
+# /bin/sh -c) has no shell to run. Readiness is the oauth2-proxy route's
+# problem and the direct listener's own probe.
+#
+# stop-first for the same reason as Portainer: the UI port is published
+# mode=host, so two tasks cannot hold it at once and start-first would have
+# the new task fail its bind while the old one still listens.
+catena_admin_limit_memory: "512m"
+catena_admin_reserve_memory: "128m"
+catena_admin_stop_grace_period: "20s"
+catena_admin_update_failure_action: "pause"
+catena_admin_update_monitor: "30s"
+catena_admin_update_max_failure_ratio: 0
+catena_admin_update_order: "stop-first"
+
+# Placement. It bind-mounts node-LOCAL paths (the audit chain, the synced
+# payload, the SSH runner key), so it must land on the node that has them,
+# and it reaches the host dispatch, which is that node's.
+catena_admin_constraints:
+  - "node.role==manager"
+  - "node.labels.catena.role==data"
+
+catena_admin_desired:
+  image: "{{ catena_admin_image }}"
+  constraints: "{{ catena_admin_constraints }}"
+  limit_memory: "{{ catena_admin_limit_memory }}"
+  reserve_memory: "{{ catena_admin_reserve_memory }}"
+  stop_grace_period: "{{ catena_admin_stop_grace_period }}"
+  update_failure_action: "{{ catena_admin_update_failure_action }}"
+  update_monitor: "{{ catena_admin_update_monitor }}"
+  update_max_failure_ratio: "{{ catena_admin_update_max_failure_ratio }}"
+  update_order: "{{ catena_admin_update_order }}"
+
+# Port the Go shell listens on inside the container (CATENA_ADMIN_ADDR
+# in the service env; oauth2_proxy upstreams to catena-admin:8000).
+catena_admin_internal_port: 8000
+
+# Native-login listener inside the container, published on the host (tailnet-
+# only) so the panel is reachable at http://<tailnet-ip>:<catena_admin_ui_port>
+# without the Cloudflare/oauth2-proxy edge -- the same pattern as Portainer's
+# UI port. Firewalled by the public-ports registry (host.yml fragment).
+catena_admin_direct_port: 8001
+catena_admin_ui_port: "{{ lookup('dotenv', 'CATENA_ADMIN_UI_PORT', default='9010') }}"
 
 # --- Host-side runner -------------------------------------------------
 # Dedicated SSH account the admin container uses to dispatch actions on
@@ -55,17 +174,8 @@ catena_admin_state_dir: "/var/lib/catena-admin"
 
 # Source-of-truth action catalog. Rendered by catalog.yml into the
 # host dispatch table + the catalog the Go shell reads at runtime.
-# Role-relative template; carries one Jinja placeholder
-# (recovery_archive_download_url).
+# Role-relative template; the only Jinja marker is `ansible_managed`.
 catena_admin_actions_source: "{{ role_path }}/templates/actions.yml.j2"
-
-# Public URL the recovery nginx sidecar serves /var/backups/catena-export
-# from. Embedded into the generate-recovery-archive action shell at
-# converge time so the host-side script can hand a real download URL
-# to the client. infrastructure_recovery_hostname comes from
-# roles/infrastructure/defaults/main.yml.
-recovery_archive_download_url: >-
-  https://{{ infrastructure_recovery_hostname | default('recovery.' ~ cloudflare_zone | default('example.com')) }}/
 
 # Default locale + theme rendered into the admin container's env.
 # Inventory overrides via catena_default_language / catena_default_theme.
@@ -74,30 +184,427 @@ catena_admin_default_theme: "{{ catena_default_theme | default('system') }}"
 
 # Per-inventory action extras + tiles. Same shape as the canonical
 # `actions:` list in templates/actions.yml.j2 and the `tiles:` list the
-# Go shell's Apps tab consumes (internal/admin/apps).
+# Go shell's Apps tab consumes (shell/apps).
 catena_admin_extra_actions: []
 catena_admin_extra_tiles: []
 
-# EE-reserved HOST dispatch entries. The Go shell renders EE plugin action
-# BUTTONS at runtime from the downloaded plugins (audit, daily) only under an
-# active Business license, and dispatches each by NAME through the host
+# Host payload paths. roles/payload fills this dir from the image and installs
+# its contents into /usr/local/bin, right after roles/docker. The catena-admin
+# container ALSO mirrors its embedded payload here at startup, which is what
+# keeps the panel's ee-install-engines action (defaults below) able to reinstall
+# the engines on demand without a converge. Both writers, one directory -- see
+# roles/payload/README.md on the ownership dance that makes that safe.
+catena_admin_ee_payload_dir: "{{ catena_admin_stats_dir }}/ee-payload"
+catena_admin_ee_payload_installer: "{{ catena_admin_ee_payload_dir }}/install-ee-payload.sh"
+
+# The scheduling owner. Installed with the rest of the ungated payload; it
+# reads /etc/catena/config.json and is the only thing that enables a timer,
+# writes a timer OnCalendar drop-in, or renders the restic retention file.
+catena_schedule_bin: /usr/local/bin/catena-schedule
+
+# Per-host configuration for the daily orchestrator chain.
+#
+# catena-daily.service and catena-daily-resume.service both declare
+# EnvironmentFile=/etc/catena/daily.env with no leading dash, so systemd
+# fails the unit outright when the file is missing -- and until now NOTHING
+# wrote it. Not this repo, not catena-admin, not ops. The scheduled Business
+# chain could not start on any real host; only the test bench had one, because
+# the bench writes its own copy.
+#
+# It belongs to this role for the same reason the payload install does: it is
+# per-host configuration, and the converge is what knows the host. The values
+# are paths and toggles, not secrets -- the chain reads its credentials from
+# the config store like everything else.
+catena_daily_env_path: /etc/catena/daily.env
+
+# Per-host configuration for the two managed-update lanes, and the spec list
+# the container lane bumps from. Same story as daily.env above, three more
+# times: catena-auto-update{,@,-resume}.service and
+# catena-stack-update-managed.service all declare their EnvironmentFile with no
+# leading dash, nothing rendered them, and the engine's --specs-file default
+# pointed at a path nothing wrote. Both lanes were unstartable on a real host
+# and neither showed it, because the bench ships its own copies.
+#
+# Same owner as daily.env for the same reason: this role installs the payload,
+# so it is the role that knows the host these files describe.
+catena_auto_update_env_path: /etc/catena/auto-update.env
+catena_stack_update_env_path: /etc/catena/stack-update.env
+catena_managed_services_path: /etc/catena/managed-services.json
+
+# What an apply run does. security-only with a reboot when the packages ask
+# for one is the shipped posture; the chain drives this lane behind its own
+# backup and cold-verify gates.
+catena_auto_update_mode: security
+catena_auto_update_reboot: if-required
+# Zero retries after a rollback: a package set that regressed once regresses
+# again, and an apply-rollback loop is worse than a pending update.
+catena_auto_update_max_rollback_retries: 0
+# Abort before apt writes anything below this much free space (3 GiB).
+catena_auto_update_preflight_min_bytes: 3221225472
+catena_auto_update_healthcheck_url: ""
+# Tier-2 provider disk snapshot. none is a no-op; see the template for why the
+# OVH credentials are blank.
+catena_auto_update_provider: none
+catena_auto_update_provider_ovh_region: ovh-ca
+catena_auto_update_provider_ovh_vps_name: ""
+
+# Container-bump gates. Seven days of tag age because a withdrawn upstream
+# release is usually withdrawn within days and this lane runs unattended; two
+# minutes of stabilisation before the next service is bumped.
+catena_stack_update_min_tag_age_days: 7
+catena_stack_update_stabilize_seconds: 120
+catena_stack_update_cve_severity: "HIGH,CRITICAL"
+catena_stack_update_portainer_api_base: "{{ portainer_api_base | default('') }}"
+
+# Health gate for the pre-update state. Blank on a host without Gatus, which
+# is a skip rather than a failure: the chain cannot ask whether the host is
+# healthy, so it does not pretend to have asked.
+catena_daily_gatus_api_url: "{{ gatus_api_url | default('') }}"
+
+# Whether the chain takes ownership of Debian's apt-daily-upgrade.timer. True
+# is the shipped posture: the chain applies security updates behind its own
+# backup and verify gates, and two things applying updates is one too many.
+catena_daily_manage_apt_timer: true
+
+# The host restore engine, installed by the payload above like every other
+# engine. Declared here rather than at the call site because this role owns
+# where the payload lands; site.yml's post-restore hook reads it.
+catena_recovery_bin: /usr/local/bin/catena-recovery
+# The host audit CLI, from the same payload. Two callers: the Business
+# audit-export action, and the Community journal-seal check.
+catena_admin_audit_bin: /usr/local/bin/catena-audit
+# Where the restore machine persists progress. Under /var/lib/catena, NOT
+# /etc: this is transient run state, and /etc is in the backup set -- a
+# snapshot taken mid-restore would otherwise carry a half-finished restore's
+# state into the next host that restored it. The panel reads both through the
+# status action.
+catena_recovery_state_file: /var/lib/catena/recovery.state
+catena_recovery_history_file: /var/lib/catena/recovery.history
+
+# The migration lane: the source side of a server-to-server move. A HOST
+# process, not a container, because a migration stops docker on this server and
+# the endpoint that puts it back has to still be answering afterwards. Installed
+# by the same payload as every other engine, on every host and every edition.
+#
+# It listens on this host's tailnet address only, and it answers nothing until
+# someone on this server arms it. The port is declared tailnet-only in the
+# public-port registry below for the same reason Portainer's UI port is: defence
+# in depth behind the bind, not instead of it.
+catena_migrate_lane_bin: /usr/local/bin/catena-migrate-lane
+catena_migrate_lane_port: 9040
+
+# The same binary is also the TARGET side of a move, and that side keeps its own
+# progress record. Separate files from the restore machine's on purpose: a
+# migration DRIVES a restore, so the two would otherwise overwrite each other
+# and the page watching the migration would read the restore's state as its own.
+# Under /var/lib/catena for the same reason as the restore's -- transient run
+# state, and /etc rides the backup set.
+catena_migration_state_file: /var/lib/catena/migration.state
+catena_migration_history_file: /var/lib/catena/migration.history
+
+# EE-reserved HOST dispatch entries. The Go shell renders Business action
+# BUTTONS at runtime from its compiled-in panels (audit, daily, ...) only
+# under an active license, and dispatches each by NAME through the host
 # forced-command runner. The runner's dispatch table is CE-rendered, so
-# without a matching entry it rejects the EE action name. These entries
-# authorize the known EE action names -> the EE host binaries, which exist on
-# the host ONLY under a license (installed on activation); on a Community host
-# the binary is absent, so the dispatcher runs nothing and exits non-zero --
-# inert plumbing, the same pattern as the license-gated systemd timers. The
-# dispatcher already runs as root (the forced-command pipes through sudo), so
-# no extra sudoers is needed. These are appended to the host dispatch table +
-# allow-list ONLY, never to the shell-read catalog (actions.yml), so no EE
-# button ever appears on a Community host -- the plugin contributes the button
-# only when loaded. Names + commands MUST match the plugins' ActionSpec
-# (catena-ee audit/audit.go + dailyplugin/plugin.go); a drift means the shell
-# dispatches a name the host cannot resolve.
+# without a matching entry it rejects the action name; these entries authorize
+# the known Business action names -> the host engines. The engines install on
+# EVERY host at converge (the payload is not license-gated -- see deploy.yml),
+# so the binaries are present even on a plain Community host; the license only
+# controls which buttons the shell RENDERS. The dispatcher already runs as root
+# (the forced-command pipes through sudo), so no extra sudoers is needed. These
+# are appended to the host dispatch table + allow-list ONLY, never to the
+# shell-read catalog (actions.yml), so no Business button ever appears on a
+# Community host -- the panel contributes the button only while its license is
+# active. Names + commands MUST match the panels' ActionSpec (catena-admin
+# shell/panels/audit + shell/panels/daily); a drift means the shell dispatches a
+# name the host cannot resolve.
 catena_admin_ee_reserved_actions:
+  # Payload (re-)install: refreshes the shell-synced host payload (engines +
+  # lane scripts + units) from the ee-payload bind mount. The converge installs
+  # the payload unconditionally (deploy.yml); this reserved action lets the
+  # shell re-run the installer out of band after an image bump without a full
+  # converge. Must match dailyplugin ee-install-engines ActionSpec.
+  - name: ee-install-engines
+    shell: "bash {{ catena_admin_ee_payload_installer }}"
   - name: daily-status
     shell: "/usr/local/bin/catena-daily status"
   - name: daily-run-now
     shell: "/usr/local/bin/catena-daily run"
   - name: audit-export
-    shell: "/usr/local/bin/catena-audit export"
+    shell: "{{ catena_admin_audit_bin }} export"
+  # restore-report panel's on-demand restore drill. Runs the verify-hot
+  # lane standalone (single-state), which rewrites verify-hot.json so the
+  # Restore report panel refreshes with a fresh pass/fail + RTO. Name +
+  # shell MUST match catena-admin restorereport/plugin.go's ActionSpec.
+  - name: verify-backup
+    shell: "/usr/local/bin/catena-daily step VERIFY_HOT"
+  # Migration lane arming. The MECHANISM ships on every host (the lane binary
+  # is part of the ungated payload, and the quiesce verbs it drives are
+  # Community); what is licensed is the panel that opens a window, so these
+  # authorize Business action names the same way the daily/audit entries do.
+  #
+  # Arming mints a pairing code and prints it ONCE. --json is for the panel,
+  # which shows it to the person who armed it and never stores it; only an
+  # argon2id hash goes to the state register, so a stolen backup carries no way
+  # to join a migration.
+  - name: catena-migrate-arm
+    shell: "{{ catena_migrate_lane_bin }} arm -json"
+  - name: catena-migrate-disarm
+    shell: "{{ catena_migrate_lane_bin }} disarm"
+  - name: catena-migrate-status
+    shell: "{{ catena_migrate_lane_bin }} status"
+  # The abort path, dispatched from THIS server when a move failed and its
+  # applications have to come back. Deliberately the recovery engine and not
+  # the lane: resuming is not a migration operation, it is the inverse of a
+  # quiesce, and it has to work whether or not a window is still open.
+  - name: catena-migrate-resume
+    shell: "{{ catena_recovery_bin }} quiesce resume"
+  # The TARGET side: this server pulling another one onto itself. Detached under
+  # systemd-run for the same reason a restore is -- a move runs for hours and
+  # must not die with the panel container that started it -- and --pipe hands the
+  # request through on stdin, which is what keeps the source's pairing code out
+  # of argv. A code on a command line is readable by every process on this box
+  # for the whole migration.
+  #
+  # The request is {"source","code","preseed_passes"}. The address must be the
+  # source's tailnet address and the binary refuses a NAME: the name of the
+  # server being moved is about to point at this one, so a move that resolved it
+  # could talk to itself and report that the source paused when nothing did.
+  # Same clean-environment problem as catena-restore-run: the lane pre-seeds
+  # with restic, so a transient unit without a cache location fails the same
+  # way. Fixed here rather than waiting for it to be rediscovered on the
+  # migration path.
+  - name: catena-migrate-run
+    shell: >-
+      echo "$PAYLOAD" | base64 -d |
+      systemd-run --unit catena-migrate-run --collect --pipe
+      --setenv=HOME=/var/lib/catena/restic-home
+      --setenv=XDG_CACHE_HOME=/var/lib/catena/restic-cache
+      {{ catena_migrate_lane_bin }} run --stdin
+  # Read-only progress, in the same shape as the restore's: the migration page
+  # reads these two files directly through its read-only mount, so this is the
+  # hand-run and bench view rather than the polling path.
+  - name: catena-migrate-run-status
+    shell: >-
+      printf 'state=%s\n'
+      "$(head -n 1 {{ catena_migration_state_file }} 2>/dev/null || echo idle)";
+      printf 'unit=%s\n'
+      "$(systemctl is-active catena-migrate-run.service 2>/dev/null || true)";
+      tail -n 40 {{ catena_migration_history_file }} 2>/dev/null || true
+  # Forgetting a move, which is NOT undoing one. Clears this host's record and
+  # touches neither the source, nor this host's data, nor DNS.
+  - name: catena-migrate-run-reset
+    shell: "{{ catena_migrate_lane_bin }} reset"
+  # The way back after a failure past the point of no return, dispatched from
+  # the TARGET (catena-migrate-resume above is the same act dispatched from the
+  # source itself, for when the target is what failed). Deliberately a separate
+  # action from the move: once the source is stopped, putting it back is a
+  # decision, and a decision belongs to a person.
+  - name: catena-migrate-resume-source
+    shell: >-
+      echo "$PAYLOAD" | base64 -d |
+      {{ catena_migrate_lane_bin }} resume-source --stdin
+  # Multi-domain Cloudflare zone save (EE cloudflarezones plugin). The panel's
+  # single-field form POSTs an opaque PAYLOAD: for an add it is the raw CF API
+  # token the user typed (no browser JS/base64 needed, so it survives the strict
+  # CSP); for a remove it is base64(JSON {op:remove,zone}) rendered server-side
+  # by the plugin (the zone is known). The EE host binary reads PAYLOAD on
+  # stdin, auto-detects add-token vs remove-JSON, verifies an add token grants
+  # exactly one zone, derives zone/account_id, writes the 0644 panel projection,
+  # and emits the store-write request piped to onbox_config (the sole store
+  # writer). Name + shell MUST match catena-admin cloudflarezones/plugin.go's
+  # ActionSpec. The binary exists on the host only under a Business license.
+  - name: cloudflare-zones-save
+    shell: >-
+      echo "$PAYLOAD" |
+      /usr/local/bin/catena-cloudflare-zones save |
+      {{ catena_admin_onbox_config_path }} --dispatch-stdin
+      --path {{ catena_admin_config_store_path }}
+
+# --- 0b on-box config store (settings API) ----------------------------
+# The Settings tab (shell/settings) reads/writes the on-box config
+# store through the host dispatcher, since the unprivileged container cannot
+# touch the root-owned 0600 store. host.yml installs onbox_config.py on the
+# host; this CE-reserved dispatch action base64-decodes the container's opaque
+# PAYLOAD (a {op,secrets,config} request) and pipes it to
+# onbox_config.py --dispatch-stdin as root. Same reserved-action pattern as the
+# EE entries: host dispatch table + allow-list ONLY, never a shell-catalog
+# button (the Settings page is a first-class nav tab, not an Actions button).
+catena_admin_config_store_path: "/etc/catena/config.json"
+catena_admin_onbox_config_path: "/usr/local/bin/catena-onbox-config"
+# Backup-password (restic) validate + rotate: USER_HELD, never a settings
+# field, so these are deliberate button+confirm actions dispatched to the host,
+# not part of a settings save. Same opaque-PAYLOAD pattern as catena-config.
+catena_admin_restic_key_path: "/usr/local/bin/catena-restic-key"
+catena_admin_ce_reserved_actions:
+  - name: catena-config
+    shell: >-
+      echo "$PAYLOAD" | base64 -d |
+      {{ catena_admin_onbox_config_path }} --dispatch-stdin
+      --path {{ catena_admin_config_store_path }}
+  # Scheduling (COMMUNITY). The backup lane is a Community feature, so a
+  # client on the free edition has to be able to say when it runs -- and
+  # nothing is scheduled until they do.
+  #
+  # Three actions rather than one taking a verb: the dispatch table maps a
+  # NAME to a fixed shell line, and that is what stops the container choosing
+  # which command runs as root. A single entry reading the verb out of PAYLOAD
+  # would hand that choice back.
+  #
+  # validate and set take their input on stdin. An OnCalendar value is
+  # punctuation by design -- spaces, commas, stars, slashes -- so the field
+  # whose whole purpose is to accept punctuation is the last one to
+  # interpolate into a command line.
+  - name: catena-schedule-show
+    shell: "{{ catena_schedule_bin }} show"
+  - name: catena-schedule-validate
+    shell: >-
+      echo "$PAYLOAD" | base64 -d | {{ catena_schedule_bin }} validate
+  - name: catena-schedule-set
+    shell: >-
+      echo "$PAYLOAD" | base64 -d | {{ catena_schedule_bin }} set
+  - name: catena-restic-validate
+    shell: >-
+      echo "$PAYLOAD" | base64 -d | {{ catena_admin_restic_key_path }}
+  - name: catena-restic-rotate
+    shell: >-
+      echo "$PAYLOAD" | base64 -d | {{ catena_admin_restic_key_path }}
+  # State register (COMMUNITY). The Apps tab records client intent here when
+  # someone stops or starts an application, so a later restore knows not to
+  # bring back something that was deliberately switched off. Portainer's own
+  # status only covers intent up to the last backup; the register covers the
+  # window after it, and it lives under /etc so it rides the snapshot.
+  # PAYLOAD is base64(JSON {stack,desired,reason}) rendered server-side.
+  - name: catena-register-set
+    shell: >-
+      echo "$PAYLOAD" | base64 -d |
+      {{ catena_recovery_bin }} register set-stdin
+  - name: catena-register-get
+    shell: "{{ catena_recovery_bin }} register get"
+  # Quiesce (COMMUNITY -- the mechanism ships everywhere; only the migration
+  # panel that drives it is licensed). pause freezes the application tier
+  # before a snapshot; stop takes the host out of service; resume undoes
+  # exactly what those two did and nothing else. Every one records what to
+  # undo before it mutates, which is what makes an aborted migration
+  # recoverable.
+  - name: catena-quiesce-pause
+    shell: "{{ catena_recovery_bin }} quiesce pause"
+  - name: catena-quiesce-stop
+    shell: "{{ catena_recovery_bin }} quiesce stop"
+  - name: catena-quiesce-resume
+    shell: "{{ catena_recovery_bin }} quiesce resume"
+  - name: catena-quiesce-status
+    shell: "{{ catena_recovery_bin }} quiesce status"
+  # Journal tamper-evidence check (COMMUNITY). The common role turns Forward
+  # Secure Sealing on for EVERY host, so being able to CHECK the seal is not a
+  # paid feature -- only the panel that displays the trail is. With no argument
+  # this verifies the journal's structure and prints the command that checks
+  # the seals themselves; the verification key is deliberately not on the box,
+  # because whoever holds it can re-seal an edited journal.
+  - name: catena-audit-fss-verify
+    shell: "{{ catena_admin_audit_bin }} fss-verify"
+  # Data-scoped restore (COMMUNITY). Three actions, deliberately separate:
+  # one that starts a restore, one that reports on it, and one that clears a
+  # halted run. Folding the clear into the report would make a page refresh
+  # destroy the state it was refreshing.
+  #
+  # The run goes through systemd-run rather than running inline, because the
+  # dispatcher's SSH session is a child of the admin container's connection.
+  # The restore does not stop the panel -- that is the whole design -- but a
+  # panel that restarts for any other reason mid-restore would otherwise take
+  # the restore down with it. --collect reaps the unit on exit so a second
+  # attempt is not blocked by the first one's corpse, and --pipe hands the
+  # request through on stdin so no part of it travels in argv.
+  #
+  # The request is {"snapshot","preseed","foreign"} as JSON. Note what it does
+  # NOT carry: a path. Which repository to read is a BOOLEAN selecting one fixed
+  # file, because a path would let the panel have an arbitrary file on this box
+  # loaded as the environment of a root process.
+  #
+  # --setenv is not optional. A transient systemd unit starts with a CLEAN
+  # environment, and restic refuses to run without a cache location:
+  #   unable to open cache: unable to locate cache directory:
+  #   neither $XDG_CACHE_HOME nor $HOME are defined
+  # Every other action inherits the dispatcher's environment (sudo supplies
+  # HOME), which is why only the systemd-run ones need this and why the fault
+  # was invisible until wizard_restore_smoke first reached stage 4.
+  # The values MATCH catena-backup.service (roles/backup/templates/
+  # catena-backup.service.j2) so both callers share one warm cache rather than
+  # each keeping its own; test_catena_admin_systemd_run_env.py pins them equal.
+  - name: catena-restore-run
+    shell: >-
+      echo "$PAYLOAD" | base64 -d |
+      systemd-run --unit catena-recovery-restore --collect --pipe
+      --setenv=HOME=/var/lib/catena/restic-home
+      --setenv=XDG_CACHE_HOME=/var/lib/catena/restic-cache
+      {{ catena_recovery_bin }} restore -stdin
+  # Read-only progress. The restore page reads the same two files directly
+  # through its read-only mount of {{ catena_recovery_state_file | dirname }},
+  # so this is the hand-run and bench view, not the panel's polling path -- a
+  # restore runs for as long as the data takes, and an SSH round trip every few
+  # seconds for an hour is not how to watch it.
+  - name: catena-restore-status
+    shell: >-
+      printf 'state=%s\n'
+      "$(head -n 1 {{ catena_recovery_state_file }} 2>/dev/null || echo idle)";
+      printf 'unit=%s\n'
+      "$(systemctl is-active catena-recovery-restore.service 2>/dev/null || true)";
+      tail -n 40 {{ catena_recovery_history_file }} 2>/dev/null || true
+  - name: catena-restore-reset
+    shell: "{{ catena_recovery_bin }} restore -reset"
+  # The snapshot list the restore page's picker renders. Read-only, JSON on
+  # stdout. Two entries rather than one taking a flag from the panel: a
+  # reserved action is a FIXED command, and "which repository" is exactly the
+  # kind of thing that must not be caller-supplied.
+  - name: catena-restore-snapshots
+    shell: "{{ catena_recovery_bin }} snapshots"
+  - name: catena-restore-snapshots-foreign
+    shell: "{{ catena_recovery_bin }} snapshots -foreign"
+  # The keyset for ANOTHER server's backup repository, for a machine that is
+  # replacing one that is gone. PAYLOAD is base64(JSON
+  # {op,repository,password,env}); the host writes it 0600 under /run, which is
+  # tmpfs, so it does not survive a reboot. The engine allow-lists the variable
+  # names it will accept -- the file is loaded into a root process's
+  # environment, so an arbitrary name would be a way to set LD_PRELOAD for it.
+  - name: catena-restore-credentials
+    shell: >-
+      echo "$PAYLOAD" | base64 -d |
+      {{ catena_recovery_bin }} credentials -stdin
+
+# Cloudflare tunnel reserved actions (COMMUNITY -- the tunnel is a CE feature).
+# The Settings panel dispatches these when the client saves a Cloudflare token:
+#   - cloudflared-check validates a CANDIDATE token BEFORE persist. The token
+#     arrives in the SSH env (CATENA_CF_CANDIDATE_TOKEN, whitelisted via sshd
+#     AcceptEnv in host.yml) -- NOT in argv/$PAYLOAD -- so it never lands in
+#     $SSH_ORIGINAL_COMMAND or any process argv/log; the action pipes it to the
+#     engine on stdin. --token-stdin does not touch the store.
+#   - cloudflared-sync runs the full converge after a valid token is persisted.
+#     It exports the templated NON-SECRET pins (real image pin, ingress service,
+#     tunnel name, network, stop-grace, probe counts) into the engine env so
+#     production uses the pinned values, not the engine built-in defaults;
+#     `env VAR=val ... cmd` preserves the rest of the session env, including
+#     CATENA_MULTIDOMAIN_ENABLED forwarded on the sync dispatch (AcceptEnv). The
+#     token is NOT passed -- the engine reads it from the on-box store.
+# These are appended to catena_admin_ce_reserved_actions in catalog.yml ONLY in
+# cloudflare access mode. The pins reference roles/cloudflare_tunnel defaults;
+# `| default(...)` keeps the render safe if that role is not in scope (tailnet),
+# where these actions are inert anyway.
+catena_admin_cloudflared_reserved_actions:
+  - name: cloudflared-check
+    shell: >-
+      printf '%s' "$CATENA_CF_CANDIDATE_TOKEN" |
+      {{ cloudflared_sync_bin | default('/usr/local/bin/catena-cloudflared-sync') }}
+      check --token-stdin
+  # Only the tunnel NAME is exported. The image, ingress service, network, stop
+  # grace and probe counts used to be listed here too, duplicating both the
+  # cloudflare_tunnel role defaults and the engine's own -- three copies of each
+  # value, kept in agreement by hand, with a `default(...)` fallback here that
+  # was a fourth. The engine owns them; this passes only what it cannot know.
+  #
+  # The tunnel name is the exception because the engine's fallback is the box's
+  # hostname, which is not always the inventory name.
+  - name: cloudflared-sync
+    shell: >-
+      env
+      CLOUDFLARED_TUNNEL_NAME={{ cloudflared_tunnel_name | default(inventory_hostname) }}
+      {{ cloudflared_sync_bin | default('/usr/local/bin/catena-cloudflared-sync') }} sync

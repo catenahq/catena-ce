@@ -1,16 +1,13 @@
 ---
-# roles/infrastructure manages everything that shows up in the Dokploy
-# "infrastructure" project PLUS the cloudflared swarm service + CF API state
-# (tunnel, DNS). Role name matches the Dokploy project name so the mental
-# model is one-to-one.
+# roles/infrastructure manages the shared infra stacks (Gatus,
+# Healthchecks, Beszel, gatus-sync, dashboard-sync, clamav) deployed via
+# the Portainer stack API.
 #
 # Subdomains provisioned end-to-end (DNS -> Tunnel -> Traefik ->
 # container), all gated by Keycloak + oauth2-proxy forward-auth:
-#   admin.<zone>     -> Dokploy UI    (deployed by roles/dokploy)
-#   monitor.<zone>   -> Gatus         (this role, via Dokploy API)
-#   dash.<zone>      -> catena-admin  (operator-deployed via Dokploy
-#                                      git-source flow; see
-#                                      roles/catena-admin)
+#   portainer.<zone> -> Portainer    (roles/portainer)
+#   monitor.<zone>   -> Gatus        (this role, via the Portainer API)
+#   dash.<zone>      -> catena-admin (roles/catena-admin)
 
 # Fallback if the inventory's group_vars/all/main.yml predates the
 # ansible_managed variable (added when we moved off the deprecated
@@ -36,15 +33,13 @@ rocketchat_jitsi_jvb_media_port: 10000
 # on 2026-05-08 so site.yml can deploy them BEFORE keycloak/oauth2_proxy
 # in a single pass. oauth2_proxy's wait-for-public-Keycloak task otherwise
 # can't succeed on a fresh DR/migrate target. Tunnel-specific vars
-# (cloudflared_tunnel_name, cloudflared_image, cloudflared_ingress_service,
-# cloudflared_dokploy_env_key) live in roles/cloudflare_tunnel/defaults
+# (cloudflared_tunnel_name, cloudflared_image, cloudflared_ingress_service)
+# live in roles/cloudflare_tunnel/defaults
 # and are visible here at converge time -- both roles run in the same
 # play, defaults from each are merged into the play's var scope.
 
-# --- Dokploy API helper --------------------------------------------------
-# Poll window for compose.deploy completion. The catena-portal build is
-# the slowest (Next.js standalone + Drizzle migrations on a fresh
-# Alpine npm-workspaces install), and keycloak with the phasetwo
+# --- Portainer stack-deploy helper ----------------------------------------
+# Poll window for stack-deploy completion. Keycloak with the phasetwo
 # distribution re-runs its `start` build step on every container boot
 # (the image is NOT pre-built with `kc.db=postgres`), which routinely
 # exceeds 5 minutes on a redeploy under load. Bumped to 120 (was 80)
@@ -53,7 +48,7 @@ rocketchat_jitsi_jvb_media_port: 10000
 # 120x5=600s = 10 minutes leaves comfortable headroom for both.
 infrastructure_deploy_poll_retries: 120
 infrastructure_deploy_poll_delay: 5
-# Each Dokploy compose.deploy issues `docker compose up --build`, which
+# Each stack deploy issues `docker compose up --build`, which
 # pulls images from upstream registries on every run. A single 502 from
 # quay.io taints the whole deploy; retry up to N times when the diag
 # matches a registry-transient pattern. Between attempts the helper
@@ -63,20 +58,20 @@ infrastructure_deploy_poll_delay: 5
 # 3) after run 2026-05-30T10-07-04-af8c where all 3 attempts hit the
 # same zombie state and exhausted the budget on the OAuth2-proxy
 # redeploy in backup_rollback stage-3-rollback. See
-# roles/infrastructure/tasks/_dokploy_compose_deploy_attempt.yml.
+# roles/infrastructure/tasks/_portainer_stack_deploy_attempt.yml.
 infrastructure_deploy_max_attempts: 5
 
 # --- Gatus (replaces Uptime Kuma; see DEBUGGING.md "Kuma -> Gatus pivot") --
 # Config-as-code monitor. All Jinja-rendered config lives under
 # {{ gatus_host_config_dir }}/; Gatus loads every *.yaml alphabetically.
-# 00-base.yaml (Ansible-managed) + 50-dokploy-apps.yaml (gatus-sync) +
+# 00-base.yaml (Ansible-managed) + 50-catena-apps.yaml (gatus-sync) +
 # 99-*.yaml (operator-added, left alone by both).
 gatus_image_tag: "v5.36.0"
 gatus_image: "twinproduction/gatus:{{ gatus_image_tag }}"
 gatus_compose_name: "gatus"
 gatus_network_alias: "gatus"
 gatus_internal_port: 8080
-gatus_host_config_dir: "/etc/dokploy/gatus"
+gatus_host_config_dir: "/etc/catena/gatus"
 # JSON spec consumed by gatus-sync to render 40-infra.yaml (one Gatus
 # endpoint per infra service, NAME augmented with current/latest version
 # from version-check.json). Rendered at converge time with hostnames /
@@ -84,13 +79,13 @@ gatus_host_config_dir: "/etc/dokploy/gatus"
 # every 5 min so version bumps surface on the dashboard cards.
 gatus_infra_spec_path: "/etc/catena/gatus-infra-spec.json"
 # Host-side loopback port gatus-sync reads to reach /api/v1/endpoints/statuses.
-# gatus-sync runs as a systemd service on the host, outside dokploy-network,
+# gatus-sync runs as a systemd service on the host, outside catena-network,
 # so it can't resolve the container alias. 127.0.0.1:18080 is UFW-safe
 # (loopback is never publicly reachable).
 gatus_host_localhost_port: 18080
 
 # gatus-sync (systemd timer + Actions tab button) regenerates
-# 50-dokploy-apps.yaml from Dokploy's project.all / domain.byX APIs.
+# 50-catena-apps.yaml from `docker ps` labels.
 gatus_sync_script_path: "/usr/local/bin/gatus-sync"
 gatus_sync_env_path: "/etc/catena/gatus-sync.env"
 gatus_sync_interval: "*:0/10" # every 10 minutes
@@ -106,7 +101,7 @@ gatus_summary_file: "{{ gatus_summary_dir }}/gatus-summary.json"
 # metrics firehose. Replaces the previous Netdata-based monitoring
 # (too noisy, too broad) AND the healthchecks.io SaaS dependency.
 # Named Docker volume -> backed up by restic along with other volumes.
-healthchecks_image_tag: "v4.2"
+healthchecks_image_tag: "v4.3"
 healthchecks_image: "healthchecks/healthchecks:{{ healthchecks_image_tag }}"
 healthchecks_compose_name: "healthchecks"
 healthchecks_network_alias: "healthchecks"
@@ -115,17 +110,37 @@ healthchecks_internal_port: 8000
 # reads it via the backup_stats_dir read-only bind-mount (Phase 4a fold).
 healthchecks_summary_file: "{{ backup_stats_dir | default('/var/lib/catena') }}/healthchecks-summary.json"
 # Host-side loopback port gatus-sync reads to reach /api/v3/checks/.
-# Gatus-sync runs as a systemd service on the host, outside dokploy-
+# Gatus-sync runs as a systemd service on the host, outside catena-
 # network, so it can't resolve the container alias. 127.0.0.1:18000 is
 # UFW-safe (loopback is never publicly reachable).
 healthchecks_host_localhost_port: 18000
+# Base every HOST-SIDE ping is built from. Systemd units on the box used to
+# build https://{{ healthchecks_hostname }}/ping/..., which leaves the host,
+# crosses Cloudflare's edge, and comes back in through the tunnel to reach a
+# container on the same box. That makes the alarm path depend on the thing it
+# most needs to report on: a tunnel or DNS failure silences the backup
+# dead-man instead of tripping it.
+#
+# Container-to-container pings do NOT use this -- Gatus and the Beszel shim
+# post to the network alias, which is already local. The .env overrides
+# (BACKUP_HEALTHCHECK_URL_CLIENT / _OPERATOR) stay deliberately external:
+# they are the box-death half of the two-monitor model, and a loopback ping
+# cannot detect a host that is gone.
+healthchecks_ping_base: "http://127.0.0.1:{{ healthchecks_host_localhost_port }}"
 
 healthchecks_subdomain: "{{ lookup('dotenv', 'HEARTBEAT_SUBDOMAIN', default='heartbeat') }}"
 healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
 
+# Alert delivery. Store-owned (the client changes these in catena-admin), so
+# they read the projected fact rather than .env; the inventory only seeds them
+# on the first converge. Both blank means no channel is seeded and the
+# converge says so -- see roles/infrastructure/tasks/healthchecks.yml.
+ntfy_server: "{{ cfg_ntfy_server | default('') }}"
+ntfy_topic: "{{ cfg_ntfy_topic | default('') }}"
+
 # --- Beszel (hub + agent resource monitor) ------------------------------
 # Replaces the cAdvisor + catena-resource-sampler lane (deleted 2026-05-31).
-# Two Dokploy-managed compose apps:
+# Two managed compose stacks:
 #
 #   beszel-hub   -- web UI + SQLite history store. Public surface at
 #                   hub.<zone>, admin-gated by oauth2-proxy (vps.auth.mode=
@@ -134,17 +149,17 @@ healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
 #                   so beszel.yml MUST run before dashboard_sync.yml.
 #   beszel-agent -- collects per-container + per-host CPU/memory/network/
 #                   disk/temperature/load over docker.sock. No public
-#                   surface; reaches the hub on the dokploy-network alias.
+#                   surface; reaches the hub on the catena-network alias.
 #
 # Threshold alerts leave the hub via Shoutrrr (generic webhook) to the
 # beszel-hc-shim sidecar, which maps triggered/resolved to Healthchecks
 # /fail + success pings so Beszel alerts ride the same notification plane
 # as Gatus (clients keep self-service channels). See notifications.md.
 #
-# Off by default. Set BESZEL_ENABLED=true in inventory/<env>/.env to
-# deploy. Pinned tags (Renovate-managed); the agent reads docker.sock so
-# it carries the same blast radius cAdvisor did on a single-tenant VPS.
-beszel_enabled: "{{ lookup('dotenv', 'BESZEL_ENABLED', default='false') | bool }}"
+# Always deployed -- Beszel is part of the base plane, not an opt-in. The
+# BESZEL_ENABLED off-switch was removed 2026-07-29. Pinned tags
+# (Renovate-managed); the agent reads docker.sock so it carries the same
+# blast radius cAdvisor did on a single-tenant VPS.
 beszel_image_tag: "0.18.7"
 beszel_image: "henrygd/beszel:{{ beszel_image_tag }}"
 beszel_agent_image_tag: "0.18.7"
@@ -168,7 +183,7 @@ beszel_subdomain: "{{ lookup('dotenv', 'BESZEL_SUBDOMAIN', default='hub') }}"
 beszel_hostname: "{{ beszel_subdomain }}.{{ cloudflare_zone }}"
 
 # --- Beszel -> Healthchecks alert shim ----------------------------------
-# Tiny stdlib-Python sidecar on dokploy-network. Receives Beszel's
+# Tiny stdlib-Python sidecar on catena-network. Receives Beszel's
 # Shoutrrr generic-webhook POST, derives a beszel-<slug> check name, and
 # forwards triggered -> /fail, resolved -> success against the
 # Healthchecks loopback alias. All project channels auto-attach via the
@@ -179,7 +194,7 @@ beszel_hc_shim_internal_port: 8099
 beszel_hc_shim_image_tag: "3.14-alpine"
 beszel_hc_shim_image: "python:{{ beszel_hc_shim_image_tag }}"
 # Host dir the shim script is dropped into + bind-mounted read-only.
-beszel_hc_shim_host_dir: "/etc/dokploy/beszel-hc-shim"
+beszel_hc_shim_host_dir: "/etc/catena/beszel-hc-shim"
 
 # --- recovery-downloads (SSO-gated file server) -------------------------
 # Nginx sidecar that exposes /var/backups/catena-export/ read-only
@@ -197,12 +212,12 @@ beszel_hc_shim_host_dir: "/etc/dokploy/beszel-hc-shim"
 # The served directory is explicitly excluded from restic (see
 # roles/backup/defaults/main.yml backup_exclude_patterns) -- it IS the
 # packaged backup artifact, re-including it would be self-referential.
-recovery_image_tag: "1.31.2-alpine"
+recovery_image_tag: "1.31.3-alpine"
 recovery_image: "nginx:{{ recovery_image_tag }}"
 recovery_compose_name: "recovery"
 recovery_network_alias: "recovery"
 recovery_internal_port: 80
-recovery_host_config_dir: "/etc/dokploy/recovery"
+recovery_host_config_dir: "/etc/catena/recovery"
 # Source dir served read-only. Kept in sync with roles/backup/defaults'
 # `backup_export_dir`; override by setting the backup default, not here.
 recovery_source_dir: "{{ backup_export_dir | default('/var/backups/catena-export') }}"
@@ -227,78 +242,12 @@ version_check_script_path: /usr/local/bin/catena-version-check
 version_check_overrides_file: /etc/catena/version-check-overrides.json
 version_check_output_file: /var/lib/catena/version-check.json
 
-# --- snapshot-before-converge -------------------------------------------
-# Before each converge that touches Dokploy state, dump every project's
-# every compose (with current composeFile + env + domains) to a JSON
-# aggregate under dokploy_snapshots_dir. Cheap insurance against
-# operator misclick or seeder bug overwriting client edits -- operator
-# can manually compare or replay from the most recent snapshot.
-#
-# Rotation keeps the last N aggregates; older ones are deleted on the
-# next snapshot pass. 30 default keeps ~3 weeks of converge history at
-# a reasonable disk cost (a typical aggregate is well under 100 KB).
-dokploy_snapshots_dir: /var/lib/catena/dokploy-snapshots
-dokploy_snapshots_keep_last: 30
-
 # --- dashboard-sync ------------------------------------------------------
 # Phase 4b retired the Homepage services.yaml writer; dashboard-sync's
 # only remaining job is syncing per-app Traefik gate routes.
 dashboard_sync_script_path: "/usr/local/bin/dashboard-sync"
 dashboard_sync_env_path: "/etc/catena/dashboard-sync.env"
 dashboard_sync_interval: "*:0/5" # every 5 minutes
-
-# --- Catena apps (website + portal) -------------------------------------
-# Catena's own webapps deploy via Dokploy's native git-source compose
-# flow (operator-driven, UI-only). Each app ships its own
-# `dokploy.compose.yml` and `Dockerfile` in this repo; the operator
-# clones the catena monorepo into Dokploy as a Compose entity per
-# app (`composePath: apps/<name>/dokploy.compose.yml`) and Dokploy
-# pulls + rebuilds on push via the GitHub App webhook. See
-# internal_docs/operator/deploy-webapp-from-github.md for the click
-# path.
-#
-# Ansible's role here is limited to the IdP-side wiring:
-#   - catena_portal_enabled gates the Keycloak realm client
-#     (roles/keycloak/tasks/_portal_realm.yml).
-#   - catena_website_enabled is no longer load-bearing in Ansible
-#     but kept as a documented inventory flag so operators have a
-#     single source of truth for "is this VPS supposed to host the
-#     marketing site."
-
-# GitHub App aliases registered in this Dokploy instance. Each alias
-# corresponds to a GitHub App created via Dokploy UI -> Settings ->
-# Git Providers -> GitHub. The infrastructure role's
-# `_github_provider_assert.yml` preflight asserts each alias is
-# present + reachable. Empty list = no assertion (operator hasn't
-# adopted the git-source compose flow yet). Per-client deploys add
-# their own alias here. Naming convention:
-#   - catena-org-app           (operator's own org)
-#   - client-<slug>-app        (per-client orgs)
-expected_github_providers: []
-
-# Website (catena.run / website.<bench-zone>).
-catena_website_enabled: "{{ lookup('dotenv', 'CATENA_WEBSITE_ENABLED', default='false') | bool }}"
-catena_website_subdomain: "{{ lookup('dotenv', 'WEBSITE_SUBDOMAIN', default='website') }}"
-catena_website_hostname: "{{ catena_website_subdomain }}.{{ cloudflare_zone }}"
-
-# Docs (the client wiki at catenahq/docs) deploy independently from
-# their own repo; the operator stack does NOT build or serve them. No
-# separate app or hostname to manage from this role.
-
-# Portal (app.<zone>). Next.js standalone + bundled Postgres.
-catena_portal_enabled: "{{ lookup('dotenv', 'CATENA_PORTAL_ENABLED', default='false') | bool }}"
-catena_portal_subdomain: "{{ lookup('dotenv', 'PORTAL_SUBDOMAIN', default='app') }}"
-catena_portal_hostname: "{{ catena_portal_subdomain }}.{{ cloudflare_zone }}"
-# Keycloak realm client used by NextAuth. The client itself is created
-# by the keycloak realm-bootstrap blueprint when CATENA_PORTAL_ENABLED
-# is true; client secret auto-minted into vault_keycloak_portal_client_secret.
-catena_portal_keycloak_client_id: "catena-portal"
-# Bench-only: when true, render bench-alice + bench-bob test users
-# into the Keycloak realm so security_scan can drive authenticated
-# ZAP + cross-tenant IDOR tests. NEVER set true in a production
-# inventory; the bench inventory (automation/test_bench/install.yaml)
-# is the only place this should be on.
-catena_portal_test_users_enabled: "{{ lookup('dotenv', 'CATENA_PORTAL_TEST_USERS_ENABLED', default='false') | bool }}"
 
 # The external dead-man watchdog (hourly off-host liveness probe of the
 # watchers) is a Business-edition lane and lives in the private repo;
@@ -308,13 +257,13 @@ catena_portal_test_users_enabled: "{{ lookup('dotenv', 'CATENA_PORTAL_TEST_USERS
 # One clamd serves BOTH the mail server (rspamd antivirus over TCP) and
 # Nextcloud (files_antivirus Daemon mode). Reached as clamav:3310 on the
 # dedicated external network below (also joined by the dms + Nextcloud
-# app/cron services in their Dokploy templates). No host port -- clamd
+# app/cron services in their catalog templates). No host port -- clamd
 # has no auth, so network isolation is the only control.
 #
 # Image: the _base variant ships WITHOUT the signature DB; freshclam
 # downloads + refreshes it on start (the DB persists on a named volume).
 # Renovate manages the pin (custom manager for stack images).
-clamav_image: "clamav/clamav:1.5.2-35_base"
+clamav_image: "clamav/clamav:1.5.3_base"
 clamav_compose_name: "clamav"
 clamav_network: "catena-clamav"
 # clamd StreamMaxLength -- the largest object clamd will scan in one
@@ -334,6 +283,11 @@ clamav_watch_systemd_unit_name: catena-clamav-watch
 # Every 5 minutes.
 clamav_watch_schedule: "*:0/5"
 
+# The disk fill-level watchdog was REMOVED 2026-07-29. Beszel is base plane
+# and already collects per-host disk fill with threshold alerting into the
+# same Healthchecks plane; keeping a second collector meant two thresholds
+# drifting apart and a double page. See tasks/main.yml for the full note.
+
 # --- Mailserver TLS cert (mail.<zone>) --------------------------------
 # Self-hosted mailserver runs SSL_TYPE=manual; we issue the cert here via
 # Let's Encrypt DNS-01 (cloudflared owns :80, so HTTP-01 is out -- same
@@ -343,13 +297,13 @@ clamav_watch_schedule: "*:0/5"
 mailserver_hostname: "mail.{{ cloudflare_zone }}"
 mailserver_cert_live_dir: "/etc/letsencrypt/live/{{ mailserver_hostname }}"
 # Distinct from coturn's cloudflare.ini so the two roles never contend
-# for one file (identical content -- the same vault token).
+# for one file (identical content -- the same Cloudflare API token).
 mailserver_cloudflare_creds_path: "/etc/letsencrypt/cloudflare-mail.ini"
 mailserver_certbot_email: "{{ admin_email | default('hostmaster@' ~ cloudflare_zone) }}"
 # Staging CA for the bench only (production LE rate-limits re-issuance of
 # the same identifier; the bench redeploys mail.<zone> every run). Same
 # knob shape as coturn. Production inventories MUST leave this false.
-mailserver_certbot_use_staging: "{{ lookup('dotenv', 'MAILSERVER_CERTBOT_STAGING', default='false') | bool }}"
+mailserver_certbot_use_staging: "{{ cfg_mailserver_certbot_staging | default('false') | bool }}"
 mailserver_certbot_staging_server: "https://acme-staging-v02.api.letsencrypt.org/directory"
 
 # Local-ACME override (bench Pebble). All blank in production -> certbot

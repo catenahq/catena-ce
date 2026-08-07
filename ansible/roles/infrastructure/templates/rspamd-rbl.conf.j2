@@ -11,13 +11,13 @@
 #
 rbls {
     spamhaus {
-        rbl = "{{ vault_mailserver_spamhaus_dqs_key }}.zen.dq.spamhaus.net";
+        rbl = "{{ mailserver_spamhaus_dqs_key }}.zen.dq.spamhaus.net";
         from = false;
     }
     spamhaus_from {
         from = true;
         received = false;
-        rbl = "{{ vault_mailserver_spamhaus_dqs_key }}.zen.dq.spamhaus.net";
+        rbl = "{{ mailserver_spamhaus_dqs_key }}.zen.dq.spamhaus.net";
         returncodes {
             # Add a generic hit on ZEN. It's safe to tag as spam if the last untrusted relay is in this combined list
             #SPAMHAUS_ZEN_SBL = "127.0.0.2";
@@ -29,7 +29,7 @@ rbls {
     }
     spamhaus_authbl_received {
         # Check if the sender client is listed in AuthBL (AuthBL is *not* part of ZEN)
-        rbl = "{{ vault_mailserver_spamhaus_dqs_key }}.authbl.dq.spamhaus.net";
+        rbl = "{{ mailserver_spamhaus_dqs_key }}.authbl.dq.spamhaus.net";
         from = false;
         received = true;
         ipv6 = true;
@@ -39,7 +39,7 @@ rbls {
     }
     spamhaus_dbl {
         # Add checks on the HELO string
-        rbl = "{{ vault_mailserver_spamhaus_dqs_key }}.dbl.dq.spamhaus.net";
+        rbl = "{{ mailserver_spamhaus_dqs_key }}.dbl.dq.spamhaus.net";
         helo = true;
         rdns = true;
         dkim = true;
@@ -59,7 +59,7 @@ rbls {
     spamhaus_dbl_fullurls {
         ignore_defaults = true;
         no_ip = true;
-        rbl = "{{ vault_mailserver_spamhaus_dqs_key }}.dbl.dq.spamhaus.net";
+        rbl = "{{ mailserver_spamhaus_dqs_key }}.dbl.dq.spamhaus.net";
         selector = 'urls:get_host'
         disable_monitoring = true;
         returncodes {
@@ -71,7 +71,7 @@ rbls {
     }
     spamhaus_zrd {
         # Add checks on the HELO string also for DQS
-        rbl = "{{ vault_mailserver_spamhaus_dqs_key }}.zrd.dq.spamhaus.net";
+        rbl = "{{ mailserver_spamhaus_dqs_key }}.zrd.dq.spamhaus.net";
         helo = true;
         rdns = true;
         dkim = true;
@@ -86,7 +86,7 @@ rbls {
     }
     "SPAMHAUS_ZEN_URIBL" {
         enabled = true;
-        rbl = "{{ vault_mailserver_spamhaus_dqs_key }}.zen.dq.spamhaus.net";
+        rbl = "{{ mailserver_spamhaus_dqs_key }}.zen.dq.spamhaus.net";
         resolve_ip = true;
         checks = ['urls'];
         replyto = true;
@@ -107,7 +107,7 @@ rbls {
         replyto = true;
         emails_domainonly = true;
         disable_monitoring = true;
-        rbl = "{{ vault_mailserver_spamhaus_dqs_key }}.dbl.dq.spamhaus.net"
+        rbl = "{{ mailserver_spamhaus_dqs_key }}.dbl.dq.spamhaus.net"
         returncodes = {
             SH_EMAIL_DBL = [
                 "127.0.1.2",
@@ -129,7 +129,7 @@ rbls {
         replyto = true;
         emails_domainonly = true;
         disable_monitoring = true;
-        rbl = "{{ vault_mailserver_spamhaus_dqs_key }}.zrd.dq.spamhaus.net"
+        rbl = "{{ mailserver_spamhaus_dqs_key }}.zrd.dq.spamhaus.net"
         returncodes = {
             SH_EMAIL_ZRD_VERY_FRESH_DOMAIN = ["127.0.2.2", "127.0.2.3", "127.0.2.4"];
             SH_EMAIL_ZRD_FRESH_DOMAIN = [
@@ -140,12 +140,12 @@ rbls {
     }
     "DBL" {
         # Override the defaults for DBL defined in modules.d/rbl.conf
-        rbl = "{{ vault_mailserver_spamhaus_dqs_key }}.dbl.dq.spamhaus.net";
+        rbl = "{{ mailserver_spamhaus_dqs_key }}.dbl.dq.spamhaus.net";
         disable_monitoring = true;
     }
     "ZRD" {
         ignore_defaults = true;
-        rbl = "{{ vault_mailserver_spamhaus_dqs_key }}.zrd.dq.spamhaus.net";
+        rbl = "{{ mailserver_spamhaus_dqs_key }}.zrd.dq.spamhaus.net";
         no_ip = true;
         dkim = true;
         emails = true;
@@ -158,7 +158,7 @@ rbls {
     }
     spamhaus_sbl_url {
         ignore_defaults = true
-        rbl = "{{ vault_mailserver_spamhaus_dqs_key }}.sbl.dq.spamhaus.net";
+        rbl = "{{ mailserver_spamhaus_dqs_key }}.sbl.dq.spamhaus.net";
         checks = ['urls'];
         disable_monitoring = true;
         returncodes {

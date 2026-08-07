@@ -1,0 +1,188 @@
+---
+# One deploy attempt for a swarm stack. Caller (swarm_stack.yml) wraps this
+# in a loop with `when: not _swarm_deploy_done`. On success it sets that
+# fact true; on a registry-transient failure (quay.io / docker.io / ghcr.io
+# 5xx during image pull) it leaves it false so the next iteration retries.
+# On a non-transient failure it fails the play immediately.
+#
+# Self-reconciling by construction: `docker stack deploy` is a converge, not
+# a create. A retry after a partial deploy updates the services that exist
+# and creates the ones that do not -- there is no 409-on-second-create to
+# work around the way the Portainer API needed.
+#
+# `--prune` removes services carrying this stack's label that the file no
+# longer declares, so deleting a service from the compose actually deletes
+# it from the host. `--detach=false` blocks until every task converges, so
+# a non-zero rc here means the stack did NOT come up -- the Portainer path's
+# 2xx only meant the API accepted the request.
+#
+# Caller must have set:
+#   svc_name, swarm_stack_dir
+#   _swarm_deploy_done  (false on first iter)
+# Loop var:
+#   _swarm_deploy_attempt_n  (1-indexed)
+
+- name: "Swarm: deploy attempt {{ _swarm_deploy_attempt_n }} ({{ svc_name }})"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - stack
+      - deploy
+      - --detach=false
+      - --prune
+      - --compose-file
+      - "{{ swarm_stack_dir }}/{{ svc_name }}.yml"
+      - "{{ svc_name }}"
+  register: _swarm_deploy
+  # NOT `rc == 0`. `docker stack deploy` is a reconcile, not a create: it
+  # sends the same spec every converge and swarm restarts nothing when the
+  # spec is unchanged, so a successful run is the NORMAL steady state and
+  # reporting it as changed makes every re-converge look non-idempotent.
+  # fi_a4_master_realm_idempotent catches exactly that (`--tags keycloak`
+  # on a converged host, changed must be 0).
+  #
+  # The change signal lives on the stack-file write in swarm_stack.yml,
+  # which is the declaration: byte-identical content reports unchanged, a
+  # new image tag or env value reports changed. What this loses is a
+  # host-side edit nothing declared -- a service deleted by hand is
+  # recreated here and reported as nothing. That is the same trade the
+  # payload installer makes, and the opposite error (every converge
+  # changed) would retire a real gate.
+  changed_when: false
+  failed_when: false
+  when: not _swarm_deploy_done
+
+- name: "Swarm: mark deploy done ({{ svc_name }})"
+  ansible.builtin.set_fact:
+    _swarm_deploy_done: true
+  when:
+    - not _swarm_deploy_done
+    - _swarm_deploy.rc | default(1) == 0
+
+- name: "Swarm: classify + handle deploy failure ({{ svc_name }})"
+  when:
+    - not _swarm_deploy_done
+    - _swarm_deploy.rc | default(1) != 0
+  block:
+    - name: "Swarm: dump failed deploy output ({{ svc_name }})"
+      ansible.builtin.debug:
+        msg: >-
+          Swarm[{{ svc_name }}] attempt {{ _swarm_deploy_attempt_n }}
+          rc={{ _swarm_deploy.rc | default('n/a') }}:
+          {{ (_swarm_deploy.stdout | default('')) ~ ' ' ~ (_swarm_deploy.stderr | default('(no output)')) }}
+
+    # Per-task state, collected BEFORE classification rather than after it.
+    #
+    # `docker stack deploy --detach=false` does not always carry the cause.
+    # When swarm pauses a rolling update its stderr is only
+    #
+    #   <svcid>: service update paused: update paused due to failure or early
+    #   termination of task <taskid>
+    #
+    # -- a task ID, not a reason. The reason lives in that task's Error field
+    # and nowhere else. Classifying on the deploy's own output alone therefore
+    # cannot see it, which is how a textbook transient
+    # ("failed to set up container networking: Address already in use", already
+    # in the pattern list below AND with a reclaim step written for it) failed
+    # the play instead of retrying: fi_a2_oidc_secret_rotation on bench run
+    # 2026-08-04T05-25-31-68a4, where the very next task on the same service
+    # came up Running.
+    #
+    # Three views separate image-pull from placement from a crash loop, and on
+    # the bench the VM is torn down before anyone can shell in, so this is also
+    # the only forensic record.
+    - name: "Swarm: diag -- per-task state + error ({{ svc_name }})"
+      ansible.builtin.shell: |
+        for svc in $(docker stack services "{{ svc_name }}" --format '{{ "{{" }}.Name{{ "}}" }}' 2>/dev/null); do
+          echo "==== $svc ===="
+          docker service ps "$svc" --no-trunc \
+            --format 'table {{ "{{" }}.ID{{ "}}" }}\t{{ "{{" }}.CurrentState{{ "}}" }}\t{{ "{{" }}.Error{{ "}}" }}' 2>&1 || true
+        done
+      args:
+        executable: /bin/bash
+      register: _swarm_diag_taskps
+      changed_when: false
+      failed_when: false
+
+    # The registry/daemon transient classes -- a transient during image pull
+    # taints the deploy; retrying re-pulls cleanly. Matched against stdout AND
+    # stderr AND the per-task errors above: `docker stack deploy --detach=false`
+    # reports some per-task errors on stdout in its progress stream, CLI-level
+    # failures on stderr, and a paused update's cause on neither.
+    - name: "Swarm: detect transient in deploy output ({{ svc_name }})"
+      ansible.builtin.set_fact:
+        _swarm_deploy_transient: >-
+          {{ ((_swarm_deploy.stdout | default('')) ~ (_swarm_deploy.stderr | default(''))
+              ~ (_swarm_diag_taskps.stdout | default(''))) is regex(
+               '(502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout|TLS handshake timeout|connection reset|i/o timeout|TOOMANYREQUESTS|context deadline exceeded|temporary failure in name resolution|received unexpected HTTP status: 5|did not receive an exit event|cannot stop container|unexpected EOF|short read: expected|Address already in use)'
+             ) }}
+
+    # "Address already in use" is a transient we can RETRY but never one a
+    # bare retry can clear: an ungraceful interrupt (operator Ctrl-C
+    # mid-converge, daemon flap) leaves a container's overlay endpoint
+    # dangling on catena-network, and its IP is what the next deploy
+    # collides on. Every identical retry hits the same leaked address. So
+    # before the loop retries, reclaim the leak: disconnect every
+    # catena-network endpoint whose backing container is ENTIRELY gone. It
+    # runs ONLY after a real collision (never on a healthy converge, so it
+    # cannot race swarm's endpoint churn) and only touches endpoints with no
+    # live container, so no running service loses routing. lb-* (swarm LB),
+    # the network self-entry, and the *-endpoint gateway sandbox are skipped
+    # -- they have no backing container by design.
+    - name: "Swarm: detect overlay address conflict ({{ svc_name }})"
+      ansible.builtin.set_fact:
+        _swarm_deploy_addr_conflict: >-
+          {{ ((_swarm_deploy.stdout | default('')) ~ (_swarm_deploy.stderr | default(''))
+              ~ (_swarm_diag_taskps.stdout | default('')))
+             is regex('Address already in use') }}
+
+    - name: "Swarm: reclaim leaked {{ catena_network_name }} endpoints on address conflict ({{ svc_name }})"
+      ansible.builtin.shell: |
+        set -u
+        net="{{ catena_network_name }}"
+        reclaimed=0
+        for name in $(docker network inspect "$net" \
+          -f '{% raw %}{{range .Containers}}{{.Name}}{{"\n"}}{{end}}{% endraw %}' 2>/dev/null); do
+          [ -z "$name" ] && continue
+          # skip the swarm LB, the network self-entry, and the gateway sandbox
+          case "$name" in "$net"|lb-*|*-endpoint) continue ;; esac
+          # a live container (running OR merely stopped) is not a leak; only an
+          # endpoint whose container is entirely gone gets reclaimed
+          if docker inspect "$name" >/dev/null 2>&1; then continue; fi
+          if docker network disconnect -f "$net" "$name"; then
+            echo "reclaimed leaked endpoint: $name"
+            reclaimed=$((reclaimed + 1))
+          fi
+        done
+        echo "reclaimed_total=${reclaimed}"
+      register: _swarm_addr_reclaim
+      changed_when: "'reclaimed leaked endpoint' in (_swarm_addr_reclaim.stdout | default(''))"
+      failed_when: false
+      when: _swarm_deploy_addr_conflict | bool
+
+    - name: "Swarm: report transient, will retry ({{ svc_name }})"
+      ansible.builtin.debug:
+        msg: >-
+          Swarm[{{ svc_name }}]: attempt {{ _swarm_deploy_attempt_n }}
+          failed on a transient{{ ' (leaked overlay endpoint reclaimed)'
+            if (_swarm_deploy_addr_conflict | default(false) | bool) else '' }};
+          retrying.
+      when: _swarm_deploy_transient | bool
+
+    - name: "Swarm: fail hard on non-transient deploy error ({{ svc_name }})"
+      ansible.builtin.fail:
+        msg: |
+          Swarm stack deploy for {{ svc_name }} failed on attempt
+          {{ _swarm_deploy_attempt_n }} and the output did not match a known
+          transient pattern; not retrying.
+
+          rc: {{ _swarm_deploy.rc | default('n/a') }}
+          stdout: {{ _swarm_deploy.stdout | default('(none)') }}
+          stderr: {{ _swarm_deploy.stderr | default('(none)') }}
+
+          Per-task state:
+          {{ _swarm_diag_taskps.stdout | default('(none)') }}
+
+          Reproduce: docker stack deploy --detach=false -c
+          {{ swarm_stack_dir }}/{{ svc_name }}.yml {{ svc_name }}
+      when: not (_swarm_deploy_transient | default(false) | bool)
