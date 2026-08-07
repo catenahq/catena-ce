@@ -137,12 +137,13 @@ is not sufficient here.
 Split by the two-phase install boundary:
 
 **Minimal bootstrap (needed to bring the stack + auth up):** `CLOUDFLARE_ZONE`,
-the subdomain set (`PORTAINER_SUBDOMAIN`,
-`MONITOR_SUBDOMAIN`, `DASH_SUBDOMAIN`, `HEARTBEAT_SUBDOMAIN`,
-`AUTH_SUBDOMAIN`), `ADMIN_EMAIL`, `CATENA_DEFAULT_LANGUAGE`, `TAILSCALE_TAGS`,
-`OPS_USER`, `COMMON_TIMEZONE`, `COMMON_LOCALE`, `STORAGE_MODE` + mount points.
-Plus the two external creds required to bootstrap: Tailscale OAuth (to join the
-tailnet) and the Cloudflare token (tunnel + DNS).
+`HOST_PUBLIC_IP`, `HOST_INITIAL_USER`, `HOST_SSH_PORT`, the subdomain set
+(`PORTAINER_SUBDOMAIN`, `MONITOR_SUBDOMAIN`, `DASH_SUBDOMAIN`,
+`HEARTBEAT_SUBDOMAIN`, `AUTH_SUBDOMAIN`), `ADMIN_EMAIL`,
+`CATENA_DEFAULT_LANGUAGE`, `TAILSCALE_TAGS`, `OPS_USER`, `COMMON_TIMEZONE`,
+`COMMON_LOCALE`, `STORAGE_MODE` + mount points. Plus the one external cred
+required to bootstrap: Tailscale OAuth, to join the tailnet. The Cloudflare
+token is never a bootstrap input -- see category 1 above.
 
 **Settings page (post-install):** `BACKUP_RESTIC_REPO`, backup retention +
 tier, WORM/cold repo, SMTP host/port/from, `NTFY_*`, `NEXTCLOUD_*` (S3 +

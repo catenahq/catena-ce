@@ -7,30 +7,50 @@ machine driving the install. That is the whole toolchain -- `uv` pulls in
 ansible-core, and there is no encryption tool to install and no key to
 have in scope.
 
-Four vendor credentials have to exist first. Catena cannot generate
-these; they come from each provider's console:
+Only one vendor credential has to exist first -- Catena cannot generate it,
+and the server needs it to join the private network before anything else
+can happen:
 
 | Credential | Where it comes from | Used for |
 | --- | --- | --- |
-| Cloudflare API token | Cloudflare dashboard: `Account > Cloudflare Tunnel > Edit` plus `Zone > DNS > Edit` | The encrypted tunnel and its DNS records |
 | Tailscale OAuth client id + secret | Tailscale admin console, scope `Auth Keys: Write`, tag `tag:vps` | Joining the server to the private network |
-| S3 access key + secret key | The object-storage provider holding the backup bucket | The restic backup repository |
-| SMTP or mail-relay password | The mail provider | Admin emails, password resets, etc. |
+
+Everything else -- the Cloudflare API token, the S3 backup keys, SMTP --
+is entered later, in catena-admin > Settings, once the server exists. None
+of it is needed to install.
+
+## Configure
+
+Copy the example inventory and fill in `.env`:
+
+```
+cp -r ansible/inventory/example ansible/inventory/prod
+$EDITOR ansible/inventory/prod/.env
+```
+
+`.env` is commented inline -- what each field does, its default, when it's
+safe to leave blank. `hosts.yml` needs no editing: every field it needs
+(public IP, SSH port, initial user) already reads from the same `.env`.
 
 ## Install
 
 ```
-./catena install
+./catena prod install
 ```
 
-`install` collects the configuration, mints every internal secret on the
-server itself, then runs the four flows in order:
-`preflight -> bootstrap -> site -> validate`.
+`install` collects the Tailscale credential (the one thing `.env` can't
+hold -- it's a secret), mints every internal secret on the server itself,
+then runs the four flows in order: `preflight -> bootstrap -> site ->
+validate`.
 
-Run `./catena` with no arguments for an interactive menu of every
-operation.
+Run `./catena` with no arguments for an interactive menu that prompts for
+the inventory name and the operation.
 
-For an unattended run, answer the questions once into a file and pass it:
+For an unattended run -- CI, a bench, an operator scripting many
+installs -- generate the inventory instead of hand-editing it, from a
+single answers file (`inventory:` / `host:` / `env:` / `vault:` blocks,
+same fields as `.env` plus the Tailscale credential; see `uv run
+ansible/seed.py --help`):
 
 ```
 ./catena install -i install.yaml --no-confirm
@@ -42,13 +62,16 @@ At the end of a successful install, Catena prints three values it cannot
 recover later:
 
 - **Admin password** -- signs in to Portainer and Keycloak.
-- **Restic encryption password**, alongside the **repo URL** and **S3
-  keys** already supplied.
+- **Restic encryption password** -- the backup encryption key.
+- **Console password** -- break-glass login at the provider's KVM/serial
+  console when the network path is gone (SSH refuses it; key-only).
 
-Those last three together are the entire disaster-recovery keyset: with
-them alone a wiped VPS can be rebuilt onto fresh hardware. Without the
-restic password the backups cannot be decrypted by anyone, Catena
-included. They belong in a password manager before the terminal closes.
+Set the backup repo URL and S3 keys in catena-admin > Settings next, then
+save those alongside the restic password: repo URL + S3 keys + restic
+password together are the entire disaster-recovery keyset, and a wiped VPS
+rebuilds from backup with nothing else. Without the restic password the
+backups cannot be decrypted by anyone, Catena included. All three belong
+in a password manager before the terminal closes.
 
 Every other secret -- database passwords, OIDC client secrets, service
 tokens -- stays on the server at `/etc/catena/config.json` and rides
@@ -58,16 +81,16 @@ classification: [ansible/SECRETS.md](ansible/SECRETS.md).
 ## Day two
 
 ```
-./catena converge   # re-apply after a configuration or app change
-./catena validate   # on-host + tailnet + external health checks
-./catena backup     # take an on-demand snapshot
-./catena restore    # in-place whole-host restore
-./catena recover    # rebuild onto a FRESH replacement box
-./catena uninstall  # hand unattended-upgrades back to the OS
+./catena prod converge   # re-apply after a configuration or app change
+./catena prod validate   # on-host + tailnet + external health checks
+./catena prod backup     # take an on-demand snapshot
+./catena prod restore    # in-place whole-host restore
+./catena prod recover    # rebuild onto a FRESH replacement box
+./catena prod uninstall  # hand unattended-upgrades back to the OS
 ```
 
-Each takes `--inventory <name>` to pick a deployment when there is more
-than one.
+`prod` is the inventory name -- whatever was used at install, to pick a
+deployment when there is more than one.
 
 `uninstall` deletes no apps and no data. It re-enables Debian's
 `apt-daily-upgrade.timer` so the box keeps patching itself once Catena

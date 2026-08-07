@@ -59,15 +59,20 @@ directory, where `pyproject.toml` lives.
 | `recover` | Rebuild onto a fresh replacement box |
 | `uninstall` | Hand unattended-upgrades back to the OS |
 
-Each takes `--inventory <name>`. With no subcommand the CLI opens an
-interactive menu; `catena --install` is an alias for `catena install`.
-The script form `uv run ./catena <cmd>` also works, and is how the
-maintainers' rehearsal suite invokes it.
+Inventory name first, subcommand second (`catena prod converge`); either
+missing prompts for it. `--inventory <name>` before the subcommand still
+works too. With neither, the CLI opens an interactive menu; `catena
+--install` is an alias for `catena install`. The script form `uv run
+./catena <cmd>` also works, and is how the maintainers' rehearsal suite
+invokes it.
 
-`install` first runs `seed.py` (collects configuration, writes the
-non-secret inventory, stages the vendor credentials to a transient 0600
-file), then chains the four flows. `-i install.yaml --no-confirm` makes
-it unattended.
+`install` first runs `seed.py`: with no `-i`, the inventory must already
+exist (copied from `inventory/example/`, `.env` hand-filled), and seed
+reads its config from there instead of prompting field by field -- the
+only thing it still prompts for is the Tailscale OAuth credential, staged
+to a transient 0600 file. `-i install.yaml --no-confirm` generates a
+fresh inventory from an answers file instead (the bench / power-user
+path), unattended.
 
 ## Secrets
 
@@ -75,11 +80,12 @@ it unattended.
 plaintext: `catena install` writes only non-secret files into the
 inventory.
 
-- The install-critical vendor credentials (Cloudflare API token,
-  Tailscale OAuth id and secret) are prompted, live-validated, written
-  to a **transient 0600 file** that the CLI threads onto the converge as
-  `-e @file`, and then deleted. The on-box loader adopts them into the
-  store.
+- The one install-critical vendor credential (Tailscale OAuth id and
+  secret) is prompted, live-validated, written to a **transient 0600
+  file** that the CLI threads onto the converge as `-e @file`, and then
+  deleted. The on-box loader adopts it into the store. The Cloudflare API
+  token is never an install input at all -- entered later in catena-admin
+  > Settings.
 - Every other secret -- internal service secrets AND the user-held admin
   and restic passwords -- is minted **on the server**
   (`helpers/onbox_config.py`). The installer shows the admin and restic

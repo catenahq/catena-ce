@@ -1,19 +1,20 @@
 # Inventory
 
-One subdirectory per deployment: `inventory/<name>/`. The installer
-writes it during `catena install` and rewrites parts of it as the flows
-learn things (`bootstrap.yml` records the tailnet address a host got).
-Hand-editing works too, and nothing here is generated from a source
-elsewhere.
+One subdirectory per deployment: `inventory/<name>/`. Copy `example/`
+here and fill in `.env` -- `catena <name> install` then reads it rather
+than writing it. `bootstrap.yml` rewrites one field afterward (the
+tailnet address a host got, once it joins). `-i install.yaml` generates
+one from scratch instead (the bench / power-user path); nothing here is
+generated from a source elsewhere either way.
 
 Real inventories are gitignored. Only `example/` is tracked, and it is
 the documented schema rather than a working config.
 
 | File | What it holds |
 | --- | --- |
-| `hosts.yml` | The two host groups: `vps` (steady state, reached over the tailnet) and `bootstrap` (public IP, used only by `bootstrap.yml` before port 22 closes). |
+| `hosts.yml` | The two host groups: `vps` (steady state, reached over the tailnet) and `bootstrap` (public IP, used only by `bootstrap.yml` before port 22 closes). Copy as-is -- every field reads from `.env`. |
 | `localhost.yml` | Anchors localhost to this inventory so controller-side plays such as `preflight.yml` have an `inventory_dir`. Committed as-is. |
-| `.env` | Non-secret deployment configuration: domain, zone, sizing, feature toggles. |
+| `.env` | Non-secret deployment configuration: host IP, domain, zone, sizing, feature toggles. |
 | `.bootstrap-output.yml` | Written by `bootstrap.yml`; carries facts later flows read back. |
 
 Ansible variables that do not belong in `.env` (structure reading it, not
