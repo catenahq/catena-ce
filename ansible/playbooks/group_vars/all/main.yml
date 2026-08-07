@@ -1,11 +1,12 @@
 ---
-# inventory/<name>/group_vars/all/main.yml -- copy this file to main.yml
-# (drop the .example suffix). Ansible auto-loads every *.yml under
-# group_vars/all/ for the `all` group.
-#
-# Most values are read from inventory/<name>/.env via the dotenv lookup
-# plugin -- edit .env, not this file. This file's job is structure:
-# reconstructing complex types (lists, dicts) from dotenv strings.
+# Shared across every inventory -- Ansible auto-loads group_vars/all/*.yml
+# from the playbook directory for every run, regardless of which inventory is
+# targeted (-i inventory/<name>), same as it does from the inventory
+# directory itself. This file is pure structure: reconstructing complex
+# types (lists, dicts) from dotenv strings. It never varies between
+# inventories, only the values it reads do -- the dotenv lookup plugin
+# resolves <inventory_dir>/.env for whichever inventory is active, so one
+# copy here serves all of them. Edit .env per inventory, never this file.
 
 # --- Global ---
 ansible_managed: "Managed by catena -- do not edit directly; regenerate via the installer / site.yml."
@@ -114,21 +115,25 @@ common_timezone: "{{ lookup('dotenv', 'COMMON_TIMEZONE', default='America/Toront
 common_locale: "{{ lookup('dotenv', 'COMMON_LOCALE', default='en_CA.UTF-8') }}"
 
 # --- Per-inventory / per-host customization -------------------------------
-# Universal defaults ship in roles/*/vars/ -- these hooks let an inventory
-# ADD to them without editing the role. Additive only; to REMOVE a universal
-# default, fork the repo.
-
-# Extra catena-admin action buttons for this inventory. Same shape as the
-# canonical catalog (roles/catena-admin/templates/actions.yml.j2). Each entry
-# becomes a dispatcher case + allow-list entry automatically.
+# Universal defaults ship in roles/*/vars/ and roles/*/defaults/ -- a specific
+# deployment that needs to ADD to them (never remove -- fork the repo for
+# that) drops an inventory/<name>/group_vars/all/*.yml file of its own.
+# Ansible loads group_vars from the inventory directory too, so it merges
+# on top of this shared file with no edit here.
 #
-# Required keys: `name`, `shell`.
-# Optional: `title` (defaults to name), `icon`, `timeout` (defaults to 10s).
-# Example:
+# Extra catena-admin action buttons are the one hook. roles/catena-admin/
+# defaults/main.yml defaults catena_admin_extra_actions to [], so most
+# inventories need nothing. A deployment that wants one adds
+# inventory/<name>/group_vars/all/actions.yml:
+#
 #   catena_admin_extra_actions:
 #     - name: acme-refresh-prices
 #       title: "Refresh ACME prices"
 #       icon: "&#128176;"   # 💰
 #       timeout: 60
 #       shell: "sudo -u acme /opt/acme/bin/refresh-prices"
-catena_admin_extra_actions: []
+#
+# Required keys: `name`, `shell`. Optional: `title` (defaults to name),
+# `icon`, `timeout` (defaults to 10s). Same shape as the canonical catalog
+# (roles/catena-admin/templates/actions.yml.j2) -- each entry becomes a
+# dispatcher case + allow-list entry automatically.

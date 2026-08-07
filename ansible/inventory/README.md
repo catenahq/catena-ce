@@ -14,8 +14,13 @@ the documented schema rather than a working config.
 | `hosts.yml` | The two host groups: `vps` (steady state, reached over the tailnet) and `bootstrap` (public IP, used only by `bootstrap.yml` before port 22 closes). |
 | `localhost.yml` | Anchors localhost to this inventory so controller-side plays such as `preflight.yml` have an `inventory_dir`. Committed as-is. |
 | `.env` | Non-secret deployment configuration: domain, zone, sizing, feature toggles. |
-| `group_vars/all/main.yml` | Ansible variables that do not belong in `.env`. |
 | `.bootstrap-output.yml` | Written by `bootstrap.yml`; carries facts later flows read back. |
+
+Ansible variables that do not belong in `.env` (structure reading it, not
+per-deployment values) live once at
+[../playbooks/group_vars/all/main.yml](../playbooks/group_vars/all/main.yml),
+shared across every inventory. A deployment that needs its own addition
+drops a file under its own `group_vars/all/`.
 
 ## No secrets here
 

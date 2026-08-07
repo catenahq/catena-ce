@@ -301,8 +301,8 @@ backup_paths:
 # restic --exclude patterns (fnmatch-style, applied to absolute paths).
 # Useful for large, already-redundant, or operator-disposable data --
 # anything that would inflate the snapshot without adding recoverable
-# value. Common examples (uncomment per client via inventory override
-# at inventory/<client>/group_vars/all/main.yml):
+# value. Common examples (uncomment per client via an inventory override,
+# e.g. inventory/<client>/group_vars/all/backup.yml):
 #
 #   # Nextcloud user files directory -- if users treat Nextcloud as a
 #   # sync of their local machines, the S3 backup is redundant and

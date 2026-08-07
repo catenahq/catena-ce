@@ -174,8 +174,7 @@ both written reconcile-not-overwrite by `roles/backup`. That is the model
 for every category-2 secret and category-4 value: a single on-box config
 source-of-truth under `/etc/catena/`, written once, reconciled on converge,
 carried in every snapshot. The controller-side inventory is non-secret only
-(`.env`, `hosts.yml`, `group_vars/all/main.yml`); nothing writes a secrets
-file there.
+(`.env`, `hosts.yml`); nothing writes a secrets file there.
 
 The swarm-secret path (catena-postgres, portainer admin) is NOT backed up
 (`/var/lib/docker/swarm` is excluded); those replay correctly because the

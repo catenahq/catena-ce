@@ -22,7 +22,7 @@ ANSIBLE = Path(__file__).resolve().parents[2]
 BACKUP_DEFAULTS = ANSIBLE / "roles" / "backup" / "defaults" / "main.yml"
 INFRA_DEFAULTS = ANSIBLE / "roles" / "infrastructure" / "defaults" / "main.yml"
 EXAMPLE_INVENTORY = (
-    ANSIBLE / "inventory" / "example" / "group_vars" / "all" / "main.yml.example"
+    ANSIBLE / "playbooks" / "group_vars" / "all" / "main.yml"
 )
 
 # Pinged by a unit running on the host.

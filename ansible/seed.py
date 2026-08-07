@@ -4,9 +4,13 @@
 Reads install.yaml (`-i`) for non-interactive values, prompts for anything
 missing, and writes the NON-SECRET inventory files:
   - inventory/<name>/.env                            (non-secret config)
-  - inventory/<name>/group_vars/all/main.yml         (copied from template)
   - inventory/<name>/hosts.yml                        (bootstrap + vps entries)
   - inventory/<name>/localhost.yml                    (preflight anchor)
+
+The group_vars structure (playbooks/group_vars/all/main.yml) is shared: it
+is pure `lookup('dotenv', ...)` boilerplate, identical for every inventory,
+so it is not written per-inventory here -- only the .env VALUES it reads
+differ between inventories.
 
 No secret file is written into the inventory (0b: no persisted laptop vault).
 The ONLY install-critical vendor cred is the Tailscale OAuth client id/secret
@@ -58,7 +62,6 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent
 SKEL = REPO_ROOT / "inventory" / "example"
 ENV_TEMPLATE = SKEL / ".env.example"
-MAIN_YML_TEMPLATE = SKEL / "group_vars" / "all" / "main.yml.example"
 LOCALHOST_YML_SKEL = SKEL / "localhost.yml"
 
 # Make `from helpers import ...` resolve whether seed.py is run as a script
@@ -555,13 +558,6 @@ def emit_env(template_text: str, values: dict[str, str], target: Path) -> None:
     target.write_text("\n".join(out) + "\n")
 
 
-def emit_main_yml(target: Path) -> None:
-    if target.exists():
-        return
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(MAIN_YML_TEMPLATE, target)
-
-
 def emit_localhost_yml(target: Path) -> None:
     if target.exists():
         return
@@ -800,13 +796,10 @@ def _write_inventory_files(
     tailnet_ip_provided: str,
 ) -> None:
     env_target = inv_dir / ".env"
-    main_target = inv_dir / "group_vars" / "all" / "main.yml"
     hosts_target = inv_dir / "hosts.yml"
     banner(f"Writing inventory/{inventory}/ (non-secret files only)")
     emit_env(env_template, env_values, env_target)
     ok(f"wrote {env_target}")
-    emit_main_yml(main_target)
-    ok(f"wrote {main_target}")
     emit_localhost_yml(inv_dir / "localhost.yml")
     ok(f"wrote {inv_dir / 'localhost.yml'}")
     # No vault.yml: secrets never persist on the laptop (0b). Vendor creds go to

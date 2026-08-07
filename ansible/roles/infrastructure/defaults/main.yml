@@ -9,10 +9,8 @@
 #   monitor.<zone>   -> Gatus        (this role, via the Portainer API)
 #   dash.<zone>      -> catena-admin (roles/catena-admin)
 
-# Fallback if the inventory's group_vars/all/main.yml predates the
-# ansible_managed variable (added when we moved off the deprecated
-# ansible.cfg setting). Role defaults have lowest priority, so a value
-# in group_vars wins.
+# Fallback only -- playbooks/group_vars/all/main.yml sets this too, and
+# role defaults have lowest priority, so that value wins.
 ansible_managed: "Managed by catena - do not edit directly."
 
 # --- Nextcloud Talk + HPB ------------------------------------------------
