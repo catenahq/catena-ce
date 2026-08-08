@@ -895,9 +895,8 @@ def main(argv: list[str] | None = None) -> int:
         env_path = inv_dir / ".env"
         if not env_path.is_file():
             die(
-                f"{env_path} not found. Copy inventory/example/ to "
-                f"inventory/{inventory}/, fill in .env and hosts.yml, then "
-                "re-run."
+                f"{env_path} not found. Copy inventory/example/.env.example "
+                f"to {env_path}, fill it in, then re-run."
             )
         env_provided = read_existing_env(env_path)
     env_values = _collect_env_values(env_keys, env_provided)

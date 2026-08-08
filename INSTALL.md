@@ -21,16 +21,17 @@ of it is needed to install.
 
 ## Configure
 
-Copy the example inventory and fill in `.env`:
+Copy `.env.example` and fill it in:
 
 ```
-cp -r ansible/inventory/example ansible/inventory/prod
+mkdir -p ansible/inventory/prod
+cp ansible/inventory/example/.env.example ansible/inventory/prod/.env
 $EDITOR ansible/inventory/prod/.env
 ```
 
 `.env` is commented inline -- what each field does, its default, when it's
-safe to leave blank. `hosts.yml` needs no editing: every field it needs
-(public IP, SSH port, initial user) already reads from the same `.env`.
+safe to leave blank. `hosts.yml` needs no copying and no editing: `catena
+install` creates it from `.env` on first run.
 
 ## Install
 
