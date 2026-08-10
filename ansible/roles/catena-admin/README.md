@@ -88,7 +88,7 @@ knobs are:
 - `catena_admin_extra_tiles` -- list of hand-authored launcher tiles
   the Go shell's Apps tab consumes.
 
-`catena_admin_default_language` (`en` | `fr`) and
-`catena_admin_default_theme` (`light` | `dark` | `system`) inherit
-from the inventory's `catena_default_language` /
-`catena_default_theme` if defined.
+`catena_admin_default_theme` (`light` | `dark` | `system`) inherits
+from the inventory's `catena_default_theme` if defined. The panel's
+language is not an inventory setting: it starts in English and each
+visitor switches with the header toggle.

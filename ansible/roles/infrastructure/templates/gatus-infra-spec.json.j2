@@ -10,13 +10,13 @@
     "version_key": "Traefik"
   },
   {
-    "label": "{{ infrastructure_monitor_hostname }}",
-    "url": "https://{{ infrastructure_monitor_hostname }}",
+    "label": "{{ infrastructure_gatus_hostname }}",
+    "url": "https://{{ infrastructure_gatus_hostname }}",
     "group": "Infrastructure",
     "accepted": [302],
     "ignore_redirect": true,
     "interval": "120s",
-    "alert_slug": "{{ infrastructure_monitor_hostname | lower | replace('.', '-') }}",
+    "alert_slug": "{{ infrastructure_gatus_hostname | lower | replace('.', '-') }}",
     "version_key": "Gatus"
   },
 {# catena-admin (the Go shell) is the admin panel at dash.<zone>. It

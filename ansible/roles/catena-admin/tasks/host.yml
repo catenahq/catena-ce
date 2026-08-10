@@ -375,5 +375,4 @@
         ssh keys (host): {{ catena_admin_host_ssh_dir }}/
         stats dir:       {{ catena_admin_stats_dir }}
         state dir:       {{ catena_admin_state_dir }}
-        default locale:  {{ catena_admin_default_language }}
         default theme:   {{ catena_admin_default_theme }}
