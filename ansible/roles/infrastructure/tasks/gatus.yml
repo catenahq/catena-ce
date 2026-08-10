@@ -88,7 +88,7 @@
   vars:
     svc_name: "{{ gatus_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'gatus.compose.yml.j2') }}"
-    svc_domain_host: "{{ infrastructure_monitor_hostname }}"
+    svc_domain_host: "{{ infrastructure_gatus_hostname }}"
     svc_domain_service: "app"
     svc_domain_port: "{{ gatus_internal_port }}"
     # Per-service readiness probe is deferred to the aggregate post-role

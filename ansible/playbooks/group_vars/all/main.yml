@@ -44,8 +44,8 @@ cloudflared_ingress_service: "http://catena-traefik:80"
 # Public-facing hostnames, all gated by self-hosted SSO + forward-auth
 # (Keycloak + oauth2-proxy). SSO works across them via a shared auth.<zone>
 # session cookie.
-infrastructure_monitor_subdomain: "{{ lookup('dotenv', 'MONITOR_SUBDOMAIN', default='monitor') }}"
-infrastructure_monitor_hostname: "{{ infrastructure_monitor_subdomain }}.{{ cloudflare_zone }}"
+infrastructure_gatus_subdomain: "{{ lookup('dotenv', 'GATUS_SUBDOMAIN', default='monitor') }}"
+infrastructure_gatus_hostname: "{{ infrastructure_gatus_subdomain }}.{{ cloudflare_zone }}"
 # catena-admin (the Go shell) is served at dash.<zone>.
 infrastructure_dash_subdomain: "{{ lookup('dotenv', 'DASH_SUBDOMAIN', default='dash') }}"
 infrastructure_dash_hostname: "{{ infrastructure_dash_subdomain }}.{{ cloudflare_zone }}"

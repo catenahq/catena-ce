@@ -1,12 +1,11 @@
 ---
-# Deploy the catena-admin Go shell as a TIER-1 SWARM SERVICE.
-#
-# It used to be a Portainer stack, which made the panel a dependent of the
-# thing it exists to drive: it holds PORTAINER_API_BASE + PORTAINER_API_KEY
-# and reconciles Portainer's stacks, yet Portainer deployed it. A Portainer
-# that would not start therefore took down the only tool that could repair
-# it, and the post-restore path that needs the panel runs at exactly the
-# moment Portainer is what did not come back.
+# Deploy the catena-admin Go shell as a TIER-1 SWARM SERVICE, not a Portainer
+# stack: the panel holds PORTAINER_API_BASE + PORTAINER_API_KEY and
+# reconciles Portainer's stacks, so deploying it VIA Portainer would make it
+# a dependent of the thing it exists to drive -- a Portainer that would not
+# start would take down the only tool that could repair it, and the
+# post-restore path that needs the panel runs at exactly the moment
+# Portainer is what did not come back.
 #
 # So it is created the same way roles/traefik, roles/postgres and
 # roles/portainer create theirs -- `docker service create` against the local
@@ -87,7 +86,6 @@
         CATENA_ADMIN_ADDR: ":{{ catena_admin_internal_port }}"
         CATENA_ADMIN_DIRECT_ADDR: ":{{ catena_admin_direct_port }}"
         CATENA_ADMIN_LOCAL_USER: "{{ admin_email }}"
-        CATENA_DEFAULT_LANG: "{{ catena_admin_default_language }}"
         CATENA_DEFAULT_THEME: "{{ catena_admin_default_theme }}"
         CATENA_EE_PAYLOAD_DIR: "{{ catena_admin_ee_payload_dir }}"
         CATENA_ADMIN_STATE_DIR: "{{ catena_admin_state_dir }}"
@@ -98,7 +96,7 @@
           http://{{ portainer_service_name }}:{{ portainer_ui_port }}/api
         KEYCLOAK_HOSTNAME: "{{ keycloak_hostname }}"
         KEYCLOAK_REALM: "{{ keycloak_realm }}"
-        INFRA_MONITOR_HOSTNAME: "{{ infrastructure_monitor_hostname }}"
+        INFRA_GATUS_HOSTNAME: "{{ infrastructure_gatus_hostname }}"
         INFRA_HEARTBEAT_HOSTNAME: "{{ healthchecks_hostname }}"
         INFRA_BESZEL_HOSTNAME: "{{ beszel_hostname }}"
         CATENA_ADMIN_RECOVERY_URL: >-

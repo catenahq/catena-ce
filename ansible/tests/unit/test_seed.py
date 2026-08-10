@@ -121,11 +121,7 @@ def test_vault_template_machinery_is_gone(seed):
 
 # --- ENV_OPTIONS (no managed-lifecycle knobs) -------------------------------
 def test_env_options_keep_ce_enums(seed):
-    assert seed.ENV_OPTIONS.get("CATENA_DEFAULT_LANGUAGE") == ["en", "fr"]
     assert seed.ENV_OPTIONS.get("STORAGE_MODE") == ["built_in", "attached"]
-    assert seed.ENV_OPTIONS.get("NEXTCLOUD_VERSIONS_RETENTION") == [
-        "auto, 7", "auto, 14", "auto, 30",
-    ]
 
 
 def test_env_options_drop_managed_lifecycle_knobs(seed):
@@ -355,19 +351,10 @@ def test_validate_structural_blank_restic_repo_is_ok(seed):
     assert seed.validate_install_structural(inp, _ENV_KEYS, _VAULT_KEYS) == 0
 
 
-def test_validate_structural_rejects_client_placeholder(seed):
-    """A MALFORMED repo (unreplaced <client> sentinel) still fails, even though
-    a blank one is allowed."""
-    inp = _good_inp()
-    inp["env"]["BACKUP_RESTIC_REPO"] = "s3:s3.example.net/<client>-restic"
-    assert seed.validate_install_structural(inp, _ENV_KEYS, _VAULT_KEYS) >= 1
-
-
 # --- Cloudflare zone ---------------------------------------------------------
 def test_validate_structural_requires_cf_zone(seed):
-    """A blank zone is a problem on every host. It used to be legitimate under
-    ACCESS_MODE=tailnet, which is gone: hostnames derive from the zone and
-    every host now serves them."""
+    """A blank zone is a problem on every host: every hostname derives from
+    the zone and every host serves them."""
     inp = _good_inp()
     inp["env"] = {"CLOUDFLARE_ZONE": ""}
     env_keys = [("CLOUDFLARE_ZONE", "example.com")]
@@ -375,9 +362,8 @@ def test_validate_structural_requires_cf_zone(seed):
 
 
 def test_access_mode_is_gone(seed):
-    """The mode did not serve apps over the tailnet, it skipped the monitoring
-    plane and the SSO edge entirely. Deleted 2026-07-29; a reintroduced helper
-    or env option means the second install shape came back."""
+    """Only one install shape exists: a reintroduced helper or env option
+    would mean a second one came back."""
     assert not hasattr(seed, "_access_mode")
     assert "ACCESS_MODE" not in seed.ENV_OPTIONS
 

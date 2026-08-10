@@ -90,8 +90,8 @@ def _declared_secret_names() -> frozenset[str]:
     on a minimal target host) and seed.py should not pull it in at import time
     just to answer a question about names.
 
-    This replaced a `vault_` prefix test. A prefix made spelling load-bearing:
-    an operator who wrote a credential without it had it silently filed as
+    Declared by name rather than inferred from a `vault_` prefix: a prefix
+    makes spelling load-bearing, silently filing an unprefixed credential as
     non-secret .env config."""
     from helpers import onbox_config
 
@@ -192,17 +192,12 @@ def validate_install_structural(
     else:
         _check("host_initial_password blank (install_key.py will prompt)", True)
 
-    # SMTP_FROM has a non-empty placeholder default but blank is legitimate
-    # (deploy without mail). All other "optional" env keys are inferred from
-    # an empty template default -- the template author's signal that blank
-    # is acceptable.
-    env_allow_empty = {
-        "SMTP_FROM",
-    }
+    # "Optional" env keys are inferred from an empty template default -- the
+    # template author's signal that blank is acceptable.
     for key, default in env_keys:
         val = env.get(key, default)
         eff = _effective_options(default, ENV_OPTIONS.get(key))
-        is_optional = key in env_allow_empty or not default
+        is_optional = not default
         if is_optional and not _is_filled(val):
             continue
         # YAML bool -> "true"/"false".
@@ -223,41 +218,6 @@ def validate_install_structural(
                       _is_filled(val), "***" if _is_filled(val) else "(missing)"):
             problems += 1
 
-    def _check_s3_repo(key: str, value: str, *, required: bool) -> int:
-        if not _is_filled(value):
-            if required:
-                if not _check(f"{key} format", False,
-                              "expected s3:<endpoint>/<bucket>, got '' (blank)"):
-                    return 1
-            return 0
-        if not (value.startswith("s3:") and "/" in value[3:]):
-            if not _check(f"{key} format", False,
-                          f"expected s3:<endpoint>/<bucket>, got {value!r}"):
-                return 1
-            return 1
-        endpoint, bucket = value[3:].split("/", 1)
-        # Reject the literal "<client>" sentinel from .env.example -- a
-        # template-shaped value made it past prompt-fill.
-        if "<client>" in value or "<client>" in bucket:
-            if not _check(f"{key} format", False,
-                          f"contains <client> placeholder; replace with a real bucket name -- got {value!r}"):
-                return 1
-            return 1
-        _check(f"{key} format", True, f"endpoint={endpoint} bucket={bucket}")
-        return 0
-
-    # Backup repo is configured POST-INSTALL in catena-admin (deferred creds),
-    # so a blank value at seed time is fine; only a malformed one fails.
-    problems += _check_s3_repo(
-        "BACKUP_RESTIC_REPO", env.get("BACKUP_RESTIC_REPO", ""), required=False
-    )
-    # The cold mirror's two repos, same rule: blank is legitimate (mirror off),
-    # malformed is not. They are checked here rather than left to the panel
-    # because they are seeded in the same file and a typo in a bucket name
-    # surfaces at seed time or not until a mirror silently skips for weeks.
-    for key in ("BACKUP_WORM_REPO", "NEXTCLOUD_WORM_REPO",
-                "NEXTCLOUD_LIVE_REPO"):
-        problems += _check_s3_repo(key, env.get(key, ""), required=False)
     return problems
 
 
@@ -316,48 +276,6 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
 
 # --- input loading ----------------------------------------------------------
 HOST_PREFIX = "host_"
-
-
-def _fill_smtp_defaults(env: dict, *, host: str, user: str, sender: str) -> None:
-    defaults = {
-        "SMTP_HOST":    host,
-        "SMTP_PORT":    587,
-        "SMTP_USER":    user,
-        "SMTP_FROM":    sender,
-        "SMTP_USE_TLS": True,
-    }
-    for k, v in defaults.items():
-        existing = str(env.get(k, "")).strip()
-        if existing and existing not in PLACEHOLDER_VALUES:
-            continue
-        env[k] = "true" if v is True else ("false" if v is False else str(v))
-
-
-def apply_smtp_provider_shortcut(inp: dict) -> str | None:
-    """Resend / Brevo shortcut: if only the sender email is set, derive the
-    SMTP host/port/user so the operator does not have to know them."""
-    env = inp.setdefault("env", {})
-    resend_sender = str(env.get("RESEND_SENDER_EMAIL", "")).strip()
-    brevo_sender = str(env.get("BREVO_SENDER_EMAIL", "")).strip()
-
-    resend_set = resend_sender and resend_sender not in PLACEHOLDER_VALUES
-    brevo_set = brevo_sender and brevo_sender not in PLACEHOLDER_VALUES
-
-    if resend_set and brevo_set:
-        warn(
-            "Both RESEND_SENDER_EMAIL and BREVO_SENDER_EMAIL set -- using Resend. "
-            "Clear one to silence this warning."
-        )
-
-    if resend_set:
-        _fill_smtp_defaults(env, host="smtp.resend.com", user="resend", sender=resend_sender)
-        return "Resend"
-
-    if brevo_set:
-        _fill_smtp_defaults(env, host="smtp-relay.brevo.com", user=brevo_sender, sender=brevo_sender)
-        return "Brevo"
-
-    return None
 
 
 def split_install_dict(raw: dict) -> dict:
@@ -453,9 +371,7 @@ def _is_filled(value) -> bool:
 # knobs (auto-update mode/reboot/provider, scheduled backup tier) are
 # Business features and absent from the Community template.
 ENV_OPTIONS: dict[str, list[str]] = {
-    "CATENA_DEFAULT_LANGUAGE": ["en", "fr"],
     "STORAGE_MODE": ["built_in", "attached"],
-    "NEXTCLOUD_VERSIONS_RETENTION": ["auto, 7", "auto, 14", "auto, 30"],
 }
 
 _BOOL_VALUES = ("true", "false")
@@ -748,9 +664,6 @@ def _collect_env_values(
     banner("Configuration (.env)")
     print("(press Enter to accept the template default)\n", file=sys.stderr)
     env_values: dict[str, str] = {}
-    # SMTP_FROM has a non-empty placeholder default but blank is a legitimate
-    # answer (deploy without mail).
-    allow_empty_with_default = {"SMTP_FROM"}
     defaults = dict(env_keys)
     for key, default in env_keys:
         if key == "TAILNET_CONTROL_URL":
@@ -764,7 +677,7 @@ def _collect_env_values(
             continue
         if key == "HEADSCALE_USER":
             continue  # resolved above, alongside TAILNET_CONTROL_URL
-        allow_empty = (not default) or key in allow_empty_with_default
+        allow_empty = not default
         env_values[key] = fill(
             env_provided, key, default, key,
             allow_empty=allow_empty,
@@ -869,12 +782,6 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     inp = load_input(Path(args.input) if args.input else None)
-
-    provider = apply_smtp_provider_shortcut(inp)
-    if provider:
-        env = inp.get("env", {})
-        sender_key = "RESEND_SENDER_EMAIL" if provider == "Resend" else "BREVO_SENDER_EMAIL"
-        ok(f"{provider} SMTP shortcut: SMTP_* derived from {sender_key}={env.get(sender_key, '')}")
 
     banner("Target")
     if args.inventory_path:

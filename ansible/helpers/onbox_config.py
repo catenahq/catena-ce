@@ -167,11 +167,6 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     # these are always in use.
     "beszel_admin_password": mint_strong_password,
     "beszel_universal_token": mint_url_safe,
-    # The three catena-portal secrets were REMOVED 2026-07-30 with the
-    # ordering portal itself. They were minted on every host and read by
-    # nothing: the realm client they claimed to pair with was never in the
-    # Keycloak blueprint, and CATENA_PORTAL_ENABLED -- named as their gate --
-    # was read by no code in any repo.
     # The auth header on the ZAP daemon's REST API while a pen-test scan is
     # running. Minted regardless of bench mode so a one-off scan against any
     # inventory needs no extra setup.
@@ -194,9 +189,7 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
 #     for the provider KVM / serial console (roles/common sets it; key-only SSH
 #     keeps it console-only). Same shape as the restic password: a credential
 #     whose whole purpose is the case where the normal path is gone, so a copy
-#     that lives only inside the box is no copy at all. It was previously
-#     minted by an ops OPERATOR tool, which meant no self-hoster host had a
-#     break-glass account at all.
+#     that lives only inside the box is no copy at all.
 USER_HELD_SECRETS: dict[str, Callable[[], str]] = {
     "admin_password": mint_admin_password,
     "backup_restic_password": mint_strong_password,
@@ -346,16 +339,15 @@ BOOTSTRAP_CONFIG: frozenset[str] = frozenset({
     "BESZEL_SUBDOMAIN",
     "CATENA_ADMIN_SUBDOMAIN",
     "CATENA_ADMIN_UI_PORT",
-    "CATENA_DEFAULT_LANGUAGE",
     "CLOUDFLARED_TUNNEL_NAME_PREFIX",
     "CLOUDFLARE_ZONE",
     "COMMON_LOCALE",
     "COMMON_TIMEZONE",
     "DASH_SUBDOMAIN",
     "DISPLAY_NAME",
+    "GATUS_SUBDOMAIN",
     "HEADSCALE_USER",
     "HEARTBEAT_SUBDOMAIN",
-    "MONITOR_SUBDOMAIN",
     "OPS_USER",
     "PORTAINER_SUBDOMAIN",
     "PORTAINER_UI_PORT",
@@ -406,12 +398,10 @@ def secret_names() -> list[str]:
     """Every key the store recognises, across all four categories.
 
     This is the converge loader's discriminator: it selects which in-scope
-    Ansible variables get captured into the store. That used to be the regex
-    ``^vault_.+$``, which made a name PREFIX load-bearing -- a variable was
-    captured because of how it was spelled rather than because anyone said it
-    was a secret. Naming it here instead means the four category tables above
-    are the single declaration, and a key that belongs to no category is
-    already impossible by construction.
+    Ansible variables get captured into the store. Naming secrets here, by
+    declared name rather than by a spelling convention, means the four
+    category tables above are the single declaration, and a key that belongs
+    to no category is already impossible by construction.
 
     The loader must still capture BY NAME and never evaluate the whole
     variable set: resolving every in-scope var aborts a converge on role

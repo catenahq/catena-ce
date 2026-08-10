@@ -122,7 +122,7 @@ oauth2_proxy_jwks_url: "{{ oauth2_proxy_backchannel_base }}/certs"
 # subdomain prefix.
 oauth2_proxy_apps:
   - slug: "gatus"
-    host_var: "infrastructure_monitor_hostname"
+    host_var: "infrastructure_gatus_hostname"
     upstream_alias: "gatus"
     # Gatus binds 8080 internally regardless of the public hostname --
     # the OLD auto-route label `loadbalancer.server.port=8080`

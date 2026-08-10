@@ -16,11 +16,19 @@
 #   - CATENA_CF_CANDIDATE_TOKEN -- a candidate Cloudflare token the Settings
 #                                panel validates via cloudflared-check BEFORE
 #                                persist; piped to the engine on stdin.
+#   - CATENA_BACKUP_CANDIDATE_REPO / *_ACCESS_KEY / *_SECRET_KEY -- a candidate
+#                                S3 backup endpoint the Settings panel
+#                                validates via backup-endpoint-check BEFORE
+#                                persist; folded into JSON and piped to
+#                                catena-backup-check on stdin. Names MUST match
+#                                catena-admin shell/web/backupendpoint.go's
+#                                BackupEndpointCandidateRepoEnv/*AccessKeyEnv/
+#                                *SecretKeyEnv.
 # The list is deliberately short: every name here is a value the container can
 # push into a root-run host process, so it stays the minimum the dispatch needs.
-# CATENA_MULTIDOMAIN_ENABLED used to be on it; the tunnel engine now reads the
-# licence out of the on-box store itself, so the panel no longer tells the host
-# what it is entitled to.
+# The tunnel engine reads the licence directly out of the on-box store, so
+# the panel does not need to tell the host what it is entitled to via this
+# list.
 - name: "sshd: AcceptEnv for catena-admin-runner dispatch env vars"
   ansible.builtin.copy:
     dest: /etc/ssh/sshd_config.d/30-catena-admin-runner-acceptenv.conf
@@ -30,11 +38,11 @@
     content: |
       # {{ ansible_managed }}
       # Allow the catena-admin container's paramiko client to forward the
-      # clicking admin's email and a candidate Cloudflare token to the host
-      # dispatcher via env vars. Scoped to the runner account; does not affect
-      # operator shells.
+      # clicking admin's email, a candidate Cloudflare token, and a candidate
+      # S3 backup endpoint to the host dispatcher via env vars. Scoped to the
+      # runner account; does not affect operator shells.
       Match User {{ catena_admin_runner_user }}
-          AcceptEnv X_FORWARDED_EMAIL CATENA_CF_CANDIDATE_TOKEN
+          AcceptEnv X_FORWARDED_EMAIL CATENA_CF_CANDIDATE_TOKEN CATENA_BACKUP_CANDIDATE_REPO CATENA_BACKUP_CANDIDATE_ACCESS_KEY CATENA_BACKUP_CANDIDATE_SECRET_KEY
       Match all
   notify: reload sshd
 
@@ -263,11 +271,7 @@
 #
 # catena-daily.service and catena-daily-resume.service declare
 # EnvironmentFile for this path with NO leading dash, so systemd fails the
-# unit outright when it is absent -- and nothing wrote it. Not this repo, not
-# catena-admin, not ops. The scheduled Business chain could not start on any
-# real host; only the test bench had the file, because the bench writes its
-# own. The template that used to render this lived in the catena-ee ansible
-# tree and went with it at the Go port.
+# unit outright when it is absent.
 #
 # Written on EVERY converge, unlike backup.env next door: this file holds no
 # secrets, only paths and toggles, so there is no rotated value for a

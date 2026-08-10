@@ -177,9 +177,10 @@ catena_admin_state_dir: "/var/lib/catena-admin"
 # Role-relative template; the only Jinja marker is `ansible_managed`.
 catena_admin_actions_source: "{{ role_path }}/templates/actions.yml.j2"
 
-# Default locale + theme rendered into the admin container's env.
-# Inventory overrides via catena_default_language / catena_default_theme.
-catena_admin_default_language: "{{ catena_default_language | default('en') }}"
+# Default theme rendered into the admin container's env. Inventory override
+# via catena_default_theme. Language has no install-time default: the panel
+# always starts in English, and a visitor can switch to French any time via
+# the header toggle (shell/i18n) -- no inventory field for it.
 catena_admin_default_theme: "{{ catena_default_theme | default('system') }}"
 
 # Per-inventory action extras + tiles. Same shape as the canonical
@@ -436,6 +437,12 @@ catena_admin_onbox_config_path: "/usr/local/bin/catena-onbox-config"
 # field, so these are deliberate button+confirm actions dispatched to the host,
 # not part of a settings save. Same opaque-PAYLOAD pattern as catena-config.
 catena_admin_restic_key_path: "/usr/local/bin/catena-restic-key"
+# The backup-endpoint (S3 repo) candidate-check binary. Part of the ungated
+# host payload like catena-cloudflared-sync -- roles/payload extracts it from
+# the catena-admin image (payload/cmd/catena-backup-check) via the blanket
+# `for f in bin/*` install in install-ee-payload.sh, so no per-binary listing
+# is needed here.
+catena_admin_backup_check_bin: "/usr/local/bin/catena-backup-check"
 catena_admin_ce_reserved_actions:
   - name: catena-config
     shell: >-
@@ -469,6 +476,28 @@ catena_admin_ce_reserved_actions:
   - name: catena-restic-rotate
     shell: >-
       echo "$PAYLOAD" | base64 -d | {{ catena_admin_restic_key_path }}
+  # Backup-endpoint (S3) candidate check (COMMUNITY -- the backup lane is a
+  # Community feature). The Settings panel validates a CANDIDATE repository
+  # string + access/secret key BEFORE persisting them, the same pre-persist
+  # shape as cloudflared-check below: a dispatch/transport failure or a
+  # rejected candidate must never let a save go through. The three values ride
+  # the SSH Runner's env map -- CATENA_BACKUP_CANDIDATE_REPO,
+  # *_ACCESS_KEY, *_SECRET_KEY (whitelisted via sshd AcceptEnv in host.yml) --
+  # NOT $PAYLOAD/argv, so they never land in $SSH_ORIGINAL_COMMAND or any host
+  # process argv. jq (baseline-installed on every host, roles/common) folds
+  # them into the {"repo","access_key","secret_key"} JSON
+  # payload/cmd/catena-backup-check expects on stdin -- shell.web.
+  # backupendpoint.go's BackupEndpointCandidateRepoEnv/*AccessKeyEnv/
+  # *SecretKeyEnv in catena-admin MUST match these three names exactly, or the
+  # candidate silently arrives empty.
+  - name: backup-endpoint-check
+    shell: >-
+      jq -n
+      --arg repo "$CATENA_BACKUP_CANDIDATE_REPO"
+      --arg access_key "$CATENA_BACKUP_CANDIDATE_ACCESS_KEY"
+      --arg secret_key "$CATENA_BACKUP_CANDIDATE_SECRET_KEY"
+      '{repo:$repo,access_key:$access_key,secret_key:$secret_key}' |
+      {{ catena_admin_backup_check_bin }}
   # State register (COMMUNITY). The Apps tab records client intent here when
   # someone stops or starts an application, so a later restore knows not to
   # bring back something that was deliberately switched off. Portainer's own

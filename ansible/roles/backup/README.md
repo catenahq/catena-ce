@@ -74,6 +74,29 @@ already captured, so the finding costs a page and not a snapshot. Any
 other non-zero from the checker -- including a timeout -- stays non-fatal,
 because an unreadable answer is not evidence of a gap.
 
+## WORM mirror sizing (Nextcloud)
+
+`NEXTCLOUD_LIVE_REPO` is not a copy step -- Nextcloud writes directly to S3
+as its own primary object storage. `NEXTCLOUD_VERSIONS_RETENTION` (set in
+the Nextcloud app template's own Environment tab in Portainer, not in this
+installer) bounds that live bucket's steady-state size.
+
+The WORM mirror (`NEXTCLOUD_WORM_REPO`, Business-tier) runs `rclone copy`
+incrementally -- only new/changed objects transfer each run, not a full
+re-push -- on a daily cadence (04:45 by default), not hourly. The WORM
+bucket is additive-only by design (ransomware-immutability) and nothing in
+Catena's tooling ever deletes from it -- Object Lock retention is a
+property of the bucket itself, set outside Catena. Every version-object
+Nextcloud has ever created since the mirror was enabled therefore
+accumulates there permanently, even after Nextcloud's own retention has
+expired and pruned it from the live bucket. Raising
+`NEXTCLOUD_VERSIONS_RETENTION` mainly grows the live bucket's size, not the
+WORM accumulation rate -- the daily mirror catches new versions well before
+a 7-day or 30-day live-side cap prunes them. The real cost driver over a
+deployment's lifetime is cumulative file+version churn, unbounded by
+design, with pruning intentionally left to a separate delete-capable
+operator tool, never the VPS itself.
+
 ## Inputs
 
 - `vault_restic_password` -- restic repository password.

@@ -34,7 +34,7 @@
     timeout: 10
   register: _infra_gated_probes
   loop:
-    - { name: "gatus", url: "https://{{ infrastructure_monitor_hostname }}/" }
+    - { name: "gatus", url: "https://{{ infrastructure_gatus_hostname }}/" }
     - { name: "healthchecks", url: "https://{{ healthchecks_hostname }}/" }
     - { name: "recovery", url: "https://{{ infrastructure_recovery_hostname }}/" }
     - { name: "portainer", url: "https://{{ portainer_admin_hostname }}/" }
@@ -80,7 +80,7 @@
         - Check Keycloak readiness:
             curl -fsS https://{{ keycloak_hostname | default('auth.' ~ cloudflare_zone) }}/health/ready
         - Re-run the probe manually:
-            curl -I https://{{ infrastructure_monitor_hostname }}/
+            curl -I https://{{ infrastructure_gatus_hostname }}/
   when: _infra_gated_failures | length > 0
 
 # ── dynamic client-app auth-gate probe (intent-driven, 1ad) ───────────────

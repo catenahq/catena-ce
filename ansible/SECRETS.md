@@ -138,9 +138,9 @@ Split by the two-phase install boundary:
 
 **Minimal bootstrap (needed to bring the stack + auth up):** `CLOUDFLARE_ZONE`,
 `HOST_PUBLIC_IP`, `HOST_INITIAL_USER`, `HOST_SSH_PORT`, the subdomain set
-(`PORTAINER_SUBDOMAIN`, `MONITOR_SUBDOMAIN`, `DASH_SUBDOMAIN`,
-`HEARTBEAT_SUBDOMAIN`, `AUTH_SUBDOMAIN`), `ADMIN_EMAIL`,
-`CATENA_DEFAULT_LANGUAGE`, `TAILSCALE_TAGS`, `OPS_USER`, `COMMON_TIMEZONE`,
+(`PORTAINER_SUBDOMAIN`, `GATUS_SUBDOMAIN`, `DASH_SUBDOMAIN`,
+`HEARTBEAT_SUBDOMAIN`, `AUTH_SUBDOMAIN`, `BESZEL_SUBDOMAIN`), `ADMIN_EMAIL`,
+`TAILSCALE_TAGS`, `OPS_USER`, `COMMON_TIMEZONE`,
 `COMMON_LOCALE`, `STORAGE_MODE` + mount points. Plus the one external cred
 required to bootstrap: Tailscale OAuth, to join the tailnet. The Cloudflare
 token is never a bootstrap input -- see category 1 above.
