@@ -455,10 +455,10 @@ def test_control_server_non_interactive_falls_back_to_defaults(seed, monkeypatch
 
 
 def test_control_server_choice_runs_before_tailscale_tags_prompt(seed, monkeypatch):
-    """The choice sits at the START of the Tailscale block (fired off
-    TAILSCALE_TAGS, the block's first key) so it can filter out the
-    Headscale-only fields that follow later in the template -- it must not
-    fire only once the loop reaches TAILNET_CONTROL_URL's own position."""
+    """TAILNET_CONTROL_URL is the first key of the tailnet block in the
+    template, ahead of TAILSCALE_TAGS/TAILSCALE_ACCEPT_DNS (which apply to
+    either backend) -- the choice must fire there, filtering out the
+    Headscale-only HEADSCALE_USER field that follows right after it."""
     calls = []
     real_fill = seed.fill
 
