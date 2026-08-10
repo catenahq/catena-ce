@@ -79,12 +79,45 @@ def test_backup_endpoint_check_never_uses_payload_or_argv():
 
 
 def test_sshd_acceptenv_lists_the_backup_candidate_env_vars():
-    text = HOST.read_text()
+    passthrough = _defaults()["catena_admin_dispatch_env_passthrough"]
     for var in CANDIDATE_ENV_VARS:
-        assert var in text, (
-            f"{var} missing from host.yml's AcceptEnv line -- sshd would "
-            "silently drop it and the candidate would arrive empty"
+        assert var in passthrough, (
+            f"{var} missing from catena_admin_dispatch_env_passthrough -- "
+            "sshd would drop it and the candidate would arrive empty"
         )
+
+
+def test_the_candidate_env_survives_sudo_as_well_as_sshd():
+    """Two hops, not one. sshd AcceptEnv lets the var into the SSH session;
+    the forced command then runs the dispatcher under `sudo -n`, and sudo's
+    env_reset drops the whole environment unless env_keep names the var.
+
+    A var whitelisted on only one hop fails silently in the worst way: the
+    action still runs, reads an empty string, and reports on nothing. That is
+    how a valid endpoint gets rejected -- the check never saw it."""
+    text = HOST.read_text()
+    assert "env_keep" in text, (
+        "the sudoers drop-in has no env_keep, so sudo's env_reset discards "
+        "every candidate credential before the dispatcher reads it"
+    )
+    # Both hops must render from the same list, or they drift apart and the
+    # drift is invisible until a live dispatch.
+    assert text.count("catena_admin_dispatch_env_passthrough | join(' ')") == 2, (
+        "AcceptEnv and env_keep must both render from "
+        "catena_admin_dispatch_env_passthrough"
+    )
+
+
+def test_the_passthrough_list_stays_minimal():
+    """Every name is a value the container can push into a root-run host
+    process, so the list is the minimum the dispatch needs -- not a general
+    env channel."""
+    passthrough = _defaults()["catena_admin_dispatch_env_passthrough"]
+    assert set(passthrough) == {
+        "X_FORWARDED_EMAIL",
+        "CATENA_CF_CANDIDATE_TOKEN",
+        *CANDIDATE_ENV_VARS,
+    }
 
 
 def test_backup_check_binary_path_is_declared_once():

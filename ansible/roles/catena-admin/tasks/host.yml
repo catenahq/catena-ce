@@ -29,6 +29,11 @@
 # The tunnel engine reads the licence directly out of the on-box store, so
 # the panel does not need to tell the host what it is entitled to via this
 # list.
+#
+# It is rendered from catena_admin_dispatch_env_passthrough here AND in the
+# sudoers env_keep below. Both hops have to name a var or it arrives empty,
+# and sshd accepting a var the sudoers drop-in then drops is invisible: the
+# action runs, reads "", and reports on nothing.
 - name: "sshd: AcceptEnv for catena-admin-runner dispatch env vars"
   ansible.builtin.copy:
     dest: /etc/ssh/sshd_config.d/30-catena-admin-runner-acceptenv.conf
@@ -42,7 +47,7 @@
       # S3 backup endpoint to the host dispatcher via env vars. Scoped to the
       # runner account; does not affect operator shells.
       Match User {{ catena_admin_runner_user }}
-          AcceptEnv X_FORWARDED_EMAIL CATENA_CF_CANDIDATE_TOKEN CATENA_BACKUP_CANDIDATE_REPO CATENA_BACKUP_CANDIDATE_ACCESS_KEY CATENA_BACKUP_CANDIDATE_SECRET_KEY
+          AcceptEnv {{ catena_admin_dispatch_env_passthrough | join(' ') }}
       Match all
   notify: reload sshd
 
@@ -84,6 +89,14 @@
       # allow-list of action names. !requiretty because SSH forced-
       # command has no tty.
       Defaults:{{ catena_admin_runner_user }} !requiretty
+      # sudo's env_reset (/etc/sudoers) drops the whole environment, so the
+      # candidate credentials sshd accepted (the AcceptEnv drop-in above) are
+      # gone before the dispatcher runs -- a check would validate an empty
+      # string and reject creds that are fine. These names carry values that
+      # must NOT ride argv, which is the whole reason they travel as env:
+      # env_keep is what lets them survive the one sudo hop between sshd and
+      # the dispatcher, and it is scoped to this user and these names.
+      Defaults:{{ catena_admin_runner_user }} env_keep += "{{ catena_admin_dispatch_env_passthrough | join(' ') }}"
       {{ catena_admin_runner_user }} ALL=(root) NOPASSWD: {{ catena_admin_dispatcher_path }}
     validate: /usr/sbin/visudo -cf %s
 

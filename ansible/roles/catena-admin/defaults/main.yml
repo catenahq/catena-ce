@@ -138,6 +138,19 @@ catena_admin_ui_port: "{{ lookup('dotenv', 'CATENA_ADMIN_UI_PORT', default='9010
 catena_admin_runner_user: "catena-admin-runner"
 catena_admin_runner_home: "/home/catena-admin-runner"
 
+# Env vars the container may push into a root-run host action, for values
+# that must not appear in argv or the process table. Consumed TWICE by
+# tasks/host.yml -- sshd's AcceptEnv and the sudoers env_keep -- because the
+# dispatch crosses both, and a name missing from either arrives as an empty
+# string rather than an error. Names must match what the panel sends
+# (catena-admin shell/web/cloudflared.go + shell/web/backupendpoint.go).
+catena_admin_dispatch_env_passthrough:
+  - X_FORWARDED_EMAIL
+  - CATENA_CF_CANDIDATE_TOKEN
+  - CATENA_BACKUP_CANDIDATE_REPO
+  - CATENA_BACKUP_CANDIDATE_ACCESS_KEY
+  - CATENA_BACKUP_CANDIDATE_SECRET_KEY
+
 # The catena-admin container runs as the distroless `nonroot` user
 # (uid/gid 65532), set by `USER nonroot:nonroot` in the repo-root Dockerfile
 # -- NOT uid 1000. Host-side files the container reads through its read-only
