@@ -81,6 +81,26 @@
     label: "{{ item.item }}"
   when: _bk_payload_expected | bool
 
+- name: "validate/backup: is this host backup-configured (all creds present)?"
+  # Same four-part condition install.yml gates on. Backup is configured in
+  # catena-admin > Settings > Backup after the install, so a host that has
+  # not been there yet has the units installed and the repo unset -- a
+  # legitimate state the wrapper self-gates on at runtime, not a fault.
+  ansible.builtin.set_fact:
+    _bk_configured: >-
+      {{ (backup_restic_password | default('')) | length > 0
+         and (backup_s3_access_key | default('')) | length > 0
+         and (backup_s3_secret_key | default('')) | length > 0
+         and (backup_restic_repo | default('')) | length > 0 }}
+
+- name: "validate/backup: note the repo is not configured yet"
+  ansible.builtin.debug:
+    msg: >-
+      Backup is not configured on this host, so the restic repo checks below
+      are skipped. Set the repo + S3 keys in catena-admin > Settings > Backup;
+      catena-backup-run self-gates until then.
+  when: not (_bk_configured | bool)
+
 - name: "validate/backup: restic can reach the repo"
   # End-to-end reachability check: cat config decrypts the repo header,
   # failing cleanly on wrong password, unreachable bucket, or missing
@@ -98,11 +118,15 @@
   register: _bk_restic_cat
   failed_when: false
   changed_when: false
-  when: _bk_payload_expected | bool
+  when:
+    - _bk_payload_expected | bool
+    - _bk_configured | bool
 
 - name: "validate/backup: restic cat config exited 0"
   ansible.builtin.assert:
     that:
       - _bk_restic_cat.rc == 0
     fail_msg: "restic cat config failed (rc={{ _bk_restic_cat.rc }}, stderr={{ _bk_restic_cat.stderr }})"
-  when: _bk_payload_expected | bool
+  when:
+    - _bk_payload_expected | bool
+    - _bk_configured | bool

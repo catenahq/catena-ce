@@ -163,6 +163,26 @@ def test_validate_gates_the_restic_reachability_probe_on_the_entrypoint():
         assert "_bk_payload_expected" in str(_find(name, VALIDATE)["when"])
 
 
+def test_validate_skips_the_restic_probe_until_backup_is_configured():
+    """The repo + S3 keys are entered in catena-admin AFTER the install, so a
+    host nobody has configured yet has the units installed and no restic.pass.
+    That is the documented steady state of a fresh install, not a fault: the
+    probe has to skip, or every install fails validation until someone opens
+    the panel.
+
+    The condition must match install.yml's `_backup_configured` exactly. A
+    looser one (repo alone) passes on a host holding a repo and no keys, which
+    is the half-configured case whose restic call fails for a real reason."""
+    gate = str(_find("is this host backup-configured", VALIDATE)
+               ["ansible.builtin.set_fact"]["_bk_configured"])
+    for cred in ("backup_restic_password", "backup_s3_access_key",
+                 "backup_s3_secret_key", "backup_restic_repo"):
+        assert cred in gate, f"{cred} missing from the configured-gate"
+
+    for name in ("restic can reach the repo", "restic cat config exited 0"):
+        assert "_bk_configured" in str(_find(name, VALIDATE)["when"])
+
+
 def test_the_role_still_installs_the_units_when_the_wrapper_is_absent():
     """The deferral is units-and-config now, binary later. If the unit drops
     were gated on the wrapper too, the later payload install would leave a host
