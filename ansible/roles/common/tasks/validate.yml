@@ -66,6 +66,32 @@
       - "'AllowUsers ops' in (_sshd_conf.content | b64decode)"
     fail_msg: "sshd drop-in missing one of the four required hardening directives"
 
+# The check above reads the file we WROTE. sshd only reads that file if the
+# main config includes the drop-in directory, so on an image whose
+# sshd_config lacks the Include, the assertion above passes while the host
+# runs wide open. Ask sshd what it actually resolved instead.
+- name: "validate/common: sshd effective config"
+  ansible.builtin.command:
+    cmd: sshd -T
+  register: _sshd_effective
+  changed_when: false
+
+- name: "validate/common: the hardening is what sshd actually applies"
+  ansible.builtin.assert:
+    that:
+      - "'permitrootlogin no' in _sshd_effective.stdout"
+      - "'passwordauthentication no' in _sshd_effective.stdout"
+      - "'pubkeyauthentication yes' in _sshd_effective.stdout"
+      - "'allowusers' in _sshd_effective.stdout"
+    fail_msg: >-
+      sshd's effective config does not match the drop-in: the file is on disk
+      but sshd is not applying it. Almost always a missing
+      `Include /etc/ssh/sshd_config.d/*.conf` in /etc/ssh/sshd_config --
+      which leaves password auth and root login ENABLED. Effective values:
+      {{ _sshd_effective.stdout_lines
+         | select('match', '^(permitrootlogin|passwordauthentication|pubkeyauthentication|allowusers)')
+         | list }}
+
 - name: "validate/common: sudoers NOPASSWD content"
   ansible.builtin.slurp:
     src: /etc/sudoers.d/010-ops

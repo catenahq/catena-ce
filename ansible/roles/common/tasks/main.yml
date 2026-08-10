@@ -531,6 +531,39 @@
 # After this runs, root+password login stops working. The ops user with key
 # auth is the only remaining path in, which is why the assertion above is
 # mandatory -- no key on ops means locked out.
+#
+# Every directive we set ships as a drop-in under /etc/ssh/sshd_config.d/,
+# which sshd reads ONLY if the main config includes that directory. Debian 12
+# and Ubuntu ship the Include, but a provider image or a cloud-init variant
+# can replace sshd_config with something minimal that does not -- and then
+# every drop-in is inert while the converge still reports success. That
+# failure is silent and it fails OPEN: password auth and root login stay
+# enabled, and AllowUsers never applies. So the Include is established here
+# rather than assumed, before anything is written into the directory.
+#
+# It is PREPENDED, not appended: sshd takes the first value it sees for most
+# keywords, so an Include below a directive the drop-in means to override
+# would parse but change nothing.
+- name: "sshd: is the drop-in directory included?"
+  ansible.builtin.command:
+    cmd: "grep -Eq '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\\.d/\\*\\.conf' /etc/ssh/sshd_config"
+  register: _sshd_include
+  changed_when: false
+  failed_when: false
+
+- name: "sshd: include the drop-in directory (first line, so drop-ins win)"
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    line: "Include /etc/ssh/sshd_config.d/*.conf"
+    insertbefore: BOF
+    firstmatch: true
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/sbin/sshd -t -f %s
+  when: _sshd_include.rc != 0
+  notify: reload sshd
+
 - name: Drop sshd hardening config
   ansible.builtin.template:
     src: sshd_hardening.conf.j2
