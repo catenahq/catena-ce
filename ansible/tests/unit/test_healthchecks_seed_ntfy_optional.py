@@ -1,12 +1,13 @@
 """No ntfy configuration means no channel -- and a converge that says so.
 
-NTFY_SERVER used to default to https://ntfy.sh: public and unauthenticated,
-where the topic is the only access control. Any host nobody configured pushed
-its alerts to a server the operator does not run. Worse, with only the server
-set the seed still created a channel carrying an empty topic -- a route that
+Neither NTFY_SERVER nor NTFY_TOPIC defaults to a value: a default of
+https://ntfy.sh would be public and unauthenticated, where the topic is the
+only access control, so a host nobody configured would push its alerts to a
+server the operator does not run. Worse, with only the server set the seed
+would still create a channel carrying an empty topic -- a route that
 delivers nowhere and reads in the UI as configured.
 
-Both blank is now a supported end state: checks still record every ping, the
+Both blank is a supported end state: checks still record every ping, the
 client attaches their own channel through the Healthchecks integrations UI,
 and the converge prints a notice so the silence is deliberate rather than
 undiscovered.

@@ -7,12 +7,12 @@ the compose ORACLE.
 
 WHAT APPLIES IS NOT HERE. The services are created and reconciled by the
 catena-admin host engine (payload/engines/tier1), dispatched per role from
-roles/tier1_stack/tasks/reconcile_one.yml. This module used to hold a second
-renderer, tier1_service_create_argv, which produced the `docker service create`
-argv the converge ran. Two renderers of the same spec in two languages agree
-only on the cases somebody wrote a fixture for, and the Ansible one was
-reachable only from a converge -- so a control plane that drifted at 3am waited
-for a laptop. The argv renderer now lives once, in Go, on the host.
+roles/tier1_stack/tasks/reconcile_one.yml. The argv renderer (`docker
+service create` argv) lives once, in Go, on the host -- not duplicated here
+as a second Ansible renderer. Two renderers of the same spec in two
+languages would agree only on the cases somebody wrote a fixture for, and
+an Ansible-only renderer is reachable only from a converge, so a control
+plane that drifted at 3am would wait for a laptop.
 
 WHAT THIS RENDER IS FOR
 

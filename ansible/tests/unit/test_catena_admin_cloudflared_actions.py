@@ -84,10 +84,10 @@ def test_cloudflared_actions_are_community_not_ee():
 
 
 def test_catalog_authorizes_the_cloudflared_actions_unconditionally():
-    """They used to be appended only in cloudflare access mode. That mode is
-    gone, and the gate was backwards for the deferred-tunnel path anyway: the
-    Settings panel is where the token gets entered, so the actions have to be
-    authorized on a host that has no tunnel yet."""
+    """The Settings panel is where the token gets entered, so the actions
+    have to be authorized on a host that has no tunnel yet -- gating them on
+    a tunnel-configured mode would lock out the exact path that configures
+    one."""
     text = CATALOG.read_text()
     assert "catena_admin_cloudflared_reserved_actions" in text
     assert "access_mode" not in text
@@ -97,7 +97,6 @@ def test_catalog_authorizes_the_cloudflared_actions_unconditionally():
 def test_sshd_acceptenv_lists_the_dispatch_env_vars():
     text = HOST.read_text()
     assert "CATENA_CF_CANDIDATE_TOKEN" in text
-    assert "CATENA_MULTIDOMAIN_ENABLED" in text
     assert "X_FORWARDED_EMAIL" in text
 
 

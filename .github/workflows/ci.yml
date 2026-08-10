@@ -1,9 +1,7 @@
 name: CI
 
-# Python installer (ansible/) unit tests. This repo carries no Go since the
-# license package moved to the private catena-admin repo (which was the last
-# Go here after the shell moved out at the unification). Python tooling comes
-# from uv.
+# Python installer (ansible/) unit tests. This repo carries no Go. Python
+# tooling comes from uv.
 
 on:
   push:

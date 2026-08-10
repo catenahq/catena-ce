@@ -8,17 +8,17 @@
 #   tier1_spec  the service spec (same dict the role upserts into
 #               catena_tier1_specs or catena_companion_specs)
 #
-# The ladder -- inspect, create on the miss, inspect again, diff, update on the
-# diff -- used to live here as Ansible tasks over two filter plugins
-# (tier1_service_create_argv, swarm_service_drift). It is now
-# catena-admin/payload/engines/tier1, and this file dispatches it.
+# The ladder -- inspect, create on the miss, inspect again, diff, update on
+# the diff -- lives in catena-admin/payload/engines/tier1; this file
+# dispatches it.
 #
-# WHY MOVE IT. The Python renderers and the Go ones described the same services,
-# kept in step by a shared argv fixture -- which proves they agree on the cases
-# somebody thought to write down, and nothing about the next flag added to one
-# side. More importantly the ladder was reachable only from a converge: a
-# control plane that drifted at 3am waited for a laptop. The engine is on the
-# host, so catena-admin can run the same reconcile the converge runs.
+# WHY THERE, NOT HERE. Two renderers describing the same services in two
+# languages, kept in step by a shared argv fixture, would prove agreement
+# only on the cases somebody thought to write down, and nothing about the
+# next flag added to one side. And a ladder reachable only from a converge
+# means a control plane that drifted at 3am waits for a laptop. The engine
+# is on the host, so catena-admin can run the same reconcile the converge
+# runs.
 #
 # Ordering is unchanged: each role still reconciles its service where it always
 # did in site.yml, so traefik still makes the overlay before postgres wants it

@@ -1,16 +1,16 @@
 ---
 # Cloudflare tunnel converge -- unconditional dispatch to the host engine.
 #
-# The tunnel / wildcard DNS / ingress / cloudflared swarm-service logic that
-# used to live here (CF API find-or-create, DNS CNAME, ingress PUT, service
-# deploy + token/network reconcile, edge->tunnel->Traefik chain probe) now
-# lives in the Go engine catena-cloudflared-sync. That binary ships in the
-# catena-admin host payload and is installed to /usr/local/bin by roles/payload,
-# four roles ahead of this one (it is NOT license-gated -- the Cloudflare
-# tunnel is a Community feature). See catena-admin
-# cmd/catena-cloudflared-sync/SYNC.md for the contract.
+# The tunnel / wildcard DNS / ingress / cloudflared swarm-service logic (CF
+# API find-or-create, DNS CNAME, ingress PUT, service deploy + token/network
+# reconcile, edge->tunnel->Traefik chain probe) lives in the Go engine
+# catena-cloudflared-sync. That binary ships in the catena-admin host payload
+# and is installed to /usr/local/bin by roles/payload, four roles ahead of
+# this one (it is NOT license-gated -- the Cloudflare tunnel is a Community
+# feature). See catena-admin cmd/catena-cloudflared-sync/SYNC.md for the
+# contract.
 #
-# This role now does ONE thing: dispatch the engine's `sync` on the host and
+# This role does ONE thing: dispatch the engine's `sync` on the host and
 # print what it says. Idempotent -- a re-converge after the panel saved a token,
 # or a bench that adopted one, finds everything already correct and no-ops.
 #
@@ -103,16 +103,15 @@
       - "{{ cloudflared_sync_bin }}"
       - sync
   environment:
-    # ONLY the two per-host values. Everything else the engine used to be handed
-    # here -- image, ingress service, network, stop grace, probe counts -- are
-    # product constants it already carries as its own defaults, and passing them
-    # made three copies of each: this file, the catena-admin reserved action,
-    # and the engine. Three copies kept in agreement by hand is not a contract.
+    # ONLY the two per-host values. Everything else -- image, ingress service,
+    # network, stop grace, probe counts -- is a product constant the engine
+    # already carries as its own default; passing it here would make three
+    # copies to keep in agreement by hand: this file, the catena-admin
+    # reserved action, and the engine.
     #
-    # It also made the two dispatch paths structurally different. The panel
-    # fires this same engine, and an engine that reads its caller's environment
-    # works from the caller written beside it and fails from every other one --
-    # which is exactly how the migration lane died at PRETUNNEL.
+    # The panel fires this same engine, so both dispatch paths must behave
+    # identically: an engine that reads its caller's environment only works
+    # from the caller it was written beside.
     #
     # Base domain: the engine resolves the primary zone BY NAME, tolerating an
     # account-scoped token that grants more than one zone. Without it the engine

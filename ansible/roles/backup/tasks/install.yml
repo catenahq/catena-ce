@@ -211,17 +211,16 @@
   no_log: true
 
 # ─── the backup scripts ship in the image payload, not from here ─────────
-# run-backup, coverage, snapshot-list/export and the restic helpers used to be
-# copied out of ansible/scripts/ by this file. They are now lane scripts in the
-# catena-admin image payload, installed by roles/payload right after
-# roles/docker.
+# run-backup, coverage, snapshot-list/export and the restic helpers are lane
+# scripts in the catena-admin image payload, installed by roles/payload
+# right after roles/docker.
 #
 # WHY. A fix to the backup wrapper could only reach a host through a converge,
 # which means through someone's laptop. Every other piece of host code -- the
 # recovery engine, the migrate lane, the schedule engine -- reaches a host by
-# bumping the image. The wrapper was the odd one out, and it is the piece most
-# likely to need a correction: the dump-retention fix that prompted this move
-# was in it.
+# bumping the image. Keeping the wrapper here would make it the one piece of
+# host code most likely to need a correction, yet unable to reach a host
+# without someone's laptop in the loop.
 #
 # The split that decides where a script lives is what its EARLIEST caller can
 # reach. catena-disk-preflight is still copied below because restore.yml calls

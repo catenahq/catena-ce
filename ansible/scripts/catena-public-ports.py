@@ -327,9 +327,9 @@ def reconcile() -> tuple[list[pp.PortEntry], int]:
     applied = apply_ufw([r for r in plan if r["engine"] == "ufw"])
     applied += apply_docker_user([r for r in plan if r["engine"] == "docker-user"])
 
-    # Record what was APPLIED, not what was planned. The two used to be the
-    # same variable, so a rule that failed to install was indistinguishable
-    # from one that installed cleanly on every subsequent run.
+    # Record what was APPLIED, not what was planned: a rule that fails to
+    # install must stay distinguishable from one that installed cleanly on
+    # every subsequent run.
     save_applied(applied)
     unapplied = len(plan) - len(applied)
     write_effective(entries, unapplied)

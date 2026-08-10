@@ -26,11 +26,10 @@
 # Every gated public URL inherits the staff or admin chain by the
 # time this role's compose deploys land.
 
-# CF Access has been removed in favor of self-hosted SSO. CF Tunnel
-# stays (it is the only public ingress, owned by roles/cloudflare_tunnel),
-# but the Access policies that used to gate the four UIs are gone.
-# Existing CF Access applications in the Cloudflare dashboard for this
-# zone are NOT removed via API (avoids destructive cross-account action).
+# Self-hosted SSO gates the four UIs; CF Tunnel is the only public ingress
+# (owned by roles/cloudflare_tunnel) and carries no Access policy of its own.
+# Any CF Access application still present in the Cloudflare dashboard for
+# this zone is NOT removed via API (avoids destructive cross-account action).
 # Manual cleanup: dash.cloudflare.com -> Zero Trust -> Access -> Applications
 # -> delete the four `<subdomain>.<zone>` entries.
 

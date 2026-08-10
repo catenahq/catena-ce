@@ -3,13 +3,12 @@ name: Trivy
 # Wave 4 (blocking) CVE gate for catena-ce. The fs scan (repo deps + misconfig
 # + secrets) is the scanctl security gate (security.yml).
 #
-# This workflow no longer scans any image. It used to resolve the cloudflared +
-# traefik + postgres + portainer tags out of the Ansible role defaults, and all
-# four have left this repo: the tier-1 three when their specs moved into the
-# catena-admin engine catalog (2026-08-03), cloudflared when its pin stopped
-# being duplicated out of the tunnel engine's own default. Their scans live in
-# catena-admin's trivy.yml now, reading the pins where the host reads them.
-# Scanning them here after the move would have gated a PR on a tag no host runs.
+# This workflow does not scan cloudflared, traefik, postgres or portainer:
+# none of their tags live in this repo's Ansible role defaults -- the
+# tier-1 three are pinned in the catena-admin engine catalog, cloudflared in
+# the tunnel engine's own default. Their scans live in catena-admin's
+# trivy.yml, reading the pins where the host reads them. Scanning them here
+# would gate a PR on a tag no host runs.
 #
 # What it DOES scan is the infra app images this repo still pins in role
 # defaults: gatus, healthchecks, the recovery nginx, clamav, the beszel hub +

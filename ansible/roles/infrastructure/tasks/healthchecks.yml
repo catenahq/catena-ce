@@ -169,19 +169,16 @@
   when: (_healthchecks_container_name.stdout | default('') | trim) | length == 0
 
 # The Django seed lives at vps-scripts/healthchecks-seed.py -- plain
-# Python, no Jinja markers (post-EP4 migration). Per-host values that
-# used to be Jinja-substituted now arrive via `docker exec -e KEY=VALUE`
-# flags constructed from Ansible vars. The script reads them from
-# os.environ and KeyErrors loudly on any wiring break.
+# Python, no Jinja markers. Per-host values arrive via `docker exec -e
+# KEY=VALUE` flags constructed from Ansible vars; the script reads them
+# from os.environ and KeyErrors loudly on any wiring break.
 #
-# Earlier we embedded the whole Python block directly in the shell
-# module's `|` scalar with Jinja substitutions inline. That broke under
-# ansible-core 2.19's stricter arg scanner (symptom: "failed at
-# splitting arguments, either an unbalanced jinja2 block or quotes"
-# thrown when include_tasks loaded this file). Copying the script to
-# disk and piping it into `docker exec` sidesteps the entire class of
-# issues: only the path is a shell argument, the Python body is a
-# regular file.
+# The script is copied to disk and piped into `docker exec` rather than
+# embedded inline in the shell module's `|` scalar: inlining the Python
+# block with Jinja substitutions breaks ansible-core 2.19's stricter arg
+# scanner ("failed at splitting arguments, either an unbalanced jinja2
+# block or quotes"). Copying to disk sidesteps the entire class of issues
+# -- only the path is a shell argument, the Python body is a regular file.
 - name: "Healthchecks: drop Django seed script to /root"
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../scripts/healthchecks-seed.py"

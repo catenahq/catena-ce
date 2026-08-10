@@ -18,10 +18,10 @@
 # restic password} keyset: the store returns with the data, internals and all.
 
 # Which variables count as secrets is DECLARED, in the four category tables
-# in helpers/onbox_config.py, and read back here. It used to be the regex
-# `^vault_.+$`, which made a name prefix load-bearing: a variable was captured
-# because of how it was spelled rather than because anyone had said it was a
-# secret. Asking the module keeps one declaration.
+# in helpers/onbox_config.py, and read back here -- captured by declared
+# name rather than by a spelling convention, so a variable is captured
+# because someone said it was a secret, not because of how it was spelled.
+# Asking the module keeps one declaration.
 #
 # Pure query, no store I/O -- it answers before the store exists on a fresh box.
 - name: "onbox: read the declared secret names"
@@ -86,12 +86,11 @@
   changed_when: false
   no_log: true
 
-# Publish every store secret as a fact, the Portainer API key included.
-# That one is minted mid-converge by roles/portainer rather than here, and it
-# used to be excluded because the role brought the fresh value back with
-# include_vars, which a fact would have outranked. The role now set_facts it,
-# and a later set_fact wins, so publishing the stored value is what stops the
-# role re-minting a key on every single converge.
+# Publish every store secret as a fact, the Portainer API key included: it
+# is minted mid-converge by roles/portainer, which set_facts the fresh
+# value, and a later set_fact wins over an earlier one -- so publishing the
+# stored value here is what stops the role re-minting a key on every single
+# converge.
 - name: "onbox: publish store secrets as facts (on-box source of truth)"
   ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"

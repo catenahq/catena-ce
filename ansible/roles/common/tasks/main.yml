@@ -773,8 +773,8 @@
 
 # /var/lib/catena is the catena VAR-state dir (restore markers, the
 # backup stats dir, the keycloak-realm SMTP-bootstrap marker, ...).
-# Several roles WRITE under it before the backup role -- which used to be
-# its sole creator -- runs near the end of the converge. On a two-pass
+# Several roles WRITE under it before the backup role runs near the end of
+# the converge. On a two-pass
 # fresh install the pass-1 backup happens to create it for pass-2's
 # keycloak, but a single-pass converge (key already in the on-box store)
 # runs keycloak's realm marker touch with no dir yet and fails with ENOENT.

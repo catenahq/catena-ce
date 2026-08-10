@@ -1,11 +1,11 @@
-"""Ansible filters: the catena-admin panel as a tier-1 swarm service.
+"""Ansible filters: the catena-admin panel as a tier-1 swarm service, not a
+Portainer stack.
 
-The panel used to be deployed BY Portainer while holding the API key that
-drives Portainer. That circularity is what this module exists to break: a
-Portainer that will not start took the panel down with it, which is exactly
-when someone needs the panel to fix it. So the converge now creates the
-service directly, the same way roles/traefik, roles/postgres and
-roles/portainer do.
+The panel holds the API key that drives Portainer, so deploying it VIA
+Portainer would make it a dependent of the thing it exists to drive -- a
+Portainer that will not start would take down the only tool that could
+repair it. The converge creates the service directly instead, the same way
+roles/traefik, roles/postgres and roles/portainer do.
 
 Three filters over one spec dict:
 

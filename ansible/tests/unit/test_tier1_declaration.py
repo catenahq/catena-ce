@@ -1,9 +1,9 @@
 """roles/tier1_stack hands each spec to the catena-tier1 host engine.
 
-The create/inspect/diff/update ladder used to be Ansible tasks over two filter
-plugins. It is now catena-admin payload/engines/tier1, and tasks/reconcile_one.yml
-dispatches it -- one renderer for the argv instead of one per language, and an
-apply path that exists on the host rather than only inside a converge.
+The create/inspect/diff/update ladder lives in catena-admin
+payload/engines/tier1; tasks/reconcile_one.yml dispatches it -- one renderer
+for the argv instead of one per language, and an apply path that exists on
+the host rather than only inside a converge.
 
 What this file pins is the seam: the spec reaches the engine unaltered, the
 converge reads the engine's own changed count, and a missing engine stops the

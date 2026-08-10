@@ -7,10 +7,9 @@ hosts.yml off disk, where the entry is still the placeholder. So the value
 is emitted here, into a gitignored file the operator copies into their
 inventory (and apply_to_inventory() applies for the in-flight run).
 
-NO SECRET goes through this file. Every Catena secret lives in the on-box
-store at /etc/catena/config.json (0b); the Portainer API key used to be
-emitted here under a `vault:` section and is now written straight into that
-store by roles/portainer.
+NO SECRET goes through this file. Every Catena secret, including the
+Portainer API key, lives in the on-box store at /etc/catena/config.json
+(0b), written there directly by roles/portainer.
 
 File shape:
 

@@ -189,9 +189,8 @@
           {{ _kc_health_logs.stderr }}
           {% endif %}
 
-# Public-URL OIDC discovery probe used to live here, but it ran before
-# roles/infrastructure deployed the CF Tunnel + Traefik route, so on a
-# fresh install it always burned 60s of retries against a non-existent
-# ingress. The end-to-end public probe is now centralized in
-# playbooks/validate.yml Vantage 2 (post-converge), where it CAN be
-# fatal because the ingress is in place by then.
+# Public-URL OIDC discovery probe: this role runs before roles/infrastructure
+# deploys the CF Tunnel + Traefik route, so a probe here would burn 60s of
+# retries against a non-existent ingress on a fresh install. The end-to-end
+# public probe lives in playbooks/validate.yml Vantage 2 (post-converge)
+# instead, where it CAN be fatal because the ingress is in place by then.

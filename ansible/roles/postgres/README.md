@@ -2,8 +2,7 @@
 
 The catena-owned Postgres for INFRA databases (Keycloak today). One
 Postgres per VPS, multiple DBs inside; per-app databases (Nextcloud,
-etc.) keep their own containers -- this hosts only what used to live
-in the retired control-plane Postgres.
+etc.) keep their own containers -- this hosts infra databases only.
 
 ## What it manages
 

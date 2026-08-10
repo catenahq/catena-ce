@@ -115,13 +115,13 @@ Check.objects.filter(project=project, name="My first check").delete()
 Channel.objects.filter(project=project, kind="email").delete()
 
 # The ntfy channel is OPTIONAL, and both halves are required to make one.
-#
-# NTFY_SERVER used to default to https://ntfy.sh -- public and
-# unauthenticated, where the topic is the only access control. A host nobody
-# configured therefore pushed its alerts to a server the operator does not
-# run, which is the wrong thing to do by default. It also produced a channel
-# with an empty topic whenever only the server was set: a route that resolves
-# and delivers nowhere, and reads in the UI as configured.
+# Neither NTFY_SERVER nor NTFY_TOPIC defaults to a value: a default of
+# https://ntfy.sh would be public and unauthenticated, where the topic is
+# the only access control, so a host nobody configured would push its
+# alerts to a server the operator does not run -- the wrong thing to do by
+# default. Requiring both also avoids a channel with an empty topic when
+# only the server is set: a route that resolves and delivers nowhere, yet
+# reads in the UI as configured.
 #
 # Both blank is a supported end state, not a half-finished install: the checks
 # still record every ping and the client attaches their own channel through

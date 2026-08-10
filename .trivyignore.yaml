@@ -24,10 +24,9 @@
 # gate goes red again. Rebuild-watch: when upstream ships a rebuilt image,
 # bump the pin to clear these for real instead of renewing the date.
 #
-# The postgres / portainer / cloudflared / traefik entries that used to live
-# here are GONE, not expired: those pins moved into catena-admin's engine
-# catalog on 2026-08-03 and this repo no longer scans them. Their
-# suppressions moved with them.
+# No postgres / portainer / cloudflared / traefik entries: those pins live
+# in catena-admin's engine catalog, and their suppressions live there too --
+# this repo no longer scans them.
 #
 # Reviewed 2026-08-07. Next review 2026-10-13.
 

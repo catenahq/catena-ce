@@ -16,9 +16,8 @@ Two halves, two cadences, for reasons that differ:
     run pulls 5% of the repo out of object storage.
 
 The subset's schedule lives in the catena-schedule lane table, NOT in a
-template and NOT in a `date -u +%u` inside the wrapper -- which is where it
-used to live, making it the one piece of catena's scheduling a client could
-not move.
+template and NOT in a `date -u +%u` inside the wrapper -- so it is
+client-movable like every other lane.
 
 This file holds the half that asserts about THIS repo: the units, the
 templates and the role defaults. The half that read the wrapper moved to

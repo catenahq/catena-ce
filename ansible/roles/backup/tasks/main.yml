@@ -5,12 +5,12 @@
 #   verify    (verify-backup.yml)      -- dry-restore + assert
 #   restore   (restore.yml playbook)   -- filesystem restore from restic
 #
-# What used to be modes 4 and 5 (pg_replay + s3_reconcile) is now the
-# catena-recovery host binary, invoked from site.yml's post_tasks on the
-# post-restore marker. They were only ever reachable through a restore, they
-# needed a controller to drive them, and each had a second implementation
-# elsewhere; the binary is one implementation the panel and the converge share.
-# Its scope flag keeps the operator escape hatch for a corrupt infra database:
+# pg_replay + s3_reconcile live in the catena-recovery host binary, invoked
+# from site.yml's post_tasks on the post-restore marker -- reachable only
+# through a restore and needing a controller to drive it, so one binary is
+# what the panel and the converge share rather than two implementations of
+# the same recovery logic. Its scope flag keeps the operator escape hatch
+# for a corrupt infra database:
 #   catena-recovery post-restore -scope infra -force
 
 - name: Assert backup_mode is valid
