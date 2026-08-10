@@ -8,7 +8,7 @@
 # Direct invocation runs site alone.
 #
 # Usage (cwd = ansible/):
-#   ansible-playbook -i inventory/example playbooks/site.yml --limit host1
+#   ansible-playbook -i inventory/<name> playbooks/site.yml --limit host1
 
 - name: Converge VPS to desired state
   # `stage_hosts` lets a wrapper target a specific host/group via
@@ -156,7 +156,7 @@
       tags: [always, external_preflight]
 
   # Tags allow iterating on a single role:
-  #   ansible-playbook -i inventory/example playbooks/site.yml --limit host1 --tags storage
+  #   ansible-playbook -i inventory/<name> playbooks/site.yml --limit host1 --tags storage
   # Preflight runs as its own ansible-playbook invocation (the installer
   # runs it first); tag filters here never skip it.
   # Each role's tag matches its name; ufw_lockdown has its own tag so it only

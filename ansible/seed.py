@@ -4,11 +4,11 @@
 With `-i install.yaml` (bench / power user), generates a fresh inventory:
 reads env/host/vault values from the file, prompts for anything missing.
 
-Without one, inventory/<name>/ must already exist -- copied from
-inventory/example/ and hand-filled, same as any other config file -- and
-seed reads its .env directly instead of prompting field by field. Either
-way it writes only the NON-SECRET inventory files, reconcile-not-overwrite
-(an existing file's values win):
+Without one, inventory/<name>/.env must already exist -- copied from
+inventory/example/.env.example and hand-filled, same as any other config
+file -- and seed reads it directly instead of prompting field by field.
+hosts.yml/localhost.yml auto-scaffold from skel/ regardless of which path
+ran; an existing file's values always win (reconcile-not-overwrite):
   - inventory/<name>/.env                            (non-secret config)
   - inventory/<name>/hosts.yml                        (bootstrap + vps entries)
   - inventory/<name>/localhost.yml                    (preflight anchor)
@@ -66,8 +66,12 @@ import yaml
 # --- paths ------------------------------------------------------------------
 # REPO_ROOT is the self-contained ansible/ tree (seed.py sits at its root).
 REPO_ROOT = Path(__file__).resolve().parent
-SKEL = REPO_ROOT / "inventory" / "example"
-ENV_TEMPLATE = SKEL / ".env.example"
+# inventory/example/ carries ONLY .env.example -- the one file a self-hoster
+# copies. hosts.yml/localhost.yml auto-scaffold from skel/ (below) and are
+# never meant to be opened, let alone copied, so they don't sit in the same
+# directory implying otherwise.
+ENV_TEMPLATE = REPO_ROOT / "inventory" / "example" / ".env.example"
+SKEL = REPO_ROOT / "skel"
 LOCALHOST_YML_SKEL = SKEL / "localhost.yml"
 HOSTS_YML_SKEL = SKEL / "hosts.yml.example"
 
@@ -884,9 +888,9 @@ def main(argv: list[str] | None = None) -> int:
 
     env_keys, env_template = parse_env_template(ENV_TEMPLATE)
     # install.yaml (bench / power user) supplies env values directly and
-    # generates the inventory from scratch. Without one, the inventory must
-    # already exist -- copied from inventory/example/ and hand-filled -- so
-    # its .env answers every field instead of prompting for it one at a time.
+    # generates the inventory from scratch. Without one, .env must already
+    # exist -- copied from inventory/example/.env.example and hand-filled --
+    # so it answers every field instead of prompting for it one at a time.
     if args.input:
         if inv_dir.exists():
             warn(f"inventory '{inventory}' exists -- host will be merged into existing files.")

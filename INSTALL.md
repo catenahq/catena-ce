@@ -21,7 +21,8 @@ of it is needed to install.
 
 ## Configure
 
-Copy `.env.example` and fill it in:
+`ansible/inventory/example/` holds exactly one file, `.env.example` --
+copy it to `.env` and fill it in:
 
 ```
 mkdir -p ansible/inventory/prod
@@ -30,8 +31,8 @@ $EDITOR ansible/inventory/prod/.env
 ```
 
 `.env` is commented inline -- what each field does, its default, when it's
-safe to leave blank. `hosts.yml` needs no copying and no editing: `catena
-install` creates it from `.env` on first run.
+safe to leave blank. Nothing else needs copying: `catena install` creates
+`hosts.yml` from `.env` on first run.
 
 ## Install
 

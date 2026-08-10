@@ -8,7 +8,7 @@
 # Runs standalone OR as the post-converge leg composed by the installer.
 #
 # Usage (cwd = ansible/):
-#   ansible-playbook -i inventory/example playbooks/validate.yml --limit host1
+#   ansible-playbook -i inventory/<name> playbooks/validate.yml --limit host1
 
 - name: "Vantage 1 -- on-host checks via per-role validate.yml"
   # Each role under test ships its own roles/<role>/tasks/validate.yml.

@@ -66,13 +66,15 @@ works too. With neither, the CLI opens an interactive menu; `catena
 ./catena <cmd>` also works, and is how the maintainers' rehearsal suite
 invokes it.
 
-`install` first runs `seed.py`: with no `-i`, the inventory must already
-exist (copied from `inventory/example/`, `.env` hand-filled), and seed
-reads its config from there instead of prompting field by field -- the
-only thing it still prompts for is the Tailscale OAuth credential, staged
-to a transient 0600 file. `-i install.yaml --no-confirm` generates a
-fresh inventory from an answers file instead (the bench / power-user
-path), unattended.
+`install` first runs `seed.py`: with no `-i`, `.env` must already exist
+(copied from `inventory/example/.env.example`, hand-filled -- the only
+file in that directory, and the only one a self-hoster ever copies), and
+seed reads its config from there instead of prompting field by field --
+the only thing it still prompts for is the Tailscale OAuth credential,
+staged to a transient 0600 file. `hosts.yml`/`localhost.yml` auto-scaffold
+from `skel/` on that same first run; nothing else to copy or edit.
+`-i install.yaml --no-confirm` generates a fresh inventory from an
+answers file instead (the bench / power-user path), unattended.
 
 ## Secrets
 

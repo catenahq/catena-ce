@@ -26,13 +26,13 @@
 #   After bootstrap, run restore.yml then site.yml to bring services back up.
 #
 # Usage (cwd = ansible/):
-#   ansible-playbook -i inventory/example playbooks/bootstrap.yml
-#   ansible-playbook -i inventory/example playbooks/bootstrap.yml --limit host1-bootstrap
+#   ansible-playbook -i inventory/<name> playbooks/bootstrap.yml
+#   ansible-playbook -i inventory/<name> playbooks/bootstrap.yml --limit host1-bootstrap
 #
 # Preflight must run as a SEPARATE invocation BEFORE this playbook (so that
 # --limit does not accidentally skip it). The installer chains it
 # automatically; standalone invocation needs:
-#   ansible-playbook -i inventory/example playbooks/preflight.yml
+#   ansible-playbook -i inventory/<name> playbooks/preflight.yml
 
 # ssh-keyscan the host first, TOFU style. Any stale entry for the same IP
 # (from a previous re-provisioning) is cleared first so the new host's key

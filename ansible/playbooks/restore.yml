@@ -17,9 +17,9 @@
 # Community and is not invoked here.
 #
 # Usage (cwd = ansible/):
-#   ansible-playbook -i inventory/example playbooks/restore.yml \
+#   ansible-playbook -i inventory/<name> playbooks/restore.yml \
 #       --limit host1 -e restore_snapshot=latest
-#   ansible-playbook -i inventory/example playbooks/site.yml --limit host1
+#   ansible-playbook -i inventory/<name> playbooks/site.yml --limit host1
 
 - name: Restore VPS filesystem from backup
   # `stage_hosts` allows a wrapper to target source vs target explicitly;
