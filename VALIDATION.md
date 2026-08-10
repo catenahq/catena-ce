@@ -132,6 +132,7 @@ Parsed from the committed workflow files; every job below runs on each change.
 | --- | --- | --- |
 | CI | `.github/workflows/ci.yml` | `installer`, `duplication` |
 | security | `.github/workflows/security.yml` | `scanctl` |
+| seed baseline | `.github/workflows/seed-baseline.yml` | `seed` |
 | Trivy | `.github/workflows/trivy.yml` | `resolve-pins-matrix`, `trivy-pinned-images`, `trivyignore-expiry`, `trivy-gate` |
 
 See [SPEC.md](SPEC.md) for what this repository promises and the machine-checked invariants behind each promise.
