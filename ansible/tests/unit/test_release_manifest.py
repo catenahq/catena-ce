@@ -56,6 +56,17 @@ def test_the_manifest_is_the_last_thing_the_converge_writes(post_tasks):
     )
 
 
+def test_the_write_does_not_report_a_change_every_converge(write_task):
+    """`converged_at` moves on every run, so `copy` would report changed every
+    time. A converge that always reports a change is one nobody can read for
+    real drift -- and it fails the whole-site idempotency rehearsal
+    (ce_converge), which is how this was caught. /etc/catena/version.txt has
+    carried the same suppression, for the same reason, since it was written."""
+    assert write_task.get("changed_when") is False, (
+        "the manifest write reports changed on every converge"
+    )
+
+
 def test_the_action_list_comes_from_the_dispatch_fact(write_task):
     """Not a hand-kept list. roles/catena-admin builds
     _catena_admin_actions_dispatch by merging the canonical catalog with the

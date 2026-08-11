@@ -485,6 +485,12 @@
                'actions': (_catena_admin_actions_dispatch | default([]))
                           | map(attribute='name') | select | sort | list,
              } | to_nice_json }}
+      # `converged_at` moves on every converge, so `copy` would report this
+      # changed every time -- and a converge that always reports a change is
+      # one nobody can read for real drift. Same reasoning, and the same
+      # answer, as /etc/catena/version.txt in roles/common: a fresh timestamp
+      # is the POINT of the file, not a drift signal.
+      changed_when: false
       tags: [release_manifest]
 
 # Post-converge validation runs as its own ansible-playbook invocation
