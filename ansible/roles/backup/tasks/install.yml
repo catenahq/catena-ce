@@ -173,14 +173,35 @@
     - not _backup_pw_stat.stat.exists
     - _backup_configured | bool
 
-# Same rule for backup.env (holds AWS_ACCESS_KEY_ID + SECRET for
-# restic). Set once; rotation goes through the operator-only runbook.
 - name: "Backup: probe existing backup env file"
   ansible.builtin.stat:
     path: "{{ backup_env_file }}"
   register: _backup_env_stat
 
-- name: "Backup: write backup env file (only if absent)"
+# Written when absent, and RECONCILED against the store on every converge once
+# the host is backup-configured.
+#
+# Only-if-absent alone left this file permanently blank on the ordinary
+# deferred-backup install: it is written during the first converge, when the
+# repo and S3 keys are not set yet, and the client then enters them in
+# Settings -- which writes the STORE and never re-renders this. Every lane
+# script survives that because catena-restic-env resolves the store, but the
+# file itself stays empty, and this file is what the client-facing exit story
+# tells somebody to source:
+#
+#     set -a; . /etc/catena/backup.env; set +a; restic snapshots
+#
+# A blank RESTIC_REPOSITORY there means the documented way to read your own
+# backups without any catena tooling does not work, on a host whose panel says
+# backup is configured and whose backups are in fact running. That is the one
+# promise this product cannot get wrong, so the converge now makes the file
+# true rather than leaving it as first written.
+#
+# Gated on _backup_configured, so a not-yet-configured host keeps its blank
+# file rather than having it rewritten with the same blanks, and the reconcile
+# only ever writes a COMPLETE set. The store is the source of truth (0b);
+# rotation writes there, and this follows it.
+- name: "Backup: write backup env file (absent, or reconcile against the store)"
   ansible.builtin.template:
     src: backup.env.j2
     dest: "{{ backup_env_file }}"
@@ -188,7 +209,8 @@
     group: root
     mode: "0600"
   no_log: true
-  when: not _backup_env_stat.stat.exists
+  when: >-
+    (not _backup_env_stat.stat.exists) or (_backup_configured | bool)
 
 # The cold-tier half, written on EVERY converge unlike backup.env above.
 #
