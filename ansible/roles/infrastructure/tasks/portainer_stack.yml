@@ -19,7 +19,7 @@
 #
 # Requires _portainer_endpoint_id (set by portainer_endpoint.yml).
 #
-# The ~8 callers (gatus/healthchecks/recovery/beszel/clamav + the cross-role
+# The callers (gatus/healthchecks/beszel/clamav + the cross-role
 # keycloak + oauth2_proxy compose includes) all route through this one helper.
 # The Portainer stack API (typed create/update paths, structured Env array,
 # synchronous deploy) is the single compose seam; routing returns to us

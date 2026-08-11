@@ -405,7 +405,6 @@
                 infrastructure_gatus_hostname | default(''),
                 infrastructure_dash_hostname | default(''),
                 healthchecks_hostname | default(''),
-                infrastructure_recovery_hostname | default(''),
                 portainer_admin_hostname | default(''),
               ]
               + (validate_extra_gated_hosts | default([]))

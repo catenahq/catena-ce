@@ -37,7 +37,6 @@ ANSIBLE = Path(__file__).resolve().parents[2]
 SWARM_COMPOSE = (
     ANSIBLE / "roles/infrastructure/templates/gatus.compose.yml.j2",
     ANSIBLE / "roles/infrastructure/templates/healthchecks.compose.yml.j2",
-    ANSIBLE / "roles/infrastructure/templates/recovery.compose.yml.j2",
     # clamav.compose.yml.j2 is deliberately ABSENT: clamd is the one
     # catena-declared stack still deployed through the Portainer compose
     # API, so it needs the opposite shape (`restart:`, which swarm ignores

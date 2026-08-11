@@ -5,7 +5,7 @@
 #                              id; capture _portainer_endpoint_id.
 #                              Gated on portainer_api_key (minted in-role
 #                              by roles/portainer earlier in site.yml).
-# 2. gatus.yml / healthchecks.yml / recovery.yml --
+# 2. gatus.yml / healthchecks.yml --
 #    each calls portainer_stack.yml with its own compose YAML, env,
 #    domain, port. All gated on portainer_api_key.
 # 3. dashboard_sync.yml + gatus_sync.yml -- sync scripts + systemd timers.
@@ -43,9 +43,9 @@
 # was ported to read docker labels instead of the control-plane API.
 # ACCESS_MODE is gone (2026-07-29). The tailnet mode it gated did not serve
 # these services over the tailnet -- it skipped them, so a tailnet host had no
-# monitoring plane, no SSO and no recovery page at all. What it was actually
-# built for, an install with no Cloudflare token, is the tunnel-deferred gate
-# below, which is the default path and the bench standard.
+# monitoring plane and no SSO at all. What it was actually built for, an install
+# with no Cloudflare token, is the tunnel-deferred gate below, which is the
+# default path and the bench standard.
 - name: "Resolve the tunnel-deferred gate"
   ansible.builtin.set_fact:
     # Tunnel-deferred gate: no Cloudflare token in the on-box store yet means
@@ -57,14 +57,12 @@
 
 # ─── catena-declared services (swarm stacks, no Portainer in the path) ────
 #
-# These four used to sit INSIDE the `portainer_api_key` block below, which
-# made the monitoring plane and the SSO-gated recovery page dependents of
-# the control plane they report on: a Portainer that would not start took
-# Gatus, Healthchecks, Beszel and the recovery download surface with it, at
-# exactly the moment someone needed them to find out why. They deploy as
-# swarm stacks now (swarm_stack.yml) and touch no Portainer API, so the gate
-# is not merely unnecessary -- keeping it would preserve the outage it
-# caused.
+# These used to sit INSIDE the `portainer_api_key` block below, which made the
+# monitoring plane a dependent of the control plane it reports on: a Portainer
+# that would not start took Gatus, Healthchecks and Beszel with it, at exactly
+# the moment someone needed them to find out why. They deploy as swarm stacks
+# now (swarm_stack.yml) and touch no Portainer API, so the gate is not merely
+# unnecessary -- keeping it would preserve the outage it caused.
 #
 # clamd did NOT come with them and is still gated below: a swarm service
 # cannot attach to a bridge, and the attachable overlay it would need
@@ -111,13 +109,6 @@
 # Semaphore (the operator's Ansible runner) is operator-only
 # infrastructure -- it is not part of the Community edition and is not
 # deployed here.
-
-- name: Recovery downloads (recovery.<zone>) -- admin-only file server
-  ansible.builtin.include_tasks:
-    file: recovery.yml
-    apply:
-      tags: [recovery]
-  tags: [recovery]
 
 # ─── client-template wiring (needs Portainer alive) ──────────────────────
 - name: Has Portainer API key -> wire the client-template apps

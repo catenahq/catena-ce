@@ -1,6 +1,6 @@
 ---
 # End-of-role aggregate readiness probe for the gated services
-# (gatus, healthchecks, recovery).
+# (gatus, healthchecks, portainer).
 #
 # Provider-neutral probe: each service must return one of 200, 301,
 # 302, OR 307. 401 is no longer accepted -- after the reverse-proxy
@@ -36,7 +36,6 @@
   loop:
     - { name: "gatus", url: "https://{{ infrastructure_gatus_hostname }}/" }
     - { name: "healthchecks", url: "https://{{ healthchecks_hostname }}/" }
-    - { name: "recovery", url: "https://{{ infrastructure_recovery_hostname }}/" }
     - { name: "portainer", url: "https://{{ portainer_admin_hostname }}/" }
   loop_control:
     label: "{{ item.name }} -> {{ item.url }}"

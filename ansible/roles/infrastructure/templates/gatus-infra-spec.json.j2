@@ -46,17 +46,6 @@
     "version_key": "Portainer"
   },
   {
-    "label": "{{ infrastructure_recovery_hostname }}",
-    "url": "https://{{ infrastructure_recovery_hostname }}",
-    "group": "Infrastructure",
-    "accepted": [302],
-    "ignore_redirect": true,
-    "interval": "120s",
-    "alert_slug": "{{ infrastructure_recovery_hostname | lower | replace('.', '-') }}",
-    "version_key": null,
-    "compose_name": "{{ recovery_compose_name }}"
-  },
-  {
     "label": "{{ healthchecks_hostname }}",
     "url": "https://{{ healthchecks_hostname }}",
     "group": "Infrastructure",

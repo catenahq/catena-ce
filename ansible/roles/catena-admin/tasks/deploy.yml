@@ -99,8 +99,6 @@
         INFRA_GATUS_HOSTNAME: "{{ infrastructure_gatus_hostname }}"
         INFRA_HEARTBEAT_HOSTNAME: "{{ healthchecks_hostname }}"
         INFRA_BESZEL_HOSTNAME: "{{ beszel_hostname }}"
-        CATENA_ADMIN_RECOVERY_URL: >-
-          https://{{ infrastructure_recovery_hostname }}
         GATUS_COMPOSE_NAME: "{{ gatus_compose_name }}"
         GATUS_INTERNAL_PORT: "{{ gatus_internal_port }}"
         HEALTHCHECKS_COMPOSE_NAME: "{{ healthchecks_compose_name }}"

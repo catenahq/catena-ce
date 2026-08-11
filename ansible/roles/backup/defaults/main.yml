@@ -400,7 +400,7 @@ backup_exclude_patterns:
   - "**/postmaster.pid"
   - "**/postmaster.opts"
   # Snapshot-export staging dir. Served read-only to client admins by
-  # the recovery-downloads nginx sidecar (recovery.<zone>). Backing it
+  # the panel's Recovery tab. Backing it
   # up would be self-referential -- the files are ALREADY a packaged
   # form of the backup (tar.gz snapshot export) and are regenerated on
   # demand by the "Export latest snapshot" button.
@@ -576,7 +576,9 @@ backup_export_keep_last: 1 # rotation: keep only the newest N exports
 # F6: snapshot-list helper. Renders ${backup_export_dir}/index.html with
 # a curated table of current restic snapshots + pre-exported tarballs.
 # Called by catena-backup-run after forget+prune so the listing tracks the
-# live repo state. Served as the landing page at recovery.<zone>.
+# live repo state. It travels WITH the directory: the panel's Recovery tab
+# renders its own list from the same files, so this one is for whoever ends
+# up holding a copy of the folder and no panel.
 backup_snapshot_list_script: /usr/local/bin/catena-snapshot-list
 
 # Restore mode -- snapshot id selector. Operator/runner passes

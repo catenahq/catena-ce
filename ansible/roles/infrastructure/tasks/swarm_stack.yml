@@ -4,13 +4,12 @@
 #
 # WHY. Every app in this file is something catena declares -- the monitoring
 # plane (gatus, healthchecks, beszel), the SSO plane (keycloak,
-# oauth2-proxy), the recovery download surface, the shared clamd. They were
-# deployed through the Portainer stack API, which made Portainer a
-# dependency of the things that report on Portainer: a control plane that
-# would not start took the monitors down with it, and the recovery surface
-# that exists for exactly that morning went with them. Portainer's DB stays
-# the record of CLIENT choices -- the one state that cannot be recomputed --
-# and nothing else.
+# oauth2-proxy), the shared clamd. They were deployed through the Portainer
+# stack API, which made Portainer a dependency of the things that report on
+# Portainer: a control plane that would not start took the monitors down with
+# it, at exactly the morning somebody needed them to find out why. Portainer's
+# DB stays the record of CLIENT choices -- the one state that cannot be
+# recomputed -- and nothing else.
 #
 # Inputs (caller sets via include_tasks vars) -- unchanged names, so the
 # nine call sites keep their shape:

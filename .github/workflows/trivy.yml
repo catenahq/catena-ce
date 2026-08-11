@@ -76,7 +76,6 @@ jobs:
           [
             {"name": "gatus", "pin_file": "ansible/roles/infrastructure/defaults/main.yml", "pin_pattern": "gatus_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "twinproduction/gatus"},
             {"name": "healthchecks", "pin_file": "ansible/roles/infrastructure/defaults/main.yml", "pin_pattern": "healthchecks_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "healthchecks/healthchecks"},
-            {"name": "recovery-nginx", "pin_file": "ansible/roles/infrastructure/defaults/main.yml", "pin_pattern": "recovery_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "nginx"},
             {"name": "clamav", "pin_file": "ansible/roles/infrastructure/defaults/main.yml", "pin_pattern": "clamav_image: *\"clamav/clamav:[A-Za-z0-9._-]+\"", "image_repo": "clamav/clamav"},
             {"name": "beszel", "pin_file": "ansible/roles/infrastructure/defaults/main.yml", "pin_pattern": "beszel_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "henrygd/beszel"},
             {"name": "beszel-agent", "pin_file": "ansible/roles/infrastructure/defaults/main.yml", "pin_pattern": "beszel_agent_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "henrygd/beszel-agent"},

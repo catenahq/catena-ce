@@ -115,18 +115,6 @@
     },
     {
       "customType": "regex",
-      "description": "Track recovery-downloads nginx image tag pinned in infrastructure role defaults",
-      "managerFilePatterns": [
-        "/^ansible/roles/infrastructure/defaults/main\\.yml$/"
-      ],
-      "matchStrings": [
-        "recovery_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
-      ],
-      "depNameTemplate": "nginx",
-      "datasourceTemplate": "docker"
-    },
-    {
-      "customType": "regex",
       "description": "Track shared ClamAV image (full image:tag) pinned in infrastructure role defaults. The _base variant ships without the signature DB; freshclam fetches it on start.",
       "managerFilePatterns": [
         "/^ansible/roles/infrastructure/defaults/main\\.yml$/"
