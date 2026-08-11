@@ -57,6 +57,23 @@
 # services[0] rather than a search: `spec <name>` is asked for exactly one
 # service and errors on a name it does not know, so a second element here would
 # mean the engine answered a question nobody asked.
+#
+# The image is then resolved against what the on-host update lane last applied.
+# The engine's catalog is the FLOOR, not the last word: it ships with the image
+# and moves when the image does, but the lane bumps services between converges
+# and a converge that re-asserted the floor would undo every one of those bumps.
+# catena_image_pin takes max(floor, pin) -- see filter_plugins/image_pin.py.
+#
+# This is the single funnel every tier-1 role reads its spec through, which is
+# why the overlay lives here rather than once per role.
 - name: "tier1: decode the built-in spec for {{ tier1_spec_name }}"
   ansible.builtin.set_fact:
-    tier1_builtin_spec: "{{ (_t1_spec_raw.stdout | from_json).services[0] }}"
+    _t1_spec_floor: "{{ (_t1_spec_raw.stdout | from_json).services[0] }}"
+
+- name: "tier1: resolve {{ tier1_spec_name }}'s image against the on-host pin"
+  ansible.builtin.set_fact:
+    tier1_builtin_spec: >-
+      {{ _t1_spec_floor | combine({
+           'image': _t1_spec_floor.image
+                    | catena_image_pin(catena_image_pins | default({}))
+         }) }}

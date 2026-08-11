@@ -22,7 +22,22 @@ catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
 # publish lands, and let the version bumper manage the pin thereafter. The
 # bench does not use this var (it builds local/catena-admin:bench on the
 # VPS and passes that tag).
-catena_admin_image: "ghcr.io/catenahq/catena-admin:latest"
+catena_admin_image_floor: "ghcr.io/catenahq/catena-admin:latest"
+
+# What the host actually runs: the floor above, or the newer version the
+# on-host update lane recorded in /etc/catena/config.json, whichever is higher.
+# See playbooks/filter_plugins/image_pin.py for why neither side simply wins.
+#
+# Resolved ONCE, here, because this value feeds two things that must agree: the
+# panel container (deploy.yml) and the engines roles/payload extracts from the
+# same image. Resolving it twice is how a host ends up running new engines
+# under an old shell.
+#
+# A floating :latest floor carries no version to compare, so no pin can apply
+# to it and this resolves to the floor on every host today. Moving the floor to
+# a semver tag is what turns the pin on.
+catena_admin_image: >-
+  {{ catena_admin_image_floor | catena_image_pin(catena_image_pins | default({})) }}
 
 # The digest roles/payload refuses to extract anything from unless it matches
 # (see roles/payload/defaults/main.yml). It lives here too because the two

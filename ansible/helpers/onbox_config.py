@@ -430,16 +430,48 @@ def load(path: str | Path = DEFAULT_STORE_PATH) -> dict:
     }
 
 
+def image_pins(path: str | Path = DEFAULT_STORE_PATH) -> dict:
+    """What the on-host update lane last applied, as {repository: image_ref}.
+
+    Read-only and total: an absent store, an absent key and a key holding
+    something other than an object all read as "nothing pinned", because on
+    this path the converge falls back to its own floor and a fresh host must
+    converge rather than fail. A malformed store is still a hard error -- the
+    same rule load() follows, for the same reason."""
+    p = Path(path)
+    if not p.exists():
+        return {}
+    raw = json.loads(p.read_text())
+    if not isinstance(raw, dict):
+        raise ValueError(f"{p}: top level is not an object")
+    pins = raw.get("image_pins")
+    if not isinstance(pins, dict):
+        return {}
+    return {str(k): str(v) for k, v in pins.items() if v}
+
+
 def dump(store: dict, path: str | Path = DEFAULT_STORE_PATH) -> None:
     """Atomically write the store 0600 root. Write to a temp sibling then
-    rename so a crash mid-write can't leave a half-written store."""
+    rename so a crash mid-write can't leave a half-written store.
+
+    This helper owns `secrets` and `config` and MERGES them into whatever else
+    the file holds. It is not the only writer: catena-schedule owns `schedules`
+    and `backup_retention`, and the managed-update lane owns `image_pins`.
+    Serialising just the two keys this helper knows about deleted the others on
+    every converge -- and `image_pins` exists precisely so the converge can ask
+    what the on-host lane applied, so a converge that wiped it on the way past
+    would answer its own question with nothing, every time."""
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(
-        {"secrets": store.get("secrets", {}), "config": store.get("config", {})},
-        indent=2,
-        sort_keys=True,
-    )
+    doc: dict = {}
+    if p.exists():
+        raw = json.loads(p.read_text())
+        if not isinstance(raw, dict):
+            raise ValueError(f"{p}: top level is not an object")
+        doc = raw
+    doc["secrets"] = store.get("secrets", {})
+    doc["config"] = store.get("config", {})
+    payload = json.dumps(doc, indent=2, sort_keys=True)
     tmp = p.with_suffix(p.suffix + ".tmp")
     # 0600 from creation: never let the store exist group/other-readable even
     # for the window between write and chmod.
@@ -599,7 +631,8 @@ def main(argv: list[str] | None = None) -> int:
                          "no stdin passthrough)")
     ap.add_argument("--emit",
                     choices=["secrets", "all", "none", "secret-names",
-                             "settings-config-names", "config-vars"],
+                             "settings-config-names", "config-vars",
+                             "image-pins"],
                     default="secrets",
                     help="what to print as JSON on stdout (default: secrets, "
                          "for an Ansible set_fact of the store's keys). "
@@ -611,7 +644,9 @@ def main(argv: list[str] | None = None) -> int:
                          "knows which .env values to seed. config-vars prints "
                          "the store's config projected onto Ansible variable "
                          "names, for a set_fact that outranks the role "
-                         "defaults.")
+                         "defaults. image-pins prints what the on-host update "
+                         "lane last applied, as {repository: image_ref}, also "
+                         "without touching the store.")
     ap.add_argument("--dispatch-stdin", action="store_true",
                     help="serve the catena-admin settings API: read a JSON "
                          "request {op: read|write, secrets, config} from stdin. "
@@ -628,6 +663,15 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.emit == "settings-config-names":
         print(json.dumps(sorted(SETTINGS_CONFIG)))
+        return 0
+
+    # A pure READ of somebody else's key. The managed-update lane writes
+    # `image_pins` with no converge; the converge reads it so it can ASK what
+    # image a service should run rather than assert the shipped floor at one.
+    # Reading it must not mint, must not write, and must answer on a host that
+    # has no store yet -- which is every host the first time round.
+    if args.emit == "image-pins":
+        print(json.dumps(image_pins(args.path)))
         return 0
 
     # Settings-API dispatch (driven by the host runner on behalf of the admin

@@ -151,3 +151,30 @@
   loop: "{{ (_onbox_cfg_emit.stdout | from_json) | dict2items }}"
   loop_control:
     label: "{{ item.key }}"
+
+# ─── image pins: what the on-host update lane last applied ─────────────────
+#
+# The converge owns TOPOLOGY -- which services exist and how they wire. The
+# on-host lane owns IMAGE VERSIONS, and it bumps them between converges. Before
+# this, a converge asked the catalog for a service's image, got the shipped
+# floor, and emitted `--image` to put the old version back: every managed bump
+# was silently reverted by the next converge.
+#
+# So the converge ASKS. Roles resolve their image through the catena_image_pin
+# filter, which takes max(floor, pin) -- see filter_plugins/image_pin.py for why
+# neither side can simply win.
+#
+# A pure query: no mint, no write, answers on a host that has no store yet.
+- name: "onbox: read the image pins the on-host update lane recorded"
+  ansible.builtin.script:
+    cmd: >-
+      {{ playbook_dir }}/../helpers/onbox_config.py
+      --path {{ catena_onbox_config_path | default('/etc/catena/config.json') }}
+      --emit image-pins
+    executable: python3
+  register: _onbox_image_pins
+  changed_when: false
+
+- name: "onbox: publish the image pins"
+  ansible.builtin.set_fact:
+    catena_image_pins: "{{ _onbox_image_pins.stdout | from_json }}"

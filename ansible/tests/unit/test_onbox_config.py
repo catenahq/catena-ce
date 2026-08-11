@@ -629,3 +629,68 @@ def test_cli_emits_config_vars(oc, tmp_path, capsys):
     rc = oc.main(["--path", str(p), "--no-mint", "--emit", "config-vars"])
     assert rc == 0
     assert json.loads(capsys.readouterr().out) == {"cfg_smtp_host": "mail.example"}
+
+
+# --- other writers' keys ----------------------------------------------------
+#
+# This helper owns `secrets` and `config`. It is not the only writer:
+# catena-schedule owns `schedules` and `backup_retention`, and the on-host
+# update lane owns `image_pins`. Serialising only the two keys it knows about
+# deleted the others on every converge and on every panel save.
+
+def test_a_converge_keeps_the_keys_other_engines_wrote(oc, tmp_path):
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({
+        "secrets": {"admin_password": "old"},
+        "config": {"CLOUDFLARE_ZONE": "x.com"},
+        "schedules": {"backup": "weekly"},
+        "backup_retention": {"keep_daily": 7},
+        "image_pins": {"traefik": "traefik:v3.7.12"},
+    }))
+
+    store = oc.load(p)
+    store["secrets"]["admin_password"] = "new"
+    oc.dump(store, p)
+
+    got = json.loads(p.read_text())
+    assert got["secrets"]["admin_password"] == "new"
+    assert got["schedules"] == {"backup": "weekly"}, \
+        "catena-schedule's block was wiped by a converge"
+    assert got["image_pins"] == {"traefik": "traefik:v3.7.12"}, (
+        "the image pins were wiped by the very converge that reads them, so "
+        "every managed bump is reverted no matter what the lane recorded")
+
+
+def test_a_corrupt_store_is_not_silently_replaced(oc, tmp_path):
+    p = tmp_path / "config.json"
+    p.write_text("{not json")
+    with pytest.raises(Exception):
+        oc.dump({"secrets": {}, "config": {}}, p)
+    assert p.read_text() == "{not json"
+
+
+# --- image pins -------------------------------------------------------------
+
+def test_image_pins_reads_what_the_lane_wrote(oc, tmp_path):
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"image_pins": {"traefik": "traefik:v3.7.12"}}))
+    assert oc.image_pins(p) == {"traefik": "traefik:v3.7.12"}
+
+
+def test_image_pins_is_empty_on_a_host_that_has_never_bumped(oc, tmp_path):
+    p = tmp_path / "config.json"
+    assert oc.image_pins(p) == {}, "a fresh host must converge, not fail"
+    p.write_text(json.dumps({"secrets": {}, "config": {}}))
+    assert oc.image_pins(p) == {}
+    p.write_text(json.dumps({"image_pins": "not-an-object"}))
+    assert oc.image_pins(p) == {}
+
+
+def test_cli_emits_image_pins_without_touching_the_store(oc, tmp_path, capsys):
+    """Read before roles/payload has necessarily installed anything, so it must
+    not mint, must not write, and must answer on a host with no store."""
+    p = tmp_path / "config.json"
+    rc = oc.main(["--path", str(p), "--emit", "image-pins"])
+    assert rc == 0
+    assert not p.exists(), "a pure query must not create the store"
+    assert json.loads(capsys.readouterr().out) == {}

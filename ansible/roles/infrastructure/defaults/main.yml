@@ -65,7 +65,14 @@ infrastructure_deploy_max_attempts: 5
 # 00-base.yaml (Ansible-managed) + 50-catena-apps.yaml (gatus-sync) +
 # 99-*.yaml (operator-added, left alone by both).
 gatus_image_tag: "v5.36.0"
-gatus_image: "twinproduction/gatus:{{ gatus_image_tag }}"
+# The tag above is the FLOOR the converge ships. The image the host runs is
+# that or whatever the on-host update lane last recorded in
+# /etc/catena/config.json, whichever is higher -- see
+# playbooks/filter_plugins/image_pin.py. Every infra image below resolves the
+# same way, so a bump applied between converges is not undone by the next one.
+gatus_image: >-
+  {{ ('twinproduction/gatus:' ~ gatus_image_tag)
+     | catena_image_pin(catena_image_pins | default({})) }}
 gatus_compose_name: "gatus"
 gatus_network_alias: "gatus"
 gatus_internal_port: 8080
@@ -100,7 +107,9 @@ gatus_summary_file: "{{ gatus_summary_dir }}/gatus-summary.json"
 # (too noisy, too broad) AND the healthchecks.io SaaS dependency.
 # Named Docker volume -> backed up by restic along with other volumes.
 healthchecks_image_tag: "v4.3"
-healthchecks_image: "healthchecks/healthchecks:{{ healthchecks_image_tag }}"
+healthchecks_image: >-
+  {{ ('healthchecks/healthchecks:' ~ healthchecks_image_tag)
+     | catena_image_pin(catena_image_pins | default({})) }}
 healthchecks_compose_name: "healthchecks"
 healthchecks_network_alias: "healthchecks"
 healthchecks_internal_port: 8000
@@ -159,9 +168,13 @@ ntfy_topic: "{{ cfg_ntfy_topic | default('') }}"
 # (Renovate-managed); the agent reads docker.sock so it carries the same
 # blast radius cAdvisor did on a single-tenant VPS.
 beszel_image_tag: "0.18.7"
-beszel_image: "henrygd/beszel:{{ beszel_image_tag }}"
+beszel_image: >-
+  {{ ('henrygd/beszel:' ~ beszel_image_tag)
+     | catena_image_pin(catena_image_pins | default({})) }}
 beszel_agent_image_tag: "0.18.7"
-beszel_agent_image: "henrygd/beszel-agent:{{ beszel_agent_image_tag }}"
+beszel_agent_image: >-
+  {{ ('henrygd/beszel-agent:' ~ beszel_agent_image_tag)
+     | catena_image_pin(catena_image_pins | default({})) }}
 beszel_hub_compose_name: "beszel-hub"
 beszel_hub_network_alias: "beszel-hub"
 beszel_hub_internal_port: 8090
@@ -190,7 +203,9 @@ beszel_hc_shim_compose_name: "beszel-hc-shim"
 beszel_hc_shim_network_alias: "beszel-hc-shim"
 beszel_hc_shim_internal_port: 8099
 beszel_hc_shim_image_tag: "3.14-alpine"
-beszel_hc_shim_image: "python:{{ beszel_hc_shim_image_tag }}"
+beszel_hc_shim_image: >-
+  {{ ('python:' ~ beszel_hc_shim_image_tag)
+     | catena_image_pin(catena_image_pins | default({})) }}
 # Host dir the shim script is dropped into + bind-mounted read-only.
 beszel_hc_shim_host_dir: "/etc/catena/beszel-hc-shim"
 
@@ -210,7 +225,9 @@ beszel_hc_shim_host_dir: "/etc/catena/beszel-hc-shim"
 # roles/backup/defaults/main.yml backup_exclude_patterns) -- it IS the
 # packaged backup artifact, re-including it would be self-referential.
 recovery_image_tag: "1.31.3-alpine"
-recovery_image: "nginx:{{ recovery_image_tag }}"
+recovery_image: >-
+  {{ ('nginx:' ~ recovery_image_tag)
+     | catena_image_pin(catena_image_pins | default({})) }}
 recovery_compose_name: "recovery"
 recovery_network_alias: "recovery"
 recovery_internal_port: 80
@@ -260,7 +277,9 @@ dashboard_sync_interval: "*:0/5" # every 5 minutes
 # Image: the _base variant ships WITHOUT the signature DB; freshclam
 # downloads + refreshes it on start (the DB persists on a named volume).
 # Renovate manages the pin (custom manager for stack images).
-clamav_image: "clamav/clamav:1.5.3_base"
+clamav_image: >-
+  {{ 'clamav/clamav:1.5.3_base'
+     | catena_image_pin(catena_image_pins | default({})) }}
 clamav_compose_name: "clamav"
 clamav_network: "catena-clamav"
 # clamd StreamMaxLength -- the largest object clamd will scan in one

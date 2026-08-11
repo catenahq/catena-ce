@@ -42,7 +42,9 @@ keycloak_zone_projection_max_age_hours: 48
 # Keycloak 26.6.x (one minor behind stock 26.7); 26.6.4 is the newest
 # rolling tag.
 keycloak_image_tag: "26.6.4"
-keycloak_image: "quay.io/phasetwo/phasetwo-keycloak:{{ keycloak_image_tag }}"
+keycloak_image: >-
+  {{ ('quay.io/phasetwo/phasetwo-keycloak:' ~ keycloak_image_tag)
+     | catena_image_pin(catena_image_pins | default({})) }}
 
 # --- Compose ---
 keycloak_compose_name: "keycloak"
@@ -87,7 +89,9 @@ keycloak_health_path: "/health/ready"
 # runs config-cli during bootstrap, so the bench gates this pairing.
 # Move to latest-26.6.x as soon as adorsys ships it.
 keycloak_config_cli_image_tag: "latest-26.5.5"
-keycloak_config_cli_image: "adorsys/keycloak-config-cli:{{ keycloak_config_cli_image_tag }}"
+keycloak_config_cli_image: >-
+  {{ ('adorsys/keycloak-config-cli:' ~ keycloak_config_cli_image_tag)
+     | catena_image_pin(catena_image_pins | default({})) }}
 
 # Host-side dir that holds rendered realm YAML files. Bind-mounted into
 # the keycloak-config-cli container at /config (RO).
