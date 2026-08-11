@@ -13,7 +13,7 @@ Catena is exercised end-to-end by an automated rehearsal suite: each scenario pr
 
 Two numbers are reported everywhere: **rehearsed** means the scenario was last recorded PASSING on a real run, and is the only number treated as evidence; **declared** additionally counts scenarios that exist but have not been observed passing yet. A scenario is never counted for merely existing.
 
-**Coverage: 10 Community features, 78 of 85 rehearsal scenarios observed passing; 12 Catena Pro features, 41 of 44; plus 17 of 23 maintainer-internal rehearsals.**
+**Coverage: 10 Community features, 78 of 86 rehearsal scenarios observed passing; 12 Catena Pro features, 41 of 44; plus 17 of 23 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -79,7 +79,7 @@ A whole server can be rebuilt from nothing but the backup endpoint and its key, 
 
 Implemented in: `ansible/playbooks/restore.yml`
 
-Rehearsal scenarios (16 of 18 observed passing): `ce_restore`, `fi_d2_pg_dumpall_replay_constraint`, `fi_d3_postgres_oom_mid_restore`, `fi_d4_disk_full_mid_snapshot`, `fi_d5_disk_full_mid_converge`, `fi_d6_volume_uid_drift`, `fi_d7_restic_corrupt_pack`, `nc_s3_hot_recovery`, `nc_sync_wipe_restore`, `pitr_fuse_round_trip`, `recover_secrets_from_running_host`, `recovery_landing_page_bilingual_parity`, `restore_dr`, `restore_version_skew_abort`, `s3_reconcile_orphan_cleanup`, `selective_restore_round_trip`; declared, not yet observed passing: `debian_major_upgrade_restore`, `pg_major_version_cross_restore`
+Rehearsal scenarios (16 of 19 observed passing): `ce_restore`, `fi_d2_pg_dumpall_replay_constraint`, `fi_d3_postgres_oom_mid_restore`, `fi_d4_disk_full_mid_snapshot`, `fi_d5_disk_full_mid_converge`, `fi_d6_volume_uid_drift`, `fi_d7_restic_corrupt_pack`, `nc_s3_hot_recovery`, `nc_sync_wipe_restore`, `pitr_fuse_round_trip`, `recover_secrets_from_running_host`, `recovery_landing_page_bilingual_parity`, `restore_dr`, `restore_version_skew_abort`, `s3_reconcile_orphan_cleanup`, `selective_restore_round_trip`; declared, not yet observed passing: `debian_major_upgrade_restore`, `pg_major_version_cross_restore`, `restore_version_skew_upgrade`
 
 ### No lock-in, ever
 
