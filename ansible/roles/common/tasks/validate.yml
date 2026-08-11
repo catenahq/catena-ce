@@ -51,6 +51,49 @@
       - { path: /etc/sudoers.d/010-ops, type: file, mode: "0440" }
       - { path: /etc/apt/apt.conf.d/20auto-upgrades, type: file }
       - { path: /etc/catena/version.txt, type: file, owner: root, group: root, mode: "0644" }
+      - { path: "{{ catena_release_manifest_path }}", type: file, owner: root, group: root, mode: "0644" }
+
+# The release manifest is written by the LAST task of site.yml, so its
+# presence is the only on-host evidence that the converge reached the end
+# rather than dying in a role. version.txt cannot say that: roles/common
+# stamps it first, so it is there after a converge that failed at role 9.
+#
+# The action list is what the panel reads to decide whether to offer a
+# button at all, so an empty one is a panel that greys every feature.
+- name: "validate/common: release manifest written by the converge"
+  ansible.builtin.slurp:
+    src: "{{ catena_release_manifest_path }}"
+  register: _release_manifest
+
+- name: "validate/common: version stamp for the manifest to agree with"
+  ansible.builtin.slurp:
+    src: /etc/catena/version.txt
+  register: _release_version_stamp
+
+# The two are written by the SAME converge at opposite ends of it, so equality
+# is the assertion: a manifest naming an older version is one the last converge
+# never got far enough to rewrite. Comparing against the controller's git
+# describe would not work here -- validate.yml is its own playbook run and
+# never sets that fact -- and comparing on-host is the better check anyway,
+# because it is the host's own two records agreeing.
+- name: "validate/common: the manifest describes THIS converge"
+  ansible.builtin.assert:
+    that:
+      - _manifest.converged_at | default('') | length > 0
+      - _manifest.catena_ce_version | default('') | length > 0
+      - _manifest.catena_ce_version == _stamped
+      - _manifest.actions | default([]) | length > 0
+    fail_msg: >-
+      {{ catena_release_manifest_path }} does not describe the converge that
+      just ran. /etc/catena/version.txt says {{ _stamped }}; the manifest says
+      {{ _manifest }}. version.txt is stamped by the FIRST role and the manifest
+      by the LAST task, so a disagreement means the converge did not reach the
+      end. The panel reads the manifest to tell a feature that is off from one
+      whose plumbing never reached this host, so a stale or empty one greys
+      features that work, or offers buttons the host will refuse.
+  vars:
+    _manifest: "{{ _release_manifest.content | b64decode | from_json }}"
+    _stamped: "{{ (_release_version_stamp.content | b64decode).splitlines()[0] | trim }}"
 
 - name: "validate/common: sshd drop-in content"
   ansible.builtin.slurp:

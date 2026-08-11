@@ -112,3 +112,16 @@ catena_admin_image_floor_digest: "sha256:7b9519e4b0656bbfabb9ffa91cecf3a577f5c88
 # playbooks/filter_plugins/image_pin.py for why neither side simply wins.
 catena_admin_image: >-
   {{ catena_admin_image_floor | catena_image_pin(catena_image_pins | default({})) }}
+
+# What this converge delivered, written at the very end of site.yml so it
+# describes a converge that finished. The panel reads it to tell "this feature
+# is off" from "this feature's plumbing never reached this host": every button
+# dispatches a FIXED action name through the SSH forced command, and that table
+# is rendered by the converge, so a panel built after an action was added shows
+# a button a host converged before it will refuse.
+#
+# Under /var/lib, not /etc, for the reasons payload/engines/release states: it
+# is rebuildable state rather than configuration, /var/lib/catena is already
+# bind-mounted read-only into the panel, and it must NOT ride a restic snapshot
+# -- a restored host's converge state is its own, not the source's.
+catena_release_manifest_path: "/var/lib/catena/release.json"

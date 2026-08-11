@@ -446,6 +446,47 @@
           tags: [lockdown]
       tags: [lockdown]
 
+    # Record what this converge delivered.
+    #
+    # LAST on purpose, and the difference from /etc/catena/version.txt is the
+    # whole point of having both. version.txt is stamped by roles/common, the
+    # FIRST role, so it says "a converge started here" -- which is what a client
+    # reading it out of a snapshot wants. This manifest says "a converge
+    # finished here, and here is what it left behind", so a converge that died
+    # at role 9 leaves the previous manifest standing rather than claiming
+    # plumbing it never delivered.
+    #
+    # The action list is the field that earns the file. Every panel button
+    # dispatches a FIXED action name through the SSH forced command, and the
+    # table is rendered by roles/catena-admin from the same merged list. A panel
+    # built after an action was added would otherwise show a working button on a
+    # host whose converge predates it, and the user would meet a refusal at the
+    # far end where the honest answer is "this host needs a converge".
+    - name: "Release: read the marker for the installed host engines"
+      ansible.builtin.slurp:
+        src: "{{ catena_payload_marker }}"
+      register: _site_payload_marker
+      failed_when: false
+      tags: [release_manifest]
+
+    - name: "Release: record what this converge delivered"
+      ansible.builtin.copy:
+        dest: "{{ catena_release_manifest_path }}"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          {{ {
+               'schema': 1,
+               'converged_at': ansible_date_time.iso8601 | default(''),
+               'catena_ce_version': hostvars['localhost']['catena_version'] | default('unknown'),
+               'catena_admin_image': catena_admin_image,
+               'payload_image_id': (_site_payload_marker.content | default('') | b64decode | trim),
+               'actions': (_catena_admin_actions_dispatch | default([]))
+                          | map(attribute='name') | select | sort | list,
+             } | to_nice_json }}
+      tags: [release_manifest]
+
 # Post-converge validation runs as its own ansible-playbook invocation
 # (playbooks/validate.yml), composed by the installer/CLI after this
 # converge. A failed validate still fails the overall run.
