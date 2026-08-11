@@ -99,4 +99,7 @@ def test_the_tier_mapping_is_gone() -> None:
         "backup_tier_worm_oncalendar",
     ):
         assert not hasattr(B, gone), f"{gone} survived the tier retirement"
-    assert set(B.FilterModule().filters()) == {"backup_weekly_cap"}
+    # The two Community ceilings, and nothing that maps a tier name to either.
+    assert set(B.FilterModule().filters()) == {
+        "backup_weekly_cap", "community_monthly_cap",
+    }

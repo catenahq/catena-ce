@@ -333,6 +333,45 @@
     group: root
     mode: "0644"
 
+# ─── the Community cap on unattended container updates ──────────────────
+#
+# catena-schedule refuses a tighter cadence at the moment an operator types it,
+# which is where the message belongs. This is the BOUNDARY: /etc/catena/
+# config.json is a file on a machine the client owns and can edit, and a limit
+# enforced only in a UI is not one. Same division of labour as the backup
+# cadence cap in roles/backup.
+#
+# Monthly rather than weekly because the two answer different questions. The
+# weekly backup cap is a capability boundary; this is about blast radius -- an
+# unattended host that changes its own images is one where a bad image sits
+# unnoticed until somebody looks.
+- name: "catena-admin: read the stored update schedule"
+  ansible.builtin.slurp:
+    src: "{{ catena_config_store_path | default('/etc/catena/config.json') }}"
+  register: _admin_store_raw
+  failed_when: false
+
+- name: "catena-admin: the stored update cadence honours the Community cap"
+  vars:
+    _store: >-
+      {{ (_admin_store_raw.content | default('') | b64decode | from_json)
+         if (_admin_store_raw.content is defined) else {} }}
+    _lane: "{{ (_store.schedules | default({})).container_updates | default({}) }}"
+  ansible.builtin.assert:
+    that:
+      - (_lane.oncalendar | default('monthly')) | community_monthly_cap
+    fail_msg: >-
+      /etc/catena/config.json schedules container updates at
+      "{{ _lane.oncalendar | default('monthly') }}", which is more frequent than
+      Community allows. Set a monthly-or-sparser schedule in the Catena admin
+      panel, or apply a licence to this host.
+  # Only when the lane is on and this host has no licence token: a stored
+  # expression on a disabled lane is doing nothing, and a licensed host is
+  # uncapped.
+  when:
+    - (_lane.enabled | default(false)) | bool
+    - ((_store.secrets | default({})).catena_license | default('')) | length == 0
+
 # --- tailnet-only firewall for the native-login UI port (registry fragment) ---
 # The admin panel's host-published port (compose ports: mode=host -> :8001)
 # must be reachable only from the tailnet + RFC1918, never the public internet

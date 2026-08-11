@@ -26,6 +26,8 @@ End-to-end coverage:
 """
 from __future__ import annotations
 
+import re
+
 
 _WEEKLY_OR_SPARSER_LITERALS = frozenset({
     "weekly", "monthly", "quarterly", "semiannually", "yearly", "annually",
@@ -78,6 +80,55 @@ def backup_weekly_cap(oncalendar):
     return oncalendar
 
 
+_MONTHLY_OR_SPARSER_LITERALS = frozenset({
+    "monthly", "quarterly", "semiannually", "yearly", "annually",
+})
+
+_MONTHLY_CAP_HELP = (
+    "Community applies container updates at most once a month. Allowed "
+    "forms: the systemd shorthands ('monthly', 'quarterly', "
+    "'semiannually', 'yearly') or one day of the month with one time "
+    "point (e.g. '*-*-01 04:00:00'). More frequent unattended updates "
+    "are a Catena Pro feature."
+)
+
+_DAY_OF_MONTH = re.compile(r"^\*-\*-\d{1,2}$")
+
+
+def community_monthly_cap(oncalendar):
+    """Validate a systemd OnCalendar value fires at most monthly.
+
+    A DIFFERENT question from the weekly backup cap, which is why it is a
+    separate rule rather than a reuse. Weekly is a capability boundary:
+    Community ships one weekly backup timer, so a tighter interval has no timer
+    to fire it. Monthly is a blast-radius decision -- how often a host nobody is
+    watching is allowed to change its own images.
+
+    Deliberately narrow: systemd's grammar can express a monthly cadence many
+    ways, and a validator that tried to decide the general case would
+    eventually accept something that fires daily."""
+    if not isinstance(oncalendar, str) or not oncalendar.strip():
+        raise ValueError(f"OnCalendar must be a non-empty string. {_MONTHLY_CAP_HELP}")
+    value = oncalendar.strip()
+    if value.lower() in _MONTHLY_OR_SPARSER_LITERALS:
+        return oncalendar
+    first, _, rest = value.partition(" ")
+    if not _DAY_OF_MONTH.match(first):
+        raise ValueError(
+            f"OnCalendar {oncalendar!r} is more frequent than monthly. "
+            f"{_MONTHLY_CAP_HELP}"
+        )
+    if "," in rest or ".." in rest or "/" in rest:
+        raise ValueError(
+            f"OnCalendar {oncalendar!r} has multiple time points. "
+            f"{_MONTHLY_CAP_HELP}"
+        )
+    return oncalendar
+
+
 class FilterModule:
     def filters(self):
-        return {"backup_weekly_cap": backup_weekly_cap}
+        return {
+            "backup_weekly_cap": backup_weekly_cap,
+            "community_monthly_cap": community_monthly_cap,
+        }
