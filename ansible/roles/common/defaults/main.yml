@@ -77,3 +77,38 @@ public_ports_timer_interval: "5min"
 # the fact: the exact converge is reproducible by hand with
 # `docker stack deploy -c <dir>/<name>.yml <name>`.
 swarm_stack_dir: /etc/catena/stacks
+
+# ─── The catena-admin image ──────────────────────────────────────────────
+# Declared in common (which runs first) because TWO roles must agree on it and
+# neither can see the other's defaults: roles/payload (5.5) extracts the host
+# ENGINES from this image, roles/catena-admin (13) runs the SHELL from it. A
+# host holding engines and a panel built from different images is a host whose
+# two halves disagree about the config schema.
+#
+# That is not hypothetical. roles/payload used to read catena_admin_image with
+# a hardcoded fallback, and at role 5.5 the catena-admin role's defaults are
+# not in scope yet -- so the fallback is what it always used, and the two only
+# agreed because both literals were the same string.
+#
+# PUBLIC image, pulled anonymously: every panel is compiled in and the Business
+# set is gated at RUNTIME by the licence check, so distribution gating would
+# add no enforcement.
+catena_admin_image_floor: "ghcr.io/catenahq/catena-admin:v0.3.1"
+
+# The digest that floor resolved to when it was published. roles/payload
+# refuses to extract or root-execute anything that does not match, which is the
+# only verification in that path that works offline and needs nothing installed
+# on the host.
+#
+# It applies ONLY when the image being extracted IS the floor. An overridden
+# image has a digest nobody here knows -- the bench builds its own on the VPS,
+# and the on-host update lane may have pinned a newer version -- and asserting
+# this digest against one of those would fail closed on a correct host. The
+# role says out loud when it is extracting unchecked.
+catena_admin_image_floor_digest: "sha256:7b9519e4b0656bbfabb9ffa91cecf3a577f5c88e8a40b748afd3fd2aff555f78"
+
+# What the host actually runs: the floor, or the newer version the on-host
+# update lane recorded in /etc/catena/config.json, whichever is higher. See
+# playbooks/filter_plugins/image_pin.py for why neither side simply wins.
+catena_admin_image: >-
+  {{ catena_admin_image_floor | catena_image_pin(catena_image_pins | default({})) }}

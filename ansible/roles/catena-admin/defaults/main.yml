@@ -12,42 +12,21 @@ catena_admin_subdomain: "{{ lookup('dotenv', 'CATENA_ADMIN_SUBDOMAIN', default='
 catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
 
 # --- Container image + port -------------------------------------------
-# PUBLIC catena-admin image the converge deploys (deploy.yml). Clients
-# PULL this at converge time -- they never build on the client box (no Go
-# toolchain on a client VPS). Published by the private catena-admin repo's
-# publish-image.yml on a v* tag from main; the IMAGE is public (anonymous
-# pull, no registry credential) while the Business feature set inside it
-# is gated at runtime by the license check. Defaults to the floating
-# :latest GHCR tag; pin to an immutable @sha256 digest here once the first
-# publish lands, and let the version bumper manage the pin thereafter. The
-# bench does not use this var (it builds local/catena-admin:bench on the
-# VPS and passes that tag).
-catena_admin_image_floor: "ghcr.io/catenahq/catena-admin:latest"
+# The PUBLIC catena-admin image the converge deploys (deploy.yml). Clients PULL
+# it at converge time -- they never build on the client box (no Go toolchain on
+# a client VPS). Published by the private catena-admin repo's publish-image.yml
+# on a v* tag from main; the IMAGE is public (anonymous pull, no registry
+# credential) while the Business feature set inside it is gated at runtime by
+# the licence check. The bench does not use it (it builds
+# local/catena-admin:bench on the VPS and passes that tag).
+#
+# catena_admin_image, its floor and the floor's digest live in
+# roles/common/defaults: roles/payload extracts the host engines from the same
+# image at role 5.5, long before this role's defaults are in scope, and the two
+# must agree. See the block there.
 
-# What the host actually runs: the floor above, or the newer version the
-# on-host update lane recorded in /etc/catena/config.json, whichever is higher.
-# See playbooks/filter_plugins/image_pin.py for why neither side simply wins.
-#
-# Resolved ONCE, here, because this value feeds two things that must agree: the
-# panel container (deploy.yml) and the engines roles/payload extracts from the
-# same image. Resolving it twice is how a host ends up running new engines
-# under an old shell.
-#
-# A floating :latest floor carries no version to compare, so no pin can apply
-# to it and this resolves to the floor on every host today. Moving the floor to
-# a semver tag is what turns the pin on.
-catena_admin_image: >-
-  {{ catena_admin_image_floor | catena_image_pin(catena_image_pins | default({})) }}
-
-# The digest roles/payload refuses to extract anything from unless it matches
-# (see roles/payload/defaults/main.yml). It lives here too because the two
-# roles must agree: roles/payload takes the ENGINES out of an image and
-# roles/catena-admin runs the SHELL from one, and a host holding an engine and
-# a panel built from different images is the disagreement this role's header
-# already warns about -- one value drives both.
-#
-# Empty until the first v* tag publishes, which is also why catena_admin_image
-# is still on :latest. Pin both together, not one at a time.
+# The digest roles/payload refuses to extract anything from unless it matches.
+# One value drives both halves: the engines and the shell come from one image.
 catena_admin_image_digest: "{{ catena_payload_image_digest | default('') }}"
 
 # Deploy the catena-admin container FROM the converge (deploy.yml). Production

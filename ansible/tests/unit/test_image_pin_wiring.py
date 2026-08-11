@@ -80,6 +80,54 @@ def test_the_exemptions_are_real_variables():
             "rather than leaving a name that a future variable could reuse")
 
 
+def test_the_catena_admin_floor_is_a_version_not_a_moving_tag():
+    """A floating tag cannot be bumped OR verified. The update engine
+    classifies `latest` as floating and skips it outright, so the panel could
+    never be bumped by the lane at all; and a tag that moves under a recorded
+    digest turns the payload gate into a coin flip. It also froze the container
+    at whatever digest swarm resolved on install day while roles/payload
+    reinstalled the host engines from the same moving tag on every converge --
+    new engines, old shell, widening every release."""
+    floor = str(_image_defaults()["catena_admin_image_floor"][1])
+    tag = floor.rsplit(":", 1)[-1]
+    assert re.fullmatch(r"v?\d+\.\d+\.\d+", tag), (
+        f"catena_admin_image_floor is {floor!r}; it must name a published "
+        "version, not a moving tag")
+
+
+def test_the_shipped_digest_applies_only_to_the_shipped_image():
+    """An overridden image has a digest nobody wrote down -- the bench builds
+    its own, and the update lane may have pinned a newer version. Asserting the
+    floor's digest against one of those fails closed on a correct host."""
+    payload = yaml.safe_load(
+        (ROLES / "payload" / "defaults" / "main.yml").read_text())
+    expr = str(payload["catena_payload_image_digest"])
+    assert "catena_admin_image_floor_digest" in expr
+    assert "catena_payload_image == catena_admin_image_floor" in expr
+    common = yaml.safe_load(
+        (ROLES / "common" / "defaults" / "main.yml").read_text())
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}",
+                        str(common["catena_admin_image_floor_digest"]))
+
+
+def test_the_engines_and_the_shell_come_from_one_image():
+    """roles/payload runs at 5.5 and roles/catena-admin at 13, so neither can
+    see the other's defaults. The value they share has to be declared in a role
+    that runs before both, or the earlier one silently uses a fallback and the
+    two agree only by coincidence of spelling."""
+    common = yaml.safe_load(
+        (ROLES / "common" / "defaults" / "main.yml").read_text())
+    assert "catena_admin_image" in common
+    assert "catena_admin_image_floor" in common
+    payload = yaml.safe_load(
+        (ROLES / "payload" / "defaults" / "main.yml").read_text())
+    assert "catena_admin_image" in str(payload["catena_payload_image"])
+    assert "ghcr.io" not in str(payload["catena_payload_image"]), (
+        "roles/payload is carrying its own copy of the image reference again; "
+        "that copy is what it actually used, because catena-admin's defaults "
+        "are not in scope at role 5.5")
+
+
 def test_the_converge_publishes_the_pins_before_any_role_reads_them():
     """The filter defaults to {} so a role cannot fail on a fresh host, which
     also means a loader that stopped publishing would be invisible: every
