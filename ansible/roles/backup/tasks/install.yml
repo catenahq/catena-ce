@@ -53,12 +53,14 @@
       this VPS. If the whole host goes down, no one will know -
       the host that should alert is the host that is down.
 
-      Set ONE OR BOTH of these in inventory/<name>/.env:
+      Set ONE OR BOTH of these on the Settings page of the admin
+      panel, then converge again:
 
-          BACKUP_HEALTHCHECK_URL_OPERATOR=https://...
-          BACKUP_HEALTHCHECK_URL_CLIENT=https://...
+          BACKUP_HEALTHCHECK_URL_OPERATOR
+          BACKUP_HEALTHCHECK_URL_CLIENT
 
-      Either is fine; both is best. See docs/operator/backup.md.
+      Each takes a ping URL from an off-box monitor (a free
+      healthchecks.io check is enough). Either is fine; both is best.
       Continuing without external dead-man.
       ============================================================
   when:
