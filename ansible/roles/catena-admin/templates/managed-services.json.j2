@@ -6,14 +6,46 @@
   from "nothing needed bumping", and was the state of every real host until
   this template existed.
 
-  Scope is the control plane only: the two services this repo deploys directly
-  and pins by tag. Client application stacks are bumped through the Portainer
-  compose path and are discovered from Portainer, not listed here.
-
-  Both entries are `infra-swarm`, which needs only the service name: the lane
+  Every entry is `infra-swarm`, which needs only the service name: the lane
   bumps with `docker service update --image`, so it never has to reproduce how
   the converge built the service and there is no launch argv here to keep in
-  step with the role.
+  step with the role. Services deployed by `docker stack deploy` are ordinary
+  swarm services named <stack>_<compose service>, so they take the same path as
+  the two the converge creates directly.
+
+  A successful bump records an image pin in /etc/catena/config.json and the next
+  converge resolves max(floor, pin) -- see playbooks/filter_plugins/image_pin.py.
+  Adding a service here without its image resolving through that filter would
+  mean the lane bumps it and the next converge puts it back.
+
+  Client application stacks are bumped through the Portainer compose path and
+  are discovered from Portainer, not listed here. `compose_name` on a
+  stack-deployed entry is what keeps the two apart: the engine builds its
+  client-walk skip set from that key, so a stack Portainer can see is not also
+  bumped as if a client had chosen it.
+
+  DELIBERATELY ABSENT, each for a reason rather than an oversight:
+
+    catena-postgres   A database version move is a migration, not a bump: it
+                      needs pg_upgrade and a dump the restore path can replay.
+                      Its pin is a MAJOR (postgres:18) for the same reason.
+    cloudflared       Reconciled by catena-cloudflared-sync, and its bump stays
+                      manual by design: a broken image kills the public path AND
+                      the route to catena-admin, so there is no surface left to
+                      roll it back from. See catena-admin renovate.json.
+    catena-admin      The panel cannot roll itself with a plain service update:
+                      the payload has to be reinstalled from the new image in
+                      the same operation, or the host runs new engines under an
+                      old shell. It has its own lane.
+    oauth2-proxy      One stack with one service per gated app, so the set is
+                      per-host rather than fixed. They share a repository and
+                      therefore one pin, so a converge moves them together
+                      after any one of them is bumped.
+    beszel-hc-shim    Its image is a python base image, not a product release.
+    clamav            Deployed through the Portainer API (it needs a
+                      materialized second network) and consumer-gated, so it may
+                      not exist on a given host.
+    recovery          An nginx sidecar being folded into catena-admin.
 #}
 [
   {
@@ -36,6 +68,67 @@
       "source": "github",
       "repo": "traefik/traefik",
       "tag_pattern": "^v\\d+\\.\\d+\\.\\d+$"
+    }
+  },
+  {
+    "name": "gatus",
+    "kind": "infra-swarm",
+    "compose_name": "{{ gatus_compose_name }}",
+    "swarm_service": "{{ gatus_compose_name }}_app",
+    "policy": "patch+minor",
+    "upstream": {
+      "source": "dockerhub",
+      "repo": "twinproduction/gatus",
+      "tag_pattern": "^v\\d+\\.\\d+\\.\\d+$"
+    }
+  },
+  {
+    "name": "healthchecks",
+    "kind": "infra-swarm",
+    "compose_name": "{{ healthchecks_compose_name }}",
+    "swarm_service": "{{ healthchecks_compose_name }}_app",
+    "policy": "patch",
+    "upstream": {
+      "source": "dockerhub",
+      "repo": "healthchecks/healthchecks",
+      "scheme": "partial_line",
+      "tag_pattern": "^v\\d+\\.\\d+(\\.\\d+)?$"
+    }
+  },
+  {
+    "name": "beszel-hub",
+    "kind": "infra-swarm",
+    "compose_name": "{{ beszel_hub_compose_name }}",
+    "swarm_service": "{{ beszel_hub_compose_name }}_app",
+    "policy": "patch",
+    "upstream": {
+      "source": "dockerhub",
+      "repo": "henrygd/beszel",
+      "tag_pattern": "^\\d+\\.\\d+\\.\\d+$"
+    }
+  },
+  {
+    "name": "beszel-agent",
+    "kind": "infra-swarm",
+    "compose_name": "{{ beszel_agent_compose_name }}",
+    "swarm_service": "{{ beszel_agent_compose_name }}_app",
+    "policy": "patch",
+    "upstream": {
+      "source": "dockerhub",
+      "repo": "henrygd/beszel-agent",
+      "tag_pattern": "^\\d+\\.\\d+\\.\\d+$"
+    }
+  },
+  {
+    "name": "keycloak",
+    "kind": "infra-swarm",
+    "compose_name": "{{ keycloak_compose_name }}",
+    "swarm_service": "{{ keycloak_compose_name }}_{{ keycloak_server_service }}",
+    "policy": "patch",
+    "upstream": {
+      "source": "quay",
+      "repo": "phasetwo/phasetwo-keycloak",
+      "tag_pattern": "^\\d+\\.\\d+\\.\\d+$"
     }
   }
 ]
