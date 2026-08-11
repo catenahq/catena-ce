@@ -51,8 +51,8 @@ loader saw no token on a host that had one.
 Still runs BEFORE the SSO roles in site.yml. `oauth2_proxy` waits for
 `https://auth.<zone>/.well-known/openid-configuration` to answer before
 it deploys its compose; that URL is only reachable once the tunnel is
-up. `infrastructure` runs AFTER `oauth2_proxy` (its gated apps need the
-forward-auth chain rendered first), so the tunnel dispatch can't ship
+up. `infrastructure` runs AFTER `oauth2_proxy` (its gated apps need their
+auth proxies and routes rendered first), so the tunnel dispatch can't ship
 there.
 
 ## Site.yml position

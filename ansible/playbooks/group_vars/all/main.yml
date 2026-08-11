@@ -41,9 +41,9 @@ cloudflared_tunnel_name: "{{ lookup('dotenv', 'CLOUDFLARED_TUNNEL_NAME_PREFIX', 
 cloudflared_ingress_service: "http://catena-traefik:80"
 
 # --- Infrastructure subdomains ---
-# Public-facing hostnames, all gated by self-hosted SSO + forward-auth
-# (Keycloak + oauth2-proxy). SSO works across them via a shared auth.<zone>
-# session cookie.
+# Public-facing hostnames. Each is routed to its own oauth2-proxy instance,
+# which authenticates against Keycloak and proxies to the app behind it. SSO
+# works across them via a session cookie scoped to .<zone>.
 infrastructure_gatus_subdomain: "{{ lookup('dotenv', 'GATUS_SUBDOMAIN', default='monitor') }}"
 infrastructure_gatus_hostname: "{{ infrastructure_gatus_subdomain }}.{{ cloudflare_zone }}"
 # catena-admin (the Go shell) is served at dash.<zone>.
@@ -53,8 +53,8 @@ infrastructure_dash_hostname: "{{ infrastructure_dash_subdomain }}.{{ cloudflare
 healthchecks_subdomain: "{{ lookup('dotenv', 'HEARTBEAT_SUBDOMAIN', default='heartbeat') }}"
 healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
 
-# The SSO host (auth.<zone>) is the only subdomain NOT gated by forward-auth
-# (it IS the auth layer). keycloak_hostname / keycloak_subdomain are defined
+# The SSO host (auth.<zone>) is the only subdomain with no oauth2-proxy in
+# front of it (it IS the auth layer). keycloak_hostname / keycloak_subdomain are defined
 # in roles/keycloak/defaults (reading the same AUTH_SUBDOMAIN env key).
 admin_email: "{{ lookup('dotenv', 'ADMIN_EMAIL', default='') }}"
 
@@ -67,9 +67,9 @@ admin_email: "{{ lookup('dotenv', 'ADMIN_EMAIL', default='') }}"
 # ntfy + backup repo are NOT set here. They are store-owned (catena-admin >
 # Settings); the converge seeds them from .env once and reads the store after.
 
-# Auth is handled entirely by self-hosted SSO at auth.<zone> + forward-auth
-# middleware on each app router. User membership in the access groups controls
-# access to the gated subdomains.
+# Auth is handled entirely by self-hosted SSO at auth.<zone> plus a per-app
+# oauth2-proxy in front of each gated host. User membership in the access
+# groups controls access to the gated subdomains.
 
 # --- Portainer API (container control plane) ---
 # Global so any role (infrastructure stack seam, dashboard-sync env) can

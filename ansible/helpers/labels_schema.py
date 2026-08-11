@@ -41,7 +41,7 @@ def slugify(s: str) -> str:
 #                               `visitor` (public) is flagged by the catena-
 #                               admin Access tab guardrail. For sensitive
 #                               surfaces that must never go public.
-#   vps.auth.oidc               true|false (additive on top of forward-auth)
+#   vps.auth.oidc               true|false (additive on top of the auth proxy)
 #   vps.auth.oidc.redirect_uris csv URLs
 #   vps.auth.oidc.scopes        space-separated scopes
 

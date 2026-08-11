@@ -1,7 +1,8 @@
 ---
 # Render compose + deploy via the Portainer API. Reuses the canonical
-# infrastructure helper. No public domain attached -- both oauth2-proxy
-# instances are reached via Traefik forwardAuth on catena-network only.
+# infrastructure helper. No public domain attached -- Traefik reaches each
+# instance by its catena-network alias, and the instance owns the public
+# hostname's route.
 
 - name: "oauth2-proxy: deploy per-app instance stack"
   ansible.builtin.include_tasks: ../../infrastructure/tasks/swarm_stack.yml

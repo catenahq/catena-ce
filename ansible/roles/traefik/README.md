@@ -26,9 +26,9 @@ container on the `catena-network` overlay, the single origin every
   traefik whenever it is not running, plus any other container docker
   meant to keep running but failed to start with "network not found".
   This role owns it because it owns the overlay.
-- One-time cutover tasks for hosts born in the pre-Portainer era:
-  remove the legacy install.sh-born container, its nudge artifacts,
-  and the superseded forwardAuth admin route.
+- Removal tasks for artifacts no converge produces: the install.sh-born
+  container, its nudge artifacts, and a shared admin auth route whose
+  file name no producer claims.
 
 ## Boundaries
 

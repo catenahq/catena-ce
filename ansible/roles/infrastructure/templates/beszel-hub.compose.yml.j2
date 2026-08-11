@@ -54,8 +54,8 @@ services:
       # impossible certificate on every converge.
       - traefik.enable=false
       # Admin-only auth posture (vps.auth.* convention). dashboard-sync
-      # renders the forward-auth Traefik route + unions the /oauth2/callback
-      # redirect URI into the shared oauth2-proxy Keycloak client.
+      # renders the Traefik route to this app's oauth2-proxy instance and
+      # unions the /oauth2/callback redirect URI into the shared Keycloak client.
       - vps.auth.mode=admin-only
       - vps.auth.groups=admin
 

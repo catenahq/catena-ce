@@ -44,10 +44,9 @@
     mode: "0644"
   register: _gatus_infra_spec
 
-# File-based Traefik forward-auth route is reintroduced in plan step 4
-# (roles/oauth2_proxy) -- it will render to gatus-oauth2-proxy.yml and
-# chain the new oauth2-proxy@file middleware. Until then this app
-# deploys without a forward-auth gate.
+# The public route for this app is gatus-oauth2-proxy.yml, rendered by
+# roles/oauth2_proxy: it points Host(monitor.<zone>) at the gatus
+# oauth2-proxy instance, which proxies here after auth.
 
 # The publish is host-mode now (swarm cannot bind 127.0.0.1), so the port is
 # a real host bind and validate.yml's bind-drift check will see it. Declare

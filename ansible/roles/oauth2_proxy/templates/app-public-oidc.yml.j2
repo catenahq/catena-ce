@@ -4,7 +4,7 @@
 # Native-OIDC apps (vps.auth.mode=public + vps.auth.oidc=true): the
 # app handles the OIDC dance itself, so Traefik only needs to force
 # https on the X-Forwarded-Proto header and point at the backend.
-# No forward-auth middleware, no /oauth2/* callback router.
+# No oauth2-proxy in front, no /oauth2/* callback router.
 # Priority 100 wins over the default-priority app route on
 # the same Host() match.
 http:

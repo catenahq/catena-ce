@@ -7,10 +7,10 @@
 # (.tar.gz from the "Export latest snapshot" button) without needing
 # tailnet access.
 #
-# Auth: forward-auth via the shared SSO middleware (same as every other
-# *.<zone> admin surface). Group enforcement (`admin` only) is
-# applied by oauth2-proxy `--allowed-group=/admin` (Keycloak
-# Phase Two + oauth2_proxy roles, live since 2026-04-27).
+# Auth: its own oauth2-proxy instance in front, same as every other
+# *.<zone> admin surface. Group enforcement (`admin` only) comes from that
+# instance's `--allowed-group=admin` -- bare name, no leading slash, since
+# the realm's groups mapper sets full.path false.
 
 # Bind-mount source seed. roles/infrastructure runs BEFORE roles/backup
 # in site.yml, so on a fresh install the backup-export dir doesn't exist
@@ -47,8 +47,8 @@
     mode: "0644"
   register: _recovery_nginx_config
 
-# Forward-auth route reintroduced in plan step 4 (roles/oauth2_proxy)
-# as recovery-oauth2-proxy.yml.
+# The public route is recovery-oauth2-proxy.yml, rendered by
+# roles/oauth2_proxy.
 
 - name: "recovery: deploy as a swarm stack"
   ansible.builtin.include_tasks: swarm_stack.yml

@@ -470,8 +470,8 @@
 
     # Catch host-published-port drift -- a
     # client compose with `ports: ["8080:80"]` would expose its
-    # container directly to the tailnet, bypassing Traefik's
-    # forward-auth chain. Container IPs themselves aren't routable
+    # container directly to the tailnet, bypassing Traefik and the
+    # app's auth proxy. Container IPs themselves aren't routable
     # from tailnet (catena-network is host-internal), so the actual
     # attack surface is host-published ports. Enumerate every
     # listening TCP port on the host and assert the set matches the
@@ -557,7 +557,7 @@
         fail_msg: |
           violation: host has unexpected publicly-bound TCP
           listeners. A container with `ports: ["<host>:<container>"]`
-          binding bypasses Traefik's forward-auth chain and exposes
+          binding bypasses Traefik and the app's auth proxy, exposing
           the service directly to the tailnet (and, depending on UFW,
           to the public internet).
 

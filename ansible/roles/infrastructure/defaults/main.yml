@@ -4,7 +4,7 @@
 # the Portainer stack API.
 #
 # Subdomains provisioned end-to-end (DNS -> Tunnel -> Traefik ->
-# container), all gated by Keycloak + oauth2-proxy forward-auth:
+# container), each behind its own Keycloak-backed oauth2-proxy:
 #   portainer.<zone> -> Portainer    (roles/portainer)
 #   monitor.<zone>   -> Gatus        (this role, via the Portainer API)
 #   dash.<zone>      -> catena-admin (roles/catena-admin)
@@ -196,11 +196,10 @@ beszel_hc_shim_host_dir: "/etc/catena/beszel-hc-shim"
 
 # --- recovery-downloads (SSO-gated file server) -------------------------
 # Nginx sidecar that exposes /var/backups/catena-export/ read-only
-# over recovery.<zone>. Gated by the same forward-auth middleware as every
-# other *.<zone> admin surface, restricted to the `admin` group.
-# The SSO layer is being rebuilt in plan steps 2-4 (Keycloak Phase Two
-# + oauth2-proxy); group enforcement moves to oauth2-proxy
-# `--allowed-group=/admin`.
+# over recovery.<zone>. Fronted by its own oauth2-proxy instance like every
+# other *.<zone> admin surface, restricted to the `admin` group by that
+# instance's `--allowed-group=admin` (no leading slash -- the realm's groups
+# mapper emits bare names).
 #
 # Purpose: give client admins a way to retrieve the "Export recovery
 # secrets" .gpg bundle + the "Export latest snapshot" .tar.gz WITHOUT

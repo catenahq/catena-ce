@@ -207,11 +207,11 @@
     - { role: cloudflare_tunnel, tags: [cloudflare_tunnel, cloudflare] } # CF tunnel + DNS + cloudflared swarm service
     # Keycloak MUST come before oauth2_proxy so its realm exists before
     # oauth2_proxy registers its OIDC client via keycloak-config-cli. Both
-    # MUST come before infrastructure so the gated apps' forward-auth chain
-    # (rendered by oauth2_proxy) is in place when infrastructure deploys
-    # those apps with their Traefik routes.
+    # MUST come before infrastructure so each gated app's oauth2-proxy
+    # instance and route (rendered by oauth2_proxy) is in place when
+    # infrastructure deploys those apps with their Traefik routes.
     - { role: keycloak, tags: [keycloak, auth] } # SSO IdP
-    - { role: oauth2_proxy, tags: [oauth2_proxy, auth] } # forward-auth gateway: staff + admin instances
+    - { role: oauth2_proxy, tags: [oauth2_proxy, auth] } # one auth proxy per gated upstream
     - { role: infrastructure, tags: [infrastructure] } # recovery archive, gated apps (Gatus, Healthchecks, ...), dashboard-sync, gatus-sync
     # catena-admin: host-side state (runner user, dispatcher, action catalog,
     # bind-mount targets) AND the Go shell container, created directly against

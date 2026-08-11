@@ -26,8 +26,8 @@
       minted on the box by the converge loader, so a gap here means the
       on-box store at /etc/catena/config.json was not loaded.
 
-# Forward-auth route reintroduced in plan step 4 (roles/oauth2_proxy)
-# as healthchecks-oauth2-proxy.yml.
+# The public route is healthchecks-oauth2-proxy.yml, rendered by
+# roles/oauth2_proxy.
 
 # Host-mode publish (swarm cannot bind 127.0.0.1), so the port is a real
 # host bind. scope=loopback denies it everywhere but lo, which is what the
@@ -69,7 +69,7 @@
     # Readiness verified by the aggregate post-role probe in main.yml.
     # The in-container Django ORM probe below remains in place -- it's
     # needed BEFORE the seed shell runs, and it's independent of Traefik
-    # and forward-auth.
+    # and the auth proxy.
     svc_readiness_skip_reason: >-
       Verified by the aggregate post-role probe in main.yml.
 

@@ -20,11 +20,10 @@
 # oauth2_proxy's wait-for-public-Keycloak task otherwise can't succeed on a
 # fresh DR/migrate target in a single converge.
 #
-# Forward-auth middleware definition + the per-service
-# `<app>-oauth2-proxy.yml` Traefik route files are rendered by
-# roles/oauth2_proxy (which runs before this role in site.yml).
-# Every gated public URL inherits the staff or admin chain by the
-# time this role's compose deploys land.
+# The per-app oauth2-proxy instances and their `<app>-oauth2-proxy.yml`
+# Traefik route files are rendered by roles/oauth2_proxy (which runs before
+# this role in site.yml), so every gated public URL already resolves to its
+# own auth proxy by the time this role's compose deploys land.
 
 # Self-hosted SSO gates the four UIs; CF Tunnel is the only public ingress
 # (owned by roles/cloudflare_tunnel) and carries no Access policy of its own.

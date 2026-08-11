@@ -20,7 +20,7 @@ reconciles drift without wiping operator-added checks."""
 #      upstream image's entrypoint runs migrations only - it does NOT
 #      honour SUPERUSER_EMAIL/SUPERUSER_PASSWORD, so a fresh container
 #      starts with an empty auth_user table. Without this bootstrap the
-#      oauth2-proxy forward-auth hop (X-Forwarded-Email header) has no
+#      oauth2-proxy hop (X-Forwarded-Email header) has no
 #      User row to map onto and the UI 403s for every request.
 #   1. Project.api_key_readonly + ping_key + name (pinned to vault).
 #   2. Removes Healthchecks's tutorial check + default email channel if
@@ -58,7 +58,7 @@ _hc_ntfy_server = os.environ["CATENA_NTFY_SERVER"]
 User = get_user_model()
 
 # Bootstrap the superuser. Use username=email so the oauth2-proxy
-# forward-auth hop (REMOTE_USER_HEADER=HTTP_X_FORWARDED_EMAIL) can map
+# identity hop (REMOTE_USER_HEADER=HTTP_X_FORWARDED_EMAIL) can map
 # the incoming email to this User. On re-converge we reconcile the
 # staff/superuser flags but never touch the password - if the operator
 # changed it via /admin/ we don't want to stomp it.
