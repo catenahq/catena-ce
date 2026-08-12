@@ -479,7 +479,7 @@
           {{ {
                'schema': 1,
                'converged_at': ansible_date_time.iso8601 | default(''),
-               'catena_ce_version': hostvars['localhost']['catena_version'] | default('unknown'),
+               'catena_ce_version': catena_version | default('unknown'),
                'catena_admin_image': catena_admin_image,
                'payload_image_id': (_site_payload_marker.content | default('') | b64decode | trim),
                'actions': (_catena_admin_actions_dispatch | default([]))

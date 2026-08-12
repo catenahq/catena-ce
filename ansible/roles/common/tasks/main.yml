@@ -793,9 +793,14 @@
 # ─── Version stamp ──────────────────────────────────────────────────────
 # /etc/catena/version.txt records the catena commit that produced
 # the last converge. Operator can diff this against the controller's
-# `git describe` to spot drift across a fleet. Captured on the controller
-# in preflight.yml; set_fact cacheable means it's readable via
-# hostvars['localhost']['catena_version'].
+# `git describe` to spot drift across a fleet.
+#
+# The value is the bare `catena_version` fact this role sets ~770 lines
+# above, NOT hostvars['localhost']. The capture is delegated to localhost
+# so it reads the controller's git state, but delegate_to alone does not
+# pin the fact there, which the capture's own comment says -- so the
+# hostvars form resolved to nothing and every host on every install
+# stamped the literal string "unknown".
 - name: "/etc/catena exists"
   ansible.builtin.file:
     path: /etc/catena
@@ -828,8 +833,8 @@
     group: root
     mode: "0644"
     content: |
-      {{ hostvars['localhost']['catena_version'] | default('unknown') }}
-      {{ hostvars['localhost']['catena_version_date'] | default('') }}
+      {{ catena_version | default('unknown') }}
+      {{ catena_version_date | default('') }}
       converged-at: {{ ansible_date_time.iso8601 | default('') }}
   # The `converged-at` timestamp would force `changed` on every converge,
   # which is noise: a fresh timestamp is the POINT of this file, not a

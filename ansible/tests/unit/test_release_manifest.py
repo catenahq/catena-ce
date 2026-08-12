@@ -138,3 +138,28 @@ def test_version_txt_is_untouched():
     manifest is additional, not a replacement."""
     body = (ANSIBLE / "roles" / "common" / "tasks" / "main.yml").read_text()
     assert "dest: /etc/catena/version.txt" in body
+
+
+def test_both_version_fields_read_the_fact_this_run_actually_sets():
+    """The capture is `delegate_to: localhost`, which reads the controller's git
+    state but does NOT pin the fact on localhost -- the capture's own comment
+    says so. Both writers used the hostvars['localhost'] form anyway, so both
+    resolved to nothing and every host stamped the literal string "unknown":
+    version.txt, the client-facing artifact, and the manifest's
+    catena_ce_version.
+
+    The restore version gate reads exactly this. Two "unknown" stamps compare
+    Same by raw equality, so the gate passed for the wrong reason and no skew
+    in either direction could ever be detected on a real install.
+
+    They have to move together: validate.yml asserts the manifest against the
+    stamp, so fixing one alone would fail every converge."""
+    stamp = (ANSIBLE / "roles" / "common" / "tasks" / "main.yml").read_text()
+    site = SITE.read_text()
+    for name, body in (("roles/common/tasks/main.yml", stamp), ("site.yml", site)):
+        assert "hostvars['localhost']['catena_version']" not in body, (
+            f"{name} is back on the hostvars form, which resolves to nothing "
+            "and stamps 'unknown'"
+        )
+    assert "{{ catena_version | default('unknown') }}" in stamp
+    assert "'catena_ce_version': catena_version | default('unknown')" in site
