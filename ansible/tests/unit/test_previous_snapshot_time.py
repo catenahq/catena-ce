@@ -25,12 +25,13 @@ _spec.loader.exec_module(pst)
 f = pst.previous_snapshot_time
 
 
-def _snap(short_id: str, when: str) -> dict:
+def _snap(short_id: str, when: str, hostname: str = "vps1", paths=None) -> dict:
     return {
         "id": short_id + "0" * (64 - len(short_id)),
         "short_id": short_id,
         "time": when,
-        "hostname": "vps1",
+        "hostname": hostname,
+        "paths": ["/mnt/data"] if paths is None else paths,
     }
 
 
@@ -84,6 +85,70 @@ def test_an_unknown_id_yields_no_floor() -> None:
 def test_accepts_already_decoded_records() -> None:
     # ansible may hand back a parsed structure rather than a string.
     assert f(THREE, "cccccccc") == "2026-07-21T07:00:00.123456Z"
+
+
+def test_another_hosts_snapshot_cannot_raise_the_floor() -> None:
+    # Run 2026-08-13T04-45-14-6dd1, decommission_recovery: the target's own
+    # previous pass was at 03:00 and carried the archives being replayed, but a
+    # second host wrote to the shared repository at 04:00. Answering 04:00
+    # refuses every archive the restored snapshot actually holds.
+    mixed = [
+        _snap("aaaaaaaa", "2026-07-20T03:00:00Z"),
+        _snap("dddddddd", "2026-07-20T04:00:00Z", hostname="vps2"),
+        _snap("cccccccc", "2026-07-20T05:00:00Z"),
+    ]
+    assert f(json.dumps(mixed), "cccccccc") == "2026-07-20T03:00:00Z"
+
+
+def test_a_host_whose_lineage_has_no_earlier_pass_gets_no_floor() -> None:
+    # The target is this host's FIRST snapshot; the older records belong to
+    # someone else. No earlier pass of its own means nothing to guard against,
+    # and inventing a floor from a stranger refuses legitimate archives.
+    mixed = [
+        _snap("dddddddd", "2026-07-20T04:00:00Z", hostname="vps2"),
+        _snap("cccccccc", "2026-07-20T05:00:00Z"),
+    ]
+    assert f(json.dumps(mixed), "cccccccc") == ""
+
+
+def test_the_same_host_backing_up_different_paths_is_a_different_lineage() -> None:
+    # Same grouping `restic forget` applies by default: host AND paths.
+    mixed = [
+        _snap("aaaaaaaa", "2026-07-20T03:00:00Z", paths=["/mnt/data"]),
+        _snap("bbbbbbbb", "2026-07-20T04:00:00Z", paths=["/var/backups"]),
+        _snap("cccccccc", "2026-07-20T05:00:00Z", paths=["/mnt/data"]),
+    ]
+    assert f(json.dumps(mixed), "cccccccc") == "2026-07-20T03:00:00Z"
+
+
+def test_paths_compare_regardless_of_the_order_restic_listed_them() -> None:
+    mixed = [
+        _snap("aaaaaaaa", "2026-07-20T03:00:00Z", paths=["/mnt/data", "/etc/catena"]),
+        _snap("cccccccc", "2026-07-20T05:00:00Z", paths=["/etc/catena", "/mnt/data"]),
+    ]
+    assert f(json.dumps(mixed), "cccccccc") == "2026-07-20T03:00:00Z"
+
+
+def test_latest_scopes_to_the_lineage_of_the_snapshot_it_resolves_to() -> None:
+    # "latest" names the newest record in the repository; the floor is then the
+    # newest older record of THAT snapshot's host, not of the repository.
+    mixed = [
+        _snap("aaaaaaaa", "2026-07-20T03:00:00Z"),
+        _snap("dddddddd", "2026-07-20T04:00:00Z", hostname="vps2"),
+        _snap("cccccccc", "2026-07-20T05:00:00Z"),
+    ]
+    assert f(json.dumps(mixed), "latest") == "2026-07-20T03:00:00Z"
+
+
+def test_records_without_host_or_paths_group_together() -> None:
+    # An older restic wrote no paths key. Splitting each such record into its
+    # own lineage would disable the guard on exactly the repositories least
+    # likely to have been checked.
+    bare = [
+        {"short_id": "aaaaaaaa", "id": "a" * 64, "time": "2026-07-20T03:00:00Z"},
+        {"short_id": "cccccccc", "id": "c" * 64, "time": "2026-07-20T05:00:00Z"},
+    ]
+    assert f(json.dumps(bare), "cccccccc") == "2026-07-20T03:00:00Z"
 
 
 def test_utc_output_regardless_of_the_offset_restic_wrote() -> None:

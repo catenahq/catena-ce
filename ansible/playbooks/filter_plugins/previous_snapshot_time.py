@@ -12,10 +12,21 @@ archives before `restic backup` runs, so every archive a snapshot carries
 predates the snapshot, and restic restores their original mtimes. A floor
 set to the snapshot's own time refuses every legitimate archive.
 
-Input is `restic snapshots --json` (the whole repository) plus the id of the
-snapshot being restored. Output is an RFC3339 string, or "" when the
-repository holds no earlier snapshot -- a first backup has no earlier pass
-for a leftover to have come from, so there is nothing to guard against.
+"An earlier pass" is a claim about ONE host's lineage, so only snapshots
+sharing the target's hostname and paths can supply the floor -- the same
+host+paths grouping `restic forget` applies by default. A repository holding
+more than one host is the normal case, not an edge one: pre-seeding a
+migration target writes the source and the target into the same repository.
+Measuring against the repository as a whole lets another host's snapshot,
+landing between this host's pg_dumpall and its own backup, raise the floor
+above archives that did travel in the snapshot being restored, and the
+replay then refuses the only archives there are.
+
+Input is `restic snapshots --json` for the repository plus the id of the
+snapshot being restored. Output is an RFC3339 string, or "" when that
+snapshot's own lineage holds no earlier pass -- a first backup has no
+earlier pass for a leftover to have come from, so there is nothing to guard
+against.
 """
 from __future__ import annotations
 
@@ -55,8 +66,23 @@ def _parse_time(value):
     return when
 
 
+def _lineage(record):
+    """The host+paths grouping restic itself uses to relate snapshots.
+
+    A snapshot missing either key groups with the other snapshots missing it,
+    which keeps a repository written by an older restic readable rather than
+    splitting every record into its own lineage.
+    """
+    host = str(record.get("hostname") or "")
+    paths = record.get("paths")
+    if isinstance(paths, list):
+        return host, tuple(sorted(str(p) for p in paths))
+    return host, ()
+
+
 def previous_snapshot_time(snapshots_json, snapshot_id) -> str:
-    """RFC3339 time of the newest snapshot strictly older than `snapshot_id`.
+    """RFC3339 time of the newest snapshot strictly older than `snapshot_id`
+    and sharing its hostname and paths.
 
     Returns "" when there is none, when the id is not in the list, or when
     the input cannot be read. An empty answer disables the guard, which is
@@ -86,21 +112,23 @@ def previous_snapshot_time(snapshots_json, snapshot_id) -> str:
         when = _parse_time(r.get("time"))
         if when is None:
             continue
-        parsed.append(when)
+        parsed.append((when, r))
         if newest_wins:
             continue
         ids = [str(r.get("short_id") or ""), str(r.get("id") or "")]
         # A full id matches the short id it was truncated from, which is what
         # an operator pasting either form into restore_snapshot produces.
         if wanted in ids or any(i.startswith(wanted) for i in ids if i):
-            if target is None or when > target:
-                target = when
+            if target is None or when > target[0]:
+                target = (when, r)
     if newest_wins and parsed:
-        target = max(parsed)
+        target = max(parsed, key=lambda p: p[0])
     if target is None:
         return ""
 
-    older = [t for t in parsed if t < target]
+    target_when, target_record = target
+    lineage = _lineage(target_record)
+    older = [w for w, r in parsed if w < target_when and _lineage(r) == lineage]
     if not older:
         return ""
     return max(older).astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
