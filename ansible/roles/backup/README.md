@@ -20,11 +20,14 @@ provides one-shot tasks for verification, restore, and reconciliation.
   byte-for-byte restore correct); per-app DBs are restored raw and then
   reconciled by a fresh `pg_dumpall` replay (scope=clients), which is
   the `catena-recovery` host binary, not a mode of this role. It also
-  records `min_dump_time` in the post-restore marker: the time of the
-  backup BEFORE the one restored, which is the staleness floor the replay
-  uses to refuse an archive an earlier pass left behind. The restored
-  snapshot's own time cannot serve -- the archives are written before
-  `restic backup` runs, so all of them predate it.
+  records `dump_archives` in the post-restore marker: the archives the
+  restored snapshot CARRIES, which is what the replay uses to refuse one an
+  earlier pass left behind. Timestamps cannot answer that -- an archive is
+  written before the `restic backup` that captures it, a host snapshots many
+  times between two dumps, and a migrated host's newest archive was written
+  on the machine its data came from. An absent line means the listing could
+  not be read and leaves the replay unguarded; a present but empty one means
+  the snapshot carried nothing and admits nothing.
 - `ensure_restic.yml` -- apt-install + binary version pin only.
 
 ## Where the scripts come from

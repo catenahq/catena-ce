@@ -440,50 +440,54 @@
     group: root
     mode: "0755"
 
-# The staleness floor for the database replay, recorded here because this is
-# the last point that knows the repository. The hook that replays the archives
+# Which database archives the restored snapshot CARRIES, recorded here because
+# this is the last point that knows the repository. The hook that replays them
 # runs at the end of a converge with no backup credentials, and giving it some
 # so it could ask this question itself would turn a converge-time helper into
 # something that can read every backup the client has.
 #
-# The floor is the time of the backup BEFORE the one being restored. An archive
-# older than that did not come out of this snapshot: it is a leftover from an
-# earlier pass, and replaying it over freshly restored volumes overwrites newer
-# data with older. The snapshot's own time cannot serve -- pg_dumpall writes the
-# archives before `restic backup` runs, so all of them predate it.
-- name: "Post-restore -- list the repository to derive the replay staleness floor"
+# An archive the snapshot does not carry is a leftover from an earlier pass --
+# a pre-seeded migration target holds one before the final delta restore lands
+# -- and replaying it over freshly restored volumes overwrites newer data with
+# older. Only the snapshot's own manifest separates the two. Timestamps cannot:
+# pg_dumpall writes an archive before the `restic backup` that captures it, a
+# host takes many snapshots between two dumps, and a migrated host's newest
+# archive was written on the machine its data came from, so it is legitimately
+# older than every snapshot the host has taken since.
+- name: "Post-restore -- list the archives the restored snapshot carries"
   ansible.builtin.command:
     argv:
       - restic
-      - snapshots
+      - ls
       - --json
+      - "{{ _restic_snapshot_id }}"
+      - "{{ storage_mount_point }}/backup-staging/pg"
   environment: "{{ backup_restic_env }}"
   no_log: true # env dict carries S3 creds
-  register: _restic_snapshot_list
+  register: _restic_snapshot_ls
   changed_when: false
   failed_when: false
 
-- name: "Post-restore -- compute the replay staleness floor"
+- name: "Post-restore -- collect the archive names"
   ansible.builtin.set_fact:
-    _restore_min_dump_time: >-
-      {{ (_restic_snapshot_list.stdout | default('[]'))
-         | previous_snapshot_time(_restic_snapshot_id) }}
+    _restore_dump_archives: >-
+      {{ (_restic_snapshot_ls.stdout | default(''))
+         | snapshot_dump_archives(storage_mount_point ~ '/backup-staging/pg') }}
 
-# Empty is a real answer (a repository with one snapshot has no earlier pass),
-# so it is reported rather than treated as a failure. It is reported LOUDLY
-# because the other way to get an empty answer is an unreadable snapshot list,
-# and the two are indistinguishable from here.
-- name: "Post-restore -- staleness floor"
+# An unreadable listing must not read as "the snapshot carried nothing", which
+# is the strictest possible answer and would refuse every archive on disk. The
+# two are told apart by restic's own exit code, and the marker is written
+# WITHOUT the manifest line when the listing failed -- absent means "not
+# recorded", which leaves the replay unguarded and says so, rather than
+# silently blocking a legitimate recovery.
+- name: "Post-restore -- archives carried by the snapshot"
   ansible.builtin.debug:
     msg: >-
-      {{ ('database replay will refuse archives taken before '
-          ~ _restore_min_dump_time)
-         if _restore_min_dump_time
-         else ('no earlier snapshot found in the repository, so the database '
-               ~ 'replay runs with no staleness floor. Expected on a first '
-               ~ 'backup; on a repository that has more than one snapshot it '
-               ~ 'means `restic snapshots` could not be read (rc '
-               ~ (_restic_snapshot_list.rc | default('?')) ~ ').') }}
+      {{ ('database replay will accept only: ' ~ (_restore_dump_archives | join(', ')))
+         if _restic_snapshot_ls.rc | default(1) == 0
+         else ('`restic ls` could not read snapshot ' ~ _restic_snapshot_id
+               ~ ' (rc ' ~ (_restic_snapshot_ls.rc | default('?')) ~ '), so the '
+               ~ 'database replay runs with no leftover guard.') }}
 
 - name: "Drop post-restore marker for site.yml hooks"
   ansible.builtin.copy:
@@ -491,7 +495,9 @@
     content: |
       restored_at: {{ ansible_date_time.iso8601 }}
       snapshot: {{ _restic_snapshot_id }}
-      min_dump_time: {{ _restore_min_dump_time }}
+      {% if _restic_snapshot_ls.rc | default(1) == 0 %}
+      dump_archives: {{ _restore_dump_archives | join(', ') }}
+      {% endif %}
     owner: root
     group: root
     mode: "0644"
