@@ -126,6 +126,50 @@
     - catena_admin_deploy_from_converge | bool
     - _ca_service.rc | default(1) != 0
 
+# `docker service create` returns as soon as swarm ACCEPTS the spec (--detach),
+# so the service existing is not the service running. Poll until a task reports
+# Running, bounded -- the create used to do this wait itself, unbounded, and a
+# task that could never start (missing secret, port in use, image that will not
+# run, crash loop under --restart-condition=any) parked the install here with
+# no output and nothing to read.
+- name: "Catena-admin: wait for the service to converge"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - ps
+      - "{{ catena_admin_service_name }}"
+      - --no-trunc
+      - --format
+      - "{{ '{{' }}.CurrentState{{ '}}' }} || {{ '{{' }}.Error{{ '}}' }}"
+  register: _ca_converged
+  changed_when: false
+  retries: "{{ catena_admin_converge_retries }}"
+  delay: "{{ catena_admin_converge_delay }}"
+  until: _ca_converged.stdout_lines | select('search', '^Running') | list | length > 0
+  # The explicit failure below reads better than "Failed after N retries", and
+  # `until` still exhausts its retries with this set.
+  failed_when: false
+  when: catena_admin_deploy_from_converge | bool
+
+- name: "Catena-admin: the service was accepted but never started"
+  ansible.builtin.fail:
+    msg: |
+      {{ catena_admin_service_name }} did not reach Running within
+      {{ catena_admin_converge_retries | int * catena_admin_converge_delay | int }}s.
+      Swarm accepted the spec, so this is the task failing to start, not a
+      rejected service. What swarm last said about each attempt:
+
+      {{ _ca_converged.stdout | default('(no output from docker service ps)') }}
+
+      The Error column above is the reason. Common ones: a --secret the
+      converge did not create, port {{ catena_admin_ui_port }} already bound on
+      the host, or the container exiting immediately (docker service logs
+      {{ catena_admin_service_name }} --no-trunc).
+  when:
+    - catena_admin_deploy_from_converge | bool
+    - _ca_converged.stdout_lines | default([]) | select('search', '^Running') | list | length == 0
+
 # ─── reconcile (rolling) ─────────────────────────────────────────────────
 # Three diffs against one live spec: the hardening subset, the environment,
 # and the mounted secrets. Concatenated into a SINGLE `docker service

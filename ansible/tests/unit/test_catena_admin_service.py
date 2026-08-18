@@ -52,6 +52,15 @@ def test_the_image_is_last_and_carries_no_command():
     assert argv[:3] == ["docker", "service", "create"]
 
 
+def test_the_create_does_not_block_on_convergence():
+    """Without --detach the CLI waits for the service to converge, and
+    --restart-condition=any means a task that cannot start is retried forever
+    -- so the wait never returns and the install parks here with no output.
+    The play polls for Running instead, bounded, and can name the task error."""
+    argv = _plugin().catena_admin_service_argv(_spec())
+    assert "--detach" in argv
+
+
 def test_the_port_is_published_host_mode():
     # An ingress publish would put the native-login listener on the routing
     # mesh, where the public-ports registry's tailnet firewall does not

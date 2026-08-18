@@ -181,6 +181,12 @@ def catena_admin_service_argv(spec):
 
     argv = [
         "docker", "service", "create",
+        # Without this the CLI waits for the service to converge -- and with
+        # --restart-condition=any below, a task that cannot start is retried
+        # forever, so the wait never ends. Under Ansible that is an install
+        # parked on this task with no output and no timeout. The convergence
+        # wait belongs in the play, where a failure can name the task error.
+        "--detach",
         f"--name={spec['name']}",
         f"--network={spec['network']}",
         # A panel that stays down after one bad exit is a panel nobody can

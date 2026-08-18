@@ -124,6 +124,13 @@ catena_admin_internal_port: 8000
 catena_admin_direct_port: 8001
 catena_admin_ui_port: "{{ lookup('dotenv', 'CATENA_ADMIN_UI_PORT', default='9010') }}"
 
+# How long the converge waits for a newly-created service to report a Running
+# task before giving up and printing what swarm said. Five minutes: long enough
+# for a cold image pull on a slow link, short enough that a task which will
+# never start is reported rather than waited on.
+catena_admin_converge_retries: 60
+catena_admin_converge_delay: 5
+
 # --- Host-side runner -------------------------------------------------
 # Dedicated SSH account the admin container uses to dispatch actions on
 # the host. Forced-command pinned to the dispatcher script below; the
