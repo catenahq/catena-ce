@@ -1,6 +1,7 @@
 ---
-# Surface the user-held DR keyset (admin + restic passwords) ONCE, at the end
-# of a fresh `catena install`. Both are minted ON-BOX (helpers/onbox_config.py
+# Surface the user-held DR keyset (admin + restic passwords) ONCE plus the
+# first-login URLs, at the end of a fresh `catena install`. The passwords are
+# minted ON-BOX (helpers/onbox_config.py
 # USER_HELD_SECRETS) and never touch the laptop, so the installer reads them
 # back from the store here and prints them once for the user's password
 # manager. Deliberately NOT no_log on the debug: showing them once is the point.
@@ -81,3 +82,27 @@
       ansible.builtin.file:
         path: /etc/catena/fss-verification-key.pending
         state: absent
+
+    # The first-login surfaces, printed here rather than documented in the
+    # inventory template: the ports are defaults nobody customizes, and the
+    # hostnames only resolve once the tunnel is up, so this is the first
+    # moment the values are both known and true.
+    - name: Show the first-login URLs
+      ansible.builtin.debug:
+        msg: "{{ _urls.split('\n') }}"
+      vars:
+        _admin_port: "{{ catena_admin_ui_port | default(9010) }}"
+        _urls: |
+          ==================================================================
+          First login: {{ admin_email }} + the admin password above.
+
+            catena-admin panel  https://{{ infrastructure_dash_hostname }}
+                                http://{{ ansible_host }}:{{ _admin_port }}  (tailnet, no Cloudflare)
+
+            Portainer           https://{{ portainer_admin_hostname }}
+                                http://{{ ansible_host }}:{{ portainer_ui_port }}  (tailnet, no Cloudflare)
+
+          The public hostnames are SSO-gated and go through the Cloudflare
+          tunnel; the tailnet addresses stay reachable when the tunnel or
+          Cloudflare is not, and are the way in if SSO itself is broken.
+          ==================================================================

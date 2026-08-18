@@ -68,6 +68,10 @@ recover later:
 - **Console password** -- break-glass login at the provider's KVM/serial
   console when the network path is gone (SSH refuses it; key-only).
 
+It prints the first-login URLs for catena-admin and Portainer alongside
+them -- both the public SSO-gated hostname and the direct tailnet address
+that stays reachable when Cloudflare or SSO is not.
+
 Set the backup repo URL and S3 keys in catena-admin > Settings next, then
 save those alongside the restic password: repo URL + S3 keys + restic
 password together are the entire disaster-recovery keyset, and a wiped VPS

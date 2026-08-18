@@ -111,6 +111,28 @@ INSTALL_EXTERNAL_KEYS: tuple[str, ...] = (
     "tailscale_oauth_client_secret",
 )
 
+# Shown right before the hidden OAuth prompts, so the user has the console
+# steps in front of them while entering the creds. playbooks/preflight.yml
+# carries the same steps, but only prints them on a failed check -- after the
+# creds were already asked for.
+TAILSCALE_SETUP_STEPS = """\
+One-time setup in https://login.tailscale.com/admin :
+
+  1. Access controls -> edit the JSON -> merge, then Save:
+
+         "tagOwners": {{ "{tag}": ["autogroup:admin"] }}
+
+  2. Settings -> Trust Credentials -> Generate OAuth client.
+     - Description: catena-ansible
+     - Scopes: check  Auth Keys -> Write
+     - Tags:   check  {tag}
+       (the tag must match step 1 exactly, or key minting rejects with a 400)
+     Generate, then copy the client id AND the secret -- the secret is
+     displayed once.
+
+  3. Paste both at the prompts below.
+"""
+
 # Minimum admin password length when a user PINS one via install.yaml (Portainer
 # and the SSO provider both accept it). With no override the admin password is
 # minted on-box and shown once -- seed never mints it.
@@ -255,8 +277,11 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
         if not _check("Tailscale OAuth token exchange", status == 200,
                       f"HTTP {status}" + (f" {body.get('error', '')}" if body else "")):
             problems += 1
-    else:
+    elif "tailscale_oauth_client_id" in vault_keys:
         _check("Tailscale OAuth token exchange", False, "skipped -- creds not set")
+    else:
+        _check("Tailscale OAuth token exchange", True,
+               "not required -- self-hosted Headscale backend")
 
     # No Cloudflare live-probe: the API token is entered in catena-admin >
     # Settings, never at install, so there is nothing to verify here. The
@@ -686,12 +711,39 @@ def _collect_env_values(
     return env_values
 
 
-def _collect_install_secrets(vault_provided: dict) -> dict[str, str]:
+def _oauth_tag(env_values: dict[str, str]) -> str:
+    """First entry of TAILSCALE_TAGS -- the tag the OAuth client has to be
+    scoped to. Same rule preflight applies (playbooks/preflight.yml)."""
+    first = (env_values.get("TAILSCALE_TAGS") or "").split(",")[0].strip()
+    return first or "tag:vps"
+
+
+def _uses_headscale(env_values: dict[str, str]) -> bool:
+    return _is_filled(env_values.get("TAILNET_CONTROL_URL"))
+
+
+def _collect_install_secrets(
+    vault_provided: dict, env_values: dict[str, str],
+) -> dict[str, str]:
     """Prompt (hidden) for the install-critical vendor creds only -- the
-    Tailscale OAuth id/secret. The Cloudflare API token is NOT collected here
-    (Settings-only); everything else is minted on-box. These go to the
-    transient --secrets-out file, never a persisted vault."""
+    Tailscale OAuth id/secret, preceded by the console steps that produce
+    them. The Cloudflare API token is NOT collected here (Settings-only);
+    everything else is minted on-box. These go to the transient
+    --secrets-out file, never a persisted vault.
+
+    Headscale has no OAuth API, so on that backend there is nothing to
+    collect: the converge mints its own tagged pre-auth key per run from
+    headscale_api_key in the on-box store."""
+    if _uses_headscale(env_values):
+        banner("Tailnet: self-hosted Headscale -- no vendor credentials collected")
+        print("After install, set headscale_api_key in catena-admin > Settings.\n"
+              "The converge mints a short-lived tagged pre-auth key per run "
+              "from it.\n", file=sys.stderr)
+        return {}
     banner("Install-critical vendor credentials (not stored on this machine)")
+    if sys.stdin.isatty():
+        print(TAILSCALE_SETUP_STEPS.format(tag=_oauth_tag(env_values)),
+              file=sys.stderr)
     print("(input hidden; adopted on-box then discarded from the laptop)\n",
           file=sys.stderr)
     values: dict[str, str] = {}
@@ -707,6 +759,7 @@ def _print_summary(
     inventory: str,
     env_values: dict[str, str],
     secret_values: dict[str, str],
+    expected_creds: int,
 ) -> None:
     banner("Summary")
     print(f"  Inventory:      {inventory}", file=sys.stderr)
@@ -714,7 +767,6 @@ def _print_summary(
     print(f"  CF zone:        {env_values.get('CLOUDFLARE_ZONE')}", file=sys.stderr)
     print("  CF API token:   entered later in catena-admin > Settings "
           "(never at install)", file=sys.stderr)
-    expected_creds = len(INSTALL_EXTERNAL_KEYS)
     print(f"  Vendor creds:   {len(secret_values)}/{expected_creds} "
           "collected (transient; adopted on-box, not stored here)", file=sys.stderr)
     print(file=sys.stderr)
@@ -825,7 +877,7 @@ def main(argv: list[str] | None = None) -> int:
     host_name = (host_data.get("name") or f"{inventory}1") if args.input else None
 
     vault_provided = inp.get("vault", {})
-    secret_values = _collect_install_secrets(vault_provided)
+    secret_values = _collect_install_secrets(vault_provided, env_values)
     # A fully-specified install.yaml (power user / test bench) can supply the
     # whole keyset; pass any extra vault_* creds through to the adopt file.
     _absorb_provided_secrets(secret_values, vault_provided)
@@ -845,12 +897,17 @@ def main(argv: list[str] | None = None) -> int:
         "env": env_values,
         "vault": secret_values,
     }
-    problems = validate_install(validation_inp, env_keys, list(INSTALL_EXTERNAL_KEYS))
+    # A Headscale install collects no OAuth creds, so requiring them here would
+    # block a valid inventory on credentials that backend has no API for.
+    required_vault = ([] if _uses_headscale(env_values)
+                      else list(INSTALL_EXTERNAL_KEYS))
+    problems = validate_install(validation_inp, env_keys, required_vault)
     if problems:
         die(f"{problems} problem(s) -- fix and re-run.")
 
     _print_summary(
         inventory=inventory, env_values=env_values, secret_values=secret_values,
+        expected_creds=len(required_vault),
     )
     if not args.no_confirm:
         answer = input("Proceed with seed (write inventory files)? [y/N]: ").strip().lower()

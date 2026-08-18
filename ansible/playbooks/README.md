@@ -28,7 +28,7 @@ transforms live in Python with a unit test rather than in Jinja);
 | `regenerate-cf-tunnel.yml` | Regenerate this host's Cloudflare tunnel without a full site converge. |
 | `restore.yml` | Narrow data-restoration playbook. |
 | `rotate-tailscale.yml` | Re-authenticate this node to the tailnet (force re-auth). |
-| `show_dr_keyset.yml` | Surface the user-held DR keyset (admin + restic passwords) ONCE, at the end of a fresh `catena install`. |
+| `show_dr_keyset.yml` | Surface the user-held DR keyset (admin + restic passwords) ONCE, plus the first-login URLs, at the end of a fresh `catena install`. |
 | `site.yml` | Main converge: bring a bootstrapped host to the desired state and keep it there. |
 | `uninstall.yml` | Hand control of this host back to the operating system. |
 | `validate.yml` | Validation orchestrator: check a converged host from three vantage points, so a service that only answers on the box is not mistaken for a working one. 1. |

@@ -376,10 +376,31 @@ def test_collect_install_secrets_never_collects_cf_token(seed):
         "tailscale_oauth_client_id": "x",
         "tailscale_oauth_client_secret": "y",
         "cloudflare_api_token": "cf-should-not-be-collected",
-    })
+    }, {"TAILNET_CONTROL_URL": ""})
     assert got == {"tailscale_oauth_client_id": "x",
                    "tailscale_oauth_client_secret": "y"}
     assert "cloudflare_api_token" not in got
+
+
+def test_collect_install_secrets_skips_oauth_on_headscale(seed):
+    """Headscale has no OAuth API, so an install against one collects nothing
+    here -- the converge mints its pre-auth keys from headscale_api_key in the
+    on-box store. Prompting for creds that backend cannot issue is a dead end:
+    the prompt is required-non-empty, so an interactive Headscale install had
+    no way past it."""
+    got = seed._collect_install_secrets(
+        {}, {"TAILNET_CONTROL_URL": "https://headscale.example.net"},
+    )
+    assert got == {}
+
+
+def test_oauth_tag_follows_the_inventory_tags(seed):
+    """The printed setup steps must name the tag the OAuth client will
+    actually be scoped to -- the FIRST of TAILSCALE_TAGS, the same entry
+    preflight mints its probe key with."""
+    assert seed._oauth_tag({"TAILSCALE_TAGS": "tag:vps-test,tag:other"}) == "tag:vps-test"
+    assert seed._oauth_tag({"TAILSCALE_TAGS": ""}) == "tag:vps"
+    assert seed._oauth_tag({}) == "tag:vps"
 
 
 # --- true on-box minting: seed mints NOTHING --------------------------------
