@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import types
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
@@ -398,18 +399,24 @@ def test_bootstrap_extra_vars_install_yaml_initial_user_overrides_env(cli, tmp_p
         tmp.unlink(missing_ok=True)
 
 
-def test_bootstrap_extra_vars_noop_without_install_yaml_or_env(cli, tmp_path):
+def test_bootstrap_extra_vars_answers_the_password_prompt_even_when_blank(cli, tmp_path):
+    """No inventory, no -i, nothing to prompt with: the password name is still
+    emitted. Leaving it out is exactly what lets bootstrap.yml's vars_prompt
+    stop the deploy chain to ask for it after preflight has already run."""
     inv_dir = tmp_path / "inv"
     inv_dir.mkdir()
     extra, tmp = cli._bootstrap_extra_vars(inv_dir, None)
-    assert extra == []
-    assert tmp is None
+    try:
+        import yaml
+        assert extra == ["-e", f"@{tmp}"]
+        assert yaml.safe_load(tmp.read_text()) == {"bootstrap_root_password": ""}
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def test_bootstrap_extra_vars_reads_initial_user_without_install_yaml(cli, tmp_path):
     """A self-hoster driving an already-filled-in inventory with no -i still
-    gets the correct bootstrap_initial_user injected (just no root password
-    override -- vars_prompt handles that one live)."""
+    gets the correct bootstrap_initial_user injected."""
     inv_dir = tmp_path / "inv"
     inv_dir.mkdir()
     (inv_dir / ".env").write_text("HOST_INITIAL_USER=ubuntu\n")
@@ -417,9 +424,82 @@ def test_bootstrap_extra_vars_reads_initial_user_without_install_yaml(cli, tmp_p
     try:
         import yaml
         data = yaml.safe_load(tmp.read_text())
-        assert data == {"bootstrap_initial_user": "ubuntu"}
+        assert data == {"bootstrap_initial_user": "ubuntu",
+                        "bootstrap_root_password": ""}
     finally:
         tmp.unlink(missing_ok=True)
+
+
+def test_bootstrap_extra_vars_prompts_for_the_provider_password(cli, tmp_path, monkeypatch):
+    """Asked here, before the first playbook -- not by bootstrap.yml partway
+    through the chain."""
+    inv_dir = tmp_path / "inv"
+    inv_dir.mkdir()
+    (inv_dir / ".env").write_text("HOST_INITIAL_USER=debian\nHOST_PUBLIC_IP=198.51.100.9\n")
+    asked = []
+
+    def fake_getpass(prompt):
+        asked.append(prompt)
+        return "provider-pw"
+
+    monkeypatch.setattr(cli.getpass, "getpass", fake_getpass)
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True)
+    extra, tmp = cli._bootstrap_extra_vars(inv_dir, None, prompt_password=True)
+    try:
+        import yaml
+        assert len(asked) == 1
+        assert yaml.safe_load(tmp.read_text()) == {
+            "bootstrap_initial_user": "debian",
+            "bootstrap_root_password": "provider-pw",
+        }
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def test_bootstrap_extra_vars_does_not_prompt_without_a_tty(cli, tmp_path, monkeypatch):
+    """No TTY must not hang, and must not leave the name out either."""
+    inv_dir = tmp_path / "inv"
+    inv_dir.mkdir()
+
+    def boom(prompt):
+        raise AssertionError("prompted with no TTY")
+
+    monkeypatch.setattr(cli.getpass, "getpass", boom)
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: False)
+    extra, tmp = cli._bootstrap_extra_vars(inv_dir, None, prompt_password=True)
+    try:
+        import yaml
+        assert yaml.safe_load(tmp.read_text()) == {"bootstrap_root_password": ""}
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def test_install_password_prompt_precedes_the_deploy_chain(cli, tmp_path, monkeypatch):
+    """The ordering the rule is about: every question answered before the
+    first playbook runs."""
+    order = []
+    inv_dir = tmp_path / "inv"
+    inv_dir.mkdir()
+
+    monkeypatch.setattr(cli, "_preflight_checks", lambda *a, **k: None)
+    monkeypatch.setattr(cli, "inventory_path", lambda name: inv_dir)
+    monkeypatch.setattr(cli, "ensure_collections", lambda: None)
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=0))
+
+    def fake_bootstrap_extra(inv, input_path, *, prompt_password=False):
+        order.append(("prompt", prompt_password))
+        return [], None
+
+    def fake_chain(inv, chain, **kw):
+        order.append(("chain",))
+
+    monkeypatch.setattr(cli, "_bootstrap_extra_vars", fake_bootstrap_extra)
+    monkeypatch.setattr(cli, "_run_deploy_chain", fake_chain)
+    monkeypatch.setattr(cli, "_show_dr_keyset", lambda inv: order.append(("keyset",)))
+
+    ns = cli.build_parser().parse_args(["install", "--inventory", "prod"])
+    assert cli.cmd_install(ns) == 0
+    assert order == [("prompt", True), ("chain",), ("keyset",)]
 
 
 def test_rotate_tunnel_parser_wires_token(cli):

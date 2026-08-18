@@ -525,7 +525,14 @@ def test_every_config_key_has_exactly_one_owner(oc):
 
 def test_every_dotenv_key_the_converge_reads_is_declared(oc):
     """The registry has to cover what the tree actually reads, or a new key
-    quietly acquires a third owner: nobody."""
+    quietly acquires a third owner: nobody.
+
+    inventory/ is excluded for the same reason its sibling test below excludes
+    it: it IS the seed surface, not a reader of it. Only `skel/hosts.yml.example`
+    is tracked, and its `.example` suffix kept it out of the scan by accident --
+    so the first real `inventory/<name>/hosts.yml` on any developer's machine
+    failed this gate on keys (HOST_PUBLIC_IP, HOST_SSH_PORT, HOST_INITIAL_USER)
+    that are inventory-only by design and have no on-box owner to declare."""
     import re
     root = ANSIBLE_DIR
     pattern = re.compile(r"lookup\('dotenv',\s*'([A-Z0-9_]+)'")
@@ -535,7 +542,7 @@ def test_every_dotenv_key_the_converge_reads_is_declared(oc):
         s = str(path)
         if not path.is_file() or path.suffix not in {".yml", ".yaml", ".j2"}:
             continue
-        if ".collections" in s or "/tests/" in s:
+        if ".collections" in s or "/tests/" in s or "/inventory/" in s:
             continue
         for key in pattern.findall(path.read_text()):
             if key not in known:

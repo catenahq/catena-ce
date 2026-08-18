@@ -189,29 +189,56 @@ def _secret_extra_var(name: str, value: str) -> tuple[list[str], Path | None]:
     return ["-e", f"@{tmp}"], tmp
 
 
+def _prompt_provider_password(inv_dir: Path, initial_user: str) -> str:
+    """Ask for the VPS provider's password for the initial login, up front.
+
+    bootstrap.yml declares this as a play-scoped vars_prompt, so left to
+    itself it stops the deploy chain to ask -- after preflight has already
+    run and the operator has walked away. Asking here, before the first
+    playbook, is the whole point; ansible-playbook skips a vars_prompt whose
+    name is already an extra-var, so the mid-run question never appears.
+
+    Blank is a real answer: Phase 0.5 then skips the key install and assumes
+    the box is already keyed, which is what the vars_prompt default means."""
+    env_path = inv_dir / ".env"
+    target = ""
+    if env_path.is_file():
+        import seed
+
+        target = seed.read_existing_env(env_path).get("HOST_PUBLIC_IP", "").strip()
+    where = f"{initial_user}@{target}" if target else (initial_user or "the initial user")
+    print(_c("1;34", f"\n== Provider password for {where}"), file=sys.stderr)
+    print("The password the VPS provider issued for that login, used once to "
+          "install\nyour SSH key. Leave blank if the key is already installed.",
+          file=sys.stderr)
+    return getpass.getpass("Provider password (blank to skip): ")
+
+
 def _bootstrap_extra_vars(
-    inv_dir: Path, input_path: str | None,
+    inv_dir: Path, input_path: str | None, *, prompt_password: bool = False,
 ) -> tuple[list[str], Path | None]:
     """bootstrap.yml collects bootstrap_initial_user + bootstrap_root_password
     via a play-scoped vars_prompt, which outranks any inventory hostvar --
     with no TTY it silently takes its own default ("root"), never the real
     provider user. Extra-vars (-e) are the only thing that outranks
-    vars_prompt, so both are injected there when available.
+    vars_prompt, so both are injected there.
     bootstrap_initial_user: install.yaml's host.initial_user when given --
     `catena recover` reuses the OLD inventory's .env, whose HOST_INITIAL_USER
     reflects the box that died, not necessarily the fresh replacement (a
     different provider/image can mean a different login) -- else the
     inventory's own .env (HOST_INITIAL_USER; on disk by now regardless of
     install.yaml, since seed.py already wrote or confirmed it for a normal
-    install). bootstrap_root_password only from install.yaml (a secret,
-    never in .env; blank is meaningful -- Phase 0.5 then skips key install,
-    the host assumed already keyed, matching the vars_prompt default).
+    install). bootstrap_root_password comes from install.yaml when given,
+    else from the up-front prompt (`prompt_password`, interactive callers
+    only); blank is meaningful either way -- Phase 0.5 then skips key
+    install, the host assumed already keyed.
+
+    Both names are emitted whenever either source answered, so the play-scoped
+    prompt is suppressed rather than asked again mid-chain.
 
     The provider password is written to a 0600 temp file passed as `-e @file`
     (NOT `-e key=value`), so it never lands on argv, in `ps`, or in the
-    printed command / bench logs. Returns (extra_args, tmp_path_to_clean).
-    With a TTY and no install.yaml, the interactive vars_prompt handles both,
-    so this is a no-op."""
+    printed command / bench logs. Returns (extra_args, tmp_path_to_clean)."""
     import seed  # shares ANSIBLE_DIR on sys.path
     import yaml
 
@@ -226,8 +253,15 @@ def _bootstrap_extra_vars(
         overrides["bootstrap_initial_user"] = initial_user
     if input_path:
         overrides["bootstrap_root_password"] = host.get("initial_password") or ""
-    if not overrides:
-        return [], None
+    else:
+        # Emitted even when the answer is blank: leaving the name out is what
+        # lets bootstrap.yml's vars_prompt ask again mid-chain, and a caller
+        # that declined to prompt (--no-confirm, no TTY) means "do not ask",
+        # not "ask later".
+        overrides["bootstrap_root_password"] = (
+            _prompt_provider_password(inv_dir, initial_user)
+            if prompt_password and sys.stdin.isatty() else ""
+        )
 
     fd, name = tempfile.mkstemp(prefix="catena-bootstrap-vars-", suffix=".yml")
     os.close(fd)
@@ -388,12 +422,18 @@ def cmd_install(args: argparse.Namespace) -> int:
         die(f"seed failed (exit {result.returncode}); nothing deployed.",
             code=result.returncode)
 
-    ensure_collections()
-
-    banner("Step 2/2 -- deploy (preflight -> bootstrap -> site -> validate)")
-    bootstrap_extra, bootstrap_vars_tmp = _bootstrap_extra_vars(inv_dir, args.input)
     adopt_extra = ["-e", f"@{secrets_tmp}"]
+    bootstrap_vars_tmp = None
     try:
+        # The last question of the run. Everything the deploy chain needs is
+        # answered before the first playbook starts, so nothing stops to ask
+        # once it is under way.
+        bootstrap_extra, bootstrap_vars_tmp = _bootstrap_extra_vars(
+            inv_dir, args.input, prompt_password=not args.no_confirm)
+
+        ensure_collections()
+
+        banner("Step 2/2 -- deploy (preflight -> bootstrap -> site -> validate)")
         _run_deploy_chain(inv_dir, INSTALL_CHAIN,
                           bootstrap_extra=bootstrap_extra, global_extra=adopt_extra)
         _show_dr_keyset(inv_dir)
@@ -469,7 +509,10 @@ def cmd_recover(args: argparse.Namespace) -> int:
     ensure_collections()
 
     banner("Recover -- preflight -> bootstrap -> restore -> site -> validate")
-    bootstrap_extra, bootstrap_vars_tmp = _bootstrap_extra_vars(inv_dir, args.input)
+    # Same rule as install: the replacement box's provider password is asked
+    # for here, alongside the DR keyset, not by bootstrap.yml mid-chain.
+    bootstrap_extra, bootstrap_vars_tmp = _bootstrap_extra_vars(
+        inv_dir, args.input, prompt_password=True)
     restore_extra = _snapshot_extra(args)
     dr_extra, dr_tmp = _collect_dr_adopt_file(args.input)
     try:
