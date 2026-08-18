@@ -269,6 +269,7 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
 
     ts_id = vault.get("tailscale_oauth_client_id", "")
     ts_secret = vault.get("tailscale_oauth_client_secret", "")
+    api_token = ""
     if _is_filled(ts_id) and _is_filled(ts_secret):
         from base64 import b64encode
         auth = b64encode(f"{ts_id}:{ts_secret}".encode()).decode()
@@ -281,6 +282,7 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
         if not _check("Tailscale OAuth token exchange", status == 200,
                       f"HTTP {status}" + (f" {body.get('error', '')}" if body else "")):
             problems += 1
+        api_token = str((body or {}).get("access_token") or "")
     elif "tailscale_oauth_client_id" in vault_keys:
         _check("Tailscale OAuth token exchange", False, "skipped -- creds not set")
     else:
@@ -294,6 +296,24 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
     # the host engine (catena-cloudflared-sync).
     _check("Cloudflare", True,
            "API token entered later in catena-admin > Settings (tunnel deferred)")
+
+    # Last, so its remedy is the final thing on screen when it fails.
+    #
+    # This machine has to be ON the tailnet, not merely able to mint keys for
+    # it. Everything after bootstrap reaches the VPS at its tailnet address, so
+    # a controller that never joined gets a clean bootstrap and then an SSH
+    # timeout to a 100.x host that is already hardened. Reuses the token just
+    # exchanged, so the strong check costs one request and no extra scope.
+    banner("Controller on the tailnet")
+    from helpers import tailnet_check
+
+    control_url = str(env.get("TAILNET_CONTROL_URL", "") or "").strip()
+    tailnet = tailnet_check.check(token=api_token, control_url=control_url)
+    for line in tailnet.lines:
+        _check(line, tailnet.ok)
+    if not tailnet.ok:
+        problems += 1
+        print(f"\n{tailnet.remedy}", file=sys.stderr)
 
     print(file=sys.stderr)
     if problems:

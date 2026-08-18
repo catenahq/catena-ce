@@ -87,6 +87,21 @@
       ansible.builtin.meta: end_play
       when: preflight_skip | bool
 
+    # Before the OAuth checks, because minting keys for a tailnet this machine
+    # never joined is not the failure the operator is about to hit. `catena
+    # install` already gated on this in seed; this covers the paths that never
+    # run seed -- recover, rollback, and a bare `ansible-playbook`. The helper
+    # exits nonzero and prints the install/join instructions itself.
+    - name: Prove THIS machine is on the tailnet
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/../helpers/tailnet_check.py"
+          - "--control-url={{ lookup('dotenv', 'TAILNET_CONTROL_URL', default='') }}"
+      delegate_to: localhost
+      become: false
+      changed_when: false
+
     - name: Skip OAuth validation if requested
       ansible.builtin.meta: end_play
       when: preflight_skip_oauth | bool
