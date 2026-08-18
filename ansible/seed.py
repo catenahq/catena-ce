@@ -652,56 +652,21 @@ def write_secrets_out(path: Path, secrets: dict[str, str]) -> None:
     os.chmod(str(path), 0o600)
 
 
-def _collect_control_server(
-    env_provided: dict, defaults: dict[str, str],
-) -> tuple[str, str]:
-    """TAILNET_CONTROL_URL + HEADSCALE_USER together pick Tailscale SaaS vs a
-    self-hosted Headscale server. install.yaml answering either, or a
-    non-interactive run, falls through to the plain per-key default;
-    interactive asks the choice once and only prompts the Headscale fields
-    when that's the answer, instead of two blank-default prompts every time."""
-    already_answered = (
-        _is_filled(env_provided.get("TAILNET_CONTROL_URL"))
-        or _is_filled(env_provided.get("HEADSCALE_USER"))
-    )
-    if already_answered or not sys.stdin.isatty():
-        url = fill(env_provided, "TAILNET_CONTROL_URL",
-                   defaults["TAILNET_CONTROL_URL"], allow_empty=True)
-        user = fill(env_provided, "HEADSCALE_USER",
-                    defaults["HEADSCALE_USER"], allow_empty=True)
-        return url, user
-    choice = prompt("Control server", default="tailscale",
-                     options=["tailscale", "headscale"])
-    if choice == "tailscale":
-        return "", ""
-    url = fill(env_provided, "TAILNET_CONTROL_URL", "",
-               "Headscale base URL (e.g. https://headscale.example.net)")
-    user = fill(env_provided, "HEADSCALE_USER", "",
-                "Headscale user (tag:vps must be in its ACL tagOwners)")
-    return url, user
-
-
 def _collect_env_values(
     env_keys: list[tuple[str, str]],
     env_provided: dict,
 ) -> dict[str, str]:
-    """Walk the .env template keys, prompting for each."""
+    """Walk the .env template keys, prompting for each.
+
+    TAILNET_CONTROL_URL + HEADSCALE_USER need no special handling: both carry
+    an empty template default, so a blank .env value is taken as an answer
+    (Tailscale SaaS) rather than prompted for. The inventory declares the
+    tailnet backend by whether those two fields are filled -- there is no
+    separate question to ask."""
     banner("Configuration (.env)")
     print("(press Enter to accept the template default)\n", file=sys.stderr)
     env_values: dict[str, str] = {}
-    defaults = dict(env_keys)
     for key, default in env_keys:
-        if key == "TAILNET_CONTROL_URL":
-            # Ask the control-server choice first -- it's the first field in
-            # the tailnet block (ahead of TAILSCALE_TAGS/TAILSCALE_ACCEPT_DNS,
-            # which apply to either backend), so it can filter out the
-            # Headscale-only HEADSCALE_USER field that comes right after it.
-            env_values["TAILNET_CONTROL_URL"], env_values["HEADSCALE_USER"] = (
-                _collect_control_server(env_provided, defaults)
-            )
-            continue
-        if key == "HEADSCALE_USER":
-            continue  # resolved above, alongside TAILNET_CONTROL_URL
         allow_empty = not default
         env_values[key] = fill(
             env_provided, key, default, key,
@@ -720,6 +685,27 @@ def _oauth_tag(env_values: dict[str, str]) -> str:
 
 def _uses_headscale(env_values: dict[str, str]) -> bool:
     return _is_filled(env_values.get("TAILNET_CONTROL_URL"))
+
+
+def _tailnet_backend(values: dict[str, str]) -> str:
+    """Which control server the inventory declared. Deduced from the Headscale
+    fields rather than asked -- blank means Tailscale SaaS -- so it is echoed
+    back instead, since the user never confirmed it at a prompt."""
+    if not _uses_headscale(values):
+        return "Tailscale SaaS (TAILNET_CONTROL_URL blank)"
+    user = (values.get("HEADSCALE_USER") or "").strip() or "HEADSCALE_USER NOT SET"
+    return f"Headscale at {values['TAILNET_CONTROL_URL'].strip()} (user: {user})"
+
+
+def _ipv4_endpoint(values: dict[str, str]) -> str:
+    """The bootstrap target as one line: the provider IPv4 that the first SSH
+    lands on, with the port and login that go with it. Echoed back so a stale
+    HOST_PUBLIC_IP -- the template's own example address, or the box this
+    inventory used to point at -- is caught before bootstrap touches it."""
+    ip = (values.get("HOST_PUBLIC_IP") or "").strip() or "HOST_PUBLIC_IP NOT SET"
+    port = (values.get("HOST_SSH_PORT") or "").strip() or "22"
+    user = (values.get("HOST_INITIAL_USER") or "").strip() or "root"
+    return f"{user}@{ip}:{port}"
 
 
 def _collect_install_secrets(
@@ -763,7 +749,8 @@ def _print_summary(
 ) -> None:
     banner("Summary")
     print(f"  Inventory:      {inventory}", file=sys.stderr)
-    print(f"  Public IPv4:    {env_values.get('HOST_PUBLIC_IP')}", file=sys.stderr)
+    print(f"  IPv4 endpoint:  {_ipv4_endpoint(env_values)}", file=sys.stderr)
+    print(f"  Tailnet:        {_tailnet_backend(env_values)}", file=sys.stderr)
     print(f"  CF zone:        {env_values.get('CLOUDFLARE_ZONE')}", file=sys.stderr)
     print("  CF API token:   entered later in catena-admin > Settings "
           "(never at install)", file=sys.stderr)
@@ -856,6 +843,7 @@ def main(argv: list[str] | None = None) -> int:
         if inv_dir.exists():
             warn(f"inventory '{inventory}' exists -- host will be merged into existing files.")
         env_provided = inp.get("env", {})
+        ok(f"loaded {args.input} -- {len(env_provided)} config value(s)")
     else:
         env_path = inv_dir / ".env"
         if not env_path.is_file():
@@ -864,6 +852,13 @@ def main(argv: list[str] | None = None) -> int:
                 f"to {env_path}, fill it in, then re-run."
             )
         env_provided = read_existing_env(env_path)
+        ok(f"loaded {env_path} -- {len(env_provided)} config value(s)")
+    # Echoed before any prompting, so the box about to be bootstrapped and the
+    # control server deduced from the Headscale fields are both visible while
+    # there is still nothing to undo. Repeated in the summary above the
+    # proceed prompt.
+    print(f"  IPv4 endpoint: {_ipv4_endpoint(env_provided)}", file=sys.stderr)
+    print(f"  Tailnet:       {_tailnet_backend(env_provided)}", file=sys.stderr)
     env_values = _collect_env_values(env_keys, env_provided)
 
     # host.initial_password is a genuine secret (the VPS provider's initial

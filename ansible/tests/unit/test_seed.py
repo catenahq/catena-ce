@@ -418,10 +418,7 @@ def test_seed_mints_no_secrets(seed):
     assert hasattr(seed, "write_secrets_out")
 
 
-# --- _collect_control_server -------------------------------------------------
-_CONTROL_DEFAULTS = {"TAILNET_CONTROL_URL": "", "HEADSCALE_USER": ""}
-
-
+# --- tailnet backend: deduced, never asked -----------------------------------
 def _fake_tty_stdin(monkeypatch, text):
     """A StringIO that reports isatty()=True, installed as sys.stdin. The
     isatty patch must land on the StringIO instance itself -- patching the
@@ -431,58 +428,60 @@ def _fake_tty_stdin(monkeypatch, text):
     monkeypatch.setattr("sys.stdin", fake)
 
 
-def test_control_server_tailscale_choice_skips_headscale_fields(seed, monkeypatch):
-    """Choosing tailscale (the default) answers both keys blank without
-    prompting for a Headscale URL/user that would go unused."""
-    _fake_tty_stdin(monkeypatch, "tailscale\n")
-    url, user = seed._collect_control_server({}, _CONTROL_DEFAULTS)
-    assert (url, user) == ("", "")
+def test_no_control_server_question_is_asked(seed):
+    """The inventory declares the backend by whether the Headscale fields are
+    filled. A separate question could disagree with the file it was asked
+    about, so there is none to ask."""
+    assert not hasattr(seed, "_collect_control_server")
 
 
-def test_control_server_headscale_choice_prompts_both_fields(seed, monkeypatch):
-    _fake_tty_stdin(monkeypatch, "headscale\nhttps://hs.example.net\nalice\n")
-    url, user = seed._collect_control_server({}, _CONTROL_DEFAULTS)
-    assert (url, user) == ("https://hs.example.net", "alice")
-
-
-def test_control_server_install_yaml_answer_skips_the_choice_prompt(seed, monkeypatch):
-    """install.yaml already carrying either field means the choice was already
-    made -- no interactive prompt, even on a TTY."""
+def test_blank_headscale_fields_are_an_answer_not_a_prompt(seed, monkeypatch):
+    """A .env left blank on both Headscale fields means Tailscale SaaS. On a
+    TTY that must consume no input: reading here would mean the blank was
+    treated as unanswered."""
     _fake_tty_stdin(monkeypatch, "SHOULD_NOT_BE_READ\n")
-    provided = {"TAILNET_CONTROL_URL": "https://hs2.example.net", "HEADSCALE_USER": "bob"}
-    url, user = seed._collect_control_server(provided, _CONTROL_DEFAULTS)
-    assert (url, user) == ("https://hs2.example.net", "bob")
-
-
-def test_control_server_non_interactive_falls_back_to_defaults(seed, monkeypatch):
-    """No TTY and nothing provided (CI / bench) must not hang on input()."""
-    monkeypatch.setattr(seed.sys.stdin, "isatty", lambda: False)
-    url, user = seed._collect_control_server({}, _CONTROL_DEFAULTS)
-    assert (url, user) == ("", "")
-
-
-def test_control_server_choice_runs_before_tailscale_tags_prompt(seed, monkeypatch):
-    """TAILNET_CONTROL_URL is the first key of the tailnet block in the
-    template, ahead of TAILSCALE_TAGS/TAILSCALE_ACCEPT_DNS (which apply to
-    either backend) -- the choice must fire there, filtering out the
-    Headscale-only HEADSCALE_USER field that follows right after it."""
-    calls = []
-    real_fill = seed.fill
-
-    def spy_fill(provided, key, default, *a, **kw):
-        calls.append(("fill", key))
-        return real_fill(provided, key, default, *a, **kw)
-
-    def spy_control_server(env_provided, defaults):
-        calls.append(("control_server",))
-        return "", ""
-
-    monkeypatch.setattr(seed, "fill", spy_fill)
-    monkeypatch.setattr(seed, "_collect_control_server", spy_control_server)
     env_keys, _ = seed.parse_env_template(seed.ENV_TEMPLATE)
-    # Every key pre-answered so fill() short-circuits on the provided value
-    # without needing a real stdin -- only the call order is under test.
     provided = dict(env_keys)
-    seed._collect_env_values(env_keys, provided)
-    assert calls.index(("control_server",)) < calls.index(("fill", "TAILSCALE_TAGS"))
+    provided["TAILNET_CONTROL_URL"] = ""
+    provided["HEADSCALE_USER"] = ""
+    got = seed._collect_env_values(env_keys, provided)
+    assert got["TAILNET_CONTROL_URL"] == ""
+    assert got["HEADSCALE_USER"] == ""
+    assert not seed._uses_headscale(got)
+    assert seed.sys.stdin.read() == "SHOULD_NOT_BE_READ\n"
+
+
+def test_filled_headscale_fields_select_headscale(seed, monkeypatch):
+    _fake_tty_stdin(monkeypatch, "SHOULD_NOT_BE_READ\n")
+    env_keys, _ = seed.parse_env_template(seed.ENV_TEMPLATE)
+    provided = dict(env_keys)
+    provided["TAILNET_CONTROL_URL"] = "https://hs.example.net"
+    provided["HEADSCALE_USER"] = "alice"
+    got = seed._collect_env_values(env_keys, provided)
+    assert seed._uses_headscale(got)
+    assert got["HEADSCALE_USER"] == "alice"
+    assert seed.sys.stdin.read() == "SHOULD_NOT_BE_READ\n"
+
+
+def test_tailnet_backend_names_what_was_deduced(seed):
+    """Deduced, so it gets echoed: the user never confirmed it at a prompt."""
+    assert "Tailscale SaaS" in seed._tailnet_backend({"TAILNET_CONTROL_URL": ""})
+    line = seed._tailnet_backend(
+        {"TAILNET_CONTROL_URL": "https://hs.example.net", "HEADSCALE_USER": "alice"})
+    assert "Headscale" in line and "https://hs.example.net" in line and "alice" in line
+
+
+def test_ipv4_endpoint_shows_the_bootstrap_target(seed):
+    """The one field a stale inventory gets wrong silently. Echoed as the
+    login+port pair bootstrap will actually dial."""
+    assert seed._ipv4_endpoint({
+        "HOST_PUBLIC_IP": "203.0.113.10",
+        "HOST_INITIAL_USER": "debian",
+        "HOST_SSH_PORT": "2222",
+    }) == "debian@203.0.113.10:2222"
+    # Blank must read as missing, not as a plausible address.
+    assert "NOT SET" in seed._ipv4_endpoint({"HOST_PUBLIC_IP": ""})
+
+
+def test_resolve_admin_override_still_present(seed):
     assert hasattr(seed, "_resolve_admin_override")
