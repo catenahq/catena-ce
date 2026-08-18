@@ -249,17 +249,21 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
     vault = inp.get("vault") or {}
     problems = validate_install_structural(inp, env_keys, vault_keys)
 
+    # A missing keypair is not a problem -- ensure_ssh_key() offers to generate
+    # it before anything is written -- so neither line is a failed check. The
+    # label states which file was looked for and the detail states what was
+    # found, rather than asserting the file exists and then marking that false.
     banner("Local prerequisites")
-    pub = os.path.expanduser(env.get("SSH_PUBLIC_KEY_FILE", ""))
-    priv = os.path.expanduser(env.get("SSH_PRIVATE_KEY", ""))
-    if pub and Path(pub).is_file():
-        _check("SSH public key file exists", True, pub)
-    else:
-        _check("SSH public key file exists", False, f"{pub} (will be generated on install)")
-    if priv and Path(priv).is_file():
-        _check("SSH private key file exists", True, priv)
-    else:
-        _check("SSH private key file exists", False, f"{priv} (will be generated on install)")
+    for label, path in (("SSH private key", os.path.expanduser(env.get("SSH_PRIVATE_KEY", ""))),
+                        ("SSH public key", os.path.expanduser(env.get("SSH_PUBLIC_KEY_FILE", "")))):
+        if not path:
+            # Already counted by the structural pass, which requires the key.
+            _check(label, False, "no path set in .env")
+        elif Path(path).is_file():
+            _check(label, True, f"{path} (found)")
+        else:
+            _check(label, True,
+                   f"{path} (not on this machine; seed offers to generate the pair)")
 
     banner("Credentials -- live probes")
 

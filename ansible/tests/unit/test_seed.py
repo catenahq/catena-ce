@@ -337,6 +337,49 @@ def test_validate_structural_clean(seed):
     assert seed.validate_install_structural(_good_inp(), _ENV_KEYS, _VAULT_KEYS) == 0
 
 
+_FAIL_MARK = "\033[1;31m"  # the red x _check() prints for a failed check
+
+
+def _prereq_lines(seed, capsys, env):
+    seed.validate_install(
+        {"inventory": "prod", "host": {}, "env": env, "vault": {}}, [], [])
+    out = capsys.readouterr().err
+    body = out.split("Local prerequisites")[1].split("Credentials")[0]
+    return [line for line in body.splitlines() if "SSH" in line]
+
+
+def test_missing_ssh_key_is_not_reported_as_a_failed_check(seed, capsys, tmp_path):
+    """A missing keypair is not a problem -- ensure_ssh_key() offers to generate
+    it. The line used to assert the file existed and then mark that assertion
+    false while promising the file would be generated, so it read as both
+    'exists' and 'does not exist' at once."""
+    absent = tmp_path / "nope"
+    lines = _prereq_lines(seed, capsys, {
+        "SSH_PRIVATE_KEY": str(absent), "SSH_PUBLIC_KEY_FILE": str(absent) + ".pub"})
+    assert len(lines) == 2
+    for line in lines:
+        assert _FAIL_MARK not in line
+        assert "exists" not in line
+        assert "not on this machine" in line
+
+
+def test_present_ssh_key_says_found(seed, capsys, tmp_path):
+    priv = tmp_path / "id"
+    pub = tmp_path / "id.pub"
+    priv.write_text("k")
+    pub.write_text("k")
+    lines = _prereq_lines(seed, capsys, {
+        "SSH_PRIVATE_KEY": str(priv), "SSH_PUBLIC_KEY_FILE": str(pub)})
+    assert all("(found)" in line for line in lines)
+
+
+def test_unset_ssh_key_path_is_a_real_failure(seed, capsys):
+    """Blank is the one state that IS wrong here -- and the only one that keeps
+    the failure mark."""
+    lines = _prereq_lines(seed, capsys, {"SSH_PRIVATE_KEY": "", "SSH_PUBLIC_KEY_FILE": ""})
+    assert all("no path set in .env" in line and _FAIL_MARK in line for line in lines)
+
+
 def test_validate_structural_missing_required_vault(seed):
     inp = _good_inp()
     del inp["vault"]["tailscale_oauth_client_id"]
