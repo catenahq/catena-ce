@@ -1,10 +1,14 @@
 ---
-# Surface the user-held DR keyset (admin + restic passwords) ONCE plus the
-# first-login URLs, at the end of a fresh `catena install`. The passwords are
-# minted ON-BOX (helpers/onbox_config.py
-# USER_HELD_SECRETS) and never touch the laptop, so the installer reads them
-# back from the store here and prints them once for the user's password
-# manager. Deliberately NOT no_log on the debug: showing them once is the point.
+# Surface the user-held DR keyset (admin + restic + console passwords) ONCE,
+# plus the first-login URLs, at the end of a fresh `catena install`. The
+# passwords are minted ON-BOX (helpers/onbox_config.py USER_HELD_SECRETS) and
+# never touch the laptop, so the installer reads them back from the store here
+# and prints them for the user's password manager. Deliberately NOT no_log on
+# the debug: showing them once is the point.
+#
+# Everything the user must write down is in the FINAL task, as one block. The
+# reads and the FSS delete run ahead of it so nothing prints after the thing
+# the user is supposed to be copying down.
 #
 # Usage (driven by `catena install`; cwd = ansible/):
 #   ansible-playbook -i inventory/<name> playbooks/show_dr_keyset.yml
@@ -38,7 +42,24 @@
       changed_when: false
       no_log: true
 
-    - name: Show the admin + restic + console passwords ONCE
+    # Removed BEFORE the display, not after. Its content is already in
+    # _fss_pending above, so the banner still prints it; deleting first is what
+    # makes the removal unconditional. A key left behind silently voids the
+    # seal it proves, which is worse than a key never shown -- so the delete
+    # must not be reachable only through a display task that rendered.
+    - name: Remove the staged FSS verification key from the server
+      ansible.builtin.file:
+        path: /etc/catena/fss-verification-key.pending
+        state: absent
+
+    # ONE task, and the LAST one. Everything the user has to write down is in
+    # this single block on purpose: split across two tasks, with other output
+    # after them, the first block scrolls off and gets missed -- and these
+    # values are shown once. The URLs live here rather than in the inventory
+    # template because the ports are defaults nobody customizes and the
+    # hostnames only resolve once the tunnel is up, so this is the first moment
+    # they are both known and true.
+    - name: "SAVE THIS -- passwords and first-login URLs, shown once"
       ansible.builtin.debug:
         msg: "{{ _banner.split('\n') }}"
       vars:
@@ -46,6 +67,7 @@
         _fss: >-
           {{ (_fss_pending.content | b64decode).strip()
              if (_fss_pending.content is defined) else '' }}
+        _admin_port: "{{ catena_admin_ui_port | default(9010) }}"
         _banner: |
           ==================================================================
           SAVE THESE TO YOUR PASSWORD MANAGER NOW -- shown once.
@@ -70,30 +92,10 @@
           This key proves the server's own log of administrative actions was
           not altered after the fact (`journalctl --verify` on the server).
           Store it OFF the server: anyone holding it can re-seal an edited
-          journal, which is why this copy is deleted from the server as soon
-          as this message is printed.
+          journal. The server's copy has already been deleted -- what is
+          printed above is the only one left.
           {% endif %}
-          ==================================================================
-
-    # Deleted immediately after display, for the reason printed above. Runs
-    # even if the banner failed to render: a key left behind is worse than a
-    # key never shown, because it silently voids the seal.
-    - name: Remove the staged FSS verification key from the server
-      ansible.builtin.file:
-        path: /etc/catena/fss-verification-key.pending
-        state: absent
-
-    # The first-login surfaces, printed here rather than documented in the
-    # inventory template: the ports are defaults nobody customizes, and the
-    # hostnames only resolve once the tunnel is up, so this is the first
-    # moment the values are both known and true.
-    - name: Show the first-login URLs
-      ansible.builtin.debug:
-        msg: "{{ _urls.split('\n') }}"
-      vars:
-        _admin_port: "{{ catena_admin_ui_port | default(9010) }}"
-        _urls: |
-          ==================================================================
+          ------------------------------------------------------------------
           First login: {{ admin_email }} + the admin password above.
 
             catena-admin panel  https://{{ infrastructure_dash_hostname }}
