@@ -288,6 +288,20 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
     else:
         _check("Tailscale OAuth token exchange", True,
                "not required -- self-hosted Headscale backend")
+        # roles/tailscale asserts on one of these and fails the BOOTSTRAP
+        # without it, before any host exists. Caught here instead, where
+        # nothing has been touched yet and the message can say what to enter.
+        if not (_is_filled(vault.get("headscale_api_key"))
+                or _is_filled(vault.get("headscale_preauth_key"))):
+            _check("Headscale pre-auth credential", False,
+                   "neither headscale_api_key nor headscale_preauth_key is set; "
+                   "bootstrap cannot join the tailnet and every later stage is "
+                   "reached over it")
+            problems += 1
+        else:
+            _check("Headscale pre-auth credential", True,
+                   "headscale_api_key" if _is_filled(vault.get("headscale_api_key"))
+                   else "headscale_preauth_key (static)")
 
     # No Cloudflare live-probe: the API token is entered in catena-admin >
     # Settings, never at install, so there is nothing to verify here. The
@@ -732,24 +746,51 @@ def _ipv4_endpoint(values: dict[str, str]) -> str:
     return f"{user}@{ip}:{port}"
 
 
+def _collect_headscale_secret(vault_provided: dict) -> dict[str, str]:
+    """The Headscale half of _collect_install_secrets.
+
+    roles/tailscale asserts on one of these two being in scope and FAILS the
+    bootstrap without it, so this cannot be deferred to catena-admin the way
+    the Cloudflare and S3 credentials are: the panel it would be entered in is
+    published on the tailnet the credential is what joins.
+
+    api_key is preferred -- the converge mints a short-lived tagged pre-auth
+    key per run from it, so no long-lived key sits on the VPS. A static
+    preauth_key is the fallback for a Headscale whose API is not reachable
+    from here."""
+    banner("Headscale credential (not stored on this machine)")
+    print("The converge needs ONE of these to join the VPS to the tailnet.\n"
+          "  headscale_api_key      preferred -- a short-lived tagged pre-auth\n"
+          "                         key is minted per run, nothing long-lived\n"
+          "                         is left on the VPS. Needs HEADSCALE_USER.\n"
+          "  headscale_preauth_key  fallback -- a static key made by hand with\n"
+          "                         `headscale preauthkeys create --reusable`\n"
+          "\n(input hidden; adopted on-box then discarded from the laptop)\n",
+          file=sys.stderr)
+    api_key = fill(vault_provided, "headscale_api_key", "", "headscale_api_key",
+                   secret=True, allow_empty=True)
+    if api_key:
+        return {"headscale_api_key": api_key}
+    static = fill(vault_provided, "headscale_preauth_key", "",
+                  "headscale_preauth_key", secret=True, allow_empty=True)
+    return {"headscale_preauth_key": static} if static else {}
+
+
 def _collect_install_secrets(
     vault_provided: dict, env_values: dict[str, str],
 ) -> dict[str, str]:
-    """Prompt (hidden) for the install-critical vendor creds only -- the
-    Tailscale OAuth id/secret, preceded by the console steps that produce
-    them. The Cloudflare API token is NOT collected here (Settings-only);
-    everything else is minted on-box. These go to the transient
-    --secrets-out file, never a persisted vault.
+    """Prompt (hidden) for the install-critical vendor creds only: whichever
+    credential the chosen tailnet backend needs to JOIN, preceded by the
+    console steps that produce it. The Cloudflare API token is NOT collected
+    here (Settings-only); everything else is minted on-box. These go to the
+    transient --secrets-out file, never a persisted vault.
 
-    Headscale has no OAuth API, so on that backend there is nothing to
-    collect: the converge mints its own tagged pre-auth key per run from
-    headscale_api_key in the on-box store."""
+    Both backends are collected here for the same reason. bootstrap joins the
+    VPS to the tailnet, and every stage after it reaches the host at a tailnet
+    address -- so a credential that only arrives later, through a panel that is
+    only reachable over that tailnet, can never arrive at all."""
     if _uses_headscale(env_values):
-        banner("Tailnet: self-hosted Headscale -- no vendor credentials collected")
-        print("After install, set headscale_api_key in catena-admin > Settings.\n"
-              "The converge mints a short-lived tagged pre-auth key per run "
-              "from it.\n", file=sys.stderr)
-        return {}
+        return _collect_headscale_secret(vault_provided)
     banner("Install-critical vendor credentials (not stored on this machine)")
     if sys.stdin.isatty():
         print(TAILSCALE_SETUP_STEPS.format(tag=_oauth_tag(env_values)),
@@ -917,16 +958,22 @@ def main(argv: list[str] | None = None) -> int:
         "vault": secret_values,
     }
     # A Headscale install collects no OAuth creds, so requiring them here would
-    # block a valid inventory on credentials that backend has no API for.
-    required_vault = ([] if _uses_headscale(env_values)
-                      else list(INSTALL_EXTERNAL_KEYS))
+    # block a valid inventory on credentials that backend has no API for. It
+    # needs exactly one of its own pair instead, which validate_install checks
+    # directly -- "one of two" does not fit the all-required key list.
+    if _uses_headscale(env_values):
+        required_vault: list[str] = []
+        expected_creds = 1
+    else:
+        required_vault = list(INSTALL_EXTERNAL_KEYS)
+        expected_creds = len(required_vault)
     problems = validate_install(validation_inp, env_keys, required_vault)
     if problems:
         die(f"{problems} problem(s) -- fix and re-run.")
 
     _print_summary(
         inventory=inventory, env_values=env_values, secret_values=secret_values,
-        expected_creds=len(required_vault),
+        expected_creds=expected_creds,
     )
     if not args.no_confirm:
         answer = input("Proceed with seed (write inventory files)? [y/N]: ").strip().lower()

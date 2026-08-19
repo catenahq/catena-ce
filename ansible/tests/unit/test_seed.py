@@ -425,16 +425,58 @@ def test_collect_install_secrets_never_collects_cf_token(seed):
     assert "cloudflare_api_token" not in got
 
 
-def test_collect_install_secrets_skips_oauth_on_headscale(seed):
-    """Headscale has no OAuth API, so an install against one collects nothing
-    here -- the converge mints its pre-auth keys from headscale_api_key in the
-    on-box store. Prompting for creds that backend cannot issue is a dead end:
-    the prompt is required-non-empty, so an interactive Headscale install had
-    no way past it."""
+def test_collect_install_secrets_asks_for_the_headscale_key(seed):
+    """Headscale has no OAuth API, so the Tailscale pair is not asked for --
+    but its own join credential IS. roles/tailscale asserts on one of the two
+    and fails the BOOTSTRAP without it, and deferring it to catena-admin is
+    circular: the panel is published on the tailnet the credential joins."""
     got = seed._collect_install_secrets(
-        {}, {"TAILNET_CONTROL_URL": "https://headscale.example.net"},
+        {"headscale_api_key": "hs-api"},
+        {"TAILNET_CONTROL_URL": "https://headscale.example.net"},
     )
-    assert got == {}
+    assert got == {"headscale_api_key": "hs-api"}
+    assert "tailscale_oauth_client_id" not in got
+
+
+def test_headscale_static_key_is_the_fallback(seed):
+    """A Headscale whose API is not reachable from here still installs, from a
+    key made by hand. Only asked for when the api_key answer was blank."""
+    got = seed._collect_install_secrets(
+        {"headscale_preauth_key": "hs-static"},
+        {"TAILNET_CONTROL_URL": "https://headscale.example.net"},
+    )
+    assert got == {"headscale_preauth_key": "hs-static"}
+
+
+@pytest.fixture
+def on_tailnet(monkeypatch):
+    """validate_install also gates on THIS machine being on the tailnet, which
+    depends on the box the tests run on. Stub it so the headscale-credential
+    checks below measure only themselves."""
+    from helpers import tailnet_check
+
+    monkeypatch.setattr(tailnet_check, "check",
+                        lambda **kw: tailnet_check.Result(True, ["stubbed"]))
+
+
+def _headscale_inp(vault):
+    return {
+        "inventory": "prod",
+        "host": {},
+        "env": {"TAILNET_CONTROL_URL": "https://hs.example.net"},
+        "vault": vault,
+    }
+
+
+def test_headscale_install_without_a_join_credential_is_refused(seed, on_tailnet):
+    """The chicken-and-egg, caught in seed where nothing has been touched yet
+    rather than by roles/tailscale's assert partway through bootstrap."""
+    assert seed.validate_install(_headscale_inp({}), [], []) >= 1
+
+
+def test_headscale_install_with_either_credential_passes(seed, on_tailnet):
+    for key in ("headscale_api_key", "headscale_preauth_key"):
+        assert seed.validate_install(_headscale_inp({key: "x"}), [], []) == 0, key
 
 
 def test_oauth_tag_follows_the_inventory_tags(seed):
