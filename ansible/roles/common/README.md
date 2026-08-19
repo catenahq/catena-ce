@@ -5,10 +5,10 @@ Baseline host setup. First role in `site.yml`'s converge order.
 ## Responsibilities
 
 - Capture the controller's git state (commit SHA, dirty flag,
-  branch) and ship it to the host as `/etc/catena/git-version`.
-- Refuse to converge against a dirty controller tree unless
-  `allow_dirty_converge=true` is explicitly set. This prevents
-  "the host has bits from a tree the operator can't reproduce".
+  branch) and ship it to the host as `/etc/catena/git-version`. The
+  `-dirty` suffix is recorded, not enforced: a client installs from a
+  release checkout and never edits it, and the one caller that did edit
+  it -- the test bench -- passed the override on every run.
 - Install minimal package baseline (curl, jq, sudo, tzdata,
   ca-certificates) before any later role depends on them.
 - Provide the `ufw_lockdown.yml` task file used as the final lock
@@ -16,7 +16,6 @@ Baseline host setup. First role in `site.yml`'s converge order.
 
 ## Inputs
 
-- `allow_dirty_converge` -- bool, default false.
 - `git_version_path` -- defaults to `/etc/catena/git-version`.
 
 ## Side effects

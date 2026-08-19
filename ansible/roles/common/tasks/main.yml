@@ -35,25 +35,6 @@
   become: false
   tags: [always]
 
-- name: "Version: refuse dirty tree unless allow_dirty=true"
-  ansible.builtin.fail:
-    msg: |
-      Controller git tree is dirty: {{ _catena_git_describe.stdout }}
-
-      Commit or stash local changes before converging, or pass
-      `-e allow_dirty=true` to ship an unreviewed build anyway (the
-      version stamp will keep the `-dirty` suffix so the drift
-      shows up in docs + /etc/catena/version.txt).
-      Also honored: CATENA_ALLOW_DIRTY=1 in the env (matches the
-      ./catena wrapper override; the bench sets this).
-  when:
-    - _catena_git_describe.rc == 0
-    - _catena_git_describe.stdout.endswith('-dirty')
-    - not (allow_dirty | default(false) | bool)
-    - lookup('ansible.builtin.env', 'CATENA_ALLOW_DIRTY') != '1'
-  run_once: true
-  tags: [always]
-
 - name: "Version: export catena_version fact"
   ansible.builtin.set_fact:
     catena_version: "{{ _catena_git_describe.stdout | default('unknown') or 'unknown' }}"
