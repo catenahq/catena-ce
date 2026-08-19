@@ -313,20 +313,29 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
 
     # Last, so its remedy is the final thing on screen when it fails.
     #
-    # This machine has to be ON the tailnet, not merely able to mint keys for
-    # it. Everything after bootstrap reaches the VPS at its tailnet address, so
-    # a controller that never joined gets a clean bootstrap and then an SSH
-    # timeout to a 100.x host that is already hardened. Reuses the token just
-    # exchanged, so the strong check costs one request and no extra scope.
+    # This machine has to be able to REACH the tailnet, not merely mint keys
+    # for it: everything after bootstrap reaches the VPS at its tailnet
+    # address. Only one half of that is decidable here. Being joined to a
+    # different tailnet than the credentials belong to is a fact and blocks;
+    # an unreadable local Tailscale state is an absence of evidence -- a
+    # controller can route to the tailnet through a subnet router with no
+    # tailscale binary of its own -- so it prints its remedy and proceeds. The
+    # converge probes the real address the moment the node has one. Reuses the
+    # token just exchanged, so the strong check costs one request and no extra
+    # scope.
     banner("Controller on the tailnet")
     from helpers import tailnet_check
 
     control_url = str(env.get("TAILNET_CONTROL_URL", "") or "").strip()
     tailnet = tailnet_check.check(token=api_token, control_url=control_url)
     for line in tailnet.lines:
-        _check(line, tailnet.ok)
+        if tailnet.ok or tailnet.blocking:
+            _check(line, tailnet.ok)
+        else:
+            warn(f" {line}")
     if not tailnet.ok:
-        problems += 1
+        if tailnet.blocking:
+            problems += 1
         print(f"\n{tailnet.remedy}", file=sys.stderr)
 
     print(file=sys.stderr)

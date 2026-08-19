@@ -89,10 +89,17 @@
 
     # Before the OAuth checks, because minting keys for a tailnet this machine
     # never joined is not the failure the operator is about to hit. `catena
-    # install` already gated on this in seed; this covers the paths that never
-    # run seed -- recover, rollback, and a bare `ansible-playbook`. The helper
-    # exits nonzero and prints the install/join instructions itself.
-    - name: Prove THIS machine is on the tailnet
+    # install` runs the same check in seed, with the API token it exchanged;
+    # this covers the paths that never run seed -- recover, rollback, and a
+    # bare `ansible-playbook`.
+    #
+    # Advisory by construction. The helper prints the join instructions and
+    # exits 0: the only verdict worth blocking on is a CONFIRMED wrong tailnet,
+    # that comparison needs an API token, and the helper takes none on argv
+    # (a bearer token there lands in `ps`). An absent CLI is missing evidence,
+    # not a verdict -- a controller can route to the tailnet through a subnet
+    # router. roles/tailscale probes the real address once the node has one.
+    - name: Report whether THIS machine is on the tailnet
       ansible.builtin.command:
         argv:
           - python3

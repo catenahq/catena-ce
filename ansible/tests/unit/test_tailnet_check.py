@@ -4,6 +4,13 @@ The failure this gate exists to stop: preflight's OAuth probe talks to
 api.tailscale.com over the plain internet, so it passes from a machine that
 has never run `tailscale up` -- and the install then bootstraps the VPS
 successfully before dying at `site` against a 100.x address it cannot route to.
+
+The gate has two strengths, and the tests below pin the difference. A
+CONFIRMED wrong tailnet blocks: it is a fact, and nothing downstream catches
+it early. An unreadable local Tailscale state does NOT block: a controller can
+route to the tailnet through a subnet router with no tailscale binary of its
+own, so an absent CLI is missing evidence rather than a verdict, and the
+converge probes the real address as soon as the node has one.
 """
 from __future__ import annotations
 
@@ -152,19 +159,24 @@ def up(monkeypatch):
     monkeypatch.setattr(tc.subprocess, "run", _fake_run(_status()))
 
 
-def test_check_fails_when_not_installed(monkeypatch):
+def test_missing_cli_warns_but_does_not_block(monkeypatch):
+    """An absent CLI is the common shape of "never joined", but a controller
+    can reach the tailnet through a subnet router without one. Blocking here
+    would refuse a supported setup on evidence that was never gathered."""
     monkeypatch.setattr(tc.shutil, "which", lambda name: None)
     result = tc.check()
     assert not result.ok
+    assert not result.blocking
     assert "install.sh" in result.remedy and "tailscale up" in result.remedy
 
 
-def test_check_fails_when_installed_but_down(monkeypatch):
+def test_installed_but_down_warns_but_does_not_block(monkeypatch):
     monkeypatch.setattr(tc.shutil, "which", lambda name: "/usr/bin/tailscale")
     monkeypatch.setattr(tc.subprocess, "run", _fake_run(
         _status(BackendState="Stopped", Self={"TailscaleIPs": []})))
     result = tc.check()
     assert not result.ok
+    assert not result.blocking
     assert "tailscale up" in result.remedy
 
 
@@ -178,11 +190,14 @@ def test_check_passes_when_up_and_scope_is_narrow(up, monkeypatch):
     assert tc.check(token="tok").ok
 
 
-def test_check_fails_on_a_confirmed_wrong_tailnet(up, monkeypatch):
+def test_check_blocks_on_a_confirmed_wrong_tailnet(up, monkeypatch):
+    """The one verdict that stops the install: this machine is joined, the
+    credentials are readable, and the two name different tailnets."""
     monkeypatch.setattr(tc.urllib.request, "urlopen",
                         lambda req, timeout=0: _Resp(_devices(["100.64.0.9"])))
     result = tc.check(token="tok")
     assert not result.ok
+    assert result.blocking
     assert result.remedy
 
 
@@ -203,10 +218,34 @@ def test_headscale_remedy_names_the_login_server(monkeypatch):
     assert "--login-server https://hs.example.net" in result.remedy
 
 
-def test_cli_exit_codes(monkeypatch, capsys):
+def test_cli_exits_zero_and_still_prints_the_remedy_when_it_cannot_look(
+        monkeypatch, capsys):
+    """preflight.yml runs this as a task, so the exit code decides whether the
+    play dies. A missing CLI prints the join instructions and exits 0 -- the
+    operator is told, and a controller reaching the tailnet by another route
+    is not refused."""
     monkeypatch.setattr(tc.shutil, "which", lambda name: None)
-    assert tc.main([]) == 1
+    assert tc.main([]) == 0
     assert "https://tailscale.com/download" in capsys.readouterr().err
+
+
+def test_cli_never_blocks_because_it_holds_no_token(monkeypatch):
+    """The CLI cannot reach the one blocking verdict, and that is deliberate:
+    the wrong-tailnet comparison needs an API token, and a bearer token on
+    argv lands in `ps`. So the CLI form is a reporter -- it prints what it can
+    see and exits 0 either way. The blocking gate lives in seed.py, which
+    already holds the token it exchanged in-process.
+
+    Pinned so a future `--token` flag has to confront this rather than
+    quietly turning an advisory task into one that fails a play."""
+    monkeypatch.setattr(tc.shutil, "which", lambda name: "/usr/bin/tailscale")
+    monkeypatch.setattr(tc.subprocess, "run", _fake_run(_status()))
+    monkeypatch.setattr(tc.urllib.request, "urlopen",
+                        lambda req, timeout=0: _Resp(_devices(["100.64.0.9"])))
+    assert tc.main([]) == 0
+
+
+def test_cli_exits_zero_when_on_the_right_tailnet(monkeypatch):
     monkeypatch.setattr(tc.shutil, "which", lambda name: "/usr/bin/tailscale")
     monkeypatch.setattr(tc.subprocess, "run", _fake_run(_status()))
     monkeypatch.setattr(tc.urllib.request, "urlopen",

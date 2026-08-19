@@ -1,24 +1,38 @@
 """Controller-side tailnet preflight: is THIS machine on the tailnet?
 
 Every stage after `bootstrap` reaches the VPS at its tailnet address --
-bootstrap rewrites the inventory's `ansible_host` to the CGNAT IP before it
-finishes -- so a controller that never joined the tailnet gets a full,
-successful bootstrap and then an opaque SSH timeout to a 100.x address at the
-first task of `site`. The VPS is by then baselined, hardened, keyed and
-joined. Nothing before this check noticed, because the Tailscale OAuth probe
-preflight already runs talks to api.tailscale.com over the plain internet and
-passes fine from a machine that has never run `tailscale up`.
+bootstrap's add_host rewrites `ansible_host` to the CGNAT IP before the next
+play -- so a controller that cannot route to the tailnet gets a full,
+successful bootstrap and then an SSH timeout to a 100.x address on a VPS that
+is by then baselined, hardened, keyed and joined. The Tailscale OAuth probe
+does not notice: it talks to api.tailscale.com over the plain internet and
+passes fine from a machine that never ran `tailscale up`.
 
-Two questions, strongest first:
+Two questions, and only ONE of them is a gate:
 
-  1. Is this machine a node of the tailnet the OAuth client belongs to?
-     Answerable only when the credential can read the device list. Production
-     clients are scoped `Auth Keys: Write` alone and get 403, so this degrades
-     to UNKNOWN rather than failing -- a narrow scope is the documented
-     production setup, not an error. (The test bench's client carries
-     `Devices Core: Write` as well, so the bench takes the strong path.)
-  2. Failing that: is Tailscale installed and actually up on this machine?
-     That one is always answerable and is the pass/fail gate.
+  1. BLOCKING -- is this machine a node of the tailnet the OAuth client
+     belongs to? A machine joined to a DIFFERENT tailnet than the credentials
+     mint for is a misconfiguration nothing downstream catches early, and the
+     answer is available before a single host exists. Answerable only when the
+     credential can read the device list; production clients are scoped
+     `Auth Keys: Write` alone and get 403, so it degrades to UNKNOWN rather
+     than failing -- a narrow scope is the documented production setup, not an
+     error. (The test bench's client carries `Devices Core: Write` as well, so
+     the bench takes the strong path.)
+
+  2. ADVISORY -- is the Tailscale CLI installed and up here? An absent CLI is
+     the common shape of "this machine never joined", but it does not PROVE
+     unreachability: a controller can reach the tailnet through a subnet
+     router or a site-to-site route with no tailscale binary of its own, and
+     that is a supported way to run an install. "Cannot look" is not "looked
+     and found nothing", so this prints the join instructions and lets the
+     install proceed.
+
+     What actually proves reachability is roles/tailscale's "Verify controller
+     can reach node via tailnet IPv4" -- a wait_for delegated to the
+     controller, run the moment the node HAS a tailnet address, against that
+     real address. It is the honest gate because it is the only one with
+     something concrete to probe.
 
 Stdlib only, and no import of anything on the target: this runs on the
 operator's own machine, before any host exists.
@@ -59,9 +73,13 @@ class LocalState:
 
 @dataclass(frozen=True)
 class Result:
+    """`blocking` separates the two failure meanings. A wrong-tailnet verdict
+    is a fact and stops the install; an unreadable local state is an absence
+    of evidence and only prints its remedy."""
     ok: bool
     lines: list[str] = field(default_factory=list)
     remedy: str = ""
+    blocking: bool = True
 
 
 def _first_ipv4(addresses) -> str:
@@ -156,8 +174,10 @@ def install_instructions(control_url: str = "") -> str:
         "",
         "  The login is browser-based and cannot be automated. The VPS joins",
         "  the tailnet during bootstrap and every stage after it is reached at",
-        "  a tailnet address, so this machine has to be on the same network",
-        "  before the install starts.",
+        "  a tailnet address, so this machine has to be able to route there",
+        "  before the install starts. Skip this only if the route already",
+        "  exists by other means (a subnet router, a site-to-site link); the",
+        "  converge probes the real address as soon as the node has one.",
     ])
 
 
@@ -168,14 +188,16 @@ def check(*, token: str = "", control_url: str = "") -> Result:
     where there is no Tailscale API to compare against."""
     state = local_state()
     if not state.installed:
-        return Result(False, ["Tailscale CLI not installed on this machine"],
-                      install_instructions(control_url))
+        return Result(False,
+                      ["Tailscale CLI not installed on this machine -- "
+                       "cannot confirm the route to the tailnet from here"],
+                      install_instructions(control_url), blocking=False)
     if not state.running:
         detail = state.detail or f"BackendState={state.backend_state or 'unknown'}"
         if state.backend_state == BACKEND_RUNNING and not state.ipv4:
             detail = "tailscaled is running but this machine has no tailnet IPv4"
         return Result(False, [f"Tailscale is installed but not up -- {detail}"],
-                      install_instructions(control_url))
+                      install_instructions(control_url), blocking=False)
 
     where = f"this machine is on the tailnet as {state.ipv4}"
     if state.magic_dns_suffix:
@@ -206,10 +228,11 @@ def main(argv: list[str] | None = None) -> int:
     # command. Callers holding one (seed.py) use check() directly.
     result = check(control_url=args.control_url)
     for line in result.lines:
-        print(f"  {'+' if result.ok else 'x'} {line}", file=sys.stderr)
+        mark = "+" if result.ok else ("x" if result.blocking else "!")
+        print(f"  {mark} {line}", file=sys.stderr)
     if not result.ok:
         print(f"\n{result.remedy}\n", file=sys.stderr)
-        return 1
+        return 1 if result.blocking else 0
     return 0
 
 
