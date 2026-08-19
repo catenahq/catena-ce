@@ -160,8 +160,8 @@ catena_admin_dispatch_env_passthrough:
 # shell's SSH action runner fails every dispatch with
 # "known_hosts load failed: ... permission denied". Keep in lockstep with
 # the Dockerfile's USER.
-catena_admin_container_uid: "65532"
-catena_admin_container_gid: "65532"
+catena_admin_container_uid: "{{ catena_container_uid }}"
+catena_admin_container_gid: "{{ catena_container_gid }}"
 
 # Host paths -- the bind-mount targets the admin compose expects. Keep
 # these in sync with the compose file when you rename either.

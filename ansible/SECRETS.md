@@ -47,7 +47,7 @@ ride the backup, because it is what unlocks the backup.
 | `backup_s3_access_key` | reach the restic bucket | settings page | **yes** |
 | `backup_s3_secret_key` | ^ | settings page | **yes** |
 | `backup_restic_password` | decrypt the restic repo | on-box mint, **shown once** | **yes** |
-| `admin_password` | first login (Portainer + Keycloak) | on-box mint, **shown once** | no |
+| `admin_password` | first login (Portainer + Keycloak + Beszel + this panel) | on-box mint, **shown once** | no |
 | `console_recovery_password` | break-glass login for `ops` at the provider KVM / serial console | on-box mint, **shown once** | **yes** |
 | `smtp_password` | outbound mail (opt) | settings page | no |
 | `mailserver_relay_password` | smarthost (opt) | settings page | no |
@@ -110,7 +110,6 @@ old laptop-minting model; dropped with the 0b true-on-box-minting cutover).
 - `element_jitsi_jicofo_component_secret`
 - `element_jitsi_jvb_auth_password`
 - `element_jigasi_xmpp_password`
-- `beszel_admin_password`
 - `beszel_universal_token`
 
 ### 3. Service-minted, role-captured (`ROLE_MINTED_SECRETS`)

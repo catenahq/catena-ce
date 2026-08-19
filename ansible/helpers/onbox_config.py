@@ -163,9 +163,11 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     "element_jitsi_jicofo_component_secret": mint_strong_password,
     "element_jitsi_jvb_auth_password": mint_strong_password,
     "element_jigasi_xmpp_password": mint_strong_password,
-    # Beszel resource-monitor credentials. Beszel is always deployed, so
-    # these are always in use.
-    "beszel_admin_password": mint_strong_password,
+    # Beszel resource-monitor token. Beszel is always deployed, so this is
+    # always in use. The hub LOGIN is deliberately NOT minted here: it is the
+    # shared admin_password (USER_HELD, surfaced once at install). A login
+    # minted in this table would be one the operator is never shown, for a hub
+    # the panel links to as a tab.
     "beszel_universal_token": mint_url_safe,
     # The auth header on the ZAP daemon's REST API while a pen-test scan is
     # running. Minted regardless of bench mode so a one-off scan against any

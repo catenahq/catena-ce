@@ -21,10 +21,28 @@
 - name: "Payload: extract and install the host engines"
   when: catena_payload_install | bool
   block:
+    # Created owned by the CONTAINER's uid, not root.
+    #
+    # This role runs fifteen roles before catena-admin, so on a first converge
+    # it is what brings this directory into existence -- and the capture-restore
+    # pair below preserves whatever owner it finds. Creating it root-owned meant
+    # restoring it root-owned, and the chown in roles/catena-admin only touches
+    # the TOP directory, so `bin/` and every other subdirectory the extract made
+    # stayed root's. The container's startup sync then failed on its first
+    # write:
+    #
+    #   payload: sync to /var/lib/catena/ee-payload failed:
+    #   open /var/lib/catena/ee-payload/bin/.payload-...: permission denied
+    #
+    # Both writers put the SAME payload here, from the same digest-pinned image,
+    # so the shared ownership grants the container nothing it does not already
+    # ship itself.
     - name: "Payload: ensure the extraction directory exists"
       ansible.builtin.file:
         path: "{{ catena_payload_dir }}"
         state: directory
+        owner: "{{ catena_container_uid }}"
+        group: "{{ catena_container_gid }}"
         mode: "0755"
 
     # Capture BEFORE the extract. The catena-admin container mirrors its own

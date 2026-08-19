@@ -95,6 +95,23 @@ catena_export_dir: /var/backups/catena-export
 catena_export_dir_group: "1000"
 catena_export_dir_mode: "0750"
 
+# ─── The catena-admin container's uid ────────────────────────
+# Declared here for the same reason catena_export_dir and the image are: TWO
+# roles must agree and neither can see the other's defaults. roles/payload
+# (5.5) creates and re-owns /var/lib/catena/ee-payload; roles/catena-admin
+# (21) chowns it for the container that writes into it. payload runs FIFTEEN
+# roles earlier, so it cannot read the catena-admin default -- and a
+# root-owned extraction directory leaves the container unable to write the
+# subdirectories the extract created:
+#
+#   payload: sync to /var/lib/catena/ee-payload failed:
+#   open /var/lib/catena/ee-payload/bin/.payload-...: permission denied
+#
+# The distroless image sets `USER nonroot:nonroot` (65532), NOT 1000. Keep in
+# lockstep with the repo-root Dockerfile in catena-admin.
+catena_container_uid: "65532"
+catena_container_gid: "65532"
+
 # ─── The catena-admin image ──────────────────────────────────────────────
 # Declared in common (which runs first) because TWO roles must agree on it and
 # neither can see the other's defaults: roles/payload (5.5) extracts the host

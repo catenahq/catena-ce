@@ -22,6 +22,9 @@ ansible-playbook. Subcommands:
   rotate-tailscale
              re-authenticate the node to the tailnet (force re-auth;
              manual maintenance)
+  show-keyset
+             re-display the admin / restic / console passwords and the
+             first-login URLs (install shows them once; this asks again)
   uninstall  hand control back to the OS: unmask + re-enable Debian's
              apt-daily-upgrade.timer (the unattended-upgrades handback)
              and print teardown guidance
@@ -630,6 +633,27 @@ def cmd_rotate_tailscale(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_show_keyset(args: argparse.Namespace) -> int:
+    """Re-display the DR keyset and the first-login URLs.
+
+    The install shows these once, at the very end. An install that failed
+    anywhere before that point -- or a terminal that was closed -- leaves an
+    operator with a working server and no way to sign in to it, which is a
+    worse state than a failed install. The values are all still on the box, so
+    asking for them again costs nothing and does not re-run anything.
+
+    The journal verification key is the one exception: it is deleted from the
+    server the first time it is shown, by design, so a later call has nothing
+    to print for it.
+    """
+    _preflight_checks()
+    inv_dir = resolve_inventory(args)
+    _require_inventory(inv_dir)
+    ensure_collections()
+    _show_dr_keyset(inv_dir)
+    return 0
+
+
 def cmd_uninstall(args: argparse.Namespace) -> int:
     _preflight_checks()
     inv_dir = resolve_inventory(args)
@@ -653,6 +677,7 @@ MENU_COMMANDS = (
     ("rollback", "Roll a running host back to a snapshot"),
     ("rotate-tunnel", "Regenerate the Cloudflare tunnel"),
     ("rotate-tailscale", "Re-authenticate the node to the tailnet"),
+    ("show-keyset", "Show the passwords and first-login URLs again"),
     ("uninstall", "Hand unattended-upgrades back to the OS"),
 )
 KNOWN_COMMANDS = tuple(name for name, _ in MENU_COMMANDS)
@@ -785,6 +810,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_inventory_args(p_rts, required=True)
     p_rts.set_defaults(func=cmd_rotate_tailscale)
+
+    p_keys = sub.add_parser(
+        "show-keyset",
+        help="re-display the DR keyset + first-login URLs (reads the box; "
+             "runs no converge)",
+    )
+    _add_inventory_args(p_keys, required=True)
+    p_keys.set_defaults(func=cmd_show_keyset)
 
     p_uni = sub.add_parser(
         "uninstall",

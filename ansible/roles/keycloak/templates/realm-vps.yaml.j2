@@ -108,19 +108,34 @@ defaultDefaultClientScopes:
   - roles
   - web-origins
 
-# Bootstrap admin user. KC_BOOTSTRAP_ADMIN_PASSWORD env on the
-# server container creates the underlying account on first boot;
-# this entry puts the operator in `/admin`. `admin` is appended to
-# every gated app's allow-list by the auth engine (superuser), so a
-# single `/admin` membership reaches every app from day one --
-# no need to also list staff/client. keycloak-config-cli imports
-# users idempotently by username -- no password rotation happens
-# here (that's a UI/Account-Console concern after first login).
+# Bootstrap admin user. `admin` is appended to every gated app's
+# allow-list by the auth engine (superuser), so a single `/admin`
+# membership reaches every app from day one -- no need to also list
+# staff/client.
+#
+# KC_BOOTSTRAP_ADMIN_* on the server container creates the operator's
+# account in the MASTER realm and NOWHERE ELSE. Keycloak users are
+# per-realm, so this entry is a SECOND account that happens to share
+# the email -- and it used to be imported with no credentials block at
+# all. The same email and password opened the master realm and was
+# refused here, with nothing on the login page to say why.
+#
+# Seeded from the same on-box admin_password so there is one password
+# to know, and only on the FIRST import (admin_render_password, gated
+# on a marker like the SMTP block below): rendering it every converge
+# would reset the password back to the store's value each time and
+# silently undo a change made in the Account Console.
 users:
   - username: "{{ admin_email }}"
     email: "{{ admin_email }}"
     enabled: true
     emailVerified: true
+{% if admin_render_password | default(true) %}
+    credentials:
+      - type: password
+        value: "{{ admin_password }}"
+        temporary: false
+{% endif %}
     groups:
       - /admin
     realmRoles:

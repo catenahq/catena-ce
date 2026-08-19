@@ -64,6 +64,24 @@
     path: /var/lib/catena/keycloak-realm-smtp-bootstrapped
   register: _kc_smtp_marker
 
+# Same shape as the SMTP marker above, for the admin user's password.
+#
+# KC_BOOTSTRAP_ADMIN_* creates the operator's account in the MASTER realm and
+# nowhere else. This realm's copy of that account was imported with no
+# credentials at all, so the same email and password opened the master realm
+# and was refused here -- one identity, two accounts, one of them passwordless,
+# and no way to tell from the login page which was which. Seeded from the same
+# on-box admin_password so there is one password to know.
+#
+# First import only. Rendering it on every converge would reset the password
+# back to the store's value each time, silently undoing a change made in the
+# Account Console -- which is the reason the credentials block was left out to
+# begin with.
+- name: "Keycloak realm: probe admin-password bootstrap marker"
+  ansible.builtin.stat:
+    path: /var/lib/catena/keycloak-realm-admin-bootstrapped
+  register: _kc_admin_pw_marker
+
 # realm_bootstrap.yml is included from BOTH roles/keycloak/tasks/main.yml
 # AND roles/oauth2_proxy/tasks/main.yml (the latter calls back here to
 # re-import the realm after rendering its own client. Mirrors the
@@ -80,6 +98,7 @@
     mode: "0644"
   vars:
     smtp_render_password: "{{ not _kc_smtp_marker.stat.exists }}"
+    admin_render_password: "{{ not _kc_admin_pw_marker.stat.exists }}"
   register: _keycloak_realm_render
 
 # Service-account client for the host-side dashboard-sync cron. Rendered
@@ -315,6 +334,23 @@
   when:
     - smtp_enabled | bool
     - not _kc_smtp_marker.stat.exists
+    - not (_keycloak_realm_post_restore_marker.stat.exists | default(false))
+    - (_keycloak_realm_import.rc | default(1)) == 0
+
+# Same reconcile-not-overwrite rule for the admin password: written after the
+# FIRST successful import so later converges render the user without a
+# credentials block and stop resetting it. Removing the marker re-seeds the
+# password from the on-box store, which is the recovery path for an operator
+# who has lost it.
+- name: "Keycloak realm: mark the admin password as bootstrapped"
+  ansible.builtin.file:
+    path: /var/lib/catena/keycloak-realm-admin-bootstrapped
+    state: touch
+    owner: root
+    group: root
+    mode: "0644"
+  when:
+    - not _kc_admin_pw_marker.stat.exists
     - not (_keycloak_realm_post_restore_marker.stat.exists | default(false))
     - (_keycloak_realm_import.rc | default(1)) == 0
 
