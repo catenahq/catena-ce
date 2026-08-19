@@ -39,8 +39,8 @@ cp -r ansible/inventory/example ansible/inventory/prod
 mv ansible/inventory/prod/.env.example ansible/inventory/prod/.env
 ```
 
-2. Edit `ansible/inventory/prod/.env` with your own information, then:
-3. Launch installation:
+1. Edit `ansible/inventory/prod/.env` with your own values
+2. Launch installation:
 
 ```sh
 ./catena prod install
