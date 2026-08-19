@@ -3,7 +3,7 @@ collections:
   # with, so all collections are pinned to their latest stable as of 2026-05-08.
   # Bumping a pin is a separate PR with bench coverage.
   - name: community.general
-    version: "==13.2.0"
+    version: "==13.3.0"
   - name: ansible.posix
     version: "==2.2.2"
   - name: community.crypto
