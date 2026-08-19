@@ -280,6 +280,21 @@
     group: "{{ catena_admin_container_gid }}"
     mode: "0700"
 
+# The panel bind-mounts this read-only for the /recovery tab, and swarm
+# REJECTS a task whose bind source is missing rather than creating it. Its
+# contents belong to roles/backup, which runs two roles LATER -- so on a first
+# converge the directory did not exist yet and every task swarm placed was
+# rejected on sight, forever, under --restart-condition=any. Creating it here
+# is not taking ownership of it: attributes come from roles/common so both
+# tasks say the same thing, and roles/backup's own create still runs.
+- name: "Recovery export dir for the admin container ({{ catena_export_dir }})"
+  ansible.builtin.file:
+    path: "{{ catena_export_dir }}"
+    state: directory
+    owner: root
+    group: "{{ catena_export_dir_group }}"
+    mode: "{{ catena_export_dir_mode }}"
+
 # Per-host configuration for the daily orchestrator chain.
 #
 # catena-daily.service and catena-daily-resume.service declare

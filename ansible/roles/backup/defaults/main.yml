@@ -569,7 +569,7 @@ catena_post_restore_hook_dir: /etc/catena/post-restore.d
 # Streams `restic dump latest /` through gzip into a single tarball under
 # backup_export_dir for the operator/client to scp off-host. No S3 or
 # restic tooling needed on the receiving machine -- raw tar.gz.
-backup_export_dir: /var/backups/catena-export
+backup_export_dir: "{{ catena_export_dir }}"
 backup_export_script: /usr/local/bin/catena-snapshot-export
 backup_export_keep_last: 1 # rotation: keep only the newest N exports
 

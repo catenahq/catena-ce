@@ -78,6 +78,23 @@ public_ports_timer_interval: "5min"
 # `docker stack deploy -c <dir>/<name>.yml <name>`.
 swarm_stack_dir: /etc/catena/stacks
 
+# ─── The recovery export directory ───────────────────────────────────────
+# Declared in common, for the same reason catena_admin_image is below: TWO
+# roles must agree on it and neither can see the other's defaults.
+# roles/backup (23) owns what goes in it; roles/catena-admin (21) BIND-MOUNTS
+# it into the panel, two roles earlier. Swarm rejects a task whose bind source
+# does not exist -- it does not create it -- so the panel's first-run create
+# was rejected on a loop until roles/backup finally made the directory, and
+# with --restart-condition=any that loop never ended.
+catena_export_dir: /var/backups/catena-export
+
+# The catena-admin container is UID/GID 1000 and joins this as a supplementary
+# group, so it can list+stat the recovery artifacts for the /recovery tab. The
+# downloads themselves are served by the recovery nginx sidecar, which runs as
+# root and keeps owner-rwx.
+catena_export_dir_group: "1000"
+catena_export_dir_mode: "0750"
+
 # ─── The catena-admin image ──────────────────────────────────────────────
 # Declared in common (which runs first) because TWO roles must agree on it and
 # neither can see the other's defaults: roles/payload (5.5) extracts the host
