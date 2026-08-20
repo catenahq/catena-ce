@@ -11,8 +11,82 @@
 # All shell snippets below run with bash strict mode (set -euo pipefail)
 # inherited from the runner. $PAYLOAD is exported by the runner before
 # the dispatch call.
+#
+# --- the payload overlay ---------------------------------------------
+#
+# This table is rendered BY the converge, and the converge is meant to be a
+# one-shot tool: the image manages the host afterwards. An action that shipped
+# with a new panel image therefore had nowhere to land until somebody
+# converged, which is the seam every update defect in this product has sat on.
+#
+# So a name this table does not carry is offered to
+# {{ catena_admin_actions_overlay_dir }} before it is refused. Base-first: the
+# case arms below are tried first and win outright, so a drop-in can only ADD.
+# {{ '/etc/catena/post-restore.d' }} is the existing precedent for a root-owned,
+# payload-populated directory the converge creates and knows nothing about the
+# contents of.
+#
+# WHAT THE OVERLAY CANNOT DO, permanently and by design:
+# catena_admin_dispatch_env_passthrough gates both sshd's AcceptEnv and the
+# sudoers env_keep list. The image can own the dispatch table; it can never own
+# the environment allow-list, so a payload action that needs a new env var
+# still requires a converge. That is the right boundary -- an env var is an
+# input the panel controls, and the set of inputs root will accept is a
+# converge-owned decision.
+#
+# {{ catena_admin_allowed_actions_path }} lists the converge's names only. It is
+# a documentation and audit artifact, not an enforcement point (the case
+# statement is), and it does not see overlay names.
+
+# catena_admin_dispatch_overlay tries each payload drop-in, in order, and
+# returns 127 when none of them carries the name.
+#
+# 127 rather than a boolean because an action that RAN and failed must not read
+# as "no such action": the caller would then print the rejection over a real
+# failure, and the operator would go looking for a typo instead of a fault.
+# Every drop-in honours the same contract -- 127 for "not mine", the action's
+# own status otherwise.
+catena_admin_dispatch_overlay() {
+    local dir="{{ catena_admin_actions_overlay_dir }}"
+    [ -d "$dir" ] || return 127
+    local f mode rc
+    for f in "$dir"/*.sh; do
+        [ -f "$f" ] || continue
+        # Root-owned and not group- or world-writable. Root sourcing a file
+        # anything else can write is anything else choosing what root runs,
+        # which is the whole property the forced command exists to hold.
+        if [ ! -O "$f" ]; then
+            echo "catena-admin-runner: ignoring $f (not root-owned)" >&2
+            continue
+        fi
+        mode="$(stat -c '%a' "$f" 2>/dev/null || echo "")"
+        if [ -z "$mode" ] || [ "$(( 0$mode & 0022 ))" -ne 0 ]; then
+            echo "catena-admin-runner: ignoring $f (group- or world-writable)" >&2
+            continue
+        fi
+        # Cleared before every source, so two drop-ins defining the same
+        # function is each being ASKED in order rather than the last one
+        # silently winning.
+        unset -f catena_admin_dispatch_payload 2>/dev/null || true
+        # Guarded: the runner runs under `set -e`, so a drop-in whose last
+        # statement is non-zero would abort the dispatcher instead of being
+        # skipped. Inside an `if` condition, errexit does not fire.
+        if ! . "$f"; then
+            echo "catena-admin-runner: ignoring $f (failed to load)" >&2
+            continue
+        fi
+        declare -F catena_admin_dispatch_payload >/dev/null 2>&1 || continue
+        rc=0
+        catena_admin_dispatch_payload "$1" || rc=$?
+        if [ "$rc" -ne 127 ]; then
+            return "$rc"
+        fi
+    done
+    return 127
+}
 
 catena_admin_dispatch() {
+    local _overlay_rc
     case "$1" in
 {% for a in _catena_admin_actions_dispatch %}
         {{ a.name }})
@@ -20,6 +94,11 @@ catena_admin_dispatch() {
             ;;
 {% endfor %}
         *)
+            _overlay_rc=0
+            catena_admin_dispatch_overlay "$1" || _overlay_rc=$?
+            if [ "$_overlay_rc" -ne 127 ]; then
+                return "$_overlay_rc"
+            fi
             echo "catena-admin-runner: unknown action '$1'" >&2
             echo "Allowed: {{ _catena_admin_actions_dispatch | map(attribute='name') | join(', ') }}" >&2
             exit 1

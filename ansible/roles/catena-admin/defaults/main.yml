@@ -169,6 +169,15 @@ catena_admin_host_ssh_dir: "/etc/catena/admin-ssh"
 catena_admin_dispatcher_path: "/usr/local/sbin/catena-admin-runner"
 catena_admin_allowed_actions_path: "/etc/catena/admin-allowed.yaml"
 catena_admin_dispatch_actions_path: "/etc/catena/admin-actions"
+# Where the PAYLOAD drops dispatch arms the converge does not know about. The
+# converge creates the directory root-owned and reads nothing from it, the same
+# one-way dependency /etc/catena/post-restore.d has: the converge provides the
+# moment, the image subscribes to it.
+#
+# Base-first: the rendered case arms are tried first and win outright, so a
+# drop-in can only ADD a name. It also can never add an env var -- AcceptEnv and
+# sudoers env_keep stay converge-owned, deliberately.
+catena_admin_actions_overlay_dir: "/etc/catena/admin-actions.d"
 catena_admin_actions_yml_path: "/etc/catena/admin-actions.yml"
 catena_admin_actions_extra_yml_path: "/etc/catena/admin-actions.extra.yml"
 catena_admin_extra_tiles_path: "/etc/catena/extra-tiles.yml"

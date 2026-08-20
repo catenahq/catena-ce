@@ -88,6 +88,23 @@
     group: root
     mode: "0644"
 
+- name: "Catalog: payload dispatch overlay dir ({{ catena_admin_actions_overlay_dir }})"
+  # Created root-owned and read by nothing here. The dispatcher offers a name
+  # this converge does not carry to the drop-ins in this directory before
+  # refusing it, which is what lets an action ship with a panel image instead
+  # of waiting for the next converge.
+  #
+  # One-way, like /etc/catena/post-restore.d: the converge provides the moment,
+  # the image subscribes to it. Root-owned 0755 because the dispatcher REFUSES
+  # a drop-in that is not root-owned or is group/world-writable -- root sourcing
+  # a file anything else can write is anything else choosing what root runs.
+  ansible.builtin.file:
+    path: "{{ catena_admin_actions_overlay_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: "Catalog: dispatch table ({{ catena_admin_dispatch_actions_path }})"
   # Renders the bash case-arms from the merged catalog. The runner
   # sources this at exec time. Keeping the data separate from the
