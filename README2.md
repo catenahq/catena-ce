@@ -1,8 +1,8 @@
 # Catena-CE
 
-Catena installs a curated list of open-source, often state-of-the-art services and software to a server or VPS, making it ready to run production services. Some of the highlights include:
+Catena installs a curated list of open-source services and software to a computer or VPS, making it a suitable production environment in which to run business applications. Some of the highlights include:
 - Automated installation to a server with [Ansible](https://docs.ansible.com/)
-- Fully hardened installation with [Tailscale](https://tailscale.com/)/[Headscale](https://headscale.net) administrator access
+- Fully hardened installation with [Tailscale](https://tailscale.com/)/[Headscale](https://headscale.net)-only administrator access
 - Secure application access and DDoS protection with [Cloudflared](https://github.com/cloudflare/cloudflared)
 - Scheduled, incremental, encrypted backups with [restic](https://restic.net/)
 - Container management interface with [Portainer](https://www.portainer.io/)
