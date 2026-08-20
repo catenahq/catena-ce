@@ -75,5 +75,14 @@ def test_the_converge_asserts_the_cap_against_the_stored_value():
         "a stored expression on a DISABLED lane is not doing anything; failing "
         "the converge over it would block hosts that never turned it on")
     assert "catena_license" in conditions, "a licensed host is uncapped"
-    assert "container_updates" in str(assertion.get("vars", "")), (
-        "the assertion reads a different lane than the one it caps")
+    # Every monthly-capped lane in catena-admin payload/engines/schedule
+    # (schedule.CommunityCap == CapMonthly). A new key without an entry here is
+    # a hole in the boundary: the panel would refuse the cadence and the file
+    # the client can edit would not.
+    capped = set(assertion.get("loop", []))
+    assert capped == {"container_updates", "panel_updates"}, (
+        f"the assertion caps {sorted(capped)}; that is not the monthly-capped "
+        "lane set")
+    assert "[item]" in str(assertion.get("vars", "")), (
+        "the assertion reads a fixed lane rather than the one it is looping "
+        "over, so every iteration checks the same key")

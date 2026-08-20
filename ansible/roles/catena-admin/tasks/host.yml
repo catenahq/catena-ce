@@ -371,15 +371,22 @@
     _store: >-
       {{ (_admin_store_raw.content | default('') | b64decode | from_json)
          if (_admin_store_raw.content is defined) else {} }}
-    _lane: "{{ (_store.schedules | default({})).container_updates | default({}) }}"
+    _lane: "{{ (_store.schedules | default({}))[item] | default({}) }}"
   ansible.builtin.assert:
     that:
       - (_lane.oncalendar | default('monthly')) | community_monthly_cap
     fail_msg: >-
-      /etc/catena/config.json schedules container updates at
+      /etc/catena/config.json schedules "{{ item }}" at
       "{{ _lane.oncalendar | default('monthly') }}", which is more frequent than
       Community allows. Set a monthly-or-sparser schedule in the Catena admin
       panel, or apply a licence to this host.
+  # Every monthly-capped lane in catena-admin payload/engines/schedule
+  # (schedule.CommunityCap == CapMonthly). A new key without a matching entry
+  # here is a hole in the boundary: the panel would refuse the cadence and the
+  # file the client can edit would not.
+  loop:
+    - container_updates
+    - panel_updates
   # Only when the lane is on and this host has no licence token: a stored
   # expression on a disabled lane is doing nothing, and a licensed host is
   # uncapped.
