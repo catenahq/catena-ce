@@ -469,7 +469,32 @@
       failed_when: false
       tags: [release_manifest]
 
+    # Two writers own disjoint halves of this file. The converge owns everything
+    # about the converge; the payload owns the actions ITS dispatch drop-in adds.
+    # `copy` writes full content, so the payload's half has to be read back and
+    # carried, exactly as the marker slurp above is. Without this, every converge
+    # would erase the record of actions the host does in fact accept, and the
+    # panel would raise a converge-required banner for them -- a banner that
+    # lies, on the one surface whose whole job is to be believed.
+    - name: "Release: read the payload's half of the manifest"
+      ansible.builtin.slurp:
+        src: "{{ catena_release_manifest_path }}"
+      register: _site_release_prev
+      failed_when: false
+      tags: [release_manifest]
+
     - name: "Release: record what this converge delivered"
+      vars:
+        _prev_raw: >-
+          {{ (_site_release_prev.content | b64decode | trim)
+             if (_site_release_prev.content is defined) else '' }}
+        # Guarded rather than trusted. This file is deliberately not
+        # load-bearing -- a host with no manifest converges fine -- so a
+        # corrupt one must not be the thing that fails a converge.
+        _prev: >-
+          {{ (_prev_raw | from_json)
+             if (_prev_raw.startswith('{') and _prev_raw.endswith('}'))
+             else {} }}
       ansible.builtin.copy:
         dest: "{{ catena_release_manifest_path }}"
         owner: root
@@ -484,6 +509,7 @@
                'payload_image_id': (_site_payload_marker.content | default('') | b64decode | trim),
                'actions': (_catena_admin_actions_dispatch | default([]))
                           | map(attribute='name') | select | sort | list,
+               'payload_actions': (_prev.payload_actions | default([])),
              } | to_nice_json }}
       # `converged_at` moves on every converge, so `copy` would report this
       # changed every time -- and a converge that always reports a change is

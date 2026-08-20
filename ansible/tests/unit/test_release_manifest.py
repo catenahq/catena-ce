@@ -163,3 +163,49 @@ def test_both_version_fields_read_the_fact_this_run_actually_sets():
         )
     assert "{{ catena_version | default('unknown') }}" in stamp
     assert "'catena_ce_version': catena_version | default('unknown')" in site
+
+
+def test_the_converge_carries_the_payloads_half_forward(post_tasks, write_task):
+    """Two writers own disjoint halves. The converge owns everything about the
+    converge; the payload owns the actions ITS dispatch drop-in adds.
+
+    `copy` writes full content, so the payload's half has to be read back and
+    carried, exactly as the engine marker is. Without this, every converge would
+    erase the record of actions the host does in fact accept, and the panel would
+    raise a converge-required banner for them -- a banner that lies, on the one
+    surface whose whole job is to be believed."""
+    names = [t.get("name", "") for t in post_tasks]
+    assert any(n.startswith("Release: read the payload") for n in names), (
+        "nothing reads the previous manifest, so the converge clobbers the "
+        "payload's half"
+    )
+    slurp = next(t for t in post_tasks
+                 if t.get("name", "").startswith("Release: read the payload"))
+    assert slurp["ansible.builtin.slurp"]["src"] == "{{ catena_release_manifest_path }}"
+    # A first converge has no manifest to read, and a failed slurp must not
+    # fail the converge at its last task.
+    assert slurp.get("failed_when") is False
+    content = write_task["ansible.builtin.copy"]["content"]
+    assert "'payload_actions'" in content
+    assert "_prev.payload_actions" in content
+
+
+def test_a_corrupt_previous_manifest_does_not_fail_the_converge(write_task):
+    """This file is deliberately not load-bearing -- a host with no manifest
+    converges fine -- so a corrupt one must not become the thing that fails a
+    converge at its very last task. from_json raises on anything that is not
+    JSON, so the parse is guarded rather than trusted."""
+    guard = str(write_task.get("vars", {}))
+    assert "startswith('{')" in guard and "endswith('}')" in guard, (
+        "from_json runs unguarded on whatever the previous file held"
+    )
+
+
+def test_the_slurp_runs_before_the_write(post_tasks):
+    """Reading the previous manifest after overwriting it reads the file this
+    task just wrote, so the carried half would be the one it just dropped."""
+    names = [t.get("name", "") for t in post_tasks]
+    read = next(i for i, n in enumerate(names)
+                if n.startswith("Release: read the payload"))
+    write = next(i for i, n in enumerate(names) if n.startswith("Release: record"))
+    assert read < write, f"read at {read}, write at {write}"
