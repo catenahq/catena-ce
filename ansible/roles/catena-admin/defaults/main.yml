@@ -45,10 +45,10 @@ catena_admin_deploy_from_converge: >-
 # could repair it -- and the post-restore path that needs the panel runs
 # precisely when Portainer is the thing that did not come back.
 #
-# The service NAME is also its DNS name on catena-network, which is what
-# roles/oauth2_proxy upstreams to (upstream_alias: catena-admin). Renaming
-# it here 502s every authenticated dash.<zone> request.
-catena_admin_service_name: "catena-admin"
+# catena_admin_service_name lives in roles/common/defaults for the same reason
+# the image does: roles/payload reads it at role 5.5 to ask swarm which image
+# this service runs, and this role's defaults are not in scope that early. See
+# the block there, including why the name is load-bearing for oauth2_proxy.
 
 # Swarm secrets for the three values that must not travel in argv: the key
 # that signs native-login session cookies, the Healthchecks read key, and

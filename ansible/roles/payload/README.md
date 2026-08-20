@@ -26,15 +26,26 @@ needs -- removes the window. Every role from 6 onward can assume
 
 ## What it does
 
-1. Pulls `catena_payload_image` (default: the same tag as
-   `catena_admin_image`).
-2. Resolves the image ID and compares it with `/etc/catena/.payload-image`.
+1. Asks swarm which image the `catena-admin` service runs and installs the
+   engines from that. Falls back to `catena_payload_image` only when there is
+   no service to follow -- a first converge, or an explicit
+   `CATENA_PAYLOAD_IMAGE`.
+2. Pulls that image.
+3. Resolves the image ID and compares it with `/etc/catena/.payload-image`.
    Equal means the installed engines already came from this image and the role
    stops there -- so a re-converge changes nothing.
-3. Otherwise: `docker create` a throwaway container, `docker cp` the payload
+4. Otherwise: `docker create` a throwaway container, `docker cp` the payload
    tree out of it, remove it, restore the directory's ownership, and run the
    image's own `install-ee-payload.sh`.
-4. Writes the image ID into the marker.
+5. Writes the image ID into the marker.
+
+Step 1 is the reason the two halves cannot drift apart. The engines and the
+shell come out of one image because there is one place the version is decided:
+the service spec. `roles/catena-admin` reconciles hardening, environment and
+secrets, never the image -- so when this role resolved `max(floor, pin)`
+independently, raising the shipped floor reinstalled the engines and left the
+shell on the image it was created with. Following the spec removes the second
+input rather than adding a check against it.
 
 `install-ee-payload.sh` installs binaries, python lib modules, post-restore
 hooks and systemd units, and does NOT enable any unit. Enabling is the
@@ -73,7 +84,8 @@ instead of the working tree, which is the one thing a bench must never do.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `catena_payload_image` | `{{ catena_admin_image }}` | image the engines come from |
+| `catena_payload_image` | `{{ catena_admin_image }}` | fallback image, used only when no `catena-admin` service exists to follow |
+| `catena_admin_service_name` | `catena-admin` (roles/common) | the service whose image the engines follow |
 | `catena_payload_dir` | `/var/lib/catena/ee-payload` | extraction target (shared with the container's sync) |
 | `catena_payload_image_path` | `/usr/local/share/catena-ee` | payload tree inside the image |
 | `catena_payload_marker` | `/etc/catena/.payload-image` | image ID the installed engines came from |

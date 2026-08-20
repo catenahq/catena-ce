@@ -95,6 +95,60 @@ def test_image_defaults_to_the_catena_admin_image():
     assert "catena_admin_image" in d["catena_payload_image"]
 
 
+def test_the_engines_follow_the_running_shell():
+    """One version input per host, not two.
+
+    roles/catena-admin's drift set is hardening + environment + secrets; it
+    never reconciles the service's image. So while this role resolved
+    max(floor, pin) on its own, raising the shipped floor reinstalled the
+    engines and left the shell on the image it was created with -- new engines,
+    old shell, widening every release. Following the service spec deletes the
+    second input instead of adding a check against it.
+    """
+    flat = _flatten(_tasks())
+    inspect = flat[_index_of(flat, "what image is the catena-admin service")]
+    argv = inspect["ansible.builtin.command"]["argv"]
+    assert "service" in argv and "inspect" in argv
+    assert any("ContainerSpec.Image" in str(a) for a in argv)
+    assert inspect.get("failed_when") is False, (
+        "no such service is the normal first-converge answer, not an error")
+
+    follow = flat[_index_of(flat, "the engines follow the shell")]
+    assert (follow["ansible.builtin.set_fact"]["catena_payload_image"]
+            == "{{ _payload_service_image.stdout | trim }}")
+
+
+def test_following_the_shell_happens_before_the_image_is_resolved():
+    """Resolving the ID, gating the digest or pulling before the source is
+    settled would all act on the fallback."""
+    flat = _flatten(_tasks())
+    follow = _index_of(flat, "the engines follow the shell")
+    for later in ("pull", "resolve the image ID", "not the pinned one",
+                  "docker cp the payload tree"):
+        assert follow < _index_of(flat, later), f"{later!r} runs first"
+
+
+def test_an_explicit_image_override_still_wins():
+    """The bench points CATENA_PAYLOAD_IMAGE at the tag it built ON the VPS. A
+    service-derived value that overrode it would send the bench back to the
+    last published image, which is the one thing a bench must never exercise.
+    """
+    flat = _flatten(_tasks())
+    follow = flat[_index_of(flat, "the engines follow the shell")]
+    conds = " ".join(str(c) for c in _as_list(follow.get("when")))
+    assert "CATENA_PAYLOAD_IMAGE" in conds
+    assert "length == 0" in conds
+
+
+def test_having_no_service_to_follow_says_so_out_loud():
+    """Silence here reads as "followed the shell" on a host where nothing was
+    followed -- the same shape as the unchecked-digest skip."""
+    flat = _flatten(_tasks())
+    notice = flat[_index_of(flat, "nothing to follow")]
+    conds = " ".join(str(c) for c in _as_list(notice.get("when")))
+    assert "_payload_from_service" in conds
+
+
 def test_extraction_reads_the_image_payload_path():
     d = _defaults()
     assert d["catena_payload_image_path"] == "/usr/local/share/catena-ee"

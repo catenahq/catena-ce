@@ -10,6 +10,53 @@
   ansible.builtin.set_fact:
     catena_payload_engines_expected: "{{ catena_payload_install | bool }}"
 
+# ─── which image the engines come from ───────────────────────────────────
+# The shell's, whenever there is a shell. Asking swarm instead of resolving the
+# floor a second time is what makes drift unrepresentable rather than merely
+# detectable: "which image do the engines come from" stops being a separate
+# question from "which image does the shell come from", so the two cannot
+# answer differently.
+#
+# They could, and did. This role resolved max(floor, pin) while
+# roles/catena-admin never reconciles the service's image at all -- its drift
+# set is hardening + env + secrets -- so raising the floor reinstalled the
+# engines on the next converge and left the shell on the image it was created
+# with, silently, widening with every release.
+#
+# The spec's image carries the digest swarm resolved at create/update time, so
+# following it is byte-exact rather than tag-exact.
+- name: "Payload: what image is the catena-admin service running"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - inspect
+      - "{{ catena_admin_service_name }}"
+      - "--format={{ '{{ .Spec.TaskTemplate.ContainerSpec.Image }}' }}"
+  register: _payload_service_image
+  changed_when: false
+  # "no such service" is the normal first-converge answer, not an error: this
+  # role runs at 5.5 and roles/catena-admin creates the service at 13.
+  failed_when: false
+
+- name: "Payload: the engines follow the shell"
+  ansible.builtin.set_fact:
+    catena_payload_image: "{{ _payload_service_image.stdout | trim }}"
+    _payload_from_service: true
+  when:
+    - lookup('env', 'CATENA_PAYLOAD_IMAGE') | default('', true) | length == 0
+    - _payload_service_image.rc | default(1) == 0
+    - (_payload_service_image.stdout | default('') | trim) | length > 0
+
+- name: "Payload: nothing to follow -- using the resolved image"
+  ansible.builtin.debug:
+    msg: >-
+      The engines come from {{ catena_payload_image }}. Either this host has no
+      {{ catena_admin_service_name }} service yet -- roles/catena-admin creates
+      it later in this converge, from this same image -- or
+      CATENA_PAYLOAD_IMAGE named one explicitly.
+  when: not (_payload_from_service | default(false))
+
 - name: "Payload: install skipped -- engines are staged out of band"
   ansible.builtin.debug:
     msg: >-

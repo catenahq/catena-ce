@@ -28,6 +28,15 @@
 # CATENA_PAYLOAD_IMAGE overrides it for a host that has the image already: the
 # bench builds local/catena-admin:bench on the VPS and points this at that tag
 # to exercise the extract against the working tree instead of a published one.
+#
+# THIS IS THE FALLBACK, not the usual answer. tasks/main.yml replaces it with
+# the image the catena-admin swarm service is actually running whenever that
+# service exists, because "which image do the engines come from" and "which
+# image does the shell come from" must not be two separate questions. They were,
+# and drift was the result: the converge resolved max(floor, pin) here while
+# never reconciling the service spec, so a raised floor reinstalled the engines
+# and left the shell where it was. This value now answers only the bootstrap
+# case -- no service yet, so nothing to follow.
 catena_payload_image: >-
   {{ lookup('env', 'CATENA_PAYLOAD_IMAGE') | default(catena_admin_image, true) }}
 
@@ -51,10 +60,21 @@ catena_payload_image: >-
 #
 # CATENA_PAYLOAD_IMAGE_DIGEST still wins, and a deliberately wrong value is how
 # the fail-closed leg gets exercised.
+#
+# The floor comparison strips a trailing @sha256:, because the service-derived
+# image carries one: swarm resolves the tag at create/update time and stores
+# `repo:tag@sha256:...` in the spec. Comparing the whole string would never
+# match the floor, so every converged host would silently drop to "unchecked" --
+# a passing-looking skip, which is the exact failure this gate exists to avoid.
+# A ref that carries its own digest is already byte-addressed on extract; the
+# assertion below is what additionally ties it to the version this release of
+# catena-ce shipped against.
 catena_payload_image_digest: >-
   {{ lookup('env', 'CATENA_PAYLOAD_IMAGE_DIGEST', default='')
      | default(catena_admin_image_floor_digest
-               if catena_payload_image == catena_admin_image_floor
+               if (catena_payload_image
+                   | regex_replace('@sha256:[0-9a-f]{64}$', ''))
+                  == catena_admin_image_floor
                else '', true) }}
 
 # Where the image's payload tree is unpacked on the host. The catena-admin

@@ -112,6 +112,18 @@ catena_export_dir_mode: "0750"
 catena_container_uid: "65532"
 catena_container_gid: "65532"
 
+# ─── The catena-admin swarm service name ─────────────────────────────────
+# Declared in common for the same reason the image below is: TWO roles must
+# agree and neither can see the other's defaults. roles/catena-admin (13)
+# creates and reconciles the service; roles/payload (5.5) asks swarm what image
+# that service runs, because the engines it installs have to come out of the
+# image the shell is running rather than out of whatever the floor resolves to.
+#
+# The name is also the service's DNS name on catena-network, which is what
+# roles/oauth2_proxy upstreams to (upstream_alias: catena-admin). Renaming it
+# 502s every authenticated dash.<zone> request.
+catena_admin_service_name: "catena-admin"
+
 # ─── The catena-admin image ──────────────────────────────────────────────
 # Declared in common (which runs first) because TWO roles must agree on it and
 # neither can see the other's defaults: roles/payload (5.5) extracts the host
@@ -123,6 +135,16 @@ catena_container_gid: "65532"
 # a hardcoded fallback, and at role 5.5 the catena-admin role's defaults are
 # not in scope yet -- so the fallback is what it always used, and the two only
 # agreed because both literals were the same string.
+#
+# This is the BOOTSTRAP input, not the steady-state one. It decides which image
+# a first converge creates the service from; from then on the service's own
+# image is what roles/payload follows, so there is exactly ONE version input on
+# a host at any moment. Raising the floor therefore moves fresh installs and
+# leaves converged hosts alone -- the update lane is what moves those, and it
+# moves both halves in one transaction. Two version inputs is what made drift
+# reachable: the converge resolved max(floor, pin) for the engines while the
+# service spec, which the converge never reconciles, held the shell where it
+# was.
 #
 # PUBLIC image, pulled anonymously: every panel is compiled in and the Business
 # set is gated at RUNTIME by the licence check, so distribution gating would
@@ -141,8 +163,11 @@ catena_admin_image_floor: "ghcr.io/catenahq/catena-admin:v0.3.1"
 # role says out loud when it is extracting unchecked.
 catena_admin_image_floor_digest: "sha256:7b9519e4b0656bbfabb9ffa91cecf3a577f5c88e8a40b748afd3fd2aff555f78"
 
-# What the host actually runs: the floor, or the newer version the on-host
-# update lane recorded in /etc/catena/config.json, whichever is higher. See
+# What a converge creates the service from when there is no service yet: the
+# floor, or the newer version the on-host update lane recorded in
+# /etc/catena/config.json, whichever is higher. A restored or re-converged host
+# can hold a pin above the floor with no service running, and creating that
+# service from the floor would hand it engines it had already moved past. See
 # playbooks/filter_plugins/image_pin.py for why neither side simply wins.
 catena_admin_image: >-
   {{ catena_admin_image_floor | catena_image_pin(catena_image_pins | default({})) }}

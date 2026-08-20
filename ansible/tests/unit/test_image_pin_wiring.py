@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import jinja2
 import yaml
 
 ROLES = Path(__file__).resolve().parents[2] / "roles"
@@ -26,11 +27,12 @@ RESOLVED_ELSEWHERE = {
     # The floor itself -- the input to the resolution, not a result of it.
     "catena_admin_image_floor":
         "the floor catena_admin_image resolves against",
-    # Derives from catena_admin_image, which is already resolved. Resolving it
-    # a second time here is how a host ends up extracting engines from one
-    # image while running the shell from another.
+    # The bootstrap fallback only. On a host that has a catena-admin service,
+    # roles/payload follows the SERVICE's image instead, so the engines and the
+    # shell cannot resolve to different versions. Resolving the pin a second
+    # time here is what made them able to.
     "catena_payload_image":
-        "derives from catena_admin_image, resolved once in roles/catena-admin",
+        "bootstrap fallback; steady state follows the catena-admin service",
 }
 
 
@@ -95,6 +97,28 @@ def test_the_catena_admin_floor_is_a_version_not_a_moving_tag():
         "version, not a moving tag")
 
 
+def _render_digest(payload_image, floor, floor_digest, env_digest=""):
+    """Render the catena_payload_image_digest expression under a fake context.
+
+    Substring assertions cannot tell a correct floor comparison from one that
+    never matches, and "never matches" is the dangerous direction: it reads as
+    an unchecked extract, which looks exactly like a passing verification.
+    """
+    payload = yaml.safe_load(
+        (ROLES / "payload" / "defaults" / "main.yml").read_text())
+    env = jinja2.Environment()
+    env.filters["regex_replace"] = (
+        lambda s, find, repl: re.sub(find, repl, str(s)))
+    return env.from_string(
+        str(payload["catena_payload_image_digest"])
+    ).render(
+        lookup=lambda kind, name, default="": env_digest,
+        catena_payload_image=payload_image,
+        catena_admin_image_floor=floor,
+        catena_admin_image_floor_digest=floor_digest,
+    ).strip()
+
+
 def test_the_shipped_digest_applies_only_to_the_shipped_image():
     """An overridden image has a digest nobody wrote down -- the bench builds
     its own, and the update lane may have pinned a newer version. Asserting the
@@ -103,11 +127,34 @@ def test_the_shipped_digest_applies_only_to_the_shipped_image():
         (ROLES / "payload" / "defaults" / "main.yml").read_text())
     expr = str(payload["catena_payload_image_digest"])
     assert "catena_admin_image_floor_digest" in expr
-    assert "catena_payload_image == catena_admin_image_floor" in expr
+    assert "== catena_admin_image_floor" in expr
     common = yaml.safe_load(
         (ROLES / "common" / "defaults" / "main.yml").read_text())
     assert re.fullmatch(r"sha256:[0-9a-f]{64}",
                         str(common["catena_admin_image_floor_digest"]))
+
+    floor = "ghcr.io/catenahq/catena-admin:v0.3.1"
+    dig = "sha256:" + "ab" * 32
+    assert _render_digest("ghcr.io/catenahq/catena-admin:v0.9.9", floor, dig) == ""
+    assert _render_digest("local/catena-admin:bench", floor, dig) == ""
+    assert _render_digest("local/catena-admin:bench", floor, dig,
+                          env_digest="sha256:" + "cd" * 32) == "sha256:" + "cd" * 32
+
+
+def test_the_floor_digest_survives_the_swarm_pinned_ref():
+    """roles/payload follows the catena-admin service's image, and swarm stores
+    that as repo:tag@sha256:... -- it resolves the tag at create/update time.
+    A floor comparison against the whole string never matches, so every
+    converged host would quietly drop to an unchecked extract while the gate
+    still looked wired up."""
+    floor = "ghcr.io/catenahq/catena-admin:v0.3.1"
+    dig = "sha256:" + "ab" * 32
+    assert _render_digest(floor, floor, dig) == dig
+    assert _render_digest(f"{floor}@{dig}", floor, dig) == dig
+    assert _render_digest(f"{floor}@sha256:{'ef' * 32}", floor, dig) == dig, (
+        "the assertion must still be the SHIPPED digest, or a ref that carries "
+        "its own digest would be trusted to verify itself"
+    )
 
 
 def test_the_engines_and_the_shell_come_from_one_image():
@@ -119,6 +166,14 @@ def test_the_engines_and_the_shell_come_from_one_image():
         (ROLES / "common" / "defaults" / "main.yml").read_text())
     assert "catena_admin_image" in common
     assert "catena_admin_image_floor" in common
+    assert "catena_admin_service_name" in common, (
+        "roles/payload reads it at 5.5 to find the service whose image the "
+        "engines follow; roles/catena-admin's defaults are not in scope there")
+    admin = yaml.safe_load(
+        (ROLES / "catena-admin" / "defaults" / "main.yml").read_text())
+    assert "catena_admin_service_name" not in admin, (
+        "declared in two roles is how the halves end up agreeing only by "
+        "coincidence of spelling -- the defect the image already had")
     payload = yaml.safe_load(
         (ROLES / "payload" / "defaults" / "main.yml").read_text())
     assert "catena_admin_image" in str(payload["catena_payload_image"])
