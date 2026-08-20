@@ -13,7 +13,7 @@ Catena is exercised end-to-end by an automated rehearsal suite: each scenario pr
 
 Two numbers are reported everywhere: **rehearsed** means the scenario was last recorded PASSING on a real run, and is the only number treated as evidence; **declared** additionally counts scenarios that exist but have not been observed passing yet. A scenario is never counted for merely existing.
 
-**Coverage: 10 Community features, 81 of 87 rehearsal scenarios observed passing; 12 Catena Pro features, 43 of 44; plus 17 of 23 maintainer-internal rehearsals.**
+**Coverage: 10 Community features, 81 of 88 rehearsal scenarios observed passing; 12 Catena Pro features, 43 of 44; plus 17 of 23 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -29,7 +29,7 @@ Rehearsal scenarios (11 of 11 observed passing): `backup_rollback`, `backup_sche
 
 One account signs in to every application, with per-application access control and staff/administrator separation enforced in front of the applications, not inside each one.
 
-Implemented in: `ansible/roles/keycloak`, `ansible/roles/oauth2_proxy`, `ansible/scripts/catena-keycloak-realm-export.sh`, `ansible/scripts/clients_provisioner.py`, `ansible/scripts/dashboard-sync.py`, `ansible/scripts/gate_routes.py`, `ansible/scripts/keycloak_client.py`, `ansible/scripts/route_synth.py`
+Implemented in: `ansible/roles/keycloak`, `ansible/roles/oauth2_proxy`, `ansible/scripts/clients_provisioner.py`, `ansible/scripts/dashboard-sync.py`, `ansible/scripts/gate_routes.py`, `ansible/scripts/keycloak_client.py`, `ansible/scripts/route_synth.py`
 
 Rehearsal scenarios (10 of 10 observed passing): `fi_a1_realm_marker_collision`, `fi_a2_oidc_secret_rotation`, `fi_a3_keycloak_unreachable`, `fi_a4_master_realm_idempotent`, `fi_a5_wrong_group_assignment`, `keycloak_admin_email_loss_recovery`, `keycloak_signing_keys_rotation_round_trip`, `oauth2_proxy_cookie_rotation_round_trip`, `user_recovery_2fa_reset`, `user_recovery_kcadm_temp_password`
 
@@ -39,7 +39,7 @@ A web dashboard with role-aware access (staff see status, administrators also ge
 
 Implemented in: `ansible/roles/catena-admin`, `ansible/scripts/catena-admin-runner.sh`
 
-Rehearsal scenarios (5 of 5 observed passing): `audit_chain_tamper_evident`, `ce_admin_actions`, `ce_admin_smoke`, `quiesce_resume_round_trip`, `wizard_restore_smoke`
+Rehearsal scenarios (5 of 6 observed passing): `audit_chain_tamper_evident`, `ce_admin_actions`, `ce_admin_smoke`, `quiesce_resume_round_trip`, `wizard_restore_smoke`; declared, not yet observed passing: `admin_action_unknown_rejected`
 
 ### Installation and application deployment
 

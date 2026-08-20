@@ -118,8 +118,8 @@
       stderr (last 500 chars): {{ (_kc_export_login.stderr | default('') )[-500:] }}
       stdout (last 200 chars): {{ (_kc_export_login.stdout | default('') )[-200:] }}
       Container: {{ _kc_export_server_ct.stdout }}.
-      Skipping JSON export this converge -- the nightly
-      catena-keycloak-realm-export.timer will retry. Likely causes:
+      Skipping JSON export this converge -- the next converge retries.
+      Likely causes:
       (1) Keycloak transient on the master token endpoint,
       (2) master admin password drift between the on-box store and the
           Keycloak DB,
@@ -158,8 +158,8 @@
       WARN: kcadm.sh get realms/{{ keycloak_realm }} failed
       rc={{ _kc_export_dump.rc }}.
       stderr (last 500 chars): {{ (_kc_export_dump.stderr | default(''))[-500:] }}
-      Skipping JSON export this converge -- the nightly
-      catena-keycloak-realm-export.timer will retry. Likely causes:
+      Skipping JSON export this converge -- the next converge retries.
+      Likely causes:
       (1) realm absent because realm_bootstrap was deliberately
           skipped on a post-restore converge (the replayed DB rows
           have not yet been observed by this Keycloak container),
@@ -227,8 +227,8 @@
       The single backup will pick these up on the next snapshot.
   when: _kc_export_dump is succeeded
 
-# The nightly drift-export timer (catena-keycloak-realm-export.{sh,service,
-# timer}) that ran this export between converges is a SCHEDULED task and so
-# part of the Business managed lane, not CE. Community exports at converge
-# time only (above); a self-hoster who wants nightly drift-catch wires their
-# own timer around the same kcadm dump.
+# There is no scheduled drift-export anywhere. A nightly timer would be a
+# SCHEDULED task and so part of the Business managed lane, not CE; the Business
+# payload does not ship one either. Every edition exports at converge time only
+# (above). A self-hoster who wants nightly drift-catch wires their own timer
+# around the same kcadm dump.

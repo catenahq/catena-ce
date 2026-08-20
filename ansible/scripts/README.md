@@ -22,7 +22,6 @@ is why they sit flat in one directory rather than in a package.
 | `beszel-hc-shim.py` | Beszel -> Healthchecks alert shim. |
 | `beszel-seed.py` | Seed Beszel's permanent universal token (idempotent). |
 | `catena-admin-runner.sh` | catena-admin action dispatcher -- the ONLY thing the catena-admin runner user's ssh key is allowed to run (enforced by authorized_keys' command= stanza). |
-| `catena-keycloak-realm-export.sh` | catena Keycloak realm export (R22). |
 | `catena-network-nudge.sh` | Recover containers stranded by the catena-network overlay race after a docker.service start (boot, daemon restart, snapshot restore). |
 | `catena-public-ports.py` | Host reconciler for the declarative public-port registry. |
 | `catena-restic-key.py` | catena-restic-key -- validate or rotate the restic repository password. |
