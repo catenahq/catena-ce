@@ -59,9 +59,9 @@ mv ansible/inventory/prod/.env.example ansible/inventory/prod/.env
 
 ## Why Tailscale and Cloudflared
 
-The internet is a wild place where **security**, **trust**, and **privacy** are hard to find all at once. Companies require security as a top priority, and that means securing every entry point behind robust firewalls. Hence those choices.
-
-The alternative is to own the entry points, whihc are then directly exposed to the rest of the internet. Options include replacing Tailscale with Headscale, Cloudflare with Pangolin, or using NetBird to replace both. At the very least, those should be run on a separate VPS from the main Catena one, so that a breach of the access point is not an immediate breach of the rest of the data. That also means an additional server to manage and keep up to date.
+1. Access without a public/static IP: tunnels provide a direct access to the server regardless of whether it's being CGNAT or on an internal or public network
+2. No firewall configuration: the tunnels are created directly between the server and the tunnel access provider, bypassing routers and port forwarding
+3. DDoS and spam protection: with no open ports and no direct access through the IP address, all connections go through the tunnels and, in the case of Cloudflare, through their firewalls.
 
 ## Day 2 operations
 
