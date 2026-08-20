@@ -352,13 +352,23 @@ catena_migration_history_file: /var/lib/catena/migration.history
 # shell/panels/audit + shell/panels/daily); a drift means the shell dispatches a
 # name the host cannot resolve.
 catena_admin_ee_reserved_actions:
-  # Payload (re-)install: refreshes the shell-synced host payload (engines +
-  # lane scripts + units) from the ee-payload bind mount. The converge installs
-  # the payload unconditionally (deploy.yml); this reserved action lets the
-  # shell re-run the installer out of band after an image bump without a full
-  # converge. Must match dailyplugin ee-install-engines ActionSpec.
+  # Payload (re-)install: refreshes the host payload (engines + lane scripts +
+  # units) from the image the panel is running. The converge installs the
+  # payload unconditionally (deploy.yml); this reserved action lets the shell
+  # re-run the install out of band after an image bump without a full converge.
+  # Must match dailyplugin ee-install-engines ActionSpec.
+  #
+  # It runs the ENGINE, not the installer script under
+  # {{ catena_admin_ee_payload_dir }}. That directory is chowned to the
+  # container's uid so the shell's startup mirror can write it, so a root
+  # dispatch pointed at a script inside it made the panel -- which is built
+  # with no root and no docker socket for exactly this reason -- the thing
+  # choosing what root executes. The verb does its own docker create + docker
+  # cp out of the running image into a root-owned 0700 stage dir, so the image
+  # is the trust root and the mirror is a convenience the container keeps for
+  # itself.
   - name: ee-install-engines
-    shell: "bash {{ catena_admin_ee_payload_installer }}"
+    shell: "{{ catena_admin_stack_update_bin }} install-payload"
   # The two self-update entries used to sit here. They are Community and live
   # in the shell-read catalog now (catena_admin_ce_selfupdate_actions below):
   # a panel nobody has patched is the same shape of problem as a backup nobody

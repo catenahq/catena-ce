@@ -101,11 +101,27 @@ def test_sshd_acceptenv_lists_the_dispatch_env_vars():
 
 
 # --- unconditional host payload install -------------------------------------
-def test_ee_install_engines_points_at_payload_installer():
+def test_ee_install_engines_dispatches_the_host_verb():
     d = _defaults()
     ee = _by_name(d["catena_admin_ee_reserved_actions"])
     assert "ee-install-engines" in ee
-    assert "catena_admin_ee_payload_installer" in ee["ee-install-engines"]
+    assert "catena_admin_stack_update_bin" in ee["ee-install-engines"]
+    assert "install-payload" in ee["ee-install-engines"]
+
+
+def test_no_root_dispatch_runs_out_of_the_container_writable_mirror():
+    """{{ catena_admin_ee_payload_dir }} is chowned to the container's uid so
+    the shell's startup mirror can write it. A root dispatch pointed at a
+    script inside it makes the panel -- built with no root and no docker socket
+    for exactly this reason -- the thing choosing what root executes."""
+    d = _defaults()
+    mirror = d["catena_admin_ee_payload_dir"]
+    for group in ("catena_admin_ee_reserved_actions",
+                  "catena_admin_ce_reserved_actions"):
+        for name, shell in _by_name(d[group]).items():
+            assert "catena_admin_ee_payload_installer" not in shell, (
+                f"{name} runs the installer out of the mirror")
+            assert mirror not in shell, f"{name} reads root input from {mirror}"
 
 
 def test_deploy_no_longer_owns_the_payload_install():
