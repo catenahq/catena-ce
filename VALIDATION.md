@@ -13,7 +13,7 @@ Catena is exercised end-to-end by an automated rehearsal suite: each scenario pr
 
 Two numbers are reported everywhere: **rehearsed** means the scenario was last recorded PASSING on a real run, and is the only number treated as evidence; **declared** additionally counts scenarios that exist but have not been observed passing yet. A scenario is never counted for merely existing.
 
-**Coverage: 10 Community features, 81 of 88 rehearsal scenarios observed passing; 12 Catena Pro features, 43 of 44; plus 17 of 23 maintainer-internal rehearsals.**
+**Coverage: 10 Community features, 81 of 90 rehearsal scenarios observed passing; 12 Catena Pro features, 43 of 44; plus 17 of 23 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -39,7 +39,7 @@ A web dashboard with role-aware access (staff see status, administrators also ge
 
 Implemented in: `ansible/roles/catena-admin`, `ansible/scripts/catena-admin-runner.sh`
 
-Rehearsal scenarios (5 of 6 observed passing): `audit_chain_tamper_evident`, `ce_admin_actions`, `ce_admin_smoke`, `quiesce_resume_round_trip`, `wizard_restore_smoke`; declared, not yet observed passing: `admin_action_unknown_rejected`
+Rehearsal scenarios (5 of 7 observed passing): `audit_chain_tamper_evident`, `ce_admin_actions`, `ce_admin_smoke`, `quiesce_resume_round_trip`, `wizard_restore_smoke`; declared, not yet observed passing: `admin_action_unknown_rejected`, `payload_action_dispatches_without_converge`
 
 ### Installation and application deployment
 
@@ -47,7 +47,7 @@ Prepares a fresh server, installs the platform, and deploys the selected applica
 
 Implemented in: `ansible/catena_cli.py`, `ansible/helpers/*.py`, `ansible/playbooks/bootstrap.yml`, `ansible/playbooks/preflight.yml`, `ansible/playbooks/show_dr_keyset.yml`, `ansible/playbooks/site.yml`, `ansible/playbooks/tasks/load_onbox_config.yml`, `ansible/playbooks/uninstall.yml`, `ansible/roles/common`, `ansible/roles/docker`, `ansible/roles/host_hardening`, `ansible/roles/payload`, `ansible/roles/portainer`, `ansible/roles/postgres`, `ansible/roles/storage`, `ansible/roles/tier1_stack`, `ansible/roles/traefik`, `ansible/seed.py`
 
-Rehearsal scenarios (17 of 18 observed passing): `ce_converge`, `ce_install_suite`, `ce_uninstall`, `converge_modify`, `converge_preserves_bumped_image`, `fi_c1_docker_daemon_hang`, `fi_c3_portainer_crash_mid_deploy`, `fi_c4_registry_pull_timeout`, `fi_c6_cloudflared_flapping`, `fi_c7_coturn_cert_expired`, `fi_c8_nextcloud_init_loop`, `fi_u1_compose_lint_reject`, `mixed_template_negative_restore`, `release_manifest_converge_state`, `repair_broken_template_round_trip`, `scheduler_easyappointments`, `swarm_overlay_selfheal`; declared, not yet observed passing: `dev_to_prod_cutover_round_trip`
+Rehearsal scenarios (17 of 19 observed passing): `ce_converge`, `ce_install_suite`, `ce_uninstall`, `converge_modify`, `converge_preserves_bumped_image`, `fi_c1_docker_daemon_hang`, `fi_c3_portainer_crash_mid_deploy`, `fi_c4_registry_pull_timeout`, `fi_c6_cloudflared_flapping`, `fi_c7_coturn_cert_expired`, `fi_c8_nextcloud_init_loop`, `fi_u1_compose_lint_reject`, `mixed_template_negative_restore`, `release_manifest_converge_state`, `repair_broken_template_round_trip`, `scheduler_easyappointments`, `swarm_overlay_selfheal`; declared, not yet observed passing: `dev_to_prod_cutover_round_trip`, `payload_prune_respects_ce`
 
 ### Application catalog and suite integrations
 
