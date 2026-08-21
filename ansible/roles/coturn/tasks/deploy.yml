@@ -228,18 +228,21 @@
 # comparing). It also reconciles the placement constraint, which the
 # hand-rolled image-only drift check never did.
 
-- name: "coturn: SIGHUP on config / cert change (graceful reload)"
-  # Coturn re-reads cert + config on SIGHUP without dropping calls in
-  # progress. The deploy hook on the certbot timer (cert.yml) does the
-  # same thing post-renewal; this branch handles config changes from
-  # converge time (e.g. operator bumped coturn_min_relay_port).
-  ansible.builtin.shell: |
-    set -o pipefail
-    for ct in $(docker ps --filter "name=coturn" --format '{{ "{{" }}.Names{{ "}}" }}'); do
-      docker kill --signal=HUP "$ct" || true
-    done
-  args:
-    executable: /bin/bash
+- name: "coturn: roll the task on config change (the listener set can differ)"
+  # A rendered-config change can move the listener set: `dtls` binds the UDP
+  # half of tls-listening-port, min-port/max-port move the relay window. On
+  # SIGHUP coturn re-reads its certificates and keeps the sockets it already
+  # opened, so none of that takes -- the port stays open in ufw with nothing
+  # behind it, which is the shape validate.yml fails on. Rolling the task is
+  # what applies it. Certificate renewal is the case SIGHUP does cover, and
+  # the certbot deploy hook in cert.yml is what sends it.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - update
+      - --force
+      - "{{ coturn_compose_name }}"
   when:
     - _coturn_service.rc == 0
     - _coturn_conf.changed

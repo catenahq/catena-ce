@@ -39,18 +39,23 @@ bps-capacity={{ coturn_bps_capacity }}
 {% endif %}
 stale-nonce={{ coturn_stale_nonce }}
 
-# ── TLS (TURN/TLS on tls-listening-port) ───────────────────────────
+# ── TLS (TURN/TLS + DTLS on tls-listening-port) ────────────────────
 cert={{ coturn_container_cert_path }}
 pkey={{ coturn_container_key_path }}
+
+# DTLS client listeners are opt-in: without this directive coturn binds
+# tls-listening-port on TCP only, and the udp/{{ coturn_tls_port }} entry the
+# public-port registry fragment declares ("TLS-TURN (UDP)") has nothing
+# behind it. roles/coturn/tasks/validate.yml asserts that listener.
+dtls
 
 # Lock to AEAD ciphers only. TLS 1.3 negotiates first when both
 # peers support it; TLS 1.2 stays available for older browsers /
 # legacy mobile WebRTC stacks but only with these GCM suites.
 # CBC ciphers (AES-CBC, 3DES) are refused, which closes BEAST /
 # Lucky13 / padding-oracle class issues without needing to disable
-# TLS 1.2 wholesale. TLS 1.0/1.1 are already default-off in coturn
-# 4.7.0+ so the previous no-tlsv1 / no-tlsv1_1 directives are
-# redundant on the pinned 4.10.0-alpine image.
+# TLS 1.2 wholesale. TLS 1.0/1.1 are default-off in coturn 4.7.0+,
+# so no-tlsv1 / no-tlsv1_1 would be redundant here.
 cipher-list="ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256"
 
 # ── Hardening ──────────────────────────────────────────────────────
@@ -89,15 +94,16 @@ denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
 denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
 
 # CVE-2026-27624 defense in depth: IPv4-mapped IPv6 bypass of the
-# above IPv4 denies. The image is already on 4.10.0 (patched), this
-# is belt-and-braces in case of a future downgrade or unpatched fork.
+# above IPv4 denies. The pinned image carries the fix; this is
+# belt-and-braces against a downgrade or an unpatched fork.
 denied-peer-ip=::ffff:0.0.0.0-::ffff:255.255.255.255
 
+# Loopback peers are refused unless --allow-loopback-peers is given, and
+# the 127.0.0.0/8 + ::1 denies above cover the same ground explicitly.
 no-multicast-peers
-no-loopback-peers
 
-# Disable CLI on telnet -- not needed and an extra attack surface.
-no-cli
+# The telnet CLI is an extra attack surface and stays off. It is opt-in
+# via --cli, so there is no directive to write here.
 
 # Logs go to stderr -> docker logs -> journald. simple-log drops
 # ANSI colour codes so journalctl + fail2ban regexes parse the
