@@ -158,3 +158,9 @@ smtp_from: >-
   }}
 smtp_use_tls: true
 smtp_use_starttls: true
+
+# The catena-admin panel's realm service account (users + groups). The panel
+# reads the id from its own env default, so this is the converge's copy of a
+# product constant and the two must agree -- ops automation/audit/panel_env.py
+# gates exactly that class of duplication.
+catena_admin_panel_client_id: "catena-admin-panel"

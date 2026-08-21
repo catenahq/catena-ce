@@ -115,6 +115,24 @@
     mode: "0644"
   when: dashboard_sync_client_secret | default('') | length > 0
 
+# The panel's own service account: users, groups and memberships. Same shape,
+# same gate, DIFFERENT roles -- dashboard-sync manages clients, this manages
+# people, and one credential holding both would let a leak that was supposed to
+# add a user rewrite what an application trusts instead.
+#
+# The converge owns this client, its secret and the roles it may use. It does
+# NOT own the users and groups the panel then manages with it: those change when
+# the client hires somebody, not when the product ships, so they are client-owned
+# and the panel is their single writer.
+- name: "Keycloak realm: render catena-admin panel service-account client"
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../roles/keycloak/templates/realm-admin-panel.yaml.j2"
+    dest: "{{ keycloak_realm_host_dir }}/admin-panel.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  when: catena_admin_panel_client_secret | default('') | length > 0
+
 # In-container /health/ready re-probe immediately before the import.
 # tasks/validate.yml's probe is run AFTER this file (see main.yml
 # order); we duplicate the probe here so realm-bootstrap is safe to

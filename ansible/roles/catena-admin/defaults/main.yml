@@ -68,6 +68,12 @@ catena_admin_secret_specs:
   - base: catena_admin_portainer_key
     target: PORTAINER_API_KEY
     value: "{{ portainer_api_key | default('') }}"
+  # The realm service account behind the People panel. Absent on a host whose
+  # converge predates it, which the panel renders as "no directory credential
+  # yet" rather than as an error -- an empty secret is a state, not a fault.
+  - base: catena_admin_keycloak_secret
+    target: KEYCLOAK_ADMIN_CLIENT_SECRET
+    value: "{{ catena_admin_panel_client_secret | default('') }}"
 
 # Supplementary group. The recovery export dir is 0750 root:1000 (gid 1000
 # is the shared recovery-downloads group) and the image runs USER nonroot,

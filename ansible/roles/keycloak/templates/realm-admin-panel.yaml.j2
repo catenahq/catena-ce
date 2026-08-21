@@ -1,0 +1,72 @@
+# {{ ansible_managed }}
+# Service-account client the catena-admin PANEL uses to manage this realm's
+# people: users, groups and memberships.
+#
+# WHY THE PANEL AND NOT THE CONVERGE. A client's user list does not change when
+# the product version changes -- it changes when the client hires somebody -- so
+# by the ownership test that governs this repo it is CLIENT-owned data, and the
+# converge must never reconcile it. What the converge owns here is the
+# CAPABILITY: this client, its secret, and the roles it may use. It writes the
+# door, never who walks through it.
+#
+# Scope: a confidential client with serviceAccountsEnabled and three
+# realm-management roles.
+#
+#   manage-users   create, update, disable and delete realm users, reset a
+#                  password, and change group membership.
+#   view-users     read the user and group lists the panel renders.
+#   query-groups   list groups without needing view-realm, which would also
+#                  hand this credential the realm's whole configuration.
+#
+# What it deliberately does NOT get:
+#
+#   manage-clients   dashboard-sync holds that, for the redirect URIs. Handing
+#                    it here as well would let a leaked panel credential
+#                    rewrite an app's OIDC registration -- which is a way to
+#                    take over a login, not merely to manage a person.
+#   manage-realm     the realm's own configuration (token lifespans, flows,
+#                    federation) is product shape, and the converge's.
+#   view-realm       broader than query-groups and needed for nothing here.
+#
+# So a leaked host token can add and remove PEOPLE, which is the panel's job
+# and is fully visible in the audit trail, and cannot change what an
+# application trusts.
+#
+# Lives in the same /config dir as realm-vps.yaml so keycloak-config-cli's
+# IMPORT_FILES_LOCATIONS=/config/*.yaml glob picks it up. NO_DELETE merge
+# (set in realm_bootstrap.yml) preserves the base realm + other clients.
+
+realm: {{ keycloak_realm }}
+
+clients:
+  - clientId: "{{ catena_admin_panel_client_id }}"
+    name: "catena-admin panel"
+    description: "The admin panel's people-and-groups management (manage-users, view-users, query-groups)."
+    enabled: true
+    publicClient: false
+    standardFlowEnabled: false
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: true
+    secret: "{{ catena_admin_panel_client_secret }}"
+    attributes:
+      # Ten minutes, matching dashboard-sync. The panel refreshes on a margin
+      # rather than on expiry, so a token that is valid when a request is built
+      # and expired when Keycloak reads it never reaches the operator as a 401
+      # in the middle of a group change.
+      access.token.lifespan: "600"
+
+# Same kc-config-cli pattern as realm-dashboard-sync.yaml.j2: the schema does
+# not recognise serviceAccountClientRoles on ClientRepresentation, so the
+# service-account user is declared explicitly and its clientRoles pinned via
+# serviceAccountClientId. Keycloak auto-creates the user when
+# serviceAccountsEnabled flips true above; this entry decorates it.
+users:
+  - username: "service-account-{{ catena_admin_panel_client_id }}"
+    enabled: true
+    serviceAccountClientId: "{{ catena_admin_panel_client_id }}"
+    clientRoles:
+      realm-management:
+        - manage-users
+        - view-users
+        - query-groups

@@ -140,6 +140,11 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     "oauth2_proxy_cookie_secret": mint_oauth2_proxy_cookie_secret,
     "oauth2_proxy_client_secret": mint_strong_password,
     "dashboard_sync_client_secret": mint_strong_password,
+    # The admin panel's own realm service account: users, groups and
+    # memberships. Separate from dashboard_sync_client_secret because the
+    # two hold DIFFERENT realm-management roles -- one manages clients, the
+    # other manages people -- and sharing a secret would collapse that.
+    "catena_admin_panel_client_secret": mint_strong_password,
     "nextcloud_oidc_client_secret": mint_strong_password,
     "element_oidc_client_secret": mint_strong_password,
     "mailserver_oidc_client_secret": mint_strong_password,

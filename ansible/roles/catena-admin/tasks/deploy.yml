@@ -115,6 +115,23 @@
           http://{{ portainer_service_name }}:{{ portainer_ui_port }}/api
         KEYCLOAK_HOSTNAME: "{{ keycloak_hostname }}"
         KEYCLOAK_REALM: "{{ keycloak_realm }}"
+        # The Admin REST base is the CLUSTER-internal address, not the public
+        # auth.<zone> hostname above: the panel talks to Keycloak over the
+        # catena network, and routing realm administration through the public
+        # edge would put it behind the SSO it is administering.
+        KEYCLOAK_ADMIN_BASE: "http://keycloak:{{ keycloak_internal_port }}"
+        # The one product constant deliberately still passed from here.
+        #
+        # It is UNAVOIDABLE duplication rather than the accidental kind: only
+        # the converge can CREATE the realm client (realm-admin-panel.yaml.j2),
+        # and only the image knows what it authenticates AS. Two artifacts must
+        # name the same string and neither can be deleted.
+        #
+        # So it is passed to make the pair checkable. ops
+        # automation/audit/panel_env.py fails when a name the converge sets
+        # disagrees with the image's own default, which turns a silent
+        # permanent 401 on the People panel into a CI failure.
+        KEYCLOAK_ADMIN_CLIENT_ID: "{{ catena_admin_panel_client_id }}"
         INFRA_GATUS_HOSTNAME: "{{ infrastructure_gatus_hostname }}"
         INFRA_HEARTBEAT_HOSTNAME: "{{ healthchecks_hostname }}"
         INFRA_BESZEL_HOSTNAME: "{{ beszel_hostname }}"
