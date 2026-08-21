@@ -80,9 +80,25 @@
       group: "{{ catena_admin_supplementary_gid }}"
       secrets: "{{ _ca_secrets }}"
       hardening: "{{ catena_admin_desired | swarm_service_create_args }}"
+      # ONLY values whose correct answer changes when the HOST changes.
+      #
+      # A product constant passed from here is a second copy of something the
+      # image already knows, and the copy the image keeps then goes unexercised.
+      # Seven of these were exactly that -- the Gatus and Healthchecks service
+      # names and ports, and the three ADMIN_SSH_* values -- and one of the
+      # image's unexercised copies had rotted: it defaulted GATUS_INTERNAL_PORT
+      # to 80 while this file, the compose and the healthcheck all said 8080.
+      # They are gone; the image owns them, which means the image is the thing
+      # that has to be right about them.
+      #
+      # catena_admin_env_drift emits --env-rm for keys the live service has and
+      # this dict does not, so removing a name here removes it from the running
+      # panel rather than leaving the old value behind.
       env:
         # :8000 to match the oauth2-proxy upstream and the dash.<zone> route;
-        # the image default is :8080.
+        # the image default is :8080. Still passed, because moving it means
+        # moving the Dockerfile ENV, the EXPOSE and the published port mapping
+        # together -- declared in ops automation/audit/panel_env.yml until then.
         CATENA_ADMIN_ADDR: ":{{ catena_admin_internal_port }}"
         CATENA_ADMIN_DIRECT_ADDR: ":{{ catena_admin_direct_port }}"
         CATENA_ADMIN_LOCAL_USER: "{{ admin_email }}"
@@ -92,6 +108,9 @@
         # The domain this server serves, compared against the domain a
         # licence token names so one key cannot unlock two servers.
         CLOUDFLARE_PRIMARY_ZONE: "{{ cloudflare_zone | default('') }}"
+        # The PORT is a host fact -- portainer_ui_port is .env-overridable --
+        # so this one stays even though the service name and the /api suffix
+        # are the image's.
         PORTAINER_API_BASE: >-
           http://{{ portainer_service_name }}:{{ portainer_ui_port }}/api
         KEYCLOAK_HOSTNAME: "{{ keycloak_hostname }}"
@@ -99,13 +118,6 @@
         INFRA_GATUS_HOSTNAME: "{{ infrastructure_gatus_hostname }}"
         INFRA_HEARTBEAT_HOSTNAME: "{{ healthchecks_hostname }}"
         INFRA_BESZEL_HOSTNAME: "{{ beszel_hostname }}"
-        GATUS_COMPOSE_NAME: "{{ gatus_compose_name }}"
-        GATUS_INTERNAL_PORT: "{{ gatus_internal_port }}"
-        HEALTHCHECKS_COMPOSE_NAME: "{{ healthchecks_compose_name }}"
-        HEALTHCHECKS_INTERNAL_PORT: "{{ healthchecks_internal_port }}"
-        ADMIN_SSH_HOST: "host.docker.internal"
-        ADMIN_SSH_USER: "{{ catena_admin_runner_user }}"
-        ADMIN_SSH_KEY_PATH: "{{ catena_admin_host_ssh_dir }}/id_ed25519"
   when: catena_admin_deploy_from_converge | bool
 
 - name: "Catena-admin: check the swarm service exists"
