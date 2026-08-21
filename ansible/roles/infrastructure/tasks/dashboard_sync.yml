@@ -31,28 +31,19 @@
     mode: "0600"
   no_log: true
 
-- name: "dashboard-sync: the reconciler is on this host"
-  # The payload installs it. Asserted rather than assumed, because everything
-  # below enables a timer that runs it: without this the failure is a timer
-  # firing every five minutes at a path that does not exist, which shows up as
-  # apps silently losing their routes rather than as a converge failure.
-  ansible.builtin.stat:
-    path: "{{ dashboard_sync_script_path }}"
-  register: _dashboard_sync_bin
+# Whether a missing payload file is a defect depends on whether THIS converge
+# was the one that had to put it there. roles/common/tasks/_payload_expected.yml
+# is the one place that decision is made; the two legs below are the part that
+# is this role's -- a deferral that does not name what is deferred and when it
+# converges reads exactly like a silent skip.
+- name: "dashboard-sync: is the reconciler expected on this host"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _payload_expected
+  vars:
+    _payload_paths:
+      - "{{ dashboard_sync_script_path }}"
 
-# Same two-legged shape as roles/cloudflare_tunnel and roles/backup: whether a
-# missing payload file is a defect depends on whether THIS converge was the one
-# that had to put it there.
-#
-# roles/payload publishes catena_payload_engines_expected. True (production) and
-# the binary is still absent five roles later means the extract did not land,
-# and enabling a timer at a path that does not exist would surface as apps
-# silently losing their routes rather than as a failed converge -- so it is a
-# hard stop. False means the operator told this converge something else owns
-# /usr/local/bin/catena-*, and the converge asserting on another manager's
-# property is the two-managers mistake in miniature. The bench is exactly that
-# case: it cannot install the payload before the first converge, because the
-# image it extracts from is built with the docker this converge installs.
 - name: "dashboard-sync: the reconciler is missing from a converge that installs it"
   ansible.builtin.fail:
     msg: >-
@@ -62,8 +53,8 @@
       above. Enabling the timer anyway would leave every client app's Traefik
       route and oauth2-proxy unreconciled, with nothing failing.
   when:
-    - not (_dashboard_sync_bin.stat.exists | default(false))
-    - catena_payload_engines_expected | default(false) | bool
+    - catena_payload_missing | length > 0
+    - catena_payload_expected | bool
 
 - name: "dashboard-sync: reconciler staged out of band and not present -- wiring deferred"
   ansible.builtin.debug:
@@ -73,8 +64,14 @@
       routes are not reconciled yet; both happen on the next converge, once
       whatever owns the engines has staged them.
   when:
-    - not (_dashboard_sync_bin.stat.exists | default(false))
-    - not (catena_payload_engines_expected | default(false) | bool)
+    - catena_payload_missing | length > 0
+    - not (catena_payload_expected | bool)
+
+# The decision facts are overwritten by the next _payload_expected include, so
+# pin the one thing everything below needs while it is still this role's answer.
+- name: "dashboard-sync: pin whether the reconciler is here"
+  ansible.builtin.set_fact:
+    _dashboard_sync_present: "{{ catena_payload_missing | length == 0 }}"
 
 # Everything below RUNS the reconciler, so all of it is gated on the reconciler
 # existing. A .timer whose .service is absent is not merely inert: systemd
@@ -91,7 +88,7 @@
     group: root
     mode: "0644"
   register: _dashboard_sync_timer_unit
-  when: _dashboard_sync_bin.stat.exists | default(false)
+  when: _dashboard_sync_present | default(false)
 
 - name: "dashboard-sync: daemon-reload if the timer changed"
   ansible.builtin.systemd_service:
@@ -111,11 +108,11 @@
     name: "{{ dashboard_sync_unit }}.timer"
     enabled: true
     state: started
-  when: _dashboard_sync_bin.stat.exists | default(false)
+  when: _dashboard_sync_present | default(false)
 
 - name: "dashboard-sync: run once now (sync gate routes)"
   ansible.builtin.systemd:
     name: "{{ dashboard_sync_unit }}.service"
     state: started
   changed_when: false
-  when: _dashboard_sync_bin.stat.exists | default(false)
+  when: _dashboard_sync_present | default(false)

@@ -38,8 +38,11 @@ import yaml
 ANSIBLE = Path(__file__).resolve().parents[2]
 INSTALL = ANSIBLE / "roles" / "backup" / "tasks" / "install.yml"
 VALIDATE = ANSIBLE / "roles" / "backup" / "tasks" / "validate.yml"
+# The "is the payload expected here" decision all five callers now share.
+SHARED = ANSIBLE / "roles" / "common" / "tasks" / "_payload_expected.yml"
 
-EXPECTED = "catena_payload_engines_expected"
+EXPECTED = "catena_payload_expected"
+MISSING = "catena_payload_missing"
 
 # Every backup script that now arrives with the image payload rather than from
 # this role. catena-disk-preflight is deliberately absent: restore.yml calls it
@@ -78,7 +81,7 @@ def test_a_converge_that_owns_the_payload_fails_on_a_missing_wrapper():
         "the hard failure is not gated on this converge owning the payload, so "
         "it fires on every out-of-band host too"
     )
-    assert "not (_backup_wrapper_stat.stat.exists" in cond
+    assert MISSING in cond
 
 
 def test_a_host_with_an_out_of_band_payload_defers_instead():
@@ -89,7 +92,7 @@ def test_a_host_with_an_out_of_band_payload_defers_instead():
     )
     cond = _when(task)
     assert f"not ({EXPECTED}" in cond
-    assert "not (_backup_wrapper_stat.stat.exists" in cond
+    assert MISSING in cond
 
 
 def test_the_two_branches_are_mutually_exclusive():
@@ -106,7 +109,7 @@ def test_the_inline_first_snapshot_needs_the_wrapper():
     wrapper fails the converge at the unit rather than at the guard above."""
     task = _find("Run first backup inline")
     cond = _when(task)
-    assert "_backup_wrapper_stat.stat.exists" in cond, (
+    assert "_backup_wrapper_present" in cond, (
         "the inline snapshot does not check for the wrapper; on a host whose "
         "payload lands after this role it starts a unit whose ExecStart does "
         "not exist"
@@ -139,21 +142,45 @@ def test_validate_still_asserts_the_payload_scripts_once_any_is_present():
     here". `some` rather than `all` is the point: a host holding three of four
     is a broken payload install, and requiring all four would make that case
     indistinguishable from the not-yet case and skip the only check that would
-    have caught it."""
-    task = _find("decide whether the payload scripts are expected", VALIDATE)
-    expr = str(task["ansible.builtin.set_fact"]["_bk_payload_expected"])
+    have caught it.
+
+    The decision moved into roles/common/tasks/_payload_expected.yml, which is
+    where the other four callers now get it too -- it started here, and the
+    property is asserted where it lives rather than restated at each caller."""
+    shared = _find("payload-expected: decide", SHARED)
+    expr = str(shared["ansible.builtin.set_fact"]["catena_payload_expected"])
     assert "CATENA_PAYLOAD_INSTALL" in expr
-    assert "selectattr('stat.exists')" in expr
-    assert "> 0" in expr, (
-        "the presence half of the gate requires ALL scripts, so a partial "
+    assert "catena_payload_engines_expected" in expr, (
+        "a converge must prefer roles/payload's fact; falling straight to the "
+        "env var would answer for the play rather than for this converge"
+    )
+    assert "catena_payload_present | length > 0" in expr, (
+        "the presence half of the gate requires ALL paths, so a partial "
         "payload install is skipped instead of caught"
     )
+
+    passed = _find("are the payload scripts expected here", VALIDATE)
+    assert passed["vars"]["_payload_paths"] == [
+        "{{ backup_wrapper_script }}",
+        "{{ backup_coverage_script }}",
+        "{{ backup_restic_env_script }}",
+        "{{ backup_snapshot_list_script }}",
+    ], "all four, or the partial-install case cannot be seen"
 
     assertion = _find("payload-shipped scripts installed + executable", VALIDATE)
     assert "_bk_payload_expected" in str(assertion["when"])
     that = str(assertion["ansible.builtin.assert"]["that"])
     assert "item.stat.exists" in that
     assert "0755" in that
+
+
+def test_the_partial_install_case_is_named_by_the_shared_predicate():
+    """`catena_payload_partial` exists so a caller can say "three of four" out
+    loud rather than reporting a broken install as a host mid-assembly."""
+    shared = _find("payload-expected: decide", SHARED)
+    expr = str(shared["ansible.builtin.set_fact"]["catena_payload_partial"])
+    assert "catena_payload_present | length > 0" in expr
+    assert "catena_payload_missing | length > 0" in expr
 
 
 def test_validate_gates_the_restic_reachability_probe_on_the_entrypoint():

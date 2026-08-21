@@ -21,20 +21,22 @@
 # reconciler lands AFTER a converge, and a validate in between would be
 # asserting on a host that is legitimately mid-assembly.
 #
-# Same split, and the same "or it is already here" leg, as
-# roles/backup/tasks/validate.yml. The env var rather than
-# catena_payload_engines_expected: validate.yml is a standalone play, so
-# roles/payload's set_fact is not in scope.
-- name: "validate/infrastructure: stat the payload-shipped reconciler"
-  ansible.builtin.stat:
-    path: "{{ dashboard_sync_script_path }}"
-  register: _infra_dashboard_sync
+# roles/common/tasks/_payload_expected.yml makes the decision. It prefers
+# roles/payload's fact and falls back to the env var, which is what a standalone
+# validate play needs: the set_fact belongs to a role that is not in this play,
+# so reading it here would evaluate undefined on every run.
+- name: "validate/infrastructure: is the payload expected here"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _payload_expected
+  vars:
+    _payload_paths:
+      - "{{ dashboard_sync_script_path }}"
 
-- name: "validate/infrastructure: decide whether the payload is expected here"
+- name: "validate/infrastructure: pin the payload decision"
   ansible.builtin.set_fact:
-    _infra_payload_expected: >-
-      {{ (lookup('env', 'CATENA_PAYLOAD_INSTALL', default='true') | bool)
-         or (_infra_dashboard_sync.stat.exists | default(false)) }}
+    _infra_payload_expected: "{{ catena_payload_expected | bool }}"
+    _infra_reconciler_present: "{{ catena_payload_missing | length == 0 }}"
 
 - name: "validate/infrastructure: payload not installed yet -- reconciler checks deferred"
   ansible.builtin.debug:
@@ -45,6 +47,12 @@
       its timer is wired by the converge that follows. Everything this role
       owns is asserted below regardless.
   when: not (_infra_payload_expected | bool)
+
+- name: "validate/infrastructure: stat the payload-shipped reconciler"
+  ansible.builtin.stat:
+    path: "{{ dashboard_sync_script_path }}"
+  register: _infra_dashboard_sync
+  when: _infra_payload_expected | bool
 
 - name: "validate/infrastructure: the payload-shipped reconciler is installed"
   ansible.builtin.assert:

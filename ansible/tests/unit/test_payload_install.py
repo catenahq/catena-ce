@@ -231,8 +231,8 @@ def test_cloudflare_tunnel_fails_hard_when_the_converge_owns_the_engines():
     fail = [t for t in tasks if "ansible.builtin.fail" in t]
     assert fail, "no hard stop for a missing engine"
     cond = " ".join(str(c) for c in fail[0]["when"])
-    assert "catena_payload_engines_expected" in cond
-    assert "_cf_sync_bin" in cond
+    assert "catena_payload_expected" in cond
+    assert "catena_payload_missing" in cond
 
 
 def test_cloudflare_tunnel_still_defers_when_engines_are_staged_out_of_band():
@@ -242,7 +242,7 @@ def test_cloudflare_tunnel_still_defers_when_engines_are_staged_out_of_band():
     ]
     assert deferred, "the out-of-band staging path lost its deferral"
     cond = " ".join(str(c) for c in deferred[0]["when"])
-    assert "not (catena_payload_engines_expected" in cond
+    assert "not (catena_payload_expected" in cond
 
 
 # --- digest gate ------------------------------------------------------------

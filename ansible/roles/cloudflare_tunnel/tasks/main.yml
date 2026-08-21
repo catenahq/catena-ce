@@ -58,10 +58,13 @@
 # legitimate: roles/payload publishes catena_payload_engines_expected=false and
 # the tunnel defers to the next converge, exactly as before. This is ORTHOGONAL
 # to the invalid-token abort below -- a missing engine is not a bad token.
-- name: "CF: stat the cloudflared-sync engine"
-  ansible.builtin.stat:
-    path: "{{ cloudflared_sync_bin }}"
-  register: _cf_sync_bin
+- name: "CF: is the tunnel engine expected on this host"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _payload_expected
+  vars:
+    _payload_paths:
+      - "{{ cloudflared_sync_bin }}"
 
 - name: "CF: the tunnel engine is missing from a converge that installs it"
   ansible.builtin.fail:
@@ -73,8 +76,8 @@
       {{ catena_payload_image | default('the catena-admin image') }} did not
       land.
   when:
-    - not (_cf_sync_bin.stat.exists | default(false))
-    - catena_payload_engines_expected | default(false) | bool
+    - catena_payload_missing | length > 0
+    - catena_payload_expected | bool
 
 - name: "CF: engine staged out of band and not present -- tunnel deferred"
   ansible.builtin.debug:
@@ -84,8 +87,13 @@
       converge on the next run, or when catena-admin dispatches
       cloudflared-sync after the client saves a token.
   when:
-    - not (_cf_sync_bin.stat.exists | default(false))
-    - not (catena_payload_engines_expected | default(false) | bool)
+    - catena_payload_missing | length > 0
+    - not (catena_payload_expected | bool)
+
+# Pinned before the next _payload_expected include overwrites the decision.
+- name: "CF: pin whether the tunnel engine is here"
+  ansible.builtin.set_fact:
+    _cf_sync_present: "{{ catena_payload_missing | length == 0 }}"
 
 # Bring the tunnel to desired state on the host. Runs on the VPS (the engine
 # drives docker + the https chain probe locally). The token is NOT passed here
@@ -127,7 +135,7 @@
   # emits no ansible-parsable changed signal, so report unchanged: a re-converge
   # must not trip the bench changed=0 idempotency gate on this single command.
   changed_when: false
-  when: _cf_sync_bin.stat.exists | default(false)
+  when: _cf_sync_present | default(false)
 
 - name: "CF: engine summary"
   # Either "cloudflared-sync: ok tunnel=... zones=N" or
@@ -139,4 +147,4 @@
 
       DO NOT enable Let's Encrypt / HTTPS on Traefik -- Cloudflare terminates
       TLS at the edge and LE conflicts with the tunnel.
-  when: _cf_sync_bin.stat.exists | default(false)
+  when: _cf_sync_present | default(false)

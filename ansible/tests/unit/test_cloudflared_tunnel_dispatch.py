@@ -113,8 +113,18 @@ def test_sync_gated_on_the_binary_only():
     task = _find("converge the tunnel via catena-cloudflared-sync")
     when = task["when"]
     cond = " ".join(when) if isinstance(when, list) else str(when)
-    assert "_cf_sync_bin.stat.exists" in cond
+    assert "_cf_sync_present" in cond
     assert "token" not in cond
+
+
+def test_the_decision_comes_from_the_shared_predicate():
+    """One include, one answer. This role and roles/backup used to read the
+    fact while the validate side read the env var, and only the validate side
+    accepted "or it is already here" -- so this side could not tell NOT YET
+    from PARTIALLY INSTALLED."""
+    task = _find("is the tunnel engine expected on this host")
+    assert task["ansible.builtin.include_role"]["tasks_from"] == "_payload_expected"
+    assert task["vars"]["_payload_paths"] == ["{{ cloudflared_sync_bin }}"]
 
 
 def test_a_missing_engine_fails_a_converge_that_installs_it():
@@ -124,14 +134,21 @@ def test_a_missing_engine_fails_a_converge_that_installs_it():
     task = _find("engine is missing from a converge that installs it")
     assert "ansible.builtin.fail" in task
     cond = " ".join(str(c) for c in task["when"])
-    assert "catena_payload_engines_expected" in cond
-    assert "_cf_sync_bin.stat.exists" in cond
+    assert "catena_payload_expected" in cond
+    assert "catena_payload_missing" in cond
 
 
 def test_a_host_with_out_of_band_engines_still_defers():
     task = _find("engine staged out of band")
     cond = " ".join(str(c) for c in task["when"])
-    assert "not (catena_payload_engines_expected" in cond
+    assert "not (catena_payload_expected" in cond
+
+
+def test_the_decision_is_pinned_before_the_next_include_overwrites_it():
+    """_payload_expected sets play-level facts; roles/backup includes it again
+    later in the same play. Reading them after that would answer for backup."""
+    pinned = _find("pin whether the tunnel engine is here")
+    assert "_cf_sync_present" in pinned["ansible.builtin.set_fact"]
 
 
 def test_sync_reports_unchanged_for_idempotency_gate():

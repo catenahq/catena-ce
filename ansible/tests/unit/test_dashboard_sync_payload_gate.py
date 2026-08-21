@@ -32,9 +32,11 @@ _ROLE = (
 TASKS = _ROLE / "tasks" / "dashboard_sync.yml"
 VALIDATE = _ROLE / "tasks" / "validate.yml"
 
-_EXPECTED = "catena_payload_engines_expected"
-_STAT = "_dashboard_sync_bin.stat.exists"
+_EXPECTED = "catena_payload_expected"
+_MISSING = "catena_payload_missing"
+_STAT = "_dashboard_sync_present"
 _V_EXPECTED = "_infra_payload_expected"
+_SHARED = "_payload_expected"
 
 
 def _tasks() -> list[dict]:
@@ -66,10 +68,12 @@ def _cond(task: dict) -> str:
     return " ".join(str(c) for c in when) if isinstance(when, list) else str(when)
 
 
-def test_the_reconciler_is_stat_ed_before_anything_uses_it():
-    task = _find("the reconciler is on this host")
-    assert task["ansible.builtin.stat"]["path"] == "{{ dashboard_sync_script_path }}"
-    assert task["register"] == "_dashboard_sync_bin"
+def test_the_decision_comes_from_the_shared_predicate():
+    """Five sites asked this and two answered it differently. One include, one
+    answer -- roles/common/tasks/_payload_expected.yml."""
+    task = _find("is the reconciler expected on this host")
+    assert task["ansible.builtin.include_role"]["tasks_from"] == _SHARED
+    assert task["vars"]["_payload_paths"] == ["{{ dashboard_sync_script_path }}"]
 
 
 def test_a_missing_reconciler_fails_a_converge_that_installs_it():
@@ -80,7 +84,7 @@ def test_a_missing_reconciler_fails_a_converge_that_installs_it():
     assert "ansible.builtin.fail" in task
     cond = _cond(task)
     assert _EXPECTED in cond
-    assert f"not ({_STAT}" in cond
+    assert _MISSING in cond
 
 
 def test_a_host_with_out_of_band_engines_defers_instead():
@@ -91,7 +95,7 @@ def test_a_host_with_out_of_band_engines_defers_instead():
     assert "ansible.builtin.debug" in task
     cond = _cond(task)
     assert f"not ({_EXPECTED}" in cond
-    assert f"not ({_STAT}" in cond
+    assert _MISSING in cond
 
 
 def test_the_two_legs_cannot_both_fire_or_both_stay_silent():
@@ -141,26 +145,20 @@ def test_the_daemon_reload_survives_a_skipped_template():
 
 # --- validate.yml: the same property, the surface the first fix missed ------
 
-def test_validate_decides_from_the_env_not_the_role_fact():
-    """validate.yml is a standalone play, so roles/payload's set_fact is not in
-    scope. roles/backup/tasks/validate.yml reads the env var for exactly this
-    reason; reading the fact here would evaluate undefined every time."""
-    task = _find_v("decide whether the payload is expected here")
-    expr = str(task["ansible.builtin.set_fact"][_V_EXPECTED])
-    assert "CATENA_PAYLOAD_INSTALL" in expr
-    assert _EXPECTED not in expr
+def test_validate_uses_the_same_shared_predicate():
+    """A standalone play cannot see roles/payload's set_fact, and the shared
+    predicate is what falls back to the env var -- so validate gets the
+    fallback for free instead of hand-rolling it a second time."""
+    task = _find_v("is the payload expected here")
+    assert task["ansible.builtin.include_role"]["tasks_from"] == _SHARED
+    assert task["vars"]["_payload_paths"] == ["{{ dashboard_sync_script_path }}"]
 
 
-def test_validate_still_asserts_a_reconciler_that_is_already_present():
-    """The 'or it is already here' leg. Without it, a converged host that
-    happens to run with the env var set would stop checking a file it has --
-    the gate would be a way to switch the assertion off."""
-    expr = str(
-        _find_v("decide whether the payload is expected here")
-        ["ansible.builtin.set_fact"][_V_EXPECTED]
-    )
-    assert "_infra_dashboard_sync.stat.exists" in expr
-    assert " or " in expr
+def test_validate_pins_the_decision_before_anything_overwrites_it():
+    """The predicate sets play-level facts, so a later include from another
+    role replaces them. Every caller reads them once, immediately."""
+    pinned = _find_v("pin the payload decision")["ansible.builtin.set_fact"]
+    assert _EXPECTED in str(pinned[_V_EXPECTED])
 
 
 def test_validate_asserts_the_reconciler_only_when_it_is_expected():

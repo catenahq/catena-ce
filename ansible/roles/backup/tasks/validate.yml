@@ -28,29 +28,29 @@
       # fresh DR box with no docker, so it cannot come from the image payload.
       - { path: /usr/local/bin/catena-disk-preflight, mode: "0755" }
 
-- name: "validate/backup: stat the payload-shipped scripts"
-  ansible.builtin.stat:
-    path: "{{ item }}"
-  loop:
-    - "{{ backup_wrapper_script }}"
-    - "{{ backup_coverage_script }}"
-    - "{{ backup_restic_env_script }}"
-    - "{{ backup_snapshot_list_script }}"
-  register: _bk_payload_scripts
-
 # Assert when the payload is EXPECTED here -- either this deployment installs it
 # from the converge (production), or some of it is already on the host.
 #
 # "some" rather than "all" on purpose: a host holding three of the four is a
 # broken payload install, which is exactly what this should catch. Requiring all
 # four would make the partial case indistinguishable from the not-yet case and
-# skip the only check that would have found it.
-- name: "validate/backup: decide whether the payload scripts are expected here"
+# skip the only check that would have found it. That "or some of it is here"
+# leg is now in roles/common/tasks/_payload_expected.yml, which is where the
+# other four callers of this decision get it from too -- it started here.
+- name: "validate/backup: are the payload scripts expected here"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _payload_expected
+  vars:
+    _payload_paths:
+      - "{{ backup_wrapper_script }}"
+      - "{{ backup_coverage_script }}"
+      - "{{ backup_restic_env_script }}"
+      - "{{ backup_snapshot_list_script }}"
+
+- name: "validate/backup: pin the payload decision"
   ansible.builtin.set_fact:
-    _bk_payload_expected: >-
-      {{ (lookup('env', 'CATENA_PAYLOAD_INSTALL', default='true') | bool)
-         or (_bk_payload_scripts.results
-             | selectattr('stat.exists') | list | length > 0) }}
+    _bk_payload_expected: "{{ catena_payload_expected | bool }}"
 
 - name: "validate/backup: payload not installed yet -- script checks deferred"
   ansible.builtin.debug:
@@ -60,6 +60,17 @@
       (CATENA_PAYLOAD_INSTALL=false). They arrive with the payload install; the
       units and configuration above are already in place.
   when: not (_bk_payload_expected | bool)
+
+- name: "validate/backup: stat the payload-shipped scripts"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ backup_wrapper_script }}"
+    - "{{ backup_coverage_script }}"
+    - "{{ backup_restic_env_script }}"
+    - "{{ backup_snapshot_list_script }}"
+  register: _bk_payload_scripts
+  when: _bk_payload_expected | bool
 
 - name: "validate/backup: payload-shipped scripts installed + executable"
   # 0755 rather than the 0750 this asserted while the role copied the wrapper
