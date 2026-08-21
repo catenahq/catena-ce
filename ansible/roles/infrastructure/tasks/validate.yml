@@ -12,13 +12,60 @@
     # playbooks/validate.yml's load_onbox_config pre_task.
     _infra_cf_token_present: "{{ (cloudflare_api_token | default('')) | length > 0 }}"
 
+# The fixtures here no longer all arrive at the same time. gatus-sync, the
+# nextcloud OIDC wirer, the export dir and Traefik's dynamic dir are written by
+# THIS role; catena-dashboard-sync is a lane script in the catena-admin image
+# payload. On a host that stages its payload out of band
+# (CATENA_PAYLOAD_INSTALL=false -- the bench builds the image on the VPS with
+# the docker this converge installs, so it cannot stage it any earlier) the
+# reconciler lands AFTER a converge, and a validate in between would be
+# asserting on a host that is legitimately mid-assembly.
+#
+# Same split, and the same "or it is already here" leg, as
+# roles/backup/tasks/validate.yml. The env var rather than
+# catena_payload_engines_expected: validate.yml is a standalone play, so
+# roles/payload's set_fact is not in scope.
+- name: "validate/infrastructure: stat the payload-shipped reconciler"
+  ansible.builtin.stat:
+    path: "{{ dashboard_sync_script_path }}"
+  register: _infra_dashboard_sync
+
+- name: "validate/infrastructure: decide whether the payload is expected here"
+  ansible.builtin.set_fact:
+    _infra_payload_expected: >-
+      {{ (lookup('env', 'CATENA_PAYLOAD_INSTALL', default='true') | bool)
+         or (_infra_dashboard_sync.stat.exists | default(false)) }}
+
+- name: "validate/infrastructure: payload not installed yet -- reconciler checks deferred"
+  ansible.builtin.debug:
+    msg: >-
+      {{ dashboard_sync_script_path }} is not on this host and this deployment
+      does not install the payload from the converge
+      (CATENA_PAYLOAD_INSTALL=false). It arrives with the payload install, and
+      its timer is wired by the converge that follows. Everything this role
+      owns is asserted below regardless.
+  when: not (_infra_payload_expected | bool)
+
+- name: "validate/infrastructure: the payload-shipped reconciler is installed"
+  ansible.builtin.assert:
+    that:
+      - _infra_dashboard_sync.stat.exists
+      - _infra_dashboard_sync.stat.isreg
+      - _infra_dashboard_sync.stat.mode == "0755"
+    fail_msg: >-
+      {{ dashboard_sync_script_path }} is missing or not 0755
+      (exists={{ _infra_dashboard_sync.stat.exists }},
+      mode={{ _infra_dashboard_sync.stat.mode | default('n/a') }}). It ships in
+      the catena-admin host payload; check that roles/payload extracted it, or
+      that the out-of-band payload install ran.
+  when: _infra_payload_expected | bool
+
 - name: "validate/infrastructure: stat sync scripts + traefik dynamic dir"
   ansible.builtin.stat:
     path: "{{ item.path }}"
   register: _infra_stats
   loop: >-
-    {{ [{'path': '/usr/local/bin/catena-dashboard-sync', 'mode': '0755'},
-        {'path': '/usr/local/bin/gatus-sync', 'mode': '0755'},
+    {{ [{'path': '/usr/local/bin/gatus-sync', 'mode': '0755'},
         {'path': '/usr/local/bin/catena-wire-nextcloud-oidc', 'mode': '0755'},
         {'path': '/var/backups/catena-export', 'type': 'directory', 'mode': '0750'},
         {'path': '/etc/catena/traefik/dynamic', 'type': 'directory'}] }}
@@ -36,13 +83,25 @@
   loop_control:
     label: "{{ item.item.path }}"
 
+# catena-dashboard-sync.timer only when the reconciler it triggers is expected
+# here: the converge does not wire a timer whose .service is absent, because
+# systemd refuses to start one. gatus-sync is this role's own and is always
+# asserted -- dropping both would turn a deferred payload into no timer
+# coverage at all.
+- name: "validate/infrastructure: which sync timers should be armed"
+  ansible.builtin.set_fact:
+    _infra_sync_timers: >-
+      {{ (['catena-dashboard-sync.timer']
+          if (_infra_payload_expected | bool) else [])
+         + ['gatus-sync.timer'] }}
+
 - name: "validate/infrastructure: sync timers are active + enabled"
   # service_facts enumerates .service units reliably but can miss .timer
   # units depending on ansible version. Use systemctl command probes so
   # timer state is deterministic across versions.
   ansible.builtin.command: "systemctl {{ item.1 }} {{ item.0 }}"  # noqa: command-instead-of-module
   register: _infra_timer_checks
-  loop: "{{ ['catena-dashboard-sync.timer', 'gatus-sync.timer'] | product(['is-active', 'is-enabled']) | list }}"
+  loop: "{{ _infra_sync_timers | product(['is-active', 'is-enabled']) | list }}"
   loop_control:
     label: "{{ item.0 }} {{ item.1 }}"
   failed_when: false
