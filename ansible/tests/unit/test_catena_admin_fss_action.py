@@ -58,11 +58,22 @@ def test_seal_check_takes_no_key_argument():
     )
 
 
-def test_audit_binary_path_is_shared_by_both_callers():
-    # Defaults are read raw, so these are the Jinja references as written --
-    # which is the point: the Business export and the Community seal check must
-    # resolve the SAME variable. A literal path in one of them is how the two
-    # drift when the payload moves.
+def test_the_seal_check_reads_the_declared_audit_binary():
+    # Defaults are read raw, so this is the Jinja reference as written. A
+    # literal path here is how this drifts from the declaration when the
+    # payload moves the binary.
     assert _defaults()["catena_admin_audit_bin"].startswith("/usr/local/bin/")
-    assert _ee_actions()["audit-export"] == "{{ catena_admin_audit_bin }} export"
     assert _ce_actions()[FSS_ACTION] == "{{ catena_admin_audit_bin }} fss-verify"
+
+
+def test_the_business_export_left_this_repo():
+    """audit-export moved into the payload's own dispatch drop-in
+    (catena-admin payload/actions.d/10-business.sh). The binary behind it is one
+    the payload installs at a path the payload chose, so this repo was
+    authorizing a name it does not own.
+
+    The Community seal check stays: it is a converge-owned action on every
+    host, licensed or not, and it is why the binary is declared here at all."""
+    assert "audit-export" not in _ee_actions()
+    assert "audit-export" not in _ce_actions()
+    assert FSS_ACTION in _ce_actions()

@@ -39,7 +39,21 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Import path, highest priority first:
+#   /usr/local/lib/catena   modules the catena-admin payload installs
+#   this script's directory modules that ship beside it in this repo
+#
+# The payload wins, deliberately. These modules move one at a time, and
+# resolution here is by DIRECTORY rather than by package -- every neighbour is
+# imported by bare name -- so a half-moved cluster that searched its own
+# directory first would keep importing the stale sibling still sitting in
+# /usr/local/bin: green, running the previous release's logic. On a host where
+# the payload ships no lib the first entry resolves nothing, and this is
+# exactly what it was.
+for _d in (os.path.dirname(os.path.abspath(__file__)),
+           os.environ.get("CATENA_PAYLOAD_LIB", "/usr/local/lib/catena")):
+    if _d not in sys.path:
+        sys.path.insert(0, _d)
 import gate_routes  # noqa: E402
 import route_synth  # noqa: E402
 

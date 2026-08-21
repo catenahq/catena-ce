@@ -9,13 +9,18 @@ of those has a way of going quietly wrong:
      without one, so the declaration is defence in depth -- but it is
      ALSO what puts the port in the effective set validation reads. An
      undeclared listener reads as an unexpected open port.
-  2. Arming is a Business action name, authorized in the host dispatch
-     table like every other Business name. The mechanism ships on every
-     host; the panel that opens a window is what is licensed.
-  3. Resume must NOT go through the lane. Putting a source back is the
-     inverse of a quiesce, and it has to work whether or not a migration
-     window is still open -- including when the lane itself is what
-     failed.
+  2. The eight action names are NOT in either of this repo's dispatch
+     lists any more. They moved into the payload's own drop-in
+     (catena-admin payload/actions.d/10-business.sh), because every
+     command behind them is a binary the payload installs at a path the
+     payload chose -- so this repo was authorizing names it does not own
+     and cannot verify. What each command must LOOK like is asserted
+     there; what is asserted here is that they left, because a name in
+     both places is dispatched by the converge's arm and the drop-in is
+     never reached.
+  3. The lane's state files stay separate from the restore machine's. A
+     migration DRIVES a restore, so one shared file would have the page
+     watching the move read the restore's progress as its own.
 
 Run: uv run pytest tests/unit/test_catena_admin_migrate_lane.py
 """
@@ -64,42 +69,24 @@ def test_lane_paths_are_declared_once():
     assert int(d["catena_migrate_lane_port"]) == 9040
 
 
-def test_arming_is_a_business_action_name():
-    ee = _ee_actions()
-    assert MIGRATE_ACTIONS <= set(ee), sorted(MIGRATE_ACTIONS - set(ee))
-    # Not duplicated into the Community list: a Community host has the lane
-    # binary (the payload is ungated) but no panel that arms it.
-    assert not MIGRATE_ACTIONS & set(_ce_actions())
+def test_the_migration_actions_left_this_repo():
+    """They live in the payload drop-in now. A name left behind here would be
+    dispatched by the converge's own case arm, and the drop-in -- which is
+    where the command is maintained -- would never be reached."""
+    ee, ce = set(_ee_actions()), set(_ce_actions())
+    assert not MIGRATE_ACTIONS & ee, sorted(MIGRATE_ACTIONS & ee)
+    assert not MIGRATE_ACTIONS & ce, sorted(MIGRATE_ACTIONS & ce)
 
 
-def test_arm_prints_json_for_the_panel():
-    shell = _ee_actions()["catena-migrate-arm"]
-    assert "{{ catena_migrate_lane_bin }}" in shell
-    assert shell.strip().endswith("arm -json"), shell
-    # The pairing code is printed once and never stored, so nothing here may
-    # redirect it into a file.
-    assert ">" not in shell and "tee" not in shell
-
-
-def test_disarm_and_status_take_no_argument():
-    ee = _ee_actions()
-    for name, verb in (
-        ("catena-migrate-disarm", "disarm"),
-        ("catena-migrate-status", "status"),
-    ):
-        assert ee[name].strip().endswith(f"{verb}"), ee[name]
-        assert "$" not in ee[name], (
-            f"{name} interpolates a value; the dispatcher's contract is a "
-            "fixed command per name"
-        )
-
-
-def test_resume_does_not_go_through_the_lane():
-    # Putting a source back has to work when the lane is what failed.
-    shell = _ee_actions()["catena-migrate-resume"]
-    assert "{{ catena_recovery_bin }}" in shell
-    assert "catena_migrate_lane_bin" not in shell
-    assert shell.strip().endswith("quiesce resume")
+def test_the_overlay_the_payload_needs_is_still_wired():
+    """The drop-in is only reachable because the dispatcher offers an unknown
+    name to the overlay directory before refusing it. Without that seam the
+    eight names above are simply gone."""
+    d = _defaults()
+    assert d["catena_admin_actions_overlay_dir"] == "/etc/catena/admin-actions.d"
+    template = (_ROLE / "templates" / "admin-actions.j2").read_text()
+    assert "catena_admin_dispatch_overlay" in template
+    assert "catena_admin_actions_overlay_dir" in template
 
 
 def test_target_side_state_files_are_separate_from_the_restores():
@@ -113,56 +100,6 @@ def test_target_side_state_files_are_separate_from_the_restores():
     # next host that restored it.
     for key in ("catena_migration_state_file", "catena_migration_history_file"):
         assert d[key].startswith("/var/lib/catena/"), d[key]
-
-
-def test_the_move_runs_detached_and_takes_its_request_on_stdin():
-    shell = _ee_actions()["catena-migrate-run"]
-    # Detached, because a move runs for hours and must not die with the panel
-    # container that started it.
-    assert "systemd-run" in shell and "--collect" in shell
-    assert "--pipe" in shell, (
-        "without --pipe the request cannot reach the binary on stdin, which is "
-        "what keeps the pairing code out of argv"
-    )
-    assert shell.strip().endswith("run --stdin"), shell
-    # The pairing code travels inside $PAYLOAD and must never appear as an
-    # argument: argv is readable by every process on the host, for hours.
-    assert "--code" not in shell and "--source" not in shell
-
-
-def test_resume_source_is_a_separate_action_from_the_move():
-    # Once the source is stopped, putting it back is a decision. Folding it into
-    # the move would make a retry and an abort the same button.
-    ee = _ee_actions()
-    assert "catena-migrate-resume-source" in ee
-    assert ee["catena-migrate-resume-source"] != ee["catena-migrate-run"]
-    shell = ee["catena-migrate-resume-source"]
-    assert shell.strip().endswith("resume-source --stdin"), shell
-    # Not detached: it is a single call to the source and its answer is what the
-    # person who pressed it is waiting for.
-    assert "systemd-run" not in shell
-
-
-def test_the_move_status_action_is_read_only():
-    shell = _ee_actions()["catena-migrate-run-status"]
-    # A status action that cleared state would let a page refresh destroy what
-    # it reported.
-    assert "reset" not in shell
-    assert "{{ catena_migration_state_file }}" in shell
-    assert "{{ catena_migration_history_file }}" in shell
-    assert "head -n 1" in shell, (
-        "the state file carries the source and snapshot on later lines; reading "
-        "all of it would report them as the state"
-    )
-
-
-def test_reset_forgets_the_record_and_nothing_else():
-    shell = _ee_actions()["catena-migrate-run-reset"]
-    assert shell.strip().endswith("reset"), shell
-    # No resume, no restore, no DNS: forgetting a move and undoing one are
-    # different acts.
-    for forbidden in ("resume", "restore", "cutover", "rm "):
-        assert forbidden not in shell, shell
 
 
 def test_lane_port_is_declared_tailnet_only():

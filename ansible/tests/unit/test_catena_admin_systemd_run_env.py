@@ -69,10 +69,15 @@ def _backup_unit_env() -> dict[str, str]:
 
 def test_there_are_systemd_run_actions_to_check():
     """Guards the guard: if the actions are renamed away this file must fail
-    loudly rather than pass over an empty set."""
+    loudly rather than pass over an empty set.
+
+    catena-migrate-run used to be named here too. It moved into the payload's
+    own dispatch drop-in, where the same restic-cache property is asserted by
+    catena-admin payload/actions.d/business_actions_test.go -- the same failure
+    mode, checked where the command now lives."""
     names = [a["name"] for a in _systemd_run_actions()]
     assert "catena-restore-run" in names
-    assert "catena-migrate-run" in names
+    assert "catena-admin-self-update" in names
 
 
 def test_every_systemd_run_action_sets_a_restic_cache_location():

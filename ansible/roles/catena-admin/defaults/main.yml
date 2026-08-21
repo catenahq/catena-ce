@@ -383,84 +383,23 @@ catena_admin_ee_reserved_actions:
   # a panel nobody has patched is the same shape of problem as a backup nobody
   # has verified, and withholding the mechanism leaves a free-edition host
   # running whatever its install day happened to ship.
-  - name: daily-status
-    shell: "/usr/local/bin/catena-daily status"
-  - name: daily-run-now
-    shell: "/usr/local/bin/catena-daily run"
-  - name: audit-export
-    shell: "{{ catena_admin_audit_bin }} export"
-  # restore-report panel's on-demand restore drill. Runs the verify-hot
-  # lane standalone (single-state), which rewrites verify-hot.json so the
-  # Restore report panel refreshes with a fresh pass/fail + RTO. Name +
-  # shell MUST match catena-admin restorereport/plugin.go's ActionSpec.
-  - name: verify-backup
-    shell: "/usr/local/bin/catena-daily step VERIFY_HOT"
-  # Migration lane arming. The MECHANISM ships on every host (the lane binary
-  # is part of the ungated payload, and the quiesce verbs it drives are
-  # Community); what is licensed is the panel that opens a window, so these
-  # authorize Business action names the same way the daily/audit entries do.
+  # Twelve Business actions moved OUT of this list and into the payload's own
+  # dispatch drop-in (catena-admin payload/actions.d/10-business.sh): the four
+  # catena-daily / catena-audit ones and the eight migration-lane ones.
   #
-  # Arming mints a pairing code and prints it ONCE. --json is for the panel,
-  # which shows it to the person who armed it and never stores it; only an
-  # argon2id hash goes to the state register, so a stolen backup carries no way
-  # to join a migration.
-  - name: catena-migrate-arm
-    shell: "{{ catena_migrate_lane_bin }} arm -json"
-  - name: catena-migrate-disarm
-    shell: "{{ catena_migrate_lane_bin }} disarm"
-  - name: catena-migrate-status
-    shell: "{{ catena_migrate_lane_bin }} status"
-  # The abort path, dispatched from THIS server when a move failed and its
-  # applications have to come back. Deliberately the recovery engine and not
-  # the lane: resuming is not a migration operation, it is the inverse of a
-  # quiesce, and it has to work whether or not a window is still open.
-  - name: catena-migrate-resume
-    shell: "{{ catena_recovery_bin }} quiesce resume"
-  # The TARGET side: this server pulling another one onto itself. Detached under
-  # systemd-run for the same reason a restore is -- a move runs for hours and
-  # must not die with the panel container that started it -- and --pipe hands the
-  # request through on stdin, which is what keeps the source's pairing code out
-  # of argv. A code on a command line is readable by every process on this box
-  # for the whole migration.
+  # Every command they ran was a binary the PAYLOAD installs, at a path the
+  # payload chose, so this list was an authorization record for names the
+  # converge does not own and cannot verify -- and a panel that gained an
+  # action had to wait for a converge before the host would accept it. The
+  # dispatcher offers any name this table does not carry to
+  # {{ catena_admin_actions_overlay_dir }} before refusing it, and the payload
+  # installer records the names it added in release.json's payload_actions so
+  # the panel does not raise a converge-required banner for them.
   #
-  # The request is {"source","code","preseed_passes"}. The address must be the
-  # source's tailnet address and the binary refuses a NAME: the name of the
-  # server being moved is about to point at this one, so a move that resolved it
-  # could talk to itself and report that the source paused when nothing did.
-  # Same clean-environment problem as catena-restore-run: the lane pre-seeds
-  # with restic, so a transient unit without a cache location fails the same
-  # way. Fixed here rather than waiting for it to be rediscovered on the
-  # migration path.
-  - name: catena-migrate-run
-    shell: >-
-      echo "$PAYLOAD" | base64 -d |
-      systemd-run --unit catena-migrate-run --collect --pipe
-      --setenv=HOME=/var/lib/catena/restic-home
-      --setenv=XDG_CACHE_HOME=/var/lib/catena/restic-cache
-      {{ catena_migrate_lane_bin }} run --stdin
-  # Read-only progress, in the same shape as the restore's: the migration page
-  # reads these two files directly through its read-only mount, so this is the
-  # hand-run and bench view rather than the polling path.
-  - name: catena-migrate-run-status
-    shell: >-
-      printf 'state=%s\n'
-      "$(head -n 1 {{ catena_migration_state_file }} 2>/dev/null || echo idle)";
-      printf 'unit=%s\n'
-      "$(systemctl is-active catena-migrate-run.service 2>/dev/null || true)";
-      tail -n 40 {{ catena_migration_history_file }} 2>/dev/null || true
-  # Forgetting a move, which is NOT undoing one. Clears this host's record and
-  # touches neither the source, nor this host's data, nor DNS.
-  - name: catena-migrate-run-reset
-    shell: "{{ catena_migrate_lane_bin }} reset"
-  # The way back after a failure past the point of no return, dispatched from
-  # the TARGET (catena-migrate-resume above is the same act dispatched from the
-  # source itself, for when the target is what failed). Deliberately a separate
-  # action from the move: once the source is stopped, putting it back is a
-  # decision, and a decision belongs to a person.
-  - name: catena-migrate-resume-source
-    shell: >-
-      echo "$PAYLOAD" | base64 -d |
-      {{ catena_migrate_lane_bin }} resume-source --stdin
+  # What stayed: ee-install-engines, because the action that REINSTALLS the
+  # payload cannot depend on the payload having installed correctly, and
+  # cloudflare-zones-save, whose shell pipes through a catena-ce binary at a
+  # catena-ce path.
   # Multi-domain Cloudflare zone save (EE cloudflarezones plugin). The panel's
   # single-field form POSTs an opaque PAYLOAD: for an add it is the raw CF API
   # token the user typed (no browser JS/base64 needed, so it survives the strict
