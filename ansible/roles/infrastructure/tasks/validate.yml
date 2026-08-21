@@ -17,7 +17,7 @@
     path: "{{ item.path }}"
   register: _infra_stats
   loop: >-
-    {{ [{'path': '/usr/local/bin/dashboard-sync', 'mode': '0755'},
+    {{ [{'path': '/usr/local/bin/catena-dashboard-sync', 'mode': '0755'},
         {'path': '/usr/local/bin/gatus-sync', 'mode': '0755'},
         {'path': '/usr/local/bin/catena-wire-nextcloud-oidc', 'mode': '0755'},
         {'path': '/var/backups/catena-export', 'type': 'directory', 'mode': '0750'},
@@ -42,7 +42,7 @@
   # timer state is deterministic across versions.
   ansible.builtin.command: "systemctl {{ item.1 }} {{ item.0 }}"  # noqa: command-instead-of-module
   register: _infra_timer_checks
-  loop: "{{ ['dashboard-sync.timer', 'gatus-sync.timer'] | product(['is-active', 'is-enabled']) | list }}"
+  loop: "{{ ['catena-dashboard-sync.timer', 'gatus-sync.timer'] | product(['is-active', 'is-enabled']) | list }}"
   loop_control:
     label: "{{ item.0 }} {{ item.1 }}"
   failed_when: false

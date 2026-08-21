@@ -227,9 +227,26 @@ version_check_overrides_file: /etc/catena/version-check-overrides.json
 version_check_output_file: /var/lib/catena/version-check.json
 
 # --- dashboard-sync ------------------------------------------------------
-# Phase 4b retired the Homepage services.yaml writer; dashboard-sync's
-# only remaining job is syncing per-app Traefik gate routes.
-dashboard_sync_script_path: "/usr/local/bin/dashboard-sync"
+# The reconciler that reads every Portainer stack's vps.* labels and decides
+# what that app's Traefik route and oauth2-proxy should be.
+#
+# The script and its modules ship in the catena-admin PAYLOAD -- what a label
+# MEANS is a product decision, so it travels with the image rather than waiting
+# for a converge on every host. roles/payload installs them five roles before
+# roles/infrastructure runs, so the paths below exist by the time anything here
+# schedules them. What this role still owns is per-host: the env file's
+# secrets, and the interval.
+#
+# In the catena-* namespace like every other payload command
+# (catena-admin payload/lanes/lanes_manifest_test.go enforces it), which also
+# means a quiesce covers the timer -- it enumerates catena-*.timer, so the old
+# `dashboard-sync.timer` kept synthesising routes on a host that was supposed
+# to be stopped.
+dashboard_sync_unit: "catena-dashboard-sync"
+dashboard_sync_script_path: "/usr/local/bin/catena-dashboard-sync"
+# Where the payload installs the modules the reconciler imports by bare name.
+# The verifier below is one of them, invoked directly by validate.
+dashboard_sync_lib_dir: "/usr/local/lib/catena"
 dashboard_sync_env_path: "/etc/catena/dashboard-sync.env"
 dashboard_sync_interval: "*:0/5" # every 5 minutes
 

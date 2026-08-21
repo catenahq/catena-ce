@@ -7,7 +7,7 @@ OnBootSec=2min
 OnCalendar={{ dashboard_sync_interval }}
 RandomizedDelaySec=60s
 Persistent=true
-Unit=dashboard-sync.service
+Unit={{ dashboard_sync_unit }}.service
 
 [Install]
 WantedBy=timers.target

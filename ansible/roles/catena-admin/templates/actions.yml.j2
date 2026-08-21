@@ -262,11 +262,11 @@ actions:
     # `wait; RC=$?` aborts on errexit before the assignment.
     shell: |
       set +e
-      systemctl start --wait dashboard-sync.service & PID_DASH=$!
+      systemctl start --wait catena-dashboard-sync.service & PID_DASH=$!
       systemctl start --wait gatus-sync.service & PID_GATUS=$!
       wait "$PID_DASH"; RC_DASH=$?
       wait "$PID_GATUS"; RC_GATUS=$?
-      journalctl -u dashboard-sync.service -u gatus-sync.service --since '60 seconds ago' --no-pager -n 80
+      journalctl -u catena-dashboard-sync.service -u gatus-sync.service --since '60 seconds ago' --no-pager -n 80
       echo
       echo "exit codes: dashboard-sync=$RC_DASH gatus-sync=$RC_GATUS"
       [ "$RC_DASH" -eq 0 ] && [ "$RC_GATUS" -eq 0 ]

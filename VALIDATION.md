@@ -29,7 +29,7 @@ Rehearsal scenarios (11 of 11 observed passing): `backup_rollback`, `backup_sche
 
 One account signs in to every application, with per-application access control and staff/administrator separation enforced in front of the applications, not inside each one.
 
-Implemented in: `ansible/roles/keycloak`, `ansible/roles/oauth2_proxy`, `ansible/scripts/clients_provisioner.py`, `ansible/scripts/dashboard-sync.py`, `ansible/scripts/gate_routes.py`, `ansible/scripts/keycloak_client.py`, `ansible/scripts/route_synth.py`
+Implemented in: `ansible/roles/keycloak`, `ansible/roles/oauth2_proxy`
 
 Rehearsal scenarios (10 of 10 observed passing): `fi_a1_realm_marker_collision`, `fi_a2_oidc_secret_rotation`, `fi_a3_keycloak_unreachable`, `fi_a4_master_realm_idempotent`, `fi_a5_wrong_group_assignment`, `keycloak_admin_email_loss_recovery`, `keycloak_signing_keys_rotation_round_trip`, `oauth2_proxy_cookie_rotation_round_trip`, `user_recovery_2fa_reset`, `user_recovery_kcadm_temp_password`
 
@@ -93,7 +93,7 @@ Rehearsal scenarios (2 of 2 observed passing): `recovery_readme_manual_restore`,
 
 A validation pass proves both directions: every service answers where it should (on-server and through the private network), and an external scan confirms nothing is reachable that should not be.
 
-Implemented in: `ansible/playbooks/validate.yml`, `ansible/scripts/verify_gated_intent.py`, `ansible/tests/external/scan_ports.py`
+Implemented in: `ansible/playbooks/validate.yml`, `ansible/tests/external/scan_ports.py`
 
 Rehearsal scenarios (3 of 3 observed passing): `ce_validate`, `fi_v2_external_scan_blocked`, `security_scan`
 

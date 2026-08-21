@@ -101,7 +101,7 @@
     . {{ dashboard_sync_env_path }} &&
     set +a &&
     exec /usr/bin/python3
-    {{ dashboard_sync_script_path | dirname }}/verify_gated_intent.py
+    {{ dashboard_sync_lib_dir }}/verify_gated_intent.py
   register: _client_gate_verify
   changed_when: false
   failed_when: false

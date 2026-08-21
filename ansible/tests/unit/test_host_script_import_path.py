@@ -42,8 +42,15 @@ def _inserters() -> list[Path]:
 
 
 def test_there_are_scripts_to_check():
-    """Guards the guard: an empty set would pass every assertion below."""
-    assert len(_inserters()) >= 5, [p.name for p in _inserters()]
+    """Guards the guard: an empty set would pass every assertion below.
+
+    Most of this cluster moved into the catena-admin payload. What is left is
+    the public-ports reconciler, which is genuinely converge-owned: its correct
+    value changes when the HOST's declared ports change, not when the product
+    does."""
+    names = [p.name for p in _inserters()]
+    assert names, "no host script pins sys.path any more"
+    assert "catena-public-ports.py" in names, names
 
 
 @pytest.mark.parametrize("script", _inserters(), ids=lambda p: p.name)
@@ -74,7 +81,7 @@ def test_the_resolved_order_puts_the_payload_first(tmp_path):
     probe = tmp_path / "probe.py"
     probe.write_text(
         "import os, sys\n"
-        + _extract_path_block(SCRIPTS / "dashboard-sync.py")
+        + _extract_path_block(SCRIPTS / "catena-public-ports.py")
         + "\nprint('\\n'.join(sys.path[:2]))\n"
     )
     lib = tmp_path / "payload-lib"
