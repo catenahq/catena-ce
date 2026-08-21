@@ -36,22 +36,25 @@
 # is the one place that decision is made; the two legs below are the part that
 # is this role's -- a deferral that does not name what is deferred and when it
 # converges reads exactly like a silent skip.
+# dashboard_sync_required_paths, not the script alone: deciding "the engines are
+# here" from the binary is what turned a half-restored host into a converge that
+# died inside systemd on ModuleNotFoundError with an empty journal.
 - name: "dashboard-sync: is the reconciler expected on this host"
   ansible.builtin.include_role:
     name: common
     tasks_from: _payload_expected
   vars:
-    _payload_paths:
-      - "{{ dashboard_sync_script_path }}"
+    _payload_paths: "{{ dashboard_sync_required_paths }}"
 
 - name: "dashboard-sync: the reconciler is missing from a converge that installs it"
   ansible.builtin.fail:
     msg: >-
-      {{ dashboard_sync_script_path }} is absent although roles/payload ran in
-      this converge. It ships in the catena-admin payload, so this means the
-      extract did not land or did not carry it -- check the "Payload:" tasks
-      above. Enabling the timer anyway would leave every client app's Traefik
-      route and oauth2-proxy unreconciled, with nothing failing.
+      The reconciler is incomplete although roles/payload ran in this converge.
+      Missing: {{ catena_payload_missing | join(', ') }}. It ships in the
+      catena-admin payload, so this means the extract did not land or did not
+      carry all of it -- check the "Payload:" tasks above. Enabling the timer
+      anyway would leave every client app's Traefik route and oauth2-proxy
+      unreconciled, with nothing failing.
   when:
     - catena_payload_missing | length > 0
     - catena_payload_expected | bool
@@ -110,9 +113,76 @@
     state: started
   when: _dashboard_sync_present | default(false)
 
-- name: "dashboard-sync: run once now (sync gate routes)"
-  ansible.builtin.systemd:
-    name: "{{ dashboard_sync_unit }}.service"
-    state: started
-  changed_when: false
+# systemd hands back an exit code and a pointer to `journalctl`, and on a DR
+# host the machine holding that journal is torn down with the scenario -- so a
+# failure here reports nothing that can still be read afterwards. Capture the
+# reconciler's own output before re-raising, the way
+# roles/coturn/tasks/validate.yml dumps the container log before asserting on a
+# missing listener.
+- name: "dashboard-sync: run the reconciler, reporting its own log on failure"
   when: _dashboard_sync_present | default(false)
+  block:
+    - name: "dashboard-sync: run once now (sync gate routes)"
+      ansible.builtin.systemd:
+        name: "{{ dashboard_sync_unit }}.service"
+        state: started
+      changed_when: false
+  rescue:
+    - name: "dashboard-sync: capture the reconciler's log (diag)"
+      ansible.builtin.command:
+        argv:
+          - journalctl
+          - --unit
+          - "{{ dashboard_sync_unit }}.service"
+          - --no-pager
+          - --lines
+          - "80"
+      register: _dashboard_sync_journal
+      changed_when: false
+      failed_when: false
+
+    # journald is not the only place the answer lives, and on a restored host
+    # it has come back empty. systemd holds the exit status itself, and the
+    # reconciler is a reconciler -- running it again is what it is built for --
+    # so ask both rather than report that there was nothing to read.
+    - name: "dashboard-sync: capture the unit's exit status (diag)"
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - show
+          - "{{ dashboard_sync_unit }}.service"
+          - --property=Result
+          - --property=ExecMainStatus
+          - --property=ExecMainCode
+          - --property=ExecStart
+      register: _dashboard_sync_unit_state
+      changed_when: false
+      failed_when: false
+
+    - name: "dashboard-sync: run the reconciler in the foreground (diag)"
+      ansible.builtin.shell: |
+        set -a
+        . {{ dashboard_sync_env_path }}
+        set +a
+        {{ dashboard_sync_script_path }} 2>&1
+      args:
+        executable: /bin/bash
+      register: _dashboard_sync_foreground
+      changed_when: false
+      failed_when: false
+
+    - name: "dashboard-sync: fail with the reconciler's own output"
+      ansible.builtin.fail:
+        msg: |
+          {{ dashboard_sync_unit }}.service failed to run.
+
+          systemd: {{ ansible_failed_result.msg | default('(no message)') }}
+
+          Unit state:
+          {{ _dashboard_sync_unit_state.stdout | default('(unavailable)') }}
+
+          Foreground run (rc={{ _dashboard_sync_foreground.rc | default('?') }}):
+          {{ _dashboard_sync_foreground.stdout | default('(did not run)') }}
+
+          Journal (last 80 lines):
+          {{ _dashboard_sync_journal.stdout | default('(journal unavailable)') }}

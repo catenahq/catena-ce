@@ -30,8 +30,7 @@
     name: common
     tasks_from: _payload_expected
   vars:
-    _payload_paths:
-      - "{{ dashboard_sync_script_path }}"
+    _payload_paths: "{{ dashboard_sync_required_paths }}"
 
 - name: "validate/infrastructure: pin the payload decision"
   ansible.builtin.set_fact:

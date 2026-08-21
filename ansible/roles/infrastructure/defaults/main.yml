@@ -247,6 +247,20 @@ dashboard_sync_script_path: "/usr/local/bin/catena-dashboard-sync"
 # Where the payload installs the modules the reconciler imports by bare name.
 # The verifier below is one of them, invoked directly by validate.
 dashboard_sync_lib_dir: "/usr/local/lib/catena"
+# What "the reconciler is here" has to mean. catena-dashboard-sync imports these
+# four by bare name at module scope, so the script on its own is a file, not a
+# runnable reconciler -- and the two halves reach a host by different routes:
+# /usr/local/bin rides the restic snapshot, the modules arrive with the payload.
+#
+# The DIRECTORY is deliberately not the check. roles/common creates it at role
+# position 1 for its own public-ports modules, so it exists on hosts the payload
+# has never touched and stat-ing it answers yes for the wrong owner's files.
+dashboard_sync_required_paths:
+  - "{{ dashboard_sync_script_path }}"
+  - "{{ dashboard_sync_lib_dir }}/clients_provisioner.py"
+  - "{{ dashboard_sync_lib_dir }}/gate_routes.py"
+  - "{{ dashboard_sync_lib_dir }}/keycloak_client.py"
+  - "{{ dashboard_sync_lib_dir }}/portainer_api.py"
 dashboard_sync_env_path: "/etc/catena/dashboard-sync.env"
 dashboard_sync_interval: "*:0/5" # every 5 minutes
 

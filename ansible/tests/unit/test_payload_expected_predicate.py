@@ -34,10 +34,15 @@ CALLERS = {
         "{{ backup_restic_env_script }}",
         "{{ backup_snapshot_list_script }}",
     ],
-    "roles/infrastructure/tasks/dashboard_sync.yml": [
-        "{{ dashboard_sync_script_path }}"],
-    "roles/infrastructure/tasks/validate.yml": [
-        "{{ dashboard_sync_script_path }}"],
+    # The lib dir rides along because the reconciler imports four modules from
+    # it at module scope. /usr/local/bin is in backup_paths and the modules
+    # arrive with the payload, so the two can land separately -- and a host
+    # holding the binary alone answered "the engines are here" and then died
+    # inside systemd on ModuleNotFoundError.
+    "roles/infrastructure/tasks/dashboard_sync.yml":
+        "{{ dashboard_sync_required_paths }}",
+    "roles/infrastructure/tasks/validate.yml":
+        "{{ dashboard_sync_required_paths }}",
 }
 
 

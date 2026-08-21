@@ -270,6 +270,14 @@ backup_paths:
   - /etc
   - /var/lib/dpkg
   - /usr/local/bin
+  # The payload's lane scripts live in /usr/local/bin and import their modules
+  # from here by bare name, at module scope. The two directories have to ride
+  # the snapshot together: a restore that carries the binaries alone produces a
+  # host where /usr/local/bin/catena-dashboard-sync exists -- so the converge's
+  # payload gate reads the engines as present -- and dies on
+  # `ModuleNotFoundError: No module named 'clients_provisioner'` the moment the
+  # timer fires. That is bench 1216 nc_s3_hot_recovery stage-4.
+  - /usr/local/lib/catena
   # Catena's own runtime state. Both were outside the snapshot entirely,
   # which made them bump-safe but not host-loss-safe -- the one failure
   # mode the whole product is built around.

@@ -38,6 +38,20 @@ _STAT = "_dashboard_sync_present"
 _V_EXPECTED = "_infra_payload_expected"
 _SHARED = "_payload_expected"
 
+# One list, declared in the role's defaults, read by both callers.
+_RECONCILER_PATHS = "{{ dashboard_sync_required_paths }}"
+
+# The modules catena-dashboard-sync imports at module scope. Run 1216
+# nc_s3_hot_recovery restored the binary without them -- /usr/local/bin is in
+# backup_paths, the modules were not -- the gate read the binary as present, and
+# the converge died inside systemd on ModuleNotFoundError with an empty journal.
+_REQUIRED_MODULES = (
+    "clients_provisioner.py",
+    "gate_routes.py",
+    "keycloak_client.py",
+    "portainer_api.py",
+)
+
 
 def _tasks() -> list[dict]:
     return yaml.safe_load(TASKS.read_text())
@@ -47,10 +61,35 @@ def _validate_tasks() -> list[dict]:
     return yaml.safe_load(VALIDATE.read_text())
 
 
+def _flatten(tasks: list, inherited: str = "") -> list[tuple[dict, str]]:
+    """Every task with the condition it actually runs under.
+
+    A task inside a `block` is gated by the block's `when` as well as its own,
+    so a walk that only reads top-level tasks would report an inner task as
+    ungated when it is not.
+    """
+    out: list[tuple[dict, str]] = []
+    for task in tasks or []:
+        combined = " ".join(x for x in (inherited, _cond(task)) if x)
+        out.append((task, combined))
+        for key in ("block", "rescue", "always"):
+            if key in task:
+                out.extend(_flatten(task[key], combined))
+    return out
+
+
 def _find(name_fragment: str) -> dict:
-    for task in _tasks():
+    for task, _ in _flatten(_tasks()):
         if name_fragment in (task.get("name") or ""):
             return task
+    raise AssertionError(f"task not found: {name_fragment!r}")
+
+
+def _gate(name_fragment: str) -> str:
+    """The full condition a task runs under, enclosing blocks included."""
+    for task, combined in _flatten(_tasks()):
+        if name_fragment in (task.get("name") or ""):
+            return combined
     raise AssertionError(f"task not found: {name_fragment!r}")
 
 
@@ -73,7 +112,28 @@ def test_the_decision_comes_from_the_shared_predicate():
     answer -- roles/common/tasks/_payload_expected.yml."""
     task = _find("is the reconciler expected on this host")
     assert task["ansible.builtin.include_role"]["tasks_from"] == _SHARED
-    assert task["vars"]["_payload_paths"] == ["{{ dashboard_sync_script_path }}"]
+    assert task["vars"]["_payload_paths"] == _RECONCILER_PATHS
+
+
+def test_the_gate_names_the_modules_not_the_directory():
+    """roles/common creates the lib dir at role position 1 for its own
+    public-ports modules, so it exists on hosts the payload has never touched.
+    Stat-ing the directory answers yes for another owner's files, which is how
+    a half-restored host passed the gate on the run that added it."""
+    defaults = yaml.safe_load(
+        (_ROLE / "defaults" / "main.yml").read_text()
+    )
+    paths = defaults["dashboard_sync_required_paths"]
+    assert paths[0] == "{{ dashboard_sync_script_path }}"
+    for module in _REQUIRED_MODULES:
+        assert any(p.endswith("/" + module) for p in paths), (
+            f"{module} is imported at module scope by catena-dashboard-sync "
+            f"and is not in dashboard_sync_required_paths"
+        )
+    assert "{{ dashboard_sync_lib_dir }}" not in paths, (
+        "the bare lib dir is not evidence the payload landed -- roles/common "
+        "creates it for its own modules"
+    )
 
 
 def test_a_missing_reconciler_fails_a_converge_that_installs_it():
@@ -117,12 +177,36 @@ def test_everything_that_runs_the_reconciler_is_gated_on_it_existing():
         "run once now",
     ]
     for fragment in runs_it:
-        cond = _cond(_find(fragment))
+        cond = _gate(fragment)
         assert _STAT in cond, (
             f"{fragment!r} is not gated on the reconciler existing; on a host "
             f"whose engines are staged out of band this is what fails the "
             f"converge the deferral above exists to avoid"
         )
+
+
+def test_a_failed_reconciler_reports_its_own_log_and_still_fails():
+    """systemd returns an exit code and a pointer to a journal that, on a DR
+    host, is destroyed with the machine -- run 1216 nc_s3_hot_recovery failed
+    here and left nothing readable anywhere. The rescue exists to capture the
+    output, so it has to re-raise: a rescue that only logs turns a failed
+    reconciler into a passing converge, which is worse than the silence."""
+    names = [t.get("name") or "" for t, _ in _flatten(_tasks())]
+    assert any("capture the reconciler's log" in n for n in names)
+
+    fail_task = _find("fail with the reconciler's own output")
+    assert "ansible.builtin.fail" in fail_task
+    msg = str(fail_task["ansible.builtin.fail"]["msg"])
+    assert "_dashboard_sync_journal" in msg, (
+        "the failure must carry the reconciler's output, otherwise the rescue "
+        "captured it and threw it away"
+    )
+
+    diag = _find("capture the reconciler's log")
+    assert diag.get("failed_when") is False, (
+        "an unavailable journal must not replace the real failure with a "
+        "failure about reading the journal"
+    )
 
 
 def test_the_env_file_is_written_unconditionally():
@@ -151,7 +235,7 @@ def test_validate_uses_the_same_shared_predicate():
     fallback for free instead of hand-rolling it a second time."""
     task = _find_v("is the payload expected here")
     assert task["ansible.builtin.include_role"]["tasks_from"] == _SHARED
-    assert task["vars"]["_payload_paths"] == ["{{ dashboard_sync_script_path }}"]
+    assert task["vars"]["_payload_paths"] == _RECONCILER_PATHS
 
 
 def test_validate_pins_the_decision_before_anything_overwrites_it():
