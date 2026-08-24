@@ -149,7 +149,7 @@ catena_admin_service_name: "catena-admin"
 # PUBLIC image, pulled anonymously: every panel is compiled in and the Business
 # set is gated at RUNTIME by the licence check, so distribution gating would
 # add no enforcement.
-catena_admin_image_floor: "ghcr.io/catenahq/catena-admin:v0.3.1"
+catena_admin_image_floor: "ghcr.io/catenahq/catena-admin:v0.5.1"
 
 # The digest that floor resolved to when it was published. roles/payload
 # refuses to extract or root-execute anything that does not match, which is the
@@ -161,7 +161,7 @@ catena_admin_image_floor: "ghcr.io/catenahq/catena-admin:v0.3.1"
 # and the on-host update lane may have pinned a newer version -- and asserting
 # this digest against one of those would fail closed on a correct host. The
 # role says out loud when it is extracting unchecked.
-catena_admin_image_floor_digest: "sha256:7b9519e4b0656bbfabb9ffa91cecf3a577f5c88e8a40b748afd3fd2aff555f78"
+catena_admin_image_floor_digest: "sha256:09e03d74a24dcdb5deba2fce563d48a4f848c31a0d92af7de4053e3ac25a15c5"
 
 # What a converge creates the service from when there is no service yet: the
 # floor, or the newer version the on-host update lane recorded in
