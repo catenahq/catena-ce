@@ -132,31 +132,24 @@ keycloak_realm_export_oncalendar: "*-*-* 03:30:00"
 # that silently goes nowhere is harder to notice than a realm with no mail
 # configured, which says so on its own login page.
 
-_smtp_provider: "{{ cfg_smtp_provider | default('') | trim | lower }}"
+# The ladder itself lives in playbooks/filter_plugins/smtp_resolve.py, because
+# it was written out three times -- here, in wordpress_plugins.yml, and it was
+# about to be a third for Beszel -- and every copy was free to drift. A host
+# would then send password-reset mail through one relay and a contact form
+# through another, from the same stored config, with nothing reporting it.
+_smtp: >-
+  {{ cfg_smtp_provider | default('') | catena_smtp_resolve(
+       host=cfg_smtp_host | default(''),
+       port=cfg_smtp_port | default(''),
+       user=cfg_smtp_user | default(''),
+       sender=cfg_smtp_sender | default(''),
+       fallback_sender=admin_email) }}
 
-smtp_enabled: >-
-  {{ _smtp_provider in ['resend', 'brevo', 'server'] }}
-
-smtp_host: >-
-  {{
-    'smtp.resend.com' if _smtp_provider == 'resend'
-    else ('smtp-relay.brevo.com' if _smtp_provider == 'brevo'
-    else (cfg_smtp_host | default('') if _smtp_provider == 'server' else ''))
-  }}
-smtp_port: >-
-  {{
-    587 if _smtp_provider in ['resend', 'brevo']
-    else (cfg_smtp_port | default('587') | int)
-  }}
-# Resend's SMTP username is the literal string `resend` for every account.
-# Brevo's is account-specific, and a self-hosted relay's is whatever it is, so
-# both read the one field.
-smtp_user: >-
-  {{
-    'resend' if _smtp_provider == 'resend'
-    else (cfg_smtp_user | default(''))
-  }}
-smtp_from: "{{ cfg_smtp_sender | default('') or admin_email }}"
+smtp_enabled: "{{ _smtp.enabled }}"
+smtp_host: "{{ _smtp.host }}"
+smtp_port: "{{ _smtp.port }}"
+smtp_user: "{{ _smtp.user }}"
+smtp_from: "{{ _smtp.sender }}"
 # Always STARTTLS on the port given, never implicit TLS: that is what
 # realm-vps.yaml.j2 renders (starttls true, ssl false) and what both known
 # providers expect on 587. A SMTP_USE_TLS key was collected, stored and read by

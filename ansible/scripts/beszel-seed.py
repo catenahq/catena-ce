@@ -87,6 +87,18 @@ def main() -> int:
             "display_name": os.environ["BESZEL_OIDC_DISPLAY_NAME"],
         }
         webhook = os.environ["BESZEL_ALERT_WEBHOOK"]
+        # Outgoing mail, resolved by the converge from the ONE stored choice
+        # (catena_smtp_resolve). Blank host means the host has no mail
+        # configured, which is a supported state and disables Beszel's mail
+        # rather than failing.
+        smtp = {
+            "host": os.environ.get("BESZEL_SMTP_HOST", ""),
+            "port": os.environ.get("BESZEL_SMTP_PORT", "587"),
+            "user": os.environ.get("BESZEL_SMTP_USER", ""),
+            "password": os.environ.get("BESZEL_SMTP_PASSWORD", ""),
+            "sender": os.environ.get("BESZEL_SMTP_SENDER", ""),
+            "app_name": os.environ.get("BESZEL_SMTP_APP_NAME", "Catena"),
+        }
     except KeyError as exc:
         die(f"missing required env var: {exc}")
 
@@ -159,12 +171,17 @@ def main() -> int:
     delivery_state = configure_alert_delivery(base, su_token, user_id, webhook)
     rules_state = configure_alert_rules(base, su_token, user_id)
 
+    # 6. Outgoing mail, so an alert can reach a person who is not watching a
+    # dashboard. Beszel is PocketBase, so this is the app's own mail settings.
+    smtp_state = configure_smtp(base, su_token, smtp)
+
     # One line carrying all four, because the caller's changed_when reads
     # stdout. "ok-exists" from every one is the steady-state converge; anything
     # else is a real write and must report changed.
     print(
         f"universal-token: {token_state}; oidc: {oidc_state}; "
-        f"alert-delivery: {delivery_state}; alert-rules: {rules_state}"
+        f"alert-delivery: {delivery_state}; alert-rules: {rules_state}; "
+        f"smtp: {smtp_state}"
     )
     return 0
 
@@ -301,6 +318,108 @@ def configure_alert_rules(base: str, su_token: str, user_id: str) -> str:
             )
             created += 1
     return "ok-exists" if created == 0 else f"created {created}"
+
+
+# ─── outgoing mail ─────────────────────────────────────────────────────────
+# Beszel had no mail at all: its only alert channel was the Shoutrrr webhook,
+# so an alert reached a person only if somebody was watching Healthchecks or
+# ntfy. Giving it the host's own mail settings means a threshold breach can send
+# an email like every other service on the box.
+#
+# Verified against pocketbase v0.36.8 (which beszel 0.18.7 vendors) rather than
+# assumed -- core.SMTPConfig tags enabled / port / host / username / password /
+# authMethod / tls / localName, and core.MetaConfig tags senderName /
+# senderAddress. The endpoint is PATCH /api/settings, which merges.
+#
+# `tls: false` is CORRECT and not a downgrade. PocketBase's own comment: "When
+# set to false StartTLS command is send, leaving the server to decide whether
+# to upgrade the connection or not." True means implicit TLS from the first
+# byte, which is port 465; every path this product resolves is STARTTLS on the
+# port given, and both known providers expect that on 587.
+
+# Compared to decide whether a write is needed. `password` is excluded for the
+# same reason the OIDC clientSecret is: PocketBase tags it `omitempty`, so a
+# value it will not read back cannot be compared without reporting changed on
+# every converge and failing the strict changed=0 rerun.
+_SMTP_COMPARED = ("enabled", "host", "port", "username", "tls")
+
+
+def _desired_smtp(cfg: dict) -> dict:
+    try:
+        port = int(str(cfg.get("port") or "587").strip())
+    except ValueError:
+        port = 587
+    return {
+        "enabled": bool(str(cfg.get("host") or "").strip()),
+        "host": str(cfg.get("host") or "").strip(),
+        "port": port,
+        "username": str(cfg.get("user") or "").strip(),
+        "password": str(cfg.get("password") or ""),
+        # PLAIN is PocketBase's default and what both known relays accept.
+        "authMethod": "PLAIN",
+        # STARTTLS, not implicit TLS. See the note above.
+        "tls": False,
+    }
+
+
+def configure_smtp(base: str, su_token: str, cfg: dict) -> str:
+    """Point Beszel's mail at the host's configured relay.
+
+    Returns one of: ok-exists / no-mail / configured / updated.
+    """
+    desired = _desired_smtp(cfg)
+    if not desired["enabled"]:
+        # A host with no mail configured is a supported state -- SMTP_PROVIDER
+        # can be `none`. Reported rather than skipped silently, so the caller's
+        # changed_when can tell it apart from a write.
+        return "no-mail"
+
+    current_all = _req("GET", f"{base}/api/settings", token=su_token)
+    current = dict(current_all.get("smtp") or {})
+    meta = dict(current_all.get("meta") or {})
+    sender = str(cfg.get("sender") or "").strip()
+    app_name = str(cfg.get("app_name") or "Catena").strip()
+
+    smtp_same = all(
+        str(current.get(k, "")) == str(desired[k]) for k in _SMTP_COMPARED
+    )
+    meta_same = (
+        str(meta.get("senderAddress", "")) == sender
+        and str(meta.get("senderName", "")) == app_name
+    )
+    if smtp_same and meta_same:
+        return "ok-exists"
+
+    had_host = bool(str(current.get("host") or "").strip())
+    _req(
+        "PATCH",
+        f"{base}/api/settings",
+        token=su_token,
+        # meta goes in the same PATCH: an SMTP server with no sender address
+        # produces mail most relays refuse, and the two are one setting from
+        # the operator's point of view.
+        body={
+            "smtp": desired,
+            "meta": {"senderName": app_name, "senderAddress": sender},
+        },
+    )
+
+    # READ BACK, for the reason the OIDC provider is read back: PocketBase
+    # drops keys it does not recognise rather than rejecting them, so a field
+    # rename on a future bump would leave mail configured, reporting success,
+    # and silently never sending.
+    after = dict((_req("GET", f"{base}/api/settings", token=su_token)
+                  ).get("smtp") or {})
+    drifted = [
+        k for k in _SMTP_COMPARED if str(after.get(k, "")) != str(desired[k])
+    ]
+    if drifted:
+        die(
+            f"wrote the mail settings but {drifted} did not land -- PocketBase "
+            "ignored unrecognised keys, so these names have drifted from "
+            "core.SMTPConfig"
+        )
+    return "updated" if had_host else "configured"
 
 
 # ─── OIDC provider on the users collection ─────────────────────────────────

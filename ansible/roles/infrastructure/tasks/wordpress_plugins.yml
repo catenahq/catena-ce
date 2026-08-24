@@ -314,37 +314,28 @@
     # keeping the password out of the WP database. The constant
     # itself is set from the WPMS_SMTP_PASS env var (auto-healed
     # via env_managed_keys from smtp_password).
-    # Same resolution as roles/keycloak/defaults, against the same store keys:
-    # SMTP_PROVIDER decides, SMTP_SENDER is the address, one credential. It is
-    # spelled out again here rather than read from that role because role
-    # defaults are role-scoped, and both derive from one rule that fits in six
-    # lines -- which the three-sender-field precedence it replaced did not.
+    # One resolution, shared with roles/keycloak and roles/infrastructure's
+    # Beszel seeding: playbooks/filter_plugins/smtp_resolve.py. It used to be
+    # written out here as well, which meant this host could send a contact-form
+    # mail through a different relay than its own password resets, from the same
+    # stored config, and nothing would say so.
     - name: "WordPress plugins: resolve the SMTP choice"
       ansible.builtin.set_fact:
-        _wp_smtp_provider: "{{ cfg_smtp_provider | default('') | trim | lower }}"
+        _wp_smtp: >-
+          {{ cfg_smtp_provider | default('') | catena_smtp_resolve(
+               host=cfg_smtp_host | default(''),
+               port=cfg_smtp_port | default(''),
+               user=cfg_smtp_user | default(''),
+               sender=cfg_smtp_sender | default('')) }}
       when: _wp_installed.rc == 0
 
     - name: "WordPress plugins: derive consolidated SMTP config"
       ansible.builtin.set_fact:
-        _wp_smtp_enabled: >-
-          {{ _wp_smtp_provider in ['resend', 'brevo', 'server'] }}
-        _wp_smtp_host: >-
-          {{
-            'smtp.resend.com' if _wp_smtp_provider == 'resend'
-            else ('smtp-relay.brevo.com' if _wp_smtp_provider == 'brevo'
-            else (cfg_smtp_host | default('') if _wp_smtp_provider == 'server' else ''))
-          }}
-        _wp_smtp_port: >-
-          {{
-            587 if _wp_smtp_provider in ['resend', 'brevo']
-            else (cfg_smtp_port | default('587') | int)
-          }}
-        _wp_smtp_user: >-
-          {{
-            'resend' if _wp_smtp_provider == 'resend'
-            else (cfg_smtp_user | default(''))
-          }}
-        _wp_smtp_from: "{{ cfg_smtp_sender | default('') }}"
+        _wp_smtp_enabled: "{{ _wp_smtp.enabled }}"
+        _wp_smtp_host: "{{ _wp_smtp.host }}"
+        _wp_smtp_port: "{{ _wp_smtp.port }}"
+        _wp_smtp_user: "{{ _wp_smtp.user }}"
+        _wp_smtp_from: "{{ _wp_smtp.sender }}"
       when: _wp_installed.rc == 0
 
     - name: "WordPress plugins: skip wp-mail-smtp wiring (no SMTP configured)"

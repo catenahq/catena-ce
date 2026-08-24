@@ -180,10 +180,20 @@
 # deployed at the bottom of this file. One definition, read by both seed
 # invocations, so the delivery channel and the thing that receives it cannot
 # drift apart.
-- name: "Beszel: resolve the alert-shim webhook URL"
+- name: "Beszel: resolve the alert-shim webhook URL + outgoing mail"
   ansible.builtin.set_fact:
     _beszel_alert_webhook: >-
       generic+http://{{ beszel_hc_shim_network_alias }}:{{ beszel_hc_shim_internal_port }}/notify
+    # The SAME resolution roles/keycloak and wordpress_plugins use, from the one
+    # stored choice. A third hand-written copy of the ladder is how a host ends
+    # up mailing alerts through one relay and password resets through another.
+    _beszel_smtp: >-
+      {{ cfg_smtp_provider | default('') | catena_smtp_resolve(
+           host=cfg_smtp_host | default(''),
+           port=cfg_smtp_port | default(''),
+           user=cfg_smtp_user | default(''),
+           sender=cfg_smtp_sender | default(''),
+           fallback_sender=admin_email) }}
 
 - name: "Beszel: seed the universal token + OIDC login (superuser-authenticated)"
   ansible.builtin.shell: >-
@@ -198,6 +208,11 @@
     BESZEL_OIDC_USERINFO_URL={{ ('https://' ~ keycloak_hostname ~ '/realms/' ~ keycloak_realm ~ '/protocol/openid-connect/userinfo') | quote }}
     BESZEL_OIDC_DISPLAY_NAME={{ beszel_oidc_display_name | quote }}
     BESZEL_ALERT_WEBHOOK={{ _beszel_alert_webhook | quote }}
+    BESZEL_SMTP_HOST={{ _beszel_smtp.host | quote }}
+    BESZEL_SMTP_PORT={{ _beszel_smtp.port | quote }}
+    BESZEL_SMTP_USER={{ _beszel_smtp.user | quote }}
+    BESZEL_SMTP_SENDER={{ _beszel_smtp.sender | quote }}
+    BESZEL_SMTP_PASSWORD={{ smtp_password | default('') | quote }}
     python3 /root/catena-beszel-seed.py
   register: _beszel_seed
   # The script prints one line carrying all FOUR outcomes. Steady state is
@@ -254,6 +269,11 @@
     BESZEL_OIDC_USERINFO_URL={{ ('https://' ~ keycloak_hostname ~ '/realms/' ~ keycloak_realm ~ '/protocol/openid-connect/userinfo') | quote }}
     BESZEL_OIDC_DISPLAY_NAME={{ beszel_oidc_display_name | quote }}
     BESZEL_ALERT_WEBHOOK={{ _beszel_alert_webhook | quote }}
+    BESZEL_SMTP_HOST={{ _beszel_smtp.host | quote }}
+    BESZEL_SMTP_PORT={{ _beszel_smtp.port | quote }}
+    BESZEL_SMTP_USER={{ _beszel_smtp.user | quote }}
+    BESZEL_SMTP_SENDER={{ _beszel_smtp.sender | quote }}
+    BESZEL_SMTP_PASSWORD={{ smtp_password | default('') | quote }}
     python3 /root/catena-beszel-seed.py
   register: _beszel_alert_seed
   changed_when: _beszel_alert_seed.stdout.count('ok-exists') < 4
