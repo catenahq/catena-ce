@@ -43,7 +43,7 @@ import json
 import os
 from datetime import timedelta
 from django.contrib.auth import get_user_model
-from hc.accounts.models import Project
+from hc.accounts.models import Profile, Project
 from hc.api.models import Channel, Check
 
 _hc_email = os.environ["CATENA_ADMIN_EMAIL"]
@@ -80,6 +80,25 @@ else:
         _dirty = True
     if _dirty:
         operator.save(update_fields=["email", "is_superuser", "is_staff"])
+
+# Follow the browser's light/dark preference by default.
+#
+# Healthchecks stores the theme per profile, with no global default and no
+# env var: hc/accounts/models.py declares `theme` as a nullable CharField,
+# and the accounts view accepts exactly "" (light), "dark" and "system".
+# A fresh profile is NULL, which renders light whatever the reader's machine
+# is set to -- so a panel in dark mode linked out to a monitoring page in
+# light mode.
+#
+# NULL is what makes this safe to set. It means "never chosen", and it is a
+# DIFFERENT value from "", which is what the view stores when somebody picks
+# Light deliberately. So this fills in a default exactly once and never
+# argues with a client who made a choice -- the same rule the Beszel alert
+# thresholds follow.
+_profile = Profile.objects.for_user(operator)
+if _profile.theme is None:
+    _profile.theme = "system"
+    _profile.save(update_fields=["theme"])
 
 # Ensure the operator has a Project to own the seeded checks/channels.
 # Project.objects.create() does NOT trigger the signup-flow helpers

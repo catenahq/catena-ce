@@ -116,10 +116,29 @@ class _Manager:
         return row, True
 
 
+class _ProfileManager(_Manager):
+    """Stand-in for Healthchecks's ProfileManager.
+
+    for_user() get-or-creates, and a fresh profile's `theme` is None -- NOT "".
+    That distinction is the whole point: None means "never chosen", "" means the
+    client picked Light. A stub that returned "" here would let a regression
+    through.
+    """
+
+    def for_user(self, user):
+        found = self._match(user=user)
+        if found:
+            return found[0]
+        row = self.create(user=user)
+        row.theme = None
+        return row
+
+
 def _install_fake_django(monkeypatch) -> dict[str, _Manager]:
     """Register the module graph the seed imports, and return the managers so
     a test can inspect what the script did."""
     managers = {name: _Manager() for name in ("user", "project", "channel", "check")}
+    managers["profile"] = _ProfileManager()
 
     def _model(manager):
         return type("Model", (), {"objects": manager})
@@ -128,6 +147,7 @@ def _install_fake_django(monkeypatch) -> dict[str, _Manager]:
     auth.get_user_model = lambda: _model(managers["user"])
     accounts_models = types.ModuleType("hc.accounts.models")
     accounts_models.Project = _model(managers["project"])
+    accounts_models.Profile = _model(managers["profile"])
     api_models = types.ModuleType("hc.api.models")
     api_models.Channel = _model(managers["channel"])
     api_models.Check = _model(managers["check"])
@@ -221,3 +241,64 @@ def test_clearing_the_config_removes_a_previously_seeded_channel(
     exec(compile(SEED.read_text(), str(SEED), "exec"), {"__name__": "__seed__"})
     assert managers["channel"].rows == []
     assert "Removed 1 stale ntfy channel(s)" in capsys.readouterr().out
+
+
+# ─── theme default ─────────────────────────────────────────────────────────
+
+def test_the_theme_default_is_set_once_and_never_argued_with():
+    """Healthchecks stores the theme per profile: nullable CharField, no global
+    default, no env var, and the accounts view accepts exactly "", "dark" and
+    "system". A fresh profile is NULL and renders light whatever the reader's
+    machine is set to.
+
+    NULL is what makes seeding it safe -- it means "never chosen", and it is a
+    DIFFERENT value from "", which is what the view stores when somebody picks
+    Light deliberately. Reconciling on every converge would overwrite that
+    choice nightly."""
+    body = SEED.read_text()
+    assert 'Profile.objects.for_user(operator)' in body, (
+        "the profile is not resolved through the manager, which get-or-creates")
+    assert '_profile.theme is None' in body, (
+        "the theme is set unconditionally: a client who chose Light would have "
+        "it overwritten on every converge")
+    assert '_profile.theme = "system"' in body
+    # The value has to be one the view accepts, or it is stored and ignored.
+    assert '"system"' in body
+
+
+def test_the_theme_write_touches_only_the_theme():
+    """A bare .save() would rewrite every column on the profile, including any
+    the client changed through the UI between converges."""
+    body = SEED.read_text()
+    assert '_profile.save(update_fields=["theme"])' in body
+
+
+def test_a_fresh_profile_follows_the_browser_preference(monkeypatch, capsys):
+    """A never-touched profile is NULL, which Healthchecks renders as light
+    whatever the reader's machine is set to -- so a panel in dark mode linked
+    out to a monitoring page in light mode."""
+    managers, _ = _run_seed(monkeypatch, capsys, server="", topic="")
+    profiles = managers["profile"].rows
+    assert len(profiles) == 1, f"expected one profile, got {profiles}"
+    assert profiles[0].theme == "system"
+
+
+def test_a_client_who_chose_light_keeps_it(monkeypatch, capsys):
+    """"" is what the accounts view stores when somebody picks Light
+    deliberately, and it is a DIFFERENT value from NULL. Overwriting it would
+    argue with a choice on every converge -- the same rule the Beszel alert
+    thresholds follow."""
+    managers = _install_fake_django(monkeypatch)
+    for key, value in BASE_ENV.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("CATENA_NTFY_SERVER", "")
+    monkeypatch.setenv("CATENA_NTFY_TOPIC", "")
+
+    # Pre-seed the operator and a profile that has been set to Light.
+    operator = managers["user"].create(username=BASE_ENV["CATENA_ADMIN_EMAIL"],
+                                       email=BASE_ENV["CATENA_ADMIN_EMAIL"])
+    chosen = managers["profile"].create(user=operator)
+    chosen.theme = ""
+
+    exec(compile(SEED.read_text(), str(SEED), "exec"), {"__name__": "__seed__"})
+    assert chosen.theme == "", "a deliberate Light choice was overwritten"
