@@ -139,6 +139,13 @@
         # Apps grid the panel derives from Portainer. This is what lets the panel
         # add the console tile itself. Host fact, like the four above.
         INFRA_PORTAINER_HOSTNAME: "{{ portainer_admin_hostname }}"
+        # The hub's CLUSTER-internal address, not the public hostname above.
+        # Same reason KEYCLOAK_ADMIN_BASE is internal: the public name is behind
+        # oauth2-proxy, so a server-side read there meets the SSO gate instead of
+        # the API. The port is a host fact (the alias and the scheme are not),
+        # which is why this is passed rather than defaulted in the image.
+        BESZEL_API_BASE: >-
+          http://{{ beszel_hub_network_alias }}:{{ beszel_hub_internal_port }}
   when: catena_admin_deploy_from_converge | bool
 
 - name: "Catena-admin: check the swarm service exists"
