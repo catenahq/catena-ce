@@ -24,12 +24,10 @@
 #   svc_readiness_url / svc_readiness_ok_codes / svc_readiness_validate_certs
 #   svc_readiness_skip_reason
 #
-# `svc_env` is GONE. Every one of the nine callers passed [], and the one
-# caller that did not -- catena-admin -- became a tier-1 service in its own
-# right, so merge_env_portainer's "preserve what the operator typed into the
-# stack editor" contract has no consumer and no editor left to preserve
-# from. Values reach these services from the on-box store through the
-# compose template, which is the single read path Phase 2 established.
+# There is no `svc_env`. Values reach these services from the on-box store
+# through the compose template, which is the single read path: nothing here
+# is edited in a stack editor, so there is no operator-typed value to
+# preserve across a redeploy.
 #
 # `docker stack deploy --detach=false` is synchronous: it returns only once
 # every service in the file has converged (or failed), which is what the

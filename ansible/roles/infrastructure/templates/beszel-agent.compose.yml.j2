@@ -25,6 +25,12 @@ services:
       restart_policy:
         condition: any
         delay: 5s
+      # The agent reports the metrics of the node it runs on, read
+      # through that node's docker socket. Unpinned it would measure
+      # whichever node swarm picked and report it as this one.
+      placement:
+        constraints:
+          - node.labels.catena.role==data
     # `network_mode: host` is a COMPOSE key that `docker stack deploy`
     # ignores in silence -- the agent would land on the stack's default
     # overlay, report that network's namespace as "the host", and dial a

@@ -10,6 +10,13 @@ services:
       restart_policy:
         condition: any
         delay: 5s
+      # gatus-data holds the status history, and the config bind
+      # source is a host path this converge writes. Off this node
+      # swarm creates both empty rather than failing, so gatus would
+      # come up monitoring nothing and reporting green.
+      placement:
+        constraints:
+          - node.labels.catena.role==data
     environment:
       GATUS_CONFIG_PATH: /config
       GATUS_WEB_PORT: "{{ gatus_internal_port }}"

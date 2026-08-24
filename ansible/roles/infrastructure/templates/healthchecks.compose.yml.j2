@@ -17,6 +17,12 @@ services:
       restart_policy:
         condition: any
         delay: 5s
+      # healthchecks-data is the SQLite database holding every check
+      # and its ping history. An empty one on another node is a
+      # monitoring plane that has forgotten what it watches.
+      placement:
+        constraints:
+          - node.labels.catena.role==data
     environment:
       SITE_ROOT: "https://{{ healthchecks_hostname }}"
       SITE_NAME: "{{ cloudflare_zone }} heartbeats"
