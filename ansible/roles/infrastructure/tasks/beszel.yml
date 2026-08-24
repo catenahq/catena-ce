@@ -158,15 +158,44 @@
     mode: "0700"
   changed_when: false
 
-- name: "Beszel: seed the universal token (superuser-authenticated upsert)"
+# The Keycloak client backing the hub's own sign-in button. Rendered before
+# the seed below, because the seed points PocketBase at it -- a provider
+# configured against a client the realm does not carry yet is a button that
+# 400s until the next converge.
+- name: "Beszel OIDC: render Keycloak client into realm config dir"
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../roles/keycloak/templates/realm-beszel.yaml.j2"
+    dest: "{{ keycloak_realm_host_dir }}/beszel.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  register: _beszel_realm_render
+
+- name: "Beszel OIDC: re-import realm config with the new client"
+  ansible.builtin.include_tasks: ../../keycloak/tasks/realm_bootstrap.yml
+  when: _beszel_realm_render is changed
+  tags: [beszel_realm]
+
+- name: "Beszel: seed the universal token + OIDC login (superuser-authenticated)"
   ansible.builtin.shell: >-
     BESZEL_HUB_URL=http://127.0.0.1:{{ beszel_hub_host_localhost_port }}
     BESZEL_ADMIN_EMAIL={{ admin_email | quote }}
     BESZEL_ADMIN_PASSWORD={{ admin_password | quote }}
     BESZEL_UNIVERSAL_TOKEN={{ beszel_universal_token | quote }}
+    BESZEL_OIDC_CLIENT_ID=beszel
+    BESZEL_OIDC_CLIENT_SECRET={{ beszel_oidc_client_secret | quote }}
+    BESZEL_OIDC_AUTH_URL={{ ('https://' ~ keycloak_hostname ~ '/realms/' ~ keycloak_realm ~ '/protocol/openid-connect/auth') | quote }}
+    BESZEL_OIDC_TOKEN_URL={{ ('https://' ~ keycloak_hostname ~ '/realms/' ~ keycloak_realm ~ '/protocol/openid-connect/token') | quote }}
+    BESZEL_OIDC_USERINFO_URL={{ ('https://' ~ keycloak_hostname ~ '/realms/' ~ keycloak_realm ~ '/protocol/openid-connect/userinfo') | quote }}
+    BESZEL_OIDC_DISPLAY_NAME={{ beszel_oidc_display_name | quote }}
     python3 /root/catena-beszel-seed.py
   register: _beszel_seed
-  changed_when: "'minted' in _beszel_seed.stdout or 'updated' in _beszel_seed.stdout"
+  # The script prints one line carrying both outcomes. Steady state is
+  # "ok-exists" from BOTH halves; anything else was a real write. Matching on
+  # the absence of a second ok-exists rather than on 'minted'/'updated' keeps
+  # a half-changed run (token current, OIDC newly configured) reported as
+  # changed, which the previous substring match would have missed.
+  changed_when: _beszel_seed.stdout.count('ok-exists') < 2
   retries: 24
   delay: 5
   until: _beszel_seed.rc == 0

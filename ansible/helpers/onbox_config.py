@@ -174,6 +174,13 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     # minted in this table would be one the operator is never shown, for a hub
     # the panel links to as a tab.
     "beszel_universal_token": mint_url_safe,
+    # Beszel's OIDC client secret, so the hub can offer "Sign in with Catena"
+    # against Keycloak instead of a second password prompt behind the
+    # oauth2-proxy the client has already passed. Password login stays ON
+    # (DISABLE_PASSWORD_AUTH is deliberately never set): Beszel is base-plane
+    # infrastructure, and a monitoring tool that can only be reached through
+    # the SSO tool cannot be used to diagnose the SSO tool.
+    "beszel_oidc_client_secret": mint_strong_password,
     # The auth header on the ZAP daemon's REST API while a pen-test scan is
     # running. Minted regardless of bench mode so a one-off scan against any
     # inventory needs no extra setup.

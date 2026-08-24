@@ -1,0 +1,61 @@
+# {{ ansible_managed }}
+# Static Keycloak client for the Beszel resource monitor's own OIDC login.
+#
+# WHY A SECOND LOGIN EXISTED. Beszel sits behind oauth2-proxy already
+# (vps.auth.mode=admin-only in the hub compose), so a client reaching its
+# login form has authenticated to Keycloak and proved `admin` group
+# membership. But Beszel is PocketBase underneath and keeps its OWN user
+# table, bootstrapped from USER_EMAIL/USER_PASSWORD -- so the client was
+# prompted for the admin password a second time, by a different system, for
+# access they had already been granted. This client removes that prompt.
+#
+# It buys UX, not access control: the gate is still oauth2-proxy.
+#
+# PASSWORD LOGIN STAYS ON. scripts/beszel-seed.py does NOT set
+# DISABLE_PASSWORD_AUTH, and a test asserts it never appears. Beszel is
+# base-plane infrastructure, not a client app -- unlike element/nextcloud/
+# roundcube, whose OIDC clients this file is modelled on. A monitoring tool
+# reachable ONLY through the SSO tool cannot be used to diagnose the SSO
+# tool, which is the same circular dependency that moved catena-admin off
+# a Portainer stack deploy.
+#
+# This file lives in the same /config dir as realm-vps.yaml so
+# keycloak-config-cli's IMPORT_FILES_LOCATIONS=/config/*.yaml glob picks it
+# up. NO_DELETE merge semantics (set in realm_bootstrap.yml) preserve the
+# base realm and add this client.
+
+realm: {{ keycloak_realm }}
+
+clients:
+  - clientId: "beszel"
+    name: "catena Beszel"
+    description: "OIDC for the Beszel resource monitor's own login form."
+    enabled: true
+    publicClient: false
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    secret: "{{ beszel_oidc_client_secret }}"
+    # PocketBase's fixed OAuth2 callback path. Not configurable in Beszel,
+    # and version-stable: /api/oauth2-redirect is the documented value.
+    redirectUris:
+      - "https://{{ beszel_hostname }}/api/oauth2-redirect"
+    webOrigins:
+      - "+"
+    defaultClientScopes:
+      - groups
+      - profile
+      - email
+      - roles
+      - web-origins
+    optionalClientScopes:
+      - phone
+      - address
+      - microprofile-jwt
+    attributes:
+      access.token.lifespan: "3600"
+      # PocketBase's OIDC provider sends PKCE by default
+      # (tools/auth/oidc.go NewOIDCProvider), so unlike the Synapse and
+      # Nextcloud clients this one does NOT clear the challenge method.
+      post.logout.redirect.uris: "https://{{ beszel_hostname }}/*"

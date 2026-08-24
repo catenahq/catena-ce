@@ -191,6 +191,11 @@ beszel_agent_compose_name: "beszel-agent"
 # so it reaches the hub at 127.0.0.1:{{ beszel_hub_host_localhost_port }}.
 beszel_agent_port: 45876
 beszel_subdomain: "{{ lookup('dotenv', 'BESZEL_SUBDOMAIN', default='hub') }}"
+
+# Label on the hub's OIDC sign-in button. Client-facing copy, so it names the
+# product rather than the software behind it -- "Keycloak" is a word the client
+# has no reason to know.
+beszel_oidc_display_name: "Catena"
 beszel_hostname: "{{ beszel_subdomain }}.{{ cloudflare_zone }}"
 
 # --- Beszel -> Healthchecks alert shim ----------------------------------
