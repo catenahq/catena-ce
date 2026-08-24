@@ -178,3 +178,69 @@
 - name: "onbox: publish the image pins"
   ansible.builtin.set_fact:
     catena_image_pins: "{{ _onbox_image_pins.stdout | from_json }}"
+
+# ─── which catena-admin release this converge installs ─────────────────────
+#
+# ASKED, not remembered. The image used to be two literals in
+# roles/common/defaults -- the version and its digest -- bumped by hand together
+# on every catena-admin release. They drifted, and roles/payload is right to
+# refuse an image whose digest is not the recorded one, so the drift failed
+# fresh installs on a correct host with a correct image:
+#
+#   ...:v0.5.1 resolved to sha256:205a5a70... but this deployment pins
+#   sha256:09e03d74... Refusing to extract or root-execute the payload.
+#
+# The registry is now the single writer of both halves at once, so they cannot
+# disagree. helpers/catena_admin_release.py states why it resolves the highest
+# vX.Y.Z tag rather than :latest.
+#
+# It runs ON the host, like every other step in this loader: the machine that
+# resolves the tag is then the machine that pulls it, so the answer is one the
+# host can actually act on.
+#
+# Skipped entirely when CATENA_ADMIN_IMAGE names one. That is the change-control
+# escape hatch -- a client who wants to decide when their panel version moves
+# sets it, and this makes no network call at all.
+- name: "onbox: resolve the catena-admin release to install"
+  ansible.builtin.script:
+    cmd: >-
+      {{ playbook_dir }}/../helpers/catena_admin_release.py
+      --repository {{ catena_admin_repository
+                      | default('ghcr.io/catenahq/catena-admin', true) | quote }}
+    executable: python3
+  register: _catena_admin_release
+  changed_when: false
+  failed_when: false
+  when: lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
+
+# Fails HERE rather than deep in roles/payload, and says which of the two
+# reasons it is. A converge cannot proceed without this: the panel image is
+# also where the host engines come from, and every role after roles/docker
+# depends on those. Nothing downstream has a usable fallback -- the previous
+# fallback WAS the stale literal this replaces.
+- name: "onbox: the catena-admin release could not be resolved"
+  ansible.builtin.fail:
+    msg: >-
+      Could not resolve which catena-admin image to install:
+      {{ (_catena_admin_release.stderr | default('') | trim)
+         | default('no output', true) }}
+      This converge needs the registry to answer, because the panel image is
+      also where the host engines are extracted from. Pin an image explicitly
+      with CATENA_ADMIN_IMAGE=ghcr.io/catenahq/catena-admin:vX.Y.Z to converge
+      without asking the registry.
+  when:
+    - lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
+    - (_catena_admin_release.rc | default(1)) != 0
+
+- name: "onbox: publish the resolved catena-admin release"
+  ansible.builtin.set_fact:
+    catena_admin_release: "{{ _catena_admin_release.stdout | from_json }}"
+  when: lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
+
+- name: "onbox: catena-admin release"
+  ansible.builtin.debug:
+    msg: >-
+      Installing catena-admin {{ catena_admin_release.version }}
+      ({{ catena_admin_release.digest }}), resolved from
+      {{ catena_admin_release.repository }}.
+  when: catena_admin_release is defined

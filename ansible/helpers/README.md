@@ -22,6 +22,7 @@ Unit tests for these live in `../tests/unit/`.
 | --- | --- |
 | `bootstrap_output.py` | Merge a key/value into <inventory_dir>/.bootstrap-output.yml. |
 | `bootstrap_portainer_admin.py` | Leaf utility: mint a Portainer X-API-Key from the initial admin. |
+| `catena_admin_release.py` | Ask the registry which catena-admin release to install, and for its digest. |
 | `install_key.py` | Automate the pre-bootstrap manual-SSH step across providers. |
 | `labels_schema.py` | Compose-label parsing + image-tag classification for the vps.* vocabulary. |
 | `net_retry.py` | Wait-and-retry around urllib for transient DNS / connection blips. |

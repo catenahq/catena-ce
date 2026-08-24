@@ -91,3 +91,24 @@ instead of the working tree, which is the one thing a bench must never do.
 | `catena_payload_marker` | `/etc/catena/.payload-image` | image ID the installed engines came from |
 | `catena_payload_pull` | `CATENA_PAYLOAD_PULL`, `true` | pull before extracting |
 | `catena_payload_install` | `CATENA_PAYLOAD_INSTALL`, `true` | run the install at all |
+| `catena_payload_image_digest` | `CATENA_PAYLOAD_IMAGE_DIGEST`, else `catena_admin_release.digest` | digest the image must resolve to before anything is extracted |
+
+## Which digest this asserts
+
+`catena_admin_release` is resolved from the registry once per converge by
+`playbooks/tasks/load_onbox_config.yml`, version and digest together. It
+replaced two literals in `roles/common/defaults` that had to be bumped in
+lockstep and were not: a version published as one digest with another digest
+recorded beside it fails this gate on a correct host holding a correctly
+published image, which is what it did.
+
+The check is therefore a same-converge consistency check -- the image about to
+be extracted is the one this converge resolved -- not provenance. It catches a
+tag moved mid-converge and a mismatched override; it does not catch a
+compromised registry. Provenance is `cosign verify` against the keyless
+signature `publish-image.yml` records, which needs cosign on the host and is
+not wired up.
+
+An image this converge did not resolve (the bench's own build, a lane pin)
+extracts with the digest empty, and the role says out loud that it went
+unchecked rather than failing closed on a correct host.

@@ -51,30 +51,43 @@ catena_payload_image: >-
 # every converge. A silent skip here would read exactly like a passing
 # verification, which is the failure mode this whole gate exists to avoid.
 #
-# The shipped digest applies only when the image being extracted IS the shipped
-# floor. Anything else has a digest nobody here knows: the bench builds its own
-# image on the VPS, and the on-host update lane may have pinned a newer version
-# whose digest was never written down here. Asserting the floor's digest
-# against one of those would fail closed on a correct host, which is worse than
-# saying out loud that it went unchecked.
+# The digest comes from the SAME registry answer that chose the version --
+# catena_admin_release, resolved once per converge by the config loader. It used
+# to be a literal bumped by hand alongside the version, and the two drifted; a
+# gate whose expected value has a different writer than the thing it checks
+# fails closed on correct hosts, which is what it did.
+#
+# WHAT THIS NOW PROVES, precisely: that the image about to be extracted is the
+# one this converge resolved, not that the registry is honest. Both halves come
+# from the same source, so this is a same-converge consistency check -- it
+# catches a tag moved mid-converge and a mismatched override, and it does not
+# catch a compromised registry. Provenance is `cosign verify` against the
+# keyless signature publish-image.yml records; that needs cosign on the host and
+# is not wired up.
+#
+# It applies only when the image being extracted IS the resolved one. Anything
+# else has a digest nobody here knows: the bench builds its own image on the
+# VPS, and the on-host update lane may have pinned a version this converge did
+# not resolve. Asserting the resolved digest against one of those would fail
+# closed on a correct host, which is worse than saying out loud that it went
+# unchecked.
 #
 # CATENA_PAYLOAD_IMAGE_DIGEST still wins, and a deliberately wrong value is how
 # the fail-closed leg gets exercised.
 #
-# The floor comparison strips a trailing @sha256:, because the service-derived
-# image carries one: swarm resolves the tag at create/update time and stores
-# `repo:tag@sha256:...` in the spec. Comparing the whole string would never
-# match the floor, so every converged host would silently drop to "unchecked" --
-# a passing-looking skip, which is the exact failure this gate exists to avoid.
-# A ref that carries its own digest is already byte-addressed on extract; the
-# assertion below is what additionally ties it to the version this release of
-# catena-ce shipped against.
+# The comparison strips a trailing @sha256:, because both sides can carry one:
+# swarm resolves the tag at create/update time and stores `repo:tag@sha256:...`
+# in the spec, and the resolved ref is digest-pinned on purpose. Comparing whole
+# strings would never match, so every converged host would silently drop to
+# "unchecked" -- a passing-looking skip, which is the exact failure this gate
+# exists to avoid.
 catena_payload_image_digest: >-
   {{ lookup('env', 'CATENA_PAYLOAD_IMAGE_DIGEST', default='')
-     | default(catena_admin_image_floor_digest
+     | default((catena_admin_release | default({})).get('digest', '')
                if (catena_payload_image
                    | regex_replace('@sha256:[0-9a-f]{64}$', ''))
-                  == catena_admin_image_floor
+                  == ((catena_admin_release | default({})).get('ref', '')
+                      | regex_replace('@sha256:[0-9a-f]{64}$', ''))
                else '', true) }}
 
 # Where the image's payload tree is unpacked on the host. The catena-admin

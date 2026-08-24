@@ -48,9 +48,14 @@ TIER-1 SWARM SERVICE, with the argv rendered by
   ([tasks/deploy.yml](tasks/deploy.yml)), pulling the PUBLIC GHCR image
   (`catena_admin_image`) anonymously -- every install gets the panel; the
   Business feature set inside it is gated at runtime by the license
-  check. It was a Portainer stack until the panel held the key that
-  drives Portainer *and* depended on Portainer to start, so a broken
-  control plane took down the only tool that could repair it. The three
+  check. WHICH release that is comes from the registry: the config loader
+  resolves the newest published `vX.Y.Z` tag and its digest once per
+  converge, so no version literal is maintained here, and the two halves
+  of the answer cannot drift apart. `CATENA_ADMIN_IMAGE` pins one
+  instead, and suppresses the lookup. It was a Portainer stack until the
+  panel held the key that drives Portainer *and* depended on Portainer to
+  start, so a broken control plane took down the only tool that could
+  repair it. The three
   credentials arrive as swarm secrets, not `--env`: `docker service
   create` has no `--env-file`, so an `--env` value sits in the host
   process table where any local user can read it. No Traefik route is

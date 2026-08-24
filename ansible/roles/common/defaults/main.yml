@@ -139,7 +139,7 @@ catena_admin_service_name: "catena-admin"
 # This is the BOOTSTRAP input, not the steady-state one. It decides which image
 # a first converge creates the service from; from then on the service's own
 # image is what roles/payload follows, so there is exactly ONE version input on
-# a host at any moment. Raising the floor therefore moves fresh installs and
+# a host at any moment. A newer release therefore moves fresh installs and
 # leaves converged hosts alone -- the update lane is what moves those, and it
 # moves both halves in one transaction. Two version inputs is what made drift
 # reachable: the converge resolved max(floor, pin) for the engines while the
@@ -149,28 +149,42 @@ catena_admin_service_name: "catena-admin"
 # PUBLIC image, pulled anonymously: every panel is compiled in and the Business
 # set is gated at RUNTIME by the licence check, so distribution gating would
 # add no enforcement.
-catena_admin_image_floor: "ghcr.io/catenahq/catena-admin:v0.5.1"
-
-# The digest that floor resolved to when it was published. roles/payload
-# refuses to extract or root-execute anything that does not match, which is the
-# only verification in that path that works offline and needs nothing installed
-# on the host.
 #
-# It applies ONLY when the image being extracted IS the floor. An overridden
-# image has a digest nobody here knows -- the bench builds its own on the VPS,
-# and the on-host update lane may have pinned a newer version -- and asserting
-# this digest against one of those would fail closed on a correct host. The
-# role says out loud when it is extracting unchecked.
-catena_admin_image_floor_digest: "sha256:09e03d74a24dcdb5deba2fce563d48a4f848c31a0d92af7de4053e3ac25a15c5"
+# WHICH release, and its digest, are ASKED of the registry once per converge by
+# playbooks/tasks/load_onbox_config.yml, which publishes catena_admin_release.
+# They used to be two literals bumped by hand here, and drift between them is
+# the one thing that pair cannot survive: roles/payload refuses an image whose
+# digest is not the recorded one, so a version bumped without its digest failed
+# every fresh install on a correct host holding a correctly published image.
+# One question, one writer.
+#
+# CATENA_ADMIN_IMAGE overrides it outright and suppresses the registry call.
+# That is the change-control path for a client who wants to decide when their
+# panel version moves, and it is what the bench uses to converge against an
+# image it built on the VPS.
+catena_admin_image_override: >-
+  {{ lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) }}
 
 # What a converge creates the service from when there is no service yet: the
-# floor, or the newer version the on-host update lane recorded in
+# resolved release, or the version the on-host update lane recorded in
 # /etc/catena/config.json, whichever is higher. A restored or re-converged host
-# can hold a pin above the floor with no service running, and creating that
-# service from the floor would hand it engines it had already moved past. See
+# can hold a pin with no service running, and creating that service from an
+# older image would hand it engines it had already moved past. See
 # playbooks/filter_plugins/image_pin.py for why neither side simply wins.
+#
+# The resolved side is now the newest PUBLISHED release, so in practice the pin
+# can only equal or trail it. The filter stays because the rule it enforces is
+# structural rather than situational: an image a role asserts instead of asking
+# for is how the last revert-every-managed-bump defect got in.
+#
+# The resolved value carries its digest (repo:tag@sha256:...), so the pull is
+# byte-addressed. A tag moved between this resolution and roles/catena-admin's
+# service create at role 13 cannot change which bytes land.
 catena_admin_image: >-
-  {{ catena_admin_image_floor | catena_image_pin(catena_image_pins | default({})) }}
+  {{ (catena_admin_image_override | default('', true) | length > 0)
+     | ternary(catena_admin_image_override,
+               catena_admin_release.ref | default(''))
+     | catena_image_pin(catena_image_pins | default({})) }}
 
 # What this converge delivered, written at the very end of site.yml so it
 # describes a converge that finished. The panel reads it to tell "this feature

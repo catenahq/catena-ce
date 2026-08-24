@@ -20,10 +20,11 @@ catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
 # the licence check. The bench does not use it (it builds
 # local/catena-admin:bench on the VPS and passes that tag).
 #
-# catena_admin_image, its floor and the floor's digest live in
-# roles/common/defaults: roles/payload extracts the host engines from the same
-# image at role 5.5, long before this role's defaults are in scope, and the two
-# must agree. See the block there.
+# catena_admin_image lives in roles/common/defaults: roles/payload extracts the
+# host engines from the same image at role 5.5, long before this role's defaults
+# are in scope, and the two must agree. Which release it names, and that
+# release's digest, are resolved from the registry once per converge by
+# playbooks/tasks/load_onbox_config.yml. See the block there.
 
 # The digest roles/payload refuses to extract anything from unless it matches.
 # One value drives both halves: the engines and the shell come from one image.
