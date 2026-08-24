@@ -30,6 +30,8 @@ BACKUP_DEFAULTS = ANSIBLE / "roles" / "backup" / "defaults" / "main.yml"
 ADMIN_HOST = ANSIBLE / "roles" / "catena-admin" / "tasks" / "host.yml"
 ADMIN_DEPLOY = ANSIBLE / "roles" / "catena-admin" / "tasks" / "deploy.yml"
 DAILY_ENV = ANSIBLE / "roles" / "catena-admin" / "templates" / "daily.env.j2"
+GROUP_VARS = ANSIBLE / "playbooks" / "group_vars" / "all" / "main.yml"
+ONBOX_CONFIG = ANSIBLE / "helpers" / "onbox_config.py"
 
 KEEP_KEYS = (
     "BACKUP_KEEP_LAST", "BACKUP_KEEP_HOURLY", "BACKUP_KEEP_DAILY",
@@ -61,10 +63,32 @@ def test_retention_is_not_templated_into_backup_env():
 
 
 def test_this_repo_sets_no_retention_default():
-    body = _code(BACKUP_DEFAULTS)
-    for gone in ("backup_retention_policy", "backup_retention_defaults"):
-        assert gone not in body, (
-            f"{gone} makes this repo a second writer of a value the panel owns"
+    # Both files, not just the role default. The dict was removed from
+    # roles/backup/defaults and reappeared in group_vars/all/main.yml, where
+    # this assertion could not see it -- and it stayed there, read by no role,
+    # template or playbook, so an operator could set BACKUP_KEEP_DAILY=30 in
+    # .env, converge clean, and keep 7.
+    for path in (BACKUP_DEFAULTS, GROUP_VARS):
+        body = _code(path)
+        for gone in ("backup_retention_policy", "backup_retention_defaults"):
+            assert gone not in body, (
+                f"{gone} is back in {path.name}: it makes this repo a second "
+                "writer of a value the panel owns, and the last copy was not a "
+                "writer at all -- nothing read it"
+            )
+
+
+def test_no_retention_key_is_seeded_into_the_store():
+    # BOOTSTRAP_CONFIG is what the inventory may put in the store. Three of the
+    # keep keys were in it, described as seeding the store -- into flat config
+    # keys the wrapper stopped reading when retention got its single owner. A
+    # value stored and never read is indistinguishable, from the operator's
+    # side, from one that took effect.
+    body = _code(ONBOX_CONFIG)
+    for key in KEEP_KEYS:
+        assert f'"{key}"' not in body, (
+            f"{key} is declared in onbox_config.py again; retention reaches the "
+            "store as the backup_retention object, written by catena-schedule"
         )
 
 

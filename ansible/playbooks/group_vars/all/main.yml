@@ -105,10 +105,13 @@ storage_bulk_mount_point: "{{ lookup('dotenv', 'STORAGE_BULK_MOUNT_POINT', defau
 # attempted split replaced, so any inventory carrying it silently opted out of
 # the immediate-page lane. Override with BACKUP_HEALTHCHECK_URL in .env if you
 # want an off-host endpoint.
-backup_retention_policy:
-  keep_daily: "{{ lookup('dotenv', 'BACKUP_KEEP_DAILY', default='7') | int }}"
-  keep_weekly: "{{ lookup('dotenv', 'BACKUP_KEEP_WEEKLY', default='4') | int }}"
-  keep_monthly: "{{ lookup('dotenv', 'BACKUP_KEEP_MONTHLY', default='6') | int }}"
+# Retention is NOT an inventory value. It is the `backup_retention` object in
+# /etc/catena/config.json, set on the panel's Schedules page and rendered to
+# /etc/catena/backup-retention.env by catena-schedule -- the only file
+# run-backup.sh sources it from. A backup_retention_policy dict lived here
+# reading BACKUP_KEEP_* out of .env, and no role, template or playbook ever
+# consumed it: an operator could set BACKUP_KEEP_DAILY=30 in .env, converge
+# cleanly, and keep 7.
 
 # --- Locale ---
 common_timezone: "{{ lookup('dotenv', 'COMMON_TIMEZONE', default='America/Toronto') }}"

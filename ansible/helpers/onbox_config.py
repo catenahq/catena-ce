@@ -382,11 +382,6 @@ BOOTSTRAP_CONFIG: frozenset[str] = frozenset({
     "CATENA_ACME_DIRECTORY_URL",
     "CATENA_ACME_HOST_IP",
     "COTURN_CERTBOT_STAGING",
-    # Retention: read by the inventory only to seed the store. The live values
-    # come from /etc/catena/backup-retention.env, rendered by catena-schedule.
-    "BACKUP_KEEP_DAILY",
-    "BACKUP_KEEP_WEEKLY",
-    "BACKUP_KEEP_MONTHLY",
 })
 
 
