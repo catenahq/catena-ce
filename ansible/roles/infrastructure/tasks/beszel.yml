@@ -176,6 +176,15 @@
   when: _beszel_realm_render is changed
   tags: [beszel_realm]
 
+# The Shoutrrr URL the hub notifies through, pointed at the alert shim
+# deployed at the bottom of this file. One definition, read by both seed
+# invocations, so the delivery channel and the thing that receives it cannot
+# drift apart.
+- name: "Beszel: resolve the alert-shim webhook URL"
+  ansible.builtin.set_fact:
+    _beszel_alert_webhook: >-
+      generic+http://{{ beszel_hc_shim_network_alias }}:{{ beszel_hc_shim_internal_port }}/notify
+
 - name: "Beszel: seed the universal token + OIDC login (superuser-authenticated)"
   ansible.builtin.shell: >-
     BESZEL_HUB_URL=http://127.0.0.1:{{ beszel_hub_host_localhost_port }}
@@ -188,14 +197,19 @@
     BESZEL_OIDC_TOKEN_URL={{ ('https://' ~ keycloak_hostname ~ '/realms/' ~ keycloak_realm ~ '/protocol/openid-connect/token') | quote }}
     BESZEL_OIDC_USERINFO_URL={{ ('https://' ~ keycloak_hostname ~ '/realms/' ~ keycloak_realm ~ '/protocol/openid-connect/userinfo') | quote }}
     BESZEL_OIDC_DISPLAY_NAME={{ beszel_oidc_display_name | quote }}
+    BESZEL_ALERT_WEBHOOK={{ _beszel_alert_webhook | quote }}
     python3 /root/catena-beszel-seed.py
   register: _beszel_seed
-  # The script prints one line carrying both outcomes. Steady state is
-  # "ok-exists" from BOTH halves; anything else was a real write. Matching on
-  # the absence of a second ok-exists rather than on 'minted'/'updated' keeps
-  # a half-changed run (token current, OIDC newly configured) reported as
-  # changed, which the previous substring match would have missed.
-  changed_when: _beszel_seed.stdout.count('ok-exists') < 2
+  # The script prints one line carrying all FOUR outcomes. Steady state is
+  # "ok-exists" from every one; anything else was a real write. Counting them
+  # rather than matching a 'minted'/'updated' substring keeps a half-changed
+  # run (token current, OIDC newly configured) reported as changed.
+  #
+  # Four, not three: the alert rules report "no-systems" here on a first
+  # converge, because this runs BEFORE the agent deploy below -- the agent
+  # needs the universal token this task seeds. The pass after the agent is what
+  # turns that into "created N".
+  changed_when: _beszel_seed.stdout.count('ok-exists') < 4
   retries: 24
   delay: 5
   until: _beszel_seed.rc == 0
@@ -216,6 +230,42 @@
       Host-network metrics agent; no HTTP surface. The hub's Systems view
       shows it online within a poll once it registers via the universal
       token.
+
+# The alert rules need a SYSTEM to attach to, and a system only exists once the
+# agent above has registered itself. The seed ran before that, deliberately --
+# the agent needs the universal token it writes -- so it reported "no-systems"
+# and created nothing.
+#
+# This is the same script again, which is safe because every step in it is
+# find-or-create: the token, the OIDC provider and the webhook all report
+# ok-exists on this pass, and only the rules do work. `until` waits for the
+# registration rather than assuming it, so a fresh host finishes with a
+# complete alert path in ONE converge instead of needing a second.
+- name: "Beszel: seed the default alert rules once the agent has registered"
+  ansible.builtin.shell: >-
+    BESZEL_HUB_URL=http://127.0.0.1:{{ beszel_hub_host_localhost_port }}
+    BESZEL_ADMIN_EMAIL={{ admin_email | quote }}
+    BESZEL_ADMIN_PASSWORD={{ admin_password | quote }}
+    BESZEL_UNIVERSAL_TOKEN={{ beszel_universal_token | quote }}
+    BESZEL_OIDC_CLIENT_ID=beszel
+    BESZEL_OIDC_CLIENT_SECRET={{ beszel_oidc_client_secret | quote }}
+    BESZEL_OIDC_AUTH_URL={{ ('https://' ~ keycloak_hostname ~ '/realms/' ~ keycloak_realm ~ '/protocol/openid-connect/auth') | quote }}
+    BESZEL_OIDC_TOKEN_URL={{ ('https://' ~ keycloak_hostname ~ '/realms/' ~ keycloak_realm ~ '/protocol/openid-connect/token') | quote }}
+    BESZEL_OIDC_USERINFO_URL={{ ('https://' ~ keycloak_hostname ~ '/realms/' ~ keycloak_realm ~ '/protocol/openid-connect/userinfo') | quote }}
+    BESZEL_OIDC_DISPLAY_NAME={{ beszel_oidc_display_name | quote }}
+    BESZEL_ALERT_WEBHOOK={{ _beszel_alert_webhook | quote }}
+    python3 /root/catena-beszel-seed.py
+  register: _beszel_alert_seed
+  changed_when: _beszel_alert_seed.stdout.count('ok-exists') < 4
+  # Long enough for the agent to come up and complete its first WebSocket
+  # registration. Failing here is a real failure: an agent that never registers
+  # is a monitor with nothing to watch, and it should not pass silently.
+  retries: 30
+  delay: 5
+  until:
+    - _beszel_alert_seed.rc == 0
+    - "'no-systems' not in _beszel_alert_seed.stdout"
+  no_log: true
 
 # ─── Beszel -> Healthchecks alert shim ───────────────────────────────────
 # Bridges Beszel's static-URL Shoutrrr webhook to the Gatus-style

@@ -211,3 +211,156 @@ def test_a_half_changed_seed_still_reports_changed():
     assert "ok-exists" in str(task["changed_when"]), (
         f"changed_when is {task['changed_when']!r}; it must key on BOTH halves "
         "reporting no-op, not on one substring")
+
+
+# ─── alert delivery + rules ────────────────────────────────────────────────
+# Both were manual UI steps. The shim was deployed, no webhook pointed at it and
+# no rule would ever fire, so a converged host had a monitor watching a server
+# with no way to tell anybody -- the one failure monitoring exists to avoid, and
+# invisible precisely because nothing was broken.
+
+
+def test_the_webhook_points_at_the_shim_this_role_deploys():
+    """One definition read by both seed passes. Two would drift, and a
+    delivery channel pointed at a service that is not there fails only when it
+    matters."""
+    tasks = [t for t in yaml.safe_load(BESZEL_TASKS.read_text()) if isinstance(t, dict)]
+    fact = next(t for t in tasks if "alert-shim webhook URL" in str(t.get("name", "")))
+    url = str(fact["ansible.builtin.set_fact"]["_beszel_alert_webhook"])
+    # generic+ is Shoutrrr's raw-webhook scheme; the shim speaks plain HTTP.
+    assert url.startswith("generic+http://"), url
+    assert "beszel_hc_shim_network_alias" in url
+    assert "beszel_hc_shim_internal_port" in url
+    assert url.rstrip().endswith("/notify"), url
+
+
+def test_the_rules_are_seeded_after_the_agent_registers():
+    """The rules attach to a SYSTEM, and a system exists only once the agent
+    has registered. The agent needs the universal token the first pass seeds,
+    so the first pass necessarily runs too early -- which is why there is a
+    second one and why it waits rather than assuming."""
+    tasks = [t for t in yaml.safe_load(BESZEL_TASKS.read_text()) if isinstance(t, dict)]
+    names = [str(t.get("name", "")) for t in tasks]
+    first = next(i for i, n in enumerate(names) if "seed the universal token" in n)
+    agent = next(i for i, n in enumerate(names) if "deploy agent as a swarm stack" in n)
+    rules = next(i for i, n in enumerate(names) if "default alert rules" in n)
+    assert first < agent < rules, names
+
+    task = tasks[rules]
+    until = str(task["until"])
+    assert "no-systems" in until, (
+        "the rules pass does not wait for the agent to register; on a fresh "
+        "host it would create nothing and report success")
+
+
+def test_a_never_registering_agent_fails_the_converge():
+    """An agent that never registers is a monitor with nothing to watch. It
+    must not pass silently just because the seed script exited 0."""
+    tasks = [t for t in yaml.safe_load(BESZEL_TASKS.read_text()) if isinstance(t, dict)]
+    task = next(t for t in tasks if "default alert rules" in str(t.get("name", "")))
+    assert task.get("retries"), "no retry bound: the wait is unbounded or absent"
+    assert "failed_when" not in task, (
+        "the rules pass swallows its own failure")
+
+
+def test_both_passes_report_all_four_outcomes():
+    """changed_when counts ok-exists across the four steps. Counting three
+    would report a converge that newly created every alert rule as unchanged."""
+    tasks = [t for t in yaml.safe_load(BESZEL_TASKS.read_text()) if isinstance(t, dict)]
+    for fragment in ("seed the universal token", "default alert rules"):
+        task = next(t for t in tasks if fragment in str(t.get("name", "")))
+        assert "ok-exists') < 4" in str(task["changed_when"]), (
+            f"{fragment}: changed_when is {task['changed_when']!r}")
+
+
+def test_an_operator_added_webhook_is_not_dropped():
+    """The converge owns ONE entry in the list, not the list. A client who
+    wired up ntfy or Slack in the hub UI keeps it -- same rule the OIDC
+    provider merge follows."""
+    calls = {}
+
+    def fake_req(method, url, *, token=None, body=None):
+        if method == "GET":
+            return {"items": [{"id": "us1", "settings": {
+                "emails": ["ops@example.test"],
+                "webhooks": ["ntfy://example.test/mine"],
+            }}]}
+        calls["body"] = body
+        return {}
+
+    import unittest.mock as _mock
+    with _mock.patch.object(seed, "_req", fake_req):
+        state = seed.configure_alert_delivery(
+            "http://h", "tok", "user1", "generic+http://shim:8080/notify")
+    hooks = calls["body"]["settings"]["webhooks"]
+    assert "ntfy://example.test/mine" in hooks, "a hand-added webhook was dropped"
+    assert "generic+http://shim:8080/notify" in hooks
+    assert calls["body"]["settings"]["emails"] == ["ops@example.test"], (
+        "email recipients were lost while writing the webhook")
+    assert state == "updated"
+
+
+def test_an_already_present_webhook_is_not_rewritten():
+    """Otherwise every converge reports changed and fails the strict
+    changed=0 idempotency rerun."""
+    def fake_req(method, url, *, token=None, body=None):
+        assert method == "GET", f"wrote on a no-op: {method} {url}"
+        return {"items": [{"id": "us1", "settings": {
+            "webhooks": ["generic+http://shim:8080/notify"]}}]}
+
+    import unittest.mock as _mock
+    with _mock.patch.object(seed, "_req", fake_req):
+        assert seed.configure_alert_delivery(
+            "http://h", "tok", "user1",
+            "generic+http://shim:8080/notify") == "ok-exists"
+
+
+def test_the_default_rules_use_names_the_collection_accepts():
+    """`name` is a SELECT on the alerts collection: a value outside its set is
+    refused by PocketBase, so these are copied from the collection definition
+    rather than invented."""
+    allowed = {"Status", "CPU", "Memory", "Disk", "Temperature", "Bandwidth",
+               "GPU", "LoadAvg1", "LoadAvg5", "LoadAvg15", "Battery"}
+    assert seed._DEFAULT_RULES, "the default rule set is empty"
+    for rule in seed._DEFAULT_RULES:
+        assert rule["name"] in allowed, rule
+        # `min` is MINUTES (internal/alerts/alerts_system.go multiplies it by
+        # time.Minute), so a zero would page on a single sample and a spike
+        # during a backup would wake somebody every night.
+        assert rule["min"] >= 1, rule
+
+
+def test_existing_rules_are_never_overwritten():
+    """A client who raised the CPU threshold because their server runs hot
+    meant to. A converge that reset it nightly is worse than shipping no
+    default at all."""
+    posted = []
+
+    def fake_req(method, url, *, token=None, body=None):
+        if method == "GET" and "systems/records" in url:
+            return {"items": [{"id": "sys1"}]}
+        if method == "GET" and "alerts/records" in url:
+            return {"items": [{"id": "a1", "name": "CPU", "value": 99}]}
+        posted.append(body)
+        return {}
+
+    import unittest.mock as _mock
+    with _mock.patch.object(seed, "_req", fake_req):
+        state = seed.configure_alert_rules("http://h", "tok", "user1")
+    names = [p["name"] for p in posted]
+    assert "CPU" not in names, "the client's own CPU threshold was overwritten"
+    assert "Status" in names, "the missing rules were not created"
+    assert state.startswith("created")
+
+
+def test_no_registered_system_is_reported_not_treated_as_success():
+    """The first pass runs before the agent exists, so zero systems is the
+    normal state there -- but it has to be distinguishable, because the second
+    pass waits on exactly this string."""
+    def fake_req(method, url, *, token=None, body=None):
+        assert "systems/records" in url
+        return {"items": []}
+
+    import unittest.mock as _mock
+    with _mock.patch.object(seed, "_req", fake_req):
+        assert seed.configure_alert_rules("http://h", "tok", "u") == "no-systems"

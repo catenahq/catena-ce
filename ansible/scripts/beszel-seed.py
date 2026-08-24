@@ -86,6 +86,7 @@ def main() -> int:
             "userinfo_url": os.environ["BESZEL_OIDC_USERINFO_URL"],
             "display_name": os.environ["BESZEL_OIDC_DISPLAY_NAME"],
         }
+        webhook = os.environ["BESZEL_ALERT_WEBHOOK"]
     except KeyError as exc:
         die(f"missing required env var: {exc}")
 
@@ -149,11 +150,157 @@ def main() -> int:
     # login unconfigured forever on any host whose token was already right.
     oidc_state = configure_oidc(base, su_token, oidc)
 
-    # One line carrying both, because the caller's changed_when reads stdout.
-    # "ok-exists" from BOTH is the steady-state converge; anything else is a
-    # real write and must report changed.
-    print(f"universal-token: {token_state}; oidc: {oidc_state}")
+    # 5. The alert DELIVERY channel, then the rules that deliver into it.
+    #
+    # Both were manual UI steps, which meant the alert path was silently absent
+    # on every fresh host: the shim was deployed, the thresholds were not set,
+    # and nothing said so. A monitor that is watching and cannot tell anybody is
+    # the failure mode monitoring exists to avoid.
+    delivery_state = configure_alert_delivery(base, su_token, user_id, webhook)
+    rules_state = configure_alert_rules(base, su_token, user_id)
+
+    # One line carrying all four, because the caller's changed_when reads
+    # stdout. "ok-exists" from every one is the steady-state converge; anything
+    # else is a real write and must report changed.
+    print(
+        f"universal-token: {token_state}; oidc: {oidc_state}; "
+        f"alert-delivery: {delivery_state}; alert-rules: {rules_state}"
+    )
     return 0
+
+
+# ─── alert delivery + rules ────────────────────────────────────────────────
+# Beszel notifies through Shoutrrr URLs held on the user's own settings record,
+# and fires them from per-system threshold rules. Both were left to the hub UI,
+# so a converged host had a deployed alert shim, no webhook pointed at it and no
+# rule that would ever fire -- a monitor watching a server with no way to tell
+# anybody, which is the one failure monitoring exists to avoid.
+#
+# Verified against beszel v0.18.7 rather than assumed:
+#   internal/alerts/alerts.go  reads collection `user_settings`, field
+#                              `settings`, into {emails: [], webhooks: []}
+#   the collections snapshot   defines `alerts` with user + system relations,
+#                              a `name` SELECT, and numeric `value` / `min`
+#   internal/alerts/alerts_system.go
+#                              `min` is MINUTES -- time.Duration(min)*time.Minute,
+#                              reported as "averaged X for the previous N minutes"
+#                              -- and `value` is the threshold.
+
+# The `name` field is a SELECT: a value outside this set is refused by
+# PocketBase, so these are copied from the collection definition rather than
+# invented.
+_ALERT_STATUS = "Status"
+
+# What a single-VPS host should be told about, with the thresholds a human
+# would pick. Deliberately few: an alert set nobody reads is the same as no
+# alerts, and each of these is a condition somebody would want woken for.
+#
+# `min` is the sustain window in minutes, which is what keeps a momentary spike
+# during a backup or a container update from paging anyone.
+_DEFAULT_RULES = (
+    # Status has no threshold -- it fires when the agent stops reporting. The
+    # window is short because "the server is gone" does not get truer by
+    # waiting.
+    {"name": _ALERT_STATUS, "value": 0, "min": 5},
+    {"name": "CPU", "value": 90, "min": 10},
+    {"name": "Memory", "value": 90, "min": 10},
+    {"name": "Disk", "value": 85, "min": 10},
+)
+
+
+def configure_alert_delivery(base: str, su_token: str, user_id: str,
+                             webhook: str) -> str:
+    """Point the user's notifications at the Healthchecks shim.
+
+    Returns one of: ok-exists / configured / updated.
+    """
+    flt = urllib.parse.quote(f"user='{user_id}'")
+    found = _req(
+        "GET",
+        f"{base}/api/collections/user_settings/records?perPage=1&filter=({flt})",
+        token=su_token,
+    )
+    rows = found.get("items") or []
+    current = {}
+    if rows:
+        current = dict(rows[0].get("settings") or {})
+    hooks = list(current.get("webhooks") or [])
+    if webhook in hooks:
+        return "ok-exists"
+
+    # APPEND, never replace. A client who added their own ntfy or Slack URL in
+    # the hub UI keeps it -- the same rule the OIDC provider merge follows, and
+    # for the same reason: this converge owns one entry, not the list.
+    merged = dict(current)
+    merged["webhooks"] = hooks + [webhook]
+    merged.setdefault("emails", list(current.get("emails") or []))
+
+    if rows:
+        _req(
+            "PATCH",
+            f"{base}/api/collections/user_settings/records/{rows[0]['id']}",
+            token=su_token,
+            body={"settings": merged},
+        )
+        return "updated"
+    _req(
+        "POST",
+        f"{base}/api/collections/user_settings/records",
+        token=su_token,
+        body={"user": user_id, "settings": merged},
+    )
+    return "configured"
+
+
+def configure_alert_rules(base: str, su_token: str, user_id: str) -> str:
+    """Create the default threshold rules for every registered system.
+
+    Returns "no-systems" when the agent has not registered yet, which is the
+    NORMAL state on a first converge: this script runs before the agent is
+    deployed, because the agent needs the universal token this same script
+    seeds. The task that calls it again after the agent deploy is what closes
+    that gap, and it is why "no-systems" is reported rather than treated as an
+    error.
+    """
+    systems = _req(
+        "GET",
+        f"{base}/api/collections/systems/records?perPage=200",
+        token=su_token,
+    )
+    rows = systems.get("items") or []
+    if not rows:
+        return "no-systems"
+
+    created = 0
+    for system in rows:
+        sid = system["id"]
+        sys_flt = urllib.parse.quote(f"user='{user_id}' && system='{sid}'")
+        existing = _req(
+            "GET",
+            f"{base}/api/collections/alerts/records?perPage=200&filter=({sys_flt})",
+            token=su_token,
+        )
+        have = {r.get("name") for r in (existing.get("items") or [])}
+        for rule in _DEFAULT_RULES:
+            if rule["name"] in have:
+                continue
+            # Created, never updated: a client who raised the CPU threshold
+            # because their server runs hot meant to do that, and a converge
+            # that reset it every night would be worse than no default at all.
+            _req(
+                "POST",
+                f"{base}/api/collections/alerts/records",
+                token=su_token,
+                body={
+                    "user": user_id,
+                    "system": sid,
+                    "name": rule["name"],
+                    "value": rule["value"],
+                    "min": rule["min"],
+                },
+            )
+            created += 1
+    return "ok-exists" if created == 0 else f"created {created}"
 
 
 # ─── OIDC provider on the users collection ─────────────────────────────────
