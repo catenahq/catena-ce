@@ -508,10 +508,110 @@
   no_log: true
   when: console_recovery_password | default('') | length > 0
 
+# ─── prove the replacement path BEFORE closing every other one ───────────
+# ORDERING. This role performs the second of the two irreversible access
+# handoffs in the product, and until now only the first one had a gate.
+#
+#   ufw_lockdown.yml:  add tailnet rule -> VERIFY -> remove public 22
+#   here:              install ops key   ->    ?   -> deny everything else
+#
+# What sat in that gap was `ops_ssh_public_keys | length > 0`, an assert on a
+# CONTROLLER-SIDE STRING. It proves a variable is not empty. It does not prove
+# the key it holds is the one the operator's private key matches, that sshd
+# accepts it for ops, or that ops is not locked in /etc/shadow (Debian's `!`,
+# which OpenSSH 9.8+ refuses pubkey auth for -- see the ops user task above).
+# The template below then turns off password auth, root login, and every
+# account except ops in a single write.
+#
+# So prove it over the network, as ops, from the controller. Every fallback is
+# still live at this point: password auth is on, the provider account still
+# passes AllowUsers, public 22 is still open. A failure here stops the converge
+# with the operator still able to get back in, which is the entire property.
+#
+# Bypass with -e skip_ssh_lockout_gate=true (same shape as
+# skip_disk_preflight / skip_external_preflight). Doing so restores the old
+# behaviour: hardening on an unproven key.
+- name: "sshd: can the controller read the operator private key?"
+  ansible.builtin.stat:
+    path: "{{ ansible_ssh_private_key_file }}"
+  register: _ops_privkey
+  changed_when: false
+  delegate_to: localhost
+  become: false
+  when: not (skip_ssh_lockout_gate | default(false) | bool)
+
+- name: "sshd: prove ops key auth works before hardening removes every other path"
+  ansible.builtin.command:
+    argv:
+      - ssh
+      - -o
+      - BatchMode=yes
+      - -o
+      - ConnectTimeout=10
+      - -o
+      - IdentitiesOnly=yes
+      - -o
+      - PreferredAuthentications=publickey
+      - -o
+      - StrictHostKeyChecking=accept-new
+      - -i
+      - "{{ ansible_ssh_private_key_file }}"
+      - -p
+      - "{{ ansible_port | default(22) }}"
+      - "{{ ops_user }}@{{ ansible_host }}"
+      - "true"
+  register: _ops_key_proof
+  changed_when: false
+  failed_when: false
+  delegate_to: localhost
+  become: false
+  when:
+    - not (skip_ssh_lockout_gate | default(false) | bool)
+    - _ops_privkey.stat.exists | default(false)
+
+- name: "sshd: refuse to harden -- ops cannot log in with the operator key"
+  ansible.builtin.fail:
+    msg: |
+      {{ ops_user }}@{{ ansible_host }} did not accept
+      {{ ansible_ssh_private_key_file }} (ssh rc={{ _ops_key_proof.rc }}).
+
+      Refusing to apply the sshd hardening, because the next task disables
+      password auth and root login and restricts AllowUsers to
+      {{ ssh_allowed_users | join(', ') }}. Applying it now would leave this
+      host with no working way in.
+
+      Nothing has been closed yet -- the provider account and password auth
+      still work. Check, in order:
+
+        1. /home/{{ ops_user }}/.ssh/authorized_keys against
+           {{ lookup('dotenv', 'SSH_PUBLIC_KEY_FILE', default='SSH_PUBLIC_KEY_FILE') }}
+        2. `passwd -S {{ ops_user }}` -- an L (locked) account is refused
+           pubkey auth by OpenSSH 9.8+ even with a correct key
+        3. ssh's own reason: {{ _ops_key_proof.stderr | default('') | trim }}
+  when:
+    - not (skip_ssh_lockout_gate | default(false) | bool)
+    - _ops_privkey.stat.exists | default(false)
+    - (_ops_key_proof.rc | default(1)) != 0
+
+# The controller not holding the key is a different thing from the key not
+# working, and it must not read as a pass. It happens for real (a dispatch
+# runner in a container, an agent-mediated identity), so it does not fail the
+# converge -- it says out loud that the hardening below went in UNPROVEN.
+- name: "sshd: hardening WITHOUT proof -- controller cannot read the key"
+  ansible.builtin.debug:
+    msg: >-
+      {{ ansible_ssh_private_key_file }} is not readable here, so ops key auth
+      could not be proved before hardening. This is unchecked, not verified.
+      If {{ ops_user }} does not accept a key, this host has no way in after
+      the next task.
+  when:
+    - not (skip_ssh_lockout_gate | default(false) | bool)
+    - not (_ops_privkey.stat.exists | default(false))
+
 # ─── sshd hardening ──────────────────────────────────────────────────────
 # After this runs, root+password login stops working. The ops user with key
-# auth is the only remaining path in, which is why the assertion above is
-# mandatory -- no key on ops means locked out.
+# auth is the only remaining path in, which is why the proof above is
+# mandatory -- no WORKING key on ops means locked out.
 #
 # Every directive we set ships as a drop-in under /etc/ssh/sshd_config.d/,
 # which sshd reads ONLY if the main config includes that directory. Debian 12

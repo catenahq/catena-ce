@@ -205,10 +205,69 @@
       when: bootstrap_initial_user == 'root' and (root_probe.rc | default(0)) != 0
 
     # ── Non-root provider idempotency check ──────────────────────────────────
-    # When initial_user != root: after Phase 1 the common role creates the ops
-    # user. A successful `id <ops_user>` via the initial user means Phase 1
-    # already ran -- skip.
-    - name: "Phase 1 idempotency (non-root path) -- does ops user exist?"
+    # Probe OPS, not the provider account.
+    #
+    # This used to run `id <ops_user>` THROUGH the initial user, reading success
+    # as "Phase 1 already ran". Phase 1's own sshd hardening removes the
+    # provider account from AllowUsers, so on a non-root image that probe can
+    # never succeed once Phase 1 has run -- it reports "not done" precisely when
+    # it IS done. The play then continued and failed connecting as a user Phase
+    # 1 had locked out, pointing at the fact-gathering task rather than at the
+    # cause:
+    #
+    #   debian@<ip>: Permission denied (publickey).
+    #   Origin: playbooks/bootstrap.yml:245  Gather facts now that we know ...
+    #
+    # Net effect: bootstrap was NOT re-runnable at all on OVH Debian / Ubuntu
+    # cloud images, only on root-login providers.
+    #
+    # The root path above already probes the account whose access Phase 1
+    # REMOVES and reads failure as "already ran". The non-root path has to probe
+    # the account Phase 1 CREATES and read success the same way. Probing ops
+    # also proves the thing Phase 2 needs next -- that ops accepts the operator
+    # key -- rather than merely that the account exists.
+    # helpers/install_key.py::_key_already_works checks both accounts for the
+    # same reason.
+    - name: "Phase 1 idempotency (non-root path) -- can ops SSH in?"
+      ansible.builtin.command:
+        argv:
+          - ssh
+          - -o
+          - BatchMode=yes
+          - -o
+          - ConnectTimeout=5
+          - -o
+          - IdentitiesOnly=yes
+          - -o
+          - PreferredAuthentications=publickey
+          - -i
+          - "{{ ansible_ssh_private_key_file }}"
+          - "{{ ops_user }}@{{ ansible_host }}"
+          - "true"
+      register: ops_probe
+      changed_when: false
+      failed_when: false
+      delegate_to: localhost
+      become: false
+      when: bootstrap_initial_user != 'root'
+
+    - name: Phase 1 already complete (non-root path) -- ops accepts the key
+      ansible.builtin.debug:
+        msg: |
+          {{ ops_user }}@{{ ansible_host }} accepts the operator key -- Phase 1
+          has already run on this host. Skipping to Phase 2 (tailscale).
+      when: bootstrap_initial_user != 'root' and (ops_probe.rc | default(1)) == 0
+
+    - name: End Phase 1 (non-root path)
+      ansible.builtin.meta: end_play
+      when: bootstrap_initial_user != 'root' and (ops_probe.rc | default(1)) == 0
+
+    # Neither account answering is a THIRD state, and it is the one worth
+    # naming. Phase 1 needs the provider account: it is how the common role
+    # gets on the box. Letting the play discover that on its own produces a
+    # connection failure attributed to whatever task ran first, which is how
+    # the defect above stayed unread.
+    - name: "Phase 1 (non-root path) -- can the provider account still SSH in?"
       ansible.builtin.command:
         argv:
           - ssh
@@ -223,24 +282,39 @@
           - -i
           - "{{ ansible_ssh_private_key_file }}"
           - "{{ bootstrap_initial_user }}@{{ ansible_host }}"
-          - "id {{ ops_user }}"
-      register: ops_probe
+          - "true"
+      register: initial_probe
       changed_when: false
       failed_when: false
       delegate_to: localhost
       become: false
       when: bootstrap_initial_user != 'root'
 
-    - name: Phase 1 already complete (non-root path) -- ops user exists
-      ansible.builtin.debug:
+    - name: "Phase 1 (non-root path) -- no account answers at this address"
+      ansible.builtin.fail:
         msg: |
-          Ops user already exists -- Phase 1 has already run on this host.
-          Skipping to Phase 2 (tailscale).
-      when: bootstrap_initial_user != 'root' and (ops_probe.rc | default(1)) == 0
+          Neither {{ ops_user }} nor {{ bootstrap_initial_user }} can SSH to
+          {{ ansible_host }} with {{ ansible_ssh_private_key_file }}.
 
-    - name: End Phase 1 (non-root path)
-      ansible.builtin.meta: end_play
-      when: bootstrap_initial_user != 'root' and (ops_probe.rc | default(1)) == 0
+          Phase 1 cannot run: it needs {{ bootstrap_initial_user }} to get onto
+          the box, and Phase 1's sshd hardening removes that account once it has
+          run. So this is one of:
+
+            - Phase 1 already ran and {{ ops_user }} is only reachable on the
+              TAILNET. Public 22 closes at the end of site.yml. Check
+              {{ inventory_dir }}/.bootstrap-output.yml for the tailnet IP and
+              try: ssh -i {{ ansible_ssh_private_key_file }} {{ ops_user }}@<tailnet-ip>
+
+            - the operator key is not the one installed on this host. Recover at
+              the provider console: {{ bootstrap_initial_user }} still logs in
+              there (sshd's AllowUsers does not govern console login), then
+              inspect /home/{{ ops_user }}/.ssh/authorized_keys.
+
+            - the host is not reachable at all (rebuilt, wrong IP, ufw).
+      when:
+        - bootstrap_initial_user != 'root'
+        - (ops_probe.rc | default(1)) != 0
+        - (initial_probe.rc | default(1)) != 0
 
     - name: Gather facts now that we know Phase 1 needs to run
       ansible.builtin.setup:
