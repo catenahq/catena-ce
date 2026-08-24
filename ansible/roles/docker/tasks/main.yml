@@ -242,6 +242,54 @@
   register: _docker_swarm_init
   changed_when: _docker_swarm_init.rc == 0
 
+# ─── how much task history swarm keeps ───────────────────────────────────
+# Docker's default is 5, and the default is what this host was running.
+#
+# Swarm keeps one CONTAINER per retained task record, in Exited state, for
+# every roll of every service -- an image bump, a spec change, a restart. So
+# `docker ps -a` on a converged host showed five gatus containers with one
+# running, five of each of the others, and the count was not a symptom of
+# anything: it was the retention limit, doing exactly what it says. Reading it
+# as a crash loop or as a naming collision is the natural first guess and it
+# costs an afternoon.
+#
+# Two is the smallest number that still answers the question the history exists
+# for. At 1 (or 0) `docker service ps <svc>` shows only the task running now, so
+# a service that just recovered has no record of what it recovered FROM, and a
+# crash loop looks identical to a healthy service on its first task. At 2 the
+# previous task's state and Error are still there, which is what a converge
+# failure and the bench's readiness probe both read.
+#
+# Lowering the limit is retroactive: dockerd drops the excess task records and
+# reaps their containers, so this reclaims the accumulated ones rather than only
+# bounding future growth.
+- name: "swarm: read the task-history retention limit"
+  ansible.builtin.command: >-
+    docker info --format
+    '{{ "{{" }}.Swarm.Cluster.Spec.Orchestration.TaskHistoryRetentionLimit{{ "}}" }}'
+  register: _docker_task_history
+  changed_when: false
+  failed_when: false
+
+- name: "swarm: bound task history to {{ docker_swarm_task_history_limit }}"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - swarm
+      - update
+      - --task-history-limit
+      - "{{ docker_swarm_task_history_limit }}"
+  # Gated on the read rather than run-and-report: `docker swarm update` exits 0
+  # and prints "Swarm updated." whether or not anything changed, so an
+  # ungated task reports changed on every converge forever.
+  when:
+    - (_docker_swarm_state.stdout | trim) == 'active'
+      or (_docker_swarm_init is defined and _docker_swarm_init is changed)
+    - (_docker_task_history.stdout | default('') | trim)
+      != (docker_swarm_task_history_limit | string)
+  register: _docker_task_history_set
+  changed_when: _docker_task_history_set.rc == 0
+
 # ─── node label: where state lives ───────────────────────────────────────
 # Every swarm service that mounts state is constrained to
 # node.labels.catena.role==data. At one node the constraint is a no-op. The

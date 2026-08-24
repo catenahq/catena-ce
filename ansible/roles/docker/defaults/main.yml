@@ -24,6 +24,16 @@ docker_live_restore: false
 # services onto.
 docker_swarm_advertise_addr: "{{ ansible_host }}"
 
+# How many task records swarm keeps per service, and therefore how many EXITED
+# containers accumulate on the host: one per retained task, for every roll of
+# every service. Docker's default is 5, which is why a converged host showed
+# five containers per service with one running.
+#
+# 2 keeps the running task plus the one before it, which is the smallest number
+# that still lets `docker service ps <svc>` say what a service recovered FROM.
+# Below that a crash loop and a healthy first boot look the same.
+docker_swarm_task_history_limit: 2
+
 # catena-network-nudge: seconds to wait for the overlay to re-materialize
 # after a docker.service start before giving up. Reaches the script as
 # CATENA_NETWORK_NUDGE_TIMEOUT, via the docker.service drop-in (--setenv) and
