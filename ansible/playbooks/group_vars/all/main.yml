@@ -58,11 +58,12 @@ healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
 # in roles/keycloak/defaults (reading the same AUTH_SUBDOMAIN env key).
 admin_email: "{{ lookup('dotenv', 'ADMIN_EMAIL', default='') }}"
 
-# SMTP -- resolved by the SSO role's autofill. Set RESEND_SENDER_EMAIL or
-# BREVO_SENDER_EMAIL in .env (plus the SMTP password in smtp_password)
-# and the role picks the right host/port/user automatically. Don't re-declare
+# SMTP -- resolved by roles/keycloak from the store. SMTP_PROVIDER
+# (resend | brevo | server) decides where mail goes, SMTP_SENDER is the address
+# it comes from, and smtp_password is the one credential; the role fills in
+# host, port and username from the choice. Don't re-declare
 # smtp_host/smtp_port/etc. here -- doing so shadows the role default and
-# defeats the autofill.
+# defeats the resolution.
 
 # ntfy + backup repo are NOT set here. They are store-owned (catena-admin >
 # Settings); the converge seeds them from .env once and reads the store after.

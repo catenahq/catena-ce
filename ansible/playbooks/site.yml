@@ -149,8 +149,14 @@
       vars:
         _smtp_host: "{{ cfg_smtp_host | default('') }}"
         _smtp_port: "{{ cfg_smtp_port | default('587') }}"
+      # Only the `server` choice. The two known providers resolve their host
+      # inside roles/keycloak, and reproducing that mapping here would be a
+      # second copy of it, free to drift from the one the realm is rendered
+      # from -- for a probe of an endpoint whose reachability is the provider's
+      # problem, not the client's.
       when:
         - not (skip_external_preflight | default(false) | bool)
+        - (cfg_smtp_provider | default('') | trim | lower) == 'server'
         - (cfg_smtp_host | default('') | length) > 0
       tags: [always, external_preflight]
 

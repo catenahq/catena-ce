@@ -113,50 +113,55 @@ keycloak_realm_display_name: >-
 # scheduling pressure.
 keycloak_realm_export_oncalendar: "*-*-* 03:30:00"
 
-# --- SMTP autofill -----------------------------------------------------
-# Operators set ONE of RESEND_SENDER_EMAIL / BREVO_SENDER_EMAIL /
-# SMTP_HOST in inventory/<name>/.env. The first two route through known
-# providers with hardcoded host/port/auth conventions; SMTP_HOST + raw
-# SMTP_* envs are the escape hatch for everything else. Whichever path
-# fires resolves into the same `smtp_*` vars that realm-vps.yaml.j2
-# reads.
+# --- SMTP resolution ---------------------------------------------------
+# One choice, one sender address, one credential.
+#
+# SMTP_PROVIDER says where mail goes: `resend` and `brevo` are known relays
+# whose host, port and (for Resend) username are constants, and `server` is the
+# escape hatch for anything else. SMTP_SENDER is the address it comes from, in
+# every case. The password is the same EXTERNAL_SECRET in all three.
+#
+# It used to be inferred instead: whichever of RESEND_SENDER_EMAIL /
+# BREVO_SENDER_EMAIL / SMTP_HOST was non-empty picked the path, and Resend won
+# when two were. So the answer to "where does this server send mail from" was
+# spread across three fields plus a precedence rule that appeared nowhere the
+# client could see it, and switching provider without first clearing the old
+# address kept sending through the old one.
+#
+# An unrecognised provider resolves to no SMTP rather than to a guess: mail
+# that silently goes nowhere is harder to notice than a realm with no mail
+# configured, which says so on its own login page.
 
-_resend_sender: "{{ cfg_resend_sender_email | default('') }}"
-_brevo_sender: "{{ cfg_brevo_sender_email | default('') }}"
-_raw_smtp_host: "{{ cfg_smtp_host | default('') }}"
+_smtp_provider: "{{ cfg_smtp_provider | default('') | trim | lower }}"
 
 smtp_enabled: >-
-  {{
-    (_resend_sender | length > 0)
-    or (_brevo_sender | length > 0)
-    or (_raw_smtp_host | length > 0)
-  }}
+  {{ _smtp_provider in ['resend', 'brevo', 'server'] }}
 
-# Resend takes precedence if both Resend + Brevo are set.
 smtp_host: >-
   {{
-    'smtp.resend.com' if (_resend_sender | length > 0)
-    else ('smtp-relay.brevo.com' if (_brevo_sender | length > 0)
-    else _raw_smtp_host)
+    'smtp.resend.com' if _smtp_provider == 'resend'
+    else ('smtp-relay.brevo.com' if _smtp_provider == 'brevo'
+    else (cfg_smtp_host | default('') if _smtp_provider == 'server' else ''))
   }}
 smtp_port: >-
   {{
-    587 if ((_resend_sender | length > 0) or (_brevo_sender | length > 0))
+    587 if _smtp_provider in ['resend', 'brevo']
     else (cfg_smtp_port | default('587') | int)
   }}
+# Resend's SMTP username is the literal string `resend` for every account.
+# Brevo's is account-specific, and a self-hosted relay's is whatever it is, so
+# both read the one field.
 smtp_user: >-
   {{
-    'resend' if (_resend_sender | length > 0)
-    else (cfg_brevo_smtp_user | default('') if (_brevo_sender | length > 0)
-    else cfg_smtp_user | default(''))
+    'resend' if _smtp_provider == 'resend'
+    else (cfg_smtp_user | default(''))
   }}
-smtp_from: >-
-  {{
-    _resend_sender if (_resend_sender | length > 0)
-    else (_brevo_sender if (_brevo_sender | length > 0)
-    else cfg_smtp_from | default(admin_email))
-  }}
-smtp_use_tls: true
+smtp_from: "{{ cfg_smtp_sender | default('') or admin_email }}"
+# Always STARTTLS on the port given, never implicit TLS: that is what
+# realm-vps.yaml.j2 renders (starttls true, ssl false) and what both known
+# providers expect on 587. A SMTP_USE_TLS key was collected, stored and read by
+# nothing for as long as it existed -- the template never consulted it -- so it
+# is gone rather than left accepting a value that changed nothing.
 smtp_use_starttls: true
 
 # The catena-admin panel's realm service account (users + groups). The panel

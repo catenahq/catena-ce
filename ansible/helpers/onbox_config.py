@@ -326,14 +326,22 @@ SETTINGS_CONFIG: dict[str, str] = {
     "NEXTCLOUD_MIRROR_HEALTHCHECK_ATTEMPTED_URL": "cfg_nextcloud_mirror_healthcheck_attempted_url",
     # Outbound mail. The password is an EXTERNAL_SECRET; these are its
     # non-secret companions.
+    #
+    # SMTP_PROVIDER is the whole routing decision: resend | brevo | server.
+    # It used to be inferred from WHICH of three sender-address keys was
+    # non-empty, with Resend silently winning when two were filled -- so the
+    # answer to "where does mail go" was spread across three fields and a
+    # precedence rule, and a client who switched providers without clearing the
+    # old address kept sending through the old one.
+    #
+    # SMTP_HOST / SMTP_PORT / SMTP_USER apply to the `server` choice; SMTP_USER
+    # also carries the Brevo login, which is account-specific. Resend needs
+    # neither: its host and its literal `resend` username are constants.
+    "SMTP_PROVIDER": "cfg_smtp_provider",
+    "SMTP_SENDER": "cfg_smtp_sender",
     "SMTP_HOST": "cfg_smtp_host",
     "SMTP_PORT": "cfg_smtp_port",
     "SMTP_USER": "cfg_smtp_user",
-    "SMTP_FROM": "cfg_smtp_from",
-    "SMTP_USE_TLS": "cfg_smtp_use_tls",
-    "RESEND_SENDER_EMAIL": "cfg_resend_sender_email",
-    "BREVO_SENDER_EMAIL": "cfg_brevo_sender_email",
-    "BREVO_SMTP_USER": "cfg_brevo_smtp_user",
     # Alert delivery. Both blank by default; see roles/infrastructure.
     "NTFY_SERVER": "cfg_ntfy_server",
     "NTFY_TOPIC": "cfg_ntfy_topic",
