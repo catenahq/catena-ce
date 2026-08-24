@@ -37,7 +37,7 @@ LIVE="$MAIL_CERT_LIVE_DIR"
 DEST="/tmp/docker-mailserver/custom-certs"
 [ -f "$LIVE/fullchain.pem" ] || exit 0
 
-ct=$(docker ps --filter 'label=com.docker.compose.service=dms' \
+ct=$(docker ps --filter 'label=vps.component=dms' \
     --format '{{.Names}}' | head -n1)
 [ -n "$ct" ] || exit 0
 

@@ -1,7 +1,12 @@
 ---
-# Resolve the Portainer environment (endpoint) id that every stack call
-# targets, and set the fact portainer_stack.yml consumes:
-#   _portainer_endpoint_id
+# Assert that Portainer has the local Docker environment roles/portainer
+# creates, and report its id.
+#
+# Nothing in the converge deploys through the Portainer stack API any
+# more, so this is a HEALTH GATE rather than a lookup: a Portainer whose
+# endpoint creation silently failed answers every later call with an empty
+# list, and the failure would otherwise surface as an application the
+# client cannot deploy.
 #
 # Portainer has no "project" concept; stacks are grouped by their Name prefix
 # instead. The local Docker endpoint is provisioned by roles/portainer (POST

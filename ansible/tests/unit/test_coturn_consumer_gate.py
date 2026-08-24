@@ -42,7 +42,8 @@ def test_both_probes_ignore_restarting_containers():
         body = _probe(filename, name)
         for service in ("talk-hpb", "jvb"):
             line = next(
-                ln for ln in body.splitlines() if f"service={service}" in ln
+                ln for ln in body.splitlines()
+                if f"vps.component={service}" in ln
             )
             assert "--filter status=running" in line, (
                 f"{filename} {service} probe counts restarting containers; a "

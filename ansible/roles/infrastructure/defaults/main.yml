@@ -1,12 +1,12 @@
 ---
 # roles/infrastructure manages the shared infra stacks (Gatus,
-# Healthchecks, Beszel, gatus-sync, dashboard-sync, clamav) deployed via
-# the Portainer stack API.
+# Healthchecks, Beszel, gatus-sync, dashboard-sync, clamav), deployed
+# onto the host's swarm.
 #
 # Subdomains provisioned end-to-end (DNS -> Tunnel -> Traefik ->
 # container), each behind its own Keycloak-backed oauth2-proxy:
 #   portainer.<zone> -> Portainer    (roles/portainer)
-#   monitor.<zone>   -> Gatus        (this role, via the Portainer API)
+#   monitor.<zone>   -> Gatus        (this role, as a swarm stack)
 #   dash.<zone>      -> catena-admin (roles/catena-admin)
 
 # Fallback only -- playbooks/group_vars/all/main.yml sets this too, and
@@ -36,7 +36,7 @@ rocketchat_jitsi_jvb_media_port: 10000
 # and are visible here at converge time -- both roles run in the same
 # play, defaults from each are merged into the play's var scope.
 
-# --- Portainer stack-deploy helper ----------------------------------------
+# --- Swarm stack-deploy helper --------------------------------------------
 # Poll window for stack-deploy completion. Keycloak with the phasetwo
 # distribution re-runs its `start` build step on every container boot
 # (the image is NOT pre-built with `kc.db=postgres`), which routinely
@@ -46,17 +46,13 @@ rocketchat_jitsi_jvb_media_port: 10000
 # 120x5=600s = 10 minutes leaves comfortable headroom for both.
 infrastructure_deploy_poll_retries: 120
 infrastructure_deploy_poll_delay: 5
-# Each stack deploy issues `docker compose up --build`, which
-# pulls images from upstream registries on every run. A single 502 from
+# Each stack deploy pulls images from upstream registries on every run. A single 502 from
 # quay.io taints the whole deploy; retry up to N times when the diag
-# matches a registry-transient pattern. Between attempts the helper
-# force-removes any container labelled with the failing compose
-# service so the docker-daemon-zombie family ("did not receive an
-# exit event") can clear before the next redeploy. Bumped to 5 (was
-# 3) after run 2026-05-30T10-07-04-af8c where all 3 attempts hit the
-# same zombie state and exhausted the budget on the OAuth2-proxy
-# redeploy in backup_rollback stage-3-rollback. See
-# roles/infrastructure/tasks/_portainer_stack_deploy_attempt.yml.
+# matches a registry-transient pattern. Bumped to 5 (was 3) after run
+# 2026-05-30T10-07-04-af8c where all 3 attempts hit the same
+# docker-daemon-zombie state and exhausted the budget on the
+# OAuth2-proxy redeploy in backup_rollback stage-3-rollback. See
+# roles/infrastructure/tasks/_swarm_stack_deploy_attempt.yml.
 infrastructure_deploy_max_attempts: 5
 
 # --- Gatus (replaces Uptime Kuma; see DEBUGGING.md "Kuma -> Gatus pivot") --
@@ -288,6 +284,12 @@ clamav_image: >-
      | catena_image_pin(catena_image_pins | default({})) }}
 clamav_compose_name: "clamav"
 clamav_network: "catena-clamav"
+# The two catalog applications that scan through the shared clamd, named by
+# their vps.app label rather than by container name: clamd is deployed only
+# when one of them is running, and a container name depends on both docker's
+# scheme and whatever a client typed into Portainer's deploy form.
+clamav_consumer_mail_app: "catena-mailserver"
+clamav_consumer_files_app: "catena-nextcloud"
 # clamd StreamMaxLength -- the largest object clamd will scan in one
 # INSTREAM. Must be >= the Nextcloud max upload AND the rspamd scan size,
 # else large files/messages are skipped rather than scanned. 100 MB

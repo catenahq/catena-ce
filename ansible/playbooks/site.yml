@@ -374,8 +374,8 @@
     # still reads as no consumer, which is what `status=running` is there for.
     - name: "Post-restore: is a TURN consumer deployed at all (any state)?"
       ansible.builtin.shell: |
-        docker ps -a --filter 'label=com.docker.compose.service=talk-hpb' --format '{{ "{{" }}.Names{{ "}}" }}'
-        docker ps -a --filter 'label=com.docker.compose.service=jvb' --format '{{ "{{" }}.Names{{ "}}" }}'
+        docker ps -a --filter 'label=vps.component=talk-hpb' --format '{{ "{{" }}.Names{{ "}}" }}'
+        docker ps -a --filter 'label=vps.component=jvb' --format '{{ "{{" }}.Names{{ "}}" }}'
       args:
         executable: /bin/bash
       register: _site_turn_any
@@ -387,8 +387,8 @@
 
     - name: "Post-restore: wait for the redeployed TURN consumer to reach running"
       ansible.builtin.shell: |
-        docker ps --filter 'label=com.docker.compose.service=talk-hpb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
-        docker ps --filter 'label=com.docker.compose.service=jvb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
+        docker ps --filter 'label=vps.component=talk-hpb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
+        docker ps --filter 'label=vps.component=jvb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
       args:
         executable: /bin/bash
       register: _site_turn_running

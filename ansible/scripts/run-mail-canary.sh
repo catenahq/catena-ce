@@ -33,7 +33,7 @@ set +a
 
 log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 
-ct=$(docker ps --filter 'label=com.docker.compose.service=dms' \
+ct=$(docker ps --filter 'label=vps.component=dms' \
     --format '{{.Names}}' 2>/dev/null | head -n1)
 if [ -z "$ct" ]; then
     log "mailserver not deployed (no dms container); canary is a no-op"

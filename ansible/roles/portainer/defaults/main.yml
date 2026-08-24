@@ -52,8 +52,3 @@ portainer_admin_secret_name: catena_portainer_admin_password
 # creates it once; portainer_endpoint.yml resolves its Id for every stack call.
 portainer_local_endpoint_name: catena-local
 
-# HTTP timeout (seconds) for a stack create/update -- Portainer deploys
-# synchronously (image pull + compose up happen inside the request), so this
-# must comfortably exceed a cold multi-image pull. Consumed by
-# roles/infrastructure/tasks/_portainer_stack_deploy_attempt.yml.
-portainer_deploy_http_timeout: 600

@@ -20,7 +20,7 @@
 - name: "Mailserver OIDC: locate dms container"
   ansible.builtin.shell: |
     set -o pipefail
-    docker ps --filter label=com.docker.compose.service=dms \
+    docker ps --filter label=vps.component=dms \
       --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1
   args:
     executable: /bin/bash
@@ -30,7 +30,7 @@
 - name: "Mailserver OIDC: locate roundcube container"
   ansible.builtin.shell: |
     set -o pipefail
-    docker ps --filter label=com.docker.compose.service=roundcube \
+    docker ps --filter label=vps.component=roundcube \
       --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1
   args:
     executable: /bin/bash

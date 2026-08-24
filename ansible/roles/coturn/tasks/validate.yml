@@ -14,8 +14,8 @@
 # (bench f140 backup_rollback).
 - name: "validate coturn: detect a running consumer (Talk HPB or a Jitsi JVB)"
   ansible.builtin.shell: |
-    docker ps --filter 'label=com.docker.compose.service=talk-hpb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
-    docker ps --filter 'label=com.docker.compose.service=jvb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
+    docker ps --filter 'label=vps.component=talk-hpb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
+    docker ps --filter 'label=vps.component=jvb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
   args:
     executable: /bin/bash
   register: _v_coturn_consumer

@@ -23,13 +23,14 @@ if [ -z "$WEBMAIL_URL" ]; then
     exit 2
 fi
 
-# Match the name prefix AND the compose service label. Two name= filters
-# are ORed by docker (so they would also match -cron-/-db-/-redis-); a
-# name= plus a label= are different keys and get ANDed, pinning the app
-# container exactly.
+# Two labels the catalog puts on every service: vps.app names the
+# application, vps.component names the service inside it, and docker ANDs
+# filters on different keys -- so this pins the app container and not its
+# cron, db or redis peers. Neither label changes when a client renames the
+# stack, which the container NAME does.
 ct=$(docker ps \
-    --filter 'name=nextcloud-' \
-    --filter 'label=com.docker.compose.service=app' \
+    --filter 'label=vps.app=catena-nextcloud' \
+    --filter 'label=vps.component=app' \
     --format '{{.Names}}' | head -n1)
 
 if [ -z "$ct" ]; then

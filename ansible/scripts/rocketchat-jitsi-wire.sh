@@ -15,8 +15,8 @@
 set -euo pipefail
 
 ct=$(docker ps \
-    --filter 'name=rocketchat-' \
-    --filter 'name=-rocketchat-' \
+    --filter 'label=vps.app=catena-rocketchat' \
+    --filter 'label=vps.component=rocketchat' \
     --format '{{.Names}}' | head -n1)
 
 if [ -z "$ct" ]; then

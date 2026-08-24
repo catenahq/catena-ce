@@ -49,8 +49,8 @@
   # on "no consumer", validate then demanded coturn because the consumer had
   # entered its restart loop in between).
   ansible.builtin.shell: |
-    docker ps --filter 'label=com.docker.compose.service=talk-hpb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
-    docker ps --filter 'label=com.docker.compose.service=jvb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
+    docker ps --filter 'label=vps.component=talk-hpb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
+    docker ps --filter 'label=vps.component=jvb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
   args:
     executable: /bin/bash
   register: _coturn_consumer

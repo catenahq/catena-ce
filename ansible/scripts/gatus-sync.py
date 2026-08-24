@@ -57,17 +57,18 @@ def _env(name, default=None, required=True):
 
 def list_routed_containers() -> list[tuple[str, str, str]]:
     """Enumerate RUNNING containers that declare a public host, reading it
-    straight from docker labels: `(compose-project, vps.route.host, appName)`.
+    straight from docker labels: `(stack, vps.route.host, appName)`.
 
     A running container IS a live app, and its host comes from the
-    `vps.route.host` compose label (Portainer has no domain API). The
-    compose-project label is the Portainer stack Name (the group + the
-    infra-skip key). appName mirrors the project so the version-map +
-    display-name lookups key on the compose project name."""
+    `vps.route.host` label (Portainer has no domain API). The stack comes from
+    `com.docker.stack.namespace`, which swarm puts on every task of a
+    deployed stack and which IS the Portainer stack Name (the group + the
+    infra-skip key). appName mirrors it so the version-map + display-name
+    lookups key on the same string."""
     try:
         out = subprocess.check_output(
             ["docker", "ps", "--format",
-             '{{.Label "com.docker.compose.project"}}|{{.Label "vps.route.host"}}'],
+             '{{.Label "com.docker.stack.namespace"}}|{{.Label "vps.route.host"}}'],
             timeout=5, text=True,
         )
     except (subprocess.SubprocessError, FileNotFoundError) as e:
@@ -172,17 +173,16 @@ def load_version_map(path: Path) -> dict[str, dict]:
 
 
 def load_display_name_overrides() -> dict[str, str]:
-    """Map {compose-project: vps.display-name label value} gathered from all
-    running containers. Lets a compose file override the Gatus card title
-    (line 1) without touching Ansible config.
+    """Map {stack: vps.display-name label value} gathered from all running
+    containers. Lets a compose file override the Gatus card title (line 1)
+    without touching Ansible config.
 
-    Keys on the `com.docker.compose.project` label -- the Portainer stack
-    Name -- which is the stable identifier build_doc groups + looks up on.
-    (Was a parse of the legacy `<compose>-<6hex>-app-<N>` container name.)"""
+    Keys on `com.docker.stack.namespace` -- the Portainer stack Name -- which
+    is the stable identifier build_doc groups + looks up on."""
     try:
         out = subprocess.check_output(
             ["docker", "ps", "--format",
-             '{{.Label "com.docker.compose.project"}}|{{.Label "vps.display-name"}}'],
+             '{{.Label "com.docker.stack.namespace"}}|{{.Label "vps.display-name"}}'],
             timeout=5, text=True,
         )
     except (subprocess.SubprocessError, FileNotFoundError):

@@ -1,8 +1,8 @@
 ---
-# Render keycloak.compose.yml.j2 + deploy via the Portainer API. Reuses
-# roles/infrastructure/tasks/portainer_stack.yml -- single canonical
-# helper for stack create/update + Traefik route + readiness probe. See
-# its header for contract details.
+# Render keycloak.compose.yml.j2 + deploy onto the swarm. Reuses
+# roles/infrastructure/tasks/swarm_stack.yml -- single canonical helper
+# for stack deploy + Traefik route + readiness probe. See its header for
+# contract details.
 #
 # The readiness probe is the public URL (auth.<zone>) which only
 # resolves once cloudflared + Traefik route this host AND Keycloak's

@@ -19,7 +19,7 @@
 - name: "Mailserver cert: locate dms container"
   ansible.builtin.shell: |
     set -o pipefail
-    docker ps --filter label=com.docker.compose.service=dms \
+    docker ps --filter label=vps.component=dms \
       --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1
   args:
     executable: /bin/bash

@@ -6,8 +6,8 @@
 #                              Gated on portainer_api_key (minted in-role
 #                              by roles/portainer earlier in site.yml).
 # 2. gatus.yml / healthchecks.yml --
-#    each calls portainer_stack.yml with its own compose YAML, env,
-#    domain, port. All gated on portainer_api_key.
+#    each calls swarm_stack.yml with its own compose YAML, domain and
+#    port. All gated on portainer_api_key.
 # 3. dashboard_sync.yml + gatus_sync.yml -- sync scripts + systemd timers.
 #                              Gated on the API key. dashboard-sync owns
 #                              auto-gated Traefik routes (Phase 4b
@@ -37,10 +37,10 @@
 #     rejected key on every converge), so the block runs on a normal
 #     converge; it skips cleanly only in the rare window before the key
 #     exists. ------------------------------------------------------------
-# The per-service stack deploys go through the Portainer stack seam
-# (portainer_stack.yml). The old control-plane-API sub-includes (snapshot,
-# templates, github-provider) were deleted in the migration teardown; gatus_sync
-# was ported to read docker labels instead of the control-plane API.
+# The per-service stack deploys go through swarm_stack.yml. Nothing catena
+# declares is deployed by the control plane any more: Portainer's database
+# stays the record of CLIENT choices, which is the one state that cannot be
+# recomputed, and nothing else. gatus_sync reads docker labels.
 # ACCESS_MODE is gone (2026-07-29). The tailnet mode it gated did not serve
 # these services over the tailnet -- it skipped them, so a tailnet host had no
 # monitoring plane and no SSO at all. What it was actually built for, an install
@@ -365,7 +365,7 @@
       tags: [dashboard_sync]
 
     # Aggregate end-of-role readiness probe for the gated services.
-    # Deferred here (rather than per-service inside each portainer_stack
+    # Deferred here (rather than per-service inside each swarm_stack
     # include) so the SSO chain (Keycloak + oauth2-proxy) has the full
     # wall-clock of the other infra deploys to finish settling before
     # we test. Fails fast with diagnostic output if any gated app's
@@ -395,7 +395,7 @@
       tags: [verify_gated]
 
 # gatus-sync reads CLIENT-app monitoring from `docker ps` labels
-# (vps.route.host + com.docker.compose.project), no control-plane API -- so
+# (vps.route.host + com.docker.stack.namespace), no control-plane API -- so
 # it runs on any converge, OUTSIDE the Portainer-key-gated block above (a
 # partial --tags infrastructure run before roles/portainer ran must still
 # install it).
