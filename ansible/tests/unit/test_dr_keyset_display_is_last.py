@@ -76,6 +76,36 @@ def test_the_one_block_carries_both_the_secrets_and_the_urls():
     assert "catena_admin_ui_port" in task_vars["_admin_port"]
 
 
+def test_the_banner_names_portainers_username_and_it_is_not_the_email():
+    """Portainer's admin username is the literal string `admin`, fixed at
+    first boot by --admin-password-file (helpers/bootstrap_portainer_admin.py
+    DEFAULT_ADMIN_USER). Keycloak takes admin_email. A banner that offers one
+    "First login: <email>" line for both sends the user to Portainer with a
+    username Portainer has never had, and the resulting failure reads as a
+    wrong password -- for the one password they were told to save."""
+    helper = (ANSIBLE_DIR / "helpers" / "bootstrap_portainer_admin.py").read_text()
+    assert 'DEFAULT_ADMIN_USER = "admin"' in helper, (
+        "Portainer's admin username moved; the banner below now lies")
+
+    banner = _debug_tasks()[0]["vars"]["_banner"]
+    lines = banner.splitlines()
+    portainer_at = next(
+        i for i, ln in enumerate(lines) if "portainer_admin_hostname" in ln)
+    panel_at = next(
+        i for i, ln in enumerate(lines) if "infrastructure_dash_hostname" in ln)
+
+    def username_after(start: int) -> str:
+        for ln in lines[start:start + 4]:
+            if "username:" in ln:
+                return ln.split("username:", 1)[1].strip()
+        raise AssertionError(f"no username line follows line {start}")
+
+    assert username_after(portainer_at) == "admin", (
+        "the Portainer entry does not name `admin` as its username")
+    assert "admin_email" in username_after(panel_at), (
+        "the panel entry no longer names admin_email")
+
+
 def test_the_secrets_are_not_suppressed():
     """no_log on this task would print 'output has been hidden' and lose the
     only copy of three passwords. Showing them once is the entire point."""

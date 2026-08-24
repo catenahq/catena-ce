@@ -96,15 +96,25 @@
           printed above is the only one left.
           {% endif %}
           ------------------------------------------------------------------
-          First login: {{ admin_email }} + the admin password above.
+          First login. Same password everywhere; the USERNAME differs per
+          service, so it is spelled out per service below.
 
             catena-admin panel  https://{{ infrastructure_dash_hostname }}
                                 http://{{ ansible_host }}:{{ _admin_port }}  (tailnet, no Cloudflare)
+                                username: {{ admin_email }}
 
             Portainer           https://{{ portainer_admin_hostname }}
                                 http://{{ ansible_host }}:{{ portainer_ui_port }}  (tailnet, no Cloudflare)
+                                username: admin
+                                (the literal word `admin`, NOT an email address --
+                                 Portainer's first-boot admin has no email field)
 
           The public hostnames are SSO-gated and go through the Cloudflare
           tunnel; the tailnet addresses stay reachable when the tunnel or
           Cloudflare is not, and are the way in if SSO itself is broken.
+
+          On a public hostname the SSO gate asks first, and it wants
+          {{ admin_email }}. The service's own login form comes after it, and
+          asks for the username listed above -- so reaching Portainer through
+          the tunnel means the email once, then `admin`.
           ==================================================================
