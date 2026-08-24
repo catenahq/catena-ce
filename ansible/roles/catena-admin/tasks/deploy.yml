@@ -135,6 +135,10 @@
         INFRA_GATUS_HOSTNAME: "{{ infrastructure_gatus_hostname }}"
         INFRA_HEARTBEAT_HOSTNAME: "{{ healthchecks_hostname }}"
         INFRA_BESZEL_HOSTNAME: "{{ beszel_hostname }}"
+        # Portainer is not one of its own stacks, so it can never appear in the
+        # Apps grid the panel derives from Portainer. This is what lets the panel
+        # add the console tile itself. Host fact, like the four above.
+        INFRA_PORTAINER_HOSTNAME: "{{ portainer_admin_hostname }}"
   when: catena_admin_deploy_from_converge | bool
 
 - name: "Catena-admin: check the swarm service exists"

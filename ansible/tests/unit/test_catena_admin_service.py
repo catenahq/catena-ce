@@ -199,3 +199,43 @@ def test_an_unchanged_secret_reports_no_drift():
         _live(secrets=[{"SecretName": "k-abc12345", "File": {"Name": "K"}}]),
         [{"name": "k-abc12345", "target": "K"}],
     ) == []
+
+
+# ─── the host facts the panel's own links are built from ──────────────────
+
+DEPLOY = (
+    Path(__file__).resolve().parents[2]
+    / "roles" / "catena-admin" / "tasks" / "deploy.yml"
+)
+
+
+def _converge_env() -> dict:
+    """The env dict the converge builds into the service spec."""
+    import yaml
+
+    tasks = [t for t in yaml.safe_load(DEPLOY.read_text()) if isinstance(t, dict)]
+    spec = next(
+        t["ansible.builtin.set_fact"]["_ca_spec"]
+        for t in tasks
+        if "_ca_spec" in (t.get("ansible.builtin.set_fact") or {})
+    )
+    return spec["env"]
+
+
+@pytest.mark.parametrize("name", [
+    "INFRA_GATUS_HOSTNAME",
+    "INFRA_HEARTBEAT_HOSTNAME",
+    "INFRA_BESZEL_HOSTNAME",
+    "INFRA_PORTAINER_HOSTNAME",
+])
+def test_the_converge_names_every_public_hostname_the_panel_links_to(name):
+    """Each of these is a per-host name the panel cannot derive: it builds the
+    "open in <service>" links and the Portainer console tile out of them, and an
+    empty one makes the panel drop the link rather than render a dead one. So a
+    name silently stopping being passed removes a working link with no error
+    anywhere -- which is what INFRA_PORTAINER_HOSTNAME's absence did to the Apps
+    tab, where Portainer can never appear on its own because it is not one of
+    its own stacks."""
+    env = _converge_env()
+    assert name in env, f"{name} is no longer passed to the panel"
+    assert env[name].strip(), f"{name} is passed empty"
