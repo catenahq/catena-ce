@@ -13,7 +13,7 @@ Catena is exercised end-to-end by an automated rehearsal suite: each scenario pr
 
 Two numbers are reported everywhere: **rehearsed** means the scenario was last recorded PASSING on a real run, and is the only number treated as evidence; **declared** additionally counts scenarios that exist but have not been observed passing yet. A scenario is never counted for merely existing.
 
-**Coverage: 10 Community features, 84 of 90 rehearsal scenarios observed passing; 13 Catena Pro features, 43 of 45; plus 17 of 23 maintainer-internal rehearsals.**
+**Coverage: 10 Community features, 84 of 90 rehearsal scenarios observed passing; 13 Catena Pro features, 43 of 46; plus 17 of 23 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -107,7 +107,7 @@ They are exercised by the same rehearsal suite as the Community features above, 
 | --- | --- | --- |
 | Signed monthly compliance attestation | 1 | 1 |
 | Tamper-evident central audit trail | 1 | 1 |
-| Offsite immutable backup copy | 6 | 6 |
+| Offsite immutable backup copy | 6 | 7 |
 | Vulnerability scanning | 1 | 1 |
 | Automated daily maintenance | 13 | 13 |
 | Managed lifecycle operations (migration, decommission) | see note | see note |

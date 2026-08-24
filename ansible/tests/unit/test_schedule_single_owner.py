@@ -208,37 +208,42 @@ def test_the_secret_bearing_lane_config_is_not_world_readable():
         assert str(tpl["mode"]) == "0600", f"{src} must be 0600"
 
 
-def test_the_worm_env_is_rendered_every_converge_not_only_if_absent():
+def test_the_offsite_env_is_rendered_every_converge_not_only_if_absent():
     # backup.env next door is only-if-absent so a converge never clobbers a
-    # rotated credential. The WORM coordinates have to be able to change --
-    # an operator adding a cold tier to an existing host would otherwise write
-    # into a file nothing rewrites, which is the retention bug again.
+    # rotated credential. The lane's dead-man endpoints have to be able to
+    # change -- an operator pointing them off-host on an existing host would
+    # otherwise write into a file nothing rewrites, the retention bug again.
     tasks = yaml.safe_load(BACKUP_INSTALL.read_text())
     renders = [
         t for t in tasks
         if str(t.get("ansible.builtin.template", {}).get("src", ""))
-        == "backup-worm.env.j2"
+        == "offsite.env.j2"
     ]
-    assert len(renders) == 1, "backup-worm.env must be rendered exactly once"
+    assert len(renders) == 1, "offsite.env must be rendered exactly once"
     assert "when" not in renders[0], (
-        "backup-worm.env must be unconditional: every value in it is "
-        "legitimately blank, and blank means the mirror skips"
+        "offsite.env must be unconditional: both values in it are "
+        "legitimately blank, and blank means the lane pings nothing"
     )
-    assert renders[0].get("no_log") is True, "it carries the cold-tier keys"
 
 
-def test_the_worm_env_is_the_only_place_the_worm_keys_are_written():
-    # They were in neither file before this, which is why the cold mirror
-    # reported "WORM unconfigured" on every host it ever ran on.
-    assert "BACKUP_WORM_REPO" not in _code(BACKUP_ENV), (
-        "the WORM coordinates cannot live in backup.env: it is written "
-        "only-if-absent and they have to be able to change"
-    )
-    worm_env = ANSIBLE / "roles" / "backup" / "templates" / "backup-worm.env.j2"
-    body = _code(worm_env)
-    for key in ("BACKUP_WORM_REPO", "BACKUP_WORM_ACCESS_KEY_ID",
-                "NEXTCLOUD_WORM_REPO"):
+def test_which_buckets_get_copied_is_not_a_converge_input():
+    # Nine keys used to be, across backup-worm.env and the settings schema,
+    # and they described exactly two copies named after the buckets they
+    # happened to point at. The list lives in /etc/catena/config.json now,
+    # which catena-admin writes and the lane reads straight off disk -- so a
+    # client adding a copy does not need a converge, and no key here can go
+    # stale against it.
+    offsite_env = ANSIBLE / "roles" / "backup" / "templates" / "offsite.env.j2"
+    body = _code(offsite_env)
+    for key in ("OFFSITE_HEALTHCHECK_URL", "OFFSITE_HEALTHCHECK_ATTEMPTED_URL"):
         assert key in body
+    for gone in ("BACKUP_WORM_REPO", "BACKUP_WORM_ACCESS_KEY_ID",
+                 "NEXTCLOUD_WORM_REPO", "NEXTCLOUD_LIVE_REPO"):
+        assert gone not in body, (
+            f"{gone} is back in a converge-rendered file; the copy list has "
+            "one owner and it is the config store"
+        )
+        assert gone not in _code(BACKUP_ENV)
 
 
 def test_the_managed_lane_needs_no_copy_of_how_traefik_was_built():

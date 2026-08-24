@@ -33,7 +33,7 @@ provides one-shot tasks for verification, restore, and reconciliation.
 ## Where the scripts come from
 
 This role renders the per-host CONFIGURATION -- `backup.env`,
-`backup-worm.env`, `backup-paths`, the exclude patterns, the coverage
+`offsite.env`, `backup-paths`, the exclude patterns, the coverage
 paths and every systemd unit. It no longer ships the code that reads
 them: `catena-backup-run`, `catena-backup-coverage`, `catena-restic-env`,
 `catena-restic-mount`, `catena-restic-unmount`, `catena-restic-short-id`,
@@ -77,29 +77,36 @@ already captured, so the finding costs a page and not a snapshot. Any
 other non-zero from the checker -- including a timeout -- stays non-fatal,
 because an unreadable answer is not evidence of a gap.
 
-## WORM mirror sizing (Nextcloud)
+## Offsite copy sizing
 
-`NEXTCLOUD_LIVE_REPO` is not a copy step -- Nextcloud writes directly to S3
-as its own primary object storage. `NEXTCLOUD_VERSIONS_RETENTION` (set in
-the Nextcloud app template's own Environment tab in Portainer, not in this
-installer) bounds that live bucket's steady-state size.
+The offsite-copy lane runs `rclone copy` incrementally -- only new or
+changed objects transfer each run, not a full re-push -- on a daily
+cadence by default. WHICH buckets it copies is not configured in this
+role: the list lives in `/etc/catena/config.json`, written by the panel
+and read straight off disk by the lane.
 
-The WORM mirror (`NEXTCLOUD_WORM_REPO`, Business-tier) runs `rclone copy`
-incrementally -- only new/changed objects transfer each run, not a full
-re-push -- on a daily cadence (04:45 by default), not hourly. The WORM
-bucket is additive-only by design (ransomware-immutability) and nothing in
-Catena's tooling ever deletes from it -- Object Lock retention is a
-property of the bucket itself, set outside Catena. Every version-object
-Nextcloud has ever created since the mirror was enabled therefore
-accumulates there permanently, even after Nextcloud's own retention has
-expired and pruned it from the live bucket. Raising
-`NEXTCLOUD_VERSIONS_RETENTION` mainly grows the live bucket's size, not the
-WORM accumulation rate -- the daily mirror catches new versions well before
+The destination is additive-only by design (ransomware immutability) and
+nothing in Catena's tooling ever deletes from it -- Object Lock retention
+is a property of the bucket itself, set outside Catena. So every object a
+source bucket has ever held since the copy was declared accumulates there
+permanently, even after the source's own retention has pruned it.
+
+That matters most for an application's own object storage, where the
+application keeps file versions. Nextcloud is the worked example: it
+writes directly to S3 as its primary object storage, and
+`NEXTCLOUD_VERSIONS_RETENTION` (set in the app template's own Environment
+tab in Portainer, not in this installer) bounds that live bucket's
+steady-state size. Raising it mainly grows the LIVE bucket, not the
+accumulation rate offsite -- a daily copy catches new versions well before
 a 7-day or 30-day live-side cap prunes them. The real cost driver over a
-deployment's lifetime is cumulative file+version churn, unbounded by
+deployment's lifetime is cumulative file and version churn, unbounded by
 design, with pruning intentionally left to a separate delete-capable
 operator tool, never the VPS itself.
 
+A copy of an application's file bucket is only restorable together with a
+same-moment copy of the database that indexes those files. That database
+is inside the restic snapshots, so a file bucket copied on its own is not
+a backup by itself.
 ## Inputs
 
 - `vault_restic_password` -- restic repository password.

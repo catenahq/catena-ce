@@ -102,16 +102,16 @@
       register: _ext_s3
       failed_when: false # never fail per-probe; the assert below fails once, clearly
       changed_when: false
+      # Only the repository this host backs up TO. The offsite copies are
+      # not install inputs -- they are declared in the panel afterwards, and
+      # the lane that reads them fails soft on an unreachable destination by
+      # design, so failing an install over one would contradict the contract
+      # the lane is built on. The panel validates a copy when it is saved,
+      # which is where the mistake was made.
       loop: >-
         {{ [
              {'name': 'BACKUP_RESTIC_REPO',
               'url': (cfg_backup_restic_repo | default('')
-                      | restic_repo_endpoint)},
-             {'name': 'BACKUP_WORM_REPO',
-              'url': (cfg_backup_worm_repo | default('')
-                      | restic_repo_endpoint)},
-             {'name': 'NEXTCLOUD_WORM_REPO',
-              'url': (cfg_nextcloud_worm_repo | default('')
                       | restic_repo_endpoint)},
            ] | selectattr('url', 'ne', '') | list }}
       loop_control:

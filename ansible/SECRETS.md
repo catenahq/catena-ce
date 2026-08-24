@@ -52,8 +52,6 @@ ride the backup, because it is what unlocks the backup.
 | `smtp_password` | outbound mail (opt) | settings page | no |
 | `mailserver_relay_password` | smarthost (opt) | settings page | no |
 | `mailserver_spamhaus_dqs_key` | RBL (opt) | settings page | no |
-| `nextcloud_s3_access_key` | NC primary S3 (opt) | settings page | no |
-| `nextcloud_s3_secret_key` | ^ | settings page | no |
 | `storage_bulk_username` | CIFS bulk mount (opt; NFS needs neither) | settings page | no |
 | `storage_bulk_password` | ^ | settings page | no |
 

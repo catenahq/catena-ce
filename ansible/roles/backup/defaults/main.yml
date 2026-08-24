@@ -26,103 +26,67 @@ backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
 # nobody has confirmed the client has, so a fresh host schedules nothing until
 # someone turns a lane on.
 
-# WORM mirror (ransomware mitigation).
+# Offsite copy (ransomware mitigation).
 #
-# A nightly `rclone copy` (additive-only -- never issues DELETEs
-# against the cold side) from the LIVE (mutable) restic bucket to a
-# SEPARATE bucket at a DIFFERENT provider with Object Lock + bucket
-# versioning both enabled. The live bucket stays mutable so
-# `restic forget --prune` works normally; the WORM bucket carries an
-# immutable byte-image of the repo at sync time, with the provider
-# retaining prior versions for the lock period. A ransomware-driven
-# `forget --prune` against the live bucket cannot reach the WORM
-# copies because the mirror script issues no DELETEs in the first
-# place; recovery means rclone-copy WORM -> fresh mutable bucket
-# and point restic at that.
+# A nightly `rclone copy` (additive-only -- never issues DELETEs against
+# the destination) from each declared LIVE (mutable) bucket to a SEPARATE
+# bucket at a DIFFERENT provider with Object Lock + bucket versioning both
+# enabled. The live bucket stays mutable so `restic forget --prune` and an
+# application's own deletes work normally; the locked bucket carries an
+# immutable byte-image at copy time, with the provider retaining prior
+# versions for the lock period. A ransomware-driven `forget --prune`
+# against a live bucket cannot reach the locked copies because the lane
+# issues no DELETEs in the first place; recovery means rclone-copy locked
+# -> fresh mutable bucket and point restic at that.
+#
+# WHICH buckets are copied is NOT configured here and has no converge
+# projection. It is the `offsite_copies` list in /etc/catena/config.json,
+# written by catena-admin and read straight off disk by the lane, so adding
+# a copy takes effect on the next run with no converge in between. Nine
+# flat keys used to live in this file and describe exactly two copies, each
+# named after the bucket it happened to be pointed at.
 #
 # Default cold partner: eazybackup s3.ca-central-1.eazybackup.com
 # (Canadian-owned, CGP-certified). Alternatives: Backblaze B2,
 # AWS S3, Cloudflare R2. Pick a different provider from the live
 # bucket so a single provider compromise can't reach both copies.
 #
-# Ordering: sequencing across backup + verify + mirror + auto-update +
-# container-update is owned by the catena-daily orchestrator chain
-# (catena-daily.STATES in vps-scripts/catena-daily.sh, single 03:00 run
-# since 2026-05-17). COLD_MIRROR runs AFTER BACKUP_RUN + VERIFY_HOT +
-# RESTIC_CHECK in the chain, and the chain aborts before COLD_MIRROR
-# when VERIFY_HOT fails (VERIFY_HOT is in ABORT_STATES). The standalone
-# OnCalendar value below is the fallback for off-chain invocations
-# (manual systemctl start, bench scenarios); the chain itself drives
-# the unit synchronously via systemctl start --wait in do_COLD_MIRROR.
+# Ordering: sequencing across backup + verify + copy + auto-update +
+# container-update is owned by the catena-daily orchestrator chain.
+# COLD_MIRROR runs AFTER BACKUP_RUN + VERIFY_HOT + RESTIC_CHECK in the
+# chain, and the chain aborts before COLD_MIRROR when VERIFY_HOT fails
+# (VERIFY_HOT is in ABORT_STATES). The lane's own timer is the fallback for
+# off-chain invocations (manual systemctl start, bench scenarios); the
+# chain drives the unit synchronously via systemctl start --wait in
+# do_COLD_MIRROR. The cadence is the `offsite_copy` lane in the admin
+# panel, off by default like every other lane -- it writes into a second
+# provider's bucket, which is exactly the quota nobody has confirmed the
+# client has.
 #
-# Fail-soft contract: if BACKUP_WORM_REPO is empty OR the worm creds
-# are missing OR the worm bucket is unreachable, the mirror logs the
-# reason, optionally pings the worm-attempted healthcheck with /skip,
-# and exits 0. Daily backups never read the worm config and stay
-# unaffected -- a misconfigured WORM cannot brick the primary chain.
-backup_worm_repo: "{{ cfg_backup_worm_repo | default('') }}"
-# The cold-mirror cadence is the `restic_mirror` lane in the admin panel, off
-# by default like every other lane -- it writes into a second provider's
-# bucket, which is exactly the quota nobody has confirmed the client has.
+# Fail-soft contract: if nothing is declared OR a destination's creds are
+# missing OR a destination bucket is unreachable, the lane logs the reason,
+# records a skip on the healthcheck below, and exits 0. Daily backups never
+# read any of it and stay unaffected -- a misconfigured copy cannot brick
+# the primary chain.
 #
-# The coordinates above are rendered into {{ backup_worm_env_file }}, which
-# catena-restic-mirror.service loads. There is no *_mirror_script var: the
-# mirror is the compiled catena-restic-mirror engine named by the unit's
-# ExecStart, not a script path this role hands anyone.
-
-# Nextcloud cold-tier mirror.
-#
-# Same shape as the restic mirror but pointed at the Nextcloud primary
-# bucket (NEXTCLOUD_LIVE_REPO -> NEXTCLOUD_WORM_REPO). The script is
-# fail-soft on three layers: skips silently when no Nextcloud is
-# deployed (NEXTCLOUD_LIVE_REPO blank), skips with a "skip" healthcheck
-# ping when only the cold half is unconfigured, and skips on
-# unreachable cold buckets.
-#
-# Live-bucket coords come from the operator-managed Nextcloud app
-# template (S3_HOST, S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY in the
-# Environment tab). Operators set NEXTCLOUD_LIVE_REPO in .env to the
-# `s3:<host>/<bucket>` form matching what they entered in the app's
-# Environment; the
-# live IAM creds reuse nextcloud_s3_access_key /
-# nextcloud_s3_secret_key (the same keys Nextcloud itself uses).
-nextcloud_live_repo: "{{ cfg_nextcloud_live_repo | default('') }}"
-nextcloud_worm_repo: "{{ cfg_nextcloud_worm_repo | default('') }}"
-nextcloud_worm_mirror_oncalendar: >-
-  {{ cfg_nextcloud_worm_mirror_oncalendar | default('*-*-* 04:45:00') }}
-nextcloud_mirror_healthcheck_url: >-
+# One healthcheck pair for the whole lane rather than one per copy: a check
+# that appears and disappears as a client edits the list is a monitoring
+# surface that churns, and the run's single signal already names the copies
+# it is about.
+offsite_healthcheck_url: >-
   {{
-    cfg_nextcloud_mirror_healthcheck_url | default('')
+    cfg_offsite_healthcheck_url | default('')
     or (healthchecks_ping_base
         ~ '/ping/' ~ (healthchecks_ping_key | default(''))
-        ~ '/catena-nextcloud-mirror-succeeded?create=1'
+        ~ '/catena-offsite-copy-succeeded?create=1'
         if healthchecks_ping_key is defined else '')
   }}
-nextcloud_mirror_healthcheck_attempted_url: >-
+offsite_healthcheck_attempted_url: >-
   {{
-    cfg_nextcloud_mirror_healthcheck_attempted_url | default('')
+    cfg_offsite_healthcheck_attempted_url | default('')
     or (healthchecks_ping_base
         ~ '/ping/' ~ (healthchecks_ping_key | default(''))
-        ~ '/catena-nextcloud-mirror-attempted?create=1'
-        if healthchecks_ping_key is defined else '')
-  }}
-# Healthcheck pings for the mirror, parallel to the nightly backup's
-# pair. Auto-provision against the local Healthchecks instance with
-# distinct slugs so the operator can set the alarm threshold per-job.
-backup_worm_healthcheck_url: >-
-  {{
-    cfg_backup_worm_healthcheck_url | default('')
-    or (healthchecks_ping_base
-        ~ '/ping/' ~ (healthchecks_ping_key | default(''))
-        ~ '/catena-worm-mirror-succeeded?create=1'
-        if healthchecks_ping_key is defined else '')
-  }}
-backup_worm_healthcheck_attempted_url: >-
-  {{
-    cfg_backup_worm_healthcheck_attempted_url | default('')
-    or (healthchecks_ping_base
-        ~ '/ping/' ~ (healthchecks_ping_key | default(''))
-        ~ '/catena-worm-mirror-attempted?create=1'
+        ~ '/catena-offsite-copy-attempted?create=1'
         if healthchecks_ping_key is defined else '')
   }}
 # Two healthchecks per backup, not one. Restic / S3 are flaky
@@ -538,7 +502,7 @@ restore_preflight_min_bytes: 5368709120 # 5 GiB
 backup_env_file: /etc/catena/backup.env
 # The cold-tier half, kept separate because backup.env is only-if-absent and
 # the WORM coordinates have to be able to change on an existing host.
-backup_worm_env_file: /etc/catena/backup-worm.env
+offsite_env_file: /etc/catena/offsite.env
 backup_password_file: /etc/catena/restic.pass
 backup_systemd_unit_name: catena-backup
 

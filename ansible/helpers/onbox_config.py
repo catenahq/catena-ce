@@ -219,6 +219,12 @@ USER_HELD_SECRETS: dict[str, Callable[[], str]] = {
 # tells the client to "enter in catena-admin > Settings" and that is NOT listed
 # here has a documented path that raises. Keep it a superset of the settings
 # schema (catena-admin shell/settings/settings.go Fields).
+#
+# The offsite-copy credentials are NOT here and are not flat keys at all. Six
+# of them were, describing exactly two hardcoded copies; they are now two per
+# declared copy inside the store's ``offsite_copies`` list, which catena-admin
+# owns end to end. Nothing in this repo reads them, so nothing here has to
+# name them.
 EXTERNAL_SECRETS: frozenset[str] = frozenset({
     "tailscale_oauth_client_id",
     "tailscale_oauth_client_secret",
@@ -234,15 +240,9 @@ EXTERNAL_SECRETS: frozenset[str] = frozenset({
     "cloudflare_api_tokens",
     "backup_s3_access_key",
     "backup_s3_secret_key",
-    "backup_worm_access_key",
-    "backup_worm_secret_key",
-    "nextcloud_worm_access_key",
-    "nextcloud_worm_secret_key",
     "smtp_password",
     "mailserver_relay_password",
     "mailserver_spamhaus_dqs_key",
-    "nextcloud_s3_access_key",
-    "nextcloud_s3_secret_key",
     # CIFS credentials for the optional bulk mount (roles/storage bulk.yml,
     # storage_bulk_type=cifs). Client-held: the share is the client's NAS.
     # NFS authenticates by source IP and supplies neither.
@@ -314,16 +314,13 @@ SETTINGS_CONFIG: dict[str, str] = {
     "BACKUP_HEALTHCHECK_ATTEMPTED_URL": "cfg_backup_healthcheck_attempted_url",
     "BACKUP_HEALTHCHECK_URL_CLIENT": "cfg_backup_healthcheck_url_client",
     "BACKUP_HEALTHCHECK_URL_OPERATOR": "cfg_backup_healthcheck_url_operator",
-    # WORM mirror (opt-in, configured post-install).
-    "BACKUP_WORM_REPO": "cfg_backup_worm_repo",
-    "BACKUP_WORM_HEALTHCHECK_URL": "cfg_backup_worm_healthcheck_url",
-    "BACKUP_WORM_HEALTHCHECK_ATTEMPTED_URL": "cfg_backup_worm_healthcheck_attempted_url",
-    # Nextcloud primary-storage mirror (opt-in).
-    "NEXTCLOUD_LIVE_REPO": "cfg_nextcloud_live_repo",
-    "NEXTCLOUD_WORM_REPO": "cfg_nextcloud_worm_repo",
-    "NEXTCLOUD_WORM_MIRROR_ONCALENDAR": "cfg_nextcloud_worm_mirror_oncalendar",
-    "NEXTCLOUD_MIRROR_HEALTHCHECK_URL": "cfg_nextcloud_mirror_healthcheck_url",
-    "NEXTCLOUD_MIRROR_HEALTHCHECK_ATTEMPTED_URL": "cfg_nextcloud_mirror_healthcheck_attempted_url",
+    # Offsite copy lane. WHICH buckets it copies is not here: that is the
+    # store's ``offsite_copies`` list, read straight off disk by the lane so
+    # adding a copy takes effect with no converge in between. These two are
+    # only the lane's dead-man endpoints, and both default to the on-box
+    # Healthchecks -- an operator overrides them to point somewhere else.
+    "OFFSITE_HEALTHCHECK_URL": "cfg_offsite_healthcheck_url",
+    "OFFSITE_HEALTHCHECK_ATTEMPTED_URL": "cfg_offsite_healthcheck_attempted_url",
     # Outbound mail. The password is an EXTERNAL_SECRET; these are its
     # non-secret companions.
     #

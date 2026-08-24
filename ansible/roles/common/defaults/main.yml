@@ -37,7 +37,7 @@ common_baseline_packages:
   # report writers always have it, CE and EE alike.
   - jq
   # rclone is the WORM-mirror's transport (roles/backup ships
-  # restic-mirror-to-worm.sh); installing it at common/baseline
+  # the offsite-copy lane); installing it at common/baseline
   # means a freshly-bootstrapped recovery VPS already has the tool
   # available for the operator's manual `rclone-copy WORM -> fresh
   # mutable bucket` recovery step before roles/backup gets a chance

@@ -233,6 +233,11 @@ catena_admin_ee_payload_installer: "{{ catena_admin_ee_payload_dir }}/install-ee
 # writes a timer OnCalendar drop-in, or renders the restic retention file.
 catena_schedule_bin: /usr/local/bin/catena-schedule
 
+# The offsite-copy owner. Installed with the rest of the ungated payload; it
+# reads and writes the `offsite_copies` list in /etc/catena/config.json and is
+# the binary the lane's systemd unit runs.
+catena_offsite_bin: /usr/local/bin/catena-offsite-copy
+
 # Per-host configuration for the daily orchestrator chain.
 #
 # catena-daily.service and catena-daily-resume.service both declare
@@ -472,6 +477,20 @@ catena_admin_ce_reserved_actions:
   - name: catena-schedule-set
     shell: >-
       echo "$PAYLOAD" | base64 -d | {{ catena_schedule_bin }} set
+  # Offsite copies (COMMUNITY on the CONFIGURATION side). The lane that runs
+  # them is licensed; being able to say what this host would copy, and to
+  # read back what it holds, is not -- a client whose licence lapsed must
+  # still be able to see and correct the credentials pointing at their own
+  # bucket.
+  #
+  # The list rides PAYLOAD like every other write here. It carries
+  # object-store credentials and repository URLs, and neither has any
+  # business on a command line.
+  - name: catena-offsite-show
+    shell: "{{ catena_offsite_bin }} show"
+  - name: catena-offsite-set
+    shell: >-
+      echo "$PAYLOAD" | base64 -d | {{ catena_offsite_bin }} set
   - name: catena-restic-validate
     shell: >-
       echo "$PAYLOAD" | base64 -d | {{ catena_admin_restic_key_path }}

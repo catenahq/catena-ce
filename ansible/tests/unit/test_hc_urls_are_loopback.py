@@ -29,10 +29,8 @@ EXAMPLE_INVENTORY = (
 HOST_SIDE = [
     "backup_healthcheck_url",
     "backup_healthcheck_attempted_url",
-    "backup_worm_healthcheck_url",
-    "backup_worm_healthcheck_attempted_url",
-    "nextcloud_mirror_healthcheck_url",
-    "nextcloud_mirror_healthcheck_attempted_url",
+    "offsite_healthcheck_url",
+    "offsite_healthcheck_attempted_url",
 ]
 
 # Deliberately off-host: these detect the host being gone.

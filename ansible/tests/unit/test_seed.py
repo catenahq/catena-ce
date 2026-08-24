@@ -294,14 +294,14 @@ def test_absorb_provided_secrets_passes_through_full_keyset(seed):
         "backup_restic_password": "rp",
         "admin_password": "should-be-ignored-here",
         "smtp_password": "",          # blank dropped
-        "nextcloud_s3_access_key": "REPLACE",  # placeholder dropped
+        "mailserver_relay_password": "REPLACE",  # placeholder dropped
         "not_a_vault_key": "x",             # ignored
     })
     assert values["backup_s3_access_key"] == "ak"
     assert values["backup_restic_password"] == "rp"
     assert "admin_password" not in values
     assert "smtp_password" not in values
-    assert "nextcloud_s3_access_key" not in values
+    assert "mailserver_relay_password" not in values
     assert "not_a_vault_key" not in values
 
 
