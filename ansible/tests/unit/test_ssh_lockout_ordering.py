@@ -160,6 +160,63 @@ def test_the_non_root_rerun_probe_targets_ops_not_the_provider_account():
     assert "{{ bootstrap_initial_user }}@" not in target
 
 
+def _phase05_tasks() -> list[dict]:
+    for play in yaml.safe_load(BOOTSTRAP.read_text()):
+        if "Phase 0.5" in str(play.get("name", "")):
+            return [t for t in play.get("tasks", []) if isinstance(t, dict)]
+    raise AssertionError("bootstrap.yml has no Phase 0.5 play")
+
+
+def test_the_key_install_decides_on_the_key_not_on_the_password():
+    """Phase 0.5 used to skip itself whenever bootstrap_root_password was
+    blank, reasoning "blank means the key is already installed". Nothing
+    checked that -- and `catena install` ALWAYS emits the variable, blank when
+    install.yaml carries no host_initial_password, deliberately, so a
+    vars_prompt cannot stop the deploy chain. Extra-vars outrank vars_prompt,
+    so on a fresh VPS driven by the CLI the prompt never appears, the play
+    skips, and Phase 1 dies with:
+
+        debian@<ip>: Permission denied (publickey).
+
+    A blank password and an installed key are different states. Probe for the
+    state.
+    """
+    tasks = _phase05_tasks()
+    probe = next((t for t in tasks
+                  if "key auth already work" in str(t.get("name", ""))), None)
+    assert probe is not None, (
+        "Phase 0.5 does not probe for the key; it can only infer the host's "
+        "state from an input that does not describe it")
+    loop = [str(x) for x in (probe.get("loop") or [])]
+    assert "{{ bootstrap_initial_user }}" in loop and "{{ ops_user }}" in loop, (
+        f"the probe checks {loop}; either account answering means there is "
+        "nothing to install -- the provider account on a fresh box, ops on one "
+        "Phase 1 already hardened")
+
+    install = next(t for t in tasks if "Install your public key" in str(t.get("name", "")))
+    conditions = " ".join(str(c) for c in install.get("when", []))
+    assert "_key_works" in conditions, (
+        "the install still runs on the password alone, so a host that already "
+        "has the key is re-installed and one that needs it is skipped")
+
+
+def test_a_fresh_host_with_no_password_fails_in_phase_05_not_phase_1():
+    """The fix is one input away at this point. Three tasks later it surfaces
+    as an unattributed connection error against a task about gathering facts,
+    which is exactly how this went undiagnosed."""
+    tasks = _phase05_tasks()
+    gate = next((t for t in tasks
+                 if "no provider password" in str(t.get("name", ""))), None)
+    assert gate is not None, "Phase 0.5 has no no-key-and-no-password gate"
+    conditions = " ".join(str(c) for c in gate.get("when", []))
+    assert "_key_works" in conditions and "bootstrap_root_password" in conditions, (
+        "the gate must require BOTH -- no working key AND no password. On "
+        "either alone it would fire on a host that is perfectly fine")
+    msg = str(gate["ansible.builtin.fail"]["msg"])
+    assert "host_initial_password" in msg, (
+        "the message does not name the input that fixes it")
+
+
 def test_neither_account_answering_is_its_own_reported_state():
     """Ops-unreachable and provider-unreachable together is a third state, and
     the one the operator actually hit. Without it the play fails on whichever

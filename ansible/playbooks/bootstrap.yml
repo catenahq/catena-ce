@@ -129,10 +129,91 @@
       default: ""
 
   tasks:
-    - name: Skip key install -- no password provided
+    # DECIDE ON THE KEY, NOT ON THE PASSWORD.
+    #
+    # This play used to skip itself whenever the password was blank, on the
+    # reasoning "blank means the key is already installed". Nothing checked
+    # that. And `catena install` ALWAYS emits bootstrap_root_password, blank
+    # when install.yaml carries no host_initial_password (cli
+    # _bootstrap_extra_vars) -- deliberately, so a vars_prompt cannot stop the
+    # deploy chain to ask after preflight has run. Extra-vars outrank
+    # vars_prompt, so on a fresh VPS driven by the CLI with no
+    # host_initial_password the prompt never appears, this play skips, the key
+    # is never installed, and Phase 1 cannot connect:
+    #
+    #   debian@<ip>: Permission denied (publickey).
+    #
+    # A blank password and an installed key are not the same state, so probe
+    # for the state instead of inferring it from the input. Both accounts are
+    # probed because either one answering means there is nothing to install:
+    # the provider account on a fresh box, ops on a box Phase 1 already
+    # hardened (which removes the provider account from AllowUsers).
+    # helpers/install_key.py::_key_already_works checks the same pair for the
+    # same reason -- this is that check, hoisted to where it can decide.
+    - name: "Phase 0.5: does key auth already work for either account?"
+      ansible.builtin.command:
+        argv:
+          - ssh
+          - -o
+          - BatchMode=yes
+          - -o
+          - ConnectTimeout=5
+          - -o
+          - IdentitiesOnly=yes
+          - -o
+          - PreferredAuthentications=publickey
+          - -o
+          - StrictHostKeyChecking=accept-new
+          - -i
+          - "{{ ansible_ssh_private_key_file }}"
+          - "{{ item }}@{{ ansible_host }}"
+          - "true"
+      loop:
+        - "{{ bootstrap_initial_user }}"
+        - "{{ ops_user }}"
+      register: _key_probe
+      changed_when: false
+      failed_when: false
+      delegate_to: localhost
+
+    - name: "Phase 0.5: record whether the operator key already opens this host"
+      ansible.builtin.set_fact:
+        _key_works: >-
+          {{ (_key_probe.results | selectattr('rc', 'equalto', 0) | list | length) > 0 }}
+
+    - name: "Phase 0.5: key already installed -- nothing to do"
       ansible.builtin.debug:
-        msg: "Password blank -- assuming key already installed, skipping Phase 0.5."
-      when: bootstrap_root_password | length == 0
+        msg: >-
+          {{ ansible_ssh_private_key_file }} already opens
+          {{ (_key_probe.results | selectattr('rc', 'equalto', 0) | map(attribute='item') | list | join(' or ')) }}@{{ ansible_host }}.
+          Skipping the key install.
+      when: _key_works | bool
+
+    # Fail HERE, where the fix is one input away, rather than three tasks into
+    # Phase 1 as an unattributed "Permission denied (publickey)".
+    - name: "Phase 0.5: no key on the host and no provider password to install one"
+      ansible.builtin.fail:
+        msg: |
+          {{ ansible_ssh_private_key_file }} does not open
+          {{ bootstrap_initial_user }}@{{ ansible_host }} or {{ ops_user }}@{{ ansible_host }},
+          and no provider password was supplied to install it with.
+
+          This is the normal state of a FRESH VPS. The key install needs the
+          password the provider issued for {{ bootstrap_initial_user }}:
+
+            - via the installer: add `host_initial_password: <password>` to
+              install.yaml. The CLI always passes this variable through, blank
+              when install.yaml omits it, and an extra-var outranks the
+              prompt -- so an omitted password does not fall back to asking.
+
+            - running this playbook directly: answer the password prompt
+              instead of leaving it blank.
+
+          If the host was rebuilt on a recycled IP, also check that
+          HOST_PUBLIC_IP in {{ inventory_dir }}/.env still names it.
+      when:
+        - not (_key_works | bool)
+        - bootstrap_root_password | length == 0
 
     - name: Install your public key (handles forced password change via pexpect)
       ansible.builtin.command:
@@ -148,7 +229,9 @@
       environment:
         INSTALL_KEY_PASSWORD: "{{ bootstrap_root_password }}"
       delegate_to: localhost
-      when: bootstrap_root_password | length > 0
+      when:
+        - not (_key_works | bool)
+        - bootstrap_root_password | length > 0
 
 - name: "Phase 1 -- baseline + harden (connects as initial user, skipped if already done)"
   hosts: "{{ stage_hosts | default('bootstrap') }}"
@@ -298,12 +381,26 @@
 
           Phase 1 cannot run: it needs {{ bootstrap_initial_user }} to get onto
           the box, and Phase 1's sshd hardening removes that account once it has
-          run. So this is one of:
+          run. Phase 0.5 should have caught this and named the case; reaching
+          HERE means it did not. Check in this order:
+
+            - the key was never installed because no provider password was
+              supplied. Usual cause on a FRESH VPS. Add
+              `host_initial_password: <password>` to install.yaml -- the CLI
+              passes that variable through BLANK when it is omitted, and an
+              extra-var outranks the prompt, so omitting it does not fall back
+              to asking.
+
+            - the host is not reachable at this address. HOST_PUBLIC_IP in
+              {{ inventory_dir }}/.env is {{ ansible_host }}; confirm the
+              rebuilt VPS still has it.
 
             - Phase 1 already ran and {{ ops_user }} is only reachable on the
-              TAILNET. Public 22 closes at the end of site.yml. Check
-              {{ inventory_dir }}/.bootstrap-output.yml for the tailnet IP and
-              try: ssh -i {{ ansible_ssh_private_key_file }} {{ ops_user }}@<tailnet-ip>
+              TAILNET. Public 22 closes at the end of site.yml. Note that
+              {{ inventory_dir }}/.bootstrap-output.yml is NOT invalidated by a
+              rebuild, so a tailnet IP recorded there may belong to the previous
+              machine. Try:
+              ssh -i {{ ansible_ssh_private_key_file }} {{ ops_user }}@<tailnet-ip>
 
             - the operator key is not the one installed on this host. Recover at
               the provider console: {{ bootstrap_initial_user }} still logs in
