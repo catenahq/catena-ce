@@ -350,25 +350,46 @@
     # gets on the box. Letting the play discover that on its own produces a
     # connection failure attributed to whatever task ran first, which is how
     # the defect above stayed unread.
+    # RETRIED, unlike the two probes above, and the asymmetry is deliberate.
+    #
+    # A "no" from those two is the EXPECTED answer on a fresh host -- it means
+    # Phase 1 has not run yet -- so retrying them would add the whole deadline
+    # to every first install to confirm something already true. A "no" HERE is
+    # the one that aborts, and it is the last word before a message that tells
+    # the operator to go and look at their provider console.
+    #
+    # A single sample cannot carry that. `ConnectTimeout=5` against a host
+    # whose key was installed seconds ago by the pexpect task above, on a
+    # machine also bringing up other guests, times out with nothing wrong:
+    # bench run 2026-08-25T04-21-14-6614 died here, and the identical command
+    # run by hand a minute later answered in 0.1s. The abort then named five
+    # causes, none of which was the real one.
+    #
+    # Both accounts are re-probed, because either answering means the install
+    # can continue: ops answering means Phase 1 already ran, and the provider
+    # account answering means it can run now.
     - name: "Phase 1 (non-root path) -- can the provider account still SSH in?"
-      ansible.builtin.command:
-        argv:
-          - ssh
-          - -o
-          - BatchMode=yes
-          - -o
-          - ConnectTimeout=5
-          - -o
-          - IdentitiesOnly=yes
-          - -o
-          - PreferredAuthentications=publickey
-          - -i
-          - "{{ ansible_ssh_private_key_file }}"
-          - "{{ bootstrap_initial_user }}@{{ ansible_host }}"
-          - "true"
+      ansible.builtin.shell:
+        cmd: |
+          set -u
+          for user in "{{ bootstrap_initial_user }}" "{{ ops_user }}"; do
+            if ssh -o BatchMode=yes -o ConnectTimeout=10 \
+                   -o IdentitiesOnly=yes -o PreferredAuthentications=publickey \
+                   -i "{{ ansible_ssh_private_key_file }}" \
+                   "$user@{{ ansible_host }}" true 2>/dev/null; then
+              echo "$user"
+              exit 0
+            fi
+          done
+          exit 1
       register: initial_probe
       changed_when: false
       failed_when: false
+      # ~60s of deadline before declaring a host unreachable, which is cheap
+      # against the cost of being wrong: this aborts an install.
+      retries: 5
+      delay: 10
+      until: initial_probe.rc == 0
       delegate_to: localhost
       become: false
       when: bootstrap_initial_user != 'root'
@@ -382,7 +403,12 @@
           Phase 1 cannot run: it needs {{ bootstrap_initial_user }} to get onto
           the box, and Phase 1's sshd hardening removes that account once it has
           run. Phase 0.5 should have caught this and named the case; reaching
-          HERE means it did not. Check in this order:
+          HERE means it did not.
+
+          Both accounts were re-probed over ~60s before this fired, so a host
+          that was merely slow to answer has already been given its chance --
+          treat this as a real access problem, not a timeout. Check in this
+          order:
 
             - the key was never installed because no provider password was
               supplied. Usual cause on a FRESH VPS. Add
