@@ -25,33 +25,43 @@
 #
 # Opt-in template: no-ops when the mailserver is not deployed (no dms).
 
-- name: "Mailserver accounts: locate dms container"
-  ansible.builtin.shell: |
-    set -o pipefail
-    docker ps --filter label=vps.component=dms \
-      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1
-  args:
-    executable: /bin/bash
-  register: _ms_acct_dms
-  changed_when: false
+- name: "Mailserver accounts: resolve the dms container (shared, waits out its restart cycle)"
+  ansible.builtin.include_tasks: _mailserver_dms_locate.yml
+
+- name: "Mailserver accounts: the stack is deployed but dms never appeared"
+  ansible.builtin.fail:
+    msg: >-
+      The catena-mailserver stack exists but no dms container came up within
+      three minutes, so the postmaster mailbox that unblocks its boot cannot
+      be created. This is NOT the "template not deployed" case -- something is
+      stopping the task from starting at all. Check
+      `docker service ps --no-trunc catena-mailserver_dms` for the task error
+      and `docker logs` on the most recent attempt.
+  when:
+    - mailserver_deployed | bool
+    - (mailserver_dms_ct | length) == 0
 
 - name: "Mailserver accounts: throwaway postmaster password (login is via OIDC)"
   ansible.builtin.set_fact:
     _ms_postmaster_pw: "{{ lookup('ansible.builtin.password', '/dev/null length=24 chars=ascii_letters,digits') }}"
   no_log: true
-  when: (_ms_acct_dms.stdout | default('') | length) > 0
+  when: (mailserver_dms_ct | length) > 0
 
+# The container is re-resolved on EVERY attempt, not taken from the locate
+# step. This is the task that breaks dms out of its restart loop, so it runs
+# while dms is still looping and each restart mints a new swarm task id -- a
+# name captured before the retries began is dead for most of them, and the
+# retry would then be 30 attempts against the same corpse.
 - name: "Mailserver accounts: ensure postmaster mailbox exists (unblocks DMS boot)"
-  ansible.builtin.command:
-    argv:
-      - docker
-      - exec
-      - "{{ _ms_acct_dms.stdout | trim }}"
-      - setup
-      - email
-      - add
-      - "postmaster@{{ cloudflare_zone }}"
-      - "{{ _ms_postmaster_pw }}"
+  ansible.builtin.shell: |
+    set -o pipefail
+    ct=$(docker ps --filter label=vps.component=dms \
+      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1)
+    [ -n "$ct" ] || { echo "no dms container right now" >&2; exit 1; }
+    docker exec "$ct" setup email add \
+      {{ ("postmaster@" ~ cloudflare_zone) | quote }} {{ _ms_postmaster_pw | quote }}
+  args:
+    executable: /bin/bash
   register: _ms_acct_add
   changed_when: _ms_acct_add.rc == 0
   # Success = created (rc 0) OR already present ("already exists" on a
@@ -65,7 +75,7 @@
   retries: 30
   delay: 10
   no_log: true
-  when: (_ms_acct_dms.stdout | default('') | length) > 0
+  when: (mailserver_dms_ct | length) > 0
 
 # RFC 2142 requires abuse@ deliverable alongside postmaster@. An alias
 # (not a mailbox) so abuse reports land in the postmaster mailbox the
@@ -73,19 +83,27 @@
 # add above; postmaster@ exists by the time this runs, so no retry loop
 # is needed for the boot crash-loop window.
 - name: "Mailserver accounts: ensure abuse@ alias -> postmaster (RFC 2142)"
-  ansible.builtin.command:
-    argv:
-      - docker
-      - exec
-      - "{{ _ms_acct_dms.stdout | trim }}"
-      - setup
-      - alias
-      - add
-      - "abuse@{{ cloudflare_zone }}"
-      - "postmaster@{{ cloudflare_zone }}"
+  # Re-resolved for the same reason as the mailbox add above. postmaster@ now
+  # exists, so dms is on its way up rather than looping -- but "on its way up"
+  # still means one more restart between these two tasks.
+  ansible.builtin.shell: |
+    set -o pipefail
+    ct=$(docker ps --filter label=vps.component=dms \
+      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1)
+    [ -n "$ct" ] || { echo "no dms container right now" >&2; exit 1; }
+    docker exec "$ct" setup alias add \
+      {{ ("abuse@" ~ cloudflare_zone) | quote }} \
+      {{ ("postmaster@" ~ cloudflare_zone) | quote }}
+  args:
+    executable: /bin/bash
   register: _ms_alias_add
   changed_when: _ms_alias_add.rc == 0
+  until: >-
+    _ms_alias_add.rc == 0
+    or 'already' in ((_ms_alias_add.stderr | default('')) + (_ms_alias_add.stdout | default('')))
+  retries: 6
+  delay: 10
   failed_when:
     - _ms_alias_add.rc != 0
     - "'already' not in ((_ms_alias_add.stderr | default('')) + (_ms_alias_add.stdout | default('')))"
-  when: (_ms_acct_dms.stdout | default('') | length) > 0
+  when: (mailserver_dms_ct | length) > 0

@@ -1,0 +1,70 @@
+---
+# Resolve the dms container ONCE, for every step of the mailserver chain.
+#
+# WHY THIS IS SHARED. mailserver_cert.yml, mailserver_accounts.yml and
+# mailserver_oidc.yml each ran their own `docker ps --filter
+# label=vps.component=dms` and gated their whole body on the result. Three
+# copies of one lookup, each sampled at a different second of the converge --
+# and dms is the one container on the host that is deliberately not up yet.
+#
+# THE DEADLOCK. docker-mailserver polls 120s for at least one mailbox and shuts
+# down without one. Until the chain gives it a cert and postmaster@ it cycles
+# up-and-down forever, so it is absent from `docker ps` for a slice of every
+# cycle. A single sample that lands in a gap returns empty; the step gates on
+# that emptiness and skips; and the converge whose entire job was to unblock
+# dms finishes green having done nothing. dms is missing BECAUSE it has no
+# mailbox, and the task that creates the mailbox skipped BECAUSE it was
+# missing.
+#
+# Observed on bench run 2026-08-25T18-01-29-b726 at cf_activate stage-3b: the
+# cert step found the container and, seconds later, the accounts step did not.
+# Whether an install completed came down to which phase of a restart cycle each
+# lookup happened to sample.
+#
+# THE DISCRIMINATOR is the swarm SERVICE, which exists continuously from deploy
+# to teardown. "No service" is a genuine not-deployed and must stay instant --
+# most hosts never deploy the mailserver and none of them should pay a timeout
+# to establish it. "Service but no container" is the repairable state, and it
+# is worth waiting out.
+#
+# Sets, for the caller:
+#   mailserver_deployed     -- bool, the stack exists
+#   mailserver_dms_ct       -- container name, or '' when there is none
+
+- name: "Mailserver: is the stack deployed at all?"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - ls
+      - --filter
+      - "label=com.docker.stack.namespace=catena-mailserver"
+      - --format
+      - "{{ '{{' }}.Name{{ '}}' }}"
+  register: _ms_locate_svc
+  changed_when: false
+
+- name: "Mailserver: wait for a running dms container"
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker ps --filter label=vps.component=dms \
+      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1
+  args:
+    executable: /bin/bash
+  register: _ms_locate_ct
+  changed_when: false
+  # 18 x 10s spans several full cycles of a 120s account-wait plus restart, so
+  # a flapping dms is caught rather than missed. failed_when is false because
+  # exhausting the retries is not itself the verdict -- the caller decides,
+  # and mailserver_accounts fails loudly on it.
+  until: (_ms_locate_ct.stdout | default('') | trim | length) > 0
+  retries: 18
+  delay: 10
+  failed_when: false
+  when: (_ms_locate_svc.stdout | default('') | trim | length) > 0
+
+- name: "Mailserver: publish the resolved container to the chain"
+  ansible.builtin.set_fact:
+    mailserver_deployed: >-
+      {{ (_ms_locate_svc.stdout | default('') | trim | length) > 0 }}
+    mailserver_dms_ct: "{{ _ms_locate_ct.stdout | default('') | trim }}"

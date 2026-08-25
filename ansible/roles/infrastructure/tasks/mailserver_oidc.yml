@@ -17,15 +17,9 @@
 # when the rendered file changed. Atomic: gated on the containers existing
 # (docker ps), not on a fixed name.
 
-- name: "Mailserver OIDC: locate dms container"
-  ansible.builtin.shell: |
-    set -o pipefail
-    docker ps --filter label=vps.component=dms \
-      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1
-  args:
-    executable: /bin/bash
-  register: _dms_ct
-  changed_when: false
+- name: "Mailserver OIDC: resolve the dms container (shared, waits out its restart cycle)"
+  ansible.builtin.include_tasks: _mailserver_dms_locate.yml
+
 
 - name: "Mailserver OIDC: locate roundcube container"
   ansible.builtin.shell: |
@@ -40,10 +34,24 @@
 - name: "Mailserver OIDC: skip when template not deployed"
   ansible.builtin.debug:
     msg: >-
-      mailserver template not deployed (no dms container); skipping SSO
-      wiring. Deploy the `mailserver` template in Portainer, then re-converge.
-  when: (_dms_ct.stdout | default('') | length) == 0
+      mailserver template not deployed (no dms container); skipping the
+      Dovecot half of the SSO wiring. Deploy the `mailserver` template in
+      Portainer, then re-converge. Note that dms is also absent from
+      `docker ps` between restarts while it waits for its cert and first
+      mailbox, so this can read as "not deployed" on a host that has it.
+  when: (mailserver_dms_ct | length) == 0
 
+# Staging for BOTH consumers, so it is created for EITHER of them.
+#
+# It was gated on dms alone while the Roundcube step below writes into it
+# gated on roundcube -- two containers with independent lifecycles. dms
+# crash-loops by design until this very converge gives it a cert and a
+# mailbox, and `docker ps` returns nothing for it between restarts, while
+# roundcube comes up healthy in seconds. So "roundcube present, dms absent"
+# is not an edge case, it is the NORMAL state during the first tokenful
+# converge -- and the Roundcube render then failed with "Destination
+# directory /var/lib/catena/mailserver does not exist", aborting the whole
+# converge that was about to fix dms.
 - name: "Mailserver OIDC: ensure host staging dir exists"
   ansible.builtin.file:
     path: /var/lib/catena/mailserver
@@ -51,7 +59,9 @@
     owner: root
     group: root
     mode: "0750"
-  when: (_dms_ct.stdout | default('') | length) > 0
+  when: >-
+    (mailserver_dms_ct | length) > 0
+    or (_roundcube_ct.stdout | default('') | length) > 0
 
 # ── 1. Keycloak realm clients ─────────────────────────────────────────────
 - name: "Mailserver OIDC: render Keycloak clients into realm config dir"
@@ -63,12 +73,12 @@
     mode: "0644"
   register: _mailserver_realm_render
   no_log: true
-  when: (_dms_ct.stdout | default('') | length) > 0
+  when: (mailserver_dms_ct | length) > 0
 
 - name: "Mailserver OIDC: re-import realm config with the new clients"
   ansible.builtin.include_tasks: ../../keycloak/tasks/realm_bootstrap.yml
   when:
-    - (_dms_ct.stdout | default('') | length) > 0
+    - (mailserver_dms_ct | length) > 0
     - _mailserver_realm_render is changed
   tags: [mailserver_realm]
 
@@ -82,21 +92,41 @@
     mode: "0640"
   register: _dms_oauth_conf
   no_log: true
-  when: (_dms_ct.stdout | default('') | length) > 0
+  when: (mailserver_dms_ct | length) > 0
 
 - name: "Mailserver OIDC: inject dovecot-oauth2.conf.ext into the dms config volume"
   # docker cp lands in the mounted /tmp/docker-mailserver volume, so it
   # persists across restarts. DMS reads conf.d on Dovecot reload.
-  ansible.builtin.command:
-    argv:
-      - docker
-      - cp
-      - /var/lib/catena/mailserver/dovecot-oauth2.conf.ext
-      - "{{ _dms_ct.stdout }}:/tmp/docker-mailserver/dovecot-oauth2.conf.ext"
+  #
+  # THE CONTAINER NAME IS RE-RESOLVED INSIDE THE COMMAND, not taken from the
+  # locate step above. A swarm task name is only true for an instant: dms is
+  # still restarting its way out of the state this chain is repairing, and
+  # every restart mints a new task id. Resolving once and using it a few tasks
+  # later gets "Error response from daemon: No such container" -- which failed
+  # the whole converge on run 2026-08-25T18-01-29-b726 seconds after the same
+  # converge had successfully created the mailbox.
+  #
+  # Retried for the same reason: landing between restarts is normal here, and
+  # the next attempt gets the next container.
+  ansible.builtin.shell: |
+    set -o pipefail
+    ct=$(docker ps --filter label=vps.component=dms \
+      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1)
+    if [ -z "$ct" ]; then
+      echo "no dms container right now" >&2
+      exit 1
+    fi
+    docker cp /var/lib/catena/mailserver/dovecot-oauth2.conf.ext \
+      "$ct:/tmp/docker-mailserver/dovecot-oauth2.conf.ext"
+  args:
+    executable: /bin/bash
   register: _dms_oauth_cp
-  changed_when: true
+  changed_when: _dms_oauth_cp.rc == 0
+  until: _dms_oauth_cp.rc == 0
+  retries: 12
+  delay: 10
   when:
-    - (_dms_ct.stdout | default('') | length) > 0
+    - (mailserver_dms_ct | length) > 0
     - _dms_oauth_conf is changed
 
 # docker-mailserver's first boot can leave Dovecot not-yet-running for
@@ -108,27 +138,54 @@
 # RUNNING, so until+retries waits out the boot and FAILS LOUD if Dovecot
 # never comes up within the budget (a broken mailserver surfaces here,
 # not three scenarios downstream).
+# EVERY `docker exec` below re-resolves the container itself. The name from
+# the locate step is true for an instant: dms restarts its way out of the
+# state this chain repairs, and each restart mints a new swarm task id. A
+# name captured a few tasks earlier gets "No such container", which is what
+# failed the converge on run 2026-08-25T18-01-29-b726 -- seconds after the
+# same converge had successfully created the mailbox that lets dms boot.
 - name: "Mailserver OIDC: wait for Dovecot to be RUNNING in dms"
-  ansible.builtin.command:
-    argv: [docker, exec, "{{ _dms_ct.stdout }}", supervisorctl, status, dovecot]
+  # Container presence is not readiness: docker-mailserver's first boot can
+  # leave Dovecot down for minutes after the container appears (a bare reload
+  # then exits 75, "Dovecot is not running"). Gate on the ACTUAL service state
+  # via supervisor. Re-resolving each attempt means a restart mid-wait costs
+  # one retry rather than the whole task.
+  ansible.builtin.shell: |
+    set -o pipefail
+    ct=$(docker ps --filter label=vps.component=dms \
+      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1)
+    [ -n "$ct" ] || { echo "no dms container right now" >&2; exit 1; }
+    docker exec "$ct" supervisorctl status dovecot
+  args:
+    executable: /bin/bash
   register: _dms_dovecot_status
   changed_when: false
   until: "'RUNNING' in (_dms_dovecot_status.stdout | default(''))"
   retries: 30
   delay: 10
   when:
-    - (_dms_ct.stdout | default('') | length) > 0
+    - (mailserver_dms_ct | length) > 0
     - _dms_oauth_cp is changed
 
 - name: "Mailserver OIDC: reload Dovecot to apply introspection config"
-  ansible.builtin.command:
-    argv: [docker, exec, "{{ _dms_ct.stdout }}", doveadm, reload]
+  # Dovecot is confirmed RUNNING above, so a reload failure is a real error.
+  # The retry here is only for the container being replaced between the two
+  # tasks -- rc stays the verdict once the exec lands.
+  ansible.builtin.shell: |
+    set -o pipefail
+    ct=$(docker ps --filter label=vps.component=dms \
+      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1)
+    [ -n "$ct" ] || { echo "no dms container right now" >&2; exit 1; }
+    docker exec "$ct" doveadm reload
+  args:
+    executable: /bin/bash
   register: _dms_oauth_reload
   changed_when: _dms_oauth_reload.rc == 0
-  # Dovecot is confirmed RUNNING above, so a reload failure is a real
-  # error -- default failed_when (rc != 0) lets it surface, no tolerate.
+  until: _dms_oauth_reload.rc == 0
+  retries: 6
+  delay: 10
   when:
-    - (_dms_ct.stdout | default('') | length) > 0
+    - (mailserver_dms_ct | length) > 0
     - _dms_oauth_cp is changed
 
 - name: "Mailserver OIDC: verify Dovecot healthy + config valid after reload"
@@ -138,15 +195,22 @@
   # incl. our introspection conf and exits non-zero on any syntax error.
   # Fails loud if the injected config broke Dovecot -- "it errored out"
   # is caught here, not by a later scenario.
+  #
+  # NOT retried: this is the verdict. Retrying it would wait out a Dovecot our
+  # own config had just crashed, and report the crash as a slow start.
   ansible.builtin.shell: |
     set -eu
-    docker exec {{ _dms_ct.stdout | quote }} supervisorctl status dovecot | grep -q RUNNING
-    docker exec {{ _dms_ct.stdout | quote }} doveconf -n >/dev/null
+    set -o pipefail
+    ct=$(docker ps --filter label=vps.component=dms \
+      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1)
+    [ -n "$ct" ] || { echo "no dms container after the reload" >&2; exit 1; }
+    docker exec "$ct" supervisorctl status dovecot | grep -q RUNNING
+    docker exec "$ct" doveconf -n >/dev/null
   args:
     executable: /bin/bash
   changed_when: false
   when:
-    - (_dms_ct.stdout | default('') | length) > 0
+    - (mailserver_dms_ct | length) > 0
     - _dms_oauth_cp is changed
 
 # ── 3. Roundcube OAuth provider config ────────────────────────────────────
@@ -162,13 +226,28 @@
   when: (_roundcube_ct.stdout | default('') | length) > 0
 
 - name: "Mailserver OIDC: inject oauth.inc.php into the roundcube config volume"
-  ansible.builtin.command:
-    argv:
-      - docker
-      - cp
-      - /var/lib/catena/mailserver/oauth.inc.php
-      - "{{ _roundcube_ct.stdout }}:/var/roundcube/config/oauth.inc.php"
-  changed_when: true
+  # Re-resolved inline for the same reason as the dms copy above. Roundcube is
+  # far steadier than dms -- it has no boot gate to fail -- but a swarm task is
+  # replaced by an image bump, a node drain or a failed healthcheck just the
+  # same, and a name captured earlier in the play is stale whenever that
+  # happens. The cost of re-resolving is one `docker ps`.
+  ansible.builtin.shell: |
+    set -o pipefail
+    ct=$(docker ps --filter label=vps.component=roundcube \
+      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1)
+    if [ -z "$ct" ]; then
+      echo "no roundcube container right now" >&2
+      exit 1
+    fi
+    docker cp /var/lib/catena/mailserver/oauth.inc.php \
+      "$ct:/var/roundcube/config/oauth.inc.php"
+  args:
+    executable: /bin/bash
+  register: _rc_oauth_cp
+  changed_when: _rc_oauth_cp.rc == 0
+  until: _rc_oauth_cp.rc == 0
+  retries: 6
+  delay: 10
   when:
     - (_roundcube_ct.stdout | default('') | length) > 0
     - _rc_oauth_conf is changed
@@ -184,4 +263,4 @@
       - "https://webmail.{{ cloudflare_zone }}"
   register: _webmail_link
   changed_when: "'Configuring the Webmail nav link' in (_webmail_link.stdout | default(''))"
-  when: (_dms_ct.stdout | default('') | length) > 0
+  when: (mailserver_dms_ct | length) > 0
