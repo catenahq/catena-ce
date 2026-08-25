@@ -163,11 +163,11 @@ ntfy_topic: "{{ cfg_ntfy_topic | default('') }}"
 # BESZEL_ENABLED off-switch was removed 2026-07-29. Pinned tags
 # (Renovate-managed); the agent reads docker.sock so it carries the same
 # blast radius cAdvisor did on a single-tenant VPS.
-beszel_image_tag: "0.18.7"
+beszel_image_tag: "0.18.8"
 beszel_image: >-
   {{ ('henrygd/beszel:' ~ beszel_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
-beszel_agent_image_tag: "0.18.7"
+beszel_agent_image_tag: "0.18.8"
 beszel_agent_image: >-
   {{ ('henrygd/beszel-agent:' ~ beszel_agent_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
