@@ -13,7 +13,7 @@ Catena is exercised end-to-end by an automated rehearsal suite: each scenario pr
 
 Two numbers are reported everywhere: **rehearsed** means the scenario was last recorded PASSING on a real run, and is the only number treated as evidence; **declared** additionally counts scenarios that exist but have not been observed passing yet. A scenario is never counted for merely existing.
 
-**Coverage: 10 Community features, 84 of 90 rehearsal scenarios observed passing; 13 Catena Pro features, 43 of 46; plus 17 of 23 maintainer-internal rehearsals.**
+**Coverage: 10 Community features, 84 of 91 rehearsal scenarios observed passing; 13 Catena Pro features, 43 of 46; plus 17 of 23 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -23,7 +23,7 @@ A scheduled weekly backup plus manual backups any time. Backups are encrypted on
 
 Implemented in: `ansible/playbooks/backup_now.yml`, `ansible/playbooks/filter_plugins/backup_cadence_cap.py`, `ansible/roles/backup`, `ansible/scripts/catena-restic-key.py`, `ansible/scripts/disk-preflight.sh`
 
-Rehearsal scenarios (11 of 11 observed passing): `backup_rollback`, `backup_schedule_applied`, `concurrent_backup_lock_contention`, `fi_b2_pg_dump_failed`, `fi_b3_snapshot_id_mismatch`, `fi_b4_locked_pack_rotation`, `fi_b6_healthchecks_down`, `fi_b7_ntfy_delivery_fails`, `malformed_catalog_rejection`, `restic_password_rotation_round_trip`, `snapshot_export_round_trip`
+Rehearsal scenarios (11 of 12 observed passing): `backup_rollback`, `backup_schedule_applied`, `concurrent_backup_lock_contention`, `fi_b2_pg_dump_failed`, `fi_b3_snapshot_id_mismatch`, `fi_b4_locked_pack_rotation`, `fi_b6_healthchecks_down`, `fi_b7_ntfy_delivery_fails`, `malformed_catalog_rejection`, `restic_password_rotation_round_trip`, `snapshot_export_round_trip`; declared, not yet observed passing: `ce_backup_deferred`
 
 ### Single sign-on across the suite
 
