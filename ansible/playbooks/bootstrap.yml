@@ -265,6 +265,8 @@
           - IdentitiesOnly=yes
           - -o
           - PreferredAuthentications=publickey
+          - -o
+          - StrictHostKeyChecking=accept-new
           - -i
           - "{{ ansible_ssh_private_key_file }}"
           - "root@{{ ansible_host }}"
@@ -323,6 +325,8 @@
           - IdentitiesOnly=yes
           - -o
           - PreferredAuthentications=publickey
+          - -o
+          - StrictHostKeyChecking=accept-new
           - -i
           - "{{ ansible_ssh_private_key_file }}"
           - "{{ ops_user }}@{{ ansible_host }}"
@@ -358,12 +362,23 @@
     # the one that aborts, and it is the last word before a message that tells
     # the operator to go and look at their provider console.
     #
-    # A single sample cannot carry that. `ConnectTimeout=5` against a host
-    # whose key was installed seconds ago by the pexpect task above, on a
-    # machine also bringing up other guests, times out with nothing wrong:
-    # bench run 2026-08-25T04-21-14-6614 died here, and the identical command
-    # run by hand a minute later answered in 0.1s. The abort then named five
-    # causes, none of which was the real one.
+    # A single sample cannot carry that, and neither can a probe that hides
+    # why it failed. Both halves are load-bearing here.
+    #
+    # StrictHostKeyChecking, explicitly: helpers/install_key.py runs
+    # `ssh-keygen -R` on this address and then does all of its own SSH with
+    # UserKnownHostsFile=/dev/null, so the TOFU entry Phase 0 wrote seconds
+    # earlier is GONE by the time this runs and nothing has put it back. A
+    # probe left on the default `ask` then fails with "Host key verification
+    # failed" against a host that is answering normally -- rc=255, no auth
+    # attempted. accept-new is the posture ansible.cfg already uses for the
+    # connections this probe is predicting, so the probe and the connection
+    # agree; a CHANGED key is still refused.
+    #
+    # And the reason SSH gives goes into the failure, rather than to
+    # /dev/null. Bench run 2026-08-25T05-11-45-7133 died here reading exactly
+    # like a timeout, and the abort listed five candidate causes with the real
+    # one discarded one line earlier.
     #
     # Both accounts are re-probed, because either answering means the install
     # can continue: ops answering means Phase 1 already ran, and the provider
@@ -373,13 +388,15 @@
         cmd: |
           set -u
           for user in "{{ bootstrap_initial_user }}" "{{ ops_user }}"; do
-            if ssh -o BatchMode=yes -o ConnectTimeout=10 \
+            if out=$(ssh -o BatchMode=yes -o ConnectTimeout=10 \
                    -o IdentitiesOnly=yes -o PreferredAuthentications=publickey \
+                   -o StrictHostKeyChecking=accept-new \
                    -i "{{ ansible_ssh_private_key_file }}" \
-                   "$user@{{ ansible_host }}" true 2>/dev/null; then
+                   "$user@{{ ansible_host }}" true 2>&1); then
               echo "$user"
               exit 0
             fi
+            echo "$user: $out" >&2
           done
           exit 1
       register: initial_probe
@@ -434,6 +451,10 @@
               inspect /home/{{ ops_user }}/.ssh/authorized_keys.
 
             - the host is not reachable at all (rebuilt, wrong IP, ufw).
+
+          What SSH reported on the last attempt for each account:
+
+          {{ (initial_probe.stderr | default('(nothing captured)')) | trim | indent(12) }}
       when:
         - bootstrap_initial_user != 'root'
         - (ops_probe.rc | default(1)) != 0
