@@ -16,6 +16,12 @@
 # a non-zero rc here means the stack did NOT come up -- the Portainer path's
 # 2xx only meant the API accepted the request.
 #
+# It blocks until every task converges, and a task that CANNOT converge never
+# lets it return, so the attempt is bounded by `timeout`. Without a bound the
+# retry envelope below is unreachable: the loop that classifies pull failures
+# as transient and retries them cannot start attempt 2 while attempt 1 is
+# still waiting on the pull that is failing.
+#
 # Caller must have set:
 #   svc_name, swarm_stack_dir
 #   _swarm_deploy_done  (false on first iter)
@@ -25,6 +31,8 @@
 - name: "Swarm: deploy attempt {{ _swarm_deploy_attempt_n }} ({{ svc_name }})"
   ansible.builtin.command:
     argv:
+      - timeout
+      - "{{ swarm_stack_deploy_timeout }}"
       - docker
       - stack
       - deploy
@@ -109,10 +117,17 @@
     # stderr AND the per-task errors above: `docker stack deploy --detach=false`
     # reports some per-task errors on stdout in its progress stream, CLI-level
     # failures on stderr, and a paused update's cause on neither.
+    #
+    # rc=124 is `timeout` killing the attempt, and it is transient BY
+    # CONSTRUCTION rather than by pattern: the deploy blocks until every task
+    # converges, so hitting the bound means a task was still trying. The text
+    # is the wrong thing to read there -- a killed progress stream carries
+    # whatever it had printed, which on a stalled pull is nothing.
     - name: "Swarm: detect transient in deploy output ({{ svc_name }})"
       ansible.builtin.set_fact:
         _swarm_deploy_transient: >-
-          {{ ((_swarm_deploy.stdout | default('')) ~ (_swarm_deploy.stderr | default(''))
+          {{ (_swarm_deploy.rc | default(1)) == 124
+             or ((_swarm_deploy.stdout | default('')) ~ (_swarm_deploy.stderr | default(''))
               ~ (_swarm_diag_taskps.stdout | default(''))) is regex(
                '(502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout|TLS handshake timeout|connection reset|i/o timeout|TOOMANYREQUESTS|context deadline exceeded|temporary failure in name resolution|received unexpected HTTP status: 5|did not receive an exit event|cannot stop container|unexpected EOF|short read: expected|Address already in use)'
              ) }}

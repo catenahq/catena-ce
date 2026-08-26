@@ -382,3 +382,16 @@ mail_canary_env_file: /etc/catena/mail-canary.env
 mail_canary_systemd_unit_name: catena-mail-canary
 # Every 15 minutes (the rspamc scan is heavier than the clamd ping).
 mail_canary_schedule: "*:0/15"
+
+# --- Swarm stack deploy bound ------------------------------------------
+# `docker stack deploy --detach=false` blocks until every task converges,
+# and a task that can never converge -- an image the daemon cannot pull --
+# blocks it forever. The retry envelope around it in
+# _swarm_stack_deploy_attempt.yml classifies exactly those failures as
+# transient and retries them, so leaving the attempt unbounded disarms the
+# recovery that was built for this: the loop cannot reach attempt 2 while
+# attempt 1 is still waiting. 600s is far above a warm deploy (seconds) and
+# a cold pull of the largest image through the bench registry mirror, and
+# far below the runner's own timeout, so a hang surfaces as a retryable
+# rc=124 instead of consuming the whole stage.
+swarm_stack_deploy_timeout: 600
