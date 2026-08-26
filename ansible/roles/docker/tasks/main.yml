@@ -161,7 +161,11 @@
 
 - name: Ensure docker.service is enabled and running
   ansible.builtin.command:
-    cmd: systemctl enable --now docker
+    # Bounded for the same reason as the `restart docker` handler: `--now` on
+    # an inactive docker.service waits for dockerd's READY=1, and
+    # TimeoutStartSec=0 means systemd never gives up. See
+    # docker_daemon_control_timeout.
+    cmd: "timeout {{ docker_daemon_control_timeout }} systemctl enable --now docker"
   changed_when: false
 
 # Flush the `restart docker` handler NOW, before any app role deploys a

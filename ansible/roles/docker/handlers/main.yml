@@ -2,9 +2,16 @@
 # daemon.json changes require a dockerd reload. With live-restore=true this
 # does NOT kill running containers -- dockerd exits, systemd restarts it, and
 # the containerd shims keep the containers alive across the gap.
+#
+# The `timeout` wrapper is load-bearing for the same reason the API probe's is:
+# docker.service is Type=notify with TimeoutStartSec=0, so systemd waits for
+# dockerd's READY=1 unbounded. A daemon that cannot answer therefore hangs the
+# converge HERE, and this runs (via the role's `meta: flush_handlers`) just
+# before the bounded `timeout 10 docker info` probe -- so the probe's bound was
+# unreachable whenever the daemon was already unresponsive.
 - name: restart docker
   ansible.builtin.command:
-    cmd: systemctl restart docker
+    cmd: "timeout {{ docker_daemon_control_timeout }} systemctl restart docker"
   changed_when: false
 
 # /etc/default/ufw is only re-read on a full ufw disable+enable cycle.
