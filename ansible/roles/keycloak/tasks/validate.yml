@@ -116,17 +116,30 @@
   # Phase Two image ships WITHOUT curl/wget -- only bash. Use bash +
   # /dev/tcp to issue an HTTP/1.1 GET and check for "200" in the
   # status line. Returns rc=0 + stdout="200" on success.
-  ansible.builtin.command:
-    argv:
-      - docker
-      - exec
-      - "{{ _keycloak_server_container.stdout }}"
-      - bash
-      - -c
-      - >-
-        exec 3<>/dev/tcp/127.0.0.1/{{ keycloak_management_port }} &&
-        printf 'GET {{ keycloak_health_path }} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
-        head -1 <&3 | grep -q '200' && echo 200
+  #
+  # THE CONTAINER IS RE-RESOLVED ON EVERY ATTEMPT, not captured above. A swarm
+  # task is named <stack>_<service>.<slot>.<taskid> and the task id changes on
+  # every reschedule, so a name resolved once is dead the moment swarm replaces
+  # the task -- and this loop's whole purpose is to span the window where that
+  # is most likely. Reusing the captured name made all 120 attempts fail
+  # identically with
+  #     Error response from daemon: No such container: keycloak_server.1.7dwol...
+  # while the replacement task was serving /health/ready within seconds. Run
+  # 2026-08-26T01-55-17-dc01: the first task exited 255, swarm rescheduled it,
+  # keycloak completed bootstrap in 4s, and validate still failed the full
+  # ~480s budget reporting a restart loop that had already ended.
+  ansible.builtin.shell: |
+    set -o pipefail
+    ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
+      | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' \
+      | head -n1)
+    if [ -z "$ct" ]; then
+      echo "no running keycloak container right now" >&2
+      exit 1
+    fi
+    docker exec "$ct" bash -c 'exec 3<>/dev/tcp/127.0.0.1/{{ keycloak_management_port }} && printf "GET {{ keycloak_health_path }} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3 && head -1 <&3 | grep -q 200 && echo 200'
+  args:
+    executable: /bin/bash
   register: _keycloak_health_local
   changed_when: false
   failed_when: false
@@ -144,31 +157,52 @@
     _keycloak_health_local.rc != 0
     or '200' not in (_keycloak_health_local.stdout | default(''))
   block:
-    - name: "validate/keycloak: docker inspect (restart count + last state)"
+    # Same re-resolution as the probe above, and for the same reason: these
+    # ran against the name captured before the reschedule and returned
+    # "No such container", so the failure message carried an empty inspect
+    # and empty logs -- a diagnostic that goes blank exactly when the thing
+    # it describes has happened.
+    #
+    # `service ps` is asked for as well: it is the only surface that shows the
+    # task that DIED, which is the one the operator needs. `docker logs` on
+    # the live container shows the replacement's clean boot and reads as
+    # "nothing was wrong here".
+    - name: "validate/keycloak: swarm task history (the task that died)"
       ansible.builtin.command:
         argv:
           - docker
-          - inspect
-          - --format
-          - >-
-            {{ "{{" }}.RestartCount{{ "}}" }} restarts;
-            state={{ "{{" }}.State.Status{{ "}}" }};
-            exitcode={{ "{{" }}.State.ExitCode{{ "}}" }};
-            oom={{ "{{" }}.State.OOMKilled{{ "}}" }};
-            error={{ "{{" }}.State.Error{{ "}}" }}
-          - "{{ _keycloak_server_container.stdout }}"
+          - service
+          - ps
+          - --no-trunc
+          - "{{ keycloak_compose_name }}_{{ keycloak_server_service }}"
+      register: _kc_health_tasks
+      changed_when: false
+      failed_when: false
+
+    - name: "validate/keycloak: docker inspect (restart count + last state)"
+      ansible.builtin.shell: |
+        set -o pipefail
+        ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
+          | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' \
+          | head -n1)
+        [ -n "$ct" ] || { echo "(no running keycloak container)"; exit 0; }
+        docker inspect --format '{{ "{{" }}.RestartCount{{ "}}" }} restarts; state={{ "{{" }}.State.Status{{ "}}" }}; exitcode={{ "{{" }}.State.ExitCode{{ "}}" }}; oom={{ "{{" }}.State.OOMKilled{{ "}}" }}; error={{ "{{" }}.State.Error{{ "}}" }}' "$ct"
+      args:
+        executable: /bin/bash
       register: _kc_health_inspect
       changed_when: false
       failed_when: false
 
     - name: "validate/keycloak: docker logs --tail 200 (capture crash output)"
-      ansible.builtin.command:
-        argv:
-          - docker
-          - logs
-          - --tail
-          - "200"
-          - "{{ _keycloak_server_container.stdout }}"
+      ansible.builtin.shell: |
+        set -o pipefail
+        ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
+          | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' \
+          | head -n1)
+        [ -n "$ct" ] || { echo "(no running keycloak container)"; exit 0; }
+        docker logs --tail 200 "$ct" 2>&1
+      args:
+        executable: /bin/bash
       register: _kc_health_logs
       changed_when: false
       failed_when: false
@@ -179,6 +213,10 @@
           Keycloak in-container /health/ready never returned 200 after
           120 retries (~480s). Container exists but isn't serving the
           health endpoint -- typically a restart loop.
+
+          swarm task history (a Failed row here with a Running row after it
+          means the task was REPLACED, not that it is looping):
+          {{ _kc_health_tasks.stdout | default('(unavailable)') }}
 
           docker inspect: {{ _kc_health_inspect.stdout | default('(unavailable)') }}
 

@@ -154,8 +154,17 @@
       until: _clamav_container.stdout | length > 0
 
     - name: "ClamAV: wait for clamd to answer PING (signature DB loaded)"
-      ansible.builtin.command:
-        argv: [docker, exec, "{{ _clamav_container.stdout | trim }}", clamdcheck.sh]
+      # Re-resolved per attempt: a swarm task id changes on every reschedule,
+      # and this loop exists to span exactly that window. Reusing the name
+      # captured above makes every attempt fail with "No such container"
+      # regardless of whether clamd is ready.
+      ansible.builtin.shell: |
+        set -o pipefail
+        ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ clamav_compose_name | swarm_container_regex("clamav") }}' | head -n1)
+        [ -n "$ct" ] || { echo "no running clamd container right now" >&2; exit 1; }
+        docker exec "$ct" clamdcheck.sh
+      args:
+        executable: /bin/bash
       register: _clamav_ping
       changed_when: false
       retries: 60

@@ -128,13 +128,19 @@ def test_the_gate_names_a_role_that_exists() -> None:
     real auth failure is indistinguishable inside that noise.
     """
     gate = next(t for t in _tasks() if "pg_isready" in _module_body(t))
-    argv = gate["ansible.builtin.command"]["argv"]
-    assert "-U" in argv, (
+    # Read the command TEXT, not an argv list: the gate re-resolves its
+    # container per attempt now (a swarm task id changes on every reschedule,
+    # and postgres restarting is the very thing being waited on), so it is a
+    # shell rather than a command/argv. This assertion is about what reaches
+    # pg_isready, which is the same either way.
+    body = _module_body(gate)
+    tokens = body.split()
+    assert "-U" in tokens, (
         "pg_isready runs without -U, so it authenticates as root and postgres "
         "logs a FATAL on every attempt. Both sibling call sites in "
-        "roles/postgres already pass -U."
+        "roles/postgres already pass -U.\n" + body
     )
-    user = argv[argv.index("-U") + 1]
+    user = tokens[tokens.index("-U") + 1]
     assert user.strip(), "-U was passed with no role after it"
     assert "root" not in user, (
         f"-U resolves to {user!r}; root is the very role that does not exist"

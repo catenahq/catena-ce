@@ -206,18 +206,24 @@
 # KeyError, missing the optional CATENA_HC_API_KEY_READWRITE silently
 # leaves the existing project.api_key in place (migration path).
 - name: "Healthchecks: run the Django seed script"
-  ansible.builtin.shell: >-
-    docker exec -i
-    -e CATENA_ADMIN_EMAIL={{ admin_email | quote }}
-    -e CATENA_HC_SUPERUSER_PASSWORD={{ healthchecks_superuser_password | quote }}
-    -e CATENA_INVENTORY_HOSTNAME={{ inventory_hostname | quote }}
-    -e CATENA_HC_API_KEY_READONLY={{ healthchecks_api_key_readonly | quote }}
-    -e CATENA_HC_API_KEY_READWRITE={{ (healthchecks_api_key_readwrite | default('')) | quote }}
-    -e CATENA_HC_PING_KEY={{ healthchecks_ping_key | quote }}
-    -e CATENA_NTFY_TOPIC={{ ntfy_topic | quote }}
-    -e CATENA_NTFY_SERVER={{ ntfy_server | quote }}
-    {{ _healthchecks_container_name.stdout }}
-    python manage.py shell < /root/catena-healthchecks-seed.py
+  # Re-resolved per attempt: a swarm task id changes on every reschedule, and
+  # this loop exists to span exactly that window.
+  ansible.builtin.shell: |
+    set -o pipefail
+    ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ healthchecks_compose_name | swarm_container_regex("app") }}' | head -n1)
+    [ -n "$ct" ] || { echo "no running healthchecks container right now" >&2; exit 1; }
+    docker exec -i \
+      -e CATENA_ADMIN_EMAIL={{ admin_email | quote }} \
+      -e CATENA_HC_SUPERUSER_PASSWORD={{ healthchecks_superuser_password | quote }} \
+      -e CATENA_INVENTORY_HOSTNAME={{ inventory_hostname | quote }} \
+      -e CATENA_HC_API_KEY_READONLY={{ healthchecks_api_key_readonly | quote }} \
+      -e CATENA_HC_API_KEY_READWRITE={{ (healthchecks_api_key_readwrite | default('')) | quote }} \
+      -e CATENA_HC_PING_KEY={{ healthchecks_ping_key | quote }} \
+      -e CATENA_NTFY_TOPIC={{ ntfy_topic | quote }} \
+      -e CATENA_NTFY_SERVER={{ ntfy_server | quote }} \
+      "$ct" python manage.py shell < /root/catena-healthchecks-seed.py
+  args:
+    executable: /bin/bash
   register: _healthchecks_seed
   changed_when: false
   retries: 12

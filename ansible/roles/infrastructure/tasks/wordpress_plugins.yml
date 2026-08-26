@@ -96,16 +96,17 @@
     # the in-browser install wizard. Retry loop covers the deploy-
     # but-not-yet-configured window (max 60s).
     - name: "WordPress plugins: wait for wp core is-installed"
-      ansible.builtin.command:
-        argv:
-          - docker
-          - exec
-          - --user
-          - "82" # www-data uid in php-fpm-alpine; wp-cli refuses root without --allow-root
-          - "{{ _wp_ct.stdout }}"
-          - wp
-          - core
-          - is-installed
+      # Re-resolved per attempt: a swarm task id changes on every reschedule,
+      # and this loop exists to span exactly that window.
+      # uid 82 is www-data in php-fpm-alpine; wp-cli refuses root without
+      # --allow-root.
+      ansible.builtin.shell: |
+        set -o pipefail
+        ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E 'wordpress-[0-9a-z]{6,}-wp-' | head -n1)
+        [ -n "$ct" ] || { echo "no running wordpress container right now" >&2; exit 1; }
+        docker exec --user 82 "$ct" wp core is-installed
+      args:
+        executable: /bin/bash
       register: _wp_installed
       changed_when: false
       failed_when: false

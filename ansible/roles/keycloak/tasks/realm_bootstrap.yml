@@ -154,17 +154,17 @@
 
 - name: "Keycloak realm: gate import on /health/ready"
   # Phase Two image has no curl; use bash + /dev/tcp like validate.yml.
-  ansible.builtin.command:
-    argv:
-      - docker
-      - exec
-      - "{{ _keycloak_realm_server_ct.stdout }}"
-      - bash
-      - -c
-      - >-
-        exec 3<>/dev/tcp/127.0.0.1/{{ keycloak_management_port }} &&
-        printf 'GET {{ keycloak_health_path }} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
-        head -1 <&3 | grep -q '200' && echo 200
+  #
+  # Re-resolved per attempt, for the same reason validate.yml's probe is: a
+  # swarm task id changes on every reschedule, and this loop exists to span
+  # exactly that window.
+  ansible.builtin.shell: |
+    set -o pipefail
+    ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' | head -n1)
+    [ -n "$ct" ] || { echo "no running keycloak container right now" >&2; exit 1; }
+    docker exec "$ct" bash -c 'exec 3<>/dev/tcp/127.0.0.1/{{ keycloak_management_port }} && printf "GET {{ keycloak_health_path }} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3 && head -1 <&3 | grep -q 200 && echo 200'
+  args:
+    executable: /bin/bash
   register: _keycloak_realm_health
   changed_when: false
   failed_when: false

@@ -68,22 +68,20 @@
   when: (_kc_export_server_ct.stdout | default('') | length) > 0
 
 - name: "Keycloak realm export: kcadm.sh login as master-realm admin"
-  ansible.builtin.command:
-    argv:
-      - docker
-      - exec
-      - "{{ _kc_export_server_ct.stdout }}"
-      - /opt/keycloak/bin/kcadm.sh
-      - config
-      - credentials
-      - --server
-      - "http://localhost:{{ keycloak_internal_port }}"
-      - --realm
-      - master
-      - --user
-      - "{{ admin_email }}"
-      - --password
-      - "{{ admin_password }}"
+  # Re-resolved per attempt: a swarm task id changes on every reschedule, and
+  # this loop exists to span exactly that window. Still no_log -- the password
+  # is in the command either way, and `| quote` keeps it a single shell word.
+  ansible.builtin.shell: |
+    set -o pipefail
+    ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' | head -n1)
+    [ -n "$ct" ] || { echo "no running keycloak container right now" >&2; exit 1; }
+    docker exec "$ct" /opt/keycloak/bin/kcadm.sh config credentials \
+      --server {{ ("http://localhost:" ~ keycloak_internal_port) | quote }} \
+      --realm master \
+      --user {{ admin_email | quote }} \
+      --password {{ admin_password | quote }}
+  args:
+    executable: /bin/bash
   register: _kc_export_login
   changed_when: false
   # no_log: true is correct for the kcadm invocation itself (the

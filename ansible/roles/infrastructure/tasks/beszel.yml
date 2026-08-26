@@ -125,7 +125,11 @@
     umask 077
     tmp="$(mktemp)"
     trap 'rm -f "$tmp"' EXIT
-    docker cp {{ _beszel_hub_container.stdout | trim }}:/beszel_data/id_ed25519 "$tmp"
+    # Re-resolved per attempt: a swarm task id changes on every reschedule,
+    # and this loop exists to span exactly that window.
+    ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ beszel_hub_compose_name | swarm_container_regex("app") }}' | head -n1)
+    [ -n "$ct" ] || { echo "no running beszel hub container right now" >&2; exit 1; }
+    docker cp "$ct":/beszel_data/id_ed25519 "$tmp"
     ssh-keygen -y -f "$tmp"
   args:
     executable: /bin/bash
