@@ -176,13 +176,13 @@
     # future renewals). Idempotent: docker cp overwrites with identical
     # bytes, reload is cheap.
     # Inject the cert into the dms config volume (docker cp) + reload. With
-    # SSL_TYPE=manual the cert is a hard boot gate, but the container is in
-    # its stable account-wait window at this point (no mailbox yet -- the
-    # mailserver_accounts task runs AFTER this), so the docker cp lands
-    # reliably and the cert persists in the volume. The account task then
-    # unblocks the boot, which proceeds to the TLS gate with the cert
-    # already here -- no restart needed (a restart here would only re-enter
-    # the account-wait, since no mailbox exists yet).
+    # SSL_TYPE=manual the cert is a hard boot gate, and no mailbox exists yet
+    # (mailserver_accounts runs AFTER this), so dms is cycling: it polls 120s
+    # for a mailbox, shuts down without one and comes back. The hook resolves
+    # the container inside a retry envelope for exactly that reason, and lands
+    # the cert during an up window. The cert persists in the volume, so the
+    # account task then unblocks the boot and it proceeds to the TLS gate with
+    # the cert already here.
     - name: "Mailserver cert: inject cert into dms now + reload"
       ansible.builtin.command:
         argv: [/etc/letsencrypt/renewal-hooks/deploy/mailserver-reload.sh]

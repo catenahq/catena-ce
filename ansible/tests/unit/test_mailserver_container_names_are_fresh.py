@@ -14,9 +14,18 @@ after the same converge had successfully created the mailbox that lets dms
 boot. The work was done and then thrown away by the next task.
 
 The rule this pins: any `docker exec` / `docker cp` against a mailserver
-container resolves the name INSIDE its own command. The cert deploy hook
-already did it that way, which is why the cert path kept working while the
-OIDC path did not.
+container resolves the name INSIDE its own command.
+
+The cert deploy hook is the same rule one level down. It resolved the container
+correctly -- and then ran five docker commands against that one answer, across
+the window where dms is cycling by design. Under `set -e` the first exec to
+land on a stopped container took the whole converge with it:
+
+    Error response from daemon: container 48f7969363cc is not running
+
+Run 2026-08-26T03-27-25-c458, cf_activate stage-3b. So the lookup and the
+commands that use it have to be one retried unit, not a lookup followed by a
+sequence that assumes the container outlives it.
 
 `| length` gates on a previously-resolved name are fine and stay: they ask
 "was the stack deployed", which does not go stale in the same way -- a stack
@@ -41,6 +50,8 @@ CAPTURED = ("mailserver_dms_ct", "_roundcube_ct.stdout", "_ms_cert_dms",
 MAILSERVER_FILES = sorted(TASKS.glob("mailserver_*.yml")) + [
     TASKS / "_mailserver_dms_locate.yml"
 ]
+
+CERT_HOOK = ANSIBLE / "scripts" / "mailserver-cert-reload.sh"
 
 
 def _tasks(path: Path) -> list[dict]:
@@ -98,4 +109,50 @@ def test_the_locator_itself_still_resolves_from_docker_ps() -> None:
     assert "docker" in text and "service" in text and "ls" in text, (
         "deployment is decided by the swarm SERVICE, which does not blink "
         "between container restarts"
+    )
+
+
+def _inject_body() -> str:
+    """The deploy hook's retried unit: from `inject_once() {` to the closing
+    brace in column 0."""
+    lines = CERT_HOOK.read_text().splitlines()
+    start = next(
+        (i for i, ln in enumerate(lines) if ln.startswith("inject_once()")), None)
+    assert start is not None, (
+        "the hook has no inject_once(); the lookup and the commands using it "
+        "are no longer one retried unit"
+    )
+    end = next(i for i in range(start + 1, len(lines)) if lines[i] == "}")
+    return "\n".join(lines[start:end])
+
+
+def test_the_cert_hook_reresolves_inside_the_unit_it_retries() -> None:
+    """Every docker command that names the container sits with the lookup that
+    produced the name, so a retry gets a NEW name rather than re-running
+    against the same dead one."""
+    body = _inject_body()
+    assert "label=vps.component=dms" in body, (
+        "the retried unit does not look the container up; it is reusing a name "
+        "resolved outside the loop"
+    )
+    inside = {b.strip() for b in body.splitlines()}
+    stray = [
+        ln.strip() for ln in CERT_HOOK.read_text().splitlines()
+        if not ln.lstrip().startswith("#")
+        and re.search(r"\bdocker\s+(exec|cp)\b", ln)
+        and ln.strip() not in inside
+    ]
+    assert not stray, (
+        "these docker commands run outside the retried unit, so they still "
+        "assume the container outlives the lookup:\n  " + "\n  ".join(stray))
+
+
+def test_the_cert_hook_bounds_its_wait_and_fails_loudly() -> None:
+    """dms cycling forever is a real failure, and the hook has to say so --
+    exiting 0 on it would hand the converge a host with no mail cert and call
+    it done."""
+    text = CERT_HOOK.read_text()
+    assert "while [ \"$attempt\" -le" in text, "the wait is not a bounded loop"
+    assert re.search(r"^exit 1$", text, re.M), (
+        "the hook never fails; a dms that never comes up would pass silently"
     )
