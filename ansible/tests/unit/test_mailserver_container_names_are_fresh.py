@@ -156,3 +156,64 @@ def test_the_cert_hook_bounds_its_wait_and_fails_loudly() -> None:
     assert re.search(r"^exit 1$", text, re.M), (
         "the hook never fails; a dms that never comes up would pass silently"
     )
+
+
+# The Webmail-link hook is the same rule a third time, on the Nextcloud side.
+# It resolved the app container once and then issued fourteen `docker exec`
+# calls against that one answer. A converge that updates the nextcloud stack
+# replaces the task underneath, and `docker exec` on a killed container exits
+# 137 -- which under `set -e` took the whole converge with it on run
+# 2026-08-27T03-01-27-cee0, cf_activate stage-3b.
+WEBMAIL_HOOK = ANSIBLE / "scripts" / "wire-nextcloud-webmail-link.sh"
+
+
+def test_the_webmail_hook_resolves_the_container_inside_every_exec() -> None:
+    """No `docker exec` may name a container resolved once at the top."""
+    lines = [
+        ln.strip() for ln in WEBMAIL_HOOK.read_text().splitlines()
+        if not ln.lstrip().startswith("#")
+        and re.search(r"\bdocker\s+exec\b", ln)
+    ]
+    assert lines, "the hook no longer execs into Nextcloud at all"
+    stale = [ln for ln in lines if '"$ct"' in ln or "${ct}" in ln]
+    assert not stale, (
+        "these exec a container name captured before the command ran, so a "
+        "swarm task roll kills them mid-script:\n  " + "\n  ".join(stale))
+
+
+def test_the_webmail_hook_retries_the_config_write_as_one_unit() -> None:
+    """The eight config:system:set calls write one entry between them, so a
+    roll partway through leaves it half-written. Replaying the whole block is
+    what converges it."""
+    text = WEBMAIL_HOOK.read_text()
+    assert "configure_once()" in text, (
+        "the config writes are not grouped into a retryable unit"
+    )
+    body = text.split("configure_once()", 1)[1].split("\n}", 1)[0]
+    assert body.count("config:system:set") == 8, (
+        "some config:system:set calls sit outside the retried unit, so a "
+        "retry would write a partial entry"
+    )
+    assert re.search(r"for attempt in .*\n\s*if configure_once", text), (
+        "configure_once is never retried"
+    )
+
+
+def test_the_webmail_hook_fails_loudly_when_the_task_never_settles() -> None:
+    """A container that keeps vanishing is a host that is not converging. The
+    appstore branch above may fail open on one unreachable upstream; this one
+    must not, or the converge reports a link it never wrote."""
+    text = WEBMAIL_HOOK.read_text()
+    assert re.search(r"^\s*exit 1$", text, re.M), (
+        "the hook can exhaust its retries and still exit 0"
+    )
+
+
+def test_the_webmail_hook_separates_not_deployed_from_could_not_look() -> None:
+    """An empty `docker ps` means Nextcloud is not deployed, which is a
+    legitimate skip. A `docker ps` that FAILED is not that answer, and folding
+    the two together is how a probe reports success for never having looked."""
+    text = WEBMAIL_HOOK.read_text()
+    assert "docker ps failed while resolving" in text, (
+        "a failed docker ps is indistinguishable from an absent stack"
+    )

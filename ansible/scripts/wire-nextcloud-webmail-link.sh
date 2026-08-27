@@ -28,10 +28,32 @@ fi
 # filters on different keys -- so this pins the app container and not its
 # cron, db or redis peers. Neither label changes when a client renames the
 # stack, which the container NAME does.
-ct=$(docker ps \
-    --filter 'label=vps.app=catena-nextcloud' \
-    --filter 'label=vps.component=app' \
-    --format '{{.Names}}' | head -n1)
+#
+# A SWARM TASK NAME IS TRUE FOR AN INSTANT. Any service update replaces the
+# task, and the converge running this script is often the thing updating it:
+# a name resolved at the top belongs to a container swarm may kill halfway
+# down, and `docker exec` then exits 137. Run 2026-08-27T03-01-27-cee0 died
+# that way partway through the config:system:set sequence, with the task
+# history showing the app task replaced under it ("Address already in use"
+# while the outgoing task still held its endpoint). So the lookup lives with
+# the commands that use it rather than in front of them.
+#
+# Empty output means "not deployed" and is a legitimate skip. A `docker ps`
+# that FAILED means "could not look", which is not the same answer, so it is
+# reported rather than folded into the skip.
+nc_container() {
+    local out
+    if ! out=$(docker ps \
+            --filter 'label=vps.app=catena-nextcloud' \
+            --filter 'label=vps.component=app' \
+            --format '{{.Names}}'); then
+        echo "docker ps failed while resolving the Nextcloud container" >&2
+        return 2
+    fi
+    printf '%s\n' "$out" | head -n1
+}
+
+ct=$(nc_container)
 
 if [ -z "$ct" ]; then
     echo "Nextcloud is not running on this host; skipping webmail link."
@@ -39,7 +61,15 @@ if [ -z "$ct" ]; then
 fi
 
 echo "Found Nextcloud container: $ct"
-occ() { docker exec --user 33 "$ct" php /var/www/html/occ "$@"; }
+
+# Re-resolved per call, for the reason above. Returns 125 when no container is
+# up right now, which the retry loops read as "the task is mid-roll, wait".
+occ() {
+    local now
+    now=$(nc_container) || return 2
+    [ -n "$now" ] || return 125
+    docker exec --user 33 "$now" php /var/www/html/occ "$@"
+}
 
 # Ensure the External Sites app is present + enabled. The appstore is an
 # external dependency: apps.nextcloud.com transiently returns 5xx, and a
@@ -102,14 +132,41 @@ fi
 # (boolean true) makes the nav item open the URL top-level / new tab rather
 # than in an iframe -- required for Roundcube's Keycloak OAuth login.
 echo "Configuring the Webmail nav link -> ${WEBMAIL_URL} (redirect mode)..."
-occ config:system:set external_sites 0 id --value 1 --type integer
-occ config:system:set external_sites 0 name --value "Webmail"
-occ config:system:set external_sites 0 url --value "$WEBMAIL_URL"
-occ config:system:set external_sites 0 icon --value "external.svg"
-occ config:system:set external_sites 0 type --value "link"
-occ config:system:set external_sites 0 lang --value ""
-occ config:system:set external_sites 0 device --value ""
-occ config:system:set external_sites 0 redirect --value true --type boolean
+
+# Retried as ONE UNIT. Each field is a separate occ call, so a task roll
+# partway through leaves the entry half-written; the fields live in config.php
+# on the shared volume, so replaying the whole block over a new container
+# converges the same way a first run does.
+configure_once() {
+    occ config:system:set external_sites 0 id --value 1 --type integer || return
+    occ config:system:set external_sites 0 name --value "Webmail" || return
+    occ config:system:set external_sites 0 url --value "$WEBMAIL_URL" || return
+    occ config:system:set external_sites 0 icon --value "external.svg" || return
+    occ config:system:set external_sites 0 type --value "link" || return
+    occ config:system:set external_sites 0 lang --value "" || return
+    occ config:system:set external_sites 0 device --value "" || return
+    occ config:system:set external_sites 0 redirect --value true --type boolean
+}
+
+configured=""
+for attempt in 1 2 3 4 5 6; do
+    if configure_once; then
+        configured=1
+        break
+    fi
+    echo "Nextcloud container went away mid-configure (attempt ${attempt}/6);" \
+        "waiting 10s for the swarm task to settle..." >&2
+    sleep 10
+done
+
+# Not fail-open, unlike the appstore branch above. Reaching here means the
+# container kept disappearing for a minute, which is a host that is not
+# converging rather than one upstream service being unreachable.
+if [ -z "$configured" ]; then
+    echo "ERROR: could not write the Webmail nav link after 6 attempts; the" >&2
+    echo "Nextcloud task did not stay up long enough to accept the config." >&2
+    exit 1
+fi
 
 echo
 echo "Done. A 'Webmail' item now appears in the Nextcloud app menu and"
