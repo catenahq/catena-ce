@@ -121,9 +121,24 @@
     - name: "Keycloak: gate test on management port readiness"
       # Phase Two image (quay.io/phasetwo/phasetwo-keycloak) ships
       # without curl, and Keycloak 26 split health to management port
-      # 9000 (NOT 8080 -- 8080 only serves OIDC + admin REST). Probe
-      # readiness via bash /dev/tcp on 9000; if the management port
-      # accepts a TCP connection, /health/ready is up.
+      # 9000 (NOT 8080 -- 8080 only serves OIDC + admin REST). So the
+      # probe speaks HTTP over bash /dev/tcp and reads the answer.
+      #
+      # ACCEPTING A CONNECTION IS NOT BEING READY. Quarkus binds BOTH
+      # listeners before Keycloak finishes bootstrapping, and the login
+      # below lands on 8080 during that window:
+      #
+      #   03:32:16.067  started ... Listening on: http://0.0.0.0:8080.
+      #                 Management interface listening on http://0.0.0.0:9000.
+      #   03:32:18.599  BootstrapFilter: Request received during
+      #                 bootstrapping, returning a 503 error. Use the
+      #                 readiness health endpoint to ensure the service is
+      #                 ready before forwarding requests to the service.
+      #   03:32:19.555  Bootstrap completed in 3.563000 seconds
+      #
+      # A bare TCP connect passed at 16.07 and the gate let kcadm through
+      # 3.5s too early. /health/ready reports the "Keycloak Initialized"
+      # check, which is the state the login actually needs.
       ansible.builtin.command:
         argv:
           - docker
@@ -131,14 +146,21 @@
           - "{{ _keycloak_server_ct.stdout }}"
           - bash
           - -c
-          - "exec 3<>/dev/tcp/127.0.0.1/9000 && echo OK"
+          - >-
+            exec 3<>/dev/tcp/127.0.0.1/9000 &&
+            printf 'GET /health/ready HTTP/1.0\r\n\r\n' >&3 &&
+            cat <&3
       register: _keycloak_ready
       changed_when: false
       retries: 30
       delay: 4
       until:
         - _keycloak_ready.rc == 0
-        - "'OK' in (_keycloak_ready.stdout | default(''))"
+        # The STATUS LINE, not the body: /health/ready answers 503 while
+        # bootstrapping, and its body still carries "status": "UP" for the
+        # individual checks that already passed. Matching the body would
+        # pass on exactly the response this gate exists to wait out.
+        - "'200' in ((_keycloak_ready.stdout | default('')).splitlines() | first | default(''))"
       when:
         - _smtp_enabled | bool
         - (_keycloak_server_ct.stdout | default('') | length) > 0
