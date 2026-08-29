@@ -49,13 +49,24 @@
 # below both behave the same way they would on a normal converge.
 # Without this, stage-2.5-idempotency-rerun reports one change (the
 # mark task firing for the first time post-DR).
-- name: "Keycloak realm: drop SMTP marker on post-restore converge"
+#
+# The realm-settings marker rides along for exactly the same reason and it
+# matters more: without it, a DR converge leaves no marker (the import is
+# skipped, so the mark task does not fire), and then the NEXT ordinary converge
+# finds no marker, renders the tunables, and resets the restored realm's login
+# flow, lockout numbers, default groups and locales to product defaults. The
+# restore would come back green and the client's realm configuration would be
+# gone one converge later.
+- name: "Keycloak realm: drop first-import markers on post-restore converge"
   ansible.builtin.file:
-    path: /var/lib/catena/keycloak-realm-smtp-bootstrapped
+    path: "{{ item }}"
     state: touch
     owner: root
     group: root
     mode: "0644"
+  loop:
+    - /var/lib/catena/keycloak-realm-smtp-bootstrapped
+    - /var/lib/catena/keycloak-realm-settings-bootstrapped
   when: _keycloak_realm_post_restore_marker.stat.exists | default(false)
   changed_when: false
 
@@ -82,6 +93,28 @@
     path: /var/lib/catena/keycloak-realm-admin-bootstrapped
   register: _kc_admin_pw_marker
 
+# Third marker, same shape, for the realm's TUNABLE settings.
+#
+# The realm YAML declared every login-flow knob, all eight brute-force numbers,
+# defaultGroups and the locale attributes unconditionally, so keycloak-config-cli
+# merged them back on every converge. An admin who turned "Verify email" off in
+# the Keycloak UI, widened the lockout window, added a second default group or
+# switched the realm's default locale found it undone by the next converge, and
+# nothing said so.
+#
+# Those are preferences about how this client runs their own tenant. The four
+# that are NOT preferences -- registrationAllowed, duplicateEmailsAllowed,
+# editUsernameAllowed, bruteForceProtected -- stay asserted on every converge,
+# because public self-registration or an unprotected login on an SSO tenant is a
+# security posture this product states, not a setting.
+#
+# Remove the marker to re-seed the tunables from the template, exactly as the
+# SMTP marker above documents for its own block.
+- name: "Keycloak realm: probe realm-settings bootstrap marker"
+  ansible.builtin.stat:
+    path: /var/lib/catena/keycloak-realm-settings-bootstrapped
+  register: _kc_settings_marker
+
 # realm_bootstrap.yml is included from BOTH roles/keycloak/tasks/main.yml
 # AND roles/oauth2_proxy/tasks/main.yml (the latter calls back here to
 # re-import the realm after rendering its own client. Mirrors the
@@ -99,6 +132,7 @@
   vars:
     smtp_render_password: "{{ not _kc_smtp_marker.stat.exists }}"
     admin_render_password: "{{ not _kc_admin_pw_marker.stat.exists }}"
+    settings_render: "{{ not _kc_settings_marker.stat.exists }}"
   register: _keycloak_realm_render
 
 # Service-account client for the host-side dashboard-sync cron. Rendered
@@ -241,6 +275,20 @@
       # Same reasoning applies to groups / users / etc. -- per-app
       # files only declare their own group memberships and we want
       # them merged, not used as a complete-state replacement.
+      #
+      # COMPLETENESS IS THE WHOLE PROPERTY, AND IT IS NOT SELF-CHECKING.
+      # keycloak-config-cli defaults every managed-entity type it supports to
+      # FULL, so a type this list does not name is a type whose entities get
+      # DELETED when a per-app YAML does not declare them. The list below is
+      # what is set for adorsys/keycloak-config-cli:latest-26.5.5
+      # (keycloak_config_cli_image_tag in ../defaults/main.yml). It has NOT
+      # been diffed against that release's own `import.managed.*` property
+      # list, and until it has, "no client data is deleted here" rests on the
+      # list happening to be complete rather than on anything checking.
+      #
+      # When bumping the image tag: diff this block against the new release's
+      # documented `import.managed.*` properties and add any type that
+      # appeared. A missing one fails silently and looks like drift.
       - -e
       - "IMPORT_MANAGED_CLIENT=NO_DELETE"
       - -e
@@ -369,6 +417,26 @@
     mode: "0644"
   when:
     - not _kc_admin_pw_marker.stat.exists
+    - not (_keycloak_realm_post_restore_marker.stat.exists | default(false))
+    - (_keycloak_realm_import.rc | default(1)) == 0
+
+# Same rule for the tunable realm settings: written after the FIRST successful
+# import, so later converges render the realm without them and stop reverting a
+# change made in the Keycloak admin UI.
+#
+# On a post-restore converge the import is skipped entirely, so there is nothing
+# to mark: the restored database already carries whatever the source host's
+# realm was configured with, and the next ordinary converge takes the normal
+# path. Same condition the two markers above use, for the same reason.
+- name: "Keycloak realm: mark the realm settings as bootstrapped"
+  ansible.builtin.file:
+    path: /var/lib/catena/keycloak-realm-settings-bootstrapped
+    state: touch
+    owner: root
+    group: root
+    mode: "0644"
+  when:
+    - not _kc_settings_marker.stat.exists
     - not (_keycloak_realm_post_restore_marker.stat.exists | default(false))
     - (_keycloak_realm_import.rc | default(1)) == 0
 

@@ -14,22 +14,51 @@ enabled: true
 displayName: "{{ keycloak_realm_display_name }}"
 displayNameHtml: "<b>{{ keycloak_realm_display_name }}</b>"
 
-# Login flow knobs. registrationAllowed=false: operator/admin invites
-# users via Magic Link (Phase Two extension) or by creating them
-# via the Admin Portal. resetPasswordAllowed=true: standard "forgot
-# password" flow available on the login page.
+# ─── Asserted on EVERY converge: security posture, not preference ────────
+#
+# registrationAllowed=false: this is an SSO tenant for one business. People are
+# invited by an admin (Magic Link, or created in the Admin Portal); a login page
+# that lets the internet make itself an account is not a setting this product
+# has. duplicateEmailsAllowed / editUsernameAllowed likewise: the email IS the
+# username here (registrationEmailAsUsername), and every gate downstream keys on
+# it, so two accounts sharing one -- or an account able to rename itself into
+# somebody else's -- breaks the identity the whole access model rests on.
+# bruteForceProtected is the floor for a login page on the public internet.
+#
+# These four come back on the next converge if they are changed. Everything in
+# the tunable block below does not.
 registrationAllowed: false
 registrationEmailAsUsername: true
+duplicateEmailsAllowed: false
+editUsernameAllowed: false
+bruteForceProtected: true
+
+{% if settings_render | default(true) %}
+# ─── FIRST IMPORT ONLY: this client's own preferences ────────────────────
+#
+# Marker-gated exactly like the smtpServer block below
+# (/var/lib/catena/keycloak-realm-settings-bootstrapped, see
+# realm_bootstrap.yml). These are seeded once and then owned by whoever
+# administers the realm: keycloak-config-cli's MERGE semantics leave out what
+# the file does not declare, so a later converge stops asserting them and an
+# edit made in the Keycloak admin UI survives.
+#
+# Rendering them every converge is what this replaces. An admin who turned
+# "Verify email" off, widened the lockout window for a shared-terminal
+# scenario, added a second default group or switched the realm to French found
+# it silently undone the next time anyone converged.
+#
+# rm the marker to re-seed these from the template.
+
+# Login flow. resetPasswordAllowed=true: standard "forgot password" flow
+# available on the login page.
 resetPasswordAllowed: true
 rememberMe: true
 verifyEmail: true
 loginWithEmailAllowed: true
-duplicateEmailsAllowed: false
-editUsernameAllowed: false
 
-# Brute-force protection. Defaults are conservative; tune per-client
-# if a kiosk/shared-account scenario complains.
-bruteForceProtected: true
+# Brute-force numbers. Conservative to start with; tune per-client if a
+# kiosk/shared-account scenario complains.
 permanentLockout: false
 maxFailureWaitSeconds: 900
 minimumQuickLoginWaitSeconds: 60
@@ -37,6 +66,7 @@ waitIncrementSeconds: 60
 quickLoginCheckMilliSeconds: 1000
 maxDeltaTimeSeconds: 43200
 failureFactor: 30
+{% endif %}
 
 # Four-tier group model. Groups are realm-wide; per-app gating happens
 # at the per-app oauth2-proxy instance (`--allowed-group=<group>`,
@@ -71,11 +101,16 @@ groups:
   - name: visitor
     path: /visitor
 
+{% if settings_render | default(true) %}
+# First import only, with the rest of the tunables above: which group a new
+# account lands in is this client's policy, and an admin who adds a second
+# default group means it.
 defaultGroups:
   # New / self-service accounts land in `client` (lowest authenticated
   # tier). `staff` and `admin` are explicit-only promotions by an
   # operator -- never auto-assigned.
   - /client
+{% endif %}
 
 # Realm-wide group claim mapper. Every client in this realm inherits
 # it via `client-scope`s `roles`/`profile` defaults, so per-client
@@ -173,9 +208,13 @@ smtpServer:
 #   creates an organization, no extra resource cost).
 # - Events with webhook delivery (audit log surfaced to a sink the
 #   operator picks; we don't wire one by default).
+{% if settings_render | default(true) %}
+# First import only, with the rest of the tunables. A realm switched to French,
+# or given a third locale, is a choice about who uses it.
 attributes:
   # Surface the realm as multi-language ready -- Phase Two themes
   # use this. EN + FR matches the project's bilingual stance.
   internationalizationEnabled: "true"
   supportedLocales: '["en","fr"]'
   defaultLocale: "en"
+{% endif %}
