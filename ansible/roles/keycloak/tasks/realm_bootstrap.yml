@@ -167,6 +167,24 @@
     mode: "0644"
   when: catena_admin_panel_client_secret | default('') | length > 0
 
+# The identity-posture probe's own client. Same shape and same gate as the two
+# above, and a THIRD client rather than a reuse of either: this one needs
+# view-realm (which is how it reads whether MFA is enforced) and the panel is
+# deliberately denied it, while the panel needs manage-users and a supervision
+# credential must never hold it.
+#
+# Nothing created this client before, so the probe could not authenticate on
+# any real host -- only on a bench that provisioned it itself, which is how a
+# lane with no writer stayed green.
+- name: "Keycloak realm: render identity-probe service-account client"
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../roles/keycloak/templates/realm-identity-probe.yaml.j2"
+    dest: "{{ keycloak_realm_host_dir }}/identity-probe.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  when: catena_identity_probe_client_secret | default('') | length > 0
+
 # In-container /health/ready re-probe immediately before the import.
 # tasks/validate.yml's probe is run AFTER this file (see main.yml
 # order); we duplicate the probe here so realm-bootstrap is safe to

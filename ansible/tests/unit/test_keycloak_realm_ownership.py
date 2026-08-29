@@ -27,6 +27,16 @@ import yaml
 ANSIBLE = Path(__file__).resolve().parents[2]
 TEMPLATES = ANSIBLE / "roles" / "keycloak" / "templates"
 PANEL = TEMPLATES / "realm-admin-panel.yaml.j2"
+PROBE = TEMPLATES / "realm-identity-probe.yaml.j2"
+
+# The identity probe supervises this realm and must never be able to change it.
+# A supervision credential that could write could hide a drift by correcting
+# it, and the report would then describe a realm the probe made rather than the
+# one the client has.
+PROBE_EXPECTED_ROLES = {
+    "view-users", "query-users", "query-groups",
+    "view-realm", "view-identity-providers", "view-clients",
+}
 
 # The three roles the panel needs and the reason each is the smallest that will
 # do. Pinned so widening the grant is a deliberate edit to a test, not a quiet
@@ -54,7 +64,9 @@ def _render(text: str) -> str:
         out.append(line.replace("{{ ansible_managed }}", "managed")
                    .replace("{{ keycloak_realm }}", "vps")
                    .replace("{{ catena_admin_panel_client_id }}", "catena-admin-panel")
-                   .replace("{{ catena_admin_panel_client_secret }}", "secret"))
+                   .replace("{{ catena_admin_panel_client_secret }}", "secret")
+                   .replace("{{ catena_identity_probe_client_id }}", "catena-identity-probe")
+                   .replace("{{ catena_identity_probe_client_secret }}", "secret"))
     return "\n".join(out)
 
 
@@ -84,6 +96,36 @@ def test_the_panel_client_cannot_change_what_an_application_trusts():
         f"PEOPLE; a credential that can also rewrite a client's OIDC "
         f"registration is a way to take over a login, not to manage access."
     )
+
+
+def test_the_identity_probe_can_only_read():
+    """The probe reports whether this realm still matches the managed-identity
+    promise. Any manage-* role would let the thing doing the reporting change
+    what it reports on."""
+    doc = _doc(PROBE)
+    users = doc.get("users") or []
+    assert len(users) == 1, f"expected one service-account user, got {users}"
+    roles = set((users[0].get("clientRoles") or {}).get("realm-management") or [])
+    assert roles == PROBE_EXPECTED_ROLES, (
+        f"realm-management roles = {sorted(roles)}; the probe's grant is "
+        f"read-only by design"
+    )
+    writers = {r for r in roles if r.startswith("manage-") or r == "realm-admin"}
+    assert not writers, (
+        f"the identity probe holds {sorted(writers)}. A supervision credential "
+        f"that can write can hide a drift by correcting it."
+    )
+
+
+def test_the_probe_and_the_panel_do_not_share_a_credential():
+    """Each holds something the other is deliberately denied: the panel has
+    manage-users, which a supervision credential must not; the probe has
+    view-realm, which the panel is refused because it exposes the realm's whole
+    configuration to a credential that only needs to add people. One shared
+    client would hand each side the other's reach."""
+    panel = _doc(PANEL)["clients"][0]["clientId"]
+    probe = _doc(PROBE)["clients"][0]["clientId"]
+    assert panel != probe, f"both service accounts are {panel!r}"
 
 
 def test_the_only_users_any_realm_template_declares_are_the_install_itself():

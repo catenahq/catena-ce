@@ -162,3 +162,23 @@ smtp_use_starttls: true
 # product constant and the two must agree -- ops automation/audit/panel_env.py
 # gates exactly that class of duplication.
 catena_admin_panel_client_id: "catena-admin-panel"
+
+# The identity-posture probe's realm service account (read-only supervision).
+# Same shape as the line above, and the same duplication for the same reason:
+# only the converge can create the client, only the image knows what it
+# authenticates as. It is the probe binary's own -client-id default
+# (catena-admin payload/cmd/catena-identity-probe).
+catena_identity_probe_client_id: "catena-identity-probe"
+
+# Whether every account in this realm must set up a second factor.
+#
+# Read from the on-box store (IDENTITY_ENFORCE_MFA, a Settings page value), so
+# a client turns it on without an operator. The CONVERGE owns the write because
+# a required action is realm configuration, and the boundary this repo draws
+# puts realm config here and realm PEOPLE in the panel -- which is also why the
+# panel's service account is denied manage-realm.
+#
+# Off by default: turning it on mid-life locks every existing user out of their
+# next login until they enrol, and that is a decision with a support cost
+# attached rather than one a converge should make on a client's behalf.
+keycloak_enforce_mfa: "{{ cfg_identity_enforce_mfa | default('false') }}"

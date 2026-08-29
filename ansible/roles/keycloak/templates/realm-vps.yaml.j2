@@ -33,6 +33,28 @@ duplicateEmailsAllowed: false
 editUsernameAllowed: false
 bruteForceProtected: true
 
+# Second-factor enrolment, from IDENTITY_ENFORCE_MFA on the Settings page.
+#
+# Asserted on EVERY converge rather than seeded once, because it is a setting a
+# client CHANGES: a first-import-only value could be turned on in Settings and
+# never reach the realm. That also means a change made directly in the Keycloak
+# admin UI is reverted here, which is the intended direction -- the Settings
+# page is where this is decided, and the identity probe reports the realm's
+# actual posture against it.
+#
+# defaultAction is the half that does the work: `enabled` only makes TOTP
+# available to somebody who goes looking for it, while defaultAction attaches
+# the enrolment to every account's next login. The probe reads exactly this
+# pair (catena-admin payload/engines/identity), so a realm with one and not the
+# other reports as drift rather than as enforced.
+requiredActions:
+  - alias: CONFIGURE_TOTP
+    name: "Configure OTP"
+    providerId: CONFIGURE_TOTP
+    enabled: true
+    defaultAction: {{ keycloak_enforce_mfa | bool | lower }}
+    priority: 10
+
 {% if settings_render | default(true) %}
 # ─── FIRST IMPORT ONLY: this client's own preferences ────────────────────
 #

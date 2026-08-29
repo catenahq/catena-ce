@@ -231,6 +231,12 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     # two hold DIFFERENT realm-management roles -- one manages clients, the
     # other manages people -- and sharing a secret would collapse that.
     "catena_admin_panel_client_secret": mint_strong_password,
+    # The identity-posture probe's realm service account. A THIRD credential
+    # rather than a reuse of either above: the probe needs view-realm, which
+    # the panel is deliberately denied, and must not hold manage-users, which
+    # the panel has. A supervision credential that could change what it
+    # supervises could hide a drift by correcting it.
+    "catena_identity_probe_client_secret": mint_strong_password,
     "nextcloud_oidc_client_secret": mint_strong_password,
     "element_oidc_client_secret": mint_strong_password,
     "mailserver_oidc_client_secret": mint_strong_password,
@@ -433,6 +439,16 @@ SETTINGS_CONFIG: dict[str, str] = {
     "DOCKER_REGISTRY_MIRROR_URL": "cfg_docker_registry_mirror_url",
     # Mailserver toggles.
     "MAILSERVER_CERTBOT_STAGING": "cfg_mailserver_certbot_staging",
+    # Whether every account in the realm must set up a second factor. A
+    # settings value rather than an install input because it is a decision a
+    # client makes about their own people, and one they may make later: turning
+    # it on requires every existing user to enrol at their next login.
+    #
+    # The converge writes it into the realm (roles/keycloak). The identity
+    # probe READS the resulting posture and reports drift, which is the pair
+    # this key completes -- the probe has always been able to see the answer
+    # and nothing could set it.
+    "IDENTITY_ENFORCE_MFA": "cfg_identity_enforce_mfa",
 }
 
 # Read from the inventory `.env` at converge time, by design: the installer
