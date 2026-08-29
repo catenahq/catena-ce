@@ -29,12 +29,16 @@ def oc():
 # --- load / dump ------------------------------------------------------------
 def test_load_absent_returns_empty_sections(oc, tmp_path):
     store = oc.load(tmp_path / "nope.json")
-    assert store == {"secrets": {}, "config": {}}
+    assert store == {"secrets": {}, "config": {}, oc.CLIENT_APP_SECRETS_KEY: {}}
 
 
 def test_dump_then_load_roundtrip(oc, tmp_path):
     p = tmp_path / "config.json"
-    store = {"secrets": {"admin_password": "s3cr3t/+="}, "config": {"CLOUDFLARE_ZONE": "x.com"}}
+    store = {
+        "secrets": {"admin_password": "s3cr3t/+="},
+        "config": {"CLOUDFLARE_ZONE": "x.com"},
+        oc.CLIENT_APP_SECRETS_KEY: {"kimai/DB_PASSWORD": "abc"},
+    }
     oc.dump(store, p)
     got = oc.load(p)
     assert got == store
@@ -494,6 +498,127 @@ def test_dispatch_write_rejects_restic_password(oc, tmp_path, monkeypatch):
     ))
     with pytest.raises(ValueError):
         oc.main(["--path", str(p), "--dispatch-stdin"])
+
+
+# --- client-app env secrets (the marketplace's per-deploy values) -----------
+def _wanted(key="kimai/DB_PASSWORD", length=32, charset="alnum"):
+    return {key: {"length": length, "charset": charset}}
+
+
+def test_app_secrets_mint_then_reuse(oc):
+    """Asking twice returns the SAME value. The catalog is re-rendered on every
+    marketplace fetch; a mint per render would hand the client a different
+    database password each time they opened the page."""
+    store = {"secrets": {}, "config": {}}
+    first = oc.ensure_app_secrets(store, _wanted())
+    second = oc.ensure_app_secrets(store, _wanted())
+    assert first == second
+    assert len(first["kimai/DB_PASSWORD"]) == 32
+
+
+def test_app_secrets_charsets(oc):
+    store = {"secrets": {}, "config": {}}
+    got = oc.ensure_app_secrets(store, {
+        "outline/OUTLINE_SECRET_KEY": {"length": 64, "charset": "hex"},
+        "kimai/DB_PASSWORD": {"length": 32, "charset": "alnum"},
+    })
+    assert set(got["outline/OUTLINE_SECRET_KEY"]) <= set("0123456789abcdef")
+    assert got["kimai/DB_PASSWORD"].isalnum()
+
+
+def test_app_secrets_blank_is_reminted(oc):
+    """A blank stored value is not a value -- same reconcile rule the internal
+    set follows, and the state a hand-edited store can be left in."""
+    store = {"secrets": {}, "config": {}, oc.CLIENT_APP_SECRETS_KEY: {"kimai/DB_PASSWORD": "  "}}
+    got = oc.ensure_app_secrets(store, _wanted())
+    assert got["kimai/DB_PASSWORD"].strip()
+
+
+@pytest.mark.parametrize("bad", [
+    "../../etc/passwd/KEY",
+    "kimai/db_password",
+    "Kimai/DB_PASSWORD",
+    "kimai DB_PASSWORD",
+    "kimai/",
+])
+def test_app_secrets_rejects_bad_key(oc, bad):
+    """This is the one store write the unprivileged container can ask for by
+    name, so the key shape is what keeps a forged request inside the block."""
+    with pytest.raises(ValueError):
+        oc.ensure_app_secrets({"secrets": {}, "config": {}}, _wanted(key=bad))
+
+
+@pytest.mark.parametrize("length", [0, 8, 257, "32", True, None])
+def test_app_secrets_rejects_bad_length(oc, length):
+    with pytest.raises(ValueError):
+        oc.ensure_app_secrets({"secrets": {}, "config": {}}, _wanted(length=length))
+
+
+def test_app_secrets_rejects_unknown_charset(oc):
+    with pytest.raises(ValueError):
+        oc.ensure_app_secrets({"secrets": {}, "config": {}}, _wanted(charset="base64"))
+
+
+def test_app_secrets_never_takes_a_value_from_the_request(oc):
+    """The request names what it wants, never what it should be. A caller that
+    could supply the value could pin every client's password to one string."""
+    store = {"secrets": {}, "config": {}}
+    got = oc.ensure_app_secrets(store, {
+        "kimai/DB_PASSWORD": {"length": 32, "charset": "alnum", "value": "chosen"},
+    })
+    assert got["kimai/DB_PASSWORD"] != "chosen"
+
+
+def test_dispatch_mint_app_secrets_persists_and_returns(oc, tmp_path, monkeypatch):
+    import io
+    p = tmp_path / "config.json"
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({
+        "op": "mint-app-secrets",
+        "app_secrets": {"kimai/DB_PASSWORD": {"length": 32, "charset": "alnum"}},
+    })))
+    rc = oc.main(["--path", str(p), "--dispatch-stdin"])
+    assert rc == 0
+    stored = oc.client_app_secrets(p)
+    assert len(stored["kimai/DB_PASSWORD"]) == 32
+
+
+def test_dispatch_mint_app_secrets_preserves_other_blocks(oc, tmp_path, monkeypatch):
+    """The store is shared. catena-schedule owns `schedules`, the update lane
+    owns `image_pins`, and a mint must carry both past untouched."""
+    import io
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({
+        "secrets": {"admin_password": "keep"},
+        "config": {"CLOUDFLARE_ZONE": "x.com"},
+        "image_pins": {"catena/thing": "sha256:abc"},
+        "schedules": {"backup": "daily"},
+    }))
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({
+        "op": "mint-app-secrets",
+        "app_secrets": {"kimai/DB_PASSWORD": {"length": 32, "charset": "alnum"}},
+    })))
+    assert oc.main(["--path", str(p), "--dispatch-stdin"]) == 0
+    doc = json.loads(p.read_text())
+    assert doc["image_pins"] == {"catena/thing": "sha256:abc"}
+    assert doc["schedules"] == {"backup": "daily"}
+    assert doc["secrets"]["admin_password"] == "keep"
+
+
+def test_converge_style_dump_does_not_blank_app_secrets(oc, tmp_path):
+    """The converge loader dumps a hand-built {"secrets", "config"} store. It
+    has no opinion about client_app_secrets and must not erase it -- the same
+    trap that made dump() stop re-serialising the whole document."""
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({
+        "secrets": {}, "config": {},
+        oc.CLIENT_APP_SECRETS_KEY: {"kimai/DB_PASSWORD": "survives"},
+    }))
+    oc.dump({"secrets": {"a": "b"}, "config": {}}, p)
+    assert oc.client_app_secrets(p) == {"kimai/DB_PASSWORD": "survives"}
+
+
+def test_client_app_secrets_absent_store_is_empty(oc, tmp_path):
+    assert oc.client_app_secrets(tmp_path / "nope.json") == {}
 
 
 def test_cli_mints_user_held_on_first_install(oc, tmp_path, capsys):
