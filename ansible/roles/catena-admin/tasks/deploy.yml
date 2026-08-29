@@ -123,6 +123,13 @@
           http://{{ portainer_service_name }}:{{ portainer_ui_port }}/api
         KEYCLOAK_HOSTNAME: "{{ keycloak_hostname }}"
         KEYCLOAK_REALM: "{{ keycloak_realm }}"
+        # Host facts the app-catalog render substitutes into a template's env
+        # defaults. The zone arrives as CLOUDFLARE_PRIMARY_ZONE above; these
+        # two have no other reader in the image yet. Both are optional in the
+        # catalog EXCEPT public_ip, which two templates name with no default --
+        # a host that does not pass it drops those two from its marketplace.
+        COTURN_HOSTNAME: "{{ coturn_hostname | default('') }}"
+        HOST_PUBLIC_IP: "{{ public_ip | default('') }}"
         # The Admin REST base is the CLUSTER-internal address, not the public
         # auth.<zone> hostname above: the panel talks to Keycloak over the
         # catena network, and routing realm administration through the public

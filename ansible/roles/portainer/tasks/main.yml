@@ -301,3 +301,58 @@
     - portainer_api_key is defined
     - portainer_api_key | length > 10
     - (_pt_endpoints.json | default([]) | selectattr('Name', 'equalto', portainer_local_endpoint_name) | list | length) == 0
+
+# ─── App Templates catalog (the client's self-serve marketplace) ─────────
+# Point Portainer at THIS HOST's catalog rather than Portainer's own built-in
+# one. Two things follow from doing it here:
+#
+#   1. The client sees the Catena apps at all. Left unset, App Templates lists
+#      Portainer's public catalog, and nothing a client deploys from it knows
+#      about this host's SSO, routing or backups.
+#   2. The env form they fill in before clicking Deploy carries this host's
+#      real values. The PUBLIC catalog cannot: catenahq/catena-templates ships
+#      one templates.json for every client, so every secret in it renders to
+#      the __CATENA_OPERATOR_WIRED__ placeholder. Deploying that verbatim gives
+#      the app a database password every reader of a public repo knows, and by
+#      the time anything could correct it Postgres has already initialised with
+#      it. catena-admin serves the resolved copy; see shell/marketplace.
+#
+# Reconciled, not created once: the token in the path changes if the store is
+# re-minted, and a stale URL 404s rather than falling back to anything.
+- name: "portainer: read settings"
+  ansible.builtin.uri:
+    url: "{{ portainer_api_base }}/settings"
+    method: GET
+    headers:
+      X-API-Key: "{{ portainer_api_key }}"
+    status_code: 200
+    return_content: true
+  register: _pt_settings
+  delegate_to: localhost
+  become: false
+  failed_when: false
+  when:
+    - portainer_api_key is defined
+    - portainer_api_key | length > 10
+    - catena_marketplace_token | default('') | length > 0
+
+- name: "portainer: point App Templates at this host's catalog"
+  ansible.builtin.uri:
+    url: "{{ portainer_api_base }}/settings"
+    method: PUT
+    headers:
+      X-API-Key: "{{ portainer_api_key }}"
+    body_format: json
+    # The PUT replaces the settings document, so it is built from what the GET
+    # returned rather than from this one field. Sending the field alone resets
+    # every other setting to its zero value.
+    body: "{{ _pt_settings.json | combine({'TemplatesURL': portainer_templates_url}) }}"
+    status_code: 200
+  delegate_to: localhost
+  become: false
+  when:
+    - portainer_api_key is defined
+    - portainer_api_key | length > 10
+    - catena_marketplace_token | default('') | length > 0
+    - _pt_settings.json is defined
+    - (_pt_settings.json.TemplatesURL | default('')) != portainer_templates_url

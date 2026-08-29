@@ -75,6 +75,13 @@ catena_admin_secret_specs:
   - base: catena_admin_keycloak_secret
     target: KEYCLOAK_ADMIN_CLIENT_SECRET
     value: "{{ catena_admin_panel_client_secret | default('') }}"
+  # The path segment in the App Templates URL Portainer fetches. A secret
+  # because the catalog it guards carries every client app's credentials, and
+  # a secret rather than an --env for the same reason as the four above: an
+  # --env value is in the host's process table for the length of the create.
+  - base: catena_admin_marketplace_token
+    target: CATENA_MARKETPLACE_TOKEN
+    value: "{{ catena_marketplace_token | default('') }}"
 
 # Supplementary group. The recovery export dir is 0750 root:1000 (gid 1000
 # is the shared recovery-downloads group) and the image runs USER nonroot,
@@ -122,7 +129,9 @@ catena_admin_desired:
 
 # Port the Go shell listens on inside the container (CATENA_ADMIN_ADDR
 # in the service env; oauth2_proxy upstreams to catena-admin:8000).
-catena_admin_internal_port: 8000
+# catena_admin_internal_port lives in roles/common/defaults for the same reason
+# catena_admin_service_name does: roles/portainer builds the App Templates URL
+# out of the pair, and cannot see this role's defaults.
 
 # Native-login listener inside the container, published on the host (tailnet-
 # only) so the panel is reachable at http://<tailnet-ip>:<catena_admin_ui_port>

@@ -124,6 +124,16 @@ catena_container_gid: "65532"
 # 502s every authenticated dash.<zone> request.
 catena_admin_service_name: "catena-admin"
 
+# ─── The catena-admin listen port ────────────────────────────────────────
+# Here for the same reason as the name above. roles/catena-admin (13) tells the
+# shell what to bind; roles/portainer (tier-1, far earlier) has to build the
+# App Templates URL out of the pair, and cannot see that role's defaults.
+#
+# Portainer fetches that URL lazily -- when somebody opens the App Templates
+# page -- so setting it before catena-admin exists is fine; it resolves by the
+# time a client can click anything.
+catena_admin_internal_port: 8000
+
 # ─── The catena-admin image ──────────────────────────────────────────────
 # Declared in common (which runs first) because TWO roles must agree on it and
 # neither can see the other's defaults: roles/payload (5.5) extracts the host

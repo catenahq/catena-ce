@@ -52,3 +52,17 @@ portainer_admin_secret_name: catena_portainer_admin_password
 # creates it once; portainer_endpoint.yml resolves its Id for every stack call.
 portainer_local_endpoint_name: catena-local
 
+# The App Templates catalog Portainer fetches. Cluster-internal by
+# construction: it carries this host's real client-app credentials, so it is
+# reachable on catena-network and nowhere else -- never through Traefik, never
+# from a browser. Portainer's SERVER does the fetch (its docs: host the file
+# "somewhere accessible by the Portainer Server instance"), so an internal
+# address is the right one and there is no session to carry.
+#
+# The token segment is the guard: catena_marketplace_token is a per-host secret
+# from the on-box store, so another container on the same network cannot read
+# the catalog off a well-known URL. Blank => this role leaves App Templates
+# alone rather than publishing an unguarded one.
+portainer_templates_url: >-
+  http://{{ catena_admin_service_name }}:{{ catena_admin_internal_port }}/marketplace/{{ catena_marketplace_token | default('') }}/templates.json
+

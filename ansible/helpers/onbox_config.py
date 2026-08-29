@@ -213,6 +213,14 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     # Signs the catena-admin native-login session cookie (the host-published
     # tailnet listener). Minted once, stable across converges, rides the backup.
     "catena_admin_session_key": mint_strong_password,
+    # The path segment in the catalog URL Portainer fetches its App Templates
+    # from. That catalog carries this host's real client-app credentials, and
+    # the route is unauthenticated because Portainer's SERVER reads it and
+    # carries no session -- so the unguessable path is what stops another
+    # container on catena-network reading the lot off a well-known URL. It must
+    # survive a restore with the apps it describes, which is why it is here
+    # rather than regenerated per converge. URL-safe: it goes in a path.
+    "catena_marketplace_token": mint_url_safe,
     # SSO service credentials.
     "keycloak_db_password": mint_strong_password,
     "oauth2_proxy_cookie_secret": mint_oauth2_proxy_cookie_secret,
