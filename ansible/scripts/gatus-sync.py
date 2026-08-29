@@ -566,6 +566,13 @@ def write_healthchecks_summary(api_url, api_key, out_path):
 # (not delete) preserves history and auto-resumes on the next ping if the
 # endpoint comes back. Operator can delete paused checks manually from
 # the HC UI once sure.
+#
+# The `gatus-` NAME PREFIX IS RESERVED. This pass owns every check carrying it
+# and pauses any it cannot account for, so a check created by hand under that
+# prefix gets paused too. Nothing is ever deleted and history survives, so the
+# cost is a paused check rather than lost data -- but a hand-made check belongs
+# under a different prefix, the same way an operator's own Gatus endpoints
+# belong in 99-*.yaml rather than in the two files this script owns.
 
 
 def _classify_orphans(hc_checks: list[dict], expected_slugs: set[str]) -> list[dict]:

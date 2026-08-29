@@ -94,6 +94,14 @@
       # catena_admin_env_drift emits --env-rm for keys the live service has and
       # this dict does not, so removing a name here removes it from the running
       # panel rather than leaving the old value behind.
+      #
+      # That cuts both ways and it is meant to: an env var added by hand with
+      # `docker service update --env-add` on THIS service is removed by the next
+      # converge, because the converge is what the panel's environment is. It is
+      # the one place in the tree where a hand-made change is deliberately not
+      # preserved -- everything a client owns lives in the on-box store, in
+      # Portainer, or in an app's own database, none of which this touches. A
+      # value that needs to survive belongs in /etc/catena/config.json.
       env:
         # :8000 to match the oauth2-proxy upstream and the dash.<zone> route;
         # the image default is :8080. Still passed, because moving it means
