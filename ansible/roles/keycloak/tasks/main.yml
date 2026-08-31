@@ -31,8 +31,27 @@
       AUTH_SUBDOMAIN, and CLOUDFLARE_ZONE in .env. Both secrets are minted
       on the box by the converge loader.
 
+# apply: propagate the tag to every task INSIDE each include. Without it the
+# include fires (it carries the tag) and its inner tasks are filtered out under
+# any `converge --tags X`, so a tag-scoped run does NOTHING while reporting
+# ok/changed=0 as though the role were already converged.
+#
+# `converge --tags keycloak_realm` was exactly that: the realm-render tasks
+# never ran, keycloak-config-cli imported the realm files left by an earlier
+# converge, and a Settings change the store had already recorded could not
+# reach the realm. Read on bench run 2026-08-30T19-22-52-155e as
+# "expected mfa_enforced=true after enforce, got False" beside a realm
+# converge of ok=28 changed=0 -- the setting was in the store, and nothing
+# rendered it.
+#
+# playbooks/site.yml carries the same apply: on the on-box config loader, for
+# the same reason (fi_s3 caught a poisoned password surviving `--tags
+# postgres` there).
 - name: "Keycloak: provision DB + user inside catena-postgres"
-  ansible.builtin.include_tasks: provision_db.yml
+  ansible.builtin.include_tasks:
+    file: provision_db.yml
+    apply:
+      tags: [keycloak_db]
   tags: [keycloak_db]
 
 
@@ -49,15 +68,24 @@
     - portainer_api_key | length > 10
   block:
     - name: "Keycloak: deploy compose via the Portainer stack API"
-      ansible.builtin.include_tasks: deploy.yml
+      ansible.builtin.include_tasks:
+        file: deploy.yml
+        apply:
+          tags: [keycloak_compose]
       tags: [keycloak_compose]
 
     - name: "Keycloak: post-deploy /health/ready probe"
-      ansible.builtin.include_tasks: validate.yml
+      ansible.builtin.include_tasks:
+        file: validate.yml
+        apply:
+          tags: [keycloak_health]
       tags: [keycloak_health]
 
     - name: "Keycloak: realm bootstrap (keycloak-config-cli)"
-      ansible.builtin.include_tasks: realm_bootstrap.yml
+      ansible.builtin.include_tasks:
+        file: realm_bootstrap.yml
+        apply:
+          tags: [keycloak_realm]
       tags: [keycloak_realm]
 
     # One-time membership migration for the four-tier group rename.
@@ -65,7 +93,10 @@
     # before members are moved into them. Marker-gated -- no-op on
     # greenfield installs and on every converge after the first.
     - name: "Keycloak: migrate legacy groups to four-tier model"
-      ansible.builtin.include_tasks: migrate_groups.yml
+      ansible.builtin.include_tasks:
+        file: migrate_groups.yml
+        apply:
+          tags: [keycloak_realm, keycloak_group_migration]
       tags: [keycloak_realm, keycloak_group_migration]
 
     # R22: dump the live realm + clients to backup-staging (so restic
@@ -73,7 +104,10 @@
     # Idempotent. Captures any operator UI edits that happened since
     # the previous converge, then keeps running between converges.
     - name: "Keycloak: realm export"
-      ansible.builtin.include_tasks: realm_export.yml
+      ansible.builtin.include_tasks:
+        file: realm_export.yml
+        apply:
+          tags: [keycloak_realm_export]
       tags: [keycloak_realm_export]
 
 - name: "Keycloak: skipped Portainer-API steps (no API key yet)"

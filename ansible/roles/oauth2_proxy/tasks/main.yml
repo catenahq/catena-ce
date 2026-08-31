@@ -70,7 +70,10 @@
       register: _oauth2_realm_render
 
     - name: "oauth2-proxy: re-import realm config with the new client"
-      ansible.builtin.include_tasks: ../../keycloak/tasks/realm_bootstrap.yml
+      ansible.builtin.include_tasks:
+        file: ../../keycloak/tasks/realm_bootstrap.yml
+        apply:
+          tags: [oauth2_proxy_realm]
       when: _oauth2_realm_render is changed
       tags: [oauth2_proxy_realm]
 
@@ -144,7 +147,10 @@
     # removes. End-to-end public login reachability is still asserted in
     # validate.yml.
     - name: "oauth2-proxy: deploy compose via Portainer API"
-      ansible.builtin.include_tasks: deploy.yml
+      ansible.builtin.include_tasks:
+        file: deploy.yml
+        apply:
+          tags: [oauth2_proxy_compose]
       tags: [oauth2_proxy_compose]
 
     # NOTE: no post-deploy "re-confirm public OIDC discovery" gate either.
@@ -153,7 +159,10 @@
     # longer crashloop it. validate.yml still gates its per-app /ping on
     # the public issuer + JWKS being reachable (end-to-end validation).
     - name: "oauth2-proxy: post-deploy /ping probe"
-      ansible.builtin.include_tasks: validate.yml
+      ansible.builtin.include_tasks:
+        file: validate.yml
+        apply:
+          tags: [oauth2_proxy_health]
       tags: [oauth2_proxy_health]
 
 - name: "oauth2-proxy: skipped Portainer-API steps (no API key yet)"

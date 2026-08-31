@@ -38,7 +38,10 @@
   register: _nextcloud_realm_render
 
 - name: "Nextcloud OIDC: re-import realm config with the new client"
-  ansible.builtin.include_tasks: ../../keycloak/tasks/realm_bootstrap.yml
+  ansible.builtin.include_tasks:
+    file: ../../keycloak/tasks/realm_bootstrap.yml
+    apply:
+      tags: [nextcloud_realm]
   when: _nextcloud_realm_render is changed
   tags: [nextcloud_realm]
 

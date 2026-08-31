@@ -29,6 +29,9 @@
   register: _element_realm_render
 
 - name: "Element OIDC: re-import realm config with the new client"
-  ansible.builtin.include_tasks: ../../keycloak/tasks/realm_bootstrap.yml
+  ansible.builtin.include_tasks:
+    file: ../../keycloak/tasks/realm_bootstrap.yml
+    apply:
+      tags: [element_realm]
   when: _element_realm_render is changed
   tags: [element_realm]
