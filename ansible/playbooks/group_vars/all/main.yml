@@ -79,6 +79,30 @@ admin_email: "{{ lookup('dotenv', 'ADMIN_EMAIL', default='') }}"
 portainer_ui_port: "{{ lookup('dotenv', 'PORTAINER_UI_PORT', default='9000') }}"
 portainer_api_base: "http://{{ ansible_host }}:{{ portainer_ui_port }}/api"
 
+# The SAME API, addressed from ON the host. Anything that runs on the box --
+# catena-dashboard-sync, the container-update lane -- must use this and never
+# portainer_api_base.
+#
+# ansible_host is where the CONTROLLER reaches the box, and it is not stable:
+# it flips between the public and tailnet address across converges and differs
+# again after a restore onto other infrastructure. Baking it into a file a
+# host-local service reads gives that service an address for a machine it is
+# already running on, which stops working the moment the address changes:
+#
+#   catena-dashboard-sync.service: FAILED
+#   request failed on GET /stacks: <urlopen error [Errno 113] No route to
+#   host>            (env said 10.139.244.121, the host was 10.139.244.110)
+#
+# dashboard-sync is what renders the Traefik route files for client apps, so
+# a stale base means every app deployed after the address moved gets NO route
+# and answers 404. Read on bench run 2026-08-31T14-59-08-adca as
+# "traefik did not route 'book.11003300.xyz'" with the app healthy at 1/1 and
+# its vps.route.host label correct.
+#
+# It is also why these env files were never idempotent: a rendered address
+# that changes between converges rewrites the file every time.
+portainer_api_base_onbox: "http://127.0.0.1:{{ portainer_ui_port }}/api"
+
 # Public, oauth2-gated hostname for the Portainer UI over the Cloudflare
 # tunnel (admin-only; wired by roles/oauth2_proxy oauth2_proxy_apps). This is
 # the client admin's self-serve deploy surface. Distinct from

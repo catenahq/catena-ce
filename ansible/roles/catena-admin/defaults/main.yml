@@ -317,7 +317,11 @@ catena_auto_update_provider_ovh_vps_name: ""
 catena_stack_update_min_tag_age_days: 7
 catena_stack_update_stabilize_seconds: 120
 catena_stack_update_cve_severity: "HIGH,CRITICAL"
-catena_stack_update_portainer_api_base: "{{ portainer_api_base | default('') }}"
+# ON-BOX base: the update lane is a unit running on the host, so it addresses
+# Portainer locally. portainer_api_base carries ansible_host, which is where
+# the CONTROLLER reaches the box -- an address that changes across converges
+# and after a restore, and that this file would then hold forever.
+catena_stack_update_portainer_api_base: "{{ portainer_api_base_onbox | default('') }}"
 
 # Health gate for the pre-update state. Blank on a host without Gatus, which
 # is a skip rather than a failure: the chain cannot ask whether the host is
