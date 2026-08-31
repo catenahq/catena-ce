@@ -5,8 +5,18 @@
 # (ssh-keyscan) -- if the host key rotates, the role re-runs and updates
 # this file.
 
+# HostName is the name the CONTAINER reaches the host by, which is
+# host.docker.internal (the extra_hosts host-gateway mapping in the admin
+# compose) -- the same name shell/actions/dispatcher.go defaults to and the
+# same name known_hosts is keyed on via the keyscan_alias filter beside it.
+#
+# It was ansible_host, which is where the CONTROLLER reaches the box: a value
+# that flips between the public and tailnet address across converges and
+# differs again after a restore. That made this file non-idempotent -- it is
+# one of the tasks ce_converge reports as changed on every re-run -- and it
+# disagreed with the known_hosts entry it is supposed to be verified against.
 Host vps
-    HostName {{ ansible_host }}
+    HostName host.docker.internal
     User {{ catena_admin_runner_user }}
     IdentityFile /etc/catena/admin-ssh/id_ed25519
     UserKnownHostsFile /etc/catena/admin-ssh/known_hosts
