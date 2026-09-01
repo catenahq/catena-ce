@@ -124,7 +124,22 @@
         loop_var: _kick_line
         label: "{{ (_kick_line.split('|') | first) }}"
       when:
-        - not (_kick_line.split('|') | last).startswith('Up')
+        # RESTARTING ONLY, which is what the task is named for. `docker ps -a`
+        # also lists the task containers swarm has already REPLACED, and those
+        # are Exited or Created rather than Up -- so "not Up" swept them in and
+        # `docker restart` brought them back to life. Swarm does not track them,
+        # so nothing takes them down again, and two containers then sit on the
+        # overlay under one service alias: requests round-robin onto whichever,
+        # and the resurrected one is running the configuration it died with.
+        #
+        # Observed on bench run 2026-09-01T15-47-41-5ea0, on a materialised
+        # host: four oauth2-proxy services at 1/1, and EIGHT Up containers --
+        # `docker service ps` naming only one gatus task while `docker ps`
+        # showed two. It also made the converge permanently non-idempotent,
+        # because a corpse restarted is a corpse again by the next pass, and
+        # changed_when is unconditional. ce_converge's settle guard is what
+        # surfaced it.
+        - (_kick_line.split('|') | last).startswith('Restarting')
       changed_when: true
       failed_when: false
 
