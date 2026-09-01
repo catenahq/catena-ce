@@ -13,7 +13,7 @@ Catena is exercised end-to-end by an automated rehearsal suite: each scenario pr
 
 Two numbers are reported everywhere: **rehearsed** means the scenario was last recorded PASSING on a real run, and is the only number treated as evidence; **declared** additionally counts scenarios that exist but have not been observed passing yet. A scenario is never counted for merely existing.
 
-**Coverage: 11 Community features, 84 of 92 rehearsal scenarios observed passing; 13 Catena Pro features, 43 of 46; plus 17 of 23 maintainer-internal rehearsals.**
+**Coverage: 11 Community features, 75 of 93 rehearsal scenarios observed passing; 13 Catena Pro features, 41 of 46; plus 17 of 23 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -23,7 +23,7 @@ A scheduled weekly backup plus manual backups any time. Backups are encrypted on
 
 Implemented in: `ansible/playbooks/backup_now.yml`, `ansible/playbooks/filter_plugins/backup_cadence_cap.py`, `ansible/roles/backup`, `ansible/scripts/catena-restic-key.py`, `ansible/scripts/disk-preflight.sh`
 
-Rehearsal scenarios (11 of 12 observed passing): `backup_rollback`, `backup_schedule_applied`, `concurrent_backup_lock_contention`, `fi_b2_pg_dump_failed`, `fi_b3_snapshot_id_mismatch`, `fi_b4_locked_pack_rotation`, `fi_b6_healthchecks_down`, `fi_b7_ntfy_delivery_fails`, `malformed_catalog_rejection`, `restic_password_rotation_round_trip`, `snapshot_export_round_trip`; declared, not yet observed passing: `ce_backup_deferred`
+Rehearsal scenarios (11 of 12 observed passing): `backup_schedule_applied`, `ce_backup_deferred`, `concurrent_backup_lock_contention`, `fi_b2_pg_dump_failed`, `fi_b3_snapshot_id_mismatch`, `fi_b4_locked_pack_rotation`, `fi_b6_healthchecks_down`, `fi_b7_ntfy_delivery_fails`, `malformed_catalog_rejection`, `restic_password_rotation_round_trip`, `snapshot_export_round_trip`; declared, not yet observed passing: `backup_rollback`
 
 ### Single sign-on across the suite
 
@@ -31,7 +31,7 @@ One account signs in to every application, with per-application access control a
 
 Implemented in: `ansible/roles/keycloak`, `ansible/roles/oauth2_proxy`
 
-Rehearsal scenarios (10 of 10 observed passing): `fi_a1_realm_marker_collision`, `fi_a2_oidc_secret_rotation`, `fi_a3_keycloak_unreachable`, `fi_a4_master_realm_idempotent`, `fi_a5_wrong_group_assignment`, `keycloak_admin_email_loss_recovery`, `keycloak_signing_keys_rotation_round_trip`, `oauth2_proxy_cookie_rotation_round_trip`, `user_recovery_2fa_reset`, `user_recovery_kcadm_temp_password`
+Rehearsal scenarios (9 of 10 observed passing): `fi_a1_realm_marker_collision`, `fi_a2_oidc_secret_rotation`, `fi_a3_keycloak_unreachable`, `fi_a4_master_realm_idempotent`, `keycloak_admin_email_loss_recovery`, `keycloak_signing_keys_rotation_round_trip`, `oauth2_proxy_cookie_rotation_round_trip`, `user_recovery_2fa_reset`, `user_recovery_kcadm_temp_password`; declared, not yet observed passing: `fi_a5_wrong_group_assignment`
 
 ### Administration dashboard
 
@@ -39,13 +39,13 @@ A web dashboard with role-aware access (staff see status, administrators also ge
 
 Implemented in: `ansible/roles/catena-admin`, `ansible/scripts/catena-admin-runner.sh`
 
-Rehearsal scenarios (7 of 7 observed passing): `admin_action_unknown_rejected`, `audit_chain_tamper_evident`, `ce_admin_actions`, `ce_admin_smoke`, `payload_action_dispatches_without_converge`, `quiesce_resume_round_trip`, `wizard_restore_smoke`
+Rehearsal scenarios (6 of 7 observed passing): `admin_action_unknown_rejected`, `audit_chain_tamper_evident`, `ce_admin_actions`, `ce_admin_smoke`, `payload_action_dispatches_without_converge`, `quiesce_resume_round_trip`; declared, not yet observed passing: `wizard_restore_smoke`
 
 ### Self-serve application catalog
 
 A catalog of ready-to-deploy applications on the server's own console, with every setting already filled in for that server: its domain names, its single sign-on, and a fresh password for each application, generated on the server itself.
 
-Rehearsal scenarios (0 of 1 observed passing): none yet; declared: `marketplace_catalog_resolved`
+Rehearsal scenarios (1 of 1 observed passing): `marketplace_catalog_resolved`
 
 ### Installation and application deployment
 
@@ -53,7 +53,7 @@ Prepares a fresh server, installs the platform, and deploys the selected applica
 
 Implemented in: `ansible/catena_cli.py`, `ansible/helpers/*.py`, `ansible/playbooks/bootstrap.yml`, `ansible/playbooks/preflight.yml`, `ansible/playbooks/show_dr_keyset.yml`, `ansible/playbooks/site.yml`, `ansible/playbooks/tasks/load_onbox_config.yml`, `ansible/playbooks/uninstall.yml`, `ansible/roles/common`, `ansible/roles/docker`, `ansible/roles/host_hardening`, `ansible/roles/payload`, `ansible/roles/portainer`, `ansible/roles/postgres`, `ansible/roles/storage`, `ansible/roles/tier1_stack`, `ansible/roles/traefik`, `ansible/seed.py`
 
-Rehearsal scenarios (18 of 19 observed passing): `ce_converge`, `ce_install_suite`, `ce_uninstall`, `converge_modify`, `converge_preserves_bumped_image`, `fi_c1_docker_daemon_hang`, `fi_c3_portainer_crash_mid_deploy`, `fi_c4_registry_pull_timeout`, `fi_c6_cloudflared_flapping`, `fi_c7_coturn_cert_expired`, `fi_c8_nextcloud_init_loop`, `fi_u1_compose_lint_reject`, `mixed_template_negative_restore`, `payload_prune_respects_ce`, `release_manifest_converge_state`, `repair_broken_template_round_trip`, `scheduler_easyappointments`, `swarm_overlay_selfheal`; declared, not yet observed passing: `dev_to_prod_cutover_round_trip`
+Rehearsal scenarios (17 of 19 observed passing): `ce_converge`, `ce_install_suite`, `ce_uninstall`, `converge_modify`, `converge_preserves_bumped_image`, `fi_c1_docker_daemon_hang`, `fi_c4_registry_pull_timeout`, `fi_c6_cloudflared_flapping`, `fi_c7_coturn_cert_expired`, `fi_c8_nextcloud_init_loop`, `fi_u1_compose_lint_reject`, `mixed_template_negative_restore`, `payload_prune_respects_ce`, `release_manifest_converge_state`, `repair_broken_template_round_trip`, `scheduler_easyappointments`, `swarm_overlay_selfheal`; declared, not yet observed passing: `dev_to_prod_cutover_round_trip`, `fi_c3_portainer_crash_mid_deploy`
 
 ### Application catalog and suite integrations
 
@@ -61,7 +61,7 @@ Per-application deployment plus the wiring that makes the suite feel like one pr
 
 Implemented in: `ansible/roles/infrastructure`, `ansible/scripts/nextcloud-talk-hpb-wire.sh`, `ansible/scripts/rocketchat-jitsi-wire.sh`, `ansible/scripts/run-clamav-watch.sh`, `ansible/scripts/run-mail-canary.sh`, `ansible/scripts/wire-nextcloud-*.sh`
 
-Rehearsal scenarios (2 of 2 observed passing): `mailserver_round_trip`, `nextcloud_versions_retention_applied`
+Rehearsal scenarios (1 of 3 observed passing): `nextcloud_versions_retention_applied`; declared, not yet observed passing: `mailserver_deploy`, `mailserver_round_trip`
 
 ### Self-hosted monitoring
 
@@ -85,7 +85,7 @@ A whole server can be rebuilt from nothing but the backup endpoint and its key, 
 
 Implemented in: `ansible/playbooks/restore.yml`
 
-Rehearsal scenarios (17 of 19 observed passing): `ce_restore`, `fi_d2_pg_dumpall_replay_constraint`, `fi_d3_postgres_oom_mid_restore`, `fi_d4_disk_full_mid_snapshot`, `fi_d5_disk_full_mid_converge`, `fi_d6_volume_uid_drift`, `fi_d7_restic_corrupt_pack`, `nc_s3_hot_recovery`, `nc_sync_wipe_restore`, `pitr_fuse_round_trip`, `recover_secrets_from_running_host`, `recovery_landing_page_bilingual_parity`, `restore_dr`, `restore_version_skew_abort`, `restore_version_skew_upgrade`, `s3_reconcile_orphan_cleanup`, `selective_restore_round_trip`; declared, not yet observed passing: `debian_major_upgrade_restore`, `pg_major_version_cross_restore`
+Rehearsal scenarios (11 of 19 observed passing): `ce_restore`, `fi_d2_pg_dumpall_replay_constraint`, `fi_d3_postgres_oom_mid_restore`, `fi_d4_disk_full_mid_snapshot`, `fi_d5_disk_full_mid_converge`, `fi_d6_volume_uid_drift`, `fi_d7_restic_corrupt_pack`, `pitr_fuse_round_trip`, `recover_secrets_from_running_host`, `recovery_landing_page_bilingual_parity`, `s3_reconcile_orphan_cleanup`; declared, not yet observed passing: `debian_major_upgrade_restore`, `nc_s3_hot_recovery`, `nc_sync_wipe_restore`, `pg_major_version_cross_restore`, `restore_dr`, `restore_version_skew_abort`, `restore_version_skew_upgrade`, `selective_restore_round_trip`
 
 ### No lock-in, ever
 
@@ -113,7 +113,7 @@ They are exercised by the same rehearsal suite as the Community features above, 
 | --- | --- | --- |
 | Signed monthly compliance attestation | 1 | 1 |
 | Tamper-evident central audit trail | 1 | 1 |
-| Offsite immutable backup copy | 6 | 7 |
+| Offsite immutable backup copy | 4 | 7 |
 | Vulnerability scanning | 1 | 1 |
 | Automated daily maintenance | 13 | 13 |
 | Managed lifecycle operations (migration, decommission) | see note | see note |
