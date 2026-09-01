@@ -46,6 +46,47 @@
   delay: "{{ infrastructure_gated_probe_delay | default(10) }}"
   until: (_infra_gated_probes.status | default(-1)) in [200, 301, 302, 307]
 
+# A PROBE THAT COULD NOT LEAVE THE MACHINE IS NOT A SERVICE VERDICT.
+#
+# The probe runs on the CONTROLLER (delegate_to: localhost), so its failures
+# come in two kinds and only one of them is about the gate:
+#
+#   - connection refused / reset / timeout / an unexpected status: the packet
+#     reached the edge and the answer was wrong. That is the gate.
+#   - ENETUNREACH / EHOSTUNREACH / a resolver failure: this machine has no
+#     route to the address family it picked, or could not resolve at all.
+#     That is the prober.
+#
+# The second failed a whole converge on bench run 2026-09-01T13-21-30-2bef:
+# the controller had cached an AAAA-only answer for the heartbeat hostname,
+# picked the v6 address, and has no v6 egress --
+#
+#     Status code was -1 and not [200, 301, 302, 307]: Request failed:
+#     <urlopen error [Errno 101] Network is unreachable>
+#
+# while the very same wildcard served both families to an uncached name, and
+# a cache flush made it resolve identically to its siblings. Retries cannot
+# clear it: a cached answer does not change inside the retry window. The
+# repoint that converge belonged to was recorded as a dead host, and every
+# scenario on that slot then failed.
+#
+# Warned, not ignored: the operator still sees which host could not be
+# reached and why, and a genuinely broken gate still fails, because refused /
+# reset / timeout / wrong-status all stay in the failure set.
+- name: "Verify gated services: split controller-side uplink faults from real ones"
+  ansible.builtin.set_fact:
+    _infra_gated_unreachable: >-
+      {{
+        (_infra_gated_probes.results | default([]))
+        | selectattr('failed', 'defined')
+        | selectattr('failed', 'equalto', true)
+        | selectattr('msg', 'defined')
+        | selectattr('msg', 'search',
+                     'Network is unreachable|No route to host|Name or service not known|Temporary failure in name resolution')
+        | map(attribute='item.name')
+        | list
+      }}
+
 - name: "Verify gated services: compute failure set"
   ansible.builtin.set_fact:
     _infra_gated_failures: >-
@@ -54,8 +95,21 @@
         | selectattr('failed', 'defined')
         | selectattr('failed', 'equalto', true)
         | map(attribute='item.name')
+        | reject('in', _infra_gated_unreachable)
         | list
       }}
+
+- name: "Verify gated services: the CONTROLLER could not reach these"
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: {{ _infra_gated_unreachable | join(', ') }} could not be probed
+      from this machine -- no route to the address it resolved to, or no
+      resolution at all. That is this machine's uplink or DNS cache, not the
+      gate: a service that is down answers with a refusal or a wrong status,
+      which still fails below. Re-check by hand with
+      `curl -4 -I https://<hostname>/`, and flush the local resolver cache if
+      the name resolves to an IPv6 address this machine cannot route to.
+  when: _infra_gated_unreachable | length > 0
 
 - name: "Verify gated services: all OK"
   ansible.builtin.debug:
