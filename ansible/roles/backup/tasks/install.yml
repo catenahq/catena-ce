@@ -496,6 +496,30 @@
   no_log: true
   when: _backup_configured | bool
 
+# A non-zero check is TWO different situations, and initialising is only the
+# answer to one of them. `restic cat config` also fails when the repository is
+# there and the password is not the one it was created with -- and then `restic
+# init` fails too, over an intact repository, with its own output hidden by the
+# no_log below. An operator reading that sees a failed initialisation and no
+# reason; what actually happened is that their credential drifted, and the
+# recovery is to restore the password rather than to create a repository.
+#
+# The stderr is TESTED, never printed: no_log keeps the check's output out of
+# the log, and this task's message is a fixed string.
+- name: "Backup: the repository exists but this password does not open it"
+  ansible.builtin.fail:
+    msg: >-
+      restic reports a wrong password for the repository at this endpoint.
+      The repository itself is intact -- this host is holding a credential
+      that is not the one it was created with, so nothing here should
+      initialise over it. Restore restic_password in the on-box store
+      (/etc/catena/config.json, secrets) from the record kept with the
+      endpoint, and re-converge.
+  when:
+    - _backup_configured | bool
+    - _restic_repo_check.rc | default(1) != 0
+    - "'wrong password' in (_restic_repo_check.stderr | default(''))"
+
 - name: Initialize restic repo (first run only)
   ansible.builtin.command:
     argv:
@@ -505,6 +529,7 @@
   when:
     - _backup_configured | bool
     - _restic_repo_check.rc | default(1) != 0
+    - "'wrong password' not in (_restic_repo_check.stderr | default(''))"
   no_log: true
 
 # ─── initial snapshot ────────────────────────────────────────────────────
