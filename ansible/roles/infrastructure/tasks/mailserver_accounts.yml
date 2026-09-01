@@ -63,7 +63,15 @@
   args:
     executable: /bin/bash
   register: _ms_acct_add
-  changed_when: _ms_acct_add.rc == 0
+  # rc 0 alone is not "created": if the tool ever reports an existing mailbox
+  # on stdout with rc 0, this task claims a change on every converge, and a
+  # converge that never reports a clean recap fails the idempotency
+  # assertions (bench restore_dr, via runner.assert_ce_idempotent_rerun).
+  # Matching failed_when's own already-exists test keeps the two in step.
+  changed_when:
+    - _ms_acct_add.rc == 0
+    - "'already exists' not in (_ms_acct_add.stderr | default(''))"
+    - "'already exists' not in (_ms_acct_add.stdout | default(''))"
   # Success = created (rc 0) OR already present ("already exists" on a
   # re-converge). Retry rides out the boot crash-loop windows when the
   # container is briefly down (docker exec then errors with neither). Fail
@@ -97,7 +105,11 @@
   args:
     executable: /bin/bash
   register: _ms_alias_add
-  changed_when: _ms_alias_add.rc == 0
+  # Same reason as the mailbox add above, against the same 'already' test the
+  # until/failed_when below already use.
+  changed_when:
+    - _ms_alias_add.rc == 0
+    - "'already' not in ((_ms_alias_add.stderr | default('')) + (_ms_alias_add.stdout | default('')))"
   until: >-
     _ms_alias_add.rc == 0
     or 'already' in ((_ms_alias_add.stderr | default('')) + (_ms_alias_add.stdout | default('')))
