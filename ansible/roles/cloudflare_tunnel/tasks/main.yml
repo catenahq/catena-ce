@@ -141,9 +141,22 @@
   # Either "cloudflared-sync: ok tunnel=... zones=N" or
   # "cloudflared-sync: skipped (no token)" -- the engine says which, so this
   # prints it rather than deciding what happened a second time.
+  #
+  # STDERR TOO, on success. The engine writes its per-step decisions there --
+  # which zone it resolved, whether the wildcard DNS and the tunnel ingress
+  # were a noop or an update -- and a successful task discarded all of it. On
+  # bench run 2026-09-02T01-47-44-372a a host whose tunnel ingress still
+  # served the ANCHOR's zone got "ok tunnel=... zones=1" here and nothing
+  # else, so which zone the engine actually converged could not be recovered
+  # from the log afterwards. The summary alone cannot distinguish "converged
+  # the right zone and the ingress was already correct" from "converged the
+  # wrong zone and so it was".
   ansible.builtin.debug:
     msg: |
       {{ _cf_sync.stdout | default('(no summary line)') | trim }}
+
+      engine detail:
+      {{ _cf_sync.stderr | default('(no detail)') | trim }}
 
       DO NOT enable Let's Encrypt / HTTPS on Traefik -- Cloudflare terminates
       TLS at the edge and LE conflicts with the tunnel.
