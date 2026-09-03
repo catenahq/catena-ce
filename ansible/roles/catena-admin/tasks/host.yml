@@ -196,15 +196,31 @@
 
       {{ _runner_command }},{{ _runner_options }} {{ _runner_pubkey }}
 
-- name: "SSH dir: scan host key of {{ ansible_host }}"
+# SCANNED OVER LOOPBACK, not over ansible_host. This task runs ON the box, so
+# it was dialling the machine's own public-or-tailnet address to ask for a key
+# it already serves on 127.0.0.1. The key is the same either way, so the alias
+# filter below kept the CONTENT stable -- but the ADDRESS is not stable
+# (ansible_host flips public-IP <-> tailnet-IP across converges and differs
+# again after a cross-host restore), and ssh-keyscan exits 0 with empty stdout
+# when it cannot reach what it was given. Nothing checked that, so an address
+# the box could not dial wrote an EMPTY known_hosts, and every panel action
+# then died on host key verification with nothing naming the cause.
+#
+# Loopback removes the dependency entirely: no route to anywhere is needed to
+# read the sshd running here.
+- name: "SSH dir: scan this host's own key over loopback"
   ansible.builtin.command:
     argv:
       - ssh-keyscan
       - -t
       - ed25519
-      - "{{ ansible_host }}"
+      - 127.0.0.1
   register: _catena_admin_keyscan
   changed_when: false
+  # ssh-keyscan reports failure on stderr and still exits 0. An empty result
+  # here means the next task writes an empty known_hosts, so it is a hard stop
+  # rather than a file to discover later from a failed dispatch.
+  failed_when: (_catena_admin_keyscan.stdout | default('') | trim | length) == 0
 
 - name: "SSH dir: write known_hosts"
   ansible.builtin.copy:
@@ -216,15 +232,16 @@
     # connection hostname against the first field literally. From inside the
     # container, the Go shell's SSH runner ONLY ever connects to
     # host.docker.internal (resolved via the extra_hosts host-gateway mapping
-    # in the admin compose), so the scanned HOST is never matched against --
-    # and it is the one volatile part of the content (ansible_host flips
-    # public-IP <-> tailnet-IP across converges, and differs again after a
-    # cross-host restore), which made this copy non-idempotent (changed every
-    # re-converge). The `keyscan_alias` filter (Python; see playbooks/
-    # filter_plugins/keyscan_alias.py) with replace=true REPLACES the scanned
-    # HOST with the constant alias, emitting "host.docker.internal keytype
-    # keydata" -- idempotent, no functional loss -- without the YAML folded-
-    # scalar + Jinja string-literal backref traps that broke a regex_replace.
+    # in the admin compose), so the scanned HOST is never matched against. The
+    # `keyscan_alias` filter (Python; see playbooks/filter_plugins/
+    # keyscan_alias.py) with replace=true REPLACES it with the constant alias,
+    # emitting "host.docker.internal keytype keydata" -- no functional loss --
+    # without the YAML folded-scalar + Jinja string-literal backref traps that
+    # broke a regex_replace.
+    #
+    # The alias is what makes the CONTENT constant; scanning over loopback
+    # above is what makes the SCAN constant. Both are needed: the filter cannot
+    # rescue a scan that returned nothing.
     content: "{{ _catena_admin_keyscan.stdout_lines | keyscan_alias('host.docker.internal', replace=true) }}"
 
 - name: "SSH dir: ssh client config (StrictHostKeyChecking yes)"

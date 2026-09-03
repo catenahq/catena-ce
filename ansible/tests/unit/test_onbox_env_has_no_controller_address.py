@@ -69,3 +69,74 @@ def test_onbox_env_does_not_reference_the_controller_base(rel):
             f"{rel} renders ansible_host into a file read on the host; that "
             f"address is the controller's view and is not stable"
         )
+
+
+# A template whose OUTPUT is read by the controller, or shown to a person, may
+# legitimately name the address the controller uses. Each entry carries the
+# reason, so adding one is a decision rather than a quiet edit to the gate.
+_CONTROLLER_FACING_TEMPLATES: dict[str, str] = {
+    "roles/backup/templates/backup.env.j2": (
+        "BACKUP_SCP_HINT_HOST is printed in the export script's scp hint and "
+        "nothing dials it. The operator needs an address reachable FROM "
+        "OUTSIDE, which is the one thing an on-box name cannot give: a "
+        "tunnel-fronted host publishes no address of its own, so the "
+        "controller's view is the only candidate that exists at render time. "
+        "Residual, accepted: the hint prints the address the last converge "
+        "used, so it can name one the box no longer answers on. It misleads a "
+        "human for one command; it does not break a machine path."
+    ),
+}
+
+
+def test_no_role_template_renders_the_controller_address():
+    """The rule, rather than the two files that broke first.
+
+    d60d017 fixed dashboard-sync.env.j2 and stack-update.env.j2 and gated those
+    two by name. 279fff2 then found admin-ssh-config.j2 doing the same thing and
+    named three more places still to check. Every one of those was found from
+    the outside, by a bench run, days apart, one at a time -- which is what a
+    gate scoped to the known offenders buys.
+
+    Templates under roles/*/templates/ are rendered onto the host, so unless a
+    template is listed above as controller-facing, an ansible_host in it is the
+    same defect: a file on the box holding the controller's view of where the
+    box is, which flips public-IP <-> tailnet-IP across converges and differs
+    again after a restore onto other infrastructure.
+    """
+    offenders = []
+    for path in sorted((_ANSIBLE / "roles").rglob("templates/**/*.j2")):
+        rel = str(path.relative_to(_ANSIBLE))
+        if rel in _CONTROLLER_FACING_TEMPLATES:
+            continue
+        for number, line in enumerate(path.read_text().splitlines(), start=1):
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            if _ANSIBLE_HOST.search(stripped) or _CONTROLLER_BASE.search(stripped):
+                offenders.append(f"{rel}:{number}: {stripped}")
+    assert not offenders, (
+        "these render the controller's address into a file on the host:\n  "
+        + "\n  ".join(offenders)
+        + "\nUse a stable on-box name (127.0.0.1, host.docker.internal, "
+          "portainer_api_base_onbox), or add the template to "
+          "_CONTROLLER_FACING_TEMPLATES with the reason it is an exception."
+    )
+
+
+def test_the_admin_known_hosts_scan_does_not_depend_on_a_reachable_address():
+    """ssh-keyscan runs ON the box and was dialling the box's own
+    public-or-tailnet address for a key it serves on loopback. It exits 0 with
+    empty stdout when it cannot reach what it was given, and nothing checked,
+    so an address the box could not dial wrote an EMPTY known_hosts -- after
+    which every panel action fails host key verification, naming nothing."""
+    body = (_ANSIBLE / "roles/catena-admin/tasks/host.yml").read_text()
+    start = body.index("- name: \"SSH dir: scan this host's own key")
+    scan = body[start:body.index("\n- name:", start + 1)]
+    assert "127.0.0.1" in scan, "the scan must go over loopback"
+    assert not _ANSIBLE_HOST.search(scan), (
+        "the scan must not depend on the controller's view of this host"
+    )
+    assert "failed_when" in scan, (
+        "ssh-keyscan exits 0 on failure; without failed_when an empty result "
+        "writes an empty known_hosts and is discovered from a failed dispatch"
+    )
