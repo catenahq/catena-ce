@@ -131,6 +131,40 @@ def test_the_marker_is_written_only_on_a_run_that_seeded():
     assert "_wp_seed_options" in " ".join(str(c) for c in conditions or [])
 
 
+def test_a_restored_site_is_treated_as_already_seeded():
+    """The marker lives under /var/lib/catena, which is not in backup_paths,
+    while the WordPress database that carries the admin's tuned values IS
+    restored. So a restored host has the settings and none of the markers, and
+    without a pre-drop the seed gate opens and puts catena's NPP preload method
+    and WP Mail SMTP sender back over the restored ones -- the same silent
+    overwrite the marker exists to stop, reached through DR instead of through
+    a converge. roles/keycloak drops its three realm markers for this reason;
+    this one cannot ride that loop because its name is per site."""
+    tasks = _tasks()
+    names = [t.get("name") or "" for t in tasks]
+
+    probe = _by_name("probe post-restore marker")
+    assert "post-restore.needed" in str(_module(probe, "stat")["path"])
+
+    drop = _by_name("treat a restored site as already seeded")
+    args = _module(drop, "file")
+    assert args["state"] == "touch"
+    assert "_wp_seed_marker" in str(args["path"])
+    conditions = drop.get("when")
+    conditions = [conditions] if isinstance(conditions, str) else conditions
+    assert "_wp_post_restore_marker" in " ".join(str(c) for c in conditions or [])
+
+    def index_of(fragment: str) -> int:
+        return next(i for i, n in enumerate(names) if fragment in n)
+
+    assert (index_of("resolve this site's option-seed marker")
+            < index_of("treat a restored site as already seeded")
+            < index_of("probe the option-seed marker")), (
+        "the drop has to land after the marker name is computed and before the "
+        "probe that reads it, or the gate is decided on the pre-drop state"
+    )
+
+
 def test_plugin_activation_still_runs_on_every_converge():
     """The seed marker governs OPTIONS only. Install and activate flow forward
     and never deactivate, so they stay unconditional -- a new curated plugin

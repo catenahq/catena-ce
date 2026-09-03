@@ -47,12 +47,27 @@
       - { slug: fluentform }
 
 # ── Step 1: detect running wp container ─────────────────────────
+#
+# BY LABEL, like every other container lookup in this tree. This matched on the
+# container NAME shape (`wordpress-[0-9a-z]{6,}-wp-`), which is the stack name
+# Portainer generated plus a swarm task id. A client who deploys the template
+# under a name of their own choosing produces no match, this whole block skips,
+# and the converge is green with no plugin curation and no option seeding --
+# the same silent no-op that test_container_lookup_is_label_based exists to
+# stop. The catalog labels the service `vps.app=catena-wordpress` +
+# `vps.component=wp`, which no client can change.
+#
+# ONE SITE, still. head -n1 keeps the single-site behaviour this file was
+# written for; the per-site marker below is keyed correctly for more but
+# nothing here iterates. A host running two WordPress stacks wires whichever
+# container docker lists first. Booked rather than fixed here: making this a
+# loop is a rewrite of every step below, not a lookup change.
 - name: "WordPress plugins: find running wp container"
   ansible.builtin.shell: |
     set -o pipefail
-    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
-      | grep -E 'wordpress-[0-9a-z]{6,}-wp-' \
-      | head -n1 || true
+    docker ps --filter label=vps.app=catena-wordpress \
+      --filter label=vps.component=wp \
+      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1
   args:
     executable: /bin/bash
   register: _wp_ct
@@ -102,7 +117,9 @@
       # --allow-root.
       ansible.builtin.shell: |
         set -o pipefail
-        ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E 'wordpress-[0-9a-z]{6,}-wp-' | head -n1)
+        ct=$(docker ps --filter label=vps.app=catena-wordpress \
+          --filter label=vps.component=wp \
+          --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1)
         [ -n "$ct" ] || { echo "no running wordpress container right now" >&2; exit 1; }
         docker exec --user 82 "$ct" wp core is-installed
       args:
@@ -285,6 +302,34 @@
             (_wp_stack_name.stdout | default('') | trim)
             | default(_wp_ct.stdout | regex_replace('^(wordpress-[0-9a-z]+).*$', '\1'), true)
           }}
+
+    # The marker lives under /var/lib/catena, which is NOT in backup_paths
+    # (only /etc + /mnt/data + /var/lib/dpkg + /usr/local/bin are), while the
+    # WordPress database that carries the admin's tuned values IS restored. So
+    # a restored host has the settings and none of the markers, and without
+    # this the seed gate below opens and puts catena's NPP preload method and
+    # WP Mail SMTP sender back over the restored ones -- exactly the silent
+    # overwrite the marker exists to stop, reached through DR instead of
+    # through a converge.
+    #
+    # roles/keycloak does the same for its three realm markers in one loop.
+    # This one cannot ride that loop: the name is per site and is not known
+    # until _wp_seed_marker is computed above, which is why it is a task here
+    # rather than a line there.
+    - name: "WordPress plugins: probe post-restore marker"
+      ansible.builtin.stat:
+        path: "{{ backup_stats_dir | default('/var/lib/catena') }}/post-restore.needed"
+      register: _wp_post_restore_marker
+
+    - name: "WordPress plugins: treat a restored site as already seeded"
+      ansible.builtin.file:
+        path: "{{ _wp_seed_marker }}"
+        state: touch
+        owner: root
+        group: root
+        mode: "0644"
+      when: _wp_post_restore_marker.stat.exists | default(false)
+      changed_when: false
 
     - name: "WordPress plugins: probe the option-seed marker"
       ansible.builtin.stat:

@@ -64,6 +64,85 @@ def test_no_task_filters_on_a_compose_label():
     )
 
 
+def _logical_lines(text: str) -> list[tuple[int, str]]:
+    """`(line_number, command)` with shell continuations joined.
+
+    A pipeline written across lines is one command, and the two halves of the
+    defect below land on different lines: `docker ps` on the first, the `grep`
+    that filters it on the second.
+    """
+    joined: list[tuple[int, str]] = []
+    first: int | None = None
+    parts: list[str] = []
+    for number, raw in enumerate(text.splitlines(), start=1):
+        stripped = raw.strip()
+        if first is None:
+            first = number
+        if stripped.endswith("\\"):
+            parts.append(stripped[:-1].rstrip())
+            continue
+        parts.append(stripped)
+        joined.append((first, " ".join(parts)))
+        parts, first = [], None
+    if parts:
+        joined.append((first or 0, " ".join(parts)))
+
+    # A pipeline may also continue onto a line that simply STARTS with `|`,
+    # with no backslash on the line before it.
+    out: list[tuple[int, str]] = []
+    for number, command in joined:
+        if out and command.startswith("|"):
+            prev_number, prev = out[-1]
+            out[-1] = (prev_number, f"{prev} {command}")
+        else:
+            out.append((number, command))
+    return out
+
+
+# A regex quantifier over an alphanumeric class -- `[0-9a-z]{6,}` and friends.
+# This is what a pattern looks like when it is trying to match the RANDOM part
+# of a name rather than a name.
+_RANDOM_SUFFIX_PATTERN = re.compile(r"\[[0-9a-zA-Z-]+\]\{\d+,?\d*\}")
+
+
+def test_no_task_greps_for_the_random_half_of_a_stack_name():
+    """A `docker ps` grep that matches the generated part of a name is the same
+    defect as a `--filter name=`, wearing different clothes.
+
+    roles/infrastructure/tasks/wordpress_plugins.yml matched
+    `wordpress-[0-9a-z]{6,}-wp-`: the stack name Portainer generated, plus a
+    swarm task id. A client who deploys the template under a name of their own
+    choosing produced no match, the whole block skipped, and the converge
+    reported success on a site with no plugin curation and no option seeding.
+    Neither test above saw it -- there is no compose label and no
+    `--filter name=`, just a regex on the same untrustworthy string.
+
+    DELIBERATELY NARROW. Plenty of tasks grep `docker ps` for a FIXED name, and
+    those are fine when the name is one the converge declares: catena-keycloak
+    is called that because this tree named it. What cannot be trusted is the
+    half a client's deploy form decides, and a quantified character class is
+    the tell that a pattern is reaching for it.
+    """
+    offenders = []
+    for path in _sources():
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for number, command in _logical_lines(text):
+            if "docker ps" not in command or "grep" not in command:
+                continue
+            if "--filter label=" in command or "-f label=" in command:
+                continue
+            if not _RANDOM_SUFFIX_PATTERN.search(command):
+                continue
+            offenders.append(f"{path.relative_to(ANSIBLE)}:{number}")
+    assert not offenders, (
+        "these match the generated half of a container name, which is the "
+        "stack name a client typed plus a swarm task id:\n  "
+        + "\n  ".join(offenders)
+        + "\nUse docker ps --filter label=vps.app=<app> "
+          "--filter label=vps.component=<service>."
+    )
+
+
 def test_no_task_finds_a_container_by_name_shape():
     """`docker service ls --filter name=` is fine -- a SERVICE name is
     declared by the converge. A CONTAINER name is not: it carries the stack
