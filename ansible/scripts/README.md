@@ -31,6 +31,7 @@ search `/usr/local/lib/catena` -- where the payload installs its modules
 | `beszel-hc-shim.py` | Beszel -> Healthchecks alert shim. |
 | `beszel-seed.py` | Seed Beszel's hub configuration: universal token + OIDC login (idempotent). |
 | `catena-admin-runner.sh` | catena-admin action dispatcher -- the ONLY thing the catena-admin runner user's ssh key is allowed to run (enforced by authorized_keys' command= stanza). |
+| `catena-dms-exec.sh` | Run one docker command against the mailserver's dms container, resolving the container name INSIDE this invocation. |
 | `catena-network-nudge.sh` | Recover containers stranded by the catena-network overlay race after a docker.service start (boot, daemon restart, snapshot restore). |
 | `catena-public-ports.py` | Host reconciler for the declarative public-port registry. |
 | `catena-restic-key.py` | catena-restic-key -- validate or rotate the restic repository password. |
