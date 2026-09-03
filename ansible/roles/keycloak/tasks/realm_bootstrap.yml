@@ -57,6 +57,16 @@
 # flow, lockout numbers, default groups and locales to product defaults. The
 # restore would come back green and the client's realm configuration would be
 # gone one converge later.
+#
+# EVERY FIRST-IMPORT MARKER BELONGS HERE, and the admin-password one is the
+# reason that is worth stating rather than leaving to the list. All three are
+# written only on a successful import, and the import is skipped post-restore,
+# so all three are absent on a restored host for the same mechanical reason.
+# Leaving the admin marker out let the next ordinary converge render the
+# credentials block and reset the Keycloak admin password to the on-box store's
+# value -- silently undoing a password changed in the Account Console, which is
+# the single thing that marker exists to prevent. A marker added below without
+# a line here is the same bug again.
 - name: "Keycloak realm: drop first-import markers on post-restore converge"
   ansible.builtin.file:
     path: "{{ item }}"
@@ -66,6 +76,7 @@
     mode: "0644"
   loop:
     - /var/lib/catena/keycloak-realm-smtp-bootstrapped
+    - /var/lib/catena/keycloak-realm-admin-bootstrapped
     - /var/lib/catena/keycloak-realm-settings-bootstrapped
   when: _keycloak_realm_post_restore_marker.stat.exists | default(false)
   changed_when: false

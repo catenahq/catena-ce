@@ -144,12 +144,35 @@ def test_the_marker_is_probed_and_written_and_dropped_post_restore():
     )
 
 
-def test_the_post_restore_drop_covers_the_settings_marker():
+def _post_restore_drop_block(body: str) -> str:
+    """The pre-drop task's own text, from its name to the next task."""
+    start = body.index('- name: "Keycloak realm: drop first-import markers')
+    end = body.index("\n- name:", start + 1)
+    return body[start:end]
+
+
+def test_the_post_restore_drop_covers_every_first_import_marker():
     """Without this, a DR converge leaves no marker (the import is skipped, so
-    the mark task never fires) and the NEXT ordinary converge re-seeds the
-    tunables over the realm the restore just brought back."""
+    the mark task never fires) and the NEXT ordinary converge re-seeds over the
+    realm the restore just brought back.
+
+    DERIVED, not listed. Every marker is written only on a successful import and
+    the import is skipped post-restore, so every marker is absent on a restored
+    host for the same reason and every one needs dropping. Naming them here by
+    hand is what left keycloak-realm-admin-bootstrapped out of a two-item loop
+    for as long as it existed: the next ordinary converge then rendered the
+    credentials block and reset the admin password to the store's value, undoing
+    a password changed in the Account Console.
+    """
     body = _BOOTSTRAP.read_text()
-    start = body.index("drop first-import markers on post-restore converge")
-    window = body[start:start + 700]
-    assert "keycloak-realm-settings-bootstrapped" in window
-    assert "keycloak-realm-smtp-bootstrapped" in window
+    markers = set(re.findall(
+        r"/var/lib/catena/keycloak-realm-[a-z-]+-bootstrapped", body))
+    assert markers, "no first-import markers found; did they get renamed?"
+    block = _post_restore_drop_block(body)
+    missing = sorted(m for m in markers if m not in block)
+    assert not missing, (
+        f"first-import marker(s) not dropped on a post-restore converge: "
+        f"{missing}. A restored host has none of these on disk, so the next "
+        "ordinary converge re-seeds whatever they guard over the restored "
+        "realm."
+    )
