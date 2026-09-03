@@ -28,19 +28,6 @@
 - name: "Mailserver accounts: resolve the dms container (shared, waits out its restart cycle)"
   ansible.builtin.include_tasks: _mailserver_dms_locate.yml
 
-- name: "Mailserver accounts: the stack is deployed but dms never appeared"
-  ansible.builtin.fail:
-    msg: >-
-      The catena-mailserver stack exists but no dms container came up within
-      three minutes, so the postmaster mailbox that unblocks its boot cannot
-      be created. This is NOT the "template not deployed" case -- something is
-      stopping the task from starting at all. Check
-      `docker service ps --no-trunc catena-mailserver_dms` for the task error
-      and `docker logs` on the most recent attempt.
-  when:
-    - mailserver_deployed | bool
-    - (mailserver_dms_ct | length) == 0
-
 - name: "Mailserver accounts: throwaway postmaster password (login is via OIDC)"
   ansible.builtin.set_fact:
     _ms_postmaster_pw: "{{ lookup('ansible.builtin.password', '/dev/null length=24 chars=ascii_letters,digits') }}"

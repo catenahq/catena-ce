@@ -31,15 +31,19 @@
   register: _roundcube_ct
   changed_when: false
 
+# Gated on the STACK, not on the container. This used to key on an empty
+# mailserver_dms_ct, which conflated "no mailserver here" with "the mailserver
+# is deployed and its container did not come up" -- the message said so and
+# skipped anyway, so a host with a broken dms had its SSO wiring silently not
+# written on a green converge. The locate include above now fails on the second
+# case, so reaching this line means the first.
 - name: "Mailserver OIDC: skip when template not deployed"
   ansible.builtin.debug:
     msg: >-
-      mailserver template not deployed (no dms container); skipping the
-      Dovecot half of the SSO wiring. Deploy the `mailserver` template in
-      Portainer, then re-converge. Note that dms is also absent from
-      `docker ps` between restarts while it waits for its cert and first
-      mailbox, so this can read as "not deployed" on a host that has it.
-  when: (mailserver_dms_ct | length) == 0
+      mailserver template not deployed (no catena-mailserver stack); skipping
+      the Dovecot half of the SSO wiring. Deploy the `mailserver` template in
+      Portainer, then re-converge.
+  when: not (mailserver_deployed | bool)
 
 # Staging for BOTH consumers, so it is created for EITHER of them.
 #

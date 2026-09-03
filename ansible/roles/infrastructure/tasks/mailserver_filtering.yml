@@ -17,26 +17,33 @@
 # Opt-in template: gated on the dms container existing -- no-op on a
 # tenant without the mailserver.
 
-- name: "Mailserver filtering: locate dms container"
-  ansible.builtin.shell: |
-    set -o pipefail
-    docker ps --filter label=vps.component=dms \
-      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1
-  args:
-    executable: /bin/bash
-  register: _ms_filt_dms
-  changed_when: false
+- name: "Mailserver filtering: resolve the dms container (shared, waits out its restart cycle)"
+  ansible.builtin.include_tasks: _mailserver_dms_locate.yml
 
 - name: "Mailserver filtering: skip when mailserver template not deployed"
   ansible.builtin.debug:
     msg: >-
-      mailserver template not deployed (no dms container); skipping rspamd
-      filtering drop-ins.
-  when: (_ms_filt_dms.stdout | default('') | length) == 0
+      mailserver template not deployed (no catena-mailserver stack); skipping
+      rspamd filtering drop-ins.
+  when: not (mailserver_deployed | bool)
 
 - name: "Mailserver filtering: render + inject rspamd config (dms deployed)"
-  when: (_ms_filt_dms.stdout | default('') | length) > 0
+  when: (mailserver_dms_ct | length) > 0
   block:
+    # Every docker call below goes through this rather than naming the
+    # container. These are `command: argv:` tasks with loops and sha
+    # comparisons, so the inline `ct=$(docker ps ...)` prelude that
+    # mailserver_accounts and mailserver_oidc use has nowhere to live here --
+    # which is why this file interpolated ONE resolved name into eight calls,
+    # the exact staleness the prelude exists to prevent. The helper does the
+    # lookup per invocation and retries a container that vanished mid-call.
+    - name: "Mailserver filtering: install the dms exec helper"
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../scripts/catena-dms-exec.sh"
+        dest: /usr/local/bin/catena-dms-exec
+        owner: root
+        group: root
+        mode: "0755"
     - name: "Mailserver filtering: warn when Spamhaus DQS key is unset"
       ansible.builtin.debug:
         msg: >-
@@ -89,9 +96,9 @@
     - name: "Mailserver filtering: ensure rspamd dirs exist in container"
       ansible.builtin.command:
         argv:
-          - docker
+          - /usr/local/bin/catena-dms-exec
           - exec
-          - "{{ _ms_filt_dms.stdout | trim }}"
+          - --
           - mkdir
           - -p
           - /tmp/docker-mailserver/rspamd/local.d
@@ -109,10 +116,10 @@
     - name: "Mailserver filtering: stage drop-ins into the mail-config volume"
       ansible.builtin.command:
         argv:
-          - docker
+          - /usr/local/bin/catena-dms-exec
           - cp
           - "/var/lib/catena/mailserver/rspamd/{{ item.name }}"
-          - "{{ _ms_filt_dms.stdout | trim }}:/tmp/docker-mailserver/rspamd/local.d/{{ item.name }}"
+          - "/tmp/docker-mailserver/rspamd/local.d/{{ item.name }}"
       loop: "{{ _ms_rspamd_confs }}"
       loop_control:
         label: "{{ item.name }}"
@@ -132,9 +139,9 @@
     - name: "Mailserver filtering: sync drop-ins into live /etc when changed"
       ansible.builtin.command:
         argv:
-          - docker
+          - /usr/local/bin/catena-dms-exec
           - exec
-          - "{{ _ms_filt_dms.stdout | trim }}"
+          - --
           - sh
           - -c
           - >-
@@ -166,9 +173,9 @@
     - name: "Mailserver filtering: validate rspamd config before reload"
       ansible.builtin.command:
         argv:
-          - docker
+          - /usr/local/bin/catena-dms-exec
           - exec
-          - "{{ _ms_filt_dms.stdout | trim }}"
+          - --
           - rspamadm
           - configtest
       changed_when: false
@@ -189,9 +196,9 @@
     - name: "Mailserver filtering: reload rspamd"
       ansible.builtin.command:
         argv:
-          - docker
+          - /usr/local/bin/catena-dms-exec
           - exec
-          - "{{ _ms_filt_dms.stdout | trim }}"
+          - --
           - supervisorctl
           - restart
           - rspamd
@@ -207,9 +214,9 @@
     - name: "Mailserver filtering: verify rspamd is RUNNING after reload"
       ansible.builtin.command:
         argv:
-          - docker
+          - /usr/local/bin/catena-dms-exec
           - exec
-          - "{{ _ms_filt_dms.stdout | trim }}"
+          - --
           - supervisorctl
           - status
           - rspamd
@@ -229,7 +236,7 @@
     # only adds the alias when it is not already listed.
     - name: "Mailserver aliases: list existing"
       ansible.builtin.command:
-        argv: [docker, exec, "{{ _ms_filt_dms.stdout | trim }}", setup, alias, list]
+        argv: [/usr/local/bin/catena-dms-exec, exec, --, setup, alias, list]
       register: _ms_alias_list
       changed_when: false
       failed_when: false
@@ -237,9 +244,9 @@
     - name: "Mailserver aliases: ensure abuse@ -> operator"
       ansible.builtin.command:
         argv:
-          - docker
+          - /usr/local/bin/catena-dms-exec
           - exec
-          - "{{ _ms_filt_dms.stdout | trim }}"
+          - --
           - setup
           - alias
           - add

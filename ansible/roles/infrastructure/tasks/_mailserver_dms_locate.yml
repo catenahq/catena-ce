@@ -68,3 +68,32 @@
     mailserver_deployed: >-
       {{ (_ms_locate_svc.stdout | default('') | trim | length) > 0 }}
     mailserver_dms_ct: "{{ _ms_locate_ct.stdout | default('') | trim }}"
+
+# THE VERDICT LIVES HERE, so every caller gets the same one.
+#
+# It used to be the caller's, and the callers disagreed: mailserver_accounts
+# failed loud on this state, while mailserver_oidc printed a debug line and
+# skipped -- its message even said the two cases are indistinguishable from a
+# single reading, without acting on the difference the fact above records. So a
+# host whose dms was deployed and did not come up within the wait got its SSO
+# wiring silently not written, on a converge that reported success. Nothing
+# observes dovecot-oauth2.conf.ext, so that state is invisible until a user
+# cannot log into webmail.
+#
+# "No service" stays free: most hosts never deploy the mailserver, this whole
+# chain no-ops for them, and that is the case the debug lines in the callers are
+# for. What cannot pass quietly is a stack that exists with no container behind
+# it, which is a broken deploy rather than an absent one.
+- name: "Mailserver: the stack is deployed but dms never appeared"
+  ansible.builtin.fail:
+    msg: >-
+      The catena-mailserver stack exists but no dms container came up within
+      three minutes. This is NOT the "template not deployed" case -- something
+      is stopping the task from starting at all, and every step of the
+      mailserver chain (TLS cert, postmaster mailbox, Dovecot OIDC, rspamd
+      filtering, mail DNS) needs a running container to act on. Check
+      `docker service ps --no-trunc catena-mailserver_dms` for the task error
+      and `docker logs` on the most recent attempt.
+  when:
+    - mailserver_deployed | bool
+    - (mailserver_dms_ct | length) == 0

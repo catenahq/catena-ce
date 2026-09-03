@@ -112,6 +112,63 @@ def test_the_locator_itself_still_resolves_from_docker_ps() -> None:
     )
 
 
+# Files whose body acts on the dms container. Each must go through the shared
+# locate rather than sampling `docker ps` once for itself.
+_DMS_CONSUMERS = ("mailserver_cert.yml", "mailserver_accounts.yml",
+                  "mailserver_oidc.yml", "mailserver_filtering.yml",
+                  "mailserver_dns.yml")
+
+
+def test_every_dms_consumer_uses_the_shared_locate() -> None:
+    """A one-shot `docker ps` cannot tell an absent mailserver from one that is
+    between restarts, and dms is between restarts by design for as long as this
+    chain has not repaired it. mailserver_filtering and mailserver_dns each
+    sampled once and skipped their whole body on an empty answer -- rspamd
+    filtering and mail DNS silently not applied, on a green converge."""
+    offenders = []
+    for name in _DMS_CONSUMERS:
+        text = (TASKS / name).read_text()
+        if "_mailserver_dms_locate.yml" not in text:
+            offenders.append(f"{name} does not include the shared locate")
+    assert not offenders, "\n  ".join(offenders)
+
+
+def test_the_deployed_but_absent_verdict_lives_in_the_locate() -> None:
+    """It used to be each caller's, and the callers disagreed: accounts failed
+    loud, oidc printed a debug line and skipped. One host state, two verdicts,
+    and the silent one meant SSO wiring never written on a converge that
+    reported success. Keeping the fail in the shared step is what stops a sixth
+    consumer inventing a third answer."""
+    locate = (TASKS / "_mailserver_dms_locate.yml").read_text()
+    assert "ansible.builtin.fail" in locate, (
+        "the locate no longer fails on a deployed stack with no container"
+    )
+    assert "mailserver_deployed" in locate
+
+    for name in _DMS_CONSUMERS:
+        text = (TASKS / name).read_text()
+        assert "ansible.builtin.fail" not in text, (
+            f"{name} carries its own verdict for a state the locate decides. "
+            "Two consumers with two answers is what this consolidated."
+        )
+
+
+def test_filtering_does_not_name_the_container_in_a_docker_call() -> None:
+    """These are `command: argv:` tasks with loops and sha comparisons, so the
+    inline prelude the other files use has nowhere to live. They went through
+    one resolved name for all eight calls instead, which is the staleness the
+    prelude exists to prevent. /usr/local/bin/catena-dms-exec does the lookup
+    per invocation."""
+    text = (TASKS / "mailserver_filtering.yml").read_text()
+    assert "catena-dms-exec" in text, (
+        "filtering no longer routes its docker calls through the helper"
+    )
+    body = text.split("block:", 1)[1]
+    assert "- docker" not in body, (
+        "a docker call in filtering's body names the container directly again"
+    )
+
+
 def _inject_body() -> str:
     """The deploy hook's retried unit: from `inject_once() {` to the closing
     brace in column 0."""

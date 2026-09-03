@@ -27,23 +27,18 @@
 # mailserver actually being deployed so we never publish mail DNS for a
 # tenant without it.
 
-- name: "Mailserver DNS: locate dms container"
-  ansible.builtin.shell: |
-    set -o pipefail
-    docker ps --filter label=vps.component=dms \
-      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1
-  args:
-    executable: /bin/bash
-  register: _ms_dns_dms
-  changed_when: false
+- name: "Mailserver DNS: resolve the dms container (shared, waits out its restart cycle)"
+  ansible.builtin.include_tasks: _mailserver_dms_locate.yml
 
 - name: "Mailserver DNS: skip when mailserver template not deployed"
   ansible.builtin.debug:
-    msg: "mailserver template not deployed (no dms container); skipping mail DNS."
-  when: (_ms_dns_dms.stdout | default('') | length) == 0
+    msg: >-
+      mailserver template not deployed (no catena-mailserver stack); skipping
+      mail DNS.
+  when: not (mailserver_deployed | bool)
 
 - name: "Mailserver DNS: publish mail A + MTA-STS + TLS-RPT (dms deployed)"
-  when: (_ms_dns_dms.stdout | default('') | length) > 0
+  when: (mailserver_dms_ct | length) > 0
   delegate_to: localhost
   become: false
   block:
