@@ -94,9 +94,14 @@ catena_admin_supplementary_gid: "1000"
 catena_admin_secret_staging_path: "/root/.catena-admin-secret"
 
 # Hardening subset, reconciled by swarm_service_drift on every converge.
-# No healthcheck: the image is distroless, so --health-cmd (executed as
-# /bin/sh -c) has no shell to run. Readiness is the oauth2-proxy route's
-# problem and the direct listener's own probe.
+#
+# No health_cmd HERE, on purpose. The image is distroless, and swarm's
+# --health-cmd is always run as `/bin/sh -c`, which it cannot. The healthcheck
+# is the image's own HEALTHCHECK in exec form (`catena-admin health`, probing
+# its /health), which swarm honours without a shell. swarm_service_drift only
+# touches the healthcheck when health_cmd is in this spec, so the image's
+# survives every converge -- and `docker service ls` reading 1/1 means the
+# listener answers, not merely that the process started.
 #
 # stop-first for the same reason as Portainer: the UI port is published
 # mode=host, so two tasks cannot hold it at once and start-first would have
