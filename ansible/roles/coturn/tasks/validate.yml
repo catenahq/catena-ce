@@ -64,6 +64,21 @@
       ansible.builtin.set_fact:
         _coturn_cf_token_present: "{{ (cloudflare_api_token | default('')) | length > 0 }}"
 
+    # WAITS, because validate runs straight after the converge and swarm
+    # schedules on its own clock. `catena recover` converges a freshly restored
+    # host and validates it in the same breath, so this probe can read the
+    # service list before the tier-1 reconcile has registered the GLOBAL coturn
+    # service: `docker service ls --filter name=coturn` answers with nothing at
+    # all, and a single sample turns that instant into a verdict about the
+    # host. Run 2026-09-07T09-35-45-d301 failed mailserver_round_trip and
+    # nc_sync_wipe_restore that way, on hosts that were fine; the heavier the
+    # recovery, the further behind the reconcile is when this runs.
+    #
+    # The condition carries the real requirement -- a RUNNING replica, not
+    # merely a registered service -- so "0/1" keeps waiting rather than
+    # satisfying the check. failed_when is false so that a service which never
+    # arrives falls through to the assert below, which names what to run next;
+    # a bare until-timeout would report only that the retries ran out.
     - name: "validate coturn: swarm service exists + healthy"
       ansible.builtin.command:
         argv:
@@ -76,16 +91,23 @@
           - '{{ "{{" }}.Replicas{{ "}}" }}'
       register: _v_coturn_svc
       changed_when: false
+      failed_when: false
+      retries: 30
+      delay: 5
+      until: (_v_coturn_svc.stdout | default('') | trim) is match('[1-9][0-9]*/')
 
     - name: "validate coturn: assert at least one replica running"
       ansible.builtin.assert:
         that:
           # Replicas format: "1/1" (running/desired) for global mode
-          # also returns the same shape on a single-node swarm.
+          # also returns the same shape on a single-node swarm. The running
+          # side must be non-zero: a service registered with every task down
+          # answers "0/1", which is a coturn nobody can reach.
           - _v_coturn_svc.stdout | trim | length > 0
           - "'/' in (_v_coturn_svc.stdout | trim)"
+          - (_v_coturn_svc.stdout | trim) is match('[1-9][0-9]*/')
         fail_msg: |
-          coturn swarm service not running. Output:
+          coturn swarm service not running after waiting 150s. Output:
           {{ _v_coturn_svc.stdout | default('(empty)') }}
           Diagnose:
             docker service ls --filter name=coturn
