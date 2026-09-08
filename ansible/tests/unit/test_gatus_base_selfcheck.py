@@ -18,10 +18,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-_TEMPLATE = (
+_TEMPLATES = (
     Path(__file__).resolve().parents[3]
-    / "ansible" / "roles" / "infrastructure" / "templates" / "gatus-base.yaml.j2"
+    / "ansible" / "roles" / "infrastructure" / "templates"
 )
+_TEMPLATE = _TEMPLATES / "gatus-base.yaml.j2"
+_INFRA_SPEC = _TEMPLATES / "gatus-infra-spec.json.j2"
 
 
 def _uncommented_lines(text: str) -> list[str]:
@@ -59,3 +61,18 @@ def test_selfcheck_probes_own_health_on_the_web_port():
     assert "/health" in text
     assert "localhost:{{ gatus_internal_port }}/health" in text
     assert "[STATUS] == 200" in text
+
+
+def test_the_selfcheck_joins_the_same_group_as_the_infra_endpoints():
+    """Gatus groups endpoints by the literal string. The self-check said
+    `infrastructure` and every entry in gatus-infra-spec.json.j2 says
+    `Infrastructure`, so the status page rendered two sections with the same
+    name and one endpoint stranded in the wrong one."""
+    groups = {
+        line.split(":", 1)[1].strip().strip('",')
+        for line in _TEMPLATE.read_text().splitlines() + _INFRA_SPEC.read_text().splitlines()
+        if line.strip().startswith(('group:', '"group":'))
+    }
+    assert groups == {"Infrastructure"}, (
+        f"the Gatus endpoint templates spell one group more than one way: {sorted(groups)}"
+    )

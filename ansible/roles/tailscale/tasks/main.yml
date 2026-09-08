@@ -78,12 +78,27 @@
     ts_backend_state: "{{ _ts_status_parsed.BackendState | default('NotRunning') }}"
 
 # ─── join the tailnet (controller mints the credential, VPS runs `up`) ───
-# Fork on the control server: Tailscale SaaS (OAuth mint) OR self-hosted
+# Fork on tailnet_provider: Tailscale SaaS (OAuth mint) OR self-hosted
 # Headscale (pre-auth key + --login-server). Both converge on `tailscale up`.
+#
+# The fork reads the DECLARED provider rather than re-deriving it from whether
+# a control URL is filled in. defaults/main.yml still falls back to that
+# derivation for a host that has never stored a choice, so this is one rule in
+# one place instead of the same guess repeated on eight tasks.
 - name: Authenticate the node
   when: ts_backend_state != 'Running' or tailscale_force_reauth | bool
   block:
-    # ── Fork A: Tailscale SaaS (default -- tailnet_control_url empty) ──
+    - name: "Headscale: require a control server address"
+      ansible.builtin.assert:
+        that:
+          - (tailnet_control_url | default('') | length) > 0
+        fail_msg: >-
+          Headscale is selected but no control server address is set. Enter it
+          in catena-admin > Settings > Access and tunnels (Headscale server
+          address), or switch that setting back to Tailscale.
+      when: tailnet_provider == 'headscale'
+
+    # ── Fork A: Tailscale SaaS ──
     - name: Exchange OAuth client credentials for a bearer token
       ansible.builtin.uri:
         url: "{{ tailscale_api_base }}/oauth/token"
@@ -99,7 +114,7 @@
       register: ts_oauth_token
       delegate_to: localhost
       become: false
-      when: (tailnet_control_url | default('') | length) == 0
+      when: tailnet_provider == 'tailscale'
 
     - name: "Mint a single-use, tagged auth key (TTL: {{ tailscale_auth_key_ttl_seconds }})"
       ansible.builtin.uri:
@@ -122,7 +137,7 @@
       register: ts_minted_key
       delegate_to: localhost
       become: false
-      when: (tailnet_control_url | default('') | length) == 0
+      when: tailnet_provider == 'tailscale'
 
     - name: tailscale up with minted key (SaaS)
       ansible.builtin.command:
@@ -136,9 +151,9 @@
           - "--reset"
       no_log: true # minted key is in argv; keep it out of logs
       changed_when: true
-      when: (tailnet_control_url | default('') | length) == 0
+      when: tailnet_provider == 'tailscale'
 
-    # ── Fork B: self-hosted Headscale (tailnet_control_url set) ──
+    # ── Fork B: self-hosted Headscale ──
     # Headscale has no OAuth API: mint a per-converge tagged pre-auth key via
     # its API (no long-lived key on the VPS), falling back to a static key the
     # operator supplied.
@@ -162,7 +177,7 @@
       become: false
       no_log: true
       when:
-        - (tailnet_control_url | default('') | length) > 0
+        - tailnet_provider == 'headscale'
         - (headscale_api_key | default('') | length) > 0
 
     - name: "Headscale: resolve the pre-auth key (minted or static)"
@@ -172,18 +187,18 @@
               if (hs_minted_key is defined and hs_minted_key.json is defined)
               else (headscale_preauth_key | default(''))) }}
       no_log: true
-      when: (tailnet_control_url | default('') | length) > 0
+      when: tailnet_provider == 'headscale'
 
     - name: "Headscale: require a pre-auth credential"
       ansible.builtin.assert:
         that:
           - (_hs_authkey | default('') | length) > 0
         fail_msg: >-
-          Headscale selected (TAILNET_CONTROL_URL set) but no credential in the
-          on-box store: set headscale_api_key (to mint per-converge) or
-          headscale_preauth_key (a static key). Minting also needs
-          HEADSCALE_USER.
-      when: (tailnet_control_url | default('') | length) > 0
+          Headscale is selected but there is no credential in the on-box store:
+          set the Headscale API key (to mint one per converge) or a Headscale
+          pre-authentication key (a static one) in catena-admin > Settings.
+          Minting also needs the Headscale user.
+      when: tailnet_provider == 'headscale'
 
     - name: "Headscale: tailscale up via --login-server"
       ansible.builtin.command:
@@ -198,7 +213,7 @@
           - "--reset"
       no_log: true # pre-auth key is in argv; keep it out of logs
       changed_when: true
-      when: (tailnet_control_url | default('') | length) > 0
+      when: tailnet_provider == 'headscale'
 
 # ─── verify + expose facts ───────────────────────────────────────────────
 - name: Re-query tailscale status after join

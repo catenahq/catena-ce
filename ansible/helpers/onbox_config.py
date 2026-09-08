@@ -426,6 +426,19 @@ SETTINGS_CONFIG: dict[str, str] = {
     # SMTP_HOST / SMTP_PORT / SMTP_USER apply to the `server` choice; SMTP_USER
     # also carries the Brevo login, which is account-specific. Resend needs
     # neither: its host and its literal `resend` username are constants.
+    # Mesh control plane. TAILNET_PROVIDER is the whole routing decision:
+    # tailscale | headscale. It used to be inferred from whether
+    # TAILNET_CONTROL_URL happened to be filled in, which made "switch back to
+    # Tailscale" mean "know to CLEAR a field" -- and the settings API treats a
+    # blank submission as "leave this alone", so that was a decision the client
+    # could make in one direction only.
+    #
+    # All three moved out of BOOTSTRAP_CONFIG together: the URL and the user are
+    # the Headscale half of the same decision, and leaving them in the `.env`
+    # would have left a choice the panel can make and a target it cannot.
+    "TAILNET_PROVIDER": "cfg_tailnet_provider",
+    "TAILNET_CONTROL_URL": "cfg_tailnet_control_url",
+    "HEADSCALE_USER": "cfg_headscale_user",
     "SMTP_PROVIDER": "cfg_smtp_provider",
     "SMTP_SENDER": "cfg_smtp_sender",
     "SMTP_HOST": "cfg_smtp_host",
@@ -467,7 +480,6 @@ BOOTSTRAP_CONFIG: frozenset[str] = frozenset({
     "DASH_SUBDOMAIN",
     "DISPLAY_NAME",
     "GATUS_SUBDOMAIN",
-    "HEADSCALE_USER",
     "HEARTBEAT_SUBDOMAIN",
     "OPS_USER",
     "PORTAINER_SUBDOMAIN",
@@ -479,7 +491,6 @@ BOOTSTRAP_CONFIG: frozenset[str] = frozenset({
     "STORAGE_BULK_MOUNT_POINT",
     "STORAGE_MODE",
     "STORAGE_MOUNT_POINT",
-    "TAILNET_CONTROL_URL",
     "TAILSCALE_ACCEPT_DNS",
     "TAILSCALE_TAGS",
     # Bench / dev overrides for the ACME path. Not client-facing: they point

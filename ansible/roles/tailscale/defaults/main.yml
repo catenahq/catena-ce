@@ -21,14 +21,28 @@ tailscale_api_base: "https://api.tailscale.com/api/v2"
 tailscale_auth_key_ttl_seconds: 600 # 10 minutes -- plenty for one `tailscale up`
 
 # --- Control server: Tailscale SaaS (default) or self-hosted Headscale ---
-# Empty tailnet_control_url = Tailscale SaaS (the OAuth mint above, unchanged).
-# Set it to a Headscale base URL (https://headscale.example.net) to join a
-# self-hosted control server instead: Headscale has no OAuth API, so the node
-# joins with a pre-auth key -- minted per-converge via the Headscale API
-# (headscale_api_key, preferred: no long-lived key on the VPS) or a
-# static key the operator supplies (headscale_preauth_key, fallback).
+# tailnet_provider is the whole routing decision. `tailscale` mints a tagged
+# auth key per converge from the OAuth client above; `headscale` joins a
+# self-hosted control server with a pre-auth key -- minted per-converge via the
+# Headscale API (headscale_api_key, preferred: no long-lived key on the VPS) or
+# a static key the operator supplies (headscale_preauth_key, fallback).
+#
+# All three values are store-owned (catena-admin > Settings), seeded once from
+# the inventory .env by the config loader. A host installed before the choice
+# existed has nothing stored, and falls back to the rule that decided it until
+# now: a control-server URL means Headscale, no URL means Tailscale SaaS. That
+# inference is the fallback only -- as the live rule it made "switch back to
+# Tailscale" mean "know to CLEAR a field", which the settings form cannot
+# express (a blank submission there means "leave this alone").
+#
 # tailnet_headscale_user names the Headscale user the minted key belongs to
 # (Headscale pre-auth keys are per-user). tag:vps must be in that user's ACL
 # tagOwners for --advertise-tags to succeed.
-tailnet_control_url: "{{ lookup('dotenv', 'TAILNET_CONTROL_URL', default='') }}"
-tailnet_headscale_user: "{{ lookup('dotenv', 'HEADSCALE_USER', default='') }}"
+tailnet_control_url: "{{ cfg_tailnet_control_url | default('') }}"
+tailnet_headscale_user: "{{ cfg_headscale_user | default('') }}"
+tailnet_provider: >-
+  {{
+    (cfg_tailnet_provider | default('') | trim | lower)
+    or ('headscale' if (tailnet_control_url | default('') | length) > 0
+        else 'tailscale')
+  }}

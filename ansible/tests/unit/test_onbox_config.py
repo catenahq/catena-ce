@@ -693,6 +693,14 @@ def test_no_settings_key_is_read_from_dotenv_outside_the_seed(oc):
             continue
         if path.name == "load_onbox_config.yml":
             continue  # the seeding task, by construction
+        if path.name == "preflight.yml":
+            # Runs on the CONTROLLER, before there is a host, and therefore
+            # before there is a store to read. Its one .env read is the tailnet
+            # control URL, which it hands to an advisory check that answers
+            # "is this laptop on the tailnet it is about to converge" -- a
+            # question asked of the inventory, about a machine that does not
+            # exist yet. It is seed surface, not a second live reader.
+            continue
         for key in pattern.findall(path.read_text()):
             if key in oc.SETTINGS_CONFIG:
                 offenders.setdefault(key, s)

@@ -129,7 +129,11 @@ alerting:
 # `alerts:` (a monitor that is down cannot page about itself).
 endpoints:
   - name: "Gatus (self-check)"
-    group: "infrastructure"
+    # Capital I, exactly as gatus-infra-spec.json.j2 spells it. Gatus groups by
+    # the literal string, so "infrastructure" here and "Infrastructure" there
+    # rendered two sections on the status page with one endpoint stranded in
+    # the wrong one.
+    group: "Infrastructure"
     url: "http://localhost:{{ gatus_internal_port }}/health"
     interval: 60s
     conditions:
