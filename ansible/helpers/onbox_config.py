@@ -503,6 +503,60 @@ BOOTSTRAP_CONFIG: frozenset[str] = frozenset({
 })
 
 
+# Ansible variables the store may not decide, whatever it holds.
+#
+# THE REASON THIS EXISTS. The registries above answer "which keys may a client
+# set". This one answers the question underneath it: which decisions stop being
+# the operator's the moment the panel can write them.
+#
+# The panel writes the store by design, and the converge reads the store as
+# root. So every value that reaches a role from the store is a value whoever
+# controls the panel controls -- through a bug in the web app, a stolen admin
+# session, or a client who edits config.json directly. For most keys that is
+# exactly right: a backup endpoint, a mail provider and a schedule are the
+# client's to choose. For the ones below it is not, because each of them is
+# part of how root is reached, and a compromise that can rewrite them is a
+# compromise that keeps itself.
+#
+# So these stay CONSTANTS in the role defaults. Not "should be"; the gate in
+# tests/unit/test_store_is_the_enforcement_point.py reads this table and fails
+# the build if any of them is ever defined from a cfg_* fact.
+#
+# Image references are governed differently and deliberately: a store pin MAY
+# move a service's version and may NEVER move its repository, which
+# playbooks/filter_plugins/image_pin.py enforces by ignoring a pin whose
+# repository disagrees with the floor's. The same gate asserts that property
+# holds, so the two rules are declared in one place.
+STORE_MAY_NOT_DECIDE: dict[str, str] = {
+    # The env allow-list gates both sshd's AcceptEnv and the sudoers env_keep.
+    # It is the one thing the image can never own either (see the payload
+    # overlay note in roles/catena-admin/templates/admin-actions.j2): the set of
+    # inputs root will accept is not an input.
+    "catena_admin_dispatch_env_passthrough":
+        "the set of environment values root accepts from a dispatch",
+    # What the forced command actually executes. A store key here would let the
+    # panel choose the program root runs for every action at once.
+    "catena_admin_dispatcher_path":
+        "the program the SSH forced command runs",
+    # Where root sources action drop-ins from. The dispatcher already refuses a
+    # group- or world-writable file; pointing it at another directory would
+    # route around that check rather than fail it.
+    "catena_admin_actions_overlay_dir":
+        "the directory root sources action definitions from",
+    "catena_admin_allowed_actions_path":
+        "the record of which action names this host authorises",
+    # Who the dispatch runs as, and whose authorized_keys carries the forced
+    # command.
+    "catena_admin_runner_user":
+        "the account the dispatch authenticates as",
+    "catena_admin_runner_home":
+        "the home directory holding the forced command's authorized_keys",
+    # Who may open an SSH session at all.
+    "ssh_allowed_users":
+        "who may sign in to this host over SSH",
+}
+
+
 def config_names() -> list[str]:
     """Every non-secret config key with a declared owner."""
     return sorted(set(SETTINGS_CONFIG) | BOOTSTRAP_CONFIG)
