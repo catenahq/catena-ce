@@ -28,6 +28,42 @@ jobs:
         working-directory: ansible
         run: uv run --no-project --with pytest --with pyyaml python -m pytest tests/unit -q
 
+  syntax:
+    # Every playbook parses, roles and all. The unit job above deliberately
+    # runs without ansible-core, so nothing until now READ the tree Ansible
+    # actually executes: a bad task keyword, a malformed block, a module name
+    # no installed collection provides -- all of it reached a converge before
+    # anything noticed, and a converge is a client's server.
+    #
+    # --syntax-check loads the whole play including every role it includes, so
+    # this covers roles/ without naming them. It resolves module FQCNs, which
+    # is why it needs the pinned collections: without them every
+    # community.general task reads as a conflicting action statement.
+    #
+    # -i localhost, because syntax-check parses rather than connects; the
+    # inventory only has to exist.
+    name: Ansible syntax-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - name: Vendor the pinned collections
+        working-directory: ansible
+        run: uv run ansible-galaxy collection install -r requirements.yml -p .collections
+      - name: Syntax-check every playbook
+        working-directory: ansible
+        run: |
+          set -eu
+          rc=0
+          for playbook in playbooks/*.yml; do
+            echo "== $playbook"
+            uv run ansible-playbook --syntax-check -i localhost, "$playbook" || rc=1
+          done
+          exit $rc
+
   duplication:
     # Copy-paste ratchet: .jscpd.json carries the baseline threshold;
     # exceeding it fails. Lower the threshold as duplication is paid
