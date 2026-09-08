@@ -1,0 +1,110 @@
+# Which side of the converge boundary each role sits on.
+#
+# THE RULE, in two questions asked in order.
+#
+#   1. If this is wrong, is anything left that can fix it? If no, it is
+#      BOOTSTRAP: an operator runs it, over SSH, from outside. That set is
+#      small and it is meant to stay small.
+#
+#   2. Otherwise, is the correct value a function of the product VERSION or of
+#      THIS HOST? Version-shaped things travel in the image; host-shaped things
+#      live in /etc/catena/config.json. Either way the role is RECONCILE: it can
+#      run on the host, unattended, from the image, on a timer.
+#
+# The old line was drawn along "is this a file on the host", which is a storage
+# location rather than an owner. It put the Gatus endpoint list -- a list of
+# things the product decided to probe, containing nothing about the host -- on
+# the slow path, so fixing a group name meant an operator with a laptop.
+#
+# This file is the declaration. tests/unit/test_converge_boundary.py is the
+# enforcement, and playbooks/reconcile.yml is the half that will eventually run
+# on the host with no inventory at all.
+
+# Roles an operator must run. Each carries the reason it is here, because
+# "bootstrap" with no reason is how a set like this grows.
+bootstrap_roles:
+  - name: common
+    why: >-
+      The OS baseline and the ufw lockdown. Sets up the account and the packages
+      every later role assumes, and closes public SSH at the end of an install.
+  - name: host_hardening
+    why: >-
+      Kernel and module hardening, applied before dockerd's first start so its
+      runtime writes do not win until the next reboot. Re-applying it under a
+      live workload is not a thing to do unattended.
+  - name: tailscale
+    why: >-
+      The mesh the operator reaches this host over. Getting it wrong is the
+      definition of question one.
+  - name: storage
+    why: >-
+      Mounts the block volume every service keeps its data on. A failure here
+      costs data rather than access, which is the second reason something
+      belongs on this side: it cannot be safely re-applied to a live host by a
+      timer.
+  - name: docker
+    why: >-
+      The engine and the swarm. Nothing else in this file runs without it, and
+      that includes whatever would have repaired it.
+
+# Roles the host can run against itself, once their inputs come from the store.
+# Order is site.yml's order, which is a dependency order, not a preference.
+reconcile_roles:
+  - payload
+  - traefik
+  - postgres
+  - portainer
+  - cloudflare_tunnel
+  - keycloak
+  - oauth2_proxy
+  - infrastructure
+  - catena-admin
+  - coturn
+  - backup
+
+# Two roles straddle the line, and both already have the seam cut into them as
+# separate task files. Listed per file so the boundary is enforceable before the
+# directories are physically split, and so the split itself becomes a rename
+# rather than a judgement call.
+# default_side is what an unlisted file in that role belongs to, so adding a
+# task file does not silently land it on the permissive side. Templates and
+# defaults follow the default_side too: a template is written BY a task, and it
+# is the task that decides where.
+straddling_roles:
+  common:
+    default_side: bootstrap
+    reconcile: [public_ports.yml]
+  catena-admin:
+    # host.yml is the trust path: the runner account, the sudoers drop-in, the
+    # forced command and its authorized_keys. Everything else in the role is the
+    # panel's swarm service and its action catalog, which is ordinary reconcile
+    # work -- and catalog.yml is deleted once the dispatch table ships in the
+    # image.
+    default_side: reconcile
+    bootstrap: [host.yml]
+
+# Reached only from their own operator playbook, never from a converge.
+#
+# A restore rewrites the host's identity, SSH host keys included, and it runs
+# when an operator has decided that is what should happen. Classifying it as
+# reconcile would be saying a timer may do it.
+operator_only_files:
+  - roles/backup/tasks/restore.yml
+
+# Paths a reconcile-side TASK may never write.
+#
+# This is question one turned into a list of literals, so it can be checked
+# rather than remembered. A reconcile that can rewrite the forced command is a
+# reconcile that can rewrite what a reconcile is.
+#
+# Tasks only, deliberately. roles/backup names /etc/ssh in its defaults because
+# restic READS it -- it is in the backup set, with the host keys excluded -- and
+# a rule that cannot tell reading a path from writing it would have to be
+# argued with rather than obeyed.
+bootstrap_owned_paths:
+  - /etc/ssh/
+  - /etc/sudoers.d/
+  - authorized_keys
+  - /usr/local/sbin/catena-admin-runner
+  - /etc/sysctl.d/
+  - /etc/modprobe.d/

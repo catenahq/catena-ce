@@ -1,0 +1,64 @@
+---
+# The half of a converge that does not need an operator.
+#
+# Same roles as site.yml, in the same order, minus the five an operator has to
+# run and minus the post-install steps that only make sense on a fresh box. What
+# is left is the work a host can do to itself: render config from the image,
+# reconcile swarm services, install units, apply the schedule.
+#
+# It does not run on a host yet. What it is today is the boundary made
+# executable -- boundary.yml declares which roles belong here and
+# tests/unit/test_converge_boundary.py holds the two files to each other -- so
+# that the eventual on-host converge is a matter of extracting this tree and
+# running THIS file, rather than of deciding at that moment what a converge
+# should skip.
+#
+# WHAT STILL STOPS IT RUNNING UNATTENDED: eighteen values it reads from the
+# operator's inventory rather than from /etc/catena/config.json. The gate counts
+# them and refuses to let the number grow. When it reaches zero this playbook
+# runs against an empty inventory, and that is the test.
+#
+# Usage today (an operator, against a converged host, to exercise the subset):
+#   ansible-playbook -i inventory/<name> playbooks/reconcile.yml
+- name: Reconcile a VPS from its on-box configuration
+  hosts: "{{ stage_hosts | default('vps') }}"
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    # The store is the desired state. Loaded first for the same reason site.yml
+    # loads it first: every role below reads cfg_* facts projected from it.
+    # include_tasks with apply:, exactly as site.yml does it and for the reason
+    # site.yml gives: without apply the include fires but the set_fact tasks
+    # inside it are filtered out under any --tags run, so every role silently
+    # falls back to raw inventory values.
+    - name: "Load the on-box config store"
+      ansible.builtin.include_tasks:
+        file: tasks/load_onbox_config.yml
+        apply:
+          tags: [always, onbox]
+      tags: [always, onbox]
+
+  roles:
+    - { role: payload, tags: [payload] }
+    - { role: traefik, tags: [traefik] }
+    - { role: postgres, tags: [postgres] }
+    - { role: portainer, tags: [portainer] }
+    - { role: cloudflare_tunnel, tags: [cloudflare_tunnel, cloudflare] }
+    - { role: keycloak, tags: [keycloak, auth] }
+    - { role: oauth2_proxy, tags: [oauth2_proxy, auth] }
+    - { role: infrastructure, tags: [infrastructure] }
+    - { role: catena-admin, tags: [catena_admin] }
+    - { role: coturn, tags: [coturn] }
+    - { role: backup, tags: [backup] }
+
+  post_tasks:
+    # The declarative public-port registry, reconciled after every role has
+    # dropped its fragment. The firewall's default-deny policy is bootstrap's;
+    # this only opens what the deployed apps declare.
+    - name: "Public ports: reconcile firewall from registry"
+      ansible.builtin.systemd_service:
+        name: catena-public-ports.service
+        state: restarted
+      changed_when: true
+      tags: [public_ports]
