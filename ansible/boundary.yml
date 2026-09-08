@@ -16,6 +16,9 @@
 # things the product decided to probe, containing nothing about the host -- on
 # the slow path, so fixing a group name meant an operator with a laptop.
 #
+# Migration state, findings and what remains: CONVERGE_MIGRATION.md, beside
+# this file. Read it before moving anything across the line.
+#
 # This file is the declaration. tests/unit/test_converge_boundary.py is the
 # enforcement, and playbooks/reconcile.yml is the half that will eventually run
 # on the host with no inventory at all.
