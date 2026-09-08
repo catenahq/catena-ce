@@ -17,6 +17,16 @@ TIER-1 SWARM SERVICE, with the argv rendered by
   (`/etc/catena/admin-actions`) rendered from the canonical action
   catalog at [templates/actions.yml.j2](templates/actions.yml.j2)
   merged with per-inventory `catena_admin_extra_actions`.
+- Creates `/etc/catena/admin-actions.d/`, root-owned, and reads nothing
+  from it. The dispatcher offers a name this table does not carry to the
+  drop-ins there before refusing it, which is how the thirty-six actions
+  that ship in the panel image are reachable without being authorized
+  from here. Each runs a binary the payload installs at a path the
+  payload chose, so this repo would have been holding an authorization
+  record for names it does not own -- and a one-line change to any of
+  them would have needed a converge against a live client. The four that
+  are still authorized here are declared, with their reasons, in
+  [../../tests/unit/test_converge_dispatch_table.py](../../tests/unit/test_converge_dispatch_table.py).
 - Renders the catalog the Go shell reads at runtime
   (`/etc/catena/admin-actions.yml`) from the same source, plus the
   parallel YAML allow-list at `/etc/catena/admin-allowed.yaml`
@@ -33,14 +43,16 @@ TIER-1 SWARM SERVICE, with the argv rendered by
   shell's writable bind is `/var/lib/catena/ee-payload`, where it mirrors
   its embedded host payload (all engines -- `catena-cloudflared-sync`,
   `catena-daily`, the lane scripts, units) at startup.
-- Installs that host payload into `/usr/local/bin` on **every** converge
-  ([tasks/deploy.yml](tasks/deploy.yml)), ungated -- the payload is NOT
-  license-gated. Even a plain Community host gets the engines (the
-  Cloudflare tunnel engine especially: `roles/cloudflare_tunnel`
-  dispatches `catena-cloudflared-sync`). The license only gates which UI
-  features/buttons the shell renders at runtime, never the install. The
+- Does NOT install that payload. `roles/payload` does, four roles ahead
+  of this one, straight out of the image -- two installers would race
+  over `/usr/local/bin` and the loser would be whichever image was
+  staler. It is ungated: even a plain Community host gets the engines
+  (the Cloudflare tunnel engine especially, which
+  `roles/cloudflare_tunnel` dispatches). The license only gates which UI
+  features the shell renders at runtime, never the install. The
   `ee-install-engines` reserved action remains for out-of-band re-install
-  after an image bump.
+  after an image bump, and it stays in this repo's table precisely
+  because it is the way back when a drop-in is broken.
 - Renders `/etc/catena/extra-tiles.yml` from inventory
   `catena_admin_extra_tiles` (operator escape hatch for hand-authored
   Apps-tab tiles).

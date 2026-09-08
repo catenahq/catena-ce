@@ -113,11 +113,15 @@ def test_no_root_dispatch_runs_out_of_the_container_writable_mirror():
     """{{ catena_admin_ee_payload_dir }} is chowned to the container's uid so
     the shell's startup mirror can write it. A root dispatch pointed at a
     script inside it makes the panel -- built with no root and no docker socket
-    for exactly this reason -- the thing choosing what root executes."""
+    for exactly this reason -- the thing choosing what root executes.
+
+    The same property on the drop-in side is asserted by catena-admin
+    payload/actions.d/actions_test.go, against the files that carry those
+    commands now."""
     d = _defaults()
     mirror = d["catena_admin_ee_payload_dir"]
     for group in ("catena_admin_ee_reserved_actions",
-                  "catena_admin_ce_reserved_actions"):
+                  "catena_admin_cloudflared_reserved_actions"):
         for name, shell in _by_name(d[group]).items():
             assert "catena_admin_ee_payload_installer" not in shell, (
                 f"{name} runs the installer out of the mirror")

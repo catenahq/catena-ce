@@ -59,47 +59,27 @@ def _ee_actions() -> dict[str, str]:
     return {a["name"]: a["shell"] for a in _defaults()["catena_admin_ee_reserved_actions"]}
 
 
-def _ce_actions() -> dict[str, str]:
-    return {a["name"]: a["shell"] for a in _defaults()["catena_admin_ce_reserved_actions"]}
-
-
-def test_lane_paths_are_declared_once():
-    d = _defaults()
-    assert d["catena_migrate_lane_bin"].endswith("/catena-migrate-lane")
-    assert int(d["catena_migrate_lane_port"]) == 9040
+def test_the_lane_port_is_declared_once():
+    assert int(_defaults()["catena_migrate_lane_port"]) == 9040
 
 
 def test_the_migration_actions_left_this_repo():
     """They live in the payload drop-in now. A name left behind here would be
-    dispatched by the converge's own case arm, and the drop-in -- which is
-    where the command is maintained -- would never be reached."""
-    ee, ce = set(_ee_actions()), set(_ce_actions())
-    assert not MIGRATE_ACTIONS & ee, sorted(MIGRATE_ACTIONS & ee)
-    assert not MIGRATE_ACTIONS & ce, sorted(MIGRATE_ACTIONS & ce)
+    dispatched by the converge's own case arm, and the drop-in -- which is where
+    the command is maintained -- would never be reached.
 
-
-def test_the_overlay_the_payload_needs_is_still_wired():
-    """The drop-in is only reachable because the dispatcher offers an unknown
-    name to the overlay directory before refusing it. Without that seam the
-    eight names above are simply gone."""
-    d = _defaults()
-    assert d["catena_admin_actions_overlay_dir"] == "/etc/catena/admin-actions.d"
-    template = (_ROLE / "templates" / "admin-actions.j2").read_text()
-    assert "catena_admin_dispatch_overlay" in template
-    assert "catena_admin_actions_overlay_dir" in template
-
-
-def test_target_side_state_files_are_separate_from_the_restores():
-    # A migration DRIVES a restore, so sharing one state file would have the
-    # page watching the move read the restore's progress as its own.
-    d = _defaults()
-    assert d["catena_migration_state_file"] != d["catena_recovery_state_file"]
-    assert d["catena_migration_history_file"] != d["catena_recovery_history_file"]
-    # Under /var/lib, not /etc: /etc is in the backup set, and a snapshot taken
-    # mid-move would otherwise carry a half-finished migration's state into the
-    # next host that restored it.
-    for key in ("catena_migration_state_file", "catena_migration_history_file"):
-        assert d[key].startswith("/var/lib/catena/"), d[key]
+    The lane's paths and state files went with them: they were product
+    constants written as Ansible variables, and a constant is owned by whoever
+    ships the thing it points at. That the two state files stay distinct from
+    the restore machine's is asserted in catena-admin now, where both pairs are
+    declared."""
+    assert not MIGRATE_ACTIONS & set(_ee_actions())
+    for gone in ("catena_migrate_lane_bin", "catena_migration_state_file",
+                 "catena_migration_history_file"):
+        assert gone not in _defaults(), (
+            f"{gone} is back in this repo; the binary and its state files "
+            "belong to the payload that installs them"
+        )
 
 
 def test_lane_port_is_declared_tailnet_only():

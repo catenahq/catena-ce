@@ -1,26 +1,29 @@
-"""Every systemd-run action must hand restic a cache location.
+"""The restic cache location this repo's half of the contract has to keep.
 
-A transient systemd unit starts with a CLEAN environment. restic refuses to
-run without one:
+A transient systemd unit starts with a CLEAN environment. restic refuses to run
+without one:
 
     unable to open cache: unable to locate cache directory:
     neither $XDG_CACHE_HOME nor $HOME are defined
 
-Every other host action inherits the dispatcher's environment, where sudo
-supplies HOME, so only the systemd-run ones are exposed -- and they are the
-long-running ones (restore, migrate) that are wrapped precisely so a panel
-restart cannot kill them.
+Every dispatch action that wraps a long-running command in `systemd-run` is
+exposed to that, and all of them -- restore, migrate, self-update -- now live in
+the panel image's dispatch drop-ins, where catena-admin
+payload/actions.d/catena_actions_test.go asserts that each one sets both
+variables and that both come from one declared pair.
+
+What is left here is the OTHER end of the pair. catena-backup.service sets the
+same two values so that both callers share one warm cache instead of each
+filling its own, and there is no build-time path from that template to the
+drop-ins -- the vendored tree exists only while an image is being built. So each
+repo pins the literals it ships and names the other, and the two halves are
+compared by whoever changes one.
 
 This went unnoticed until `wizard_restore_smoke` first reached stage 4 in run
-2026-08-01T14-47-54-569d: every restore started from the wizard died in about
-a second. catena-backup.service had carried the fix, and the comment
-explaining it, since it was written -- the lesson was learned once and applied
-to one of the two places restic runs under systemd.
-
-The parity assertion is the point of this file: the values must equal what
-catena-backup.service sets, so both callers share one warm cache instead of
-each filling its own, and so the next edit to either cannot silently split
-them.
+2026-08-01T14-47-54-569d: every restore started from the wizard died in about a
+second. catena-backup.service had carried the fix, and the comment explaining
+it, since it was written -- the lesson was learned once and applied to one of
+the two places restic runs under systemd.
 
 Run: uv run pytest tests/unit/test_catena_admin_systemd_run_env.py
 """
@@ -29,33 +32,17 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import yaml
-
 ANSIBLE = Path(__file__).resolve().parents[2]
-DEFAULTS = ANSIBLE / "roles" / "catena-admin" / "defaults" / "main.yml"
 BACKUP_UNIT = (
     ANSIBLE / "roles" / "backup" / "templates" / "catena-backup.service.j2"
 )
 
-
-def _actions() -> list[dict]:
-    """Every action in every reserved-action list (CE, Business, cloudflared).
-
-    Keyed on shape rather than on an exact variable name so a new list cannot
-    be added and silently escape this gate.
-    """
-    d = yaml.safe_load(DEFAULTS.read_text())
-    out: list[dict] = []
-    for key, val in d.items():
-        if not (key.startswith("catena_admin_") and key.endswith("_actions")):
-            continue
-        if isinstance(val, list):
-            out.extend(a for a in val if isinstance(a, dict) and "name" in a)
-    return out
-
-
-def _systemd_run_actions() -> list[dict]:
-    return [a for a in _actions() if "systemd-run" in str(a.get("shell", ""))]
+# The shared pair. catena-admin payload/actions.d/catena_actions_test.go carries
+# the same two literals and asserts every systemd-run arm uses them.
+SHARED_CACHE = {
+    "HOME": "/var/lib/catena/restic-home",
+    "XDG_CACHE_HOME": "/var/lib/catena/restic-cache",
+}
 
 
 def _backup_unit_env() -> dict[str, str]:
@@ -67,59 +54,45 @@ def _backup_unit_env() -> dict[str, str]:
     return env
 
 
-def test_there_are_systemd_run_actions_to_check():
-    """Guards the guard: if the actions are renamed away this file must fail
-    loudly rather than pass over an empty set.
-
-    catena-migrate-run used to be named here too. It moved into the payload's
-    own dispatch drop-in, where the same restic-cache property is asserted by
-    catena-admin payload/actions.d/business_actions_test.go -- the same failure
-    mode, checked where the command now lives."""
-    names = [a["name"] for a in _systemd_run_actions()]
-    assert "catena-restore-run" in names
-    assert "catena-admin-self-update" in names
-
-
-def test_every_systemd_run_action_sets_a_restic_cache_location():
-    for action in _systemd_run_actions():
-        shell = str(action["shell"])
-        assert "--setenv=HOME=" in shell, (
-            f"{action['name']} runs under systemd-run with no HOME; restic "
-            "cannot open its cache and the action fails in about a second"
-        )
-        assert "--setenv=XDG_CACHE_HOME=" in shell, (
-            f"{action['name']} runs under systemd-run with no XDG_CACHE_HOME"
-        )
-
-
-def test_the_cache_location_matches_catena_backup_service():
-    """One warm cache, not one per caller -- and no silent divergence."""
-    unit_env = _backup_unit_env()
-    assert set(unit_env) == {"HOME", "XDG_CACHE_HOME"}, (
-        f"catena-backup.service no longer sets both; read {unit_env}"
+def test_the_backup_unit_sets_both_variables():
+    """Guards the guard: a renamed or dropped Environment= line would leave the
+    comparison below with nothing to compare."""
+    assert set(_backup_unit_env()) == {"HOME", "XDG_CACHE_HOME"}, (
+        f"catena-backup.service no longer sets both; read {_backup_unit_env()}"
     )
-    for action in _systemd_run_actions():
-        shell = str(action["shell"])
-        for var, want in unit_env.items():
-            got = re.search(rf"--setenv={var}=(\S+)", shell)
-            assert got, f"{action['name']} does not set {var}"
-            assert got.group(1) == want, (
-                f"{action['name']} points {var} at {got.group(1)} while "
-                f"catena-backup.service uses {want}; they must share one cache"
+
+
+def test_the_backup_unit_uses_the_shared_cache_location():
+    """One warm cache, not one per caller -- and no silent divergence.
+
+    Changing either value means changing both repos in the same breath. That is
+    the cost of the two halves living apart, and it is cheaper than the panel
+    and the backup lane each rebuilding a multi-gigabyte cache."""
+    assert _backup_unit_env() == SHARED_CACHE, (
+        "catena-backup.service and the panel image's dispatch drop-ins would "
+        "no longer share a restic cache. If this is deliberate, the matching "
+        "change is in catena-admin payload/actions.d/20-catena.sh and "
+        "10-business.sh, whose constants are asserted against these same "
+        "literals"
+    )
+
+
+def test_no_dispatch_action_here_runs_under_systemd_run():
+    """They all moved. One left behind would be the one place the pair above is
+    not asserted -- this file can no longer see the arms, so an arm here would
+    have no guard at all."""
+    import yaml
+
+    defaults = yaml.safe_load(
+        (ANSIBLE / "roles" / "catena-admin" / "defaults" / "main.yml").read_text()
+    )
+    for key, value in defaults.items():
+        if not (key.startswith("catena_admin_") and key.endswith("_actions")):
+            continue
+        for action in value or []:
+            if not isinstance(action, dict):
+                continue
+            assert "systemd-run" not in str(action.get("shell", "")), (
+                f"{action['name']} runs under systemd-run from this repo's "
+                "table, where nothing checks it hands restic a cache location"
             )
-
-
-def test_the_setenv_precedes_the_binary():
-    """systemd-run parses its own options up to the command; a --setenv after
-    the binary is an argument TO the binary, not to systemd-run."""
-    for action in _systemd_run_actions():
-        shell = " ".join(str(action["shell"]).split())
-        run_at = shell.index("systemd-run")
-        setenv_at = shell.index("--setenv=HOME=", run_at)
-        # The binary is the first {{ ... }} expansion after systemd-run.
-        binary = re.search(r"\{\{\s*catena_\w+_bin\s*\}\}", shell[run_at:])
-        assert binary, f"{action['name']}: no binary expansion found"
-        assert setenv_at < run_at + binary.start(), (
-            f"{action['name']}: --setenv comes after the binary, so systemd-run "
-            "never sees it"
-        )

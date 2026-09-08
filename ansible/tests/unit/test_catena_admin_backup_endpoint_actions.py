@@ -1,13 +1,18 @@
-"""Lock down the catena-admin wiring for the backup-endpoint (S3) check.
+"""The env channel the backup-endpoint (S3) candidate check travels through.
 
-The backup-endpoint counterpart of test_catena_admin_cloudflared_actions.py's
-cloudflared-check coverage: a Go binary (payload/cmd/catena-backup-check,
-shipped in the ungated host payload the same way catena-cloudflared-sync is)
-validates a CANDIDATE S3 repository + access/secret key BEFORE the Settings
-panel persists them. The candidate rides the SSH Runner's env map, never
-$PAYLOAD/argv, so a mismatched env var name would silently break the whole
-feature -- the host action would always see an empty candidate and the panel
-would always be told the endpoint is invalid.
+A candidate S3 repository plus access/secret key is validated BEFORE the
+Settings panel persists it. The three values ride the SSH Runner's env map,
+never $PAYLOAD/argv, so they never land in $SSH_ORIGINAL_COMMAND or any host
+process argv -- and a name that disagrees on any hop silently breaks the whole
+feature: the action sees an empty candidate and the panel is told a valid
+endpoint is invalid.
+
+The ACTION moved into the panel image's dispatch drop-in with the other
+Community ones, and what it has to look like is asserted there (catena-admin
+payload/actions.d/catena_actions_test.go). What stays here is the part that is
+about this host rather than about the command: sshd's AcceptEnv and the sudoers
+env_keep, which are converge-owned permanently. The image can own the dispatch
+table; the set of inputs root will accept is not a decision it gets to make.
 
 Run: uv run pytest tests/unit/test_catena_admin_backup_endpoint_actions.py
 """
@@ -24,7 +29,6 @@ _ROLE = (
 DEFAULTS = _ROLE / "defaults" / "main.yml"
 HOST = _ROLE / "tasks" / "host.yml"
 
-ACTION = "backup-endpoint-check"
 CANDIDATE_ENV_VARS = (
     "CATENA_BACKUP_CANDIDATE_REPO",
     "CATENA_BACKUP_CANDIDATE_ACCESS_KEY",
@@ -34,48 +38,6 @@ CANDIDATE_ENV_VARS = (
 
 def _defaults() -> dict:
     return yaml.safe_load(DEFAULTS.read_text())
-
-
-def _ce_actions() -> dict[str, str]:
-    return {a["name"]: a["shell"] for a in _defaults()["catena_admin_ce_reserved_actions"]}
-
-
-def _ee_actions() -> dict[str, str]:
-    return {a["name"]: a["shell"] for a in _defaults()["catena_admin_ee_reserved_actions"]}
-
-
-def test_backup_endpoint_check_is_community():
-    # The backup lane (like the tunnel) is a Community feature, so validating
-    # a candidate endpoint before persist cannot be locked behind a licence.
-    assert ACTION in _ce_actions()
-    assert ACTION not in _ee_actions()
-
-
-def test_backup_endpoint_check_reads_all_three_candidate_env_vars():
-    shell = _ce_actions()[ACTION]
-    for var in CANDIDATE_ENV_VARS:
-        assert f"${var}" in shell, (
-            f"{ACTION} does not read {var}; the catena-admin shell side "
-            "(shell/web/backupendpoint.go) sends exactly these three names"
-        )
-
-
-def test_backup_endpoint_check_folds_candidate_into_the_binary_stdin_json():
-    # payload/cmd/catena-backup-check reads {"repo","access_key","secret_key"}
-    # on stdin -- jq (baseline-installed, roles/common) is what builds that
-    # JSON from the env vars without a shell-injection risk from --arg.
-    shell = _ce_actions()[ACTION]
-    assert shell.strip().startswith("jq -n")
-    assert "'{repo:$repo,access_key:$access_key,secret_key:$secret_key}'" in shell
-    assert "{{ catena_admin_backup_check_bin }}" in shell
-
-
-def test_backup_endpoint_check_never_uses_payload_or_argv():
-    # Same "never argv" contract as cloudflared-check: the candidate travels
-    # only through the env map the dispatch table reads by name.
-    shell = _ce_actions()[ACTION]
-    assert "$PAYLOAD" not in shell
-    assert "base64" not in shell
 
 
 def test_sshd_acceptenv_lists_the_backup_candidate_env_vars():
@@ -120,18 +82,26 @@ def test_the_passthrough_list_stays_minimal():
     }
 
 
-def test_backup_check_binary_path_is_declared_once():
-    d = _defaults()
-    assert d["catena_admin_backup_check_bin"] == "/usr/local/bin/catena-backup-check"
+def test_this_role_installs_no_dispatch_binary_of_its_own():
+    """Every binary a dispatch action runs comes out of the image, installed by
+    roles/payload at role 5.5 from its blanket `for f in bin/*` loop.
 
-
-def test_backup_check_binary_ships_via_the_blanket_payload_install():
-    # Unlike catena-restic-key.py (a CE-owned script, individually copied by
-    # host.yml), catena-backup-check is a Go engine binary from the
-    # catena-admin image's payload/cmd/ tree, installed by roles/payload's
-    # unconditional `for f in bin/*` loop -- so this role must NOT also
-    # ship it via its own ansible.builtin.copy task (the AcceptEnv comment
-    # block naming the binary in prose is fine; a `dest:` targeting it is not).
+    This role used to install three by hand -- the store writer, the restic-key
+    helper, and before them the check binary -- each one a second writer of a
+    path roles/payload also writes, with the loser being whichever image was
+    staler. The two catena-ce scripts now ride into the image through the
+    vendored tree and are installed with the rest, which is what lets the panel
+    image authorise the commands that run them."""
     text = HOST.read_text()
-    assert "dest: /usr/local/bin/catena-backup-check" not in text
-    assert "dest: {{ catena_admin_backup_check_bin }}" not in text
+    for source in ("helpers/onbox_config.py", "scripts/catena-restic-key.py"):
+        assert "src: " not in text.split(source)[0][-40:], (
+            f"{source} is copied by this role again; roles/payload installs it "
+            "from the image, and two writers of one path means the loser is "
+            "whichever image is staler"
+        )
+    assert "/usr/local/bin/" not in text, (
+        "this role writes into /usr/local/bin, which roles/payload owns"
+    )
+    # The dispatcher is the one executable this role still installs, and it
+    # lives in /usr/local/sbin because it is the converge's, not the payload's.
+    assert "catena_admin_dispatcher_path" in text

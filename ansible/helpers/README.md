@@ -9,12 +9,19 @@ Python shared by more than one caller. Most of it runs on the controller
 (the machine driving the install), imported by the installer and the
 roles in `../roles/`.
 
-Three are also copied onto the server, because the host-side reconcilers
-need the same code the controller used to plan the work:
-`onbox_config.py` (installed as `/usr/local/bin/catena-onbox-config`,
-the only sanctioned writer of the on-box config store), plus
-`labels_schema.py` and `public_ports.py`, which ship flat beside the
-scripts in `../scripts/` that import them by bare name.
+Three are also on the server, because the host-side reconcilers need the
+same code the controller used to plan the work: `onbox_config.py`
+(installed as `/usr/local/bin/catena-onbox-config`, the only sanctioned
+writer of the on-box config store), plus `labels_schema.py` and
+`public_ports.py`, which ship flat beside the scripts in `../scripts/`
+that import them by bare name.
+
+`onbox_config.py` is not installed by this repo's converge any more. The
+panel image's dispatch drop-in runs it, and an image must not authorise a
+command it does not ship, so the image build copies it out of the vendored
+tree into the payload's own bin and the payload installs it. The file is
+still ours; who delivers it changed. Same story for
+`../scripts/catena-restic-key.py`.
 
 Unit tests for these live in `../tests/unit/`.
 

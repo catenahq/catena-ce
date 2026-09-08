@@ -26,17 +26,22 @@
 - name: "Catalog: append reserved entries for the HOST dispatch path only"
   # The shell-read catalog (actions.yml) stays CE-button-only -- no Business
   # button shows without a license. But the host dispatch table + allow-list
-  # must also authorize the reserved action NAMES the shell dispatches: the CE
-  # reserved actions (settings/restic/config), the Business action names the
-  # loaded plugins dispatch under a license, and the Cloudflare tunnel actions
-  # the Settings panel dispatches. The cloudflared actions are unconditional:
-  # ACCESS_MODE is gone, and the Settings panel is where the Cloudflare token
-  # is entered on a tunnel-deferred host, so the actions have to be authorized
-  # before there is a tunnel.
+  # must also authorize the reserved action NAMES the shell dispatches without
+  # rendering a button for them: the Cloudflare tunnel actions the Settings
+  # panel dispatches, and the two the Business plugins dispatch through a
+  # catena-ce binary or to reinstall the payload itself. The cloudflared actions
+  # are unconditional: ACCESS_MODE is gone, and the Settings panel is where the
+  # Cloudflare token is entered on a tunnel-deferred host, so the actions have
+  # to be authorized before there is a tunnel.
+  #
+  # The twenty-four Community reserved actions that used to be added here ship
+  # in the panel image's dispatch drop-in now. The dispatcher offers any name
+  # THIS table does not carry to {{ catena_admin_actions_overlay_dir }} before
+  # refusing it, so they are reachable without being authorized from here --
+  # which is the point: they run binaries this repo does not install.
   ansible.builtin.set_fact:
     _catena_admin_actions_dispatch: >-
       {{ _catena_admin_actions_merged
-         + (catena_admin_ce_reserved_actions | default([]))
          + (catena_admin_cloudflared_reserved_actions | default([]))
          + (catena_admin_ee_reserved_actions | default([])) }}
 

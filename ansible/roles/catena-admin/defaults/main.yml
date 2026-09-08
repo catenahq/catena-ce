@@ -247,11 +247,6 @@ catena_admin_ee_payload_installer: "{{ catena_admin_ee_payload_dir }}/install-ee
 # writes a timer OnCalendar drop-in, or renders the restic retention file.
 catena_schedule_bin: /usr/local/bin/catena-schedule
 
-# The offsite-copy owner. Installed with the rest of the ungated payload; it
-# reads and writes the `offsite_copies` list in /etc/catena/config.json and is
-# the binary the lane's systemd unit runs.
-catena_offsite_bin: /usr/local/bin/catena-offsite-copy
-
 # Per-host configuration for the daily orchestrator chain.
 #
 # catena-daily.service and catena-daily-resume.service both declare
@@ -284,33 +279,6 @@ catena_managed_services_path: /etc/catena/managed-services.json
 # The container-bump engine, which also carries the `self-update` verb that
 # moves the panel itself.
 catena_admin_stack_update_bin: /usr/local/bin/catena-stack-update-managed
-
-# Where the self-update writes its progress. The panel cannot be streamed to
-# during its own update -- the operation kills the process that would do the
-# streaming -- so it polls this once it is back, the same shape as the restore
-# and migration state files. /var/lib rather than /etc for the same reason as
-# those: transient run state, and /etc rides the backup set.
-catena_admin_selfupdate_state_file: /var/lib/catena/selfupdate.state
-
-# Where every run of the update engine keeps an account of itself.
-#
-# The state file above is one overwritable line for the panel to poll, and it is
-# gone the moment anything else runs. Standard output is no better a record: the
-# self-update runs as a transient systemd unit launched deliberately without
-# --pipe, so what survived a failure was a journal entry for a unit that no
-# longer exists, on hosts where journald is often volatile. A failed update is
-# the thing this engine most has to be answerable for.
-#
-# The engine defaults to this same path, so a run that reaches the host any
-# other way lands in one file rather than two.
-catena_admin_stack_update_log_file: /var/lib/catena/stack-update.log
-
-# The self-update's OWN health baseline. Separate from the container lane's
-# stack-update-baseline.json: both files hold "what healthy looked like before
-# the thing I am about to do", so sharing one means a panel update overwrites
-# the baseline a container bump is still holding, and the diff that decides
-# whether to roll back is taken against the wrong moment.
-catena_admin_selfupdate_baseline_file: /var/lib/catena/selfupdate-baseline.json
 
 # What an apply run does. security-only with a reboot when the packages ask
 # for one is the shipped posture; the chain drives this lane behind its own
@@ -351,41 +319,17 @@ catena_daily_gatus_api_url: "{{ gatus_api_url | default('') }}"
 # backup and verify gates, and two things applying updates is one too many.
 catena_daily_manage_apt_timer: true
 
-# The host restore engine, installed by the payload above like every other
-# engine. Declared here rather than at the call site because this role owns
-# where the payload lands; site.yml's post-restore hook reads it.
-catena_recovery_bin: /usr/local/bin/catena-recovery
-# The host audit CLI, from the same payload. Two callers: the Business
-# audit-export action, and the Community journal-seal check.
-catena_admin_audit_bin: /usr/local/bin/catena-audit
-# Where the restore machine persists progress. Under /var/lib/catena, NOT
-# /etc: this is transient run state, and /etc is in the backup set -- a
-# snapshot taken mid-restore would otherwise carry a half-finished restore's
-# state into the next host that restored it. The panel reads both through the
-# status action.
-catena_recovery_state_file: /var/lib/catena/recovery.state
-catena_recovery_history_file: /var/lib/catena/recovery.history
-
-# The migration lane: the source side of a server-to-server move. A HOST
-# process, not a container, because a migration stops docker on this server and
-# the endpoint that puts it back has to still be answering afterwards. Installed
-# by the same payload as every other engine, on every host and every edition.
+# The migration lane's PORT. A host process, not a container, because a
+# migration stops docker on this server and the endpoint that puts it back has
+# to still be answering afterwards -- so it listens on this host's tailnet
+# address only, and it answers nothing until someone on this server arms it.
 #
-# It listens on this host's tailnet address only, and it answers nothing until
-# someone on this server arms it. The port is declared tailnet-only in the
-# public-port registry below for the same reason Portainer's UI port is: defence
-# in depth behind the bind, not instead of it.
-catena_migrate_lane_bin: /usr/local/bin/catena-migrate-lane
+# The port is what this repo still needs: it is declared tailnet-only in the
+# public-port registry below, for the same reason Portainer's UI port is,
+# defence in depth behind the bind rather than instead of it. The binary and its
+# two state files went with the actions that name them, into the payload that
+# installs them.
 catena_migrate_lane_port: 9040
-
-# The same binary is also the TARGET side of a move, and that side keeps its own
-# progress record. Separate files from the restore machine's on purpose: a
-# migration DRIVES a restore, so the two would otherwise overwrite each other
-# and the page watching the migration would read the restore's state as its own.
-# Under /var/lib/catena for the same reason as the restore's -- transient run
-# state, and /etc rides the backup set.
-catena_migration_state_file: /var/lib/catena/migration.state
-catena_migration_history_file: /var/lib/catena/migration.history
 
 # EE-reserved HOST dispatch entries. The Go shell renders Business action
 # BUTTONS at runtime from its compiled-in panels (audit, daily, ...) only
@@ -461,251 +405,51 @@ catena_admin_ee_reserved_actions:
       --path {{ catena_admin_config_store_path }}
 
 # --- 0b on-box config store (settings API) ----------------------------
-# The Settings tab (shell/settings) reads/writes the on-box config
-# store through the host dispatcher, since the unprivileged container cannot
-# touch the root-owned 0600 store. host.yml installs onbox_config.py on the
-# host; this CE-reserved dispatch action base64-decodes the container's opaque
-# PAYLOAD (a {op,secrets,config} request) and pipes it to
-# onbox_config.py --dispatch-stdin as root. Same reserved-action pattern as the
-# EE entries: host dispatch table + allow-list ONLY, never a shell-catalog
-# button (the Settings page is a first-class nav tab, not an Actions button).
+# The store the panel reads and writes through the host dispatcher, since the
+# unprivileged container cannot touch the root-owned 0600 file. The writer
+# itself is helpers/onbox_config.py, and the PAYLOAD is a {op,secrets,config}
+# request.
+#
+# Both names are still here because the Business cloudflare-zones-save action
+# above pipes through them. The action that SERVES the Settings tab is not: it
+# moved into the payload's own dispatch drop-in with the other twenty-three (see
+# the block below).
+#
+# The registries in helpers/onbox_config.py remain the enforcement point, and
+# they are read TWICE -- once by the writer when a request arrives, and again by
+# this converge's loader when it projects the store into facts. A key this repo
+# does not declare is a key it never projects, whatever the file holds. That is
+# the property that survives the writer shipping in the image.
 catena_admin_config_store_path: "/etc/catena/config.json"
 catena_admin_onbox_config_path: "/usr/local/bin/catena-onbox-config"
-# Backup-password (restic) validate + rotate: USER_HELD, never a settings
-# field, so these are deliberate button+confirm actions dispatched to the host,
-# not part of a settings save. Same opaque-PAYLOAD pattern as catena-config.
-catena_admin_restic_key_path: "/usr/local/bin/catena-restic-key"
-# The backup-endpoint (S3 repo) candidate-check binary. Part of the ungated
-# host payload like catena-cloudflared-sync -- roles/payload extracts it from
-# the catena-admin image (payload/cmd/catena-backup-check) via the blanket
-# `for f in bin/*` install in install-ee-payload.sh, so no per-binary listing
-# is needed here.
-catena_admin_backup_check_bin: "/usr/local/bin/catena-backup-check"
-catena_admin_ce_reserved_actions:
-  - name: catena-config
-    shell: >-
-      echo "$PAYLOAD" | base64 -d |
-      {{ catena_admin_onbox_config_path }} --dispatch-stdin
-      --path {{ catena_admin_config_store_path }}
-  # Scheduling (COMMUNITY). The backup lane is a Community feature, so a
-  # client on the free edition has to be able to say when it runs -- and
-  # nothing is scheduled until they do.
-  #
-  # Three actions rather than one taking a verb: the dispatch table maps a
-  # NAME to a fixed shell line, and that is what stops the container choosing
-  # which command runs as root. A single entry reading the verb out of PAYLOAD
-  # would hand that choice back.
-  #
-  # validate and set take their input on stdin. An OnCalendar value is
-  # punctuation by design -- spaces, commas, stars, slashes -- so the field
-  # whose whole purpose is to accept punctuation is the last one to
-  # interpolate into a command line.
-  - name: catena-schedule-show
-    shell: "{{ catena_schedule_bin }} show"
-  - name: catena-schedule-validate
-    shell: >-
-      echo "$PAYLOAD" | base64 -d | {{ catena_schedule_bin }} validate
-  - name: catena-schedule-set
-    shell: >-
-      echo "$PAYLOAD" | base64 -d | {{ catena_schedule_bin }} set
-  # Offsite copies (COMMUNITY on the CONFIGURATION side). The lane that runs
-  # them is licensed; being able to say what this host would copy, and to
-  # read back what it holds, is not -- a client whose licence lapsed must
-  # still be able to see and correct the credentials pointing at their own
-  # bucket.
-  #
-  # The list rides PAYLOAD like every other write here. It carries
-  # object-store credentials and repository URLs, and neither has any
-  # business on a command line.
-  - name: catena-offsite-show
-    shell: "{{ catena_offsite_bin }} show"
-  - name: catena-offsite-set
-    shell: >-
-      echo "$PAYLOAD" | base64 -d | {{ catena_offsite_bin }} set
-  - name: catena-restic-validate
-    shell: >-
-      echo "$PAYLOAD" | base64 -d | {{ catena_admin_restic_key_path }}
-  - name: catena-restic-rotate
-    shell: >-
-      echo "$PAYLOAD" | base64 -d | {{ catena_admin_restic_key_path }}
-  # Updating the panel itself (COMMUNITY). Withholding this leaves a
-  # free-edition host running whatever its install day happened to ship,
-  # forever -- a panel nobody has patched is the same shape of problem as a
-  # backup nobody has verified. What is licensed is the nightly chain that
-  # decides WHEN, not the ability to update at all.
-  #
-  # Detached under systemd-run for the obvious reason -- the operation kills
-  # the container that asked for it -- and WITHOUT --pipe, unlike the restore
-  # and migrate actions: there is nothing left to stream to. The panel polls
-  # {{ catena_admin_selfupdate_state_file }} once it is back, the way the
-  # restore page reads the recovery state file.
-  #
-  # Same /run/catena.lock every other lane takes, and for the same reason: a
-  # panel-dispatched update that ran alongside the nightly chain would race its
-  # health baseline, and a baseline captured mid-roll is a baseline that
-  # excuses the regression it was meant to catch. -w 3600 sits under the
-  # unit-less systemd-run default, so the wait is reachable.
-  #
-  # The target image arrives base64 through $PAYLOAD like the other dispatched
-  # requests. It is not a secret -- an image reference is public by
-  # construction -- but the encoding is what keeps a value with a space in it
-  # from becoming two arguments. Which image is ACCEPTABLE is the host's
-  # decision, not this line's: the engine refuses any reference whose
-  # repository differs from the one the service is running.
-  #
-  # This is NOT in managed-services.json, deliberately: the generic bump path
-  # is `docker service update --image` and nothing else, and for catena-admin
-  # that is half an update. The host engines come out of the same image and
-  # have to be reinstalled from the new one in the same operation.
-  #
-  # Reserved rather than catalogued: the dispatch table + allow-list get it,
-  # the shell-read catalog does not. The Panel-updates page is a first-class
-  # surface with a version field and a confirmation, not an Actions button
-  # whose argument would be a base64 blob typed by hand.
-  - name: catena-admin-self-update
-    shell: >-
-      systemd-run --unit catena-admin-selfupdate --collect
-      --setenv=SELF_UPDATE_IMAGE="$(echo "$PAYLOAD" | base64 -d)"
-      --setenv=SELF_UPDATE_STATE_FILE={{ catena_admin_selfupdate_state_file }}
-      --setenv=SELF_UPDATE_BASELINE_FILE={{ catena_admin_selfupdate_baseline_file }}
-      --setenv=STACK_UPDATE_LOG_FILE={{ catena_admin_stack_update_log_file }}
-      --setenv=HOME=/var/lib/catena/restic-home
-      --setenv=XDG_CACHE_HOME=/var/lib/catena/restic-cache
-      /usr/bin/flock -w 3600 /run/catena.lock
-      {{ catena_admin_stack_update_bin }} self-update
-  # Read-only progress, in the same shape as the restore's and the migration's.
-  - name: catena-admin-self-update-status
-    shell: >-
-      printf 'state=%s\n'
-      "$(head -n 1 {{ catena_admin_selfupdate_state_file }} 2>/dev/null || echo idle)";
-      printf 'unit=%s\n'
-      "$(systemctl is-active catena-admin-selfupdate.service 2>/dev/null || true)";
-      printf 'image=%s\n'
-      "$(docker service inspect --format '{{ '{{' }}.Spec.TaskTemplate.ContainerSpec.Image{{ '}}' }}' {{ catena_admin_service_name }} 2>/dev/null || true)";
-      tail -n 40 {{ catena_admin_stack_update_log_file }} 2>/dev/null | sed 's/^/log=/' || true
-  # Backup-endpoint (S3) candidate check (COMMUNITY -- the backup lane is a
-  # Community feature). The Settings panel validates a CANDIDATE repository
-  # string + access/secret key BEFORE persisting them, the same pre-persist
-  # shape as cloudflared-check below: a dispatch/transport failure or a
-  # rejected candidate must never let a save go through. The three values ride
-  # the SSH Runner's env map -- CATENA_BACKUP_CANDIDATE_REPO,
-  # *_ACCESS_KEY, *_SECRET_KEY (whitelisted via sshd AcceptEnv in host.yml) --
-  # NOT $PAYLOAD/argv, so they never land in $SSH_ORIGINAL_COMMAND or any host
-  # process argv. jq (baseline-installed on every host, roles/common) folds
-  # them into the {"repo","access_key","secret_key"} JSON
-  # payload/cmd/catena-backup-check expects on stdin -- shell.web.
-  # backupendpoint.go's BackupEndpointCandidateRepoEnv/*AccessKeyEnv/
-  # *SecretKeyEnv in catena-admin MUST match these three names exactly, or the
-  # candidate silently arrives empty.
-  - name: backup-endpoint-check
-    shell: >-
-      jq -n
-      --arg repo "$CATENA_BACKUP_CANDIDATE_REPO"
-      --arg access_key "$CATENA_BACKUP_CANDIDATE_ACCESS_KEY"
-      --arg secret_key "$CATENA_BACKUP_CANDIDATE_SECRET_KEY"
-      '{repo:$repo,access_key:$access_key,secret_key:$secret_key}' |
-      {{ catena_admin_backup_check_bin }}
-  # State register (COMMUNITY). The Apps tab records client intent here when
-  # someone stops or starts an application, so a later restore knows not to
-  # bring back something that was deliberately switched off. Portainer's own
-  # status only covers intent up to the last backup; the register covers the
-  # window after it, and it lives under /etc so it rides the snapshot.
-  # PAYLOAD is base64(JSON {stack,desired,reason}) rendered server-side.
-  - name: catena-register-set
-    shell: >-
-      echo "$PAYLOAD" | base64 -d |
-      {{ catena_recovery_bin }} register set-stdin
-  - name: catena-register-get
-    shell: "{{ catena_recovery_bin }} register get"
-  # Quiesce (COMMUNITY -- the mechanism ships everywhere; only the migration
-  # panel that drives it is licensed). pause freezes the application tier
-  # before a snapshot; stop takes the host out of service; resume undoes
-  # exactly what those two did and nothing else. Every one records what to
-  # undo before it mutates, which is what makes an aborted migration
-  # recoverable.
-  - name: catena-quiesce-pause
-    shell: "{{ catena_recovery_bin }} quiesce pause"
-  - name: catena-quiesce-stop
-    shell: "{{ catena_recovery_bin }} quiesce stop"
-  - name: catena-quiesce-resume
-    shell: "{{ catena_recovery_bin }} quiesce resume"
-  - name: catena-quiesce-status
-    shell: "{{ catena_recovery_bin }} quiesce status"
-  # Journal tamper-evidence check (COMMUNITY). The common role turns Forward
-  # Secure Sealing on for EVERY host, so being able to CHECK the seal is not a
-  # paid feature -- only the panel that displays the trail is. With no argument
-  # this verifies the journal's structure and prints the command that checks
-  # the seals themselves; the verification key is deliberately not on the box,
-  # because whoever holds it can re-seal an edited journal.
-  - name: catena-audit-fss-verify
-    shell: "{{ catena_admin_audit_bin }} fss-verify"
-  # Data-scoped restore (COMMUNITY). Three actions, deliberately separate:
-  # one that starts a restore, one that reports on it, and one that clears a
-  # halted run. Folding the clear into the report would make a page refresh
-  # destroy the state it was refreshing.
-  #
-  # The run goes through systemd-run rather than running inline, because the
-  # dispatcher's SSH session is a child of the admin container's connection.
-  # The restore does not stop the panel -- that is the whole design -- but a
-  # panel that restarts for any other reason mid-restore would otherwise take
-  # the restore down with it. --collect reaps the unit on exit so a second
-  # attempt is not blocked by the first one's corpse, and --pipe hands the
-  # request through on stdin so no part of it travels in argv.
-  #
-  # The request is {"snapshot","preseed","foreign"} as JSON. Note what it does
-  # NOT carry: a path. Which repository to read is a BOOLEAN selecting one fixed
-  # file, because a path would let the panel have an arbitrary file on this box
-  # loaded as the environment of a root process.
-  #
-  # --setenv is not optional. A transient systemd unit starts with a CLEAN
-  # environment, and restic refuses to run without a cache location:
-  #   unable to open cache: unable to locate cache directory:
-  #   neither $XDG_CACHE_HOME nor $HOME are defined
-  # Every other action inherits the dispatcher's environment (sudo supplies
-  # HOME), which is why only the systemd-run ones need this and why the fault
-  # was invisible until wizard_restore_smoke first reached stage 4.
-  # The values MATCH catena-backup.service (roles/backup/templates/
-  # catena-backup.service.j2) so both callers share one warm cache rather than
-  # each keeping its own; test_catena_admin_systemd_run_env.py pins them equal.
-  - name: catena-restore-run
-    shell: >-
-      echo "$PAYLOAD" | base64 -d |
-      systemd-run --unit catena-recovery-restore --collect --pipe
-      --setenv=HOME=/var/lib/catena/restic-home
-      --setenv=XDG_CACHE_HOME=/var/lib/catena/restic-cache
-      {{ catena_recovery_bin }} restore -stdin
-  # Read-only progress. The restore page reads the same two files directly
-  # through its read-only mount of {{ catena_recovery_state_file | dirname }},
-  # so this is the hand-run and bench view, not the panel's polling path -- a
-  # restore runs for as long as the data takes, and an SSH round trip every few
-  # seconds for an hour is not how to watch it.
-  - name: catena-restore-status
-    shell: >-
-      printf 'state=%s\n'
-      "$(head -n 1 {{ catena_recovery_state_file }} 2>/dev/null || echo idle)";
-      printf 'unit=%s\n'
-      "$(systemctl is-active catena-recovery-restore.service 2>/dev/null || true)";
-      tail -n 40 {{ catena_recovery_history_file }} 2>/dev/null || true
-  - name: catena-restore-reset
-    shell: "{{ catena_recovery_bin }} restore -reset"
-  # The snapshot list the restore page's picker renders. Read-only, JSON on
-  # stdout. Two entries rather than one taking a flag from the panel: a
-  # reserved action is a FIXED command, and "which repository" is exactly the
-  # kind of thing that must not be caller-supplied.
-  - name: catena-restore-snapshots
-    shell: "{{ catena_recovery_bin }} snapshots"
-  - name: catena-restore-snapshots-foreign
-    shell: "{{ catena_recovery_bin }} snapshots -foreign"
-  # The keyset for ANOTHER server's backup repository, for a machine that is
-  # replacing one that is gone. PAYLOAD is base64(JSON
-  # {op,repository,password,env}); the host writes it 0600 under /run, which is
-  # tmpfs, so it does not survive a reboot. The engine allow-lists the variable
-  # names it will accept -- the file is loaded into a root process's
-  # environment, so an arbitrary name would be a way to set LD_PRELOAD for it.
-  - name: catena-restore-credentials
-    shell: >-
-      echo "$PAYLOAD" | base64 -d |
-      {{ catena_recovery_bin }} credentials -stdin
+
+# --- what used to be catena_admin_ce_reserved_actions -----------------
+#
+# Twenty-four Community actions lived here: the settings store, scheduling,
+# offsite copies, the backup password, the panel self-update, the backup
+# endpoint check, the state register, quiesce, the journal seal check and the
+# whole restore family. They are in the payload's own dispatch drop-in now
+# (catena-admin payload/actions.d/20-catena.sh), where the twelve Business ones
+# went before them and for the same reasons.
+#
+# Every command behind them ran a binary the PAYLOAD installs, at a path the
+# payload chose, so this list was an authorization record for names this repo
+# does not own and cannot verify -- and a one-line change to any of them needed
+# an operator with a laptop and an SSH session against a live client. Two of the
+# commands ran catena-ce scripts (onbox_config.py, catena-restic-key.py); the
+# image build now copies those into the payload's own bin out of the vendored
+# tree, so the image ships every command it authorises and this role no longer
+# installs them.
+#
+# The variables those bodies interpolated went with them. They were product
+# constants written as Ansible variables -- absolute paths the payload installer
+# itself chose -- and a constant is owned by whoever ships the thing it points
+# at. What is left here is what the converge still runs or still renders.
+#
+# NOTHING replaced them in this table, and nothing should: the dispatcher is
+# base-first, so a name here would win over the drop-in and the file where the
+# command is maintained would never be reached. tests/unit/
+# test_converge_dispatch_table.py is the gate on that.
 
 # Cloudflare tunnel reserved actions (COMMUNITY -- the tunnel is a CE feature).
 # The Settings panel dispatches these when the client saves a Cloudflare token:
