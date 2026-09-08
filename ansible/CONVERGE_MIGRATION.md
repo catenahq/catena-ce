@@ -39,7 +39,7 @@ that would remove your ability to run a reconcile.
 | --- | --- | --- |
 | 1a. Boundary declared + enforced | **done** | catena-ce `75a529c` |
 | 1b. Directories physically split | **open**, bench-gated | -- |
-| 2. Dispatch table into the image | **precondition done**, move open | catena-ce `db03b51` |
+| 2. Dispatch table into the image | **done** | catena-admin `6557adf`, catena-ce `829b914` |
 | 3. Inventory into the store | **open**, measured at 18 | gate in `75a529c` |
 | 3'. Registry is the enforcement point | **done** | catena-ce `d63318a` |
 | 4. On-host reconcile + panel button + timer | **vendoring done**, rest open | catena-admin `17c615f` |
@@ -48,6 +48,10 @@ that would remove your ability to run a reconcile.
 
 Phases 3' and 4's vendoring landed early because both are independent of the
 phases they are numbered under.
+
+The two defects this document used to list as unfixed are fixed: catena-ce
+`317e3da` (the drift comparison and the image pin) with catena-admin `3a1b54c`
+(the rollback's half of the second one).
 
 ---
 
@@ -63,10 +67,14 @@ payload installer itself chose**: `/usr/local/bin/catena-recovery`,
 `/var/lib/catena/selfupdate.state`, `/etc/catena/config.json`, and so on. They
 are product constants written as inventory values.
 
-So the dispatch table is converge-rendered by history, not by necessity, and
-phase 2 has no blocker. Gated by
-`tests/unit/test_action_bodies_are_constants.py`, which fails the build the
-moment somebody proposes a body that would make the move impossible.
+So the dispatch table was converge-rendered by history, not by necessity, and
+phase 2 had no blocker. The gate that proved it,
+`tests/unit/test_action_bodies_are_constants.py`, is gone with the move: the
+bodies it guarded are in the image, and what replaces it is the other half of
+the same question -- `tests/unit/test_converge_dispatch_table.py` asks why each
+action that STAYED cannot be in the image, and catena-admin
+`payload/actions.d/catena_actions_test.go` asserts the constants where they now
+live.
 
 ### 2. No precedence flip is needed, so the privilege question is moot
 
@@ -74,19 +82,23 @@ The plan flagged "let a drop-in override a base name" as a real privilege
 decision needing deliberate sign-off, because the image would gain the ability
 to redefine what root runs for an existing name.
 
-It is not needed. When the 24 CE bodies move to the drop-in they are **removed**
-from the converge's table, so the base table empties and the overlay becomes the
-only source. The dispatcher's existing base-first precedence is untouched: names
-it does not carry already fall through to `/etc/catena/admin-actions.d/`.
+It was not needed. The 24 CE bodies were **removed** from the converge's table
+as they moved, so the base table has nothing to shadow and the overlay is simply
+the only source. The dispatcher's base-first precedence is untouched: names it
+does not carry already fall through to `/etc/catena/admin-actions.d/`.
 
 Do not add override semantics. If a future change seems to need them, that is
-the signal that something was left in the base table which should have moved.
+the signal that something was left in the base table which should have moved --
+and `test_converge_dispatch_table.py` will name it.
 
 ### 3. Community actions need dispatch arms, not declarations
 
-`Manifest.Accepts()` has exactly **one** non-test caller:
-`shell/convergestate/convergestate.go:139`. Phase 2 deletes convergestate, after
-which nothing reads it.
+`Manifest.Accepts()` had exactly **one** non-test caller,
+`shell/convergestate/convergestate.go:139`, and phase 2 deleted convergestate
+with its banner, its translations and its plumbing. The banner asked whether the
+host's converge predated the panel's actions; every action now either ships in
+the image beside the panel or is a converge action the panel does not dispatch,
+so the question has no answer left to give.
 
 `EntitledPayloadActions` filters declarations by licence entitlement and refuses
 a panel-less one. That is exactly right for the CE actions: no licence-gated
@@ -103,12 +115,20 @@ authorization path, no sentinel "always allowed" panel.
 
 The first generated drop-in inlined each constant at every call site. That
 breaks properties the existing tests hold, e.g.
-`test_recovery_binary_path_is_declared_once`.
+`test_recovery_binary_path_is_declared_once` -- and it is also what makes the
+missing-binary tests possible at all, since they work by repointing the `*_BIN`
+variables.
 
-Follow `catena-admin payload/actions.d/10-business.sh`: shell variables at the
-top (`_CATENA_RECOVERY_BIN=/usr/local/bin/catena-recovery`), arms referencing
-them. Generate, never transcribe -- 24 bodies retyped by hand is 24 chances to
-change one.
+`catena-admin payload/actions.d/catena_actions_test.go` now enforces it for
+every drop-in: no `/usr/local/bin/`, `/var/lib/catena/` or `/etc/catena/` path
+may appear inside an arm.
+
+Generate, never transcribe -- 24 bodies retyped by hand is 24 chances to change
+one. The generator also has to substitute the Jinja escapes `{{ '{{' }}` /
+`{{ '}}' }}` to literal braces first, because the `docker service inspect
+--format` bodies carry Go templates that only needed escaping while Ansible
+rendered them. It carried each action's comment block across verbatim: the
+comments are the reasoning, and rewriting 24 of them from memory loses it.
 
 ### 5. The phase-3 backlog is 18 variables, not a vague pile
 
@@ -158,59 +178,52 @@ Writing the gates found these rather than confirming the guesses.
 - `roles/common`'s **templates belong with its bootstrap half**, not its
   reconcile half. Hence `default_side` per straddling role.
 
+### 7. The image has to SHIP every command it authorises
+
+The one thing that made phase 2 look impossible, and the rule that resolved it.
+
+Three of the twenty-four bodies ran one of two catena-ce scripts the converge
+installed by hand: `onbox_config.py`, the settings store writer that serves the
+whole Settings tab, and `catena-restic-key.py`. An image declaring an action for
+a path something else installs is an action that works or not depending on how
+the host was converged --
+`TestEveryDispatchedBinaryIsOneThePayloadInstalls` in catena-admin says so, and
+it is right.
+
+Resolved by delivery, not by exception: the image already carries the whole
+vendored catena-ce tree, so the build copies those two into the payload's own
+`bin/` and `roles/payload` installs them at role 5.5 with the engines. One
+source file, still in catena-ce; who ships it changed, which is the answer the
+engines already had. `roles/catena-admin/tasks/host.yml` no longer installs
+either.
+
+Note what this does NOT weaken. Once the drop-in is image-owned, "which binary
+an arm names" is already the image's choice, so shipping the writer changes no
+boundary. The boundary that holds is elsewhere and stays converge-owned: the env
+allow-list, and the registries in `helpers/onbox_config.py`, which the converge
+reads AGAIN on the way out -- a key this repo does not declare is a key it never
+projects, whatever the file holds.
+
+### 8. Two image comparisons answered for the wrong host
+
+Both were found while moving the table and are now fixed (`317e3da`,
+catena-admin `3a1b54c`). They are recorded because the shape recurs.
+
+`swarm_service_drift` stripped the digest from the LIVE side only, so a
+digest-carrying pin never matched itself. The fix is NOT to strip both sides --
+that answers "converged" for a host running different bytes under the same tag.
+What the comparison does depends on what the PIN says.
+
+`catena_image_pin` conflated "what to run with no pin" with "the oldest version
+a pin may name". One literal answers both wherever the converge ships a version;
+the panel's first argument is the newest published release, so max() made the
+pin inert and a rollback chosen in the panel was undone by the next converge.
+The two jobs are separate arguments now, and the panel's rollback records the
+version it went back to instead of clearing the pin.
+
 ---
 
 ## What remains, in order
-
-### Phase 2: the dispatch table into the image
-
-Cross-repo. Nothing else in this list is blocked by it.
-
-**catena-admin**
-1. Generate `payload/actions.d/20-catena.sh` from
-   `catena_admin_ce_reserved_actions`, constants at the top (see finding 4),
-   declarations panel-less + hidden (finding 3). A working generator is
-   reproducible from findings 1 and 4; it must substitute the Jinja escapes
-   `{{ '{{' }}` / `{{ '}}' }}` to literal braces first, because the
-   `docker service inspect --format` bodies carry Go templates that only needed
-   escaping while Ansible rendered them.
-2. Delete `shell/convergestate/`, its banner block in
-   `shell/web/templates/layout.tmpl`, the `converge.*` i18n keys in both
-   translations, and the `Converge` field on `renderData`.
-3. Extend `payload/actions.d/declared_panels_test.go` to cover the new file:
-   it asserts panel presence for the Business drop-in, and the CE one asserts
-   the opposite (panel-less by design, with the reason).
-
-**catena-ce**
-4. Empty `catena_admin_ce_reserved_actions`. Keep
-   `catena_admin_ee_reserved_actions`' `ee-install-engines` **in the converge**:
-   it is the action that reinstalls the payload, so it is the way back when a
-   drop-in is broken. That is the reconcile invariant applied to the dispatch
-   table itself.
-5. `roles/catena-admin/tasks/catalog.yml` renders the table and the allow-list.
-   The table becomes a loader-only template; decide whether
-   `admin-allowed.yaml` (an audit artifact, not an enforcement point) is
-   regenerated from `release.json`'s `payload_actions` or dropped.
-6. Re-point 8 test files at the drop-in. **Roughly 40 assertions, each a real
-   property.** Do not mechanise this: the assertions that check for
-   `{{ catena_recovery_bin }}` become checks against the top-of-file constant,
-   and that is a rewrite, not a substitution.
-
-```
-tests/unit/test_admin_dispatch_overlay.py            (14 tests)
-tests/unit/test_catena_admin_backup_endpoint_actions.py
-tests/unit/test_catena_admin_cloudflared_actions.py  (11 tests)
-tests/unit/test_catena_admin_fss_action.py
-tests/unit/test_catena_admin_migrate_lane.py
-tests/unit/test_catena_admin_quiesce_actions.py      (14 tests)
-tests/unit/test_catena_admin_self_update_actions.py  (9 tests)
-tests/unit/test_release_manifest.py
-```
-
-**Ordering safety on a real host:** `roles/payload` installs the drop-ins at
-role 5.5; `roles/catena-admin` renders the table at role 13. Within one converge
-the drop-ins land first, so there is no window where the base table is empty and
-the overlay is not yet installed.
 
 ### Phase 1b: move the directories
 
@@ -273,16 +286,22 @@ with per-concern Go engines, following
   wanted result. Do not replace this with an exclude list here: a second copy of
   that rule can drift, and the copy that drifts is the one publishing client
   data. A real inventory is per-client information; treat that folder carefully.
-- **`swarm_service_drift` compares image refs asymmetrically** and this is
-  unfixed. `_strip_digest` is applied to the live side only while
-  `catena_admin_image` carries its digest, so the filter reports drift against
-  its own pin and emits `--image` on every converge. Docker no-ops the identical
-  update so nothing restarts, but the task reports `changed` every time and
-  "did the converge move my panel" is unanswerable from the output. The unit
-  tests pass because they use a digest-less desired image.
-- **A converge re-pins the panel image.** `catena_image_pin` takes
-  `max(newest published, on-host pin)`, so a deliberate DOWNGRADE chosen in the
-  panel does not survive a converge. Moving forward does.
+- **The CE reserved list was DELETED, not emptied.** The dispatcher is
+  base-first, so a name in the converge's table wins outright and the drop-in
+  where that command is maintained is never reached -- silently, with both files
+  passing every assertion about themselves. An empty list left behind is a place
+  for one to come back to. `tests/unit/test_converge_dispatch_table.py` is the
+  gate: the reserved table must equal a declared set, each entry carrying the
+  reason the image cannot hold it.
+- **`cloudflare-zones-save` dispatches a binary nothing builds.** The converge
+  authorises `/usr/local/bin/catena-cloudflare-zones` and no repository ships
+  it, so the Business zones panel's save can only ever answer "command not
+  found". Found while writing the declared-set gate; recorded in the ops
+  backlog, not fixed here.
+- **The payload installer's prune leg deletes by CONTENT.** Two of its binaries
+  are catena-ce scripts now, and the converge no longer writes them. Withdrawing
+  one from the image therefore removes it from the host, which is correct and
+  worth knowing before moving a file in catena-ce.
 
 ---
 
