@@ -110,3 +110,35 @@ def test_status_reads_three_things_and_fails_none_of_them():
     for key in ("state=", "unit=", "image="):
         assert key in shell
     assert shell.count("|| true") + shell.count("|| echo") >= 3
+
+
+def test_the_engine_keeps_a_log_and_the_panel_can_read_it():
+    """The state file is one overwritable line, and standard output goes to the
+    journal of a transient unit launched without --pipe -- so what survived a
+    failed update was nothing a client could reach. The engine now keeps an
+    account of every run, and the status action hands the tail of it back."""
+    # The action lines carry the VARIABLE, unrendered; the default is what it
+    # resolves to.
+    assert _defaults()["catena_admin_stack_update_log_file"].startswith("/var/")
+
+    update = _ce_actions()[UPDATE]
+    assert "STACK_UPDATE_LOG_FILE={{ catena_admin_stack_update_log_file }}" in update, (
+        "without the override the engine falls back to its compiled default; "
+        "pinning it here is what keeps the converge, the engine and the status "
+        "action agreeing on one file"
+    )
+
+    status = _ce_actions()[STATUS]
+    assert "catena_admin_stack_update_log_file" in status and "log=" in status, (
+        "a failed update whose reason is only on the host is a reason nobody "
+        "reads"
+    )
+
+
+def test_the_log_tail_cannot_fail_the_status_action():
+    """Same rule as the other three substitutions: a host that has never
+    updated has no log, and a status action that exited non-zero there would
+    report a fault on every fresh install."""
+    status = _ce_actions()[STATUS]
+    tail = status[status.index("log="):]
+    assert "|| true" in tail or "2>/dev/null" in tail

@@ -292,6 +292,19 @@ catena_admin_stack_update_bin: /usr/local/bin/catena-stack-update-managed
 # those: transient run state, and /etc rides the backup set.
 catena_admin_selfupdate_state_file: /var/lib/catena/selfupdate.state
 
+# Where every run of the update engine keeps an account of itself.
+#
+# The state file above is one overwritable line for the panel to poll, and it is
+# gone the moment anything else runs. Standard output is no better a record: the
+# self-update runs as a transient systemd unit launched deliberately without
+# --pipe, so what survived a failure was a journal entry for a unit that no
+# longer exists, on hosts where journald is often volatile. A failed update is
+# the thing this engine most has to be answerable for.
+#
+# The engine defaults to this same path, so a run that reaches the host any
+# other way lands in one file rather than two.
+catena_admin_stack_update_log_file: /var/lib/catena/stack-update.log
+
 # The self-update's OWN health baseline. Separate from the container lane's
 # stack-update-baseline.json: both files hold "what healthy looked like before
 # the thing I am about to do", so sharing one means a panel update overwrites
@@ -555,6 +568,7 @@ catena_admin_ce_reserved_actions:
       --setenv=SELF_UPDATE_IMAGE="$(echo "$PAYLOAD" | base64 -d)"
       --setenv=SELF_UPDATE_STATE_FILE={{ catena_admin_selfupdate_state_file }}
       --setenv=SELF_UPDATE_BASELINE_FILE={{ catena_admin_selfupdate_baseline_file }}
+      --setenv=STACK_UPDATE_LOG_FILE={{ catena_admin_stack_update_log_file }}
       --setenv=HOME=/var/lib/catena/restic-home
       --setenv=XDG_CACHE_HOME=/var/lib/catena/restic-cache
       /usr/bin/flock -w 3600 /run/catena.lock
@@ -567,7 +581,8 @@ catena_admin_ce_reserved_actions:
       printf 'unit=%s\n'
       "$(systemctl is-active catena-admin-selfupdate.service 2>/dev/null || true)";
       printf 'image=%s\n'
-      "$(docker service inspect --format '{{ '{{' }}.Spec.TaskTemplate.ContainerSpec.Image{{ '}}' }}' {{ catena_admin_service_name }} 2>/dev/null || true)"
+      "$(docker service inspect --format '{{ '{{' }}.Spec.TaskTemplate.ContainerSpec.Image{{ '}}' }}' {{ catena_admin_service_name }} 2>/dev/null || true)";
+      tail -n 40 {{ catena_admin_stack_update_log_file }} 2>/dev/null | sed 's/^/log=/' || true
   # Backup-endpoint (S3) candidate check (COMMUNITY -- the backup lane is a
   # Community feature). The Settings panel validates a CANDIDATE repository
   # string + access/secret key BEFORE persisting them, the same pre-persist
