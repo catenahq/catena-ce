@@ -128,11 +128,29 @@ alerting:
 # and self-contained the instant the process starts; it carries no
 # `alerts:` (a monitor that is down cannot page about itself).
 endpoints:
-  - name: "Gatus (self-check)"
-    # Capital I, exactly as gatus-infra-spec.json.j2 spells it. Gatus groups by
-    # the literal string, so "infrastructure" here and "Infrastructure" there
-    # rendered two sections on the status page with one endpoint stranded in
-    # the wrong one.
+  # The name carries the migration, and the parentheses are what it cost.
+  #
+  # This endpoint's group said "infrastructure" while every entry in
+  # gatus-infra-spec.json.j2 says "Infrastructure". Gatus renders the group
+  # string verbatim, so the status page grew a second Infrastructure section
+  # with this one endpoint stranded in it.
+  #
+  # Correcting the capitalisation alone fixes a FRESH install and silently does
+  # nothing to a running one. Gatus stores the rendered group in SQLite and the
+  # dashboard reads it from there, not from this file; the row is found by
+  # `sanitize(group) + "_" + sanitize(name)`, and sanitize lowercases -- so
+  # "infrastructure" and "Infrastructure" are the same key. The row is
+  # therefore never missing, `endpoint_group` is only ever written on INSERT,
+  # and `DeleteAllEndpointStatusesNotInKeys` keeps a key it still sees. The old
+  # spelling outlives any number of converges and restarts.
+  #
+  # Dropping the parentheses changes the NAME, which changes the key, which
+  # makes Gatus purge the stale row at startup and insert a fresh one carrying
+  # this group. The converge migrates an already-running host by itself, with
+  # no hand-written SQL against a database another process holds open. The cost
+  # is this endpoint's history, which is a self-check on the monitor that would
+  # be down if it mattered.
+  - name: "Gatus self-check"
     group: "Infrastructure"
     url: "http://localhost:{{ gatus_internal_port }}/health"
     interval: 60s
