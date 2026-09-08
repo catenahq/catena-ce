@@ -175,26 +175,40 @@ catena_admin_internal_port: 8000
 catena_admin_image_override: >-
   {{ lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) }}
 
-# What a converge creates the service from when there is no service yet: the
-# resolved release, or the version the on-host update lane recorded in
-# /etc/catena/config.json, whichever is higher. A restored or re-converged host
-# can hold a pin with no service running, and creating that service from an
-# older image would hand it engines it had already moved past. See
-# playbooks/filter_plugins/image_pin.py for why neither side simply wins.
+# Which image this host runs, in precedence order:
 #
-# The resolved side is now the newest PUBLISHED release, so in practice the pin
-# can only equal or trail it. The filter stays because the rule it enforces is
-# structural rather than situational: an image a role asserts instead of asking
-# for is how the last revert-every-managed-bump defect got in.
+#   1. CATENA_ADMIN_IMAGE, if set. An explicit override is somebody saying
+#      exactly what to run, so nothing below may argue with it. It used to be
+#      handed to the pin filter along with everything else, which meant a stored
+#      pin could beat the very value whose purpose is change control.
+#   2. What this host recorded in /etc/catena/config.json -- the version its own
+#      update lane last applied, INCLUDING A ROLLBACK.
+#   3. The newest published release, resolved from the registry once per
+#      converge.
 #
-# The resolved value carries its digest (repo:tag@sha256:...), so the pull is
-# byte-addressed. A tag moved between this resolution and roles/catena-admin's
-# service create at role 13 cannot change which bytes land.
+# The empty minimum on the filter is what makes (2) beat (3). Everywhere else
+# the converge SHIPS the version, so the same literal is both the default and
+# the oldest acceptable pin and the filter resolves max(floor, pin); here the
+# default is the NEWEST release, and using newest as a floor left the pin unable
+# to ever win. A client who rolled their panel back to the version that worked
+# had it undone by the next converge, silently. See
+# playbooks/filter_plugins/image_pin.py.
+#
+# A pin still has to name this repository and a real version, so a corrupt store
+# cannot choose the image; and the resolved value carries its digest
+# (repo:tag@sha256:...), so the pull is byte-addressed and a tag moved between
+# this resolution and roles/catena-admin's service create at role 13 cannot
+# change which bytes land.
+#
+# The inline conditional rather than the ternary filter is deliberate: ternary
+# evaluates both branches, and the pin filter refuses an empty reference -- which
+# is exactly what the registry lookup leaves behind when an override suppressed
+# it.
 catena_admin_image: >-
-  {{ (catena_admin_image_override | default('', true) | length > 0)
-     | ternary(catena_admin_image_override,
-               catena_admin_release.ref | default(''))
-     | catena_image_pin(catena_image_pins | default({})) }}
+  {{ catena_admin_image_override
+     if (catena_admin_image_override | default('', true) | length > 0)
+     else ((catena_admin_release.ref | default(''))
+           | catena_image_pin(catena_image_pins | default({}), '')) }}
 
 # What this converge delivered, written at the very end of site.yml so it
 # describes a converge that finished. The panel reads it to tell "this feature

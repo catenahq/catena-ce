@@ -12,13 +12,31 @@ So the converge stops asserting a version and starts asking for one. The lane
 records what it successfully applied in `image_pins` in /etc/catena/config.json;
 this filter is how a role reads that answer.
 
-RESOLUTION IS max(floor, pin), NOT pin-always:
+TWO DIFFERENT QUESTIONS, WHICH THIS USED TO CONFLATE. The first argument was
+called the floor and did two jobs at once: what to run when the host has no
+opinion, and the oldest version a pin may name. For everything the converge
+SHIPS a version for, one literal answers both and the resolution is max(floor,
+pin):
 
   - pin-always would mean a catena-ce release that raises a floor for a security
     fix loses to a stale pin, silently.
   - floor-always is the revert this whole thing exists to stop.
 
-The floor wins ties and wins whenever the two cannot be compared, because
+For the PANEL it is wrong, and wrong in a way that made the pin inert. Its
+first argument is `catena_admin_release.ref` -- resolved from the registry on
+every converge as the NEWEST published release. max(newest, pin) is newest, so
+the pin could never win, and a client who deliberately rolled the panel back to
+the version that worked had that rollback undone by the next converge, silently,
+which is the same defect as the traefik one in the other direction. A rollback
+that does not survive is not a rollback.
+
+So the two jobs are separate arguments. `minimum` defaults to `default_ref`,
+which keeps every shipped-version caller exactly as it was; the panel passes an
+empty one, meaning "this host's recorded choice stands". The pin still has to
+name the same repository and still has to be a comparable version -- a corrupt
+store does not get to choose an image.
+
+The minimum wins ties and wins whenever the two cannot be compared, because
 "unclear" and "downgrade" must not be the same answer. A partial tag like
 `postgres:18` is deliberately incomparable: it names a major, has no patch to
 move within, and a pin that appeared to beat it would be a major upgrade nobody
@@ -75,37 +93,60 @@ def _order(tag):
     return (int(major), int(minor), int(patch), 0 if suffix else 1, suffix or "")
 
 
-def catena_image_pin(floor_ref, pins):
-    """Return the image this host should run: max(floor, pin) by semver.
+def catena_image_pin(default_ref, pins, minimum=None):
+    """Return the image this host should run.
 
-    floor_ref is what the converge ships. pins is the {repository: image_ref}
-    map read from the on-box store. Returns floor_ref unchanged whenever there
-    is no pin for its repository, the pin is not comparable to the floor, or the
-    pin is not newer."""
-    if not isinstance(floor_ref, str) or not floor_ref.strip():
+    default_ref is what to run when the host has no usable pin. pins is the
+    {repository: image_ref} map read from the on-box store.
+
+    minimum is the oldest version a pin may name, and it DEFAULTS TO
+    default_ref -- which is the right answer wherever the converge ships the
+    version, and makes this max(floor, pin) exactly as before. Pass "" where
+    default_ref is not a floor at all: the panel's is the newest published
+    release, so using it as one leaves the pin unable to ever win and a
+    deliberate rollback undone by the next converge.
+
+    Returns default_ref whenever there is no pin for its repository, the pin
+    names another repository, the pin is not a comparable version, or the pin is
+    older than the minimum."""
+    if not isinstance(default_ref, str) or not default_ref.strip():
         raise ValueError(
             "catena_image_pin needs the image the converge would otherwise "
-            f"pin, got {floor_ref!r}"
+            f"pin, got {default_ref!r}"
         )
     if not isinstance(pins, dict) or not pins:
-        return floor_ref
+        return default_ref
 
-    repo, floor_tag = _split_ref(floor_ref)
+    repo, _ = _split_ref(default_ref)
     pin_ref = pins.get(repo)
     if not isinstance(pin_ref, str) or not pin_ref.strip():
-        return floor_ref
+        return default_ref
 
     pin_repo, pin_tag = _split_ref(pin_ref)
     if pin_repo != repo:
         # Keyed by repository, so a value naming another one is a corrupt
         # store. Ignoring it keeps the converge deterministic; applying it
         # would swap a service's software for something else entirely.
-        return floor_ref
+        return default_ref
 
-    floor_order, pin_order = _order(floor_tag), _order(pin_tag)
-    if floor_order is None or pin_order is None:
-        return floor_ref
-    return pin_ref if pin_order > floor_order else floor_ref
+    pin_order = _order(pin_tag)
+    if pin_order is None:
+        # Checked even with no minimum. A store that can name an arbitrary
+        # string is a store that can choose what this host runs; requiring a
+        # version keeps a corrupt one from doing it.
+        return default_ref
+
+    floor_ref = default_ref if minimum is None else minimum
+    if not isinstance(floor_ref, str) or not floor_ref.strip():
+        # No floor declared: this host's recorded choice stands, which is what
+        # makes a rollback a rollback.
+        return pin_ref
+
+    _, floor_tag = _split_ref(floor_ref)
+    floor_order = _order(floor_tag)
+    if floor_order is None:
+        return default_ref
+    return pin_ref if pin_order > floor_order else default_ref
 
 
 class FilterModule:

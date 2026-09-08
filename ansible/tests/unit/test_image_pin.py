@@ -2,8 +2,14 @@
 
 The property under test is narrow and load-bearing: an on-host bump must
 survive the next converge, and a floor raised by a catena-ce release must beat a
-stale pin. Every other case resolves to the floor, because "unclear" and
+stale pin. Every other case resolves to the default, because "unclear" and
 "downgrade" must not be the same answer.
+
+The second half of the file is the panel's case, where the first argument is not
+a floor at all -- it is the newest published release, resolved on every converge
+-- so the caller declares no minimum and the host's recorded choice stands.
+Without that, max(newest, pin) is newest and a rollback chosen in the panel is
+undone by the next converge.
 """
 from __future__ import annotations
 
@@ -91,9 +97,53 @@ def test_a_v_prefix_on_one_side_only_still_compares():
     assert catena_image_pin("app:v1.2.4", {"app": "app:1.2.3"}) == "app:v1.2.4"
 
 
-def test_an_empty_floor_is_a_caller_bug_not_a_default():
+def test_an_empty_default_is_a_caller_bug_not_a_default():
     """Returning something plausible here would let a role template an image
     from an undefined variable and converge anyway."""
     for bad in ("", "   ", None, 3):
         with pytest.raises(ValueError):
             catena_image_pin(bad, {"traefik": "traefik:v3.7.12"})
+
+
+# --- the panel: no minimum, because its default is the newest release --------
+
+PANEL = "ghcr.io/catenahq/catena-admin"
+NEWEST = PANEL + ":v0.6.2@sha256:" + "b" * 64
+ROLLED_BACK = PANEL + ":v0.6.1@sha256:" + "a" * 64
+
+
+def test_a_rollback_survives_the_next_converge():
+    """The defect this argument exists for.
+
+    The panel's own update lane records what it applied, rollbacks included. The
+    first argument here is the newest PUBLISHED release, re-resolved from the
+    registry on every converge, so max(default, pin) was always the default: a
+    client who rolled back to the version that worked was moved forward again by
+    the next converge, silently, onto the build they had just rejected.
+    """
+    assert catena_image_pin(NEWEST, {PANEL: ROLLED_BACK}, "") == ROLLED_BACK
+
+
+def test_the_same_call_with_the_default_minimum_is_the_old_behaviour():
+    """The one line that separates the two callers, shown as one line.
+
+    Every shipped-version caller omits the minimum and keeps max(floor, pin)
+    exactly as before; this is what they would have got."""
+    assert catena_image_pin(NEWEST, {PANEL: ROLLED_BACK}) == NEWEST
+
+
+def test_a_forward_pin_still_wins_with_no_minimum():
+    ahead = PANEL + ":v0.7.0@sha256:" + "c" * 64
+    assert catena_image_pin(NEWEST, {PANEL: ahead}, "") == ahead
+
+
+def test_no_minimum_does_not_mean_no_rules():
+    """A store that can name an arbitrary string is a store that can choose what
+    this host runs."""
+    for bad in ("ghcr.io/someone-else/panel:v9.9.9", PANEL + ":latest",
+                PANEL + ":main", "", "   "):
+        assert catena_image_pin(NEWEST, {PANEL: bad}, "") == NEWEST
+
+
+def test_a_fresh_host_with_no_pin_gets_the_newest_release():
+    assert catena_image_pin(NEWEST, {}, "") == NEWEST

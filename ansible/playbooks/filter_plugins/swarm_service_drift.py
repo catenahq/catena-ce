@@ -134,6 +134,37 @@ def _strip_digest(image_ref):
     return image_ref.split("@", 1)[0]
 
 
+def _same_image(live, want):
+    """Is the running service already on the wanted image?
+
+    Asymmetric, in the one direction that is correct. `docker service inspect`
+    reports the digest it resolved at deploy time, whether or not the reference
+    it was given carried one -- so what the comparison does depends on what the
+    PIN says, not on what the host reports:
+
+      - a pin with no digest (`postgres:18`) is compared against the live
+        `<repo>:<tag>` half, or every converge sees drift against its own tag;
+      - a pin WITH one (`ghcr.io/...:v1.2.3@sha256:...`, which is what the
+        panel's release resolution produces) is a demand for those exact bytes,
+        so the live reference has to match it whole.
+
+    Stripping the digest off both sides would be the tidy-looking version of
+    this and it would be wrong twice over: it answers "converged" for a host
+    running different bytes under the same tag, which is the one thing a digest
+    pin exists to prevent. Applying it to the live side only -- what this did
+    until now -- compares `<repo>:<tag>` against `<repo>:<tag>@sha256:...`,
+    which never matches, so the panel's own pin drifted against itself on every
+    converge. Docker no-ops an update to an identical spec, so nothing
+    restarted; what it cost was the ability to answer "did this converge move
+    my panel" from the output, which matters more the moment a converge runs
+    unattended on a timer.
+    """
+    want = str(want)
+    if "@" in want:
+        return str(live) == want
+    return _strip_digest(live) == want
+
+
 def _health_test(health_cmd):
     """The Test array docker builds for `--health-cmd X`."""
     return ["CMD-SHELL", health_cmd]
@@ -209,7 +240,7 @@ def swarm_service_drift(inspect, desired):
     args: list[str] = []
 
     if "image" in desired:
-        if _strip_digest(container.get("Image", "")) != desired["image"]:
+        if not _same_image(container.get("Image", ""), desired["image"]):
             args += ["--image", str(desired["image"])]
 
     limits = resources.get("Limits", {}) or {}

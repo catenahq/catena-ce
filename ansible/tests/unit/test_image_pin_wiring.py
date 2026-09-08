@@ -233,6 +233,50 @@ def test_a_newer_on_host_pin_still_wins_over_the_resolved_release():
         "ghcr.io/catenahq/catena-admin:v0.6.0")
 
 
+def test_a_rollback_recorded_on_this_host_survives_the_converge():
+    """The panel's default is the NEWEST published release, re-resolved every
+    converge, so max(default, pin) was always the default and the pin here could
+    never win. A client who rolled their panel back to the version that worked
+    was moved forward again by the next converge, silently, onto the build they
+    had just rejected -- and a rollback that does not survive is not a rollback.
+
+    The caller declares no minimum for exactly this reason. Everywhere else the
+    converge ships the version, so the same literal is both the default and the
+    oldest acceptable pin.
+    """
+    rel = _release("ghcr.io/catenahq/catena-admin:v0.6.2", "sha256:" + "20" * 32)
+    pins = {"ghcr.io/catenahq/catena-admin": "ghcr.io/catenahq/catena-admin:v0.6.1"}
+    assert _render_image(release=rel, pins=pins) == (
+        "ghcr.io/catenahq/catena-admin:v0.6.1")
+
+
+def test_the_override_is_not_something_a_pin_gets_to_argue_with():
+    """CATENA_ADMIN_IMAGE is somebody saying exactly what to run. It used to be
+    handed to the pin filter along with everything else, so a stored pin could
+    beat the very value whose purpose is change control -- and it did so
+    silently, on the path a client uses when they want to decide when their
+    panel moves."""
+    rel = _release("ghcr.io/catenahq/catena-admin:v0.6.2", "sha256:" + "20" * 32)
+    pins = {"ghcr.io/catenahq/catena-admin": "ghcr.io/catenahq/catena-admin:v0.6.2"}
+    assert _render_image(
+        release=rel, pins=pins,
+        override="ghcr.io/catenahq/catena-admin:v0.6.0",
+    ) == "ghcr.io/catenahq/catena-admin:v0.6.0"
+
+
+def test_a_corrupt_pin_does_not_choose_the_panel_image():
+    """No minimum is not no rules. The store is written through a dispatch
+    action; a value it can name freely is a value that chooses what this host
+    runs."""
+    rel = _release("ghcr.io/catenahq/catena-admin:v0.6.2", "sha256:" + "20" * 32)
+    for bad in ("ghcr.io/someone-else/panel:v9.9.9",
+                "ghcr.io/catenahq/catena-admin:latest"):
+        assert _render_image(
+            release=rel,
+            pins={"ghcr.io/catenahq/catena-admin": bad},
+        ) == rel["ref"], bad
+
+
 def test_the_engines_and_the_shell_come_from_one_image():
     """roles/payload runs at 5.5 and roles/catena-admin at 13, so neither can
     see the other's defaults. The value they share has to be declared in a role

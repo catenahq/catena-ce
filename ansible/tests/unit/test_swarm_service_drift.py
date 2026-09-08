@@ -113,6 +113,35 @@ def test_resolved_digest_is_not_drift():
     assert swarm_service_drift(payload, {"image": "postgres:18"}) == []
 
 
+def test_a_digest_pinned_service_on_its_own_pin_reports_no_drift():
+    """The shape every release host is actually in, and the one shape no test
+    used to cover.
+
+    catena_admin_image carries its digest -- catena_admin_release.ref is
+    `<repo>:<tag>@sha256:...` -- so the comparison was `<repo>:<tag>` against
+    `<repo>:<tag>@sha256:...` and never matched. Every converge emitted --image
+    against its own pin. Docker no-ops an update to the identical spec, so
+    nothing restarted and no client was harmed; what it cost was the ability to
+    read "did this converge move my panel" out of the output, which matters more
+    the moment a converge runs unattended on a timer.
+
+    The tests passed because they all used a digest-less desired image, which is
+    the one shape no release host is in.
+    """
+    pinned = "ghcr.io/catenahq/catena-admin:v0.6.2@sha256:" + "b" * 64
+    assert swarm_service_drift(_inspect(image=pinned), {"image": pinned}) == []
+
+
+def test_a_digest_pin_is_a_demand_for_those_exact_bytes():
+    """Same tag, different bytes. Stripping the digest off both sides would be
+    the tidy-looking fix and would answer "converged" here -- which is the one
+    thing a digest pin exists to prevent."""
+    repo = "ghcr.io/catenahq/catena-admin:v0.6.2@sha256:"
+    drift = swarm_service_drift(_inspect(image=repo + "a" * 64),
+                                {"image": repo + "b" * 64})
+    assert drift[:2] == ["--image", repo + "b" * 64], drift
+
+
 def test_accepts_unwrapped_dict_as_well_as_the_inspect_list():
     assert swarm_service_drift(_inspect()[0], DESIRED) == []
 
