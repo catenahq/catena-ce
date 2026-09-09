@@ -224,11 +224,17 @@
     - { role: keycloak, tags: [keycloak, auth] } # SSO IdP
     - { role: oauth2_proxy, tags: [oauth2_proxy, auth] } # one auth proxy per gated upstream
     - { role: infrastructure, tags: [infrastructure] } # recovery archive, gated apps (Gatus, Healthchecks, ...), dashboard-sync, gatus-sync
-    # catena-admin: host-side state (runner user, dispatcher, action catalog,
-    # bind-mount targets) AND the Go shell container, created directly against
-    # the local swarm. It is no longer a Portainer stack: it holds the API key
-    # that drives Portainer, so a Portainer that would not start used to take
-    # down the only tool that could repair it.
+    # The panel's trust path: the runner account, the sudoers drop-in, the
+    # forced command and its authorized_keys, plus the env files the host lanes
+    # read. BOOTSTRAP-side -- a reconcile that could rewrite the way in could
+    # rewrite what a reconcile is -- and immediately before the role it prepares
+    # for, which is where these tasks ran when they were a file inside it.
+    - { role: catena_admin_host, tags: [catena_admin, catena_admin_host] }
+    # catena-admin: the action catalog, the bind-mount targets, AND the Go shell
+    # container, created directly against the local swarm. It is no longer a
+    # Portainer stack: it holds the API key that drives Portainer, so a
+    # Portainer that would not start used to take down the only tool that could
+    # repair it.
     - { role: catena-admin, tags: [catena_admin] }
     - { role: coturn, tags: [coturn] } # shared TURN/STUN for NC Talk HPB + RC Jitsi (UDP media plane, direct on VPS public IP)
     - { role: backup, tags: [backup] } # restic + the manual oneshot catena-backup.service

@@ -29,7 +29,7 @@ import yaml
 
 _ANSIBLE = Path(__file__).resolve().parents[2]
 PLUGIN = _ANSIBLE / "playbooks" / "filter_plugins" / "catena_admin_service.py"
-HOST_TASKS = _ANSIBLE / "roles" / "catena-admin" / "tasks" / "host.yml"
+HOST_TASKS = _ANSIBLE / "roles" / "catena_admin_host" / "tasks" / "main.yml"
 COMMON_DEFAULTS = _ANSIBLE / "roles" / "common" / "defaults" / "main.yml"
 BACKUP_DEFAULTS = _ANSIBLE / "roles" / "backup" / "defaults" / "main.yml"
 

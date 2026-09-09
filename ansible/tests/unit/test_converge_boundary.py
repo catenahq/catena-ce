@@ -228,8 +228,18 @@ def test_no_reconcile_play_reaches_a_bootstrap_task_file():
     the property is not.
     """
     b = _boundary()
+    straddling = _bootstrap_files_in_reconcile_roles(b)
+    if not straddling:
+        # Nothing straddles, so nothing can reach across. The check below has
+        # nothing to look at, and that is the END STATE rather than a gap: the
+        # property is held by the shape of the tree instead of by a conditional
+        # somebody has to remember. Asserted rather than skipped silently, so a
+        # straddle coming back turns this test on again by itself.
+        assert b["straddling_roles"] in ({}, None), b["straddling_roles"]
+        return
+
     offenders: dict[str, str] = {}
-    for role, files in _bootstrap_files_in_reconcile_roles(b).items():
+    for role, files in straddling.items():
         main = _ROLES / role / "tasks" / "main.yml"
         if not main.is_file():
             continue

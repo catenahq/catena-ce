@@ -86,18 +86,10 @@
     - { role: keycloak, tags: [keycloak, auth] }
     - { role: oauth2_proxy, tags: [oauth2_proxy, auth] }
     - { role: infrastructure, tags: [infrastructure] }
-    # NOT the whole role. roles/catena-admin straddles the boundary: its
-    # host.yml writes the forced command, the sudoers drop-in and the runner's
-    # authorized_keys, which is the trust path an operator arrives over and the
-    # one thing a reconcile may never rewrite. boundary.yml has declared that
-    # since phase 1a, and the role imported the file unconditionally anyway --
-    # so this playbook's declared boundary was not its executable one.
-    #
-    # Phase 1b moves host.yml into a bootstrap-side role and this line loses the
-    # variable. Until then the seam is here, where it can actually be held.
-    - role: catena-admin
-      tags: [catena_admin]
-      catena_admin_manage_host_trust_path: false
+    # The panel's container and its action catalog. Its trust path -- the runner
+    # account, the sudoers drop-in, the forced command -- is roles/
+    # catena_admin_host, which is bootstrap-side and deliberately absent here.
+    - { role: catena-admin, tags: [catena_admin] }
     - { role: coturn, tags: [coturn] }
     - { role: backup, tags: [backup] }
 

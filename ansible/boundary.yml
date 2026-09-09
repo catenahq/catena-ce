@@ -49,6 +49,12 @@ bootstrap_roles:
     why: >-
       The engine and the swarm. Nothing else in this file runs without it, and
       that includes whatever would have repaired it.
+  - name: catena_admin_host
+    why: >-
+      The trust path the panel's dispatch arrives over: the runner account, the
+      sudoers drop-in, the forced command and its authorized_keys. A reconcile
+      that could rewrite the way in could rewrite what a reconcile is, which is
+      question one in its purest form.
   - name: ansible_runtime
     why: >-
       The ansible-core the host reconciles itself with. Question one answers
@@ -71,30 +77,30 @@ reconcile_roles:
   - coturn
   - backup
 
-# ONE role still straddles the line. `common` no longer does: its reconcile-side
-# half is roles/public_ports, an actual role, which is what a straddle is
-# supposed to become.
+# NOTHING STRADDLES ANY MORE, which is what phase 1b was for.
 #
-# Listed per file so the boundary is enforceable while a role is still
-# straddling. default_side is what an unlisted file in that role belongs to, so
-# adding a task file does not silently land it on the permissive side. Templates
-# and defaults follow the default_side too: a template is written BY a task, and
-# it is the task that decides where.
+# There were two. `common` carried the public-port reconciler, which is now
+# roles/public_ports; `catena-admin` carried the SSH trust path, which is now
+# roles/catena_admin_host. Both are real roles on one side of the line, which is
+# what a straddle is supposed to become.
 #
-# A straddle is a state to leave, not a shape to keep. Each one costs a
-# conditional import and a play that has to remember to disable it -- see
-# roles/catena-admin/tasks/main.yml, and test_converge_boundary.py's
-# test_no_reconcile_play_reaches_a_bootstrap_task_file for what it takes to
-# make the declaration mean anything at runtime.
-straddling_roles:
-  catena-admin:
-    # host.yml is the trust path: the runner account, the sudoers drop-in, the
-    # forced command and its authorized_keys. Everything else in the role is the
-    # panel's swarm service and its action catalog, which is ordinary reconcile
-    # work -- and catalog.yml is deleted once the dispatch table ships in the
-    # image.
-    default_side: reconcile
-    bootstrap: [host.yml]
+# The mechanism stays because the shape can come back. A role listed here
+# declares, per file, which of its task files belong to the other side, and
+# default_side is what an unlisted file belongs to -- so adding a task file to a
+# straddling role does not silently land it on the permissive side. Templates
+# and defaults follow the default_side: a template is written BY a task, and it
+# is the task that decides where.
+#
+# WHAT A STRADDLE COSTS, so the next one is a deliberate choice rather than a
+# convenience. A declaration alone stops nothing: a role that imports its
+# other-side task file unconditionally runs it in every play that runs the role,
+# and `catena-admin` did exactly that -- so for as long as it straddled, a
+# reconcile could rewrite the forced command while every assertion about the
+# files passed. Holding the line meant a conditional import plus a play that
+# remembered to disable it. test_converge_boundary.py's
+# test_no_reconcile_play_reaches_a_bootstrap_task_file is what enforces that,
+# and it applies to whatever is listed here.
+straddling_roles: {}
 
 # Reached only from their own operator playbook, never from a converge.
 #

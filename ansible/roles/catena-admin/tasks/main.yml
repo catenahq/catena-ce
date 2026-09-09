@@ -11,32 +11,16 @@
 #                  Portainer stack (pulls the published GHCR image). Runs
 #                  after the host-side state its container binds to exists.
 #
-# host.yml + catalog.yml prepare the host-side state the container binds to;
-# deploy.yml then deploys the container itself. The audit.db quiesce hooks
-# that ride this role in the Business edition (audit is a license-gated
-# module) are NOT part of Community.
+# catalog.yml prepares the host-side state the container binds to; deploy.yml
+# then deploys the container itself. The audit.db quiesce hooks that ride this
+# role in the Business edition (audit is a license-gated module) are NOT part
+# of Community.
 #
-# THE ROLE STRADDLES THE CONVERGE BOUNDARY, and host.yml is the half that is
-# not a reconcile's to run: it writes the trust path an operator arrives over.
-# boundary.yml has declared that since phase 1a; what it could not do is stop
-# it, because this file imported host.yml unconditionally and
-# playbooks/reconcile.yml runs the role. So the declared boundary held and the
-# executable one did not -- a reconcile could rewrite the way in, which is the
-# one thing the whole split exists to prevent.
-#
-# The switch is named for what it governs rather than for which play sets it.
-# It defaults to TRUE so every existing caller -- site.yml, restore.yml,
-# validate.yml, a bare `--tags catena_admin` run -- is unchanged; only
-# reconcile.yml turns it off, and it says why where it does.
-#
-# Phase 1b cuts this seam physically, moving host.yml into a bootstrap-side
-# role of its own. Until then this is the same boundary, enforced at the only
-# place that can currently enforce it.
-
-- name: Catena-admin host-side state (runner, dirs, keypair)
-  ansible.builtin.import_tasks: host.yml
-  when: catena_admin_manage_host_trust_path | bool
-  tags: [catena_admin, catena_admin_host]
+# THE TRUST PATH IS NOT HERE. The runner account, the sudoers drop-in, the
+# forced command and its authorized_keys are roles/catena_admin_host, which is
+# bootstrap-side: a reconcile that could rewrite the way in could rewrite what a
+# reconcile is. That role runs immediately before this one in site.yml, which is
+# where its tasks ran when they were a file in this role.
 
 - name: Catena-admin action catalog + allow-list
   ansible.builtin.import_tasks: catalog.yml

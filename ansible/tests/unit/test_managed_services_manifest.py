@@ -22,7 +22,7 @@ import yaml
 from jinja2 import Environment
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-MANIFEST = (ANSIBLE / "roles" / "catena-admin" / "templates"
+MANIFEST = (ANSIBLE / "roles" / "catena_admin_host" / "templates"
             / "managed-services.json.j2")
 
 

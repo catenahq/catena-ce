@@ -41,7 +41,7 @@ _ANSIBLE = Path(__file__).resolve().parents[2]
 # Templates rendered into files that a unit ON THE HOST reads.
 _ONBOX_ENV_TEMPLATES = (
     "roles/infrastructure/templates/dashboard-sync.env.j2",
-    "roles/catena-admin/templates/stack-update.env.j2",
+    "roles/catena_admin_host/templates/stack-update.env.j2",
 )
 
 
@@ -129,7 +129,7 @@ def test_the_admin_known_hosts_scan_does_not_depend_on_a_reachable_address():
     empty stdout when it cannot reach what it was given, and nothing checked,
     so an address the box could not dial wrote an EMPTY known_hosts -- after
     which every panel action fails host key verification, naming nothing."""
-    body = (_ANSIBLE / "roles/catena-admin/tasks/host.yml").read_text()
+    body = (_ANSIBLE / "roles/catena_admin_host/tasks/main.yml").read_text()
     start = body.index("- name: \"SSH dir: scan this host's own key")
     scan = body[start:body.index("\n- name:", start + 1)]
     assert "127.0.0.1" in scan, "the scan must go over loopback"

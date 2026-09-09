@@ -213,3 +213,36 @@ common_locale: "{{ lookup('dotenv', 'COMMON_LOCALE', default='en_CA.UTF-8') }}"
 # `icon`, `timeout` (defaults to 10s). Same shape as the canonical catalog
 # (roles/catena-admin/templates/actions.yml.j2) -- each entry becomes a
 # dispatcher case + allow-list entry automatically.
+
+# --- The admin panel's shared identity ---
+# Read by BOTH halves of the panel's converge -- roles/catena_admin_host, which
+# sets up the trust path and the host lane env files, and roles/catena-admin,
+# which deploys the container -- and by roles/oauth2_proxy, which resolves
+# catena_admin_hostname by NAME at a point where neither role's defaults are
+# reliably in scope.
+#
+# A role default is only dependable once that role has run, so a value two roles
+# on either side of the boundary share is the product's rather than one role's.
+# Same call as the public-port paths above and the subdomains in phase 3.
+
+# --- Hostname ---------------------------------------------------------
+# The admin panel is served at dash.<zone>. CATENA_ADMIN_SUBDOMAIN was the
+# override; no inventory in this repo, in the operator skeleton or on any host
+# has ever carried it, so the panel has only ever been at dash.
+catena_admin_subdomain: "dash"
+catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
+catena_admin_ui_port: "9010"
+# Host dir where run-backup.sh + gatus-sync.py write their summary JSON
+# files (backup-stats.json, gatus-summary.json, healthchecks-summary.json).
+# Bind-mounted read-only into the admin container; the admin's stats
+# reader picks up the files unchanged. Matches roles/backup defaults'
+# backup_stats_dir; do not move without updating that role + the
+# post-restore.needed marker contract (test_restore_option_a).
+catena_admin_stats_dir: "/var/lib/catena"
+catena_admin_state_dir: "/var/lib/catena-admin"
+
+# Default theme rendered into the admin container's env. Inventory override
+# via catena_default_theme. Language has no install-time default: the panel
+# always starts in English, and a visitor can switch to French any time via
+# the header toggle (shell/i18n) -- no inventory field for it.
+catena_admin_default_theme: "{{ catena_default_theme | default('system') }}"

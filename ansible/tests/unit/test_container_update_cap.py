@@ -17,7 +17,7 @@ sys.path.insert(0, str(ANSIBLE / "playbooks" / "filter_plugins"))
 
 from backup_cadence_cap import community_monthly_cap  # noqa: E402
 
-HOST_TASKS = ANSIBLE / "roles" / "catena-admin" / "tasks" / "host.yml"
+HOST_TASKS = ANSIBLE / "roles" / "catena_admin_host" / "tasks" / "main.yml"
 
 
 @pytest.mark.parametrize("expr", [

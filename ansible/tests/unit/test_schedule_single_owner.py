@@ -27,9 +27,9 @@ ANSIBLE = Path(__file__).resolve().parents[2]
 BACKUP_INSTALL = ANSIBLE / "roles" / "backup" / "tasks" / "install.yml"
 BACKUP_ENV = ANSIBLE / "roles" / "backup" / "templates" / "backup.env.j2"
 BACKUP_DEFAULTS = ANSIBLE / "roles" / "backup" / "defaults" / "main.yml"
-ADMIN_HOST = ANSIBLE / "roles" / "catena-admin" / "tasks" / "host.yml"
+ADMIN_HOST = ANSIBLE / "roles" / "catena_admin_host" / "tasks" / "main.yml"
 ADMIN_DEPLOY = ANSIBLE / "roles" / "catena-admin" / "tasks" / "deploy.yml"
-DAILY_ENV = ANSIBLE / "roles" / "catena-admin" / "templates" / "daily.env.j2"
+DAILY_ENV = ANSIBLE / "roles" / "catena_admin_host" / "templates" / "daily.env.j2"
 GROUP_VARS = ANSIBLE / "playbooks" / "group_vars" / "all" / "main.yml"
 ONBOX_CONFIG = ANSIBLE / "helpers" / "onbox_config.py"
 
@@ -253,7 +253,7 @@ def test_the_managed_lane_needs_no_copy_of_how_traefik_was_built():
     # spec, free to drift from it -- and a lane running a drifted copy
     # relaunches traefik with the wrong mounts.
     specs = _code(
-        ANSIBLE / "roles" / "catena-admin" / "templates"
+        ANSIBLE / "roles" / "catena_admin_host" / "templates"
         / "managed-services.json.j2"
     )
     # Assert on the JSON keys, not bare words: the Jinja {# #} header names

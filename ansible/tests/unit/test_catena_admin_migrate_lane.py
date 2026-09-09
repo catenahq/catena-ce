@@ -35,7 +35,15 @@ _ROLE = (
     / "ansible" / "roles" / "catena-admin"
 )
 DEFAULTS = _ROLE / "defaults" / "main.yml"
-HOST_TASKS = _ROLE / "tasks" / "host.yml"
+# The bootstrap-side half of the same panel: the runner account, the
+# sudoers drop-in, the forced command. Phase 1b made it a role of its
+# own so the boundary it was declared on could actually be held.
+_HOST_ROLE = _ROLE.parent / "catena_admin_host"
+_HOST_DEFAULTS = _HOST_ROLE / "defaults" / "main.yml"
+# And the values both halves read, which belong to neither role.
+_GROUP_VARS = (
+    _ROLE.parents[1] / "playbooks" / "group_vars" / "all" / "main.yml")
+HOST_TASKS = _HOST_ROLE / "tasks" / "main.yml"
 
 MIGRATE_ACTIONS = {
     "catena-migrate-arm",
@@ -51,7 +59,19 @@ MIGRATE_ACTIONS = {
 
 
 def _defaults() -> dict:
-    return yaml.safe_load(DEFAULTS.read_text())
+    """Every variable the panel's converge reads, from all three places it now
+    lives.
+
+    Phase 1b split the role: the trust path is roles/catena_admin_host, the
+    container is roles/catena-admin, and the values BOTH halves need are in
+    group_vars because a role default is only dependable once that role has run.
+    Merged here so an assertion is about the panel's configuration rather than
+    about which file happens to hold a line today.
+    """
+    merged: dict = {}
+    for path in (_GROUP_VARS, DEFAULTS, _HOST_DEFAULTS):
+        merged.update(yaml.safe_load(path.read_text()) or {})
+    return merged
 
 
 def _ee_actions() -> dict[str, str]:

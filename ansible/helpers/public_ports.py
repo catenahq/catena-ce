@@ -31,7 +31,7 @@ Two feeders, one merged effective set:
     them publicly).
 
 The host reconciler (vps-scripts/catena-public-ports.py) reads the infra
-JSON rendered by roles/common/tasks/public_ports.yml PLUS the live
+JSON rendered by roles/public_ports/tasks/main.yml PLUS the live
 `vps.expose.*` labels off running containers, merges them here, applies the
 rule plan idempotently, and re-renders the effective-set JSON + the operator
 inventory doc. validate.yml and tests/external/public-ports.yml read the
