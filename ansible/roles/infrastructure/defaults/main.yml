@@ -131,7 +131,7 @@ healthchecks_host_localhost_port: 18000
 # cannot detect a host that is gone.
 healthchecks_ping_base: "http://127.0.0.1:{{ healthchecks_host_localhost_port }}"
 
-healthchecks_subdomain: "{{ lookup('dotenv', 'HEARTBEAT_SUBDOMAIN', default='heartbeat') }}"
+healthchecks_subdomain: "heartbeat"
 healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
 
 # Alert delivery. Store-owned (the client changes these in catena-admin), so
@@ -186,7 +186,7 @@ beszel_agent_compose_name: "beszel-agent"
 # network_mode: host (canonical upstream shape for host + docker metrics)
 # so it reaches the hub at 127.0.0.1:{{ beszel_hub_host_localhost_port }}.
 beszel_agent_port: 45876
-beszel_subdomain: "{{ lookup('dotenv', 'BESZEL_SUBDOMAIN', default='hub') }}"
+beszel_subdomain: "hub"
 
 # Label on the hub's OIDC sign-in button. Client-facing copy, so it names the
 # product rather than the software behind it -- "Keycloak" is a word the client

@@ -26,7 +26,6 @@ Run: uv run pytest tests/unit/test_catena_admin_migrate_lane.py
 """
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import yaml
@@ -99,11 +98,15 @@ def test_lane_port_is_declared_tailnet_only():
 
 
 def test_lane_port_does_not_collide_with_the_panel_port():
-    # The panel's port is a dotenv lookup with a default; the lane's is a
-    # literal. Compare against that default, parsed out rather than retyped, so
-    # a bump of either side is caught here instead of on a host where two
-    # things then fight over one port.
+    # Both are product constants now -- the panel's port stopped being a dotenv
+    # lookup when phase 3 recognised that no inventory had ever varied it. Read
+    # rather than retyped, so a bump of either side is caught here instead of on
+    # a host where two things then fight over one port.
     d = _defaults()
-    m = re.search(r"default='(\d+)'", str(d["catena_admin_ui_port"]))
-    assert m, f"could not read the panel port default: {d['catena_admin_ui_port']!r}"
-    assert int(d["catena_migrate_lane_port"]) != int(m.group(1))
+    panel = str(d["catena_admin_ui_port"])
+    assert panel.isdigit(), (
+        f"the panel port is no longer a literal: {panel!r}. If it went back to "
+        "being inventory-sourced, the host can no longer converge itself "
+        "without an operator's file"
+    )
+    assert int(d["catena_migrate_lane_port"]) != int(panel)

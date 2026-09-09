@@ -467,30 +467,29 @@ SETTINGS_CONFIG: dict[str, str] = {
 # Read from the inventory `.env` at converge time, by design: the installer
 # needs them before the box exists. Declared so a key that is in NEITHER set
 # is a gate failure rather than an unnoticed third owner.
+#
+# Eleven names left this set rather than moving to the other one: every public
+# subdomain, the two UI ports, the storage mount point and the realm display
+# name. They were not owned by the inventory in any meaningful sense -- the
+# shipped starter, the operator skeleton and the one real inventory all set them
+# to the same strings, and four were in no .env at all. A value nobody varies is
+# the product's, so they are compiled in. If one ever needs to vary it becomes a
+# settings key above, which is where a per-host value belongs now that the host
+# converges itself.
 BOOTSTRAP_CONFIG: frozenset[str] = frozenset({
     "ADMIN_EMAIL",
-    "AUTH_SUBDOMAIN",
-    "BESZEL_SUBDOMAIN",
-    "CATENA_ADMIN_SUBDOMAIN",
-    "CATENA_ADMIN_UI_PORT",
+    "PORTAINER_SUBDOMAIN",
     "CLOUDFLARED_TUNNEL_NAME_PREFIX",
     "CLOUDFLARE_ZONE",
     "COMMON_LOCALE",
     "COMMON_TIMEZONE",
-    "DASH_SUBDOMAIN",
-    "DISPLAY_NAME",
-    "GATUS_SUBDOMAIN",
-    "HEARTBEAT_SUBDOMAIN",
     "OPS_USER",
-    "PORTAINER_SUBDOMAIN",
-    "PORTAINER_UI_PORT",
     "SSH_PRIVATE_KEY",
     "SSH_PUBLIC_KEY_FILE",
     "STORAGE_BLOCK_DEVICE",
     "STORAGE_BULK_ENABLED",
     "STORAGE_BULK_MOUNT_POINT",
     "STORAGE_MODE",
-    "STORAGE_MOUNT_POINT",
     "TAILSCALE_ACCEPT_DNS",
     "TAILSCALE_TAGS",
     # Bench / dev overrides for the ACME path. Not client-facing: they point

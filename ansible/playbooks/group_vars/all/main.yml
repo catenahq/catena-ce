@@ -44,13 +44,23 @@ cloudflared_ingress_service: "http://catena-traefik:80"
 # Public-facing hostnames. Each is routed to its own oauth2-proxy instance,
 # which authenticates against Keycloak and proxies to the app behind it. SSO
 # works across them via a session cookie scoped to .<zone>.
-infrastructure_gatus_subdomain: "{{ lookup('dotenv', 'GATUS_SUBDOMAIN', default='monitor') }}"
+# The product's hostname scheme. Constants, not inventory values: the shipped
+# starter inventory, the operator skeleton and the one real inventory all set
+# these to exactly the strings below, and two of them are not in any .env at
+# all -- so the knob has never been turned and the reconcile could not read it
+# without an operator's file anyway.
+#
+# A client who wants a different name gets a store key, decided at install and
+# read from /etc/catena/config.json like every other host fact. That is a
+# one-line move from here; what it must not be is a value the host can only
+# learn from a laptop.
+infrastructure_gatus_subdomain: "monitor"
 infrastructure_gatus_hostname: "{{ infrastructure_gatus_subdomain }}.{{ cloudflare_zone }}"
 # catena-admin (the Go shell) is served at dash.<zone>.
-infrastructure_dash_subdomain: "{{ lookup('dotenv', 'DASH_SUBDOMAIN', default='dash') }}"
+infrastructure_dash_subdomain: "dash"
 infrastructure_dash_hostname: "{{ infrastructure_dash_subdomain }}.{{ cloudflare_zone }}"
 
-healthchecks_subdomain: "{{ lookup('dotenv', 'HEARTBEAT_SUBDOMAIN', default='heartbeat') }}"
+healthchecks_subdomain: "heartbeat"
 healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
 
 # The SSO host (auth.<zone>) is the only subdomain with no oauth2-proxy in
@@ -76,7 +86,10 @@ admin_email: "{{ lookup('dotenv', 'ADMIN_EMAIL', default='') }}"
 # Global so any role (infrastructure stack seam, dashboard-sync env) can
 # reference it. roles/portainer consumes the same names. Reached from the
 # controller over the tailnet.
-portainer_ui_port: "{{ lookup('dotenv', 'PORTAINER_UI_PORT', default='9000') }}"
+# The port, like the hostname scheme, is the product's. It is published
+# host-mode and firewalled to the tailnet, so it is not a value a client picks
+# to avoid a collision -- nothing else on the box may bind it either way.
+portainer_ui_port: "9000"
 portainer_api_base: "http://{{ ansible_host }}:{{ portainer_ui_port }}/api"
 
 # The SAME API, addressed from ON the host. Anything that runs on the box --
@@ -108,12 +121,21 @@ portainer_api_base_onbox: "http://127.0.0.1:{{ portainer_ui_port }}/api"
 # the client admin's self-serve deploy surface. Distinct from
 # portainer_api_base above, which is the tailnet-only operator control
 # path -- both reach the same catena-portainer service.
+# NOT a constant, unlike its neighbours above. This is the one public subdomain
+# the two inventories disagree about: the starter here says `portainer` and the
+# operator skeleton says `apps`, with a note to use `admin` for established
+# clients. A value three sources give three answers for is a host fact, and it
+# is a phase-3 store key rather than something to compile in.
 portainer_admin_subdomain: "{{ lookup('dotenv', 'PORTAINER_SUBDOMAIN', default='portainer') }}"
 portainer_admin_hostname: "{{ portainer_admin_subdomain }}.{{ cloudflare_zone }}"
 
 # --- Storage ---
 storage_mode: "{{ lookup('dotenv', 'STORAGE_MODE', default='built_in') }}"
-storage_mount_point: "{{ lookup('dotenv', 'STORAGE_MOUNT_POINT', default='/mnt/data') }}"
+# /mnt/data everywhere, and named literally in the backup path set, the docker
+# data-root, the volume layout and the restore machine. It was an install knob
+# that nothing has ever turned, and turning it now would need every one of those
+# to follow -- so it is the product's layout rather than the operator's choice.
+storage_mount_point: "/mnt/data"
 storage_block_device: "{{ lookup('dotenv', 'STORAGE_BLOCK_DEVICE', default='/dev/sdb') }}"
 storage_bulk_enabled: >-
   {{ lookup('dotenv', 'STORAGE_BULK_ENABLED', default='false') | bool }}

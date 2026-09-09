@@ -13,7 +13,7 @@
 # (Portainer uses BoltDB, no shared Postgres to piggyback on).
 
 # --- Hostname ---
-keycloak_subdomain: "{{ lookup('dotenv', 'AUTH_SUBDOMAIN', default='auth') }}"
+keycloak_subdomain: "auth"
 keycloak_hostname: "{{ keycloak_subdomain }}.{{ cloudflare_zone }}"
 
 # --- Multi-domain routing (one auth.<zone> island per attached domain) ---
@@ -102,10 +102,15 @@ keycloak_realm_host_dir: "/etc/catena/keycloak/realms"
 # realm) is the upgrade path when a client wants sub-tenants.
 keycloak_realm: "vps"
 
-# Display name surfaced on the login page. Operators can override per
-# inventory in inventory/<name>/.env via DISPLAY_NAME.
-keycloak_realm_display_name: >-
-  {{ lookup('dotenv', 'DISPLAY_NAME', default=cloudflare_zone) }}
+# Display name surfaced on the login page: the client's own domain, which is
+# what a person signing in recognises.
+#
+# DISPLAY_NAME was the override and no inventory has ever set it, so this was
+# always the derivation. It follows cloudflare_zone into the store when that
+# moves, and a client who wants their trading name here gets it for free at that
+# point -- the value is already a host fact, it just has one source now instead
+# of two.
+keycloak_realm_display_name: "{{ cloudflare_zone }}"
 
 # Nightly realm-export OnCalendar. Default 03:30 host-local --
 # spaced from the backup window (default 02:00) and any auto-update

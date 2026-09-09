@@ -6,9 +6,10 @@
 # catena_admin_image). See README.md.
 
 # --- Hostname ---------------------------------------------------------
-# The admin panel is served at dash.<zone> by default. Override the
-# subdomain via CATENA_ADMIN_SUBDOMAIN in the inventory's .env.
-catena_admin_subdomain: "{{ lookup('dotenv', 'CATENA_ADMIN_SUBDOMAIN', default='dash') }}"
+# The admin panel is served at dash.<zone>. CATENA_ADMIN_SUBDOMAIN was the
+# override; no inventory in this repo, in the operator skeleton or on any host
+# has ever carried it, so the panel has only ever been at dash.
+catena_admin_subdomain: "dash"
 catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
 
 # --- Container image + port -------------------------------------------
@@ -143,7 +144,7 @@ catena_admin_desired:
 # without the Cloudflare/oauth2-proxy edge -- the same pattern as Portainer's
 # UI port. Firewalled by the public-ports registry (host.yml fragment).
 catena_admin_direct_port: 8001
-catena_admin_ui_port: "{{ lookup('dotenv', 'CATENA_ADMIN_UI_PORT', default='9010') }}"
+catena_admin_ui_port: "9010"
 
 # How long the converge waits for a newly-created service to report a Running
 # task before giving up and printing what swarm said. Five minutes: long enough

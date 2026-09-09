@@ -130,11 +130,41 @@ one. The generator also has to substitute the Jinja escapes `{{ '{{' }}` /
 rendered them. It carried each action's comment block across verbatim: the
 comments are the reasoning, and rewriting 24 of them from memory loses it.
 
-### 5. The phase-3 backlog is 18 variables, not a vague pile
+### 5. The phase-3 backlog was 18 variables, and 13 of them were constants
 
 Measured by the gate in `tests/unit/test_converge_boundary.py`
-(`INVENTORY_BACKLOG = 18`), which ratchets: the build fails if the number grows,
-and it must be lowered by hand as they are removed.
+(`INVENTORY_BACKLOG`), which ratchets: the build fails if the number grows, and
+it must be lowered by hand as they are removed. It was 18; it is 10.
+
+**What the evidence said when the eighteen were actually read.** Comparing every
+one against the shipped starter inventory, the operator skeleton in ops, and the
+one real inventory:
+
+- **Exactly one is a hard blocker.** `cloudflare_zone` has no default, so
+  `lookup('dotenv')` raises and the play stops. Everything else has a default
+  and the reconcile runs without an inventory today.
+- **Thirteen were product constants written as inventory values.** Every source
+  set them to the same string, or did not set them at all: the public
+  subdomains, the two UI ports, the storage mount point, the realm display name,
+  and the ACME knobs. Removing the lookup changed nothing anywhere, which is
+  what says they were never inventory values.
+- **One disagreed, and that is what made the rest decidable.**
+  `PORTAINER_SUBDOMAIN` is `apps` in the operator skeleton, `portainer` in the
+  starter, and `admin` for established clients per its own comment. Three
+  sources, three answers: a host fact. It stays a lookup until it is a store
+  key.
+
+**The dangerous class is not the blocker.** A missing value with no default
+stops the play, loudly, once. A missing value WITH a default reconfigures the
+host quietly and reports success -- so the phase-3 acceptance test as written,
+"reconcile.yml runs to completion against an EMPTY inventory", would pass while
+producing a wrong host. The gate has to be "runs to completion AND produces the
+same host", which is a bench assertion rather than a unit one.
+
+**The count is a floor.** `_backlog()` matches variable names in reconcile
+files, so a value the inventory supplies and a role reads through a derived name
+-- `infrastructure_gatus_hostname`, say -- is not counted. Those all bottom out
+in `cloudflare_zone`, which is counted, so zero still means what it says.
 
 ```
 admin_email                    catena-admin, coturn, infrastructure, keycloak
@@ -160,9 +190,25 @@ portainer_ui_port              catena-admin, infrastructure, portainer
 storage_mount_point            backup, catena-admin, keycloak
 ```
 
-Most are subdomains and the zone. The ACME ones (coturn, mailserver) are bench
-and dev overrides rather than client-facing values, so they may become product
-constants rather than store keys.
+The eleven that left are gone from `BOOTSTRAP_CONFIG`, from the starter
+inventory and from the operator skeleton, because a knob that no longer turns
+anything is worse in the documentation than absent.
+
+What remains, and what each needs:
+
+| Variable | Needs |
+| --- | --- |
+| `cloudflare_zone` | a store key. The hard blocker, and eight roles read it |
+| `admin_email` | a store key |
+| `portainer_admin_subdomain` | a store key; the one subdomain that varies |
+| `cloudflared_tunnel_name` | the prefix is a bench input; the name is derivable on-box |
+| `coturn_acme_*` (4), `mailserver_acme_*` (3) | product constants with a bench escape hatch |
+
+The ACME seven are the awkward ones: they are bench overrides seeded into the
+inventory `.env` by ops `install_yaml.py`, so making them constants needs the
+bench to pass them another way (an exported env var, the shape
+`CATENA_ADMIN_IMAGE` already uses). That is a cross-repo change gated on a bench
+run, which is why they were not done with the other thirteen.
 
 ### 6. Three misclassifications the boundary gates caught
 
