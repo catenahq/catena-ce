@@ -1,0 +1,30 @@
+# {{ ansible_managed }}
+#
+# Managed by reconcile/roles/traefik. Do NOT edit by hand -- changes are
+# clobbered on the next `./catena site` run.
+#
+# Traefik dynamic middleware that sets response security headers on
+# every response leaving the :80 entrypoint (the only ingress, fronted
+# by cloudflared). Referenced from traefik.yml's `web` entrypoint.
+#
+# Scope is deliberately the SAFE, app-agnostic subset the bench
+# security_scan flagged as missing across website/portal/auth/docs:
+#   - Strict-Transport-Security: every catena hostname is HTTPS-only at
+#     the Cloudflare edge, so HSTS is always correct. NO includeSubDomains
+#     (would assert HTTPS for sibling subdomains catena does not own) and
+#     NO preload (hard to unwind).
+#   - X-Content-Type-Options: nosniff -- universally safe.
+#   - Referrer-Policy: strict-origin-when-cross-origin -- safe default.
+#
+# Intentionally NOT set here: CSP, Cross-Origin-{Resource,Opener,Embedder}-
+# Policy, X-Frame-Options. Those break cross-origin asset loads / embeds
+# across a multi-app suite and need per-app tuning + a bench run. The
+# Keycloak CSP findings on auth.* are Keycloak's own defaults and must be
+# fixed realm/theme-side, not with a blanket edge header.
+http:
+  middlewares:
+    catena-secure-headers:
+      headers:
+        stsSeconds: 31536000
+        contentTypeNosniff: true
+        referrerPolicy: "strict-origin-when-cross-origin"

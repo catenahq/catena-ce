@@ -27,7 +27,7 @@ import yaml
 
 ROLE = (
     Path(__file__).resolve().parents[3]
-    / "ansible" / "roles" / "infrastructure" / "tasks"
+    / "ansible" / "reconcile" / "roles" / "infrastructure" / "tasks"
 )
 ATTEMPT = ROLE / "_swarm_stack_deploy_attempt.yml"
 STACK = ROLE / "swarm_stack.yml"

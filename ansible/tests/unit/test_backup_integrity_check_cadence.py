@@ -35,7 +35,7 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-ROLE = ANSIBLE / "roles" / "backup"
+ROLE = ANSIBLE / "reconcile" / "roles" / "backup"
 DEFAULTS = ROLE / "defaults" / "main.yml"
 INSTALL = ROLE / "tasks" / "install.yml"
 TEMPLATES = ROLE / "templates"

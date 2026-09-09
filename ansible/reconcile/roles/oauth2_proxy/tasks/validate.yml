@@ -1,0 +1,255 @@
+---
+# Validation tasks for reconcile/roles/oauth2_proxy. Each per-app instance must
+# have a running container and respond 200 on /ping (oauth2-proxy's
+# built-in health endpoint).
+#
+# Wrapped in a block/rescue: on /ping failure (typical mode is the
+# container in a startup restart-loop, where `docker exec` returns
+# rc=1 with stderr "Container ... is restarting"), the rescue dumps
+# the last 100 lines of `docker logs` + the latest `docker inspect`
+# state object for the failing container set and re-raises. This
+# costs nothing on the success path and turns an opaque "container
+# is restarting" Ansible failure into actionable startup-error text
+# for bench / DR debugging.
+
+# Cloudflare token late-binding: the oauth2-proxy issuer + per-app probes
+# below reach Keycloak through its PUBLIC hostname (auth.<zone>), which only
+# resolves once the Cloudflare tunnel is up. A tokenless install defers the
+# tunnel (the token is entered later in catena-admin > Settings), so auth.<zone>
+# is not resolvable and oauth2-proxy is EXPECTED to sit in OIDC-discovery
+# restart-backoff until then. Skip this whole validation block while the store
+# holds no token -- gating it on tunnel readiness rather than hard-failing the
+# converge on a deferred edge. Once the token is saved (cf_activate / a
+# re-converge with the token present), cloudflare_tunnel brings the edge up
+# earlier in site.yml and this block runs normally.
+- name: "validate/oauth2-proxy: tunnel deferred -- skipping public-issuer validation (no Cloudflare token yet)"
+  ansible.builtin.debug:
+    msg: >-
+      No Cloudflare API token in the on-box store: the tunnel is deferred, so
+      auth.{{ cloudflare_zone | default('<zone>') }} is not resolvable and
+      oauth2-proxy is expected to be in OIDC-discovery restart-backoff until the
+      token is entered in catena-admin > Settings. Skipping the oauth2-proxy
+      public-issuer + per-app validation this converge.
+  when: (cloudflare_api_token | default('')) | length == 0
+
+- name: "validate/oauth2-proxy: per-app container probes (with rescue diagnostics)"
+  when: (cloudflare_api_token | default('')) | length > 0
+  block:
+    # Post-restore (backup_rollback, restore_dr) brings every service back
+    # in parallel. oauth2-proxy crash-exits on a failed OIDC discovery
+    # (main.go:73 "Failed to initialise OAuth2 Proxy") and relies on docker
+    # restart-on-failure to retry. If Keycloak / the CF tunnel are not yet
+    # reachable when the per-app /ping probe starts polling, a per-app
+    # container can stay in the restart-backoff window for longer than the
+    # probe budget and we time out on what is really an upstream-readiness
+    # race. Gate the rest of the validate block on the issuer URL actually
+    # answering 200 first -- once Keycloak is reachable, docker's restart
+    # loop self-heals every stuck per-app container deterministically.
+    - name: "validate/oauth2-proxy: wait until Keycloak issuer is reachable (gate for per-app probes)"
+      ansible.builtin.uri:
+        url: "https://{{ keycloak_hostname | default('auth.' ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default('vps') }}/.well-known/openid-configuration"
+        method: GET
+        status_code: [200]
+        timeout: 10
+        return_content: true
+      delegate_to: localhost
+      become: false
+      register: _oauth2_issuer_probe
+      retries: 60
+      delay: 5
+      until: _oauth2_issuer_probe.status == 200
+
+    # oauth2-proxy's startup OIDC dance fetches BOTH the discovery
+    # document AND the jwks_uri it references; the discovery doc can
+    # answer 200 while JWKS still 404s while Keycloak finishes loading
+    # the realm post-restore. Without this second gate, the gate above
+    # passes but per-app oauth2-proxy containers keep crash-looping on
+    # "discovery OIDC configuration: unexpected status 404" -- and
+    # whichever ones climbed deepest into docker's exponential restart
+    # backoff outlive the /ping retry budget (90 * 4s = 6 min). Probe
+    # jwks_uri directly so we don't proceed until Keycloak's realm
+    # signing keys are queryable.
+    - name: "validate/oauth2-proxy: wait until Keycloak JWKS is reachable"
+      ansible.builtin.uri:
+        url: "{{ (_oauth2_issuer_probe.json | default({})).get('jwks_uri', '') }}"
+        method: GET
+        status_code: [200]
+        timeout: 10
+      delegate_to: localhost
+      become: false
+      register: _oauth2_jwks_probe
+      retries: 60
+      delay: 5
+      until: _oauth2_jwks_probe.status == 200
+      when: (_oauth2_issuer_probe.json | default({})).get('jwks_uri', '') | length > 0
+
+    # Targeted kick for oauth2-proxy containers stuck in docker's
+    # restart-backoff window. Post-restore site.yml redeploys every
+    # compose in parallel; if oauth2-proxy crashes during startup
+    # (Failed to initialise OAuth2 Proxy on a 530/404 from Keycloak)
+    # before Keycloak is ready, docker's exponential backoff doubles
+    # the wait between restarts up to 5 minutes per attempt. With
+    # the issuer + JWKS gates above just passed, Keycloak is reachable
+    # NOW -- but a stuck container may still have 4 minutes to wait
+    # before its next restart attempt. Force-restart any non-Up
+    # oauth2-proxy container to skip past the backoff. Containers
+    # already in steady-state Up are left alone so the previous
+    # "kick everything" regression (all containers crashed at once)
+    # cannot recur.
+    #
+    # Plain shell grep against the stack-name prefix rather than
+    # swarm_container_regex per app -- one docker ps round-trip covers every
+    # per-app instance, and the filter rejects wildcard service names. The
+    # underscore is the stack/service separator `docker stack deploy` uses,
+    # so this matches every oauth2-proxy_oauth2-proxy-<slug>.N.<taskid>.
+    - name: "validate/oauth2-proxy: list oauth2-proxy containers and their state"
+      ansible.builtin.shell: |
+        set -o pipefail
+        docker ps -a --format '{{ "{{" }}.Names{{ "}}" }}|{{ "{{" }}.Status{{ "}}" }}' \
+          | grep -E '^{{ oauth2_proxy_compose_name }}_'
+      args:
+        executable: /bin/bash
+      register: _oauth2_all_state
+      changed_when: false
+      failed_when: false
+
+    - name: "validate/oauth2-proxy: kick oauth2-proxy containers stuck in restart-backoff"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - restart
+          - "{{ (_kick_line.split('|') | first) }}"
+      loop: "{{ (_oauth2_all_state.stdout_lines | default([])) }}"
+      loop_control:
+        loop_var: _kick_line
+        label: "{{ (_kick_line.split('|') | first) }}"
+      when:
+        # RESTARTING ONLY, which is what the task is named for. `docker ps -a`
+        # also lists the task containers swarm has already REPLACED, and those
+        # are Exited or Created rather than Up -- so "not Up" swept them in and
+        # `docker restart` brought them back to life. Swarm does not track them,
+        # so nothing takes them down again, and two containers then sit on the
+        # overlay under one service alias: requests round-robin onto whichever,
+        # and the resurrected one is running the configuration it died with.
+        #
+        # Observed on bench run 2026-09-01T15-47-41-5ea0, on a materialised
+        # host: four oauth2-proxy services at 1/1, and EIGHT Up containers --
+        # `docker service ps` naming only one gatus task while `docker ps`
+        # showed two. It also made the converge permanently non-idempotent,
+        # because a corpse restarted is a corpse again by the next pass, and
+        # changed_when is unconditional. ce_converge's settle guard is what
+        # surfaced it.
+        - (_kick_line.split('|') | last).startswith('Restarting')
+      changed_when: true
+      failed_when: false
+
+    - name: "validate/oauth2-proxy: find running per-app containers"
+      ansible.builtin.shell: |
+        set -o pipefail
+        docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
+          | grep -E '{{ oauth2_proxy_compose_name | swarm_container_regex("oauth2-proxy-" + _app.slug) }}' \
+          | head -n1
+      args:
+        executable: /bin/bash
+      register: _oauth2_app_container
+      changed_when: false
+      retries: 30
+      delay: 4
+      until: _oauth2_app_container.stdout | length > 0
+      loop: "{{ oauth2_proxy_apps }}"
+      loop_control:
+        loop_var: _app
+        label: "{{ _app.slug }}"
+
+    # Settle wait: after the kick, give oauth2-proxy containers a
+    # chance to clear restart-backoff and reach a stable state before
+    # the /ping retry phase starts spending its budget. Without this
+    # pause, /ping can burn most of its window observing docker exec
+    # rc=126 "Container is restarting" for containers that just got
+    # kicked and have not finished their next start attempt yet.
+    # 5 min is the docker daemon's worst-case backoff ceiling; once
+    # exceeded, any remaining stuck containers are genuinely failing
+    # and /ping will surface them with full diagnostics.
+    - name: "validate/oauth2-proxy: wait for kicked containers to leave restarting state"
+      ansible.builtin.shell: |
+        set -o pipefail
+        docker ps -a --format '{{ "{{" }}.Names{{ "}}" }}|{{ "{{" }}.Status{{ "}}" }}' \
+          | grep -E '^{{ oauth2_proxy_compose_name }}-[a-z0-9]+-' \
+          | awk -F'|' '$2 !~ /^Up/ {print $1}'
+      args:
+        executable: /bin/bash
+      register: _oauth2_still_stuck
+      changed_when: false
+      failed_when: false
+      retries: 30
+      delay: 10
+      until: (_oauth2_still_stuck.stdout_lines | default([])) | length == 0
+
+    - name: "validate/oauth2-proxy: per-app /ping returns 200"
+      # 180 retries * 4s = 12 min. The post-restore path has shown
+      # repeated OIDC-discovery races where oauth2-proxy crash-restarts
+      # for several minutes after Keycloak appears reachable; 6 min was
+      # borderline and timed out on flaky CF tunnel windows.
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ _ping.stdout }}"
+          - wget
+          - "-qO-"
+          - "http://localhost:{{ oauth2_proxy_internal_port }}/ping"
+      register: _oauth2_app_ping
+      changed_when: false
+      failed_when: _oauth2_app_ping.rc != 0
+      retries: 180
+      delay: 4
+      until: _oauth2_app_ping.rc == 0
+      loop: "{{ _oauth2_app_container.results }}"
+      loop_control:
+        loop_var: _ping
+        label: "{{ _ping._app.slug }}"
+      when: (_ping.stdout | default('')) | length > 0
+
+  rescue:
+    # docker logs / inspect each call swallows its own failures
+    # (failed_when: false): a missing-container error must not mask the
+    # original /ping rescue.
+    - name: "validate/oauth2-proxy: dump per-app container logs (last 100 lines)"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - logs
+          - --tail
+          - "100"
+          - "{{ _ctr.stdout }}"
+      register: _oauth2_app_logs
+      changed_when: false
+      failed_when: false
+      loop: "{{ _oauth2_app_container.results | default([]) }}"
+      loop_control:
+        loop_var: _ctr
+        label: "{{ _ctr._app.slug | default('?') }}"
+      when:
+        - _ctr is defined
+        - (_ctr.stdout | default('')) | length > 0
+
+    - name: "validate/oauth2-proxy: per-app container logs"
+      ansible.builtin.debug:
+        msg: |
+          === oauth2-proxy {{ _r._ctr._app.slug | default('?') | upper }} logs (tail 100) ===
+          stdout:
+          {{ _r.stdout | default('(no stdout)') }}
+
+          stderr:
+          {{ _r.stderr | default('(no stderr)') }}
+      loop: "{{ _oauth2_app_logs.results | default([]) }}"
+      loop_control:
+        loop_var: _r
+        label: "{{ _r._ctr._app.slug | default('?') }}"
+      when: _oauth2_app_logs is defined
+
+    - name: "validate/oauth2-proxy: re-raise original failure"
+      ansible.builtin.fail:
+        msg: |
+          oauth2-proxy validate failed. See preceding debug tasks for
+          docker logs (tail 100) for each per-app instance.

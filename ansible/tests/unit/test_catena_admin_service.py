@@ -205,7 +205,7 @@ def test_an_unchanged_secret_reports_no_drift():
 
 DEPLOY = (
     Path(__file__).resolve().parents[2]
-    / "roles" / "catena-admin" / "tasks" / "deploy.yml"
+    / "reconcile" / "roles" / "catena-admin" / "tasks" / "deploy.yml"
 )
 
 

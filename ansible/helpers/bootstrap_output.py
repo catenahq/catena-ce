@@ -9,7 +9,7 @@ inventory (and apply_to_inventory() applies for the in-flight run).
 
 NO SECRET goes through this file. Every Catena secret, including the
 Portainer API key, lives in the on-box store at /etc/catena/config.json
-(0b), written there directly by roles/portainer.
+(0b), written there directly by reconcile/roles/portainer.
 
 File shape:
 

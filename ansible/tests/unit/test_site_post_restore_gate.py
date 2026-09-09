@@ -129,7 +129,7 @@ def test_the_rerun_waits_for_a_redeployed_consumer_to_reach_running():
     assert int(task["retries"]) > 0 and int(task["delay"]) > 0
     assert task["failed_when"] is False, (
         "exhausting the window must not fail the converge -- a genuinely broken "
-        "consumer is roles/coturn's gate to report by skipping"
+        "consumer is reconcile/roles/coturn's gate to report by skipping"
     )
 
 

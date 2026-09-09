@@ -33,7 +33,7 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-ROLE = ANSIBLE / "roles" / "docker"
+ROLE = ANSIBLE / "bootstrap" / "roles" / "docker"
 
 # A systemctl verb that can wait on dockerd's readiness notification. `stop`,
 # `is-active` and friends return on their own and are not in scope.
@@ -111,7 +111,7 @@ def test_the_bound_is_declared_once_as_a_default() -> None:
         (ROLE / "defaults" / "main.yml").read_text()) or {}
     assert isinstance(defaults.get("docker_daemon_control_timeout"), int), (
         "docker_daemon_control_timeout must be an integer number of seconds "
-        f"in roles/docker/defaults/main.yml, got "
+        f"in bootstrap/roles/docker/defaults/main.yml, got "
         f"{defaults.get('docker_daemon_control_timeout')!r}"
     )
     for path in (ROLE / "handlers" / "main.yml", ROLE / "tasks" / "main.yml"):

@@ -23,7 +23,7 @@ import yaml
 
 _TASKS = (
     Path(__file__).resolve().parents[3]
-    / "ansible" / "roles" / "infrastructure" / "tasks" / "wordpress_plugins.yml"
+    / "ansible" / "reconcile" / "roles" / "infrastructure" / "tasks" / "wordpress_plugins.yml"
 )
 
 MARKER_PREFIX = "/var/lib/catena/wordpress-options-bootstrapped-"
@@ -138,7 +138,7 @@ def test_a_restored_site_is_treated_as_already_seeded():
     without a pre-drop the seed gate opens and puts catena's NPP preload method
     and WP Mail SMTP sender back over the restored ones -- the same silent
     overwrite the marker exists to stop, reached through DR instead of through
-    a converge. roles/keycloak drops its three realm markers for this reason;
+    a converge. reconcile/roles/keycloak drops its three realm markers for this reason;
     this one cannot ride that loop because its name is per site."""
     tasks = _tasks()
     names = [t.get("name") or "" for t in tasks]

@@ -1,0 +1,79 @@
+---
+# Read ONE service's built-in spec from the catena-tier1 host engine.
+#
+# The counterpart to reconcile_one.yml: that one hands the engine a
+# declaration, this one asks the engine for it. Roles that have no per-host
+# opinion about their service use this and stop carrying a dict of their own,
+# which is what keeps a single description of the control plane rather than two
+# that agree until the next field is added to one of them.
+#
+# Caller contract:
+#   tier1_spec_name   the service name (catena-postgres, catena-traefik, ...)
+#   tier1_spec_args   OPTIONAL extra argv for the engine, for the few values
+#                     that are genuinely per-deployment rather than product
+#                     constants (today: reconcile/roles/portainer passes
+#                     --portainer-ui-port). Kept as opaque argv so this shared
+#                     file needs no per-service knowledge, and so every such
+#                     value is visible at ITS call site rather than buried here.
+# Sets:
+#   tier1_builtin_spec  the spec dict, in the same shape the roles used to
+#                       build and the same shape reconcile_one.yml takes
+#
+# WHY THE ENGINE OWNS IT. The desired state then travels with the IMAGE: bump
+# the catena-admin tag, reconcile/roles/payload re-extracts the engines, and what the
+# host reconciles toward moves with it. A spec assembled here instead means
+# every change to the control plane needs a laptop and an inventory that is up
+# to date -- which is the property reconcile/roles/tier1_stack's own header complains
+# about ("a control plane that drifted at 3am waited for a laptop").
+
+- name: "tier1: stat the reconcile engine"
+  ansible.builtin.stat:
+    path: "{{ tier1_engine_bin }}"
+  register: _t1_spec_bin
+
+# Same refusal as reconcile_one.yml, and for the same reason: without the
+# engine there is no control plane at all, so a converge that carried on would
+# report success over a host with nothing running.
+- name: "tier1: the reconcile engine is missing"
+  ansible.builtin.fail:
+    msg: >-
+      {{ tier1_engine_bin }} is absent, so the built-in spec for
+      {{ tier1_spec_name }} cannot be read. The engine ships in the
+      catena-admin host payload and reconcile/roles/payload installs it right after
+      bootstrap/roles/docker -- check the "Payload:" tasks above for why the extract did
+      not land. A host whose payload is staged out of band
+      (CATENA_PAYLOAD_INSTALL=false) must be staged BEFORE the converge that
+      brings the control plane up.
+  when: not (_t1_spec_bin.stat.exists | default(false))
+
+- name: "tier1: read the built-in spec for {{ tier1_spec_name }}"
+  ansible.builtin.command:
+    argv: >-
+      {{ [tier1_engine_bin, 'spec', tier1_spec_name]
+         + (tier1_spec_args | default([])) }}
+  register: _t1_spec_raw
+  changed_when: false
+
+# services[0] rather than a search: `spec <name>` is asked for exactly one
+# service and errors on a name it does not know, so a second element here would
+# mean the engine answered a question nobody asked.
+#
+# The image is then resolved against what the on-host update lane last applied.
+# The engine's catalog is the FLOOR, not the last word: it ships with the image
+# and moves when the image does, but the lane bumps services between converges
+# and a converge that re-asserted the floor would undo every one of those bumps.
+# catena_image_pin takes max(floor, pin) -- see filter_plugins/image_pin.py.
+#
+# This is the single funnel every tier-1 role reads its spec through, which is
+# why the overlay lives here rather than once per role.
+- name: "tier1: decode the built-in spec for {{ tier1_spec_name }}"
+  ansible.builtin.set_fact:
+    _t1_spec_floor: "{{ (_t1_spec_raw.stdout | from_json).services[0] }}"
+
+- name: "tier1: resolve {{ tier1_spec_name }}'s image against the on-host pin"
+  ansible.builtin.set_fact:
+    tier1_builtin_spec: >-
+      {{ _t1_spec_floor | combine({
+           'image': _t1_spec_floor.image
+                    | catena_image_pin(catena_image_pins | default({}))
+         }) }}

@@ -1,4 +1,4 @@
-"""Lock down the slimmed roles/cloudflare_tunnel.
+"""Lock down the slimmed reconcile/roles/cloudflare_tunnel.
 
 The tunnel/DNS/ingress/cloudflared-service converge moved into the Go engine
 catena-cloudflared-sync (host payload). The role now dispatches that engine's
@@ -16,7 +16,7 @@ import yaml
 
 _ROLE = (
     Path(__file__).resolve().parents[3]
-    / "ansible" / "roles" / "cloudflare_tunnel"
+    / "ansible" / "reconcile" / "roles" / "cloudflare_tunnel"
 )
 TASKS = _ROLE / "tasks" / "main.yml"
 DEFAULTS = _ROLE / "defaults" / "main.yml"
@@ -121,7 +121,7 @@ def test_sync_gated_on_the_binary_only():
 
 
 def test_the_decision_comes_from_the_shared_predicate():
-    """One include, one answer. This role and roles/backup used to read the
+    """One include, one answer. This role and reconcile/roles/backup used to read the
     fact while the validate side read the env var, and only the validate side
     accepted "or it is already here" -- so this side could not tell NOT YET
     from PARTIALLY INSTALLED."""
@@ -131,7 +131,7 @@ def test_the_decision_comes_from_the_shared_predicate():
 
 
 def test_a_missing_engine_fails_a_converge_that_installs_it():
-    """roles/payload puts the engine on the host four roles earlier. If it is
+    """reconcile/roles/payload puts the engine on the host four roles earlier. If it is
     not there, deferring only moves the failure to oauth2_proxy, which waits on
     an edge this role was supposed to bring up."""
     task = _find("engine is missing from a converge that installs it")
@@ -148,7 +148,7 @@ def test_a_host_with_out_of_band_engines_still_defers():
 
 
 def test_the_decision_is_pinned_before_the_next_include_overwrites_it():
-    """_payload_expected sets play-level facts; roles/backup includes it again
+    """_payload_expected sets play-level facts; reconcile/roles/backup includes it again
     later in the same play. Reading them after that would answer for backup."""
     pinned = _find("pin whether the tunnel engine is here")
     assert "_cf_sync_present" in pinned["ansible.builtin.set_fact"]

@@ -47,8 +47,8 @@
       - oauth2_proxy
       - coturn
     # `cloudflared` intentionally absent -- it's not a standalone role;
-    # CF Tunnel lives inside roles/infrastructure and is covered by
-    # roles/infrastructure/tasks/validate.yml's cloudflared-swarm check.
+    # CF Tunnel lives inside reconcile/roles/infrastructure and is covered by
+    # reconcile/roles/infrastructure/tasks/validate.yml's cloudflared-swarm check.
 
   pre_tasks:
     # 0b: load on-box config store so on-host validate checks that read
@@ -80,7 +80,7 @@
 #   2. trigger sendverifyemail against the bootstrap admin user in the
 #      `vps` realm.
 # Keycloak's worker reads the realm-level smtpServer config (rendered
-# by roles/keycloak's realm-config import), connects out, and dispatches
+# by reconcile/roles/keycloak's realm-config import), connects out, and dispatches
 # the email. Empty / missing SMTP config short-circuits to a "verifyEmail
 # requires email server" error which we catch as a fast-fail.
 #
@@ -480,7 +480,7 @@
 
           Likely causes:
           - oauth2-proxy --oidc-issuer-url mismatch (check
-            roles/oauth2_proxy/defaults/main.yml: oauth2_proxy_oidc_issuer)
+            reconcile/roles/oauth2_proxy/defaults/main.yml: oauth2_proxy_oidc_issuer)
           - Keycloak realm name drift (KEYCLOAK_REALM in .env vs
             keycloak_realm role default)
           - oauth2-proxy container restart-looping (check `docker logs`)

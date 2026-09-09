@@ -27,7 +27,22 @@ from pathlib import Path
 import yaml
 
 _ANSIBLE = Path(__file__).resolve().parents[2]
-_ROLES = _ANSIBLE / "roles"
+_ROLE_ROOTS = (_ANSIBLE / "bootstrap" / "roles",
+               _ANSIBLE / "reconcile" / "roles")
+
+def _role_dir(name: str) -> Path:
+    """Where a role lives, whichever side it is on.
+
+    Phase 1b split roles/ into bootstrap/roles/ and reconcile/roles/. Resolved
+    by search rather than by a hard-coded side so a role moving across the line
+    -- which is a thing this migration does -- does not need this file edited
+    too.
+    """
+    for root in _ROLE_ROOTS:
+        if (root / name).is_dir():
+            return root / name
+    raise AssertionError(f"no role named {name} under {[str(r) for r in _ROLE_ROOTS]}")
+
 _PLAYBOOKS = _ANSIBLE / "playbooks"
 _GROUP_VARS = _PLAYBOOKS / "group_vars" / "all" / "main.yml"
 
@@ -57,7 +72,8 @@ def _store_backed_vars() -> dict[str, str]:
     other source: what the store answers rather than what the .env does.
     """
     out: dict[str, str] = {}
-    sources = [_GROUP_VARS] + sorted(_ROLES.glob("*/defaults/main.yml"))
+    sources = [_GROUP_VARS] + sorted(
+        p for root in _ROLE_ROOTS for p in root.glob("*/defaults/main.yml"))
     for src in sources:
         text = src.read_text(encoding="utf-8", errors="ignore")
         for m in re.finditer(r"^([a-z][a-z0-9_]*):((?:.|\n)*?)(?=^\S|\Z)", text, re.M):
@@ -78,7 +94,9 @@ def _roles_of(playbook: Path) -> list[str]:
 
 
 def _role_text(role: str) -> str:
-    root = _ROLES / role
+    root = next((r / role for r in _ROLE_ROOTS if (r / role).is_dir()), None)
+    if root is None:
+        return ""
     if not root.is_dir():
         return ""
     parts = []
@@ -147,7 +165,7 @@ def test_bootstrap_seeds_the_store_and_runs_nothing_else():
         if not line.lstrip().startswith("#")
     )
     assert "seed_onbox_config.yml" in text, (
-        "bootstrap.yml no longer seeds the store, so roles/tailscale chooses a "
+        "bootstrap.yml no longer seeds the store, so bootstrap/roles/tailscale chooses a "
         "control plane from empty facts and a Headscale host takes the "
         "Tailscale fork"
     )

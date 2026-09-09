@@ -7,7 +7,7 @@
 # internal service secrets and the user-held admin/restic DR keyset, and it asks
 # the container registry which catena-admin release to install -- on a machine
 # that has no Docker yet. Bootstrap needs neither, and needs the config half
-# because roles/tailscale chooses its control plane from cfg_tailnet_provider
+# because bootstrap/roles/tailscale chooses its control plane from cfg_tailnet_provider
 # with no inventory fallback. A machine that reaches its first converge already
 # on the wrong tailnet was the defect this split exists to close.
 #

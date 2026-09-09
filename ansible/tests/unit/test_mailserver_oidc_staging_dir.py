@@ -29,7 +29,7 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-OIDC = ANSIBLE / "roles" / "infrastructure" / "tasks" / "mailserver_oidc.yml"
+OIDC = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "tasks" / "mailserver_oidc.yml"
 
 STAGING = "/var/lib/catena/mailserver"
 

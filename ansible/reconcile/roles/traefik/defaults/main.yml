@@ -1,0 +1,61 @@
+---
+# reconcile/roles/traefik -- catena-owned reverse proxy. We deploy and own the
+# `catena-traefik` container directly.
+
+# The Traefik IMAGE is not pinned here any more. It lives in the host engine's
+# built-in catalog (catena-admin payload/engines/tier1/catalog.go), with
+# Renovate and Trivy following it there -- the version has to be tracked where
+# the host actually reads it, or a bump lands in a file nothing runs.
+
+# The catena-owned reverse-proxy container. cloudflared points its ingress at
+# this name.
+traefik_container_name: catena-traefik
+
+# The overlay network apps + traefik share. We create it ourselves (attachable
+# overlay).
+catena_network_name: catena-network
+
+# Traefik config tree: traefik.yml (static), dynamic/ (file-provider routes
+# written by oauth2_proxy + dashboard-sync + portainer_stack), and
+# dynamic/acme.json. Rooted under /etc/catena with the rest of the catena
+# host config.
+traefik_config_dir: /etc/catena/traefik
+traefik_dynamic_dir: "{{ traefik_config_dir }}/dynamic"
+
+# The tier-1 SPEC for catena-traefik is not assembled here any more -- not the
+# mounts, not the hardening, not the placement constraints, not the health
+# probe. It lives in the host engine, catena-admin
+# payload/engines/tier1/catalog.go, and reconcile/roles/traefik reads it with
+# `catena-tier1 spec catena-traefik`.
+#
+# The values did not change; they moved. The engine's own test pins the exact
+# declaration this file used to build and asserts byte-identical
+# `docker service create` argv, so the move is provably lossless. What it buys
+# is that the desired control plane now travels with the IMAGE: bump the
+# catena-admin tag and what the host reconciles toward moves with it, no laptop
+# and no inventory edit.
+#
+# What stays below is what only this repo knows: where the config tree lives
+# (this role renders it) and which upstream proxies Traefik may trust.
+
+# Trusted upstream-proxy IPs for Traefik's forwardedHeaders. Only sources in
+# this list have their X-Forwarded-* headers honored; anything else gets
+# rewritten with the local-edge values (X-Forwarded-Proto: http on :80), which
+# makes Keycloak treat HTTPS clients as non-secure and refuse Secure cookies.
+#
+# RFC1918 is the right scope: UFW + DOCKER-USER + cloudflared-only ingress mean
+# only private sources (cloudflared on the overlay's 10.x, Docker bridges,
+# anything inside Docker) reach :80/:443 at all. Public clients are blocked at
+# the firewall; this governs what Traefik trusts among sources that DO reach it.
+traefik_trusted_ips:
+  - "10.0.0.0/8"
+  - "172.16.0.0/12"
+  - "192.168.0.0/16"
+  - "127.0.0.0/8"
+
+# catena-network-nudge lives in bootstrap/roles/docker: the overlay race it heals is
+# between dockerd restoring containers and the swarm node re-materializing
+# the network, both of which that role owns. catena-traefik is a swarm
+# service, so the task manager re-dispatches it and the nudge skips it (swarm
+# task containers are excluded by label). See
+# bootstrap/roles/docker/defaults/main.yml for docker_network_nudge_timeout.

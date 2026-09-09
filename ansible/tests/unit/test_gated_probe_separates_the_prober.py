@@ -30,7 +30,7 @@ from pathlib import Path
 import yaml
 
 _TASKS = (Path(__file__).resolve().parents[2]
-          / "roles" / "infrastructure" / "tasks" / "verify_gated_services.yml")
+          / "reconcile" / "roles" / "infrastructure" / "tasks" / "verify_gated_services.yml")
 
 
 def _tasks() -> list[dict]:

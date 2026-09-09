@@ -29,7 +29,7 @@ import jinja2
 import pytest
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-TEMPLATE = ANSIBLE / "roles" / "catena-admin" / "templates" / "admin-actions.j2"
+TEMPLATE = ANSIBLE / "reconcile" / "roles" / "catena-admin" / "templates" / "admin-actions.j2"
 RUNNER = ANSIBLE / "scripts" / "catena-admin-runner.sh"
 
 # One CE arm, enough to prove base-first precedence and that the table still
@@ -257,7 +257,7 @@ def test_the_overlay_directory_is_created_root_owned_by_the_converge():
     import yaml
 
     tasks = yaml.safe_load(
-        (ANSIBLE / "roles" / "catena-admin" / "tasks" / "catalog.yml").read_text()
+        (ANSIBLE / "reconcile" / "roles" / "catena-admin" / "tasks" / "catalog.yml").read_text()
     )
     task = next(
         (t for t in tasks

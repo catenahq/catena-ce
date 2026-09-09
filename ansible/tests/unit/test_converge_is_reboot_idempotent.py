@@ -33,7 +33,7 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-COMMON_TASKS = ANSIBLE / "roles" / "common" / "tasks" / "main.yml"
+COMMON_TASKS = ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "main.yml"
 
 _CLOUD_INIT_DROPIN = "Stop cloud-init regenerating /etc/hosts on every boot"
 _CLOUD_INIT_STAT = "Check for a cloud-init config directory"
@@ -172,8 +172,8 @@ def test_the_pebble_host_mapping_regexp_matches_the_line_it_writes():
     task cannot be idempotent no matter what the pattern is made of."""
     written = "10.139.244.91 pebble"
     for rel in (
-        "roles/coturn/tasks/cert.yml",
-        "roles/infrastructure/tasks/mailserver_cert.yml",
+        "reconcile/roles/coturn/tasks/cert.yml",
+        "reconcile/roles/infrastructure/tasks/mailserver_cert.yml",
     ):
         doc = yaml.safe_load((ANSIBLE / rel).read_text(encoding="utf-8"))
         task = next(

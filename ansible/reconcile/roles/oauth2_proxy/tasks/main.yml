@@ -1,0 +1,175 @@
+---
+# Orchestrator for reconcile/roles/oauth2_proxy. Order:
+# 1. Preflight: secrets + Keycloak realm exists.
+# 2. Render the Keycloak `oauth2-proxy` client into the keycloak realm
+#    config dir + re-run keycloak-config-cli (merge mode -- safe).
+# 3. Render the shared Traefik middleware definitions.
+# 4. Render the per-app Traefik route files (one per gated app).
+# 5. Deploy the two-instance compose via the Portainer API.
+# 6. Validate.
+#
+# This role MUST run AFTER reconcile/roles/keycloak (the realm + admin user must
+# exist before keycloak-config-cli can add the client) and BEFORE
+# reconcile/roles/infrastructure deploys gated apps (so the chain middleware is
+# in place when those apps' routes get registered with Traefik).
+
+- name: "oauth2-proxy: preflight secrets + env"
+  ansible.builtin.assert:
+    that:
+      - oauth2_proxy_client_secret is defined
+      - oauth2_proxy_client_secret | length > 20
+      - oauth2_proxy_cookie_secret is defined
+      # oauth2-proxy v7 decodes --cookie-secret with `base64.RawURLEncoding`
+      # (URL-safe alphabet `-_`, no padding) and rejects any decoded
+      # length other than 16/24/32 bytes (AES-128/192/256). Standard
+      # base64 with `+/` characters fails RawURLEncoding so oauth2-proxy
+      # falls back to the literal 44-char string -> "is 44 bytes" error
+      # -> restart loop. Validate by stripping any `=` padding and
+      # asserting the resulting length matches one of the three valid
+      # b64-of-{16,24,32}-bytes lengths. Works for both URL-safe and
+      # standard b64; the alphabet itself is enforced at oauth2-proxy
+      # boot, not here.
+      - (oauth2_proxy_cookie_secret | regex_replace('=+$', '') | length) in [22, 32, 43]
+      - cloudflare_zone | length > 0
+      - keycloak_realm | length > 0
+      - keycloak_server_alias | length > 0
+    fail_msg: >-
+      Missing or invalid oauth2-proxy config. Expected
+      oauth2_proxy_client_secret (>= 20 chars),
+      oauth2_proxy_cookie_secret (URL-safe base64 of 16/24/32
+      raw bytes -- 32 raw bytes is the canonical choice -> 43 chars
+      no-pad / 44 chars with `=`; a 64-char b64 of 48 bytes WILL FAIL
+      oauth2-proxy preflight, AND standard base64 with `+/` characters
+      will silently decode to a 44-byte literal at oauth2-proxy boot),
+      CLOUDFLARE_ZONE, and a healthy reconcile/roles/keycloak pass earlier in
+      the play. The converge mints both secrets correctly on the box; to
+      regenerate the cookie secret by hand, delete
+      oauth2_proxy_cookie_secret from /etc/catena/config.json and
+      re-converge (minting is fill-only, so it will not touch a value that
+      is still there).
+
+# Realm-config render + middleware render + compose deploy + validate
+# all assume Keycloak is up (so keycloak-config-cli can reach it) AND
+# the Portainer stack API is reachable (so the compose deploy works).
+# portainer_api_key is minted by reconcile/roles/portainer earlier in the SAME
+# converge, and reconcile/roles/keycloak (also portainer-gated) has already brought
+# Keycloak up by the time this role runs, so this body converges in a single
+# pass -- mirrors reconcile/roles/keycloak's gate.
+- name: "oauth2-proxy: Portainer-API-gated body (realm + middleware + compose + validate)"
+  when:
+    - portainer_api_key is defined
+    - portainer_api_key | length > 10
+  block:
+    - name: "oauth2-proxy: render Keycloak client into realm config dir"
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../reconcile/roles/keycloak/templates/realm-oauth2-proxy.yaml.j2"
+        dest: "{{ keycloak_realm_host_dir }}/oauth2-proxy.yaml"
+        owner: root
+        group: root
+        mode: "0644"
+      register: _oauth2_realm_render
+
+    - name: "oauth2-proxy: re-import realm config with the new client"
+      ansible.builtin.include_tasks:
+        file: ../../keycloak/tasks/realm_bootstrap.yml
+        apply:
+          tags: [oauth2_proxy_realm]
+      when: _oauth2_realm_render is changed
+      tags: [oauth2_proxy_realm]
+
+    - name: "oauth2-proxy: render shared Traefik middlewares"
+      ansible.builtin.template:
+        src: oauth2-proxy-middlewares.yml.j2
+        dest: "{{ traefik_dynamic_dir }}/oauth2-proxy-middlewares.yml"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: "oauth2-proxy: render per-app Traefik route files"
+      ansible.builtin.template:
+        src: app-oauth2-proxy.yml.j2
+        dest: "{{ traefik_dynamic_dir }}/{{ _app.slug }}-oauth2-proxy.yml"
+        owner: root
+        group: root
+        mode: "0644"
+      loop: "{{ oauth2_proxy_apps }}"
+      loop_control:
+        loop_var: _app
+        label: "{{ _app.slug }}"
+      vars:
+        _app_hostname: "{{ hostvars[inventory_hostname][_app.host_var] | default(lookup('vars', _app.host_var, default='')) }}"
+      when: _app_hostname | length > 0
+
+    # Native-OIDC apps: force-https + backend only, no chain. Different
+    # filename suffix (-public-oidc.yml) so the cleanup loop in
+    # dashboard-sync's gate-route writer (which only handles
+    # `-auto-gate.yml`) leaves these alone; they're operator-managed via
+    # this role, not client-managed.
+    - name: "oauth2-proxy: render per-app Traefik route files (public OIDC)"
+      ansible.builtin.template:
+        src: app-public-oidc.yml.j2
+        dest: "{{ traefik_dynamic_dir }}/{{ _app.slug }}-public-oidc.yml"
+        owner: root
+        group: root
+        mode: "0644"
+      loop: "{{ oauth2_proxy_public_oidc_apps | default([]) }}"
+      loop_control:
+        loop_var: _app
+        label: "{{ _app.slug }} (public-oidc)"
+      vars:
+        _app_hostname: "{{ hostvars[inventory_hostname][_app.host_var] | default(lookup('vars', _app.host_var, default='')) }}"
+      when: _app_hostname | length > 0
+
+    # Cleanup: remove the `-oauth2-proxy.yml` route file for any app
+    # now on the public-oidc list. Without this, an admin-chain route
+    # left over from a previous converge stays active alongside the
+    # public-oidc route -- two routers claiming the same Host(),
+    # Traefik picks one undefined-ly.
+    - name: "oauth2-proxy: remove stale chain-route files for migrated public-oidc apps"
+      ansible.builtin.file:
+        path: "{{ traefik_dynamic_dir }}/{{ _app.slug }}-oauth2-proxy.yml"
+        state: absent
+      loop: "{{ oauth2_proxy_public_oidc_apps | default([]) }}"
+      loop_control:
+        loop_var: _app
+        label: "{{ _app.slug }} (cleanup)"
+
+    # NOTE: there is deliberately no pre-deploy "wait for public OIDC
+    # discovery" gate here anymore. oauth2-proxy now boots with
+    # --skip-oidc-discovery + intra-cluster --oidc-jwks-url/--redeem-url
+    # (see reconcile/roles/oauth2_proxy/defaults/main.yml), so a container start
+    # makes ZERO calls to the public auth.<zone> endpoint and cannot
+    # crashloop on a Cloudflare 530/1033 while cloudflared re-registers
+    # during a same-converge Keycloak/cloudflared redeploy. The old gate
+    # (delegate_to localhost -> public URL) hard-failed the converge in
+    # exactly that reconnect window, coupling a restore to the public
+    # edge being up at that instant -- the fragility this decoupling
+    # removes. End-to-end public login reachability is still asserted in
+    # validate.yml.
+    - name: "oauth2-proxy: deploy compose via Portainer API"
+      ansible.builtin.include_tasks:
+        file: deploy.yml
+        apply:
+          tags: [oauth2_proxy_compose]
+      tags: [oauth2_proxy_compose]
+
+    # NOTE: no post-deploy "re-confirm public OIDC discovery" gate either.
+    # With --skip-oidc-discovery the container's /ping does not depend on
+    # the public auth endpoint, so a cloudflared re-register window can no
+    # longer crashloop it. validate.yml still gates its per-app /ping on
+    # the public issuer + JWKS being reachable (end-to-end validation).
+    - name: "oauth2-proxy: post-deploy /ping probe"
+      ansible.builtin.include_tasks:
+        file: validate.yml
+        apply:
+          tags: [oauth2_proxy_health]
+      tags: [oauth2_proxy_health]
+
+- name: "oauth2-proxy: skipped Portainer-API steps (no API key yet)"
+  ansible.builtin.debug:
+    msg: >-
+      Skipping oauth2-proxy realm + middleware + compose + validate --
+      portainer_api_key is not yet present. It is normally minted by
+      reconcile/roles/portainer earlier in this same converge; if you see this,
+      portainer did not run or failed to mint the key.
+  when: portainer_api_key is not defined or (portainer_api_key | length) < 10

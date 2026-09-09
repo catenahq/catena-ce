@@ -1,0 +1,188 @@
+---
+# Per-host wiring for the route + SSO reconciler.
+#
+# The SCRIPT and its modules are not here any more. They ship in the
+# catena-admin payload (payload/lanes/catena-dashboard-sync.py plus
+# payload/lib/), which reconcile/roles/payload extracts five roles before this one runs.
+#
+# Why they moved: what this reconciler does is read every Portainer stack's
+# `vps.*` labels and decide what the route and the oauth2-proxy for that app
+# should be. That is the MEANING of a label, and its correct value changes when
+# the product changes, not when the host changes -- so it belongs to the image.
+# It used to belong to the converge, which is why changing how app access is
+# resolved needed a converge on every host rather than an image update.
+#
+# What stays here is everything whose correct value changes when the HOST
+# changes:
+#   - the env file, which carries the Portainic API key, the oauth2-proxy
+#     client secret and the per-zone cookie secrets;
+#   - the timer, whose interval is a per-host setting;
+#   - enabling and starting it, which is the converge installing capability.
+#
+# That is the same split reconcile/roles/payload's README states: the converge installs
+# capability, the image owns content.
+
+- name: "dashboard-sync: env file ({{ dashboard_sync_env_path }})"
+  ansible.builtin.template:
+    src: dashboard-sync.env.j2
+    dest: "{{ dashboard_sync_env_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+# Whether a missing payload file is a defect depends on whether THIS converge
+# was the one that had to put it there. bootstrap/roles/common/tasks/_payload_expected.yml
+# is the one place that decision is made; the two legs below are the part that
+# is this role's -- a deferral that does not name what is deferred and when it
+# converges reads exactly like a silent skip.
+# dashboard_sync_required_paths, not the script alone: deciding "the engines are
+# here" from the binary is what turned a half-restored host into a converge that
+# died inside systemd on ModuleNotFoundError with an empty journal.
+- name: "dashboard-sync: is the reconciler expected on this host"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _payload_expected
+  vars:
+    _payload_paths: "{{ dashboard_sync_required_paths }}"
+
+- name: "dashboard-sync: the reconciler is missing from a converge that installs it"
+  ansible.builtin.fail:
+    msg: >-
+      The reconciler is incomplete although reconcile/roles/payload ran in this converge.
+      Missing: {{ catena_payload_missing | join(', ') }}. It ships in the
+      catena-admin payload, so this means the extract did not land or did not
+      carry all of it -- check the "Payload:" tasks above. Enabling the timer
+      anyway would leave every client app's Traefik route and oauth2-proxy
+      unreconciled, with nothing failing.
+  when:
+    - catena_payload_missing | length > 0
+    - catena_payload_expected | bool
+
+- name: "dashboard-sync: reconciler staged out of band and not present -- wiring deferred"
+  ansible.builtin.debug:
+    msg: >-
+      {{ dashboard_sync_script_path }} is not on the host and this converge does
+      not install it (CATENA_PAYLOAD_INSTALL=false). The timer is not wired and
+      routes are not reconciled yet; both happen on the next converge, once
+      whatever owns the engines has staged them.
+  when:
+    - catena_payload_missing | length > 0
+    - not (catena_payload_expected | bool)
+
+# The decision facts are overwritten by the next _payload_expected include, so
+# pin the one thing everything below needs while it is still this role's answer.
+- name: "dashboard-sync: pin whether the reconciler is here"
+  ansible.builtin.set_fact:
+    _dashboard_sync_present: "{{ catena_payload_missing | length == 0 }}"
+
+# Everything below RUNS the reconciler, so all of it is gated on the reconciler
+# existing. A .timer whose .service is absent is not merely inert: systemd
+# refuses to start it, and the run-once task below would start a unit that does
+# not exist -- turning the deferral above into the converge failure it exists to
+# avoid.
+- name: "dashboard-sync: systemd timer unit"
+  # The unit that RUNS it is the payload's (static, and it names the payload's
+  # own path). The timer is here because its interval is per-host.
+  ansible.builtin.template:
+    src: catena-dashboard-sync.timer.j2
+    dest: /etc/systemd/system/{{ dashboard_sync_unit }}.timer
+    owner: root
+    group: root
+    mode: "0644"
+  register: _dashboard_sync_timer_unit
+  when: _dashboard_sync_present | default(false)
+
+- name: "dashboard-sync: daemon-reload if the timer changed"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: _dashboard_sync_timer_unit.changed | default(false)
+
+# Workaround for ansible-core 2.19/2.20 module_legacy_m2c resolution
+# failure on systemd_service enable+start -- same family as the
+# `state: started` workaround on the run-once task below.
+#
+# Atomicity: `changed_when: false` is not set here on purpose. Any actual
+# timer change registers changed via the template task above, which is what
+# notifies the daemon-reload; this enable is the idempotent follow-up
+# (systemd returns success on already-enabled).
+- name: "dashboard-sync: enable + start timer"
+  ansible.builtin.systemd_service:
+    name: "{{ dashboard_sync_unit }}.timer"
+    enabled: true
+    state: started
+  when: _dashboard_sync_present | default(false)
+
+# systemd hands back an exit code and a pointer to `journalctl`, and on a DR
+# host the machine holding that journal is torn down with the scenario -- so a
+# failure here reports nothing that can still be read afterwards. Capture the
+# reconciler's own output before re-raising, the way
+# reconcile/roles/coturn/tasks/validate.yml dumps the container log before asserting on a
+# missing listener.
+- name: "dashboard-sync: run the reconciler, reporting its own log on failure"
+  when: _dashboard_sync_present | default(false)
+  block:
+    - name: "dashboard-sync: run once now (sync gate routes)"
+      ansible.builtin.systemd:
+        name: "{{ dashboard_sync_unit }}.service"
+        state: started
+      changed_when: false
+  rescue:
+    - name: "dashboard-sync: capture the reconciler's log (diag)"
+      ansible.builtin.command:
+        argv:
+          - journalctl
+          - --unit
+          - "{{ dashboard_sync_unit }}.service"
+          - --no-pager
+          - --lines
+          - "80"
+      register: _dashboard_sync_journal
+      changed_when: false
+      failed_when: false
+
+    # journald is not the only place the answer lives, and on a restored host
+    # it has come back empty. systemd holds the exit status itself, and the
+    # reconciler is a reconciler -- running it again is what it is built for --
+    # so ask both rather than report that there was nothing to read.
+    - name: "dashboard-sync: capture the unit's exit status (diag)"
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - show
+          - "{{ dashboard_sync_unit }}.service"
+          - --property=Result
+          - --property=ExecMainStatus
+          - --property=ExecMainCode
+          - --property=ExecStart
+      register: _dashboard_sync_unit_state
+      changed_when: false
+      failed_when: false
+
+    - name: "dashboard-sync: run the reconciler in the foreground (diag)"
+      ansible.builtin.shell: |
+        set -a
+        . {{ dashboard_sync_env_path }}
+        set +a
+        {{ dashboard_sync_script_path }} 2>&1
+      args:
+        executable: /bin/bash
+      register: _dashboard_sync_foreground
+      changed_when: false
+      failed_when: false
+
+    - name: "dashboard-sync: fail with the reconciler's own output"
+      ansible.builtin.fail:
+        msg: |
+          {{ dashboard_sync_unit }}.service failed to run.
+
+          systemd: {{ ansible_failed_result.msg | default('(no message)') }}
+
+          Unit state:
+          {{ _dashboard_sync_unit_state.stdout | default('(unavailable)') }}
+
+          Foreground run (rc={{ _dashboard_sync_foreground.rc | default('?') }}):
+          {{ _dashboard_sync_foreground.stdout | default('(did not run)') }}
+
+          Journal (last 80 lines):
+          {{ _dashboard_sync_journal.stdout | default('(journal unavailable)') }}

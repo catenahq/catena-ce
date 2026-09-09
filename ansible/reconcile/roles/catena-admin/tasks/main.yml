@@ -1,0 +1,31 @@
+---
+# Orchestrator for reconcile/roles/catena-admin.
+#
+# Three task files:
+#   host.yml    -- runner user, dispatcher script, SSH keypair, dirs.
+#                  Runs on every converge.
+#   catalog.yml -- merges the source-of-truth action catalog with
+#                  per-inventory extras, renders the allow-list +
+#                  dispatch table on the host.
+#   deploy.yml  -- pushes the catena-admin Go shell container as a
+#                  Portainer stack (pulls the published GHCR image). Runs
+#                  after the host-side state its container binds to exists.
+#
+# catalog.yml prepares the host-side state the container binds to; deploy.yml
+# then deploys the container itself. The audit.db quiesce hooks that ride this
+# role in the Business edition (audit is a license-gated module) are NOT part
+# of Community.
+#
+# THE TRUST PATH IS NOT HERE. The runner account, the sudoers drop-in, the
+# forced command and its authorized_keys are bootstrap/roles/catena_admin_host, which is
+# bootstrap-side: a reconcile that could rewrite the way in could rewrite what a
+# reconcile is. That role runs immediately before this one in site.yml, which is
+# where its tasks ran when they were a file in this role.
+
+- name: Catena-admin action catalog + allow-list
+  ansible.builtin.import_tasks: catalog.yml
+  tags: [catena_admin, catena_admin_catalog]
+
+- name: Catena-admin container deploy (Portainer stack)
+  ansible.builtin.import_tasks: deploy.yml
+  tags: [catena_admin, catena_admin_deploy]

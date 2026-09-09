@@ -23,16 +23,17 @@ from pathlib import Path
 import yaml
 
 _ANSIBLE = Path(__file__).resolve().parents[2]
-_ROLE = _ANSIBLE / "roles" / "catena-admin"
+_ROLE = _ANSIBLE / "reconcile" / "roles" / "catena-admin"
 DEFAULTS = _ROLE / "defaults" / "main.yml"
 # The bootstrap-side half of the same panel: the runner account, the
 # sudoers drop-in, the forced command. Phase 1b made it a role of its
 # own so the boundary it was declared on could actually be held.
-_HOST_ROLE = _ROLE.parent / "catena_admin_host"
+_HOST_ROLE = (_ROLE.parents[2] / "bootstrap" / "roles"
+              / "catena_admin_host")
 _HOST_DEFAULTS = _HOST_ROLE / "defaults" / "main.yml"
 # And the values both halves read, which belong to neither role.
 _GROUP_VARS = (
-    _ROLE.parents[1] / "playbooks" / "group_vars" / "all" / "main.yml")
+    _ROLE.parents[2] / "playbooks" / "group_vars" / "all" / "main.yml")
 HOST_TASKS = _HOST_ROLE / "tasks" / "main.yml"
 PLUGIN = _ANSIBLE / "playbooks" / "filter_plugins" / "catena_admin_service.py"
 
@@ -50,8 +51,8 @@ def _defaults() -> dict:
     """Every variable the panel's converge reads, from all three places it now
     lives.
 
-    Phase 1b split the role: the trust path is roles/catena_admin_host, the
-    container is roles/catena-admin, and the values BOTH halves need are in
+    Phase 1b split the role: the trust path is bootstrap/roles/catena_admin_host, the
+    container is reconcile/roles/catena-admin, and the values BOTH halves need are in
     group_vars because a role default is only dependable once that role has run.
     Merged here so an assertion is about the panel's configuration rather than
     about which file happens to hold a line today.

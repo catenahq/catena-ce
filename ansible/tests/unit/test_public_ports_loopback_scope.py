@@ -123,7 +123,7 @@ def test_the_three_real_loopback_ports_declare_the_dnat_bind():
     bind=host, ufw installs a deny, `rules_unapplied` is 0, every artifact
     validation reads says the port is guarded -- and the port answers from
     off-box. Only an external scan sees it, which is what caught it."""
-    tasks_dir = ANSIBLE_DIR / "roles" / "infrastructure" / "tasks"
+    tasks_dir = ANSIBLE_DIR / "reconcile" / "roles" / "infrastructure" / "tasks"
     for name in ("gatus.yml", "healthchecks.yml", "beszel.yml"):
         body = (tasks_dir / name).read_text(encoding="utf-8")
         assert '"scope": "loopback", "bind": "docker"' in body, (

@@ -39,7 +39,7 @@ from pathlib import Path
 
 import yaml
 
-_ROLE = Path(__file__).resolve().parents[2] / "roles" / "catena-admin"
+_ROLE = Path(__file__).resolve().parents[2] / "reconcile" / "roles" / "catena-admin"
 DEFAULTS = _ROLE / "defaults" / "main.yml"
 CATALOG = _ROLE / "templates" / "actions.yml.j2"
 

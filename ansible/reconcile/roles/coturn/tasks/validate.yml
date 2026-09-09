@@ -1,0 +1,224 @@
+---
+# Vantage 1 (on-host) validation for coturn. Invoked by
+# playbooks/validate.yml via include_role + tasks_from: validate.
+
+# Consumer gate. coturn is a companion to the real-time apps and is only
+# deployed when one is running (see main.yml), so every assertion below is
+# conditional on the same probe. Without this, validate fails on a healthy
+# tenant that simply runs no Talk/Jitsi app. Runs via tasks_from: validate,
+# so the register from main.yml is not in scope -- reprobe.
+#
+# Byte-identical to main.yml's probe, `status=running` included: the two run
+# minutes apart in one converge, and a consumer that enters a restart loop
+# between them made the deploy gate and this one disagree about the same host
+# (bench f140 backup_rollback).
+- name: "validate coturn: detect a running consumer (Talk HPB or a Jitsi JVB)"
+  ansible.builtin.shell: |
+    docker ps --filter 'label=vps.component=talk-hpb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
+    docker ps --filter 'label=vps.component=jvb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
+  args:
+    executable: /bin/bash
+  register: _v_coturn_consumer
+  changed_when: false
+
+# Mirror main.yml's second arm: an already-deployed coturn stays under
+# validation even if its last consumer went away, because it is still
+# running and still holding open ufw rules. Assert-if-present, not
+# assert-if-wanted.
+- name: "validate coturn: detect an already-deployed coturn service"
+  ansible.builtin.command:
+    argv: [docker, service, ls, --filter, name=coturn, --format, '{{ "{{" }}.Name{{ "}}" }}']
+  register: _v_coturn_existing
+  changed_when: false
+  failed_when: false
+
+- name: "validate coturn: resolve the assertion gate"
+  ansible.builtin.set_fact:
+    _v_coturn_expected: >-
+      {{ ((_v_coturn_consumer.stdout | default('') | trim) | length > 0)
+         or ((_v_coturn_existing.stdout | default('') | trim) | length > 0) }}
+
+- name: "validate coturn: no TURN consumer -- nothing to validate"
+  ansible.builtin.debug:
+    msg: >-
+      No Nextcloud Talk HPB and no Rocket.Chat / Element JVB running, and no
+      coturn service deployed. coturn is deliberately absent. Skipping every
+      coturn assertion (service, cert, listeners, ufw).
+  when: not (_v_coturn_expected | bool)
+
+# The block `when` reads _v_coturn_expected, set ABOVE the block -- never a
+# fact set inside it. Ansible re-evaluates a block's `when` per child task,
+# so a condition that depended on the block's own set_fact would start
+# skipping partway through.
+- name: "validate coturn: assertions (coturn is expected on this host)"
+  when: _v_coturn_expected | bool
+  block:
+
+    # Tunnel-deferred gate. Runs via tasks_from: validate, so the fact set in
+    # main.yml is not in scope -- recompute it. On a tokenless install the
+    # DNS-01 cert is deferred (reconcile/roles/coturn/tasks/cert.yml), so coturn comes up
+    # STUN-only: no cert, and the TLS-TURN listener on 5349 does not bind.
+    # Assert only the STUN plane (3478 + ufw) until cf_activate persists a
+    # token and re-converges.
+    - name: "validate coturn: resolve tunnel-deferred gate (Cloudflare token presence)"
+      ansible.builtin.set_fact:
+        _coturn_cf_token_present: "{{ (cloudflare_api_token | default('')) | length > 0 }}"
+
+    # WAITS, because validate runs straight after the converge and swarm
+    # schedules on its own clock. `catena recover` converges a freshly restored
+    # host and validates it in the same breath, so this probe can read the
+    # service list before the tier-1 reconcile has registered the GLOBAL coturn
+    # service: `docker service ls --filter name=coturn` answers with nothing at
+    # all, and a single sample turns that instant into a verdict about the
+    # host. Run 2026-09-07T09-35-45-d301 failed mailserver_round_trip and
+    # nc_sync_wipe_restore that way, on hosts that were fine; the heavier the
+    # recovery, the further behind the reconcile is when this runs.
+    #
+    # The condition carries the real requirement -- a RUNNING replica, not
+    # merely a registered service -- so "0/1" keeps waiting rather than
+    # satisfying the check. failed_when is false so that a service which never
+    # arrives falls through to the assert below, which names what to run next;
+    # a bare until-timeout would report only that the retries ran out.
+    - name: "validate coturn: swarm service exists + healthy"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - service
+          - ls
+          - --filter
+          - name=coturn
+          - --format
+          - '{{ "{{" }}.Replicas{{ "}}" }}'
+      register: _v_coturn_svc
+      changed_when: false
+      failed_when: false
+      retries: 30
+      delay: 5
+      until: (_v_coturn_svc.stdout | default('') | trim) is match('[1-9][0-9]*/')
+
+    - name: "validate coturn: assert at least one replica running"
+      ansible.builtin.assert:
+        that:
+          # Replicas format: "1/1" (running/desired) for global mode
+          # also returns the same shape on a single-node swarm. The running
+          # side must be non-zero: a service registered with every task down
+          # answers "0/1", which is a coturn nobody can reach.
+          - _v_coturn_svc.stdout | trim | length > 0
+          - "'/' in (_v_coturn_svc.stdout | trim)"
+          - (_v_coturn_svc.stdout | trim) is match('[1-9][0-9]*/')
+        fail_msg: |
+          coturn swarm service not running after waiting 150s. Output:
+          {{ _v_coturn_svc.stdout | default('(empty)') }}
+          Diagnose:
+            docker service ls --filter name=coturn
+            docker service ps coturn --no-trunc
+
+    - name: "validate coturn: TLS cert deferred -- STUN-only (no Cloudflare token yet)"
+      ansible.builtin.debug:
+        msg: >-
+          No Cloudflare API token in the on-box store: the DNS-01 cert is
+          deferred, so coturn runs STUN-only (3478/udp). Skipping the TLS cert
+          + 5349 listener assertions until cf_activate persists a token and
+          re-converges.
+      when: not _coturn_cf_token_present
+
+    - name: "validate coturn: TLS cert is present + valid for at least 24h"
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - x509
+          - -in
+          - "{{ coturn_cert_path }}"
+          - -checkend
+          - "86400"
+          - -noout
+      register: _v_coturn_cert
+      changed_when: false
+      failed_when: _v_coturn_cert.rc != 0
+      when: _coturn_cf_token_present
+
+    - name: "validate coturn: capture host listening sockets (UDP)"
+      ansible.builtin.command:
+        argv:
+          - ss
+          - -uln
+      register: _v_coturn_ss_udp
+      changed_when: false
+
+    # Diag capture BEFORE the assert so a failed TLS-listener bind dumps
+    # coturn's own logs (which print the cert load error) into the bench
+    # log. Without this the only signal is "5349 missing in ss", which
+    # isn't enough to root-cause from one round.
+    - name: "validate coturn: dump container logs (diag)"
+      ansible.builtin.shell: |
+        set +e
+        for ct in $(docker ps --filter "name=coturn" --format '{{ "{{" }}.Names{{ "}}" }}'); do
+          echo "=== coturn container: $ct ==="
+          docker logs --tail 100 "$ct" 2>&1
+        done
+      args:
+        executable: /bin/bash
+      register: _v_coturn_logs
+      changed_when: false
+      when: _v_coturn_ss_udp.stdout is not search(':' ~ coturn_tls_port ~ '\s')
+
+    - name: "validate coturn: assert UDP 3478 (STUN) is listening"
+      ansible.builtin.assert:
+        that:
+          - _v_coturn_ss_udp.stdout is search(':' ~ coturn_listen_port ~ '\s')
+        fail_msg: |
+          coturn UDP STUN listener missing. Expected :{{ coturn_listen_port }}
+          on UDP. Got:
+          {{ _v_coturn_ss_udp.stdout }}
+
+    - name: "validate coturn: assert UDP 5349 (TLS-TURN) is listening"
+      ansible.builtin.assert:
+        that:
+          - _v_coturn_ss_udp.stdout is search(':' ~ coturn_tls_port ~ '\s')
+        fail_msg: |
+          coturn UDP TLS-TURN listener missing on port {{ coturn_tls_port }}. Got:
+          {{ _v_coturn_ss_udp.stdout }}
+
+          Container logs (last 100 lines):
+          {{ _v_coturn_logs.stdout | default('(no coturn container running)') }}
+      when: _coturn_cf_token_present
+
+    - name: "validate coturn: capture host listening sockets (TCP)"
+      ansible.builtin.command:
+        argv:
+          - ss
+          - -tln
+      register: _v_coturn_ss_tcp
+      changed_when: false
+
+    - name: "validate coturn: assert TCP 5349 (TLS-TURN) is listening"
+      ansible.builtin.assert:
+        that:
+          - _v_coturn_ss_tcp.stdout is search(':' ~ coturn_tls_port ~ '\s')
+        fail_msg: |
+          coturn TCP TLS-TURN listener missing on port {{ coturn_tls_port }}.
+          Got:
+          {{ _v_coturn_ss_tcp.stdout }}
+      when: _coturn_cf_token_present
+
+    - name: "validate coturn: capture ufw status"
+      ansible.builtin.command: ufw status verbose
+      register: _v_coturn_ufw
+      changed_when: false
+
+    - name: "validate coturn: assert ufw permits the required ports"
+      ansible.builtin.assert:
+        that:
+          - _v_coturn_ufw.stdout is search(coturn_listen_port | string ~ '/udp\s+ALLOW')
+          - _v_coturn_ufw.stdout is search(coturn_tls_port | string ~ '/udp\s+ALLOW')
+          - _v_coturn_ufw.stdout is search(coturn_tls_port | string ~ '/tcp\s+ALLOW')
+          - _v_coturn_ufw.stdout is search(coturn_min_relay_port | string ~ ':' ~ coturn_max_relay_port | string ~ '/udp\s+ALLOW')
+        fail_msg: |
+          ufw is missing one or more coturn rules. Expected:
+            {{ coturn_listen_port }}/udp ALLOW
+            {{ coturn_tls_port }}/udp ALLOW
+            {{ coturn_tls_port }}/tcp ALLOW
+            {{ coturn_min_relay_port }}:{{ coturn_max_relay_port }}/udp ALLOW
+
+          Got:
+          {{ _v_coturn_ufw.stdout }}

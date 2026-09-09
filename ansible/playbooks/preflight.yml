@@ -98,7 +98,7 @@
     # that comparison needs an API token, and the helper takes none on argv
     # (a bearer token there lands in `ps`). An absent CLI is missing evidence,
     # not a verdict -- a controller can route to the tailnet through a subnet
-    # router. roles/tailscale probes the real address once the node has one.
+    # router. bootstrap/roles/tailscale probes the real address once the node has one.
     - name: Report whether THIS machine is on the tailnet
       ansible.builtin.command:
         argv:
@@ -207,7 +207,7 @@
           Preflight OK -- Tailscale OAuth client validated
           (token + test-mint with {{ oauth_test_tag }}).
 
-    # Version capture lives in roles/common (runs against VPS hosts with
+    # Version capture lives in bootstrap/roles/common (runs against VPS hosts with
     # delegate_to: localhost) -- NOT here. Preflight's hosts: localhost play
     # gets filtered out whenever --limit excludes localhost, which the
     # operator uses on nearly every non-initial converge. Capturing in

@@ -5,7 +5,7 @@ The panel holds the API key that drives Portainer, so deploying it VIA
 Portainer would make it a dependent of the thing it exists to drive -- a
 Portainer that will not start would take down the only tool that could
 repair it. The converge creates the service directly instead, the same way
-roles/traefik, roles/postgres and roles/portainer do.
+reconcile/roles/traefik, reconcile/roles/postgres and reconcile/roles/portainer do.
 
 Three filters over one spec dict:
 
@@ -14,7 +14,7 @@ Three filters over one spec dict:
     catena_admin_secret_drift(inspect, ss)  -> --secret-add / --secret-rm flags
 
 WHY A SHARED RENDERER. Two consumers deploy this container and must agree
-on its shape: the converge (roles/catena-admin/tasks/deploy.yml) with the
+on its shape: the converge (reconcile/roles/catena-admin/tasks/deploy.yml) with the
 published GHCR image, and the test bench (ops
 automation/test_bench/orchestrator/catena_admin_deploy.py) with an image it
 built on the VPS. They used to share the shape through a compose file both

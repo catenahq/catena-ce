@@ -34,7 +34,7 @@ from pathlib import Path
 
 ANSIBLE = Path(__file__).resolve().parents[2]
 BACKUP_UNIT = (
-    ANSIBLE / "roles" / "backup" / "templates" / "catena-backup.service.j2"
+    ANSIBLE / "reconcile" / "roles" / "backup" / "templates" / "catena-backup.service.j2"
 )
 
 # The shared pair. catena-admin payload/actions.d/catena_actions_test.go carries
@@ -84,7 +84,7 @@ def test_no_dispatch_action_here_runs_under_systemd_run():
     import yaml
 
     defaults = yaml.safe_load(
-        (ANSIBLE / "roles" / "catena-admin" / "defaults" / "main.yml").read_text()
+        (ANSIBLE / "reconcile" / "roles" / "catena-admin" / "defaults" / "main.yml").read_text()
     )
     for key, value in defaults.items():
         if not (key.startswith("catena_admin_") and key.endswith("_actions")):

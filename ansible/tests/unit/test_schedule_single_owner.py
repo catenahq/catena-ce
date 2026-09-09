@@ -24,12 +24,12 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-BACKUP_INSTALL = ANSIBLE / "roles" / "backup" / "tasks" / "install.yml"
-BACKUP_ENV = ANSIBLE / "roles" / "backup" / "templates" / "backup.env.j2"
-BACKUP_DEFAULTS = ANSIBLE / "roles" / "backup" / "defaults" / "main.yml"
-ADMIN_HOST = ANSIBLE / "roles" / "catena_admin_host" / "tasks" / "main.yml"
-ADMIN_DEPLOY = ANSIBLE / "roles" / "catena-admin" / "tasks" / "deploy.yml"
-DAILY_ENV = ANSIBLE / "roles" / "catena_admin_host" / "templates" / "daily.env.j2"
+BACKUP_INSTALL = ANSIBLE / "reconcile" / "roles" / "backup" / "tasks" / "install.yml"
+BACKUP_ENV = ANSIBLE / "reconcile" / "roles" / "backup" / "templates" / "backup.env.j2"
+BACKUP_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "backup" / "defaults" / "main.yml"
+ADMIN_HOST = ANSIBLE / "bootstrap" / "roles" / "catena_admin_host" / "tasks" / "main.yml"
+ADMIN_DEPLOY = ANSIBLE / "reconcile" / "roles" / "catena-admin" / "tasks" / "deploy.yml"
+DAILY_ENV = ANSIBLE / "bootstrap" / "roles" / "catena_admin_host" / "templates" / "daily.env.j2"
 GROUP_VARS = ANSIBLE / "playbooks" / "group_vars" / "all" / "main.yml"
 ONBOX_CONFIG = ANSIBLE / "helpers" / "onbox_config.py"
 
@@ -64,7 +64,7 @@ def test_retention_is_not_templated_into_backup_env():
 
 def test_this_repo_sets_no_retention_default():
     # Both files, not just the role default. The dict was removed from
-    # roles/backup/defaults and reappeared in group_vars/all/main.yml, where
+    # reconcile/roles/backup/defaults and reappeared in group_vars/all/main.yml, where
     # this assertion could not see it -- and it stayed there, read by no role,
     # template or playbook, so an operator could set BACKUP_KEEP_DAILY=30 in
     # .env, converge clean, and keep 7.
@@ -233,7 +233,7 @@ def test_which_buckets_get_copied_is_not_a_converge_input():
     # which catena-admin writes and the lane reads straight off disk -- so a
     # client adding a copy does not need a converge, and no key here can go
     # stale against it.
-    offsite_env = ANSIBLE / "roles" / "backup" / "templates" / "offsite.env.j2"
+    offsite_env = ANSIBLE / "reconcile" / "roles" / "backup" / "templates" / "offsite.env.j2"
     body = _code(offsite_env)
     for key in ("OFFSITE_HEALTHCHECK_URL", "OFFSITE_HEALTHCHECK_ATTEMPTED_URL"):
         assert key in body
@@ -253,7 +253,7 @@ def test_the_managed_lane_needs_no_copy_of_how_traefik_was_built():
     # spec, free to drift from it -- and a lane running a drifted copy
     # relaunches traefik with the wrong mounts.
     specs = _code(
-        ANSIBLE / "roles" / "catena_admin_host" / "templates"
+        ANSIBLE / "bootstrap" / "roles" / "catena_admin_host" / "templates"
         / "managed-services.json.j2"
     )
     # Assert on the JSON keys, not bare words: the Jinja {# #} header names
@@ -269,7 +269,7 @@ def test_the_managed_lane_needs_no_copy_of_how_traefik_was_built():
     )
     assert '"kind": "infra-swarm"' in specs
 
-    traefik_tasks = _code(ANSIBLE / "roles" / "traefik" / "tasks" / "main.yml")
+    traefik_tasks = _code(ANSIBLE / "reconcile" / "roles" / "traefik" / "tasks" / "main.yml")
     assert "docker run" not in traefik_tasks, (
         "catena-traefik must stay a swarm service; a plain container attaches "
         "to catena-network by ID, so an overlay rebuild strands it with "

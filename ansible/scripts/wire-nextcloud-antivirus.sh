@@ -5,7 +5,7 @@
 # after deploying Nextcloud; every occ config:set is an upsert, so it is
 # idempotent and safe to re-click after a redeploy.
 #
-# The shared clamd is deployed by roles/infrastructure clamav.yml and
+# The shared clamd is deployed by reconcile/roles/infrastructure clamav.yml and
 # reachable as clamav:3310 on the catena-clamav network, which the
 # Nextcloud app + cron services join (see nextcloud-s3.compose.yml).
 #

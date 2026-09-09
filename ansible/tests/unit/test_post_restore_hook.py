@@ -32,9 +32,9 @@ import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[3] / "ansible"
 SITE = ANSIBLE / "playbooks" / "site.yml"
-BACKUP_TASKS = ANSIBLE / "roles" / "backup" / "tasks" / "main.yml"
-BACKUP_INSTALL = ANSIBLE / "roles" / "backup" / "tasks" / "install.yml"
-BACKUP_DEFAULTS = ANSIBLE / "roles" / "backup" / "defaults" / "main.yml"
+BACKUP_TASKS = ANSIBLE / "reconcile" / "roles" / "backup" / "tasks" / "main.yml"
+BACKUP_INSTALL = ANSIBLE / "reconcile" / "roles" / "backup" / "tasks" / "install.yml"
+BACKUP_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "backup" / "defaults" / "main.yml"
 
 MARKER = "post-restore.needed"
 HOOK_DIR_VAR = "catena_post_restore_hook_dir"
@@ -174,5 +174,5 @@ def test_backup_role_no_longer_dispatches_the_replay_modes():
 
 def test_the_deleted_task_files_are_actually_gone():
     for name in ("pg_replay.yml", "s3_reconcile.yml"):
-        assert not (ANSIBLE / "roles" / "backup" / "tasks" / name).exists()
+        assert not (ANSIBLE / "reconcile" / "roles" / "backup" / "tasks" / name).exists()
     assert not (ANSIBLE / "playbooks" / "filter_plugins" / "topo_sort.py").exists()

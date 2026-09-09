@@ -35,7 +35,22 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-ROLES = ANSIBLE / "roles"
+_ROLE_ROOTS = (ANSIBLE / "bootstrap" / "roles",
+               ANSIBLE / "reconcile" / "roles")
+
+def _role_dir(name: str) -> Path:
+    """Where a role lives, whichever side it is on.
+
+    Phase 1b split roles/ into bootstrap/roles/ and reconcile/roles/. Resolved
+    by search rather than by a hard-coded side so a role moving across the line
+    -- which is a thing this migration does -- does not need this file edited
+    too.
+    """
+    for root in _ROLE_ROOTS:
+        if (root / name).is_dir():
+            return root / name
+    raise AssertionError(f"no role named {name} under {[str(r) for r in _ROLE_ROOTS]}")
+
 
 # `docker ps`/`docker service ps` output is a NAME, and these are the registers
 # the roles capture one into. A retried command interpolating one of these is
@@ -82,7 +97,8 @@ def _command_text(task: dict) -> str:
 
 
 def _task_files() -> list[Path]:
-    return sorted(ROLES.rglob("tasks/*.yml"))
+    return sorted(p for root in _ROLE_ROOTS
+                  for p in root.rglob("tasks/*.yml"))
 
 
 def test_there_are_task_files_to_check() -> None:
@@ -125,7 +141,7 @@ def test_no_retried_docker_command_reuses_a_captured_container_name() -> None:
 
 def test_keycloak_health_probe_resolves_its_own_container() -> None:
     """The instance of the rule that cost run 2026-08-26T01-55-17-dc01."""
-    path = ROLES / "keycloak" / "tasks" / "validate.yml"
+    path = _role_dir("keycloak") / "tasks" / "validate.yml"
     probe = next(
         t for t in _tasks(yaml.safe_load(path.read_text()))
         if t.get("name", "").endswith("in-container /health/ready")

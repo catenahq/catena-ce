@@ -28,7 +28,7 @@
   become: true
   gather_facts: true
 
-  # `restore_snapshot` falls back to roles/backup/defaults/main.yml
+  # `restore_snapshot` falls back to reconcile/roles/backup/defaults/main.yml
   # (`restore_snapshot: latest`) when unset by the caller.
 
   pre_tasks:

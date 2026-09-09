@@ -37,12 +37,22 @@ _SKIP_DIRS = {"__pycache__"}
 def _skipped(path) -> bool:
     return any(part.startswith(".") or part in _SKIP_DIRS for part in path.parts)
 
-# `roles/<name>` as a path, wherever it appears: a templated include
+# `<side>/roles/<name>` as a path, wherever it appears: a templated include
 # ({{ role_path }}/../<name>/tasks/x.yml is the other shape and is relative, so
 # it is not a name this can check), a defaults value naming a file to read, a
-# script path. The trailing `/` is required -- a bare "roles" in prose is not a
-# reference.
-_ROLE_PATH = re.compile(r"(?<![\w./-])roles/([a-z][a-z0-9_-]*)/")
+# script path.
+#
+# The SIDE is part of the pattern since phase 1b, and deliberately so. A bare
+# `roles/<name>/` resolved before the split and resolves to nothing now, so
+# matching it too would let the gate pass a path that is already broken -- and
+# requiring the prefix is what makes a leftover reference fail here instead of
+# on a host. test_a_prefixless_role_path_is_not_accepted holds that.
+_ROLE_PATH = re.compile(r"(?<![\w./-])(?:bootstrap|reconcile)/roles/([a-z][a-z0-9_-]*)/")
+
+# The shape that no longer resolves: `roles/<name>/` with nothing in front of
+# it. Kept separate so the failure can say which of the two problems it is.
+_PREFIXLESS_ROLE_PATH = re.compile(
+    r"(?<![\w./-])(?<!bootstrap/)(?<!reconcile/)roles/([a-z][a-z0-9_-]*)/")
 
 
 def _role_roots() -> list[Path]:
@@ -151,13 +161,39 @@ def test_every_role_path_exists():
     after the split half of them point at nothing.
     """
     on_disk = set(_roles_on_disk())
+    found = 0
     broken: dict[str, set[str]] = {}
     for path in _yaml_files():
         text = path.read_text(encoding="utf-8", errors="ignore")
         for name in set(_ROLE_PATH.findall(text)):
+            found += 1
             if name not in on_disk:
                 broken.setdefault(name, set()).add(str(path.relative_to(_ANSIBLE)))
     assert not broken, (
-        "these files name a roles/<name> path that does not exist: "
+        "these files name a <side>/roles/<name> path that does not exist: "
         f"{ {k: sorted(v) for k, v in broken.items()} }"
+    )
+    # Guards the guard. The split changed the shape of every one of these, and a
+    # pattern that stopped matching would leave this assertion passing over
+    # nothing -- which is exactly the state it was in for the length of the move.
+    assert found >= 10, f"only {found} role paths found; the pattern has rotted"
+
+
+def test_a_prefixless_role_path_is_not_accepted():
+    """`roles/<name>/` with no side in front of it resolved before phase 1b and
+    resolves to nothing now.
+
+    It is the one kind of stale reference the split creates, it is invisible
+    until the line runs, and a gate that only checked the paths it recognises
+    would pass a file full of them.
+    """
+    stale: dict[str, set[str]] = {}
+    for path in _yaml_files():
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for name in set(_PREFIXLESS_ROLE_PATH.findall(text)):
+            stale.setdefault(name, set()).add(str(path.relative_to(_ANSIBLE)))
+    assert not stale, (
+        "these files name a role path with no side in front of it, which has "
+        "not resolved since roles/ became bootstrap/roles and "
+        f"reconcile/roles: { {k: sorted(v) for k, v in stale.items()} }"
     )

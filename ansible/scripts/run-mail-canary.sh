@@ -4,7 +4,7 @@
 # (the server is OAuth2-only, so there is no password to log in with).
 # Pings the self-hosted Healthchecks plane; /fail on any check failure.
 #
-# Installed by roles/infrastructure (mailserver_canary.yml), systemd-timer
+# Installed by reconcile/roles/infrastructure (mailserver_canary.yml), systemd-timer
 # driven (catena-mail-canary.timer).
 #
 # No-op (success-less exit) when the mailserver is not deployed (no dms

@@ -19,7 +19,7 @@
   gather_facts: false
 
   tasks:
-    # The journal's tamper-evidence key (roles/common stages it at mint time).
+    # The journal's tamper-evidence key (bootstrap/roles/common stages it at mint time).
     # Read it, show it, then DELETE it below: whoever holds this key can
     # re-seal an altered journal, so a copy left on the box would defeat the
     # very thing it proves. Absent = FSS was already set up on an earlier run

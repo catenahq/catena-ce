@@ -288,7 +288,7 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
     else:
         _check("Tailscale OAuth token exchange", True,
                "not required -- self-hosted Headscale backend")
-        # roles/tailscale asserts on one of these and fails the BOOTSTRAP
+        # bootstrap/roles/tailscale asserts on one of these and fails the BOOTSTRAP
         # without it, before any host exists. Caught here instead, where
         # nothing has been touched yet and the message can say what to enter.
         if not (_is_filled(vault.get("headscale_api_key"))
@@ -758,7 +758,7 @@ def _ipv4_endpoint(values: dict[str, str]) -> str:
 def _collect_headscale_secret(vault_provided: dict) -> dict[str, str]:
     """The Headscale half of _collect_install_secrets.
 
-    roles/tailscale asserts on one of these two being in scope and FAILS the
+    bootstrap/roles/tailscale asserts on one of these two being in scope and FAILS the
     bootstrap without it, so this cannot be deferred to catena-admin the way
     the Cloudflare and S3 credentials are: the panel it would be entered in is
     published on the tailnet the credential is what joins.

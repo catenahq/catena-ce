@@ -1,10 +1,10 @@
 """The sshd handoff proves the new path before it closes the old ones.
 
-THE DEFECT. roles/common performs the second of the two irreversible access
+THE DEFECT. bootstrap/roles/common performs the second of the two irreversible access
 handoffs in the product, and only the first one had a gate:
 
     ufw_lockdown.yml:  add tailnet rule -> VERIFY -> remove public 22
-    roles/common:      install ops key  ->   ?    -> deny everything else
+    bootstrap/roles/common:      install ops key  ->   ?    -> deny everything else
 
 What sat in that gap was `ops_ssh_public_keys | length > 0` -- an assert on a
 controller-side STRING. It proves a variable is not empty. It does not prove
@@ -30,7 +30,7 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-COMMON_TASKS = ANSIBLE / "roles" / "common" / "tasks" / "main.yml"
+COMMON_TASKS = ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "main.yml"
 BOOTSTRAP = ANSIBLE / "playbooks" / "bootstrap.yml"
 
 
@@ -46,7 +46,7 @@ def _index(tasks: list[dict], needle: str) -> int:
         f"no task matching {needle!r}; the ordering it anchors cannot be checked")
 
 
-# ─── roles/common: the handoff ──────────────────────────────────────────────
+# ─── bootstrap/roles/common: the handoff ──────────────────────────────────────────────
 
 def test_ops_key_is_proved_between_installing_it_and_locking_sshd():
     """The whole defect in one assertion. A proof placed after the hardening

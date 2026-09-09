@@ -24,8 +24,8 @@ import pytest
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-INSTALL = ANSIBLE / "roles" / "backup" / "tasks" / "install.yml"
-ENV_TEMPLATE = ANSIBLE / "roles" / "backup" / "templates" / "backup.env.j2"
+INSTALL = ANSIBLE / "reconcile" / "roles" / "backup" / "tasks" / "install.yml"
+ENV_TEMPLATE = ANSIBLE / "reconcile" / "roles" / "backup" / "templates" / "backup.env.j2"
 
 
 @pytest.fixture(scope="module")
@@ -39,7 +39,7 @@ def env_task(tasks) -> dict:
         src = (t.get("ansible.builtin.template") or {}).get("src")
         if src == "backup.env.j2":
             return t
-    pytest.fail("roles/backup no longer renders backup.env.j2")
+    pytest.fail("reconcile/roles/backup no longer renders backup.env.j2")
 
 
 def test_a_configured_host_reconciles_the_file_every_converge(env_task):
@@ -81,5 +81,5 @@ def test_the_template_reads_the_store_backed_values():
     body = ENV_TEMPLATE.read_text()
     assert "RESTIC_REPOSITORY={{ backup_restic_repo }}" in body
     defaults = yaml.safe_load(
-        (ANSIBLE / "roles" / "backup" / "defaults" / "main.yml").read_text())
+        (ANSIBLE / "reconcile" / "roles" / "backup" / "defaults" / "main.yml").read_text())
     assert "cfg_backup_restic_repo" in str(defaults["backup_restic_repo"])

@@ -1,5 +1,5 @@
 """Unit tests for the swarm_service_create_args / swarm_service_drift
-filters used by roles/postgres, roles/portainer and roles/traefik to render
+filters used by reconcile/roles/postgres, reconcile/roles/portainer and reconcile/roles/traefik to render
 and reconcile the swarm-service hardening flags.
 
 The load-bearing property is that a converged service produces an EMPTY

@@ -7,7 +7,7 @@ holds it, and where it must end up** under the client-owned-config model
 `ROLE_MINTED_SECRETS` minted by the service and captured by its role),
 `seed.py` (`INSTALL_EXTERNAL_KEYS` -- the only creds prompted at install,
 written to the transient `--secrets-out` adopt file and nowhere else),
-`inventory/example/.env.example`, and `roles/backup/defaults/main.yml`
+`inventory/example/.env.example`, and `reconcile/roles/backup/defaults/main.yml`
 (`backup_paths`). **Nothing secret is persisted on the controller** --
 `catena install` writes no secret file into the inventory.
 
@@ -120,7 +120,7 @@ because it has exactly one writer and that writer is the role.
 
 | Key | Minted by | Captured by |
 | --- | --- | --- |
-| `portainer_api_key` | Portainer's own token API, via `helpers/bootstrap_portainer_admin.py` | `roles/portainer` |
+| `portainer_api_key` | Portainer's own token API, via `helpers/bootstrap_portainer_admin.py` | `reconcile/roles/portainer` |
 
 The mint runs mid-converge rather than in the loader: the initial admin has to
 exist first. The helper prints the key on stdout and the role writes it
@@ -164,7 +164,7 @@ the converge's silently dead, and let a tag-scoped converge fall back to a
 stale `.env` with no signal.
 
 The published facts are prefixed `cfg_` rather than named after the consuming
-variable. `roles/keycloak` derives `smtp_host` from the Resend/Brevo autofill,
+variable. `reconcile/roles/keycloak` derives `smtp_host` from the Resend/Brevo autofill,
 so a fact named `smtp_host` would have replaced the derivation with the raw
 value -- silently, since a fact outranks a role default.
 
@@ -172,7 +172,7 @@ value -- silently, since a fact outranks a role default.
 
 `/etc/catena/` already rides the backup (`backup_paths` includes `/etc`) and
 already holds `backup.env` (S3 creds) + `restic.pass` (restic password),
-both written reconcile-not-overwrite by `roles/backup`. That is the model
+both written reconcile-not-overwrite by `reconcile/roles/backup`. That is the model
 for every category-2 secret and category-4 value: a single on-box config
 source-of-truth under `/etc/catena/`, written once, reconciled on converge,
 carried in every snapshot. The controller-side inventory is non-secret only

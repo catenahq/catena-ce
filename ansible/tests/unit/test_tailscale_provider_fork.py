@@ -1,4 +1,4 @@
-"""roles/tailscale forks on a DECLARED provider, and nothing in the role
+"""bootstrap/roles/tailscale forks on a DECLARED provider, and nothing in the role
 re-derives that decision for itself.
 
 Which control plane a host joins used to be inferred, on eight separate tasks,
@@ -24,7 +24,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-ROLE = Path(__file__).resolve().parents[3] / "ansible" / "roles" / "tailscale"
+ROLE = Path(__file__).resolve().parents[3] / "ansible" / "bootstrap" / "roles" / "tailscale"
 TASKS = ROLE / "tasks" / "main.yml"
 DEFAULTS = ROLE / "defaults" / "main.yml"
 
@@ -157,7 +157,7 @@ def test_the_store_is_the_only_reader_of_the_three_values():
     already changed the setting in the panel."""
     text = DEFAULTS.read_text()
     assert "lookup('dotenv'" not in text, (
-        "roles/tailscale/defaults reads the .env directly again"
+        "bootstrap/roles/tailscale/defaults reads the .env directly again"
     )
     d = _defaults()
     assert "cfg_tailnet_control_url" in d["tailnet_control_url"]

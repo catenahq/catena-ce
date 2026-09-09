@@ -2,12 +2,12 @@
 """Leaf utility: mint a Portainer X-API-Key from the initial admin.
 
 Portainer CE is the container control plane. Its admin is ALREADY created
-at container first boot via `--admin-password-file` (roles/portainer stages
+at container first boot via `--admin-password-file` (reconcile/roles/portainer stages
 admin_password into a swarm secret and passes the file to the
 portainer binary). So there is no signup step here -- we only sign in and
 mint a long-lived API token.
 
-The flow (verified endpoint map: roles/portainer/README.md):
+The flow (verified endpoint map: reconcile/roles/portainer/README.md):
 
   POST /api/auth                 {Username, Password}
     -> 200 {"jwt": "..."}        session JWT (Authorization: Bearer <jwt>)
@@ -24,7 +24,7 @@ This helper chains those calls with the shared admin password, which it
 reads on STDIN -- the caller holds it, this process never touches a file
 that stores it. On success it prints the minted rawAPIKey on stdout
 (status messages go to stderr) and exits 0; persisting the key is the
-caller's job. roles/portainer writes it into the on-box config store at
+caller's job. reconcile/roles/portainer writes it into the on-box config store at
 /etc/catena/config.json, which is the only place a Catena secret lives.
 
 Contract:
@@ -72,7 +72,7 @@ API_KEY_LABEL = "catena-installer"
 
 HTTP_TIMEOUT = 10.0
 
-# Reachability probe window. After site.yml deploys roles/portainer, the
+# Reachability probe window. After site.yml deploys reconcile/roles/portainer, the
 # service task may still be scheduling + initialising its BoltDB store.
 # Block until the HTTP port answers anything (even a 4xx proves life).
 REACHABILITY_TIMEOUT_S = 120

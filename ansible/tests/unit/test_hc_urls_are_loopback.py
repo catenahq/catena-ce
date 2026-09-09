@@ -19,8 +19,8 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-BACKUP_DEFAULTS = ANSIBLE / "roles" / "backup" / "defaults" / "main.yml"
-INFRA_DEFAULTS = ANSIBLE / "roles" / "infrastructure" / "defaults" / "main.yml"
+BACKUP_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "backup" / "defaults" / "main.yml"
+INFRA_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "defaults" / "main.yml"
 EXAMPLE_INVENTORY = (
     ANSIBLE / "playbooks" / "group_vars" / "all" / "main.yml"
 )
@@ -104,6 +104,6 @@ def test_no_inventory_reintroduces_a_hostname_ping():
     inventory = _defaults(EXAMPLE_INVENTORY)
     for key in HOST_SIDE:
         assert key not in inventory, (
-            f"{EXAMPLE_INVENTORY.name} overrides {key}; roles/backup/defaults "
+            f"{EXAMPLE_INVENTORY.name} overrides {key}; reconcile/roles/backup/defaults "
             "owns it"
         )

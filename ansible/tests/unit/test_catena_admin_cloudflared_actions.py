@@ -8,7 +8,7 @@ hostname. What this repo still owns for them is the sshd AcceptEnv entry that
 carries the candidate token -- a drop-in may read that name and can never add to
 it -- so that is what is asserted here, together with the converge's silence.
 
-Also covers the hand-off of the host payload install to roles/payload and the
+Also covers the hand-off of the host payload install to reconcile/roles/payload and the
 un-gated ee-install-engines wording.
 
 Run: uv run pytest tests/unit/test_catena_admin_cloudflared_actions.py
@@ -21,17 +21,18 @@ import yaml
 
 _ROLE = (
     Path(__file__).resolve().parents[3]
-    / "ansible" / "roles" / "catena-admin"
+    / "ansible" / "reconcile" / "roles" / "catena-admin"
 )
 DEFAULTS = _ROLE / "defaults" / "main.yml"
 # The bootstrap-side half of the same panel: the runner account, the
 # sudoers drop-in, the forced command. Phase 1b made it a role of its
 # own so the boundary it was declared on could actually be held.
-_HOST_ROLE = _ROLE.parent / "catena_admin_host"
+_HOST_ROLE = (_ROLE.parents[2] / "bootstrap" / "roles"
+              / "catena_admin_host")
 _HOST_DEFAULTS = _HOST_ROLE / "defaults" / "main.yml"
 # And the values both halves read, which belong to neither role.
 _GROUP_VARS = (
-    _ROLE.parents[1] / "playbooks" / "group_vars" / "all" / "main.yml")
+    _ROLE.parents[2] / "playbooks" / "group_vars" / "all" / "main.yml")
 HOST = _HOST_ROLE / "tasks" / "main.yml"
 CATALOG = _ROLE / "tasks" / "catalog.yml"
 DEPLOY = _ROLE / "tasks" / "deploy.yml"
@@ -42,8 +43,8 @@ def _defaults() -> dict:
     """Every variable the panel's converge reads, from all three places it now
     lives.
 
-    Phase 1b split the role: the trust path is roles/catena_admin_host, the
-    container is roles/catena-admin, and the values BOTH halves need are in
+    Phase 1b split the role: the trust path is bootstrap/roles/catena_admin_host, the
+    container is reconcile/roles/catena-admin, and the values BOTH halves need are in
     group_vars because a role default is only dependable once that role has run.
     Merged here so an assertion is about the panel's configuration rather than
     about which file happens to hold a line today.
@@ -158,10 +159,10 @@ def test_no_root_dispatch_runs_out_of_the_container_writable_mirror():
 
 
 def test_deploy_no_longer_owns_the_payload_install():
-    """The install moved to roles/payload, four roles ahead of this one.
+    """The install moved to reconcile/roles/payload, four roles ahead of this one.
 
     Leaving a second installer here would reinstall the engines from the
-    container's mirrored copy after roles/payload already installed them from
+    container's mirrored copy after reconcile/roles/payload already installed them from
     the image -- two writers racing over /usr/local/bin, and the loser is
     whichever image is staler.
     """

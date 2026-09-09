@@ -109,7 +109,7 @@ def test_no_task_greps_for_the_random_half_of_a_stack_name():
     """A `docker ps` grep that matches the generated part of a name is the same
     defect as a `--filter name=`, wearing different clothes.
 
-    roles/infrastructure/tasks/wordpress_plugins.yml matched
+    reconcile/roles/infrastructure/tasks/wordpress_plugins.yml matched
     `wordpress-[0-9a-z]{6,}-wp-`: the stack name Portainer generated, plus a
     swarm task id. A client who deploys the template under a name of their own
     choosing produced no match, the whole block skipped, and the converge

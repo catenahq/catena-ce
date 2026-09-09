@@ -21,7 +21,7 @@ import yaml
 
 ROLE = (
     Path(__file__).resolve().parents[3]
-    / "ansible" / "roles" / "traefik"
+    / "ansible" / "reconcile" / "roles" / "traefik"
 )
 TASKS = ROLE / "tasks" / "main.yml"
 DEFAULTS = ROLE / "defaults" / "main.yml"
@@ -53,7 +53,7 @@ def test_the_role_runs_no_plain_container():
     for forbidden in ("docker run", "_traefik_needs_relaunch",
                       ".State.Running", "docker restart"):
         assert forbidden not in body, (
-            f"{forbidden!r} is in roles/traefik: a plain container on the "
+            f"{forbidden!r} is in reconcile/roles/traefik: a plain container on the "
             "catena-network overlay carries the stale-network-ID failure that "
             "strands ingress on every daemon restart"
         )

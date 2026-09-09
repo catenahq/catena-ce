@@ -34,7 +34,7 @@ import yaml
 
 DEFAULTS = (
     Path(__file__).resolve().parents[2]
-    / "roles" / "backup" / "defaults" / "main.yml"
+    / "reconcile" / "roles" / "backup" / "defaults" / "main.yml"
 )
 
 

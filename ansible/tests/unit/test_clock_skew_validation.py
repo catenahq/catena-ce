@@ -8,10 +8,10 @@ cause directly.
 
 Three callsites:
 
-  1. roles/common/tasks/validate.yml -- Vantage 1a probe, runs every
+  1. bootstrap/roles/common/tasks/validate.yml -- Vantage 1a probe, runs every
      validate / site.yml.
-  2. roles/backup/tasks/restore.yml prereqs -- pre-restore.
-  3. roles/backup/tasks/restore.yml after restic restore -- post-restore
+  2. reconcile/roles/backup/tasks/restore.yml prereqs -- pre-restore.
+  3. reconcile/roles/backup/tasks/restore.yml after restic restore -- post-restore
      (catches /etc/systemd/timesyncd drop-ins from the source host).
 
 The probe uses `timedatectl show --property=...` (not `status`) for
@@ -30,7 +30,7 @@ def test_common_validate_asserts_ntp_sync():
     NTPSynchronized=yes. Just one of those flags can be true while
     sync is broken (NTP=yes + NTPSynchronized=no = service running
     but no upstream sample yet, e.g. firewall blocking 123/udp)."""
-    text = (REPO / "ansible" / "roles" / "common" / "tasks" / "validate.yml").read_text()
+    text = (REPO / "ansible" / "bootstrap" / "roles" / "common" / "tasks" / "validate.yml").read_text()
     assert "timedatectl" in text
     # Both predicates must be in the assert block.
     assert "'NTP=yes' in _clock_status.stdout" in text
@@ -45,7 +45,7 @@ def test_restore_pre_check_asserts_ntp_sync():
     """Pre-restore gate: must run before the restic restore command
     itself, so a drifted clock is caught while the host can still
     self-correct (and the operator hasn't stopped docker yet)."""
-    text = (REPO / "ansible" / "roles" / "backup" / "tasks" / "restore.yml").read_text()
+    text = (REPO / "ansible" / "reconcile" / "roles" / "backup" / "tasks" / "restore.yml").read_text()
     pre_idx = text.index("Preflight -- clock is NTP-synchronized")
     restic_idx = text.index("Restic restore")
     assert pre_idx < restic_idx, "pre-restore clock check must precede restic restore"
@@ -70,7 +70,7 @@ def test_restore_post_check_asserts_ntp_sync():
       1. restart systemd-timesyncd so it reloads the restored config
       2. poll NTPSynchronized for up to 30 s (retries + until)
       3. assert NTP sync"""
-    text = (REPO / "ansible" / "roles" / "backup" / "tasks" / "restore.yml").read_text()
+    text = (REPO / "ansible" / "reconcile" / "roles" / "backup" / "tasks" / "restore.yml").read_text()
     restic_idx = text.index("Restic restore")
     restart_idx = text.index("restart systemd-timesyncd to load restored config")
     poll_idx = text.index("poll for NTP resync")
@@ -92,7 +92,7 @@ def test_restore_post_check_restarts_timesyncd():
     disk (e.g. NTP=pool.invalid) is broken. The drift only surfaces
     1-2 days later when the cached skew grows past Keycloak's 60s OIDC
     tolerance, silently breaking auth."""
-    text = (REPO / "ansible" / "roles" / "backup" / "tasks" / "restore.yml").read_text()
+    text = (REPO / "ansible" / "reconcile" / "roles" / "backup" / "tasks" / "restore.yml").read_text()
     assert "systemd.systemd" not in text or True  # ansible.builtin.systemd
     assert "ansible.builtin.systemd" in text, (
         "must use the ansible.builtin.systemd module for the restart "
@@ -112,7 +112,7 @@ def test_restore_post_check_polls_for_resync_with_retries():
     (typically 5-15s). A single-shot check post-restart races the
     sync window and can spuriously fail. The poll uses retries + until
     so the assert window is ~30s total."""
-    text = (REPO / "ansible" / "roles" / "backup" / "tasks" / "restore.yml").read_text()
+    text = (REPO / "ansible" / "reconcile" / "roles" / "backup" / "tasks" / "restore.yml").read_text()
     poll_idx = text.index("poll for NTP resync")
     block_end = text.index("- name:", poll_idx + 1)
     block = text[poll_idx:block_end]
@@ -126,8 +126,8 @@ def test_clock_checks_use_timedatectl_show_not_status():
     under non-en_US.UTF-8. `show --property=` is key=value, locale-
     independent. Catch any regression that flips the call shape back."""
     files = [
-        REPO / "ansible" / "roles" / "common" / "tasks" / "validate.yml",
-        REPO / "ansible" / "roles" / "backup" / "tasks" / "restore.yml",
+        REPO / "ansible" / "bootstrap" / "roles" / "common" / "tasks" / "validate.yml",
+        REPO / "ansible" / "reconcile" / "roles" / "backup" / "tasks" / "restore.yml",
     ]
     for f in files:
         text = f.read_text()

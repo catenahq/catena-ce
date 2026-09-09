@@ -25,7 +25,7 @@ import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
 SITE = ANSIBLE / "playbooks" / "site.yml"
-COMMON_DEFAULTS = ANSIBLE / "roles" / "common" / "defaults" / "main.yml"
+COMMON_DEFAULTS = ANSIBLE / "bootstrap" / "roles" / "common" / "defaults" / "main.yml"
 
 
 @pytest.fixture(scope="module")
@@ -68,7 +68,7 @@ def test_the_write_does_not_report_a_change_every_converge(write_task):
 
 
 def test_the_action_list_comes_from_the_dispatch_fact(write_task):
-    """Not a hand-kept list. roles/catena-admin builds
+    """Not a hand-kept list. reconcile/roles/catena-admin builds
     _catena_admin_actions_dispatch by merging the canonical catalog with the
     reserved names, and renders the host's allow-list and dispatch table from
     it -- so reading anything else here is a copy that drifts the first time
@@ -94,7 +94,7 @@ def test_the_recorded_image_is_the_pin_resolved_one(write_task):
 
 
 def test_the_payload_id_is_read_from_the_marker_not_guessed(post_tasks, write_task):
-    """The marker is what roles/payload writes and what the self-update engine
+    """The marker is what reconcile/roles/payload writes and what the self-update engine
     rewrites, so it is the one record of which image the installed engines came
     from. It has to be READ here: an out-of-band install moves the marker and
     nothing else."""
@@ -126,7 +126,7 @@ def test_validate_asserts_the_manifest_against_the_version_stamp():
     controller's git describe would not work: validate.yml is its own playbook
     run and never sets that fact, so the comparison would be against
     'unknown' on every host."""
-    body = (ANSIBLE / "roles" / "common" / "tasks" / "validate.yml").read_text()
+    body = (ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "validate.yml").read_text()
     assert "catena_release_manifest_path" in body
     assert "_manifest.catena_ce_version == _stamped" in body
     assert "hostvars['localhost']['catena_version']" not in body
@@ -136,7 +136,7 @@ def test_version_txt_is_untouched():
     """It is a client-facing artifact the sovereign-exit path reads straight out
     of a snapshot with `restic dump`, and the recovery README points at it. The
     manifest is additional, not a replacement."""
-    body = (ANSIBLE / "roles" / "common" / "tasks" / "main.yml").read_text()
+    body = (ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "main.yml").read_text()
     assert "dest: /etc/catena/version.txt" in body
 
 
@@ -154,9 +154,9 @@ def test_both_version_fields_read_the_fact_this_run_actually_sets():
 
     They have to move together: validate.yml asserts the manifest against the
     stamp, so fixing one alone would fail every converge."""
-    stamp = (ANSIBLE / "roles" / "common" / "tasks" / "main.yml").read_text()
+    stamp = (ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "main.yml").read_text()
     site = SITE.read_text()
-    for name, body in (("roles/common/tasks/main.yml", stamp), ("site.yml", site)):
+    for name, body in (("bootstrap/roles/common/tasks/main.yml", stamp), ("site.yml", site)):
         assert "hostvars['localhost']['catena_version']" not in body, (
             f"{name} is back on the hostvars form, which resolves to nothing "
             "and stamps 'unknown'"

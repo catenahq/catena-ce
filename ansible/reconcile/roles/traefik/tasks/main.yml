@@ -1,0 +1,225 @@
+---
+# reconcile/roles/traefik -- deploy + own the catena-traefik reverse proxy. This role
+# creates the overlay, renders the config, and runs catena-traefik.
+#
+#   - catena-network overlay created here.
+#   - No host port bindings on :80/:443 -- only path in is cloudflared over the
+#     overlay.
+#   - A swarm service, not a plain container: it rejoins the overlay by NAME
+#     after a restore or a daemon flap, and the task manager re-dispatches it
+#     without a nudge unit. Reasons in full at the deploy block below.
+#
+# The config tree lives under /etc/catena/traefik. catena-traefik is on
+# catena_network_name only -- every catena app deploys onto catena-network via
+# the Portainer stack seam.
+
+# ─── overlay network ─────────────────────────────────────────────────────
+- name: "traefik: ensure {{ catena_network_name }} overlay exists"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - network
+      - create
+      - --driver
+      - overlay
+      - --attachable
+      - "{{ catena_network_name }}"
+  register: _catena_net_create
+  changed_when: "_catena_net_create.rc == 0"
+  # rc!=0 with "already exists" in stderr is the idempotent no-op path.
+  failed_when:
+    - _catena_net_create.rc != 0
+    - "'already exists' not in (_catena_net_create.stderr | default(''))"
+
+# ─── config tree ─────────────────────────────────────────────────────────
+- name: "traefik: ensure config + dynamic dirs exist"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ traefik_config_dir }}"
+    - "{{ traefik_dynamic_dir }}"
+
+# The acme.json seed/self-heal tasks were removed 2026-08-06 with
+# certificatesResolvers itself (see traefik.yml.j2). They existed only to make
+# ACME storage safe: create it as a FILE before container launch, because a
+# docker bind-mount auto-creates a missing source as a DIRECTORY, and re-heal
+# it when that had already happened. With no resolver there is no storage, and
+# the spec no longer mounts the path at all, so there is nothing to seed and
+# nothing to repair.
+#
+# Left ON DISK where it already exists: deleting a file that once held ACME
+# account keys is not this role's call to make silently, and an unmounted file
+# harms nothing.
+
+- name: "traefik: render static traefik.yml from template"
+  ansible.builtin.template:
+    src: traefik.yml.j2
+    dest: "{{ traefik_config_dir }}/traefik.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  register: _traefik_static_cfg
+
+- name: "traefik: render X-Forwarded-Proto injector middleware"
+  ansible.builtin.template:
+    src: cf-forwarded-proto-https.yml.j2
+    dest: "{{ traefik_dynamic_dir }}/cf-forwarded-proto-https.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  register: _traefik_xfp_middleware
+
+- name: "traefik: render response security-headers middleware"
+  ansible.builtin.template:
+    src: secure-headers.yml.j2
+    dest: "{{ traefik_dynamic_dir }}/secure-headers.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  register: _traefik_secure_headers_middleware
+
+# ─── deploy / reconcile catena-traefik (swarm service) ───────────────────
+# A swarm service rather than a plain container, for three reasons:
+#
+#   1. It rejoins catena-network by NAME. A plain container attaches by
+#      network ID, so an overlay that is torn down and recreated (a restore
+#      rebuilds swarm+overlay from scratch -- see reconcile/roles/backup/tasks/
+#      restore.yml; an interrupted converge or daemon flap does the same)
+#      leaves the baked-in reference stale: `docker start` fails with
+#      "network <old-id> not found" and ingress stays dead until something
+#      starts it. The task manager re-dispatches a service on its own.
+#   2. The managed-bump lane needs no copy of how the service was built.
+#      `docker service update --image` changes only the image, so there is no
+#      launch argv for the lane's spec file to reproduce and drift from.
+#   3. A version bump rolls, and the engine's `--rollback` reverts, instead
+#      of a hand-written rm + run with a restore path on failure.
+#
+# No host-port publishing: cloudflared over the overlay is the only ingress.
+# That invariant is STRUCTURAL -- the create argv below has no --publish, so
+# there is no port binding for a drift check to find.
+- name: "traefik: check catena-traefik swarm service exists"
+  ansible.builtin.command: >-
+    docker service inspect {{ traefik_container_name }}
+    --format '{{ "{{" }}.ID{{ "}}" }}'
+  register: _traefik_service
+  changed_when: false
+  failed_when: false
+
+# A plain container by this name holds the same config mounts and the same
+# overlay attachment, so it has to go before the service starts. Gated on the
+# service being ABSENT: once the service exists there is no plain container to
+# find, and an ungated removal would tear down a swarm task container by name.
+#
+# This is why the existence probe above is here as well as inside the shared
+# ladder: the removal has to happen BEFORE the create, and the ladder owns the
+# create. Two cheap reads, in exchange for the pre-create hook staying local
+# to the role that needs it.
+- name: "traefik: check for a plain container holding the name"
+  ansible.builtin.command: docker inspect --type=container "{{ traefik_container_name }}"
+  register: _traefik_plain
+  changed_when: false
+  failed_when: false
+
+- name: "traefik: remove a plain container holding the name"
+  ansible.builtin.command: "docker rm -f {{ traefik_container_name }}"
+  when:
+    - _traefik_plain.rc == 0
+    - _traefik_service.rc != 0
+  register: _traefik_plain_rm
+  changed_when: _traefik_plain_rm.rc == 0
+
+# ─── the service spec ────────────────────────────────────────────────────
+# One dict, two consumers: the catena-tier1 host engine creates and reconciles
+# the service from it, and tier1_stack_render puts it in the file
+# `docker stack config` type-checks, so the running service and the rendered
+# plane cannot describe different things.
+#
+# ASKED FOR, not assembled here -- same move reconcile/roles/postgres made. The engine on
+# the host owns what the control plane IS (catena-admin
+# payload/engines/tier1/catalog.go); this reads its answer and uses it exactly
+# where the hand-built dict used to go.
+#
+# The point of asking rather than keeping a copy: a second description of one
+# service is the drift this seam exists to remove, and a copy that agrees on the
+# day it is written says nothing about the next field added to one side. The
+# engine's own test pins the declaration this role used to build and asserts
+# byte-identical create argv.
+#
+# It also means the desired state travels with the IMAGE. Bump the catena-admin
+# tag, reconcile/roles/payload re-extracts the engines, and the control plane the host
+# reconciles toward moves with it -- no laptop, no inventory edit.
+#
+# No `ports`. The no-host-port invariant is structural in both renderers --
+# cloudflared over the overlay is the only ingress, and neither the argv nor
+# the compose service has a publish for a drift check to find.
+- name: "traefik: read the built-in tier-1 spec from the host engine"
+  ansible.builtin.include_role:
+    name: tier1_stack
+    tasks_from: spec_one.yml
+    apply:
+      tags: [traefik]
+  vars:
+    tier1_spec_name: "{{ traefik_container_name }}"
+
+- name: "traefik: adopt the built-in spec"
+  ansible.builtin.set_fact:
+    _traefik_spec: "{{ tier1_builtin_spec }}"
+
+- name: "traefik: contribute the spec to the control-plane render"
+  ansible.builtin.set_fact:
+    catena_tier1_specs: >-
+      {{ catena_tier1_specs | default([]) | tier1_spec_upsert(_traefik_spec) }}
+
+# include_role with a literal name + tasks_from, not include_tasks with a
+# templated role_path: the second works but hides the edge from the audit
+# graph, which resolves the first and would file reconcile_one.yml as an
+# orphan under the second.
+- name: "traefik: create or reconcile the swarm service"
+  ansible.builtin.include_role:
+    name: tier1_stack
+    tasks_from: reconcile_one.yml
+    apply:
+      tags: [traefik]
+  vars:
+    tier1_spec: "{{ _traefik_spec }}"
+
+# NOTE: catena-traefik attaches to catena_network_name ONLY. Every catena app
+# stack joins catena-network via the Portainer stack seam, so that single
+# overlay is all traefik needs to route to.
+
+# The static config is a bind mount, so a changed traefik.yml is already on
+# disk inside the running task -- but Traefik reads it once at startup. Only
+# the FILE PROVIDER hot-reloads, and that covers the dynamic/ dir, not this.
+# So the task has to roll. Same for the acme.json directory fix: a running
+# task still holds the bad mount. `--force` rolls a service whose spec is
+# otherwise unchanged, which is exactly this case.
+#
+# Skipped when the engine above already changed the service: its update rolls
+# the task on its own, and forcing a second roll would take ingress down twice.
+# The engine's summary line carries changed=<n>, so this reads the same number
+# the reconcile reported rather than re-deriving whether anything happened.
+- name: "traefik: force-roll to pick up a static config or acme.json change"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - update
+      - --force
+      - "{{ traefik_container_name }}"
+  when:
+    - _traefik_service.rc == 0
+    - _traefik_static_cfg.changed or (_traefik_acme_dir_rm.changed | default(false))
+    - "'changed=0' in (_t1_apply.stdout | default('changed=0'))"
+  register: _traefik_force_roll
+  changed_when: _traefik_force_roll.rc == 0
+
+# catena-network-nudge lives in bootstrap/roles/docker: it heals containers the overlay
+# race strands on a docker.service start, and bootstrap/roles/docker owns both ends of
+# that race. catena-traefik is a swarm service, so the task manager
+# re-dispatches it and the nudge skips it outright (swarm task containers are
+# excluded by label); what the nudge protects is the Portainer compose
+# containers (keycloak-server-1, oauth2-proxy, gatus, nextcloud-talk-hpb-1).

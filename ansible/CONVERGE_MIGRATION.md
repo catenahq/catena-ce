@@ -73,7 +73,7 @@ So the next thing this work needs is a bench run, not another unit test.
 
 **Decided: bootstrap seeds the config half of the store before any role runs.**
 
-The question came from a defect the phase-3 gate surfaced. `roles/tailscale`
+The question came from a defect the phase-3 gate surfaced. `bootstrap/roles/tailscale`
 resolves its provider, control URL and Headscale user from `cfg_*` facts with no
 inventory fallback, and `playbooks/bootstrap.yml` runs that role -- with no
 loader, because the machine has nothing on it yet. So every one of them is empty
@@ -110,7 +110,7 @@ instead of being managed. It makes "the store is the source of truth" true from
 minute one rather than from the first converge.
 
 What it entailed, and the part that needed care. The seed is in Phase 2 of
-`bootstrap.yml`, the play that runs `roles/tailscale`, as a pre_task -- Phase 1
+`bootstrap.yml`, the play that runs `bootstrap/roles/tailscale`, as a pre_task -- Phase 1
 can end early on its own idempotency check, Phase 2 always runs, and by then the
 common role has put python3 and the `ops` account on the box.
 
@@ -141,7 +141,7 @@ mint, a release resolution or a pin read.
 
 **Gate: a bench install from zero.** This is an install-path change, so no unit
 test settles it. Two things to watch on that run: the store exists and is
-populated before `roles/tailscale` executes, and a Headscale inventory reaches
+populated before `bootstrap/roles/tailscale` executes, and a Headscale inventory reaches
 the Headscale fork rather than the OAuth one.
 
 Recorded in `ops/BACKLOG_TECHNICAL.md` with the failure analysis.
@@ -157,7 +157,7 @@ were bench overrides decided before the host exists, which is a declared,
 defensible resting place.
 
 **Decided: finish the move.** The test is not who sets a value, it is which side
-of the boundary READS it -- and `roles/coturn` and `roles/infrastructure` are
+of the boundary READS it -- and `reconcile/roles/coturn` and `reconcile/roles/infrastructure` are
 reconcile-side. A host that converges itself cannot ask an operator's laptop
 which certificate authority to trust. That a test harness is the only thing that
 ever sets them does not move the reader.
@@ -194,7 +194,7 @@ the converge, and the name is the only thing that kept `cloudflared-check` and
 `<prefix><the box's hostname>` for itself now, both actions ship in the image,
 and the reserved table is down to one entry.
 
-`roles/common` sets the box's hostname to `inventory_hostname`, so every
+`bootstrap/roles/common` sets the box's hostname to `inventory_hostname`, so every
 converged host keeps the name it had. This is worth knowing before anybody
 "fixes" the two back into agreement: they already agree.
 
@@ -368,11 +368,11 @@ Writing the gates found these rather than confirming the guesses.
 - A **restore** rewrites the host's SSH identity and is reached only from
   `playbooks/restore.yml`. It belongs to neither side; declared in
   `boundary.yml` as `operator_only_files`.
-- `roles/backup` names `/etc/ssh` in its defaults because **restic reads it** --
+- `reconcile/roles/backup` names `/etc/ssh` in its defaults because **restic reads it** --
   it is in the backup set with host keys excluded. The bootstrap-owned-path
   scan therefore covers task files only. A rule that cannot tell reading a path
   from writing it gets argued with rather than obeyed.
-- `roles/common`'s **templates belong with its bootstrap half**, not its
+- `bootstrap/roles/common`'s **templates belong with its bootstrap half**, not its
   reconcile half. Hence `default_side` per straddling role.
 
 ### 7. The image has to SHIP every command it authorises
@@ -389,9 +389,9 @@ it is right.
 
 Resolved by delivery, not by exception: the image already carries the whole
 vendored catena-ce tree, so the build copies those two into the payload's own
-`bin/` and `roles/payload` installs them at role 5.5 with the engines. One
+`bin/` and `reconcile/roles/payload` installs them at role 5.5 with the engines. One
 source file, still in catena-ce; who ships it changed, which is the answer the
-engines already had. `roles/catena-admin/tasks/host.yml` no longer installs
+engines already had. `reconcile/roles/catena-admin/tasks/host.yml` no longer installs
 either.
 
 Note what this does NOT weaken. Once the drop-in is image-owned, "which binary
@@ -437,7 +437,7 @@ same read.
 `tests/unit/test_store_readers_load_the_store.py` is the general form: a play
 whose roles read a store-backed variable loads the store, or is declared with
 the reason it does not need to. Writing it turned up a defect that predates all
-of this -- `roles/tailscale` resolves its provider, control URL and Headscale
+of this -- `bootstrap/roles/tailscale` resolves its provider, control URL and Headscale
 user from `cfg_*` with no inventory fallback, and two plays ran it without the
 loader. `rotate-tailscale.yml` is fixed (it runs against an installed host, so
 the loader is simply correct there). `bootstrap.yml` cannot be: it runs before
@@ -451,7 +451,7 @@ born rather than a line in a playbook.
 ### Phase 1b: move the directories
 
 `bootstrap/` and `reconcile/` as sibling trees, `shared/` for filter plugins.
-`roles/common` splits at `public_ports.yml`; `roles/catena-admin` splits at
+`bootstrap/roles/common` splits at `public_ports.yml`; `reconcile/roles/catena-admin` splits at
 `host.yml`. `boundary.yml` already declares every file's side, so this is a
 rename rather than a judgement call.
 
@@ -477,7 +477,7 @@ Everything is in place for a host to converge itself, and one piece is
 deliberately switched off.
 
 - **The runtime.** Bootstrap installs a pinned ansible-core venv at
-  `/opt/catena/ansible` (`roles/ansible_runtime`, catena-ce `6a0473b`). Not on
+  `/opt/catena/ansible` (`bootstrap/roles/ansible_runtime`, catena-ce `6a0473b`). Not on
   PATH: the engine names the interpreter it wants, so a second unaudited way to
   run a converge never exists. The version is checked twice, because "what to
   install" and "what may run" are different questions -- a host converged a year
@@ -491,7 +491,7 @@ deliberately switched off.
   root.
 - **The inventory it writes names the box by its own hostname.** Load-bearing,
   not cosmetic: four reconcile-side roles interpolate `inventory_hostname`, and
-  `roles/common` sets the box's hostname from the operator's inventory name, so
+  `bootstrap/roles/common` sets the box's hostname from the operator's inventory name, so
   a converge run on the host and one run from a laptop arrive at the same
   strings. `localhost` would have produced different config for the same
   machine, silently. Same insight as the tunnel name.
@@ -538,7 +538,7 @@ than in the code.
   is that the split produces the same host. That is still an install from zero,
   so land the rename where a bench can run immediately after.
 - **The settle assertion turns an invisible defect into a loud one.**
-  `roles/catena-admin` now re-inspects after a `docker service update` and fails
+  `reconcile/roles/catena-admin` now re-inspects after a `docker service update` and fails
   if the same drift is still reported. If `swarm_service_drift` reads a field
   docker omits at its own default -- `StopGracePeriod` and the healthcheck
   fields are the candidates -- the first bench run FAILS the converge instead of

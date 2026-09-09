@@ -1,0 +1,79 @@
+---
+# Validation tasks for reconcile/roles/traefik.
+
+# catena-traefik is a swarm service, so the running-task count is the
+# readiness signal and there is no container by that bare name to inspect.
+# `docker service ls` reports "<running>/<desired>", and the service carries a
+# healthcheck (`traefik healthcheck` against the ping endpoint the static
+# config enables), so a task that started but is not serving reads as 0/1
+# rather than counting as up.
+- name: "validate/traefik: catena-traefik replica count"
+  ansible.builtin.command: >-
+    docker service ls --filter name=catena-traefik
+    --format '{% raw %}{{.Replicas}}{% endraw %}'
+  register: _tr_replicas
+  failed_when: false
+  changed_when: false
+
+- name: "validate/traefik: catena-traefik is converged"
+  ansible.builtin.assert:
+    that:
+      - _tr_replicas.rc == 0
+      - (_tr_replicas.stdout | trim) is match('^([1-9][0-9]*)/\\1( |$)')
+    fail_msg: >-
+      catena-traefik is not converged (replicas={{ _tr_replicas.stdout | trim }}).
+      0/N means the task is not running or is failing its healthcheck; an
+      empty value means the service does not exist.
+
+# No host port publishing: cloudflared over the overlay is the only ingress.
+# The service spec is the thing to assert -- an empty Ports list proves
+# nothing was published, whereas a per-container PortBindings read would only
+# ever see whichever task happened to be up.
+- name: "validate/traefik: published ports (hardening)"
+  ansible.builtin.command: >-
+    docker service inspect catena-traefik
+    --format '{% raw %}{{json .Spec.EndpointSpec.Ports}}{% endraw %}'
+  register: _tr_ports
+  failed_when: false
+  changed_when: false
+
+- name: "validate/traefik: no published ports"
+  ansible.builtin.assert:
+    that:
+      - _tr_ports.rc == 0
+      - (_tr_ports.stdout | trim) in ['[]', 'null']
+    fail_msg: "catena-traefik publishes host ports: {{ _tr_ports.stdout | trim }}"
+
+- name: "validate/traefik: traefik.yml has forwardedHeaders.trustedIPs"
+  # Without this Traefik rewrites X-Forwarded-Proto to "http" on the :80
+  # entrypoint (cloudflared talks to it over plain HTTP), Keycloak sees
+  # "non-secure context", refuses Secure cookies, and the account-console SPA
+  # loops on cross-origin POSTs.
+  ansible.builtin.slurp:
+    src: "{{ traefik_config_dir }}/traefik.yml"
+  register: _tr_static
+
+- name: "validate/traefik: forwardedHeaders.trustedIPs covers RFC1918"
+  ansible.builtin.assert:
+    that:
+      - "'forwardedHeaders' in (_tr_static.content | b64decode)"
+      - "'10.0.0.0/8' in (_tr_static.content | b64decode)"
+      - "'172.16.0.0/12' in (_tr_static.content | b64decode)"
+    fail_msg: |
+      traefik.yml is missing forwardedHeaders.trustedIPs covering RFC1918.
+      Keycloak will log "Non-secure context detected" on every cross-origin
+      POST and the account-console SPA will loop. Re-render via
+      `./catena site --tags traefik` and verify catena-traefik restarted.
+
+- name: "validate/traefik: catena-network overlay driver"
+  ansible.builtin.command: docker network inspect catena-network --format '{% raw %}{{.Driver}}{% endraw %}'
+  register: _tr_net_driver
+  failed_when: false
+  changed_when: false
+
+- name: "validate/traefik: catena-network driver == overlay"
+  ansible.builtin.assert:
+    that:
+      - _tr_net_driver.rc == 0
+      - _tr_net_driver.stdout | trim == 'overlay'
+    fail_msg: "catena-network driver is '{{ _tr_net_driver.stdout | trim }}', expected 'overlay'"

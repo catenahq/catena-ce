@@ -40,8 +40,8 @@ _ANSIBLE = Path(__file__).resolve().parents[2]
 
 # Templates rendered into files that a unit ON THE HOST reads.
 _ONBOX_ENV_TEMPLATES = (
-    "roles/infrastructure/templates/dashboard-sync.env.j2",
-    "roles/catena_admin_host/templates/stack-update.env.j2",
+    "reconcile/roles/infrastructure/templates/dashboard-sync.env.j2",
+    "bootstrap/roles/catena_admin_host/templates/stack-update.env.j2",
 )
 
 
@@ -75,7 +75,7 @@ def test_onbox_env_does_not_reference_the_controller_base(rel):
 # legitimately name the address the controller uses. Each entry carries the
 # reason, so adding one is a decision rather than a quiet edit to the gate.
 _CONTROLLER_FACING_TEMPLATES: dict[str, str] = {
-    "roles/backup/templates/backup.env.j2": (
+    "reconcile/roles/backup/templates/backup.env.j2": (
         "BACKUP_SCP_HINT_HOST is printed in the export script's scp hint and "
         "nothing dials it. The operator needs an address reachable FROM "
         "OUTSIDE, which is the one thing an on-box name cannot give: a "
@@ -129,7 +129,7 @@ def test_the_admin_known_hosts_scan_does_not_depend_on_a_reachable_address():
     empty stdout when it cannot reach what it was given, and nothing checked,
     so an address the box could not dial wrote an EMPTY known_hosts -- after
     which every panel action fails host key verification, naming nothing."""
-    body = (_ANSIBLE / "roles/catena_admin_host/tasks/main.yml").read_text()
+    body = (_ANSIBLE / "bootstrap/roles/catena_admin_host/tasks/main.yml").read_text()
     start = body.index("- name: \"SSH dir: scan this host's own key")
     scan = body[start:body.index("\n- name:", start + 1)]
     assert "127.0.0.1" in scan, "the scan must go over loopback"

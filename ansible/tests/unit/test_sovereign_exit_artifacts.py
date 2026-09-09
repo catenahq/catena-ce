@@ -32,7 +32,7 @@ from pathlib import Path
 import yaml
 
 _ANSIBLE = Path(__file__).resolve().parents[3] / "ansible"
-_ROLE = _ANSIBLE / "roles" / "backup"
+_ROLE = _ANSIBLE / "reconcile" / "roles" / "backup"
 _DEFAULTS = _ROLE / "defaults" / "main.yml"
 _INSTALL = _ROLE / "tasks" / "install.yml"
 _TEMPLATES = _ROLE / "templates"
@@ -92,9 +92,9 @@ def test_the_export_directory_is_created_for_the_payload_scripts():
     though the writers are not. Group 1000 is what lets the catena-admin
     container list the artifacts for the /recovery tab.
 
-    roles/catena-admin creates the same directory two roles earlier, because
+    reconcile/roles/catena-admin creates the same directory two roles earlier, because
     it bind-mounts it and swarm rejects a task whose bind source is missing.
-    The group therefore comes from roles/common rather than a literal here:
+    The group therefore comes from bootstrap/roles/common rather than a literal here:
     two literals is how the two creators drift, and the loser's ownership is
     whatever ran last. Assert the resolved value, not the spelling."""
     tasks = _install_tasks()
@@ -107,5 +107,5 @@ def test_the_export_directory_is_created_for_the_payload_scripts():
     assert spec["state"] == "directory"
     assert str(spec["group"]) == "{{ catena_export_dir_group }}"
     common = yaml.safe_load(
-        (_ANSIBLE / "roles" / "common" / "defaults" / "main.yml").read_text())
+        (_ANSIBLE / "bootstrap" / "roles" / "common" / "defaults" / "main.yml").read_text())
     assert str(common["catena_export_dir_group"]) == "1000"

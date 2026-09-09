@@ -1,6 +1,6 @@
 """The apt-update rescue must not fail on its own proof that apt works.
 
-roles/common's "Refresh apt cache (with proxy-bypass fallback)" block exists
+bootstrap/roles/common's "Refresh apt cache (with proxy-bypass fallback)" block exists
 because the apt module folds its retry loop into an empty summary string, so a
 flake reads as an unexplained failure. The rescue re-runs `apt-get update`
 raw to recover the real error.
@@ -29,7 +29,7 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-TASKS = ANSIBLE / "roles" / "common" / "tasks" / "main.yml"
+TASKS = ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "main.yml"
 
 DIAG_RC_OK = "_apt_update_diag.rc != 0"
 

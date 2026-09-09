@@ -1,0 +1,68 @@
+---
+# reconcile/roles/portainer -- the container control plane.
+#
+# Portainer CE spans Docker + Swarm + (later) Kubernetes, which the old control
+# plane could not. It provides the compose/stack + env + logs + lifecycle API the migration
+# needs; routing stays with catena-traefik (Portainer does no reverse proxy).
+#
+# Deployed as a swarm service on catena-network with the docker socket, so it
+# manages the local Docker/Swarm endpoint (id 1). The UI/API port is published
+# host-mode and firewalled to the tailnet via the public-ports registry -- same
+# model as the old control-plane :3000 (operators + the controller reach it over the
+# tailnet; a catena-traefik route at apps.<zone> comes later).
+
+portainer_service_name: catena-portainer
+portainer_data_volume: catena-portainer-data
+
+# The tier-1 SPEC for catena-portainer is not assembled here any more -- not the
+# image, the mounts, the hardening, the placement constraints, the published
+# port or the admin-password argument. It lives in the host engine, catena-admin
+# payload/engines/tier1/catalog.go, and reconcile/roles/portainer reads it with
+# `catena-tier1 spec catena-portainer`.
+#
+# The values did not change; they moved. The engine's test pins the exact
+# declaration this file used to build and asserts byte-identical create argv.
+# The image pin moved with them, and Renovate + Trivy follow it there: a version
+# has to be tracked where the host actually reads it.
+#
+# portainer_ui_port is the exception and stays a per-host value. The role threads
+# it to the engine as --portainer-ui-port, because the public-ports registry
+# fragment firewalls THAT number to the tailnet -- the publish and the firewall
+# must name the same port or the UI is reachable on neither.
+
+# NOTE: portainer_ui_port + portainer_api_base are defined GLOBALLY in
+# group_vars/all/main.yml so reconcile/roles/infrastructure + dashboard-sync can reference
+# them cross-role. Not redeclared here to avoid drift. portainer_ui_port default
+# = 9000 (env PORTAINER_UI_PORT); it is published host-mode + firewalled to the
+# tailnet, same model as the old control-plane :3000.
+
+# Initial admin. Reuses the shared operator identity (admin_password,
+# >= 16 chars, same as Keycloak). Delivered via --admin-password-file
+# from a swarm secret so it is set at first boot (no racing the 5-minute
+# /api/users/admin/init window).
+portainer_admin_user: admin
+portainer_admin_secret_name: catena_portainer_admin_password
+
+# portainer_api_base is GLOBAL (group_vars/all/main.yml), used cross-role by
+# the token-mint + downstream CE/EE seam calls. Not redeclared here.
+
+# Name of the local Docker environment (endpoint) this role provisions via
+# POST /api/endpoints (EndpointCreationType=1). Portainer does NOT auto-create
+# a local endpoint on first boot even with the socket mounted, so the role
+# creates it once; portainer_endpoint.yml resolves its Id for every stack call.
+portainer_local_endpoint_name: catena-local
+
+# The App Templates catalog Portainer fetches. Cluster-internal by
+# construction: it carries this host's real client-app credentials, so it is
+# reachable on catena-network and nowhere else -- never through Traefik, never
+# from a browser. Portainer's SERVER does the fetch (its docs: host the file
+# "somewhere accessible by the Portainer Server instance"), so an internal
+# address is the right one and there is no session to carry.
+#
+# The token segment is the guard: catena_marketplace_token is a per-host secret
+# from the on-box store, so another container on the same network cannot read
+# the catalog off a well-known URL. Blank => this role leaves App Templates
+# alone rather than publishing an unguarded one.
+portainer_templates_url: >-
+  http://{{ catena_admin_service_name }}:{{ catena_admin_internal_port }}/marketplace/{{ catena_marketplace_token | default('') }}/templates.json
+

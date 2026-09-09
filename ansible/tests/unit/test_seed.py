@@ -427,7 +427,7 @@ def test_collect_install_secrets_never_collects_cf_token(seed):
 
 def test_collect_install_secrets_asks_for_the_headscale_key(seed):
     """Headscale has no OAuth API, so the Tailscale pair is not asked for --
-    but its own join credential IS. roles/tailscale asserts on one of the two
+    but its own join credential IS. bootstrap/roles/tailscale asserts on one of the two
     and fails the BOOTSTRAP without it, and deferring it to catena-admin is
     circular: the panel is published on the tailnet the credential joins."""
     got = seed._collect_install_secrets(
@@ -470,7 +470,7 @@ def _headscale_inp(vault):
 
 def test_headscale_install_without_a_join_credential_is_refused(seed, on_tailnet):
     """The chicken-and-egg, caught in seed where nothing has been touched yet
-    rather than by roles/tailscale's assert partway through bootstrap."""
+    rather than by bootstrap/roles/tailscale's assert partway through bootstrap."""
     assert seed.validate_install(_headscale_inp({}), [], []) >= 1
 
 

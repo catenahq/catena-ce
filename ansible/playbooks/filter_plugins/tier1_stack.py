@@ -7,7 +7,7 @@ the compose ORACLE.
 
 WHAT APPLIES IS NOT HERE. The services are created and reconciled by the
 catena-admin host engine (payload/engines/tier1), dispatched per role from
-roles/tier1_stack/tasks/reconcile_one.yml. The argv renderer (`docker
+reconcile/roles/tier1_stack/tasks/reconcile_one.yml. The argv renderer (`docker
 service create` argv) lives once, in Go, on the host -- not duplicated here
 as a second Ansible renderer. Two renderers of the same spec in two
 languages would agree only on the cases somebody wrote a fixture for, and
@@ -332,7 +332,7 @@ def tier1_spec_upsert(existing, spec):
     Replace rather
     than append because a role can legitimately run twice in one converge:
     site.yml re-runs coturn in post_tasks, because the post-restore hooks
-    bring the TURN consumer up after roles/coturn already probed for one and
+    bring the TURN consumer up after reconcile/roles/coturn already probed for one and
     correctly found none. Appending would hand the renderer a duplicate name
     and fail the converge on the recovery path specifically.
     """

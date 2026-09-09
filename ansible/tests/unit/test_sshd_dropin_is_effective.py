@@ -1,6 +1,6 @@
 """The sshd hardening must be APPLIED, not merely written.
 
-Every directive roles/common sets ships as a drop-in under
+Every directive bootstrap/roles/common sets ships as a drop-in under
 /etc/ssh/sshd_config.d/. sshd reads that directory only when the main
 config includes it. Debian 12 and Ubuntu ship the Include, but a provider
 image or a cloud-init variant can replace sshd_config with something
@@ -23,8 +23,8 @@ from pathlib import Path
 import yaml
 
 _ANSIBLE = Path(__file__).resolve().parents[2]
-COMMON_MAIN = _ANSIBLE / "roles" / "common" / "tasks" / "main.yml"
-COMMON_VALIDATE = _ANSIBLE / "roles" / "common" / "tasks" / "validate.yml"
+COMMON_MAIN = _ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "main.yml"
+COMMON_VALIDATE = _ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "validate.yml"
 
 INCLUDE_LINE = "Include /etc/ssh/sshd_config.d/*.conf"
 

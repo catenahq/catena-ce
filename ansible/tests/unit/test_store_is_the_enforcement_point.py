@@ -101,7 +101,10 @@ def _definition(var: str) -> tuple[Path, str] | None:
     the definition, including the folded scalars and Jinja these files are
     written in, and a parse would resolve exactly the thing being inspected.
     """
-    for path in sorted(_ANSIBLE.glob("roles/*/defaults/main.yml")):
+    # Both role roots since phase 1b. A scan of one of them would call every
+    # variable on the other side undefined, and this gate reads that as a
+    # protected name nothing defines.
+    for path in sorted(_ANSIBLE.glob("*/roles/*/defaults/main.yml")):
         lines = path.read_text(encoding="utf-8").split("\n")
         for i, line in enumerate(lines):
             if not line.startswith(var + ":"):

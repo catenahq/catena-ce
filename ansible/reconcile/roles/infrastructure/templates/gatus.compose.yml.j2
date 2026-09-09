@@ -1,0 +1,82 @@
+---
+# {{ ansible_managed }}
+services:
+  app:
+    image: {{ gatus_image }}
+    # `restart:` is IGNORED by `docker stack deploy` -- swarm restarts from
+    # deploy.restart_policy, and a compose file that only carries the former
+    # gets a warning and swarm's defaults.
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 5s
+      # gatus-data holds the status history, and the config bind
+      # source is a host path this converge writes. Off this node
+      # swarm creates both empty rather than failing, so gatus would
+      # come up monitoring nothing and reporting green.
+      placement:
+        constraints:
+          - node.labels.catena.role==data
+    environment:
+      GATUS_CONFIG_PATH: /config
+      GATUS_WEB_PORT: "{{ gatus_internal_port }}"
+    volumes:
+      - {{ gatus_host_config_dir }}:/config:ro
+      - gatus-data:/data
+    # Host-mode publish so gatus-sync (runs on the host, not in
+    # catena-network) can reach /api/v1/endpoints/statuses on
+    # {{ gatus_host_localhost_port }}. Long syntax with mode: host is
+    # mandatory -- the short `host:container` form deploys as an INGRESS
+    # publish under swarm, putting the port on the routing mesh.
+    #
+    # There is NO host_ip here and there cannot be: swarm's PortConfig has
+    # no host-IP field, and `docker stack deploy` REFUSES the key outright
+    # ("services.app.ports.0 Additional property host_ip is not allowed")
+    # rather than ignoring it. So the bind is 0.0.0.0 and the port is
+    # DECLARED scope=loopback in the public-port registry
+    # (reconcile/roles/infrastructure/tasks/gatus.yml), which denies it on every
+    # interface but lo. That declaration is what holds the posture the old
+    # 127.0.0.1 bind gave for free.
+    ports:
+      - target: {{ gatus_internal_port }}
+        published: {{ gatus_host_localhost_port }}
+        protocol: tcp
+        mode: host
+    networks:
+      catena-network:
+        aliases:
+          - {{ gatus_network_alias }}
+    # No Docker HEALTHCHECK block. twinproduction/gatus v5+ ships a
+    # distroless-ish image with no wget/curl/nc, so a CMD healthcheck
+    # fails with "executable not found" and the container gets marked
+    # unhealthy regardless of whether Gatus itself is serving. That
+    # false-unhealthy signal paged the operator via Netdata Cloud (also
+    # seen mid-Apr 2026). Gatus self-probes /health via its own endpoint
+    # config (see gatus-base.yaml.j2 "Gatus (self-check)"), which is the
+    # authoritative signal -- a second Docker-level check added nothing
+    # except a failure mode.
+    labels:
+      # FALSE on purpose. This service IS served, but its route is synthesised
+      # by dashboard-sync from the vps.auth.* labels below into Traefik's FILE
+      # provider, with the real hostname. Nothing reads traefik.enable --
+      # not dashboard-sync, not gate_routes, not labels_schema -- so `true`
+      # bought no routing and cost a bogus one: the docker provider saw an
+      # enabled container with no rule, applied Traefik's built-in
+      # `Host(<container name>)` default, and produced a DOTLESS router like
+      # `gatus-app-1-<taskid>`. Every websecure router inherits
+      # entryPoints.websecure.http.tls.certResolver, so Traefik then asked a
+      # public CA for a certificate for a name that cannot have one, forever.
+      - traefik.enable=false
+      # Auth posture (vps.auth.* convention, see
+      # docs/operator/client-app-templates/README.md). Pinned to
+      # oauth2_proxy_staff_apps in defaults/main.yml by the unit test
+      # test_infra_compose_auth_labels.
+      - vps.auth.mode=private
+      - vps.auth.groups=staff
+
+volumes:
+  gatus-data:
+
+networks:
+  catena-network:
+    external: true

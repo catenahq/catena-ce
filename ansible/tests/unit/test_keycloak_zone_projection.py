@@ -1,4 +1,4 @@
-"""roles/keycloak reads its multi-domain routing from the served-domain
+"""reconcile/roles/keycloak reads its multi-domain routing from the served-domain
 projection, not from a fact computed in this repo.
 
 One Keycloak serves an auth.<zone> sign-on island per attached domain. Which
@@ -16,7 +16,7 @@ from pathlib import Path
 
 import yaml
 
-_ROLE = Path(__file__).resolve().parents[3] / "ansible" / "roles" / "keycloak"
+_ROLE = Path(__file__).resolve().parents[3] / "ansible" / "reconcile" / "roles" / "keycloak"
 DEPLOY = _ROLE / "tasks" / "deploy.yml"
 DEFAULTS = _ROLE / "defaults" / "main.yml"
 

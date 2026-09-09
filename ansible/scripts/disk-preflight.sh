@@ -1,6 +1,6 @@
 #!/bin/sh
 # Shared disk-space preflight for backup, restore, and auto-update.
-# Installed by roles/backup as /usr/local/bin/catena-disk-preflight.
+# Installed by reconcile/roles/backup as /usr/local/bin/catena-disk-preflight.
 #
 # Usage: catena-disk-preflight <mountpoint> <min_bytes> [<context>]
 #   - <mountpoint>   directory whose containing filesystem is checked

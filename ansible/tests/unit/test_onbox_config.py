@@ -277,7 +277,7 @@ def test_console_recovery_password_is_console_typeable(oc):
 
 
 def test_cifs_bulk_credentials_are_external(oc):
-    """roles/storage bulk.yml tells the client to enter these in catena-admin
+    """bootstrap/roles/storage bulk.yml tells the client to enter these in catena-admin
     > Settings. apply_inputs RAISES for any key outside EXTERNAL_SECRETS, so
     absent from this set the documented path is closed by code."""
     for key in ("storage_bulk_username", "storage_bulk_password"):
@@ -361,7 +361,7 @@ def test_adopt_fills_only_and_captures_any_key(oc):
 
 
 def test_adopt_overwrite_replaces_a_dead_value(oc):
-    """roles/portainer re-mints when Portainer REJECTS the stored key. Without
+    """reconcile/roles/portainer re-mints when Portainer REJECTS the stored key. Without
     overwrite the store would keep serving the dead one and every API call
     would 401 for the rest of the converge."""
     store = {"secrets": {"portainer_api_key": "revoked"}, "config": {}}
@@ -827,7 +827,7 @@ def test_image_pins_is_empty_on_a_host_that_has_never_bumped(oc, tmp_path):
 
 
 def test_cli_emits_image_pins_without_touching_the_store(oc, tmp_path, capsys):
-    """Read before roles/payload has necessarily installed anything, so it must
+    """Read before reconcile/roles/payload has necessarily installed anything, so it must
     not mint, must not write, and must answer on a host with no store."""
     p = tmp_path / "config.json"
     rc = oc.main(["--path", str(p), "--emit", "image-pins"])

@@ -266,7 +266,7 @@ def test_detach_does_not_leak_into_the_compose_service() -> None:
 
 def test_upsert_replaces_a_same_named_spec_rather_than_appending() -> None:
     """site.yml re-runs coturn in post_tasks: the post-restore hooks bring
-    the TURN consumer up AFTER roles/coturn probed for one and correctly
+    the TURN consumer up AFTER reconcile/roles/coturn probed for one and correctly
     found none. Appending would hand the renderer a duplicate name and fail
     the converge on the recovery path specifically."""
     first = {"name": "coturn", "image": "coturn/coturn:4.10.0-alpine"}

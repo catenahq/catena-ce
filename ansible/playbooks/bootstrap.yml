@@ -16,7 +16,7 @@
 # After Phase 2, the box is reachable over Tailscale. The steady-state host
 # entry (under the `vps:` inventory group) gets its ansible_host auto-updated
 # to the new tailnet IP by the post_tasks below. Run site.yml next -- it targets
-# the `vps:` group and closes public 22 via roles/common/tasks/ufw_lockdown.yml.
+# the `vps:` group and closes public 22 via bootstrap/roles/common/tasks/ufw_lockdown.yml.
 #
 # Restoring to a different server (hardware upgrade, provider migration):
 #   1. Update ansible_host in inventory/<env>/hosts.yml for the *-bootstrap
@@ -475,7 +475,7 @@
   pre_tasks:
     # THE STORE IS BORN HERE, not at the first converge.
     #
-    # roles/tailscale resolves its provider, control URL and Headscale user from
+    # bootstrap/roles/tailscale resolves its provider, control URL and Headscale user from
     # store-projected facts with no inventory fallback. Run with
     # no store, all three are empty and the provider inference answers
     # `tailscale` unconditionally -- so a Headscale install took the Tailscale

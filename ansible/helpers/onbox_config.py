@@ -28,7 +28,7 @@ The converge loads this store, mints any MISSING *internal* secret
 (reconcile-not-overwrite -- an existing value is never touched), writes the
 store back 0600, and emits the merged secret view as JSON for an Ansible
 ``set_fact``. The box is the source of truth: nothing secret is kept on the
-laptop, and ``/etc`` is in ``roles/backup`` ``backup_paths`` so the store
+laptop, and ``/etc`` is in ``reconcile/roles/backup`` ``backup_paths`` so the store
 rides every restic snapshot -- a restore returns every secret with the data.
 
 Design constraints:
@@ -292,7 +292,7 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
 #     value is only used on a first install, never a recover). A rotation is a
 #     deliberate `restic key passwd` action in catena-admin, not a store write.
 #   - console_recovery_password -- the ops account's break-glass password
-#     for the provider KVM / serial console (roles/common sets it; key-only SSH
+#     for the provider KVM / serial console (bootstrap/roles/common sets it; key-only SSH
 #     keeps it console-only). Same shape as the restic password: a credential
 #     whose whole purpose is the case where the normal path is gone, so a copy
 #     that lives only inside the box is no copy at all.
@@ -335,7 +335,7 @@ EXTERNAL_SECRETS: frozenset[str] = frozenset({
     "smtp_password",
     "mailserver_relay_password",
     "mailserver_spamhaus_dqs_key",
-    # CIFS credentials for the optional bulk mount (roles/storage bulk.yml,
+    # CIFS credentials for the optional bulk mount (bootstrap/roles/storage bulk.yml,
     # storage_bulk_type=cifs). Client-held: the share is the client's NAS.
     # NFS authenticates by source IP and supplies neither.
     "storage_bulk_username",
@@ -362,7 +362,7 @@ EXTERNAL_SECRETS: frozenset[str] = frozenset({
 #
 # Value is the role that writes it into the store, so a failure names the owner.
 #   - portainer_api_key -- Portainer's own token API mints it
-#     (helpers/bootstrap_portainer_admin.py); roles/portainer adopts it, with
+#     (helpers/bootstrap_portainer_admin.py); reconcile/roles/portainer adopts it, with
 #     --overwrite, because a /data restore invalidates the stored one.
 #
 # NOT minted here and NOT adoptable through apply_inputs: a role-minted secret
@@ -444,7 +444,7 @@ SETTINGS_CONFIG: dict[str, str] = {
     "SMTP_HOST": "cfg_smtp_host",
     "SMTP_PORT": "cfg_smtp_port",
     "SMTP_USER": "cfg_smtp_user",
-    # Alert delivery. Both blank by default; see roles/infrastructure.
+    # Alert delivery. Both blank by default; see reconcile/roles/infrastructure.
     "NTFY_SERVER": "cfg_ntfy_server",
     "NTFY_TOPIC": "cfg_ntfy_topic",
     # Egress proxies / mirrors -- a site policy, not an install input.
@@ -457,7 +457,7 @@ SETTINGS_CONFIG: dict[str, str] = {
     #
     # They point certificate issuance at something other than production Let's
     # Encrypt: a local Pebble on the bench network (the three CATENA_ACME_ ones,
-    # read by BOTH roles/coturn and roles/infrastructure), or LE's staging CA
+    # read by BOTH reconcile/roles/coturn and reconcile/roles/infrastructure), or LE's staging CA
     # (the certbot toggles, one per service, because the bench re-issues
     # turn.<zone> and mail.<zone> on every run and production enforces five
     # certs per exact identifier per 168h -- one hit blocks the next ~32h).
@@ -515,7 +515,7 @@ SETTINGS_CONFIG: dict[str, str] = {
     # client makes about their own people, and one they may make later: turning
     # it on requires every existing user to enrol at their next login.
     #
-    # The converge writes it into the realm (roles/keycloak). The identity
+    # The converge writes it into the realm (reconcile/roles/keycloak). The identity
     # probe READS the resulting posture and reports drift, which is the pair
     # this key completes -- the probe has always been able to see the answer
     # and nothing could set it.
@@ -576,7 +576,7 @@ BOOTSTRAP_CONFIG: frozenset[str] = frozenset({
 STORE_MAY_NOT_DECIDE: dict[str, str] = {
     # The env allow-list gates both sshd's AcceptEnv and the sudoers env_keep.
     # It is the one thing the image can never own either (see the payload
-    # overlay note in roles/catena-admin/templates/admin-actions.j2): the set of
+    # overlay note in reconcile/roles/catena-admin/templates/admin-actions.j2): the set of
     # inputs root will accept is not an input.
     "catena_admin_dispatch_env_passthrough":
         "the set of environment values root accepts from a dispatch",
@@ -823,7 +823,7 @@ def adopt(store: dict, mapping: dict | None, *, overwrite: bool = False) -> list
     ROLE_MINTED_SECRETS are captured too, which is why this is separate from
     apply_inputs and its EXTERNAL_SECRETS allowlist.
 
-    ``overwrite=True`` replaces an existing value. Used by roles/portainer
+    ``overwrite=True`` replaces an existing value. Used by reconcile/roles/portainer
     when Portainer REJECTS the stored API key (the admin was recreated, or a
     /data restore replaced the BoltDB the token lived in): the freshly minted
     key has to win, and fill-only would keep serving the dead one.

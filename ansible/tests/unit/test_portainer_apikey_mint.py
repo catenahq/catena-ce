@@ -23,7 +23,7 @@ import yaml
 
 ANSIBLE_DIR = Path(__file__).resolve().parents[2]
 HELPER = ANSIBLE_DIR / "helpers" / "bootstrap_portainer_admin.py"
-ROLE_TASKS = ANSIBLE_DIR / "roles" / "portainer" / "tasks" / "main.yml"
+ROLE_TASKS = ANSIBLE_DIR / "reconcile" / "roles" / "portainer" / "tasks" / "main.yml"
 LOADER = ANSIBLE_DIR / "playbooks" / "tasks" / "load_onbox_config.yml"
 
 

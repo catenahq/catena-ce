@@ -2,7 +2,7 @@
 superuser, the catena project, API keys, the ntfy notification
 channel, and the daily backup check. Idempotent -- re-running
 reconciles drift without wiping operator-added checks."""
-# Managed by Ansible (roles/infrastructure). Do not edit by hand.
+# Managed by Ansible (reconcile/roles/infrastructure). Do not edit by hand.
 #
 # Bootstrap/reconcile seed for self-hosted Healthchecks. Runs inside
 # the Healthchecks container via `docker exec -i ... python manage.py
@@ -11,7 +11,7 @@ reconciles drift without wiping operator-added checks."""
 # additions).
 #
 # Per-host values arrive via `docker exec -e KEY=VALUE` flags rendered
-# in roles/infrastructure/tasks/healthchecks.yml. The script reads them
+# in reconcile/roles/infrastructure/tasks/healthchecks.yml. The script reads them
 # from os.environ; missing vars surface as KeyError so a wiring break
 # fails loud rather than silently seeding empty strings.
 #

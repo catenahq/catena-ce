@@ -25,7 +25,7 @@ from pathlib import Path
 import yaml
 
 _INSTALL = (Path(__file__).resolve().parents[2]
-            / "roles" / "backup" / "tasks" / "install.yml")
+            / "reconcile" / "roles" / "backup" / "tasks" / "install.yml")
 
 
 def _tasks() -> list[dict]:

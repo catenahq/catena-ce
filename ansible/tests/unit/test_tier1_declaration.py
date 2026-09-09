@@ -1,4 +1,4 @@
-"""roles/tier1_stack hands each spec to the catena-tier1 host engine.
+"""reconcile/roles/tier1_stack hands each spec to the catena-tier1 host engine.
 
 The create/inspect/diff/update ladder lives in catena-admin
 payload/engines/tier1; tasks/reconcile_one.yml dispatches it -- one renderer
@@ -19,7 +19,7 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-ROLE = ANSIBLE / "roles" / "tier1_stack"
+ROLE = ANSIBLE / "reconcile" / "roles" / "tier1_stack"
 TASKS = ROLE / "tasks" / "main.yml"
 RECONCILE = ROLE / "tasks" / "reconcile_one.yml"
 DEFAULTS = ROLE / "defaults" / "main.yml"
@@ -119,7 +119,7 @@ def test_the_control_plane_and_the_companions_render_to_different_files():
     d = _defaults()
     assert d["tier1_stack_path"] != d["tier1_companions_path"]
     # Both are unrendered Jinja here; what matters is that they are anchored to
-    # the same directory, which is the one roles/infrastructure also owns.
+    # the same directory, which is the one reconcile/roles/infrastructure also owns.
     assert "tier1_stack_dir" in d["tier1_companions_path"]
     assert "tier1_stack_dir" in d["tier1_stack_path"]
 
@@ -164,22 +164,22 @@ def test_the_companion_file_is_removed_when_nothing_contributed():
 
 
 def test_coturn_contributes_to_the_companion_roster_not_the_control_plane():
-    coturn = (ANSIBLE / "roles" / "coturn" / "tasks" / "deploy.yml").read_text()
+    coturn = (ANSIBLE / "reconcile" / "roles" / "coturn" / "tasks" / "deploy.yml").read_text()
     assert "catena_companion_specs" in coturn
     assert "catena_tier1_specs" not in coturn
 
 
 # --- two roles, one directory ------------------------------------------------
 #
-# roles/infrastructure (swarm_stack.yml) creates /etc/catena/stacks for the
-# app stack files; roles/tier1_stack creates it for the control-plane render.
+# reconcile/roles/infrastructure (swarm_stack.yml) creates /etc/catena/stacks for the
+# app stack files; reconcile/roles/tier1_stack creates it for the control-plane render.
 # They declared different modes -- 0750 and 0755 -- so every converge reset
 # what the previous one set and BOTH reported changed. The idempotency gate
 # could never go green: observed as a permanent changed=2 on bench run 3642,
 # on a host where nothing else had drifted.
 
 INFRA_SWARM_STACK = (
-    ANSIBLE / "roles" / "infrastructure" / "tasks" / "swarm_stack.yml"
+    ANSIBLE / "reconcile" / "roles" / "infrastructure" / "tasks" / "swarm_stack.yml"
 )
 
 
@@ -196,7 +196,7 @@ def test_both_owners_of_the_stack_dir_agree_on_its_mode():
     tier1 = _dir_task_mode(TASKS, "ensure the stack dir exists")
     infra = _dir_task_mode(INFRA_SWARM_STACK, "stack file dir")
     assert tier1 == infra, (
-        f"roles/tier1_stack says {tier1} and roles/infrastructure says {infra} "
+        f"reconcile/roles/tier1_stack says {tier1} and reconcile/roles/infrastructure says {infra} "
         "for /etc/catena/stacks. Each converge resets the other and both "
         "report changed, so a re-converge is never clean."
     )

@@ -28,7 +28,7 @@ Two questions, and only ONE of them is a gate:
      and found nothing", so this prints the join instructions and lets the
      install proceed.
 
-     What actually proves reachability is roles/tailscale's "Verify controller
+     What actually proves reachability is bootstrap/roles/tailscale's "Verify controller
      can reach node via tailnet IPv4" -- a wait_for delegated to the
      controller, run the moment the node HAS a tailnet address, against that
      real address. It is the honest gate because it is the only one with

@@ -1,0 +1,200 @@
+---
+# Issue + renew the TLS cert for coturn's TLS-TURN endpoint via
+# Let's Encrypt's DNS-01 challenge against the Cloudflare API.
+#
+# Why DNS-01 (not HTTP-01): tcp/80 on this VPS is owned by cloudflared
+# (rides the CF tunnel into Traefik). HTTP-01 cannot bind a temporary
+# listener there. DNS-01 talks directly to the Cloudflare zone via
+# the API token already on the box, so port 80 is free to stay
+# claimed by cloudflared.
+#
+# Renewal is handled by certbot's stock systemd timer
+# (certbot.timer ships with the apt package). The deploy hook below
+# SIGHUPs the running coturn container so cert hot-reloads land
+# without dropping calls.
+
+- name: "coturn cert: check certbot + Cloudflare DNS plugin already installed"
+  ansible.builtin.command:
+    cmd: dpkg-query -W -f='${Status}\n' certbot python3-certbot-dns-cloudflare
+  register: _coturn_certbot_present
+  changed_when: false
+  failed_when: false
+
+- name: "coturn cert: install certbot + Cloudflare DNS plugin"
+  ansible.builtin.apt:
+    name:
+      - certbot
+      - python3-certbot-dns-cloudflare
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  # Skip the install (and its forced apt cache refresh) when both packages
+  # are already present. A re-converge -- e.g. certbot renewing after the
+  # clock has advanced far enough that the repo Release files read as
+  # expired (Valid-Until in the past) -- otherwise forces an `apt update`
+  # that fails on the stale Release, aborting a converge that had no package
+  # work to do. `state: present` never upgrades, so gating on presence is
+  # equivalent + idempotent.
+  when: >-
+    _coturn_certbot_present.stdout.count('install ok installed') < 2
+  retries: 3
+  delay: 10
+  register: _coturn_apt_install
+  until: _coturn_apt_install is succeeded
+
+- name: "coturn cert: render Cloudflare credentials file"
+  ansible.builtin.copy:
+    content: |
+      # Managed by catena reconcile/roles/coturn -- do not edit.
+      dns_cloudflare_api_token = {{ cloudflare_api_token }}
+    dest: "{{ coturn_cloudflare_creds_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  # Deferred on a tokenless install: the DNS-01 issuance below is skipped, so
+  # the creds file is written only once cf_activate persists a token.
+  when: _coturn_cf_token_present
+
+# Drop a per-cert deploy hook that SIGHUPs every running coturn
+# container after a successful renewal. certbot fires
+# /etc/letsencrypt/renewal-hooks/deploy/* on every cert that renewed
+# in the run; our hook is idempotent and safe even when no coturn
+# container is up yet (first issuance lands before the swarm service
+# is created).
+- name: "coturn cert: ensure renewal-hooks/deploy/ exists"
+  # apt installs /etc/letsencrypt and a couple of subdirs but does
+  # NOT create /etc/letsencrypt/renewal-hooks/{pre,post,deploy}/ --
+  # certbot creates those lazily on first issuance. Pre-create the
+  # `deploy` dir so the copy below succeeds on a fresh host before
+  # any cert has been issued.
+  ansible.builtin.file:
+    path: /etc/letsencrypt/renewal-hooks/deploy
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "coturn cert: install certbot deploy hook for graceful reload"
+  ansible.builtin.copy:
+    dest: /etc/letsencrypt/renewal-hooks/deploy/coturn-reload.sh
+    owner: root
+    group: root
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      # Catena: post-renewal hot-reload for coturn.
+      # Renewed certs land in /etc/letsencrypt/live/<host>/; coturn
+      # bind-mounts that dir read-only and re-reads the files on SIGHUP.
+      set -eu
+      for ct in $(docker ps --filter "name=coturn" --format '{{ "{{" }}.Names{{ "}}" }}' 2>/dev/null); do
+        docker kill --signal=HUP "$ct" || true
+      done
+
+- name: "coturn cert: check if cert already exists"
+  ansible.builtin.stat:
+    path: "{{ coturn_cert_path }}"
+  register: _coturn_cert_stat
+
+# Bench local-CA (Pebble) wiring. No-op in production (CATENA_ACME_* are
+# blank). When the bench points at its host-side Pebble ACME server,
+# certbot must resolve the `pebble` hostname (in Pebble's endpoint cert
+# SAN) to the Pebble host IP and trust the minica via REQUESTS_CA_BUNDLE.
+- name: "coturn cert: map Pebble ACME host (bench local CA)"
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    # Python regex, NOT POSIX. `[[:space:]]` parses as a character class of
+    # the literal chars [ : s p a c e followed by a stray `]`, so it never
+    # matches a hosts line, lineinfile finds nothing to replace and APPENDS
+    # -- a fresh duplicate on every converge, which is a permanent changed=1.
+    # The same trap is called out in reconcile/roles/infrastructure/tasks/validate.yml.
+    regexp: '^\S+\s+pebble$'
+    line: "{{ coturn_acme_host_ip }} pebble"
+    state: present
+  when:
+    - (coturn_acme_directory_url | length) > 0
+    - (coturn_acme_host_ip | length) > 0
+
+- name: "coturn cert: install Pebble CA bundle into system trust (bench local CA)"
+  ansible.builtin.copy:
+    content: "{{ coturn_acme_ca_bundle_b64 | b64decode }}"
+    dest: "{{ coturn_acme_ca_bundle_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+  register: _coturn_pebble_ca
+  when: (coturn_acme_ca_bundle_b64 | length) > 0
+
+# Fold the minica into the system bundle so the SAME process trusts both
+# Pebble (ACME endpoint) AND api.cloudflare.com (DNS plugin, public CA).
+# Pointing REQUESTS_CA_BUNDLE at the minica alone broke the Cloudflare
+# call with CERTIFICATE_VERIFY_FAILED.
+- name: "coturn cert: refresh system trust store (bench local CA)"
+  ansible.builtin.command:
+    cmd: update-ca-certificates
+  changed_when: _coturn_pebble_ca is changed
+  when: (coturn_acme_ca_bundle_b64 | length) > 0
+
+# First-issuance path. Idempotent: certbot's own state in
+# /etc/letsencrypt/renewal/<host>.conf prevents duplicate orders.
+# Re-running on an already-issued cert is a near-no-op.
+- name: "coturn cert: issue cert via DNS-01 (first run)"
+  ansible.builtin.command:
+    # Build argv as a single list so the optional --server flag drops
+    # in cleanly when staging is requested. Order: base args first,
+    # then conditional staging override (Let's Encrypt accepts
+    # --server before -d).
+    argv: >-
+      {{
+        ['certbot', 'certonly',
+         '--non-interactive', '--agree-tos',
+         '--email', coturn_certbot_email,
+         '--dns-cloudflare',
+         '--dns-cloudflare-credentials', coturn_cloudflare_creds_path,
+         '--dns-cloudflare-propagation-seconds', '30']
+        + (['--server', coturn_acme_server]
+           if (coturn_acme_server | length) > 0 else [])
+        + ['-d', coturn_hostname]
+      }}
+  # Point certbot at the COMBINED system bundle (now carrying the Pebble
+  # minica via update-ca-certificates) so it trusts both the Pebble ACME
+  # endpoint and api.cloudflare.com. Empty dict in production = system
+  # trust against LE, unchanged.
+  environment: "{{ {'REQUESTS_CA_BUNDLE': coturn_acme_system_ca_bundle}
+                   if (coturn_acme_ca_bundle_b64 | length) > 0 else {} }}"
+  register: _coturn_cert_issue
+  when:
+    - _coturn_cf_token_present
+    - not _coturn_cert_stat.stat.exists
+  changed_when: _coturn_cert_issue.rc == 0
+  # Boulder (LE staging especially, prod rarely) can return:
+  #   - 404 "No such authorization" on a same-second authz POST after
+  #     order creation (read-replica lag, recovers fast),
+  #   - "Service busy; retry later" when staging is rate-throttled
+  #     (recovers over minutes).
+  # certbot is idempotent on re-run: if a prior attempt completed,
+  # /etc/letsencrypt/live/<host>/ is populated and the second
+  # invocation is a near-no-op; if it half-finished, a fresh order is
+  # started. Widen the retry envelope to ~5 min so a transient
+  # staging-busy window does not fail the converge.
+  retries: 5
+  delay: 60
+  until: _coturn_cert_issue is succeeded
+
+- name: "coturn cert: confirm cert is now present"
+  ansible.builtin.stat:
+    path: "{{ coturn_cert_path }}"
+  register: _coturn_cert_after
+  # Only assert issuance succeeded when a token was present to issue with.
+  # Tokenless installs defer the cert; coturn runs STUN-only until cf_activate.
+  failed_when:
+    - _coturn_cf_token_present
+    - not _coturn_cert_after.stat.exists
+
+# certbot's stock systemd timer (certbot.timer) handles renewal twice
+# daily. Make sure it's enabled.
+- name: "coturn cert: enable certbot.timer for renewal"
+  ansible.builtin.systemd:
+    name: certbot.timer
+    enabled: true
+    state: started

@@ -176,7 +176,7 @@ def test_rollback_runs_chain_with_snapshot_no_bootstrap(cli, monkeypatch):
 def test_recover_runs_single_site_pass(cli, monkeypatch):
     """Post-Portainer-migration there is no CLI-driven second site pass: the
     Portainer API key the auth stack needs is minted in-band by
-    roles/portainer during `site`, so the chain runs `site` exactly once."""
+    reconcile/roles/portainer during `site`, so the chain runs `site` exactly once."""
     from helpers import bootstrap_output
 
     calls: list[list[str]] = []

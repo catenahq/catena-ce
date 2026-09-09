@@ -22,7 +22,7 @@ import yaml
 from jinja2 import Environment
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-MANIFEST = (ANSIBLE / "roles" / "catena_admin_host" / "templates"
+MANIFEST = (ANSIBLE / "bootstrap" / "roles" / "catena_admin_host" / "templates"
             / "managed-services.json.j2")
 
 
@@ -33,9 +33,9 @@ def _role_vars() -> dict:
     how this template already reads portainer_service_name and
     traefik_container_name. Collect them the same way."""
     out: dict = {}
-    for path in sorted(ANSIBLE.glob("roles/*/defaults/main.yml")):
+    for path in sorted(ANSIBLE.glob("*/roles/*/defaults/main.yml")):
         out.update(yaml.safe_load(path.read_text()) or {})
-    for path in sorted(ANSIBLE.glob("roles/*/vars/main.yml")):
+    for path in sorted(ANSIBLE.glob("*/roles/*/vars/main.yml")):
         out.update(yaml.safe_load(path.read_text()) or {})
     return out
 
@@ -61,7 +61,7 @@ def test_the_manifest_renders_and_is_a_list_of_specs(manifest):
 
 def test_every_swarm_service_name_is_fully_resolved(manifest):
     """An unresolved {{ }} means a variable the manifest cannot see from
-    roles/catena-admin, and the lane would log 'not inspectable; skipping' --
+    reconcile/roles/catena-admin, and the lane would log 'not inspectable; skipping' --
     a silent no-op that reads exactly like a healthy run."""
     for spec in manifest:
         assert "{{" not in spec["swarm_service"], spec

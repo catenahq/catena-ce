@@ -38,7 +38,7 @@ cloudflare_zone: "{{ cfg_cloudflare_zone }}"
 # the host engine assembles the full list from there and caps it on the
 # subscription, so there is no zone list to set here.
 # Each host owns its own tunnel, and NAMES IT ITSELF: the engine composes
-# <prefix> + the box's hostname, which roles/common set to inventory_hostname.
+# <prefix> + the box's hostname, which bootstrap/roles/common set to inventory_hostname.
 # The prefix is a store key (CLOUDFLARED_TUNNEL_NAME_PREFIX) the engine reads
 # for itself, so nothing here has to render a name -- which is what lets the
 # cloudflared dispatch actions ship in the image instead of being converge-owned.
@@ -71,13 +71,13 @@ healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
 
 # The SSO host (auth.<zone>) is the only subdomain with no oauth2-proxy in
 # front of it (it IS the auth layer). keycloak_hostname / keycloak_subdomain are defined
-# in roles/keycloak/defaults (reading the same AUTH_SUBDOMAIN env key).
+# in reconcile/roles/keycloak/defaults (reading the same AUTH_SUBDOMAIN env key).
 # Store-owned, same seed-once path as the zone. Empty is a real state -- it is
 # what a host has before anyone has said who to contact -- and the roles that
 # use it (ACME registration, the Keycloak admin account) already handle blank.
 admin_email: "{{ cfg_admin_email | default('') }}"
 
-# SMTP -- resolved by roles/keycloak from the store. SMTP_PROVIDER
+# SMTP -- resolved by reconcile/roles/keycloak from the store. SMTP_PROVIDER
 # (resend | brevo | server) decides where mail goes, SMTP_SENDER is the address
 # it comes from, and smtp_password is the one credential; the role fills in
 # host, port and username from the choice. Don't re-declare
@@ -93,7 +93,7 @@ admin_email: "{{ cfg_admin_email | default('') }}"
 
 # --- Portainer API (container control plane) ---
 # Global so any role (infrastructure stack seam, dashboard-sync env) can
-# reference it. roles/portainer consumes the same names. Reached from the
+# reference it. reconcile/roles/portainer consumes the same names. Reached from the
 # controller over the tailnet.
 # The port, like the hostname scheme, is the product's. It is published
 # host-mode and firewalled to the tailnet, so it is not a value a client picks
@@ -126,7 +126,7 @@ portainer_api_base: "http://{{ ansible_host }}:{{ portainer_ui_port }}/api"
 portainer_api_base_onbox: "http://127.0.0.1:{{ portainer_ui_port }}/api"
 
 # Public, oauth2-gated hostname for the Portainer UI over the Cloudflare
-# tunnel (admin-only; wired by roles/oauth2_proxy oauth2_proxy_apps). This is
+# tunnel (admin-only; wired by reconcile/roles/oauth2_proxy oauth2_proxy_apps). This is
 # the client admin's self-serve deploy surface. Distinct from
 # portainer_api_base above, which is the tailnet-only operator control
 # path -- both reach the same catena-portainer service.
@@ -144,7 +144,7 @@ portainer_admin_hostname: "{{ portainer_admin_subdomain }}.{{ cloudflare_zone }}
 
 # --- Declarative public-port registry ---
 # The two paths the registry is built from. Here rather than in
-# roles/public_ports because SIX roles read the fragment dir -- coturn,
+# reconcile/roles/public_ports because SIX roles read the fragment dir -- coturn,
 # portainer, infrastructure's three lanes and catena-admin's host setup all drop
 # a <owner>.json into it -- and a role default is only reliably in scope once
 # that role has run. A constant six roles share is the product's, not one
@@ -172,7 +172,7 @@ storage_bulk_mount_point: "{{ lookup('dotenv', 'STORAGE_BULK_MOUNT_POINT', defau
 # catena-admin (Settings > Backup), written to the on-box store, and read by
 # run-backup.sh at runtime. This .env value is only a converge-time fallback
 # for the repo URL; default '' so a deferred-backup install converges cleanly.
-# backup_healthcheck_url is NOT set here. roles/backup/defaults owns it, and
+# backup_healthcheck_url is NOT set here. reconcile/roles/backup/defaults owns it, and
 # an inventory copy overrides that default while drifting from it: this one
 # still built the single-lane "catena-backup" slug the two-lane succeeded /
 # attempted split replaced, so any inventory carrying it silently opted out of
@@ -197,7 +197,7 @@ common_locale: "{{ lookup('dotenv', 'COMMON_LOCALE', default='en_CA.UTF-8') }}"
 # Ansible loads group_vars from the inventory directory too, so it merges
 # on top of this shared file with no edit here.
 #
-# Extra catena-admin action buttons are the one hook. roles/catena-admin/
+# Extra catena-admin action buttons are the one hook. reconcile/roles/catena-admin/
 # defaults/main.yml defaults catena_admin_extra_actions to [], so most
 # inventories need nothing. A deployment that wants one adds
 # inventory/<name>/group_vars/all/actions.yml:
@@ -211,13 +211,13 @@ common_locale: "{{ lookup('dotenv', 'COMMON_LOCALE', default='en_CA.UTF-8') }}"
 #
 # Required keys: `name`, `shell`. Optional: `title` (defaults to name),
 # `icon`, `timeout` (defaults to 10s). Same shape as the canonical catalog
-# (roles/catena-admin/templates/actions.yml.j2) -- each entry becomes a
+# (reconcile/roles/catena-admin/templates/actions.yml.j2) -- each entry becomes a
 # dispatcher case + allow-list entry automatically.
 
 # --- The admin panel's shared identity ---
-# Read by BOTH halves of the panel's converge -- roles/catena_admin_host, which
-# sets up the trust path and the host lane env files, and roles/catena-admin,
-# which deploys the container -- and by roles/oauth2_proxy, which resolves
+# Read by BOTH halves of the panel's converge -- bootstrap/roles/catena_admin_host, which
+# sets up the trust path and the host lane env files, and reconcile/roles/catena-admin,
+# which deploys the container -- and by reconcile/roles/oauth2_proxy, which resolves
 # catena_admin_hostname by NAME at a point where neither role's defaults are
 # reliably in scope.
 #
@@ -235,7 +235,7 @@ catena_admin_ui_port: "9010"
 # Host dir where run-backup.sh + gatus-sync.py write their summary JSON
 # files (backup-stats.json, gatus-summary.json, healthchecks-summary.json).
 # Bind-mounted read-only into the admin container; the admin's stats
-# reader picks up the files unchanged. Matches roles/backup defaults'
+# reader picks up the files unchanged. Matches reconcile/roles/backup defaults'
 # backup_stats_dir; do not move without updating that role + the
 # post-restore.needed marker contract (test_restore_option_a).
 catena_admin_stats_dir: "/var/lib/catena"

@@ -2,7 +2,7 @@
 
 Gatus (>= v5.36) panics at boot when the MERGED /config defines zero
 endpoints ("configuration should contain at least one endpoint or
-suite"). roles/infrastructure/tasks/gatus.yml deploys the container long
+suite"). reconcile/roles/infrastructure/tasks/gatus.yml deploys the container long
 before gatus_sync.yml writes the 40-infra.yaml / 50-catena-apps.yaml
 endpoint files, so 00-base.yaml (rendered from this template) is the only
 config present at first boot. If it carries no endpoints the container
@@ -20,7 +20,7 @@ from pathlib import Path
 
 _TEMPLATES = (
     Path(__file__).resolve().parents[3]
-    / "ansible" / "roles" / "infrastructure" / "templates"
+    / "ansible" / "reconcile" / "roles" / "infrastructure" / "templates"
 )
 _TEMPLATE = _TEMPLATES / "gatus-base.yaml.j2"
 _INFRA_SPEC = _TEMPLATES / "gatus-infra-spec.json.j2"

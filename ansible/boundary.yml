@@ -80,8 +80,8 @@ reconcile_roles:
 # NOTHING STRADDLES ANY MORE, which is what phase 1b was for.
 #
 # There were two. `common` carried the public-port reconciler, which is now
-# roles/public_ports; `catena-admin` carried the SSH trust path, which is now
-# roles/catena_admin_host. Both are real roles on one side of the line, which is
+# reconcile/roles/public_ports; `catena-admin` carried the SSH trust path, which is now
+# bootstrap/roles/catena_admin_host. Both are real roles on one side of the line, which is
 # what a straddle is supposed to become.
 #
 # The mechanism stays because the shape can come back. A role listed here
@@ -108,7 +108,7 @@ straddling_roles: {}
 # when an operator has decided that is what should happen. Classifying it as
 # reconcile would be saying a timer may do it.
 operator_only_files:
-  - roles/backup/tasks/restore.yml
+  - reconcile/roles/backup/tasks/restore.yml
 
 # Paths a reconcile-side TASK may never write.
 #
@@ -116,7 +116,7 @@ operator_only_files:
 # rather than remembered. A reconcile that can rewrite the forced command is a
 # reconcile that can rewrite what a reconcile is.
 #
-# Tasks only, deliberately. roles/backup names /etc/ssh in its defaults because
+# Tasks only, deliberately. reconcile/roles/backup names /etc/ssh in its defaults because
 # restic READS it -- it is in the backup set, with the host keys excluded -- and
 # a rule that cannot tell reading a path from writing it would have to be
 # argued with rather than obeyed.

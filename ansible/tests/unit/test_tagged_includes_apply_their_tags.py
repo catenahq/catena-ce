@@ -10,7 +10,7 @@ Twice now:
   * playbooks/site.yml's on-box config loader. `--tags postgres` published no
     vault_* facts, every role fell back to the inventory placeholder, and
     fi_s3 caught it as a poisoned postgres password surviving the converge.
-  * roles/keycloak's realm bootstrap. `--tags keycloak_realm` never ran the
+  * reconcile/roles/keycloak's realm bootstrap. `--tags keycloak_realm` never ran the
     realm-render tasks, so keycloak-config-cli imported the realm files an
     earlier converge had left. A Settings change already recorded in the
     on-box store could not reach the realm, which bench run

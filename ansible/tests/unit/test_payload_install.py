@@ -1,9 +1,9 @@
-"""Lock down roles/payload -- the host engine install.
+"""Lock down reconcile/roles/payload -- the host engine install.
 
 The role exists to close a real ordering hole: the engines used to arrive from
-roles/catena-admin (site.yml position 13) while roles/cloudflare_tunnel
+reconcile/roles/catena-admin (site.yml position 13) while reconcile/roles/cloudflare_tunnel
 (position 9) dispatches one of them, so a first converge on a host that already
-held a Cloudflare token deferred the tunnel and roles/oauth2_proxy then waited
+held a Cloudflare token deferred the tunnel and reconcile/roles/oauth2_proxy then waited
 on an edge nobody had brought up. These tests pin the two things that keep that
 closed: the role's POSITION in site.yml, and the marker semantics that make a
 re-converge a no-op without freezing an image upgrade out.
@@ -17,11 +17,11 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-ROLE = ANSIBLE / "roles" / "payload"
+ROLE = ANSIBLE / "reconcile" / "roles" / "payload"
 DEFAULTS = ROLE / "defaults" / "main.yml"
 TASKS = ROLE / "tasks" / "main.yml"
 SITE = ANSIBLE / "playbooks" / "site.yml"
-CF_TASKS = ANSIBLE / "roles" / "cloudflare_tunnel" / "tasks" / "main.yml"
+CF_TASKS = ANSIBLE / "reconcile" / "roles" / "cloudflare_tunnel" / "tasks" / "main.yml"
 
 
 def _defaults() -> dict:
@@ -69,14 +69,14 @@ def _flatten(tasks: list[dict], inherited: list | None = None) -> list[dict]:
 # --- position ---------------------------------------------------------------
 def test_payload_runs_after_docker_and_before_every_engine_consumer():
     order = _role_order()
-    assert "payload" in order, "roles/payload is not in site.yml"
+    assert "payload" in order, "reconcile/roles/payload is not in site.yml"
     pos = order.index("payload")
     # docker is all it needs, and it needs docker.
     assert order.index("docker") < pos
     # Everything that dispatches an engine, or depends on one having run, must
     # come after. cloudflare_tunnel is the one that broke.
     for later in ("cloudflare_tunnel", "keycloak", "oauth2_proxy", "catena-admin"):
-        assert pos < order.index(later), f"{later} runs before roles/payload"
+        assert pos < order.index(later), f"{later} runs before reconcile/roles/payload"
 
 
 def test_payload_precedes_the_roles_that_wait_on_the_edge():
@@ -98,7 +98,7 @@ def test_image_defaults_to_the_catena_admin_image():
 def test_the_engines_follow_the_running_shell():
     """One version input per host, not two.
 
-    roles/catena-admin's drift set is hardening + environment + secrets; it
+    reconcile/roles/catena-admin's drift set is hardening + environment + secrets; it
     never reconciles the service's image. So while this role resolved
     max(floor, pin) on its own, raising the shipped floor reinstalled the
     engines and left the shell on the image it was created with -- new engines,

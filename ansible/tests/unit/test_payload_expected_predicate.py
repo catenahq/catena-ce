@@ -1,10 +1,10 @@
 """One predicate for "is the payload expected on this host", not five.
 
-The question was asked in five places and answered two ways. roles/payload
+The question was asked in five places and answered two ways. reconcile/roles/payload
 publishes `catena_payload_engines_expected` during a converge, so
-roles/cloudflare_tunnel and roles/backup/tasks/install.yml read the fact; a
+reconcile/roles/cloudflare_tunnel and reconcile/roles/backup/tasks/install.yml read the fact; a
 standalone validate play cannot see a set_fact from a role that is not in its
-play, so roles/backup/tasks/validate.yml read the env var. Both were right
+play, so reconcile/roles/backup/tasks/validate.yml read the env var. Both were right
 locally, and the divergence was not cosmetic -- only the validate side also
 accepted "or the file is already here", so the converge side could not tell
 NOT YET from PARTIALLY INSTALLED, which is the one case worth catching.
@@ -21,14 +21,14 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-SHARED = ANSIBLE / "roles" / "common" / "tasks" / "_payload_expected.yml"
+SHARED = ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "_payload_expected.yml"
 
 # Every place that has to make this decision. A sixth that hand-rolls it is the
 # regression this file exists to catch.
 CALLERS = {
-    "roles/cloudflare_tunnel/tasks/main.yml": ["{{ cloudflared_sync_bin }}"],
-    "roles/backup/tasks/install.yml": ["{{ backup_wrapper_script }}"],
-    "roles/backup/tasks/validate.yml": [
+    "reconcile/roles/cloudflare_tunnel/tasks/main.yml": ["{{ cloudflared_sync_bin }}"],
+    "reconcile/roles/backup/tasks/install.yml": ["{{ backup_wrapper_script }}"],
+    "reconcile/roles/backup/tasks/validate.yml": [
         "{{ backup_wrapper_script }}",
         "{{ backup_coverage_script }}",
         "{{ backup_restic_env_script }}",
@@ -39,9 +39,9 @@ CALLERS = {
     # arrive with the payload, so the two can land separately -- and a host
     # holding the binary alone answered "the engines are here" and then died
     # inside systemd on ModuleNotFoundError.
-    "roles/infrastructure/tasks/dashboard_sync.yml":
+    "reconcile/roles/infrastructure/tasks/dashboard_sync.yml":
         "{{ dashboard_sync_required_paths }}",
-    "roles/infrastructure/tasks/validate.yml":
+    "reconcile/roles/infrastructure/tasks/validate.yml":
         "{{ dashboard_sync_required_paths }}",
 }
 
@@ -96,7 +96,7 @@ def test_the_predicate_is_the_only_place_the_raw_signals_are_read():
 # ── and it answers correctly for both kinds of play ────────────────────
 
 def test_a_converge_prefers_the_fact_over_the_env():
-    """During a converge roles/payload has already decided, and its fact is the
+    """During a converge reconcile/roles/payload has already decided, and its fact is the
     answer for THIS converge. Reading the env var first would answer for the
     process instead -- the same value today, and a divergence the first time a
     play sets it per-task."""
@@ -108,7 +108,7 @@ def test_a_converge_prefers_the_fact_over_the_env():
 
 
 def test_a_present_file_settles_it_either_way():
-    """The leg that started in roles/backup/tasks/validate.yml. Without it a
+    """The leg that started in reconcile/roles/backup/tasks/validate.yml. Without it a
     host holding three of four payload scripts is indistinguishable from one
     the payload has not reached, and the broken install goes unchecked."""
     expr = str(_decide()["catena_payload_expected"])

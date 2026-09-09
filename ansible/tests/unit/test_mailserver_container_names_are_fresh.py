@@ -41,7 +41,7 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-TASKS = ANSIBLE / "roles" / "infrastructure" / "tasks"
+TASKS = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "tasks"
 
 # Names the chain resolves once and must not interpolate into a docker command.
 CAPTURED = ("mailserver_dms_ct", "_roundcube_ct.stdout", "_ms_cert_dms",

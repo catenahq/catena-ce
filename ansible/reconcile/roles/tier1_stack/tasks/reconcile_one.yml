@@ -1,0 +1,73 @@
+---
+# Create-or-reconcile ONE directly-created swarm service by handing its spec to
+# the catena-tier1 host engine. Included by reconcile/roles/traefik, reconcile/roles/postgres,
+# reconcile/roles/portainer and reconcile/roles/coturn, each passing the same spec it contributes to
+# the rendered stack file.
+#
+# Caller contract:
+#   tier1_spec  the service spec (same dict the role upserts into
+#               catena_tier1_specs or catena_companion_specs)
+#
+# The ladder -- inspect, create on the miss, inspect again, diff, update on
+# the diff -- lives in catena-admin/payload/engines/tier1; this file
+# dispatches it.
+#
+# WHY THERE, NOT HERE. Two renderers describing the same services in two
+# languages, kept in step by a shared argv fixture, would prove agreement
+# only on the cases somebody thought to write down, and nothing about the
+# next flag added to one side. And a ladder reachable only from a converge
+# means a control plane that drifted at 3am waits for a laptop. The engine
+# is on the host, so catena-admin can run the same reconcile the converge
+# runs.
+#
+# Ordering is unchanged: each role still reconciles its service where it always
+# did in site.yml, so traefik still makes the overlay before postgres wants it
+# and postgres is still accepting connections before keycloak provisions its DB.
+# The engine is handed ONE service and no opinion about what comes next.
+# Role-specific work stays in the role -- traefik force-rolls on a static-config
+# change, coturn SIGHUPs on a cert change, neither of which is a spec diff.
+
+- name: "tier1: stat the reconcile engine"
+  ansible.builtin.stat:
+    path: "{{ tier1_engine_bin }}"
+  register: _t1_bin
+
+# No deferral branch, unlike reconcile/roles/cloudflare_tunnel. That role can legitimately
+# put the tunnel off to the next converge, because a host with no edge is a host
+# that is merely unreachable from outside. There is no equivalent here: without
+# the engine there is no traefik, no postgres and no portainer, so a converge
+# that carried on would report success over a host with no control plane at all.
+#
+# On a host whose engines are staged out of band (the bench) that staging has to
+# happen before the first converge, not after it.
+- name: "tier1: the reconcile engine is missing"
+  ansible.builtin.fail:
+    msg: >-
+      {{ tier1_engine_bin }} is absent, so {{ tier1_spec.name }} cannot be
+      created or reconciled. The engine ships in the catena-admin host payload
+      and reconcile/roles/payload installs it right after bootstrap/roles/docker -- check the
+      "Payload:" tasks above for why the extract from
+      {{ catena_payload_image | default('the catena-admin image') }} did not
+      land. A host whose payload is staged out of band
+      (CATENA_PAYLOAD_INSTALL=false) must be staged BEFORE the converge that
+      brings the control plane up.
+  when: not (_t1_bin.stat.exists | default(false))
+
+# The declaration is passed on stdin rather than written to a file: the spec is
+# already assembled here, and a file would be a third copy of it (role vars,
+# the rendered stack oracle, the file) whose staleness nothing detects.
+- name: "tier1: {{ tier1_spec.name }} -- reconcile via catena-tier1"
+  ansible.builtin.command:
+    argv:
+      - "{{ tier1_engine_bin }}"
+      - apply
+    stdin: "{{ {'services': [tier1_spec]} | to_json }}"
+  register: _t1_apply
+  # changed=<n> comes straight off the engine's own Result.Changed(), so the
+  # converge and the engine share one definition of "did this touch anything"
+  # rather than the call site inferring it from created/updated/converged.
+  changed_when: "'changed=0' not in (_t1_apply.stdout | default(''))"
+
+- name: "tier1: {{ tier1_spec.name }} -- engine summary"
+  ansible.builtin.debug:
+    msg: "{{ _t1_apply.stdout | default('(no summary line)') | trim }}"

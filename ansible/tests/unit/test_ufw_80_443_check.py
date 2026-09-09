@@ -32,7 +32,7 @@ import yaml
 
 VALIDATE = (
     Path(__file__).resolve().parents[2]
-    / "roles" / "infrastructure" / "tasks" / "validate.yml"
+    / "reconcile" / "roles" / "infrastructure" / "tasks" / "validate.yml"
 )
 
 # A realistic `ufw status` body. The header rows are present because the

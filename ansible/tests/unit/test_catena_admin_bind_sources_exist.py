@@ -6,7 +6,7 @@ seconds forever, so a missing source is not an error the converge sees: it is
 an install parked on "create the swarm service (first run)" with no output.
 
 That is what /var/backups/catena-export did. Its contents belong to
-roles/backup, which runs at site.yml position 23 -- TWO roles after
+reconcile/roles/backup, which runs at site.yml position 23 -- TWO roles after
 catena-admin at 21 -- so on a first converge the directory the panel mounts
 did not exist yet, and every task swarm placed was rejected on sight:
 
@@ -15,7 +15,7 @@ did not exist yet, and every task swarm placed was rejected on sight:
 
 The test bench never caught it because it sets catena_admin_deploy_from_converge
 false and deploys the panel out of band AFTER the converge, by which point
-roles/backup has made the directory. The converge-time create at role 21 is
+reconcile/roles/backup has made the directory. The converge-time create at role 21 is
 the path clients take and the one the bench does not exercise.
 
 Run: uv run pytest tests/unit/test_catena_admin_bind_sources_exist.py
@@ -29,9 +29,9 @@ import yaml
 
 _ANSIBLE = Path(__file__).resolve().parents[2]
 PLUGIN = _ANSIBLE / "playbooks" / "filter_plugins" / "catena_admin_service.py"
-HOST_TASKS = _ANSIBLE / "roles" / "catena_admin_host" / "tasks" / "main.yml"
-COMMON_DEFAULTS = _ANSIBLE / "roles" / "common" / "defaults" / "main.yml"
-BACKUP_DEFAULTS = _ANSIBLE / "roles" / "backup" / "defaults" / "main.yml"
+HOST_TASKS = _ANSIBLE / "bootstrap" / "roles" / "catena_admin_host" / "tasks" / "main.yml"
+COMMON_DEFAULTS = _ANSIBLE / "bootstrap" / "roles" / "common" / "defaults" / "main.yml"
+BACKUP_DEFAULTS = _ANSIBLE / "reconcile" / "roles" / "backup" / "defaults" / "main.yml"
 
 EXPORT_DIR = "/var/backups/catena-export"
 
@@ -76,7 +76,7 @@ def test_the_export_dir_is_still_mounted():
 
 
 def test_one_literal_for_the_path_across_the_two_roles():
-    """roles/backup creates the same directory two roles later. Two literals
+    """reconcile/roles/backup creates the same directory two roles later. Two literals
     is how they drift, and a drifted path is a bind source that exists under
     the other name -- the same rejection loop, harder to read."""
     common = yaml.safe_load(COMMON_DEFAULTS.read_text())

@@ -2,10 +2,10 @@
 """Ask the registry which catena-admin release to install, and for its digest.
 
 WHAT THIS REPLACES. The image was two hand-maintained literals in
-roles/common/defaults -- `catena_admin_image_floor` and
+bootstrap/roles/common/defaults -- `catena_admin_image_floor` and
 `catena_admin_image_floor_digest` -- bumped together by hand on every
 catena-admin release. Drift between them is the one thing that pair cannot
-survive, because roles/payload refuses to extract from an image whose digest is
+survive, because reconcile/roles/payload refuses to extract from an image whose digest is
 not the recorded one:
 
     ghcr.io/catenahq/catena-admin:v0.5.1 resolved to sha256:205a5a70... but
@@ -38,7 +38,7 @@ WHAT THIS DOES NOT DO. It does not verify a signature. The digest it returns is
 whatever the registry says the tag resolves to right now, so the assertion
 downstream ("the image I am about to extract is the one I resolved") is a
 same-converge consistency check, not provenance. Provenance is `cosign verify`,
-which needs cosign on the host; see the pin note in roles/common/defaults.
+which needs cosign on the host; see the pin note in bootstrap/roles/common/defaults.
 
 Emits one JSON object on stdout:
 

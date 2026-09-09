@@ -60,7 +60,7 @@
     # 0c: hard disk-space preflight. A converge onto a critically full
     # filesystem fails deep inside a role (image pull ENOSPC, container
     # write failure) 10-30 min in; refuse up front instead. Complements
-    # roles/backup's catena-disk-preflight (backup/restore/auto-update
+    # reconcile/roles/backup's catena-disk-preflight (backup/restore/auto-update
     # free-bytes aborts) and Beszel's threshold alerting -- this is the
     # converge-time gate. gather_facts already populated ansible_mounts;
     # /mnt/data may be absent on a fresh target (storage role mounts it
@@ -150,7 +150,7 @@
         _smtp_host: "{{ cfg_smtp_host | default('') }}"
         _smtp_port: "{{ cfg_smtp_port | default('587') }}"
       # Only the `server` choice. The two known providers resolve their host
-      # inside roles/keycloak, and reproducing that mapping here would be a
+      # inside reconcile/roles/keycloak, and reproducing that mapping here would be a
       # second copy of it, free to drift from the one the realm is rendered
       # from -- for a probe of an endpoint whose reachability is the provider's
       # problem, not the client's.
@@ -177,7 +177,7 @@
     # python3-apt) and BEFORE docker (so /etc/sysctl.d/ files are in place
     # before dockerd's first start; otherwise dockerd's runtime /proc/sys
     # writes win until next boot, leaving Day-1 vs reboot-recovery state
-    # divergent). See roles/host_hardening/README.md for the full var-set
+    # divergent). See bootstrap/roles/host_hardening/README.md for the full var-set
     # rationale.
     - { role: host_hardening, tags: [host_hardening, hardening] }
     - { role: tailscale, tags: [tailscale] }
@@ -187,9 +187,9 @@
     # catena-schedule, catena-daily, the lanes + units), extracted from the
     # public catena-admin image. Needs docker and nothing else, and every role
     # from here down may assume /usr/local/bin/catena-* exists. It used to
-    # arrive from roles/catena-admin, eight roles later, which meant
+    # arrive from reconcile/roles/catena-admin, eight roles later, which meant
     # cloudflare_tunnel found no engine on a first converge and oauth2_proxy
-    # then waited on an edge nobody had brought up. See roles/payload/README.md.
+    # then waited on an edge nobody had brought up. See reconcile/roles/payload/README.md.
     - { role: payload, tags: [payload] } # host engine binaries + units
     # catena-owned reverse proxy (catena-traefik on the catena-network
     # overlay). Runs AFTER docker (which inits the swarm) and BEFORE
@@ -269,7 +269,7 @@
     # daily chain runs without this repo knowing their contents.
     #
     # Marker-gated, and the marker is the safety property: it is dropped by
-    # roles/backup/tasks/restore.yml and cleared by whichever hook completes the
+    # reconcile/roles/backup/tasks/restore.yml and cleared by whichever hook completes the
     # recovery, so an ordinary converge runs nothing and an interrupted recovery
     # is retried by the next one.
     #
@@ -341,7 +341,7 @@
     # Consumer-gated companions, re-run now that the applications are back.
     #
     # The hooks above are what restart the client applications, and they run
-    # after every role has already had its turn. So roles/coturn probed for a
+    # after every role has already had its turn. So reconcile/roles/coturn probed for a
     # running Talk HPB or Jitsi JVB while the apps were still down, found
     # none, and correctly skipped -- and then the recovery brought a Talk HPB
     # up behind it. The converge therefore ENDED with a real-time app running
@@ -408,7 +408,7 @@
       delay: 5
       until: (_site_turn_running.stdout | default('') | trim | length) > 0
       # Exhausting the window is not a converge failure. The consumer may be
-      # genuinely broken, and that is roles/coturn's gate to report by skipping
+      # genuinely broken, and that is reconcile/roles/coturn's gate to report by skipping
       # -- not this task's to turn into a red converge.
       failed_when: false
       when:
@@ -435,7 +435,7 @@
     #
     # In post_tasks rather than the roles list, and AFTER the coturn re-run
     # above, because that re-run is what deploys coturn on the recovery path:
-    # the post-restore hooks bring the TURN consumer up after roles/coturn
+    # the post-restore hooks bring the TURN consumer up after reconcile/roles/coturn
     # already probed and correctly found none. Rendering from the roles list
     # would write a coturn-less companion file on exactly the path where one is
     # needed.
@@ -466,7 +466,7 @@
     # Record what this converge delivered.
     #
     # LAST on purpose, and the difference from /etc/catena/version.txt is the
-    # whole point of having both. version.txt is stamped by roles/common, the
+    # whole point of having both. version.txt is stamped by bootstrap/roles/common, the
     # FIRST role, so it says "a converge started here" -- which is what a client
     # reading it out of a snapshot wants. This manifest says "a converge
     # finished here, and here is what it left behind", so a converge that died
@@ -475,7 +475,7 @@
     #
     # The action list is the field that earns the file. Every panel button
     # dispatches a FIXED action name through the SSH forced command, and the
-    # table is rendered by roles/catena-admin from the same merged list. A panel
+    # table is rendered by reconcile/roles/catena-admin from the same merged list. A panel
     # built after an action was added would otherwise show a working button on a
     # host whose converge predates it, and the user would meet a refusal at the
     # far end where the honest answer is "this host needs a converge".
@@ -531,7 +531,7 @@
       # `converged_at` moves on every converge, so `copy` would report this
       # changed every time -- and a converge that always reports a change is
       # one nobody can read for real drift. Same reasoning, and the same
-      # answer, as /etc/catena/version.txt in roles/common: a fresh timestamp
+      # answer, as /etc/catena/version.txt in bootstrap/roles/common: a fresh timestamp
       # is the POINT of the file, not a drift signal.
       changed_when: false
       tags: [release_manifest]

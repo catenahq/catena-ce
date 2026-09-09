@@ -1,10 +1,10 @@
 """The dashboard-sync wiring depends on a file this repo no longer ships.
 
 catena-dashboard-sync and its lib modules moved into the catena-admin payload,
-so roles/infrastructure now wires a timer around a binary roles/payload put on
+so reconcile/roles/infrastructure now wires a timer around a binary reconcile/roles/payload put on
 the host five roles earlier. Whether its absence is a defect depends on whether
 THIS converge was the one that had to install it -- the same two-legged shape
-roles/cloudflare_tunnel and roles/backup already use.
+reconcile/roles/cloudflare_tunnel and reconcile/roles/backup already use.
 
 These pin that: a converge that owns the engines fails loudly, a converge that
 does not defers, and nothing that RUNS the reconciler is attempted in the
@@ -27,7 +27,7 @@ import yaml
 
 _ROLE = (
     Path(__file__).resolve().parents[3]
-    / "ansible" / "roles" / "infrastructure"
+    / "ansible" / "reconcile" / "roles" / "infrastructure"
 )
 TASKS = _ROLE / "tasks" / "dashboard_sync.yml"
 VALIDATE = _ROLE / "tasks" / "validate.yml"
@@ -109,14 +109,14 @@ def _cond(task: dict) -> str:
 
 def test_the_decision_comes_from_the_shared_predicate():
     """Five sites asked this and two answered it differently. One include, one
-    answer -- roles/common/tasks/_payload_expected.yml."""
+    answer -- bootstrap/roles/common/tasks/_payload_expected.yml."""
     task = _find("is the reconciler expected on this host")
     assert task["ansible.builtin.include_role"]["tasks_from"] == _SHARED
     assert task["vars"]["_payload_paths"] == _RECONCILER_PATHS
 
 
 def test_the_gate_names_the_modules_not_the_directory():
-    """roles/common creates the lib dir at role position 1 for its own
+    """bootstrap/roles/common creates the lib dir at role position 1 for its own
     public-ports modules, so it exists on hosts the payload has never touched.
     Stat-ing the directory answers yes for another owner's files, which is how
     a half-restored host passed the gate on the run that added it."""
@@ -131,13 +131,13 @@ def test_the_gate_names_the_modules_not_the_directory():
             f"and is not in dashboard_sync_required_paths"
         )
     assert "{{ dashboard_sync_lib_dir }}" not in paths, (
-        "the bare lib dir is not evidence the payload landed -- roles/common "
+        "the bare lib dir is not evidence the payload landed -- bootstrap/roles/common "
         "creates it for its own modules"
     )
 
 
 def test_a_missing_reconciler_fails_a_converge_that_installs_it():
-    """Production. roles/payload ran, the file should be there, and a timer
+    """Production. reconcile/roles/payload ran, the file should be there, and a timer
     firing at a path that does not exist shows up as apps silently losing their
     routes rather than as a failed converge."""
     task = _find("missing from a converge that installs it")
@@ -230,7 +230,7 @@ def test_the_daemon_reload_survives_a_skipped_template():
 # --- validate.yml: the same property, the surface the first fix missed ------
 
 def test_validate_uses_the_same_shared_predicate():
-    """A standalone play cannot see roles/payload's set_fact, and the shared
+    """A standalone play cannot see reconcile/roles/payload's set_fact, and the shared
     predicate is what falls back to the env var -- so validate gets the
     fallback for free instead of hand-rolling it a second time."""
     task = _find_v("is the payload expected here")

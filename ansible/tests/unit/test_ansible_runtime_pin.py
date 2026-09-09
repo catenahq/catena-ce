@@ -1,7 +1,7 @@
 """One validated ansible-core line, named in three places, held together here.
 
 The operator's controller gets it from pyproject.toml through uv. The host gets
-it from roles/ansible_runtime, installed by bootstrap into /opt/catena/ansible.
+it from bootstrap/roles/ansible_runtime, installed by bootstrap into /opt/catena/ansible.
 And playbooks/reconcile.yml refuses to run below a floor.
 
 Three numbers that must agree, and nothing in Ansible or pip would notice if
@@ -20,7 +20,7 @@ import yaml
 
 _ANSIBLE = Path(__file__).resolve().parents[2]
 PYPROJECT = _ANSIBLE / "pyproject.toml"
-ROLE_DEFAULTS = _ANSIBLE / "roles" / "ansible_runtime" / "defaults" / "main.yml"
+ROLE_DEFAULTS = _ANSIBLE / "bootstrap" / "roles" / "ansible_runtime" / "defaults" / "main.yml"
 RECONCILE = _ANSIBLE / "playbooks" / "reconcile.yml"
 
 
@@ -44,7 +44,7 @@ def test_the_host_installs_what_the_controller_pins():
     the bench observed.
     """
     assert _role()["ansible_runtime_spec"] == _controller_spec(), (
-        f"roles/ansible_runtime installs {_role()['ansible_runtime_spec']!r} "
+        f"bootstrap/roles/ansible_runtime installs {_role()['ansible_runtime_spec']!r} "
         f"and pyproject.toml pins {_controller_spec()!r}"
     )
 
@@ -71,7 +71,7 @@ def test_the_reconcile_refuses_below_the_same_floor():
     plays = yaml.safe_load(RECONCILE.read_text())
     declared = plays[0]["vars"]["catena_reconcile_min_ansible"]
     assert declared == _role()["ansible_runtime_minimum"], (
-        f"reconcile.yml refuses below {declared} and roles/ansible_runtime "
+        f"reconcile.yml refuses below {declared} and bootstrap/roles/ansible_runtime "
         f"declares {_role()['ansible_runtime_minimum']}"
     )
 

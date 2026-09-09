@@ -17,7 +17,23 @@ from pathlib import Path
 import jinja2
 import yaml
 
-ROLES = Path(__file__).resolve().parents[2] / "roles"
+ANSIBLE = Path(__file__).resolve().parents[2]
+_ROLE_ROOTS = (ANSIBLE / "bootstrap" / "roles",
+               ANSIBLE / "reconcile" / "roles")
+
+def _role_dir(name: str) -> Path:
+    """Where a role lives, whichever side it is on.
+
+    Phase 1b split roles/ into bootstrap/roles/ and reconcile/roles/. Resolved
+    by search rather than by a hard-coded side so a role moving across the line
+    -- which is a thing this migration does -- does not need this file edited
+    too.
+    """
+    for root in _ROLE_ROOTS:
+        if (root / name).is_dir():
+            return root / name
+    raise AssertionError(f"no role named {name} under {[str(r) for r in _ROLE_ROOTS]}")
+
 
 _IMAGE_VAR = re.compile(r"^[a-z][a-z0-9_]*_image$")
 
@@ -30,7 +46,7 @@ RESOLVED_ELSEWHERE = {
     "catena_admin_image_override":
         "the operator override catena_admin_image resolves against",
     # The bootstrap fallback only. On a host that has a catena-admin service,
-    # roles/payload follows the SERVICE's image instead, so the engines and the
+    # reconcile/roles/payload follows the SERVICE's image instead, so the engines and the
     # shell cannot resolve to different versions. Resolving the pin a second
     # time here is what made them able to.
     "catena_payload_image":
@@ -41,7 +57,8 @@ RESOLVED_ELSEWHERE = {
 def _image_defaults() -> dict[str, tuple[str, str]]:
     """{variable: (role, value)} for every *_image default across the roles."""
     out: dict[str, tuple[str, str]] = {}
-    for path in sorted(ROLES.glob("*/defaults/main.yml")):
+    for path in sorted(p for root in _ROLE_ROOTS
+                       for p in root.glob("*/defaults/main.yml")):
         data = yaml.safe_load(path.read_text()) or {}
         for key, value in data.items():
             # _image_floor is still scanned even though none is left: a
@@ -89,10 +106,10 @@ def test_the_exemptions_are_real_variables():
 
 
 def test_no_role_carries_a_hand_maintained_catena_admin_version():
-    """The version and its digest were two literals in roles/common, bumped by
+    """The version and its digest were two literals in bootstrap/roles/common, bumped by
     hand together on every release. They drifted -- v0.5.1 published as
     sha256:205a5a70... while the recorded digest stayed sha256:09e03d74... --
-    and roles/payload correctly refused to extract, so a correct host holding a
+    and reconcile/roles/payload correctly refused to extract, so a correct host holding a
     correctly published image could not complete a fresh install.
 
     Both halves now come from one registry answer. A literal reappearing in a
@@ -106,7 +123,7 @@ def test_no_role_carries_a_hand_maintained_catena_admin_version():
             "playbooks/tasks/load_onbox_config.yml, together with its digest, "
             "so the two cannot drift apart again.")
     common = yaml.safe_load(
-        (ROLES / "common" / "defaults" / "main.yml").read_text())
+        (_role_dir("common") / "defaults" / "main.yml").read_text())
     for gone in ("catena_admin_image_floor", "catena_admin_image_floor_digest"):
         assert gone not in common, (
             f"{gone} is back; it is half of a two-writer answer and the other "
@@ -124,7 +141,7 @@ def _render_digest(payload_image, release, env_digest=""):
     unchecked extract, which looks exactly like a passing verification.
     """
     payload = yaml.safe_load(
-        (ROLES / "payload" / "defaults" / "main.yml").read_text())
+        (_role_dir("payload") / "defaults" / "main.yml").read_text())
     env = jinja2.Environment()
     env.filters["regex_replace"] = (
         lambda s, find, repl: re.sub(find, repl, str(s)))
@@ -148,7 +165,7 @@ def test_the_resolved_digest_applies_only_to_the_resolved_image():
     converge did not ask for. Asserting the resolved digest against one of
     those fails closed on a correct host."""
     payload = yaml.safe_load(
-        (ROLES / "payload" / "defaults" / "main.yml").read_text())
+        (_role_dir("payload") / "defaults" / "main.yml").read_text())
     expr = str(payload["catena_payload_image_digest"])
     assert "catena_admin_release" in expr
 
@@ -162,14 +179,14 @@ def test_the_resolved_digest_applies_only_to_the_resolved_image():
 def test_an_unresolved_release_extracts_unchecked_rather_than_failing_closed():
     """CATENA_ADMIN_IMAGE suppresses the registry call, so catena_admin_release
     is undefined on that path. The expression must render empty -- which
-    roles/payload reports out loud as unchecked -- rather than raising or
+    reconcile/roles/payload reports out loud as unchecked -- rather than raising or
     matching an empty ref against an empty image."""
     assert _render_digest("local/catena-admin:bench", jinja2.Undefined()) == ""
     assert _render_digest("", jinja2.Undefined()) == ""
 
 
 def test_the_resolved_digest_survives_the_swarm_pinned_ref():
-    """roles/payload follows the catena-admin service's image, and swarm stores
+    """reconcile/roles/payload follows the catena-admin service's image, and swarm stores
     that as repo:tag@sha256:... -- it resolves the tag at create/update time.
     The resolved ref is digest-pinned too, so BOTH sides carry a digest. A
     comparison of whole strings never matches, and every converged host would
@@ -198,7 +215,7 @@ def _render_image(release=None, override="", pins=None):
     from image_pin import catena_image_pin  # noqa: PLC0415
 
     common = yaml.safe_load(
-        (ROLES / "common" / "defaults" / "main.yml").read_text())
+        (_role_dir("common") / "defaults" / "main.yml").read_text())
     env = jinja2.Environment()
     env.filters["catena_image_pin"] = catena_image_pin
     env.filters["ternary"] = lambda c, a, b: a if c else b
@@ -278,27 +295,27 @@ def test_a_corrupt_pin_does_not_choose_the_panel_image():
 
 
 def test_the_engines_and_the_shell_come_from_one_image():
-    """roles/payload runs at 5.5 and roles/catena-admin at 13, so neither can
+    """reconcile/roles/payload runs at 5.5 and reconcile/roles/catena-admin at 13, so neither can
     see the other's defaults. The value they share has to be declared in a role
     that runs before both, or the earlier one silently uses a fallback and the
     two agree only by coincidence of spelling."""
     common = yaml.safe_load(
-        (ROLES / "common" / "defaults" / "main.yml").read_text())
+        (_role_dir("common") / "defaults" / "main.yml").read_text())
     assert "catena_admin_image" in common
     assert "catena_admin_image_override" in common
     assert "catena_admin_service_name" in common, (
-        "roles/payload reads it at 5.5 to find the service whose image the "
-        "engines follow; roles/catena-admin's defaults are not in scope there")
+        "reconcile/roles/payload reads it at 5.5 to find the service whose image the "
+        "engines follow; reconcile/roles/catena-admin's defaults are not in scope there")
     admin = yaml.safe_load(
-        (ROLES / "catena-admin" / "defaults" / "main.yml").read_text())
+        (_role_dir("catena-admin") / "defaults" / "main.yml").read_text())
     assert "catena_admin_service_name" not in admin, (
         "declared in two roles is how the halves end up agreeing only by "
         "coincidence of spelling -- the defect the image already had")
     payload = yaml.safe_load(
-        (ROLES / "payload" / "defaults" / "main.yml").read_text())
+        (_role_dir("payload") / "defaults" / "main.yml").read_text())
     assert "catena_admin_image" in str(payload["catena_payload_image"])
     assert "ghcr.io" not in str(payload["catena_payload_image"]), (
-        "roles/payload is carrying its own copy of the image reference again; "
+        "reconcile/roles/payload is carrying its own copy of the image reference again; "
         "that copy is what it actually used, because catena-admin's defaults "
         "are not in scope at role 5.5")
 
@@ -314,7 +331,7 @@ def test_the_converge_publishes_the_pins_before_any_role_reads_them():
 
 
 def test_the_loader_resolves_the_catena_admin_release_before_any_role():
-    """roles/payload reads the resolved release at role 5.5, so it has to be
+    """reconcile/roles/payload reads the resolved release at role 5.5, so it has to be
     published in pre_tasks. The loader is included with apply: tags [always],
     which is what keeps a tag-scoped converge from running with no image at
     all -- the failure mode the vault_* facts already had."""

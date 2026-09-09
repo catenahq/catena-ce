@@ -20,7 +20,7 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-COTURN = ANSIBLE / "roles" / "coturn" / "tasks"
+COTURN = ANSIBLE / "reconcile" / "roles" / "coturn" / "tasks"
 
 _DEPLOY_PROBE = "coturn: detect a running consumer (Talk HPB or a Jitsi JVB)"
 _VALIDATE_PROBE = (

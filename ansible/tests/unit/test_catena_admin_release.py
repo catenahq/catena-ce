@@ -1,8 +1,8 @@
 """The registry, not a literal, decides which catena-admin release installs.
 
 The defect this replaces was two hand-maintained values in
-roles/common/defaults -- the version and its digest -- that had to be bumped in
-lockstep and were not. roles/payload refuses to extract from an image whose
+bootstrap/roles/common/defaults -- the version and its digest -- that had to be bumped in
+lockstep and were not. reconcile/roles/payload refuses to extract from an image whose
 digest is not the recorded one, so the drift failed fresh installs on a correct
 host holding a correctly published image:
 
@@ -218,7 +218,7 @@ def test_a_missing_digest_header_fails_rather_than_pinning_nothing():
 # ─── the shape the converge consumes ────────────────────────────────────────
 
 def test_the_ref_is_digest_pinned_so_the_pull_is_byte_addressed():
-    """roles/payload resolves this at role 5.5 and roles/catena-admin creates
+    """reconcile/roles/payload resolves this at role 5.5 and reconcile/roles/catena-admin creates
     the service at role 13. A tag moved in between must not change which bytes
     land, and the digest in the ref is what makes that impossible."""
     out = car.resolve("ghcr.io/catenahq/catena-admin", opener=_ghcr(["v0.5.1"]))

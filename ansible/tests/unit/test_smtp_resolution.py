@@ -8,8 +8,8 @@ two were filled. Three defects in one shape:
     tie-break that appeared on no page the client could read;
   - switching provider without first CLEARING the old address kept sending
     through the old one, silently and for as long as the stale value sat there;
-  - the same ladder was written out twice, in roles/keycloak/defaults and in
-    roles/infrastructure wordpress_plugins.yml, free to drift from each other.
+  - the same ladder was written out twice, in reconcile/roles/keycloak/defaults and in
+    reconcile/roles/infrastructure wordpress_plugins.yml, free to drift from each other.
 
 SMTP_PROVIDER (resend | brevo | server) decides, SMTP_SENDER is the address,
 smtp_password is the one credential. The ladder itself now lives in the filter
@@ -28,9 +28,9 @@ import pytest
 
 ANSIBLE = Path(__file__).resolve().parents[2]
 PLUGIN = ANSIBLE / "playbooks" / "filter_plugins" / "smtp_resolve.py"
-KEYCLOAK_DEFAULTS = ANSIBLE / "roles" / "keycloak" / "defaults" / "main.yml"
-WORDPRESS = ANSIBLE / "roles" / "infrastructure" / "tasks" / "wordpress_plugins.yml"
-BESZEL = ANSIBLE / "roles" / "infrastructure" / "tasks" / "beszel.yml"
+KEYCLOAK_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "keycloak" / "defaults" / "main.yml"
+WORDPRESS = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "tasks" / "wordpress_plugins.yml"
+BESZEL = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "tasks" / "beszel.yml"
 ONBOX_CONFIG = ANSIBLE / "helpers" / "onbox_config.py"
 
 
@@ -133,7 +133,7 @@ def test_implicit_tls_is_not_offered_and_not_stored():
     yes."""
     assert "SMTP_USE_TLS" not in ONBOX_CONFIG.read_text(), (
         "SMTP_USE_TLS is back in the store registry")
-    realm = (ANSIBLE / "roles" / "keycloak" / "templates"
+    realm = (ANSIBLE / "reconcile" / "roles" / "keycloak" / "templates"
              / "realm-vps.yaml.j2").read_text()
     assert 'ssl: "false"' in realm, (
         "the realm no longer pins implicit TLS off; if that became configurable, "

@@ -1,6 +1,6 @@
 """The served-domain projection reader.
 
-roles/keycloak routes one auth.<zone> host rule per attached domain, and gets
+reconcile/roles/keycloak routes one auth.<zone> host rule per attached domain, and gets
 the list from the projection the Cloudflare tunnel engine writes after a
 successful converge. The safety property under test is one-directional: every
 reason the file cannot be trusted must produce an EMPTY list, so the routing

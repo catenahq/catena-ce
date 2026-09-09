@@ -3,7 +3,7 @@
 # it -- the mail server's dms container or Nextcloud. Pings the self-hosted
 # Healthchecks plane.
 #
-# Installed by roles/infrastructure (clamav.yml), systemd-timer-driven
+# Installed by reconcile/roles/infrastructure (clamav.yml), systemd-timer-driven
 # (catena-clamav-watch.timer).
 #
 # Gate rationale: clamd is shared infra with no value of its own. On a

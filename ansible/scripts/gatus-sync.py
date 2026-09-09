@@ -3,7 +3,7 @@
 labels. Emits one public-domain check (expects auth-redirect / 302) per
 routed, running client app. Runs via systemd timer + on-demand from
 catena-admin."""
-# Managed by Ansible (roles/infrastructure). Do not edit by hand.
+# Managed by Ansible (reconcile/roles/infrastructure). Do not edit by hand.
 # /usr/local/bin/gatus-sync -- regenerate $GATUS_CONFIG_PATH (default
 # .../50-catena-apps.yaml) from `docker ps` labels. No control-plane API
 # query: every RUNNING container that declares a `vps.route.host` label (and
@@ -272,7 +272,7 @@ def build_infra_doc(spec_path: Path, version_map: dict[str, dict],
     )
     if not spec_path.exists():
         print(f"gatus-sync: {spec_path} missing; leaving the infra endpoint "
-              "config untouched (roles/infrastructure renders this file -- "
+              "config untouched (reconcile/roles/infrastructure renders this file -- "
               "re-converge to restore it)", file=sys.stderr)
         return None
     try:
@@ -310,7 +310,7 @@ def build_infra_doc(spec_path: Path, version_map: dict[str, dict],
         client_block = "    client:\n      ignore-redirect: true\n" if ignore_redirect else ""
         # Extra conditions let specs layer non-status checks on top of the
         # baseline [STATUS] == X -- e.g. backup-stats.json has status=="success".
-        # See roles/infrastructure/templates/gatus-infra-spec.json.j2 usage.
+        # See reconcile/roles/infrastructure/templates/gatus-infra-spec.json.j2 usage.
         extra_conds = ep.get("extra_conditions") or []
         conds_block = f'      - "{cond}"\n' + "".join(
             f'      - "{c}"\n' for c in extra_conds

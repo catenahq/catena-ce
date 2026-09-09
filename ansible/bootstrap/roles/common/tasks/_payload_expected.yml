@@ -1,0 +1,76 @@
+---
+# Shared decision helper: is the catena-admin payload expected on THIS host,
+# and are the paths this caller needs actually here?
+#
+# Five places asked this and answered it two different ways. reconcile/roles/payload
+# publishes `catena_payload_engines_expected` during a converge, so
+# reconcile/roles/cloudflare_tunnel and reconcile/roles/backup/tasks/install.yml read the fact;
+# a standalone validate play cannot see a set_fact from a role that is not in
+# its play, so reconcile/roles/backup/tasks/validate.yml reads the env var instead. Both
+# were right locally and the divergence was not cosmetic: only the validate
+# side also accepted "or the file is already here", so the converge side could
+# not tell NOT YET from PARTIALLY INSTALLED -- which is the one case worth
+# catching, and the reason the validate side grew that leg.
+#
+# The fact IS the env var (reconcile/roles/payload sets it from
+# `lookup('env', 'CATENA_PAYLOAD_INSTALL')`), so one predicate can serve both:
+# prefer the fact, fall back to the env, and accept an already-present file in
+# either. That last clause is what makes a broken payload install visible
+# rather than indistinguishable from a host the payload has not reached yet.
+#
+# Invoke via include_role, passing the paths the caller depends on:
+#
+#   - ansible.builtin.include_role:
+#       name: common
+#       tasks_from: _payload_expected
+#     vars:
+#       _payload_paths:
+#         - "{{ dashboard_sync_script_path }}"
+#
+# Sets, for the caller to read IMMEDIATELY (a second include overwrites them):
+#
+#   catena_payload_expected   the decision. True  -> a missing path is a defect
+#                             and the caller should fail with the reason.
+#                             False -> something else owns the engines and has
+#                             not staged them yet; defer and say so.
+#   catena_payload_missing    the subset of _payload_paths that is absent.
+#                             Empty means the caller can proceed regardless.
+#   catena_payload_present    the subset that is present.
+#   catena_payload_partial    true when SOME but not all are present -- a
+#                             broken install, never a not-yet.
+#
+# The caller keeps its own fail/debug pair, because the message is the point:
+# a deferral that does not name what is deferred and when it converges reads
+# exactly like a silent skip.
+
+- name: "payload-expected: stat the paths this caller depends on"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: _cp_stats
+  loop: "{{ _payload_paths }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: "payload-expected: split them into present and missing"
+  ansible.builtin.set_fact:
+    catena_payload_present: >-
+      {{ _cp_stats.results | selectattr('stat.exists')
+         | map(attribute='item') | list }}
+    catena_payload_missing: >-
+      {{ _cp_stats.results | rejectattr('stat.exists')
+         | map(attribute='item') | list }}
+
+- name: "payload-expected: decide"
+  ansible.builtin.set_fact:
+    # The fact when reconcile/roles/payload ran in this play, the env var otherwise, and
+    # in either case a path already on the host settles it: something put it
+    # there, so the rest of the set being absent is a broken install and not a
+    # host the payload has yet to reach.
+    catena_payload_expected: >-
+      {{ (catena_payload_engines_expected
+          | default(lookup('env', 'CATENA_PAYLOAD_INSTALL', default='true')))
+         | bool
+         or (catena_payload_present | length > 0) }}
+    catena_payload_partial: >-
+      {{ (catena_payload_present | length > 0)
+         and (catena_payload_missing | length > 0) }}

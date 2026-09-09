@@ -3,7 +3,7 @@
 # no persisted laptop vault).
 #
 # The store is a plaintext 0600 file at /etc/catena/config.json, which rides
-# the restic backup (/etc is in roles/backup backup_paths). On every converge
+# the restic backup (/etc is in reconcile/roles/backup backup_paths). On every converge
 # it ADOPTS any declared secret in scope (fill-only) -- on a fresh install that
 # is the install-critical vendor creds the CLI threads in as `-e @file`; on a
 # fresh recover it is the DR keyset re-entered at the prompt; on a day-2
@@ -87,7 +87,7 @@
   no_log: true
 
 # Publish every store secret as a fact, the Portainer API key included: it
-# is minted mid-converge by roles/portainer, which set_facts the fresh
+# is minted mid-converge by reconcile/roles/portainer, which set_facts the fresh
 # value, and a later set_fact wins over an earlier one -- so publishing the
 # stored value here is what stops the role re-minting a key on every single
 # converge.
@@ -102,7 +102,7 @@
 # ─── non-secret config: seed once from .env, then read only the store ───────
 #
 # Its own file because bootstrap.yml runs THAT and nothing else: it needs the
-# config half (roles/tailscale picks its control plane from cfg_tailnet_provider)
+# config half (bootstrap/roles/tailscale picks its control plane from cfg_tailnet_provider)
 # and must not run the rest of this loader, which mints the DR keyset and calls
 # the container registry on a machine with no Docker.
 - name: "onbox: seed and publish the store-owned config"
@@ -144,8 +144,8 @@
 # ─── which catena-admin release this converge installs ─────────────────────
 #
 # ASKED, not remembered. The image used to be two literals in
-# roles/common/defaults -- the version and its digest -- bumped by hand together
-# on every catena-admin release. They drifted, and roles/payload is right to
+# bootstrap/roles/common/defaults -- the version and its digest -- bumped by hand together
+# on every catena-admin release. They drifted, and reconcile/roles/payload is right to
 # refuse an image whose digest is not the recorded one, so the drift failed
 # fresh installs on a correct host with a correct image:
 #
@@ -175,9 +175,9 @@
   failed_when: false
   when: lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
 
-# Fails HERE rather than deep in roles/payload, and says which of the two
+# Fails HERE rather than deep in reconcile/roles/payload, and says which of the two
 # reasons it is. A converge cannot proceed without this: the panel image is
-# also where the host engines come from, and every role after roles/docker
+# also where the host engines come from, and every role after bootstrap/roles/docker
 # depends on those. Nothing downstream has a usable fallback -- the previous
 # fallback WAS the stale literal this replaces.
 - name: "onbox: the catena-admin release could not be resolved"

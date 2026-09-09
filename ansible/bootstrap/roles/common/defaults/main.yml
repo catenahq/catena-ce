@@ -1,0 +1,211 @@
+---
+ops_user: ops
+ops_ssh_public_keys: [] # filled from group_vars; usually a file lookup
+
+# Every user that sshd is allowed to let in. OpenSSH's AllowUsers is
+# NOT additive across sshd_config.d drop-ins (first-match wins), so the
+# full list lives here and is rendered by templates/sshd_hardening.conf.j2
+# into a single `AllowUsers` line in /etc/ssh/sshd_config.d/10-catena.conf.
+# Infrastructure-owned accounts (catena-admin-runner) default into the
+# list here because they're effectively always present on catena hosts;
+# a site using common WITHOUT catena-admin still ends up with a
+# harmless no-op entry (sshd allows the name, user doesn't exist).
+ssh_allowed_users:
+  - "{{ ops_user }}"
+  - "{{ catena_admin_runner_user | default('catena-admin-runner') }}"
+
+common_timezone: "America/Toronto"
+common_locale: "en_CA.UTF-8"
+
+common_baseline_packages:
+  - sudo
+  - ufw
+  - unattended-upgrades
+  - curl
+  - ca-certificates
+  - gnupg
+  - python3-apt
+  - rsync
+  - systemd-timesyncd
+  # jq is the JSON writer for every on-host report the daily lane + backup
+  # machinery emit (catena-restic-check.json, cve-findings.json,
+  # verify-hot/cold status, the maintenance log) and that catena-admin reads
+  # back. Those scripts gate their report write on `command -v jq`, so a host
+  # without it silently produces NO report (the catena-admin freshness badges
+  # go blank; the bench's restic_check_subset_weekly / verify_hot_bootprobe /
+  # cve_residual scenarios saw "report missing"). Baseline-install it so the
+  # report writers always have it, CE and EE alike.
+  - jq
+  # rclone is the WORM-mirror's transport (reconcile/roles/backup ships
+  # the offsite-copy lane); installing it at common/baseline
+  # means a freshly-bootstrapped recovery VPS already has the tool
+  # available for the operator's manual `rclone-copy WORM -> fresh
+  # mutable bucket` recovery step before reconcile/roles/backup gets a chance
+  # to run. Backup role keeps it in its own apt list anyway -- both
+  # paths are idempotent.
+  - rclone
+
+# Optional apt HTTP proxy (e.g. apt-cacher-ng). Empty = apt pulls
+# direct. When set, the common role drops /etc/apt/apt.conf.d/01proxy
+# BEFORE the first dist-upgrade so the cache is active for every apt
+# operation that follows. HTTPS sources (docker-ce, tailscale) stay
+# DIRECT -- apt-cacher-ng's CONNECT passthrough has no cache benefit
+# and proxying HTTPS risks TLS middleboxing issues.
+common_apt_proxy_url: "{{ cfg_apt_proxy_url | default('') }}"
+
+# ─── Rendered swarm stack files ──────────────────────────────────────────
+# Where reconcile/roles/infrastructure/tasks/swarm_stack.yml writes the compose body
+# it hands to `docker stack deploy`. Declared in common (which runs first)
+# rather than in infrastructure, because keycloak and oauth2_proxy include
+# that helper from their own roles and a role's defaults are only in scope
+# once that role has run.
+#
+# Keeping the file on disk is what makes a failed deploy diagnosable after
+# the fact: the exact converge is reproducible by hand with
+# `docker stack deploy -c <dir>/<name>.yml <name>`.
+swarm_stack_dir: /etc/catena/stacks
+
+# ─── The recovery export directory ───────────────────────────────────────
+# Declared in common, for the same reason catena_admin_image is below: TWO
+# roles must agree on it and neither can see the other's defaults.
+# reconcile/roles/backup (23) owns what goes in it; reconcile/roles/catena-admin (21) BIND-MOUNTS
+# it into the panel, two roles earlier. Swarm rejects a task whose bind source
+# does not exist -- it does not create it -- so the panel's first-run create
+# was rejected on a loop until reconcile/roles/backup finally made the directory, and
+# with --restart-condition=any that loop never ended.
+catena_export_dir: /var/backups/catena-export
+
+# The catena-admin container is UID/GID 1000 and joins this as a supplementary
+# group, so it can list+stat the recovery artifacts for the /recovery tab. The
+# downloads themselves are served by the recovery nginx sidecar, which runs as
+# root and keeps owner-rwx.
+catena_export_dir_group: "1000"
+catena_export_dir_mode: "0750"
+
+# ─── The catena-admin container's uid ────────────────────────
+# Declared here for the same reason catena_export_dir and the image are: TWO
+# roles must agree and neither can see the other's defaults. reconcile/roles/payload
+# (5.5) creates and re-owns /var/lib/catena/ee-payload; reconcile/roles/catena-admin
+# (21) chowns it for the container that writes into it. payload runs FIFTEEN
+# roles earlier, so it cannot read the catena-admin default -- and a
+# root-owned extraction directory leaves the container unable to write the
+# subdirectories the extract created:
+#
+#   payload: sync to /var/lib/catena/ee-payload failed:
+#   open /var/lib/catena/ee-payload/bin/.payload-...: permission denied
+#
+# The distroless image sets `USER nonroot:nonroot` (65532), NOT 1000. Keep in
+# lockstep with the repo-root Dockerfile in catena-admin.
+catena_container_uid: "65532"
+catena_container_gid: "65532"
+
+# ─── The catena-admin swarm service name ─────────────────────────────────
+# Declared in common for the same reason the image below is: TWO roles must
+# agree and neither can see the other's defaults. reconcile/roles/catena-admin (13)
+# creates and reconciles the service; reconcile/roles/payload (5.5) asks swarm what image
+# that service runs, because the engines it installs have to come out of the
+# image the shell is running rather than out of whatever the floor resolves to.
+#
+# The name is also the service's DNS name on catena-network, which is what
+# reconcile/roles/oauth2_proxy upstreams to (upstream_alias: catena-admin). Renaming it
+# 502s every authenticated dash.<zone> request.
+catena_admin_service_name: "catena-admin"
+
+# ─── The catena-admin listen port ────────────────────────────────────────
+# Here for the same reason as the name above. reconcile/roles/catena-admin (13) tells the
+# shell what to bind; reconcile/roles/portainer (tier-1, far earlier) has to build the
+# App Templates URL out of the pair, and cannot see that role's defaults.
+#
+# Portainer fetches that URL lazily -- when somebody opens the App Templates
+# page -- so setting it before catena-admin exists is fine; it resolves by the
+# time a client can click anything.
+catena_admin_internal_port: 8000
+
+# ─── The catena-admin image ──────────────────────────────────────────────
+# Declared in common (which runs first) because TWO roles must agree on it and
+# neither can see the other's defaults: reconcile/roles/payload (5.5) extracts the host
+# ENGINES from this image, reconcile/roles/catena-admin (13) runs the SHELL from it. A
+# host holding engines and a panel built from different images is a host whose
+# two halves disagree about the config schema.
+#
+# That is not hypothetical. reconcile/roles/payload used to read catena_admin_image with
+# a hardcoded fallback, and at role 5.5 the catena-admin role's defaults are
+# not in scope yet -- so the fallback is what it always used, and the two only
+# agreed because both literals were the same string.
+#
+# This is the BOOTSTRAP input, not the steady-state one. It decides which image
+# a first converge creates the service from; from then on the service's own
+# image is what reconcile/roles/payload follows, so there is exactly ONE version input on
+# a host at any moment. A newer release therefore moves fresh installs and
+# leaves converged hosts alone -- the update lane is what moves those, and it
+# moves both halves in one transaction. Two version inputs is what made drift
+# reachable: the converge resolved max(floor, pin) for the engines while the
+# service spec, which the converge never reconciles, held the shell where it
+# was.
+#
+# PUBLIC image, pulled anonymously: every panel is compiled in and the Business
+# set is gated at RUNTIME by the licence check, so distribution gating would
+# add no enforcement.
+#
+# WHICH release, and its digest, are ASKED of the registry once per converge by
+# playbooks/tasks/load_onbox_config.yml, which publishes catena_admin_release.
+# They used to be two literals bumped by hand here, and drift between them is
+# the one thing that pair cannot survive: reconcile/roles/payload refuses an image whose
+# digest is not the recorded one, so a version bumped without its digest failed
+# every fresh install on a correct host holding a correctly published image.
+# One question, one writer.
+#
+# CATENA_ADMIN_IMAGE overrides it outright and suppresses the registry call.
+# That is the change-control path for a client who wants to decide when their
+# panel version moves, and it is what the bench uses to converge against an
+# image it built on the VPS.
+catena_admin_image_override: >-
+  {{ lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) }}
+
+# Which image this host runs, in precedence order:
+#
+#   1. CATENA_ADMIN_IMAGE, if set. An explicit override is somebody saying
+#      exactly what to run, so nothing below may argue with it. It used to be
+#      handed to the pin filter along with everything else, which meant a stored
+#      pin could beat the very value whose purpose is change control.
+#   2. What this host recorded in /etc/catena/config.json -- the version its own
+#      update lane last applied, INCLUDING A ROLLBACK.
+#   3. The newest published release, resolved from the registry once per
+#      converge.
+#
+# The empty minimum on the filter is what makes (2) beat (3). Everywhere else
+# the converge SHIPS the version, so the same literal is both the default and
+# the oldest acceptable pin and the filter resolves max(floor, pin); here the
+# default is the NEWEST release, and using newest as a floor left the pin unable
+# to ever win. A client who rolled their panel back to the version that worked
+# had it undone by the next converge, silently. See
+# playbooks/filter_plugins/image_pin.py.
+#
+# A pin still has to name this repository and a real version, so a corrupt store
+# cannot choose the image; and the resolved value carries its digest
+# (repo:tag@sha256:...), so the pull is byte-addressed and a tag moved between
+# this resolution and reconcile/roles/catena-admin's service create at role 13 cannot
+# change which bytes land.
+#
+# The inline conditional rather than the ternary filter is deliberate: ternary
+# evaluates both branches, and the pin filter refuses an empty reference -- which
+# is exactly what the registry lookup leaves behind when an override suppressed
+# it.
+catena_admin_image: >-
+  {{ catena_admin_image_override
+     if (catena_admin_image_override | default('', true) | length > 0)
+     else ((catena_admin_release.ref | default(''))
+           | catena_image_pin(catena_image_pins | default({}), '')) }}
+
+# What this converge delivered, written at the very end of site.yml so it
+# describes a converge that finished. The panel reads it to tell "this feature
+# is off" from "this feature's plumbing never reached this host": every button
+# dispatches a FIXED action name through the SSH forced command, and that table
+# is rendered by the converge, so a panel built after an action was added shows
+# a button a host converged before it will refuse.
+#
+# Under /var/lib, not /etc, for the reasons payload/engines/release states: it
+# is rebuildable state rather than configuration, /var/lib/catena is already
+# bind-mounted read-only into the panel, and it must NOT ride a restic snapshot
+# -- a restored host's converge state is its own, not the source's.
+catena_release_manifest_path: "/var/lib/catena/release.json"

@@ -30,10 +30,10 @@ import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
 SEED = ANSIBLE / "scripts" / "beszel-seed.py"
-BESZEL_TASKS = ANSIBLE / "roles" / "infrastructure" / "tasks" / "beszel.yml"
-HUB_COMPOSE = (ANSIBLE / "roles" / "infrastructure" / "templates"
+BESZEL_TASKS = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "tasks" / "beszel.yml"
+HUB_COMPOSE = (ANSIBLE / "reconcile" / "roles" / "infrastructure" / "templates"
                / "beszel-hub.compose.yml.j2")
-REALM = ANSIBLE / "roles" / "keycloak" / "templates" / "realm-beszel.yaml.j2"
+REALM = ANSIBLE / "reconcile" / "roles" / "keycloak" / "templates" / "realm-beszel.yaml.j2"
 
 # The script's filename carries a hyphen, so it is loaded by path rather than
 # imported by name.

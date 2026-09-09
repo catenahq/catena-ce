@@ -31,7 +31,24 @@ import yaml
 
 _ANSIBLE = Path(__file__).resolve().parents[2]
 _BOUNDARY = _ANSIBLE / "boundary.yml"
-_ROLES = _ANSIBLE / "roles"
+# Two role roots since phase 1b. A role's side is now WHERE IT LIVES, so most of
+# what follows reads the tree rather than cross-referencing a declaration --
+# but boundary.yml stays the declaration, because a directory cannot carry the
+# reason a role is on the side it is on.
+_ROOTS = {
+    "bootstrap": _ANSIBLE / "bootstrap" / "roles",
+    "reconcile": _ANSIBLE / "reconcile" / "roles",
+}
+
+
+def _roles_on_disk() -> dict[str, tuple[str, Path]]:
+    """role name -> (side, path), from the filesystem."""
+    out: dict[str, tuple[str, Path]] = {}
+    for side, root in _ROOTS.items():
+        for path in sorted(root.iterdir()):
+            if path.is_dir() and not path.name.startswith("."):
+                out[path.name] = (side, path)
+    return out
 
 # What the reconcile side still takes from the operator's inventory. Nothing.
 INVENTORY_BACKLOG = 0
@@ -50,7 +67,7 @@ def test_every_role_is_on_exactly_one_side():
     declared = _bootstrap_names(b) | set(b["reconcile_roles"])
     straddling = set(b["straddling_roles"])
 
-    on_disk = {p.name for p in _ROLES.iterdir() if p.is_dir()}
+    on_disk = set(_roles_on_disk())
     # The regenerate playbook's role is a variant of cloudflare_tunnel and runs
     # only from its own playbook, never from site.yml.
     on_disk.discard("cloudflare_tunnel_regenerate")
@@ -66,6 +83,28 @@ def test_every_role_is_on_exactly_one_side():
     assert not both, f"declared on both sides without being declared straddling: {both}"
 
 
+def test_the_tree_agrees_with_the_declaration():
+    """The directories ARE the boundary now, and boundary.yml still declares it.
+
+    Two answers to one question is one of them going stale, and the stale one
+    would be the declaration -- a role lands in a directory by being moved
+    there, which nobody forgets, and gets its line in boundary.yml by somebody
+    remembering. So the tree is checked against the declaration rather than
+    trusted to match it.
+    """
+    b = _boundary()
+    declared = {name: "bootstrap" for name in _bootstrap_names(b)}
+    declared.update({name: "reconcile" for name in b["reconcile_roles"]})
+    wrong = {
+        name: f"lives under {side}/roles, declared {declared[name]}"
+        for name, (side, _) in _roles_on_disk().items()
+        if name in declared and declared[name] != side
+    }
+    assert not wrong, (
+        f"boundary.yml and the tree disagree about which side a role is on: {wrong}"
+    )
+
+
 def test_every_bootstrap_role_says_why_it_is_one():
     """A set that grows by assertion grows. Each entry carries its reason, and
     the reason has to be a sentence rather than a word."""
@@ -77,32 +116,46 @@ def test_every_bootstrap_role_says_why_it_is_one():
 
 
 def _side_of(path: Path, b: dict) -> str | None:
-    if _ROLES not in path.parents:
-        return None
-    role = path.relative_to(_ROLES).parts[0]
-    straddling = b["straddling_roles"]
-    if role in straddling:
-        spec = straddling[role]
-        for side in ("bootstrap", "reconcile"):
-            if path.name in (spec.get(side) or []):
-                return side
-        return spec["default_side"]
-    if role in _bootstrap_names(b):
-        return "bootstrap"
-    if role in b["reconcile_roles"]:
-        return "reconcile"
+    """Which side a FILE is on.
+
+    Its directory answers, unless its role is declared straddling -- in which
+    case the per-file lists decide, because a straddling role has files on both
+    sides of a line its directory can only express one of. Nothing straddles
+    today; the branch stays because the shape can come back.
+    """
+    for side, root in _ROOTS.items():
+        if root not in path.parents:
+            continue
+        role = path.relative_to(root).parts[0]
+        straddling = b["straddling_roles"] or {}
+        if role in straddling:
+            spec = straddling[role]
+            for declared in ("bootstrap", "reconcile"):
+                if path.name in (spec.get(declared) or []):
+                    return declared
+            return spec["default_side"]
+        return side
     return None
+
+
+def _role_of(path: Path) -> str:
+    """The role a file belongs to, whichever root it sits under."""
+    for root in _ROOTS.values():
+        if root in path.parents:
+            return path.relative_to(root).parts[0]
+    return path.name
 
 
 def _files_on(side: str, b: dict) -> list[Path]:
     out = []
-    for path in _ROLES.rglob("*"):
-        if not path.is_file() or "__pycache__" in path.parts:
-            continue
-        if path.stat().st_size > 300_000:
-            continue
-        if _side_of(path, b) == side:
-            out.append(path)
+    for root in _ROOTS.values():
+        for path in root.rglob("*"):
+            if not path.is_file() or "__pycache__" in path.parts:
+                continue
+            if path.stat().st_size > 300_000:
+                continue
+            if _side_of(path, b) == side:
+                out.append(path)
     return out
 
 
@@ -110,7 +163,7 @@ def test_no_reconcile_task_writes_a_bootstrap_owned_path():
     """Task files only, and never the ones an operator playbook owns.
 
     A defaults file that names /etc/ssh because restic READS it is not a task
-    that writes it, and roles/backup does exactly that. A rule that cannot tell
+    that writes it, and reconcile/roles/backup does exactly that. A rule that cannot tell
     those apart is one people argue with instead of obeying.
 
     Comments are stripped for the same reason. The file that explains why a
@@ -144,7 +197,8 @@ def _inventory_vars() -> dict[str, str]:
     """Every variable defined from the operator's .env, wherever it is defined."""
     out: dict[str, str] = {}
     sources = [_ANSIBLE / "playbooks" / "group_vars" / "all" / "main.yml"]
-    sources += sorted(_ROLES.glob("*/defaults/main.yml"))
+    for root in _ROOTS.values():
+        sources += sorted(root.glob("*/defaults/main.yml"))
     for src in sources:
         text = src.read_text(encoding="utf-8", errors="ignore")
         for m in re.finditer(r"^([a-z][a-z0-9_]*):((?:.|\n)*?)(?=^\S|\Z)", text, re.M):
@@ -161,7 +215,7 @@ def _backlog() -> dict[str, set[str]]:
         text = path.read_text(encoding="utf-8", errors="ignore")
         for var in inventory:
             if re.search(r"\b" + var + r"\b", text):
-                hits.setdefault(var, set()).add(path.relative_to(_ROLES).parts[0])
+                hits.setdefault(var, set()).add(_role_of(path))
     return hits
 
 
@@ -240,7 +294,7 @@ def test_no_reconcile_play_reaches_a_bootstrap_task_file():
 
     offenders: dict[str, str] = {}
     for role, files in straddling.items():
-        main = _ROLES / role / "tasks" / "main.yml"
+        main = _roles_on_disk()[role][1] / "tasks" / "main.yml"
         if not main.is_file():
             continue
         tasks = yaml.safe_load(main.read_text()) or []

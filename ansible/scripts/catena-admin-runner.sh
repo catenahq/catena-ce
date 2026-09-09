@@ -3,7 +3,7 @@
 # runner user's ssh key is allowed to run (enforced by authorized_keys'
 # command= stanza).
 #
-# Managed by Ansible (roles/catena-admin). Do not edit by hand.
+# Managed by Ansible (reconcile/roles/catena-admin). Do not edit by hand.
 #
 # $1 is $SSH_ORIGINAL_COMMAND, which for arg-less actions is just
 # the action name, and for password-arg actions is "<name> <payload>"

@@ -38,7 +38,7 @@
 # evidence gate -- and it would have no subject: every catena swarm service
 # is re-dispatched by the task manager and skipped by the swarm-task check
 # below. The containers this script protects are all Portainer compose
-# stacks, which is why it lives in roles/docker (which owns docker.service
+# stacks, which is why it lives in bootstrap/roles/docker (which owns docker.service
 # and the swarm init the race happens between).
 #
 # Idempotent; exits 0 when there is nothing to do.

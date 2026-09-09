@@ -1,0 +1,68 @@
+---
+# Install the ansible-core the host reconciles itself with.
+#
+# WHY THIS IS BOOTSTRAP-SIDE, by the boundary's own question: if this is wrong,
+# is anything left that can fix it? No. A reconcile is what this makes possible,
+# so a reconcile cannot install it. That is question one, and it is the same
+# reason bootstrap/roles/docker is on this side.
+#
+# It is NOT the operator's ansible. The operator's comes from
+# ansible/pyproject.toml through uv on their laptop; this one lives on the
+# client VPS because a host that converges itself has to have one.
+
+- name: "ansible runtime: venv prerequisites"
+  ansible.builtin.apt:
+    name: "{{ ansible_runtime_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: "ansible runtime: the venv exists"
+  ansible.builtin.command:
+    cmd: "python3 -m venv {{ ansible_runtime_dir }}"
+    creates: "{{ ansible_runtime_dir }}/bin/python3"
+
+# --upgrade so a host converged before a floor moved gets the new floor, and
+# idempotent by pip's own reckoning: an install that is already satisfied
+# reports "Requirement already satisfied" and changes nothing.
+#
+# changed_when on pip's own words rather than on rc. A converge that reported
+# changed every time would make the bench's strict changed=0 idempotency gates
+# fail on a task that did nothing, which is the shape that teaches people to
+# ignore the gate.
+- name: "ansible runtime: install {{ ansible_runtime_spec }}"
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_runtime_dir }}/bin/pip"
+      - install
+      - --upgrade
+      - "{{ ansible_runtime_spec }}"
+  register: _ansible_runtime_pip
+  changed_when: >-
+    'Successfully installed' in (_ansible_runtime_pip.stdout | default(''))
+
+# Prove it runs before anything depends on it. A venv whose pip succeeded and
+# whose ansible-playbook cannot start is a failure this role can see and the
+# converge engine cannot: by then it is a transient systemd unit on a host
+# nobody is watching.
+- name: "ansible runtime: the interpreter answers"
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_runtime_dir }}/bin/ansible-playbook"
+      - --version
+  register: _ansible_runtime_version
+  changed_when: false
+
+- name: "ansible runtime: and it is new enough for the reconcile to accept"
+  ansible.builtin.assert:
+    that:
+      - _ansible_runtime_version.stdout is search('core ' ~ ansible_runtime_minimum)
+        or (_ansible_runtime_version.stdout
+            | regex_search('core ([0-9]+\\.[0-9]+)', '\\1') | first
+            is version(ansible_runtime_minimum, '>='))
+    fail_msg: >-
+      {{ ansible_runtime_dir }} installed an ansible-core below
+      {{ ansible_runtime_minimum }}, which playbooks/reconcile.yml refuses.
+      Installed: {{ _ansible_runtime_version.stdout_lines | first | default('nothing') }}.
+      The host would take the engines and then decline to run them, which is a
+      worse state than not having installed it at all.

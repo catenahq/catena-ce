@@ -1,8 +1,8 @@
 """Every port coturn's registry fragment opens must be one coturn binds.
 
-The public-port fragment in roles/coturn/tasks/deploy.yml declares udp on
+The public-port fragment in reconcile/roles/coturn/tasks/deploy.yml declares udp on
 coturn_tls_port ("TLS-TURN (UDP)"), the reconciler opens it in ufw, and
-roles/coturn/tasks/validate.yml asserts the listener is there. Nothing tied
+reconcile/roles/coturn/tasks/validate.yml asserts the listener is there. Nothing tied
 any of that to the config that has to ask for it.
 
 On bench 1216 backup_rollback the converge failed on that assertion after the
@@ -23,7 +23,7 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-COTURN = ANSIBLE / "roles" / "coturn"
+COTURN = ANSIBLE / "reconcile" / "roles" / "coturn"
 
 _FRAGMENT_TASK = "coturn: declare public ports (registry fragment)"
 
@@ -66,7 +66,7 @@ def test_the_fragment_still_declares_udp_on_the_tls_port():
     DTLS requirement goes with it, and the next test would be pinning a
     directive nothing asks for."""
     assert '{"proto": "udp", "port": coturn_tls_port,' in _fragment_content(), (
-        "roles/coturn/tasks/deploy.yml no longer declares udp on "
+        "reconcile/roles/coturn/tasks/deploy.yml no longer declares udp on "
         "coturn_tls_port; re-check whether DTLS is still wanted"
     )
 

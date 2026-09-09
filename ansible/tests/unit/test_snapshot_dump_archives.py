@@ -1,5 +1,5 @@
 """Unit tests for the snapshot_dump_archives filter plugin -- the manifest
-roles/backup/tasks/restore.yml records in the post-restore marker.
+reconcile/roles/backup/tasks/restore.yml records in the post-restore marker.
 
 The manifest is what admits a database archive to the replay. Getting it wrong
 in the strict direction refuses every legitimate archive and fails the

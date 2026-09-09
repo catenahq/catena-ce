@@ -67,7 +67,7 @@ fi
 # blocks UDP 10000. Refusing would withhold a working feature over a
 # degraded edge case.
 #
-# coturn is consumer-gated (roles/coturn/tasks/main.yml) and its consumer is
+# coturn is consumer-gated (reconcile/roles/coturn/tasks/main.yml) and its consumer is
 # THIS deployment, so on a freshly deployed host the relay does not come up
 # until the next converge. Say so plainly rather than let the fallback be
 # silently missing.

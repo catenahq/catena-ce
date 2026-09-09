@@ -79,7 +79,7 @@ fi
 
 # Guard: the shared TURN relay has to exist before Talk is pointed at it.
 #
-# coturn is consumer-gated (roles/coturn/tasks/main.yml) and its consumer is
+# coturn is consumer-gated (reconcile/roles/coturn/tasks/main.yml) and its consumer is
 # THIS deployment, so on a host where Nextcloud + Talk was just deployed the
 # relay does not come up until the next converge. Wiring anyway SUCCEEDS --
 # every occ talk:*:add is an upsert that never contacts the host it records --

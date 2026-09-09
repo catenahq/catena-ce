@@ -30,7 +30,7 @@ from pathlib import Path
 import yaml
 
 _VALIDATE = (Path(__file__).resolve().parents[2]
-             / "roles" / "oauth2_proxy" / "tasks" / "validate.yml")
+             / "reconcile" / "roles" / "oauth2_proxy" / "tasks" / "validate.yml")
 
 _KICK = "validate/oauth2-proxy: kick oauth2-proxy containers stuck in restart-backoff"
 

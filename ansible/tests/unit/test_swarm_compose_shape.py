@@ -1,6 +1,6 @@
 """Compose keys `docker stack deploy` rejects, or accepts and ignores.
 
-Every template here is deployed by roles/infrastructure/tasks/swarm_stack.yml.
+Every template here is deployed by reconcile/roles/infrastructure/tasks/swarm_stack.yml.
 Swarm reads a SUBSET of the compose spec, and the two ways it disagrees with
 `docker compose` have opposite failure modes:
 
@@ -35,14 +35,14 @@ ANSIBLE = Path(__file__).resolve().parents[2]
 
 # Every compose template deployed through swarm_stack.yml.
 SWARM_COMPOSE = (
-    ANSIBLE / "roles/infrastructure/templates/gatus.compose.yml.j2",
-    ANSIBLE / "roles/infrastructure/templates/healthchecks.compose.yml.j2",
-    ANSIBLE / "roles/infrastructure/templates/clamav.compose.yml.j2",
-    ANSIBLE / "roles/infrastructure/templates/beszel-hub.compose.yml.j2",
-    ANSIBLE / "roles/infrastructure/templates/beszel-agent.compose.yml.j2",
-    ANSIBLE / "roles/infrastructure/templates/beszel-hc-shim.compose.yml.j2",
-    ANSIBLE / "roles/keycloak/templates/keycloak.compose.yml.j2",
-    ANSIBLE / "roles/oauth2_proxy/templates/oauth2-proxy.compose.yml.j2",
+    ANSIBLE / "reconcile/roles/infrastructure/templates/gatus.compose.yml.j2",
+    ANSIBLE / "reconcile/roles/infrastructure/templates/healthchecks.compose.yml.j2",
+    ANSIBLE / "reconcile/roles/infrastructure/templates/clamav.compose.yml.j2",
+    ANSIBLE / "reconcile/roles/infrastructure/templates/beszel-hub.compose.yml.j2",
+    ANSIBLE / "reconcile/roles/infrastructure/templates/beszel-agent.compose.yml.j2",
+    ANSIBLE / "reconcile/roles/infrastructure/templates/beszel-hc-shim.compose.yml.j2",
+    ANSIBLE / "reconcile/roles/keycloak/templates/keycloak.compose.yml.j2",
+    ANSIBLE / "reconcile/roles/oauth2_proxy/templates/oauth2-proxy.compose.yml.j2",
 )
 
 # Templates are Jinja, so they are scanned as text rather than parsed: a
@@ -106,14 +106,14 @@ def test_clamav_is_a_swarm_stack_on_an_overlay():
     the network was clamd, which does not deploy until a consumer runs. Both
     consumers are swarm services now, so the first of them materializes it.
     """
-    tasks = (ANSIBLE / "roles/infrastructure/tasks/clamav.yml").read_text(
+    tasks = (ANSIBLE / "reconcile/roles/infrastructure/tasks/clamav.yml").read_text(
         encoding="utf-8")
     assert "include_tasks: swarm_stack.yml" in tasks
     assert "include_tasks: portainer_stack.yml" not in tasks
     assert "overlay" in tasks and "--attachable" in tasks
 
     compose = (
-        ANSIBLE / "roles/infrastructure/templates/clamav.compose.yml.j2"
+        ANSIBLE / "reconcile/roles/infrastructure/templates/clamav.compose.yml.j2"
     ).read_text(encoding="utf-8")
     assert "restart: unless-stopped" not in compose, (
         "`restart:` is dropped by docker stack deploy with a warning nobody "
@@ -127,7 +127,7 @@ def test_the_clamav_consumers_are_matched_by_label():
     docker's scheme and on whatever a client typed into Portainer, so a probe
     that matched one would quietly stop finding either consumer and clamd
     would never deploy again -- with the mail path silently unscanned."""
-    tasks = (ANSIBLE / "roles/infrastructure/tasks/clamav.yml").read_text(
+    tasks = (ANSIBLE / "reconcile/roles/infrastructure/tasks/clamav.yml").read_text(
         encoding="utf-8")
     assert "label=vps.app=" in tasks
     assert "label=vps.component=dms" in tasks

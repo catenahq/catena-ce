@@ -1,4 +1,4 @@
-"""roles/keycloak must wait for postgres to ACCEPT CONNECTIONS, not exist.
+"""reconcile/roles/keycloak must wait for postgres to ACCEPT CONNECTIONS, not exist.
 
 `fi_a2_oidc_secret_rotation` failed its converge in run
 2026-08-02T01-47-33-2e7d:
@@ -25,7 +25,7 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-TASKS = ANSIBLE / "roles" / "keycloak" / "tasks" / "provision_db.yml"
+TASKS = ANSIBLE / "reconcile" / "roles" / "keycloak" / "tasks" / "provision_db.yml"
 
 
 def _tasks() -> list[dict]:
@@ -138,7 +138,7 @@ def test_the_gate_names_a_role_that_exists() -> None:
     assert "-U" in tokens, (
         "pg_isready runs without -U, so it authenticates as root and postgres "
         "logs a FATAL on every attempt. Both sibling call sites in "
-        "roles/postgres already pass -U.\n" + body
+        "reconcile/roles/postgres already pass -U.\n" + body
     )
     user = tokens[tokens.index("-U") + 1]
     assert user.strip(), "-U was passed with no role after it"

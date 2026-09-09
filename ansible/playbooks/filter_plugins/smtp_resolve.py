@@ -7,7 +7,7 @@ the literal string `resend` for every account. Everything else reads the fields
 as given.
 
 WHY A FILTER RATHER THAN JINJA IN THREE PLACES. This ladder was written out
-three times -- roles/keycloak/defaults, roles/infrastructure wordpress_plugins,
+three times -- reconcile/roles/keycloak/defaults, reconcile/roles/infrastructure wordpress_plugins,
 and it was about to be a third for Beszel -- and every copy was free to drift
 from the others. A host would then send Keycloak's password-reset mail through
 one relay and WordPress's contact form through another, from the same stored

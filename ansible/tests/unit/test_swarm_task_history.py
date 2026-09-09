@@ -21,8 +21,8 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-DOCKER_TASKS = ANSIBLE / "roles" / "docker" / "tasks" / "main.yml"
-DOCKER_DEFAULTS = ANSIBLE / "roles" / "docker" / "defaults" / "main.yml"
+DOCKER_TASKS = ANSIBLE / "bootstrap" / "roles" / "docker" / "tasks" / "main.yml"
+DOCKER_DEFAULTS = ANSIBLE / "bootstrap" / "roles" / "docker" / "defaults" / "main.yml"
 
 
 def _tasks() -> list[dict]:

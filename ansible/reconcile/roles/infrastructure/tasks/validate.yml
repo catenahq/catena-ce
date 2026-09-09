@@ -1,0 +1,207 @@
+---
+# Validation tasks for reconcile/roles/infrastructure. Replaces tests/goss/infrastructure.yaml.
+
+# set_fact here because main.yml's fact is not in scope during a standalone
+# validate run.
+- name: "validate/infrastructure: resolve CF token presence"
+  ansible.builtin.set_fact:
+    # The cloudflared swarm service only exists once a Cloudflare token has been
+    # saved (catena-admin > Settings) and the tunnel converged. With no token
+    # the tunnel is DEFERRED, so skip the cloudflared-service asserts rather than
+    # failing on an absent service. The token is published as a fact by
+    # playbooks/validate.yml's load_onbox_config pre_task.
+    _infra_cf_token_present: "{{ (cloudflare_api_token | default('')) | length > 0 }}"
+
+# The fixtures here no longer all arrive at the same time. gatus-sync, the
+# nextcloud OIDC wirer, the export dir and Traefik's dynamic dir are written by
+# THIS role; catena-dashboard-sync is a lane script in the catena-admin image
+# payload. On a host that stages its payload out of band
+# (CATENA_PAYLOAD_INSTALL=false -- the bench builds the image on the VPS with
+# the docker this converge installs, so it cannot stage it any earlier) the
+# reconciler lands AFTER a converge, and a validate in between would be
+# asserting on a host that is legitimately mid-assembly.
+#
+# bootstrap/roles/common/tasks/_payload_expected.yml makes the decision. It prefers
+# reconcile/roles/payload's fact and falls back to the env var, which is what a standalone
+# validate play needs: the set_fact belongs to a role that is not in this play,
+# so reading it here would evaluate undefined on every run.
+- name: "validate/infrastructure: is the payload expected here"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _payload_expected
+  vars:
+    _payload_paths: "{{ dashboard_sync_required_paths }}"
+
+- name: "validate/infrastructure: pin the payload decision"
+  ansible.builtin.set_fact:
+    _infra_payload_expected: "{{ catena_payload_expected | bool }}"
+    _infra_reconciler_present: "{{ catena_payload_missing | length == 0 }}"
+
+- name: "validate/infrastructure: payload not installed yet -- reconciler checks deferred"
+  ansible.builtin.debug:
+    msg: >-
+      {{ dashboard_sync_script_path }} is not on this host and this deployment
+      does not install the payload from the converge
+      (CATENA_PAYLOAD_INSTALL=false). It arrives with the payload install, and
+      its timer is wired by the converge that follows. Everything this role
+      owns is asserted below regardless.
+  when: not (_infra_payload_expected | bool)
+
+- name: "validate/infrastructure: stat the payload-shipped reconciler"
+  ansible.builtin.stat:
+    path: "{{ dashboard_sync_script_path }}"
+  register: _infra_dashboard_sync
+  when: _infra_payload_expected | bool
+
+- name: "validate/infrastructure: the payload-shipped reconciler is installed"
+  ansible.builtin.assert:
+    that:
+      - _infra_dashboard_sync.stat.exists
+      - _infra_dashboard_sync.stat.isreg
+      - _infra_dashboard_sync.stat.mode == "0755"
+    fail_msg: >-
+      {{ dashboard_sync_script_path }} is missing or not 0755
+      (exists={{ _infra_dashboard_sync.stat.exists }},
+      mode={{ _infra_dashboard_sync.stat.mode | default('n/a') }}). It ships in
+      the catena-admin host payload; check that reconcile/roles/payload extracted it, or
+      that the out-of-band payload install ran.
+  when: _infra_payload_expected | bool
+
+- name: "validate/infrastructure: stat sync scripts + traefik dynamic dir"
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+  register: _infra_stats
+  loop: >-
+    {{ [{'path': '/usr/local/bin/gatus-sync', 'mode': '0755'},
+        {'path': '/usr/local/bin/catena-wire-nextcloud-oidc', 'mode': '0755'},
+        {'path': '/var/backups/catena-export', 'type': 'directory', 'mode': '0750'},
+        {'path': '/etc/catena/traefik/dynamic', 'type': 'directory'}] }}
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: "validate/infrastructure: fixture files/dirs correct"
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - (item.item.type is not defined) or (item.stat.isdir if item.item.type == 'directory' else item.stat.isreg)
+      - (item.item.mode is not defined) or (item.stat.mode == item.item.mode)
+    fail_msg: "{{ item.item.path }}: missing or wrong type/mode"
+  loop: "{{ _infra_stats.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+
+# catena-dashboard-sync.timer only when the reconciler it triggers is expected
+# here: the converge does not wire a timer whose .service is absent, because
+# systemd refuses to start one. gatus-sync is this role's own and is always
+# asserted -- dropping both would turn a deferred payload into no timer
+# coverage at all.
+- name: "validate/infrastructure: which sync timers should be armed"
+  ansible.builtin.set_fact:
+    _infra_sync_timers: >-
+      {{ (['catena-dashboard-sync.timer']
+          if (_infra_payload_expected | bool) else [])
+         + ['gatus-sync.timer'] }}
+
+- name: "validate/infrastructure: sync timers are active + enabled"
+  # service_facts enumerates .service units reliably but can miss .timer
+  # units depending on ansible version. Use systemctl command probes so
+  # timer state is deterministic across versions.
+  ansible.builtin.command: "systemctl {{ item.1 }} {{ item.0 }}"  # noqa: command-instead-of-module
+  register: _infra_timer_checks
+  loop: "{{ _infra_sync_timers | product(['is-active', 'is-enabled']) | list }}"
+  loop_control:
+    label: "{{ item.0 }} {{ item.1 }}"
+  failed_when: false
+  changed_when: false
+
+- name: "validate/infrastructure: all sync timers armed"
+  ansible.builtin.assert:
+    that:
+      - (item.stdout | trim) in ['active', 'enabled']
+    fail_msg: >-
+      {{ item.item.0 }} {{ item.item.1 }} -> {{ item.stdout | trim }}
+      (expected active/enabled)
+  loop: "{{ _infra_timer_checks.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.0 }} {{ item.item.1 }}"
+
+- name: "validate/infrastructure: catena-network exists"
+  ansible.builtin.command: docker network inspect catena-network
+  register: _infra_net
+  failed_when: false
+  changed_when: false
+
+- name: "validate/infrastructure: catena-network reachable"
+  ansible.builtin.assert:
+    that:
+      - _infra_net.rc == 0
+    fail_msg: "docker network inspect catena-network rc={{ _infra_net.rc }}"
+
+- name: "validate/infrastructure: cloudflared tunnel deferred (no token yet)"
+  ansible.builtin.debug:
+    msg: >-
+      Skipping the cloudflared swarm-service asserts -- no Cloudflare token in
+      the on-box store yet; the tunnel is deferred until one is saved in
+      catena-admin > Settings.
+  when: not (_infra_cf_token_present | bool)
+
+- name: "validate/infrastructure: cloudflared 1/1 replica"
+  ansible.builtin.command: docker service ls --filter name=cloudflared --format '{% raw %}{{.Name}}|{{.Replicas}}{% endraw %}'
+  register: _infra_cf
+  failed_when: false
+  changed_when: false
+  when: _infra_cf_token_present | bool
+
+- name: "validate/infrastructure: cloudflared replicas healthy"
+  ansible.builtin.assert:
+    that:
+      - _infra_cf.rc == 0
+      - _infra_cf.stdout_lines | select('match', '^cloudflared\\|1/1') | list | length > 0
+    fail_msg: "cloudflared swarm service not 1/1: {{ _infra_cf.stdout }}"
+  when: _infra_cf_token_present | bool
+
+- name: "validate/infrastructure: host binds no port 80 or 443 (architecture invariant)"
+  ansible.builtin.shell: |
+    ss -H -tln | awk '{print $4}' | grep -E ':(80|443)$' || true
+  args:
+    executable: /bin/bash
+  register: _infra_ports
+  failed_when: false
+  changed_when: false
+
+- name: "validate/infrastructure: nothing listens on 80/443"
+  ansible.builtin.assert:
+    that:
+      - (_infra_ports.stdout | trim) == ''
+    fail_msg: "host has processes bound to 80 or 443 directly: {{ _infra_ports.stdout }}"
+
+# Two things this pattern has to get right, and the loose version got
+# neither:
+#
+#   ANCHORED. `(80|443)/tcp` is a substring match against the whole ufw
+#   line, so any port ENDING in 80 or 443 tripped it -- gatus' loopback
+#   port 18080 is the one that did. The port is the first field of a ufw
+#   status row, so anchor to ^.
+#
+#   ALLOW ONLY. The assertion is "nothing OPENS 80/443", but it fired on
+#   any matching row, so a DENY on those ports -- the very thing you would
+#   want to see -- would have failed the validate too. Match the action.
+#
+# ` +` rather than `[[:space:]]+`: ufw pads its columns with spaces, and
+# this spelling means the same thing to grep -E and to Python's re, which
+# is what lets tests/unit/test_ufw_80_443_check.py run THIS pattern against
+# sample output instead of a restatement of it.
+- name: "validate/infrastructure: ufw does not allow public 80/443"
+  ansible.builtin.shell: |
+    ufw status | grep -E '^(80|443)/tcp( \(v6\))? +ALLOW' || true
+  args:
+    executable: /bin/bash
+  register: _infra_ufw
+  failed_when: false
+  changed_when: false
+
+- name: "validate/infrastructure: no rule allowing 80/443 in ufw"
+  ansible.builtin.assert:
+    that:
+      - (_infra_ufw.stdout | trim) == ''
+    fail_msg: "ufw has rule allowing tcp/80 or tcp/443: {{ _infra_ufw.stdout }}"

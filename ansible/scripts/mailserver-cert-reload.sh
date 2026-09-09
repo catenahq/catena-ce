@@ -5,7 +5,7 @@
 #
 # Installed verbatim to
 # /etc/letsencrypt/renewal-hooks/deploy/mailserver-reload.sh by
-# roles/infrastructure mailserver_cert.yml.
+# reconcile/roles/infrastructure mailserver_cert.yml.
 #
 # certbot fires deploy hooks after every
 # successful renewal (for ALL certs that renewed in the run); this also
@@ -38,7 +38,7 @@ DEST="/tmp/docker-mailserver/custom-certs"
 [ -f "$LIVE/fullchain.pem" ] || exit 0
 
 # The SERVICE is the discriminator, not the container -- the same one
-# roles/infrastructure/tasks/_mailserver_dms_locate.yml uses. "No service"
+# reconcile/roles/infrastructure/tasks/_mailserver_dms_locate.yml uses. "No service"
 # is a genuine not-deployed and stays an instant no-op, so an unrelated
 # renewal run is never delayed. "Service but no running container" is dms
 # cycling, which is worth waiting out below.

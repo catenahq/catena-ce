@@ -1,0 +1,180 @@
+---
+# reconcile/roles/oauth2_proxy deploys ONE oauth2-proxy container per gated
+# upstream in true reverse-proxy mode. Each instance:
+#
+#   - listens on catena-network alias `oauth2-proxy-<slug>`
+#   - proxies to its own backend via `--upstream=http://<alias>:<port>`
+#   - enforces its own `--allowed-group=` ACL
+#   - shares the same Keycloak client + cookie name + cookie secret so
+#     a single SSO session covers every gated host (cookie-domain is
+#     `.<zone>`); per-app ACL still enforced at each container's group
+#     filter on top of the shared session.
+#
+# Why per-upstream instead of forward-auth? Traefik's `errors`
+# middleware preserves the original 401 status while replacing only
+# the body, so the documented forwardAuth + errors-redirect pattern
+# returns `401 Unauthorized` with body `<a>Found</a>.` -- browsers
+# never follow Location on 401, so users see a literal "Found" link.
+# Reverse-proxy mode lets oauth2-proxy emit a real 302 itself.
+
+# --- Image pin ---
+# Track upstream releases at https://github.com/oauth2-proxy/oauth2-proxy/releases
+# before bumping. Architecture-tagged images (alpine variant) keep size down.
+oauth2_proxy_image_tag: "v7.15.2-alpine"
+oauth2_proxy_image: >-
+  {{ ('quay.io/oauth2-proxy/oauth2-proxy:' ~ oauth2_proxy_image_tag)
+     | catena_image_pin(catena_image_pins | default({})) }}
+
+# --- Compose ---
+oauth2_proxy_compose_name: "oauth2-proxy"
+oauth2_proxy_internal_port: 4180 # default oauth2-proxy listen port
+
+# --- Cookie name ---
+# Single shared cookie across every per-app instance so SSO carries
+# from monitor.<zone> to dash.<zone> to apps.<zone>. Per-app
+# `allowed_groups` filtering enforces ACL on top of the shared session.
+oauth2_proxy_cookie_name: "_oauth2_proxy"
+
+# --- Keycloak client wiring ---
+# The static client lives in reconcile/roles/keycloak/templates/realm-oauth2-proxy.yaml.j2
+# (rendered by THIS role via realm_client.yml + reapplied via the
+# keycloak-config-cli re-import). client_id is fixed; client_secret is
+# minted on-box into the config store.
+oauth2_proxy_client_id: "oauth2-proxy"
+
+# OIDC issuer URL. MUST match Keycloak's KC_HOSTNAME (the issuer claim
+# minted into JWTs + the `issuer` field returned by /.well-known/openid-
+# configuration). oauth2-proxy v7 strict-validates the configured
+# issuer against the JWT iss claim, so this stays the PUBLIC hostname
+# (auth.<zone>) -- Keycloak 26's KC_HOSTNAME is public, so every token's
+# iss carries the public URL.
+#
+# BUT oauth2-proxy's BACKCHANNEL calls (OIDC discovery + JWKS fetch at
+# boot, token redemption at login) go to the intra-cluster Keycloak,
+# NOT out through Cloudflare. Rationale (root-caused on bench run
+# 2026-07-04T05-51-10-8947): with discovery pointed at the public
+# issuer, oauth2-proxy fetches .well-known/openid-configuration through
+# the CF Tunnel at every boot. During a restore/reconverge the
+# cloudflared connector re-registers for a few seconds; any oauth2-proxy
+# that (re)starts in that window gets a CF-synthesized 530/1033, crash-
+# exits ("Failed to initialise OAuth2 Proxy"), and Docker's exponential
+# restart-backoff can outlive the validate /ping budget. That coupled
+# internal auth boot to the public edge being up at that instant.
+#
+# Fix: --skip-oidc-discovery=true + explicit endpoints. The browser-
+# facing authorization endpoint (--login-url) stays PUBLIC; the server-
+# to-server token + JWKS endpoints (--redeem-url, --oidc-jwks-url) point
+# at keycloak-server:8080 on catena-network. Keycloak already sets
+# KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true, so it answers backchannel
+# requests on the internal host while keeping the public issuer in the
+# iss claim. Overriding redeem+jwks alone is NOT enough -- with
+# discovery still enabled oauth2-proxy STILL fetches .well-known from
+# the public issuer at boot; --skip-oidc-discovery removes that GET.
+# Net: oauth2-proxy boot makes ZERO Cloudflare round-trips, so a tunnel
+# re-register during a restore can no longer crashloop internal auth.
+oauth2_proxy_oidc_issuer: "https://{{ keycloak_hostname }}/realms/{{ keycloak_realm }}"
+
+# Public (browser-facing) authorization endpoint -- the user's browser
+# is redirected here, so it MUST be the public hostname.
+oauth2_proxy_login_url: "https://{{ keycloak_hostname }}/realms/{{ keycloak_realm }}/protocol/openid-connect/auth"
+
+# Intra-cluster Keycloak backchannel base for server-to-server calls
+# (token redemption + JWKS). Host + port MUST match
+# reconcile/roles/keycloak/vars/main.yml keycloak_server_alias + the KC HTTP port
+# (keycloak.compose.yml.j2 exposes 8080 on catena-network). Keycloak's
+# KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true makes these reachable on the
+# internal host while the discovery doc / iss stay public.
+oauth2_proxy_keycloak_backchannel_host: "keycloak-server"
+oauth2_proxy_keycloak_backchannel_port: 8080
+oauth2_proxy_backchannel_base: "http://{{ oauth2_proxy_keycloak_backchannel_host }}:{{ oauth2_proxy_keycloak_backchannel_port }}/realms/{{ keycloak_realm }}/protocol/openid-connect"
+oauth2_proxy_redeem_url: "{{ oauth2_proxy_backchannel_base }}/token"
+oauth2_proxy_jwks_url: "{{ oauth2_proxy_backchannel_base }}/certs"
+
+# --- Gated apps (one oauth2-proxy container per entry) ---
+# Each entry maps to:
+#   - a per-app oauth2-proxy compose service named `<slug>` with
+#     network alias `oauth2-proxy-<slug>` on catena-network
+#   - a Traefik file-based route at
+#     {{ traefik_dynamic_dir }}/<slug>-oauth2-proxy.yml that
+#     routes Host(<host>) -> http://oauth2-proxy-<slug>:4180
+#   - a redirect URI in the shared `oauth2-proxy` Keycloak client.
+#
+# Fields:
+#   slug            stable identifier; controls the per-app
+#                   `oauth2-proxy-<slug>` compose service name +
+#                   network alias.
+#   host_var        inventory hostname variable holding the public FQDN.
+#   upstream_alias  catena-network alias of the BACKEND app. Compose-
+#                   managed apps register an alias matching their compose
+#                   service name (e.g. `gatus`, `homepage`); swarm services
+#                   resolve via the service name (e.g. `catena-portainer`).
+#   upstream_port   backend container's listen port.
+#   allowed_groups  list of Keycloak groups that may pass; oauth2-proxy
+#                   `--allowed-group` is repeated once per entry.
+#
+# WHY upstream_alias differs from the slug for some entries: the slug
+# is also the per-app compose service name + DNS alias of the
+# oauth2-proxy container. If `slug == upstream_alias` then BOTH
+# containers (proxy + backend) advertise the same alias on
+# catena-network and Docker round-robins between them, randomly
+# proxying to the proxy itself instead of the backend. The compose
+# template defends against this by always using `oauth2-proxy-<slug>`
+# as the proxy's service name -- but `upstream_alias` MUST still be
+# the BACKEND's actual alias on catena-network, NOT the public
+# subdomain prefix.
+oauth2_proxy_apps:
+  - slug: "gatus"
+    host_var: "infrastructure_gatus_hostname"
+    upstream_alias: "gatus"
+    # Gatus binds 8080 internally regardless of the public hostname --
+    # the OLD auto-route label `loadbalancer.server.port=8080`
+    # masked this. Port 80 inside the gatus container has nothing
+    # listening so the proxy gets `connection refused` and emits 502.
+    upstream_port: 8080
+    allowed_groups: ["staff", "admin"]
+  - slug: "healthchecks"
+    host_var: "healthchecks_hostname"
+    upstream_alias: "healthchecks"
+    upstream_port: 8000
+    allowed_groups: ["staff", "admin"]
+  # catena-admin -- the per-VPS operator panel at dash.<zone>. Staff
+  # may reach it; the admin's in-app role check (require_admin)
+  # gates everything beyond /apps to the admin group only.
+  #
+  # Direct upstream: the Go shell verifies the optional X-Catena-Sig
+  # header itself (shell/auth, opt-in via
+  # CATENA_ADMIN_REQUIRE_HEADER_SIG + CATENA_ADMIN_HEADER_SECRET), so
+  # there is no sidecar in front of it. reconcile/roles/catena-admin creates a swarm
+  # service NAMED catena-admin, and a swarm service's name is its DNS name
+  # on the overlay. upstream_alias MUST be that name: pointing it anywhere
+  # else 502s every AUTHENTICATED dash.<zone> request while
+  # unauthenticated ones still 302 to the IdP, so probes look fine.
+  - slug: "catena-admin"
+    host_var: "catena_admin_hostname"
+    upstream_alias: "catena-admin"
+    upstream_port: 8000
+    allowed_groups: ["staff", "admin"]
+  # Portainer is the per-VPS container control plane -- admin-only. It is
+  # ALSO reachable operator-side on the tailnet (host-mode :9000, firewalled
+  # to tailnet+RFC1918 by reconcile/roles/portainer); this entry adds the public,
+  # oauth2-gated path over the Cloudflare tunnel so a client admin can
+  # self-serve deploys from portainer.<zone>. upstream_alias is the swarm
+  # service name on catena-network;
+  # 9000 is the container's internal port (target), not the published host
+  # port. An empty allowed_groups would mean "any authenticated user", so
+  # admin-only MUST be an explicit ["admin"].
+  - slug: "portainer"
+    host_var: "portainer_admin_hostname"
+    upstream_alias: "catena-portainer"
+    upstream_port: 9000
+    allowed_groups: ["admin"]
+
+# Native-OIDC apps (vps.auth.mode=public + vps.auth.oidc=true): the
+# app runs the OIDC dance itself, so Traefik writes only a force-https
+# route + backend. No oauth2-proxy in front, no /oauth2/* callback router.
+# These apps register their own Keycloak confidential clients (see
+# reconcile/roles/keycloak/templates/realm-<app>.yaml.j2).
+#
+# Empty for now. The list shape is kept so client-deployed native-OIDC
+# apps can opt in without touching the template.
+oauth2_proxy_public_oidc_apps: []

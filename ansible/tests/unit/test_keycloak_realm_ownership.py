@@ -25,7 +25,7 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-TEMPLATES = ANSIBLE / "roles" / "keycloak" / "templates"
+TEMPLATES = ANSIBLE / "reconcile" / "roles" / "keycloak" / "templates"
 PANEL = TEMPLATES / "realm-admin-panel.yaml.j2"
 PROBE = TEMPLATES / "realm-identity-probe.yaml.j2"
 

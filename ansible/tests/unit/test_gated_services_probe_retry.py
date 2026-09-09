@@ -18,7 +18,7 @@ import yaml
 
 TASKS = (
     Path(__file__).resolve().parents[3]
-    / "ansible" / "roles" / "infrastructure" / "tasks"
+    / "ansible" / "reconcile" / "roles" / "infrastructure" / "tasks"
     / "verify_gated_services.yml"
 )
 

@@ -26,7 +26,7 @@ from pathlib import Path
 
 import yaml
 
-_ROLE = Path(__file__).resolve().parents[3] / "ansible" / "roles" / "backup"
+_ROLE = Path(__file__).resolve().parents[3] / "ansible" / "reconcile" / "roles" / "backup"
 _DEFAULTS = _ROLE / "defaults" / "main.yml"
 _RESTORE = _ROLE / "tasks" / "restore.yml"
 

@@ -21,8 +21,8 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-BACKUP_DEFAULTS = ANSIBLE / "roles" / "backup" / "defaults" / "main.yml"
-INFRA_DEFAULTS = ANSIBLE / "roles" / "infrastructure" / "defaults" / "main.yml"
+BACKUP_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "backup" / "defaults" / "main.yml"
+INFRA_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "defaults" / "main.yml"
 
 _LANE_BIN_DIR = "/usr/local/bin"
 

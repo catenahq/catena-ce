@@ -29,11 +29,11 @@ from pathlib import Path
 
 _TEMPLATE = (
     Path(__file__).resolve().parents[3]
-    / "ansible" / "roles" / "keycloak" / "templates" / "realm-vps.yaml.j2"
+    / "ansible" / "reconcile" / "roles" / "keycloak" / "templates" / "realm-vps.yaml.j2"
 )
 _BOOTSTRAP = (
     Path(__file__).resolve().parents[3]
-    / "ansible" / "roles" / "keycloak" / "tasks" / "realm_bootstrap.yml"
+    / "ansible" / "reconcile" / "roles" / "keycloak" / "tasks" / "realm_bootstrap.yml"
 )
 
 ALWAYS = (

@@ -33,7 +33,7 @@
   vars:
     # The floor, here rather than in a role's defaults, because the assertion
     # that reads it runs in pre_tasks where role defaults are not in scope.
-    # roles/ansible_runtime carries the same number as
+    # bootstrap/roles/ansible_runtime carries the same number as
     # ansible_runtime_minimum and tests/unit/test_ansible_runtime_pin.py holds
     # the two together.
     catena_reconcile_min_ansible: "2.20"
@@ -44,7 +44,7 @@
     # is a module failing eleven roles in with a message about a keyword, on a
     # machine nobody is watching, having already half-converged it.
     #
-    # roles/ansible_runtime installs the range; this is the floor a host may
+    # bootstrap/roles/ansible_runtime installs the range; this is the floor a host may
     # RUN. They are different questions: a host converged a year ago is running
     # whatever it was given then, and the answer has to come from the runtime
     # rather than from what the current tree would have installed.

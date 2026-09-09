@@ -37,7 +37,7 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-ROLE = ANSIBLE / "roles" / "infrastructure"
+ROLE = ANSIBLE / "reconcile" / "roles" / "infrastructure"
 ATTEMPT = ROLE / "tasks" / "_swarm_stack_deploy_attempt.yml"
 
 # The duration is a Jinja expression, and `{{ x }}` contains spaces, so a bare
@@ -115,7 +115,7 @@ def test_the_bound_is_declared_once_as_a_default() -> None:
         (ROLE / "defaults" / "main.yml").read_text()) or {}
     assert isinstance(defaults.get("swarm_stack_deploy_timeout"), int), (
         "swarm_stack_deploy_timeout must be an integer number of seconds in "
-        "roles/infrastructure/defaults/main.yml, got "
+        "reconcile/roles/infrastructure/defaults/main.yml, got "
         f"{defaults.get('swarm_stack_deploy_timeout')!r}"
     )
     for task in _deploy_tasks():

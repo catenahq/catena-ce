@@ -1,7 +1,7 @@
 ---
 # Trigger an on-demand restic snapshot of the host (Community manual backup).
 #
-# Single-play wrapper around roles/backup/tasks/trigger_now.yml, the same
+# Single-play wrapper around reconcile/roles/backup/tasks/trigger_now.yml, the same
 # mechanism the `catena-backup.service` systemd unit runs. CE ships a single,
 # manual backup; this is the CLI entry point (`catena backup`) a self-hoster
 # uses to take a snapshot on demand (the admin shell "Backup now" button drives
