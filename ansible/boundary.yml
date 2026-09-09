@@ -49,6 +49,11 @@ bootstrap_roles:
     why: >-
       The engine and the swarm. Nothing else in this file runs without it, and
       that includes whatever would have repaired it.
+  - name: ansible_runtime
+    why: >-
+      The ansible-core the host reconciles itself with. Question one answers
+      itself here: a reconcile is what this makes possible, so a reconcile
+      cannot be what installs it.
 
 # Roles the host can run against itself, once their inputs come from the store.
 # Order is site.yml's order, which is a dependency order, not a preference.

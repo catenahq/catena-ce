@@ -1,0 +1,31 @@
+---
+# The ansible-core the HOST runs against itself.
+#
+# Separate from the operator's controller environment on purpose. The operator's
+# comes from ansible/pyproject.toml through uv, on their laptop; this one is
+# installed on the client VPS by bootstrap, because a host that reconciles
+# itself needs an ansible-core that is on the host.
+
+# Its own venv, outside /usr/local/bin. Nothing dispatches these binaries by
+# name, so they do not belong on PATH: the converge engine names the
+# interpreter it wants.
+ansible_runtime_dir: /opt/catena/ansible
+
+# The SAME range ansible/pyproject.toml pins for the controller, and the reason
+# is the same: the floor is above the 2.19 series (which needed systemd/ufw
+# workarounds) and the ceiling is below the next unvalidated minor. One line
+# validated by the bench rather than two that drift.
+#
+# tests/unit/test_ansible_runtime_pin.py holds the two to each other.
+ansible_runtime_spec: "ansible-core>=2.20,<2.22"
+
+# What playbooks/reconcile.yml refuses below. Stated as a version rather than
+# derived from the spec above: the spec is what to INSTALL, this is what a host
+# may RUN, and a host converged a year ago is running whatever it got then.
+ansible_runtime_minimum: "2.20"
+
+# Debian ships python3-venv separately from python3, and pip inside a venv needs
+# ensurepip. Both are baseline on a Catena host, named here so this role does
+# not silently depend on roles/common's package list staying as it is.
+ansible_runtime_packages:
+  - python3-venv

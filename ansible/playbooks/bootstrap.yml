@@ -494,6 +494,10 @@
         file: tasks/seed_onbox_config.yml
   roles:
     - role: tailscale
+    # The ansible-core the host reconciles itself with. Here rather than in
+    # Phase 1 because Phase 1 can end early on its own idempotency check, and a
+    # host that skipped it would never gain the runtime.
+    - role: ansible_runtime
 
   post_tasks:
     # ─── Capture the steady-state tailnet IP ─────────────────────────────
