@@ -7,7 +7,7 @@
 
 Python shared by more than one caller. Most of it runs on the controller
 (the machine driving the install), imported by the installer and the
-roles in `../roles/`.
+roles in `../bootstrap/roles/` and `../reconcile/roles/`.
 
 Three are also on the server, because the host-side reconcilers need the
 same code the controller used to plan the work: `onbox_config.py`

@@ -5,10 +5,10 @@
 
 # Scripts
 
-Executables copied onto the server by a role in `../roles/` and run
-there -- by a systemd timer, by a role task, or by the admin panel
-through its dispatcher. That is the split against `../helpers/`: helpers
-are imported, scripts are installed.
+Executables copied onto the server by a role in `../reconcile/roles/`
+and run there -- by a systemd timer, by a role task, or by the admin
+panel through its dispatcher. That is the split against `../helpers/`:
+helpers are imported, scripts are installed.
 
 A file in this directory is part of the deployed system, so changing one
 changes what a server does on its next converge.
