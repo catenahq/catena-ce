@@ -43,7 +43,7 @@ that would remove your ability to run a reconcile.
 | 3. Inventory into the store | **done**, 18 -> 0 | catena-ce `836261a` `c29b978` `4893394` `c677205` `95ed945` |
 | 3'. Registry is the enforcement point | **done** | catena-ce `d63318a` |
 | 4. On-host reconcile + panel button + timer | **built**, timer ships DISABLED | catena-ce `6a0473b`; catena-admin `a9dbd54` `81a6d15` `96c230d` |
-| 5. Re-home split owners, retire the laptop path | open | -- |
+| 5. Re-home split owners, retire the laptop path | **2 of 3**, the third is bench-gated | catena-ce `bb1fbb6`; catena-admin `e2eaf77` `da7067b` |
 | 6. Optional: Go reconciler | not started | -- |
 
 Phases 3' and 4's vendoring landed early because both are independent of the
@@ -551,13 +551,38 @@ ad-hoc converge through `systemd-run --unit catena-converge`, and a persistent
 unit of that name would make every panel-triggered converge fail with a name
 collision, on a host where the scheduled one had been working fine.
 
-### Phase 5 and 6
+### Phase 5: two of three done
 
-Re-home the split unit owners (`catena-dashboard-sync.service` ships in the
-image while its `.timer` is converge-rendered), unify the settings schema, and
-retire `catena converge` to bootstrap and DR. Then optionally replace Ansible
-with per-concern Go engines, following
-`catena-cloudflared-sync` / `catena-dashboard-sync` / `catena-schedule`.
+**The split unit owner is re-homed.** `catena-dashboard-sync` had its service in
+the payload and its timer rendered by the converge -- one lane, two owners, two
+release cadences, so a change to the pair was half-applied until an image AND a
+converge had landed, in that order. Nothing in the timer was host-shaped (its
+interval and unit name were compiled-in constants), which is the same test the
+tunnel name had to pass. `test_no_lane_is_half_owned.py` is the general form,
+and it resolves a TEMPLATED destination through the role default behind it,
+because a literal-only scan reported this tree as clean while the split was
+live.
+
+**The settings schema was already unified -- and its gate was not working.**
+catena-ce's `onbox_config.py` is the source of truth for both registries, and
+the panel's schema is checked against it. Except the registries were
+TRANSCRIBED into Go, so the check held against the copy: eight keys were added
+across two sessions and the copy never moved. It reads the real file now
+(sibling checkout, or the vendored tree), fails rather than skips when neither
+is there, and guards its own parse. Turning it on named all eight; none becomes
+a field, and the exclusion map now says why for each -- including that
+`ADMIN_EMAIL` has no panel surface, which is a gap worth naming rather than
+hiding.
+
+**Retiring `catena converge` to bootstrap and DR is bench-gated**, and not
+incidentally: doing it before the on-host reconcile is proven would leave a host
+with no converge path at all. It waits on the same evidence the timer does.
+
+### Phase 6
+
+Optional, and not started: replacing Ansible with per-concern Go engines,
+following `catena-cloudflared-sync` / `catena-dashboard-sync` / `catena-schedule`.
+Nothing depends on it.
 
 ---
 
