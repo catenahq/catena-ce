@@ -55,6 +55,18 @@
          else '' }}
   no_log: true
 
+# The zone comes from the store this role already slurped, not from the
+# inventory. This play has no load_onbox_config pre_task by design -- it is
+# dispatched from the panel with the token on the command line -- so it reads
+# the same source the loader would have published, one file, one answer.
+- name: "CF regen: take the zone from the store"
+  ansible.builtin.set_fact:
+    cloudflare_zone: >-
+      {{ ((_cf_regen_store.content | default('') | b64decode | from_json).config
+          | default({})).get('CLOUDFLARE_ZONE', '')
+         if (_cf_regen_store_stat.stat.exists | default(false))
+         else '' }}
+
 - name: "CF regen: validate inputs"
   ansible.builtin.assert:
     that:
@@ -62,8 +74,9 @@
       - cf_api_token | length > 10
       - cloudflare_zone | length > 0
     fail_msg: >-
-      Missing inputs: cf_api_token (-e cf_api_token=...) and CLOUDFLARE_ZONE
-      from inventory .env.
+      Missing inputs: cf_api_token (-e cf_api_token=...), and a Cloudflare zone
+      in the on-box store. The zone is seeded there on the first converge; a
+      host without one has never finished an install.
   run_once: true
   delegate_to: localhost
   become: false

@@ -25,6 +25,7 @@ transforms live in Python with a unit test rather than in Jinja);
 | `backup_now.yml` | Trigger an on-demand restic snapshot of the host (Community manual backup). |
 | `bootstrap.yml` | Initial bring-up of a fresh VPS (any provider). |
 | `preflight.yml` | Controller-side preflight: prove the supplied Tailscale OAuth client works before any VPS is touched. |
+| `reconcile.yml` | The half of a converge that does not need an operator. |
 | `regenerate-cf-tunnel.yml` | Regenerate this host's Cloudflare tunnel without a full site converge. |
 | `restore.yml` | Narrow data-restoration playbook. |
 | `rotate-tailscale.yml` | Re-authenticate this node to the tailnet (force re-auth). |

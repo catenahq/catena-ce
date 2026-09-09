@@ -26,7 +26,12 @@ tailscale_accept_dns: >-
 
 # --- Cloudflare Tunnel ---
 cloudflare_api_base: "https://api.cloudflare.com/client/v4"
-cloudflare_zone: "{{ lookup('dotenv', 'CLOUDFLARE_ZONE') }}"
+# Store-owned, seeded from .env on the first converge and read from the store
+# ever after. NO default, deliberately: an empty zone builds every hostname as
+# `dash.`, `auth.`, `monitor.` and converges a host that looks finished and
+# serves nothing. The loader asserts it resolved, so the failure is one clear
+# sentence at the start rather than a puzzle three roles later.
+cloudflare_zone: "{{ cfg_cloudflare_zone }}"
 # cloudflare_zone above is the primary domain every <sub>.<zone> hostname
 # interpolates, and the only one a Community host serves. Additional domains
 # are attached in the catena-admin Domains panel and live in the on-box store;
@@ -66,7 +71,10 @@ healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
 # The SSO host (auth.<zone>) is the only subdomain with no oauth2-proxy in
 # front of it (it IS the auth layer). keycloak_hostname / keycloak_subdomain are defined
 # in roles/keycloak/defaults (reading the same AUTH_SUBDOMAIN env key).
-admin_email: "{{ lookup('dotenv', 'ADMIN_EMAIL', default='') }}"
+# Store-owned, same seed-once path as the zone. Empty is a real state -- it is
+# what a host has before anyone has said who to contact -- and the roles that
+# use it (ACME registration, the Keycloak admin account) already handle blank.
+admin_email: "{{ cfg_admin_email | default('') }}"
 
 # SMTP -- resolved by roles/keycloak from the store. SMTP_PROVIDER
 # (resend | brevo | server) decides where mail goes, SMTP_SENDER is the address

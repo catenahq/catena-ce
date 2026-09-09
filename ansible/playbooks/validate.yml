@@ -103,7 +103,11 @@
         (cfg_smtp_provider | default('') | trim | lower)
         in ['resend', 'brevo', 'server']
       }}
-    _bootstrap_email: "{{ lookup('dotenv', 'ADMIN_EMAIL', default='') }}"
+    # The store, not the inventory. ADMIN_EMAIL moved into the on-box config
+    # with the zone; this play already loads it, and reading .env here would be
+    # the second live reader the whole seed-once design exists to remove -- the
+    # one that answers with a stale value nobody edited.
+    _bootstrap_email: "{{ admin_email | default('') }}"
 
   tasks:
     - name: "Keycloak: find running server container"

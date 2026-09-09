@@ -152,6 +152,23 @@
   loop_control:
     label: "{{ item.key }}"
 
+# The one store value with no usable default. Every public hostname is
+# <sub>.<zone>, so an empty one converges a host that looks finished and serves
+# nothing -- the failure mode a default would buy. Asserted here, once, where
+# the answer has just been established, rather than left to surface as a
+# certificate for `dash.` three roles later.
+- name: "onbox: the zone every hostname is built from has to be known"
+  ansible.builtin.assert:
+    that:
+      - (cfg_cloudflare_zone | default('') | trim | length) > 0
+    fail_msg: >-
+      This host has no Cloudflare zone. It is seeded from CLOUDFLARE_ZONE in the
+      inventory .env on the first converge and read from
+      {{ catena_onbox_config_path | default('/etc/catena/config.json') }} from
+      then on, so either this is a first install with the key missing from .env,
+      or the store was replaced by one belonging to no domain.
+  run_once: true
+
 # ─── image pins: what the on-host update lane last applied ─────────────────
 #
 # The converge owns TOPOLOGY -- which services exist and how they wire. The

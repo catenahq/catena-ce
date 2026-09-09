@@ -194,12 +194,18 @@ The eleven that left are gone from `BOOTSTRAP_CONFIG`, from the starter
 inventory and from the operator skeleton, because a knob that no longer turns
 anything is worse in the documentation than absent.
 
-What remains, and what each needs:
+`cloudflare_zone` and `admin_email` moved next, into `SETTINGS_CONFIG` where the
+existing seed-once path picks them up with no new machinery: the `.env` fills
+them on the first converge and the store answers ever after. The zone keeps NO
+default, because an empty one builds `dash.`, `auth.`, `monitor.` and converges
+a host that looks finished and serves nothing -- the loader asserts it resolved,
+so the failure is one sentence at the start instead of a certificate for a blank
+domain three roles later.
+
+What remains, at 8:
 
 | Variable | Needs |
 | --- | --- |
-| `cloudflare_zone` | a store key. The hard blocker, and eight roles read it |
-| `admin_email` | a store key |
 | `portainer_admin_subdomain` | a store key; the one subdomain that varies |
 | `cloudflared_tunnel_name` | the prefix is a bench input; the name is derivable on-box |
 | `coturn_acme_*` (4), `mailserver_acme_*` (3) | product constants with a bench escape hatch |
@@ -209,6 +215,32 @@ inventory `.env` by ops `install_yaml.py`, so making them constants needs the
 bench to pass them another way (an exported env var, the shape
 `CATENA_ADMIN_IMAGE` already uses). That is a cross-repo change gated on a bench
 run, which is why they were not done with the other thirteen.
+
+### 9. Moving a key changes which PLAYS can resolve it
+
+The hop from `.env` to store is invisible at the call site -- roles say
+`cloudflare_zone`, not `cfg_cloudflare_zone` -- so moving a key silently changes
+which plays can still see it. The value now comes from a task that only some
+plays run.
+
+Moving the zone broke exactly one play, and not loudly:
+`regenerate-cf-tunnel.yml` has no loader by design (it is dispatched from the
+panel with the token on the command line), read the zone from the inventory, and
+would have started regenerating a tunnel against an empty domain. It already
+slurps the store for the token it rotates, so it now takes the zone from the
+same read.
+
+`tests/unit/test_store_readers_load_the_store.py` is the general form: a play
+whose roles read a store-backed variable loads the store, or is declared with
+the reason it does not need to. Writing it turned up a defect that predates all
+of this -- `roles/tailscale` resolves its provider, control URL and Headscale
+user from `cfg_*` with no inventory fallback, and two plays ran it without the
+loader. `rotate-tailscale.yml` is fixed (it runs against an installed host, so
+the loader is simply correct there). `bootstrap.yml` cannot be: it runs before
+there is a store, which means a Headscale host bootstraps against Tailscale SaaS
+and only the first `site.yml` puts it right. Declared in that gate, recorded in
+`ops/BACKLOG_TECHNICAL.md`, and the fix is a decision about where the store is
+born rather than a line in a playbook.
 
 ### 6. Three misclassifications the boundary gates caught
 

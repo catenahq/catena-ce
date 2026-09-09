@@ -15,6 +15,24 @@
   become: true
   gather_facts: false
 
+  # WHICH tailnet is a store value, so this play has to read the store.
+  #
+  # tailnet_provider, tailnet_control_url and tailnet_headscale_user resolve
+  # from cfg_* facts with no inventory fallback, and this play had no loader --
+  # so every one of them was empty here and the provider inference answered
+  # "tailscale" unconditionally. On a Headscale host this rotated against the
+  # wrong control server, which is the one thing a re-auth action must not do:
+  # it is reached precisely when the node has lost tailnet reachability, and it
+  # would have taken the operator further from the tailnet rather than back to
+  # it. Found by tests/unit/test_store_readers_load_the_store.py.
+  pre_tasks:
+    - name: "Load the on-box config store"
+      ansible.builtin.include_tasks:
+        file: tasks/load_onbox_config.yml
+        apply:
+          tags: [always, onbox]
+      tags: [always, onbox]
+
   roles:
     - role: tailscale
       vars:

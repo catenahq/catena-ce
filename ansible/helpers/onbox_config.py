@@ -452,6 +452,18 @@ SETTINGS_CONFIG: dict[str, str] = {
     "DOCKER_REGISTRY_MIRROR_URL": "cfg_docker_registry_mirror_url",
     # Mailserver toggles.
     "MAILSERVER_CERTBOT_STAGING": "cfg_mailserver_certbot_staging",
+    # The primary domain, and the address every ACME registration and admin
+    # account uses. They were the last two values a reconcile could only get
+    # from the operator's .env, and the zone was the only one of the eighteen
+    # with no default -- so it is the value that made a self-converging host
+    # impossible rather than merely wrong.
+    #
+    # Both are host facts by any reading: the zone is THE identity of the
+    # install, and the email is the client's. The .env keeps seeding them
+    # fill-only on the first converge, exactly as it seeds a vendor credential,
+    # and never answers again.
+    "CLOUDFLARE_ZONE": "cfg_cloudflare_zone",
+    "ADMIN_EMAIL": "cfg_admin_email",
     # Whether every account in the realm must set up a second factor. A
     # settings value rather than an install input because it is a decision a
     # client makes about their own people, and one they may make later: turning
@@ -477,10 +489,8 @@ SETTINGS_CONFIG: dict[str, str] = {
 # settings key above, which is where a per-host value belongs now that the host
 # converges itself.
 BOOTSTRAP_CONFIG: frozenset[str] = frozenset({
-    "ADMIN_EMAIL",
     "PORTAINER_SUBDOMAIN",
     "CLOUDFLARED_TUNNEL_NAME_PREFIX",
-    "CLOUDFLARE_ZONE",
     "COMMON_LOCALE",
     "COMMON_TIMEZONE",
     "OPS_USER",
