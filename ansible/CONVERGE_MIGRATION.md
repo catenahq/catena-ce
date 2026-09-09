@@ -38,7 +38,7 @@ that would remove your ability to run a reconcile.
 | Phase | State | Landed as |
 | --- | --- | --- |
 | 1a. Boundary declared + enforced | **done** | catena-ce `75a529c` |
-| 1b. Directories physically split | **open**, bench-gated | -- |
+| 1b. Directories physically split | **done** | catena-ce `4e20250` `fe077c8` `4fb2f0b` `7a669a3` |
 | 2. Dispatch table into the image | **done** | catena-admin `6557adf`, catena-ce `829b914` |
 | 3. Inventory into the store | **done**, 18 -> 0 | catena-ce `836261a` `c29b978` `4893394` `c677205` `95ed945` |
 | 3'. Registry is the enforcement point | **done** | catena-ce `d63318a` |
@@ -448,15 +448,50 @@ born rather than a line in a playbook.
 
 ## What remains, in order
 
-### Phase 1b: move the directories
+### Phase 1b: move the directories -- DONE
 
-`bootstrap/` and `reconcile/` as sibling trees, `shared/` for filter plugins.
-`bootstrap/roles/common` splits at `public_ports.yml`; `reconcile/roles/catena-admin` splits at
-`host.yml`. `boundary.yml` already declares every file's side, so this is a
-rename rather than a judgement call.
+`bootstrap/roles/` and `reconcile/roles/`, declared in ansible.cfg's roles_path.
+A role's side is where it lives.
 
-**186 files reference `roles/<name>`**, 49 of them tests. The gate is a bench
-install from zero producing the same host, so land it where a bench can run.
+**It was not a rename, and the plan said it was.** Two roles straddled the line,
+and the straddle was the substance:
+
+- `common/tasks/public_ports.yml` became `roles/public_ports`. The firewall's
+  default-deny policy is bootstrap's; a reconciler that opens what the deployed
+  applications declare is version-shaped work a host can redo for itself.
+- `catena-admin/tasks/host.yml` became `roles/catena_admin_host`. This one was
+  hiding a live defect: the role imported it unconditionally and reconcile.yml
+  ran the role, so **a reconcile could rewrite the forced command** while every
+  assertion about the files passed.
+
+The defaults were the risk, not the file moves. Sixty-four declarations in
+roles/catena-admin, and the transitive closure over their VALUES -- not merely
+which file mentions which name -- put twenty-six on the host side and six read
+by both halves. A moved default whose value referenced one left behind would
+have resolved to nothing, silently, in a role that runs earlier.
+
+**Values two roles either side of the line share went to group_vars**, not into
+either role: the panel's identity, and the public-port paths six roles read. A
+role default is only dependable once that role has run. Same call as the phase-3
+subdomains.
+
+**What did NOT move: the filter plugins.** The plan said `shared/` for them, and
+`playbooks/` is already outside both sides -- it holds all three playbooks, the
+group_vars, the shared task files and the plugins. A `shared/` directory holding
+one directory that is already shared would have been forty reference updates for
+no change in meaning.
+
+Three hundred and thirty-eight catena-ce files and fifty-six ops files, and
+every one of them a path.
+
+**The gate that made it safe almost did not.**
+`test_every_role_reference_resolves` matched `roles/<name>/`, which after the
+move matched nothing -- so it passed, vacuously, over a tree full of dead paths.
+It now requires the side, counts what it matched so a rotted pattern fails
+instead of going quiet, and refuses a prefixless `roles/<name>/` outright. Four
+pieces of the ops audit engine had the same shape of failure and are fixed in
+ops `f30b11eb`; each had gone QUIET rather than red, which is the thing to
+expect when a path convention changes under a static analyser.
 
 ### Phase 3: the inventory into the store -- DONE
 
@@ -531,12 +566,10 @@ with per-concern Go engines, following
 Open questions and known conflicts, so the next person meets them here rather
 than in the code.
 
-- **Phase 1b is 186 files, and the gate is now partial rather than absent.**
-  `test_every_role_reference_resolves.py` proves every role name and every
-  literal `roles/<name>` path resolves, and that no name lives under two roots,
-  so the mechanical half of the rename cannot land broken. What it cannot prove
-  is that the split produces the same host. That is still an install from zero,
-  so land the rename where a bench can run immediately after.
+- **Phase 1b is done and unproven.** Every gate that can be checked from a
+  laptop passes: 1034 catena-ce tests, both ops suites, the audit's check-all.
+  None of them can say the split produces the same host, which is an install
+  from zero. It is the single largest untested change in this migration.
 - **The settle assertion turns an invisible defect into a loud one.**
   `reconcile/roles/catena-admin` now re-inspects after a `docker service update` and fails
   if the same drift is still reported. If `swarm_service_drift` reads a field
