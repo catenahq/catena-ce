@@ -51,7 +51,7 @@ Rehearsal scenarios (1 of 1 observed passing): `marketplace_catalog_resolved`
 
 Prepares a fresh server, installs the platform, and deploys the selected applications. Re-running the same managed operation converges the server back to its declared configuration, so a drifted or half-configured server is repaired, not rebuilt by hand.
 
-Implemented in: `ansible/catena_cli.py`, `ansible/helpers/*.py`, `ansible/playbooks/bootstrap.yml`, `ansible/playbooks/preflight.yml`, `ansible/playbooks/show_dr_keyset.yml`, `ansible/playbooks/site.yml`, `ansible/playbooks/tasks/load_onbox_config.yml`, `ansible/playbooks/uninstall.yml`, `ansible/roles/common`, `ansible/roles/docker`, `ansible/roles/host_hardening`, `ansible/roles/payload`, `ansible/roles/portainer`, `ansible/roles/postgres`, `ansible/roles/storage`, `ansible/roles/tier1_stack`, `ansible/roles/traefik`, `ansible/seed.py`
+Implemented in: `ansible/catena_cli.py`, `ansible/helpers/*.py`, `ansible/playbooks/bootstrap.yml`, `ansible/playbooks/preflight.yml`, `ansible/playbooks/reconcile.yml`, `ansible/playbooks/show_dr_keyset.yml`, `ansible/playbooks/site.yml`, `ansible/playbooks/tasks/load_onbox_config.yml`, `ansible/playbooks/uninstall.yml`, `ansible/roles/common`, `ansible/roles/docker`, `ansible/roles/host_hardening`, `ansible/roles/payload`, `ansible/roles/portainer`, `ansible/roles/postgres`, `ansible/roles/storage`, `ansible/roles/tier1_stack`, `ansible/roles/traefik`, `ansible/seed.py`
 
 Rehearsal scenarios (18 of 19 observed passing): `ce_converge`, `ce_install_suite`, `ce_uninstall`, `converge_modify`, `converge_preserves_bumped_image`, `fi_c1_docker_daemon_hang`, `fi_c3_portainer_crash_mid_deploy`, `fi_c4_registry_pull_timeout`, `fi_c6_cloudflared_flapping`, `fi_c7_coturn_cert_expired`, `fi_c8_nextcloud_init_loop`, `fi_u1_compose_lint_reject`, `mixed_template_negative_restore`, `payload_prune_respects_ce`, `release_manifest_converge_state`, `repair_broken_template_round_trip`, `scheduler_easyappointments`, `swarm_overlay_selfheal`; declared, not yet observed passing: `dev_to_prod_cutover_round_trip`
 
@@ -137,7 +137,7 @@ Parsed from the committed workflow files; every job below runs on each change.
 
 | Workflow | File | Jobs |
 | --- | --- | --- |
-| CI | `.github/workflows/ci.yml` | `installer`, `duplication` |
+| CI | `.github/workflows/ci.yml` | `installer`, `syntax`, `duplication` |
 | security | `.github/workflows/security.yml` | `scanctl` |
 | seed baseline | `.github/workflows/seed-baseline.yml` | `seed` |
 | Trivy | `.github/workflows/trivy.yml` | `resolve-pins-matrix`, `trivy-pinned-images`, `trivyignore-expiry`, `trivy-gate` |
