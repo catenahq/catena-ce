@@ -14,11 +14,11 @@ boundary.yml draws the line. This asserts three properties of it.
      rewrite the forced command is a reconcile that can rewrite what a
      reconcile is, and that is the whole reason the two sides exist.
 
-  3. The number of inventory-sourced variables a reconcile role reads only ever
-     goes DOWN. Each one is a value that must move into the on-box store before
-     the host can converge itself, so the count is the remaining work, measured
-     rather than estimated. A ratchet rather than a pass/fail: it is 18 today
-     and the build fails if it becomes 19.
+  3. NO reconcile role reads a value from the operator's inventory. This was a
+     ratchet counting down from 18, one value at a time, and it has reached
+     zero: every one is now a store key or a compiled-in product constant. It
+     stays a number rather than a bare assertion so the failure says how far
+     back a regression pushed it.
 
 Run: uv run pytest tests/unit/test_converge_boundary.py
 """
@@ -33,9 +33,8 @@ _ANSIBLE = Path(__file__).resolve().parents[2]
 _BOUNDARY = _ANSIBLE / "boundary.yml"
 _ROLES = _ANSIBLE / "roles"
 
-# What the reconcile side still takes from the operator's inventory. Every
-# entry is one settings key away from deletion; see the module docstring.
-INVENTORY_BACKLOG = 7
+# What the reconcile side still takes from the operator's inventory. Nothing.
+INVENTORY_BACKLOG = 0
 
 
 def _boundary() -> dict:
@@ -158,12 +157,18 @@ def _backlog() -> dict[str, set[str]]:
 
 
 def test_the_inventory_backlog_only_shrinks():
-    """The count of inventory values the reconcile side still needs.
+    """The count of inventory values the reconcile side still needs. Zero.
 
-    Not zero yet, and it is not supposed to be: emptying it is the phase this
-    number exists to size. What must not happen is a new one appearing, because
-    that is a value being added to the set the host cannot converge without an
-    operator for.
+    A host that reconciles itself cannot ask an operator's laptop anything, so
+    any number above zero is the distance to one that can. What must not happen
+    is a new one appearing.
+
+    The count remains a FLOOR, for the reason the module docstring gives: a
+    value reached through a derived name is not counted. Zero here means no
+    reconcile role names an inventory-defined variable directly, which is the
+    property that can be checked from the outside. The property that cannot --
+    that the host produces the same result with no inventory at all -- is a
+    bench assertion.
     """
     found = _backlog()
     assert len(found) <= INVENTORY_BACKLOG, (

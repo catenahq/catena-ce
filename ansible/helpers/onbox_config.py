@@ -452,6 +452,27 @@ SETTINGS_CONFIG: dict[str, str] = {
     "DOCKER_REGISTRY_MIRROR_URL": "cfg_docker_registry_mirror_url",
     # Mailserver toggles.
     "MAILSERVER_CERTBOT_STAGING": "cfg_mailserver_certbot_staging",
+    # THE OTHER TEST-BENCH KNOBS, kept as store keys for the same reason as
+    # CLOUDFLARED_TUNNEL_NAME_PREFIX above.
+    #
+    # They point certificate issuance at something other than production Let's
+    # Encrypt: a local Pebble on the bench network (the three CATENA_ACME_ ones,
+    # read by BOTH roles/coturn and roles/infrastructure), or LE's staging CA
+    # (the certbot toggles, one per service, because the bench re-issues
+    # turn.<zone> and mail.<zone> on every run and production enforces five
+    # certs per exact identifier per 168h -- one hit blocks the next ~32h).
+    # Empty and false on every client install.
+    #
+    # A store key rather than a `.env` one because the roles that read them are
+    # RECONCILE-side: a host that converges itself cannot ask an operator's
+    # laptop which CA to trust. That they happen to be set only by a test
+    # harness does not change which side of the boundary the reader sits on --
+    # and MAILSERVER_CERTBOT_STAGING was already here, with its coturn twin left
+    # behind in the `.env` for no reason anybody wrote down.
+    "CATENA_ACME_DIRECTORY_URL": "cfg_acme_directory_url",
+    "CATENA_ACME_HOST_IP": "cfg_acme_host_ip",
+    "CATENA_ACME_CA_BUNDLE_PEM_B64": "cfg_acme_ca_bundle_b64",
+    "COTURN_CERTBOT_STAGING": "cfg_coturn_certbot_staging",
     # The primary domain, and the address every ACME registration and admin
     # account uses. They were the last two values a reconcile could only get
     # from the operator's .env, and the zone was the only one of the eighteen
@@ -525,13 +546,6 @@ BOOTSTRAP_CONFIG: frozenset[str] = frozenset({
     "STORAGE_MODE",
     "TAILSCALE_ACCEPT_DNS",
     "TAILSCALE_TAGS",
-    # Bench / dev overrides for the ACME path. Not client-facing: they point
-    # coturn's cert issuance at a local Pebble instead of Let's Encrypt, which
-    # is an inventory-level decision made before the host exists.
-    "CATENA_ACME_CA_BUNDLE_PEM_B64",
-    "CATENA_ACME_DIRECTORY_URL",
-    "CATENA_ACME_HOST_IP",
-    "COTURN_CERTBOT_STAGING",
 })
 
 
