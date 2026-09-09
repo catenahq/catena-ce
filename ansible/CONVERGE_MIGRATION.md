@@ -40,7 +40,7 @@ that would remove your ability to run a reconcile.
 | 1a. Boundary declared + enforced | **done** | catena-ce `75a529c` |
 | 1b. Directories physically split | **open**, bench-gated | -- |
 | 2. Dispatch table into the image | **done** | catena-admin `6557adf`, catena-ce `829b914` |
-| 3. Inventory into the store | **open**, 18 -> 8 | catena-ce `836261a`, `c29b978` |
+| 3. Inventory into the store | **done**, 18 -> 0 | catena-ce `836261a` `c29b978` `4893394` `c677205` `95ed945` |
 | 3'. Registry is the enforcement point | **done** | catena-ce `d63318a` |
 | 4. On-host reconcile + panel button + timer | **vendoring done**, rest open | catena-admin `17c615f` |
 | 5. Re-home split owners, retire the laptop path | open | -- |
@@ -55,18 +55,21 @@ nothing for as long as the panel has existed (catena-admin `778f54b`, catena-ce
 unfixed -- catena-ce `317e3da` with catena-admin `3a1b54c` for the rollback's
 half of the second one.
 
-**Everything still open is bench-gated.** Phase 1b is a rename whose only gate
-is an install from zero; the eight remaining inventory values need either an ops
-change or the decision below; phase 4's timer is explicitly gated on a proven
-no-op reconcile. Nothing left in this migration can be finished from a laptop
-with unit tests alone, which is a state worth knowing before picking up the next
-piece.
+**Everything still open is bench-gated**, and everything that could be settled
+from a laptop has been. Phase 1b's mechanical half is proven by
+`test_every_role_reference_resolves.py` (`7669bc9`); what is left of it is
+whether the split produces the same host. Phase 3 reaches zero, but zero is a
+floor and the real acceptance test is a bench install that produces the same
+host rather than one that merely completes. Phase 4's timer is explicitly gated
+on a proven no-op reconcile.
+
+So the next thing this work needs is a bench run, not another unit test.
 
 ---
 
 ## Decisions taken
 
-### The store is born at BOOTSTRAP (2026-09-09)
+### The store is born at BOOTSTRAP (2026-09-09) -- BUILT, catena-ce `d4b74f4`
 
 **Decided: bootstrap seeds the config half of the store before any role runs.**
 
@@ -106,7 +109,10 @@ inherits a store that exists from the first minute, and the exception disappears
 instead of being managed. It makes "the store is the source of truth" true from
 minute one rather than from the first converge.
 
-What it entails, and the part that needs care:
+What it entailed, and the part that needed care. The seed is in Phase 2 of
+`bootstrap.yml`, the play that runs `roles/tailscale`, as a pre_task -- Phase 1
+can end early on its own idempotency check, Phase 2 always runs, and by then the
+common role has put python3 and the `ops` account on the box.
 
 1. Extract the CONFIG block of `playbooks/tasks/load_onbox_config.yml` -- the
    four tasks from "read the store-owned config key names" through "set_fact
@@ -127,12 +133,70 @@ What it entails, and the part that needs care:
    been fixed is a gate that has started lying. Its sibling assertion
    (`test_the_play_that_predates_the_store_is_the_only_one`) goes with it.
 
+Step 3 is held by a gate rather than by memory:
+`test_bootstrap_seeds_the_store_and_runs_nothing_else` asserts bootstrap
+includes the seed and does NOT include the loader, and
+`test_the_seed_is_the_loaders_own_config_block` asserts the seed has not grown a
+mint, a release resolution or a pin read.
+
 **Gate: a bench install from zero.** This is an install-path change, so no unit
 test settles it. Two things to watch on that run: the store exists and is
 populated before `roles/tailscale` executes, and a Headscale inventory reaches
 the Headscale fork rather than the OAuth one.
 
 Recorded in `ops/BACKLOG_TECHNICAL.md` with the failure analysis.
+
+---
+
+### Phase 3 goes to ZERO rather than stopping at "declared" (2026-09-09)
+
+The ACME four could have stopped where they were. `CATENA_ACME_DIRECTORY_URL`,
+`CATENA_ACME_HOST_IP`, `CATENA_ACME_CA_BUNDLE_PEM_B64` and
+`COTURN_CERTBOT_STAGING` were in `BOOTSTRAP_CONFIG` with a comment saying they
+were bench overrides decided before the host exists, which is a declared,
+defensible resting place.
+
+**Decided: finish the move.** The test is not who sets a value, it is which side
+of the boundary READS it -- and `roles/coturn` and `roles/infrastructure` are
+reconcile-side. A host that converges itself cannot ask an operator's laptop
+which certificate authority to trust. That a test harness is the only thing that
+ever sets them does not move the reader.
+
+The tell that this was the right reading: `MAILSERVER_CERTBOT_STAGING` was
+already a settings key, and its coturn twin had been left in the `.env` with no
+reason written down anywhere. One of a pair in each place is what an enumerated
+backlog is for.
+
+Rejected: `lookup('env', ...)`, the shape `CATENA_ADMIN_IMAGE` uses. It works,
+and it is a cross-repo change (ops has to export before catena-ce stops reading
+the `.env`, or the bench's Pebble path breaks) buying a worse answer -- a value
+that lives for one process rather than on the host that needs it.
+
+**Known consequence, not papered over:** the store seeds fill-only, so a bench VM
+that outlives a change of the Pebble host's bridge IP keeps the old
+`CATENA_ACME_HOST_IP`. Fresh installs and rewound VMs re-seed. A re-converge of a
+long-lived VM after the bench host moved needs the key re-set or `/etc/catena`
+removed.
+
+### A bench-only knob may be a store key, if it says so (2026-09-09)
+
+`CLOUDFLARED_TUNNEL_NAME_PREFIX` tags the tunnels the bench creates so its
+cleanup can tell them from real ones in a Cloudflare account holding both. It is
+empty on every client install and it is now in every client's store.
+
+**Decided: that is acceptable, and each such key carries a comment beside it
+saying it is a test-bench knob and why it is a store key rather than a `.env`
+one.** Both the prefix and the ACME four have one.
+
+The prefix earns it: putting it back in the `.env` puts the tunnel NAME back in
+the converge, and the name is the only thing that kept `cloudflared-check` and
+`cloudflared-sync` in the converge-rendered dispatch table. The engine composes
+`<prefix><the box's hostname>` for itself now, both actions ship in the image,
+and the reserved table is down to one entry.
+
+`roles/common` sets the box's hostname to `inventory_hostname`, so every
+converged host keeps the name it had. This is worth knowing before anybody
+"fixes" the two back into agreement: they already agree.
 
 ---
 
@@ -394,39 +458,18 @@ rename rather than a judgement call.
 **186 files reference `roles/<name>`**, 49 of them tests. The gate is a bench
 install from zero producing the same host, so land it where a bench can run.
 
-### Phase 3: the inventory into the store
+### Phase 3: the inventory into the store -- DONE
 
-Eight left of eighteen. Each becomes a registry-declared store key or a
-compiled-in product constant, and nothing else. Lower `INVENTORY_BACKLOG` as
-they go.
+Zero. Every value a reconcile role reads is a store key or a compiled-in product
+constant. `INVENTORY_BACKLOG = 0` and the ratchet holds against a new one.
 
-In order of how much they need:
-
-1. **Bootstrap seeds the store** (see Decisions above). Not itself one of the
-   eight, but it is what makes the store a source the whole install can read,
-   and the tailnet defect is waiting on it.
-2. **`portainer_admin_subdomain`** -- a store key. The one public subdomain the
-   inventories genuinely disagree about, so it is a host fact and the model
-   case for the rest.
-3. **`cloudflared_tunnel_name`** -- the name is `prefix + inventory_hostname`
-   and the prefix is a bench input (ops `install_yaml.py` sets
-   `CLOUDFLARED_TUNNEL_NAME_PREFIX` to `testbench-` so cleanup can filter
-   bench-owned tunnels). The host knows its own hostname; what it cannot know
-   is the inventory name, which is not always the same. Needs a decision of its
-   own: derive on-box and accept the difference, or make it a store key seeded
-   at install.
-4. **The ACME seven** (`coturn_acme_*`, `mailserver_acme_*`) -- product
-   constants with a bench escape hatch. Blocked on ops: the bench seeds them
-   into the inventory `.env` via `install_yaml.py`, so making them constants
-   means the bench passes them another way. `lookup('env', ...)` is the shape
-   `CATENA_ADMIN_IMAGE` already uses. Cross-repo, and the bench is what
-   validates it.
-
-**The acceptance test as originally written is not sufficient.** "Runs to
-completion against an EMPTY inventory" would pass while producing a WRONG host:
-seventeen of the eighteen had defaults, so a missing value reconfigures quietly
-and reports success. The gate is *runs to completion AND produces the same
-host*, which is a bench assertion, not a unit one. See finding 5.
+**What zero does and does not claim.** It claims no reconcile role names an
+inventory-defined variable directly, which is checkable from outside. It does
+NOT claim the host produces the same result with no inventory at all -- the
+count is a floor, because a value reached through a derived name is not counted,
+and because seventeen of the eighteen had defaults, so a missing one
+reconfigures quietly and reports success. **The remaining proof is a bench
+install that produces the same host, not one that merely completes.**
 
 ### Phase 4: run it on the host
 
@@ -461,29 +504,35 @@ with per-concern Go engines, following
 Open questions and known conflicts, so the next person meets them here rather
 than in the code.
 
-- **`cloudflared_tunnel_name` has no obvious owner.** The engine's own fallback
-  is the box's hostname; the converge builds it from `inventory_hostname`, which
-  is not always the same string; and the bench needs a prefix on it. Deriving it
-  on-box changes tunnel names on existing hosts. Nobody has decided, and phase 3
-  cannot finish without it.
-- **The ACME seven are a cross-repo change.** catena-ce cannot stop reading them
-  from the inventory until ops stops writing them there. Doing half of it breaks
-  the bench's Pebble path, which is the thing that would have caught it.
-- **Phase 1b is 186 files and no unit gate.** `boundary.yml` already declares
-  every file's side, so the rename is mechanical, but the only thing that proves
-  it is an install from zero. It should land where a bench can run immediately
-  after, not before a gap.
-- **The panel's release resolution runs on every converge.** The loader asks the
-  registry which catena-admin release to install. Fine for a converge an
-  operator started; worth re-reading when phase 4 puts a reconcile on a TIMER,
-  because that becomes a registry call per host per interval.
-- **`swarm_service_drift` reports `changed` on things Docker no-ops.** Fixed for
-  the image comparison, but the same asymmetry class may exist in the other
-  fields it diffs. Nobody has checked the rest of them.
-- **The bench's `install_yaml.py` writes keys catena-ce no longer reads.**
-  Harmless -- ops writes, catena-ce ignores -- but the skeleton and the bench
-  now describe slightly different worlds, and the drift only shows up when
-  somebody wonders why a knob does nothing.
+- **Phase 1b is 186 files, and the gate is now partial rather than absent.**
+  `test_every_role_reference_resolves.py` proves every role name and every
+  literal `roles/<name>` path resolves, and that no name lives under two roots,
+  so the mechanical half of the rename cannot land broken. What it cannot prove
+  is that the split produces the same host. That is still an install from zero,
+  so land the rename where a bench can run immediately after.
+- **The settle assertion turns an invisible defect into a loud one.**
+  `roles/catena-admin` now re-inspects after a `docker service update` and fails
+  if the same drift is still reported. If `swarm_service_drift` reads a field
+  docker omits at its own default -- `StopGracePeriod` and the healthcheck
+  fields are the candidates -- the first bench run FAILS the converge instead of
+  quietly reporting changed for ever. That is the intended trade while nothing
+  is in production, and it is the thing to expect if a bench run reds here.
+- **The panel's release resolution runs on every converge, and FAILS the play
+  when the registry does not answer.** Fine for a converge an operator started.
+  Under phase 4's timer it becomes a scheduled dependency on GHCR being up. The
+  fix is not caching: with `minimum=''` the store's pin already wins whenever
+  there is one, so the answer is usually discarded anyway. Fail only when there
+  is no usable pin.
+- **The ACME seed is fill-only on a long-lived bench VM.** See the decision
+  above. Fresh installs and rewinds re-seed; a re-converge after the bench
+  host's bridge IP moved does not.
+- **Twelve keys in the ops operator skeleton turn nothing.** The three
+  `STACK_UPDATE_*`, six of the ten `AUTO_UPDATE_*`, `DEADMAN_TIMER`,
+  `CATENA_APPS_SOURCE_VERSION`, `CATENA_WEBSITE_ENABLED`. Held in a declared
+  table in ops `test_bench_writes_only_keys_catena_ce_reads.py` so the gate can
+  refuse NEW ones while these are retired deliberately -- retiring them touches
+  the bench config schema, so it wants a bench run behind it. The partially-wired
+  auto-update lane is the one worth actually reading before deleting.
 
 ---
 
