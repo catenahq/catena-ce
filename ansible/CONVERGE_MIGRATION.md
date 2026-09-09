@@ -40,7 +40,7 @@ that would remove your ability to run a reconcile.
 | 1a. Boundary declared + enforced | **done** | catena-ce `75a529c` |
 | 1b. Directories physically split | **open**, bench-gated | -- |
 | 2. Dispatch table into the image | **done** | catena-admin `6557adf`, catena-ce `829b914` |
-| 3. Inventory into the store | **open**, measured at 18 | gate in `75a529c` |
+| 3. Inventory into the store | **open**, 18 -> 8 | catena-ce `836261a`, `c29b978` |
 | 3'. Registry is the enforcement point | **done** | catena-ce `d63318a` |
 | 4. On-host reconcile + panel button + timer | **vendoring done**, rest open | catena-admin `17c615f` |
 | 5. Re-home split owners, retire the laptop path | open | -- |
@@ -49,9 +49,90 @@ that would remove your ability to run a reconcile.
 Phases 3' and 4's vendoring landed early because both are independent of the
 phases they are numbered under.
 
-The two defects this document used to list as unfixed are fixed: catena-ce
-`317e3da` (the drift comparison and the image pin) with catena-admin `3a1b54c`
-(the rollback's half of the second one).
+Also landed alongside: the engine the Domains panel had been dispatching at
+nothing for as long as the panel has existed (catena-admin `778f54b`, catena-ce
+`2a63bf2`), and the two image-comparison defects this document used to list as
+unfixed -- catena-ce `317e3da` with catena-admin `3a1b54c` for the rollback's
+half of the second one.
+
+**Everything still open is bench-gated.** Phase 1b is a rename whose only gate
+is an install from zero; the eight remaining inventory values need either an ops
+change or the decision below; phase 4's timer is explicitly gated on a proven
+no-op reconcile. Nothing left in this migration can be finished from a laptop
+with unit tests alone, which is a state worth knowing before picking up the next
+piece.
+
+---
+
+## Decisions taken
+
+### The store is born at BOOTSTRAP (2026-09-09)
+
+**Decided: bootstrap seeds the config half of the store before any role runs.**
+
+The question came from a defect the phase-3 gate surfaced. `roles/tailscale`
+resolves its provider, control URL and Headscale user from `cfg_*` facts with no
+inventory fallback, and `playbooks/bootstrap.yml` runs that role -- with no
+loader, because the machine has nothing on it yet. So every one of them is empty
+at bootstrap and the provider inference answers `tailscale` unconditionally. A
+Headscale install then takes Fork A of the role, which exchanges Tailscale OAuth
+credentials the operator does not have, and bootstrap fails at the exchange.
+Confusing rather than dangerous, and only truly wrong for an operator who runs
+both tailnets and supplied both credentials.
+
+Four ways out were considered. The two rejected outright:
+
+- **An inventory fallback for the tailnet variables.** Smallest diff, and it
+  reintroduces two live readers of one value -- the exact defect the store move
+  exists to end. It also fixes one variable and nothing else: the next key moved
+  into the store hits the same wall.
+- **Accept bootstrap-then-correct.** Zero work, and the end state on the happy
+  path is already right. But it leaves a Headscale operator meeting an error
+  that names Tailscale on a host they never meant to put there.
+
+The one deferred:
+
+- **Thread the values into bootstrap as `-e`,** the channel the CLI already uses
+  for the install-critical vendor credential (`ansible/seed.py`: the Tailscale
+  OAuth pair is "the ONLY install-critical vendor cred"). Small, consistent, no
+  new store semantics. Rejected as the ANSWER because it is per-install rather
+  than persistent -- it says nothing to a later `rotate-tailscale` on a host
+  whose store was lost -- and because it makes the `-e` file a second seed
+  surface beside `.env`, which is one more place a value can come from.
+
+**Chosen: bootstrap writes the store first.** It is the only option that scales
+with the migration rather than routing around it: every subsequent phase-3 key
+inherits a store that exists from the first minute, and the exception disappears
+instead of being managed. It makes "the store is the source of truth" true from
+minute one rather than from the first converge.
+
+What it entails, and the part that needs care:
+
+1. Extract the CONFIG block of `playbooks/tasks/load_onbox_config.yml` -- the
+   four tasks from "read the store-owned config key names" through "set_fact
+   each store-owned config value", plus the zone assert -- into its own include,
+   e.g. `tasks/seed_onbox_config.yml`. The full loader keeps including it, so
+   there is one copy.
+2. Include that, and only that, from `playbooks/bootstrap.yml` as a pre_task.
+3. **Do NOT run the rest of the loader at bootstrap.** The secrets block MINTS
+   the internal secrets and the user-held admin/restic DR keyset, and the
+   release block makes a network call to the container registry before Docker is
+   even installed. Both belong to a converge. Pulling in the whole loader
+   because it is one file would be the mistake here.
+4. `onbox_config.dump()` already does `p.parent.mkdir(parents=True)`, so the
+   store lands on a bare machine with no `/etc/catena` -- checked, not assumed.
+5. Delete `STORE_PREDATES_THE_PLAY` from
+   `tests/unit/test_store_readers_load_the_store.py`. That table exists only to
+   hold this exception, and a gate carrying an exemption for a thing that has
+   been fixed is a gate that has started lying. Its sibling assertion
+   (`test_the_play_that_predates_the_store_is_the_only_one`) goes with it.
+
+**Gate: a bench install from zero.** This is an install-path change, so no unit
+test settles it. Two things to watch on that run: the store exists and is
+populated before `roles/tailscale` executes, and a Headscale inventory reaches
+the Headscale fork rather than the OAuth one.
+
+Recorded in `ops/BACKLOG_TECHNICAL.md` with the failure analysis.
 
 ---
 
@@ -216,32 +297,6 @@ bench to pass them another way (an exported env var, the shape
 `CATENA_ADMIN_IMAGE` already uses). That is a cross-repo change gated on a bench
 run, which is why they were not done with the other thirteen.
 
-### 9. Moving a key changes which PLAYS can resolve it
-
-The hop from `.env` to store is invisible at the call site -- roles say
-`cloudflare_zone`, not `cfg_cloudflare_zone` -- so moving a key silently changes
-which plays can still see it. The value now comes from a task that only some
-plays run.
-
-Moving the zone broke exactly one play, and not loudly:
-`regenerate-cf-tunnel.yml` has no loader by design (it is dispatched from the
-panel with the token on the command line), read the zone from the inventory, and
-would have started regenerating a tunnel against an empty domain. It already
-slurps the store for the token it rotates, so it now takes the zone from the
-same read.
-
-`tests/unit/test_store_readers_load_the_store.py` is the general form: a play
-whose roles read a store-backed variable loads the store, or is declared with
-the reason it does not need to. Writing it turned up a defect that predates all
-of this -- `roles/tailscale` resolves its provider, control URL and Headscale
-user from `cfg_*` with no inventory fallback, and two plays ran it without the
-loader. `rotate-tailscale.yml` is fixed (it runs against an installed host, so
-the loader is simply correct there). `bootstrap.yml` cannot be: it runs before
-there is a store, which means a Headscale host bootstraps against Tailscale SaaS
-and only the first `site.yml` puts it right. Declared in that gate, recorded in
-`ops/BACKLOG_TECHNICAL.md`, and the fix is a decision about where the store is
-born rather than a line in a playbook.
-
 ### 6. Three misclassifications the boundary gates caught
 
 Writing the gates found these rather than confirming the guesses.
@@ -301,6 +356,32 @@ version it went back to instead of clearing the pin.
 
 ---
 
+### 9. Moving a key changes which PLAYS can resolve it
+
+The hop from `.env` to store is invisible at the call site -- roles say
+`cloudflare_zone`, not `cfg_cloudflare_zone` -- so moving a key silently changes
+which plays can still see it. The value now comes from a task that only some
+plays run.
+
+Moving the zone broke exactly one play, and not loudly:
+`regenerate-cf-tunnel.yml` has no loader by design (it is dispatched from the
+panel with the token on the command line), read the zone from the inventory, and
+would have started regenerating a tunnel against an empty domain. It already
+slurps the store for the token it rotates, so it now takes the zone from the
+same read.
+
+`tests/unit/test_store_readers_load_the_store.py` is the general form: a play
+whose roles read a store-backed variable loads the store, or is declared with
+the reason it does not need to. Writing it turned up a defect that predates all
+of this -- `roles/tailscale` resolves its provider, control URL and Headscale
+user from `cfg_*` with no inventory fallback, and two plays ran it without the
+loader. `rotate-tailscale.yml` is fixed (it runs against an installed host, so
+the loader is simply correct there). `bootstrap.yml` cannot be: it runs before
+there is a store, which means a Headscale host bootstraps against Tailscale SaaS
+and only the first `site.yml` puts it right. Declared in that gate, recorded in
+`ops/BACKLOG_TECHNICAL.md`, and the fix is a decision about where the store is
+born rather than a line in a playbook.
+
 ## What remains, in order
 
 ### Phase 1b: move the directories
@@ -315,11 +396,37 @@ install from zero producing the same host, so land it where a bench can run.
 
 ### Phase 3: the inventory into the store
 
-Empty the 18. Each becomes a registry-declared store key or a compiled-in
-product constant, and nothing else. Lower `INVENTORY_BACKLOG` as they go.
+Eight left of eighteen. Each becomes a registry-declared store key or a
+compiled-in product constant, and nothing else. Lower `INVENTORY_BACKLOG` as
+they go.
 
-Done when `playbooks/reconcile.yml` runs to completion against an empty
-inventory: no `.env`, no group_vars, no `-e`.
+In order of how much they need:
+
+1. **Bootstrap seeds the store** (see Decisions above). Not itself one of the
+   eight, but it is what makes the store a source the whole install can read,
+   and the tailnet defect is waiting on it.
+2. **`portainer_admin_subdomain`** -- a store key. The one public subdomain the
+   inventories genuinely disagree about, so it is a host fact and the model
+   case for the rest.
+3. **`cloudflared_tunnel_name`** -- the name is `prefix + inventory_hostname`
+   and the prefix is a bench input (ops `install_yaml.py` sets
+   `CLOUDFLARED_TUNNEL_NAME_PREFIX` to `testbench-` so cleanup can filter
+   bench-owned tunnels). The host knows its own hostname; what it cannot know
+   is the inventory name, which is not always the same. Needs a decision of its
+   own: derive on-box and accept the difference, or make it a store key seeded
+   at install.
+4. **The ACME seven** (`coturn_acme_*`, `mailserver_acme_*`) -- product
+   constants with a bench escape hatch. Blocked on ops: the bench seeds them
+   into the inventory `.env` via `install_yaml.py`, so making them constants
+   means the bench passes them another way. `lookup('env', ...)` is the shape
+   `CATENA_ADMIN_IMAGE` already uses. Cross-repo, and the bench is what
+   validates it.
+
+**The acceptance test as originally written is not sufficient.** "Runs to
+completion against an EMPTY inventory" would pass while producing a WRONG host:
+seventeen of the eighteen had defaults, so a missing value reconfigures quietly
+and reports success. The gate is *runs to completion AND produces the same
+host*, which is a bench assertion, not a unit one. See finding 5.
 
 ### Phase 4: run it on the host
 
@@ -346,6 +453,37 @@ image while its `.timer` is converge-rendered), unify the settings schema, and
 retire `catena converge` to bootstrap and DR. Then optionally replace Ansible
 with per-concern Go engines, following
 `catena-cloudflared-sync` / `catena-dashboard-sync` / `catena-schedule`.
+
+---
+
+## Unresolved
+
+Open questions and known conflicts, so the next person meets them here rather
+than in the code.
+
+- **`cloudflared_tunnel_name` has no obvious owner.** The engine's own fallback
+  is the box's hostname; the converge builds it from `inventory_hostname`, which
+  is not always the same string; and the bench needs a prefix on it. Deriving it
+  on-box changes tunnel names on existing hosts. Nobody has decided, and phase 3
+  cannot finish without it.
+- **The ACME seven are a cross-repo change.** catena-ce cannot stop reading them
+  from the inventory until ops stops writing them there. Doing half of it breaks
+  the bench's Pebble path, which is the thing that would have caught it.
+- **Phase 1b is 186 files and no unit gate.** `boundary.yml` already declares
+  every file's side, so the rename is mechanical, but the only thing that proves
+  it is an install from zero. It should land where a bench can run immediately
+  after, not before a gap.
+- **The panel's release resolution runs on every converge.** The loader asks the
+  registry which catena-admin release to install. Fine for a converge an
+  operator started; worth re-reading when phase 4 puts a reconcile on a TIMER,
+  because that becomes a registry call per host per interval.
+- **`swarm_service_drift` reports `changed` on things Docker no-ops.** Fixed for
+  the image comparison, but the same asymmetry class may exist in the other
+  fields it diffs. Nobody has checked the rest of them.
+- **The bench's `install_yaml.py` writes keys catena-ce no longer reads.**
+  Harmless -- ops writes, catena-ce ignores -- but the skeleton and the bench
+  now describe slightly different worlds, and the drift only shows up when
+  somebody wonders why a knob does nothing.
 
 ---
 
