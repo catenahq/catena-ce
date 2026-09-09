@@ -81,31 +81,26 @@
 # refuses to start it, and the run-once task below would start a unit that does
 # not exist -- turning the deferral above into the converge failure it exists to
 # avoid.
-- name: "dashboard-sync: systemd timer unit"
-  # The unit that RUNS it is the payload's (static, and it names the payload's
-  # own path). The timer is here because its interval is per-host.
-  ansible.builtin.template:
-    src: catena-dashboard-sync.timer.j2
-    dest: /etc/systemd/system/{{ dashboard_sync_unit }}.timer
-    owner: root
-    group: root
-    mode: "0644"
-  register: _dashboard_sync_timer_unit
-  when: _dashboard_sync_present | default(false)
-
-- name: "dashboard-sync: daemon-reload if the timer changed"
-  ansible.builtin.systemd_service:
-    daemon_reload: true
-  when: _dashboard_sync_timer_unit.changed | default(false)
+# The timer is NOT rendered here. Both halves of this lane ship in the payload
+# now -- catena-admin payload/lanes/systemd/ -- because nothing in the timer was
+# ever host-shaped: its interval and its unit name were compiled-in constants in
+# this role's defaults, so the template interpolated values that never varied.
+#
+# One lane with two owners meant two release cadences, so a change to the pair
+# was half-applied until both a new image and a converge had landed, in that
+# order, with nothing saying which half a host was on.
+#
+# Enabling stays here. Installing a unit and activating it are two steps on
+# purpose (the payload installer enables nothing), and this is the side that
+# knows whether the host runs the reconciler at all.
 
 # Workaround for ansible-core 2.19/2.20 module_legacy_m2c resolution
 # failure on systemd_service enable+start -- same family as the
 # `state: started` workaround on the run-once task below.
 #
-# Atomicity: `changed_when: false` is not set here on purpose. Any actual
-# timer change registers changed via the template task above, which is what
-# notifies the daemon-reload; this enable is the idempotent follow-up
-# (systemd returns success on already-enabled).
+# Atomicity: `changed_when: false` is not set here on purpose. The payload
+# installer reports a changed unit file when it writes one; this enable is the
+# idempotent follow-up (systemd returns success on already-enabled).
 - name: "dashboard-sync: enable + start timer"
   ansible.builtin.systemd_service:
     name: "{{ dashboard_sync_unit }}.timer"

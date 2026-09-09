@@ -171,8 +171,12 @@ def test_everything_that_runs_the_reconciler_is_gated_on_it_existing():
     """The deferred case must reach the end of the file without touching
     systemd. `systemctl start` of a .timer whose .service is absent fails, and
     the run-once task would start a unit that does not exist."""
+    # The timer FILE is not in this list any more: both halves of the lane ship
+    # in the payload now, so the converge no longer renders one. What is left is
+    # everything that TOUCHES systemd, which is the property that mattered --
+    # the file's presence never was the risk, starting a unit whose service is
+    # absent was.
     runs_it = [
-        "systemd timer unit",
         "enable + start timer",
         "run once now",
     ]
@@ -219,12 +223,30 @@ def test_the_env_file_is_written_unconditionally():
     assert task["no_log"] is True
 
 
-def test_the_daemon_reload_survives_a_skipped_template():
-    """`_dashboard_sync_timer_unit` is a skipped register in the deferred case.
-    Reading .changed off it without a default is an undefined-attribute error,
-    which fails the converge for the reason the gate exists to prevent."""
-    cond = _cond(_find("daemon-reload if the timer changed"))
-    assert "default(false)" in cond
+def test_the_converge_renders_no_timer_for_this_lane():
+    """Both halves of the lane ship in the payload.
+
+    Its service was always the payload's; its timer was rendered here from a
+    template whose only variables were compiled-in constants -- so one lane had
+    two owners and two release cadences, and a change to the pair was
+    half-applied until an image AND a converge had landed, in that order.
+
+    The general form is tests/unit/test_no_lane_is_half_owned.py. This is the
+    specific one, because this lane is the reason that gate exists.
+    """
+    body = TASKS.read_text()
+    assert "catena-dashboard-sync.timer.j2" not in body, (
+        "the converge renders this timer again, which puts the lane back under "
+        "two owners"
+    )
+    written = [
+        str((task.get("ansible.builtin.template") or {}).get("dest", ""))
+        for task, _ in _flatten(_tasks())
+    ]
+    assert not [d for d in written if d.endswith(".timer")], (
+        f"a task writes a .timer for a lane whose units ship in the image: "
+        f"{[d for d in written if d.endswith('.timer')]}"
+    )
 
 
 # --- validate.yml: the same property, the surface the first fix missed ------

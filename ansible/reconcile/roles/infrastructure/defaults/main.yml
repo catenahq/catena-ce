@@ -263,7 +263,9 @@ dashboard_sync_required_paths:
   - "{{ dashboard_sync_lib_dir }}/keycloak_client.py"
   - "{{ dashboard_sync_lib_dir }}/portainer_api.py"
 dashboard_sync_env_path: "/etc/catena/dashboard-sync.env"
-dashboard_sync_interval: "*:0/5" # every 5 minutes
+# The cadence is NOT here any more. Both halves of this lane ship in the payload
+# (catena-admin payload/lanes/systemd/), so the interval is in the timer file
+# beside the service it starts rather than in a role default that rendered one.
 
 # The external dead-man watchdog (hourly off-host liveness probe of the
 # watchers) is a Business-edition lane and lives in the private repo;
