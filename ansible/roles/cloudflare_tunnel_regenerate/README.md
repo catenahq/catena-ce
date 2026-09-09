@@ -16,7 +16,9 @@ rather than firing on every converge.
 - `cloudflare_zone` -- from inventory `.env`. The Cloudflare account id is
   not a separate input -- it is resolved from the zone via the API, on the
   same token and scope.
-- `cloudflared_tunnel_name` -- defaults to the Ansible inventory_hostname.
+- `cloudflared_tunnel_name` -- composed by the role the way
+  catena-cloudflared-sync composes it: the box's own hostname, with
+  `CLOUDFLARED_TUNNEL_NAME_PREFIX` from the on-box store in front.
 
 ## Side effects
 

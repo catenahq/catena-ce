@@ -35,7 +35,7 @@ _ROLES = _ANSIBLE / "roles"
 
 # What the reconcile side still takes from the operator's inventory. Every
 # entry is one settings key away from deletion; see the module docstring.
-INVENTORY_BACKLOG = 8
+INVENTORY_BACKLOG = 7
 
 
 def _boundary() -> dict:

@@ -7,24 +7,24 @@ authorization record for names it does not own and cannot verify -- and a
 one-line change to any of them needed an operator with a laptop and an SSH
 session against a live client.
 
-What is left is a short list, and it stays short by being DECLARED. Adding a
-reserved action here means writing down why the image cannot carry it, which is
-the only question worth asking at that moment. The two admissible answers, so
-far, are:
+ONE is left, and it stays that way by being DECLARED. Adding a reserved action
+here means writing down why the image cannot carry it, which is the only
+question worth asking at that moment. The one admissible answer left is that the
+action is the way back when a drop-in is broken, so it cannot depend on one.
 
-  - the action is the way back when a drop-in is broken, so it cannot depend on
-    a drop-in;
-  - the command interpolates a value only the inventory holds, so it cannot be
-    rendered until that value is in the store.
-
-An action that has neither answer belongs in catena-admin
+An action without that answer belongs in catena-admin
 payload/actions.d/20-catena.sh (Community) or 10-business.sh (licensed).
 
-Asking the question found a third answer that was not one. cloudflare-zones-save
-was here because its command was not a payload binary -- and the reason it was
-not one is that NO repository built it, so the Domains panel's save could only
-ever answer "command not found". Writing the engine was the fix; the action went
-with it.
+Asking the question retired the other two answers rather than accumulating more.
+"It interpolates an inventory value" applied to the cloudflared pair, and the
+value was the tunnel name -- so the engine composes the name from the box's own
+hostname instead, and the pair moved. "It is half of a pair" was never a reason
+about the action at all, only about the other one.
+
+It also found an answer that was not one. cloudflare-zones-save was here because
+its command was not a payload binary -- and the reason it was not one is that NO
+repository built it, so the Domains panel's save could only ever answer "command
+not found". Writing the engine was the fix; the action went with it.
 
 This replaces test_action_bodies_are_constants.py, whose job was the precondition
 for the move -- that every body interpolated product constants rather than host
@@ -49,15 +49,6 @@ RESERVED = {
         "it reinstalls the payload, so it cannot depend on the payload having "
         "installed correctly -- this is the way back when a drop-in is broken, "
         "and the reconcile invariant applied to the dispatch table itself"
-    ),
-    "cloudflared-check": (
-        "it is half of a pair with cloudflared-sync, and splitting the pair "
-        "would leave the panel's tunnel path maintained in two repos at once"
-    ),
-    "cloudflared-sync": (
-        "it interpolates cloudflared_tunnel_name, an inventory value -- the "
-        "engine's own fallback is the box's hostname, which is not always the "
-        "inventory name. It can move when phase 3 puts that value in the store"
     ),
 }
 

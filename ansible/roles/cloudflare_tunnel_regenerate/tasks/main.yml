@@ -67,6 +67,26 @@
          if (_cf_regen_store_stat.stat.exists | default(false))
          else '' }}
 
+# The tunnel this host owns is named the way catena-cloudflared-sync names it:
+# the box's own hostname, with the store's prefix in front. Read the hostname
+# from the host rather than from inventory_hostname -- the engine calls
+# os.Hostname(), and a play that guessed differently would rotate a tunnel that
+# does not exist and leave the real one alone.
+- name: "CF regen: read this host's own name"
+  ansible.builtin.command:
+    cmd: hostname
+  register: _cf_regen_hostname
+  changed_when: false
+
+- name: "CF regen: name the tunnel the way the engine does"
+  ansible.builtin.set_fact:
+    cloudflared_tunnel_name: >-
+      {{ (((_cf_regen_store.content | default('') | b64decode | from_json).config
+           | default({})).get('CLOUDFLARED_TUNNEL_NAME_PREFIX', '')
+          if (_cf_regen_store_stat.stat.exists | default(false))
+          else '')
+         ~ (_cf_regen_hostname.stdout | trim) }}
+
 - name: "CF regen: validate inputs"
   ansible.builtin.assert:
     that:

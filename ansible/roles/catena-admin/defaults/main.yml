@@ -436,40 +436,11 @@ catena_admin_ee_reserved_actions:
 # command is maintained would never be reached. tests/unit/
 # test_converge_dispatch_table.py is the gate on that.
 
-# Cloudflare tunnel reserved actions (COMMUNITY -- the tunnel is a CE feature).
-# The Settings panel dispatches these when the client saves a Cloudflare token:
-#   - cloudflared-check validates a CANDIDATE token BEFORE persist. The token
-#     arrives in the SSH env (CATENA_CF_CANDIDATE_TOKEN, whitelisted via sshd
-#     AcceptEnv in host.yml) -- NOT in argv/$PAYLOAD -- so it never lands in
-#     $SSH_ORIGINAL_COMMAND or any process argv/log; the action pipes it to the
-#     engine on stdin. --token-stdin does not touch the store.
-#   - cloudflared-sync runs the full converge after a valid token is persisted.
-#     It exports the templated NON-SECRET pins (real image pin, ingress service,
-#     tunnel name, network, stop-grace, probe counts) into the engine env so
-#     production uses the pinned values, not the engine built-in defaults;
-#     `env VAR=val ... cmd` preserves the rest of the session env, including
-#     CATENA_MULTIDOMAIN_ENABLED forwarded on the sync dispatch (AcceptEnv). The
-#     token is NOT passed -- the engine reads it from the on-box store.
-# These are appended to catena_admin_ce_reserved_actions in catalog.yml ONLY in
-# cloudflare access mode. The pins reference roles/cloudflare_tunnel defaults;
-# `| default(...)` keeps the render safe if that role is not in scope (tailnet),
-# where these actions are inert anyway.
-catena_admin_cloudflared_reserved_actions:
-  - name: cloudflared-check
-    shell: >-
-      printf '%s' "$CATENA_CF_CANDIDATE_TOKEN" |
-      {{ cloudflared_sync_bin | default('/usr/local/bin/catena-cloudflared-sync') }}
-      check --token-stdin
-  # Only the tunnel NAME is exported. The image, ingress service, network, stop
-  # grace and probe counts used to be listed here too, duplicating both the
-  # cloudflare_tunnel role defaults and the engine's own -- three copies of each
-  # value, kept in agreement by hand, with a `default(...)` fallback here that
-  # was a fourth. The engine owns them; this passes only what it cannot know.
-  #
-  # The tunnel name is the exception because the engine's fallback is the box's
-  # hostname, which is not always the inventory name.
-  - name: cloudflared-sync
-    shell: >-
-      env
-      CLOUDFLARED_TUNNEL_NAME={{ cloudflared_tunnel_name | default(inventory_hostname) }}
-      {{ cloudflared_sync_bin | default('/usr/local/bin/catena-cloudflared-sync') }} sync
+# The Cloudflare tunnel actions are NOT here. cloudflared-check and
+# cloudflared-sync are image drop-ins (catena-admin payload/actions.d/
+# 20-catena.sh), because neither body interpolates a fact about this host: the
+# engine reads the token, the zones and the tunnel-name prefix from the store,
+# and names the tunnel after the box's own hostname. The one thing this repo
+# still owns for them is the sshd AcceptEnv entry that carries the candidate
+# token, in the passthrough list above -- a drop-in may read that name and can
+# never add to it.

@@ -111,24 +111,22 @@
       - "{{ cloudflared_sync_bin }}"
       - sync
   environment:
-    # ONLY the two per-host values. Everything else -- image, ingress service,
-    # network, stop grace, probe counts -- is a product constant the engine
-    # already carries as its own default; passing it here would make three
-    # copies to keep in agreement by hand: this file, the catena-admin
-    # reserved action, and the engine.
+    # ONE per-host value. Everything else -- image, ingress service, network,
+    # stop grace, probe counts -- is a product constant the engine already
+    # carries as its own default; passing it here would make two copies to keep
+    # in agreement by hand.
     #
     # The panel fires this same engine, so both dispatch paths must behave
     # identically: an engine that reads its caller's environment only works
-    # from the caller it was written beside.
+    # from the caller it was written beside. That is also why the tunnel NAME is
+    # not here -- the engine composes it from the box's own hostname and the
+    # prefix in the store, so the panel path resolves the same name with nobody
+    # rendering anything for it.
     #
     # Base domain: the engine resolves the primary zone BY NAME, tolerating an
     # account-scoped token that grants more than one zone. Without it the engine
     # falls back to requiring a single-zone-scoped token (grants exactly 1).
     CLOUDFLARE_PRIMARY_ZONE: "{{ cloudflare_zone }}"
-    # The tunnel's identity. The engine defaults to the box's own hostname,
-    # which is NOT always the inventory name -- so this one is genuinely
-    # per-host and stays.
-    CLOUDFLARED_TUNNEL_NAME: "{{ cloudflared_tunnel_name }}"
   register: _cf_sync
   # The engine is internally idempotent (it owns the cloudflared re-encoded-
   # token no-op that fi_c6 guarded, plus the network/self-heal reconciles), and

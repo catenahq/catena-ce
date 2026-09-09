@@ -78,19 +78,22 @@ def test_the_deferral_message_is_no_longer_ansible_s_to_write():
     assert "tunnel deferred -- no Cloudflare token" not in names
 
 
-def test_dispatches_sync_engine_with_only_the_per_host_values():
+def test_dispatches_sync_engine_with_only_the_per_host_value():
     """The engine owns its own spec; this passes what it cannot know.
 
-    It used to export the image, ingress service, network, stop grace and probe
-    counts too -- values that also existed in this role's defaults AND in the
-    engine's own, three copies agreeing only by hand. Worse, it made the two
-    dispatch paths structurally different: the panel fires the same engine, and
-    an engine that reads its caller's environment works from the caller written
-    beside it and fails from every other one.
+    The image, ingress service, network, stop grace and probe counts are the
+    engine's own defaults and are not repeated here: a value in both places
+    agrees only while somebody keeps it agreeing. Worse, exporting them makes
+    the two dispatch paths structurally different -- the panel fires the same
+    engine, and an engine that reads its caller's environment works from the
+    caller written beside it and fails from every other one.
 
-    Two survive, and both are things the engine genuinely cannot resolve:
-    the zone (an account-scoped token grants many) and the tunnel name (the
-    engine falls back to the box's hostname, which is not the inventory name).
+    ONE survives, and it is the one thing the engine cannot resolve: the zone,
+    because an account-scoped token grants many. The tunnel NAME is not here
+    either -- the engine composes it from the box's own hostname and the
+    prefix in the store, so the panel path arrives at the same name with
+    nothing rendered for it. That is what let the two cloudflared actions move
+    into the image's dispatch drop-in.
     """
     task = _find("converge the tunnel via catena-cloudflared-sync")
     argv = task["ansible.builtin.command"]["argv"]
@@ -98,10 +101,10 @@ def test_dispatches_sync_engine_with_only_the_per_host_values():
     assert "cloudflared_sync_bin" in argv[0]
 
     env = task["environment"]
-    assert set(env) == {"CLOUDFLARE_PRIMARY_ZONE", "CLOUDFLARED_TUNNEL_NAME"}, (
-        f"the sync dispatch exports {sorted(env)}; anything beyond the two "
-        "per-host values is a second copy of a product constant the engine "
-        "already carries"
+    assert set(env) == {"CLOUDFLARE_PRIMARY_ZONE"}, (
+        f"the sync dispatch exports {sorted(env)}; anything beyond the one "
+        "per-host value is either a second copy of a product constant the "
+        "engine already carries, or a name the panel path cannot render"
     )
     # The token is NEVER passed to the engine (it reads the store).
     assert not any("cloudflare_api_token" in str(v) for v in env.values())

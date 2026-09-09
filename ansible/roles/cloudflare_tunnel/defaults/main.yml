@@ -9,13 +9,12 @@
 # the role exports into the engine's environment so production uses the pinned
 # image / tunnel name / ingress service rather than the engine's built-in
 # defaults. The token itself is read from the store by the engine, never passed
-# here.
+# here, and neither is the tunnel name: the engine composes that from the box's
+# own hostname and the prefix the store carries.
 #
 # The role still runs BEFORE keycloak + oauth2_proxy in site.yml (single-pass
 # converge): oauth2_proxy waits for the public auth.<zone> URL, which needs the
 # tunnel up first when a token is present.
-
-cloudflared_tunnel_name: "{{ inventory_hostname }}"
 
 # Host engine binary (installed into /usr/local/bin by the catena-admin payload
 # installer). SYNC.md is the contract.

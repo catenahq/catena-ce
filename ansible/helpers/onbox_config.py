@@ -464,6 +464,24 @@ SETTINGS_CONFIG: dict[str, str] = {
     # and never answers again.
     "CLOUDFLARE_ZONE": "cfg_cloudflare_zone",
     "ADMIN_EMAIL": "cfg_admin_email",
+    # A TEST-BENCH KNOB, deliberately kept as a store key.
+    #
+    # It prefixes the name of the Cloudflare tunnel a host creates, so the
+    # bench's cleanup can tell its own tunnels from the real ones in a Cloudflare
+    # account that holds both. Empty on every client install, and nothing reads
+    # it but catena-cloudflared-sync.
+    #
+    # It is here rather than in BOOTSTRAP_CONFIG because the host composes its
+    # own tunnel name -- box hostname plus this prefix, read straight from the
+    # store by the engine. That is what lets cloudflared-check and
+    # cloudflared-sync ship as image drop-ins: their bodies interpolate nothing,
+    # so no converge has to render them. Putting the prefix back in the `.env`
+    # would put the name back in the converge and both actions with it.
+    #
+    # It travels with the store, which is right for both cases that copy one: a
+    # bench clone keeps the tag and takes its own hostname, and a migrated host
+    # keeps the tag its operator chose.
+    "CLOUDFLARED_TUNNEL_NAME_PREFIX": "cfg_cloudflared_tunnel_prefix",
     # The one public subdomain that is genuinely per-host. Eleven of its
     # neighbours were compiled in because every inventory gave them the same
     # answer; this one gets three different ones -- `portainer` in the shipped
@@ -496,7 +514,6 @@ SETTINGS_CONFIG: dict[str, str] = {
 # settings key above, which is where a per-host value belongs now that the host
 # converges itself.
 BOOTSTRAP_CONFIG: frozenset[str] = frozenset({
-    "CLOUDFLARED_TUNNEL_NAME_PREFIX",
     "COMMON_LOCALE",
     "COMMON_TIMEZONE",
     "OPS_USER",
