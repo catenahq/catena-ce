@@ -132,9 +132,13 @@ portainer_api_base_onbox: "http://127.0.0.1:{{ portainer_ui_port }}/api"
 # NOT a constant, unlike its neighbours above. This is the one public subdomain
 # the two inventories disagree about: the starter here says `portainer` and the
 # operator skeleton says `apps`, with a note to use `admin` for established
-# clients. A value three sources give three answers for is a host fact, and it
-# is a phase-3 store key rather than something to compile in.
-portainer_admin_subdomain: "{{ lookup('dotenv', 'PORTAINER_SUBDOMAIN', default='portainer') }}"
+# clients. A value three sources give three answers for is a host fact, so it
+# is a store key -- PORTAINER_SUBDOMAIN in SETTINGS_CONFIG, seeded from the
+# `.env` on the first converge and answered by the store from then on.
+#
+# The literal here is the fallback for a host whose store has no answer, which
+# is the same string the starter inventory ships.
+portainer_admin_subdomain: "{{ cfg_portainer_admin_subdomain | default('portainer', true) }}"
 portainer_admin_hostname: "{{ portainer_admin_subdomain }}.{{ cloudflare_zone }}"
 
 # --- Storage ---

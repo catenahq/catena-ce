@@ -464,6 +464,13 @@ SETTINGS_CONFIG: dict[str, str] = {
     # and never answers again.
     "CLOUDFLARE_ZONE": "cfg_cloudflare_zone",
     "ADMIN_EMAIL": "cfg_admin_email",
+    # The one public subdomain that is genuinely per-host. Eleven of its
+    # neighbours were compiled in because every inventory gave them the same
+    # answer; this one gets three different ones -- `portainer` in the shipped
+    # starter, `apps` in the operator skeleton, `admin` for established clients
+    # -- so it is a host fact rather than the product's. The `.env` seeds it on
+    # the first converge and the panel owns it after that.
+    "PORTAINER_SUBDOMAIN": "cfg_portainer_admin_subdomain",
     # Whether every account in the realm must set up a second factor. A
     # settings value rather than an install input because it is a decision a
     # client makes about their own people, and one they may make later: turning
@@ -489,7 +496,6 @@ SETTINGS_CONFIG: dict[str, str] = {
 # settings key above, which is where a per-host value belongs now that the host
 # converges itself.
 BOOTSTRAP_CONFIG: frozenset[str] = frozenset({
-    "PORTAINER_SUBDOMAIN",
     "CLOUDFLARED_TUNNEL_NAME_PREFIX",
     "COMMON_LOCALE",
     "COMMON_TIMEZONE",
