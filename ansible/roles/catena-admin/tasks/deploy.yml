@@ -276,6 +276,54 @@
     - catena_admin_deploy_from_converge | bool
     - _ca_drift | default([]) | length > 0
 
+# ─── did the update actually settle the drift? ───────────────────────────
+#
+# A DIFFERENT question from "did docker exit 0", and the one that catches the
+# class of defect this diff has already produced twice: a comparison that reads
+# converged state as drift. Docker no-ops an update to a spec it already has, so
+# the exit code is 0, the service does not restart, and nothing is visibly
+# wrong -- while every converge for ever after reports the same change and the
+# answer to "did this converge move my panel" is worthless. That matters more
+# the moment a reconcile runs unattended on a timer.
+#
+# The image comparison was one instance (fixed in filter_plugins/
+# swarm_service_drift.py, which explains it at length). Rather than audit the
+# other fields one at a time and hope the list is complete, ask the host: apply,
+# re-inspect, and diff again. A field that reports drift against state it just
+# wrote reports it twice, and the second time is a failure with the flags named.
+#
+# Not a retry. One re-application would hide exactly the bug this is looking for.
+- name: "Catena-admin: re-inspect after the reconcile"
+  ansible.builtin.command:
+    argv: [docker, service, inspect, "{{ catena_admin_service_name }}"]
+  register: _ca_reinspect
+  changed_when: false
+  failed_when: false
+  when:
+    - catena_admin_deploy_from_converge | bool
+    - _ca_reconcile is changed
+
+- name: "Catena-admin: the reconcile has to have settled the drift it applied"
+  ansible.builtin.assert:
+    that:
+      - (_ca_settled | default([]) | length) == 0
+    fail_msg: >-
+      `docker service update` returned 0 and the spec still reports drift on
+      {{ _ca_settled }}. Docker no-ops an update to a spec it already holds, so
+      this is a comparison reading converged state as drift rather than a failed
+      update -- the same defect class as the image reference asymmetry described
+      in filter_plugins/swarm_service_drift.py. Every converge from now on will
+      report this service as changed.
+  vars:
+    _ca_settled: >-
+      {{ ((_ca_reinspect.stdout | from_json) | swarm_service_drift(catena_admin_desired))
+         + ((_ca_reinspect.stdout | from_json) | catena_admin_env_drift(_ca_spec | catena_admin_full_env))
+         + ((_ca_reinspect.stdout | from_json) | catena_admin_secret_drift(_ca_secrets)) }}
+  when:
+    - catena_admin_deploy_from_converge | bool
+    - _ca_reconcile is changed
+    - _ca_reinspect.rc | default(1) == 0
+
 # --- host engine payload install --------------------------------------------
 # Not here any more. roles/payload extracts the engines straight out of the
 # image and installs them right after roles/docker, so they are on the host
