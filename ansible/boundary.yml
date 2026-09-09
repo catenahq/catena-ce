@@ -57,9 +57,14 @@ bootstrap_roles:
       question one in its purest form.
   - name: ansible_runtime
     why: >-
-      The ansible-core the host reconciles itself with. Question one answers
-      itself here: a reconcile is what this makes possible, so a reconcile
-      cannot be what installs it.
+      The ansible-core the host reconciles itself with. A fresh host has no
+      panel image to converge from, so something has to install the first one
+      over SSH, and that is this role. It is the one entry here the reconcile
+      lane ALSO performs: catena-admin's catena-converge repairs the venv
+      before it needs ansible, reading the pin out of the staged tree's copy of
+      this role's defaults. Duplicated deliberately -- question one asks whether
+      anything is left that can fix a broken venv, and a root process with
+      python3 is, so a host whose runtime broke does not need an operator.
 
 # Roles the host can run against itself, once their inputs come from the store.
 # Order is site.yml's order, which is a dependency order, not a preference.

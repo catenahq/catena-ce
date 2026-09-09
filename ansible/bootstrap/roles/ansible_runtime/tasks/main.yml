@@ -1,10 +1,22 @@
 ---
 # Install the ansible-core the host reconciles itself with.
 #
-# WHY THIS IS BOOTSTRAP-SIDE, by the boundary's own question: if this is wrong,
-# is anything left that can fix it? No. A reconcile is what this makes possible,
-# so a reconcile cannot install it. That is question one, and it is the same
-# reason bootstrap/roles/docker is on this side.
+# WHY BOOTSTRAP STILL OWNS THIS. A fresh host has no panel image to converge
+# from, so something has to install the first ansible-core over SSH. That is
+# this role, and it is the whole of the reason.
+#
+# It is NOT the only thing that installs it. catena-admin's catena-converge
+# repairs the venv on the host before it needs ansible, reading
+# ansible_runtime_spec and ansible_runtime_minimum out of the staged tree --
+# this file's own defaults, travelling in the image. So the pin has one source
+# and an image bump can move the floor on every converging host.
+#
+# The duplication is deliberate. Question one asks whether anything is left
+# that can fix this if it is wrong, and the answer is yes: a root process with
+# python3 and apt can rebuild a venv from nothing. What made this look
+# bootstrap-only was that a reconcile cannot run WITHOUT it -- an ordering
+# problem, not an ownership one, and the fix is to repair it before ansible is
+# needed rather than to send an operator to the host.
 #
 # It is NOT the operator's ansible. The operator's comes from
 # ansible/pyproject.toml through uv on their laptop; this one lives on the
