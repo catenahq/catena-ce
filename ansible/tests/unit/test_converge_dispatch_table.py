@@ -14,11 +14,17 @@ far, are:
 
   - the action is the way back when a drop-in is broken, so it cannot depend on
     a drop-in;
-  - the command is not a payload binary, so an image authorising it would be
-    authorising something it does not ship.
+  - the command interpolates a value only the inventory holds, so it cannot be
+    rendered until that value is in the store.
 
 An action that has neither answer belongs in catena-admin
-payload/actions.d/20-catena.sh.
+payload/actions.d/20-catena.sh (Community) or 10-business.sh (licensed).
+
+Asking the question found a third answer that was not one. cloudflare-zones-save
+was here because its command was not a payload binary -- and the reason it was
+not one is that NO repository built it, so the Domains panel's save could only
+ever answer "command not found". Writing the engine was the fix; the action went
+with it.
 
 This replaces test_action_bodies_are_constants.py, whose job was the precondition
 for the move -- that every body interpolated product constants rather than host
@@ -43,11 +49,6 @@ RESERVED = {
         "it reinstalls the payload, so it cannot depend on the payload having "
         "installed correctly -- this is the way back when a drop-in is broken, "
         "and the reconcile invariant applied to the dispatch table itself"
-    ),
-    "cloudflare-zones-save": (
-        "it pipes through /usr/local/bin/catena-cloudflare-zones, which is not "
-        "a payload binary, so an image declaring it would be authorising a "
-        "command it does not ship"
     ),
     "cloudflared-check": (
         "it is half of a pair with cloudflared-sync, and splitting the pair "

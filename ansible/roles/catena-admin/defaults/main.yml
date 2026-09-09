@@ -383,45 +383,29 @@ catena_admin_ee_reserved_actions:
   # installer records the names it added in release.json's payload_actions so
   # the panel does not raise a converge-required banner for them.
   #
-  # What stayed: ee-install-engines, because the action that REINSTALLS the
-  # payload cannot depend on the payload having installed correctly, and
-  # cloudflare-zones-save, whose shell pipes through a catena-ce binary at a
-  # catena-ce path.
-  # Multi-domain Cloudflare zone save (EE cloudflarezones plugin). The panel's
-  # single-field form POSTs an opaque PAYLOAD: for an add it is the raw CF API
-  # token the user typed (no browser JS/base64 needed, so it survives the strict
-  # CSP); for a remove it is base64(JSON {op:remove,zone}) rendered server-side
-  # by the plugin (the zone is known). The EE host binary reads PAYLOAD on
-  # stdin, auto-detects add-token vs remove-JSON, verifies an add token grants
-  # exactly one zone, derives zone/account_id, writes the 0644 panel projection,
-  # and emits the store-write request piped to onbox_config (the sole store
-  # writer). Name + shell MUST match catena-admin cloudflarezones/plugin.go's
-  # ActionSpec. The binary exists on the host only under a Business license.
-  - name: cloudflare-zones-save
-    shell: >-
-      echo "$PAYLOAD" |
-      /usr/local/bin/catena-cloudflare-zones save |
-      {{ catena_admin_onbox_config_path }} --dispatch-stdin
-      --path {{ catena_admin_config_store_path }}
+  # What stayed: ee-install-engines alone, because the action that REINSTALLS
+  # the payload cannot depend on the payload having installed correctly. That is
+  # the reconcile invariant applied to the dispatch table itself.
+  #
+  # cloudflare-zones-save left too. It was the last entry here, and it was
+  # authorising /usr/local/bin/catena-cloudflare-zones -- a binary NO repository
+  # built, so the Domains panel's save could only ever answer "command not
+  # found". The engine exists now (catena-admin
+  # payload/cmd/catena-cloudflare-zones, a wrapper over the model the panel
+  # already carried) and it is a payload binary like the rest, so the action
+  # went with it.
 
 # --- 0b on-box config store (settings API) ----------------------------
-# The store the panel reads and writes through the host dispatcher, since the
-# unprivileged container cannot touch the root-owned 0600 file. The writer
-# itself is helpers/onbox_config.py, and the PAYLOAD is a {op,secrets,config}
-# request.
-#
-# Both names are still here because the Business cloudflare-zones-save action
-# above pipes through them. The action that SERVES the Settings tab is not: it
-# moved into the payload's own dispatch drop-in with the other twenty-three (see
-# the block below).
+# The store's path and its writer are no longer named here. Nothing in this
+# repo's dispatch table pipes through them: the settings action and the zone
+# save both ship in the panel image now, and the image installs the writer
+# (helpers/onbox_config.py) as one of its own payload binaries.
 #
 # The registries in helpers/onbox_config.py remain the enforcement point, and
 # they are read TWICE -- once by the writer when a request arrives, and again by
 # this converge's loader when it projects the store into facts. A key this repo
 # does not declare is a key it never projects, whatever the file holds. That is
 # the property that survives the writer shipping in the image.
-catena_admin_config_store_path: "/etc/catena/config.json"
-catena_admin_onbox_config_path: "/usr/local/bin/catena-onbox-config"
 
 # --- what used to be catena_admin_ce_reserved_actions -----------------
 #

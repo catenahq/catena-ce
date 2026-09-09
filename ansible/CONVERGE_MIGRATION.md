@@ -292,12 +292,17 @@ with per-concern Go engines, following
   passing every assertion about themselves. An empty list left behind is a place
   for one to come back to. `tests/unit/test_converge_dispatch_table.py` is the
   gate: the reserved table must equal a declared set, each entry carrying the
-  reason the image cannot hold it.
-- **`cloudflare-zones-save` dispatches a binary nothing builds.** The converge
-  authorises `/usr/local/bin/catena-cloudflare-zones` and no repository ships
-  it, so the Business zones panel's save can only ever answer "command not
-  found". Found while writing the declared-set gate; recorded in the ops
-  backlog, not fixed here.
+  reason the image cannot hold it. Three names are left, and two of them are
+  the cloudflared pair, which moves as soon as phase 3 puts
+  `cloudflared_tunnel_name` in the store.
+- **A dead action hid behind a plausible reason.** `cloudflare-zones-save` sat
+  in the converge's table because its command was not a payload binary -- and
+  the reason it was not one is that NO repository built it, so the Domains
+  panel's save could only ever answer "command not found". The declared-set gate
+  is what surfaced it: made to write down why the image could not carry the
+  action, the honest answer turned out to be that nothing carried it. Fixed by
+  writing the engine (catena-admin `payload/cmd/catena-cloudflare-zones`), which
+  was a wrapper over a model the panel already carried and tested.
 - **The payload installer's prune leg deletes by CONTENT.** Two of its binaries
   are catena-ce scripts now, and the converge no longer writes them. Withdrawing
   one from the image therefore removes it from the host, which is correct and
