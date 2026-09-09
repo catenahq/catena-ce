@@ -42,7 +42,7 @@ that would remove your ability to run a reconcile.
 | 2. Dispatch table into the image | **done** | catena-admin `6557adf`, catena-ce `829b914` |
 | 3. Inventory into the store | **done**, 18 -> 0 | catena-ce `836261a` `c29b978` `4893394` `c677205` `95ed945` |
 | 3'. Registry is the enforcement point | **done** | catena-ce `d63318a` |
-| 4. On-host reconcile + panel button + timer | **vendoring done**, rest open | catena-admin `17c615f` |
+| 4. On-host reconcile + panel button + timer | **built**, timer ships DISABLED | catena-ce `6a0473b`; catena-admin `a9dbd54` `81a6d15` `96c230d` |
 | 5. Re-home split owners, retire the laptop path | open | -- |
 | 6. Optional: Go reconciler | not started | -- |
 
@@ -471,23 +471,50 @@ and because seventeen of the eighteen had defaults, so a missing one
 reconfigures quietly and reports success. **The remaining proof is a bench
 install that produces the same host, not one that merely completes.**
 
-### Phase 4: run it on the host
+### Phase 4: run it on the host -- BUILT, except the timer
 
-- Bootstrap installs a pinned `ansible-core` venv at `/opt/catena/ansible`. The
-  playbook declares a minimum version and the reconcile refuses loudly rather
-  than failing midway.
-- Engine verb extracting the tree from `/usr/local/share/catena-ce` into a
-  root-owned 0700 stage dir, digest-checked, the way
-  `stackupdate.installPayloadMain` already does it.
-- Actions `catena-converge` and `catena-converge-status`, detached under
-  `systemd-run --unit catena-converge --collect`, behind
-  `flock /run/catena.lock`.
-- Panel section under Settings reusing the `panelupdate_status` fragment shape.
-  The state file, the log tail through the status action, and the htmx poll that
-  survives the panel restarting all already exist (catena-admin `7dfc28a`).
-- Timer from the start. **Gate first:** a reconcile against an unchanged store
-  must report zero changed tasks and restart nothing, proven on the bench,
-  or the timer is a scheduled outage.
+Everything is in place for a host to converge itself, and one piece is
+deliberately switched off.
+
+- **The runtime.** Bootstrap installs a pinned ansible-core venv at
+  `/opt/catena/ansible` (`roles/ansible_runtime`, catena-ce `6a0473b`). Not on
+  PATH: the engine names the interpreter it wants, so a second unaudited way to
+  run a converge never exists. The version is checked twice, because "what to
+  install" and "what may run" are different questions -- a host converged a year
+  ago runs whatever it was given then. `test_ansible_runtime_pin.py` holds the
+  three declarations together.
+- **The engine.** `catena-admin payload/cmd/catena-converge` copies the tree out
+  of the image the panel service is RUNNING -- docker create plus docker cp into
+  a root-owned 0700 stage dir -- and runs `playbooks/reconcile.yml` against an
+  inventory it writes. Never out of the container's mirror: the panel has no
+  root and no docker socket precisely so a compromise of it does not become host
+  root.
+- **The inventory it writes names the box by its own hostname.** Load-bearing,
+  not cosmetic: four reconcile-side roles interpolate `inventory_hostname`, and
+  `roles/common` sets the box's hostname from the operator's inventory name, so
+  a converge run on the host and one run from a laptop arrive at the same
+  strings. `localhost` would have produced different config for the same
+  machine, silently. Same insight as the tunnel name.
+- **The actions.** `catena-converge` and `catena-converge-status`, in the image
+  drop-in, detached under `systemd-run` behind `flock /run/catena.lock`. The run
+  action takes NO argument: a converge that accepted a playbook, a tag list or a
+  limit from the panel would make the container the thing choosing what root
+  executes.
+- **The panel section**, under Settings beside the panel update. It withholds
+  the button on an unreachable host and on one already converging, and it
+  renders a paused host as paused rather than failed.
+
+**The timer ships DISABLED, and that is the gate.** The unit pair
+(`catena-converge-scheduled.service` / `.timer`) is installed by the payload
+installer, which enables nothing -- that is what keeps install and activate two
+observable steps. Enabling it needs a reconcile against an unchanged store that
+reports zero changed tasks and restarts nothing, proven on the bench. Until
+then a timer is a scheduled outage rather than a scheduled converge.
+
+Note the unit is not called `catena-converge.service`: the panel dispatches an
+ad-hoc converge through `systemd-run --unit catena-converge`, and a persistent
+unit of that name would make every panel-triggered converge fail with a name
+collision, on a host where the scheduled one had been working fine.
 
 ### Phase 5 and 6
 
