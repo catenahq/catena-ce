@@ -142,6 +142,19 @@ portainer_api_base_onbox: "http://127.0.0.1:{{ portainer_ui_port }}/api"
 portainer_admin_subdomain: "{{ cfg_portainer_admin_subdomain | default('portainer', true) }}"
 portainer_admin_hostname: "{{ portainer_admin_subdomain }}.{{ cloudflare_zone }}"
 
+# --- Declarative public-port registry ---
+# The two paths the registry is built from. Here rather than in
+# roles/public_ports because SIX roles read the fragment dir -- coturn,
+# portainer, infrastructure's three lanes and catena-admin's host setup all drop
+# a <owner>.json into it -- and a role default is only reliably in scope once
+# that role has run. A constant six roles share is the product's, not one
+# role's.
+#
+# The reconciler imports public_ports and labels_schema by bare name from its
+# own directory, so all three install side by side in the lib dir.
+public_ports_lib_dir: /usr/local/lib/catena
+public_ports_fragment_dir: /etc/catena/public-ports.d
+
 # --- Storage ---
 storage_mode: "{{ lookup('dotenv', 'STORAGE_MODE', default='built_in') }}"
 # /mnt/data everywhere, and named literally in the backup path set, the docker

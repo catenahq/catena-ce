@@ -75,6 +75,9 @@
       tags: [always, onbox]
 
   roles:
+    # First, as in site.yml: every role below drops a fragment into the
+    # registry this installs.
+    - { role: public_ports, tags: [public_ports] }
     - { role: payload, tags: [payload] }
     - { role: traefik, tags: [traefik] }
     - { role: postgres, tags: [postgres] }

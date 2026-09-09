@@ -168,6 +168,11 @@
   # runs in a full converge (otherwise it re-probes tailscale0 unnecessarily).
   roles:
     - { role: common, tags: [common] }
+    # The declarative public-port registry, in the position it occupied when it
+    # was a task file inside common: before every role that drops a fragment
+    # into it. Needs no Docker -- it creates the docker.service.d drop-in dir
+    # itself, and systemd reads drop-ins only once docker.service exists.
+    - { role: public_ports, tags: [public_ports] }
     # Anti-container-escape kernel hardening. MUST run after common (needs
     # python3-apt) and BEFORE docker (so /etc/sysctl.d/ files are in place
     # before dockerd's first start; otherwise dockerd's runtime /proc/sys

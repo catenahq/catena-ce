@@ -922,11 +922,3 @@
   # configuration drift signal. Suppress the change report so real drift
   # (version bumps, unexpected diffs elsewhere) stays visible in summary.
   changed_when: false
-
-# ─── Declarative public-port registry ────────────────────────────────────
-# Install the reconciler + helper modules + systemd units. Infra roles drop
-# their port fragments during their own runs; site.yml post_tasks runs the
-# reconcile once at the end, after every fragment is present.
-- name: "common: install public-port reconciler"
-  ansible.builtin.import_tasks: public_ports.yml
-  tags: [public_ports]

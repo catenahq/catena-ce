@@ -1,0 +1,13 @@
+---
+# How often the public-port registry is re-applied.
+#
+# Only this role's timer template reads these. The two PATHS the registry uses
+# are not here: six roles drop fragments into the fragment dir, so they are
+# shared constants and live in playbooks/group_vars/all/main.yml, where a
+# reader that runs before this role can still resolve them.
+
+# App ports declared via vps.expose.* labels open within one interval of the
+# deploy, and the DOCKER-USER guards re-assert if something flushed them
+# out-of-band. Both are why this is a timer and not a one-shot.
+public_ports_timer_on_boot: "2min"
+public_ports_timer_interval: "5min"

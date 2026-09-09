@@ -53,19 +53,6 @@ common_baseline_packages:
 # and proxying HTTPS risks TLS middleboxing issues.
 common_apt_proxy_url: "{{ cfg_apt_proxy_url | default('') }}"
 
-# ─── Declarative public-port registry ────────────────────────────────────
-# Reconciler + helper modules install side by side here (the reconciler
-# imports public_ports + labels_schema by bare name from its own dir).
-public_ports_lib_dir: /usr/local/lib/catena
-# conf.d-style fragment dir: each infra role (coturn, portainer) drops
-# <owner>.json declaring its host-bound public ports. App ports arrive via
-# vps.expose.* labels and are NOT written here.
-public_ports_fragment_dir: /etc/catena/public-ports.d
-# Periodic reconcile cadence. App ports declared via labels open within one
-# interval of deploy; DOCKER-USER guards re-assert if flushed out-of-band.
-public_ports_timer_on_boot: "2min"
-public_ports_timer_interval: "5min"
-
 # ─── Rendered swarm stack files ──────────────────────────────────────────
 # Where roles/infrastructure/tasks/swarm_stack.yml writes the compose body
 # it hands to `docker stack deploy`. Declared in common (which runs first)
