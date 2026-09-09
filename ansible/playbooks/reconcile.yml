@@ -13,10 +13,15 @@
 # running THIS file, rather than of deciding at that moment what a converge
 # should skip.
 #
-# WHAT STILL STOPS IT RUNNING UNATTENDED: eighteen values it reads from the
-# operator's inventory rather than from /etc/catena/config.json. The gate counts
-# them and refuses to let the number grow. When it reaches zero this playbook
-# runs against an empty inventory, and that is the test.
+# WHAT STILL STOPS IT RUNNING UNATTENDED: nothing in this repo. The count of
+# values it took from the operator's inventory reached zero, and the ratchet
+# refuses to let it grow again. What is left is delivery -- an ansible-core on
+# the host and something to start this -- which is phase 4.
+#
+# The count reaching zero is not the same as this producing the same host. The
+# ratchet counts variables a role names directly, and most of the eighteen had
+# defaults, so a value that stopped arriving would reconfigure quietly rather
+# than fail. That difference is a bench install, not a unit test.
 #
 # Usage today (an operator, against a converged host, to exercise the subset):
 #   ansible-playbook -i inventory/<name> playbooks/reconcile.yml
@@ -48,7 +53,18 @@
     - { role: keycloak, tags: [keycloak, auth] }
     - { role: oauth2_proxy, tags: [oauth2_proxy, auth] }
     - { role: infrastructure, tags: [infrastructure] }
-    - { role: catena-admin, tags: [catena_admin] }
+    # NOT the whole role. roles/catena-admin straddles the boundary: its
+    # host.yml writes the forced command, the sudoers drop-in and the runner's
+    # authorized_keys, which is the trust path an operator arrives over and the
+    # one thing a reconcile may never rewrite. boundary.yml has declared that
+    # since phase 1a, and the role imported the file unconditionally anyway --
+    # so this playbook's declared boundary was not its executable one.
+    #
+    # Phase 1b moves host.yml into a bootstrap-side role and this line loses the
+    # variable. Until then the seam is here, where it can actually be held.
+    - role: catena-admin
+      tags: [catena_admin]
+      catena_admin_manage_host_trust_path: false
     - { role: coturn, tags: [coturn] }
     - { role: backup, tags: [backup] }
 

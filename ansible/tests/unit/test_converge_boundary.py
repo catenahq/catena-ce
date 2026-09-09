@@ -112,6 +112,11 @@ def test_no_reconcile_task_writes_a_bootstrap_owned_path():
     A defaults file that names /etc/ssh because restic READS it is not a task
     that writes it, and roles/backup does exactly that. A rule that cannot tell
     those apart is one people argue with instead of obeying.
+
+    Comments are stripped for the same reason. The file that explains why a
+    reconcile must not write the forced command has to be allowed to say so,
+    and a gate that fails on its own explanation teaches people to stop
+    writing them.
     """
     b = _boundary()
     operator_only = set(b["operator_only_files"])
@@ -120,7 +125,11 @@ def test_no_reconcile_task_writes_a_bootstrap_owned_path():
         rel = str(path.relative_to(_ANSIBLE))
         if "tasks" not in path.parts or rel in operator_only:
             continue
-        text = path.read_text(encoding="utf-8", errors="ignore")
+        text = "\n".join(
+            line for line in
+            path.read_text(encoding="utf-8", errors="ignore").splitlines()
+            if not line.lstrip().startswith("#")
+        )
         hit = [p for p in b["bootstrap_owned_paths"] if p in text]
         if hit:
             offenders[rel] = hit
@@ -182,6 +191,82 @@ def test_the_inventory_backlog_only_shrinks():
             f"the backlog is down to {len(found)}; lower INVENTORY_BACKLOG to "
             "match so the ratchet keeps holding"
         )
+
+
+def _bootstrap_files_in_reconcile_roles(b: dict) -> dict[str, list[str]]:
+    """role -> its bootstrap-side task files, for roles that otherwise reconcile.
+
+    ONE DIRECTION ONLY, which is the invariant: a reconcile may not do
+    bootstrap work. The reverse is fine and `common` does it -- a bootstrap
+    role installing the public-port reconciler is an operator doing reconcile
+    work, which is what an operator is allowed to do. Flagging that too would
+    make the gate an argument rather than a rule.
+    """
+    out: dict[str, list[str]] = {}
+    for role, spec in (b["straddling_roles"] or {}).items():
+        if spec["default_side"] != "reconcile":
+            continue
+        files = spec.get("bootstrap") or []
+        if files:
+            out[role] = list(files)
+    return out
+
+
+def test_no_reconcile_play_reaches_a_bootstrap_task_file():
+    """The DECLARED boundary has to be the EXECUTABLE one.
+
+    Declaring a task file bootstrap-side stops nothing on its own. Two roles
+    straddle the line and each imports the other side's file from its own
+    main.yml, so a play that runs the role runs that file too -- and
+    reconcile.yml runs both roles. The property every other assertion in this
+    module is about was therefore true of the files and false of the run:
+    a reconcile could rewrite the forced command.
+
+    So an import of a cross-side task file has to be conditional, and the
+    reconcile playbook has to turn it off. Checked structurally rather than by
+    naming the variable, because the variable is an implementation detail and
+    the property is not.
+    """
+    b = _boundary()
+    offenders: dict[str, str] = {}
+    for role, files in _bootstrap_files_in_reconcile_roles(b).items():
+        main = _ROLES / role / "tasks" / "main.yml"
+        if not main.is_file():
+            continue
+        tasks = yaml.safe_load(main.read_text()) or []
+        for task in tasks:
+            if not isinstance(task, dict):
+                continue
+            imported = str(task.get("ansible.builtin.import_tasks")
+                           or task.get("import_tasks") or "")
+            if imported not in files:
+                continue
+            if not task.get("when"):
+                offenders[f"roles/{role}/tasks/main.yml"] = (
+                    f"imports {imported} unconditionally, so any play running "
+                    f"{role} runs the other side of the boundary"
+                )
+    assert not offenders, (
+        "a straddling role imports its other-side task file with no condition, "
+        "so declaring the file's side changes nothing about what runs: "
+        f"{offenders}"
+    )
+
+    # And the reconcile playbook has to actually be the caller that says no.
+    playbook = (_ANSIBLE / "playbooks" / "reconcile.yml").read_text()
+    plays = yaml.safe_load(playbook)
+    guarded = False
+    for play in plays:
+        for entry in play.get("roles") or []:
+            if not isinstance(entry, dict):
+                continue
+            if any(v is False for k, v in entry.items()
+                   if k not in {"role", "tags", "when", "vars"}):
+                guarded = True
+    assert guarded, (
+        "playbooks/reconcile.yml runs a straddling role without disabling its "
+        "bootstrap-side half, so the boundary it declares is not the one it runs"
+    )
 
 
 def test_the_reconcile_playbook_matches_the_declaration():

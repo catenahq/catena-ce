@@ -5,6 +5,16 @@
 # AND deploys the container itself as a Portainer stack (deploy.yml, pulling
 # catena_admin_image). See README.md.
 
+# --- The converge boundary, inside this role ---------------------------
+# host.yml writes the forced command, the sudoers drop-in and the runner's
+# authorized_keys: the trust path an operator arrives over, and the one thing a
+# reconcile may never rewrite (boundary.yml, bootstrap_owned_paths).
+#
+# TRUE here so every caller that should run it does, without saying so.
+# playbooks/reconcile.yml is the only caller that turns it off, and turning it
+# off is what makes that playbook's declared boundary its actual one.
+catena_admin_manage_host_trust_path: true
+
 # --- Hostname ---------------------------------------------------------
 # The admin panel is served at dash.<zone>. CATENA_ADMIN_SUBDOMAIN was the
 # override; no inventory in this repo, in the operator skeleton or on any host
