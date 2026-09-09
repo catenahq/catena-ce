@@ -43,22 +43,11 @@ LOADER_EXEMPT = {
     ),
 }
 
-# The one play that runs BEFORE the store can exist, and the defect that leaves.
-#
-# bootstrap.yml joins the tailnet on a machine that has nothing on it yet, so
-# there is no store to load and no honest way to give it one here. The
-# consequence is real and not this gate's to fix: tailnet_provider resolves from
-# cfg_tailnet_provider with no inventory fallback, so a Headscale host bootstraps
-# against Tailscale SaaS, and only the first site.yml -- which does load the
-# store -- puts it right. Recorded in ops/BACKLOG_TECHNICAL.md; the fix is a
-# decision about where the store is born, not a line in a playbook.
-STORE_PREDATES_THE_PLAY = {
-    "bootstrap.yml": (
-        "runs against a machine with no /etc/catena yet, so the values it "
-        "reads cannot come from a store. See the backlog entry: the tailnet "
-        "provider is chosen before anything can record the choice"
-    ),
-}
+# Either include satisfies the rule. bootstrap.yml runs the seed half alone --
+# the full loader mints secrets and calls the registry, neither of which belongs
+# on a machine that does not have Docker yet -- and that half is what publishes
+# the cfg_* facts this gate is about.
+_LOADERS = ("load_onbox_config", "seed_onbox_config")
 
 
 def _store_backed_vars() -> dict[str, str]:
@@ -119,9 +108,8 @@ def test_every_play_that_reads_the_store_loads_it():
 
     for playbook in sorted(_PLAYBOOKS.glob("*.yml")):
         text = playbook.read_text(encoding="utf-8", errors="ignore")
-        if ("load_onbox_config" in text
-                or playbook.name in LOADER_EXEMPT
-                or playbook.name in STORE_PREDATES_THE_PLAY):
+        if (any(loader in text for loader in _LOADERS)
+                or playbook.name in LOADER_EXEMPT):
             continue
         reads: set[str] = set()
         for role in _roles_of(playbook):
@@ -141,18 +129,53 @@ def test_every_play_that_reads_the_store_loads_it():
     )
 
 
-def test_the_play_that_predates_the_store_is_the_only_one():
-    """One play runs before there is a store, and one is the number that keeps
-    the rule meaningful. A second entry here would mean a value moved into the
-    store that something needs before the store exists, which is a design
-    mistake rather than an exception to record."""
-    assert set(STORE_PREDATES_THE_PLAY) == {"bootstrap.yml"}, (
-        "another play now claims to run before the store exists: "
-        f"{sorted(STORE_PREDATES_THE_PLAY)}"
+def test_bootstrap_seeds_the_store_and_runs_nothing_else():
+    """Bootstrap gets the seed half ONLY.
+
+    The rest of load_onbox_config.yml mints the internal service secrets and the
+    user-held DR keyset, and asks the container registry which catena-admin
+    release to install. Bootstrap runs before Docker exists and before the
+    operator has been handed anything, so pulling in the whole loader -- the
+    obvious move, since it is one file -- would mint a keyset nobody is there to
+    receive and make a network call for an answer nothing can act on.
+    """
+    # Comments stripped: the play explains why it does NOT run the full loader,
+    # and a gate that reads prose would fail on its own explanation.
+    text = "\n".join(
+        line for line in
+        (_PLAYBOOKS / "bootstrap.yml").read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#")
     )
-    for name, reason in STORE_PREDATES_THE_PLAY.items():
-        assert (_PLAYBOOKS / name).is_file(), f"{name} does not exist"
-        assert len(reason) > 60, f"{name} has no real reason: {reason!r}"
+    assert "seed_onbox_config.yml" in text, (
+        "bootstrap.yml no longer seeds the store, so roles/tailscale chooses a "
+        "control plane from empty facts and a Headscale host takes the "
+        "Tailscale fork"
+    )
+    assert "load_onbox_config" not in text, (
+        "bootstrap.yml includes the full loader. That mints the DR keyset and "
+        "resolves the catena-admin release from the registry, on a machine with "
+        "no Docker and no operator waiting on a keyset. Include "
+        "tasks/seed_onbox_config.yml instead"
+    )
+
+
+def test_the_seed_is_the_loaders_own_config_block():
+    """One copy of these tasks, not two. The loader includes the same file
+    bootstrap does, so a key added to the seed reaches both paths."""
+    loader = (_PLAYBOOKS / "tasks" / "load_onbox_config.yml").read_text(encoding="utf-8")
+    assert "seed_onbox_config.yml" in loader, (
+        "tasks/load_onbox_config.yml no longer includes the seed, so the "
+        "converge and bootstrap have separate copies of the config block"
+    )
+    seed = (_PLAYBOOKS / "tasks" / "seed_onbox_config.yml").read_text(encoding="utf-8")
+    for marker in ("settings-config-names", "--set-config", "config-vars",
+                   "cfg_cloudflare_zone"):
+        assert marker in seed, f"the seed no longer {marker!r}s"
+    for forbidden in ("--emit secrets", "catena_admin_release.py", "image-pins"):
+        assert forbidden not in seed, (
+            f"{forbidden!r} moved into the seed, which bootstrap runs on a "
+            "machine with no Docker and no operator waiting on a keyset"
+        )
 
 
 def test_every_exemption_reads_the_store_for_itself():

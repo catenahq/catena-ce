@@ -1,0 +1,84 @@
+---
+# The non-secret half of the on-box store: seed it once from the inventory
+# `.env`, then read only the store.
+#
+# Split out of tasks/load_onbox_config.yml so bootstrap.yml can run THIS and
+# nothing else. The rest of that loader belongs to a converge: it mints the
+# internal service secrets and the user-held admin/restic DR keyset, and it asks
+# the container registry which catena-admin release to install -- on a machine
+# that has no Docker yet. Bootstrap needs neither, and needs the config half
+# because roles/tailscale chooses its control plane from cfg_tailnet_provider
+# with no inventory fallback. A machine that reaches its first converge already
+# on the wrong tailnet was the defect this split exists to close.
+#
+# The full loader includes this file, so there is one copy of these four tasks.
+#
+# Post-install config has to have ONE live reader. The inventory `.env` is the
+# first-install SEED (fill-only, so a converge never overwrites what the client
+# later set in catena-admin), and from then on the store answers.
+#
+# Before this, both were live at once: run-backup.sh reconciled them in shell
+# at runtime, retention ended up with two copies and the converge's silently
+# dead, and a tag-scoped converge that skipped the loader fell back to a stale
+# `.env` with no signal.
+- name: "onbox: read the store-owned config key names"
+  ansible.builtin.script:
+    cmd: "{{ playbook_dir }}/../helpers/onbox_config.py --emit settings-config-names"
+    executable: python3
+  register: _onbox_cfg_known
+  changed_when: false
+
+# Each declared key is read out of the inventory .env on the CONTROLLER and
+# passed as --set-config. A blank never seeds: apply_inputs skips empty values
+# the same way it skips a blank secret, so an unset key leaves the store alone
+# rather than writing "" over a value the client set.
+#
+# On a bare machine this is also what CREATES the store: onbox_config.dump()
+# does p.parent.mkdir(parents=True), so /etc/catena does not have to exist yet.
+- name: "onbox: seed the store's config from .env (fill-only, first install)"
+  ansible.builtin.script:
+    cmd: >-
+      {{ playbook_dir }}/../helpers/onbox_config.py
+      --path {{ catena_onbox_config_path | default('/etc/catena/config.json') }}
+      --no-mint --emit none
+      {% for k in (_onbox_cfg_known.stdout | from_json) %}
+      {% set v = lookup('dotenv', k, default='') %}
+      {% if v | string | length > 0 %}--set-config {{ (k ~ '=' ~ v) | quote }} {% endif %}
+      {% endfor %}
+    executable: python3
+  register: _onbox_cfg_seeded
+  changed_when: false
+
+- name: "onbox: publish the store's config as facts (outranks role defaults)"
+  ansible.builtin.script:
+    cmd: >-
+      {{ playbook_dir }}/../helpers/onbox_config.py
+      --path {{ catena_onbox_config_path | default('/etc/catena/config.json') }}
+      --no-mint --emit config-vars
+    executable: python3
+  register: _onbox_cfg_emit
+  changed_when: false
+
+- name: "onbox: set_fact each store-owned config value"
+  ansible.builtin.set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: "{{ (_onbox_cfg_emit.stdout | from_json) | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+# The one store value with no usable default. Every public hostname is
+# <sub>.<zone>, so an empty one converges a host that looks finished and serves
+# nothing -- the failure mode a default would buy. Asserted here, once, where
+# the answer has just been established, rather than left to surface as a
+# certificate for `dash.` three roles later.
+- name: "onbox: the zone every hostname is built from has to be known"
+  ansible.builtin.assert:
+    that:
+      - (cfg_cloudflare_zone | default('') | trim | length) > 0
+    fail_msg: >-
+      This host has no Cloudflare zone. It is seeded from CLOUDFLARE_ZONE in the
+      inventory .env on the first converge and read from
+      {{ catena_onbox_config_path | default('/etc/catena/config.json') }} from
+      then on, so either this is a first install with the key missing from .env,
+      or the store was replaced by one belonging to no domain.
+  run_once: true

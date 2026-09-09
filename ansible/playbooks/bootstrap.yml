@@ -472,6 +472,26 @@
     ansible_user: "{{ ops_user }}"
     ansible_python_interpreter: auto_silent
   become: true # ops uses NOPASSWD sudo (set up in Phase 1)
+  pre_tasks:
+    # THE STORE IS BORN HERE, not at the first converge.
+    #
+    # roles/tailscale resolves its provider, control URL and Headscale user from
+    # store-projected facts with no inventory fallback. Run with
+    # no store, all three are empty and the provider inference answers
+    # `tailscale` unconditionally -- so a Headscale install took the Tailscale
+    # fork and died at an OAuth exchange against credentials its operator does
+    # not have, naming a vendor they never chose.
+    #
+    # Only the CONFIG half seeds here. The rest of load_onbox_config.yml MINTS
+    # the internal secrets and the user-held admin/restic DR keyset, and asks the
+    # container registry which catena-admin release to install -- all of it a
+    # converge's work, on a machine that does not have Docker yet.
+    #
+    # Phase 1 has already run the common role, so python3 and ops exist; the
+    # store's parent directory does not have to (onbox_config.dump() creates it).
+    - name: "0b: seed the on-box config store before anything reads it"
+      ansible.builtin.include_tasks:
+        file: tasks/seed_onbox_config.yml
   roles:
     - role: tailscale
 
