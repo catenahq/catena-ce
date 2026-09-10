@@ -2,24 +2,18 @@
 # Vantage 1 (on-host) validation for coturn. Invoked by
 # playbooks/validate.yml via include_role + tasks_from: validate.
 
-# Consumer gate. coturn is a companion to the real-time apps and is only
-# deployed when one is running (see main.yml), so every assertion below is
-# conditional on the same probe. Without this, validate fails on a healthy
-# tenant that simply runs no Talk/Jitsi app. Runs via tasks_from: validate,
-# so the register from main.yml is not in scope -- reprobe.
+# NO CONSUMER PROBE HERE. It used to reprobe main.yml's consumer gate so the
+# assertions could be conditional on it, and that is exactly what made validate
+# demand a coturn the deploy pass had deliberately not deployed yet. Whether a
+# consumer is running is main.yml's question, asked where roles/coturn sits in
+# site.yml's order; by the time validate runs, the only question left is what
+# this host HAS.
 #
-# Byte-identical to main.yml's probe, `status=running` included: the two run
-# minutes apart in one converge, and a consumer that enters a restart loop
-# between them made the deploy gate and this one disagree about the same host
-# (bench f140 backup_rollback).
-- name: "validate coturn: detect a running consumer (Talk HPB or a Jitsi JVB)"
-  ansible.builtin.shell: |
-    docker ps --filter 'label=vps.component=talk-hpb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
-    docker ps --filter 'label=vps.component=jvb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
-  args:
-    executable: /bin/bash
-  register: _v_coturn_consumer
-  changed_when: false
+# The reprobe also could not agree with the deploy gate even in principle: the
+# two run minutes apart in one converge, and bench f140 (backup_rollback) caught
+# a consumer entering a restart loop between them and making them disagree about
+# the same host. A probe that cannot be trusted to match the decision it is
+# mirroring is not a gate.
 
 # Mirror main.yml's second arm: an already-deployed coturn stays under
 # validation even if its last consumer went away, because it is still
@@ -32,18 +26,39 @@
   changed_when: false
   failed_when: false
 
+# PRESENCE ONLY, which is what the comment above has always said and what the
+# gate did not do. It also ORed in "a consumer is running", and that arm asserts
+# what a FUTURE converge will deploy rather than what this host has.
+#
+# The two gates are evaluated at different moments of one converge and they are
+# MEANT to disagree. main.yml decides where roles/coturn sits in site.yml's
+# order, and says why coturn may legitimately not be there yet: it "lands on the
+# converge after the consumer is first deployed ... matching the established
+# 'deploy app, then converge catches up' rhythm". A DR restore brings Nextcloud
+# and its Talk HPB up later in the SAME converge, so deploy correctly skips and
+# the consumer is running by the time validate looks.
+#
+# Asserting on the consumer arm turned that designed lag into a failure: run
+# 2026-09-09T20-56-47-03d8 lost nc_s3_hot_recovery and mailserver_round_trip to
+# "coturn swarm service not running after waiting 150s" on hosts where coturn
+# was never deployed and was not supposed to be yet.
+#
+# What is given up: validate no longer notices "a consumer is running and coturn
+# is missing". That state is legitimate for one converge, and the next converge
+# both deploys coturn and starts asserting it -- so the property is checked, one
+# converge later, by the arm below.
 - name: "validate coturn: resolve the assertion gate"
   ansible.builtin.set_fact:
     _v_coturn_expected: >-
-      {{ ((_v_coturn_consumer.stdout | default('') | trim) | length > 0)
-         or ((_v_coturn_existing.stdout | default('') | trim) | length > 0) }}
+      {{ (_v_coturn_existing.stdout | default('') | trim) | length > 0 }}
 
-- name: "validate coturn: no TURN consumer -- nothing to validate"
+- name: "validate coturn: no coturn service -- nothing to validate"
   ansible.builtin.debug:
     msg: >-
-      No Nextcloud Talk HPB and no Rocket.Chat / Element JVB running, and no
-      coturn service deployed. coturn is deliberately absent. Skipping every
-      coturn assertion (service, cert, listeners, ufw).
+      No coturn service on this host, so there is nothing to assert about it.
+      coturn is consumer-gated and deploys on the converge AFTER its first
+      consumer appears; if a Talk HPB or JVB is running now, the next converge
+      is what brings coturn up and this becomes a real assertion then.
   when: not (_v_coturn_expected | bool)
 
 # The block `when` reads _v_coturn_expected, set ABOVE the block -- never a
