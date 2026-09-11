@@ -20,12 +20,6 @@ ansible_managed: "Managed by catena - do not edit directly."
 # itself. The HPB stack reuses the shared coturn UDP profile already
 # opened by reconcile/roles/coturn (3478, 5349, 50000-50100).
 
-# --- Rocket.Chat bundled Jitsi (JVB media port) --------------------------
-# JVB binds a single multiplexed UDP port for all media (Jitsi
-# convention -- not a range). Matches `JVB_PORT` in the rocketchat
-# compose template. ufw must permit it whenever RC is deployed.
-rocketchat_jitsi_jvb_media_port: 10000
-
 # --- Cloudflare tunnel ---------------------------------------------------
 # Tunnel + DNS + cloudflared swarm service moved to reconcile/roles/cloudflare_tunnel
 # on 2026-05-08 so site.yml can deploy them BEFORE keycloak/oauth2_proxy

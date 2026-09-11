@@ -333,9 +333,10 @@
           tags: [nextcloud_apps]
       tags: [nextcloud_apps]
 
-    # Rocket.Chat + bundled Jitsi. Wire script installs unconditionally;
-    # ufw rule for JVB media (10000/udp) opens only when RC is deployed.
-    - name: Rocket.Chat + Jitsi (wire script + JVB media ufw)
+    # Rocket.Chat + bundled Jitsi. Wire script only: JVB's media port is a
+    # swarm host-mode publish, which Docker DNATs past ufw INPUT, so the
+    # registry learns it from the template's vps.expose.udp label instead.
+    - name: Rocket.Chat + Jitsi (wire script)
       ansible.builtin.include_tasks:
         file: rocketchat_jitsi.yml
         apply:

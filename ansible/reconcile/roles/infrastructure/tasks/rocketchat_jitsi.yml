@@ -4,11 +4,9 @@
 #
 # Two layers:
 #
-#   1. CONVERGE (this file). Install the wire script + open ufw for
-#      JVB media (10000/udp) when the Jitsi block in the live RC
-#      compose is detected. Render meet.<base> A record (via
-#      cloudflared wildcard CNAME, so no extra DNS task is needed --
-#      meet.<base> resolves through the existing wildcard CNAME).
+#   1. CONVERGE (this file). Install the wire script. meet.<base>
+#      resolves through the existing cloudflared wildcard CNAME, so no
+#      DNS task is needed here.
 #
 #   2. POST-DEPLOY (catena-admin action "Wire Rocket.Chat Jitsi"). The
 #      RC REST API calls (POST /api/v1/settings/Jitsi_*) inside the
@@ -21,6 +19,17 @@
 # UI is HTTP only and goes through cloudflared like every other web
 # app. JVB's UDP media is the part that bypasses the tunnel; that one
 # binds directly via mode: host on 10000/udp.
+#
+# WHY NOTHING HERE OPENS THAT PORT. A swarm `mode: host` publish is
+# DNAT'd by dockerd in PREROUTING and never reaches ufw's INPUT chain
+# -- helpers/public_ports.py states the rule and bench 050b measured
+# it, finding three loopback-scoped ports wide open with ufw deny
+# rules installed. So a ufw allow for 10000/udp decided nothing: the
+# port is reachable because Docker published it, and it closes when
+# the service stops. The declaration that makes it AUDITABLE is the
+# `vps.expose.udp` label on the jvb service in catena-templates, which
+# the registry harvests off the running container; an app port belongs
+# to the app's template, not to a converge role.
 
 - name: "RC Jitsi: install host script"
   ansible.builtin.copy:
@@ -29,25 +38,3 @@
     owner: root
     group: root
     mode: "0755"
-
-- name: "RC Jitsi: probe whether Rocket.Chat is deployed"
-  ansible.builtin.command:
-    argv:
-      - docker
-      - service
-      - ls
-      - --filter
-      - name=rocketchat
-      - --format
-      - "{{ '{{' }}.Name{{ '}}' }}"
-  register: _rc_jitsi_svc
-  changed_when: false
-  failed_when: false
-
-- name: "RC Jitsi: open JVB media UDP (10000) when RC is deployed"
-  community.general.ufw:
-    rule: allow
-    port: "{{ rocketchat_jitsi_jvb_media_port }}"
-    proto: udp
-    comment: "Rocket.Chat Jitsi JVB media"
-  when: _rc_jitsi_svc.stdout | trim | length > 0

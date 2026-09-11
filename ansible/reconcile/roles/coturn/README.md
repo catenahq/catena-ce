@@ -48,6 +48,12 @@ UDP media plane direct on VPS public IP via shared coturn at
 | 50000-50100 | UDP | coturn | Coturn relay range (ephemeral) |
 | 49160-49200 | UDP | NC Talk Janus | Talk media (when NC HPB block live) |
 | 10000 | UDP | RC Jitsi JVB | Jitsi media (when RC deployed) |
+| 10010 | UDP | Element Jitsi JVB | Jitsi media (when Element deployed) |
+
+The last three are swarm `mode: host` publishes, which dockerd DNATs past
+ufw's INPUT chain: they are open because Docker published them and they close
+when the service stops. Their `vps.expose.udp` labels declare them to the
+public-port registry so they appear in the effective set, not to open them.
 
 ## DR / portability
 
