@@ -79,3 +79,37 @@ jobs:
           node-version: "24"
       - name: jscpd (threshold in .jscpd.json)
         run: npx --yes jscpd@4 --silent
+
+  prose:
+    # Code comments describe what the code does, not what it used to do.
+    # The rules and the runner both live in catenahq/contracts and are
+    # run from there, so this repo holds only its own prose-debt.txt.
+    name: Comment prose
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          path: catena-ce
+          persist-credentials: false
+      - name: Check out sibling contracts
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          repository: catenahq/contracts
+          path: contracts
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+      # Pinned in contracts/.vale-version, which check-prose.mjs also
+      # reads and enforces: the grammars decide which comments are
+      # visible, so a different version is a different gate.
+      - name: Install vale
+        run: |
+          version="$(cat contracts/.vale-version)"
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSL "https://github.com/errata-ai/vale/releases/download/v${version}/vale_${version}_Linux_64-bit.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP/bin" vale
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: check:prose
+        working-directory: ./catena-ce
+        run: node ../contracts/scripts/check-prose.mjs

@@ -1,0 +1,97 @@
+# Files exempt from the comment-prose gate in
+# contracts/scripts/check-prose.mjs.
+# Format: <path relative to the repo root> -- <reason>
+#
+# Every entry is a file whose comments carry history, a plan reference,
+# or a definition by contrast. The list is a measured backlog, seeded on
+# 2026-09-11 when the gate first ran, and it is meant to shrink.
+#
+# A listed file with no finding fails the gate. Delete the entry when the
+# file is fixed, or the gate stops gating that file.
+#
+# The advisory rules (NoComparison, NoNegation) never reach this file:
+# they are warnings and do not block.
+
+ansible/helpers/catena_admin_release.py -- 1 finding(s): NoContrastSpec
+ansible/helpers/install_key.py -- 2 finding(s): NoHistoryWeak
+ansible/helpers/onbox_config.py -- 12 finding(s): NoContrastSpec, NoHistory, NoHistoryWeak
+ansible/helpers/public_ports.py -- 1 finding(s): NoHistory
+ansible/helpers/tailnet_check.py -- 1 finding(s): NoContrastSpec
+ansible/playbooks/filter_plugins/backup_cadence_cap.py -- 1 finding(s): NoHistory
+ansible/playbooks/filter_plugins/bootstrap_drift.py -- 1 finding(s): NoHistoryWeak
+ansible/playbooks/filter_plugins/catena_admin_service.py -- 1 finding(s): NoHistory
+ansible/playbooks/filter_plugins/catena_served_zones.py -- 2 finding(s): NoHistory, NoHistoryWeak
+ansible/playbooks/filter_plugins/converge_manifest.py -- 7 finding(s): NoHistory, NoHistoryWeak
+ansible/playbooks/filter_plugins/image_pin.py -- 2 finding(s): NoHistory, NoHistoryWeak
+ansible/playbooks/filter_plugins/smtp_resolve.py -- 1 finding(s): NoHistoryWeak
+ansible/playbooks/filter_plugins/swarm_service_drift.py -- 2 finding(s): NoHistoryWeak
+ansible/playbooks/filter_plugins/tier1_stack.py -- 1 finding(s): NoHistoryWeak
+ansible/scripts/beszel-seed.py -- 3 finding(s): NoHistory, NoHistoryWeak
+ansible/scripts/catena-public-ports.py -- 5 finding(s): NoHistory, NoHistoryWeak
+ansible/scripts/gatus-sync.py -- 3 finding(s): NoHistory
+ansible/scripts/healthchecks-seed.py -- 1 finding(s): NoHistoryWeak
+ansible/seed.py -- 2 finding(s): NoHistory
+ansible/tests/unit/test_apt_rescue_respects_diagnostic.py -- 1 finding(s): NoHistoryWeak
+ansible/tests/unit/test_backup_env_reconciled.py -- 3 finding(s): NoHistoryWeak
+ansible/tests/unit/test_backup_excludes_pg_lock_files.py -- 3 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_backup_integrity_check_cadence.py -- 1 finding(s): NoHistoryWeak
+ansible/tests/unit/test_backup_wrapper_payload_sequencing.py -- 2 finding(s): NoHistory
+ansible/tests/unit/test_beszel_oidc.py -- 2 finding(s): NoHistory
+ansible/tests/unit/test_catena_admin_backup_endpoint_actions.py -- 3 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_catena_admin_cloudflared_actions.py -- 1 finding(s): NoHistoryWeak
+ansible/tests/unit/test_catena_admin_migrate_lane.py -- 2 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_catena_admin_release.py -- 1 finding(s): NoHistoryWeak
+ansible/tests/unit/test_catena_admin_rolling_update.py -- 1 finding(s): NoHistory
+ansible/tests/unit/test_catena_admin_state_bind.py -- 2 finding(s): NoHistoryWeak
+ansible/tests/unit/test_catena_admin_systemd_run_env.py -- 2 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_cloudflared_tunnel_dispatch.py -- 5 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_container_update_cap.py -- 1 finding(s): NoHistoryWeak
+ansible/tests/unit/test_converge_boundary.py -- 2 finding(s): NoContrastSpec, NoHistoryWeak
+ansible/tests/unit/test_converge_dispatch_table.py -- 8 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_converge_is_reboot_idempotent.py -- 1 finding(s): NoHistoryWeak
+ansible/tests/unit/test_converge_prune.py -- 1 finding(s): NoHistory
+ansible/tests/unit/test_coturn_consumer_gate.py -- 1 finding(s): NoHistory
+ansible/tests/unit/test_coturn_declared_ports_are_enabled.py -- 1 finding(s): NoHistory
+ansible/tests/unit/test_dashboard_sync_payload_gate.py -- 8 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_docker_daemon_control_is_bounded.py -- 1 finding(s): NoHistoryWeak
+ansible/tests/unit/test_every_role_reference_resolves.py -- 4 finding(s): NoContrastSpec, NoHistory, NoHistoryWeak
+ansible/tests/unit/test_filter_references_resolve.py -- 2 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_gatus_sync_absent_input.py -- 1 finding(s): NoHistoryWeak
+ansible/tests/unit/test_hc_urls_are_loopback.py -- 1 finding(s): NoHistory
+ansible/tests/unit/test_host_script_import_path.py -- 2 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_image_pin_wiring.py -- 2 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_keycloak_zone_projection.py -- 2 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_lane_guards_signal.py -- 1 finding(s): NoHistory
+ansible/tests/unit/test_license_state_in_store.py -- 1 finding(s): NoHistory
+ansible/tests/unit/test_mailserver_container_names_are_fresh.py -- 4 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_mailserver_oidc_staging_dir.py -- 1 finding(s): NoHistoryWeak
+ansible/tests/unit/test_managed_services_manifest.py -- 2 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_mysql_logical_dump.py -- 2 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_no_lane_is_half_owned.py -- 2 finding(s): NoContrastSpec, NoHistoryWeak
+ansible/tests/unit/test_onbox_config.py -- 3 finding(s): NoContrastSpec, NoHistory, NoHistoryWeak
+ansible/tests/unit/test_onbox_env_has_no_controller_address.py -- 2 finding(s): NoHistoryWeak
+ansible/tests/unit/test_payload_expected_predicate.py -- 1 finding(s): NoHistoryWeak
+ansible/tests/unit/test_payload_install.py -- 1 finding(s): NoHistory
+ansible/tests/unit/test_portainer_apikey_mint.py -- 2 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_public_ports_loopback_scope.py -- 4 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_realm_settings_ownership.py -- 1 finding(s): NoHistory
+ansible/tests/unit/test_reconcile_needs_no_collections.py -- 2 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_release_manifest.py -- 3 finding(s): NoHistoryWeak
+ansible/tests/unit/test_restic_init_does_not_hide_a_wrong_password.py -- 1 finding(s): NoHistory
+ansible/tests/unit/test_schedule_single_owner.py -- 4 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_seed.py -- 2 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_smtp_resolution.py -- 2 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_ssh_lockout_ordering.py -- 2 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_sshd_dropin_is_effective.py -- 1 finding(s): NoHistoryWeak
+ansible/tests/unit/test_store_is_the_enforcement_point.py -- 2 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_swarm_addr_conflict_reclaim.py -- 1 finding(s): NoHistoryWeak
+ansible/tests/unit/test_swarm_compose_shape.py -- 1 finding(s): NoHistoryWeak
+ansible/tests/unit/test_swarm_deploy_is_bounded.py -- 1 finding(s): NoHistoryWeak
+ansible/tests/unit/test_swarm_placement.py -- 2 finding(s): NoHistory
+ansible/tests/unit/test_swarm_service_drift.py -- 2 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_swarm_task_history.py -- 3 finding(s): NoContrastSpec, NoHistoryWeak
+ansible/tests/unit/test_tagged_includes_apply_their_tags.py -- 1 finding(s): NoHistoryWeak
+ansible/tests/unit/test_tailnet_check.py -- 1 finding(s): NoHistoryWeak
+ansible/tests/unit/test_tailscale_provider_fork.py -- 2 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_tier1_declaration.py -- 1 finding(s): NoHistory
+ansible/tests/unit/test_traefik_relaunch_exited.py -- 4 finding(s): NoHistory
