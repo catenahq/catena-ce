@@ -17,11 +17,11 @@
 # question from "which image does the shell come from", so the two cannot
 # answer differently.
 #
-# They could, and did. This role resolved max(floor, pin) while
-# reconcile/roles/catena-admin never reconciles the service's image at all -- its drift
-# set is hardening + env + secrets -- so raising the floor reinstalled the
-# engines on the next converge and left the shell on the image it was created
-# with, silently, widening with every release.
+# reconcile/roles/catena-admin resolves its own image from max(floor, pin) and
+# reconciles the service to it at role 13. Resolving the same expression here
+# would be a second reader of one value, evaluated four roles earlier: a pin
+# written between the two, or a registry that answered differently, gives a host
+# new engines under the shell it already had.
 #
 # The spec's image carries the digest swarm resolved at create/update time, so
 # following it is byte-exact rather than tag-exact.

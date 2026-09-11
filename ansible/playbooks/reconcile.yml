@@ -6,24 +6,22 @@
 # is left is the work a host can do to itself: render config from the image,
 # reconcile swarm services, install units, apply the schedule.
 #
-# It does not run on a host yet. What it is today is the boundary made
-# executable -- boundary.yml declares which roles belong here and
-# tests/unit/test_converge_boundary.py holds the two files to each other -- so
-# that the eventual on-host converge is a matter of extracting this tree and
-# running THIS file, rather than of deciding at that moment what a converge
-# should skip.
+# THIS IS WHAT A HOST RUNS AGAINST ITSELF. catena-admin's catena-converge copies
+# the tree out of the panel image it is running, writes a one-host inventory
+# naming the box by its own hostname, and runs THIS file. Which roles belong
+# here is boundary.yml, and tests/unit/test_converge_boundary.py holds the two
+# files to each other, so the set is a declaration rather than a decision taken
+# at the moment of extraction.
 #
-# WHAT STILL STOPS IT RUNNING UNATTENDED: nothing in this repo. The count of
-# values it took from the operator's inventory reached zero, and the ratchet
-# refuses to let it grow again. What is left is delivery -- an ansible-core on
-# the host and something to start this -- which is phase 4.
+# It takes nothing from an operator's inventory -- the count reached zero and
+# the ratchet refuses to let it grow again -- but zero is a floor, not a
+# verdict. The ratchet counts variables a role names directly, and most of the
+# eighteen had defaults, so a value that stopped arriving reconfigures quietly
+# rather than failing. Whether this produces the same host as site.yml is a
+# bench install, not a unit test.
 #
-# The count reaching zero is not the same as this producing the same host. The
-# ratchet counts variables a role names directly, and most of the eighteen had
-# defaults, so a value that stopped arriving would reconfigure quietly rather
-# than fail. That difference is a bench install, not a unit test.
-#
-# Usage today (an operator, against a converged host, to exercise the subset):
+# An operator can also run it directly, against a converged host, to exercise
+# the subset:
 #   ansible-playbook -i inventory/<name> playbooks/reconcile.yml
 - name: Reconcile a VPS from its on-box configuration
   hosts: "{{ stage_hosts | default('vps') }}"

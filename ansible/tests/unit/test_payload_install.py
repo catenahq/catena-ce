@@ -98,12 +98,11 @@ def test_image_defaults_to_the_catena_admin_image():
 def test_the_engines_follow_the_running_shell():
     """One version input per host, not two.
 
-    reconcile/roles/catena-admin's drift set is hardening + environment + secrets; it
-    never reconciles the service's image. So while this role resolved
-    max(floor, pin) on its own, raising the shipped floor reinstalled the
-    engines and left the shell on the image it was created with -- new engines,
-    old shell, widening every release. Following the service spec deletes the
-    second input instead of adding a check against it.
+    reconcile/roles/catena-admin resolves max(floor, pin) and reconciles the
+    service to it at role 13. Resolving that expression here as well would be a
+    second reader of one value, four roles earlier -- and the two can disagree,
+    which puts new engines under the shell the host already had. Following the
+    service spec deletes the second input instead of adding a check against it.
     """
     flat = _flatten(_tasks())
     inspect = flat[_index_of(flat, "what image is the catena-admin service")]
