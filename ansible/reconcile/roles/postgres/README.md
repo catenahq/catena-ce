@@ -15,8 +15,8 @@ etc.) keep their own containers -- this hosts infra databases only.
   `catena_postgres_password`, sourced from
   `catena_postgres_password` (minted on-box by the config
   loader). Kept out of `docker service inspect`. Rotation is a
-  create-new-secret + service-update flow (deferred; see the
-  rotate-postgres runbook for the manual procedure).
+  create-new-secret + service-update flow (deferred; no operator
+  runbook yet).
 - The `catena-postgres-data` named volume. Backed up RAW by the
   default restic set: the password comes from the (also-backed-up)
   on-box store and Postgres skips initdb on a restored non-empty

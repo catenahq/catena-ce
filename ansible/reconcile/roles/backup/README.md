@@ -135,4 +135,4 @@ stored value.
 
 ## Related
 
-- Operator-facing: `runbooks/restore-to-new-vps.md`.
+- Operator-facing: `ops/internal_docs/tools/incident-playbooks/restore-to-new-vps.md`.

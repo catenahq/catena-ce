@@ -19,7 +19,7 @@ serves it:
 > A Catena server can be rebuilt from nothing but its backup storage
 > endpoint and the backup key.
 
-> A managed **Business** edition adds the catena-admin web panel plus
+> A managed **Catena Pro** edition adds the catena-admin web panel plus
 > operated extras on top (offsite immutable backups, automated updates,
 > and more). The panel is a convenience layer over the same host-native
 > automation in this repository -- removing it takes away neither the
@@ -59,7 +59,8 @@ The installer composes them. Nothing in this tree is invoked with raw
 | [ansible/](ansible/) | Everything that deploys a server. Start at [ansible/README.md](ansible/README.md). |
 | [ansible/catena](ansible/catena) | The installer / CLI entry point. |
 | [ansible/playbooks/](ansible/playbooks/) | The five flows plus the day-two operations. |
-| [ansible/roles/](ansible/roles/) | One role per thing a server owns (traefik, postgres, keycloak, backup, ...). |
+| [ansible/bootstrap/roles/](ansible/bootstrap/roles/) | Operator-run, from outside the server (account, network, disk, container engine). |
+| [ansible/reconcile/roles/](ansible/reconcile/roles/) | What a server runs against itself (traefik, postgres, keycloak, backup, ...). |
 | [ansible/helpers/](ansible/helpers/) | Python shared by the installer, the roles, and three host-side reconcilers. |
 | [ansible/scripts/](ansible/scripts/) | Executables installed on the server and run there. |
 | [ansible/inventory/](ansible/inventory/) | Per-deployment configuration. Only `example/` is tracked. |

@@ -223,7 +223,7 @@
     # infrastructure deploys those apps with their Traefik routes.
     - { role: keycloak, tags: [keycloak, auth] } # SSO IdP
     - { role: oauth2_proxy, tags: [oauth2_proxy, auth] } # one auth proxy per gated upstream
-    - { role: infrastructure, tags: [infrastructure] } # recovery archive, gated apps (Gatus, Healthchecks, ...), dashboard-sync, gatus-sync
+    - { role: infrastructure, tags: [infrastructure] } # gated apps (Gatus, Healthchecks, ...), dashboard-sync, gatus-sync
     # The panel's trust path: the runner account, the sudoers drop-in, the
     # forced command and its authorized_keys, plus the env files the host lanes
     # read. BOOTSTRAP-side -- a reconcile that could rewrite the way in could

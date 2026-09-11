@@ -43,10 +43,13 @@ though the SSO session is shared.
 ## Planned (deferred): public-with-gated-path Traefik shape
 
 Easy!Appointments configures OIDC through config-file edits rather than
-env vars, so it sits outside the label-driven wiring flow (see
+env vars, so it would sit outside the label-driven wiring flow (see
 `ops/internal_docs/adr/0007-easy-appointments-as-the-scheduler.md`).
-When its template lands, this role will need a sibling rendering
-pattern under a new `templates/` dir:
+Its template has since landed with `sso_mode: none` instead -- the
+upstream app has no native OIDC, and the customer-facing booking page is
+public by design, so the gap only affects staff sign-in and was left as
+local accounts rather than built out. The pattern below therefore still
+has no consumer:
 
 - `templates/app-public-with-gated-path.yml.j2` -- two Traefik routers
   on the same host, priority-100 anonymous straight to the app +
@@ -54,10 +57,9 @@ pattern under a new `templates/` dir:
   (e.g. `/index.php/backend`).
 
 The seeding flow that picks which template to render per-app reads
-the catalog's `sso_mode`. The new mode value is `pre-wired-split`
-(currently only Easy!Appointments would use it). When a second
-consumer surfaces, document the pattern up here in the role README.
+the catalog's `sso_mode`. The new mode value would be `pre-wired-split`.
+When a consumer surfaces, document the pattern up here in the role
+README.
 
-Why this is recorded but not built: Easy!Appointments is on the
-backlog (no compose template yet). Building the routing pattern
-without a consumer means an untested code path.
+Why this is recorded but not built: building the routing pattern with
+no consumer means an untested code path.

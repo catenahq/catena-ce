@@ -36,8 +36,7 @@ traffic via Cloudflare Tunnel" rule. Cloudflare Tunnel is TCP/HTTP
 only; the chat-video media plane is fundamentally UDP. The rule has
 been narrowed to "all TCP/HTTP public traffic via Cloudflare Tunnel;
 UDP media plane direct on VPS public IP via shared coturn at
-`turn.<base>` plus per-stack media ports". See
-`docs/operator/hardening.md` and the architecture-doc memory entry.
+`turn.<base>` plus per-stack media ports".
 
 ## UDP exposure profile
 
@@ -148,7 +147,7 @@ coturn, do not switch the daemon away from `use-auth-secret` -- run
 both mechanisms or keep `use-auth-secret` exclusively.
 
 The Synapse template work itself is tracked in
-[BACKLOG_TECHNICAL.md](../../../../../BACKLOG_TECHNICAL.md).
+[BACKLOG_TECHNICAL.md](../../../../../ops/BACKLOG_TECHNICAL.md).
 
 ## Runbook -- diagnosing a failed Talk / Jitsi call
 

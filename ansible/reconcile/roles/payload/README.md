@@ -9,8 +9,8 @@ image. No container is deployed here and Portainer is not involved.
 The payload used to arrive from `reconcile/roles/catena-admin`, role 13 in `site.yml`.
 Three roles that run BEFORE it already depend on the engines:
 
-- `reconcile/roles/cloudflare_tunnel` (9) dispatches `catena-cloudflared-sync`,
-- `reconcile/roles/keycloak` (10) and `reconcile/roles/oauth2_proxy` (11) need the edge that
+- `reconcile/roles/cloudflare_tunnel` (11) dispatches `catena-cloudflared-sync`,
+- `reconcile/roles/keycloak` (12) and `reconcile/roles/oauth2_proxy` (13) need the edge that
   engine brings up -- oauth2-proxy waits on
   `https://auth.<zone>/.well-known/openid-configuration`.
 

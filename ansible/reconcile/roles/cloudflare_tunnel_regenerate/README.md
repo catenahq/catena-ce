@@ -39,5 +39,4 @@ rather than firing on every converge.
 
 ## Related
 
-- Operator-facing: `runbooks/rotate-cloudflare-api.md`.
 - Entry point: `playbooks/regenerate-cf-tunnel.yml`.

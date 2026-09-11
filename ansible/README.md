@@ -107,13 +107,14 @@ keyset. Full classification: [SECRETS.md](SECRETS.md).
 | Directory | What is in it |
 | --- | --- |
 | [playbooks/](playbooks/) | The five flows plus the day-two operations, and the filter plugins Ansible loads from beside them |
-| [roles/](roles/) | One role per thing a server owns |
+| [bootstrap/roles/](bootstrap/roles/) | Operator-run roles, from outside the server |
+| [reconcile/roles/](reconcile/roles/) | Roles a server runs against itself |
 | [helpers/](helpers/) | Python shared by the installer, the roles, and three host-side reconcilers |
 | [scripts/](scripts/) | Executables installed on the server and run there |
 | [inventory/](inventory/) | Per-deployment configuration; only `example/` is tracked |
 | [tests/](tests/) | Unit tests, plus the external probes `validate.yml` runs |
 
-Each has its own `README.md`. The `helpers/`, `scripts/`, `playbooks/`
-and `roles/` indexes are generated from the headers of the files they
-list, so a file that lands without a header shows up in its index as a
-hole.
+Each has its own `README.md`. The `helpers/`, `scripts/`, `playbooks/`,
+`bootstrap/roles/` and `reconcile/roles/` indexes are generated from the
+headers of the files they list, so a file that lands without a header
+shows up in its index as a hole.
