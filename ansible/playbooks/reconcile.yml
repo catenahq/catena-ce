@@ -101,3 +101,16 @@
         state: restarted
       changed_when: true
       tags: [public_ports]
+
+    # Record what this converge delivered. The same file site.yml includes:
+    # the panel reads this manifest to tell "this feature is off" from "this
+    # host's converge predates it", and an on-host converge that left it
+    # describing an operator's last run made that answer a lie.
+    - name: "Release: record what this converge delivered"
+      ansible.builtin.include_tasks:
+        file: tasks/record_release_manifest.yml
+        apply:
+          tags: [release_manifest]
+      vars:
+        catena_converge_path: reconcile
+      tags: [release_manifest]

@@ -25,13 +25,20 @@ import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
 SITE = ANSIBLE / "playbooks" / "site.yml"
+RECONCILE = ANSIBLE / "playbooks" / "reconcile.yml"
+# The tasks themselves, shared by both converge paths.
+SHARED = ANSIBLE / "playbooks" / "tasks" / "record_release_manifest.yml"
 COMMON_DEFAULTS = ANSIBLE / "bootstrap" / "roles" / "common" / "defaults" / "main.yml"
+
+# Both playbooks that converge a host. An assertion about "the converge" has to
+# hold for whichever one ran, which is the whole reason the tasks were lifted
+# out of site.yml.
+CONVERGE_PLAYBOOKS = (SITE, RECONCILE)
 
 
 @pytest.fixture(scope="module")
 def post_tasks() -> list[dict]:
-    play = yaml.safe_load(SITE.read_text())[0]
-    return play["post_tasks"]
+    return yaml.safe_load(SHARED.read_text())
 
 
 @pytest.fixture(scope="module")
@@ -39,21 +46,61 @@ def write_task(post_tasks) -> dict:
     for task in post_tasks:
         if task.get("name", "").startswith("Release: record"):
             return task
-    pytest.fail("site.yml no longer writes the release manifest")
+    pytest.fail(f"{SHARED.name} no longer writes the release manifest")
 
 
-def test_the_manifest_is_the_last_thing_the_converge_writes(post_tasks):
+@pytest.mark.parametrize("playbook", CONVERGE_PLAYBOOKS, ids=lambda p: p.name)
+def test_the_manifest_is_the_last_thing_the_converge_writes(playbook):
     """A manifest written mid-play describes a converge that may not finish.
     version.txt already covers "a converge started here"; this file exists to
-    say "a converge finished here", and it can only say that from the end."""
-    names = [t.get("name", "") for t in post_tasks]
+    say "a converge finished here", and it can only say that from the end.
+
+    Asserted for BOTH playbooks. An on-host converge that stamped the manifest
+    before its last role would be making the same claim site.yml was careful
+    not to."""
+    play = yaml.safe_load(playbook.read_text())[0]
+    names = [t.get("name", "") for t in play["post_tasks"]]
     writes = [i for i, n in enumerate(names) if n.startswith("Release: record")]
-    assert writes, "site.yml no longer writes the release manifest"
+    assert writes, f"{playbook.name} no longer records the release manifest"
     assert writes[-1] == len(names) - 1, (
-        f"the manifest is written at position {writes[-1]} of {len(names)}; "
-        f"tasks after it are converge work it would be claiming as done: "
-        f"{names[writes[-1] + 1:]}"
+        f"{playbook.name} records the manifest at position {writes[-1]} of "
+        f"{len(names)}; tasks after it are converge work it would be claiming "
+        f"as done: {names[writes[-1] + 1:]}"
     )
+
+
+@pytest.mark.parametrize("playbook", CONVERGE_PLAYBOOKS, ids=lambda p: p.name)
+def test_both_converge_paths_include_the_same_file(playbook):
+    """The gap this closes. These tasks lived in site.yml, so an on-host
+    converge left every field describing the last converge an OPERATOR ran --
+    including `actions`, which is what the panel checks before deciding a host
+    needs a converge. The banner then survived the converge that cleared it."""
+    play = yaml.safe_load(playbook.read_text())[0]
+    includes = [t for t in play["post_tasks"]
+                if "ansible.builtin.include_tasks" in t]
+    files = [t["ansible.builtin.include_tasks"].get("file") for t in includes]
+    assert f"tasks/{SHARED.name}" in files, (
+        f"{playbook.name} does not include tasks/{SHARED.name}; it is either "
+        "not stamping the manifest or keeping a second copy of these tasks")
+
+
+@pytest.mark.parametrize("playbook", CONVERGE_PLAYBOOKS, ids=lambda p: p.name)
+def test_each_path_names_itself_in_the_manifest(playbook):
+    """validate.yml asserts this manifest's version against
+    /etc/catena/version.txt, on the reasoning that one converge writes both at
+    opposite ends of itself. site.yml's first role stamps version.txt;
+    reconcile.yml never runs that role, so on a self-converged host the two
+    describe different runs. Recording which path wrote the manifest is what
+    lets a reader tell a real disagreement from drift."""
+    play = yaml.safe_load(playbook.read_text())[0]
+    include = next(t for t in play["post_tasks"]
+                   if t.get("ansible.builtin.include_tasks", {}).get("file")
+                   == f"tasks/{SHARED.name}")
+    named = include.get("vars", {}).get("catena_converge_path")
+    assert named, f"{playbook.name} does not name itself as the converge path"
+    assert named == playbook.stem, (
+        f"{playbook.name} records itself as {named!r}")
+    assert "'converged_by': catena_converge_path" in SHARED.read_text()
 
 
 def test_the_write_does_not_report_a_change_every_converge(write_task):
@@ -105,7 +152,12 @@ def test_the_payload_id_is_read_from_the_marker_not_guessed(post_tasks, write_ta
     # A host that has never installed the payload has no marker, and a failed
     # slurp must not fail the converge at its last task.
     assert slurp.get("failed_when") is False
-    assert "_site_payload_marker" in write_task["ansible.builtin.copy"]["content"]
+    # The register name is read off the slurp rather than restated here, so a
+    # rename either moves both halves or fails -- instead of passing against a
+    # variable nothing sets any more.
+    registered = slurp.get("register")
+    assert registered, "the marker slurp registers nothing, so nothing reads it"
+    assert registered in write_task["ansible.builtin.copy"]["content"]
 
 
 def test_the_manifest_path_is_under_var_lib_not_etc():
@@ -155,14 +207,43 @@ def test_both_version_fields_read_the_fact_this_run_actually_sets():
     They have to move together: validate.yml asserts the manifest against the
     stamp, so fixing one alone would fail every converge."""
     stamp = (ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "main.yml").read_text()
-    site = SITE.read_text()
-    for name, body in (("bootstrap/roles/common/tasks/main.yml", stamp), ("site.yml", site)):
+    shared = SHARED.read_text()
+    for name, body in (("bootstrap/roles/common/tasks/main.yml", stamp),
+                       (SHARED.name, shared)):
         assert "hostvars['localhost']['catena_version']" not in body, (
             f"{name} is back on the hostvars form, which resolves to nothing "
             "and stamps 'unknown'"
         )
     assert "{{ catena_version | default('unknown') }}" in stamp
-    assert "'catena_ce_version': catena_version | default('unknown')" in site
+    assert "'catena_ce_version': _ce" in shared
+
+
+def test_the_ce_version_falls_back_to_the_image_provenance():
+    """An on-host converge has no git checkout and does not run the role that
+    reads one, so `catena_version` is undefined there. The tree it is running
+    came out of the panel image, and the vendor step recorded which catena-ce
+    commit that was in VENDOR.json -- which names bytes rather than a ref, so
+    it is the better answer on the path that has both."""
+    shared = SHARED.read_text()
+    assert "VENDOR.json" in shared, (
+        "the on-host path has no other way to know which catena-ce it is "
+        "applying, so this field would be blank on every host that converges "
+        "itself")
+    assert ".commit" in shared
+
+
+def test_an_unknown_version_never_overwrites_a_known_one():
+    """The field is written by whichever path ran last. A path that could not
+    resolve a version must leave the previous value alone: a host converged
+    from a laptop last month has a true answer in the file, and replacing it
+    with a word meaning "I did not look" destroys the only record in order to
+    keep the field populated."""
+    shared = SHARED.read_text()
+    assert "_prev.catena_ce_version" in shared, (
+        "nothing carries the previous version forward, so a converge that "
+        "could not resolve one blanks it")
+    assert "'catena_ce_version': catena_version | default('unknown')" not in shared, (
+        "'unknown' is being written over whatever the file held")
 
 
 def test_the_converge_carries_the_payloads_half_forward(post_tasks, write_task):

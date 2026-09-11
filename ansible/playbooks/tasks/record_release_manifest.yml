@@ -1,0 +1,131 @@
+---
+# Record what this converge delivered.
+#
+# LAST on purpose, and the difference from /etc/catena/version.txt is the
+# whole point of having both. version.txt is stamped by bootstrap/roles/common,
+# the FIRST role, so it says "a converge started here" -- which is what a
+# client reading it out of a snapshot wants. This manifest says "a converge
+# finished here, and here is what it left behind", so a converge that died at
+# role 9 leaves the previous manifest standing rather than claiming plumbing it
+# never delivered.
+#
+# The action list is the field that earns the file. Every panel button
+# dispatches a FIXED action name through the SSH forced command, and the table
+# is rendered by reconcile/roles/catena-admin from the same merged list. A panel
+# built after an action was added would otherwise show a working button on a
+# host whose converge predates it, and the user would meet a refusal at the far
+# end where the honest answer is "this host needs a converge".
+#
+# SHARED BY BOTH CONVERGE PATHS. site.yml and playbooks/reconcile.yml both
+# include this file, and each passes `catena_converge_path` naming itself. It
+# lived in site.yml alone, which meant an on-host converge left every field
+# here describing the last converge an OPERATOR ran -- including the action
+# list, so the panel kept raising a converge-required banner for actions the
+# converge it just ran had delivered. A banner that lies on the one surface
+# whose job is to be believed.
+#
+# WHY THE PATH IS RECORDED. bootstrap/roles/common/tasks/validate.yml asserts
+# this manifest's version against /etc/catena/version.txt, on the reasoning
+# that the two are written by the same converge at opposite ends of it. That
+# holds for site.yml, whose FIRST role stamps version.txt. It cannot hold for
+# reconcile.yml, which does not run that role at all -- so on a host that
+# converged itself the two records describe different runs, and a reader with
+# no way to tell which path wrote this would read a real disagreement as drift.
+# The coupling is carried in CONVERGE_MIGRATION.md under phase 4; this field is
+# what lets anything answer the question at all.
+
+- name: "Release: read the marker for the installed host engines"
+  ansible.builtin.slurp:
+    src: "{{ catena_payload_marker }}"
+  register: _release_payload_marker
+  failed_when: false
+
+# Two writers own disjoint halves of this file. The converge owns everything
+# about the converge; the payload owns the actions ITS dispatch drop-in adds.
+# `copy` writes full content, so the payload's half has to be read back and
+# carried, exactly as the marker slurp above is. Without this, every converge
+# would erase the record of actions the host does in fact accept.
+- name: "Release: read the payload's half of the manifest"
+  ansible.builtin.slurp:
+    src: "{{ catena_release_manifest_path }}"
+  register: _release_prev
+  failed_when: false
+
+# WHICH catena-ce IS THIS, asked of whichever path is running.
+#
+# An operator converge reads `catena_version` off the controller's git checkout
+# (bootstrap/roles/common sets it). An on-host converge has neither a checkout
+# nor that role: the tree it is running was copied out of the panel image, and
+# the image records its provenance in VENDOR.json -- repository, ref, and the
+# catena-ce commit the vendor step resolved. That commit is a better answer
+# than `git describe` anyway, because it names bytes rather than a ref.
+#
+# Neither available means this writes nothing rather than 'unknown'. A host
+# that converged from a laptop last month has a true value in the file, and
+# overwriting it with a word that means "I did not look" would destroy the only
+# record to produce a field that is always populated.
+- name: "Release: read the vendored catena-ce provenance"
+  ansible.builtin.slurp:
+    src: "{{ catena_vendor_manifest_path }}"
+  register: _release_vendor
+  failed_when: false
+
+# Guarded the same way the previous manifest is, and for the same reason: this
+# file is absent on a controller and machine-written on a host, so "not there"
+# and "not JSON" are both ordinary answers. An unguarded from_json would turn
+# either into a failed converge at its last task -- and with the failure
+# swallowed by failed_when it would instead resolve to nothing at all, which is
+# how a fallback silently stops being one.
+- name: "Release: resolve the catena-ce version this converge applied"
+  vars:
+    _vendor_raw: >-
+      {{ (_release_vendor.content | b64decode | trim)
+         if (_release_vendor.content is defined) else '' }}
+    _vendor: >-
+      {{ (_vendor_raw | from_json)
+         if (_vendor_raw.startswith('{') and _vendor_raw.endswith('}'))
+         else {} }}
+  ansible.builtin.set_fact:
+    _release_ce_version: >-
+      {{ catena_version
+         if (catena_version | default('') | length > 0)
+         else (_vendor.commit | default('', true)) }}
+
+- name: "Release: record what this converge delivered"
+  vars:
+    _prev_raw: >-
+      {{ (_release_prev.content | b64decode | trim)
+         if (_release_prev.content is defined) else '' }}
+    # Guarded rather than trusted. This file is deliberately not load-bearing
+    # -- a host with no manifest converges fine -- so a corrupt one must not be
+    # the thing that fails a converge.
+    _prev: >-
+      {{ (_prev_raw | from_json)
+         if (_prev_raw.startswith('{') and _prev_raw.endswith('}'))
+         else {} }}
+    _ce: >-
+      {{ _release_ce_version | default('', true)
+         or (_prev.catena_ce_version | default('')) }}
+  ansible.builtin.copy:
+    dest: "{{ catena_release_manifest_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {{ {
+           'schema': 1,
+           'converged_at': ansible_date_time.iso8601 | default(''),
+           'converged_by': catena_converge_path,
+           'catena_ce_version': _ce,
+           'catena_admin_image': catena_admin_image,
+           'payload_image_id': (_release_payload_marker.content | default('') | b64decode | trim),
+           'actions': (_catena_admin_actions_dispatch | default([]))
+                      | map(attribute='name') | select | sort | list,
+           'payload_actions': (_prev.payload_actions | default([])),
+         } | to_nice_json }}
+  # `converged_at` moves on every converge, so `copy` would report this changed
+  # every time -- and a converge that always reports a change is one nobody can
+  # read for real drift. Same reasoning, and the same answer, as
+  # /etc/catena/version.txt in bootstrap/roles/common: a fresh timestamp is the
+  # POINT of the file, not a drift signal.
+  changed_when: false

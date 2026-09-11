@@ -463,77 +463,17 @@
           tags: [lockdown]
       tags: [lockdown]
 
-    # Record what this converge delivered.
-    #
-    # LAST on purpose, and the difference from /etc/catena/version.txt is the
-    # whole point of having both. version.txt is stamped by bootstrap/roles/common, the
-    # FIRST role, so it says "a converge started here" -- which is what a client
-    # reading it out of a snapshot wants. This manifest says "a converge
-    # finished here, and here is what it left behind", so a converge that died
-    # at role 9 leaves the previous manifest standing rather than claiming
-    # plumbing it never delivered.
-    #
-    # The action list is the field that earns the file. Every panel button
-    # dispatches a FIXED action name through the SSH forced command, and the
-    # table is rendered by reconcile/roles/catena-admin from the same merged list. A panel
-    # built after an action was added would otherwise show a working button on a
-    # host whose converge predates it, and the user would meet a refusal at the
-    # far end where the honest answer is "this host needs a converge".
-    - name: "Release: read the marker for the installed host engines"
-      ansible.builtin.slurp:
-        src: "{{ catena_payload_marker }}"
-      register: _site_payload_marker
-      failed_when: false
-      tags: [release_manifest]
-
-    # Two writers own disjoint halves of this file. The converge owns everything
-    # about the converge; the payload owns the actions ITS dispatch drop-in adds.
-    # `copy` writes full content, so the payload's half has to be read back and
-    # carried, exactly as the marker slurp above is. Without this, every converge
-    # would erase the record of actions the host does in fact accept, and the
-    # panel would raise a converge-required banner for them -- a banner that
-    # lies, on the one surface whose whole job is to be believed.
-    - name: "Release: read the payload's half of the manifest"
-      ansible.builtin.slurp:
-        src: "{{ catena_release_manifest_path }}"
-      register: _site_release_prev
-      failed_when: false
-      tags: [release_manifest]
-
+    # Record what this converge delivered. The tasks live in
+    # tasks/record_release_manifest.yml, shared with playbooks/reconcile.yml so
+    # an on-host converge stamps the same fields rather than leaving them
+    # describing the last converge an operator ran.
     - name: "Release: record what this converge delivered"
+      ansible.builtin.include_tasks:
+        file: tasks/record_release_manifest.yml
+        apply:
+          tags: [release_manifest]
       vars:
-        _prev_raw: >-
-          {{ (_site_release_prev.content | b64decode | trim)
-             if (_site_release_prev.content is defined) else '' }}
-        # Guarded rather than trusted. This file is deliberately not
-        # load-bearing -- a host with no manifest converges fine -- so a
-        # corrupt one must not be the thing that fails a converge.
-        _prev: >-
-          {{ (_prev_raw | from_json)
-             if (_prev_raw.startswith('{') and _prev_raw.endswith('}'))
-             else {} }}
-      ansible.builtin.copy:
-        dest: "{{ catena_release_manifest_path }}"
-        owner: root
-        group: root
-        mode: "0644"
-        content: |
-          {{ {
-               'schema': 1,
-               'converged_at': ansible_date_time.iso8601 | default(''),
-               'catena_ce_version': catena_version | default('unknown'),
-               'catena_admin_image': catena_admin_image,
-               'payload_image_id': (_site_payload_marker.content | default('') | b64decode | trim),
-               'actions': (_catena_admin_actions_dispatch | default([]))
-                          | map(attribute='name') | select | sort | list,
-               'payload_actions': (_prev.payload_actions | default([])),
-             } | to_nice_json }}
-      # `converged_at` moves on every converge, so `copy` would report this
-      # changed every time -- and a converge that always reports a change is
-      # one nobody can read for real drift. Same reasoning, and the same
-      # answer, as /etc/catena/version.txt in bootstrap/roles/common: a fresh timestamp
-      # is the POINT of the file, not a drift signal.
-      changed_when: false
+        catena_converge_path: site
       tags: [release_manifest]
 
 # Post-converge validation runs as its own ansible-playbook invocation

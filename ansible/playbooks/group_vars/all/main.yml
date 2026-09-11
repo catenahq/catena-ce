@@ -155,6 +155,18 @@ portainer_admin_hostname: "{{ portainer_admin_subdomain }}.{{ cloudflare_zone }}
 public_ports_lib_dir: /usr/local/lib/catena
 public_ports_fragment_dir: /etc/catena/public-ports.d
 
+# --- Provenance of the tree this converge is running ---
+# Written by catena-admin scripts/vendor-catena-ce.sh and shipped beside the
+# ansible/ directory inside the panel image, so it sits one level above
+# playbook_dir's parent on the on-host path and does not exist at all on a
+# controller. tasks/record_release_manifest.yml reads the commit out of it to
+# answer "which catena-ce did this host apply".
+#
+# A variable rather than the literal expression at the point of use, because
+# playbook_dir is a magic variable nothing can override -- so a path written
+# inline is a path no test can point anywhere else.
+catena_vendor_manifest_path: "{{ playbook_dir }}/../../VENDOR.json"
+
 # --- Storage ---
 storage_mode: "{{ lookup('dotenv', 'STORAGE_MODE', default='built_in') }}"
 # /mnt/data everywhere, and named literally in the backup path set, the docker
