@@ -264,17 +264,72 @@
     - _ca_service.rc | default(1) == 0
     - _ca_inspect.rc | default(1) == 0
 
+# A non-zero rc here is not "the update did not land", which is why it is not
+# allowed to fail the converge on its own. `docker service update` waits for
+# the rolling update and exits 1 the moment swarm PAUSES it, and swarm pauses
+# on the first task that dies -- including the race this service is exposed to
+# on a single node: the panel publishes mode=host (see
+# filter_plugins/catena_admin_service.py for why it is not ingress), the daemon
+# releases the outgoing task's port asynchronously, and the incoming task that
+# binds it a second later gets "Address already in use". Swarm's reconciler
+# then starts a task that comes up clean. The wait and the drift re-inspect
+# below are what settle which of the two happened.
 - name: "Catena-admin: reconcile the service spec (rolling)"
   ansible.builtin.command:
     argv: >-
       {{ ['docker', 'service', 'update'] + _ca_drift
          + [catena_admin_service_name] }}
   register: _ca_reconcile
-  changed_when: _ca_reconcile.rc == 0
+  # The task only runs when the spec drifted, so it always applies one.
+  changed_when: true
+  failed_when: false
   no_log: true
   when:
     - catena_admin_deploy_from_converge | bool
     - _ca_drift | default([]) | length > 0
+
+- name: "Catena-admin: wait for the reconciled service to converge"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - ps
+      - "{{ catena_admin_service_name }}"
+      - --no-trunc
+      # Desired-state, because a stop-first update leaves the outgoing task
+      # listed while it drains and that line would answer "did the new task
+      # start" with the old one.
+      - --filter
+      - desired-state=running
+      - --format
+      - "{{ '{{' }}.CurrentState{{ '}}' }} || {{ '{{' }}.Error{{ '}}' }}"
+  register: _ca_reconverged
+  changed_when: false
+  retries: "{{ catena_admin_converge_retries }}"
+  delay: "{{ catena_admin_converge_delay }}"
+  until: _ca_reconverged.stdout_lines | select('search', '^Running') | list | length > 0
+  failed_when: false
+  when:
+    - catena_admin_deploy_from_converge | bool
+    - _ca_reconcile is changed
+
+- name: "Catena-admin: the reconciled service never came back up"
+  ansible.builtin.fail:
+    msg: |
+      {{ catena_admin_service_name }} has no task Running
+      {{ catena_admin_converge_retries | int * catena_admin_converge_delay | int }}s
+      after the spec reconcile. What swarm last said about each attempt:
+
+      {{ _ca_reconverged.stdout | default('(no output from docker service ps)') }}
+
+      The Error column above is the reason. A task that lost the host-port
+      race recovers on its own within seconds and does not reach here; one
+      that names a missing --secret, a refused mount or an immediate exit
+      does not (docker service logs {{ catena_admin_service_name }} --no-trunc).
+  when:
+    - catena_admin_deploy_from_converge | bool
+    - _ca_reconcile is changed
+    - _ca_reconverged.stdout_lines | default([]) | select('search', '^Running') | list | length == 0
 
 # ─── did the update actually settle the drift? ───────────────────────────
 #
@@ -308,12 +363,14 @@
     that:
       - (_ca_settled | default([]) | length) == 0
     fail_msg: >-
-      `docker service update` returned 0 and the spec still reports drift on
-      {{ _ca_settled }}. Docker no-ops an update to a spec it already holds, so
-      this is a comparison reading converged state as drift rather than a failed
-      update -- the same defect class as the image reference asymmetry described
-      in filter_plugins/swarm_service_drift.py. Every converge from now on will
-      report this service as changed.
+      The reconcile ran and the spec still reports drift on {{ _ca_settled }}
+      (`docker service update` exited {{ _ca_reconcile.rc }}). A task is
+      Running, so the service is up: either the update did not apply these
+      flags, or -- docker no-ops an update to a spec it already holds -- this
+      is a comparison reading converged state as drift, the same defect class
+      as the image reference asymmetry described in
+      filter_plugins/swarm_service_drift.py. In the second case every converge
+      from now on reports this service as changed.
   vars:
     _ca_settled: >-
       {{ ((_ca_reinspect.stdout | from_json) | swarm_service_drift(catena_admin_desired))
