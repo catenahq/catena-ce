@@ -463,6 +463,18 @@
           tags: [lockdown]
       tags: [lockdown]
 
+    # Remove what a previous converge installed and this one no longer ships.
+    # Before the release manifest, so a converge that fails here does not
+    # record itself as finished.
+    - name: "Prune: remove files withdrawn from the product"
+      ansible.builtin.include_tasks:
+        file: tasks/prune_withdrawn_files.yml
+        apply:
+          tags: [prune]
+      vars:
+        catena_converge_path: site
+      tags: [prune]
+
     # Record what this converge delivered. The tasks live in
     # tasks/record_release_manifest.yml, shared with playbooks/reconcile.yml so
     # an on-host converge stamps the same fields rather than leaving them

@@ -1,0 +1,156 @@
+---
+# Remove the files a PREVIOUS converge installed and this one no longer ships.
+#
+# The converge was copy-only, so a unit or script withdrawn from a later
+# release was simply not copied and the old one kept running -- a timer nobody
+# ships any more, firing at a binary nobody builds any more.
+# reconcile/roles/backup still carries a hand-written `state: absent` for
+# catena-acquire-lock.sh, which is this problem solved once, by hand, for the
+# one instance somebody noticed.
+#
+# filter_plugins/converge_manifest.py holds the two rules and the reasoning:
+# delete only what is no longer DECLARED (never merely "not installed here",
+# which is a feature switched off), and delete only what is still byte-for-byte
+# what this converge's predecessor wrote.
+#
+# SCOPE: the prefixes where a withdrawn file keeps EXECUTING. Units, host
+# scripts, and the helper modules the reconciler imports by bare name. A
+# withdrawn config file is stale; a withdrawn timer is a scheduled action.
+# Roles declare their own paths in their defaults, beside the tasks that write
+# them, and anything undeclared is simply unmanaged -- never deleted.
+# tests/unit/test_converge_prune.py holds the declarations to the tasks.
+
+- name: "Prune: what this converge declares it ships"
+  ansible.builtin.set_fact:
+    _prune_declared: >-
+      {{ (backup_managed_paths | default([]))
+         + (infrastructure_managed_paths | default([]))
+         + (public_ports_managed_paths | default([])) }}
+
+- name: "Prune: read the manifest the last converge left"
+  ansible.builtin.slurp:
+    src: "{{ catena_converge_manifest_path }}"
+  register: _prune_previous_raw
+  failed_when: false
+
+- name: "Prune: parse it, or treat it as absent"
+  vars:
+    _raw: >-
+      {{ (_prune_previous_raw.content | b64decode | trim)
+         if (_prune_previous_raw.content is defined) else '' }}
+  ansible.builtin.set_fact:
+    # Guarded rather than trusted, for the reason the release manifest gives:
+    # this file is not load-bearing -- a host without one converges fine -- so
+    # a corrupt one must not be the thing that fails a converge. An unreadable
+    # manifest prunes nothing and says so, which is the same answer as an
+    # absent one and a different answer from "pruned nothing".
+    _prune_previous: >-
+      {{ (_raw | from_json)
+         if (_raw.startswith('{') and _raw.endswith('}'))
+         else {} }}
+
+- name: "Prune: nothing to compare against"
+  ansible.builtin.debug:
+    msg: >-
+      No usable {{ catena_converge_manifest_path }}: this converge records what
+      it ships and removes nothing. Nothing was withdrawn because nothing was
+      ever recorded -- said out loud because "pruned nothing" and "never looked"
+      are the same silence.
+  when: "'installed' not in _prune_previous"
+
+- name: "Prune: what the last converge installed and this one dropped"
+  ansible.builtin.set_fact:
+    _prune_withdrawn: "{{ _prune_previous | converge_withdrawn(_prune_declared) }}"
+
+- name: "Prune: check each candidate is still the file the converge wrote"
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    checksum_algorithm: sha256
+  loop: "{{ _prune_withdrawn }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: _prune_candidates
+
+# Split before acting, so the two outcomes are both reportable. A file left
+# alone is not a no-op: it means something else owns that path now, and the
+# converge should say which rather than passing over it.
+- name: "Prune: separate what is still ours from what is not"
+  ansible.builtin.set_fact:
+    _prune_ours: "{{ _prune_candidates.results | converge_prunable }}"
+    _prune_foreign: "{{ _prune_candidates.results | converge_foreign }}"
+
+- name: "Prune: leaving files that are no longer the ones this converge wrote"
+  ansible.builtin.debug:
+    msg: >-
+      Leaving {{ item.path }} -- it is no longer byte-for-byte what a previous
+      converge wrote, so something else owns it now (the panel payload installs
+      into these same directories) and this converge does not remove it.
+  loop: "{{ _prune_foreign }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+# Three steps, in this order, for the reason install-ee-payload.sh gives:
+# removing the unit file first leaves systemd holding an enabled symlink to
+# nothing, and a timer that was RUNNING keeps running until something stops it.
+- name: "Prune: stop and disable withdrawn units"
+  ansible.builtin.systemd_service:
+    name: "{{ item.path | basename }}"
+    enabled: false
+    state: stopped
+  loop: "{{ _prune_ours | selectattr('path', 'search', '^/etc/systemd/system/') | list }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  failed_when: false
+  changed_when: true
+
+- name: "Prune: remove the withdrawn files"
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ _prune_ours }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: _prune_removed
+
+- name: "Prune: reload systemd if a unit went away"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: _prune_ours | selectattr('path', 'search', '^/etc/systemd/system/') | list | length > 0
+
+- name: "Prune: what this converge removed"
+  ansible.builtin.debug:
+    msg: >-
+      Removed {{ _prune_ours | map(attribute='path') | join(', ') }} --
+      withdrawn from the product and still byte-for-byte what a previous
+      converge wrote.
+  when: _prune_ours | length > 0
+
+# Written LAST and only once the prune has run, for the reason the payload
+# installer states: a manifest written before the work describes an install
+# that may not have finished, and the one thing a delete leg must never be
+# handed is a list of paths that were never written.
+- name: "Prune: stat every declared path to record what is actually here"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    checksum_algorithm: sha256
+  loop: "{{ _prune_declared }}"
+  loop_control:
+    label: "{{ item }}"
+  register: _prune_present
+
+- name: "Prune: record what this converge ships and what landed"
+  ansible.builtin.copy:
+    dest: "{{ catena_converge_manifest_path }}"
+    owner: root
+    group: root
+    # 0600: it is the input to the delete leg, and an input anything else can
+    # write is a delete anything else chooses.
+    mode: "0600"
+    content: |
+      {{ {
+           'schema': 1,
+           'converged_by': catena_converge_path,
+           'declared': _prune_declared,
+           'installed': _prune_declared | converge_installed(_prune_present.results),
+         } | to_nice_json }}
+  changed_when: false

@@ -167,6 +167,14 @@ public_ports_fragment_dir: /etc/catena/public-ports.d
 # inline is a path no test can point anywhere else.
 catena_vendor_manifest_path: "{{ playbook_dir }}/../../VENDOR.json"
 
+# --- What this converge installed, so the next one can withdraw it ---
+# /var/lib rather than /etc, for the reason the payload's own manifest gives:
+# it describes what is on this host right now, it is rewritten every converge,
+# and /etc rides the backup set -- a restored manifest would describe the
+# machine the snapshot came from and hand the delete leg a list of paths this
+# host never had.
+catena_converge_manifest_path: /var/lib/catena/converge-manifest.json
+
 # --- Storage ---
 storage_mode: "{{ lookup('dotenv', 'STORAGE_MODE', default='built_in') }}"
 # /mnt/data everywhere, and named literally in the backup path set, the docker

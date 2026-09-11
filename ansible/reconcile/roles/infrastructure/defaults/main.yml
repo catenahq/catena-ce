@@ -13,6 +13,42 @@
 # role defaults have lowest priority, so that value wins.
 ansible_managed: "Managed by catena - do not edit directly."
 
+# Files this role puts in the prefixes where a withdrawal keeps EXECUTING --
+# units and host binaries. playbooks/tasks/prune_withdrawn_files.yml records
+# these and removes what a later release stops declaring, provided the file on
+# disk is still byte-for-byte what a converge wrote. Undeclared means
+# unmanaged, never deleted; tests/unit/test_converge_prune.py fails on an
+# omission.
+#
+# The wire scripts are here in full rather than globbed. A glob over
+# /usr/local/bin/catena-wire-* would hand the delete leg whatever happens to be
+# on the host, which is the input a delete leg must never be given -- and these
+# directories are shared with the panel payload.
+#
+# catena-dashboard-sync is deliberately ABSENT: its script and units ship in
+# the panel image, not from here (tests/unit/test_no_lane_is_half_owned.py is
+# why), so this role does not own that path and must not delete it.
+infrastructure_managed_paths:
+  - "{{ gatus_sync_script_path }}"
+  - "{{ version_check_script_path }}"
+  - "{{ clamav_watch_script_path }}"
+  - "{{ mail_canary_script_path }}"
+  - /etc/systemd/system/gatus-sync.service
+  - /etc/systemd/system/gatus-sync.timer
+  - "/etc/systemd/system/{{ clamav_watch_systemd_unit_name }}.service"
+  - "/etc/systemd/system/{{ clamav_watch_systemd_unit_name }}.timer"
+  - "/etc/systemd/system/{{ mail_canary_systemd_unit_name }}.service"
+  - "/etc/systemd/system/{{ mail_canary_systemd_unit_name }}.timer"
+  - /usr/local/bin/catena-dms-exec
+  - /usr/local/bin/catena-wire-nextcloud-antivirus
+  - /usr/local/bin/catena-wire-nextcloud-mail
+  - /usr/local/bin/catena-wire-nextcloud-webmail-link
+  - /usr/local/bin/catena-wire-nextcloud-collabora
+  - /usr/local/bin/catena-wire-nextcloud-onlyoffice
+  - /usr/local/bin/catena-wire-nextcloud-oidc
+  - /usr/local/bin/catena-wire-nextcloud-talk-hpb
+  - /usr/local/bin/catena-wire-rocketchat-jitsi
+
 # --- Nextcloud Talk + HPB ------------------------------------------------
 # aio-talk's Janus uses TURN-only for ALL its media (its janus.jcfg's
 # nat block is generated with turn_server pointing at the standalone

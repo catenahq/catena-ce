@@ -506,6 +506,24 @@ offsite_env_file: /etc/catena/offsite.env
 backup_password_file: /etc/catena/restic.pass
 backup_systemd_unit_name: catena-backup
 
+# Files this role puts in the prefixes where a withdrawal keeps EXECUTING --
+# units and host binaries. playbooks/tasks/prune_withdrawn_files.yml records
+# these and removes what a later release stops declaring, provided the file on
+# disk is still byte-for-byte what a converge wrote.
+#
+# Declared here, beside the paths themselves, rather than in one product-wide
+# list: the role that writes a file is the thing that knows it writes it, and a
+# central list is a second place to forget. Undeclared means unmanaged, never
+# deleted, so the cost of an omission is coverage rather than a missing file --
+# and tests/unit/test_converge_prune.py fails on one anyway.
+backup_managed_paths:
+  - /usr/local/bin/restic
+  - "{{ backup_disk_preflight_script }}"
+  - "/etc/systemd/system/{{ backup_systemd_unit_name }}.service"
+  - "/etc/systemd/system/{{ backup_systemd_unit_name }}.timer"
+  - /etc/systemd/system/catena-restic-check-subset.service
+  - /etc/systemd/system/catena-restic-check-subset.timer
+
 # Community weekly-backup timer (rate-limited Community lane).
 # CE ships exactly ONE timer -- a weekly backup -- so a self-hosted
 # Community deployment has a proven scheduled-backup lane without a

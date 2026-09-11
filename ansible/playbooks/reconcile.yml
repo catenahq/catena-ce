@@ -102,6 +102,18 @@
       changed_when: true
       tags: [public_ports]
 
+    # Remove what a previous converge installed and this one no longer ships.
+    # Before the release manifest, so a converge that fails here does not
+    # record itself as finished.
+    - name: "Prune: remove files withdrawn from the product"
+      ansible.builtin.include_tasks:
+        file: tasks/prune_withdrawn_files.yml
+        apply:
+          tags: [prune]
+      vars:
+        catena_converge_path: reconcile
+      tags: [prune]
+
     # Record what this converge delivered. The same file site.yml includes:
     # the panel reads this manifest to tell "this feature is off" from "this
     # host's converge predates it", and an on-host converge that left it

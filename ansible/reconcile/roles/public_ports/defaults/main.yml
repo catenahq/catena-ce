@@ -11,3 +11,22 @@
 # out-of-band. Both are why this is a timer and not a one-shot.
 public_ports_timer_on_boot: "2min"
 public_ports_timer_interval: "5min"
+
+# Files this role puts in the prefixes where a withdrawal keeps EXECUTING.
+# playbooks/tasks/prune_withdrawn_files.yml records these and removes what a
+# later release stops declaring, provided the file on disk is still
+# byte-for-byte what a converge wrote. Undeclared means unmanaged, never
+# deleted; tests/unit/test_converge_prune.py fails on an omission.
+#
+# The lib modules are in scope for a reason the reconciler states itself: it
+# imports its neighbours by BARE NAME off its own directory, so a module
+# withdrawn from the product but left on disk is not inert -- it is the one
+# that gets imported, and the lane runs the previous release's logic while
+# reporting green.
+public_ports_managed_paths:
+  - "{{ public_ports_lib_dir }}/catena-public-ports.py"
+  - "{{ public_ports_lib_dir }}/public_ports.py"
+  - "{{ public_ports_lib_dir }}/labels_schema.py"
+  - /etc/systemd/system/catena-public-ports.service
+  - /etc/systemd/system/catena-public-ports.timer
+  - /etc/systemd/system/docker.service.d/30-catena-public-ports.conf
