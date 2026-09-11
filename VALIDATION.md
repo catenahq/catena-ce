@@ -137,7 +137,7 @@ Parsed from the committed workflow files; every job below runs on each change.
 
 | Workflow | File | Jobs |
 | --- | --- | --- |
-| CI | `.github/workflows/ci.yml` | `installer`, `syntax`, `duplication` |
+| CI | `.github/workflows/ci.yml` | `installer`, `syntax`, `duplication`, `prose` |
 | security | `.github/workflows/security.yml` | `scanctl` |
 | seed baseline | `.github/workflows/seed-baseline.yml` | `seed` |
 | Trivy | `.github/workflows/trivy.yml` | `resolve-pins-matrix`, `trivy-pinned-images`, `trivyignore-expiry`, `trivy-gate` |

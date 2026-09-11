@@ -417,25 +417,25 @@ SETTINGS_CONFIG: dict[str, str] = {
     # non-secret companions.
     #
     # SMTP_PROVIDER is the whole routing decision: resend | brevo | server.
-    # It used to be inferred from WHICH of three sender-address keys was
-    # non-empty, with Resend silently winning when two were filled -- so the
-    # answer to "where does mail go" was spread across three fields and a
-    # precedence rule, and a client who switched providers without clearing the
-    # old address kept sending through the old one.
+    # It is an explicit field rather than an inference from WHICH of three
+    # sender-address keys is non-empty. Inferring it spreads the answer to
+    # "where does mail go" across three fields and a precedence rule, hands
+    # Resend a silent win when two are filled, and leaves a client who switches
+    # providers without clearing the old address still sending through it.
     #
     # SMTP_HOST / SMTP_PORT / SMTP_USER apply to the `server` choice; SMTP_USER
     # also carries the Brevo login, which is account-specific. Resend needs
     # neither: its host and its literal `resend` username are constants.
     # Mesh control plane. TAILNET_PROVIDER is the whole routing decision:
-    # tailscale | headscale. It used to be inferred from whether
-    # TAILNET_CONTROL_URL happened to be filled in, which made "switch back to
+    # tailscale | headscale. Explicit for the same reason: inferring it from
+    # whether TAILNET_CONTROL_URL happens to be filled in makes "switch back to
     # Tailscale" mean "know to CLEAR a field" -- and the settings API treats a
-    # blank submission as "leave this alone", so that was a decision the client
-    # could make in one direction only.
+    # blank submission as "leave this alone", so that is a decision the client
+    # can make in one direction only.
     #
-    # All three moved out of BOOTSTRAP_CONFIG together: the URL and the user are
-    # the Headscale half of the same decision, and leaving them in the `.env`
-    # would have left a choice the panel can make and a target it cannot.
+    # All three live here rather than in BOOTSTRAP_CONFIG: the URL and the user
+    # are the Headscale half of the same decision, and holding them in the
+    # `.env` splits a choice the panel can make from a target it cannot reach.
     "TAILNET_PROVIDER": "cfg_tailnet_provider",
     "TAILNET_CONTROL_URL": "cfg_tailnet_control_url",
     "HEADSCALE_USER": "cfg_headscale_user",
@@ -474,10 +474,10 @@ SETTINGS_CONFIG: dict[str, str] = {
     "CATENA_ACME_CA_BUNDLE_PEM_B64": "cfg_acme_ca_bundle_b64",
     "COTURN_CERTBOT_STAGING": "cfg_coturn_certbot_staging",
     # The primary domain, and the address every ACME registration and admin
-    # account uses. They were the last two values a reconcile could only get
-    # from the operator's .env, and the zone was the only one of the eighteen
-    # with no default -- so it is the value that made a self-converging host
-    # impossible rather than merely wrong.
+    # account uses. These are the last two values a reconcile could otherwise
+    # read only from the operator's .env, and the zone is the one value of the
+    # eighteen with no default -- which makes it the one that decides whether a
+    # host can converge on its own at all, rather than merely converge wrong.
     #
     # Both are host facts by any reading: the zone is THE identity of the
     # install, and the email is the client's. The .env keeps seeding them
@@ -526,14 +526,13 @@ SETTINGS_CONFIG: dict[str, str] = {
 # needs them before the box exists. Declared so a key that is in NEITHER set
 # is a gate failure rather than an unnoticed third owner.
 #
-# Eleven names left this set rather than moving to the other one: every public
-# subdomain, the two UI ports, the storage mount point and the realm display
-# name. They were not owned by the inventory in any meaningful sense -- the
-# shipped starter, the operator skeleton and the one real inventory all set them
-# to the same strings, and four were in no .env at all. A value nobody varies is
-# the product's, so they are compiled in. If one ever needs to vary it becomes a
-# settings key above, which is where a per-host value belongs now that the host
-# converges itself.
+# Eleven names belong to neither set: every public subdomain, the two UI ports,
+# the storage mount point and the realm display name. The inventory does not own
+# them in any meaningful sense -- the shipped starter, the operator skeleton and
+# the one real inventory all set them to the same strings, and four appear in no
+# .env at all. A value nobody varies is the product's, so they are compiled in.
+# If one ever needs to vary it becomes a settings key above, which is where a
+# per-host value belongs on a host that converges itself.
 BOOTSTRAP_CONFIG: frozenset[str] = frozenset({
     "COMMON_LOCALE",
     "COMMON_TIMEZONE",
@@ -682,10 +681,10 @@ def dump(store: dict, path: str | Path = DEFAULT_STORE_PATH) -> None:
     rename so a crash mid-write can't leave a half-written store.
 
     This helper owns `secrets`, `config` and `client_app_secrets`, and MERGES
-    them into whatever else the file holds. It is not the only writer:
+    them into whatever else the file holds. Two other writers share it:
     catena-schedule owns `schedules` and `backup_retention`, and the
     managed-update lane owns `image_pins`. Serialising just the keys this
-    helper knows about deleted the others on every converge -- and `image_pins`
+    helper knows about deletes the others on every converge -- and `image_pins`
     exists precisely so the converge can ask what the on-host lane applied, so a
     converge that wiped it on the way past would answer its own question with
     nothing, every time.
@@ -758,7 +757,7 @@ def ensure_app_secrets(store: dict, wanted: object) -> dict:
     Reconcile-not-overwrite, and that is the load-bearing property: the catalog
     is re-rendered on every marketplace fetch, and a mint on each one would hand
     the client's Portainer a different database password every time they opened
-    the page -- while the app that was already deployed kept the first.
+    the page -- while an app already deployed keeps the first.
 
     Every request is validated before anything is written. This is the one
     store write the unprivileged admin container can ask for by name, so a

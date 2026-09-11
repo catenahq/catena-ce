@@ -26,16 +26,15 @@ ansible/bootstrap/roles/tailscale/tasks/main.yml -- 1 finding(s): NoHistoryWeak
 ansible/boundary.yml -- 1 finding(s): NoHistoryWeak
 ansible/helpers/catena_admin_release.py -- 1 finding(s): NoContrastSpec
 ansible/helpers/install_key.py -- 2 finding(s): NoHistoryWeak
-ansible/helpers/onbox_config.py -- 12 finding(s): NoContrastSpec, NoHistory, NoHistoryWeak
 ansible/helpers/public_ports.py -- 1 finding(s): NoHistory
 ansible/helpers/tailnet_check.py -- 1 finding(s): NoContrastSpec
-ansible/playbooks/bootstrap.yml -- 3 finding(s): NoHistory, NoHistoryWeak
+ansible/playbooks/bootstrap.yml -- 2 finding(s): NoHistory, NoHistoryWeak
 ansible/playbooks/filter_plugins/backup_cadence_cap.py -- 1 finding(s): NoHistory
 ansible/playbooks/filter_plugins/bootstrap_drift.py -- 1 finding(s): NoHistoryWeak
 ansible/playbooks/filter_plugins/catena_admin_service.py -- 1 finding(s): NoHistory
 ansible/playbooks/filter_plugins/catena_served_zones.py -- 2 finding(s): NoHistory, NoHistoryWeak
 ansible/playbooks/filter_plugins/converge_manifest.py -- 7 finding(s): NoHistory, NoHistoryWeak
-ansible/playbooks/filter_plugins/image_pin.py -- 2 finding(s): NoHistory, NoHistoryWeak
+ansible/playbooks/filter_plugins/image_pin.py -- 1 finding(s): NoHistoryWeak
 ansible/playbooks/filter_plugins/smtp_resolve.py -- 1 finding(s): NoHistoryWeak
 ansible/playbooks/filter_plugins/swarm_service_drift.py -- 2 finding(s): NoHistoryWeak
 ansible/playbooks/filter_plugins/tier1_stack.py -- 1 finding(s): NoHistoryWeak
@@ -63,7 +62,7 @@ ansible/reconcile/roles/infrastructure/tasks/_mailserver_dms_locate.yml -- 3 fin
 ansible/reconcile/roles/infrastructure/tasks/beszel.yml -- 1 finding(s): NoHistoryWeak
 ansible/reconcile/roles/infrastructure/tasks/dashboard_sync.yml -- 3 finding(s): NoHistory, NoHistoryWeak
 ansible/reconcile/roles/infrastructure/tasks/healthchecks.yml -- 1 finding(s): NoHistoryWeak
-ansible/reconcile/roles/infrastructure/tasks/mailserver_oidc.yml -- 4 finding(s): NoHistory, NoHistoryWeak
+ansible/reconcile/roles/infrastructure/tasks/mailserver_oidc.yml -- 3 finding(s): NoHistory, NoHistoryWeak
 ansible/reconcile/roles/infrastructure/tasks/main.yml -- 3 finding(s): NoHistory, NoHistoryWeak
 ansible/reconcile/roles/infrastructure/tasks/swarm_stack.yml -- 1 finding(s): NoHistoryWeak
 ansible/reconcile/roles/infrastructure/tasks/validate.yml -- 1 finding(s): NoHistory
@@ -84,7 +83,7 @@ ansible/reconcile/roles/tier1_stack/tasks/spec_one.yml -- 1 finding(s): NoHistor
 ansible/reconcile/roles/traefik/defaults/main.yml -- 1 finding(s): NoHistory
 ansible/reconcile/roles/traefik/tasks/main.yml -- 3 finding(s): NoHistory
 ansible/requirements.yml -- 1 finding(s): NoHistory
-ansible/scripts/beszel-seed.py -- 3 finding(s): NoHistory, NoHistoryWeak
+ansible/scripts/beszel-seed.py -- 2 finding(s): NoHistoryWeak
 ansible/scripts/catena-public-ports.py -- 5 finding(s): NoHistory, NoHistoryWeak
 ansible/scripts/gatus-sync.py -- 3 finding(s): NoHistory
 ansible/scripts/healthchecks-seed.py -- 1 finding(s): NoHistoryWeak
@@ -96,7 +95,7 @@ ansible/tests/unit/test_backup_env_reconciled.py -- 3 finding(s): NoHistoryWeak
 ansible/tests/unit/test_backup_excludes_pg_lock_files.py -- 3 finding(s): NoHistory, NoHistoryWeak
 ansible/tests/unit/test_backup_integrity_check_cadence.py -- 1 finding(s): NoHistoryWeak
 ansible/tests/unit/test_backup_wrapper_payload_sequencing.py -- 2 finding(s): NoHistory
-ansible/tests/unit/test_beszel_oidc.py -- 2 finding(s): NoHistory
+ansible/tests/unit/test_beszel_oidc.py -- 1 finding(s): NoHistory
 ansible/tests/unit/test_catena_admin_backup_endpoint_actions.py -- 3 finding(s): NoHistory, NoHistoryWeak
 ansible/tests/unit/test_catena_admin_cloudflared_actions.py -- 1 finding(s): NoHistoryWeak
 ansible/tests/unit/test_catena_admin_migrate_lane.py -- 2 finding(s): NoHistory, NoHistoryWeak
@@ -120,7 +119,7 @@ ansible/tests/unit/test_gatus_sync_absent_input.py -- 1 finding(s): NoHistoryWea
 ansible/tests/unit/test_hc_urls_are_loopback.py -- 1 finding(s): NoHistory
 ansible/tests/unit/test_host_script_import_path.py -- 2 finding(s): NoHistory, NoHistoryWeak
 ansible/tests/unit/test_image_pin_wiring.py -- 2 finding(s): NoHistory, NoHistoryWeak
-ansible/tests/unit/test_keycloak_zone_projection.py -- 2 finding(s): NoHistory, NoHistoryWeak
+ansible/tests/unit/test_keycloak_zone_projection.py -- 1 finding(s): NoHistoryWeak
 ansible/tests/unit/test_lane_guards_signal.py -- 1 finding(s): NoHistory
 ansible/tests/unit/test_license_state_in_store.py -- 1 finding(s): NoHistory
 ansible/tests/unit/test_mailserver_container_names_are_fresh.py -- 4 finding(s): NoHistory, NoHistoryWeak
@@ -128,7 +127,6 @@ ansible/tests/unit/test_mailserver_oidc_staging_dir.py -- 1 finding(s): NoHistor
 ansible/tests/unit/test_managed_services_manifest.py -- 2 finding(s): NoHistory, NoHistoryWeak
 ansible/tests/unit/test_mysql_logical_dump.py -- 2 finding(s): NoHistory, NoHistoryWeak
 ansible/tests/unit/test_no_lane_is_half_owned.py -- 2 finding(s): NoContrastSpec, NoHistoryWeak
-ansible/tests/unit/test_onbox_config.py -- 3 finding(s): NoContrastSpec, NoHistory, NoHistoryWeak
 ansible/tests/unit/test_onbox_env_has_no_controller_address.py -- 2 finding(s): NoHistoryWeak
 ansible/tests/unit/test_payload_expected_predicate.py -- 1 finding(s): NoHistoryWeak
 ansible/tests/unit/test_payload_install.py -- 1 finding(s): NoHistory

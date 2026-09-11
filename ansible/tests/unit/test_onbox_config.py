@@ -186,10 +186,10 @@ def test_every_registry_is_non_empty(oc):
 # --- secret_names: the converge loader's discriminator ----------------------
 def test_secret_names_is_the_union_of_the_four_registries(oc):
     """playbooks/tasks/load_onbox_config.yml reads this list to decide which
-    in-scope Ansible variables to capture into the store. It used to decide
-    that with the regex ^vault_.+$, which made a name PREFIX load-bearing: a
-    variable was captured for how it was spelled, not because anyone had
-    declared it a secret."""
+    in-scope Ansible variables to capture into the store. Deciding that with a
+    regex such as ^vault_.+$ would make a name PREFIX load-bearing, capturing a
+    variable for how it is spelled rather than because someone declared it a
+    secret. The union of the four registries is the declaration."""
     expected = set().union(*_registries(oc).values())
     assert set(oc.secret_names()) == expected
 
@@ -773,7 +773,7 @@ def test_cli_emits_config_vars(oc, tmp_path, capsys):
 
 # --- other writers' keys ----------------------------------------------------
 #
-# This helper owns `secrets` and `config`. It is not the only writer:
+# This helper owns `secrets` and `config`. Two other writers share the file:
 # catena-schedule owns `schedules` and `backup_retention`, and the on-host
 # update lane owns `image_pins`. Serialising only the two keys it knows about
 # deleted the others on every converge and on every panel save.
