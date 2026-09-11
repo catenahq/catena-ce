@@ -81,9 +81,10 @@ jobs:
         run: npx --yes jscpd@4 --silent
 
   prose:
-    # Code comments describe what the code does, not what it used to do.
-    # The rules and the runner both live in catenahq/contracts and are
-    # run from there, so this repo holds only its own prose-debt.txt.
+    # Comments describe the code as it stands. Its history belongs in
+    # the commit message. The rules and the runner both live in
+    # catenahq/contracts and run from there, so this repo holds only its
+    # own prose-debt.txt.
     name: Comment prose
     runs-on: ubuntu-latest
     steps:

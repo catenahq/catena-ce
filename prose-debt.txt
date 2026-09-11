@@ -12,11 +12,24 @@
 # The advisory rules (NoComparison, NoNegation) never reach this file:
 # they are warnings and do not block.
 
+.trivyignore.yaml -- 2 finding(s): NoHistory, NoHistoryWeak
+ansible/bootstrap/roles/ansible_runtime/tasks/main.yml -- 2 finding(s): NoContrastSpec
+ansible/bootstrap/roles/catena_admin_host/tasks/main.yml -- 6 finding(s): NoHistory, NoHistoryWeak
+ansible/bootstrap/roles/common/defaults/main.yml -- 6 finding(s): NoHistory, NoHistoryWeak
+ansible/bootstrap/roles/common/tasks/_payload_expected.yml -- 1 finding(s): NoHistoryWeak
+ansible/bootstrap/roles/common/tasks/main.yml -- 4 finding(s): NoHistory, NoHistoryWeak
+ansible/bootstrap/roles/common/tasks/ufw_lockdown.yml -- 1 finding(s): NoHistoryWeak
+ansible/bootstrap/roles/docker/defaults/main.yml -- 2 finding(s): NoHistoryWeak
+ansible/bootstrap/roles/docker/tasks/main.yml -- 4 finding(s): NoHistoryWeak
+ansible/bootstrap/roles/host_hardening/defaults/main.yml -- 2 finding(s): NoHistoryWeak
+ansible/bootstrap/roles/tailscale/tasks/main.yml -- 1 finding(s): NoHistoryWeak
+ansible/boundary.yml -- 1 finding(s): NoHistoryWeak
 ansible/helpers/catena_admin_release.py -- 1 finding(s): NoContrastSpec
 ansible/helpers/install_key.py -- 2 finding(s): NoHistoryWeak
 ansible/helpers/onbox_config.py -- 12 finding(s): NoContrastSpec, NoHistory, NoHistoryWeak
 ansible/helpers/public_ports.py -- 1 finding(s): NoHistory
 ansible/helpers/tailnet_check.py -- 1 finding(s): NoContrastSpec
+ansible/playbooks/bootstrap.yml -- 3 finding(s): NoHistory, NoHistoryWeak
 ansible/playbooks/filter_plugins/backup_cadence_cap.py -- 1 finding(s): NoHistory
 ansible/playbooks/filter_plugins/bootstrap_drift.py -- 1 finding(s): NoHistoryWeak
 ansible/playbooks/filter_plugins/catena_admin_service.py -- 1 finding(s): NoHistory
@@ -26,6 +39,51 @@ ansible/playbooks/filter_plugins/image_pin.py -- 2 finding(s): NoHistory, NoHist
 ansible/playbooks/filter_plugins/smtp_resolve.py -- 1 finding(s): NoHistoryWeak
 ansible/playbooks/filter_plugins/swarm_service_drift.py -- 2 finding(s): NoHistoryWeak
 ansible/playbooks/filter_plugins/tier1_stack.py -- 1 finding(s): NoHistoryWeak
+ansible/playbooks/group_vars/all/main.yml -- 4 finding(s): NoContrastSpec, NoHistoryWeak
+ansible/playbooks/reconcile.yml -- 3 finding(s): NoHistory, NoHistoryWeak
+ansible/playbooks/site.yml -- 9 finding(s): NoHistory, NoHistoryWeak
+ansible/playbooks/tasks/load_onbox_config.yml -- 5 finding(s): NoHistory, NoHistoryWeak
+ansible/playbooks/tasks/prune_withdrawn_files.yml -- 4 finding(s): NoHistory, NoHistoryWeak
+ansible/playbooks/tasks/seed_onbox_config.yml -- 1 finding(s): NoHistoryWeak
+ansible/playbooks/validate.yml -- 2 finding(s): NoHistory
+ansible/reconcile/roles/backup/defaults/main.yml -- 8 finding(s): NoHistory, NoHistoryWeak
+ansible/reconcile/roles/backup/tasks/install.yml -- 3 finding(s): NoHistoryWeak
+ansible/reconcile/roles/backup/tasks/restore.yml -- 1 finding(s): NoHistoryWeak
+ansible/reconcile/roles/backup/tasks/validate.yml -- 1 finding(s): NoHistory
+ansible/reconcile/roles/catena-admin/defaults/main.yml -- 11 finding(s): NoHistory, NoHistoryWeak
+ansible/reconcile/roles/catena-admin/tasks/deploy.yml -- 3 finding(s): NoHistory, NoHistoryWeak
+ansible/reconcile/roles/catena-admin/tasks/main.yml -- 1 finding(s): NoHistoryWeak
+ansible/reconcile/roles/cloudflare_tunnel/defaults/main.yml -- 2 finding(s): NoHistory
+ansible/reconcile/roles/cloudflare_tunnel/tasks/main.yml -- 7 finding(s): NoHistory, NoHistoryWeak
+ansible/reconcile/roles/coturn/defaults/main.yml -- 1 finding(s): NoHistoryWeak
+ansible/reconcile/roles/coturn/tasks/cert.yml -- 1 finding(s): NoHistory
+ansible/reconcile/roles/coturn/tasks/validate.yml -- 5 finding(s): NoHistory, NoHistoryWeak
+ansible/reconcile/roles/infrastructure/defaults/main.yml -- 3 finding(s): NoHistory, NoHistoryWeak
+ansible/reconcile/roles/infrastructure/tasks/_mailserver_dms_locate.yml -- 3 finding(s): NoHistory, NoHistoryWeak
+ansible/reconcile/roles/infrastructure/tasks/beszel.yml -- 1 finding(s): NoHistoryWeak
+ansible/reconcile/roles/infrastructure/tasks/dashboard_sync.yml -- 3 finding(s): NoHistory, NoHistoryWeak
+ansible/reconcile/roles/infrastructure/tasks/healthchecks.yml -- 1 finding(s): NoHistoryWeak
+ansible/reconcile/roles/infrastructure/tasks/mailserver_oidc.yml -- 4 finding(s): NoHistory, NoHistoryWeak
+ansible/reconcile/roles/infrastructure/tasks/main.yml -- 3 finding(s): NoHistory, NoHistoryWeak
+ansible/reconcile/roles/infrastructure/tasks/swarm_stack.yml -- 1 finding(s): NoHistoryWeak
+ansible/reconcile/roles/infrastructure/tasks/validate.yml -- 1 finding(s): NoHistory
+ansible/reconcile/roles/infrastructure/tasks/verify_gated_services.yml -- 2 finding(s): NoHistory
+ansible/reconcile/roles/infrastructure/tasks/wordpress_plugins.yml -- 4 finding(s): NoHistory, NoHistoryWeak
+ansible/reconcile/roles/keycloak/defaults/main.yml -- 10 finding(s): NoHistory, NoHistoryWeak
+ansible/reconcile/roles/keycloak/tasks/main.yml -- 1 finding(s): NoHistory
+ansible/reconcile/roles/keycloak/tasks/provision_db.yml -- 1 finding(s): NoHistoryWeak
+ansible/reconcile/roles/keycloak/tasks/realm_bootstrap.yml -- 3 finding(s): NoHistoryWeak
+ansible/reconcile/roles/keycloak/tasks/realm_export.yml -- 2 finding(s): NoHistory, NoHistoryWeak
+ansible/reconcile/roles/keycloak/tasks/validate.yml -- 2 finding(s): NoContrastSpec, NoHistory
+ansible/reconcile/roles/oauth2_proxy/defaults/main.yml -- 1 finding(s): NoHistory
+ansible/reconcile/roles/payload/defaults/main.yml -- 3 finding(s): NoHistory, NoHistoryWeak
+ansible/reconcile/roles/portainer/defaults/main.yml -- 1 finding(s): NoHistory
+ansible/reconcile/roles/postgres/tasks/main.yml -- 2 finding(s): NoHistory
+ansible/reconcile/roles/tier1_stack/tasks/main.yml -- 2 finding(s): NoContrastSpec, NoHistoryWeak
+ansible/reconcile/roles/tier1_stack/tasks/spec_one.yml -- 1 finding(s): NoHistory
+ansible/reconcile/roles/traefik/defaults/main.yml -- 1 finding(s): NoHistory
+ansible/reconcile/roles/traefik/tasks/main.yml -- 3 finding(s): NoHistory
+ansible/requirements.yml -- 1 finding(s): NoHistory
 ansible/scripts/beszel-seed.py -- 3 finding(s): NoHistory, NoHistoryWeak
 ansible/scripts/catena-public-ports.py -- 5 finding(s): NoHistory, NoHistoryWeak
 ansible/scripts/gatus-sync.py -- 3 finding(s): NoHistory
