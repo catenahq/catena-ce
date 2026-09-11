@@ -175,6 +175,20 @@ catena_vendor_manifest_path: "{{ playbook_dir }}/../../VENDOR.json"
 # host never had.
 catena_converge_manifest_path: /var/lib/catena/converge-manifest.json
 
+# --- What the bootstrap-owned files looked like last time a converge ran ---
+# Same reasoning for /var/lib: it describes this host now, it is rewritten
+# every converge, and a copy restored from a snapshot would be a baseline taken
+# on a different machine -- which for a drift report is worse than no baseline,
+# because every file would read as changed.
+catena_bootstrap_drift_path: /var/lib/catena/bootstrap-drift.json
+
+# The boundary declaration itself, read at run time by
+# tasks/report_bootstrap_drift.yml so the list of operator-owned paths has one
+# home. A variable rather than an inline expression for the same reason
+# catena_vendor_manifest_path is one: playbook_dir is magic and cannot be
+# overridden, so a path built from it inline is a path no test can redirect.
+catena_boundary_path: "{{ playbook_dir }}/../boundary.yml"
+
 # --- Storage ---
 storage_mode: "{{ lookup('dotenv', 'STORAGE_MODE', default='built_in') }}"
 # /mnt/data everywhere, and named literally in the backup path set, the docker

@@ -102,6 +102,18 @@
       changed_when: true
       tags: [public_ports]
 
+    # Report -- never repair -- changes to the files boundary.yml puts on the
+    # operator's side. Not writing them is the rule; not noticing them was an
+    # accident of it.
+    - name: "Bootstrap drift: report changes to operator-owned files"
+      ansible.builtin.include_tasks:
+        file: tasks/report_bootstrap_drift.yml
+        apply:
+          tags: [bootstrap_drift]
+      vars:
+        catena_converge_path: reconcile
+      tags: [bootstrap_drift]
+
     # Remove what a previous converge installed and this one no longer ships.
     # Before the release manifest, so a converge that fails here does not
     # record itself as finished.
