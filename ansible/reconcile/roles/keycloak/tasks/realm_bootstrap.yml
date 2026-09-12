@@ -89,11 +89,11 @@
 # Same shape as the SMTP marker above, for the admin user's password.
 #
 # KC_BOOTSTRAP_ADMIN_* creates the operator's account in the MASTER realm and
-# nowhere else. This realm's copy of that account imports with no credentials
-# at all, so without seeding it, the same email and password would open the
-# master realm and be refused here -- one identity, two accounts, one of them
-# passwordless, and no way to tell from the login page which is which. Seeded
-# from the same on-box admin_password so there is one password to know.
+# nowhere else, and this realm's copy of that account imports with no
+# credentials at all. Seeding it here from the same on-box admin_password is
+# what keeps one identity from becoming two accounts, one of them passwordless:
+# the same email and password open the master realm and are refused here, with
+# nothing on the login page to tell the two apart.
 #
 # First import only. Rendering it on every converge would reset the password
 # back to the store's value each time, silently undoing a change made in the

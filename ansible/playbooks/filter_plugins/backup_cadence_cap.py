@@ -14,12 +14,12 @@ Raising ValueError fails the play loudly, which is the intent: an operator
 `.env` or an edited config store that tightens the cadence on an unlicensed
 host is a licensing question, not a warning.
 
-Mapping a tier name to both a cadence and a retention ladder risks exactly
-this: a cadence half that gets computed but never wired into a real unit, so
-every host runs at the same hardcoded cadence regardless of tier while only
-retention varies -- a `realtime` host configured to keep 96 hourly snapshots
-while producing one snapshot a day. Cadence is instead a customizable RPO
-set per lane in the panel, and retention is five explicit fields.
+Capping is all this module does. Cadence itself is a customizable RPO the panel
+sets per lane, and retention is five explicit fields on the same page -- neither
+is derived from a named tier here or anywhere else. A name that expands into
+both is what lets the two disagree: the cadence half can be computed and wired
+into no unit at all, leaving a `realtime` host keeping 96 hourly snapshots while
+producing one snapshot a day.
 
 End-to-end coverage:
     ops automation/tests/unit/test_backup_cadence_cap.py

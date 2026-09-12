@@ -2,11 +2,10 @@
 # Resolve the dms container ONCE, for every step of the mailserver chain.
 #
 # WHY THIS IS SHARED. mailserver_cert.yml, mailserver_accounts.yml and
-# mailserver_oidc.yml each running their own `docker ps --filter
-# label=vps.component=dms` and gating their whole body on the result would be
-# three copies of one lookup, each sampled at a different second of the
-# converge -- and dms is the one container on the host that is deliberately
-# not up yet.
+# mailserver_oidc.yml all need the same answer, and a `docker ps --filter
+# label=vps.component=dms` per caller is three copies of one lookup, each
+# sampled at a different second of the converge -- against the one container on
+# the host that is deliberately not up yet.
 #
 # THE DEADLOCK. docker-mailserver polls 120s for at least one mailbox and shuts
 # down without one. Until the chain gives it a cert and postmaster@ it cycles
@@ -17,10 +16,10 @@
 # mailbox, and the task that creates the mailbox skips BECAUSE it is
 # missing.
 #
-# A bench run at cf_activate stage-3b found the cert step locating the
-# container and, seconds later, the accounts step not: whether an install
-# completed came down to which phase of a restart cycle each lookup happened
-# to sample.
+# Bench run 2026-08-25T18-01-29-b726 at cf_activate stage-3b has shown that
+# shape: the cert step located the container and, seconds later, the accounts
+# step did not. Whether an install completes comes down to which phase of a
+# restart cycle each lookup samples.
 #
 # THE DISCRIMINATOR is the swarm SERVICE, which exists continuously from deploy
 # to teardown. "No service" is a genuine not-deployed and must stay instant --
@@ -72,14 +71,13 @@
 
 # THE VERDICT LIVES HERE, so every caller gets the same one.
 #
-# Leaving it to each caller risks disagreement: mailserver_accounts could fail
-# loud on this state, while mailserver_oidc prints a debug line and skips --
-# its message even says the two cases are indistinguishable from a single
-# reading, without acting on the difference the fact above records. So a host
-# whose dms is deployed and does not come up within the wait would get its
-# SSO wiring silently not written, on a converge that reports success. Nothing
-# observes dovecot-oauth2.conf.ext, so that state is invisible until a user
-# cannot log into webmail.
+# One verdict, because the callers cannot each reach their own and still agree:
+# a loud failure in mailserver_accounts and a debug-and-skip in mailserver_oidc
+# for the same host state leaves a host whose dms is deployed but never comes up
+# with its SSO wiring silently not written, on a converge that reports success.
+# Nothing observes dovecot-oauth2.conf.ext, so that state stays invisible until
+# a user cannot log into webmail. From a single reading the two cases are
+# indistinguishable, which is exactly the difference the fact above records.
 #
 # "No service" stays free: most hosts never deploy the mailserver, this whole
 # chain no-ops for them, and that is the case the debug lines in the callers are

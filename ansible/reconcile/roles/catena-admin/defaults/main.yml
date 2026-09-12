@@ -227,42 +227,35 @@ catena_admin_ee_reserved_actions:
   # itself.
   - name: ee-install-engines
     shell: "{{ catena_admin_stack_update_bin }} install-payload"
-  # The two self-update entries are not here. They are Community and live
-  # in the shell-read catalog now (catena_admin_ce_selfupdate_actions below):
-  # a panel nobody has patched is the same shape of problem as a backup nobody
-  # has verified, and withholding the mechanism leaves a free-edition host
-  # running whatever its install day happened to ship.
-  # Twelve Business actions are not in this list either -- they live in the
-  # payload's own dispatch drop-in (catena-admin payload/actions.d/10-business.sh):
-  # the four catena-daily / catena-audit ones and the eight migration-lane ones.
+  # ee-install-engines is the ONLY entry in this table, and the rule that keeps
+  # it alone is the reconcile invariant applied to the dispatch table itself:
+  # the action that REINSTALLS the payload cannot depend on the payload having
+  # installed correctly. Everything else follows the ordinary rule -- whoever
+  # ships a command authorises it.
   #
-  # Every command they ran is a binary the PAYLOAD installs, at a path the
-  # payload chose, so keeping them here would make this list an
-  # authorization record for names the converge does not own and cannot
-  # verify -- and a panel that gained an action would have to wait for a
-  # converge before the host would accept it. The
-  # dispatcher offers any name this table does not carry to
+  # So the twelve Business names (four catena-daily / catena-audit, eight
+  # migration-lane) and cloudflare-zones-save are authorised by the payload's
+  # own dispatch drop-in, catena-admin payload/actions.d/10-business.sh, next to
+  # the binaries they run. An entry here for any of them would be an
+  # authorization record for a name and a path this converge neither chooses nor
+  # can verify, and it would put a whole converge between a panel that gains an
+  # action and a host willing to accept it.
+  #
+  # The two panel self-update entries are Community and live in the shell-read
+  # catalog (catena_admin_ce_selfupdate_actions below): a panel nobody has
+  # patched is the same shape of problem as a backup nobody has verified, and a
+  # free-edition host gets the mechanism too.
+  #
+  # The dispatcher offers any name this table does not carry to
   # {{ catena_admin_actions_overlay_dir }} before refusing it, and the payload
   # installer records the names it added in release.json's payload_actions so
   # the panel does not raise a converge-required banner for them.
-  #
-  # What stayed: ee-install-engines alone, because the action that REINSTALLS
-  # the payload cannot depend on the payload having installed correctly. That is
-  # the reconcile invariant applied to the dispatch table itself.
-  #
-  # cloudflare-zones-save is not here either: it authorised
-  # /usr/local/bin/catena-cloudflare-zones -- a binary NO repository
-  # built, so the Domains panel's save could only ever answer "command not
-  # found". The engine exists now (catena-admin
-  # payload/cmd/catena-cloudflare-zones, a wrapper over the model the panel
-  # already carried) and it is a payload binary like the rest, so the action
-  # went with it.
 
 # --- 0b on-box config store (settings API) ----------------------------
-# The store's path and its writer are not named here. Nothing in this
-# repo's dispatch table pipes through them: the settings action and the zone
-# save both ship in the panel image now, and the image installs the writer
-# (helpers/onbox_config.py) as one of its own payload binaries.
+# Neither the store's path nor its writer is a variable this role renders. The
+# settings action and the zone save ship in the panel image, and the image
+# installs the writer (helpers/onbox_config.py) as one of its own payload
+# binaries, so nothing in this repo's dispatch table pipes through them.
 #
 # The registries in helpers/onbox_config.py remain the enforcement point, and
 # they are read TWICE -- once by the writer when a request arrives, and again by
@@ -270,34 +263,27 @@ catena_admin_ee_reserved_actions:
 # does not declare is a key it never projects, whatever the file holds. That is
 # the property that survives the writer shipping in the image.
 
-# --- the retired catena_admin_ce_reserved_actions ----------------------
+# --- why this role declares no CE reserved-actions table ---------------
 #
-# Twenty-four Community actions lived here: the settings store, scheduling,
+# The twenty-four Community action names -- the settings store, scheduling,
 # offsite copies, the backup password, the panel self-update, the backup
 # endpoint check, the state register, quiesce, the journal seal check and the
-# whole restore family. They are in the payload's own dispatch drop-in now
-# (catena-admin payload/actions.d/20-catena.sh), where the twelve Business ones
-# went before them and for the same reasons.
+# whole restore family -- are authorised by the payload's own dispatch drop-in,
+# catena-admin payload/actions.d/20-catena.sh, on the same rule as the Business
+# names above: whoever ships a command authorises it. An entry here instead
+# would make a one-line change to any of them need an operator with a laptop and
+# an SSH session against a live client.
 #
-# Every command behind them ran a binary the PAYLOAD installs, at a path the
-# payload chose, so keeping them here would make this list an authorization
-# record for names this repo does not own and cannot verify -- and a one-line
-# change to any of them would need an operator with a laptop and an SSH
-# session against a live client. Two of the
-# commands ran catena-ce scripts (onbox_config.py, catena-restic-key.py) and the
-# image build now copies those into the payload's own bin out of the vendored
-# tree, so the image ships every command it authorises and this role does not
-# install them.
+# Two of those commands are catena-ce scripts (onbox_config.py,
+# catena-restic-key.py). The image build copies them into the payload's own bin
+# out of the vendored tree, so the image ships every command it authorises, and
+# their paths are product constants the payload installer chooses -- which is
+# why no Ansible variable here spells them out.
 #
-# The variables those bodies interpolated went with them. They were product
-# constants written as Ansible variables -- absolute paths the payload installer
-# itself chose -- and a constant is owned by whoever ships the thing it points
-# at. What is left here is what the converge still runs or still renders.
-#
-# NOTHING replaced them in this table, and nothing should: the dispatcher is
-# base-first, so a name here would win over the drop-in and the file where the
-# command is maintained would never be reached. tests/unit/
-# test_converge_dispatch_table.py is the gate on that.
+# NOTHING may be added to this table for them: the dispatcher is base-first, so
+# a name here wins over the drop-in and the file where the command is maintained
+# is never reached. tests/unit/test_converge_dispatch_table.py is the gate on
+# that.
 
 # The Cloudflare tunnel actions are NOT here. cloudflared-check and
 # cloudflared-sync are image drop-ins (catena-admin payload/actions.d/

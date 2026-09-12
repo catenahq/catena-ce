@@ -186,10 +186,10 @@
     # Host engine payload (catena-cloudflared-sync, catena-recovery,
     # catena-schedule, catena-daily, the lanes + units), extracted from the
     # public catena-admin image. Needs docker and nothing else, and every role
-    # from here down may assume /usr/local/bin/catena-* exists. Arriving from
-    # reconcile/roles/catena-admin instead, eight roles later, would mean
-    # cloudflare_tunnel finds no engine on a first converge and oauth2_proxy
-    # then waits on an edge nobody has brought up. See reconcile/roles/payload/README.md.
+    # from here down may assume /usr/local/bin/catena-* exists. cloudflare_tunnel
+    # five roles below fixes the deadline: an engine that lands any later leaves
+    # a first converge with no tunnel, and oauth2_proxy then waits on an edge
+    # nobody has brought up. See reconcile/roles/payload/README.md.
     - { role: payload, tags: [payload] } # host engine binaries + units
     # catena-owned reverse proxy (catena-traefik on the catena-network
     # overlay). Runs AFTER docker (which inits the swarm) and BEFORE
@@ -211,10 +211,9 @@
     # single-pass site.yml (CF 530 from oauth2_proxy's wait task).
     # Idempotent: subsequent converges find the tunnel + DNS + service
     # already in the desired state and no-op.
-    # Not gated on an access mode. The role self-defers when the store holds
-    # no Cloudflare token (_infra_cf_token_present + cf_activate), covering
-    # the same case an ACCESS_MODE=tailnet install shape would need, without
-    # a second install shape.
+    # No access-mode gate. The role self-defers when the store holds no
+    # Cloudflare token (_infra_cf_token_present + cf_activate), so one install
+    # shape covers both the tailnet-only host and the tunnelled one.
     - { role: cloudflare_tunnel, tags: [cloudflare_tunnel, cloudflare] } # CF tunnel + DNS + cloudflared swarm service
     # Keycloak MUST come before oauth2_proxy so its realm exists before
     # oauth2_proxy registers its OIDC client via keycloak-config-cli. Both
@@ -231,10 +230,10 @@
     # prepares for.
     - { role: catena_admin_host, tags: [catena_admin, catena_admin_host] }
     # catena-admin: the action catalog, the bind-mount targets, AND the Go shell
-    # container, created directly against the local swarm, not as a Portainer
-    # stack: it holds the API key that drives Portainer, so deploying it via
-    # Portainer would make a Portainer that will not start take down the only
-    # tool that could repair it.
+    # container, created directly against the local swarm. It holds the API key
+    # that drives Portainer, so it cannot depend on Portainer to run: the one
+    # tool that can repair a Portainer that will not start must not be deployed
+    # by it.
     - { role: catena-admin, tags: [catena_admin] }
     - { role: coturn, tags: [coturn] } # shared TURN/STUN for NC Talk HPB + RC Jitsi (UDP media plane, direct on VPS public IP)
     - { role: backup, tags: [backup] } # restic + the manual oneshot catena-backup.service
@@ -464,8 +463,8 @@
       tags: [lockdown]
 
     # Report -- never repair -- changes to the files boundary.yml puts on the
-    # operator's side. Not writing them is the rule; not noticing them would
-    # be an accident of it.
+    # operator's side. A converge does not write them; this task is what keeps
+    # that rule from also meaning blindness to them.
     - name: "Bootstrap drift: report changes to operator-owned files"
       ansible.builtin.include_tasks:
         file: tasks/report_bootstrap_drift.yml

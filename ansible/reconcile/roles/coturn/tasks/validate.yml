@@ -2,17 +2,17 @@
 # Vantage 1 (on-host) validation for coturn. Invoked by
 # playbooks/validate.yml via include_role + tasks_from: validate.
 
-# NO CONSUMER PROBE HERE. Reprobing main.yml's consumer gate so the
-# assertions could be conditional on it would make validate demand a coturn
-# the deploy pass had deliberately not deployed yet. Whether a
-# consumer is running is main.yml's question, asked where roles/coturn sits in
-# site.yml's order; by the time validate runs, the only question left is what
-# this host HAS.
+# NO CONSUMER PROBE HERE. Whether a consumer is running is main.yml's question,
+# asked where roles/coturn sits in site.yml's order; by the time validate runs,
+# the only question left is what this host HAS. Conditioning the assertions on
+# a second probe makes validate demand a coturn the deploy pass deliberately
+# left undeployed.
 #
-# The reprobe also could not agree with the deploy gate even in principle: the
-# two run minutes apart in one converge, and a consumer entering a restart
-# loop between them would make them disagree about the same host. A probe
-# that cannot be trusted to match the decision it is mirroring is not a gate.
+# Such a probe also cannot agree with the deploy gate even in principle: the two
+# run minutes apart in one converge, and bench backup_rollback (f140) has caught
+# a consumer entering a restart loop between them, leaving the two with
+# different answers about the same host. A probe that cannot be trusted to
+# match the decision it mirrors is not a gate.
 
 # Mirror main.yml's second arm: an already-deployed coturn stays under
 # validation even if its last consumer went away, because it is still
@@ -37,10 +37,10 @@
 # and its Talk HPB up later in the SAME converge, so deploy correctly skips and
 # the consumer is running by the time validate looks.
 #
-# Asserting on the consumer arm turns that designed lag into a failure: a host
-# where coturn is not deployed yet, and is not supposed to be, can lose
-# nc_s3_hot_recovery and mailserver_round_trip to "coturn swarm service not
-# running after waiting 150s".
+# Asserting on the consumer arm turns that designed lag into a failure. It has
+# cost nc_s3_hot_recovery and mailserver_round_trip a whole run, both dying on
+# "coturn swarm service not running after waiting 150s" on hosts where coturn
+# is not deployed and is not supposed to be.
 #
 # What is given up: validate does not notice "a consumer is running and coturn
 # is missing". That state is legitimate for one converge, and the next converge
@@ -84,8 +84,8 @@
     # service list before the tier-1 reconcile has registered the GLOBAL coturn
     # service: `docker service ls --filter name=coturn` answers with nothing at
     # all, and a single sample turns that instant into a verdict about the
-    # host: mailserver_round_trip and nc_sync_wipe_restore can fail that way
-    # on hosts that are fine; the heavier the recovery, the further behind
+    # host: mailserver_round_trip and nc_sync_wipe_restore have both failed
+    # that way on healthy hosts. The heavier the recovery, the further behind
     # the reconcile is when this runs.
     #
     # The condition carries the real requirement -- a RUNNING replica, not

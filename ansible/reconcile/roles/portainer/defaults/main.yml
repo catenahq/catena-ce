@@ -14,17 +14,15 @@
 portainer_service_name: catena-portainer
 portainer_data_volume: catena-portainer-data
 
-# The tier-1 SPEC for catena-portainer is not assembled here any more -- not the
-# image, the mounts, the hardening, the placement constraints, the published
-# port or the admin-password argument. It lives in the host engine, catena-admin
-# payload/engines/tier1/catalog.go, and reconcile/roles/portainer reads it with
-# `catena-tier1 spec catena-portainer`.
+# The tier-1 SPEC for catena-portainer lives in the host engine, catena-admin
+# payload/engines/tier1/catalog.go: the image, the mounts, the hardening, the
+# placement constraints, the published port and the admin-password argument.
+# reconcile/roles/portainer reads it with `catena-tier1 spec catena-portainer`,
+# and the engine's own test pins that declaration against byte-identical create
+# argv.
 #
-# The values did not change; they moved. The engine's test pins the exact
-# declaration this file would otherwise build, and asserts byte-identical
-# create argv.
-# The image pin moved with them, and Renovate + Trivy follow it there: a version
-# has to be tracked where the host actually reads it.
+# The image pin lives there too, with Renovate and Trivy following it: a version
+# is tracked where the host actually reads it.
 #
 # portainer_ui_port is the exception and stays a per-host value. The role threads
 # it to the engine as --portainer-ui-port, because the public-ports registry

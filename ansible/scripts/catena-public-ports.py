@@ -191,10 +191,10 @@ def _ufw_argv(rule: dict) -> list[str]:
 def apply_ufw(rules: list[dict]) -> list[dict]:
     """ufw is idempotent (skips existing rules), so a plain add converges.
 
-    Returns the rules actually applied. Logging a failed add as a WARNING and
-    recording it as applied anyway would make the applied-state, the
-    effective artifacts validation reads, and the unit's exit code all agree
-    that a rule existed which does not.
+    Returns the rules actually applied, and a failed add is not one of them.
+    Counting it as applied puts a rule that does not exist into the
+    applied-state, into the effective artifacts validation reads, and into the
+    unit's exit code, all agreeing with each other.
     """
     applied: list[dict] = []
     for rule in rules:
@@ -227,13 +227,12 @@ def _docker_user_match(rule: dict) -> list[str]:
     container port. `--dport 18080` therefore matches nothing once Docker
     has turned it into `172.18.0.12:8080`.
 
-    That is not theoretical: Gatus (18080 -> 8080), Healthchecks (18000 ->
-    8000) and the Beszel hub (18190 -> 8090) all publish a different host
-    port than their container port, so a `--dport` guard on any of them
-    answers from off-box with its DROP rule installed and sitting at zero
-    packets. A `--dport` guard looks correct only because the one
-    restricted docker-bound port with no host/container mismatch, the
-    Portainer UI, publishes 9000 -> 9000 and so is unchanged by the DNAT.
+    That is not theoretical: bench 050b found Gatus (18080 -> 8080),
+    Healthchecks (18000 -> 8000) and the Beszel hub (18190 -> 8090) all
+    answering from off-box with their DROP rules installed and sitting at zero
+    packets. A `--dport` guard reads as correct on exactly one restricted
+    docker-bound port, the Portainer UI, which publishes 9000 -> 9000 and so is
+    unchanged by the DNAT.
 
     --ctorigdstport matches the port the client actually dialled, which is
     what the declaration is about, and is unaffected by the rewrite.
@@ -361,9 +360,9 @@ def reconcile() -> tuple[list[pp.PortEntry], int]:
 
 
 if __name__ == "__main__":
-    # Non-zero when the plan is not fully applied. The unit exiting 0 while
-    # restricted ports sat unguarded is the whole defect: systemd recorded
-    # success, validation read artifacts that described the declared state,
-    # and nothing anywhere said the rules were missing.
+    # Non-zero when the plan is not fully applied. A unit that exits 0 while
+    # restricted ports sit unguarded is the whole defect: systemd records
+    # success, validation reads artifacts that describe the declared state, and
+    # nothing anywhere says the rules are missing.
     _entries, _unapplied = reconcile()
     sys.exit(1 if _unapplied else 0)

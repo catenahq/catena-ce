@@ -147,12 +147,12 @@ healthchecks_summary_file: "{{ backup_stats_dir | default('/var/lib/catena') }}/
 # network, so it can't resolve the container alias. 127.0.0.1:18000 is
 # UFW-safe (loopback is never publicly reachable).
 healthchecks_host_localhost_port: 18000
-# Base every HOST-SIDE ping is built from. A systemd unit on the box building
-# https://{{ healthchecks_hostname }}/ping/... instead would leave the host,
-# cross Cloudflare's edge, and come back in through the tunnel to reach a
-# container on the same box. That would make the alarm path depend on the
-# thing it most needs to report on: a tunnel or DNS failure would silence
-# the backup dead-man instead of tripping it.
+# Base every HOST-SIDE ping is built from, and loopback is what keeps the alarm
+# path off the thing it reports on. A ping built from
+# https://{{ healthchecks_hostname }}/ping/... leaves the host, crosses
+# Cloudflare's edge and comes back in through the tunnel to reach a container on
+# the same box, so a tunnel or DNS failure silences the backup dead-man instead
+# of tripping it.
 #
 # Container-to-container pings do NOT use this -- Gatus and the Beszel shim
 # post to the network alias, which is already local. The .env overrides
@@ -270,8 +270,8 @@ version_check_output_file: /var/lib/catena/version-check.json
 #
 # In the catena-* namespace like every other payload command
 # (catena-admin payload/lanes/lanes_manifest_test.go enforces it), which also
-# means a quiesce covers the timer -- it enumerates catena-*.timer, so a
-# differently-named unit could keep synthesising routes on a host that is
+# means a quiesce covers the timer: quiesce enumerates catena-*.timer, and a
+# unit named outside that namespace keeps synthesising routes on a host that is
 # supposed to be stopped.
 dashboard_sync_unit: "catena-dashboard-sync"
 dashboard_sync_script_path: "/usr/local/bin/catena-dashboard-sync"

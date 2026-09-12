@@ -17,13 +17,12 @@ WHY A SHARED RENDERER. Two consumers deploy this container and must agree
 on its shape: the converge (reconcile/roles/catena-admin/tasks/deploy.yml) with the
 published GHCR image, and the test bench (ops
 automation/test_bench/orchestrator/catena_admin_deploy.py) with an image it
-built on the VPS. Sharing the shape through a compose file both push to the
-Portainer stack API would need a stack API in the path; with none in the
-path, there is nothing to share unless something renders the argv for
-both, and the parts
-that MUST NOT drift are exactly the parts nobody looks at: eight mounts and
-six labels. So the mounts, the labels, the publish mode and the host-gateway
-alias live HERE as product facts, and the spec carries only what is
+built on the VPS. Both create the service directly against the local swarm,
+with no stack API between them to hold a shared compose file, so the only thing
+that can keep their argv identical is a renderer they both call. What MUST NOT
+drift is exactly what nobody reads: eight mounts and six labels. So the mounts,
+the labels, the publish mode and the host-gateway alias live HERE as product
+facts, and the spec carries only what is
 genuinely per-host.
 
 The bench imports this module by path, the way it already reads role files

@@ -6,13 +6,12 @@ supply their own host and port, and Resend also supplies its username, which is
 the literal string `resend` for every account. Everything else reads the fields
 as given.
 
-WHY A FILTER RATHER THAN JINJA IN THREE PLACES. Writing this ladder out
-separately for reconcile/roles/keycloak/defaults, reconcile/roles/infrastructure
-wordpress_plugins, and Beszel would leave each copy free to drift from the
-others: a host could then send Keycloak's password-reset mail through one
-relay and WordPress's contact form through another, from the same stored
-config, with nothing reporting it. Project rule: a non-trivial transform gets
-a filter plugin and a unit test, not a fourth copy of an expression.
+WHY A FILTER. Three consumers need this resolution -- reconcile/roles/keycloak
+defaults, reconcile/roles/infrastructure wordpress_plugins.yml, and beszel.yml --
+and all three call here, so Keycloak's password-reset mail and WordPress's
+contact form land on the same relay from the same stored config.
+test_smtp_resolution.py holds each consumer to it. Project rule: a non-trivial
+transform gets a filter plugin and a unit test, not a copy of an expression.
 
 The connection is always STARTTLS on the port given, never implicit TLS. That
 is what realm-vps.yaml.j2 renders (starttls true, ssl false), what PocketBase

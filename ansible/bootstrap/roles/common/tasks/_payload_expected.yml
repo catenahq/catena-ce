@@ -2,15 +2,16 @@
 # Shared decision helper: is the catena-admin payload expected on THIS host,
 # and are the paths this caller needs actually here?
 #
-# Five places ask this, and answering it separately in each risks two
-# different, both locally-correct paths that still diverge. reconcile/roles/payload
-# publishes `catena_payload_engines_expected` during a converge, so
+# Five callers ask this and one predicate answers all five, across two
+# different read paths. reconcile/roles/payload publishes
+# `catena_payload_engines_expected` during a converge, so
 # reconcile/roles/cloudflare_tunnel and reconcile/roles/backup/tasks/install.yml read the fact;
 # a standalone validate play cannot see a set_fact from a role that is not in
-# its play, so reconcile/roles/backup/tasks/validate.yml reads the env var instead. Only
-# accepting "or the file is already here" on the validate side, and not the
-# converge side, would leave the converge side unable to tell NOT YET from
-# PARTIALLY INSTALLED -- which is the one case worth catching.
+# its play, so reconcile/roles/backup/tasks/validate.yml reads the env var instead.
+# Each path is locally correct, which is why the answer has to be shared rather
+# than restated: the leg that accepts "or the file is already here" is the one
+# that separates NOT YET from PARTIALLY INSTALLED, and a caller without it
+# cannot tell those apart.
 #
 # The fact IS the env var (reconcile/roles/payload sets it from
 # `lookup('env', 'CATENA_PAYLOAD_INSTALL')`), so one predicate can serve both:

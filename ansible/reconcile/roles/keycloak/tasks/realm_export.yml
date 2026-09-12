@@ -105,10 +105,10 @@
 - name: "Keycloak realm export: warn on kcadm login failure (drift-catch is non-critical)"
   # Drift-catch artifact is non-critical: the realm config is rebuilt
   # from yaml on every converge, and the nightly timer re-attempts the
-  # export. Failing the entire converge on a login failure here would be
-  # too aggressive for an audit-only artifact.
+  # export. A login failure here is reported and survived, because failing a
+  # whole converge over an audit-only artifact is out of proportion to it.
   # Surface the rc + container + Keycloak's stderr so the operator can
-  # diagnose without grepping logs, but do not fail the play.
+  # diagnose without reading logs, but do not fail the play.
   ansible.builtin.debug:
     msg: >-
       WARN: kcadm.sh login (master realm, user {{ admin_email }}) failed

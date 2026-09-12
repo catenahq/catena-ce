@@ -8,9 +8,9 @@
 # Why they moved: what this reconciler does is read every Portainer stack's
 # `vps.*` labels and decide what the route and the oauth2-proxy for that app
 # should be. That is the MEANING of a label, and its correct value changes when
-# the product changes, not when the host changes -- so it belongs to the image.
-# Belonging to the converge instead would mean changing how app access is
-# resolved needs a converge on every host rather than an image update.
+# the product changes, not when the host changes -- so it belongs to the image,
+# and changing how app access is resolved ships as an image update instead of a
+# converge against every host.
 #
 # What stays here is everything whose correct value changes when the HOST
 # changes:

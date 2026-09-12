@@ -21,10 +21,10 @@
 #                   stack), but presence-gated on a consumer application. They
 #                   appear the converge after a Talk or Jitsi deploy.
 #
-# Combining them into one file would make the control-plane render change on a
-# converge where the control plane had not: deploy an app with a TURN consumer
-# and tier1.yml would gain a fourth service, which reads as control-plane
-# drift to anything watching it and is not.
+# Two files is what keeps the control-plane render stable: deploy an app with a
+# TURN consumer and companions.yml gains a service while tier1.yml does not, so
+# a changed tier1.yml always means somebody changed the control plane, never
+# that an app arrived.
 #
 # `docker stack deploy` is the other candidate for the apply, and it loses on
 # measurement: it always names services `<stack>_<key>`, with no flag to

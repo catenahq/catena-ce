@@ -104,8 +104,8 @@
       tags: [public_ports]
 
     # Report -- never repair -- changes to the files boundary.yml puts on the
-    # operator's side. Not writing them is the rule; not noticing them would
-    # be an accident of it.
+    # operator's side. A converge does not write them; this task is what keeps
+    # that rule from also meaning blindness to them.
     - name: "Bootstrap drift: report changes to operator-owned files"
       ansible.builtin.include_tasks:
         file: tasks/report_bootstrap_drift.yml

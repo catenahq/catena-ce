@@ -263,10 +263,11 @@
     # ── Step 5.5: has this site already been seeded? ─────────────
     #
     # Steps 6 and 7 write plugin OPTIONS -- rows in wp_options that the
-    # WordPress admin UI also writes. Combining current with desired in that
-    # order would make catena's value win every time, so an admin who retunes
-    # the NPP preload method or changes the sender address under WP Mail SMTP
-    # would have it put back on the next converge, silently.
+    # WordPress admin UI also writes, so the merge order decides who owns a
+    # retuned value: combine lets the RIGHT-hand side win, and current-then-
+    # desired makes catena's value win every time -- an admin who retunes the
+    # NPP preload method or changes the sender address under WP Mail SMTP has it
+    # put back on the next converge, silently.
     #
     # Same rule as the Keycloak realm settings: seed once, then leave it. The
     # marker makes the seed unambiguous, and rm-ing it re-seeds from the
@@ -383,8 +384,8 @@
 
     # Desired FIRST, current second: combine lets the RIGHT-hand side win, so
     # anything the site already carries survives and catena's values fill only
-    # the keys that have never been set. The other order round would put an
-    # admin's retuned preload method back every converge.
+    # the keys that have never been set. Reversing the operands puts an admin's
+    # retuned preload method back every converge.
     - name: "WordPress plugins: seed NPP settings under whatever the site already has"
       ansible.builtin.set_fact:
         _wp_npp_merged: >-
@@ -428,10 +429,10 @@
     # itself is set from the WPMS_SMTP_PASS env var (auto-healed
     # via env_managed_keys from smtp_password).
     # One resolution, shared with reconcile/roles/keycloak and reconcile/roles/infrastructure's
-    # Beszel seeding: playbooks/filter_plugins/smtp_resolve.py. Writing it out
-    # here as well would mean this host could send a contact-form mail through
-    # a different relay than its own password resets, from the same stored
-    # config, with nothing saying so.
+    # Beszel seeding: playbooks/filter_plugins/smtp_resolve.py. A second
+    # resolution here lets one host send a contact-form mail through a different
+    # relay than its own password resets, from the same stored config, with
+    # nothing saying so.
     - name: "WordPress plugins: resolve the SMTP choice"
       ansible.builtin.set_fact:
         _wp_smtp: >-

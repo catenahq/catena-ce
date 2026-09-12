@@ -42,9 +42,9 @@ backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
 # WHICH buckets are copied is NOT configured here and has no converge
 # projection. It is the `offsite_copies` list in /etc/catena/config.json,
 # written by catena-admin and read straight off disk by the lane, so adding
-# a copy takes effect on the next run with no converge in between. Nine
-# flat keys hardcoded in this file would describe exactly two copies, each
-# named after the bucket it happened to be pointed at.
+# a copy takes effect on the next run with no converge in between. The list
+# carries its own names and its own length: nothing here caps how many copies
+# a client runs or what each one is called.
 #
 # Default cold partner: eazybackup s3.ca-central-1.eazybackup.com
 # (Canadian-owned, CGP-certified). Alternatives: Backblaze B2,
@@ -152,16 +152,13 @@ backup_healthcheck_url_operator: "{{ cfg_backup_healthcheck_url_operator | defau
 # Five independent restic buckets, set in the Catena admin panel, stored on-box
 # in /etc/catena/config.json under `backup_retention`, rendered to
 # /etc/catena/backup-retention.env by `catena-schedule apply`, and sourced from
-# there by catena-backup-run. One source, one writer, one reader. Adding a default
-# here would make this repo a second writer of a value the panel owns -- exactly
-# how a converge-rendered copy ends up as one no host ever reads.
+# there by catena-backup-run. One source, one writer, one reader: a default here
+# would be a second writer of a value the panel owns.
 #
-# Bundling a cadence and a retention ladder behind one tier name is what three
-# backup tiers would decide instead: the cadence half would never render
-# into any unit, and the retention half is more useful set directly. The
-# composition is why: keep_last 8 with keep_hourly 24 on a fifteen-minute
-# schedule holds eight snapshots across two hours and twenty-two more across
-# the day, and no tier name says that.
+# Five numbers rather than one named tier, because they compose: keep_last 8
+# with keep_hourly 24 on a fifteen-minute schedule holds eight snapshots across
+# the last two hours and twenty-two more across the rest of the day. No single
+# name carries that.
 
 # Paths the nightly timer backs up. Restic walks each listed path
 # recursively; we pick the subtrees we want rather than listing the
@@ -409,12 +406,10 @@ backup_pg_dump_user: postgres
 # immediately. Subsequent plays skip (repo already has snapshots).
 backup_run_initial_snapshot: true
 
-# Single canonical environment dict for every restic CLI invocation.
-# Inlining the four-key dict at each of five callsites (install init +
-# initial snapshot + forget; restore; verify) would let copies drift and
-# expand the audit surface for credential handling. Centralising lets
-# `no_log: true` ride alongside one definition that every restic task
-# references via `environment: "{{ backup_restic_env }}"`.
+# Single canonical environment dict for every restic CLI invocation. All five
+# callsites (install init + initial snapshot + forget; restore; verify) reach
+# it through `environment: "{{ backup_restic_env }}"`, so the four credential
+# keys have one definition and one audit surface.
 #
 # CRITICAL: every task that uses backup_restic_env MUST also set
 # `no_log: true`. The dict still expands at runtime; no_log is what

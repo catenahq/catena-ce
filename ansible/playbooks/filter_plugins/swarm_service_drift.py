@@ -151,13 +151,12 @@ def _same_image(live, want):
     Stripping the digest off both sides would be the tidy-looking version of
     this and it would be wrong twice over: it answers "converged" for a host
     running different bytes under the same tag, which is the one thing a digest
-    pin exists to prevent. Applying it to the live side only compares
-    `<repo>:<tag>` against `<repo>:<tag>@sha256:...`, which never matches, so
-    the panel's own pin would drift against itself on every converge. Docker
-    no-ops an update to an identical spec, so nothing restarts; what it would
-    cost is the ability to answer "did this converge move my panel" from the
-    output, which matters more the moment a converge runs unattended on a
-    timer.
+    pin exists to prevent. Stripping it from the live side alone compares
+    `<repo>:<tag>` against `<repo>:<tag>@sha256:...`, which never matches, so a
+    digest pin reports drift against itself on every converge. Docker no-ops an
+    update to an identical spec, so nothing restarts; the cost is the output's
+    ability to answer "did this converge move my panel", which matters most when
+    a converge runs unattended on a timer.
     """
     want = str(want)
     if "@" in want:

@@ -22,18 +22,15 @@ catena_network_name: catena-network
 traefik_config_dir: /etc/catena/traefik
 traefik_dynamic_dir: "{{ traefik_config_dir }}/dynamic"
 
-# The tier-1 SPEC for catena-traefik is not assembled here any more -- not the
-# mounts, not the hardening, not the placement constraints, not the health
-# probe. It lives in the host engine, catena-admin
-# payload/engines/tier1/catalog.go, and reconcile/roles/traefik reads it with
-# `catena-tier1 spec catena-traefik`.
+# The tier-1 SPEC for catena-traefik lives in the host engine, catena-admin
+# payload/engines/tier1/catalog.go: the mounts, the hardening, the placement
+# constraints and the health probe. reconcile/roles/traefik reads it with
+# `catena-tier1 spec catena-traefik`, and the engine's own test pins that
+# declaration against byte-identical `docker service create` argv.
 #
-# The values did not change; they moved. The engine's own test pins the exact
-# declaration this file would otherwise build, and asserts byte-identical
-# `docker service create` argv, so the move is provably lossless. What it buys
-# is that the desired control plane now travels with the IMAGE: bump the
-# catena-admin tag and what the host reconciles toward moves with it, no laptop
-# and no inventory edit.
+# Keeping it there is what lets the desired control plane travel with the
+# IMAGE: bump the catena-admin tag and what the host reconciles toward moves
+# with it, no laptop and no inventory edit.
 #
 # What stays below is what only this repo knows: where the config tree lives
 # (this role renders it) and which upstream proxies Traefik may trust.

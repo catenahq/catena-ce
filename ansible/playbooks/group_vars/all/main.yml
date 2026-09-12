@@ -192,9 +192,9 @@ catena_boundary_path: "{{ playbook_dir }}/../boundary.yml"
 # --- Storage ---
 storage_mode: "{{ lookup('dotenv', 'STORAGE_MODE', default='built_in') }}"
 # /mnt/data everywhere, and named literally in the backup path set, the docker
-# data-root, the volume layout and the restore machine. Nothing has ever
-# turned this install knob, and turning it now would need every one of those
-# to follow -- so it is the product's layout rather than the operator's choice.
+# data-root, the volume layout and the restore machine. It is the product's
+# layout, not an operator choice: moving it means moving every one of those
+# with it, and no inventory has ever asked.
 storage_mount_point: "/mnt/data"
 storage_block_device: "{{ lookup('dotenv', 'STORAGE_BLOCK_DEVICE', default='/dev/sdb') }}"
 storage_bulk_enabled: >-
@@ -260,9 +260,10 @@ common_locale: "{{ lookup('dotenv', 'COMMON_LOCALE', default='en_CA.UTF-8') }}"
 # Same call as the public-port paths above and the subdomains in phase 3.
 
 # --- Hostname ---------------------------------------------------------
-# The admin panel is served at dash.<zone>. No inventory in this repo, in the
-# operator skeleton or on any host has ever set anything but that, so
-# catena_admin_subdomain is hardcoded rather than looked up from an override.
+# The admin panel is served at dash.<zone>. The subdomain is a product
+# constant, like the hostname scheme above: every inventory in this repo, in
+# the operator skeleton and on every host uses it, and nothing looks up an
+# override.
 catena_admin_subdomain: "dash"
 catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
 catena_admin_ui_port: "9010"

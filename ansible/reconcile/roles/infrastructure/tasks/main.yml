@@ -41,11 +41,11 @@
 # declares is deployed by the control plane any more: Portainer's database
 # stays the record of CLIENT choices, which is the one state that cannot be
 # recomputed, and nothing else. gatus_sync reads docker labels.
-# ACCESS_MODE is gone. The tailnet mode it gated did not serve these services
-# over the tailnet -- it skipped them, so a tailnet host had no monitoring
-# plane and no SSO at all. The install-with-no-Cloudflare-token case is
-# handled by the tunnel-deferred gate below instead, which is the default
-# path and the bench standard.
+# There is no ACCESS_MODE toggle. An install with no Cloudflare token is the
+# tunnel-deferred gate below -- the default path and the bench standard -- and
+# it defers these services rather than dropping them: a mode that skipped them
+# outright would leave a tailnet host with no monitoring plane and no SSO at
+# all.
 - name: "Resolve the tunnel-deferred gate"
   ansible.builtin.set_fact:
     # Tunnel-deferred gate: no Cloudflare token in the on-box store yet means
@@ -57,13 +57,11 @@
 
 # ─── catena-declared services (swarm stacks, no Portainer in the path) ────
 #
-# Sitting INSIDE the `portainer_api_key` block below would make the
-# monitoring plane a dependent of the control plane it reports on: a Portainer
-# that will not start takes Gatus, Healthchecks and Beszel with it, at exactly
-# the moment someone needs them to find out why. They deploy as swarm stacks
-# instead (swarm_stack.yml) and touch no Portainer API, so the gate is not
-# merely unnecessary -- keeping it would cause the very outage it is meant to
-# avoid.
+# They deploy as swarm stacks (swarm_stack.yml) and touch no Portainer API, so
+# they sit OUTSIDE the `portainer_api_key` block below. Inside it, the
+# monitoring plane becomes a dependent of the control plane it reports on: a
+# Portainer that will not start takes Gatus, Healthchecks and Beszel with it, at
+# exactly the moment someone needs them to find out why.
 #
 # clamd did NOT come with them and is still gated below: a swarm service
 # cannot attach to a bridge, and the attachable overlay it would need

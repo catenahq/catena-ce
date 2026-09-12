@@ -195,10 +195,10 @@
 
 # `docker service create` returns as soon as swarm ACCEPTS the spec (--detach),
 # so the service existing is not the service running. Poll until a task reports
-# Running, bounded: doing this wait inside the create itself, unbounded, would
-# let a task that can never start (missing secret, port in use, image that
-# will not run, crash loop under --restart-condition=any) park the install
-# here with no output and nothing to read.
+# Running, bounded. The bound is the point: a task that can never start
+# (missing secret, port in use, image that will not run, crash loop under
+# --restart-condition=any) ends this wait with a diagnosis instead of parking
+# the install with no output and nothing to read.
 - name: "Catena-admin: wait for the service to converge"
   ansible.builtin.command:
     argv:

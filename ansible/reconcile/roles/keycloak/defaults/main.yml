@@ -103,11 +103,9 @@ keycloak_realm: "vps"
 # Display name surfaced on the login page: the client's own domain, which is
 # what a person signing in recognises.
 #
-# No inventory has ever set a DISPLAY_NAME override, so this is always the
-# derivation. It follows cloudflare_zone into the store when that
-# moves, and a client who wants their trading name here gets it for free at that
-# point -- the value is already a host fact, it just has one source now instead
-# of two.
+# Derived from cloudflare_zone, which is a host fact the store already owns, so
+# it follows the zone when that moves. A client who wants their trading name on
+# the login page instead sets it where the zone is set.
 keycloak_realm_display_name: "{{ cloudflare_zone }}"
 
 # Nightly realm-export OnCalendar. Default 03:30 host-local --
@@ -124,22 +122,20 @@ keycloak_realm_export_oncalendar: "*-*-* 03:30:00"
 # escape hatch for anything else. SMTP_SENDER is the address it comes from, in
 # every case. The password is the same EXTERNAL_SECRET in all three.
 #
-# It is an explicit field rather than an inference from WHICH of
-# RESEND_SENDER_EMAIL / BREVO_SENDER_EMAIL / SMTP_HOST is non-empty. Inferring
-# it spreads the answer to "where does this server send mail from" across
-# three fields plus a precedence rule that appears nowhere the client can see
-# it, hands Resend a silent win when two are filled, and keeps sending through
-# the old provider when switching without first clearing the old address.
+# SMTP_PROVIDER is the whole answer to "where does this server send mail
+# from": one declared field, on the page that sets it, with no precedence rule
+# behind it and no second field that can contradict it. Changing provider is
+# changing that one value.
 #
 # An unrecognised provider resolves to no SMTP rather than to a guess: mail
 # that silently goes nowhere is harder to notice than a realm with no mail
 # configured, which says so on its own login page.
 
-# The ladder itself lives in playbooks/filter_plugins/smtp_resolve.py, because
-# writing it out separately here, in wordpress_plugins.yml, and for Beszel
-# would leave every copy free to drift. A host would then send password-reset
-# mail through one relay and a contact form through another, from the same
-# stored config, with nothing reporting it.
+# The ladder itself lives in playbooks/filter_plugins/smtp_resolve.py, and all
+# three consumers call it -- here, wordpress_plugins.yml and beszel.yml -- so a
+# host's password-reset mail and its contact form resolve to the same relay
+# from the same stored config. test_smtp_resolution.py holds each consumer to
+# the filter.
 _smtp: >-
   {{ cfg_smtp_provider | default('') | catena_smtp_resolve(
        host=cfg_smtp_host | default(''),
@@ -155,9 +151,8 @@ smtp_user: "{{ _smtp.user }}"
 smtp_from: "{{ _smtp.sender }}"
 # Always STARTTLS on the port given, never implicit TLS: that is what
 # realm-vps.yaml.j2 renders (starttls true, ssl false) and what both known
-# providers expect on 587. A SMTP_USE_TLS key was collected, stored and read by
-# nothing for as long as it existed -- the template never consulted it -- so it
-# is gone rather than left accepting a value that changed nothing.
+# providers expect on 587. There is no TLS toggle to set: the template pins
+# both values, so nothing can accept a setting that changes nothing.
 smtp_use_starttls: true
 
 # The catena-admin panel's realm service account (users + groups). The panel

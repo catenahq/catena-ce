@@ -31,12 +31,11 @@
   register: _roundcube_ct
   changed_when: false
 
-# Gated on the STACK, not on the container. This used to key on an empty
-# mailserver_dms_ct, which conflated "no mailserver here" with "the mailserver
-# is deployed and its container did not come up" -- the message said so and
-# skipped anyway, so a host with a broken dms had its SSO wiring silently not
-# written on a green converge. The locate include above now fails on the second
-# case, so reaching this line means the first.
+# Gated on the STACK, not on the container. An empty mailserver_dms_ct
+# conflates "no mailserver here" with "the mailserver is deployed and its
+# container did not come up", and skipping on that reading leaves a host with a
+# broken dms unwired for SSO on a green converge. The locate include above
+# fails on the second case, so reaching this line means the first.
 - name: "Mailserver OIDC: skip when template not deployed"
   ansible.builtin.debug:
     msg: >-
@@ -47,15 +46,14 @@
 
 # Staging for BOTH consumers, so it is created for EITHER of them.
 #
-# Gating it on dms alone, while the Roundcube step below writes into it gated
-# on roundcube, would split two containers with independent lifecycles: dms
-# crash-loops by design until this very converge gives it a cert and a
-# mailbox, and `docker ps` returns nothing for it between restarts, while
-# roundcube comes up healthy in seconds. So "roundcube present, dms absent"
-# is not an edge case, it is the NORMAL state during the first tokenful
-# converge -- and the Roundcube render would then fail with "Destination
-# directory /var/lib/catena/mailserver does not exist", aborting the whole
-# converge that is about to fix dms.
+# The two consumers have independent lifecycles. dms crash-loops by design
+# until this very converge gives it a cert and a mailbox, and `docker ps`
+# returns nothing for it between restarts, while roundcube comes up healthy in
+# seconds. So "roundcube present, dms absent" is not an edge case, it is the
+# NORMAL state during the first tokenful converge -- and a staging dir gated on
+# dms alone leaves the Roundcube step below failing with "Destination directory
+# /var/lib/catena/mailserver does not exist", aborting the whole converge that
+# is about to fix dms.
 - name: "Mailserver OIDC: ensure host staging dir exists"
   ansible.builtin.file:
     path: /var/lib/catena/mailserver

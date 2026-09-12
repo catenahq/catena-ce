@@ -37,18 +37,18 @@
 
 # A container that EXISTS is not a postgres that ACCEPTS CONNECTIONS, and
 # after a rewind the gap between the two is seconds wide. The task above
-# retries until the swarm task appears and then every psql below ran with no
-# readiness gate at all, which failed fi_a2_oidc_secret_rotation's converge:
+# retries only until the swarm task appears, so without the gate below every
+# psql runs against a cluster that may still be starting:
 #
 #     psql: error: connection to server on socket
 #     "/var/run/postgresql/.s.PGSQL.5432" failed:
 #     FATAL:  the database system is starting up
 #
-# It surfaces only once the bench gets FASTER: a rewind that spends time
-# failing to reach a stale address gives postgres all the time it needs,
-# while an address resolved correctly lets the converge start as soon as
-# SSH answers. Removing that accidental delay exposes a role that relies
-# on it.
+# fi_a2_oidc_secret_rotation's converge has died exactly there. Nothing but
+# elapsed time hid it: a rewind that spends its minutes failing to reach a
+# stale address hands postgres all the startup it needs, and a rewind that
+# resolves the address correctly starts converging as soon as SSH answers.
+# Timing is not a dependency, so the readiness probe is.
 #
 # pg_isready checks server acceptance only -- no auth, no role, no database --
 # so it needs none of the facts the tasks after it derive, and it is the same
