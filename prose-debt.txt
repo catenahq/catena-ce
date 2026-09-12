@@ -17,9 +17,7 @@ ansible/playbooks/filter_plugins/catena_served_zones.py -- 1 finding(s): NoHisto
 ansible/playbooks/validate.yml -- 1 finding(s): NoHistory
 ansible/reconcile/roles/backup/defaults/main.yml -- 1 finding(s): NoHistoryWeak
 ansible/reconcile/roles/backup/tasks/install.yml -- 1 finding(s): NoHistoryWeak
-ansible/reconcile/roles/catena-admin/defaults/main.yml -- 11 finding(s): NoHistory, NoHistoryWeak
-ansible/reconcile/roles/catena-admin/tasks/deploy.yml -- 3 finding(s): NoHistory, NoHistoryWeak
-ansible/reconcile/roles/catena-admin/tasks/main.yml -- 1 finding(s): NoHistoryWeak
+ansible/reconcile/roles/catena-admin/tasks/deploy.yml -- 1 finding(s): NoHistoryWeak (quotes the literal runtime message "Keycloak was not reachable")
 ansible/reconcile/roles/cloudflare_tunnel/defaults/main.yml -- 2 finding(s): NoHistory
 ansible/reconcile/roles/cloudflare_tunnel/tasks/main.yml -- 7 finding(s): NoHistory, NoHistoryWeak
 ansible/reconcile/roles/coturn/defaults/main.yml -- 1 finding(s): NoHistoryWeak

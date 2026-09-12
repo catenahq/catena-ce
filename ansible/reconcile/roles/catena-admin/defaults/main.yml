@@ -227,19 +227,20 @@ catena_admin_ee_reserved_actions:
   # itself.
   - name: ee-install-engines
     shell: "{{ catena_admin_stack_update_bin }} install-payload"
-  # The two self-update entries used to sit here. They are Community and live
+  # The two self-update entries are not here. They are Community and live
   # in the shell-read catalog now (catena_admin_ce_selfupdate_actions below):
   # a panel nobody has patched is the same shape of problem as a backup nobody
   # has verified, and withholding the mechanism leaves a free-edition host
   # running whatever its install day happened to ship.
-  # Twelve Business actions moved OUT of this list and into the payload's own
-  # dispatch drop-in (catena-admin payload/actions.d/10-business.sh): the four
-  # catena-daily / catena-audit ones and the eight migration-lane ones.
+  # Twelve Business actions are not in this list either -- they live in the
+  # payload's own dispatch drop-in (catena-admin payload/actions.d/10-business.sh):
+  # the four catena-daily / catena-audit ones and the eight migration-lane ones.
   #
-  # Every command they ran was a binary the PAYLOAD installs, at a path the
-  # payload chose, so this list was an authorization record for names the
-  # converge does not own and cannot verify -- and a panel that gained an
-  # action had to wait for a converge before the host would accept it. The
+  # Every command they ran is a binary the PAYLOAD installs, at a path the
+  # payload chose, so keeping them here would make this list an
+  # authorization record for names the converge does not own and cannot
+  # verify -- and a panel that gained an action would have to wait for a
+  # converge before the host would accept it. The
   # dispatcher offers any name this table does not carry to
   # {{ catena_admin_actions_overlay_dir }} before refusing it, and the payload
   # installer records the names it added in release.json's payload_actions so
@@ -249,8 +250,8 @@ catena_admin_ee_reserved_actions:
   # the payload cannot depend on the payload having installed correctly. That is
   # the reconcile invariant applied to the dispatch table itself.
   #
-  # cloudflare-zones-save left too. It was the last entry here, and it was
-  # authorising /usr/local/bin/catena-cloudflare-zones -- a binary NO repository
+  # cloudflare-zones-save is not here either: it authorised
+  # /usr/local/bin/catena-cloudflare-zones -- a binary NO repository
   # built, so the Domains panel's save could only ever answer "command not
   # found". The engine exists now (catena-admin
   # payload/cmd/catena-cloudflare-zones, a wrapper over the model the panel
@@ -258,7 +259,7 @@ catena_admin_ee_reserved_actions:
   # went with it.
 
 # --- 0b on-box config store (settings API) ----------------------------
-# The store's path and its writer are no longer named here. Nothing in this
+# The store's path and its writer are not named here. Nothing in this
 # repo's dispatch table pipes through them: the settings action and the zone
 # save both ship in the panel image now, and the image installs the writer
 # (helpers/onbox_config.py) as one of its own payload binaries.
@@ -269,7 +270,7 @@ catena_admin_ee_reserved_actions:
 # does not declare is a key it never projects, whatever the file holds. That is
 # the property that survives the writer shipping in the image.
 
-# --- what used to be catena_admin_ce_reserved_actions -----------------
+# --- the retired catena_admin_ce_reserved_actions ----------------------
 #
 # Twenty-four Community actions lived here: the settings store, scheduling,
 # offsite copies, the backup password, the panel self-update, the backup
@@ -279,13 +280,14 @@ catena_admin_ee_reserved_actions:
 # went before them and for the same reasons.
 #
 # Every command behind them ran a binary the PAYLOAD installs, at a path the
-# payload chose, so this list was an authorization record for names this repo
-# does not own and cannot verify -- and a one-line change to any of them needed
-# an operator with a laptop and an SSH session against a live client. Two of the
-# commands ran catena-ce scripts (onbox_config.py, catena-restic-key.py); the
+# payload chose, so keeping them here would make this list an authorization
+# record for names this repo does not own and cannot verify -- and a one-line
+# change to any of them would need an operator with a laptop and an SSH
+# session against a live client. Two of the
+# commands ran catena-ce scripts (onbox_config.py, catena-restic-key.py) and the
 # image build now copies those into the payload's own bin out of the vendored
-# tree, so the image ships every command it authorises and this role no longer
-# installs them.
+# tree, so the image ships every command it authorises and this role does not
+# install them.
 #
 # The variables those bodies interpolated went with them. They were product
 # constants written as Ansible variables -- absolute paths the payload installer

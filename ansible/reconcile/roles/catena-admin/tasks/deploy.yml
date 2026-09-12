@@ -142,10 +142,9 @@
         # was not reachable" on hosts whose Keycloak was up one hop away.
         KEYCLOAK_ADMIN_BASE: >-
           http://{{ keycloak_server_alias }}:{{ keycloak_internal_port }}
-        # Passed for the same reason, and it was not passed at all before --
-        # so the image's default (equally wrong about the host) is what ran,
-        # and the dashboard's SSO readiness card probed a name that does not
-        # resolve.
+        # Passed for the same reason: without it, the image's default
+        # (equally wrong about the host) is what runs, and the dashboard's
+        # SSO readiness card probes a name that does not resolve.
         KEYCLOAK_HEALTH_URL: >-
           http://{{ keycloak_server_alias }}:{{ keycloak_management_port }}/health/ready
         # The one product constant deliberately still passed from here.
@@ -196,10 +195,10 @@
 
 # `docker service create` returns as soon as swarm ACCEPTS the spec (--detach),
 # so the service existing is not the service running. Poll until a task reports
-# Running, bounded -- the create used to do this wait itself, unbounded, and a
-# task that could never start (missing secret, port in use, image that will not
-# run, crash loop under --restart-condition=any) parked the install here with
-# no output and nothing to read.
+# Running, bounded: doing this wait inside the create itself, unbounded, would
+# let a task that can never start (missing secret, port in use, image that
+# will not run, crash loop under --restart-condition=any) park the install
+# here with no output and nothing to read.
 - name: "Catena-admin: wait for the service to converge"
   ansible.builtin.command:
     argv:

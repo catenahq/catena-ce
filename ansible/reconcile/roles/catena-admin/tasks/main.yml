@@ -19,8 +19,7 @@
 # THE TRUST PATH IS NOT HERE. The runner account, the sudoers drop-in, the
 # forced command and its authorized_keys are bootstrap/roles/catena_admin_host, which is
 # bootstrap-side: a reconcile that could rewrite the way in could rewrite what a
-# reconcile is. That role runs immediately before this one in site.yml, which is
-# where its tasks ran when they were a file in this role.
+# reconcile is. That role runs immediately before this one in site.yml.
 
 - name: Catena-admin action catalog + allow-list
   ansible.builtin.import_tasks: catalog.yml
