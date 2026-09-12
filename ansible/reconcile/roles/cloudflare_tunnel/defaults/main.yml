@@ -1,7 +1,7 @@
 ---
 # Cloudflare tunnel converge pins.
 #
-# The tunnel/DNS/ingress/cloudflared-service logic moved into the Go engine
+# The tunnel/DNS/ingress/cloudflared-service logic lives in the Go engine
 # catena-cloudflared-sync (host payload, installed by reconcile/roles/catena-admin on
 # every converge). This role now only dispatches that engine's `sync` when the
 # on-box store holds a Cloudflare token (see tasks/main.yml + catena-admin
@@ -37,7 +37,7 @@ cloudflared_sync_bin: "/usr/local/bin/catena-cloudflared-sync"
 # cloudflare/cloudflared in catena-admin, where the engine reads it. cloudflared
 # is the highest-blast-radius service in the suite (a broken image kills the
 # public path AND the route to catena-admin), so a version tracked in a file the
-# host no longer reads is exactly the wrong place for it. Bumps stay manual and
+# host does not read is exactly the wrong place for it. Bumps stay manual and
 # the managed-update engine still rolls back on health regression.
 
 # `cloudflare_api_base` lives in group_vars/all/main.yml so playbooks

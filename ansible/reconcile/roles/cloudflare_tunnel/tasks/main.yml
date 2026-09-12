@@ -24,8 +24,8 @@
 #
 # The single-domain cap is enforced by the engine, which reads the licence out
 # of the on-box store and decides for itself. This role passes no licence flag:
-# it used to receive one as an Ansible fact computed by a second, Python
-# implementation of licence verification, which could disagree with the Go one.
+# receiving one as an Ansible fact computed by a second, Python implementation
+# of licence verification would risk disagreeing with the Go one.
 # A host with no entitlement converges the PRIMARY domain only and leaves any
 # stored secondary domains intact for re-licensing (graceful degrade, never
 # fail-closed).
@@ -38,20 +38,19 @@
 # The token gate lives in the ENGINE, not here. It reads
 # /etc/catena/config.json itself and no-ops exit 0 with
 # "cloudflared-sync: skipped (no token)" when the store holds none
-# (cmd/catena-cloudflared-sync/SYNC.md). Ansible used to make the same decision
-# from a fact first, which meant two implementations of "is there a token" that
-# could disagree -- and the Ansible one read a fact published by
-# load_onbox_config.yml, so a play that skipped the loader saw no token on a
-# host that had one. Asking the engine is asking the thing that will act on the
-# answer.
+# (cmd/catena-cloudflared-sync/SYNC.md). Deciding the same thing in Ansible
+# from a fact first would mean two implementations of "is there a token" that
+# could disagree -- and an Ansible-side fact published by load_onbox_config.yml
+# would show no token, on a host that has one, to any play that skips the
+# loader. Asking the engine is asking the thing that will act on the answer.
 #
 # reconcile/roles/payload installs the engine right after bootstrap/roles/docker, four roles ahead
 # of this one, so on a converge that owns the payload the binary is there. It
 # has to be: keycloak and oauth2_proxy run next and wait on
 # https://auth.<zone>/.well-known/openid-configuration, which only answers once
-# this role has brought the edge up. Deferring here used to look harmless and
-# then failed two roles later against an edge nobody had configured, so a
-# missing engine is now a hard stop with the reason attached.
+# this role has brought the edge up. Deferring here would look harmless at
+# first and only fail two roles later, against an edge nobody has configured
+# -- so a missing engine is a hard stop instead, with the reason attached.
 #
 # A host whose engines were staged OUT OF BAND (the bench does this from the
 # image it builds on the VPS) is the one case where "not there yet" is
@@ -102,9 +101,9 @@
 # ABORTS the converge (fi_n4/fi_s5).
 #
 # Runs unconditionally. With no token the engine prints its skip line and exits
-# 0, which is the deferral this role used to decide for itself -- and running it
-# means the no-token path is exercised on every tokenless install rather than
-# being the branch nothing takes.
+# 0, which is the deferral this role would otherwise decide for itself -- and
+# running it means the no-token path is exercised on every tokenless install
+# rather than being the branch nothing takes.
 - name: "CF: converge the tunnel via catena-cloudflared-sync (host engine)"
   ansible.builtin.command:
     argv:
@@ -118,7 +117,7 @@
     #
     # The panel fires this same engine, so both dispatch paths must behave
     # identically: an engine that reads its caller's environment only works
-    # from the caller it was written beside. That is also why the tunnel NAME is
+    # from the caller it is written beside. That is also why the tunnel NAME is
     # not here -- the engine composes it from the box's own hostname and the
     # prefix in the store, so the panel path resolves the same name with nobody
     # rendering anything for it.
@@ -142,13 +141,13 @@
   #
   # STDERR TOO, on success. The engine writes its per-step decisions there --
   # which zone it resolved, whether the wildcard DNS and the tunnel ingress
-  # were a noop or an update -- and a successful task discarded all of it. On
-  # bench run 2026-09-02T01-47-44-372a a host whose tunnel ingress still
-  # served the ANCHOR's zone got "ok tunnel=... zones=1" here and nothing
-  # else, so which zone the engine actually converged could not be recovered
-  # from the log afterwards. The summary alone cannot distinguish "converged
-  # the right zone and the ingress was already correct" from "converged the
-  # wrong zone and so it was".
+  # are a noop or an update -- and a successful task that discarded it would
+  # lose that: a host whose tunnel ingress still serves an anchor's stale
+  # zone could get "ok tunnel=... zones=1" here and nothing else, so which
+  # zone the engine actually converged could not be recovered from the log
+  # afterwards. The summary alone cannot distinguish "converged the right
+  # zone and the ingress was already correct" from "converged the wrong zone
+  # and so it is".
   ansible.builtin.debug:
     msg: |
       {{ _cf_sync.stdout | default('(no summary line)') | trim }}
