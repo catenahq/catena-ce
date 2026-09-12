@@ -13,8 +13,8 @@
 # in site.yml, so the cloudflared ingress + Traefik file route for
 # auth.<zone> do not exist when this role's validate runs on a fresh
 # install. Probing here would either fail spuriously (wrong) or be
-# best-effort and waste 60s of retries (what it used to do). The
-# end-to-end public probe runs once, after the whole converge, where
+# best-effort and waste 60s of retries. The end-to-end public probe runs
+# once, after the whole converge, where
 # it can be fatal.
 #
 # Atomicity: per project CLAUDE.md, external invocation must gate
@@ -105,7 +105,7 @@
 
 - name: "validate/keycloak: in-container /health/ready"
   # First-boot budget: Phase Two image runs the augment/build phase
-  # on every container start (we don't use --optimized; see compose
+  # on every container start (--optimized is not used here; see compose
   # template comment). Build + Liquibase schema migration + master-
   # realm init + Phase Two SPI registration was observed taking the
   # full ~6 minutes on the bench's 7-GB-RAM VM (image pull + cold

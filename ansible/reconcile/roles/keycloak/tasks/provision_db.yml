@@ -44,11 +44,11 @@
 #     "/var/run/postgresql/.s.PGSQL.5432" failed:
 #     FATAL:  the database system is starting up
 #
-# It surfaced only once the bench got FASTER. Before ops 9ffea356 a rewind
-# spent up to 300s failing to reach a stale address, which gave postgres all
-# the time it needed; with the address resolved correctly the converge starts
-# as soon as SSH answers. Removing an accidental delay exposed a role that was
-# relying on it.
+# It surfaces only once the bench gets FASTER: a rewind that spends time
+# failing to reach a stale address gives postgres all the time it needs,
+# while an address resolved correctly lets the converge start as soon as
+# SSH answers. Removing that accidental delay exposes a role that relies
+# on it.
 #
 # pg_isready checks server acceptance only -- no auth, no role, no database --
 # so it needs none of the facts the tasks after it derive, and it is the same

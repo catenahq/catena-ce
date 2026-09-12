@@ -18,12 +18,7 @@ ansible/playbooks/validate.yml -- 1 finding(s): NoHistory
 ansible/reconcile/roles/backup/defaults/main.yml -- 1 finding(s): NoHistoryWeak
 ansible/reconcile/roles/backup/tasks/install.yml -- 1 finding(s): NoHistoryWeak
 ansible/reconcile/roles/catena-admin/tasks/deploy.yml -- 1 finding(s): NoHistoryWeak (quotes the literal runtime message "Keycloak was not reachable")
-ansible/reconcile/roles/keycloak/defaults/main.yml -- 10 finding(s): NoHistory, NoHistoryWeak
-ansible/reconcile/roles/keycloak/tasks/main.yml -- 1 finding(s): NoHistory
-ansible/reconcile/roles/keycloak/tasks/provision_db.yml -- 1 finding(s): NoHistoryWeak
-ansible/reconcile/roles/keycloak/tasks/realm_bootstrap.yml -- 3 finding(s): NoHistoryWeak
-ansible/reconcile/roles/keycloak/tasks/realm_export.yml -- 2 finding(s): NoHistory, NoHistoryWeak
-ansible/reconcile/roles/keycloak/tasks/validate.yml -- 2 finding(s): NoContrastSpec, NoHistory
+ansible/reconcile/roles/keycloak/defaults/main.yml -- 1 finding(s): NoHistory
 ansible/scripts/gatus-sync.py -- 1 finding(s): NoHistory
 ansible/scripts/healthchecks-seed.py -- 1 finding(s): NoHistoryWeak
 ansible/scripts/nextcloud-talk-hpb-wire.sh -- 1 finding(s): NoHistory

@@ -4,7 +4,7 @@
 # Realm clients, mappers, scopes, signing keys, SMTP config all live
 # in catena-postgres so they recover with the rest of the DB. But
 # realm-level UI customizations (logos, themes) and any operator-edited
-# client redirect_uris that were not re-applied via blueprint are
+# client redirect_uris that are not re-applied via blueprint are
 # DB-only state with no easy diff surface. A nightly JSON export gives
 # the operator:
 #
@@ -105,8 +105,8 @@
 - name: "Keycloak realm export: warn on kcadm login failure (drift-catch is non-critical)"
   # Drift-catch artifact is non-critical: the realm config is rebuilt
   # from yaml on every converge, and the nightly timer re-attempts the
-  # export. A login failure here historically failed the entire
-  # converge, which is too aggressive for an audit-only artifact.
+  # export. Failing the entire converge on a login failure here would be
+  # too aggressive for an audit-only artifact.
   # Surface the rc + container + Keycloak's stderr so the operator can
   # diagnose without grepping logs, but do not fail the play.
   ansible.builtin.debug:

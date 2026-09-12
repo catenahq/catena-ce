@@ -89,11 +89,11 @@
 # Same shape as the SMTP marker above, for the admin user's password.
 #
 # KC_BOOTSTRAP_ADMIN_* creates the operator's account in the MASTER realm and
-# nowhere else. This realm's copy of that account was imported with no
-# credentials at all, so the same email and password opened the master realm
-# and was refused here -- one identity, two accounts, one of them passwordless,
-# and no way to tell from the login page which was which. Seeded from the same
-# on-box admin_password so there is one password to know.
+# nowhere else. This realm's copy of that account imports with no credentials
+# at all, so without seeding it, the same email and password would open the
+# master realm and be refused here -- one identity, two accounts, one of them
+# passwordless, and no way to tell from the login page which is which. Seeded
+# from the same on-box admin_password so there is one password to know.
 #
 # First import only. Rendering it on every converge would reset the password
 # back to the store's value each time, silently undoing a change made in the
@@ -162,8 +162,8 @@
 
 # The panel's own service account: users, groups and memberships. Same shape,
 # same gate, DIFFERENT roles -- dashboard-sync manages clients, this manages
-# people, and one credential holding both would let a leak that was supposed to
-# add a user rewrite what an application trusts instead.
+# people, and one credential holding both would let a leak meant to add a
+# user rewrite what an application trusts instead.
 #
 # The converge owns this client, its secret and the roles it may use. It does
 # NOT own the users and groups the panel then manages with it: those change when
@@ -274,7 +274,7 @@
       # Short per-attempt wait: kc-config-cli resolves keycloak-server via
       # the JVM, which negative-DNS-caches a first-lookup miss for the life
       # of the container -- so a long in-container wait never recovers if
-      # the catena-network alias was not yet registered at startup (the
+      # the catena-network alias is not yet registered at startup (the
       # network-attachment race after an anchor-rewind reboot / redeploy).
       # We instead retry the WHOLE run at the Ansible level below: each
       # retry is a fresh container with a fresh resolver, so the lookup

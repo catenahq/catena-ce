@@ -90,7 +90,7 @@
 
     # One-time membership migration for the four-tier group rename.
     # Runs AFTER realm_bootstrap so the new admin/staff groups exist
-    # before members are moved into them. Marker-gated -- no-op on
+    # before the migration moves members there. Marker-gated -- no-op on
     # greenfield installs and on every converge after the first.
     - name: "Keycloak: migrate legacy groups to four-tier model"
       ansible.builtin.include_tasks:

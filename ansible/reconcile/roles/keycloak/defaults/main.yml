@@ -8,9 +8,9 @@
 # user (`keycloak`) inside the catena-postgres swarm service that
 # reconcile/roles/postgres deploys. Project convention is one Postgres per VPS,
 # multiple DBs inside (see the PLANNING.md sec 2 decision in the sibling
-# catenahq/sales repo). Historically this DB lived in the control plane's
-# own Postgres; the Portainer migration moved it to catena-owned Postgres
-# (Portainer uses BoltDB, no shared Postgres to piggyback on).
+# catenahq/sales repo). This DB lives in catena-owned Postgres, not the
+# control plane's own (Portainer uses BoltDB, no shared Postgres to
+# piggyback on).
 
 # --- Hostname ---
 keycloak_subdomain: "auth"
@@ -38,9 +38,8 @@ keycloak_zone_projection_max_age_hours: 48
 # Tag form: <kc-version>[.<unix-build-time>]. Use the rolling
 # semver-like tag (e.g. 26.6.4) for stability across patch builds; the
 # fully-qualified timestamp form (26.6.4.1783921878) is available when
-# operators need an immutable pin. As of 2026-07-16, Phase Two tracks
-# Keycloak 26.6.x (one minor behind stock 26.7); 26.6.4 is the newest
-# rolling tag.
+# operators need an immutable pin. Phase Two tracks Keycloak 26.6.x (one
+# minor behind stock 26.7).
 keycloak_image_tag: "26.6.4"
 keycloak_image: >-
   {{ ('quay.io/phasetwo/phasetwo-keycloak:' ~ keycloak_image_tag)
@@ -81,10 +80,9 @@ keycloak_health_path: "/health/ready"
 #   https://hub.docker.com/r/adorsys/keycloak-config-cli/tags
 # Tag form: `latest-<kc-major>.<kc-minor>.<kc-patch>`. Use the
 # specific patch when our Keycloak pin (keycloak_image_tag) is also
-# pinned to a specific patch. As of 2026-07-16, adorsys has not yet
-# published a latest-26.6.x build; latest-26.5.5 is the newest tag.
-# Our Keycloak pin is on 26.6.4, so config-cli runs one MINOR behind
-# (26.5 vs 26.6). The realm-import REST surface is stable across
+# pinned to a specific patch. adorsys has not yet published a
+# latest-26.6.x build, so config-cli runs one MINOR behind our Keycloak
+# pin (26.5 vs 26.6). The realm-import REST surface is stable across
 # minors -- only MAJOR drift breaks the CRD parser -- and ce_install
 # runs config-cli during bootstrap, so the bench gates this pairing.
 # Move to latest-26.6.x as soon as adorsys ships it.
@@ -105,8 +103,8 @@ keycloak_realm: "vps"
 # Display name surfaced on the login page: the client's own domain, which is
 # what a person signing in recognises.
 #
-# DISPLAY_NAME was the override and no inventory has ever set it, so this was
-# always the derivation. It follows cloudflare_zone into the store when that
+# No inventory has ever set a DISPLAY_NAME override, so this is always the
+# derivation. It follows cloudflare_zone into the store when that
 # moves, and a client who wants their trading name here gets it for free at that
 # point -- the value is already a host fact, it just has one source now instead
 # of two.
@@ -126,22 +124,22 @@ keycloak_realm_export_oncalendar: "*-*-* 03:30:00"
 # escape hatch for anything else. SMTP_SENDER is the address it comes from, in
 # every case. The password is the same EXTERNAL_SECRET in all three.
 #
-# It used to be inferred instead: whichever of RESEND_SENDER_EMAIL /
-# BREVO_SENDER_EMAIL / SMTP_HOST was non-empty picked the path, and Resend won
-# when two were. So the answer to "where does this server send mail from" was
-# spread across three fields plus a precedence rule that appeared nowhere the
-# client could see it, and switching provider without first clearing the old
-# address kept sending through the old one.
+# It is an explicit field rather than an inference from WHICH of
+# RESEND_SENDER_EMAIL / BREVO_SENDER_EMAIL / SMTP_HOST is non-empty. Inferring
+# it spreads the answer to "where does this server send mail from" across
+# three fields plus a precedence rule that appears nowhere the client can see
+# it, hands Resend a silent win when two are filled, and keeps sending through
+# the old provider when switching without first clearing the old address.
 #
 # An unrecognised provider resolves to no SMTP rather than to a guess: mail
 # that silently goes nowhere is harder to notice than a realm with no mail
 # configured, which says so on its own login page.
 
 # The ladder itself lives in playbooks/filter_plugins/smtp_resolve.py, because
-# it was written out three times -- here, in wordpress_plugins.yml, and it was
-# about to be a third for Beszel -- and every copy was free to drift. A host
-# would then send password-reset mail through one relay and a contact form
-# through another, from the same stored config, with nothing reporting it.
+# writing it out separately here, in wordpress_plugins.yml, and for Beszel
+# would leave every copy free to drift. A host would then send password-reset
+# mail through one relay and a contact form through another, from the same
+# stored config, with nothing reporting it.
 _smtp: >-
   {{ cfg_smtp_provider | default('') | catena_smtp_resolve(
        host=cfg_smtp_host | default(''),
