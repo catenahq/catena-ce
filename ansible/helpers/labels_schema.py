@@ -3,8 +3,8 @@
 Canonical Python source of truth for the `vps.*` compose-label vocabulary
 on the host side. Installed flat (as labels_schema.py) alongside the host
 scripts that import it -- the public-port reconciler
-(scripts/catena-public-ports.py) and the dashboard/access provisioners --
-so siblings can `from labels_schema import slugify,
+(catena-ce/ansible/scripts/catena-public-ports.py) and the dashboard/access
+provisioners -- so siblings can `from labels_schema import slugify,
 extract_vps_auth_labels, resolve_auth_mode`.
 
 The catena-admin Go shell carries its own implementation of the same
@@ -34,7 +34,7 @@ def slugify(s: str) -> str:
 # ─── vps.auth.* label extraction ──────────────────────────────────────────
 #
 # Per-app gating intent is declared via compose labels. The label vocabulary
-# is documented in docs/src/content/docs/en/how-to-deploy-apps.md:
+# is documented in docs/src/content/docs/en/manage-apps.md:
 #   vps.auth.mode               public | admin-only | private (default)
 #   vps.auth.groups             comma-separated group names
 #   vps.auth.protected          true|false -- when true, exposing the app to
@@ -249,8 +249,10 @@ def extract_vps_homepage_labels(compose_text: str) -> dict:
 #   vps.expose.tcp   comma-separated ports / ranges (e.g. 25,465,587,993)
 #   vps.expose.udp   comma-separated ports / ranges (e.g. 3478,5349,50000-50100)
 #
-# These feed the public-port registry (helpers/public_ports.py +
-# vps-scripts/catena-public-ports.sh), which is the single source of truth
+# These feed the public-port registry
+# (catena-ce/ansible/helpers/public_ports.py +
+# catena-ce/ansible/scripts/catena-public-ports.py), which is the single
+# source of truth
 # for ufw rules, DOCKER-USER guards, the validate allowlist, the external
 # nmap expectation, and the generated operator inventory. App-published
 # ports default to scope `any` (reachable from the public internet) -- that
