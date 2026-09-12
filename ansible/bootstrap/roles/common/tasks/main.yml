@@ -245,9 +245,9 @@
         # Skip the refresh if /var/lib/apt/periodic/update-success-stamp
         # is younger than this. An optimisation, not a correctness
         # crutch: it saves a round-trip to every mirror on a converge
-        # that just ran. It used to carry the idempotency claim too, on
-        # the reasoning that "one hour is comfortably longer than any
-        # single converge + rerun + the inter-stage gap" -- true for
+        # that just ran. Relying on it for the idempotency claim too
+        # assumes "one hour is comfortably longer than any single
+        # converge + rerun + the inter-stage gap" -- true for
         # fresh_install's stage-2.5 rerun ~5-10 min later, false for the
         # DAG-scheduled ce_converge, which lands HOURS after the install
         # it re-converges. That is what changed_when below is for.
@@ -289,18 +289,17 @@
           Retrying without HTTP proxy ({{ common_apt_proxy_url }}).
           {% endif %}
 
-    # rc == 0 means the diagnostic WAS the successful retry: apt-get refreshed
+    # rc == 0 means the diagnostic IS the successful retry: apt-get refreshed
     # the index, so there is no failure left to report or work around. Every
     # task below is therefore gated on rc != 0.
     #
-    # Without that gate this rescue aborted the bootstrap while printing its
-    # own proof that apt worked -- "Real apt-get error: rc=0, stderr=" -- which
-    # is a contradiction on its face. Observed on bench run
-    # 2026-08-06T21-55-42-fcd1, stage-1: the apt module exhausted its 10
-    # retries against a cold mirror, the raw retry seconds later returned 0,
-    # and the play failed anyway. It is a client-facing defect, not a bench
-    # one: any install with no APT_PROXY_URL (the default) aborts on a
-    # transient flake that already healed.
+    # Without that gate this rescue would abort the bootstrap while printing
+    # its own proof that apt worked -- "Real apt-get error: rc=0, stderr=" --
+    # which is a contradiction on its face: the apt module can exhaust its 10
+    # retries against a cold mirror, the raw retry seconds later returns 0,
+    # and the play would fail anyway. It is a client-facing defect, not a
+    # bench one: any install with no APT_PROXY_URL (the default) would abort
+    # on a transient flake that already healed.
     - name: "No proxy to bypass; fail with the real error"
       ansible.builtin.fail:
         msg: |
@@ -490,9 +489,9 @@
 #
 # The password is USER_HELD (helpers/onbox_config.py): minted on-box if absent
 # on every converge and surfaced once by playbooks/show_dr_keyset.yml, because
-# a break-glass credential the user does not hold a copy of is not one. It was
-# previously minted only by an ops operator tool, so a self-hoster host had no
-# console account at all and this task silently skipped.
+# a break-glass credential the user does not hold a copy of is not one. Minting
+# it only via an ops operator tool would leave a self-hoster host with no
+# console account at all, and this task would silently skip.
 #
 # Deterministic salt (derived from the secret itself) keeps the sha512 hash
 # stable across converges so /etc/shadow does not churn -- update_password:

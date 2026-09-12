@@ -128,10 +128,11 @@ catena_admin_internal_port: 8000
 # host holding engines and a panel built from different images is a host whose
 # two halves disagree about the config schema.
 #
-# That is not hypothetical. reconcile/roles/payload used to read catena_admin_image with
-# a hardcoded fallback, and at role 5.5 the catena-admin role's defaults are
-# not in scope yet -- so the fallback is what it always used, and the two only
-# agreed because both literals were the same string.
+# That is not hypothetical. Reading catena_admin_image with a hardcoded
+# fallback in reconcile/roles/payload risks exactly this: at role 5.5 the
+# catena-admin role's defaults are not in scope yet, so the fallback is all
+# that role could use, and the two would only agree because both literals
+# happened to be the same string.
 #
 # This is the BOOTSTRAP input, not the steady-state one. It decides which image
 # a first converge creates the service from; from then on the service's own
@@ -149,11 +150,11 @@ catena_admin_internal_port: 8000
 #
 # WHICH release, and its digest, are ASKED of the registry once per converge by
 # playbooks/tasks/load_onbox_config.yml, which publishes catena_admin_release.
-# They used to be two literals bumped by hand here, and drift between them is
-# the one thing that pair cannot survive: reconcile/roles/payload refuses an image whose
-# digest is not the recorded one, so a version bumped without its digest failed
-# every fresh install on a correct host holding a correctly published image.
-# One question, one writer.
+# Two literals bumped by hand here would risk exactly the one thing that pair
+# cannot survive: reconcile/roles/payload refuses an image whose digest is not
+# the recorded one, so a version bumped without its digest would fail every
+# fresh install on a correct host holding a correctly published image. One
+# question, one writer.
 #
 # CATENA_ADMIN_IMAGE overrides it outright and suppresses the registry call.
 # That is the change-control path for a client who wants to decide when their
@@ -165,9 +166,9 @@ catena_admin_image_override: >-
 # Which image this host runs, in precedence order:
 #
 #   1. CATENA_ADMIN_IMAGE, if set. An explicit override is somebody saying
-#      exactly what to run, so nothing below may argue with it. It used to be
-#      handed to the pin filter along with everything else, which meant a stored
-#      pin could beat the very value whose purpose is change control.
+#      exactly what to run, so nothing below may argue with it. Handing it to
+#      the pin filter along with everything else would mean a stored pin
+#      could beat the very value whose purpose is change control.
 #   2. What this host recorded in /etc/catena/config.json -- the version its own
 #      update lane last applied, INCLUDING A ROLLBACK.
 #   3. The newest published release, resolved from the registry once per

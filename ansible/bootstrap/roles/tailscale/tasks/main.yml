@@ -262,8 +262,8 @@
 # failure (if any) surfaces here with a clear message.
 #
 # 120s (was 30s): a fresh DERP-relayed path, ACL/route propagation, or a
-# session that was momentarily superseded (another node briefly presenting
-# the same key -- the bench's snapshot-clone churn reproduces this) can take
+# session momentarily superseded (another node briefly presenting the same
+# key -- the bench's snapshot-clone churn reproduces this) can take
 # well over 30s to settle into a direct, reachable route. wait_for polls the
 # port internally for the whole window, so a node that genuinely never
 # becomes reachable still fails -- just after a realistic settle budget

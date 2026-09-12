@@ -84,9 +84,9 @@
     # Splits the scheme off the URL because insecure-registries takes
     # plain host:port -- feeding it the full http:// URL silently does
     # nothing and the daemon falls through to direct docker.io pulls,
-    # which was the bug that made the test bench's mirror ineffective
-    # (the cloud-init-dropped daemon.json was overwritten here and the
-    # mirror config was lost entirely).
+    # which would make the test bench's mirror ineffective (the
+    # cloud-init-dropped daemon.json overwritten here, mirror config lost
+    # entirely).
     _docker_mirror_host: "{{ docker_registry_mirror_url | regex_replace('^https?://', '') }}"
     _docker_mirror_extras:
       registry-mirrors:
@@ -252,8 +252,8 @@
 # Swarm keeps one CONTAINER per retained task record, in Exited state, for
 # every roll of every service -- an image bump, a spec change, a restart. So
 # `docker ps -a` on a converged host showed five gatus containers with one
-# running, five of each of the others, and the count was not a symptom of
-# anything: it was the retention limit, doing exactly what it says. Reading it
+# running, five of each of the others, and the count is not a symptom of
+# anything: it is the retention limit, doing exactly what it says. Reading it
 # as a crash loop or as a naming collision is the natural first guess and it
 # costs an afternoon.
 #
@@ -410,9 +410,9 @@
 
 # ─── ops in docker group ─────────────────────────────────────────────────
 # Note: membership takes effect on the user's NEXT login. Ansible continues
-# using its existing SSH session which was authenticated before the group
-# change; operator interactive sessions need to log out + back in to get the
-# new group applied without sudo.
+# using its existing SSH session, authenticated before the group change;
+# operator interactive sessions need to log out + back in to get the new
+# group applied without sudo.
 - name: Add ops user to docker group
   ansible.builtin.user:
     name: "{{ ops_user }}"

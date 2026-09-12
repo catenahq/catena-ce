@@ -13,16 +13,6 @@
 # they are warnings and do not block.
 
 .trivyignore.yaml -- 2 finding(s): NoHistory, NoHistoryWeak
-ansible/bootstrap/roles/ansible_runtime/tasks/main.yml -- 2 finding(s): NoContrastSpec
-ansible/bootstrap/roles/catena_admin_host/tasks/main.yml -- 6 finding(s): NoHistory, NoHistoryWeak
-ansible/bootstrap/roles/common/defaults/main.yml -- 6 finding(s): NoHistory, NoHistoryWeak
-ansible/bootstrap/roles/common/tasks/_payload_expected.yml -- 1 finding(s): NoHistoryWeak
-ansible/bootstrap/roles/common/tasks/main.yml -- 4 finding(s): NoHistory, NoHistoryWeak
-ansible/bootstrap/roles/common/tasks/ufw_lockdown.yml -- 1 finding(s): NoHistoryWeak
-ansible/bootstrap/roles/docker/defaults/main.yml -- 2 finding(s): NoHistoryWeak
-ansible/bootstrap/roles/docker/tasks/main.yml -- 4 finding(s): NoHistoryWeak
-ansible/bootstrap/roles/host_hardening/defaults/main.yml -- 2 finding(s): NoHistoryWeak
-ansible/bootstrap/roles/tailscale/tasks/main.yml -- 1 finding(s): NoHistoryWeak
 ansible/boundary.yml -- 1 finding(s): NoHistoryWeak
 ansible/helpers/install_key.py -- 1 finding(s): NoHistoryWeak
 ansible/playbooks/bootstrap.yml -- 2 finding(s): NoHistory, NoHistoryWeak

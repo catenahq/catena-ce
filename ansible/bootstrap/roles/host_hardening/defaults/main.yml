@@ -2,21 +2,20 @@
 # host_hardening -- kernel-state hardening scoped to Docker container escape.
 #
 # Self-contained: drops two files (one sysctl conf, one modprobe conf) and
-# applies them. NO upstream collection dependency. Earlier revisions of this
-# role were a thin wrapper over devsec.hardening.os_hardening; that wrapper
-# was removed (commit history) because:
-#   - 13 of 16 devsec subroles collided with bootstrap/roles/common and had to be
-#     disabled, and the disable-toggles silently failed to propagate via
+# applies them. NO upstream collection dependency. A thin wrapper over
+# devsec.hardening.os_hardening would carry three failure modes:
+#   - 13 of 16 devsec subroles collide with bootstrap/roles/common and have to be
+#     disabled, and the disable-toggles silently fail to propagate via
 #     include_role (calling-role defaults do not override called-role
-#     defaults), so the host was getting full PAM rewrites, login_defs
+#     defaults), so the host would get full PAM rewrites, login_defs
 #     rewrites, auditd installation, etc.
-#   - devsec's sysctl set included net.ipv4.ip_forward=0 (router-paranoid
-#     mode), which black-holed every container's egress through any docker
-#     bridge / swarm overlay when our override didn't propagate.
-#   - net.ipv4.conf.{all,default}.log_martians flipped on every converge
+#   - devsec's sysctl set includes net.ipv4.ip_forward=0 (router-paranoid
+#     mode), which would black-hole every container's egress through any
+#     docker bridge / swarm overlay if our override does not propagate.
+#   - net.ipv4.conf.{all,default}.log_martians would flip on every converge
 #     because docker swarm operations create interfaces that the kernel
-#     aggregator sees -- tripped the bench's idempotency assertion.
-# Owning the value list directly removes those failure modes.
+#     aggregator sees -- tripping the bench's idempotency assertion.
+# Owning the value list directly avoids those failure modes.
 
 # ─── sysctl values written to /etc/sysctl.d/99-catena-hardening.conf ─────
 # Each block is annotated with the threat it closes or the requirement it

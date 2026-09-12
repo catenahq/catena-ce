@@ -73,10 +73,10 @@ docker_node_role_label: "data"
 # docker.service is Type=notify with TimeoutStartSec=0, so systemd waits for
 # dockerd's READY=1 with NO bound of its own: against a wedged daemon
 # `systemctl restart docker` blocks for as long as the converge is willing to
-# wait, which was forever. Every other docker call on this path is already
-# bounded (the API probe wraps `docker info` in `timeout 10`); the systemctl
-# calls that bring the daemon up were the one unbounded pair, and they run
-# BEFORE the probe, so the probe's bound could never be reached.
+# wait -- forever, without this cap. Every other docker call on this path is
+# already bounded (the API probe wraps `docker info` in `timeout 10`); the
+# systemctl calls that bring the daemon up are the one pair this bounds, and
+# they run BEFORE the probe, so the probe's own bound could never be reached.
 #
 # 120s is well clear of a healthy restart (seconds, and live-restore is off so
 # nothing is being handed over) while still failing the task rather than
