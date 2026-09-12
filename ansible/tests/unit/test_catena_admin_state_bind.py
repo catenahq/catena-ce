@@ -5,9 +5,9 @@ chain head into this directory. Three things have to line up or the chain
 silently disables itself:
 
   1. the role creates the host dir,
-  2. it is owned by the CONTAINER's uid (the image runs USER nonroot, 65532 --
-     it was 1000 under the old Python shell, which left the distroless
-     container unable to write its own state),
+  2. it is owned by the CONTAINER's uid (the image runs USER nonroot, 65532);
+     a directory owned by any other uid is one the distroless container
+     cannot write,
   3. the service mounts it READ-WRITE and the shell is pointed at it.
 
 The argv builder is shared with the test bench, so a one-sided edit here is
@@ -26,8 +26,8 @@ _ANSIBLE = Path(__file__).resolve().parents[2]
 _ROLE = _ANSIBLE / "reconcile" / "roles" / "catena-admin"
 DEFAULTS = _ROLE / "defaults" / "main.yml"
 # The bootstrap-side half of the same panel: the runner account, the
-# sudoers drop-in, the forced command. Phase 1b made it a role of its
-# own so the boundary it was declared on could actually be held.
+# sudoers drop-in, the forced command. A role of its own, so the
+# bootstrap/reconcile boundary it sits on is one the layout can hold.
 _HOST_ROLE = (_ROLE.parents[2] / "bootstrap" / "roles"
               / "catena_admin_host")
 _HOST_DEFAULTS = _HOST_ROLE / "defaults" / "main.yml"

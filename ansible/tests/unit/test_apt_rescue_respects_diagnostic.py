@@ -5,9 +5,9 @@ because the apt module folds its retry loop into an empty summary string, so a
 flake reads as an unexplained failure. The rescue re-runs `apt-get update`
 raw to recover the real error.
 
-When that raw retry returns rc=0 there IS no real error: the index refreshed
-and the module failure was the retry-loop artifact the block was written to
-absorb. The rescue nonetheless aborted the play, printing
+When that raw retry returns rc=0 there IS no real error: the index refreshed,
+and the module failure is the retry-loop artifact this block exists to absorb.
+Ungated, the rescue aborts the play anyway, printing
 
     apt update failed and no APT_PROXY_URL is configured, so
     there is nothing to bypass. Real apt-get error:

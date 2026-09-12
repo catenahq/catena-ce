@@ -1,15 +1,15 @@
 """Every custom filter a template invokes must actually be registered.
 
 Ansible resolves filters at RENDER time, so a template calling a filter that
-no longer exists is not a startup error -- it is a converge that gets most of
-the way through and then dies on the one task that renders that template:
+is not registered fails nowhere near startup: the converge gets most of the way
+through and then dies on the one task that renders that template:
 
     Syntax error in template: No filter named 'portainer_container_regex'.
 
-Which is how it was found: bench 050b, 384 tasks in, on gatus-sync.env.j2 --
-a Jinja template that a code search for the retired filter name did not
-surface, because the search index covers .py and .yml and not .j2. The rename
-had already been applied to all twelve call sites in task files.
+Which is how bench 050b found one: 384 tasks in, on gatus-sync.env.j2. A code
+search for the filter name missed that call site because the search index
+covers .py and .yml and not .j2, so all twelve call sites in task files carried
+the rename and the template did not.
 
 The check is name-resolution only. Registered names come from actually
 importing each filter_plugins module and reading FilterModule().filters(),

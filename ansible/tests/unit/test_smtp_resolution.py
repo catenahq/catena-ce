@@ -1,21 +1,21 @@
 """Where this server sends mail from is ONE choice, resolved in ONE place.
 
-It used to be inferred from which of three sender-address keys was non-empty --
-RESEND_SENDER_EMAIL, BREVO_SENDER_EMAIL, SMTP_HOST -- with Resend winning when
-two were filled. Three defects in one shape:
-
-  - the answer to "where does mail go" was spread across three fields plus a
-    tie-break that appeared on no page the client could read;
-  - switching provider without first CLEARING the old address kept sending
-    through the old one, silently and for as long as the stale value sat there;
-  - the same ladder was written out twice, in reconcile/roles/keycloak/defaults and in
-    reconcile/roles/infrastructure wordpress_plugins.yml, free to drift from each other.
-
 SMTP_PROVIDER (resend | brevo | server) decides, SMTP_SENDER is the address,
-smtp_password is the one credential. The ladder itself now lives in the filter
-plugin this file exercises, because the third copy was about to be written for
-Beszel -- and a host whose password resets and whose contact form go through
-different relays, from the same stored config, reports nothing.
+smtp_password is the one credential, and the ladder that reads them lives in the
+filter plugin this file exercises.
+
+Inferring the provider instead from which of three sender-address keys is
+non-empty -- RESEND_SENDER_EMAIL, BREVO_SENDER_EMAIL, SMTP_HOST -- with Resend
+winning when two are filled, carries three defects in one shape:
+
+  - the answer to "where does mail go" is spread across three fields plus a
+    tie-break that appears on no page the client can read;
+  - switching provider without first CLEARING the old address keeps sending
+    through the old one, silently, for as long as the stale value sits there;
+  - the ladder is written out once per consumer -- keycloak defaults,
+    wordpress_plugins.yml, Beszel -- each free to drift, and a host whose
+    password resets and whose contact form go through different relays, from
+    the same stored config, reports nothing.
 
 Run: uv run pytest tests/unit/test_smtp_resolution.py
 """

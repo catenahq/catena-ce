@@ -1,10 +1,10 @@
 """Lock down the slimmed reconcile/roles/cloudflare_tunnel.
 
-The tunnel/DNS/ingress/cloudflared-service converge moved into the Go engine
-catena-cloudflared-sync (host payload). The role now dispatches that engine's
-`sync` and prints what it says -- it does not decide whether there is a token,
-because the engine reads the store and no-ops on its own. These tests pin that
-shape and prove the old converge-time CF-API / swarm-service tasks are gone.
+The tunnel/DNS/ingress/cloudflared-service converge belongs to the Go engine
+catena-cloudflared-sync (host payload). The role dispatches that engine's `sync`
+and prints what it says -- it does not decide whether there is a token, because
+the engine reads the store and no-ops on its own. These tests pin that shape,
+including the absence of any converge-time CF-API or swarm-service task.
 
 Run: uv run pytest tests/unit/test_cloudflared_tunnel_dispatch.py
 """
@@ -59,11 +59,11 @@ def test_no_cloudflared_swarm_service_management():
 def test_the_role_does_not_decide_whether_there_is_a_token():
     """One owner for the no-token call, and it is the engine.
 
-    The role used to compute _cf_token_present from a fact
-    tasks/load_onbox_config.yml publishes, then gate on it -- a second
-    implementation of a question the engine answers from the store anyway, and
-    one that saw no token on a host that had one whenever a play skipped the
-    loader. The engine's own no-op (exit 0, "cloudflared-sync: skipped (no
+    A gate here on _cf_token_present, computed from a fact
+    tasks/load_onbox_config.yml publishes, is a second implementation of a
+    question the engine answers from the store anyway -- and one that sees no
+    token on a host that has one whenever a play skips the loader. The engine's
+    own no-op (exit 0, "cloudflared-sync: skipped (no
     token)") is now the whole mechanism.
     """
     body = TASKS.read_text()
@@ -121,19 +121,19 @@ def test_sync_gated_on_the_binary_only():
 
 
 def test_the_decision_comes_from_the_shared_predicate():
-    """One include, one answer. This role and reconcile/roles/backup used to read the
-    fact while the validate side read the env var, and only the validate side
-    accepted "or it is already here" -- so this side could not tell NOT YET
-    from PARTIALLY INSTALLED."""
+    """One include, one answer. This role and reconcile/roles/backup read the
+    published fact while the validate side reads the env var, and a leg that
+    accepts "or it is already here" on one side only leaves the other unable to
+    tell NOT YET from PARTIALLY INSTALLED."""
     task = _find("is the tunnel engine expected on this host")
     assert task["ansible.builtin.include_role"]["tasks_from"] == "_payload_expected"
     assert task["vars"]["_payload_paths"] == ["{{ cloudflared_sync_bin }}"]
 
 
 def test_a_missing_engine_fails_a_converge_that_installs_it():
-    """reconcile/roles/payload puts the engine on the host four roles earlier. If it is
-    not there, deferring only moves the failure to oauth2_proxy, which waits on
-    an edge this role was supposed to bring up."""
+    """reconcile/roles/payload puts the engine on the host four roles earlier. If
+    it is not there, deferring only moves the failure to oauth2_proxy, which
+    waits on an edge this role is the one to bring up."""
     task = _find("engine is missing from a converge that installs it")
     assert "ansible.builtin.fail" in task
     cond = " ".join(str(c) for c in task["when"])
@@ -161,9 +161,9 @@ def test_sync_reports_unchanged_for_idempotency_gate():
 
 def test_no_licence_flag_is_passed_to_the_engine():
     """The engine reads the subscription out of the on-box store and decides the
-    multi-domain cap itself. This role used to hand it a boolean computed by a
-    second, Python implementation of licence verification, which could disagree
-    with the Go one -- and which a public repo had no business carrying."""
+    multi-domain cap itself. A boolean handed to it from here is a second,
+    Python implementation of licence verification: it can disagree with the Go
+    one, and it is verification logic a public repo has no business carrying."""
     task = _find("converge the tunnel via catena-cloudflared-sync")
     env = task["environment"]
     assert "CATENA_MULTIDOMAIN_ENABLED" not in env

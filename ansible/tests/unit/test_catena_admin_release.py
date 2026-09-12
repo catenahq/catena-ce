@@ -1,9 +1,9 @@
 """The registry, not a literal, decides which catena-admin release installs.
 
-The defect this replaces was two hand-maintained values in
-bootstrap/roles/common/defaults -- the version and its digest -- that had to be bumped in
-lockstep and were not. reconcile/roles/payload refuses to extract from an image whose
-digest is not the recorded one, so the drift failed fresh installs on a correct
+Two hand-maintained values in bootstrap/roles/common/defaults -- a version and
+its digest -- have to move in lockstep, and nothing makes them.
+reconcile/roles/payload refuses to extract from an image whose digest is not the
+recorded one, so any drift between the two fails fresh installs on a correct
 host holding a correctly published image:
 
     ...:v0.5.1 resolved to sha256:205a5a70... but this deployment pins

@@ -160,9 +160,9 @@ def up(monkeypatch):
 
 
 def test_missing_cli_warns_but_does_not_block(monkeypatch):
-    """An absent CLI is the common shape of "never joined", but a controller
-    can reach the tailnet through a subnet router without one. Blocking here
-    would refuse a supported setup on evidence that was never gathered."""
+    """An absent CLI is the common shape of "never joined", but a controller can
+    reach the tailnet through a subnet router without one. Blocking here refuses
+    a supported setup on evidence nobody gathered."""
     monkeypatch.setattr(tc.shutil, "which", lambda name: None)
     result = tc.check()
     assert not result.ok

@@ -107,8 +107,8 @@ def test_the_write_does_not_report_a_change_every_converge(write_task):
     """`converged_at` moves on every run, so `copy` would report changed every
     time. A converge that always reports a change is one nobody can read for
     real drift -- and it fails the whole-site idempotency rehearsal
-    (ce_converge), which is how this was caught. /etc/catena/version.txt has
-    carried the same suppression, for the same reason, since it was written."""
+    (ce_converge), which is what catches it. /etc/catena/version.txt carries the
+    same suppression for the same reason."""
     assert write_task.get("changed_when") is False, (
         "the manifest write reports changed on every converge"
     )
@@ -221,9 +221,9 @@ def test_both_version_fields_read_the_fact_this_run_actually_sets():
 def test_the_ce_version_falls_back_to_the_image_provenance():
     """An on-host converge has no git checkout and does not run the role that
     reads one, so `catena_version` is undefined there. The tree it is running
-    came out of the panel image, and the vendor step recorded which catena-ce
-    commit that was in VENDOR.json -- which names bytes rather than a ref, so
-    it is the better answer on the path that has both."""
+    came out of the panel image, and the vendor step records which catena-ce
+    commit that is, in VENDOR.json -- which names bytes rather than a ref, so it
+    is the better answer on the path that has both."""
     shared = SHARED.read_text()
     assert "VENDOR.json" in shared, (
         "the on-host path has no other way to know which catena-ce it is "

@@ -6,9 +6,9 @@ live config, found it different, wrote it, and restarted Gatus. So a missing
 spec file DELETED every infrastructure monitor on the host, and the run
 printed "wrote ..." and exited 0.
 
-That is the sharpest form of the class: not a lane that did nothing, but one
-that did damage and reported success. Everything downstream then agreed --
-Gatus showed no failing endpoints because it was watching nothing.
+That is the sharpest form of the class: a lane that does damage and reports
+success, rather than one that does nothing. Everything downstream agrees with
+it -- Gatus shows no failing endpoints, because it is watching nothing.
 
 The spec is rendered by reconcile/roles/infrastructure, so a missing one means the
 converge did not run or the file was removed; either way the correct action is

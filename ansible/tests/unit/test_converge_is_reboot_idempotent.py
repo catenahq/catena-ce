@@ -6,10 +6,10 @@ re-runs after an edit, and a converge that always reports work done is one
 nobody can read for the work it actually did.
 
   - /etc/hosts. Provider images ship cloud-init `manage_etc_hosts: True`,
-    which regenerates the file from a template on EVERY boot. The drop-in that
-    was supposed to stop it is not enough on its own: cloud-init merges
-    USER-DATA over cloud.cfg.d, so anything that sets manage_etc_hosts at
-    create time wins and keeps regenerating. What the template writes --
+    which regenerates the file from a template on EVERY boot. A cloud.cfg.d
+    drop-in cannot stop that by itself: cloud-init merges USER-DATA over
+    cloud.cfg.d, so anything setting manage_etc_hosts at create time wins and
+    keeps regenerating. What the template writes --
     `127.0.1.1 <fqdn> <hostname>` -- resolves the name correctly but is not
     byte-identical to the converge's line, so the converge rewrote it every
     run and reported `changed` forever. Fixed by enforcing the property (the

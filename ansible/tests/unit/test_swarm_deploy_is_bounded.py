@@ -8,8 +8,8 @@ That disarms the recovery written for exactly this failure. The attempt sits
 inside a five-iteration retry envelope whose classifier already lists
 `i/o timeout` and `temporary failure in name resolution` as transient, and none
 of it can run: the loop cannot reach attempt 2 while attempt 1 is still waiting
-on the pull that is failing. The only bound left was the bench runner's, and it
-kills the whole converge:
+on the pull that is failing. Without a bound on the attempt itself, the outermost
+one belongs to the bench runner, and it kills the whole converge:
 
     TASK [oauth2_proxy : Swarm: deploy attempt 1 (oauth2-proxy)]
     [runner] TIMEOUT after 4800s

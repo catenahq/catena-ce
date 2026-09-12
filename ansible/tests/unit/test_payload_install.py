@@ -1,12 +1,13 @@
 """Lock down reconcile/roles/payload -- the host engine install.
 
-The role exists to close a real ordering hole: the engines used to arrive from
-reconcile/roles/catena-admin (site.yml position 13) while reconcile/roles/cloudflare_tunnel
-(position 9) dispatches one of them, so a first converge on a host that already
-held a Cloudflare token deferred the tunnel and reconcile/roles/oauth2_proxy then waited
-on an edge nobody had brought up. These tests pin the two things that keep that
-closed: the role's POSITION in site.yml, and the marker semantics that make a
-re-converge a no-op without freezing an image upgrade out.
+The role closes a real ordering hole. reconcile/roles/cloudflare_tunnel at
+site.yml position 9 dispatches one of the engines, so engines arriving any later
+-- from reconcile/roles/catena-admin at position 13, say -- leave a first
+converge on a host that already holds a Cloudflare token with no tunnel, and
+reconcile/roles/oauth2_proxy then waits on an edge nobody brought up. These tests
+pin the two things that keep it closed: the role's POSITION in site.yml, and the
+marker semantics that make a re-converge a no-op without freezing an image
+upgrade out.
 
 Run: uv run pytest tests/unit/test_payload_install.py
 """

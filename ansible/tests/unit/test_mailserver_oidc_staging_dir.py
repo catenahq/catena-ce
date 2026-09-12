@@ -17,8 +17,8 @@ deferred mailserver chain. The Roundcube step then failed with
 
     Destination directory /var/lib/catena/mailserver does not exist
 
-which aborted the whole converge that was about to fix dms. Observed on bench
-run 2026-08-25T18-01-29-b726, cf_activate stage-3b.
+aborting the whole converge that is about to fix dms. Observed on bench run
+2026-08-25T18-01-29-b726, cf_activate stage-3b.
 
 Run: uv run pytest tests/unit/test_mailserver_oidc_staging_dir.py
 """

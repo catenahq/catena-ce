@@ -268,11 +268,11 @@ def test_a_rollback_recorded_on_this_host_survives_the_converge():
 
 
 def test_the_override_is_not_something_a_pin_gets_to_argue_with():
-    """CATENA_ADMIN_IMAGE is somebody saying exactly what to run. It used to be
-    handed to the pin filter along with everything else, so a stored pin could
-    beat the very value whose purpose is change control -- and it did so
-    silently, on the path a client uses when they want to decide when their
-    panel moves."""
+    """CATENA_ADMIN_IMAGE is somebody saying exactly what to run, so it
+    short-circuits ahead of the pin filter. Handed to that filter with
+    everything else, a stored pin beats the one value whose purpose is change
+    control -- silently, on the path a client uses when they want to decide when
+    their panel moves."""
     rel = _release("ghcr.io/catenahq/catena-admin:v0.6.2", "sha256:" + "20" * 32)
     pins = {"ghcr.io/catenahq/catena-admin": "ghcr.io/catenahq/catena-admin:v0.6.2"}
     assert _render_image(

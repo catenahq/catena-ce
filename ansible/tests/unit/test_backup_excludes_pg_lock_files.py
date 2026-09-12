@@ -5,7 +5,7 @@ server. The infra Postgres volume is restored RAW -- deliberately, because
 the store-derived superuser password makes a byte-for-byte restore correct
 -- so anything sitting in that data dir comes back with it.
 
-Two distinct failures, and the second is the one that was observed:
+Two distinct failures, and the second is the observed one:
 
   a restored lock file is a STARTUP HAZARD. Postgres refuses to start when
   the PID in the lock file is live and belongs to another process, and a
@@ -13,7 +13,7 @@ Two distinct failures, and the second is the one that was observed:
 
   it breaks the restore. `restic restore --delete` recreates the file and
   then sets its metadata; postgres clearing its own stale lock in between
-  makes lchown fail on a path that no longer exists. restic counts that as
+  makes lchown fail on a path that has just gone away. restic counts that as
   an error and exits 1, so the entire restore reports failed over a file
   that should not have been in the snapshot:
 

@@ -1,12 +1,12 @@
 """A systemd lane's .service and .timer come from the SAME place.
 
-catena-dashboard-sync had its service in the panel image and its timer rendered
-by the converge. One lane, two owners, two release cadences -- so a change to
-the pair was half-applied until both a new image and a converge had landed, in
-that order, and nothing on the host said which half it was on.
+A lane whose .service ships in the panel image while its .timer is rendered by
+the converge has two owners and two release cadences: a change to the pair stays
+half-applied until both a new image and a converge have landed, in that order,
+and nothing on the host says which half it is on.
 
-It is not a hard failure, which is what makes it worth a gate: a stale timer
-still fires, a new service still runs, and the mismatch shows up as a lane doing
+Nothing hard-fails, which is what makes it worth a gate: a stale timer still
+fires, a new service still runs, and the mismatch surfaces as a lane doing
 almost the right thing.
 
 THE TEST FOR WHICH SIDE OWNS A UNIT is the same one the whole migration uses: if

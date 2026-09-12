@@ -27,12 +27,11 @@ COTURN = ANSIBLE / "reconcile" / "roles" / "coturn"
 
 _FRAGMENT_TASK = "coturn: declare public ports (registry fragment)"
 
-# Directives the pinned coturn rejects outright. Each is the OPPOSITE of a
-# default that flipped: loopback peers and the telnet CLI are both refused
-# unless opted into (--allow-loopback-peers, --cli), and --no-dtls was
-# superseded by DTLS simply not starting unless --dtls is given. Writing any
-# of them back costs a converge, because coturn logs and continues rather
-# than refusing to start.
+# Directives the pinned coturn rejects outright. Each names a default that the
+# pinned build already applies: loopback peers and the telnet CLI are refused
+# unless opted into (--allow-loopback-peers, --cli), and DTLS does not start
+# unless --dtls is given. Writing any of them into the config costs a converge,
+# because coturn logs and continues rather than refusing to start.
 _REJECTED = ("no-loopback-peers", "no-cli", "no-dtls")
 
 

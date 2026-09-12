@@ -1,9 +1,8 @@
 """The backup wrapper arrives with the payload, which is not always first.
 
-reconcile/roles/backup stopped shipping catena-backup-run on 2026-08-03; it is a lane
-script in the catena-admin image payload now. That introduced an ordering the
-role never had to think about before, because it used to copy the wrapper
-itself and so the file was always there by the time the units were written.
+catena-backup-run is a lane script in the catena-admin image payload.
+reconcile/roles/backup writes the units that call it but does not ship it, so
+the role cannot assume the file is on disk by the time it writes them.
 
 Two hosts, two truths:
 
@@ -144,9 +143,9 @@ def test_validate_still_asserts_the_payload_scripts_once_any_is_present():
     indistinguishable from the not-yet case and skip the only check that would
     have caught it.
 
-    The decision moved into bootstrap/roles/common/tasks/_payload_expected.yml, which is
-    where the other four callers now get it too -- it started here, and the
-    property is asserted where it lives rather than restated at each caller."""
+    The decision lives in bootstrap/roles/common/tasks/_payload_expected.yml,
+    shared with the other four callers, and the property is asserted where it
+    lives rather than restated at each caller."""
     shared = _find("payload-expected: decide", SHARED)
     expr = str(shared["ansible.builtin.set_fact"]["catena_payload_expected"])
     assert "CATENA_PAYLOAD_INSTALL" in expr

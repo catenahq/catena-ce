@@ -8,10 +8,10 @@ incoming task can lose a race with the outgoing task's port:
     fatal task error: starting container failed: failed to set up container
     networking: Address already in use
 
-Swarm's reconciler starts a replacement seconds later and the service is up
-on the new spec. A converge that read the exit code as the outcome failed on
-a host whose panel was healthy, so the exit code is no longer allowed to
-decide alone: the wait and the drift re-inspect are.
+Swarm's reconciler starts a replacement seconds later and the service is up on
+the new spec. A converge that reads the exit code as the outcome therefore
+fails on a host whose panel is healthy, so the exit code does not decide alone:
+the wait and the drift re-inspect do.
 
 These are structural assertions against the task file, like
 test_schedule_single_owner.py. They fail when the rc becomes the judge again.

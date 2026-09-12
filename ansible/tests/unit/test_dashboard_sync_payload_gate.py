@@ -1,10 +1,11 @@
-"""The dashboard-sync wiring depends on a file this repo no longer ships.
+"""The dashboard-sync wiring depends on a file this repo does not ship.
 
-catena-dashboard-sync and its lib modules moved into the catena-admin payload,
-so reconcile/roles/infrastructure now wires a timer around a binary reconcile/roles/payload put on
-the host five roles earlier. Whether its absence is a defect depends on whether
-THIS converge was the one that had to install it -- the same two-legged shape
-reconcile/roles/cloudflare_tunnel and reconcile/roles/backup already use.
+catena-dashboard-sync and its lib modules live in the catena-admin payload, so
+reconcile/roles/infrastructure wires a timer around a binary
+reconcile/roles/payload put on the host five roles earlier. Whether its absence
+is a defect depends on whether THIS converge is the one that had to install it
+-- the same two-legged shape reconcile/roles/cloudflare_tunnel and
+reconcile/roles/backup use.
 
 These pin that: a converge that owns the engines fails loudly, a converge that
 does not defers, and nothing that RUNS the reconciler is attempted in the
@@ -41,10 +42,11 @@ _SHARED = "_payload_expected"
 # One list, declared in the role's defaults, read by both callers.
 _RECONCILER_PATHS = "{{ dashboard_sync_required_paths }}"
 
-# The modules catena-dashboard-sync imports at module scope. Run 1216
-# nc_s3_hot_recovery restored the binary without them -- /usr/local/bin is in
-# backup_paths, the modules were not -- the gate read the binary as present, and
-# the converge died inside systemd on ModuleNotFoundError with an empty journal.
+# The modules catena-dashboard-sync imports at module scope. They have to be
+# checked separately from the binary: run 1216 nc_s3_hot_recovery restored
+# /usr/local/bin, which is in backup_paths, without the module directory, which
+# is not -- so a binary-only gate read present, and the converge died inside
+# systemd on ModuleNotFoundError with an empty journal.
 _REQUIRED_MODULES = (
     "clients_provisioner.py",
     "gate_routes.py",
@@ -171,11 +173,10 @@ def test_everything_that_runs_the_reconciler_is_gated_on_it_existing():
     """The deferred case must reach the end of the file without touching
     systemd. `systemctl start` of a .timer whose .service is absent fails, and
     the run-once task would start a unit that does not exist."""
-    # The timer FILE is not in this list any more: both halves of the lane ship
-    # in the payload now, so the converge no longer renders one. What is left is
-    # everything that TOUCHES systemd, which is the property that mattered --
-    # the file's presence never was the risk, starting a unit whose service is
-    # absent was.
+    # The timer FILE is not in this list: both halves of the lane ship in the
+    # payload, so the converge renders neither. What the list holds is
+    # everything that TOUCHES systemd, which is where the risk lives -- starting
+    # a unit whose service is absent, not the presence of a file.
     runs_it = [
         "enable + start timer",
         "run once now",
@@ -281,8 +282,9 @@ def test_validate_says_so_when_it_defers():
 
 
 def test_the_reconciler_left_the_unconditional_fixture_loop():
-    """It used to sit in the same loop as gatus-sync and the traefik dynamic
-    dir, which is how an ungated assertion survived the move."""
+    """The unconditional fixture loop covers gatus-sync and the traefik dynamic
+    dir, both written by this role on every converge. A payload-installed
+    reconciler in that loop is an assertion with no gate in front of it."""
     loop = str(_find_v("stat sync scripts + traefik dynamic dir")["loop"])
     assert "catena-dashboard-sync" not in loop
     assert "gatus-sync" in loop
@@ -298,7 +300,7 @@ def test_the_role_owned_fixtures_are_still_asserted_unconditionally():
 
 def test_the_dashboard_sync_timer_probe_follows_the_same_gate():
     """The converge does not wire a timer whose .service is absent, so probing
-    it on a deferred host asserts a timer nothing was supposed to arm."""
+    it on a deferred host asserts a timer nothing set out to arm."""
     expr = str(_find_v("which sync timers should be armed")
                ["ansible.builtin.set_fact"]["_infra_sync_timers"])
     assert "catena-dashboard-sync.timer" in expr

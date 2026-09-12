@@ -1,10 +1,11 @@
 """bootstrap/roles/tailscale forks on a DECLARED provider, and nothing in the role
 re-derives that decision for itself.
 
-Which control plane a host joins used to be inferred, on eight separate tasks,
-from whether ``tailnet_control_url`` happened to be non-empty. That is now one
-rule in defaults/main.yml -- ``tailnet_provider`` -- and every task guards on
-it. This file exists because the role has no other coverage at all: the bench's
+Which control plane a host joins is one rule in defaults/main.yml --
+``tailnet_provider`` -- that every task guards on, rather than eight separate
+tasks each inferring it from whether ``tailnet_control_url`` happens to be
+non-empty. This file exists because the role has no other coverage at all: the
+bench's
 ``ce_install_headscale`` scenario drives ``tailscale up --login-server``
 directly (a hand-written copy of what the role emits, validating the JOIN
 CONTRACT against a real Headscale), so it would stay green through any change

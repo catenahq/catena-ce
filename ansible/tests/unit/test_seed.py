@@ -350,9 +350,9 @@ def _prereq_lines(seed, capsys, env):
 
 def test_missing_ssh_key_is_not_reported_as_a_failed_check(seed, capsys, tmp_path):
     """A missing keypair is not a problem -- ensure_ssh_key() offers to generate
-    it. The line used to assert the file existed and then mark that assertion
-    false while promising the file would be generated, so it read as both
-    'exists' and 'does not exist' at once."""
+    it. A line that asserts the file exists, marks that assertion false, and in
+    the same breath promises to generate the file reads as both 'exists' and
+    'does not exist' at once."""
     absent = tmp_path / "nope"
     lines = _prereq_lines(seed, capsys, {
         "SSH_PRIVATE_KEY": str(absent), "SSH_PUBLIC_KEY_FILE": str(absent) + ".pub"})
@@ -515,8 +515,8 @@ def _fake_tty_stdin(monkeypatch, text):
 
 def test_no_control_server_question_is_asked(seed):
     """The inventory declares the backend by whether the Headscale fields are
-    filled. A separate question could disagree with the file it was asked
-    about, so there is none to ask."""
+    filled. A separate question could disagree with the file it asks about, so
+    there is none to ask."""
     assert not hasattr(seed, "_collect_control_server")
 
 

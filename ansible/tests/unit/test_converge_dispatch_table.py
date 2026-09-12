@@ -1,35 +1,33 @@
-"""What the converge's dispatch table is still allowed to carry.
+"""What the converge's dispatch table is allowed to carry.
 
-Twenty-four Community actions and twelve Business ones left this repo for the
-panel image's dispatch drop-ins. Every command behind them ran a binary the
-PAYLOAD installs at a path the payload chose, so this repo was holding an
-authorization record for names it does not own and cannot verify -- and a
-one-line change to any of them needed an operator with a laptop and an SSH
-session against a live client.
+The default home for a dispatch action is the panel image's own drop-in:
+catena-admin payload/actions.d/20-catena.sh (Community) or 10-business.sh
+(licensed). Every command behind those runs a binary the PAYLOAD installs at a
+path the payload chose, so an entry in this repo is an authorization record for
+a name it neither owns nor can verify, and a one-line change to any of them
+needs an operator with a laptop and an SSH session against a live client.
 
-ONE is left, and it stays that way by being DECLARED. Adding a reserved action
-here means writing down why the image cannot carry it, which is the only
-question worth asking at that moment. The one admissible answer left is that the
-action is the way back when a drop-in is broken, so it cannot depend on one.
+EXACTLY ONE reserved action lives here, and it stays that way by being DECLARED:
+adding one means writing down why the image cannot carry it. One answer is
+admissible -- the action is the route back out of a broken drop-in, so it cannot
+depend on one. ee-install-engines is that action.
 
-An action without that answer belongs in catena-admin
-payload/actions.d/20-catena.sh (Community) or 10-business.sh (licensed).
+Answers that do NOT qualify, each having been tried:
 
-Asking the question retired the other two answers rather than accumulating more.
-"It interpolates an inventory value" applied to the cloudflared pair, and the
-value was the tunnel name -- so the engine composes the name from the box's own
-hostname instead, and the pair moved. "It is half of a pair" was never a reason
-about the action at all, only about the other one.
+  "It interpolates an inventory value." The cloudflared pair interpolates the
+  tunnel name, and the engine composes that from the box's own hostname, so
+  there is nothing to interpolate.
 
-It also found an answer that was not one. cloudflare-zones-save was here because
-its command was not a payload binary -- and the reason it was not one is that NO
-repository built it, so the Domains panel's save could only ever answer "command
-not found". Writing the engine was the fix; the action went with it.
+  "It is half of a pair." A statement about the other action, not about this
+  one.
 
-This replaces test_action_bodies_are_constants.py, whose job was the precondition
-for the move -- that every body interpolated product constants rather than host
-facts. The bodies moved; that property is now asserted where they live, by
-catena-admin payload/actions.d/catena_actions_test.go.
+  "Its command is not a payload binary." True of cloudflare-zones-save only
+  because NO repository built the binary, which made the Domains panel's save
+  answer "command not found" every time. The fix is to write the engine.
+
+The bodies' own property -- that each interpolates product constants rather
+than host facts -- is asserted where the bodies live, by catena-admin
+payload/actions.d/catena_actions_test.go.
 
 Run: uv run pytest tests/unit/test_converge_dispatch_table.py
 """

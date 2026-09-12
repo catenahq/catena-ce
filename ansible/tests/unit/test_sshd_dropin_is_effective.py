@@ -6,10 +6,10 @@ config includes it. Debian 12 and Ubuntu ship the Include, but a provider
 image or a cloud-init variant can replace sshd_config with something
 minimal that does not -- and the resulting failure is silent, fails OPEN
 (password auth and root login stay enabled, AllowUsers never applies), and
-passed the old file-content validation because that validation read the
-file we wrote rather than what sshd resolved.
+passes any file-content validation that reads the file we wrote rather than
+what sshd resolved.
 
-Observed on a live bench host: /etc/ssh/sshd_config was a single line,
+Observed on a live bench host: /etc/ssh/sshd_config held a single line,
 `PasswordAuthentication yes`, and `sshd -T` reported
 `passwordauthentication yes` / `permitrootlogin without-password` / no
 `allowusers` while both drop-ins sat on disk saying the opposite.

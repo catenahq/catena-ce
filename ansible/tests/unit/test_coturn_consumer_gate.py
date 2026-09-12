@@ -1,11 +1,12 @@
 """The coturn consumer gate is asked ONCE, by the half that can act on it.
 
 coturn deploys only when a real-time app that needs TURN is running. That
-question belongs to main.yml, where roles/coturn sits in site.yml's order.
-validate used to ask it again, minutes later in the same converge, and assert
-coturn's presence on the answer -- two probes that had to agree and could not.
+question belongs to main.yml, where roles/coturn sits in site.yml's order. A
+validate that asks it again, minutes later in the same converge, and asserts
+coturn's presence on its own answer is a second probe that has to agree with the
+first and cannot.
 
-They did not agree twice, for two different reasons:
+Two independent reasons it cannot:
 
   bench f140 backup_rollback -- the deploy gate reported "No TURN consumer
   running" and skipped, and validate then failed the converge demanding coturn,

@@ -21,9 +21,9 @@ compared by whoever changes one.
 
 This went unnoticed until `wizard_restore_smoke` first reached stage 4 in run
 2026-08-01T14-47-54-569d: every restore started from the wizard died in about a
-second. catena-backup.service had carried the fix, and the comment explaining
-it, since it was written -- the lesson was learned once and applied to one of
-the two places restic runs under systemd.
+second. catena-backup.service carries the fix and the comment explaining it: a
+lesson applied to one of the two places restic runs under systemd is exactly
+what this file exists to catch.
 
 Run: uv run pytest tests/unit/test_catena_admin_systemd_run_env.py
 """
@@ -78,9 +78,9 @@ def test_the_backup_unit_uses_the_shared_cache_location():
 
 
 def test_no_dispatch_action_here_runs_under_systemd_run():
-    """They all moved. One left behind would be the one place the pair above is
-    not asserted -- this file can no longer see the arms, so an arm here would
-    have no guard at all."""
+    """The pair asserted above is checked where the dispatch actions live. This
+    file cannot see those arms, so an arm declared here instead would carry no
+    guard at all."""
     import yaml
 
     defaults = yaml.safe_load(

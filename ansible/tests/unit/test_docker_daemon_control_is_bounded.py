@@ -12,11 +12,10 @@ run BEFORE the probe -- the restart via the role's `meta: flush_handlers`,
 which fires whenever daemon.json changed. Against an unresponsive daemon the
 converge hangs at the systemctl call and the probe's bound is unreachable.
 
-Observed on bench run 2026-08-25T18-01-29-b726: fi_c1 froze dockerd, verified
-it was in state T, and the converge still returned rc=0 with ok=553 failed=0.
-The restart handler had SIGKILLed the frozen daemon and started a healthy one
-before the probe ever asked it anything, so the fault the run existed to
-measure was repaired by the run itself.
+Observed on bench run 2026-08-25T18-01-29-b726: fi_c1 froze dockerd, confirmed
+state T, and the converge still returned rc=0 with ok=553 failed=0. The restart
+handler SIGKILLed the frozen daemon and started a healthy one before the probe
+asked it anything, so the run repaired the fault it existed to measure.
 
 The rule this pins: a systemctl call against docker.service in this role is
 wrapped in `timeout`. `timeout` kills the systemctl CLIENT and leaves the

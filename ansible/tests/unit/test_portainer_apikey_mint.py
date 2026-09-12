@@ -1,14 +1,13 @@
 """The Portainer API-key mint reads stdin and persists to the on-box store.
 
-Regression: the mint used to require `<inventory>/group_vars/all/vault.yml`
-as BOTH the source of admin_password and the destination of the minted
-key. `catena install` stops writing that file (0b, seed.py: "No vault.yml:
-secrets never persist on the laptop"), so on any real install the helper
-returned EXIT_ERROR ("vault not found") and the un-guarded command task
-failed the converge. It looked fine only because both bench inventories carry
-a hand-maintained vault.yml -- the bench supplying a file the product does
-not, which is the substitution trap `audit --check-env-owners` exists to
-catch.
+The mint must not want `<inventory>/group_vars/all/vault.yml` as BOTH the
+source of admin_password and the destination of the minted key. `catena install`
+writes no such file (0b, seed.py: "No vault.yml: secrets never persist on the
+laptop"), so a helper that requires it answers EXIT_ERROR ("vault not found") on
+every real install and the un-guarded command task fails the converge. Both
+bench inventories carry a hand-maintained vault.yml, which makes that defect
+read as healthy on the bench: the bench supplying a file the product does not is
+the substitution trap `audit --check-env-owners` exists to catch.
 
 Run: uv run pytest tests/unit/test_portainer_apikey_mint.py
 """
@@ -157,7 +156,7 @@ def test_the_mint_decision_is_taken_before_the_block():
     key yet", and the converge reported success having deployed no gated app.
 
     So the decision has to be a fact taken once, before the block, immune to
-    what the block does to the variable it was derived from.
+    what the block does to the variable it derives from.
     """
     tasks = _tasks()
     names = [t.get("name", "") for t in tasks]

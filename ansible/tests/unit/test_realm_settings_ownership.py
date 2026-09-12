@@ -1,13 +1,13 @@
 """Which realm settings the converge keeps asserting, and which it seeds once.
 
-realm-vps.yaml.j2 used to declare every login-flow knob, all eight brute-force
-numbers, defaultGroups and the locale attributes unconditionally, so
-keycloak-config-cli merged them back on every converge. An admin who turned
-"Verify email" off, widened the lockout window for a shared terminal, added a
-second default group or switched the realm to French found it undone by the
-next converge, and nothing said so.
+Anything realm-vps.yaml.j2 declares unconditionally, keycloak-config-cli merges
+back on every converge. Declare the login-flow knobs, the eight brute-force
+numbers, defaultGroups and the locale attributes that way and an admin who turns
+"Verify email" off, widens the lockout window for a shared terminal, adds a
+second default group or switches the realm to French finds it undone by the next
+converge, with nothing saying so.
 
-The split is the fix, and the split is what this pins:
+The split is what this pins:
 
   ASSERTED ALWAYS -- security posture this product states. An SSO tenant for one
   business does not offer public self-registration, the email IS the username so

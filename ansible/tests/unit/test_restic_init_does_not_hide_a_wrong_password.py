@@ -1,10 +1,10 @@
 """A failed repo check is two situations, and init answers only one.
 
 `restic cat config` returns 0 iff the repository exists AND the password is
-correct -- the role's own comment says so. Everything else fell through to
-`restic init`, including a repository that is perfectly healthy behind a
-credential this host no longer holds. Initialising over it fails, and the
-init task carries no_log, so what an operator gets is a censored failure on
+correct -- the role's own comment says so. Let everything else fall through to
+`restic init` and a repository that is perfectly healthy behind a credential
+this host does not hold falls through with it. Initialising over that fails, and
+the init task carries no_log, so what an operator gets is a censored failure on
 "Initialize restic repo (first run only)" with nothing naming the cause.
 
 Seen on run 2026-09-01T04-32-35-2ab2, where a repoint converge died on

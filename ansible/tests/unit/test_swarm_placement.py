@@ -8,15 +8,14 @@ container starts and the data is simply not there. That is the documented,
 unsolved failure in Dokploy's multi-node story, and the constraint is what
 makes `docker swarm join` a safe operation instead of a data-loss event.
 
-WHAT IS LEFT HERE. Every tier-1 constraint moved into the host engine
-(catena-admin payload/engines/tier1/catalog.go) as reconcile/roles/postgres, reconcile/roles/traefik,
-reconcile/roles/portainer and reconcile/roles/coturn stopped declaring dicts and started asking
-`catena-tier1 spec` for them. The constraints are asserted there, in
-catalog_test.go: every mounting service pinned to the data node, every
-socket-mounting service also requiring a manager, and postgres deliberately not
-requiring one.
+WHAT THIS FILE COVERS. The tier-1 constraints live in the host engine
+(catena-admin payload/engines/tier1/catalog.go), which reconcile/roles/postgres,
+reconcile/roles/traefik, reconcile/roles/portainer and reconcile/roles/coturn ask
+with `catena-tier1 spec`. They are asserted there, in catalog_test.go: every
+mounting service pinned to the data node, every socket-mounting service also
+requiring a manager, and postgres deliberately not requiring one.
 
-Asserting them here too would mean reading dicts that no longer drive anything
+Restating them here would mean reading dicts this repo does not feed to anything
 -- the stale-oracle failure this suite exists to catch in other people's code.
 
 What this repo still owns is the OTHER half of the string: bootstrap/roles/docker sets

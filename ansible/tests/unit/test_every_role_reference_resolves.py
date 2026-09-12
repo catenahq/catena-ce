@@ -1,13 +1,12 @@
 """Every role this tree names has to exist, by name and by path.
 
-WHAT THIS IS FOR. Phase 1b of the converge migration splits `roles/` into
-sibling `bootstrap/` and `reconcile/` trees. boundary.yml already declares which
-side each role is on, so the move is mechanical -- but 186 files reference a role
-somewhere, and Ansible's failure mode for a reference that no longer resolves is
-not a parse error. A `roles/<name>` path interpolated into an include that never
-runs is silent until the day it runs, and a role name it cannot find is an error
-at the moment of execution, which on an install path means partway through a
-converge on a real host.
+WHAT THIS IS FOR. `roles/` is split into sibling `bootstrap/` and `reconcile/`
+trees, with boundary.yml declaring which side each role is on. 186 files
+reference a role somewhere, and Ansible does not fail at parse time on a
+reference that resolves to nothing: a `roles/<name>` path interpolated into an
+include stays silent until the day that include runs, and an unfindable role
+name errors at the moment of execution, which on an install path means partway
+through a converge on a real host.
 
 The only complete proof is an install from zero. This is the part that does not
 need one: every name resolves, every path exists, and no name resolves to two
@@ -38,18 +37,18 @@ def _skipped(path) -> bool:
     return any(part.startswith(".") or part in _SKIP_DIRS for part in path.parts)
 
 # `<side>/roles/<name>` as a path, wherever it appears: a templated include
-# ({{ role_path }}/../<name>/tasks/x.yml is the other shape and is relative, so
-# it is not a name this can check), a defaults value naming a file to read, a
+# ({{ role_path }}/../<name>/tasks/x.yml is the other shape, and being relative
+# it carries no name this can check), a defaults value naming a file to read, a
 # script path.
 #
-# The SIDE is part of the pattern since phase 1b, and deliberately so. A bare
-# `roles/<name>/` resolved before the split and resolves to nothing now, so
-# matching it too would let the gate pass a path that is already broken -- and
-# requiring the prefix is what makes a leftover reference fail here instead of
-# on a host. test_a_prefixless_role_path_is_not_accepted holds that.
+# The SIDE is part of the pattern, deliberately. A bare `roles/<name>/` resolves
+# to nothing in this tree, so a pattern that accepted it would pass a path that
+# is already broken; requiring the prefix is what makes a leftover reference
+# fail here instead of on a host. test_a_prefixless_role_path_is_not_accepted
+# holds that.
 _ROLE_PATH = re.compile(r"(?<![\w./-])(?:bootstrap|reconcile)/roles/([a-z][a-z0-9_-]*)/")
 
-# The shape that no longer resolves: `roles/<name>/` with nothing in front of
+# The shape that resolves to nothing: `roles/<name>/` with nothing in front of
 # it. Kept separate so the failure can say which of the two problems it is.
 _PREFIXLESS_ROLE_PATH = re.compile(
     r"(?<![\w./-])(?<!bootstrap/)(?<!reconcile/)roles/([a-z][a-z0-9_-]*)/")
@@ -173,9 +172,10 @@ def test_every_role_path_exists():
         "these files name a <side>/roles/<name> path that does not exist: "
         f"{ {k: sorted(v) for k, v in broken.items()} }"
     )
-    # Guards the guard. The split changed the shape of every one of these, and a
-    # pattern that stopped matching would leave this assertion passing over
-    # nothing -- which is exactly the state it was in for the length of the move.
+    # Guards the guard. A pattern that stops matching leaves the assertion above
+    # passing over an empty set, which reads identical to a clean tree -- and a
+    # tree-wide rename is exactly when the pattern is most likely to stop
+    # matching.
     assert found >= 10, f"only {found} role paths found; the pattern has rotted"
 
 

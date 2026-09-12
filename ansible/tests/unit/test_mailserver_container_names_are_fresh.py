@@ -27,9 +27,9 @@ Run 2026-08-26T03-27-25-c458, cf_activate stage-3b. So the lookup and the
 commands that use it have to be one retried unit, not a lookup followed by a
 sequence that assumes the container outlives it.
 
-`| length` gates on a previously-resolved name are fine and stay: they ask
-"was the stack deployed", which does not go stale in the same way -- a stack
-that existed at the start of the play still exists.
+`| length` gates on an already-resolved name are fine: they ask whether the
+stack is deployed, which does not go stale the same way -- a stack present at
+the start of the play is present at the end of it.
 
 Run: uv run pytest tests/unit/test_mailserver_container_names_are_fresh.py
 """
@@ -134,11 +134,11 @@ def test_every_dms_consumer_uses_the_shared_locate() -> None:
 
 
 def test_the_deployed_but_absent_verdict_lives_in_the_locate() -> None:
-    """It used to be each caller's, and the callers disagreed: accounts failed
-    loud, oidc printed a debug line and skipped. One host state, two verdicts,
-    and the silent one meant SSO wiring never written on a converge that
-    reported success. Keeping the fail in the shared step is what stops a sixth
-    consumer inventing a third answer."""
+    """One host state, one verdict. Split across the callers it becomes two --
+    accounts failing loud, oidc printing a debug line and skipping -- and the
+    silent one leaves SSO wiring never written on a converge that reports
+    success. Keeping the fail in the shared step is what stops a sixth consumer
+    inventing a third answer."""
     locate = (TASKS / "_mailserver_dms_locate.yml").read_text()
     assert "ansible.builtin.fail" in locate, (
         "the locate no longer fails on a deployed stack with no container"

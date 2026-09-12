@@ -7,7 +7,7 @@ process argv -- and a name that disagrees on any hop silently breaks the whole
 feature: the action sees an empty candidate and the panel is told a valid
 endpoint is invalid.
 
-The ACTION moved into the panel image's dispatch drop-in with the other
+The ACTION is authorised by the panel image's dispatch drop-in, with the other
 Community ones, and what it has to look like is asserted there (catena-admin
 payload/actions.d/catena_actions_test.go). What stays here is the part that is
 about this host rather than about the command: sshd's AcceptEnv and the sudoers
@@ -28,8 +28,8 @@ _ROLE = (
 )
 DEFAULTS = _ROLE / "defaults" / "main.yml"
 # The bootstrap-side half of the same panel: the runner account, the
-# sudoers drop-in, the forced command. Phase 1b made it a role of its
-# own so the boundary it was declared on could actually be held.
+# sudoers drop-in, the forced command. A role of its own, so the
+# bootstrap/reconcile boundary it sits on is one the layout can hold.
 _HOST_ROLE = (_ROLE.parents[2] / "bootstrap" / "roles"
               / "catena_admin_host")
 _HOST_DEFAULTS = _HOST_ROLE / "defaults" / "main.yml"
@@ -107,10 +107,10 @@ def test_this_role_installs_no_dispatch_binary_of_its_own():
     """Every binary a dispatch action runs comes out of the image, installed by
     reconcile/roles/payload at role 5.5 from its blanket `for f in bin/*` loop.
 
-    This role used to install three by hand -- the store writer, the restic-key
-    helper, and before them the check binary -- each one a second writer of a
-    path reconcile/roles/payload also writes, with the loser being whichever image was
-    staler. The two catena-ce scripts now ride into the image through the
+    A hand-installed one here -- the store writer, the restic-key helper, a
+    check binary -- makes this role a second writer of a path
+    reconcile/roles/payload also writes, and the loser is whichever image is
+    staler. The two catena-ce scripts ride into the image through the
     vendored tree and are installed with the rest, which is what lets the panel
     image authorise the commands that run them."""
     text = HOST.read_text()

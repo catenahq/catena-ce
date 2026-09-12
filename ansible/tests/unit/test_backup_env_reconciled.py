@@ -5,15 +5,15 @@ has no repo and no S3 keys yet. The client then enters them in Settings, which
 writes /etc/catena/config.json and re-renders nothing. Only-if-absent therefore
 left this file blank forever on the ordinary install path.
 
-Every lane script survived that -- catena-restic-env resolves the store -- so
-nothing looked broken: backups ran, the panel reported configured. What stayed
-broken was the one path with no catena tooling in it at all, the one the exit
-story documents:
+Every lane script survives that -- catena-restic-env resolves the store -- so
+nothing looks broken: backups run, the panel reports configured. The path that
+breaks is the one with no catena tooling in it at all, the one the exit story
+documents:
 
     set -a; . /etc/catena/backup.env; set +a; restic snapshots
 
 Caught by the bench (sovereign_exit stage-3, run 3642), which reads snapshots
-through exactly that command and got nothing, on a host that was backing up
+through exactly that command and gets nothing on a host that is backing up
 fine.
 """
 from __future__ import annotations
@@ -64,7 +64,7 @@ def test_an_unconfigured_host_still_writes_it_once(env_task):
 def test_the_reconcile_writes_a_complete_set_or_nothing(env_task):
     """_backup_configured is all four of repo + password + both S3 keys. A
     partial reconcile would replace a working file with half a credential set,
-    which is worse than the blank it was fixing."""
+    which is worse than the blank file it is there to fill."""
     cond = str(env_task["when"])
     assert " or " in cond.lower(), f"when={cond!r}"
     assert "_backup_configured" in cond

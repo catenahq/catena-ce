@@ -14,11 +14,11 @@ boundary.yml draws the line. This asserts three properties of it.
      rewrite the forced command is a reconcile that can rewrite what a
      reconcile is, and that is the whole reason the two sides exist.
 
-  3. NO reconcile role reads a value from the operator's inventory. This was a
-     ratchet counting down from 18, one value at a time, and it has reached
-     zero: every one is now a store key or a compiled-in product constant. It
-     stays a number rather than a bare assertion so the failure says how far
-     back a regression pushed it.
+  3. NO reconcile role reads a value from the operator's inventory. A ratchet,
+     counted down from 18 one value at a time and standing at zero: every one
+     is a store key or a compiled-in product constant. It stays a number rather
+     than a bare assertion so the failure says how far back a regression pushed
+     it.
 
 Run: uv run pytest tests/unit/test_converge_boundary.py
 """
@@ -162,9 +162,10 @@ def _files_on(side: str, b: dict) -> list[Path]:
 def test_no_reconcile_task_writes_a_bootstrap_owned_path():
     """Task files only, and never the ones an operator playbook owns.
 
-    A defaults file that names /etc/ssh because restic READS it is not a task
-    that writes it, and reconcile/roles/backup does exactly that. A rule that cannot tell
-    those apart is one people argue with instead of obeying.
+    A defaults file that names /etc/ssh because restic READS it stays out of
+    scope: reading a path and writing one are different acts, and
+    reconcile/roles/backup does the first. A rule that cannot tell those apart
+    is one people argue with instead of obeying.
 
     Comments are stripped for the same reason. The file that explains why a
     reconcile must not write the forced command has to be allowed to say so,

@@ -52,7 +52,7 @@ def test_an_empty_expression_is_refused_rather_than_defaulted():
 
 def test_the_weekly_backup_cap_is_still_its_own_rule():
     """Reusing one cap for both would mean either a monthly backup ceiling or a
-    weekly update one, and neither is the decision that was made."""
+    weekly update one, and neither is the rule this product states."""
     from backup_cadence_cap import backup_weekly_cap
     assert backup_weekly_cap("Sun *-*-* 03:00:00")
     with pytest.raises(ValueError):

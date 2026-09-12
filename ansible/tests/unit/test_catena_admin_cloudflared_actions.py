@@ -25,8 +25,8 @@ _ROLE = (
 )
 DEFAULTS = _ROLE / "defaults" / "main.yml"
 # The bootstrap-side half of the same panel: the runner account, the
-# sudoers drop-in, the forced command. Phase 1b made it a role of its
-# own so the boundary it was declared on could actually be held.
+# sudoers drop-in, the forced command. A role of its own, so the
+# bootstrap/reconcile boundary it sits on is one the layout can hold.
 _HOST_ROLE = (_ROLE.parents[2] / "bootstrap" / "roles"
               / "catena_admin_host")
 _HOST_DEFAULTS = _HOST_ROLE / "defaults" / "main.yml"

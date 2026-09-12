@@ -11,8 +11,9 @@ to its full timeout.
 Two rules carry the whole thing, and this file exists because both of them are
 about DELETING files on a client host:
 
-  1. delete only what is no longer DECLARED -- never merely "not installed
-     here", which is what a feature switched off looks like;
+  1. delete only what the product has withdrawn from its declaration -- never
+     merely "not installed here", which is what a feature switched off looks
+     like;
   2. delete only what is still byte-for-byte what a converge wrote -- these
      directories are shared with the panel payload.
 

@@ -156,8 +156,8 @@ def test_the_control_plane_write_keeps_its_completeness_guard():
 
 
 def test_the_companion_file_is_removed_when_nothing_contributed():
-    """Left behind, it would describe services this host no longer runs -- and
-    the whole point of rendering is that the file matches reality."""
+    """Left behind, it describes services this host does not run -- and the whole
+    point of rendering is that the file matches reality."""
     task = _task(TASKS, "no companions on this host")
     assert task["ansible.builtin.file"]["state"] == "absent"
     assert "_tier1_companions | length == 0" in str(task["when"])

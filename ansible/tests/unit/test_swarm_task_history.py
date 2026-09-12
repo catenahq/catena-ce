@@ -1,12 +1,11 @@
 """Swarm keeps one EXITED container per retained task record.
 
 Reported as "gatus v5.36.0 has 5 container instances, of which only 1 is
-running", with a guess that the random id docker appends to a stack's container
-names was creating duplicates. It was not. Five is Docker's default
-`--task-history-limit`, and nothing in this repo ever set it: swarm keeps five
-task records per service and one container each, so every service on a
-converged host showed five containers with one running, and the number was the
-limit rather than a symptom.
+running", guessed to be the random id docker appends to a stack's container
+names creating duplicates. Five is Docker's default `--task-history-limit`:
+swarm keeps five task records per service and one container each, so a service
+on a converged host shows five containers with one running, and the number is
+the limit rather than a symptom of anything.
 
 The two readings look identical from `docker ps -a` and are told apart by
 `docker service ps <svc> --no-trunc`: "Shutdown / Complete" rows are ordinary
@@ -72,8 +71,8 @@ def test_the_read_cannot_fail_the_play():
 
 
 def test_the_limit_is_set_after_the_swarm_exists():
-    """`docker swarm update` on a node that is not a manager exits non-zero.
-    The init above is what makes it one."""
+    """`docker swarm update` exits non-zero unless the node is a manager, and
+    the init above is what makes it one."""
     names = [str(t.get("name", "")) for t in _tasks()]
     init = next(i for i, n in enumerate(names) if "init single-node swarm" in n)
     bound = next(i for i, n in enumerate(names) if "bound task history" in n)

@@ -1,16 +1,15 @@
 """Scheduling, retention, and every host config file have exactly one owner.
 
-Every defect this replaced was a second source of truth:
+Every defect in this family is a second source of truth:
 
-  - retention was templated into backup.env AND read from flat
-    config.BACKUP_KEEP_* keys at runtime -- and backup.env is written
-    only-if-absent, so on any host that already had it the converge's copy
-    was dead while the store's copy was live;
-  - the tier filter existed twice, in this repo and in ops, and the ops test
-    suite imported the ops copy that no playbook used;
-  - timer enable would have been owned by both this role and
-    `catena-schedule apply`, which disagree the moment somebody turns a lane
-    off in the panel and the next converge turns it back on.
+  - retention templated into backup.env AND read from flat config.BACKUP_KEEP_*
+    keys at runtime -- and backup.env is written only-if-absent, so on a host
+    that already has it one copy is live and the other is dead;
+  - the tier filter written twice, in this repo and in ops, with the ops test
+    suite importing the ops copy that no playbook runs;
+  - timer enable owned by both this role and `catena-schedule apply`, which
+    disagree the moment somebody turns a lane off in the panel and the next
+    converge turns it back on.
 
 So these are structural assertions, not behavioural ones. They fail when a
 second writer appears.
@@ -169,11 +168,11 @@ def test_the_daily_env_does_not_carry_a_schedule():
 
 # ─── the other lanes can start at all ──────────────────────────────────
 #
-# daily.env was not the only one. catena-auto-update{,@,-resume}.service and
+# daily.env is not the only one. catena-auto-update{,@,-resume}.service and
 # catena-stack-update-managed.service declare their EnvironmentFile with no
 # leading dash too, and the container engine's --specs-file defaults to a path
-# nothing wrote. All four were missing on every real host for the same reason,
-# and stayed invisible for the same reason: the bench shipped its own copies.
+# nothing writes. All four go missing on a real host for the same reason, and
+# stay invisible for the same reason: the bench ships its own copies.
 
 LANE_CONFIG_TEMPLATES = (
     "auto-update.env.j2",
@@ -227,11 +226,11 @@ def test_the_offsite_env_is_rendered_every_converge_not_only_if_absent():
 
 
 def test_which_buckets_get_copied_is_not_a_converge_input():
-    # Nine keys used to be, across backup-worm.env and the settings schema,
-    # and they described exactly two copies named after the buckets they
-    # happened to point at. The list lives in /etc/catena/config.json now,
-    # which catena-admin writes and the lane reads straight off disk -- so a
-    # client adding a copy does not need a converge, and no key here can go
+    # Nine converge keys across backup-worm.env and the settings schema can
+    # describe exactly two copies, named after the buckets they happen to point
+    # at. The list lives in /etc/catena/config.json instead, which catena-admin
+    # writes and the lane reads straight off disk -- so a client adding a copy
+    # does not need a converge, and no key here can go
     # stale against it.
     offsite_env = ANSIBLE / "reconcile" / "roles" / "backup" / "templates" / "offsite.env.j2"
     body = _code(offsite_env)

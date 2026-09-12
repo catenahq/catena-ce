@@ -98,13 +98,13 @@ def test_clamav_is_a_swarm_stack_on_an_overlay():
     bridge here would stop the mailserver and Nextcloud templates from
     deploying, not merely keep clamd off swarm.
 
-    What kept it a bridge was a deadlock: an attachable overlay is
-    materialized on a node only once a swarm task there uses it, and a
-    STANDALONE container asking for an unmaterialized one stays Created
-    ("network catena-clamav not found", bench 050b). Both consumers were
-    standalone containers; the only swarm task that would have materialized
-    the network was clamd, which does not deploy until a consumer runs. Both
-    consumers are swarm services now, so the first of them materializes it.
+    The deadlock a bridge avoids: an attachable overlay is materialized on a
+    node only once a swarm task there uses it, and a STANDALONE container asking
+    for an unmaterialized one stays Created ("network catena-clamav not found",
+    bench 050b). With standalone consumers the only swarm task that could
+    materialize the network is clamd, which does not deploy until a consumer
+    runs. Both consumers are swarm services, so the first of them materializes
+    it and the deadlock has no hold.
     """
     tasks = (ANSIBLE / "reconcile/roles/infrastructure/tasks/clamav.yml").read_text(
         encoding="utf-8")

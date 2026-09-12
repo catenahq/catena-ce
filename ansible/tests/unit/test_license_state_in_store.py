@@ -1,12 +1,12 @@
 """A converge must never clear an activated licence.
 
-The token used to reach the shell only as a container environment variable,
-which made Portainer's stack Env its de-facto home and
-`merge_env_portainer`'s preserve rule the only thing standing between a CE
-re-converge and a dropped activation. It now lives in the on-box store
-(`catena-admin/license/onbox.go` reads `secrets.catena_license`, with the env
-as a bench-only fallback), which is what lets catena-admin move off the
-Portainer stack API without taking activation with it.
+The token lives in the on-box store: `catena-admin/license/onbox.go` reads
+`secrets.catena_license`, with the container environment as a bench-only
+fallback. A token reaching the shell ONLY through that environment makes
+Portainer's stack Env its de-facto home, leaving `merge_env_portainer`'s
+preserve rule as the only thing between a CE re-converge and a dropped
+activation -- and catena-admin is deployed against the local swarm, not through
+the Portainer stack API at all.
 
 That only holds while the store side stays fill-only. These tests pin the two
 properties it rests on: the store owns the key, and nothing in the converge

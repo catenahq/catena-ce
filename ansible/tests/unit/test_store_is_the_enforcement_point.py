@@ -1,8 +1,8 @@
 """The settings registry is what the converge is allowed to read, enforced.
 
-The registries in helpers/onbox_config.py used to be a description: a list of
-keys, accurate because somebody kept it accurate. This gate makes them the
-authority.
+The registries in helpers/onbox_config.py are the authority, not a description.
+A list of keys that is accurate only while somebody keeps it accurate enforces
+nothing; this gate is what makes them binding.
 
 Three properties, and they are three different failures.
 

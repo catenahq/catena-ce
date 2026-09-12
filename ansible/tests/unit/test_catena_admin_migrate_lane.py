@@ -9,12 +9,12 @@ of those has a way of going quietly wrong:
      without one, so the declaration is defence in depth -- but it is
      ALSO what puts the port in the effective set validation reads. An
      undeclared listener reads as an unexpected open port.
-  2. The eight action names are NOT in either of this repo's dispatch
-     lists any more. They moved into the payload's own drop-in
-     (catena-admin payload/actions.d/10-business.sh), because every
-     command behind them is a binary the payload installs at a path the
-     payload chose -- so this repo was authorizing names it does not own
-     and cannot verify. What each command must LOOK like is asserted
+  2. The eight action names are authorised by the payload's own drop-in
+     (catena-admin payload/actions.d/10-business.sh), not by either of
+     this repo's dispatch lists. Every command behind them is a binary
+     the payload installs at a path the payload chose, so an entry here
+     would authorise a name this repo neither owns nor can verify. What
+     each command must LOOK like is asserted
      there; what is asserted here is that they left, because a name in
      both places is dispatched by the converge's arm and the drop-in is
      never reached.
@@ -36,8 +36,8 @@ _ROLE = (
 )
 DEFAULTS = _ROLE / "defaults" / "main.yml"
 # The bootstrap-side half of the same panel: the runner account, the
-# sudoers drop-in, the forced command. Phase 1b made it a role of its
-# own so the boundary it was declared on could actually be held.
+# sudoers drop-in, the forced command. A role of its own, so the
+# bootstrap/reconcile boundary it sits on is one the layout can hold.
 _HOST_ROLE = (_ROLE.parents[2] / "bootstrap" / "roles"
               / "catena_admin_host")
 _HOST_DEFAULTS = _HOST_ROLE / "defaults" / "main.yml"

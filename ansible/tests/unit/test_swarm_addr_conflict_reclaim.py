@@ -96,10 +96,9 @@ def test_classifiers_read_both_streams_and_the_per_task_errors():
 
 
 def test_the_per_task_diag_runs_before_classification_and_is_ungated():
-    """It was a pre-fail diagnostic, gated on `not transient` and placed after
-    the classifiers -- so the one output that carries a paused update's cause
-    was collected only once the code had already decided the cause was
-    unknown."""
+    """A pre-fail diagnostic, gated on `not transient` and placed after the
+    classifiers, collects the one output carrying a paused update's cause only
+    after the code has already decided the cause is unknown."""
     names = [t.get("name") or "" for t in _walk(_tasks(ATTEMPT))]
     diag = next(i for i, n in enumerate(names) if "diag -- per-task state" in n)
     classify = next(

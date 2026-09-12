@@ -3,7 +3,7 @@
 `include_tasks` with `tags:` fires the include when the tag is selected, but
 the tasks INSIDE it are filtered out unless `apply:` re-tags them. The result
 is a tag-scoped converge that does nothing while reporting ok/changed=0 --
-indistinguishable from a role that was already converged.
+indistinguishable from a role with nothing left to do.
 
 Twice now:
 

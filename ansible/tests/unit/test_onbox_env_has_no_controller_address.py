@@ -17,8 +17,8 @@ run 2026-08-31T14-59-08-adca reported that as "traefik did not route
 'book.11003300.xyz'", with the app healthy at 1/1 and its vps.route.host
 label correct -- three layers from the cause.
 
-It is the same reason these files were never idempotent: an address that
-changes between converges rewrites the file every time.
+It is the same reason these files are not idempotent: an address that changes
+between converges rewrites the file every time.
 
 Run: uv run pytest tests/unit/test_onbox_env_has_no_controller_address.py
 """
@@ -124,11 +124,12 @@ def test_no_role_template_renders_the_controller_address():
 
 
 def test_the_admin_known_hosts_scan_does_not_depend_on_a_reachable_address():
-    """ssh-keyscan runs ON the box and was dialling the box's own
-    public-or-tailnet address for a key it serves on loopback. It exits 0 with
-    empty stdout when it cannot reach what it was given, and nothing checked,
-    so an address the box could not dial wrote an EMPTY known_hosts -- after
-    which every panel action fails host key verification, naming nothing."""
+    """ssh-keyscan runs ON the box, so loopback addresses the sshd whose key it
+    wants. Aimed at the box's own public-or-tailnet address it asks for the same
+    key over a route that can fail -- and it exits 0 with empty stdout when it
+    cannot reach what it is given, so an unreachable address writes an EMPTY
+    known_hosts and every panel action then fails host key verification, naming
+    nothing."""
     body = (_ANSIBLE / "bootstrap/roles/catena_admin_host/tasks/main.yml").read_text()
     start = body.index("- name: \"SSH dir: scan this host's own key")
     scan = body[start:body.index("\n- name:", start + 1)]

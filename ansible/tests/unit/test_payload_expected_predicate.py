@@ -1,13 +1,13 @@
 """One predicate for "is the payload expected on this host", not five.
 
-The question was asked in five places and answered two ways. reconcile/roles/payload
+Five callers ask the question, across two read paths. reconcile/roles/payload
 publishes `catena_payload_engines_expected` during a converge, so
-reconcile/roles/cloudflare_tunnel and reconcile/roles/backup/tasks/install.yml read the fact; a
-standalone validate play cannot see a set_fact from a role that is not in its
-play, so reconcile/roles/backup/tasks/validate.yml read the env var. Both were right
-locally, and the divergence was not cosmetic -- only the validate side also
-accepted "or the file is already here", so the converge side could not tell
-NOT YET from PARTIALLY INSTALLED, which is the one case worth catching.
+reconcile/roles/cloudflare_tunnel and reconcile/roles/backup/tasks/install.yml
+read the fact; a standalone validate play cannot see a set_fact from a role that
+is not in its play, so reconcile/roles/backup/tasks/validate.yml reads the env
+var. Each path is locally correct, which is why the answer is shared rather than
+restated: the leg that accepts "or the file is already here" separates NOT YET
+from PARTIALLY INSTALLED, and a caller without it cannot tell those apart.
 
 These pin that there is now one implementation, that every caller uses it, and
 that it still answers correctly for both kinds of play.

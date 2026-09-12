@@ -67,7 +67,7 @@ def test_the_seed_still_authenticates_as_superuser():
     """`_superusers` is a different collection from the `users` one OIDC
     governs, which is why enabling OIDC does not break the seed. If this ever
     moves to the users collection, DISABLE_PASSWORD_AUTH stops being a free
-    choice and this file's reasoning no longer holds."""
+    choice and this file's reasoning stops holding with it."""
     assert "/api/collections/_superusers/auth-with-password" in SEED.read_text()
 
 

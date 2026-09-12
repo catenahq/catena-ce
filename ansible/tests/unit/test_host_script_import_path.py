@@ -13,8 +13,8 @@ directory first would keep importing the stale siblings. Green, running the
 previous release's logic -- the worst outcome available, because nothing fails.
 
 Putting the payload's lib first makes its copy win whenever there is one. On a
-host where the payload ships no lib the entry resolves nothing, and behaviour is
-exactly what it was.
+host where the payload ships no lib the entry resolves nothing and the search
+falls through to the script's own directory, leaving a single search path.
 
 Run: uv run pytest tests/unit/test_host_script_import_path.py
 """
@@ -44,10 +44,10 @@ def _inserters() -> list[Path]:
 def test_there_are_scripts_to_check():
     """Guards the guard: an empty set would pass every assertion below.
 
-    Most of this cluster moved into the catena-admin payload. What is left is
-    the public-ports reconciler, which is genuinely converge-owned: its correct
-    value changes when the HOST's declared ports change, not when the product
-    does."""
+    The catena-admin payload carries most of this cluster. What this repo ships
+    is the public-ports reconciler, which is genuinely converge-owned: its
+    correct value changes when the HOST's declared ports change, not when the
+    product does."""
     names = [p.name for p in _inserters()]
     assert names, "no host script pins sys.path any more"
     assert "catena-public-ports.py" in names, names

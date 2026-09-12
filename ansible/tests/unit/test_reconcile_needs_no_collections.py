@@ -196,10 +196,10 @@ def test_the_gate_catches_the_defect_it_was_written_for():
     """The detector, run against the task that shipped.
 
     Both tests above pass on the current tree, and a detector that passes is
-    indistinguishable from one that looks at nothing. This feeds them the
-    shape that was actually there -- a collection module, guarded by a
-    condition, inside an included task list -- and the nearest legitimate
-    neighbour, so the gate is shown to separate them."""
+    indistinguishable from one that looks at nothing. This feeds them the shape
+    that reaches a host -- a collection module, guarded by a condition, inside
+    an included task list -- and the nearest legitimate neighbour, so the gate
+    is shown to separate them."""
     shipped = yaml.safe_load("""
     - name: "RC Jitsi: open JVB media UDP (10000) when RC is deployed"
       community.general.ufw:
@@ -257,10 +257,9 @@ def test_the_gate_sees_inside_a_block():
 def test_the_vendored_tree_cannot_carry_collections():
     """The premise, asserted rather than remembered.
 
-    If `.collections/` ever became tracked, the two tests above would be
-    enforcing a restriction that no longer applies -- and the honest response
-    would be to delete them, not to keep obeying them. This is what would say
-    so."""
+    If `.collections/` ever becomes tracked, the two tests above enforce a
+    restriction that has stopped applying -- and the honest response is to
+    delete them, not to keep obeying them. This is what says so."""
     ignore = (_ANSIBLE / ".gitignore").read_text(encoding="utf-8")
     assert ".collections/" in ignore, (
         "ansible/.gitignore no longer ignores .collections/. If the galaxy "

@@ -1,9 +1,9 @@
 """The repo integrity check follows the backup; the bit-rot read is a lane.
 
-Before this split, `catena-restic-check` ran ONLY as the RESTIC_CHECK state
-inside the catena-daily chain -- and that chain is the licensed lane. A
-Community host therefore wrote a backup every week and never checked the
-repository at all. There was no timer for it and no other caller.
+The metadata check is tied to the backup itself, not to the RESTIC_CHECK state
+inside the catena-daily chain: that chain is the licensed lane, so a check
+reachable only from there leaves a Community host writing a backup every week
+and never checking the repository at all.
 
 Two halves, two cadences, for reasons that differ:
 

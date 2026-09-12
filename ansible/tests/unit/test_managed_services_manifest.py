@@ -1,10 +1,10 @@
 """The manifest of what the on-host update lane is allowed to bump.
 
-It covered 2 of a dozen infra services. The rest fell out of the only dynamic
-discovery path when they moved from Portainer stacks to `docker stack deploy`,
-and were never added to the explicit one -- so the lane ran, found nothing to
-do for them, and reported that as a clean run. Indistinguishable from "nothing
-needed bumping".
+A service reaches the lane one of two ways: dynamic discovery, or this explicit
+manifest. `docker stack deploy` services fall outside the dynamic path, so one
+missing from the manifest is one the lane never bumps -- and the lane runs,
+finds nothing to do for it, and reports that as a clean run. Indistinguishable
+from "nothing needed bumping".
 
 What matters per entry: it names a swarm service that actually exists, and its
 image resolves through the pin filter. An entry naming a service that is not

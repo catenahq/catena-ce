@@ -8,11 +8,11 @@ beszel-seed and the host-network Beszel agent are all HOST processes that dial
 them. `scope: loopback` is what keeps the old posture: the box reaches the
 port, nothing else does.
 
-The failure this pins is specific and silent. `_ufw_spec` used to hardcode
-"allow" as the first word of the spec. Feed it a deny rule and it does not
-merely fail to guard the port -- it runs `ufw allow` on the port it was asked
-to close, records that as applied, and every artifact validation reads then
-says the host is guarded.
+The failure this pins is specific and silent. `_ufw_spec` has to READ the
+action from the rule: with "allow" hardcoded as the first word of the spec, a
+deny rule does not merely fail to guard the port -- it runs `ufw allow` on the
+port it is asked to close, records that as applied, and every artifact
+validation reads then says the host is guarded.
 
 Run: uv run pytest tests/unit/test_public_ports_loopback_scope.py
 """
@@ -77,8 +77,8 @@ def test_docker_bind_adds_a_dnat_drop_with_no_allowed_source():
     # published port: declared bind=host, the ufw deny installs cleanly and
     # the port stays reachable off-box (bench 050b found 18000, 18080 and
     # 18190 open on the bridge IP). Unlike tailnet/rfc1918 there is no source
-    # to RETURN first -- anything reaching that chain came from off-box,
-    # since 127.0.0.1 is delivered on loopback and never traverses FORWARD.
+    # to RETURN first: anything reaching that chain came from off-box, because
+    # 127.0.0.1 is delivered on loopback and never traverses FORWARD.
     plan = pp.rule_plan([_entry(bind="docker")])
     assert [(r["engine"], r["action"]) for r in plan] == [
         ("ufw", "deny"),
@@ -107,7 +107,7 @@ def test_generated_inventory_explains_the_scope():
     assert "9021" in doc
 
 
-# --- the reconciler renders the action it was given -----------------------
+# --- the reconciler renders the action it is given ------------------------
 
 def test_ufw_spec_renders_deny_not_allow():
     mod = _reconciler()

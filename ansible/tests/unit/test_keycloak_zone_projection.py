@@ -60,7 +60,8 @@ def test_extra_hosts_are_built_from_the_resolved_secondaries():
     extra = task["vars"]["svc_domain_extra_hosts"]
     assert "_kc_secondary_zones" in extra
     assert "keycloak_subdomain" in extra
-    # The retired fact must be gone: it was the multi-domain overlay's output.
+    # cloudflare_zones is the multi-domain overlay's output and has no business
+    # here: the resolved secondaries are what this render reads.
     assert "cloudflare_zones" not in extra
 
 

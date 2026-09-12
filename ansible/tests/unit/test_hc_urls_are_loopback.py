@@ -68,9 +68,9 @@ def test_every_host_side_ping_keeps_its_override():
     """Loopback is the DEFAULT, not a lock-in: an operator pointing a lane at
     an off-host endpoint must still win.
 
-    The override moved from a live `.env` read to the on-box store (the `.env`
-    seeds it once on the first converge), so what has to be present is the
-    projected `cfg_` fact ahead of the computed loopback URL."""
+    The override lives in the on-box store, which the `.env` seeds once on the
+    first converge, so what has to be present is the projected `cfg_` fact
+    ahead of the computed loopback URL."""
     backup = _defaults(BACKUP_DEFAULTS)
     for key in HOST_SIDE:
         value = backup[key]
