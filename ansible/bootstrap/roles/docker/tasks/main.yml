@@ -121,18 +121,15 @@
 # can fail under "Packages were downgraded and -y was used without
 # --allow-downgrades" if the catalog version on the host's apt index
 # differs from the dpkg-recorded version (e.g. an installer
-# pinned to a different docker-ce version). Mirror restore.sh's
-# stronger recovery: dpkg --purge --force-all the stale records
-# first, then re-install via apt module clean.
+# pinned to a different docker-ce version). Purge the stale dpkg
+# records with --force-all, then re-install cleanly via the apt
+# module.
 #
 # --force-all skips dependency checks (the docker-ce-rootless-extras
 # / containerd.io / docker-buildx-plugin chain depends on each other
 # and can't be purged in isolation under default policy). Purging
 # stale records doesn't touch on-disk binaries (there are none --
 # that's the precondition), only the dpkg DB.
-#
-# Locked in against the DR path (catena recover) by
-# tests/unit/test_restore_sh_ansible_parity.py.
 - name: "Purge stale docker dpkg state (DR phantom-installed recovery)"
   ansible.builtin.command:
     argv:
@@ -301,7 +298,7 @@
 # and a data-loss event: swarm will happily reschedule a service with a LOCAL
 # named volume onto another node and create a fresh EMPTY volume there, with
 # no error. The container starts, the data is simply gone. That is the
-# documented, unsolved failure in Dokploy's multi-node story, and the cheapest
+# known Docker Swarm gotcha with local named volumes, and the cheapest
 # possible moment to close it is now, while there is only one node and the
 # constraint costs nothing.
 #

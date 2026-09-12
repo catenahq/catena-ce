@@ -37,10 +37,10 @@
   # (dotenv), not role defaults (out of scope in pre_tasks). Bypass for
   # offline dev with -e skip_external_preflight=true.
   pre_tasks:
-    # 0b: load the on-box config store (/etc/catena/config.json). Runs FIRST so
-    # downstream roles read the on-box secret facts. This is the source of
-    # truth now that SOPS was dropped: it adopts the seed's plaintext externals,
-    # MINTS every internal service secret on-box, and set_facts them. See
+    # Load the on-box config store (/etc/catena/config.json). Runs FIRST so
+    # downstream roles read the on-box secret facts. It is the source of
+    # truth: it adopts the seed's plaintext externals, MINTS every internal
+    # service secret on-box, and set_facts them. See
     # tasks/load_onbox_config.yml.
     - name: "0b: load on-box config store"
       # apply: propagate [always] to every task INSIDE the include. Without

@@ -3,8 +3,8 @@
 # Managed by reconcile/roles/traefik. Do NOT edit by hand -- changes are
 # clobbered on the next `./catena site` run.
 #
-# Static Traefik config for the catena-owned `catena-traefik` container.
-# Same content Dokploy's install.sh writes at first boot PLUS:
+# Static Traefik config for the catena-owned `catena-traefik` container,
+# with two additions on top of the base entryPoints/providers/api config:
 #
 #   1. entryPoints.<entrypoint>.forwardedHeaders.trustedIPs
 #      Tells Traefik to trust X-Forwarded-* headers from the overlay

@@ -4,8 +4,8 @@ At one node a placement constraint is a no-op, which is exactly why this is
 easy to get wrong and expensive to discover. The moment a second node joins,
 swarm will reschedule a service carrying a node-LOCAL named volume onto the
 new node and create a fresh EMPTY volume there. No error, no warning: the
-container starts and the data is simply not there. That is the documented,
-unsolved failure in Dokploy's multi-node story, and the constraint is what
+container starts and the data is simply not there. That is a known Docker
+Swarm gotcha with local named volumes, and the constraint is what
 makes `docker swarm join` a safe operation instead of a data-loss event.
 
 WHAT THIS FILE COVERS. The tier-1 constraints live in the host engine

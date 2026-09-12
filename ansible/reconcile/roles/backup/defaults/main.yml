@@ -566,7 +566,7 @@ backup_export_keep_last: 1 # rotation: keep only the newest N exports
 backup_snapshot_list_script: /usr/local/bin/catena-snapshot-list
 
 # Restore mode -- snapshot id selector. Operator/runner passes
-# `restore_snapshot` via -e (cli) or the Semaphore Template survey;
+# `restore_snapshot` via -e (cli or ansible-playbook);
 # composed flows (fresh_install / migrate / disaster_recovery) gate
 # on whether the OUTER scope's `restore_snapshot` is set, so this
 # fallback lives under a role-private name and the role tasks derive

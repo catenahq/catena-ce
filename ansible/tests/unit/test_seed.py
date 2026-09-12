@@ -1,8 +1,8 @@
 """Unit tests for the Community installer's seed.py.
 
-Covers the Community decomposition: the plaintext (post-SOPS, 0b) vault
-emit, the trimmed VAULT_SKIP_KEYS / ENV_OPTIONS (no managed-lifecycle
-knobs), the CE-only service-secret minting, and the file-emit helpers."""
+Covers the Community decomposition: the plaintext vault emit, the trimmed
+VAULT_SKIP_KEYS / ENV_OPTIONS (no managed-lifecycle knobs), the CE-only
+service-secret minting, and the file-emit helpers."""
 from __future__ import annotations
 
 import importlib.util
@@ -306,7 +306,8 @@ def test_absorb_provided_secrets_passes_through_full_keyset(seed):
 
 
 def test_seed_has_no_sops_age_helpers(seed):
-    """0b dropped SOPS+age: the self-recipient / age-key machinery is gone."""
+    """No self-recipient / age-key machinery remains: emit_self_sops_yaml and
+    _resolve_self_age_key do not exist."""
     for gone in ("emit_self_sops_yaml", "_resolve_self_age_key"):
         assert not hasattr(seed, gone), f"{gone} should be removed"
 

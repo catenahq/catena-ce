@@ -50,8 +50,8 @@ services:
     # distroless-ish image with no wget/curl/nc, so a CMD healthcheck
     # fails with "executable not found" and the container gets marked
     # unhealthy regardless of whether Gatus itself is serving. That
-    # false-unhealthy signal paged the operator via Netdata Cloud (also
-    # seen mid-Apr 2026). Gatus self-probes /health via its own endpoint
+    # false-unhealthy signal paged the operator (also seen mid-Apr 2026).
+    # Gatus self-probes /health via its own endpoint
     # config (see gatus-base.yaml.j2 "Gatus (self-check)"), which is the
     # authoritative signal -- a second Docker-level check added nothing
     # except a failure mode.

@@ -190,9 +190,7 @@
 # (e.g. tailscale role re-installs its archive keyring on every
 # converge, so the restored .list works again after the next site.yml).
 #
-# Mirrors client-tools/restore.sh::step_sanitize_apt_sources verbatim.
-# Locked in by tests/unit/test_restore_sh_ansible_parity.py. The
-# backup_stats_dir path is hardcoded /var/lib/catena rather than
+# The backup_stats_dir path is hardcoded /var/lib/catena rather than
 # templated against reconcile/roles/backup/defaults to keep this role free of
 # a backup dependency; that path is the locked-in marker location
 # (test_restore_option_a guards it).

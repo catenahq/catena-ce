@@ -29,9 +29,9 @@ ansible-playbook. Subcommands:
              apt-daily-upgrade.timer (the unattended-upgrades handback)
              and print teardown guidance
 
-The vault is a PLAINTEXT group_vars file (SOPS+age was dropped, project 0b);
-the on-box config store (/etc/catena/config.json) is the runtime source of
-truth and rides the restic backup. Run inside the catena-ce checkout:
+The vault is a PLAINTEXT group_vars file; the on-box config store
+(/etc/catena/config.json) is the runtime source of truth and rides the
+restic backup. Run inside the catena-ce checkout:
 
     uv run ./catena prod install
 
@@ -91,8 +91,7 @@ RECOVER_CHAIN = ("preflight", "bootstrap", "restore", "site", "validate")
 ROLLBACK_CHAIN = ("preflight", "restore", "site", "validate")
 
 # Host binaries the wrapper shells out to. ansible-playbook/ansible run the
-# base. SOPS+age was dropped (0b): the vault is plaintext, so no sops /
-# age-keygen prereq remains.
+# base; the plaintext vault needs no separate secret-tooling binary.
 REQUIRED_BINARIES = ("ansible-playbook", "ansible")
 
 
@@ -121,7 +120,7 @@ def inventory_path(inventory: str) -> Path:
 def resolve_inventory(args: argparse.Namespace) -> Path:
     """The inventory DIRECTORY a command runs against: an explicit
     --inventory-path (an inventory OUTSIDE this checkout -- e.g. an operator's
-    ops-side inventory driven from Semaphore), else the named directory under
+    ops-side inventory driven by external automation), else the named directory under
     ANSIBLE_DIR/inventory. Pure -- unit-testable."""
     path = getattr(args, "inventory_path", None)
     if path:
@@ -148,7 +147,7 @@ def _add_inventory_args(parser: argparse.ArgumentParser, *, required: bool) -> N
     """Add the mutually-exclusive --inventory / --inventory-path pair. A NAME
     resolves under ansible/inventory/; a PATH points at an inventory directory
     OUTSIDE the checkout (an operator driving an ops-side inventory from
-    Semaphore, say). `required` is False only for `install`, which prompts."""
+    external automation, say). `required` is False only for `install`, which prompts."""
     group = parser.add_mutually_exclusive_group(required=required)
     group.add_argument("--inventory",
                        help="inventory name (directory under ansible/inventory/)")
@@ -287,7 +286,7 @@ def ensure_collections() -> None:
     on first run if they are not already present. Honors
     ANSIBLE_COLLECTIONS_PATH: when set (first path wins), install there instead
     of the in-tree dir -- so the CLI can run from a READ-ONLY checkout (e.g.
-    driven from a Semaphore runner against a :ro catena-ce mount) by pointing
+    driven from a CI runner against a :ro catena-ce mount) by pointing
     at a writable location, which ansible then also reads.
 
     The in-tree default MUST match ansible.cfg's collections_path. It did not

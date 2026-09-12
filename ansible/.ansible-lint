@@ -2,7 +2,7 @@
 # ansible-lint config for the catena automation tree.
 #
 # skip_list documents intentional deviations from ansible-lint defaults.
-# Each entry must justify the call — these are not "noise we don't like",
+# Each entry must justify the call -- these are not "noise we don't like",
 # they're deliberate project conventions.
 
 # Files in playbooks/ that are actually task lists (consumed via
@@ -26,7 +26,7 @@ skip_list:
   # Tasks use a `<scope>: lowercase action description` naming
   # convention (e.g. `auto_update: render env file`, `tailnet: probe
   # container IP`). The scope prefix is a structured tag, not a
-  # sentence — capitalizing the first letter to satisfy name[casing]
+  # sentence -- capitalizing the first letter to satisfy name[casing]
   # produces grammatically broken `Auto_update:` / `Tailnet:` strings.
   # 290+ task names follow this convention; the rule's auto-fix makes
   # the codebase strictly worse, so the rule is skipped repo-wide.

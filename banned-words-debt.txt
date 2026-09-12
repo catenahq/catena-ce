@@ -1,0 +1,6 @@
+# Files exempt from contracts/scripts/check-unicode.mjs's banned-word scan.
+# One `path -- reason` per line. A listed file that is clean fails the gate,
+# so draining a file means deleting its entry in the same commit.
+
+ansible/tests/external/scan_ports.py -- uses asyncio.Semaphore, the stdlib primitive, not the retired CI tool
+ansible/tests/unit/test_catena_cli.py -- asserts sops/age-keygen are NOT in REQUIRED_BINARIES; quoting them is the point of the test

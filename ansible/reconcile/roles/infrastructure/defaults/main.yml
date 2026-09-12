@@ -85,7 +85,7 @@ infrastructure_deploy_poll_delay: 5
 # reconcile/roles/infrastructure/tasks/_swarm_stack_deploy_attempt.yml.
 infrastructure_deploy_max_attempts: 5
 
-# --- Gatus (replaces Uptime Kuma; see DEBUGGING.md "Kuma -> Gatus pivot") --
+# --- Gatus (on-host uptime monitor) ---------------------------------------
 # Config-as-code monitor. All Jinja-rendered config lives under
 # {{ gatus_host_config_dir }}/; Gatus loads every *.yaml alphabetically.
 # 00-base.yaml (Ansible-managed) + 50-catena-apps.yaml (gatus-sync) +
@@ -129,8 +129,7 @@ gatus_summary_file: "{{ gatus_summary_dir }}/gatus-summary.json"
 
 # --- Healthchecks (self-hosted, cron/dead-man monitoring) ----------------
 # The OSS project behind healthchecks.io. One container, SQLite, no
-# metrics firehose. Replaces the previous Netdata-based monitoring
-# (too noisy, too broad) AND the healthchecks.io SaaS dependency.
+# metrics firehose and no healthchecks.io SaaS dependency.
 # Named Docker volume -> backed up by restic along with other volumes.
 healthchecks_image_tag: "v4.3"
 healthchecks_image: >-
@@ -240,10 +239,9 @@ beszel_hc_shim_image: >-
 # Host dir the shim script is dropped into + bind-mounted read-only.
 beszel_hc_shim_host_dir: "/etc/catena/beszel-hc-shim"
 
-# Semaphore (the operator's CI/Ansible runner) and stack-update (the
-# weekly managed container-BUMP engine) are Business-edition / operator-
-# side capabilities, not part of Community. Their roles/templates live in
-# the private repos; nothing here deploys them.
+# stack-update (the weekly managed container-BUMP engine) is a
+# Business-edition / operator-side capability, not part of Community.
+# Its roles/templates live in the private repos; nothing here deploys it.
 
 # version-check (the current-vs-latest Versions report) is CE: a
 # self-hosted Community deployment sees its own version + CVE-visibility

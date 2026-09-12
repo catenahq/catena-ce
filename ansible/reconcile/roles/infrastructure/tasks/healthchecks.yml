@@ -2,7 +2,7 @@
 # Deploy self-hosted Healthchecks as a Portainer-managed compose app ->
 # heartbeat.<zone>. Purpose-built cron/dead-man monitoring -- the OSS
 # project behind healthchecks.io. One container, SQLite, no metrics,
-# ntfy-capable. Replaces the Netdata detour earlier in the session.
+# ntfy-capable.
 #
 # Auto-provision: healthchecks_ping_key is a random value minted
 # at install time. The backup script pings

@@ -115,8 +115,8 @@ def _key_already_works(host: str, user: str, privkey: str) -> bool:
 
     When `privkey` points at a file the caller can read, ssh pins to it
     via `-i` + `IdentitiesOnly=yes` to avoid drifting onto an unrelated
-    agent identity. When the file is unreadable (e.g. running inside the
-    Semaphore worker container, where the host's 0600 key files are not
+    agent identity. When the file is unreadable (e.g. running inside an
+    automation container, where the host's 0600 key files are not
     accessible to the container user), fall through to whatever
     identities `$SSH_AUTH_SOCK` offers -- the authorised key is the
     same, the auth path is just agent-mediated.

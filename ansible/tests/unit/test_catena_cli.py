@@ -281,8 +281,8 @@ def test_check_prereqs_all_present(cli, monkeypatch):
 
 
 def test_required_binaries_drop_sops_and_age(cli):
-    """SOPS+age was dropped (0b): the vault is plaintext, so neither sops nor
-    age-keygen is a prereq, and there is no seed-only binary set anymore."""
+    """The vault is plaintext, so neither sops nor age-keygen is a
+    prerequisite, and there is no seed-only binary set."""
     assert cli.REQUIRED_BINARIES == ("ansible-playbook", "ansible")
     assert "sops" not in cli.REQUIRED_BINARIES
     assert "age-keygen" not in cli.REQUIRED_BINARIES
@@ -600,7 +600,8 @@ def test_rotate_tailscale_runs_playbook(cli, monkeypatch):
 
 
 # ---- --inventory-path: drive an inventory OUTSIDE the checkout ----
-# (an operator pointing the CLI at an ops-side inventory from Semaphore).
+# (an operator pointing the CLI at an ops-side inventory driven by
+# external automation).
 
 def test_resolve_inventory_name_resolves_under_checkout(cli):
     ns = cli.build_parser().parse_args(["converge", "--inventory", "prod"])

@@ -87,7 +87,7 @@ register is operator-internal, but an ID that does not exist -- or one
 that was retired -- fails the build, so a claim here cannot outlive the
 guarantee behind it).
 
-The admin panel's source is not published. Its binary is not obfuscated:
+The admin panel's source is not published. Its binary is a plain, reproducible build:
 [verify what you run](https://docs.catena.run/en/trust/verify-what-you-run/)
 walks through checking the signature, reading the component inventory,
 and scanning the image yourself. The signature and inventory arrive with

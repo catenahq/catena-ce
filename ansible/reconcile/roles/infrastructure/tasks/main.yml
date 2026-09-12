@@ -97,17 +97,13 @@
 # the hub stores history and serves hub.<zone> (admin-gated via
 # oauth2-proxy). A small shim forwards Beszel threshold alerts into
 # the Healthchecks plane. Part of the base plane, not opt-in -- the
-# BESZEL_ENABLED off-switch was removed 2026-07-29.
+# No BESZEL_ENABLED off-switch: this task is unconditional.
 - name: Beszel (hub + agent + Healthchecks alert shim)
   ansible.builtin.include_tasks:
     file: beszel.yml
     apply:
       tags: [beszel]
   tags: [beszel]
-
-# Semaphore (the operator's Ansible runner) is operator-only
-# infrastructure -- it is not part of the Community edition and is not
-# deployed here.
 
 # ─── client-template wiring (needs Portainer alive) ──────────────────────
 - name: Has Portainer API key -> wire the client-template apps

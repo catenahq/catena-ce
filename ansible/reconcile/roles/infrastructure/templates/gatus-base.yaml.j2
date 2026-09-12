@@ -1,15 +1,15 @@
 # {{ ansible_managed }}
 # 00-base.yaml -- Ansible-managed foundation for Gatus. Two siblings:
 #   50-catena-apps.yaml    written by /usr/local/bin/gatus-sync on a timer
-#                           (one internal + one public endpoint per Dokploy
+#                           (one internal + one public endpoint per client
 #                           app with a domain).
 #   99-<anything>.yaml      operator-added, never touched by either.
 #
 # Gatus loads every *.yaml under /config alphabetically and merges them.
 # Conditions are evaluated server-side: see https://gatus.io/docs/conditions.
 #
-# Two-monitor model per gated service (decided 2026-04-17 during Kuma->Gatus
-# pivot): probing the INTERNAL alias tests the app is running; probing the
+# Two-monitor model per gated service: probing the INTERNAL alias tests
+# the app is running; probing the
 # PUBLIC URL with [STATUS] == 302 as healthy tests the full CF Tunnel ->
 # Traefik -> per-app oauth2-proxy chain (302 = oauth2-proxy redirecting
 # unauthed requests to Keycloak, which means every layer in front is

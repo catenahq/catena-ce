@@ -1,6 +1,6 @@
 ---
-# 0b: on-box config store loader. THE secret source of truth (SOPS was dropped;
-# no persisted laptop vault).
+# On-box config store loader. THE secret source of truth; there is no
+# persisted laptop vault.
 #
 # The store is a plaintext 0600 file at /etc/catena/config.json, which rides
 # the restic backup (/etc is in reconcile/roles/backup backup_paths). On every converge

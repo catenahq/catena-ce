@@ -22,7 +22,7 @@ compose file). There is no Go in this tree.
 
 The admin panel binary is not built from this tree. It ships as a public
 container image, `ghcr.io/catenahq/catena-admin`, pullable anonymously,
-with a **plain, non-obfuscated build**: the image can be inventoried
+with a **plain, reproducible build**: the image can be inventoried
 against its published CycloneDX SBOM and scanned with any tooling.
 Reports against the panel go to the same address, and the fastest report
 is a scanner finding against the published digest -- see

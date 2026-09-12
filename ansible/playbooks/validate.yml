@@ -71,10 +71,9 @@
         loop_var: _validate_role
         label: "{{ _validate_role }}"
 
-# Vantage 1b -- DR SMTP positive smoke test (Keycloak / Phase Two)
+# DR SMTP positive smoke test (Keycloak / Phase Two)
 #
-# Replaces the previous Authentik docker-exec + ak test_email path. The
-# new path uses kcadm.sh (the Keycloak Admin REST CLI shipped in the
+# Uses kcadm.sh (the Keycloak Admin REST CLI shipped in the
 # server image) to:
 #   1. authenticate as the master-realm admin,
 #   2. trigger sendverifyemail against the bootstrap admin user in the
@@ -88,9 +87,9 @@
 # migrations done, admin REST is accepting tokens" signal. Per project
 # CLAUDE.md atomicity rule.
 #
-# Skip when the host has no SMTP configured at all (SMTP_PROVIDER unset). Same
-# opt-out semantics as the previous Authentik block; the Vantage 1b contract
-# is "if SMTP is supposed to work, prove it works", not "demand SMTP."
+# Skip when the host has no SMTP configured at all (SMTP_PROVIDER unset): the
+# contract is "if SMTP is supposed to work, prove it works", not "demand
+# SMTP."
 
 - name: "Vantage 1b -- Keycloak SMTP reachability (on-host)"
   hosts: "{{ stage_hosts | default('vps') }}"
@@ -345,7 +344,7 @@
       # leaves deploy-from-converge true, so the container is up by the time
       # validate runs. The bench deploys catena-admin out of band AFTER the
       # install-time validate and disables the converge deploy -- as an ANSIBLE
-      # extra-var (catena_admin_deploy_from_converge, the Semaphore migrate/DR
+      # extra-var (catena_admin_deploy_from_converge, the migrate/DR
       # path) OR as an ENV var (the subprocess install path). Honour the ansible
       # var first, then fall back to the env lookup, so the probe skips in BOTH
       # bench paths but still runs in production.

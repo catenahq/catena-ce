@@ -7,8 +7,7 @@
 # without setting X-Forwarded-Proto. oauth2-proxy reads the proxy
 # headers to compute the redirect URL; without this rewrite, it builds
 # `http://<host>/oauth2/callback` and Keycloak rejects with a
-# redirect_uri mismatch. Same root cause as the Authentik
-# X-Forwarded-Proto rewrite recorded in the previous debugging.md.
+# redirect_uri mismatch.
 http:
   middlewares:
     oauth2-force-https-proto:
