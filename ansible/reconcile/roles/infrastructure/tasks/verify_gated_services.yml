@@ -3,10 +3,9 @@
 # (gatus, healthchecks, portainer).
 #
 # Provider-neutral probe: each service must return one of 200, 301,
-# 302, OR 307. 401 is no longer accepted -- after the reverse-proxy
-# migration, oauth2-proxy emits a real 302 to Keycloak when the user
-# is unauthenticated (no more Traefik errors-middleware status
-# preservation that previously masqueraded as 401).
+# 302, OR 307. 401 is not accepted: oauth2-proxy, in reverse-proxy mode,
+# emits a real 302 to Keycloak when the user is unauthenticated, rather
+# than a Traefik errors-middleware 401 that only looks like one.
 #
 # 30x covers every gated reverse-proxy instance redirecting to
 # Keycloak.

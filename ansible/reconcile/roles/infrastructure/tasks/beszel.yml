@@ -223,7 +223,7 @@
     python3 /root/catena-beszel-seed.py
   register: _beszel_seed
   # The script prints one line carrying all FOUR outcomes. Steady state is
-  # "ok-exists" from every one; anything else was a real write. Counting them
+  # "ok-exists" from every one; anything else is a real write. Counting them
   # rather than matching a 'minted'/'updated' substring keeps a half-changed
   # run (token current, OIDC newly configured) reported as changed.
   #

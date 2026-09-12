@@ -12,7 +12,7 @@
     # playbooks/validate.yml's load_onbox_config pre_task.
     _infra_cf_token_present: "{{ (cloudflare_api_token | default('')) | length > 0 }}"
 
-# The fixtures here no longer all arrive at the same time. gatus-sync, the
+# The fixtures here do not all arrive at the same time. gatus-sync, the
 # nextcloud OIDC wirer, the export dir and Traefik's dynamic dir are written by
 # THIS role; catena-dashboard-sync is a lane script in the catena-admin image
 # payload. On a host that stages its payload out of band

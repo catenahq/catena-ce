@@ -9,8 +9,8 @@
 # `vps.*` labels and decide what the route and the oauth2-proxy for that app
 # should be. That is the MEANING of a label, and its correct value changes when
 # the product changes, not when the host changes -- so it belongs to the image.
-# It used to belong to the converge, which is why changing how app access is
-# resolved needed a converge on every host rather than an image update.
+# Belonging to the converge instead would mean changing how app access is
+# resolved needs a converge on every host rather than an image update.
 #
 # What stays here is everything whose correct value changes when the HOST
 # changes:
@@ -32,7 +32,7 @@
   no_log: true
 
 # Whether a missing payload file is a defect depends on whether THIS converge
-# was the one that had to put it there. bootstrap/roles/common/tasks/_payload_expected.yml
+# is the one that had to put it there. bootstrap/roles/common/tasks/_payload_expected.yml
 # is the one place that decision is made; the two legs below are the part that
 # is this role's -- a deferral that does not name what is deferred and when it
 # converges reads exactly like a silent skip.
@@ -139,7 +139,7 @@
     # journald is not the only place the answer lives, and on a restored host
     # it has come back empty. systemd holds the exit status itself, and the
     # reconciler is a reconciler -- running it again is what it is built for --
-    # so ask both rather than report that there was nothing to read.
+    # so ask both rather than report that there is nothing to read.
     - name: "dashboard-sync: capture the unit's exit status (diag)"
       ansible.builtin.command:
         argv:

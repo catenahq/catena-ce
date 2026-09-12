@@ -41,11 +41,11 @@
 # declares is deployed by the control plane any more: Portainer's database
 # stays the record of CLIENT choices, which is the one state that cannot be
 # recomputed, and nothing else. gatus_sync reads docker labels.
-# ACCESS_MODE is gone (2026-07-29). The tailnet mode it gated did not serve
-# these services over the tailnet -- it skipped them, so a tailnet host had no
-# monitoring plane and no SSO at all. What it was actually built for, an install
-# with no Cloudflare token, is the tunnel-deferred gate below, which is the
-# default path and the bench standard.
+# ACCESS_MODE is gone. The tailnet mode it gated did not serve these services
+# over the tailnet -- it skipped them, so a tailnet host had no monitoring
+# plane and no SSO at all. The install-with-no-Cloudflare-token case is
+# handled by the tunnel-deferred gate below instead, which is the default
+# path and the bench standard.
 - name: "Resolve the tunnel-deferred gate"
   ansible.builtin.set_fact:
     # Tunnel-deferred gate: no Cloudflare token in the on-box store yet means
@@ -57,12 +57,13 @@
 
 # ─── catena-declared services (swarm stacks, no Portainer in the path) ────
 #
-# These used to sit INSIDE the `portainer_api_key` block below, which made the
+# Sitting INSIDE the `portainer_api_key` block below would make the
 # monitoring plane a dependent of the control plane it reports on: a Portainer
-# that would not start took Gatus, Healthchecks and Beszel with it, at exactly
-# the moment someone needed them to find out why. They deploy as swarm stacks
-# now (swarm_stack.yml) and touch no Portainer API, so the gate is not merely
-# unnecessary -- keeping it would preserve the outage it caused.
+# that will not start takes Gatus, Healthchecks and Beszel with it, at exactly
+# the moment someone needs them to find out why. They deploy as swarm stacks
+# instead (swarm_stack.yml) and touch no Portainer API, so the gate is not
+# merely unnecessary -- keeping it would cause the very outage it is meant to
+# avoid.
 #
 # clamd did NOT come with them and is still gated below: a swarm service
 # cannot attach to a bridge, and the attachable overlay it would need
@@ -118,9 +119,9 @@
   block:
     # Reachability gate for everything below: the client apps these tasks
     # wire are Portainer stacks, so a Portainer that does not answer means
-    # there is nothing to wire. It no longer feeds a stack create/update --
-    # the catena-declared services above went to swarm -- so what it asserts
-    # now is simply that the control plane is answering.
+    # there is nothing to wire. It does not feed a stack create/update: the
+    # catena-declared services above deploy as swarm stacks, so what it
+    # asserts is simply that the control plane is answering.
     - name: "Resolve the Portainer endpoint id"
       ansible.builtin.include_tasks:
         file: portainer_endpoint.yml

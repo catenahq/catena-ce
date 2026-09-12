@@ -189,12 +189,11 @@
   changed_when: false # reconciliation is idempotent; don't noisy-up the run
 
 # The seed's own retry loop is the single readiness check for this
-# deploy. An earlier version split this into a standalone "probe
-# Django ORM" task + a separate seed task, but the probe was a direct
-# duplicate of the seed's inherent readiness requirement -- if the
-# seed succeeds, Django is ready by definition. The probe only added
-# another source of "is this task looping for a good reason or not?"
-# confusion on a broken run.
+# deploy. Splitting this into a standalone "probe Django ORM" task plus
+# a separate seed task would be a direct duplicate of the seed's inherent
+# readiness requirement -- if the seed succeeds, Django is ready by
+# definition. The probe would only add another source of "is this task
+# looping for a good reason or not?" confusion on a broken run.
 #
 # Budget: 12 × 5s = 60s. On a healthy container the seed lands on the
 # first try. If Django isn't ready in 60s something real is wrong

@@ -47,15 +47,15 @@
 
 # Staging for BOTH consumers, so it is created for EITHER of them.
 #
-# It was gated on dms alone while the Roundcube step below writes into it
-# gated on roundcube -- two containers with independent lifecycles. dms
+# Gating it on dms alone, while the Roundcube step below writes into it gated
+# on roundcube, would split two containers with independent lifecycles: dms
 # crash-loops by design until this very converge gives it a cert and a
 # mailbox, and `docker ps` returns nothing for it between restarts, while
 # roundcube comes up healthy in seconds. So "roundcube present, dms absent"
 # is not an edge case, it is the NORMAL state during the first tokenful
-# converge -- and the Roundcube render then failed with "Destination
+# converge -- and the Roundcube render would then fail with "Destination
 # directory /var/lib/catena/mailserver does not exist", aborting the whole
-# converge that was about to fix dms.
+# converge that is about to fix dms.
 - name: "Mailserver OIDC: ensure host staging dir exists"
   ansible.builtin.file:
     path: /var/lib/catena/mailserver
@@ -234,10 +234,10 @@
 
 - name: "Mailserver OIDC: inject oauth.inc.php into the roundcube config volume"
   # Re-resolved inline for the same reason as the dms copy above. Roundcube is
-  # far steadier than dms -- it has no boot gate to fail -- but a swarm task is
-  # replaced by an image bump, a node drain or a failed healthcheck just the
-  # same, and a name captured earlier in the play is stale whenever that
-  # happens. The cost of re-resolving is one `docker ps`.
+  # far steadier than dms -- it has no boot gate to fail -- but an image bump,
+  # a node drain or a failed healthcheck swaps the swarm task just the same,
+  # and a name captured earlier in the play is stale whenever that happens.
+  # The cost of re-resolving is one `docker ps`.
   ansible.builtin.shell: |
     set -o pipefail
     ct=$(docker ps --filter label=vps.component=roundcube \

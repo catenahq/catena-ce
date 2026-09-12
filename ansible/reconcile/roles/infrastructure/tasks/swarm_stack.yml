@@ -80,7 +80,7 @@
   when: not _swarm_deploy_done
 
 # Routing: write a Traefik file-provider route that catena-traefik serves
-# directly. Unchanged from the Portainer path -- routing was never the
+# directly. Unchanged from the Portainer path -- routing is not the
 # control plane's job, so nothing here moves.
 #
 # Opt-out: intra-cluster-only services (e.g. oauth2-proxy, reached by their
