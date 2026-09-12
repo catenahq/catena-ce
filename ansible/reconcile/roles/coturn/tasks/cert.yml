@@ -31,7 +31,7 @@
   # Skip the install (and its forced apt cache refresh) when both packages
   # are already present. A re-converge -- e.g. certbot renewing after the
   # clock has advanced far enough that the repo Release files read as
-  # expired (Valid-Until in the past) -- otherwise forces an `apt update`
+  # expired (Valid-Until already elapsed) -- otherwise forces an `apt update`
   # that fails on the stale Release, aborting a converge that had no package
   # work to do. `state: present` never upgrades, so gating on presence is
   # equivalent + idempotent.

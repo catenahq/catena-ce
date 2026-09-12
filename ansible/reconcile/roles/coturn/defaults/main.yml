@@ -13,9 +13,9 @@
 coturn_compose_name: "coturn"
 
 # The image is pinned in the host engine's built-in catalog (catena-admin
-# payload/engines/tier1/catalog.go), not here. It also gained a Renovate
-# tracker in the move: this pin never had one, so coturn was the one tier-1
-# image nothing was watching for upstream releases or CVEs.
+# payload/engines/tier1/catalog.go), not here, where it also gets a Renovate
+# tracker: pinning it here instead would leave coturn as the one tier-1 image
+# nothing watches for upstream releases or CVEs.
 
 # Public hostname for the TURN server. Resolves via a gray-cloud
 # (proxied: false) Cloudflare A record; UDP cannot ride the CF tunnel.

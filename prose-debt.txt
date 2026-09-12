@@ -18,9 +18,6 @@ ansible/playbooks/validate.yml -- 1 finding(s): NoHistory
 ansible/reconcile/roles/backup/defaults/main.yml -- 1 finding(s): NoHistoryWeak
 ansible/reconcile/roles/backup/tasks/install.yml -- 1 finding(s): NoHistoryWeak
 ansible/reconcile/roles/catena-admin/tasks/deploy.yml -- 1 finding(s): NoHistoryWeak (quotes the literal runtime message "Keycloak was not reachable")
-ansible/reconcile/roles/coturn/defaults/main.yml -- 1 finding(s): NoHistoryWeak
-ansible/reconcile/roles/coturn/tasks/cert.yml -- 1 finding(s): NoHistory
-ansible/reconcile/roles/coturn/tasks/validate.yml -- 5 finding(s): NoHistory, NoHistoryWeak
 ansible/reconcile/roles/infrastructure/defaults/main.yml -- 3 finding(s): NoHistory, NoHistoryWeak
 ansible/reconcile/roles/infrastructure/tasks/_mailserver_dms_locate.yml -- 3 finding(s): NoHistory, NoHistoryWeak
 ansible/reconcile/roles/infrastructure/tasks/beszel.yml -- 1 finding(s): NoHistoryWeak
