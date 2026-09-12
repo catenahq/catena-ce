@@ -76,7 +76,7 @@ ansible/scripts/gatus-sync.py -- 1 finding(s): NoHistory
 ansible/scripts/healthchecks-seed.py -- 1 finding(s): NoHistoryWeak
 ansible/scripts/nextcloud-talk-hpb-wire.sh -- 1 finding(s): NoHistory
 ansible/scripts/run-mail-canary.sh -- 1 finding(s): NoContrastSpec
-ansible/seed.py -- 2 finding(s): NoHistory
+ansible/seed.py -- 1 finding(s): NoHistory
 ansible/tests/unit/test_apt_rescue_respects_diagnostic.py -- 1 finding(s): NoHistoryWeak
 ansible/tests/unit/test_backup_env_reconciled.py -- 3 finding(s): NoHistoryWeak
 ansible/tests/unit/test_backup_excludes_pg_lock_files.py -- 3 finding(s): NoHistory, NoHistoryWeak

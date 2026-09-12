@@ -359,10 +359,10 @@ def split_install_dict(raw: dict) -> dict:
     host fields, otherwise a secret if the store declares it and a .env value
     if not). A legacy `vault_password:` field is silently ignored.
 
-    The flat layout used to spot secrets by a `vault_` prefix, which made a
-    spelling load-bearing: an operator who wrote the key without it got their
-    credential silently filed as non-secret .env config. onbox_config declares
-    which names are secrets, so ask it."""
+    A flat layout that spots secrets by a `vault_` prefix would make a
+    spelling load-bearing: an operator who writes the key without it gets
+    their credential silently filed as non-secret .env config. onbox_config
+    declares which names are secrets instead, so ask it."""
     if any(isinstance(raw.get(k), dict) for k in ("host", "env", "vault")):
         return {
             "inventory": raw.get("inventory"),
