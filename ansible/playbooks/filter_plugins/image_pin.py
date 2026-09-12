@@ -31,7 +31,7 @@ which is the same defect as the traefik one in the other direction. A rollback
 that does not survive is not a rollback.
 
 So the two jobs are separate arguments. `minimum` defaults to `default_ref`,
-which keeps every shipped-version caller exactly as it was; the panel passes an
+which keeps every shipped-version caller unchanged; the panel passes an
 empty one, meaning "this host's recorded choice stands". The pin still has to
 name the same repository and still has to be a comparable version -- a corrupt
 store does not get to choose an image.

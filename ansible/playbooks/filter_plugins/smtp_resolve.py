@@ -6,12 +6,12 @@ supply their own host and port, and Resend also supplies its username, which is
 the literal string `resend` for every account. Everything else reads the fields
 as given.
 
-WHY A FILTER RATHER THAN JINJA IN THREE PLACES. This ladder was written out
-three times -- reconcile/roles/keycloak/defaults, reconcile/roles/infrastructure wordpress_plugins,
-and it was about to be a third for Beszel -- and every copy was free to drift
-from the others. A host would then send Keycloak's password-reset mail through
-one relay and WordPress's contact form through another, from the same stored
-config, and nothing would report it. Project rule: a non-trivial transform gets
+WHY A FILTER RATHER THAN JINJA IN THREE PLACES. Writing this ladder out
+separately for reconcile/roles/keycloak/defaults, reconcile/roles/infrastructure
+wordpress_plugins, and Beszel would leave each copy free to drift from the
+others: a host could then send Keycloak's password-reset mail through one
+relay and WordPress's contact form through another, from the same stored
+config, with nothing reporting it. Project rule: a non-trivial transform gets
 a filter plugin and a unit test, not a fourth copy of an expression.
 
 The connection is always STARTTLS on the port given, never implicit TLS. That

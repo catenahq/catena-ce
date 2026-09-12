@@ -20,8 +20,8 @@ Repairing is bootstrap's, and that is question one of the boundary. What it
 removes is the silence.
 
 WHAT IT CANNOT TELL YOU. The baseline is what the last converge saw, so the
-first converge on a host records whatever is there -- including, if it came to
-that, a state that was already wrong. This detects CHANGE from that point, not
+first converge on a host records whatever is there -- including, if it comes to
+that, a state that is already wrong. This detects CHANGE from that point, not
 correctness, and saying otherwise would be the more dangerous of the two
 mistakes. The honest use is "these files moved between converge N and N+1, and
 nothing in the product moves them".

@@ -26,15 +26,7 @@ ansible/bootstrap/roles/tailscale/tasks/main.yml -- 1 finding(s): NoHistoryWeak
 ansible/boundary.yml -- 1 finding(s): NoHistoryWeak
 ansible/helpers/install_key.py -- 1 finding(s): NoHistoryWeak
 ansible/playbooks/bootstrap.yml -- 2 finding(s): NoHistory, NoHistoryWeak
-ansible/playbooks/filter_plugins/backup_cadence_cap.py -- 1 finding(s): NoHistory
-ansible/playbooks/filter_plugins/bootstrap_drift.py -- 1 finding(s): NoHistoryWeak
-ansible/playbooks/filter_plugins/catena_admin_service.py -- 1 finding(s): NoHistory
-ansible/playbooks/filter_plugins/catena_served_zones.py -- 2 finding(s): NoHistory, NoHistoryWeak
-ansible/playbooks/filter_plugins/converge_manifest.py -- 7 finding(s): NoHistory, NoHistoryWeak
-ansible/playbooks/filter_plugins/image_pin.py -- 1 finding(s): NoHistoryWeak
-ansible/playbooks/filter_plugins/smtp_resolve.py -- 1 finding(s): NoHistoryWeak
-ansible/playbooks/filter_plugins/swarm_service_drift.py -- 2 finding(s): NoHistoryWeak
-ansible/playbooks/filter_plugins/tier1_stack.py -- 1 finding(s): NoHistoryWeak
+ansible/playbooks/filter_plugins/catena_served_zones.py -- 1 finding(s): NoHistory
 ansible/playbooks/group_vars/all/main.yml -- 4 finding(s): NoContrastSpec, NoHistoryWeak
 ansible/playbooks/reconcile.yml -- 3 finding(s): NoHistory, NoHistoryWeak
 ansible/playbooks/site.yml -- 9 finding(s): NoHistory, NoHistoryWeak

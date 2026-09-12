@@ -139,7 +139,7 @@ def _same_image(live, want):
 
     Asymmetric, in the one direction that is correct. `docker service inspect`
     reports the digest it resolved at deploy time, whether or not the reference
-    it was given carried one -- so what the comparison does depends on what the
+    it receives carries one -- so what the comparison does depends on what the
     PIN says, not on what the host reports:
 
       - a pin with no digest (`postgres:18`) is compared against the live
@@ -151,13 +151,13 @@ def _same_image(live, want):
     Stripping the digest off both sides would be the tidy-looking version of
     this and it would be wrong twice over: it answers "converged" for a host
     running different bytes under the same tag, which is the one thing a digest
-    pin exists to prevent. Applying it to the live side only -- what this did
-    until now -- compares `<repo>:<tag>` against `<repo>:<tag>@sha256:...`,
-    which never matches, so the panel's own pin drifted against itself on every
-    converge. Docker no-ops an update to an identical spec, so nothing
-    restarted; what it cost was the ability to answer "did this converge move
-    my panel" from the output, which matters more the moment a converge runs
-    unattended on a timer.
+    pin exists to prevent. Applying it to the live side only compares
+    `<repo>:<tag>` against `<repo>:<tag>@sha256:...`, which never matches, so
+    the panel's own pin would drift against itself on every converge. Docker
+    no-ops an update to an identical spec, so nothing restarts; what it would
+    cost is the ability to answer "did this converge move my panel" from the
+    output, which matters more the moment a converge runs unattended on a
+    timer.
     """
     want = str(want)
     if "@" in want:

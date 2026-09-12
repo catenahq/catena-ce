@@ -17,9 +17,10 @@ WHY A SHARED RENDERER. Two consumers deploy this container and must agree
 on its shape: the converge (reconcile/roles/catena-admin/tasks/deploy.yml) with the
 published GHCR image, and the test bench (ops
 automation/test_bench/orchestrator/catena_admin_deploy.py) with an image it
-built on the VPS. They used to share the shape through a compose file both
-pushed to the Portainer stack API. With no stack API in the path there is
-nothing to share unless something renders the argv for both, and the parts
+built on the VPS. Sharing the shape through a compose file both push to the
+Portainer stack API would need a stack API in the path; with none in the
+path, there is nothing to share unless something renders the argv for
+both, and the parts
 that MUST NOT drift are exactly the parts nobody looks at: eight mounts and
 six labels. So the mounts, the labels, the publish mode and the host-gateway
 alias live HERE as product facts, and the spec carries only what is

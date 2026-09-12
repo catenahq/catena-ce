@@ -65,8 +65,8 @@ def catena_served_zones(raw, schema=1, now="", max_age_hours=48):
     except (ValueError, TypeError):
         return []
     if not isinstance(doc, dict):
-        # The legacy shape was a bare array. Refused on purpose: it carried no
-        # stamp, so a stale copy could not be told from a current one.
+        # A bare array is the legacy shape. Refused on purpose: it carries no
+        # stamp, so a stale copy cannot be told from a current one.
         return []
     if doc.get("schema") != schema:
         return []

@@ -1,5 +1,5 @@
 """Ansible filters: decide which files a previous converge installed and this
-one no longer ships.
+one does not ship.
 
     converge_installed(declared, stats)  -> [{path, sha256}, ...]
     converge_withdrawn(previous, declared) -> [{path, sha256}, ...]
@@ -21,7 +21,7 @@ A glob would not: either side would reap the other's files.
 
 TWO RULES, and the safety of the whole thing rests on them.
 
-1. DELETE ONLY WHAT IS NO LONGER DECLARED. The previous manifest records what
+1. DELETE ONLY WHAT IS NOT DECLARED ANYMORE. The previous manifest records what
    was installed; the current converge declares what the product ships. The
    difference is "withdrawn from the product" -- never "not installed on this
    host", which is what a feature being switched off looks like and is not a
@@ -38,7 +38,7 @@ TWO RULES, and the safety of the whole thing rests on them.
 
 A path missing from `declared` is therefore never deleted, only unmanaged. That
 direction is chosen: an incomplete declaration costs coverage, and the opposite
-mistake costs a file that was in use.
+mistake costs a file still in use.
 
 End-to-end coverage: catena-ce ansible/tests/unit/test_converge_prune.py
 """
@@ -106,7 +106,7 @@ def converge_installed(declared, stats) -> list[dict]:
 
 
 def converge_withdrawn(previous, declared) -> list[dict]:
-    """What the previous converge installed and this one no longer declares.
+    """What the previous converge installed and this one does not declare.
 
     Each entry carries the digest the previous manifest recorded, so the caller
     can check the file is still the one it wrote before removing it. An
@@ -132,9 +132,9 @@ def converge_withdrawn(previous, declared) -> list[dict]:
 def _split(stats) -> tuple[list[dict], list[dict]]:
     """(still ours, someone else's) from a stat loop over withdrawn candidates.
 
-    A candidate that no longer exists is in neither: there is nothing to delete
-    and nothing to report, which is the ordinary outcome on a host that was
-    converged twice."""
+    A candidate that does not exist is in neither: there is nothing to delete
+    and nothing to report, which is the ordinary outcome on a host converged
+    twice."""
     ours: list[dict] = []
     foreign: list[dict] = []
     for result in (stats or []):
@@ -147,7 +147,7 @@ def _split(stats) -> tuple[list[dict], list[dict]]:
         if not info.get("exists"):
             continue
         recorded = str(entry.get("sha256") or "")
-        # An entry whose digest was never recorded is NOT ours to delete. The
+        # An entry whose digest is missing is NOT ours to delete. The
         # check is the whole safety rule, and "I did not record what I wrote"
         # is not a licence to remove whatever is at that path now.
         if recorded and recorded == str(info.get("checksum") or ""):

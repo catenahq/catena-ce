@@ -65,7 +65,7 @@ SWARM COMPOSE TRAPS, EVERY ONE VERIFIED AGAINST `docker stack config`
     this renderer refuses to emit it and the unit test pins that.
 
 No `version:` key is emitted. The compose loader stamps its own (3.13 on
-the CLI this was verified against) and treats a declared one as obsolete.
+the CLI this is verified against) and treats a declared one as obsolete.
 
 SECRETS. Swarm secrets are immutable, so a rotated value must arrive
 under a NEW name or the container mounts the old bytes forever. Names are
