@@ -24,10 +24,7 @@ ansible/bootstrap/roles/docker/tasks/main.yml -- 4 finding(s): NoHistoryWeak
 ansible/bootstrap/roles/host_hardening/defaults/main.yml -- 2 finding(s): NoHistoryWeak
 ansible/bootstrap/roles/tailscale/tasks/main.yml -- 1 finding(s): NoHistoryWeak
 ansible/boundary.yml -- 1 finding(s): NoHistoryWeak
-ansible/helpers/catena_admin_release.py -- 1 finding(s): NoContrastSpec
-ansible/helpers/install_key.py -- 2 finding(s): NoHistoryWeak
-ansible/helpers/public_ports.py -- 1 finding(s): NoHistory
-ansible/helpers/tailnet_check.py -- 1 finding(s): NoContrastSpec
+ansible/helpers/install_key.py -- 1 finding(s): NoHistoryWeak
 ansible/playbooks/bootstrap.yml -- 2 finding(s): NoHistory, NoHistoryWeak
 ansible/playbooks/filter_plugins/backup_cadence_cap.py -- 1 finding(s): NoHistory
 ansible/playbooks/filter_plugins/bootstrap_drift.py -- 1 finding(s): NoHistoryWeak
@@ -83,9 +80,7 @@ ansible/reconcile/roles/tier1_stack/tasks/spec_one.yml -- 1 finding(s): NoHistor
 ansible/reconcile/roles/traefik/defaults/main.yml -- 1 finding(s): NoHistory
 ansible/reconcile/roles/traefik/tasks/main.yml -- 3 finding(s): NoHistory
 ansible/requirements.yml -- 1 finding(s): NoHistory
-ansible/scripts/beszel-seed.py -- 2 finding(s): NoHistoryWeak
-ansible/scripts/catena-public-ports.py -- 5 finding(s): NoHistory, NoHistoryWeak
-ansible/scripts/gatus-sync.py -- 3 finding(s): NoHistory
+ansible/scripts/gatus-sync.py -- 1 finding(s): NoHistory
 ansible/scripts/healthchecks-seed.py -- 1 finding(s): NoHistoryWeak
 ansible/scripts/nextcloud-talk-hpb-wire.sh -- 1 finding(s): NoHistory
 ansible/scripts/run-mail-canary.sh -- 1 finding(s): NoContrastSpec

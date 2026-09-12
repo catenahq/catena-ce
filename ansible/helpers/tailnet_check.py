@@ -125,7 +125,7 @@ def local_state(*, timeout: int = 10) -> LocalState:
 def membership(ipv4: str, token: str, *, timeout: int = 15) -> tuple[str, str]:
     """Is `ipv4` one of the addresses in the token's tailnet?
 
-    Returns (verdict, detail). Anything that is not a clean 200 answers
+    Returns (verdict, detail). Anything other than a clean 200 answers
     UNKNOWN: a 403 means the OAuth client is scoped `Auth Keys: Write` only,
     which is the correct production scope, and a check that cannot see is not
     a check that failed.

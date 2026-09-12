@@ -119,8 +119,8 @@ def _read(url: str, *, token: str, timeout: float, method: str = "GET",
 
 
 def _bearer_challenge(exc: urllib.error.HTTPError) -> dict[str, str] | None:
-    """The realm/service/scope a 401 is asking for, or None if it is not a
-    bearer challenge."""
+    """The realm/service/scope a 401 is asking for; None for a non-bearer
+    challenge."""
     if exc.code != 401:
         return None
     header = exc.headers.get("WWW-Authenticate", "") if exc.headers else ""

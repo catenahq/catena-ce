@@ -164,10 +164,10 @@ def main() -> int:
 
     # 5. The alert DELIVERY channel, then the rules that deliver into it.
     #
-    # Both were manual UI steps, which meant the alert path was silently absent
-    # on every fresh host: the shim was deployed, the thresholds were not set,
-    # and nothing said so. A monitor that is watching and cannot tell anybody is
-    # the failure mode monitoring exists to avoid.
+    # Both are manual UI steps otherwise, which would leave the alert path
+    # silently absent on every fresh host: the shim deployed, the thresholds
+    # unset, and nothing saying so. A monitor that is watching and cannot
+    # tell anybody is the failure mode monitoring exists to avoid.
     delivery_state = configure_alert_delivery(base, su_token, user_id, webhook)
     rules_state = configure_alert_rules(base, su_token, user_id)
 
@@ -321,10 +321,10 @@ def configure_alert_rules(base: str, su_token: str, user_id: str) -> str:
 
 
 # ─── outgoing mail ─────────────────────────────────────────────────────────
-# Beszel had no mail at all: its only alert channel was the Shoutrrr webhook,
-# so an alert reached a person only if somebody was watching Healthchecks or
-# ntfy. Giving it the host's own mail settings means a threshold breach can send
-# an email like every other service on the box.
+# Without this, Beszel has no mail at all: its only alert channel is the
+# Shoutrrr webhook, so an alert reaches a person only if somebody is watching
+# Healthchecks or ntfy. Giving it the host's own mail settings means a
+# threshold breach can send an email like every other service on the box.
 #
 # Verified against pocketbase v0.36.8 (which beszel 0.18.7 vendors) rather than
 # assumed -- core.SMTPConfig tags enabled / port / host / username / password /

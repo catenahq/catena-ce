@@ -45,8 +45,8 @@ import sys
 # imported by bare name -- so a half-moved cluster that searched its own
 # directory first would keep importing the stale sibling still sitting in
 # /usr/local/bin: green, running the previous release's logic. On a host where
-# the payload ships no lib the first entry resolves nothing, and this is
-# exactly what it was.
+# the payload ships no lib, the first entry resolves nothing and resolution
+# falls through to the script's own directory -- a plain single search path.
 for _d in (os.path.dirname(os.path.abspath(__file__)),
            os.environ.get("CATENA_PAYLOAD_LIB", "/usr/local/lib/catena")):
     if _d not in sys.path:
@@ -168,8 +168,8 @@ def _ufw_spec(rule: dict) -> list[str]:
 
     The action is READ from the rule, not hardcoded. A loopback-scoped port
     is enforced by a deny, and a spec that always said `allow` would not
-    merely fail to guard it -- it would run `ufw allow` on the port it was
-    asked to close, and then record that as applied.
+    merely fail to guard it -- it would run `ufw allow` on the port it is
+    supposed to close, and then record that as applied.
     """
     action = rule.get("action", "allow")
     proto, port = rule["proto"], rule["port"]
@@ -191,10 +191,10 @@ def _ufw_argv(rule: dict) -> list[str]:
 def apply_ufw(rules: list[dict]) -> list[dict]:
     """ufw is idempotent (skips existing rules), so a plain add converges.
 
-    Returns the rules actually applied. A failed add used to log WARNING and
-    be recorded as applied anyway, so the applied-state, the effective
-    artifacts validation reads, and the unit's exit code all agreed that a
-    rule existed which did not.
+    Returns the rules actually applied. Logging a failed add as a WARNING and
+    recording it as applied anyway would make the applied-state, the
+    effective artifacts validation reads, and the unit's exit code all agree
+    that a rule existed which does not.
     """
     applied: list[dict] = []
     for rule in rules:
@@ -227,13 +227,13 @@ def _docker_user_match(rule: dict) -> list[str]:
     container port. `--dport 18080` therefore matches nothing once Docker
     has turned it into `172.18.0.12:8080`.
 
-    That is not theoretical: bench 050b found Gatus (18080 -> 8080),
-    Healthchecks (18000 -> 8000) and the Beszel hub (18190 -> 8090) all
-    answering from off-box with their DROP rules installed and sitting at
-    zero packets. The guard had been correct-looking for as long as it has
-    existed only because the one restricted docker-bound port that predated
-    them, the Portainer UI, publishes 9000 -> 9000 and so is unchanged by
-    the DNAT.
+    That is not theoretical: Gatus (18080 -> 8080), Healthchecks (18000 ->
+    8000) and the Beszel hub (18190 -> 8090) all publish a different host
+    port than their container port, so a `--dport` guard on any of them
+    answers from off-box with its DROP rule installed and sitting at zero
+    packets. A `--dport` guard looks correct only because the one
+    restricted docker-bound port with no host/container mismatch, the
+    Portainer UI, publishes 9000 -> 9000 and so is unchanged by the DNAT.
 
     --ctorigdstport matches the port the client actually dialled, which is
     what the declaration is about, and is unaffected by the rewrite.
@@ -361,7 +361,7 @@ def reconcile() -> tuple[list[pp.PortEntry], int]:
 
 
 if __name__ == "__main__":
-    # Non-zero when the plan was not fully applied. The unit exiting 0 while
+    # Non-zero when the plan is not fully applied. The unit exiting 0 while
     # restricted ports sat unguarded is the whole defect: systemd recorded
     # success, validation read artifacts that described the declared state,
     # and nothing anywhere said the rules were missing.

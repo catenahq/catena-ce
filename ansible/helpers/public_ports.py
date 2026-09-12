@@ -67,7 +67,7 @@ VALID_PROTOS = ("tcp", "udp")
 # Beszel hub are each dialled by a HOST process (gatus-sync, the clamav
 # watchdog, the mail canary, beszel-seed, the host-network agent), so the
 # publish cannot simply be dropped. Declaring the port `loopback` keeps the
-# posture the 127.0.0.1 bind used to give -- reachable from the box, denied
+# posture a 127.0.0.1 bind gives -- reachable from the box, denied
 # on every other interface -- and makes it enforced and auditable rather
 # than a property of a compose string.
 VALID_SCOPES = ("any", "tailnet", "rfc1918", "loopback")
