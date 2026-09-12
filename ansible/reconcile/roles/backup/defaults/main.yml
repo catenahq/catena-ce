@@ -43,7 +43,7 @@ backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
 # projection. It is the `offsite_copies` list in /etc/catena/config.json,
 # written by catena-admin and read straight off disk by the lane, so adding
 # a copy takes effect on the next run with no converge in between. Nine
-# flat keys used to live in this file and describe exactly two copies, each
+# flat keys hardcoded in this file would describe exactly two copies, each
 # named after the bucket it happened to be pointed at.
 #
 # Default cold partner: eazybackup s3.ca-central-1.eazybackup.com
@@ -153,12 +153,11 @@ backup_healthcheck_url_operator: "{{ cfg_backup_healthcheck_url_operator | defau
 # in /etc/catena/config.json under `backup_retention`, rendered to
 # /etc/catena/backup-retention.env by `catena-schedule apply`, and sourced from
 # there by catena-backup-run. One source, one writer, one reader. Adding a default
-# here would make this repo a second writer of a value the panel owns, which is
-# how the old arrangement ended up with a converge-rendered copy that no host
-# ever read.
+# here would make this repo a second writer of a value the panel owns -- exactly
+# how a converge-rendered copy ends up as one no host ever reads.
 #
-# This is what the three backup tiers used to decide. Tiers bundled a cadence
-# and a retention ladder behind one name; the cadence half was never rendered
+# Bundling a cadence and a retention ladder behind one tier name is what three
+# backup tiers would decide instead: the cadence half would never render
 # into any unit, and the retention half is more useful set directly. The
 # composition is why: keep_last 8 with keep_hourly 24 on a fifteen-minute
 # schedule holds eight snapshots across two hours and twenty-two more across
@@ -256,8 +255,8 @@ backup_paths:
   #                         converge with work to do.
   #   /var/lib/catena-admin the hash-chained audit trail (auditlog.go
   #                         DefaultStateDir). It is the evidence a client
-  #                         shows an auditor, and it was the one artifact
-  #                         the trust work built that a host loss erased.
+  #                         shows an auditor, and it is the one artifact
+  #                         the trust work builds that a host loss erases.
   #
   # The restic home + cache under /var/lib/catena are excluded below: they
   # are rebuildable and would churn every snapshot.
@@ -349,7 +348,7 @@ backup_exclude_patterns:
   # Postgres runtime lock files, in EVERY data dir -- the infra DB and
   # every app that ships its own postgres. They are process state, not
   # data: postmaster.pid holds the PID, port and shared-memory key of a
-  # server that no longer exists by the time anything reads it back, and
+  # server that does not exist by the time anything reads it back, and
   # postmaster.opts the command line it was started with.
   #
   # Two reasons, and the second is why this is not cosmetic:
@@ -362,7 +361,7 @@ backup_exclude_patterns:
   #
   #   it breaks the restore itself. `restic restore --delete` recreates the
   #   file and then sets its metadata, and postgres removing its own stale
-  #   lock in between makes lchown fail on a path that no longer exists.
+  #   lock in between makes lchown fail on a path that does not exist.
   #   restic counts that as an error and exits 1, so the WHOLE restore is
   #   reported failed over a file that should never have been in the
   #   snapshot (bench eff2, restore_version_skew_abort stage-4).
@@ -411,8 +410,8 @@ backup_pg_dump_user: postgres
 backup_run_initial_snapshot: true
 
 # Single canonical environment dict for every restic CLI invocation.
-# Five callsites used to inline the four-key dict (install init +
-# initial snapshot + forget; restore; verify); inline copies drift +
+# Inlining the four-key dict at each of five callsites (install init +
+# initial snapshot + forget; restore; verify) would let copies drift and
 # expand the audit surface for credential handling. Centralising lets
 # `no_log: true` ride alongside one definition that every restic task
 # references via `environment: "{{ backup_restic_env }}"`.

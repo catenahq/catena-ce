@@ -238,7 +238,7 @@
   # the FULL-host restore flow (this task), restoring dpkg state on
   # top of a fresh Debian creates a phantom-installed bug: dpkg says
   # "docker-ce installed" from the snapshot, but the binaries in
-  # /usr/bin were never in the snapshot. The subsequent `./catena site`
+  # /usr/bin are never in the snapshot. The subsequent `./catena site`
   # sees "already installed" and skips, leaving the host without the
   # actual binaries. Skip /var/lib/dpkg here so site.yml reinstalls
   # every package cleanly from apt.

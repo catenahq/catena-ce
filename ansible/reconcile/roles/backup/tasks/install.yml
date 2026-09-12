@@ -498,7 +498,7 @@
 
 # A non-zero check is TWO different situations, and initialising is only the
 # answer to one of them. `restic cat config` also fails when the repository is
-# there and the password is not the one it was created with -- and then `restic
+# there and the password does not match the one that created it -- and then `restic
 # init` fails too, over an intact repository, with its own output hidden by the
 # no_log below. An operator reading that sees a failed initialisation and no
 # reason; what actually happened is that their credential drifted, and the
@@ -546,8 +546,7 @@
   # `--last` flag, which silently made the command exit non-zero on
   # every run. That broke the idempotency gate below (the inline first-
   # backup fired on every converge instead of only the first), tripping
-  # stage-2.5 of the bench. Every other caller in the repo already uses
-  # `--latest`; this was the lone holdout.
+  # stage-2.5 of the bench. Every other caller in the repo uses `--latest`.
   ansible.builtin.shell:
     cmd: restic snapshots --no-lock --latest 1 --json | grep -q '"time"'
   environment: "{{ backup_restic_env }}"

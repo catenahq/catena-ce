@@ -15,10 +15,8 @@
 ansible/helpers/install_key.py -- 1 finding(s): NoHistoryWeak
 ansible/playbooks/filter_plugins/catena_served_zones.py -- 1 finding(s): NoHistory
 ansible/playbooks/validate.yml -- 1 finding(s): NoHistory
-ansible/reconcile/roles/backup/defaults/main.yml -- 8 finding(s): NoHistory, NoHistoryWeak
-ansible/reconcile/roles/backup/tasks/install.yml -- 3 finding(s): NoHistoryWeak
-ansible/reconcile/roles/backup/tasks/restore.yml -- 1 finding(s): NoHistoryWeak
-ansible/reconcile/roles/backup/tasks/validate.yml -- 1 finding(s): NoHistory
+ansible/reconcile/roles/backup/defaults/main.yml -- 1 finding(s): NoHistoryWeak
+ansible/reconcile/roles/backup/tasks/install.yml -- 1 finding(s): NoHistoryWeak
 ansible/reconcile/roles/catena-admin/defaults/main.yml -- 11 finding(s): NoHistory, NoHistoryWeak
 ansible/reconcile/roles/catena-admin/tasks/deploy.yml -- 3 finding(s): NoHistory, NoHistoryWeak
 ansible/reconcile/roles/catena-admin/tasks/main.yml -- 1 finding(s): NoHistoryWeak

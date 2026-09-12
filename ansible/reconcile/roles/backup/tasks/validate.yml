@@ -8,8 +8,8 @@
 # this validate only asserts the units exist; it does NOT assert the
 # timer is enabled (it is legitimately masked on Business).
 #
-# The fixtures split in two, because since 2026-08-03 they no longer all arrive
-# at the same time. The units and the config are written by THIS role; the
+# The fixtures split in two, because they do not all arrive at the same time.
+# The units and the config are written by THIS role; the
 # scripts are lane scripts in the catena-admin image payload, and on a host that
 # stages its payload out of band (CATENA_PAYLOAD_INSTALL=false -- the bench
 # builds the image on the VPS and installs it at a later stage) they land AFTER
