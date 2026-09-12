@@ -12,7 +12,6 @@
 # The advisory rules (NoComparison, NoNegation) never reach this file:
 # they are warnings and do not block.
 
-.trivyignore.yaml -- 2 finding(s): NoHistory, NoHistoryWeak
 ansible/helpers/install_key.py -- 1 finding(s): NoHistoryWeak
 ansible/playbooks/filter_plugins/catena_served_zones.py -- 1 finding(s): NoHistory
 ansible/playbooks/validate.yml -- 1 finding(s): NoHistory
@@ -56,7 +55,6 @@ ansible/reconcile/roles/traefik/tasks/main.yml -- 3 finding(s): NoHistory
 ansible/scripts/gatus-sync.py -- 1 finding(s): NoHistory
 ansible/scripts/healthchecks-seed.py -- 1 finding(s): NoHistoryWeak
 ansible/scripts/nextcloud-talk-hpb-wire.sh -- 1 finding(s): NoHistory
-ansible/scripts/run-mail-canary.sh -- 1 finding(s): NoContrastSpec
 ansible/seed.py -- 1 finding(s): NoHistory
 ansible/tests/unit/test_apt_rescue_respects_diagnostic.py -- 1 finding(s): NoHistoryWeak
 ansible/tests/unit/test_backup_env_reconciled.py -- 3 finding(s): NoHistoryWeak

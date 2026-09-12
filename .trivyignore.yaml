@@ -7,8 +7,8 @@
 # Catena pins but does NOT compile: the fix exists upstream -- in a vendored
 # Go module, a shaded jar, or a distro package -- and the image has not been
 # rebuilt. EVERY image listed here is already the newest published tag, so no
-# pin bump can clear any of it. That was checked at the registry per image,
-# not assumed; where a newer tag did exist the pin moved instead.
+# pin bump can clear any of it. This is checked at the registry per image,
+# not assumed; where a newer tag exists the pin moves instead.
 #
 # oauth2-proxy is worth naming because it carries the only CRITICAL and the
 # obvious move does not work: v7.15.3-alpine, the latest release, ships the
@@ -26,7 +26,7 @@
 #
 # No postgres / portainer / cloudflared / traefik entries: those pins live
 # in catena-admin's engine catalog, and their suppressions live there too --
-# this repo no longer scans them.
+# this repo does not scan them.
 #
 # Reviewed 2026-08-07. Next review 2026-10-13.
 

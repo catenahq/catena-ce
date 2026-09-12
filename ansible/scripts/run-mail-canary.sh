@@ -19,10 +19,10 @@
 #      registry nmap; disk pressure by the daily disk-preflight.)
 #
 # Why rspamc (not inject-to-a-mailbox): a maildir canary would need a
-# persistent local mailbox, but mailbox_sync reaps any account in a
-# managed domain that is not a Keycloak member. rspamc scans through the
-# full module chain (incl. the clamav antivirus module) with no mailbox,
-# no recipient, no auth.
+# persistent local mailbox, but mailbox_sync reaps any non-Keycloak-member
+# account in a managed domain. rspamc scans through the full module chain
+# (incl. the clamav antivirus module) with no mailbox, no recipient, no
+# auth.
 set -eu
 
 ENV_FILE="${1:-/etc/catena/mail-canary.env}"
