@@ -84,9 +84,9 @@ reconcile_roles:
 
 # NOTHING STRADDLES ANY MORE, which is what phase 1b was for.
 #
-# There were two. `common` carried the public-port reconciler, which is now
-# reconcile/roles/public_ports; `catena-admin` carried the SSH trust path, which is now
-# bootstrap/roles/catena_admin_host. Both are real roles on one side of the line, which is
+# The public-port reconciler lives in reconcile/roles/public_ports, not in
+# common; the SSH trust path lives in bootstrap/roles/catena_admin_host, not
+# in catena-admin. Both are real roles on one side of the line, which is
 # what a straddle is supposed to become.
 #
 # The mechanism stays because the shape can come back. A role listed here

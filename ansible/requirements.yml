@@ -1,7 +1,7 @@
 collections:
   # Pinned exact versions: there are no running hosts to preserve compatibility
-  # with, so all collections are pinned to their latest stable as of 2026-05-08.
-  # Bumping a pin is a separate PR with bench coverage.
+  # with, so all collections are pinned to a specific stable release. Bumping
+  # a pin is a separate PR with bench coverage.
   - name: community.general
     version: "==13.3.0"
   - name: ansible.posix

@@ -13,17 +13,9 @@
 # they are warnings and do not block.
 
 .trivyignore.yaml -- 2 finding(s): NoHistory, NoHistoryWeak
-ansible/boundary.yml -- 1 finding(s): NoHistoryWeak
 ansible/helpers/install_key.py -- 1 finding(s): NoHistoryWeak
-ansible/playbooks/bootstrap.yml -- 2 finding(s): NoHistory, NoHistoryWeak
 ansible/playbooks/filter_plugins/catena_served_zones.py -- 1 finding(s): NoHistory
-ansible/playbooks/group_vars/all/main.yml -- 4 finding(s): NoContrastSpec, NoHistoryWeak
-ansible/playbooks/reconcile.yml -- 3 finding(s): NoHistory, NoHistoryWeak
-ansible/playbooks/site.yml -- 9 finding(s): NoHistory, NoHistoryWeak
-ansible/playbooks/tasks/load_onbox_config.yml -- 5 finding(s): NoHistory, NoHistoryWeak
-ansible/playbooks/tasks/prune_withdrawn_files.yml -- 4 finding(s): NoHistory, NoHistoryWeak
-ansible/playbooks/tasks/seed_onbox_config.yml -- 1 finding(s): NoHistoryWeak
-ansible/playbooks/validate.yml -- 2 finding(s): NoHistory
+ansible/playbooks/validate.yml -- 1 finding(s): NoHistory
 ansible/reconcile/roles/backup/defaults/main.yml -- 8 finding(s): NoHistory, NoHistoryWeak
 ansible/reconcile/roles/backup/tasks/install.yml -- 3 finding(s): NoHistoryWeak
 ansible/reconcile/roles/backup/tasks/restore.yml -- 1 finding(s): NoHistoryWeak
@@ -61,7 +53,6 @@ ansible/reconcile/roles/tier1_stack/tasks/main.yml -- 2 finding(s): NoContrastSp
 ansible/reconcile/roles/tier1_stack/tasks/spec_one.yml -- 1 finding(s): NoHistory
 ansible/reconcile/roles/traefik/defaults/main.yml -- 1 finding(s): NoHistory
 ansible/reconcile/roles/traefik/tasks/main.yml -- 3 finding(s): NoHistory
-ansible/requirements.yml -- 1 finding(s): NoHistory
 ansible/scripts/gatus-sync.py -- 1 finding(s): NoHistory
 ansible/scripts/healthchecks-seed.py -- 1 finding(s): NoHistoryWeak
 ansible/scripts/nextcloud-talk-hpb-wire.sh -- 1 finding(s): NoHistory

@@ -96,8 +96,8 @@ admin_email: "{{ cfg_admin_email | default('') }}"
 # reference it. reconcile/roles/portainer consumes the same names. Reached from the
 # controller over the tailnet.
 # The port, like the hostname scheme, is the product's. It is published
-# host-mode and firewalled to the tailnet, so it is not a value a client picks
-# to avoid a collision -- nothing else on the box may bind it either way.
+# host-mode and firewalled to the tailnet, so no client picks it to avoid a
+# collision -- nothing else on the box may bind it either way.
 portainer_ui_port: "9000"
 portainer_api_base: "http://{{ ansible_host }}:{{ portainer_ui_port }}/api"
 
@@ -121,7 +121,7 @@ portainer_api_base: "http://{{ ansible_host }}:{{ portainer_ui_port }}/api"
 # "traefik did not route 'book.11003300.xyz'" with the app healthy at 1/1 and
 # its vps.route.host label correct.
 #
-# It is also why these env files were never idempotent: a rendered address
+# It is also why these env files are not idempotent: a rendered address
 # that changes between converges rewrites the file every time.
 portainer_api_base_onbox: "http://127.0.0.1:{{ portainer_ui_port }}/api"
 
@@ -192,8 +192,8 @@ catena_boundary_path: "{{ playbook_dir }}/../boundary.yml"
 # --- Storage ---
 storage_mode: "{{ lookup('dotenv', 'STORAGE_MODE', default='built_in') }}"
 # /mnt/data everywhere, and named literally in the backup path set, the docker
-# data-root, the volume layout and the restore machine. It was an install knob
-# that nothing has ever turned, and turning it now would need every one of those
+# data-root, the volume layout and the restore machine. Nothing has ever
+# turned this install knob, and turning it now would need every one of those
 # to follow -- so it is the product's layout rather than the operator's choice.
 storage_mount_point: "/mnt/data"
 storage_block_device: "{{ lookup('dotenv', 'STORAGE_BLOCK_DEVICE', default='/dev/sdb') }}"
@@ -260,9 +260,9 @@ common_locale: "{{ lookup('dotenv', 'COMMON_LOCALE', default='en_CA.UTF-8') }}"
 # Same call as the public-port paths above and the subdomains in phase 3.
 
 # --- Hostname ---------------------------------------------------------
-# The admin panel is served at dash.<zone>. CATENA_ADMIN_SUBDOMAIN was the
-# override; no inventory in this repo, in the operator skeleton or on any host
-# has ever carried it, so the panel has only ever been at dash.
+# The admin panel is served at dash.<zone>. No inventory in this repo, in the
+# operator skeleton or on any host has ever set anything but that, so
+# catena_admin_subdomain is hardcoded rather than looked up from an override.
 catena_admin_subdomain: "dash"
 catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
 catena_admin_ui_port: "9010"

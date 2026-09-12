@@ -103,7 +103,7 @@
         (cfg_smtp_provider | default('') | trim | lower)
         in ['resend', 'brevo', 'server']
       }}
-    # The store, not the inventory. ADMIN_EMAIL moved into the on-box config
+    # The store, not the inventory: ADMIN_EMAIL lives in the on-box config
     # with the zone; this play already loads it, and reading .env here would be
     # the second live reader the whole seed-once design exists to remove -- the
     # one that answers with a stale value nobody edited.

@@ -1,15 +1,15 @@
 ---
-# Remove the files a PREVIOUS converge installed and this one no longer ships.
+# Remove the files a PREVIOUS converge installed and this one does not ship.
 #
-# The converge was copy-only, so a unit or script withdrawn from a later
-# release was simply not copied and the old one kept running -- a timer nobody
-# ships any more, firing at a binary nobody builds any more.
+# The converge is copy-only, so a unit or script withdrawn from a later
+# release is simply not copied and the old one keeps running -- a timer
+# nobody ships any more, firing at a binary nobody builds any more.
 # reconcile/roles/backup still carries a hand-written `state: absent` for
 # catena-acquire-lock.sh, which is this problem solved once, by hand, for the
 # one instance somebody noticed.
 #
 # filter_plugins/converge_manifest.py holds the two rules and the reasoning:
-# delete only what is no longer DECLARED (never merely "not installed here",
+# delete only what is not declared anymore (never merely "not installed here",
 # which is a feature switched off), and delete only what is still byte-for-byte
 # what this converge's predecessor wrote.
 #
@@ -91,7 +91,7 @@
 
 # Three steps, in this order, for the reason install-ee-payload.sh gives:
 # removing the unit file first leaves systemd holding an enabled symlink to
-# nothing, and a timer that was RUNNING keeps running until something stops it.
+# nothing, and a timer that is RUNNING keeps running until something stops it.
 - name: "Prune: stop and disable withdrawn units"
   ansible.builtin.systemd_service:
     name: "{{ item.path | basename }}"
@@ -128,7 +128,7 @@
 # Written LAST and only once the prune has run, for the reason the payload
 # installer states: a manifest written before the work describes an install
 # that may not have finished, and the one thing a delete leg must never be
-# handed is a list of paths that were never written.
+# handed is a list of paths that are not yet written.
 - name: "Prune: stat every declared path to record what is actually here"
   ansible.builtin.stat:
     path: "{{ item }}"

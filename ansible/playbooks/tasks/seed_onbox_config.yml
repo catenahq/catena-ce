@@ -9,7 +9,7 @@
 # that has no Docker yet. Bootstrap needs neither, and needs the config half
 # because bootstrap/roles/tailscale chooses its control plane from cfg_tailnet_provider
 # with no inventory fallback. A machine that reaches its first converge already
-# on the wrong tailnet was the defect this split exists to close.
+# on the wrong tailnet is the defect this split exists to close.
 #
 # The full loader includes this file, so there is one copy of these four tasks.
 #

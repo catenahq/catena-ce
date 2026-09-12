@@ -131,15 +131,16 @@
   tasks:
     # DECIDE ON THE KEY, NOT ON THE PASSWORD.
     #
-    # This play used to skip itself whenever the password was blank, on the
-    # reasoning "blank means the key is already installed". Nothing checked
-    # that. And `catena install` ALWAYS emits bootstrap_root_password, blank
+    # Skipping this play whenever the password is blank, on the reasoning
+    # "blank means the key is already installed", would check nothing. And
+    # `catena install` ALWAYS emits bootstrap_root_password, blank
     # when install.yaml carries no host_initial_password (cli
     # _bootstrap_extra_vars) -- deliberately, so a vars_prompt cannot stop the
     # deploy chain to ask after preflight has run. Extra-vars outrank
     # vars_prompt, so on a fresh VPS driven by the CLI with no
-    # host_initial_password the prompt never appears, this play skips, the key
-    # is never installed, and Phase 1 cannot connect:
+    # host_initial_password the prompt never appears -- skipping on a blank
+    # password here would mean the key is never installed and Phase 1 cannot
+    # connect:
     #
     #   debian@<ip>: Permission denied (publickey).
     #
@@ -292,19 +293,19 @@
     # ── Non-root provider idempotency check ──────────────────────────────────
     # Probe OPS, not the provider account.
     #
-    # This used to run `id <ops_user>` THROUGH the initial user, reading success
-    # as "Phase 1 already ran". Phase 1's own sshd hardening removes the
-    # provider account from AllowUsers, so on a non-root image that probe can
-    # never succeed once Phase 1 has run -- it reports "not done" precisely when
-    # it IS done. The play then continued and failed connecting as a user Phase
-    # 1 had locked out, pointing at the fact-gathering task rather than at the
-    # cause:
+    # Running `id <ops_user>` THROUGH the initial user, and reading success as
+    # "Phase 1 already ran", would break on a non-root image: Phase 1's own
+    # sshd hardening removes the provider account from AllowUsers, so that
+    # probe can never succeed once Phase 1 has run -- it would report "not
+    # done" precisely when it IS done. The play would then continue and fail
+    # connecting as a user Phase 1 locked out, pointing at the fact-gathering
+    # task rather than at the cause:
     #
     #   debian@<ip>: Permission denied (publickey).
     #   Origin: playbooks/bootstrap.yml:245  Gather facts now that we know ...
     #
-    # Net effect: bootstrap was NOT re-runnable at all on OVH Debian / Ubuntu
-    # cloud images, only on root-login providers.
+    # Net effect: bootstrap would NOT be re-runnable at all on OVH Debian /
+    # Ubuntu cloud images, only on root-login providers.
     #
     # The root path above already probes the account whose access Phase 1
     # REMOVES and reads failure as "already ran". The non-root path has to probe

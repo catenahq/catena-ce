@@ -20,7 +20,7 @@
 # Which variables count as secrets is DECLARED, in the four category tables
 # in helpers/onbox_config.py, and read back here -- captured by declared
 # name rather than by a spelling convention, so a variable is captured
-# because someone said it was a secret, not because of how it was spelled.
+# because someone said it is a secret, not because of how it is spelled.
 # Asking the module keeps one declaration.
 #
 # Pure query, no store I/O -- it answers before the store exists on a fresh box.
@@ -143,16 +143,16 @@
 
 # ─── which catena-admin release this converge installs ─────────────────────
 #
-# ASKED, not remembered. The image used to be two literals in
-# bootstrap/roles/common/defaults -- the version and its digest -- bumped by hand together
-# on every catena-admin release. They drifted, and reconcile/roles/payload is right to
-# refuse an image whose digest is not the recorded one, so the drift failed
-# fresh installs on a correct host with a correct image:
+# ASKED, not remembered. Two literals in bootstrap/roles/common/defaults --
+# the version and its digest -- bumped by hand together on every catena-admin
+# release would risk drifting, and reconcile/roles/payload is right to
+# refuse an image whose digest is not the recorded one, so a drift would
+# fail fresh installs on a correct host with a correct image:
 #
 #   ...:v0.5.1 resolved to sha256:205a5a70... but this deployment pins
 #   sha256:09e03d74... Refusing to extract or root-execute the payload.
 #
-# The registry is now the single writer of both halves at once, so they cannot
+# The registry is the single writer of both halves at once, so they cannot
 # disagree. helpers/catena_admin_release.py states why it resolves the highest
 # vX.Y.Z tag rather than :latest.
 #
@@ -178,8 +178,8 @@
 # Fails HERE rather than deep in reconcile/roles/payload, and says which of the two
 # reasons it is. A converge cannot proceed without this: the panel image is
 # also where the host engines come from, and every role after bootstrap/roles/docker
-# depends on those. Nothing downstream has a usable fallback -- the previous
-# fallback WAS the stale literal this replaces.
+# depends on those. Nothing downstream has a usable fallback: the only
+# alternative is the stale literal this whole mechanism exists to replace.
 - name: "onbox: the catena-admin release could not be resolved"
   ansible.builtin.fail:
     msg: >-
