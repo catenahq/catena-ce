@@ -29,7 +29,7 @@ traefik_dynamic_dir: "{{ traefik_config_dir }}/dynamic"
 # `catena-tier1 spec catena-traefik`.
 #
 # The values did not change; they moved. The engine's own test pins the exact
-# declaration this file used to build and asserts byte-identical
+# declaration this file would otherwise build, and asserts byte-identical
 # `docker service create` argv, so the move is provably lossless. What it buys
 # is that the desired control plane now travels with the IMAGE: bump the
 # catena-admin tag and what the host reconciles toward moves with it, no laptop

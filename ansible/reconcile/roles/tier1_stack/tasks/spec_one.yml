@@ -16,8 +16,8 @@
 #                     file needs no per-service knowledge, and so every such
 #                     value is visible at ITS call site rather than buried here.
 # Sets:
-#   tier1_builtin_spec  the spec dict, in the same shape the roles used to
-#                       build and the same shape reconcile_one.yml takes
+#   tier1_builtin_spec  the spec dict, in the same shape the roles would
+#                       otherwise build and the same shape reconcile_one.yml takes
 #
 # WHY THE ENGINE OWNS IT. The desired state then travels with the IMAGE: bump
 # the catena-admin tag, reconcile/roles/payload re-extracts the engines, and what the

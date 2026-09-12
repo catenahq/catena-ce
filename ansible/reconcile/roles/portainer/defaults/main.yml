@@ -21,7 +21,8 @@ portainer_data_volume: catena-portainer-data
 # `catena-tier1 spec catena-portainer`.
 #
 # The values did not change; they moved. The engine's test pins the exact
-# declaration this file used to build and asserts byte-identical create argv.
+# declaration this file would otherwise build, and asserts byte-identical
+# create argv.
 # The image pin moved with them, and Renovate + Trivy follow it there: a version
 # has to be tracked where the host actually reads it.
 #

@@ -71,7 +71,7 @@ oauth2_proxy_client_id: "oauth2-proxy"
 # discovery still enabled oauth2-proxy STILL fetches .well-known from
 # the public issuer at boot; --skip-oidc-discovery removes that GET.
 # Net: oauth2-proxy boot makes ZERO Cloudflare round-trips, so a tunnel
-# re-register during a restore can no longer crashloop internal auth.
+# re-register during a restore cannot crashloop internal auth.
 oauth2_proxy_oidc_issuer: "https://{{ keycloak_hostname }}/realms/{{ keycloak_realm }}"
 
 # Public (browser-facing) authorization endpoint -- the user's browser

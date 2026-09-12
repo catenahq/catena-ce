@@ -21,12 +21,12 @@
 #                   stack), but presence-gated on a consumer application. They
 #                   appear the converge after a Talk or Jitsi deploy.
 #
-# They were one file. That made the control-plane render change on a converge
-# where the control plane had not: deploy an app with a TURN consumer and
-# tier1.yml gained a fourth service, which reads as control-plane drift to
-# anything watching it and is not.
+# Combining them into one file would make the control-plane render change on a
+# converge where the control plane had not: deploy an app with a TURN consumer
+# and tier1.yml would gain a fourth service, which reads as control-plane
+# drift to anything watching it and is not.
 #
-# `docker stack deploy` was the other candidate for the apply and lost on
+# `docker stack deploy` is the other candidate for the apply, and it loses on
 # measurement: it always names services `<stack>_<key>`, with no flag to
 # suppress the prefix and no adoption of an existing standalone service. The
 # rename reaches 13 DNS sites, three ANCHORED matchers in catena-admin's
@@ -81,9 +81,9 @@
         group: root
         mode: "0750"
 
-    # 0640 root:root. It names every swarm secret the control plane mounts.
-    # That is not the secret material -- swarm holds that -- but it is a map
-    # of what to ask for, and nothing on this host needs to read it but root.
+    # 0640 root:root. It names every swarm secret the control plane mounts:
+    # a map of what to ask for, not the secret material itself -- swarm holds
+    # that -- and nothing on this host needs to read it but root.
     - name: "tier1_stack: write the rendered control-plane file"
       ansible.builtin.copy:
         dest: "{{ tier1_stack_path }}"

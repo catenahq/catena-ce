@@ -9,11 +9,12 @@
 #
 # It runs immediately after bootstrap/roles/docker so every later role can rely on the
 # engines being present. That ordering is the point: reconcile/roles/cloudflare_tunnel
-# (role 9) dispatches catena-cloudflared-sync, and the payload used to arrive
-# from reconcile/roles/catena-admin (role 13) -- so a first converge on a host that
-# already held a Cloudflare token deferred the tunnel, and reconcile/roles/oauth2_proxy
-# (role 11) then failed waiting for https://auth.<zone>/.well-known/
-# openid-configuration through an edge that was never brought up.
+# (role 9) dispatches catena-cloudflared-sync. Arriving from
+# reconcile/roles/catena-admin (role 13) instead would mean a first converge on
+# a host that already holds a Cloudflare token defers the tunnel, and
+# reconcile/roles/oauth2_proxy (role 11) then fails waiting for
+# https://auth.<zone>/.well-known/openid-configuration through an edge that is
+# never brought up.
 
 # Image the payload is extracted from. The SAME variable reconcile/roles/catena-admin
 # runs the shell from, declared in bootstrap/roles/common because this role runs at 5.5
@@ -111,7 +112,7 @@ catena_payload_image_path: "/usr/local/share/catena-ee"
 # engine. Keyed on the ID rather than mere existence so an image upgrade is
 # picked up, and so a build-STAMPED engine deliberately placed on the host
 # (activate_ee ships a catena-daily carrying the run's operator public key) is
-# not silently replaced by an unstamped build on the next converge.
+# protected from a silent overwrite by an unstamped build on the next converge.
 catena_payload_marker: "/etc/catena/.payload-image"
 
 # Pull the image before extracting. Production pulls the published GHCR tag.

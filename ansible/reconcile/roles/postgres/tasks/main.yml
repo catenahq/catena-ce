@@ -63,14 +63,14 @@
 # below is the real readiness barrier and fails fast (120s) instead.
 # ASKED FOR, not assembled here. The engine on the host owns what the control
 # plane IS (catena-admin payload/engines/tier1/catalog.go); this reads its
-# answer and uses it exactly where the hand-built dict used to go -- the
+# answer and uses it exactly where a hand-built dict would go -- the
 # reconcile below and the stack-file oracle both.
 #
 # The point of asking rather than keeping a copy: a second description of one
 # service is the drift this whole seam exists to remove, and a copy that agrees
 # on the day it is written says nothing about the next field added to one side.
-# The engine's own test pins the declaration this role used to build and
-# asserts byte-identical create argv.
+# The engine's own test pins the declaration this role would otherwise
+# build, and asserts byte-identical create argv.
 #
 # It also means the desired state travels with the IMAGE. Bump the catena-admin
 # tag, reconcile/roles/payload re-extracts the engines, and the control plane the host

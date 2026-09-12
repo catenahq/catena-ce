@@ -35,14 +35,6 @@ ansible/reconcile/roles/keycloak/tasks/provision_db.yml -- 1 finding(s): NoHisto
 ansible/reconcile/roles/keycloak/tasks/realm_bootstrap.yml -- 3 finding(s): NoHistoryWeak
 ansible/reconcile/roles/keycloak/tasks/realm_export.yml -- 2 finding(s): NoHistory, NoHistoryWeak
 ansible/reconcile/roles/keycloak/tasks/validate.yml -- 2 finding(s): NoContrastSpec, NoHistory
-ansible/reconcile/roles/oauth2_proxy/defaults/main.yml -- 1 finding(s): NoHistory
-ansible/reconcile/roles/payload/defaults/main.yml -- 3 finding(s): NoHistory, NoHistoryWeak
-ansible/reconcile/roles/portainer/defaults/main.yml -- 1 finding(s): NoHistory
-ansible/reconcile/roles/postgres/tasks/main.yml -- 2 finding(s): NoHistory
-ansible/reconcile/roles/tier1_stack/tasks/main.yml -- 2 finding(s): NoContrastSpec, NoHistoryWeak
-ansible/reconcile/roles/tier1_stack/tasks/spec_one.yml -- 1 finding(s): NoHistory
-ansible/reconcile/roles/traefik/defaults/main.yml -- 1 finding(s): NoHistory
-ansible/reconcile/roles/traefik/tasks/main.yml -- 3 finding(s): NoHistory
 ansible/scripts/gatus-sync.py -- 1 finding(s): NoHistory
 ansible/scripts/healthchecks-seed.py -- 1 finding(s): NoHistoryWeak
 ansible/scripts/nextcloud-talk-hpb-wire.sh -- 1 finding(s): NoHistory
