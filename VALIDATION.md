@@ -13,7 +13,7 @@ Catena is exercised end-to-end by an automated rehearsal suite: each scenario pr
 
 Two numbers are reported everywhere: **rehearsed** means the scenario was last recorded PASSING on a real run, and is the only number treated as evidence; **declared** additionally counts scenarios that exist but have not been observed passing yet. A scenario is never counted for merely existing.
 
-**Coverage: 11 Community features, 88 of 94 rehearsal scenarios observed passing; 13 Catena Pro features, 45 of 46; plus 17 of 23 maintainer-internal rehearsals.**
+**Coverage: 11 Community features, 87 of 94 rehearsal scenarios observed passing; 13 Catena Pro features, 45 of 46; plus 17 of 23 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -39,7 +39,7 @@ A web dashboard with role-aware access (staff see status, administrators also ge
 
 Implemented in: `ansible/reconcile/roles/catena-admin`, `ansible/scripts/catena-admin-runner.sh`
 
-Rehearsal scenarios (7 of 7 observed passing): `admin_action_unknown_rejected`, `audit_chain_tamper_evident`, `ce_admin_actions`, `ce_admin_smoke`, `payload_action_dispatches_without_converge`, `quiesce_resume_round_trip`, `wizard_restore_smoke`
+Rehearsal scenarios (6 of 7 observed passing): `admin_action_unknown_rejected`, `audit_chain_tamper_evident`, `ce_admin_actions`, `ce_admin_smoke`, `payload_action_dispatches_without_converge`, `quiesce_resume_round_trip`; declared, not yet observed passing: `wizard_restore_smoke`
 
 ### Self-serve application catalog
 
