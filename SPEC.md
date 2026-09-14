@@ -57,9 +57,6 @@ The entry point is the `catena` console script declared in
 uv run catena <verb> --inventory <inventory>
 ```
 
-There is no wrapper script and no extensionless duplicate. `catena_cli.py` is
-the whole CLI and it is the audit tree's root anchor.
-
 A verb that runs one playbook carries that playbook's name. A verb that chains
 several does not, because there is no single playbook to name it after.
 
@@ -112,7 +109,7 @@ already seeded is not an operation.
 | `backup.yml` | On-demand snapshot |
 | `restore.yml` | Whole-host restore from a chosen snapshot |
 | `show-keyset.yml` | Re-display the disaster-recovery keyset |
-| `rotate-tunnel.yml` | Replace the host's Cloudflare tunnel without a converge. The API token is consumed once and never persisted |
+| `rotate-tunnel.yml` | Replace the host's Cloudflare tunnel without a converge. Takes no secret: both halves of the rotation authenticate as the Cloudflare token already in the store |
 | `rotate-tailscale.yml` | Force re-authentication to the mesh |
 | `uninstall.yml` | Hand the OS update lane back to Debian and print teardown guidance |
 
@@ -183,13 +180,15 @@ Order is the converge order, which is dependency order.
 
 ### How a role is reached
 
-Three ways, and the difference is load-bearing.
+Three ways, and the difference is load-bearing. All three are declared in
+`boundary.yml`, each entry carrying how it is reached, so a role outside the
+converge's `roles:` list is classified rather than exempted.
 
 | Reached as | Roles | Meaning |
 | --- | --- | --- |
 | A converge role | The two tables above | Applied by `converge.yml`, and by `reconcile.yml` for the reconcile half |
-| A post-task role | `tier1_stack` | Applied at the end of a converge, after the post-restore seam has run. It renders the control plane and the app companions as compose files and proves they load. It applies nothing: it is the oracle, not the applier, and it must see the services the seam brought back |
-| An own-playbook role | `cloudflare_tunnel_regenerate` | A variant of `cloudflare_tunnel` reached only from `rotate-tunnel.yml`, never from a converge |
+| A post-task role | `tier1_stack` | A fold over the converge rather than a step in it: the control-plane roles each append their service spec to an accumulator, and this renders the accumulated set and type-checks it against the docker installed. It applies nothing. It runs after the post-restore seam because that seam is what brings a TURN consumer back up |
+| An own-playbook role | `cloudflare_tunnel_regenerate` | Deletes this host's tunnel before handing back to `cloudflare_tunnel` to mint a new one. A converge able to do that would drop the public edge every run, so the delete is an intent somebody declares by running `rotate-tunnel.yml` |
 
 ### Paths a reconcile task may never write
 
@@ -401,7 +400,6 @@ yet, and what each item costs:
 | `backup.yml` | `backup_now.yml` |
 | `rotate-tunnel.yml` | `regenerate-cf-tunnel.yml` |
 | `show-keyset.yml` | `show_dr_keyset.yml` |
-| `tier1_stack` declared in `boundary.yml` with its reason | Excluded from the boundary check with no reason recorded anywhere |
 
 The playbook renames reach `ops` immediately: its migration playbook imports
 `converge` and `backup` by path, and the audit manifests anchor on both
