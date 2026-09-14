@@ -10,17 +10,17 @@ name: Trivy
 # trivy.yml, reading the pins where the host reads them. Scanning them here
 # would gate a PR on a tag no host runs.
 #
-# What it DOES scan is the infra app images this repo still pins in role
-# defaults: gatus, healthchecks, the recovery nginx, clamav, the beszel hub +
-# agent + its python shim, the Phase Two Keycloak, keycloak-config-cli and
-# oauth2-proxy. Renovate has tracked every one of them for months and its
-# packageRule claimed "Trivy gates each PR"; nothing had ever scanned them.
-# The claim is now backed.
+# What it DOES scan is the infra app images this repo pins in role defaults:
+# gatus, healthchecks, clamav, the beszel hub + agent + its python shim, the
+# Phase Two Keycloak, keycloak-config-cli and oauth2-proxy. These run on every
+# client host -- Keycloak is the identity plane and clamav the mail scanner.
+# A finding is triaged into .trivyignore.yaml with an expiredAt, or the pin is
+# bumped.
 #
-# Expect this to go red on its first run. That is the finding, not a
-# regression: these images run on every client host -- Keycloak is the
-# identity plane and clamav the mail scanner -- and nothing has been looking.
-# Triage each into .trivyignore.yaml with an expiredAt, or bump the pin.
+# Every pin_file below is asserted to exist and to still match its pin_pattern
+# by ansible/tests/unit/test_renovate_managers_resolve.py. Both halves matter:
+# an unresolvable pin_file yields an empty matrix, the pins job skips, and
+# trivy-gate reports success for a run that scanned no image at all.
 
 on:
   pull_request:
@@ -74,15 +74,15 @@ jobs:
           set -euo pipefail
           cat > matrix.json <<'EOF'
           [
-            {"name": "gatus", "pin_file": "ansible/roles/infrastructure/defaults/main.yml", "pin_pattern": "gatus_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "twinproduction/gatus"},
-            {"name": "healthchecks", "pin_file": "ansible/roles/infrastructure/defaults/main.yml", "pin_pattern": "healthchecks_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "healthchecks/healthchecks"},
-            {"name": "clamav", "pin_file": "ansible/roles/infrastructure/defaults/main.yml", "pin_pattern": "clamav_image: *\"clamav/clamav:[A-Za-z0-9._-]+\"", "image_repo": "clamav/clamav"},
-            {"name": "beszel", "pin_file": "ansible/roles/infrastructure/defaults/main.yml", "pin_pattern": "beszel_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "henrygd/beszel"},
-            {"name": "beszel-agent", "pin_file": "ansible/roles/infrastructure/defaults/main.yml", "pin_pattern": "beszel_agent_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "henrygd/beszel-agent"},
-            {"name": "beszel-hc-shim", "pin_file": "ansible/roles/infrastructure/defaults/main.yml", "pin_pattern": "beszel_hc_shim_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "python"},
-            {"name": "keycloak", "pin_file": "ansible/roles/keycloak/defaults/main.yml", "pin_pattern": "keycloak_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "quay.io/phasetwo/phasetwo-keycloak"},
-            {"name": "keycloak-config-cli", "pin_file": "ansible/roles/keycloak/defaults/main.yml", "pin_pattern": "keycloak_config_cli_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "adorsys/keycloak-config-cli"},
-            {"name": "oauth2-proxy", "pin_file": "ansible/roles/oauth2_proxy/defaults/main.yml", "pin_pattern": "oauth2_proxy_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "quay.io/oauth2-proxy/oauth2-proxy"}
+            {"name": "gatus", "pin_file": "ansible/reconcile/roles/infrastructure/defaults/main.yml", "pin_pattern": "gatus_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "twinproduction/gatus"},
+            {"name": "healthchecks", "pin_file": "ansible/reconcile/roles/infrastructure/defaults/main.yml", "pin_pattern": "healthchecks_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "healthchecks/healthchecks"},
+            {"name": "clamav", "pin_file": "ansible/reconcile/roles/infrastructure/defaults/main.yml", "pin_pattern": "'clamav/clamav:[A-Za-z0-9._-]+'", "image_repo": "clamav/clamav"},
+            {"name": "beszel", "pin_file": "ansible/reconcile/roles/infrastructure/defaults/main.yml", "pin_pattern": "beszel_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "henrygd/beszel"},
+            {"name": "beszel-agent", "pin_file": "ansible/reconcile/roles/infrastructure/defaults/main.yml", "pin_pattern": "beszel_agent_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "henrygd/beszel-agent"},
+            {"name": "beszel-hc-shim", "pin_file": "ansible/reconcile/roles/infrastructure/defaults/main.yml", "pin_pattern": "beszel_hc_shim_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "python"},
+            {"name": "keycloak", "pin_file": "ansible/reconcile/roles/keycloak/defaults/main.yml", "pin_pattern": "keycloak_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "quay.io/phasetwo/phasetwo-keycloak"},
+            {"name": "keycloak-config-cli", "pin_file": "ansible/reconcile/roles/keycloak/defaults/main.yml", "pin_pattern": "keycloak_config_cli_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "adorsys/keycloak-config-cli"},
+            {"name": "oauth2-proxy", "pin_file": "ansible/reconcile/roles/oauth2_proxy/defaults/main.yml", "pin_pattern": "oauth2_proxy_image_tag: *\"[A-Za-z0-9._-]+\"", "image_repo": "quay.io/oauth2-proxy/oauth2-proxy"}
           ]
           EOF
           if [ "$EVENT" = "pull_request" ]; then
@@ -124,9 +124,12 @@ jobs:
             echo "::error::no pin matching /${PIN_PATTERN}/ in ${PIN_FILE}" >&2
             exit 1
           fi
-          value=$(printf '%s' "$line" | grep -Eo '"[^"]+"' | tail -n1 | tr -d '"')
+          # Either quote style: the _image_tag scalars are double-quoted YAML,
+          # while clamav's whole ref is single-quoted inside the folded Jinja
+          # that runs it through catena_image_pin.
+          value=$(printf '%s' "$line" | grep -Eo "[\"'][^\"']+[\"']" | tail -n1 | tr -d "\"'")
           case "$value" in
-            # Already a whole ref (clamav pins repo and tag on one line).
+            # Already a whole ref (clamav pins repo and tag together).
             */*:*|*:*/*) image="$value" ;;
             *)           image="${IMAGE_REPO}:${value}" ;;
           esac
