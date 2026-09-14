@@ -1,26 +1,35 @@
 ---
-# Regenerate the Cloudflare tunnel for this host. Used in two
-# scenarios: (a) routine rotation of the tunnel-token credential
-# (e.g. when the operator suspects compromise of a tunnel JSON),
-# (b) recovery after the tunnel was orphaned by an out-of-band
-# delete in the CF dashboard.
+# Regenerate the Cloudflare tunnel for this host. Two scenarios: rotation of
+# the tunnel credential when compromise is suspected, and recovery after the
+# tunnel was deleted out of band in the Cloudflare dashboard.
 #
-# Triggered from the catena-admin Actions tab "Regenerate Cloudflare
-# tunnel" entry, which feeds cf_api_token in via -e (the action
-# payload). The token is consumed once at API call time and is NEVER
-# persisted -- cloudflare_api_token is intentionally NOT updated
-# by this role.
+# WHAT IS ROTATED is the tunnel's own credential -- the TUNNEL_TOKEN carried in
+# the cloudflared swarm service spec. The Cloudflare API token is what
+# authenticates the calls that rotate it, and it is a different secret with a
+# different lifecycle.
+#
+# THE API TOKEN COMES FROM THE STORE, and it has to. Both halves authenticate
+# with it: the delete here, and the re-create in
+# reconcile/roles/cloudflare_tunnel, which dispatches catena-cloudflared-sync
+# -- and the engine reads /etc/catena/config.json itself. A token supplied per
+# run could only ever reach the delete, so a run whose supplied token differed
+# from the stored one would delete the tunnel with one credential and fail to
+# mint its replacement with the other. One source, one answer.
+#
+# So rotating the API token is a separate act that lands in the store first
+# (catena-admin > Settings). This role refuses before deleting anything when
+# the store holds none.
 #
 # Sequence:
-#   1. Resolve zone via CF API (using the supplied token).
-#   2. Delete the existing tunnel for this host (if any).
-#   3. Hand off to reconcile/roles/cloudflare_tunnel's find-or-create logic with
-#      cloudflare_api_token shadowed by the supplied token, which
-#      then mints a new tunnel + token, writes the JSON, and restarts
-#      cloudflared.
+#   1. Read the store: API token, zone, tunnel-name prefix.
+#   2. Resolve the zone and the account behind it via the CF API.
+#   3. Delete the existing tunnel for this host (if any).
+#   4. Hand off to reconcile/roles/cloudflare_tunnel, whose engine mints a new
+#      tunnel, re-points the wildcard CNAME and rolls cloudflared onto the new
+#      TUNNEL_TOKEN.
 #
-# This is INSTANT for the client (single-button flow); the rotation
-# is propagated to live state without an operator converge.
+# Single-button for the client: the rotation reaches live state without a
+# converge.
 
 # There is nothing to rotate until the client has provisioned a tunnel by
 # saving a Cloudflare token in catena-admin > Settings (the token lands in the
@@ -39,21 +48,30 @@
   when: _cf_regen_store_stat.stat.exists | default(false)
   no_log: true
 
-- name: "CF regen: refuse when the store holds no Cloudflare token"
-  ansible.builtin.assert:
-    that:
-      - (_cf_regen_store_token | length) > 0
-    fail_msg: >-
-      No Cloudflare token provided yet -- enter it in catena-admin > Settings
-      before regenerating the tunnel. The tunnel is provisioned on-box from the
-      stored token; there is nothing to rotate until one exists.
-  vars:
-    _cf_regen_store_token: >-
+# A fact rather than a task-scoped var: every CF API call below authenticates
+# with it, and the re-create at the end reads the same key out of the same file
+# from inside the engine.
+- name: "CF regen: take the API token from the store"
+  ansible.builtin.set_fact:
+    _cf_regen_api_token: >-
       {{ ((_cf_regen_store.content | default('') | b64decode | from_json).secrets
           | default({})).get('cloudflare_api_token', '')
          if (_cf_regen_store_stat.stat.exists | default(false))
          else '' }}
   no_log: true
+
+# No no_log here. assert reports the unrendered expression, never the value, so
+# the fail_msg below is the whole point of the task and censoring it would cost
+# the one sentence that says what to do about the refusal.
+- name: "CF regen: refuse when the store holds no Cloudflare token"
+  ansible.builtin.assert:
+    that:
+      - (_cf_regen_api_token | length) > 0
+    fail_msg: >-
+      No Cloudflare token in the on-box store -- enter it in catena-admin >
+      Settings before regenerating the tunnel. The tunnel is provisioned on-box
+      from the stored token: there is nothing to rotate until one exists, and
+      nothing to authenticate the delete with.
 
 # The zone comes from the store this role already slurped, not from the
 # inventory. This play has no load_onbox_config pre_task by design -- it is
@@ -87,30 +105,27 @@
           else '')
          ~ (_cf_regen_hostname.stdout | trim) }}
 
-- name: "CF regen: validate inputs"
+- name: "CF regen: the store names a zone"
   ansible.builtin.assert:
     that:
-      - cf_api_token is defined
-      - cf_api_token | length > 10
       - cloudflare_zone | length > 0
     fail_msg: >-
-      Missing inputs: cf_api_token (-e cf_api_token=...), and a Cloudflare zone
-      in the on-box store. The zone is seeded there on the first converge; a
-      host without one has never finished an install.
+      No Cloudflare zone in the on-box store. The zone is seeded there on the
+      first converge; a host without one has never finished an install.
   run_once: true
   delegate_to: localhost
   become: false
 
-# Resolved fresh every run, on the SAME Zone:DNS:Edit scope cf_api_token
-# already needs (mirrors reconcile/roles/coturn/tasks/dns.yml's zone_id lookup): a
-# rotated cf_api_token may never have touched the on-box store, so that
-# value can be for a different account than the token in hand.
+# Resolved fresh every run rather than stored, on the Zone:DNS:Edit scope the
+# token already needs (mirrors reconcile/roles/coturn/tasks/dns.yml's zone_id
+# lookup). Which account a zone belongs to is the API's answer to give, and a
+# copy of it in the store would be one more thing to keep true.
 - name: "CF regen: resolve Cloudflare account id from the zone"
   ansible.builtin.uri:
     url: "{{ cloudflare_api_base }}/zones?name={{ cloudflare_zone }}"
     method: GET
     headers:
-      Authorization: "Bearer {{ cf_api_token }}"
+      Authorization: "Bearer {{ _cf_regen_api_token }}"
     status_code: 200
     return_content: true
   register: _cf_regen_zone_lookup
@@ -124,7 +139,8 @@
       - _cf_regen_zone_lookup.json.result | length == 1
     fail_msg: >-
       Zone '{{ cloudflare_zone }}' not found (or token lacks access). The
-      supplied cf_api_token needs Zone:DNS:Edit scope on this zone.
+      stored Cloudflare token needs Zone:DNS:Edit scope on this zone. Update it
+      in catena-admin > Settings, then run this again.
   run_once: true
   delegate_to: localhost
   become: false
@@ -138,7 +154,7 @@
     url: "{{ cloudflare_api_base }}/accounts/{{ _cf_regen_account_id }}/cfd_tunnel?name={{ cloudflared_tunnel_name }}&is_deleted=false"
     method: GET
     headers:
-      Authorization: "Bearer {{ cf_api_token }}"
+      Authorization: "Bearer {{ _cf_regen_api_token }}"
     status_code: 200
     return_content: true
   register: _cf_regen_list
@@ -151,7 +167,7 @@
     url: "{{ cloudflare_api_base }}/accounts/{{ _cf_regen_account_id }}/cfd_tunnel/{{ item.id }}/connections"
     method: DELETE
     headers:
-      Authorization: "Bearer {{ cf_api_token }}"
+      Authorization: "Bearer {{ _cf_regen_api_token }}"
     status_code: [200, 204, 404]
   loop: "{{ _cf_regen_list.json.result }}"
   loop_control:
@@ -165,7 +181,7 @@
     url: "{{ cloudflare_api_base }}/accounts/{{ _cf_regen_account_id }}/cfd_tunnel/{{ item.id }}"
     method: DELETE
     headers:
-      Authorization: "Bearer {{ cf_api_token }}"
+      Authorization: "Bearer {{ _cf_regen_api_token }}"
     status_code: [200, 404]
   loop: "{{ _cf_regen_list.json.result }}"
   loop_control:
@@ -174,12 +190,9 @@
   delegate_to: localhost
   become: false
 
-# Hand off to the existing find-or-create + token write + restart
-# logic. Shadow cloudflare_api_token with the supplied token
-# so the tunnel role uses it for all API calls. The shadow is scoped
-# to this play -- the on-box store is not rewritten.
-- name: "CF regen: re-create tunnel + restart cloudflared via existing role"
+# Hand off to the find-or-create. Nothing is passed: that role dispatches
+# catena-cloudflared-sync, and the engine reads the token out of the store
+# itself, so it authenticates as the same credential the delete above used.
+- name: "CF regen: re-create tunnel + roll cloudflared via the tunnel role"
   ansible.builtin.include_role:
     name: cloudflare_tunnel
-  vars:
-    cloudflare_api_token: "{{ cf_api_token }}"

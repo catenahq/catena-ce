@@ -17,8 +17,8 @@ ansible-playbook. Subcommands:
              restore -> site -> validate (in place, no bootstrap)
   rotate-tunnel
              regenerate the host's Cloudflare tunnel without a full
-             converge (manual maintenance); the CF API token is consumed
-             once and never stored in the vault
+             converge (manual maintenance); authenticates as the
+             Cloudflare API token already in the host's store
   rotate-tailscale
              re-authenticate the node to the tailnet (force re-auth;
              manual maintenance)
@@ -172,23 +172,6 @@ def _snapshot_extra(args: argparse.Namespace) -> list[str] | None:
     restic snapshot, not just the most recent. Pure -- unit-testable."""
     snap = (getattr(args, "snapshot", "") or "").strip()
     return ["-e", f"restore_snapshot={snap}"] if snap else None
-
-
-def _secret_extra_var(name: str, value: str) -> tuple[list[str], Path | None]:
-    """Write a single secret extra-var to a 0600 temp file and return the
-    `-e @file` passthrough plus the temp path to clean. Keeps the secret off
-    argv / `ps` / the printed command (same pattern as the bootstrap provider
-    password). Empty value -> ([], None). Pure-ish (writes a temp file)."""
-    if not value:
-        return [], None
-    import yaml
-
-    fd, name_ = tempfile.mkstemp(prefix="catena-rotate-vars-", suffix=".yml")
-    os.close(fd)
-    tmp = Path(name_)
-    tmp.write_text(yaml.safe_dump({name: value}, default_flow_style=False))
-    tmp.chmod(0o600)
-    return ["-e", f"@{tmp}"], tmp
 
 
 def _prompt_provider_password(inv_dir: Path, initial_user: str) -> str:
@@ -595,26 +578,20 @@ def cmd_restore(args: argparse.Namespace) -> int:
 
 def cmd_rotate_tunnel(args: argparse.Namespace) -> int:
     """Regenerate this host's Cloudflare tunnel without a full converge
-    (manual maintenance). The CF API token is consumed once and never
-    persisted to the vault; supply it via --cf-api-token, the
-    CATENA_CF_API_TOKEN env var, or the interactive prompt. The token is
-    passed to ansible via a 0600 temp file (-e @file), never on argv."""
+    (manual maintenance).
+
+    Takes no token. The playbook authenticates as the cloudflare_api_token
+    already in the host's store, because the half that mints the replacement
+    tunnel is a host engine that reads that store directly -- a token handed in
+    here would reach the delete and not the re-create. Rotating the API token
+    is a separate act, done in catena-admin > Settings, and it has to land
+    before this runs."""
     _preflight_checks()
     inv_dir = resolve_inventory(args)
     _require_inventory(inv_dir)
     ensure_collections()
-    token = (args.cf_api_token or os.environ.get("CATENA_CF_API_TOKEN", "")).strip()
-    if not token:
-        token = getpass.getpass("Cloudflare API token: ").strip()
-    if not token:
-        die("a Cloudflare API token is required to regenerate the tunnel.")
     banner("Rotate -- regenerate the Cloudflare tunnel")
-    extra, tmp = _secret_extra_var("cf_api_token", token)
-    try:
-        _run(playbook_cmd(inv_dir, "regenerate-cf-tunnel", extra))
-    finally:
-        if tmp is not None:
-            tmp.unlink(missing_ok=True)
+    _run(playbook_cmd(inv_dir, "regenerate-cf-tunnel"))
     return 0
 
 
@@ -793,14 +770,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_rtun = sub.add_parser(
         "rotate-tunnel",
-        help="regenerate the Cloudflare tunnel (manual; token consumed once)",
+        help="regenerate the Cloudflare tunnel (manual; uses the stored token)",
     )
     _add_inventory_args(p_rtun, required=True)
-    p_rtun.add_argument(
-        "--cf-api-token", default="",
-        help="Cloudflare API token (consumed once, never stored); also read "
-             "from CATENA_CF_API_TOKEN, prompted if unset",
-    )
     p_rtun.set_defaults(func=cmd_rotate_tunnel)
 
     p_rts = sub.add_parser(
