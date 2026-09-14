@@ -82,6 +82,32 @@ reconcile_roles:
   - coturn
   - backup
 
+# Reconcile-side roles the converge does not list under `roles:`. Declared for
+# the same reason everything else here is: a role nobody classified is a role
+# whose side gets decided by whoever next edits it. Each carries HOW it is
+# reached, because that is the part the list above would otherwise have said.
+
+# Applied at the end of a converge, from post_tasks.
+post_task_roles:
+  - name: tier1_stack
+    why: >-
+      A fold over the converge rather than a step in it. traefik, postgres,
+      portainer and coturn each append their service spec to an accumulator;
+      this renders the accumulated set and type-checks it against the docker
+      actually installed. It can only run once every contributor has, and it
+      runs after the post-restore seam specifically: that seam is what brings a
+      TURN consumer back up, so a render from the roles list would write a
+      coturn-less companions.yml on the one path that needs one.
+
+# Applied only by their own playbook, never by a converge.
+own_playbook_roles:
+  - name: cloudflare_tunnel_regenerate
+    why: >-
+      Deletes this host's Cloudflare tunnel before handing off to
+      cloudflare_tunnel to mint a new one. A converge able to do that would
+      drop the public edge on every run. The delete is an intent somebody
+      declares by running playbooks/regenerate-cf-tunnel.yml.
+
 # NOTHING STRADDLES ANY MORE, which is what phase 1b was for.
 #
 # The public-port reconciler lives in reconcile/roles/public_ports, not in

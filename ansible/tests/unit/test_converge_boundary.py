@@ -62,18 +62,26 @@ def _bootstrap_names(b: dict) -> set[str]:
     return {r["name"] for r in b["bootstrap_roles"]}
 
 
+# Reconcile-side roles the converge does not list under `roles:`. They are
+# classified by declaration like everything else, so the set cannot grow by an
+# edit to this file.
+_NON_PLAY_KEYS = ("post_task_roles", "own_playbook_roles")
+
+
+def _non_play_names(b: dict) -> set[str]:
+    return {
+        role["name"] for key in _NON_PLAY_KEYS for role in b.get(key) or []
+    }
+
+
 def test_every_role_is_on_exactly_one_side():
     b = _boundary()
-    declared = _bootstrap_names(b) | set(b["reconcile_roles"])
+    declared = (
+        _bootstrap_names(b) | set(b["reconcile_roles"]) | _non_play_names(b)
+    )
     straddling = set(b["straddling_roles"])
 
-    on_disk = set(_roles_on_disk())
-    # The regenerate playbook's role is a variant of cloudflare_tunnel and runs
-    # only from its own playbook, never from site.yml.
-    on_disk.discard("cloudflare_tunnel_regenerate")
-    on_disk.discard("tier1_stack")
-
-    unclassified = sorted(on_disk - declared)
+    unclassified = sorted(set(_roles_on_disk()) - declared)
     assert not unclassified, (
         "these roles are on neither side of boundary.yml, so which side they "
         f"are on is decided by whoever next edits them: {unclassified}"
@@ -95,6 +103,7 @@ def test_the_tree_agrees_with_the_declaration():
     b = _boundary()
     declared = {name: "bootstrap" for name in _bootstrap_names(b)}
     declared.update({name: "reconcile" for name in b["reconcile_roles"]})
+    declared.update({name: "reconcile" for name in _non_play_names(b)})
     wrong = {
         name: f"lives under {side}/roles, declared {declared[name]}"
         for name, (side, _) in _roles_on_disk().items()
@@ -113,6 +122,21 @@ def test_every_bootstrap_role_says_why_it_is_one():
         assert len(why) > 40, (
             f"{role['name']} is bootstrap-owned with no real reason given: {why!r}"
         )
+
+
+def test_every_role_outside_the_roles_list_says_how_it_is_reached():
+    """A role absent from the converge's `roles:` list is reached some other
+    way, and which way is the only thing that makes it legitimate. Without the
+    reason the entry reads as an exemption, which is how the next one gets
+    added."""
+    b = _boundary()
+    for key in _NON_PLAY_KEYS:
+        for role in b.get(key) or []:
+            why = (role.get("why") or "").strip()
+            assert len(why) > 40, (
+                f"{role['name']} is declared under {key} with no real reason "
+                f"given: {why!r}"
+            )
 
 
 def _side_of(path: Path, b: dict) -> str | None:
