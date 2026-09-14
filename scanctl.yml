@@ -6,3 +6,56 @@ tools:
   semgrep:
     enabled: true
     mode: block
+
+# The infra app images this repo pins in role defaults. Read from the defaults
+# themselves rather than listed as literal refs: the tag a host runs is already
+# declared there, and a second copy here would agree with it only by hand.
+#
+# One entry per image because these defaults SPLIT the ref -- the `_image:` key
+# is a folded Jinja expression over a separate `_image_tag:` scalar, so the
+# pattern matches the tag line and `repo` supplies the other half. Matching the
+# `_image:` line would resolve to the literal Jinja instead. clamav is the
+# exception: it pins the whole ref inline, so its group captures both halves.
+#
+# The patterns are narrower than a bare `<repo>:<tag>` grep on purpose. Each of
+# these keys sits under a comment block that names the image in prose, and a
+# loose pattern would scan whatever a comment happened to mention.
+#
+# A pin that stops matching FAILS the scan. That is the point: when the role
+# tree moved to reconcile/ every pin_file in the old Trivy matrix went stale at
+# once, the matrix resolved empty, and trivy-gate reported success for five
+# days having scanned no image at all.
+#
+# cloudflared, traefik, postgres, portainer and coturn are deliberately absent:
+# their tags live where the host engines read them, in catena-admin, and
+# scanning them here would gate a PR on a tag no host runs.
+image_pins:
+  - file: ansible/reconcile/roles/infrastructure/defaults/main.yml
+    pattern: 'gatus_image_tag: "([^"]+)"'
+    repo: twinproduction/gatus
+  - file: ansible/reconcile/roles/infrastructure/defaults/main.yml
+    pattern: 'healthchecks_image_tag: "([^"]+)"'
+    repo: healthchecks/healthchecks
+  - file: ansible/reconcile/roles/infrastructure/defaults/main.yml
+    pattern: 'beszel_image_tag: "([^"]+)"'
+    repo: henrygd/beszel
+  - file: ansible/reconcile/roles/infrastructure/defaults/main.yml
+    pattern: 'beszel_agent_image_tag: "([^"]+)"'
+    repo: henrygd/beszel-agent
+  # A python base image, not a product release, but it runs on every host.
+  - file: ansible/reconcile/roles/infrastructure/defaults/main.yml
+    pattern: 'beszel_hc_shim_image_tag: "([^"]+)"'
+    repo: python
+  # Whole ref on one line, single-quoted inside the folded Jinja that runs it
+  # through catena_image_pin.
+  - file: ansible/reconcile/roles/infrastructure/defaults/main.yml
+    pattern: "'(clamav/clamav:[^']+)'"
+  - file: ansible/reconcile/roles/keycloak/defaults/main.yml
+    pattern: 'keycloak_image_tag: "([^"]+)"'
+    repo: quay.io/phasetwo/phasetwo-keycloak
+  - file: ansible/reconcile/roles/keycloak/defaults/main.yml
+    pattern: 'keycloak_config_cli_image_tag: "([^"]+)"'
+    repo: adorsys/keycloak-config-cli
+  - file: ansible/reconcile/roles/oauth2_proxy/defaults/main.yml
+    pattern: 'oauth2_proxy_image_tag: "([^"]+)"'
+    repo: quay.io/oauth2-proxy/oauth2-proxy

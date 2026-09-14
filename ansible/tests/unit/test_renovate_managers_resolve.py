@@ -1,19 +1,20 @@
-"""Every Renovate custom manager and Trivy matrix entry still finds its pin.
+"""Every Renovate manager and scanctl image pin still finds the pin it tracks.
 
-A regex manager fails silently in both directions that matter. Point it at a
-path that no longer exists and it extracts nothing; leave the path right but
-let the pin change shape underneath it and it extracts nothing either. Renovate
-reports neither as an error -- the dependency simply stops appearing, no PR is
-ever opened again, and the pin sits frozen looking exactly like a pin nobody
-has needed to move.
+A regex manager fails silently in both directions that matter: a path that
+does not resolve extracts nothing, and a resolving path whose pin has changed
+shape extracts nothing either. Renovate treats neither as an error. The
+dependency stops appearing, no PR is opened for it again, and the pin sits
+frozen looking exactly like a pin nobody needs to move.
 
-Both happened here. `roles/` became `bootstrap/roles/` + `reconcile/roles/` and
-all seven managers went dark at once. Before that, clamav's pin moved inside a
-folded Jinja expression and its manager -- still pointing at a file that
-existed -- had been extracting nothing on its own.
+Two breaks reach it. A role directory that moves takes every manager anchored
+on the old path with it, all at once. A pin that changes shape in place -- a
+scalar folded into a Jinja expression, a variable renamed -- takes only its
+own, which is harder to notice.
 
-The Trivy image matrix reads the same pins from the same files, so a manager
-that cannot find its pin is also an image that stops being scanned.
+scanctl's image_pins read the same pins out of the same files, so a manager
+that cannot find its pin is also an image nothing scans. scanctl fails its own
+run on an unresolvable pin; this asserts the same thing where it is cheap to
+fix, and covers the Renovate half, which has no such gate.
 """
 from __future__ import annotations
 
@@ -22,10 +23,11 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO = Path(__file__).resolve().parents[3]
 RENOVATE = REPO / "renovate.json"
-TRIVY = REPO / ".github" / "workflows" / "trivy.yml"
+SCANCTL = REPO / "scanctl.yml"
 
 
 def _managers() -> list[dict]:
@@ -73,29 +75,55 @@ def test_the_manager_extracts_a_current_value(manager):
         "this manager has stopped tracking it.")
 
 
-def _trivy_matrix() -> list[dict]:
-    """The pins job's matrix, read out of the heredoc it is declared in."""
-    body = TRIVY.read_text()
-    block = body.split("cat > matrix.json <<'EOF'")[1].split("EOF")[0]
-    return json.loads(block.strip())
+def _image_pins() -> list[dict]:
+    return yaml.safe_load(SCANCTL.read_text()).get("image_pins") or []
 
 
-@pytest.mark.parametrize("entry", _trivy_matrix(), ids=lambda e: e["name"])
-def test_the_trivy_matrix_entry_resolves_an_image(entry):
-    """The matrix selects entries whose pin_file the PR touched, so a stale
-    pin_file is never selected, the pins job skips, and trivy-gate goes green
-    over a run that scanned nothing. On push/cron the same stale path instead
-    fails the resolve step. Neither reads as "this image has no CVEs"."""
-    path = REPO / entry["pin_file"]
+def _pin_id(pin: dict) -> str:
+    return pin.get("repo") or Path(pin["file"]).parent.parent.name
+
+
+@pytest.mark.parametrize("pin", _image_pins(), ids=_pin_id)
+def test_the_scanctl_image_pin_resolves_a_ref(pin):
+    """One capturing group, yielding either a whole <repo>:<tag> or -- when
+    `repo` is set -- the tag that completes it. scanctl fails the run on a pin
+    that matches nothing, so this is the same assertion made where the pin is
+    cheap to fix rather than after a red CI run."""
+    path = REPO / pin["file"]
     assert path.is_file(), (
-        f"{entry['name']}: pin_file {entry['pin_file']} does not exist, so "
-        "this image is never scanned on a PR that touches it")
-    # Mirrors the workflow's resolve step: narrow to the pinning line, then
-    # take the last quoted value on it (either quote style).
-    line = next((m for m in re.findall(entry["pin_pattern"], path.read_text())), "")
-    assert line, (
-        f"{entry['name']}: pin_pattern {entry['pin_pattern']!r} matched "
-        f"nothing in {entry['pin_file']}")
-    quoted = re.findall(r"[\"'][^\"']+[\"']", line)
-    value = quoted[-1].strip("\"'") if quoted else line
-    assert value, f"{entry['name']}: resolved an empty tag"
+        f"{_pin_id(pin)}: file {pin['file']} does not exist, so this image "
+        "is never scanned")
+    rx = re.compile(pin["pattern"])
+    assert rx.groups == 1, (
+        f"{_pin_id(pin)}: pattern {pin['pattern']!r} has {rx.groups} groups, "
+        "scanctl needs exactly 1")
+    found = rx.findall(path.read_text())
+    assert found, (
+        f"{_pin_id(pin)}: pattern {pin['pattern']!r} matched nothing in "
+        f"{pin['file']}. The pin changed shape and this image has stopped "
+        "being scanned.")
+    for value in found:
+        ref = f"{pin['repo']}:{value}" if pin.get("repo") else value
+        assert ":" in ref and not ref.endswith(":"), (
+            f"{_pin_id(pin)}: resolved {ref!r}, which is not a <repo>:<tag>")
+
+
+def test_every_pinned_image_the_repo_ships_is_scanned():
+    """A role default that pins an image nothing lists here is an image on
+    every client host that no scan looks at. The absent ones are absent on
+    purpose: the tier-1 control plane and cloudflared are pinned in
+    catena-admin and scanned there, against the tags the host actually reads.
+    """
+    declared = {p["repo"] for p in _image_pins() if p.get("repo")}
+    for repo in (
+        "twinproduction/gatus",
+        "healthchecks/healthchecks",
+        "henrygd/beszel",
+        "henrygd/beszel-agent",
+        "quay.io/phasetwo/phasetwo-keycloak",
+        "adorsys/keycloak-config-cli",
+        "quay.io/oauth2-proxy/oauth2-proxy",
+    ):
+        assert repo in declared, f"{repo} is unscanned again: {sorted(declared)}"
+    whole_ref = [p["pattern"] for p in _image_pins() if not p.get("repo")]
+    assert any("clamav" in p for p in whole_ref), "clamav is unscanned again"
