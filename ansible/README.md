@@ -2,19 +2,19 @@
 
 The deployment automation for a Catena Community host, plus the
 installer that drives it. For the install walkthrough itself see
-[../INSTALL.md](../INSTALL.md); this page describes what the pieces are.
+[../README.md](../README.md); this page describes what the pieces are.
 
 ## The five flows
 
 ```
-preflight  ->  bootstrap  ->  site  ->  validate          (+ restore for DR)
+preflight  ->  bootstrap  ->  converge  ->  validate       (+ restore for DR)
 ```
 
 - **preflight** -- controller-side check that the supplied Tailscale
   OAuth client is valid before any VPS work.
 - **bootstrap** -- first-contact hardening of a fresh VPS (user, SSH,
   ufw, docker), then it joins the tailnet.
-- **site** -- the converge: networking (Tailscale / Cloudflare Tunnel /
+- **converge** -- the converge: networking (Tailscale / Cloudflare Tunnel /
   coturn), Portainer, sign-on (Keycloak + oauth2-proxy), the restic
   backup, the catena-admin shell.
 - **validate** -- on-host, tailnet and external checks.
