@@ -3,10 +3,10 @@ collections:
   # with, so all collections are pinned to a specific stable release. Bumping
   # a pin is a separate PR with bench coverage.
   - name: community.general
-    version: "==13.3.0"
+    version: "==13.4.0"
   - name: ansible.posix
     version: "==2.2.2"
   - name: community.crypto
-    version: "==3.3.0"
+    version: "==3.4.0"
   - name: community.docker
-    version: "==5.2.2"
+    version: "==5.3.0"
