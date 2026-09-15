@@ -7,14 +7,21 @@
 
 Python shared by more than one caller. Most of it runs on the controller
 (the machine driving the install), imported by the installer and the
-roles in `../roles/`.
+roles in `../bootstrap/roles/` and `../reconcile/roles/`.
 
-Three are also copied onto the server, because the host-side reconcilers
-need the same code the controller used to plan the work:
-`onbox_config.py` (installed as `/usr/local/bin/catena-onbox-config`,
-the only sanctioned writer of the on-box config store), plus
-`labels_schema.py` and `public_ports.py`, which ship flat beside the
-scripts in `../scripts/` that import them by bare name.
+Three are also on the server, because the host-side reconcilers need the
+same code the controller used to plan the work: `onbox_config.py`
+(installed as `/usr/local/bin/catena-onbox-config`, the only sanctioned
+writer of the on-box config store), plus `labels_schema.py` and
+`public_ports.py`, which ship flat beside the scripts in `../scripts/`
+that import them by bare name.
+
+`onbox_config.py` is not installed by the converge any more. The panel
+image's dispatch drop-in runs it, and an image must not authorise a
+command it does not ship, so the image build copies it out of the
+vendored tree into the payload's own bin and the payload installs it.
+The file is still catena-ce's; who delivers it changed. Same for
+`../scripts/catena-restic-key.py`.
 
 Unit tests for these live in `../tests/unit/`.
 
@@ -22,8 +29,10 @@ Unit tests for these live in `../tests/unit/`.
 | --- | --- |
 | `bootstrap_output.py` | Merge a key/value into <inventory_dir>/.bootstrap-output.yml. |
 | `bootstrap_portainer_admin.py` | Leaf utility: mint a Portainer X-API-Key from the initial admin. |
+| `catena_admin_release.py` | Ask the registry which catena-admin release to install, and for its digest. |
 | `install_key.py` | Automate the pre-bootstrap manual-SSH step across providers. |
 | `labels_schema.py` | Compose-label parsing + image-tag classification for the vps.* vocabulary. |
 | `net_retry.py` | Wait-and-retry around urllib for transient DNS / connection blips. |
 | `onbox_config.py` | On-box config store for Catena (0b client-owned config). |
 | `public_ports.py` | Declarative public-port registry: single source of truth for every direct public port the VPS exposes outside the Cloudflare Tunnel. |
+| `tailnet_check.py` | Controller-side tailnet preflight: is THIS machine on the tailnet? |

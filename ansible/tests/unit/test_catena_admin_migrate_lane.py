@@ -9,29 +9,42 @@ of those has a way of going quietly wrong:
      without one, so the declaration is defence in depth -- but it is
      ALSO what puts the port in the effective set validation reads. An
      undeclared listener reads as an unexpected open port.
-  2. Arming is a Business action name, authorized in the host dispatch
-     table like every other Business name. The mechanism ships on every
-     host; the panel that opens a window is what is licensed.
-  3. Resume must NOT go through the lane. Putting a source back is the
-     inverse of a quiesce, and it has to work whether or not a migration
-     window is still open -- including when the lane itself is what
-     failed.
+  2. The eight action names are authorised by the payload's own drop-in
+     (catena-admin payload/actions.d/10-business.sh), not by either of
+     this repo's dispatch lists. Every command behind them is a binary
+     the payload installs at a path the payload chose, so an entry here
+     would authorise a name this repo neither owns nor can verify. What
+     each command must LOOK like is asserted
+     there; what is asserted here is that they left, because a name in
+     both places is dispatched by the converge's arm and the drop-in is
+     never reached.
+  3. The lane's state files stay separate from the restore machine's. A
+     migration DRIVES a restore, so one shared file would have the page
+     watching the move read the restore's progress as its own.
 
 Run: uv run pytest tests/unit/test_catena_admin_migrate_lane.py
 """
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import yaml
 
 _ROLE = (
     Path(__file__).resolve().parents[3]
-    / "ansible" / "roles" / "catena-admin"
+    / "ansible" / "reconcile" / "roles" / "catena-admin"
 )
 DEFAULTS = _ROLE / "defaults" / "main.yml"
-HOST_TASKS = _ROLE / "tasks" / "host.yml"
+# The bootstrap-side half of the same panel: the runner account, the
+# sudoers drop-in, the forced command. A role of its own, so the
+# bootstrap/reconcile boundary it sits on is one the layout can hold.
+_HOST_ROLE = (_ROLE.parents[2] / "bootstrap" / "roles"
+              / "catena_admin_host")
+_HOST_DEFAULTS = _HOST_ROLE / "defaults" / "main.yml"
+# And the values both halves read, which belong to neither role.
+_GROUP_VARS = (
+    _ROLE.parents[2] / "playbooks" / "group_vars" / "all" / "main.yml")
+HOST_TASKS = _HOST_ROLE / "tasks" / "main.yml"
 
 MIGRATE_ACTIONS = {
     "catena-migrate-arm",
@@ -47,122 +60,46 @@ MIGRATE_ACTIONS = {
 
 
 def _defaults() -> dict:
-    return yaml.safe_load(DEFAULTS.read_text())
+    """Every variable the panel's converge reads, from all three places it now
+    lives.
+
+    Phase 1b split the role: the trust path is bootstrap/roles/catena_admin_host, the
+    container is reconcile/roles/catena-admin, and the values BOTH halves need are in
+    group_vars because a role default is only dependable once that role has run.
+    Merged here so an assertion is about the panel's configuration rather than
+    about which file happens to hold a line today.
+    """
+    merged: dict = {}
+    for path in (_GROUP_VARS, DEFAULTS, _HOST_DEFAULTS):
+        merged.update(yaml.safe_load(path.read_text()) or {})
+    return merged
 
 
 def _ee_actions() -> dict[str, str]:
     return {a["name"]: a["shell"] for a in _defaults()["catena_admin_ee_reserved_actions"]}
 
 
-def _ce_actions() -> dict[str, str]:
-    return {a["name"]: a["shell"] for a in _defaults()["catena_admin_ce_reserved_actions"]}
+def test_the_lane_port_is_declared_once():
+    assert int(_defaults()["catena_migrate_lane_port"]) == 9040
 
 
-def test_lane_paths_are_declared_once():
-    d = _defaults()
-    assert d["catena_migrate_lane_bin"].endswith("/catena-migrate-lane")
-    assert int(d["catena_migrate_lane_port"]) == 9040
+def test_the_migration_actions_left_this_repo():
+    """They live in the payload drop-in now. A name left behind here would be
+    dispatched by the converge's own case arm, and the drop-in -- which is where
+    the command is maintained -- would never be reached.
 
-
-def test_arming_is_a_business_action_name():
-    ee = _ee_actions()
-    assert MIGRATE_ACTIONS <= set(ee), sorted(MIGRATE_ACTIONS - set(ee))
-    # Not duplicated into the Community list: a Community host has the lane
-    # binary (the payload is ungated) but no panel that arms it.
-    assert not MIGRATE_ACTIONS & set(_ce_actions())
-
-
-def test_arm_prints_json_for_the_panel():
-    shell = _ee_actions()["catena-migrate-arm"]
-    assert "{{ catena_migrate_lane_bin }}" in shell
-    assert shell.strip().endswith("arm -json"), shell
-    # The pairing code is printed once and never stored, so nothing here may
-    # redirect it into a file.
-    assert ">" not in shell and "tee" not in shell
-
-
-def test_disarm_and_status_take_no_argument():
-    ee = _ee_actions()
-    for name, verb in (
-        ("catena-migrate-disarm", "disarm"),
-        ("catena-migrate-status", "status"),
-    ):
-        assert ee[name].strip().endswith(f"{verb}"), ee[name]
-        assert "$" not in ee[name], (
-            f"{name} interpolates a value; the dispatcher's contract is a "
-            "fixed command per name"
+    The lane's paths and state files went with them: they were product
+    constants written as Ansible variables, and a constant is owned by whoever
+    ships the thing it points at. That the two state files stay distinct from
+    the restore machine's is asserted in catena-admin now, where both pairs are
+    declared."""
+    assert not MIGRATE_ACTIONS & set(_ee_actions())
+    for gone in ("catena_migrate_lane_bin", "catena_migration_state_file",
+                 "catena_migration_history_file"):
+        assert gone not in _defaults(), (
+            f"{gone} is back in this repo; the binary and its state files "
+            "belong to the payload that installs them"
         )
-
-
-def test_resume_does_not_go_through_the_lane():
-    # Putting a source back has to work when the lane is what failed.
-    shell = _ee_actions()["catena-migrate-resume"]
-    assert "{{ catena_recovery_bin }}" in shell
-    assert "catena_migrate_lane_bin" not in shell
-    assert shell.strip().endswith("quiesce resume")
-
-
-def test_target_side_state_files_are_separate_from_the_restores():
-    # A migration DRIVES a restore, so sharing one state file would have the
-    # page watching the move read the restore's progress as its own.
-    d = _defaults()
-    assert d["catena_migration_state_file"] != d["catena_recovery_state_file"]
-    assert d["catena_migration_history_file"] != d["catena_recovery_history_file"]
-    # Under /var/lib, not /etc: /etc is in the backup set, and a snapshot taken
-    # mid-move would otherwise carry a half-finished migration's state into the
-    # next host that restored it.
-    for key in ("catena_migration_state_file", "catena_migration_history_file"):
-        assert d[key].startswith("/var/lib/catena/"), d[key]
-
-
-def test_the_move_runs_detached_and_takes_its_request_on_stdin():
-    shell = _ee_actions()["catena-migrate-run"]
-    # Detached, because a move runs for hours and must not die with the panel
-    # container that started it.
-    assert "systemd-run" in shell and "--collect" in shell
-    assert "--pipe" in shell, (
-        "without --pipe the request cannot reach the binary on stdin, which is "
-        "what keeps the pairing code out of argv"
-    )
-    assert shell.strip().endswith("run --stdin"), shell
-    # The pairing code travels inside $PAYLOAD and must never appear as an
-    # argument: argv is readable by every process on the host, for hours.
-    assert "--code" not in shell and "--source" not in shell
-
-
-def test_resume_source_is_a_separate_action_from_the_move():
-    # Once the source is stopped, putting it back is a decision. Folding it into
-    # the move would make a retry and an abort the same button.
-    ee = _ee_actions()
-    assert "catena-migrate-resume-source" in ee
-    assert ee["catena-migrate-resume-source"] != ee["catena-migrate-run"]
-    shell = ee["catena-migrate-resume-source"]
-    assert shell.strip().endswith("resume-source --stdin"), shell
-    # Not detached: it is a single call to the source and its answer is what the
-    # person who pressed it is waiting for.
-    assert "systemd-run" not in shell
-
-
-def test_the_move_status_action_is_read_only():
-    shell = _ee_actions()["catena-migrate-run-status"]
-    # A status action that cleared state would let a page refresh destroy what
-    # it reported.
-    assert "reset" not in shell
-    assert "{{ catena_migration_state_file }}" in shell
-    assert "{{ catena_migration_history_file }}" in shell
-    assert "head -n 1" in shell, (
-        "the state file carries the source and snapshot on later lines; reading "
-        "all of it would report them as the state"
-    )
-
-
-def test_reset_forgets_the_record_and_nothing_else():
-    shell = _ee_actions()["catena-migrate-run-reset"]
-    assert shell.strip().endswith("reset"), shell
-    # No resume, no restore, no DNS: forgetting a move and undoing one are
-    # different acts.
-    for forbidden in ("resume", "restore", "cutover", "rm "):
-        assert forbidden not in shell, shell
 
 
 def test_lane_port_is_declared_tailnet_only():
@@ -182,11 +119,15 @@ def test_lane_port_is_declared_tailnet_only():
 
 
 def test_lane_port_does_not_collide_with_the_panel_port():
-    # The panel's port is a dotenv lookup with a default; the lane's is a
-    # literal. Compare against that default, parsed out rather than retyped, so
-    # a bump of either side is caught here instead of on a host where two
-    # things then fight over one port.
+    # Both are product constants now -- the panel's port stopped being a dotenv
+    # lookup when phase 3 recognised that no inventory had ever varied it. Read
+    # rather than retyped, so a bump of either side is caught here instead of on
+    # a host where two things then fight over one port.
     d = _defaults()
-    m = re.search(r"default='(\d+)'", str(d["catena_admin_ui_port"]))
-    assert m, f"could not read the panel port default: {d['catena_admin_ui_port']!r}"
-    assert int(d["catena_migrate_lane_port"]) != int(m.group(1))
+    panel = str(d["catena_admin_ui_port"])
+    assert panel.isdigit(), (
+        f"the panel port is no longer a literal: {panel!r}. If it went back to "
+        "being inventory-sourced, the host can no longer converge itself "
+        "without an operator's file"
+    )
+    assert int(d["catena_migrate_lane_port"]) != int(panel)

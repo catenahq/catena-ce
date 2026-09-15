@@ -5,9 +5,9 @@ chain head into this directory. Three things have to line up or the chain
 silently disables itself:
 
   1. the role creates the host dir,
-  2. it is owned by the CONTAINER's uid (the image runs USER nonroot, 65532 --
-     it was 1000 under the old Python shell, which left the distroless
-     container unable to write its own state),
+  2. it is owned by the CONTAINER's uid (the image runs USER nonroot, 65532);
+     a directory owned by any other uid is one the distroless container
+     cannot write,
   3. the service mounts it READ-WRITE and the shell is pointed at it.
 
 The argv builder is shared with the test bench, so a one-sided edit here is
@@ -23,9 +23,18 @@ from pathlib import Path
 import yaml
 
 _ANSIBLE = Path(__file__).resolve().parents[2]
-_ROLE = _ANSIBLE / "roles" / "catena-admin"
+_ROLE = _ANSIBLE / "reconcile" / "roles" / "catena-admin"
 DEFAULTS = _ROLE / "defaults" / "main.yml"
-HOST_TASKS = _ROLE / "tasks" / "host.yml"
+# The bootstrap-side half of the same panel: the runner account, the
+# sudoers drop-in, the forced command. A role of its own, so the
+# bootstrap/reconcile boundary it sits on is one the layout can hold.
+_HOST_ROLE = (_ROLE.parents[2] / "bootstrap" / "roles"
+              / "catena_admin_host")
+_HOST_DEFAULTS = _HOST_ROLE / "defaults" / "main.yml"
+# And the values both halves read, which belong to neither role.
+_GROUP_VARS = (
+    _ROLE.parents[2] / "playbooks" / "group_vars" / "all" / "main.yml")
+HOST_TASKS = _HOST_ROLE / "tasks" / "main.yml"
 PLUGIN = _ANSIBLE / "playbooks" / "filter_plugins" / "catena_admin_service.py"
 
 STATE_DIR = "/var/lib/catena-admin"
@@ -39,7 +48,19 @@ def _plugin():
 
 
 def _defaults() -> dict:
-    return yaml.safe_load(DEFAULTS.read_text())
+    """Every variable the panel's converge reads, from all three places it now
+    lives.
+
+    Phase 1b split the role: the trust path is bootstrap/roles/catena_admin_host, the
+    container is reconcile/roles/catena-admin, and the values BOTH halves need are in
+    group_vars because a role default is only dependable once that role has run.
+    Merged here so an assertion is about the panel's configuration rather than
+    about which file happens to hold a line today.
+    """
+    merged: dict = {}
+    for path in (_GROUP_VARS, DEFAULTS, _HOST_DEFAULTS):
+        merged.update(yaml.safe_load(path.read_text()) or {})
+    return merged
 
 
 def _argv() -> list[str]:

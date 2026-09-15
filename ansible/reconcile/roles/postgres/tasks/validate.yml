@@ -1,0 +1,29 @@
+---
+# Validation tasks for reconcile/roles/postgres.
+
+- name: "validate/postgres: swarm service replicas"
+  ansible.builtin.command: >-
+    docker service ls --filter name={{ catena_postgres_service_name }}
+    --format '{% raw %}{{.Name}}|{{.Replicas}}{% endraw %}'
+  register: _pg_services
+  failed_when: false
+  changed_when: false
+
+- name: "validate/postgres: catena-postgres service 1/1"
+  ansible.builtin.assert:
+    that:
+      - _pg_services.rc == 0
+      - _pg_services.stdout_lines | select('match', '^' ~ catena_postgres_service_name ~ '\\|1/1') | list | length > 0
+    fail_msg: "catena-postgres swarm service not 1/1: {{ _pg_services.stdout }}"
+
+- name: "validate/postgres: accepts connections"
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      ctr="$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
+        | grep -E '^{{ catena_postgres_service_name }}\.' | head -n1)"
+      test -n "$ctr" && docker exec "$ctr" pg_isready -U {{ catena_postgres_superuser }}
+    executable: /bin/bash
+  register: _pg_val_ready
+  failed_when: _pg_val_ready.rc != 0
+  changed_when: false

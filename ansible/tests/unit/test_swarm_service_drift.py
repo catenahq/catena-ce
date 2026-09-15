@@ -1,5 +1,5 @@
 """Unit tests for the swarm_service_create_args / swarm_service_drift
-filters used by roles/postgres, roles/portainer and roles/traefik to render
+filters used by reconcile/roles/postgres, reconcile/roles/portainer and reconcile/roles/traefik to render
 and reconcile the swarm-service hardening flags.
 
 The load-bearing property is that a converged service produces an EMPTY
@@ -111,6 +111,36 @@ def test_resolved_digest_is_not_drift():
     the whole string would report drift against our own pinned tag forever."""
     payload = _inspect(image="postgres:18@sha256:" + "a" * 64)
     assert swarm_service_drift(payload, {"image": "postgres:18"}) == []
+
+
+def test_a_digest_pinned_service_on_its_own_pin_reports_no_drift():
+    """The shape every release host is in, and the easiest one for a test suite
+    to miss.
+
+    catena_admin_image carries its digest -- catena_admin_release.ref is
+    `<repo>:<tag>@sha256:...` -- so a comparison that strips the digest from the
+    live side alone puts `<repo>:<tag>` against `<repo>:<tag>@sha256:...`, which
+    never matches: every converge emits --image against its own pin. Docker
+    no-ops an update to the identical spec, so nothing restarts and no client is
+    harmed; the cost is the ability to read "did this converge move my panel"
+    out of the output, which matters most when a converge runs unattended on a
+    timer.
+
+    The tests passed because they all used a digest-less desired image, which is
+    the one shape no release host is in.
+    """
+    pinned = "ghcr.io/catenahq/catena-admin:v0.6.2@sha256:" + "b" * 64
+    assert swarm_service_drift(_inspect(image=pinned), {"image": pinned}) == []
+
+
+def test_a_digest_pin_is_a_demand_for_those_exact_bytes():
+    """Same tag, different bytes. Stripping the digest off both sides would be
+    the tidy-looking fix and would answer "converged" here -- which is the one
+    thing a digest pin exists to prevent."""
+    repo = "ghcr.io/catenahq/catena-admin:v0.6.2@sha256:"
+    drift = swarm_service_drift(_inspect(image=repo + "a" * 64),
+                                {"image": repo + "b" * 64})
+    assert drift[:2] == ["--image", repo + "b" * 64], drift
 
 
 def test_accepts_unwrapped_dict_as_well_as_the_inspect_list():

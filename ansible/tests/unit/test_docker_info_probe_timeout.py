@@ -20,7 +20,7 @@ import yaml
 
 TASKS = (
     Path(__file__).resolve().parents[3]
-    / "ansible" / "roles" / "docker" / "tasks" / "main.yml"
+    / "ansible" / "bootstrap" / "roles" / "docker" / "tasks" / "main.yml"
 )
 
 

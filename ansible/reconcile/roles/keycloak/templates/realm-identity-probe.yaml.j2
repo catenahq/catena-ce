@@ -1,0 +1,71 @@
+# {{ ansible_managed }}
+# Service-account client the identity-posture probe authenticates as
+# (catena-admin payload/cmd/catena-identity-probe). The probe reports whether
+# this realm still matches the managed-identity promise: the four-tier group
+# model intact, MFA enforced, federation as configured, no unexpected
+# administrators. It is the supervision half of managed identity, run on a
+# schedule, and its output feeds the monthly attestation.
+#
+# READ-ONLY, and that is the whole design. Six realm-management roles, every
+# one of them a view/query:
+#
+#   view-users                 the user list and their group membership
+#   query-users                list users without needing view-realm
+#   query-groups               the group tree, same reason
+#   view-realm                 the realm's own config -- required actions, which
+#                              is how the probe sees whether MFA is enforced
+#   view-identity-providers    federation brokers
+#   view-clients               the client list
+#
+# No manage-* role of any kind. The probe never writes: a supervision
+# credential that could change what it supervises could hide a drift by
+# correcting it, and the report would then describe a realm the probe made
+# rather than the one the client has.
+#
+# Separate from the catena-admin panel's client (realm-admin-panel.yaml.j2)
+# rather than shared, in BOTH directions. The panel holds manage-users, which
+# this must not have; this holds view-realm, which the panel is deliberately
+# denied because it exposes the realm's whole configuration to a credential
+# that only needs to add people. Sharing one client would hand each side the
+# other's reach.
+#
+# Lives in the same /config dir as realm-vps.yaml so keycloak-config-cli's
+# IMPORT_FILES_LOCATIONS=/config/*.yaml glob picks it up. NO_DELETE merge
+# (set in realm_bootstrap.yml) preserves the base realm + other clients.
+
+realm: {{ keycloak_realm }}
+
+clients:
+  - clientId: "{{ catena_identity_probe_client_id }}"
+    name: "catena identity probe"
+    description: "Identity-posture supervision (read-only: view/query roles, no manage-*)."
+    enabled: true
+    publicClient: false
+    standardFlowEnabled: false
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: true
+    secret: "{{ catena_identity_probe_client_secret }}"
+    attributes:
+      # Ten minutes, matching the panel and dashboard-sync. The probe is a
+      # short-lived process that authenticates once per run, so nothing here
+      # outlives its own invocation by much.
+      access.token.lifespan: "600"
+
+# Same kc-config-cli pattern as the other two service-account clients: the
+# schema does not recognise serviceAccountClientRoles on ClientRepresentation,
+# so the service-account user is declared explicitly and its clientRoles pinned
+# via serviceAccountClientId. Keycloak auto-creates the user when
+# serviceAccountsEnabled flips true above; this entry decorates it.
+users:
+  - username: "service-account-{{ catena_identity_probe_client_id }}"
+    enabled: true
+    serviceAccountClientId: "{{ catena_identity_probe_client_id }}"
+    clientRoles:
+      realm-management:
+        - view-users
+        - query-users
+        - query-groups
+        - view-realm
+        - view-identity-providers
+        - view-clients

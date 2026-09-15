@@ -1,0 +1,20 @@
+---
+# Regenerate this host's Cloudflare tunnel without a full site converge.
+# Manual maintenance action (Community), driven by `catena rotate-tunnel`.
+#
+# Usage (cwd = ansible/):
+#   uv run catena rotate-tunnel --inventory prod
+#   # or directly:
+#   ansible-playbook -i inventory/prod playbooks/rotate-tunnel.yml
+#
+# Takes no secret. The role authenticates as the cloudflare_api_token in the
+# host's own store, because the engine that mints the replacement tunnel reads
+# that store directly; see the role's header for why a per-run token cannot
+# work here.
+
+- name: Regenerate Cloudflare tunnel
+  hosts: "{{ stage_hosts | default('vps') }}"
+  become: true
+  gather_facts: false
+  roles:
+    - role: cloudflare_tunnel_regenerate

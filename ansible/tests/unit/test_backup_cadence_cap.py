@@ -6,10 +6,8 @@ types it, but /etc/catena/config.json is a file on a machine the client owns,
 so this filter is the thing that actually holds. CV8 is a structural claim
 about this repo, and a claim enforced only in a UI is not one.
 
-The tests live beside the filter now. They used to live in the ops repo and
-import a SECOND copy of the plugin from ops/automation/ansible/, which no ops
-playbook ever used -- so the tested copy and the shipped copy were different
-files, and only the unused one was covered.
+The tests live beside the filter, so the tested copy is the shipped copy --
+not a second copy imported from elsewhere that no playbook actually uses.
 
 Run: uv run pytest tests/unit/test_backup_cadence_cap.py
 """
@@ -101,4 +99,7 @@ def test_the_tier_mapping_is_gone() -> None:
         "backup_tier_worm_oncalendar",
     ):
         assert not hasattr(B, gone), f"{gone} survived the tier retirement"
-    assert set(B.FilterModule().filters()) == {"backup_weekly_cap"}
+    # The two Community ceilings, and nothing that maps a tier name to either.
+    assert set(B.FilterModule().filters()) == {
+        "backup_weekly_cap", "community_monthly_cap",
+    }

@@ -12,7 +12,7 @@
 # the printed guidance at the end.
 #
 # Usage (via the installer):
-#   ./catena uninstall --inventory <name>
+#   uv run catena uninstall --inventory <name>
 # Or directly:
 #   ansible-playbook -i inventory/<name> playbooks/uninstall.yml
 - name: "Uninstall -- hand unattended-upgrades back to Debian"

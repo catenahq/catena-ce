@@ -1,11 +1,12 @@
 """Unit tests for the Community installer's seed.py.
 
-Covers the Community decomposition: the plaintext (post-SOPS, 0b) vault
-emit, the trimmed VAULT_SKIP_KEYS / ENV_OPTIONS (no managed-lifecycle
-knobs), the CE-only service-secret minting, and the file-emit helpers."""
+Covers the Community decomposition: the plaintext vault emit, the trimmed
+VAULT_SKIP_KEYS / ENV_OPTIONS (no managed-lifecycle knobs), the CE-only
+service-secret minting, and the file-emit helpers."""
 from __future__ import annotations
 
 import importlib.util
+import io
 from pathlib import Path
 
 import pytest
@@ -120,11 +121,7 @@ def test_vault_template_machinery_is_gone(seed):
 
 # --- ENV_OPTIONS (no managed-lifecycle knobs) -------------------------------
 def test_env_options_keep_ce_enums(seed):
-    assert seed.ENV_OPTIONS.get("CATENA_DEFAULT_LANGUAGE") == ["en", "fr"]
     assert seed.ENV_OPTIONS.get("STORAGE_MODE") == ["built_in", "attached"]
-    assert seed.ENV_OPTIONS.get("NEXTCLOUD_VERSIONS_RETENTION") == [
-        "auto, 7", "auto, 14", "auto, 30",
-    ]
 
 
 def test_env_options_drop_managed_lifecycle_knobs(seed):
@@ -168,23 +165,63 @@ def test_emit_env_quotes_values_with_whitespace(seed, tmp_path):
     assert '"topic with spaces"' in target.read_text()
 
 
+# --- read_existing_env -------------------------------------------------------
+def test_read_existing_env_parses_a_hand_filled_file(seed, tmp_path):
+    """A self-hoster's own inventory/<name>/.env feeds _collect_env_values as
+    `provided` the same way install.yaml's env: block does -- no prompting for
+    anything already answered in the file."""
+    target = tmp_path / ".env"
+    target.write_text(
+        "# comment\n"
+        "CLOUDFLARE_ZONE=client.example.com\n"
+        "NTFY_TOPIC=\"topic with spaces\"\n"
+        "\n"
+    )
+    assert seed.read_existing_env(target) == {
+        "CLOUDFLARE_ZONE": "client.example.com",
+        "NTFY_TOPIC": "topic with spaces",
+    }
+
+
 # --- emit_hosts_yml ---------------------------------------------------------
-def test_emit_hosts_yml_creates_both_groups(seed, tmp_path):
+def test_emit_hosts_yml_copies_the_skeleton(seed, tmp_path):
+    """hosts.yml is now static -- every field reads from .env at ansible
+    runtime via the dotenv lookup, so seed just copies the skeleton once,
+    same as emit_localhost_yml."""
     target = tmp_path / "hosts.yml"
-    seed.emit_hosts_yml(target, "prod1", "203.0.113.10", "100.1.2.3", "debian")
+    seed.emit_hosts_yml(target)
+    assert target.read_text() == seed.HOSTS_YML_SKEL.read_text()
+
+
+def test_emit_hosts_yml_does_not_overwrite_existing(seed, tmp_path):
+    target = tmp_path / "hosts.yml"
+    target.write_text("# hand-edited, e.g. a second host\n")
+    seed.emit_hosts_yml(target)
+    assert target.read_text() == "# hand-edited, e.g. a second host\n"
+
+
+# --- emit_hosts_yml_entry (the -i install.yaml generate path) ---------------
+def test_emit_hosts_yml_entry_creates_both_groups(seed, tmp_path):
+    target = tmp_path / "hosts.yml"
+    seed.emit_hosts_yml_entry(target, "prod1", {
+        "HOST_PUBLIC_IP": "203.0.113.10",
+        "HOST_INITIAL_USER": "debian",
+        "HOST_SSH_PORT": "22",
+        "OPS_USER": "ops",
+    })
     data = yaml.safe_load(target.read_text())
     vps = data["all"]["children"]["vps"]["hosts"]
     boot = data["all"]["children"]["bootstrap"]["hosts"]
-    assert vps["prod1"]["ansible_host"] == "100.1.2.3"
     assert boot["prod1-bootstrap"]["ansible_host"] == "203.0.113.10"
-    assert vps["prod1"]["ansible_user"] == "ops"
-    # bootstrap_initial_user is pinned as an inventory var so the Phase 1/2
-    # bootstrap plays (which connect as this user) see it under --no-confirm,
-    # where the play-scoped vars_prompt does not reach them.
     assert boot["prod1-bootstrap"]["bootstrap_initial_user"] == "debian"
+    assert vps["prod1"]["ansible_host"] == "0.0.0.0"  # bootstrap.yml rewrites this
+    assert vps["prod1"]["ansible_user"] == "ops"
+    assert vps["prod1"]["public_ip"] == "203.0.113.10"
 
 
-def test_emit_hosts_yml_merges_into_existing(seed, tmp_path):
+def test_emit_hosts_yml_entry_merges_into_existing(seed, tmp_path):
+    """The bench adds a distinctly-named host per run/slot to the same
+    inventory -- an existing entry must survive, not just the new one."""
     target = tmp_path / "hosts.yml"
     target.write_text(yaml.safe_dump({
         "all": {"children": {
@@ -194,9 +231,18 @@ def test_emit_hosts_yml_merges_into_existing(seed, tmp_path):
             "bootstrap": {"hosts": {}},
         }}
     }))
-    seed.emit_hosts_yml(target, "prod1", "203.0.113.10", "100.1.2.3", "root")
+    seed.emit_hosts_yml_entry(target, "prod1", {"HOST_PUBLIC_IP": "203.0.113.10"})
     vps = yaml.safe_load(target.read_text())["all"]["children"]["vps"]["hosts"]
     assert "old1" in vps and "prod1" in vps
+
+
+def test_emit_hosts_yml_entry_defaults_when_env_values_sparse(seed, tmp_path):
+    target = tmp_path / "hosts.yml"
+    seed.emit_hosts_yml_entry(target, "prod1", {})
+    data = yaml.safe_load(target.read_text())
+    boot = data["all"]["children"]["bootstrap"]["hosts"]["prod1-bootstrap"]
+    assert boot["bootstrap_initial_user"] == "root"
+    assert boot["ansible_port"] == "22"
 
 
 # --- write_secrets_out (transient adopt map, no persisted vault) ------------
@@ -248,19 +294,20 @@ def test_absorb_provided_secrets_passes_through_full_keyset(seed):
         "backup_restic_password": "rp",
         "admin_password": "should-be-ignored-here",
         "smtp_password": "",          # blank dropped
-        "nextcloud_s3_access_key": "REPLACE",  # placeholder dropped
+        "mailserver_relay_password": "REPLACE",  # placeholder dropped
         "not_a_vault_key": "x",             # ignored
     })
     assert values["backup_s3_access_key"] == "ak"
     assert values["backup_restic_password"] == "rp"
     assert "admin_password" not in values
     assert "smtp_password" not in values
-    assert "nextcloud_s3_access_key" not in values
+    assert "mailserver_relay_password" not in values
     assert "not_a_vault_key" not in values
 
 
 def test_seed_has_no_sops_age_helpers(seed):
-    """0b dropped SOPS+age: the self-recipient / age-key machinery is gone."""
+    """No self-recipient / age-key machinery remains: emit_self_sops_yaml and
+    _resolve_self_age_key do not exist."""
     for gone in ("emit_self_sops_yaml", "_resolve_self_age_key"):
         assert not hasattr(seed, gone), f"{gone} should be removed"
 
@@ -269,7 +316,9 @@ def test_seed_has_no_sops_age_helpers(seed):
 def _good_inp():
     return {
         "inventory": "prod",
-        "host": {"name": "prod1", "public_ip": "203.0.113.10", "initial_user": "root"},
+        # host.initial_password is the only host.* field left -- public IP,
+        # initial SSH user and host name all live in .env / hosts.yml now.
+        "host": {},
         # Backup repo is configured post-install in catena-admin, so a blank
         # env is a valid install.
         "env": {},
@@ -289,6 +338,49 @@ def test_validate_structural_clean(seed):
     assert seed.validate_install_structural(_good_inp(), _ENV_KEYS, _VAULT_KEYS) == 0
 
 
+_FAIL_MARK = "\033[1;31m"  # the red x _check() prints for a failed check
+
+
+def _prereq_lines(seed, capsys, env):
+    seed.validate_install(
+        {"inventory": "prod", "host": {}, "env": env, "vault": {}}, [], [])
+    out = capsys.readouterr().err
+    body = out.split("Local prerequisites")[1].split("Credentials")[0]
+    return [line for line in body.splitlines() if "SSH" in line]
+
+
+def test_missing_ssh_key_is_not_reported_as_a_failed_check(seed, capsys, tmp_path):
+    """A missing keypair is not a problem -- ensure_ssh_key() offers to generate
+    it. A line that asserts the file exists, marks that assertion false, and in
+    the same breath promises to generate the file reads as both 'exists' and
+    'does not exist' at once."""
+    absent = tmp_path / "nope"
+    lines = _prereq_lines(seed, capsys, {
+        "SSH_PRIVATE_KEY": str(absent), "SSH_PUBLIC_KEY_FILE": str(absent) + ".pub"})
+    assert len(lines) == 2
+    for line in lines:
+        assert _FAIL_MARK not in line
+        assert "exists" not in line
+        assert "not on this machine" in line
+
+
+def test_present_ssh_key_says_found(seed, capsys, tmp_path):
+    priv = tmp_path / "id"
+    pub = tmp_path / "id.pub"
+    priv.write_text("k")
+    pub.write_text("k")
+    lines = _prereq_lines(seed, capsys, {
+        "SSH_PRIVATE_KEY": str(priv), "SSH_PUBLIC_KEY_FILE": str(pub)})
+    assert all("(found)" in line for line in lines)
+
+
+def test_unset_ssh_key_path_is_a_real_failure(seed, capsys):
+    """Blank is the one state that IS wrong here -- and the only one that keeps
+    the failure mark."""
+    lines = _prereq_lines(seed, capsys, {"SSH_PRIVATE_KEY": "", "SSH_PUBLIC_KEY_FILE": ""})
+    assert all("no path set in .env" in line and _FAIL_MARK in line for line in lines)
+
+
 def test_validate_structural_missing_required_vault(seed):
     inp = _good_inp()
     del inp["vault"]["tailscale_oauth_client_id"]
@@ -303,40 +395,19 @@ def test_validate_structural_blank_restic_repo_is_ok(seed):
     assert seed.validate_install_structural(inp, _ENV_KEYS, _VAULT_KEYS) == 0
 
 
-def test_validate_structural_rejects_client_placeholder(seed):
-    """A MALFORMED repo (unreplaced <client> sentinel) still fails, even though
-    a blank one is allowed."""
-    inp = _good_inp()
-    inp["env"]["BACKUP_RESTIC_REPO"] = "s3:s3.example.net/<client>-restic"
-    assert seed.validate_install_structural(inp, _ENV_KEYS, _VAULT_KEYS) >= 1
-
-
-# --- Cloudflare zone / account id -------------------------------------------
+# --- Cloudflare zone ---------------------------------------------------------
 def test_validate_structural_requires_cf_zone(seed):
-    """A blank zone is a problem on every host. It used to be legitimate under
-    ACCESS_MODE=tailnet, which is gone: hostnames derive from the zone and
-    every host now serves them."""
+    """A blank zone is a problem on every host: every hostname derives from
+    the zone and every host serves them."""
     inp = _good_inp()
     inp["env"] = {"CLOUDFLARE_ZONE": ""}
     env_keys = [("CLOUDFLARE_ZONE", "example.com")]
     assert seed.validate_install_structural(inp, env_keys, _VAULT_KEYS) >= 1
 
 
-def test_validate_structural_allows_blank_account_id(seed):
-    """CLOUDFLARE_ACCOUNT_ID is resolved on-box from the token, so a blank at
-    seed time is fine (the zone is still required)."""
-    inp = _good_inp()
-    inp["env"] = {"CLOUDFLARE_ZONE": "example.com",
-                  "CLOUDFLARE_ACCOUNT_ID": ""}
-    env_keys = [("CLOUDFLARE_ZONE", "example.com"),
-                ("CLOUDFLARE_ACCOUNT_ID", "REPLACE")]
-    assert seed.validate_install_structural(inp, env_keys, _VAULT_KEYS) == 0
-
-
 def test_access_mode_is_gone(seed):
-    """The mode did not serve apps over the tailnet, it skipped the monitoring
-    plane and the SSO edge entirely. Deleted 2026-07-29; a reintroduced helper
-    or env option means the second install shape came back."""
+    """Only one install shape exists: a reintroduced helper or env option
+    would mean a second one came back."""
     assert not hasattr(seed, "_access_mode")
     assert "ACCESS_MODE" not in seed.ENV_OPTIONS
 
@@ -349,10 +420,73 @@ def test_collect_install_secrets_never_collects_cf_token(seed):
         "tailscale_oauth_client_id": "x",
         "tailscale_oauth_client_secret": "y",
         "cloudflare_api_token": "cf-should-not-be-collected",
-    })
+    }, {"TAILNET_CONTROL_URL": ""})
     assert got == {"tailscale_oauth_client_id": "x",
                    "tailscale_oauth_client_secret": "y"}
     assert "cloudflare_api_token" not in got
+
+
+def test_collect_install_secrets_asks_for_the_headscale_key(seed):
+    """Headscale has no OAuth API, so the Tailscale pair is not asked for --
+    but its own join credential IS. bootstrap/roles/tailscale asserts on one of the two
+    and fails the BOOTSTRAP without it, and deferring it to catena-admin is
+    circular: the panel is published on the tailnet the credential joins."""
+    got = seed._collect_install_secrets(
+        {"headscale_api_key": "hs-api"},
+        {"TAILNET_CONTROL_URL": "https://headscale.example.net"},
+    )
+    assert got == {"headscale_api_key": "hs-api"}
+    assert "tailscale_oauth_client_id" not in got
+
+
+def test_headscale_static_key_is_the_fallback(seed):
+    """A Headscale whose API is not reachable from here still installs, from a
+    key made by hand. Only asked for when the api_key answer was blank."""
+    got = seed._collect_install_secrets(
+        {"headscale_preauth_key": "hs-static"},
+        {"TAILNET_CONTROL_URL": "https://headscale.example.net"},
+    )
+    assert got == {"headscale_preauth_key": "hs-static"}
+
+
+@pytest.fixture
+def on_tailnet(monkeypatch):
+    """validate_install also gates on THIS machine being on the tailnet, which
+    depends on the box the tests run on. Stub it so the headscale-credential
+    checks below measure only themselves."""
+    from helpers import tailnet_check
+
+    monkeypatch.setattr(tailnet_check, "check",
+                        lambda **kw: tailnet_check.Result(True, ["stubbed"]))
+
+
+def _headscale_inp(vault):
+    return {
+        "inventory": "prod",
+        "host": {},
+        "env": {"TAILNET_CONTROL_URL": "https://hs.example.net"},
+        "vault": vault,
+    }
+
+
+def test_headscale_install_without_a_join_credential_is_refused(seed, on_tailnet):
+    """The chicken-and-egg, caught in seed where nothing has been touched yet
+    rather than by bootstrap/roles/tailscale's assert partway through bootstrap."""
+    assert seed.validate_install(_headscale_inp({}), [], []) >= 1
+
+
+def test_headscale_install_with_either_credential_passes(seed, on_tailnet):
+    for key in ("headscale_api_key", "headscale_preauth_key"):
+        assert seed.validate_install(_headscale_inp({key: "x"}), [], []) == 0, key
+
+
+def test_oauth_tag_follows_the_inventory_tags(seed):
+    """The printed setup steps must name the tag the OAuth client will
+    actually be scoped to -- the FIRST of TAILSCALE_TAGS, the same entry
+    preflight mints its probe key with."""
+    assert seed._oauth_tag({"TAILSCALE_TAGS": "tag:vps-test,tag:other"}) == "tag:vps-test"
+    assert seed._oauth_tag({"TAILSCALE_TAGS": ""}) == "tag:vps"
+    assert seed._oauth_tag({}) == "tag:vps"
 
 
 # --- true on-box minting: seed mints NOTHING --------------------------------
@@ -368,4 +502,72 @@ def test_seed_mints_no_secrets(seed):
     # The only secret handling left: the transient adopt-file writer + the
     # optional admin-override passthrough.
     assert hasattr(seed, "write_secrets_out")
+
+
+# --- tailnet backend: deduced, never asked -----------------------------------
+def _fake_tty_stdin(monkeypatch, text):
+    """A StringIO that reports isatty()=True, installed as sys.stdin. The
+    isatty patch must land on the StringIO instance itself -- patching the
+    real stdin's isatty and then replacing sys.stdin discards the patch."""
+    fake = io.StringIO(text)
+    fake.isatty = lambda: True
+    monkeypatch.setattr("sys.stdin", fake)
+
+
+def test_no_control_server_question_is_asked(seed):
+    """The inventory declares the backend by whether the Headscale fields are
+    filled. A separate question could disagree with the file it asks about, so
+    there is none to ask."""
+    assert not hasattr(seed, "_collect_control_server")
+
+
+def test_blank_headscale_fields_are_an_answer_not_a_prompt(seed, monkeypatch):
+    """A .env left blank on both Headscale fields means Tailscale SaaS. On a
+    TTY that must consume no input: reading here would mean the blank was
+    treated as unanswered."""
+    _fake_tty_stdin(monkeypatch, "SHOULD_NOT_BE_READ\n")
+    env_keys, _ = seed.parse_env_template(seed.ENV_TEMPLATE)
+    provided = dict(env_keys)
+    provided["TAILNET_CONTROL_URL"] = ""
+    provided["HEADSCALE_USER"] = ""
+    got = seed._collect_env_values(env_keys, provided)
+    assert got["TAILNET_CONTROL_URL"] == ""
+    assert got["HEADSCALE_USER"] == ""
+    assert not seed._uses_headscale(got)
+    assert seed.sys.stdin.read() == "SHOULD_NOT_BE_READ\n"
+
+
+def test_filled_headscale_fields_select_headscale(seed, monkeypatch):
+    _fake_tty_stdin(monkeypatch, "SHOULD_NOT_BE_READ\n")
+    env_keys, _ = seed.parse_env_template(seed.ENV_TEMPLATE)
+    provided = dict(env_keys)
+    provided["TAILNET_CONTROL_URL"] = "https://hs.example.net"
+    provided["HEADSCALE_USER"] = "alice"
+    got = seed._collect_env_values(env_keys, provided)
+    assert seed._uses_headscale(got)
+    assert got["HEADSCALE_USER"] == "alice"
+    assert seed.sys.stdin.read() == "SHOULD_NOT_BE_READ\n"
+
+
+def test_tailnet_backend_names_what_was_deduced(seed):
+    """Deduced, so it gets echoed: the user never confirmed it at a prompt."""
+    assert "Tailscale SaaS" in seed._tailnet_backend({"TAILNET_CONTROL_URL": ""})
+    line = seed._tailnet_backend(
+        {"TAILNET_CONTROL_URL": "https://hs.example.net", "HEADSCALE_USER": "alice"})
+    assert "Headscale" in line and "https://hs.example.net" in line and "alice" in line
+
+
+def test_ipv4_endpoint_shows_the_bootstrap_target(seed):
+    """The one field a stale inventory gets wrong silently. Echoed as the
+    login+port pair bootstrap will actually dial."""
+    assert seed._ipv4_endpoint({
+        "HOST_PUBLIC_IP": "203.0.113.10",
+        "HOST_INITIAL_USER": "debian",
+        "HOST_SSH_PORT": "2222",
+    }) == "debian@203.0.113.10:2222"
+    # Blank must read as missing, not as a plausible address.
+    assert "NOT SET" in seed._ipv4_endpoint({"HOST_PUBLIC_IP": ""})
+
+
+def test_resolve_admin_override_still_present(seed):
     assert hasattr(seed, "_resolve_admin_override")

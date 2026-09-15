@@ -32,7 +32,7 @@ import yaml
 
 TASKS = (
     Path(__file__).resolve().parents[3]
-    / "ansible" / "roles" / "backup" / "tasks" / "restore.yml"
+    / "ansible" / "reconcile" / "roles" / "backup" / "tasks" / "restore.yml"
 )
 
 

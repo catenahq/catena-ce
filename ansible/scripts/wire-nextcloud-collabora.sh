@@ -31,14 +31,14 @@ set -euo pipefail
 NC_ROOT=/var/www/html
 
 # --- 1. Locate the running Nextcloud app container ----------------------
-# Compose container names look like nextcloud-app-<n>. Match the
-# name prefix AND the compose service label: two name= filters are ORed
-# by docker (they would also match -cron-/-db-/-redis-), but a name=
-# plus a label= are different keys and get ANDed, pinning the app
-# container exactly.
+# Two labels the catalog puts on every service: vps.app names the
+# application, vps.component names the service inside it, and docker ANDs
+# filters on different keys -- so this pins the app container and not its
+# cron, db or redis peers. Neither label changes when a client renames the
+# stack, which the container NAME does.
 ct=$(docker ps \
-    --filter 'name=nextcloud-' \
-    --filter 'label=com.docker.compose.service=app' \
+    --filter 'label=vps.app=catena-nextcloud' \
+    --filter 'label=vps.component=app' \
     --format '{{.Names}}' | head -n1)
 
 if [ -z "$ct" ]; then

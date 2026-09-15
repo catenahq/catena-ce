@@ -31,3 +31,10 @@ jobs:
     with:
       profile: full
       runner: ubuntu-latest
+      # No .scanctl/baseline.sarif exists yet (missing file = no-op, so this
+      # is safe today) -- seed one per scanctl's README ("Seeding or
+      # regenerating a baseline") and commit .scanctl/baseline.sarif +
+      # .scanctl/README.md + baseline-drift.yml (catenahq/docs has an example
+      # of the repo-specific-vs-generic split) to activate suppression +
+      # auto-dismiss.
+      baseline: .scanctl/baseline.sarif

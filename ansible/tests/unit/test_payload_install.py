@@ -1,12 +1,13 @@
-"""Lock down roles/payload -- the host engine install.
+"""Lock down reconcile/roles/payload -- the host engine install.
 
-The role exists to close a real ordering hole: the engines used to arrive from
-roles/catena-admin (site.yml position 13) while roles/cloudflare_tunnel
-(position 9) dispatches one of them, so a first converge on a host that already
-held a Cloudflare token deferred the tunnel and roles/oauth2_proxy then waited
-on an edge nobody had brought up. These tests pin the two things that keep that
-closed: the role's POSITION in site.yml, and the marker semantics that make a
-re-converge a no-op without freezing an image upgrade out.
+The role closes a real ordering hole. reconcile/roles/cloudflare_tunnel at
+converge.yml position 9 dispatches one of the engines, so engines arriving any later
+-- from reconcile/roles/catena-admin at position 13, say -- leave a first
+converge on a host that already holds a Cloudflare token with no tunnel, and
+reconcile/roles/oauth2_proxy then waits on an edge nobody brought up. These tests
+pin the two things that keep it closed: the role's POSITION in converge.yml, and the
+marker semantics that make a re-converge a no-op without freezing an image
+upgrade out.
 
 Run: uv run pytest tests/unit/test_payload_install.py
 """
@@ -17,11 +18,11 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-ROLE = ANSIBLE / "roles" / "payload"
+ROLE = ANSIBLE / "reconcile" / "roles" / "payload"
 DEFAULTS = ROLE / "defaults" / "main.yml"
 TASKS = ROLE / "tasks" / "main.yml"
-SITE = ANSIBLE / "playbooks" / "site.yml"
-CF_TASKS = ANSIBLE / "roles" / "cloudflare_tunnel" / "tasks" / "main.yml"
+SITE = ANSIBLE / "playbooks" / "converge.yml"
+CF_TASKS = ANSIBLE / "reconcile" / "roles" / "cloudflare_tunnel" / "tasks" / "main.yml"
 
 
 def _defaults() -> dict:
@@ -33,7 +34,7 @@ def _tasks() -> list[dict]:
 
 
 def _role_order() -> list[str]:
-    """Role names in site.yml play order."""
+    """Role names in converge.yml play order."""
     play = yaml.safe_load(SITE.read_text())[0]
     return [r["role"] if isinstance(r, dict) else r for r in play["roles"]]
 
@@ -69,14 +70,14 @@ def _flatten(tasks: list[dict], inherited: list | None = None) -> list[dict]:
 # --- position ---------------------------------------------------------------
 def test_payload_runs_after_docker_and_before_every_engine_consumer():
     order = _role_order()
-    assert "payload" in order, "roles/payload is not in site.yml"
+    assert "payload" in order, "reconcile/roles/payload is not in converge.yml"
     pos = order.index("payload")
     # docker is all it needs, and it needs docker.
     assert order.index("docker") < pos
     # Everything that dispatches an engine, or depends on one having run, must
     # come after. cloudflare_tunnel is the one that broke.
     for later in ("cloudflare_tunnel", "keycloak", "oauth2_proxy", "catena-admin"):
-        assert pos < order.index(later), f"{later} runs before roles/payload"
+        assert pos < order.index(later), f"{later} runs before reconcile/roles/payload"
 
 
 def test_payload_precedes_the_roles_that_wait_on_the_edge():
@@ -93,6 +94,59 @@ def test_payload_precedes_the_roles_that_wait_on_the_edge():
 def test_image_defaults_to_the_catena_admin_image():
     d = _defaults()
     assert "catena_admin_image" in d["catena_payload_image"]
+
+
+def test_the_engines_follow_the_running_shell():
+    """One version input per host, not two.
+
+    reconcile/roles/catena-admin resolves max(floor, pin) and reconciles the
+    service to it at role 13. Resolving that expression here as well would be a
+    second reader of one value, four roles earlier -- and the two can disagree,
+    which puts new engines under the shell the host already had. Following the
+    service spec deletes the second input instead of adding a check against it.
+    """
+    flat = _flatten(_tasks())
+    inspect = flat[_index_of(flat, "what image is the catena-admin service")]
+    argv = inspect["ansible.builtin.command"]["argv"]
+    assert "service" in argv and "inspect" in argv
+    assert any("ContainerSpec.Image" in str(a) for a in argv)
+    assert inspect.get("failed_when") is False, (
+        "no such service is the normal first-converge answer, not an error")
+
+    follow = flat[_index_of(flat, "the engines follow the shell")]
+    assert (follow["ansible.builtin.set_fact"]["catena_payload_image"]
+            == "{{ _payload_service_image.stdout | trim }}")
+
+
+def test_following_the_shell_happens_before_the_image_is_resolved():
+    """Resolving the ID, gating the digest or pulling before the source is
+    settled would all act on the fallback."""
+    flat = _flatten(_tasks())
+    follow = _index_of(flat, "the engines follow the shell")
+    for later in ("pull", "resolve the image ID", "not the pinned one",
+                  "docker cp the payload tree"):
+        assert follow < _index_of(flat, later), f"{later!r} runs first"
+
+
+def test_an_explicit_image_override_still_wins():
+    """The bench points CATENA_PAYLOAD_IMAGE at the tag it built ON the VPS. A
+    service-derived value that overrode it would send the bench back to the
+    last published image, which is the one thing a bench must never exercise.
+    """
+    flat = _flatten(_tasks())
+    follow = flat[_index_of(flat, "the engines follow the shell")]
+    conds = " ".join(str(c) for c in _as_list(follow.get("when")))
+    assert "CATENA_PAYLOAD_IMAGE" in conds
+    assert "length == 0" in conds
+
+
+def test_having_no_service_to_follow_says_so_out_loud():
+    """Silence here reads as "followed the shell" on a host where nothing was
+    followed -- the same shape as the unchecked-digest skip."""
+    flat = _flatten(_tasks())
+    notice = flat[_index_of(flat, "nothing to follow")]
+    conds = " ".join(str(c) for c in _as_list(notice.get("when")))
+    assert "_payload_from_service" in conds
 
 
 def test_extraction_reads_the_image_payload_path():
@@ -177,8 +231,8 @@ def test_cloudflare_tunnel_fails_hard_when_the_converge_owns_the_engines():
     fail = [t for t in tasks if "ansible.builtin.fail" in t]
     assert fail, "no hard stop for a missing engine"
     cond = " ".join(str(c) for c in fail[0]["when"])
-    assert "catena_payload_engines_expected" in cond
-    assert "_cf_sync_bin" in cond
+    assert "catena_payload_expected" in cond
+    assert "catena_payload_missing" in cond
 
 
 def test_cloudflare_tunnel_still_defers_when_engines_are_staged_out_of_band():
@@ -188,7 +242,7 @@ def test_cloudflare_tunnel_still_defers_when_engines_are_staged_out_of_band():
     ]
     assert deferred, "the out-of-band staging path lost its deferral"
     cond = " ".join(str(c) for c in deferred[0]["when"])
-    assert "not (catena_payload_engines_expected" in cond
+    assert "not (catena_payload_expected" in cond
 
 
 # --- digest gate ------------------------------------------------------------

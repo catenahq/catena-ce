@@ -1,12 +1,22 @@
 #!/usr/bin/env python3
-"""Seed a new inventory/<name>/ for Community Catena.
+"""Seed inventory/<name>/ for Community Catena.
 
-Reads install.yaml (`-i`) for non-interactive values, prompts for anything
-missing, and writes the NON-SECRET inventory files:
+With `-i install.yaml` (bench / power user), generates a fresh inventory:
+reads env/host/vault values from the file, prompts for anything missing.
+
+Without one, inventory/<name>/.env must already exist -- copied from
+inventory/example/.env.example and hand-filled, same as any other config
+file -- and seed reads it directly instead of prompting field by field.
+hosts.yml/localhost.yml auto-scaffold from skel/ regardless of which path
+ran; an existing file's values always win (reconcile-not-overwrite):
   - inventory/<name>/.env                            (non-secret config)
-  - inventory/<name>/group_vars/all/main.yml         (copied from template)
   - inventory/<name>/hosts.yml                        (bootstrap + vps entries)
   - inventory/<name>/localhost.yml                    (preflight anchor)
+
+The group_vars structure (playbooks/group_vars/all/main.yml) is shared: it
+is pure `lookup('dotenv', ...)` boilerplate, identical for every inventory,
+so it is not written per-inventory here -- only the .env VALUES it reads
+differ between inventories.
 
 No secret file is written into the inventory (0b: no persisted laptop vault).
 The ONLY install-critical vendor cred is the Tailscale OAuth client id/secret
@@ -19,9 +29,9 @@ deletes it; nothing secret persists on the laptop.
 The Cloudflare API token is NEVER an install input. It is entered ONLY in
 catena-admin > Settings, which writes it to /etc/catena/config.json; the
 tunnel is deferred until then. So seed prompts nothing for Cloudflare beyond
-the (non-secret) CLOUDFLARE_ZONE, and CLOUDFLARE_ACCOUNT_ID is left blank when
-not supplied -- the host engine (catena-cloudflared-sync) resolves + persists
-the account id from the token.
+the (non-secret) CLOUDFLARE_ZONE -- the account id is not a seed input at
+all, the host engine (catena-cloudflared-sync) resolves it from the token at
+activation.
 
 Everything else is minted ON-BOX by the converge loader
 (helpers/onbox_config.py): the internal service secrets, plus the user-held
@@ -56,10 +66,14 @@ import yaml
 # --- paths ------------------------------------------------------------------
 # REPO_ROOT is the self-contained ansible/ tree (seed.py sits at its root).
 REPO_ROOT = Path(__file__).resolve().parent
-SKEL = REPO_ROOT / "inventory" / "example"
-ENV_TEMPLATE = SKEL / ".env.example"
-MAIN_YML_TEMPLATE = SKEL / "group_vars" / "all" / "main.yml.example"
+# inventory/example/ carries ONLY .env.example -- the one file a self-hoster
+# copies. hosts.yml/localhost.yml auto-scaffold from skel/ (below) and are
+# never meant to be opened, let alone copied, so they don't sit in the same
+# directory implying otherwise.
+ENV_TEMPLATE = REPO_ROOT / "inventory" / "example" / ".env.example"
+SKEL = REPO_ROOT / "skel"
 LOCALHOST_YML_SKEL = SKEL / "localhost.yml"
+HOSTS_YML_SKEL = SKEL / "hosts.yml.example"
 
 # Make `from helpers import ...` resolve whether seed.py is run as a script
 # or loaded via importlib spec_from_file_location (the test fixture pattern).
@@ -76,8 +90,8 @@ def _declared_secret_names() -> frozenset[str]:
     on a minimal target host) and seed.py should not pull it in at import time
     just to answer a question about names.
 
-    This replaced a `vault_` prefix test. A prefix made spelling load-bearing:
-    an operator who wrote a credential without it had it silently filed as
+    Declared by name rather than inferred from a `vault_` prefix: a prefix
+    makes spelling load-bearing, silently filing an unprefixed credential as
     non-secret .env config."""
     from helpers import onbox_config
 
@@ -96,6 +110,28 @@ INSTALL_EXTERNAL_KEYS: tuple[str, ...] = (
     "tailscale_oauth_client_id",
     "tailscale_oauth_client_secret",
 )
+
+# Shown right before the hidden OAuth prompts, so the user has the console
+# steps in front of them while entering the creds. playbooks/preflight.yml
+# carries the same steps, but only prints them on a failed check -- after the
+# creds were already asked for.
+TAILSCALE_SETUP_STEPS = """\
+One-time setup in https://login.tailscale.com/admin :
+
+  1. Access controls -> edit the JSON -> merge, then Save:
+
+         "tagOwners": {{ "{tag}": ["autogroup:admin"] }}
+
+  2. Settings -> Trust Credentials -> Generate OAuth client.
+     - Description: catena-ansible
+     - Scopes: check  Auth Keys -> Write
+     - Tags:   check  {tag}
+       (the tag must match step 1 exactly, or key minting rejects with a 400)
+     Generate, then copy the client id AND the secret -- the secret is
+     displayed once.
+
+  3. Paste both at the prompts below.
+"""
 
 # Minimum admin password length when a user PINS one via install.yaml (Portainer
 # and the SSO provider both accept it). With no override the admin password is
@@ -173,28 +209,17 @@ def validate_install_structural(
     if not _check("inventory set", bool(inventory), str(inventory or "(missing)")):
         problems += 1
 
-    for f in ("name", "public_ip", "initial_user"):
-        if not _check(f"host_{f} set", _is_filled(host.get(f)), str(host.get(f) or "(missing)")):
-            problems += 1
-
     if host.get("initial_password"):
         _check("host_initial_password provided (install_key.py won't prompt)", True)
     else:
         _check("host_initial_password blank (install_key.py will prompt)", True)
 
-    # CLOUDFLARE_ACCOUNT_ID is auto-detected from the zone, so blank is ok.
-    # SMTP_FROM has a non-empty placeholder default but blank is legitimate
-    # (deploy without mail). All other "optional" env keys are inferred from
-    # an empty template default -- the template author's signal that blank
-    # is acceptable.
-    env_allow_empty = {
-        "CLOUDFLARE_ACCOUNT_ID",
-        "SMTP_FROM",
-    }
+    # "Optional" env keys are inferred from an empty template default -- the
+    # template author's signal that blank is acceptable.
     for key, default in env_keys:
         val = env.get(key, default)
         eff = _effective_options(default, ENV_OPTIONS.get(key))
-        is_optional = key in env_allow_empty or not default
+        is_optional = not default
         if is_optional and not _is_filled(val):
             continue
         # YAML bool -> "true"/"false".
@@ -215,41 +240,6 @@ def validate_install_structural(
                       _is_filled(val), "***" if _is_filled(val) else "(missing)"):
             problems += 1
 
-    def _check_s3_repo(key: str, value: str, *, required: bool) -> int:
-        if not _is_filled(value):
-            if required:
-                if not _check(f"{key} format", False,
-                              "expected s3:<endpoint>/<bucket>, got '' (blank)"):
-                    return 1
-            return 0
-        if not (value.startswith("s3:") and "/" in value[3:]):
-            if not _check(f"{key} format", False,
-                          f"expected s3:<endpoint>/<bucket>, got {value!r}"):
-                return 1
-            return 1
-        endpoint, bucket = value[3:].split("/", 1)
-        # Reject the literal "<client>" sentinel from .env.example -- a
-        # template-shaped value made it past prompt-fill.
-        if "<client>" in value or "<client>" in bucket:
-            if not _check(f"{key} format", False,
-                          f"contains <client> placeholder; replace with a real bucket name -- got {value!r}"):
-                return 1
-            return 1
-        _check(f"{key} format", True, f"endpoint={endpoint} bucket={bucket}")
-        return 0
-
-    # Backup repo is configured POST-INSTALL in catena-admin (deferred creds),
-    # so a blank value at seed time is fine; only a malformed one fails.
-    problems += _check_s3_repo(
-        "BACKUP_RESTIC_REPO", env.get("BACKUP_RESTIC_REPO", ""), required=False
-    )
-    # The cold mirror's two repos, same rule: blank is legitimate (mirror off),
-    # malformed is not. They are checked here rather than left to the panel
-    # because they are seeded in the same file and a typo in a bucket name
-    # surfaces at seed time or not until a mirror silently skips for weeks.
-    for key in ("BACKUP_WORM_REPO", "NEXTCLOUD_WORM_REPO",
-                "NEXTCLOUD_LIVE_REPO"):
-        problems += _check_s3_repo(key, env.get(key, ""), required=False)
     return problems
 
 
@@ -259,22 +249,27 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
     vault = inp.get("vault") or {}
     problems = validate_install_structural(inp, env_keys, vault_keys)
 
+    # A missing keypair is not a problem -- ensure_ssh_key() offers to generate
+    # it before anything is written -- so neither line is a failed check. The
+    # label states which file was looked for and the detail states what was
+    # found, rather than asserting the file exists and then marking that false.
     banner("Local prerequisites")
-    pub = os.path.expanduser(env.get("SSH_PUBLIC_KEY_FILE", ""))
-    priv = os.path.expanduser(env.get("SSH_PRIVATE_KEY", ""))
-    if pub and Path(pub).is_file():
-        _check("SSH public key file exists", True, pub)
-    else:
-        _check("SSH public key file exists", False, f"{pub} (will be generated on install)")
-    if priv and Path(priv).is_file():
-        _check("SSH private key file exists", True, priv)
-    else:
-        _check("SSH private key file exists", False, f"{priv} (will be generated on install)")
+    for label, path in (("SSH private key", os.path.expanduser(env.get("SSH_PRIVATE_KEY", ""))),
+                        ("SSH public key", os.path.expanduser(env.get("SSH_PUBLIC_KEY_FILE", "")))):
+        if not path:
+            # Already counted by the structural pass, which requires the key.
+            _check(label, False, "no path set in .env")
+        elif Path(path).is_file():
+            _check(label, True, f"{path} (found)")
+        else:
+            _check(label, True,
+                   f"{path} (not on this machine; seed offers to generate the pair)")
 
     banner("Credentials -- live probes")
 
     ts_id = vault.get("tailscale_oauth_client_id", "")
     ts_secret = vault.get("tailscale_oauth_client_secret", "")
+    api_token = ""
     if _is_filled(ts_id) and _is_filled(ts_secret):
         from base64 import b64encode
         auth = b64encode(f"{ts_id}:{ts_secret}".encode()).decode()
@@ -287,8 +282,26 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
         if not _check("Tailscale OAuth token exchange", status == 200,
                       f"HTTP {status}" + (f" {body.get('error', '')}" if body else "")):
             problems += 1
-    else:
+        api_token = str((body or {}).get("access_token") or "")
+    elif "tailscale_oauth_client_id" in vault_keys:
         _check("Tailscale OAuth token exchange", False, "skipped -- creds not set")
+    else:
+        _check("Tailscale OAuth token exchange", True,
+               "not required -- self-hosted Headscale backend")
+        # bootstrap/roles/tailscale asserts on one of these and fails the BOOTSTRAP
+        # without it, before any host exists. Caught here instead, where
+        # nothing has been touched yet and the message can say what to enter.
+        if not (_is_filled(vault.get("headscale_api_key"))
+                or _is_filled(vault.get("headscale_preauth_key"))):
+            _check("Headscale pre-auth credential", False,
+                   "neither headscale_api_key nor headscale_preauth_key is set; "
+                   "bootstrap cannot join the tailnet and every later stage is "
+                   "reached over it")
+            problems += 1
+        else:
+            _check("Headscale pre-auth credential", True,
+                   "headscale_api_key" if _is_filled(vault.get("headscale_api_key"))
+                   else "headscale_preauth_key (static)")
 
     # No Cloudflare live-probe: the API token is entered in catena-admin >
     # Settings, never at install, so there is nothing to verify here. The
@@ -297,6 +310,33 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
     # the host engine (catena-cloudflared-sync).
     _check("Cloudflare", True,
            "API token entered later in catena-admin > Settings (tunnel deferred)")
+
+    # Last, so its remedy is the final thing on screen when it fails.
+    #
+    # This machine has to be able to REACH the tailnet, not merely mint keys
+    # for it: everything after bootstrap reaches the VPS at its tailnet
+    # address. Only one half of that is decidable here. Being joined to a
+    # different tailnet than the credentials belong to is a fact and blocks;
+    # an unreadable local Tailscale state is an absence of evidence -- a
+    # controller can route to the tailnet through a subnet router with no
+    # tailscale binary of its own -- so it prints its remedy and proceeds. The
+    # converge probes the real address the moment the node has one. Reuses the
+    # token just exchanged, so the strong check costs one request and no extra
+    # scope.
+    banner("Controller on the tailnet")
+    from helpers import tailnet_check
+
+    control_url = str(env.get("TAILNET_CONTROL_URL", "") or "").strip()
+    tailnet = tailnet_check.check(token=api_token, control_url=control_url)
+    for line in tailnet.lines:
+        if tailnet.ok or tailnet.blocking:
+            _check(line, tailnet.ok)
+        else:
+            warn(f" {line}")
+    if not tailnet.ok:
+        if tailnet.blocking:
+            problems += 1
+        print(f"\n{tailnet.remedy}", file=sys.stderr)
 
     print(file=sys.stderr)
     if problems:
@@ -310,48 +350,6 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
 HOST_PREFIX = "host_"
 
 
-def _fill_smtp_defaults(env: dict, *, host: str, user: str, sender: str) -> None:
-    defaults = {
-        "SMTP_HOST":    host,
-        "SMTP_PORT":    587,
-        "SMTP_USER":    user,
-        "SMTP_FROM":    sender,
-        "SMTP_USE_TLS": True,
-    }
-    for k, v in defaults.items():
-        existing = str(env.get(k, "")).strip()
-        if existing and existing not in PLACEHOLDER_VALUES:
-            continue
-        env[k] = "true" if v is True else ("false" if v is False else str(v))
-
-
-def apply_smtp_provider_shortcut(inp: dict) -> str | None:
-    """Resend / Brevo shortcut: if only the sender email is set, derive the
-    SMTP host/port/user so the operator does not have to know them."""
-    env = inp.setdefault("env", {})
-    resend_sender = str(env.get("RESEND_SENDER_EMAIL", "")).strip()
-    brevo_sender = str(env.get("BREVO_SENDER_EMAIL", "")).strip()
-
-    resend_set = resend_sender and resend_sender not in PLACEHOLDER_VALUES
-    brevo_set = brevo_sender and brevo_sender not in PLACEHOLDER_VALUES
-
-    if resend_set and brevo_set:
-        warn(
-            "Both RESEND_SENDER_EMAIL and BREVO_SENDER_EMAIL set -- using Resend. "
-            "Clear one to silence this warning."
-        )
-
-    if resend_set:
-        _fill_smtp_defaults(env, host="smtp.resend.com", user="resend", sender=resend_sender)
-        return "Resend"
-
-    if brevo_set:
-        _fill_smtp_defaults(env, host="smtp-relay.brevo.com", user=brevo_sender, sender=brevo_sender)
-        return "Brevo"
-
-    return None
-
-
 def split_install_dict(raw: dict) -> dict:
     """Split a parsed install.yaml top-level dict into the
     {inventory, host, env, vault} shape main() consumes.
@@ -361,10 +359,10 @@ def split_install_dict(raw: dict) -> dict:
     host fields, otherwise a secret if the store declares it and a .env value
     if not). A legacy `vault_password:` field is silently ignored.
 
-    The flat layout used to spot secrets by a `vault_` prefix, which made a
-    spelling load-bearing: an operator who wrote the key without it got their
-    credential silently filed as non-secret .env config. onbox_config declares
-    which names are secrets, so ask it."""
+    onbox_config declares which names are secrets, so ask it rather than
+    reading a prefix: a `vault_` convention makes a spelling load-bearing, and
+    an operator who writes the key without it gets their credential silently
+    filed as non-secret .env config."""
     if any(isinstance(raw.get(k), dict) for k in ("host", "env", "vault")):
         return {
             "inventory": raw.get("inventory"),
@@ -421,6 +419,15 @@ def parse_env_template(path: Path) -> tuple[list[tuple[str, str]], str]:
     return keys, text
 
 
+def read_existing_env(path: Path) -> dict[str, str]:
+    """Parse an already-filled-in inventory/<name>/.env (same KEY=value shape
+    as the template) into a provided-values dict, so _collect_env_values()
+    takes the already-in-provided fast path for every key instead of
+    prompting for it."""
+    pairs, _ = parse_env_template(path)
+    return dict(pairs)
+
+
 # --- prompting --------------------------------------------------------------
 def _is_filled(value) -> bool:
     if value is None:
@@ -436,9 +443,7 @@ def _is_filled(value) -> bool:
 # knobs (auto-update mode/reboot/provider, scheduled backup tier) are
 # Business features and absent from the Community template.
 ENV_OPTIONS: dict[str, list[str]] = {
-    "CATENA_DEFAULT_LANGUAGE": ["en", "fr"],
     "STORAGE_MODE": ["built_in", "attached"],
-    "NEXTCLOUD_VERSIONS_RETENTION": ["auto, 7", "auto, 14", "auto, 30"],
 }
 
 _BOOL_VALUES = ("true", "false")
@@ -557,13 +562,6 @@ def emit_env(template_text: str, values: dict[str, str], target: Path) -> None:
     target.write_text("\n".join(out) + "\n")
 
 
-def emit_main_yml(target: Path) -> None:
-    if target.exists():
-        return
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(MAIN_YML_TEMPLATE, target)
-
-
 def emit_localhost_yml(target: Path) -> None:
     if target.exists():
         return
@@ -571,10 +569,24 @@ def emit_localhost_yml(target: Path) -> None:
     shutil.copyfile(LOCALHOST_YML_SKEL, target)
 
 
-def emit_hosts_yml(
-    target: Path, host_name: str, public_ip: str, tailnet_ip: str,
-    initial_user: str,
+def emit_hosts_yml(target: Path) -> None:
+    if target.exists():
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(HOSTS_YML_SKEL, target)
+
+
+def emit_hosts_yml_entry(
+    target: Path, host_name: str, env_values: dict[str, str],
 ) -> None:
+    """-i install.yaml path only: writes a LITERAL (non-templated) entry for
+    host_name, merging alongside any other hosts already in the file -- an
+    install.yaml-driven caller (the test bench) can add a second host to
+    the same inventory across separate seed.py runs. public_ip/initial_user/
+    ssh_port/ops_user come from the already-collected env_values (the same
+    HOST_PUBLIC_IP / HOST_INITIAL_USER / HOST_SSH_PORT / OPS_USER keys
+    hosts.yml.example reads via dotenv for the read-existing-inventory
+    path), so both paths agree on where these values live."""
     if target.exists():
         data = yaml.safe_load(target.read_text()) or {}
     else:
@@ -582,24 +594,22 @@ def emit_hosts_yml(
     children = data.setdefault("all", {}).setdefault("children", {})
     vps_hosts = children.setdefault("vps", {}).setdefault("hosts", {})
     bootstrap_hosts = children.setdefault("bootstrap", {}).setdefault("hosts", {})
+    public_ip = env_values.get("HOST_PUBLIC_IP", "")
+    ssh_port = env_values.get("HOST_SSH_PORT") or "22"
     # bootstrap_initial_user must be an inventory var (not only the Phase 0.5
-    # vars_prompt in bootstrap.yml): vars_prompt is play-scoped, so Phase 1
-    # (harden) and Phase 2 (tailscale) -- separate plays that connect as this
-    # user -- would otherwise see it undefined under a non-interactive
-    # `catena install --no-confirm`. Seed already collected it, so pin it here.
+    # vars_prompt in bootstrap.yml): vars_prompt outranks it and silently
+    # takes its own default ("root") under --no-confirm's no TTY.
     bootstrap_hosts[f"{host_name}-bootstrap"] = {
         "ansible_host": public_ip,
-        "ansible_port": 22,
-        "bootstrap_initial_user": initial_user,
+        "ansible_port": ssh_port,
+        "bootstrap_initial_user": env_values.get("HOST_INITIAL_USER") or "root",
     }
-    # The bootstrap host's ansible_host is the public IP (how we reach a
-    # fresh box before tailscale joins); the vps host's ansible_host is the
-    # tailnet address. Roles that need the routable public IP (coturn TURN
-    # URI / ICE candidates) read public_ip directly.
     vps_host_vars: dict = {
-        "ansible_host": tailnet_ip,
-        "ansible_user": "ops",
-        "ansible_port": 22,
+        # Placeholder; bootstrap.yml's post_task rewrites it once the VPS
+        # joins the tailnet.
+        "ansible_host": "0.0.0.0",
+        "ansible_user": env_values.get("OPS_USER") or "ops",
+        "ansible_port": ssh_port,
     }
     if public_ip:
         vps_host_vars["public_ip"] = public_ip
@@ -693,19 +703,18 @@ def _collect_env_values(
     env_keys: list[tuple[str, str]],
     env_provided: dict,
 ) -> dict[str, str]:
-    """Walk the .env template keys, prompting for each. CLOUDFLARE_ACCOUNT_ID is
-    allow-empty: it is no longer auto-fetched at seed time (that needed the CF
-    token, which is now Settings-only), so a blank flows through and the host
-    engine resolves + persists it from the token."""
+    """Walk the .env template keys, prompting for each.
+
+    TAILNET_CONTROL_URL + HEADSCALE_USER need no special handling: both carry
+    an empty template default, so a blank .env value is taken as an answer
+    (Tailscale SaaS) rather than prompted for. The inventory declares the
+    tailnet backend by whether those two fields are filled -- there is no
+    separate question to ask."""
     banner("Configuration (.env)")
     print("(press Enter to accept the template default)\n", file=sys.stderr)
     env_values: dict[str, str] = {}
-    # SMTP_FROM has a non-empty placeholder default but blank is a legitimate
-    # answer (deploy without mail); CLOUDFLARE_ACCOUNT_ID is resolved on-box, so
-    # a blank at seed time is fine even if the template carries a default.
-    allow_empty_with_default = {"SMTP_FROM", "CLOUDFLARE_ACCOUNT_ID"}
     for key, default in env_keys:
-        allow_empty = (not default) or key in allow_empty_with_default
+        allow_empty = not default
         env_values[key] = fill(
             env_provided, key, default, key,
             allow_empty=allow_empty,
@@ -714,12 +723,87 @@ def _collect_env_values(
     return env_values
 
 
-def _collect_install_secrets(vault_provided: dict) -> dict[str, str]:
-    """Prompt (hidden) for the install-critical vendor creds only -- the
-    Tailscale OAuth id/secret. The Cloudflare API token is NOT collected here
-    (Settings-only); everything else is minted on-box. These go to the
-    transient --secrets-out file, never a persisted vault."""
+def _oauth_tag(env_values: dict[str, str]) -> str:
+    """First entry of TAILSCALE_TAGS -- the tag the OAuth client has to be
+    scoped to. Same rule preflight applies (playbooks/preflight.yml)."""
+    first = (env_values.get("TAILSCALE_TAGS") or "").split(",")[0].strip()
+    return first or "tag:vps"
+
+
+def _uses_headscale(env_values: dict[str, str]) -> bool:
+    return _is_filled(env_values.get("TAILNET_CONTROL_URL"))
+
+
+def _tailnet_backend(values: dict[str, str]) -> str:
+    """Which control server the inventory declared. Deduced from the Headscale
+    fields rather than asked -- blank means Tailscale SaaS -- so it is echoed
+    back instead, since the user never confirmed it at a prompt."""
+    if not _uses_headscale(values):
+        return "Tailscale SaaS (TAILNET_CONTROL_URL blank)"
+    user = (values.get("HEADSCALE_USER") or "").strip() or "HEADSCALE_USER NOT SET"
+    return f"Headscale at {values['TAILNET_CONTROL_URL'].strip()} (user: {user})"
+
+
+def _ipv4_endpoint(values: dict[str, str]) -> str:
+    """The bootstrap target as one line: the provider IPv4 that the first SSH
+    lands on, with the port and login that go with it. Echoed back so a stale
+    HOST_PUBLIC_IP -- the template's own example address, or the box this
+    inventory used to point at -- is caught before bootstrap touches it."""
+    ip = (values.get("HOST_PUBLIC_IP") or "").strip() or "HOST_PUBLIC_IP NOT SET"
+    port = (values.get("HOST_SSH_PORT") or "").strip() or "22"
+    user = (values.get("HOST_INITIAL_USER") or "").strip() or "root"
+    return f"{user}@{ip}:{port}"
+
+
+def _collect_headscale_secret(vault_provided: dict) -> dict[str, str]:
+    """The Headscale half of _collect_install_secrets.
+
+    bootstrap/roles/tailscale asserts on one of these two being in scope and FAILS the
+    bootstrap without it, so this cannot be deferred to catena-admin the way
+    the Cloudflare and S3 credentials are: the panel it would be entered in is
+    published on the tailnet the credential is what joins.
+
+    api_key is preferred -- the converge mints a short-lived tagged pre-auth
+    key per run from it, so no long-lived key sits on the VPS. A static
+    preauth_key is the fallback for a Headscale whose API is not reachable
+    from here."""
+    banner("Headscale credential (not stored on this machine)")
+    print("The converge needs ONE of these to join the VPS to the tailnet.\n"
+          "  headscale_api_key      preferred -- a short-lived tagged pre-auth\n"
+          "                         key is minted per run, nothing long-lived\n"
+          "                         is left on the VPS. Needs HEADSCALE_USER.\n"
+          "  headscale_preauth_key  fallback -- a static key made by hand with\n"
+          "                         `headscale preauthkeys create --reusable`\n"
+          "\n(input hidden; adopted on-box then discarded from the laptop)\n",
+          file=sys.stderr)
+    api_key = fill(vault_provided, "headscale_api_key", "", "headscale_api_key",
+                   secret=True, allow_empty=True)
+    if api_key:
+        return {"headscale_api_key": api_key}
+    static = fill(vault_provided, "headscale_preauth_key", "",
+                  "headscale_preauth_key", secret=True, allow_empty=True)
+    return {"headscale_preauth_key": static} if static else {}
+
+
+def _collect_install_secrets(
+    vault_provided: dict, env_values: dict[str, str],
+) -> dict[str, str]:
+    """Prompt (hidden) for the install-critical vendor creds only: whichever
+    credential the chosen tailnet backend needs to JOIN, preceded by the
+    console steps that produce it. The Cloudflare API token is NOT collected
+    here (Settings-only); everything else is minted on-box. These go to the
+    transient --secrets-out file, never a persisted vault.
+
+    Both backends are collected here for the same reason. bootstrap joins the
+    VPS to the tailnet, and every stage after it reaches the host at a tailnet
+    address -- so a credential that only arrives later, through a panel that is
+    only reachable over that tailnet, can never arrive at all."""
+    if _uses_headscale(env_values):
+        return _collect_headscale_secret(vault_provided)
     banner("Install-critical vendor credentials (not stored on this machine)")
+    if sys.stdin.isatty():
+        print(TAILSCALE_SETUP_STEPS.format(tag=_oauth_tag(env_values)),
+              file=sys.stderr)
     print("(input hidden; adopted on-box then discarded from the laptop)\n",
           file=sys.stderr)
     values: dict[str, str] = {}
@@ -733,23 +817,17 @@ def _collect_install_secrets(vault_provided: dict) -> dict[str, str]:
 def _print_summary(
     *,
     inventory: str,
-    host_name: str,
-    public_ip: str,
-    initial_user: str,
-    tailnet_ip_provided: str,
     env_values: dict[str, str],
     secret_values: dict[str, str],
+    expected_creds: int,
 ) -> None:
     banner("Summary")
     print(f"  Inventory:      {inventory}", file=sys.stderr)
-    print(f"  Host:           {host_name}", file=sys.stderr)
-    print(f"  Public IPv4:    {public_ip}", file=sys.stderr)
-    print(f"  Initial user:   {initial_user}", file=sys.stderr)
-    print(f"  Tailnet IPv4:   {tailnet_ip_provided or '(captured by bootstrap.yml post_task)'}", file=sys.stderr)
+    print(f"  IPv4 endpoint:  {_ipv4_endpoint(env_values)}", file=sys.stderr)
+    print(f"  Tailnet:        {_tailnet_backend(env_values)}", file=sys.stderr)
     print(f"  CF zone:        {env_values.get('CLOUDFLARE_ZONE')}", file=sys.stderr)
     print("  CF API token:   entered later in catena-admin > Settings "
           "(never at install)", file=sys.stderr)
-    expected_creds = len(INSTALL_EXTERNAL_KEYS)
     print(f"  Vendor creds:   {len(secret_values)}/{expected_creds} "
           "collected (transient; adopted on-box, not stored here)", file=sys.stderr)
     print(file=sys.stderr)
@@ -761,29 +839,22 @@ def _write_inventory_files(
     inventory: str,
     env_template: str,
     env_values: dict[str, str],
-    host_name: str,
-    public_ip: str,
-    initial_user: str,
-    tailnet_ip_provided: str,
+    host_name: str | None,
 ) -> None:
     env_target = inv_dir / ".env"
-    main_target = inv_dir / "group_vars" / "all" / "main.yml"
-    hosts_target = inv_dir / "hosts.yml"
     banner(f"Writing inventory/{inventory}/ (non-secret files only)")
     emit_env(env_template, env_values, env_target)
     ok(f"wrote {env_target}")
-    emit_main_yml(main_target)
-    ok(f"wrote {main_target}")
     emit_localhost_yml(inv_dir / "localhost.yml")
     ok(f"wrote {inv_dir / 'localhost.yml'}")
     # No vault.yml: secrets never persist on the laptop (0b). Vendor creds go to
     # the transient --secrets-out file; everything else is minted on-box.
-    # Placeholder tailnet IP; bootstrap.yml's post_task rewrites it after the
-    # VPS joins the tailnet.
-    initial_tailnet_ip = tailnet_ip_provided or "0.0.0.0"
-    emit_hosts_yml(
-        hosts_target, host_name, public_ip, initial_tailnet_ip, initial_user,
-    )
+    hosts_target = inv_dir / "hosts.yml"
+    if host_name is not None:
+        # -i install.yaml: a caller-chosen host name, merged into the file.
+        emit_hosts_yml_entry(hosts_target, host_name, env_values)
+    else:
+        emit_hosts_yml(hosts_target)
     ok(f"wrote {hosts_target}")
 
 
@@ -825,12 +896,6 @@ def main(argv: list[str] | None = None) -> int:
 
     inp = load_input(Path(args.input) if args.input else None)
 
-    provider = apply_smtp_provider_shortcut(inp)
-    if provider:
-        env = inp.get("env", {})
-        sender_key = "RESEND_SENDER_EMAIL" if provider == "Resend" else "BREVO_SENDER_EMAIL"
-        ok(f"{provider} SMTP shortcut: SMTP_* derived from {sender_key}={env.get(sender_key, '')}")
-
     banner("Target")
     if args.inventory_path:
         inv_dir = Path(args.inventory_path).expanduser()
@@ -842,22 +907,46 @@ def main(argv: list[str] | None = None) -> int:
             or fill({}, "inventory", "prod", "Inventory name (directory under inventory/)")
         )
         inv_dir = REPO_ROOT / "inventory" / inventory
-    if inv_dir.exists():
-        warn(f"inventory '{inventory}' exists -- host will be merged into existing files.")
-
-    host_data = inp.get("host", {})
-    host_name = fill(host_data, "name", f"{inventory}1", "Host name (e.g. prod1)")
-    public_ip = fill(host_data, "public_ip", "", "Public IPv4 (from provider)")
-    initial_user = fill(host_data, "initial_user", "root",
-                        "Initial SSH user (root, ubuntu, debian, ec2-user...)")
-    tailnet_ip_provided = host_data.get("tailnet_ip", "").strip() if isinstance(host_data.get("tailnet_ip"), str) else ""
 
     env_keys, env_template = parse_env_template(ENV_TEMPLATE)
-    env_provided = inp.get("env", {})
+    # install.yaml (bench / power user) supplies env values directly and
+    # generates the inventory from scratch. Without one, .env must already
+    # exist -- copied from inventory/example/.env.example and hand-filled --
+    # so it answers every field instead of prompting for it one at a time.
+    if args.input:
+        if inv_dir.exists():
+            warn(f"inventory '{inventory}' exists -- host will be merged into existing files.")
+        env_provided = inp.get("env", {})
+        ok(f"loaded {args.input} -- {len(env_provided)} config value(s)")
+    else:
+        env_path = inv_dir / ".env"
+        if not env_path.is_file():
+            die(
+                f"{env_path} not found. Copy inventory/example/.env.example "
+                f"to {env_path}, fill it in, then re-run."
+            )
+        env_provided = read_existing_env(env_path)
+        ok(f"loaded {env_path} -- {len(env_provided)} config value(s)")
+    # Echoed before any prompting, so the box about to be bootstrapped and the
+    # control server deduced from the Headscale fields are both visible while
+    # there is still nothing to undo. Repeated in the summary above the
+    # proceed prompt.
+    print(f"  IPv4 endpoint: {_ipv4_endpoint(env_provided)}", file=sys.stderr)
+    print(f"  Tailnet:       {_tailnet_backend(env_provided)}", file=sys.stderr)
     env_values = _collect_env_values(env_keys, env_provided)
 
+    # host.initial_password is a genuine secret (the VPS provider's initial
+    # root password) that never belongs in .env. host.name only matters on
+    # the -i path: the hosts.yml entry seed writes for install.yaml-driven
+    # generation (the bench adds a distinctly-named host per run/slot to the
+    # same inventory). Public IP and initial SSH user are HOST_PUBLIC_IP /
+    # HOST_INITIAL_USER in .env either way, read straight into hosts.yml by
+    # the dotenv lookup on the read-existing-inventory path.
+    host_data = inp.get("host", {})
+    host_name = (host_data.get("name") or f"{inventory}1") if args.input else None
+
     vault_provided = inp.get("vault", {})
-    secret_values = _collect_install_secrets(vault_provided)
+    secret_values = _collect_install_secrets(vault_provided, env_values)
     # A fully-specified install.yaml (power user / test bench) can supply the
     # whole keyset; pass any extra vault_* creds through to the adopt file.
     _absorb_provided_secrets(secret_values, vault_provided)
@@ -865,32 +954,35 @@ def main(argv: list[str] | None = None) -> int:
     _resolve_admin_override(secret_values, vault_provided)
     # Every other secret -- internal service secrets AND the user-held
     # admin/restic DR keyset -- is minted ON-BOX by the converge loader
-    # (helpers/onbox_config.py), never here. The Cloudflare API token +
-    # CLOUDFLARE_ACCOUNT_ID are resolved on-box too: the token is entered in
-    # catena-admin > Settings, and the host engine derives + persists the
-    # account id from it.
+    # (helpers/onbox_config.py), never here. The Cloudflare API token is
+    # resolved on-box too: entered in catena-admin > Settings, which also
+    # derives and persists the account id from it.
 
     # Validate before any destructive action. The install externals ride the
     # `vault` slot so the structural checks reach them.
     validation_inp = {
         "inventory": inventory,
-        "host": {
-            "name": host_name,
-            "public_ip": public_ip,
-            "initial_user": initial_user,
-            "initial_password": host_data.get("initial_password") or "",
-        },
+        "host": {"initial_password": host_data.get("initial_password") or ""},
         "env": env_values,
         "vault": secret_values,
     }
-    problems = validate_install(validation_inp, env_keys, list(INSTALL_EXTERNAL_KEYS))
+    # A Headscale install collects no OAuth creds, so requiring them here would
+    # block a valid inventory on credentials that backend has no API for. It
+    # needs exactly one of its own pair instead, which validate_install checks
+    # directly -- "one of two" does not fit the all-required key list.
+    if _uses_headscale(env_values):
+        required_vault: list[str] = []
+        expected_creds = 1
+    else:
+        required_vault = list(INSTALL_EXTERNAL_KEYS)
+        expected_creds = len(required_vault)
+    problems = validate_install(validation_inp, env_keys, required_vault)
     if problems:
         die(f"{problems} problem(s) -- fix and re-run.")
 
     _print_summary(
-        inventory=inventory, host_name=host_name, public_ip=public_ip,
-        initial_user=initial_user, tailnet_ip_provided=tailnet_ip_provided,
-        env_values=env_values, secret_values=secret_values,
+        inventory=inventory, env_values=env_values, secret_values=secret_values,
+        expected_creds=expected_creds,
     )
     if not args.no_confirm:
         answer = input("Proceed with seed (write inventory files)? [y/N]: ").strip().lower()
@@ -903,9 +995,7 @@ def main(argv: list[str] | None = None) -> int:
     _write_inventory_files(
         inv_dir=inv_dir, inventory=inventory,
         env_template=env_template, env_values=env_values,
-        host_name=host_name, public_ip=public_ip,
-        initial_user=initial_user,
-        tailnet_ip_provided=tailnet_ip_provided,
+        host_name=host_name,
     )
 
     # Write the transient adopt map (never into the inventory).

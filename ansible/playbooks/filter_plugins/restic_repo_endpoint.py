@@ -4,7 +4,7 @@ repo string, for the early external-service reachability preflight.
 The installer must fail FAST when a configured external backend is
 unreachable -- not 10-30 minutes into the converge when the backup role
 finally tries to write (a restic-repo-unreachable converge once took 29
-minutes to surface). `pre_tasks` in site.yml probe the endpoint returned
+minutes to surface). `pre_tasks` in converge.yml probe the endpoint returned
 here with a short timeout before any heavy role runs.
 
 restic S3 repo grammar (the only backend we network-probe here):

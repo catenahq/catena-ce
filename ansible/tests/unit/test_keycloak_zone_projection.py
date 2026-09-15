@@ -1,4 +1,4 @@
-"""roles/keycloak reads its multi-domain routing from the served-domain
+"""reconcile/roles/keycloak reads its multi-domain routing from the served-domain
 projection, not from a fact computed in this repo.
 
 One Keycloak serves an auth.<zone> sign-on island per attached domain. Which
@@ -16,7 +16,7 @@ from pathlib import Path
 
 import yaml
 
-_ROLE = Path(__file__).resolve().parents[3] / "ansible" / "roles" / "keycloak"
+_ROLE = Path(__file__).resolve().parents[3] / "ansible" / "reconcile" / "roles" / "keycloak"
 DEPLOY = _ROLE / "tasks" / "deploy.yml"
 DEFAULTS = _ROLE / "defaults" / "main.yml"
 
@@ -60,7 +60,8 @@ def test_extra_hosts_are_built_from_the_resolved_secondaries():
     extra = task["vars"]["svc_domain_extra_hosts"]
     assert "_kc_secondary_zones" in extra
     assert "keycloak_subdomain" in extra
-    # The retired fact must be gone: it was the multi-domain overlay's output.
+    # cloudflare_zones is the multi-domain overlay's output and has no business
+    # here: the resolved secondaries are what this render reads.
     assert "cloudflare_zones" not in extra
 
 

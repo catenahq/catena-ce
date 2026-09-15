@@ -21,7 +21,7 @@ import yaml
 
 ROLE = (
     Path(__file__).resolve().parents[3]
-    / "ansible" / "roles" / "traefik"
+    / "ansible" / "reconcile" / "roles" / "traefik"
 )
 TASKS = ROLE / "tasks" / "main.yml"
 DEFAULTS = ROLE / "defaults" / "main.yml"
@@ -53,7 +53,7 @@ def test_the_role_runs_no_plain_container():
     for forbidden in ("docker run", "_traefik_needs_relaunch",
                       ".State.Running", "docker restart"):
         assert forbidden not in body, (
-            f"{forbidden!r} is in roles/traefik: a plain container on the "
+            f"{forbidden!r} is in reconcile/roles/traefik: a plain container on the "
             "catena-network overlay carries the stale-network-ID failure that "
             "strands ingress on every daemon restart"
         )
@@ -76,15 +76,14 @@ def test_the_plain_container_removal_is_gated_on_the_service_being_absent():
 
 
 def test_it_is_a_swarm_service_whose_spec_comes_from_the_engine():
-    """The role no longer writes a create argv, and no longer builds a spec
-    either: it ASKS the catena-tier1 host engine for one and hands that to
-    reconcile_one.yml.
+    """The role writes neither a create argv nor a spec of its own: it ASKS the
+    catena-tier1 host engine for one and hands that to reconcile_one.yml.
 
     What the constraint IS -- node.role==manager, because it bind-mounts the
     docker socket and drives the swarm provider -- is asserted in the engine,
-    catena-admin payload/engines/tier1/catalog_test.go, against the same
-    declaration this role used to build. Re-asserting it here would mean
-    reading a dict that no longer drives anything."""
+    catena-admin payload/engines/tier1/catalog_test.go, against the declaration
+    the engine hands back. Restating it here would mean reading a dict this role
+    does not feed to anything."""
     _find("read the built-in tier-1 spec from the host engine")
     adopt = str(_find("adopt the built-in spec")["ansible.builtin.set_fact"])
     assert "tier1_builtin_spec" in adopt, (

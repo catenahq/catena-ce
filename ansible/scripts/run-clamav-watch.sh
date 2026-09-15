@@ -3,7 +3,7 @@
 # it -- the mail server's dms container or Nextcloud. Pings the self-hosted
 # Healthchecks plane.
 #
-# Installed by roles/infrastructure (clamav.yml), systemd-timer-driven
+# Installed by reconcile/roles/infrastructure (clamav.yml), systemd-timer-driven
 # (catena-clamav-watch.timer).
 #
 # Gate rationale: clamd is shared infra with no value of its own. On a
@@ -57,8 +57,9 @@ running() {
     docker ps "$@" --format '{{.Names}}' 2>/dev/null | head -n1
 }
 
-dms_up=$(running --filter 'label=com.docker.compose.service=dms')
-nc_up=$(running --filter 'name=nextcloud-' --filter 'label=com.docker.compose.service=app')
+dms_up=$(running --filter 'label=vps.component=dms')
+nc_up=$(running --filter 'label=vps.app=catena-nextcloud' \
+                --filter 'label=vps.component=app')
 
 if [ -z "$dms_up" ] && [ -z "$nc_up" ]; then
     log "no clamd consumer up (no dms, no nextcloud); reporting OK (no page)"
@@ -66,7 +67,7 @@ if [ -z "$dms_up" ] && [ -z "$nc_up" ]; then
     exit 0
 fi
 
-clamav_ct=$(running --filter 'label=com.docker.compose.service=clamav')
+clamav_ct=$(running --filter 'label=vps.component=clamav')
 if [ -z "$clamav_ct" ]; then
     log "consumer up but NO clamav container running; pinging /fail"
     ping_hc /fail

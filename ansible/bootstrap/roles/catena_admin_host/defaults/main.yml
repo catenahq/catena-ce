@@ -1,0 +1,127 @@
+---
+# The host-side half of the catena-admin role: the SSH trust path the
+# panel's dispatch arrives over, and the env files the host lanes read.
+#
+# Everything here is read by tasks/main.yml or by one of its templates and
+# by nothing else. The handful of values BOTH halves need -- the panel's
+# hostname, its UI port, its state and stats dirs, its default theme --
+# are in playbooks/group_vars/all/main.yml instead: this role runs before
+# reconcile/roles/catena-admin, so a value left in that role's defaults would not
+# resolve here.
+
+# --- Host-side runner -------------------------------------------------
+# Dedicated SSH account the admin container uses to dispatch actions on
+# the host. Forced-command pinned to the dispatcher script below; the
+# dispatcher's allow-list is rendered from the action catalog at
+# converge time.
+catena_admin_runner_user: "catena-admin-runner"
+catena_admin_runner_home: "/home/catena-admin-runner"
+
+# Env vars the container may push into a root-run host action, for values
+# that must not appear in argv or the process table. Consumed TWICE by
+# tasks/host.yml -- sshd's AcceptEnv and the sudoers env_keep -- because the
+# dispatch crosses both, and a name missing from either arrives as an empty
+# string rather than an error. Names must match what the panel sends
+# (catena-admin shell/web/cloudflared.go + shell/web/backupendpoint.go).
+catena_admin_dispatch_env_passthrough:
+  - X_FORWARDED_EMAIL
+  - CATENA_CF_CANDIDATE_TOKEN
+  - CATENA_BACKUP_CANDIDATE_REPO
+  - CATENA_BACKUP_CANDIDATE_ACCESS_KEY
+  - CATENA_BACKUP_CANDIDATE_SECRET_KEY
+
+# The catena-admin container runs as the distroless `nonroot` user
+# (uid/gid 65532), set by `USER nonroot:nonroot` in the repo-root Dockerfile
+# -- NOT uid 1000. Host-side files the container reads through its read-only
+# bind mounts (the SSH runner private key, known_hosts, ssh config) must be
+# owned by this uid, and the 0700 ssh dir must be owned by it, or the Go
+# shell's SSH action runner fails every dispatch with
+# "known_hosts load failed: ... permission denied". Keep in lockstep with
+# the Dockerfile's USER.
+catena_admin_container_uid: "{{ catena_container_uid }}"
+catena_admin_container_gid: "{{ catena_container_gid }}"
+
+# Host paths -- the bind-mount targets the admin compose expects. Keep
+# these in sync with the compose file when you rename either.
+catena_admin_host_ssh_dir: "/etc/catena/admin-ssh"
+catena_admin_dispatcher_path: "/usr/local/sbin/catena-admin-runner"
+
+# Per-host configuration for the daily orchestrator chain.
+#
+# catena-daily.service and catena-daily-resume.service both declare
+# EnvironmentFile=/etc/catena/daily.env with no leading dash, so systemd
+# fails the unit outright when the file is missing -- and until now NOTHING
+# wrote it. Not this repo, not catena-admin, not ops. The scheduled Business
+# chain could not start on any real host; only the test bench had one, because
+# the bench writes its own copy.
+#
+# It belongs to this role for the same reason the payload install does: it is
+# per-host configuration, and the converge is what knows the host. The values
+# are paths and toggles, not secrets -- the chain reads its credentials from
+# the config store like everything else.
+catena_daily_env_path: /etc/catena/daily.env
+
+# Per-host configuration for the two managed-update lanes, and the spec list
+# the container lane bumps from. Same story as daily.env above, three more
+# times: catena-auto-update{,@,-resume}.service and
+# catena-stack-update-managed.service all declare their EnvironmentFile with no
+# leading dash, nothing rendered them, and the engine's --specs-file default
+# pointed at a path nothing wrote. Both lanes were unstartable on a real host
+# and neither showed it, because the bench ships its own copies.
+#
+# Same owner as daily.env for the same reason: this role installs the payload,
+# so it is the role that knows the host these files describe.
+catena_auto_update_env_path: /etc/catena/auto-update.env
+catena_stack_update_env_path: /etc/catena/stack-update.env
+catena_managed_services_path: /etc/catena/managed-services.json
+
+# What an apply run does. security-only with a reboot when the packages ask
+# for one is the shipped posture; the chain drives this lane behind its own
+# backup and cold-verify gates.
+catena_auto_update_mode: security
+catena_auto_update_reboot: if-required
+# Zero retries after a rollback: a package set that regressed once regresses
+# again, and an apply-rollback loop is worse than a pending update.
+catena_auto_update_max_rollback_retries: 0
+# Abort before apt writes anything below this much free space (3 GiB).
+catena_auto_update_preflight_min_bytes: 3221225472
+catena_auto_update_healthcheck_url: ""
+# Tier-2 provider disk snapshot. none is a no-op; see the template for why the
+# OVH credentials are blank.
+catena_auto_update_provider: none
+catena_auto_update_provider_ovh_region: ovh-ca
+catena_auto_update_provider_ovh_vps_name: ""
+
+# Container-bump gates. Seven days of tag age because a withdrawn upstream
+# release is usually withdrawn within days and this lane runs unattended; two
+# minutes of stabilisation before the next service is bumped.
+catena_stack_update_min_tag_age_days: 7
+catena_stack_update_stabilize_seconds: 120
+catena_stack_update_cve_severity: "HIGH,CRITICAL"
+# ON-BOX base: the update lane is a unit running on the host, so it addresses
+# Portainer locally. portainer_api_base carries ansible_host, which is where
+# the CONTROLLER reaches the box -- an address that changes across converges
+# and after a restore, and that this file would then hold forever.
+catena_stack_update_portainer_api_base: "{{ portainer_api_base_onbox | default('') }}"
+
+# Health gate for the pre-update state. Blank on a host without Gatus, which
+# is a skip rather than a failure: the chain cannot ask whether the host is
+# healthy, so it does not pretend to have asked.
+catena_daily_gatus_api_url: "{{ gatus_api_url | default('') }}"
+
+# Whether the chain takes ownership of Debian's apt-daily-upgrade.timer. True
+# is the shipped posture: the chain applies security updates behind its own
+# backup and verify gates, and two things applying updates is one too many.
+catena_daily_manage_apt_timer: true
+
+# The migration lane's PORT. A host process, not a container, because a
+# migration stops docker on this server and the endpoint that puts it back has
+# to still be answering afterwards -- so it listens on this host's tailnet
+# address only, and it answers nothing until someone on this server arms it.
+#
+# The port is what this repo still needs: it is declared tailnet-only in the
+# public-port registry below, for the same reason Portainer's UI port is,
+# defence in depth behind the bind rather than instead of it. The binary and its
+# two state files went with the actions that name them, into the payload that
+# installs them.
+catena_migrate_lane_port: 9040

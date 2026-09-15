@@ -36,7 +36,21 @@ import os
 import subprocess
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Import path, highest priority first:
+#   /usr/local/lib/catena   modules the catena-admin payload installs
+#   this script's directory modules that ship beside it in this repo
+#
+# The payload wins, deliberately. These modules move one at a time, and
+# resolution here is by DIRECTORY rather than by package -- every neighbour is
+# imported by bare name -- so a half-moved cluster that searched its own
+# directory first would keep importing the stale sibling still sitting in
+# /usr/local/bin: green, running the previous release's logic. On a host where
+# the payload ships no lib, the first entry resolves nothing and resolution
+# falls through to the script's own directory -- a plain single search path.
+for _d in (os.path.dirname(os.path.abspath(__file__)),
+           os.environ.get("CATENA_PAYLOAD_LIB", "/usr/local/lib/catena")):
+    if _d not in sys.path:
+        sys.path.insert(0, _d)
 
 import public_ports as pp  # noqa: E402
 
@@ -154,8 +168,8 @@ def _ufw_spec(rule: dict) -> list[str]:
 
     The action is READ from the rule, not hardcoded. A loopback-scoped port
     is enforced by a deny, and a spec that always said `allow` would not
-    merely fail to guard it -- it would run `ufw allow` on the port it was
-    asked to close, and then record that as applied.
+    merely fail to guard it -- it would run `ufw allow` on the port it is
+    supposed to close, and then record that as applied.
     """
     action = rule.get("action", "allow")
     proto, port = rule["proto"], rule["port"]
@@ -177,10 +191,10 @@ def _ufw_argv(rule: dict) -> list[str]:
 def apply_ufw(rules: list[dict]) -> list[dict]:
     """ufw is idempotent (skips existing rules), so a plain add converges.
 
-    Returns the rules actually applied. A failed add used to log WARNING and
-    be recorded as applied anyway, so the applied-state, the effective
-    artifacts validation reads, and the unit's exit code all agreed that a
-    rule existed which did not.
+    Returns the rules actually applied, and a failed add is not one of them.
+    Counting it as applied puts a rule that does not exist into the
+    applied-state, into the effective artifacts validation reads, and into the
+    unit's exit code, all agreeing with each other.
     """
     applied: list[dict] = []
     for rule in rules:
@@ -215,11 +229,10 @@ def _docker_user_match(rule: dict) -> list[str]:
 
     That is not theoretical: bench 050b found Gatus (18080 -> 8080),
     Healthchecks (18000 -> 8000) and the Beszel hub (18190 -> 8090) all
-    answering from off-box with their DROP rules installed and sitting at
-    zero packets. The guard had been correct-looking for as long as it has
-    existed only because the one restricted docker-bound port that predated
-    them, the Portainer UI, publishes 9000 -> 9000 and so is unchanged by
-    the DNAT.
+    answering from off-box with their DROP rules installed and sitting at zero
+    packets. A `--dport` guard reads as correct on exactly one restricted
+    docker-bound port, the Portainer UI, which publishes 9000 -> 9000 and so is
+    unchanged by the DNAT.
 
     --ctorigdstport matches the port the client actually dialled, which is
     what the declaration is about, and is unaffected by the rewrite.
@@ -327,9 +340,9 @@ def reconcile() -> tuple[list[pp.PortEntry], int]:
     applied = apply_ufw([r for r in plan if r["engine"] == "ufw"])
     applied += apply_docker_user([r for r in plan if r["engine"] == "docker-user"])
 
-    # Record what was APPLIED, not what was planned. The two used to be the
-    # same variable, so a rule that failed to install was indistinguishable
-    # from one that installed cleanly on every subsequent run.
+    # Record what was APPLIED, not what was planned: a rule that fails to
+    # install must stay distinguishable from one that installed cleanly on
+    # every subsequent run.
     save_applied(applied)
     unapplied = len(plan) - len(applied)
     write_effective(entries, unapplied)
@@ -347,9 +360,9 @@ def reconcile() -> tuple[list[pp.PortEntry], int]:
 
 
 if __name__ == "__main__":
-    # Non-zero when the plan was not fully applied. The unit exiting 0 while
-    # restricted ports sat unguarded is the whole defect: systemd recorded
-    # success, validation read artifacts that described the declared state,
-    # and nothing anywhere said the rules were missing.
+    # Non-zero when the plan is not fully applied. A unit that exits 0 while
+    # restricted ports sit unguarded is the whole defect: systemd records
+    # success, validation reads artifacts that describe the declared state, and
+    # nothing anywhere says the rules are missing.
     _entries, _unapplied = reconcile()
     sys.exit(1 if _unapplied else 0)

@@ -1,9 +1,9 @@
 ---
-# 0b: on-box config store loader. THE secret source of truth (SOPS was dropped;
-# no persisted laptop vault).
+# On-box config store loader. THE secret source of truth; there is no
+# persisted laptop vault.
 #
 # The store is a plaintext 0600 file at /etc/catena/config.json, which rides
-# the restic backup (/etc is in roles/backup backup_paths). On every converge
+# the restic backup (/etc is in reconcile/roles/backup backup_paths). On every converge
 # it ADOPTS any declared secret in scope (fill-only) -- on a fresh install that
 # is the install-critical vendor creds the CLI threads in as `-e @file`; on a
 # fresh recover it is the DR keyset re-entered at the prompt; on a day-2
@@ -13,15 +13,15 @@
 # secret is minted on the laptop, then set_facts each one from the store so
 # all downstream roles read the on-box source of truth.
 #
-# Included UNCONDITIONALLY from site.yml + validate.yml + restore.yml pre_tasks
+# Included UNCONDITIONALLY from converge.yml + validate.yml + restore.yml pre_tasks
 # (runs before any role). A rebuild needs only the {restic endpoint, S3 creds,
 # restic password} keyset: the store returns with the data, internals and all.
 
 # Which variables count as secrets is DECLARED, in the four category tables
-# in helpers/onbox_config.py, and read back here. It used to be the regex
-# `^vault_.+$`, which made a name prefix load-bearing: a variable was captured
-# because of how it was spelled rather than because anyone had said it was a
-# secret. Asking the module keeps one declaration.
+# in helpers/onbox_config.py, and read back here -- captured by declared
+# name rather than by a spelling convention, so a variable is captured
+# because someone said it is a secret, not because of how it is spelled.
+# Asking the module keeps one declaration.
 #
 # Pure query, no store I/O -- it answers before the store exists on a fresh box.
 - name: "onbox: read the declared secret names"
@@ -86,12 +86,11 @@
   changed_when: false
   no_log: true
 
-# Publish every store secret as a fact, the Portainer API key included.
-# That one is minted mid-converge by roles/portainer rather than here, and it
-# used to be excluded because the role brought the fresh value back with
-# include_vars, which a fact would have outranked. The role now set_facts it,
-# and a later set_fact wins, so publishing the stored value is what stops the
-# role re-minting a key on every single converge.
+# Publish every store secret as a fact, the Portainer API key included: it
+# is minted mid-converge by reconcile/roles/portainer, which set_facts the fresh
+# value, and a later set_fact wins over an earlier one -- so publishing the
+# stored value here is what stops the role re-minting a key on every single
+# converge.
 - name: "onbox: publish store secrets as facts (on-box source of truth)"
   ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"
@@ -102,53 +101,109 @@
 
 # ─── non-secret config: seed once from .env, then read only the store ───────
 #
-# Same shape as the secret adopt above, for the reason: post-install config
-# has to have ONE live reader. The inventory `.env` is the first-install SEED
-# (fill-only, so a converge never overwrites what the client later set in
-# catena-admin), and from then on the store answers.
+# Its own file because bootstrap.yml runs THAT and nothing else: it needs the
+# config half (bootstrap/roles/tailscale picks its control plane from cfg_tailnet_provider)
+# and must not run the rest of this loader, which mints the DR keyset and calls
+# the container registry on a machine with no Docker.
+- name: "onbox: seed and publish the store-owned config"
+  ansible.builtin.include_tasks:
+    # Absolute: a relative include inside an included file resolves against the
+    # including file's own directory first, which is this same tasks/ folder.
+    file: "{{ playbook_dir }}/tasks/seed_onbox_config.yml"
+    apply:
+      tags: [always, onbox]
+  tags: [always, onbox]
+
+# ─── image pins: what the on-host update lane last applied ─────────────────
 #
-# Before this, both were live at once: run-backup.sh reconciled them in shell
-# at runtime, retention ended up with two copies and the converge's silently
-# dead, and a tag-scoped converge that skipped this loader fell back to a
-# stale `.env` with no signal.
-- name: "onbox: read the store-owned config key names"
-  ansible.builtin.script:
-    cmd: "{{ playbook_dir }}/../helpers/onbox_config.py --emit settings-config-names"
-    executable: python3
-  register: _onbox_cfg_known
-  changed_when: false
-
-# Each declared key is read out of the inventory .env on the CONTROLLER and
-# passed as --set-config. A blank never seeds: apply_inputs skips empty values
-# the same way it skips a blank secret, so an unset key leaves the store alone
-# rather than writing "" over a value the client set.
-- name: "onbox: seed the store's config from .env (fill-only, first install)"
+# The converge owns TOPOLOGY -- which services exist and how they wire. The
+# on-host lane owns IMAGE VERSIONS, and it bumps them between converges. Before
+# this, a converge asked the catalog for a service's image, got the shipped
+# floor, and emitted `--image` to put the old version back: every managed bump
+# was silently reverted by the next converge.
+#
+# So the converge ASKS. Roles resolve their image through the catena_image_pin
+# filter, which takes max(floor, pin) -- see filter_plugins/image_pin.py for why
+# neither side can simply win.
+#
+# A pure query: no mint, no write, answers on a host that has no store yet.
+- name: "onbox: read the image pins the on-host update lane recorded"
   ansible.builtin.script:
     cmd: >-
       {{ playbook_dir }}/../helpers/onbox_config.py
       --path {{ catena_onbox_config_path | default('/etc/catena/config.json') }}
-      --no-mint --emit none
-      {% for k in (_onbox_cfg_known.stdout | from_json) %}
-      {% set v = lookup('dotenv', k, default='') %}
-      {% if v | string | length > 0 %}--set-config {{ (k ~ '=' ~ v) | quote }} {% endif %}
-      {% endfor %}
+      --emit image-pins
     executable: python3
-  register: _onbox_cfg_seeded
+  register: _onbox_image_pins
   changed_when: false
 
-- name: "onbox: publish the store's config as facts (outranks role defaults)"
-  ansible.builtin.script:
-    cmd: >-
-      {{ playbook_dir }}/../helpers/onbox_config.py
-      --path {{ catena_onbox_config_path | default('/etc/catena/config.json') }}
-      --no-mint --emit config-vars
-    executable: python3
-  register: _onbox_cfg_emit
-  changed_when: false
-
-- name: "onbox: set_fact each store-owned config value"
+- name: "onbox: publish the image pins"
   ansible.builtin.set_fact:
-    "{{ item.key }}": "{{ item.value }}"
-  loop: "{{ (_onbox_cfg_emit.stdout | from_json) | dict2items }}"
-  loop_control:
-    label: "{{ item.key }}"
+    catena_image_pins: "{{ _onbox_image_pins.stdout | from_json }}"
+
+# ─── which catena-admin release this converge installs ─────────────────────
+#
+# ASKED, not remembered. The registry writes the version and its digest in one
+# answer, so the two cannot disagree. That is the whole requirement, because
+# reconcile/roles/payload refuses an image whose digest is not the recorded one:
+#
+#   ...:v0.5.1 resolved to sha256:205a5a70... but this deployment pins
+#   sha256:09e03d74... Refusing to extract or root-execute the payload.
+#
+# Any arrangement whose two halves can move separately -- a version literal and
+# a digest literal in bootstrap/roles/common/defaults, bumped by hand on each
+# catena-admin release -- turns that correct refusal into a failed fresh install
+# on a correct host holding a correct image. helpers/catena_admin_release.py
+# states why it resolves the highest vX.Y.Z tag rather than :latest.
+#
+# It runs ON the host, like every other step in this loader: the machine that
+# resolves the tag is then the machine that pulls it, so the answer is one the
+# host can actually act on.
+#
+# Skipped entirely when CATENA_ADMIN_IMAGE names one. That is the change-control
+# escape hatch -- a client who wants to decide when their panel version moves
+# sets it, and this makes no network call at all.
+- name: "onbox: resolve the catena-admin release to install"
+  ansible.builtin.script:
+    cmd: >-
+      {{ playbook_dir }}/../helpers/catena_admin_release.py
+      --repository {{ catena_admin_repository
+                      | default('ghcr.io/catenahq/catena-admin', true) | quote }}
+    executable: python3
+  register: _catena_admin_release
+  changed_when: false
+  failed_when: false
+  when: lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
+
+# Fails HERE rather than deep in reconcile/roles/payload, and says which of the two
+# reasons it is. A converge cannot proceed without this: the panel image is
+# also where the host engines come from, and every role after bootstrap/roles/docker
+# depends on those. Nothing downstream has a usable fallback either: a
+# hardcoded version is the one thing this resolution exists to avoid, so
+# failing here is the honest outcome.
+- name: "onbox: the catena-admin release could not be resolved"
+  ansible.builtin.fail:
+    msg: >-
+      Could not resolve which catena-admin image to install:
+      {{ (_catena_admin_release.stderr | default('') | trim)
+         | default('no output', true) }}
+      This converge needs the registry to answer, because the panel image is
+      also where the host engines are extracted from. Pin an image explicitly
+      with CATENA_ADMIN_IMAGE=ghcr.io/catenahq/catena-admin:vX.Y.Z to converge
+      without asking the registry.
+  when:
+    - lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
+    - (_catena_admin_release.rc | default(1)) != 0
+
+- name: "onbox: publish the resolved catena-admin release"
+  ansible.builtin.set_fact:
+    catena_admin_release: "{{ _catena_admin_release.stdout | from_json }}"
+  when: lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
+
+- name: "onbox: catena-admin release"
+  ansible.builtin.debug:
+    msg: >-
+      Installing catena-admin {{ catena_admin_release.version }}
+      ({{ catena_admin_release.digest }}), resolved from
+      {{ catena_admin_release.repository }}.
+  when: catena_admin_release is defined

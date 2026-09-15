@@ -19,13 +19,14 @@
 
 set -euo pipefail
 
-# Match the name prefix AND the compose service label: two name= filters
-# are ORed by docker (they would also match -cron-/-db-/-redis-), but a
-# name= plus a label= are different keys and get ANDed, pinning the app
-# container exactly.
+# Two labels the catalog puts on every service: vps.app names the
+# application, vps.component names the service inside it, and docker ANDs
+# filters on different keys -- so this pins the app container and not its
+# cron, db or redis peers. Neither label changes when a client renames the
+# stack, which the container NAME does.
 ct=$(docker ps \
-    --filter 'name=nextcloud-' \
-    --filter 'label=com.docker.compose.service=app' \
+    --filter 'label=vps.app=catena-nextcloud' \
+    --filter 'label=vps.component=app' \
     --format '{{.Names}}' | head -n1)
 
 if [ -z "$ct" ]; then
@@ -71,14 +72,14 @@ if ! docker exec "$ct" /bin/sh -c \
     echo "P2P mode; small calls work, large calls degrade)."
     echo
     echo "If talk-hpb IS uncommented, diagnose with:"
-    echo "  docker ps --filter name=talk-hpb"
-    echo "  docker logs --tail 50 \$(docker ps -q --filter name=talk-hpb)"
+    echo "  docker ps --filter label=vps.component=talk-hpb"
+    echo "  docker logs --tail 50 \$(docker ps -q --filter label=vps.component=talk-hpb)"
     exit 0
 fi
 
 # Guard: the shared TURN relay has to exist before Talk is pointed at it.
 #
-# coturn is consumer-gated (roles/coturn/tasks/main.yml) and its consumer is
+# coturn is consumer-gated (reconcile/roles/coturn/tasks/main.yml) and its consumer is
 # THIS deployment, so on a host where Nextcloud + Talk was just deployed the
 # relay does not come up until the next converge. Wiring anyway SUCCEEDS --
 # every occ talk:*:add is an upsert that never contacts the host it records --

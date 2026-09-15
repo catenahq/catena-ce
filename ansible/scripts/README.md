@@ -5,44 +5,45 @@
 
 # Scripts
 
-Executables copied onto the server by a role in `../roles/` and run
-there -- by a systemd timer, by a role task, or by the admin panel
-through its dispatcher. That is the split against `../helpers/`: helpers
-are imported, scripts are installed.
+Executables copied onto the server by a role in `../reconcile/roles/`
+and run there -- by a systemd timer, by a role task, or by the admin
+panel through its dispatcher. That is the split against `../helpers/`:
+helpers are imported, scripts are installed.
 
 A file in this directory is part of the deployed system, so changing one
-changes what a server does on its next converge. Several are also
-imported by their neighbours on the host (`dashboard-sync.py` pulls in
-`gate_routes.py`, `route_synth.py`, `portainer_api.py`,
-`keycloak_client.py` and `clients_provisioner.py` by bare name), which
-is why they sit flat in one directory rather than in a package.
+changes what a server does on its next converge.
+
+The route + SSO cluster that used to live here -- the reconciler and the
+modules it imported by bare name -- ships in the catena-admin payload
+now (`payload/lanes/catena-dashboard-sync.py` and `payload/lib/`). What
+it does is decide what a `vps.*` label MEANS, and the correct value of
+that changes when the product changes rather than when the host does, so
+it travels with the image. What stays here is what changes with the
+host: the reconciler's env file, its timer interval, and the public-port
+reconciler, whose answer depends on the ports this server declares.
+
+Scripts here that import a neighbour still do it by bare name, and they
+search `/usr/local/lib/catena` -- where the payload installs its modules
+-- before their own directory.
 
 | File | What it does |
 | --- | --- |
 | `beszel-hc-shim.py` | Beszel -> Healthchecks alert shim. |
-| `beszel-seed.py` | Seed Beszel's permanent universal token (idempotent). |
+| `beszel-seed.py` | Seed Beszel's hub configuration: universal token + OIDC login (idempotent). |
 | `catena-admin-runner.sh` | catena-admin action dispatcher -- the ONLY thing the catena-admin runner user's ssh key is allowed to run (enforced by authorized_keys' command= stanza). |
-| `catena-keycloak-realm-export.sh` | catena Keycloak realm export (R22). |
+| `catena-dms-exec.sh` | Run one docker command against the mailserver's dms container, resolving the container name INSIDE this invocation. |
 | `catena-network-nudge.sh` | Recover containers stranded by the catena-network overlay race after a docker.service start (boot, daemon restart, snapshot restore). |
 | `catena-public-ports.py` | Host reconciler for the declarative public-port registry. |
 | `catena-restic-key.py` | catena-restic-key -- validate or rotate the restic repository password. |
 | `catena-version-check.py` | Auto-detecting version + CVE-visibility check (Community). |
-| `clients_provisioner.py` | Per-app oauth2-proxy compose builder + Portainer provisioner. |
-| `dashboard-sync.py` | Auto-discover Portainer-deployed stacks and sync their Traefik gate-route files. |
 | `disk-preflight.sh` | Shared disk-space preflight for backup, restore, and auto-update. |
-| `gate_routes.py` | Gate-route discovery for dashboard-sync. |
 | `gatus-sync.py` | Regenerate Gatus endpoint config (50-catena-apps.yaml) from docker labels. |
 | `healthchecks-seed.py` | Bootstrap/reconcile self-hosted Healthchecks: seed the operator superuser, the catena project, API keys, the ntfy notification channel, and the daily backup check. |
-| `keycloak_client.py` | Keycloak admin-REST helper for dashboard-sync: union each gated host's /oauth2/callback into the shared oauth2-proxy client's redirectUris. |
-| `mailbox_sync.py` | Mailbox reconciler for the self-hosted mailserver template. |
 | `mailserver-cert-reload.sh` | Inject the renewed mail TLS cert into the dms container and reload Postfix + Dovecot so it takes effect without dropping established connections. |
 | `nextcloud-talk-hpb-wire.sh` | /usr/local/bin/catena-wire-nextcloud-talk-hpb -- post-deploy wiring for Nextcloud Talk's High-Performance Backend (HPB). |
-| `portainer_api.py` | Portainer stack API + generic JSON-HTTP helpers for dashboard-sync. |
 | `rocketchat-jitsi-wire.sh` | /usr/local/bin/catena-wire-rocketchat-jitsi -- post-deploy wiring for Rocket.Chat's bundled on-server Jitsi. |
-| `route_synth.py` | Traefik gate-route rendering + access resolution for dashboard-sync. |
 | `run-clamav-watch.sh` | Page when the shared clamd is down, but only while something depends on it -- the mail server's dms container or Nextcloud. |
 | `run-mail-canary.sh` | Prove the mail server is up AND actually filtering, via host-side docker-exec into the dms container -- no external SMTP/IMAP and no auth (the server is OAuth2-only, so there is no password to log in with). |
-| `verify_gated_intent.py` | Intent-driven auth-gate verifier for validate (1ad). |
 | `wire-nextcloud-antivirus.sh` | /usr/local/bin/catena-wire-nextcloud-antivirus -- point Nextcloud's files_antivirus app at the shared clamd (catena-clamav network). |
 | `wire-nextcloud-collabora.sh` | /usr/local/bin/catena-wire-nextcloud-collabora -- wire Collabora CODE as the office editor inside a deployed Nextcloud instance. |
 | `wire-nextcloud-mail.sh` | /usr/local/bin/catena-wire-nextcloud-mail -- install + enable the Nextcloud Mail app inside a deployed Nextcloud container. |

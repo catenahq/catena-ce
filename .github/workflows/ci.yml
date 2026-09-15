@@ -1,9 +1,7 @@
 name: CI
 
-# Python installer (ansible/) unit tests. This repo carries no Go since the
-# license package moved to the private catena-admin repo (which was the last
-# Go here after the shell moved out at the unification). Python tooling comes
-# from uv.
+# Python installer (ansible/) unit tests. This repo carries no Go. Python
+# tooling comes from uv.
 
 on:
   push:
@@ -22,13 +20,49 @@ jobs:
         with:
           persist-credentials: false
       - name: Install uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
       # The installer tests import only seed.py + helpers (no ansible-core), so
       # run them in a lightweight ephemeral env instead of syncing the project
       # (which would pull ansible-core for nothing here).
       - name: Unit tests
         working-directory: ansible
         run: uv run --no-project --with pytest --with pyyaml python -m pytest tests/unit -q
+
+  syntax:
+    # Every playbook parses, roles and all. The unit job above deliberately
+    # runs without ansible-core, so nothing until now READ the tree Ansible
+    # actually executes: a bad task keyword, a malformed block, a module name
+    # no installed collection provides -- all of it reached a converge before
+    # anything noticed, and a converge is a client's server.
+    #
+    # --syntax-check loads the whole play including every role it includes, so
+    # this covers roles/ without naming them. It resolves module FQCNs, which
+    # is why it needs the pinned collections: without them every
+    # community.general task reads as a conflicting action statement.
+    #
+    # -i localhost, because syntax-check parses rather than connects; the
+    # inventory only has to exist.
+    name: Ansible syntax-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - name: Vendor the pinned collections
+        working-directory: ansible
+        run: uv run ansible-galaxy collection install -r requirements.yml -p .collections
+      - name: Syntax-check every playbook
+        working-directory: ansible
+        run: |
+          set -eu
+          rc=0
+          for playbook in playbooks/*.yml; do
+            echo "== $playbook"
+            uv run ansible-playbook --syntax-check -i localhost, "$playbook" || rc=1
+          done
+          exit $rc
 
   duplication:
     # Copy-paste ratchet: .jscpd.json carries the baseline threshold;
@@ -45,3 +79,53 @@ jobs:
           node-version: "24"
       - name: jscpd (threshold in .jscpd.json)
         run: npx --yes jscpd@4 --silent
+
+  prose:
+    # Comments describe the code as it stands. Its history belongs in
+    # the commit message. The rules and the runner both live in
+    # catenahq/contracts and run from there, so this repo holds only its
+    # own .github/prose-debt.txt.
+    name: Comment prose
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          path: catena-ce
+          # Needed for the merge-base the prose scope is measured against.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check out sibling contracts
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          repository: catenahq/contracts
+          path: contracts
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+      # Pinned in contracts/.vale-version, which check-prose.mjs also
+      # reads and enforces: the grammars decide which comments are
+      # visible, so a different version is a different gate.
+      - name: Install vale
+        run: |
+          version="$(cat contracts/.vale-version)"
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSL "https://github.com/errata-ai/vale/releases/download/v${version}/vale_${version}_Linux_64-bit.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP/bin" vale
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: check:prose
+        working-directory: ./catena-ce
+        # On a pull request, gate only on the files the change touches. A
+        # prose finding that landed on the base branch is not this change's
+        # doing, and failing every open dependency PR on it blames the wrong
+        # commit. The whole tree is still scanned and anything carried is still
+        # printed; the push and cron runs of the default branch keep the
+        # absolute gate.
+        env:
+          PROSE_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
+        run: |
+          if [ -n "$PROSE_BASE" ]; then
+            node ../contracts/scripts/check-prose.mjs --changed-since "$PROSE_BASE"
+          else
+            node ../contracts/scripts/check-prose.mjs
+          fi

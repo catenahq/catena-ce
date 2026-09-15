@@ -2,35 +2,37 @@
 from __future__ import annotations
 
 import importlib.util
-from importlib.machinery import SourceFileLoader
+import sys
+import types
 from pathlib import Path
 
 import pytest
 
 ANSIBLE_DIR = Path(__file__).resolve().parents[2]
-CATENA_PATH = ANSIBLE_DIR / "catena"
+CATENA_PATH = ANSIBLE_DIR / "catena_cli.py"
 
 
 @pytest.fixture(scope="module")
 def cli():
-    # `catena` has no .py extension; load it explicitly via SourceFileLoader.
-    loader = SourceFileLoader("catena_cli", str(CATENA_PATH))
-    spec = importlib.util.spec_from_loader("catena_cli", loader)
+    # Loaded from its path rather than imported by name: the tests run from
+    # tests/unit and ansible/ is not on sys.path there.
+    spec = importlib.util.spec_from_file_location("catena_cli", CATENA_PATH)
     mod = importlib.util.module_from_spec(spec)
-    loader.exec_module(mod)
+    sys.modules.setdefault("catena_cli", mod)
+    spec.loader.exec_module(mod)
     return mod
 
 
 def test_install_chain_order(cli):
     """Fresh install runs preflight before bootstrap, then site, then validate."""
-    assert cli.INSTALL_CHAIN == ("preflight", "bootstrap", "site", "validate")
+    assert cli.INSTALL_CHAIN == ("preflight", "bootstrap", "converge", "validate")
 
 
 def test_recover_chain_order(cli):
     """DR onto a fresh box runs preflight -> bootstrap -> restore -> site ->
     validate: the install chain with `restore` inserted after bootstrap."""
     assert cli.RECOVER_CHAIN == (
-        "preflight", "bootstrap", "restore", "site", "validate",
+        "preflight", "bootstrap", "restore", "converge", "validate",
     )
 
 
@@ -70,7 +72,7 @@ def test_recover_runs_full_chain_with_snapshot(cli, monkeypatch):
 
     pb_calls = [c for c in calls if c and c[0] == "ansible-playbook"]
     assert [_stage_of(c) for c in pb_calls] == [
-        "preflight", "bootstrap", "restore", "site", "validate",
+        "preflight", "bootstrap", "restore", "converge", "validate",
     ]
     restore_cmd = next(c for c in pb_calls if _stage_of(c) == "restore")
     assert "restore_snapshot=snap42" in " ".join(restore_cmd)
@@ -88,7 +90,7 @@ def test_run_deploy_chain_threads_global_extra_on_every_stage(cli, monkeypatch, 
     monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
     monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
     cli._run_deploy_chain(
-        tmp_path, ("preflight", "bootstrap", "site"),
+        tmp_path, ("preflight", "bootstrap", "converge"),
         bootstrap_extra=["-e", "@boot"], global_extra=["-e", "@secrets"],
     )
     pb = [c for c in calls if c and c[0] == "ansible-playbook"]
@@ -136,7 +138,7 @@ def test_collect_dr_adopt_file_empty_without_input_or_tty(cli, monkeypatch):
 def test_rollback_chain_order(cli):
     """In-place rollback runs preflight -> restore -> site -> validate, no
     bootstrap (the host is alive)."""
-    assert cli.ROLLBACK_CHAIN == ("preflight", "restore", "site", "validate")
+    assert cli.ROLLBACK_CHAIN == ("preflight", "restore", "converge", "validate")
 
 
 def test_rollback_parser_wires_snapshot(cli):
@@ -166,7 +168,7 @@ def test_rollback_runs_chain_with_snapshot_no_bootstrap(cli, monkeypatch):
 
     pb_calls = [c for c in calls if c and c[0] == "ansible-playbook"]
     stages = [_stage_of(c) for c in pb_calls]
-    assert stages == ["preflight", "restore", "site", "validate"]
+    assert stages == ["preflight", "restore", "converge", "validate"]
     assert "bootstrap" not in stages
     restore_cmd = next(c for c in pb_calls if _stage_of(c) == "restore")
     assert "restore_snapshot=snap7" in " ".join(restore_cmd)
@@ -175,7 +177,7 @@ def test_rollback_runs_chain_with_snapshot_no_bootstrap(cli, monkeypatch):
 def test_recover_runs_single_site_pass(cli, monkeypatch):
     """Post-Portainer-migration there is no CLI-driven second site pass: the
     Portainer API key the auth stack needs is minted in-band by
-    roles/portainer during `site`, so the chain runs `site` exactly once."""
+    reconcile/roles/portainer during `site`, so the chain runs `site` exactly once."""
     from helpers import bootstrap_output
 
     calls: list[list[str]] = []
@@ -189,17 +191,17 @@ def test_recover_runs_single_site_pass(cli, monkeypatch):
     assert ns.func(ns) == 0
 
     stages = [_stage_of(c) for c in calls if c and c[0] == "ansible-playbook"]
-    assert stages == ["preflight", "bootstrap", "restore", "site", "validate"]
-    assert stages.count("site") == 1
+    assert stages == ["preflight", "bootstrap", "restore", "converge", "validate"]
+    assert stages.count("converge") == 1
 
 
 def test_playbook_cmd_shape(cli):
-    cmd = cli.playbook_cmd("prod", "site")
+    cmd = cli.playbook_cmd("prod", "converge")
     assert cmd[0] == "ansible-playbook"
     assert "-i" in cmd
     inv = cmd[cmd.index("-i") + 1]
     assert inv.endswith("inventory/prod")
-    assert cmd[-1].endswith("playbooks/site.yml")
+    assert cmd[-1].endswith("playbooks/converge.yml")
 
 
 def test_playbook_cmd_extra_args(cli):
@@ -214,9 +216,9 @@ def test_converge_accepts_tags_passthrough(cli):
         ["converge", "--inventory", "test", "--tags", "keycloak,oauth2_proxy"]
     )
     assert cli._tags_extra(ns) == ["--tags", "keycloak,oauth2_proxy"]
-    cmd = cli.playbook_cmd(ns.inventory, "site", cli._tags_extra(ns))
+    cmd = cli.playbook_cmd(ns.inventory, "converge", cli._tags_extra(ns))
     assert cmd[-2:] == ["--tags", "keycloak,oauth2_proxy"]
-    assert cmd[-3].endswith("playbooks/site.yml")
+    assert cmd[-3].endswith("playbooks/converge.yml")
 
 
 def test_tags_extra_is_none_when_unset(cli):
@@ -234,8 +236,8 @@ def test_backup_parser_wires_backup_now(cli):
     """`catena backup` runs the backup_now playbook (the manual CE snapshot)."""
     ns = cli.build_parser().parse_args(["backup", "--inventory", "test"])
     assert ns.func is cli.cmd_backup
-    cmd = cli.playbook_cmd(ns.inventory, "backup_now")
-    assert cmd[-1].endswith("playbooks/backup_now.yml")
+    cmd = cli.playbook_cmd(ns.inventory, "backup")
+    assert cmd[-1].endswith("playbooks/backup.yml")
 
 
 def test_backup_runs_backup_now_playbook(cli, monkeypatch):
@@ -247,7 +249,7 @@ def test_backup_runs_backup_now_playbook(cli, monkeypatch):
     ns = cli.build_parser().parse_args(["backup", "--inventory", "test"])
     assert ns.func(ns) == 0
     assert len(calls) == 1
-    assert calls[0][-1].endswith("playbooks/backup_now.yml")
+    assert calls[0][-1].endswith("playbooks/backup.yml")
 
 
 def test_restore_accepts_snapshot_passthrough(cli):
@@ -280,8 +282,8 @@ def test_check_prereqs_all_present(cli, monkeypatch):
 
 
 def test_required_binaries_drop_sops_and_age(cli):
-    """SOPS+age was dropped (0b): the vault is plaintext, so neither sops nor
-    age-keygen is a prereq, and there is no seed-only binary set anymore."""
+    """The vault is plaintext, so neither sops nor age-keygen is a
+    prerequisite, and there is no seed-only binary set."""
     assert cli.REQUIRED_BINARIES == ("ansible-playbook", "ansible")
     assert "sops" not in cli.REQUIRED_BINARIES
     assert "age-keygen" not in cli.REQUIRED_BINARIES
@@ -353,13 +355,15 @@ def test_ensure_collections_skips_when_override_dir_exists(cli, monkeypatch, tmp
 def test_bootstrap_extra_vars_writes_secret_to_file_not_argv(cli, tmp_path):
     import yaml
 
+    inv_dir = tmp_path / "inv"
+    inv_dir.mkdir()
+    (inv_dir / ".env").write_text("HOST_INITIAL_USER=debian\n")
     iy = tmp_path / "install.yaml"
     iy.write_text(
         "inventory: test\n"
-        "host_initial_user: debian\n"
         "host_initial_password: s3cr3t-provider-pw\n"
     )
-    extra, tmp = cli._bootstrap_extra_vars(str(iy))
+    extra, tmp = cli._bootstrap_extra_vars(inv_dir, str(iy))
     try:
         # The provider password is referenced as -e @file, never inline on
         # argv (would otherwise leak via `ps` and the printed command).
@@ -367,6 +371,8 @@ def test_bootstrap_extra_vars_writes_secret_to_file_not_argv(cli, tmp_path):
         assert extra[1].startswith("@")
         assert "s3cr3t-provider-pw" not in " ".join(extra)
         data = yaml.safe_load(tmp.read_text())
+        # install.yaml has no host_initial_user in this case, so
+        # bootstrap_initial_user falls back to the inventory's own .env.
         assert data["bootstrap_initial_user"] == "debian"
         assert data["bootstrap_root_password"] == "s3cr3t-provider-pw"
         # 0600 so the provider password is not world-readable on disk.
@@ -375,18 +381,133 @@ def test_bootstrap_extra_vars_writes_secret_to_file_not_argv(cli, tmp_path):
         tmp.unlink(missing_ok=True)
 
 
-def test_bootstrap_extra_vars_noop_without_install_yaml(cli):
-    extra, tmp = cli._bootstrap_extra_vars(None)
-    assert extra == []
-    assert tmp is None
+def test_bootstrap_extra_vars_install_yaml_initial_user_overrides_env(cli, tmp_path):
+    """`catena recover` reuses the OLD inventory's .env, whose
+    HOST_INITIAL_USER reflects the dead box, not necessarily the fresh
+    replacement -- install.yaml's host_initial_user (write_dr_install_yaml
+    in the bench) must win when given."""
+    inv_dir = tmp_path / "inv"
+    inv_dir.mkdir()
+    (inv_dir / ".env").write_text("HOST_INITIAL_USER=debian\n")  # the dead box
+    iy = tmp_path / "install.yaml"
+    iy.write_text("host_initial_user: root\n")  # the fresh replacement
+    extra, tmp = cli._bootstrap_extra_vars(inv_dir, str(iy))
+    try:
+        import yaml
+        data = yaml.safe_load(tmp.read_text())
+        assert data["bootstrap_initial_user"] == "root"
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
-def test_rotate_tunnel_parser_wires_token(cli):
-    ns = cli.build_parser().parse_args(
-        ["rotate-tunnel", "--inventory", "test", "--cf-api-token", "cf-tok"]
-    )
+def test_bootstrap_extra_vars_answers_the_password_prompt_even_when_blank(cli, tmp_path):
+    """No inventory, no -i, nothing to prompt with: the password name is still
+    emitted. Leaving it out is exactly what lets bootstrap.yml's vars_prompt
+    stop the deploy chain to ask for it after preflight has already run."""
+    inv_dir = tmp_path / "inv"
+    inv_dir.mkdir()
+    extra, tmp = cli._bootstrap_extra_vars(inv_dir, None)
+    try:
+        import yaml
+        assert extra == ["-e", f"@{tmp}"]
+        assert yaml.safe_load(tmp.read_text()) == {"bootstrap_root_password": ""}
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def test_bootstrap_extra_vars_reads_initial_user_without_install_yaml(cli, tmp_path):
+    """A self-hoster driving an already-filled-in inventory with no -i still
+    gets the correct bootstrap_initial_user injected."""
+    inv_dir = tmp_path / "inv"
+    inv_dir.mkdir()
+    (inv_dir / ".env").write_text("HOST_INITIAL_USER=ubuntu\n")
+    extra, tmp = cli._bootstrap_extra_vars(inv_dir, None)
+    try:
+        import yaml
+        data = yaml.safe_load(tmp.read_text())
+        assert data == {"bootstrap_initial_user": "ubuntu",
+                        "bootstrap_root_password": ""}
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def test_bootstrap_extra_vars_prompts_for_the_provider_password(cli, tmp_path, monkeypatch):
+    """Asked here, before the first playbook -- not by bootstrap.yml partway
+    through the chain."""
+    inv_dir = tmp_path / "inv"
+    inv_dir.mkdir()
+    (inv_dir / ".env").write_text("HOST_INITIAL_USER=debian\nHOST_PUBLIC_IP=198.51.100.9\n")
+    asked = []
+
+    def fake_getpass(prompt):
+        asked.append(prompt)
+        return "provider-pw"
+
+    monkeypatch.setattr(cli.getpass, "getpass", fake_getpass)
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True)
+    extra, tmp = cli._bootstrap_extra_vars(inv_dir, None, prompt_password=True)
+    try:
+        import yaml
+        assert len(asked) == 1
+        assert yaml.safe_load(tmp.read_text()) == {
+            "bootstrap_initial_user": "debian",
+            "bootstrap_root_password": "provider-pw",
+        }
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def test_bootstrap_extra_vars_does_not_prompt_without_a_tty(cli, tmp_path, monkeypatch):
+    """No TTY must not hang, and must not leave the name out either."""
+    inv_dir = tmp_path / "inv"
+    inv_dir.mkdir()
+
+    def boom(prompt):
+        raise AssertionError("prompted with no TTY")
+
+    monkeypatch.setattr(cli.getpass, "getpass", boom)
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: False)
+    extra, tmp = cli._bootstrap_extra_vars(inv_dir, None, prompt_password=True)
+    try:
+        import yaml
+        assert yaml.safe_load(tmp.read_text()) == {"bootstrap_root_password": ""}
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def test_install_password_prompt_precedes_the_deploy_chain(cli, tmp_path, monkeypatch):
+    """The ordering the rule is about: every question answered before the
+    first playbook runs."""
+    order = []
+    inv_dir = tmp_path / "inv"
+    inv_dir.mkdir()
+
+    monkeypatch.setattr(cli, "_preflight_checks", lambda *a, **k: None)
+    monkeypatch.setattr(cli, "inventory_path", lambda name: inv_dir)
+    monkeypatch.setattr(cli, "ensure_collections", lambda: None)
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=0))
+
+    def fake_bootstrap_extra(inv, input_path, *, prompt_password=False):
+        order.append(("prompt", prompt_password))
+        return [], None
+
+    def fake_chain(inv, chain, **kw):
+        order.append(("chain",))
+
+    monkeypatch.setattr(cli, "_bootstrap_extra_vars", fake_bootstrap_extra)
+    monkeypatch.setattr(cli, "_run_deploy_chain", fake_chain)
+    monkeypatch.setattr(cli, "_show_dr_keyset", lambda inv: order.append(("keyset",)))
+
+    ns = cli.build_parser().parse_args(["install", "--inventory", "prod"])
+    assert cli.cmd_install(ns) == 0
+    assert order == [("prompt", True), ("chain",), ("keyset",)]
+
+
+def test_rotate_tunnel_parser_wires_playbook(cli):
+    ns = cli.build_parser().parse_args(["rotate-tunnel", "--inventory", "test"])
     assert ns.func is cli.cmd_rotate_tunnel
-    assert ns.cf_api_token == "cf-tok"
+    cmd = cli.playbook_cmd(ns.inventory, "rotate-tunnel")
+    assert cmd[-1].endswith("playbooks/rotate-tunnel.yml")
 
 
 def test_rotate_tailscale_parser_wires_playbook(cli):
@@ -396,73 +517,36 @@ def test_rotate_tailscale_parser_wires_playbook(cli):
     assert cmd[-1].endswith("playbooks/rotate-tailscale.yml")
 
 
-def test_secret_extra_var_writes_secret_to_file_not_argv(cli):
-    import yaml
+def test_rotate_tunnel_passes_no_secret(cli, monkeypatch):
+    """cmd_rotate_tunnel hands the playbook nothing.
 
-    extra, tmp = cli._secret_extra_var("cf_api_token", "super-secret-token")
-    try:
-        # Referenced as -e @file; the secret never lands inline on argv.
-        assert extra[0] == "-e"
-        assert extra[1].startswith("@")
-        assert "super-secret-token" not in " ".join(extra)
-        data = yaml.safe_load(tmp.read_text())
-        assert data["cf_api_token"] == "super-secret-token"
-        assert (tmp.stat().st_mode & 0o777) == 0o600
-    finally:
-        tmp.unlink(missing_ok=True)
-
-
-def test_secret_extra_var_noop_on_empty(cli):
-    extra, tmp = cli._secret_extra_var("cf_api_token", "")
-    assert extra == []
-    assert tmp is None
-
-
-def test_rotate_tunnel_runs_playbook_with_token_file(cli, monkeypatch):
-    """cmd_rotate_tunnel runs the regenerate-cf-tunnel playbook, passing the
-    token via -e @file (never inline), and cleans the temp file after."""
+    The regression this guards. The delete half of the rotation runs from the
+    controller and could take a token; the re-create half is a host engine that
+    reads /etc/catena/config.json and cannot. A token accepted here would
+    authenticate the delete and not the mint, so a rotation run with anything
+    other than the stored token would revoke the tunnel and leave the host with
+    no edge. Passing nothing is what keeps the two halves on one credential.
+    """
     calls: list[list[str]] = []
     monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
     monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
     monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
 
-    ns = cli.build_parser().parse_args(
-        ["rotate-tunnel", "--inventory", "test", "--cf-api-token", "cf-tok"]
-    )
-    assert ns.func(ns) == 0
-    assert len(calls) == 1
-    joined = " ".join(calls[0])
-    assert calls[0][-2] == "-e"
-    assert calls[0][-1].startswith("@")
-    assert "cf-tok" not in joined
-    assert _stage_of(calls[0]) == "regenerate-cf-tunnel"
-
-
-def test_rotate_tunnel_reads_token_from_env(cli, monkeypatch):
-    calls: list[list[str]] = []
-    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
-    monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
-    monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_collections", lambda: None)
-    monkeypatch.setenv("CATENA_CF_API_TOKEN", "env-token")
-
     ns = cli.build_parser().parse_args(["rotate-tunnel", "--inventory", "test"])
     assert ns.func(ns) == 0
     assert len(calls) == 1
-    assert _stage_of(calls[0]) == "regenerate-cf-tunnel"
+    assert "-e" not in calls[0]
+    assert _stage_of(calls[0]) == "rotate-tunnel"
 
 
-def test_rotate_tunnel_dies_without_token(cli, monkeypatch):
-    monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
-    monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_collections", lambda: None)
-    monkeypatch.delenv("CATENA_CF_API_TOKEN", raising=False)
-    monkeypatch.setattr(cli.getpass, "getpass", lambda *a, **k: "")
-
-    ns = cli.build_parser().parse_args(["rotate-tunnel", "--inventory", "test"])
+def test_rotate_tunnel_rejects_a_token_flag(cli):
+    """A token cannot reach the mint, so accepting one silently would promise
+    something the rotation does not do."""
     with pytest.raises(SystemExit):
-        ns.func(ns)
+        cli.build_parser().parse_args(
+            ["rotate-tunnel", "--inventory", "test", "--cf-api-token", "cf-tok"]
+        )
 
 
 def test_rotate_tailscale_runs_playbook(cli, monkeypatch):
@@ -479,7 +563,8 @@ def test_rotate_tailscale_runs_playbook(cli, monkeypatch):
 
 
 # ---- --inventory-path: drive an inventory OUTSIDE the checkout ----
-# (an operator pointing the CLI at an ops-side inventory from Semaphore).
+# (an operator pointing the CLI at an ops-side inventory driven by
+# external automation).
 
 def test_resolve_inventory_name_resolves_under_checkout(cli):
     ns = cli.build_parser().parse_args(["converge", "--inventory", "prod"])
@@ -498,9 +583,9 @@ def test_playbook_cmd_accepts_a_path_directly(cli, tmp_path):
     from pathlib import Path
 
     ext = Path(tmp_path) / "clientA"
-    cmd = cli.playbook_cmd(ext, "site")
+    cmd = cli.playbook_cmd(ext, "converge")
     assert cmd[cmd.index("-i") + 1] == str(ext)
-    assert cmd[-1].endswith("playbooks/site.yml")
+    assert cmd[-1].endswith("playbooks/converge.yml")
 
 
 def test_inventory_path_threads_to_ansible_playbook_i_flag(cli, monkeypatch, tmp_path):
@@ -563,19 +648,22 @@ def test_install_flag_is_alias_for_install_subcommand(cli, monkeypatch):
     assert seen["ns"].inventory == "prod"
 
 
-def test_interactive_menu_install_returns_bare_install(cli, monkeypatch):
-    monkeypatch.setattr("builtins.input", lambda *a: "1")
-    assert cli.interactive_menu() == ["install"]
+def test_interactive_menu_prompts_inventory_before_command(cli, monkeypatch):
+    """Inventory first, then the numbered menu -- every command (install
+    included) comes back with --inventory attached."""
+    answers = iter(["dev", "1"])  # inventory, then 1 == install
+    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+    assert cli.interactive_menu() == ["install", "--inventory", "dev"]
 
 
-def test_interactive_menu_other_command_prompts_inventory(cli, monkeypatch):
-    answers = iter(["2", "dev"])  # 2 == converge, then inventory name
+def test_interactive_menu_other_command(cli, monkeypatch):
+    answers = iter(["dev", "2"])  # inventory, then 2 == converge
     monkeypatch.setattr("builtins.input", lambda *a: next(answers))
     assert cli.interactive_menu() == ["converge", "--inventory", "dev"]
 
 
 def test_interactive_menu_inventory_defaults_to_prod(cli, monkeypatch):
-    answers = iter(["3", ""])  # 3 == validate, blank inventory -> prod
+    answers = iter(["", "3"])  # blank inventory -> prod, then 3 == validate
     monkeypatch.setattr("builtins.input", lambda *a: next(answers))
     assert cli.interactive_menu() == ["validate", "--inventory", "prod"]
 
@@ -584,6 +672,35 @@ def test_interactive_menu_rejects_bad_choice(cli, monkeypatch):
     monkeypatch.setattr("builtins.input", lambda *a: "99")
     with pytest.raises(SystemExit):
         cli.interactive_menu()
+
+
+# --- one argv shape ----------------------------------------------------------
+def test_verb_first_shape_is_accepted(cli):
+    """`catena <verb> --inventory <name>` is the shape, and nothing rewrites
+    it on the way to the parser."""
+    argv = ["install", "--inventory", "prod", "--no-confirm"]
+    assert cli._reject_bare_inventory(argv) is None
+
+
+def test_a_leading_flag_is_left_alone(cli):
+    assert cli._reject_bare_inventory(["-h"]) is None
+
+
+def test_leading_inventory_name_is_refused(cli, capsys):
+    """An inventory in the verb's position dies with the right shape rather
+    than an argparse choice error naming every subcommand."""
+    with pytest.raises(SystemExit):
+        cli._reject_bare_inventory(["prod", "converge"])
+    err = capsys.readouterr().err
+    assert "--inventory prod" in err
+    assert "converge" in err
+
+
+def test_lone_inventory_name_is_refused(cli, capsys):
+    """No command to suggest, so the message still has to name the shape."""
+    with pytest.raises(SystemExit):
+        cli._reject_bare_inventory(["prod"])
+    assert "<verb> --inventory prod" in capsys.readouterr().err
 
 
 def test_main_runs_menu_when_no_args_and_tty(cli, monkeypatch):
@@ -606,3 +723,21 @@ def test_main_no_args_without_tty_dies(cli, monkeypatch):
     monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: False)
     with pytest.raises(SystemExit):
         cli.main([])
+
+
+def test_main_dispatches_verb_first_shape(cli, monkeypatch):
+    """`catena <verb> --inventory <name>` end to end: main() dispatches to the
+    right subcommand with the right inventory."""
+    seen = {}
+    monkeypatch.setattr(cli.os, "chdir", lambda p: None)
+    monkeypatch.setattr(cli, "cmd_converge", lambda ns: (seen.update(ns=ns), 0)[1])
+    assert cli.main(["converge", "--inventory", "dev"]) == 0
+    assert seen["ns"].func is cli.cmd_converge
+    assert seen["ns"].inventory == "dev"
+
+
+def test_main_refuses_inventory_first_shape(cli, monkeypatch):
+    """The retired shape is an error, not a silent reinterpretation."""
+    monkeypatch.setattr(cli.os, "chdir", lambda p: None)
+    with pytest.raises(SystemExit):
+        cli.main(["dev", "converge"])

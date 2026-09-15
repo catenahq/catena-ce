@@ -1,6 +1,6 @@
 """Compose keys `docker stack deploy` rejects, or accepts and ignores.
 
-Every template here is deployed by roles/infrastructure/tasks/swarm_stack.yml.
+Every template here is deployed by reconcile/roles/infrastructure/tasks/swarm_stack.yml.
 Swarm reads a SUBSET of the compose spec, and the two ways it disagrees with
 `docker compose` have opposite failure modes:
 
@@ -35,19 +35,14 @@ ANSIBLE = Path(__file__).resolve().parents[2]
 
 # Every compose template deployed through swarm_stack.yml.
 SWARM_COMPOSE = (
-    ANSIBLE / "roles/infrastructure/templates/gatus.compose.yml.j2",
-    ANSIBLE / "roles/infrastructure/templates/healthchecks.compose.yml.j2",
-    ANSIBLE / "roles/infrastructure/templates/recovery.compose.yml.j2",
-    # clamav.compose.yml.j2 is deliberately ABSENT: clamd is the one
-    # catena-declared stack still deployed through the Portainer compose
-    # API, so it needs the opposite shape (`restart:`, which swarm ignores
-    # and standalone compose reads). tasks/clamav.yml documents why it
-    # could not move. test_clamav_stays_on_compose below pins that.
-    ANSIBLE / "roles/infrastructure/templates/beszel-hub.compose.yml.j2",
-    ANSIBLE / "roles/infrastructure/templates/beszel-agent.compose.yml.j2",
-    ANSIBLE / "roles/infrastructure/templates/beszel-hc-shim.compose.yml.j2",
-    ANSIBLE / "roles/keycloak/templates/keycloak.compose.yml.j2",
-    ANSIBLE / "roles/oauth2_proxy/templates/oauth2-proxy.compose.yml.j2",
+    ANSIBLE / "reconcile/roles/infrastructure/templates/gatus.compose.yml.j2",
+    ANSIBLE / "reconcile/roles/infrastructure/templates/healthchecks.compose.yml.j2",
+    ANSIBLE / "reconcile/roles/infrastructure/templates/clamav.compose.yml.j2",
+    ANSIBLE / "reconcile/roles/infrastructure/templates/beszel-hub.compose.yml.j2",
+    ANSIBLE / "reconcile/roles/infrastructure/templates/beszel-agent.compose.yml.j2",
+    ANSIBLE / "reconcile/roles/infrastructure/templates/beszel-hc-shim.compose.yml.j2",
+    ANSIBLE / "reconcile/roles/keycloak/templates/keycloak.compose.yml.j2",
+    ANSIBLE / "reconcile/roles/oauth2_proxy/templates/oauth2-proxy.compose.yml.j2",
 )
 
 # Templates are Jinja, so they are scanned as text rather than parsed: a
@@ -94,33 +89,50 @@ def test_every_service_declares_a_restart_policy(path: Path):
     assert "delay:" in body, f"{path.name}: restart_policy with no delay"
 
 
-def test_clamav_stays_on_compose_with_a_local_bridge():
-    """clamd is the exception, and the two halves have to stay consistent.
+def test_clamav_is_a_swarm_stack_on_an_overlay():
+    """The two halves have to stay consistent, and which way they point
+    changed with the catalog.
 
-    A swarm service cannot attach to a bridge, and an attachable OVERLAY is
-    only materialized on a node once a swarm task there uses it -- so with
-    clamd behind its consumer gate, the standalone consumers that need the
-    network could never start, and the only thing that would materialize it
-    for them is clamd. Bench 050b: nextcloud-app-1 Created, "network
-    catena-clamav not found".
+    A swarm service cannot attach to a bridge, and `docker stack deploy`
+    refuses a stack whose external network is local-scope at all -- so a
+    bridge here would stop the mailserver and Nextcloud templates from
+    deploying, not merely keep clamd off swarm.
 
-    So the network stays a local bridge and the stack stays on compose. If
-    one half is ever flipped without the other, clamd silently stops
-    deploying or its consumers silently stop starting."""
-    tasks = (ANSIBLE / "roles/infrastructure/tasks/clamav.yml").read_text(
+    The deadlock a bridge avoids: an attachable overlay is materialized on a
+    node only once a swarm task there uses it, and a STANDALONE container asking
+    for an unmaterialized one stays Created ("network catena-clamav not found",
+    bench 050b). With standalone consumers the only swarm task that could
+    materialize the network is clamd, which does not deploy until a consumer
+    runs. Both consumers are swarm services, so the first of them materializes
+    it and the deadlock has no hold.
+    """
+    tasks = (ANSIBLE / "reconcile/roles/infrastructure/tasks/clamav.yml").read_text(
         encoding="utf-8")
-    # Match the include DIRECTIVE, not any mention: the file's header
-    # explains the swarm_stack.yml it deliberately does not use.
-    assert "include_tasks: portainer_stack.yml" in tasks
-    assert "include_tasks: swarm_stack.yml" not in tasks
-    assert "--driver, overlay" not in tasks
+    assert "include_tasks: swarm_stack.yml" in tasks
+    assert "include_tasks: portainer_stack.yml" not in tasks
+    assert "overlay" in tasks and "--attachable" in tasks
 
     compose = (
-        ANSIBLE / "roles/infrastructure/templates/clamav.compose.yml.j2"
+        ANSIBLE / "reconcile/roles/infrastructure/templates/clamav.compose.yml.j2"
     ).read_text(encoding="utf-8")
-    assert "restart: unless-stopped" in compose, (
-        "standalone compose reads `restart:` and ignores deploy.restart_policy"
+    assert "restart: unless-stopped" not in compose, (
+        "`restart:` is dropped by docker stack deploy with a warning nobody "
+        "reads"
     )
+
+
+def test_the_clamav_consumers_are_matched_by_label():
+    """clamd deploys only when a consumer is running, and the probe that
+    decides reads vps.app / vps.component. A container NAME depends on
+    docker's scheme and on whatever a client typed into Portainer, so a probe
+    that matched one would quietly stop finding either consumer and clamd
+    would never deploy again -- with the mail path silently unscanned."""
+    tasks = (ANSIBLE / "reconcile/roles/infrastructure/tasks/clamav.yml").read_text(
+        encoding="utf-8")
+    assert "label=vps.app=" in tasks
+    assert "label=vps.component=dms" in tasks
+    assert "com.docker.compose" not in tasks
+    assert "--filter 'name=" not in tasks
 
 
 def test_published_ports_use_long_syntax_host_mode():

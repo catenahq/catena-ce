@@ -5,7 +5,7 @@
   ],
   "packageRules": [
     {
-      "description": "The restic BINARY version pinned in roles/backup. Bumps stay manual: restic is what every backup and every restore runs through. It is a github-releases pin, not an image, so no Trivy image scan applies -- the scanctl fs gate covers the repo side. cloudflared, traefik, postgres, portainer and coturn all left this repo by 2026-08-03; their pins live where the host engines read them, in catena-admin.",
+      "description": "The restic BINARY version pinned in ansible/reconcile/roles/backup. Bumps stay manual: restic is what every backup and every restore runs through. It is a github-releases pin, not an image, so no Trivy image scan applies -- the scanctl fs gate covers the repo side. cloudflared, traefik, postgres, portainer and coturn all left this repo by 2026-08-03; their pins live where the host engines read them, in catena-admin.",
       "matchManagers": [
         "custom.regex"
       ],
@@ -15,14 +15,13 @@
       "automerge": false
     },
     {
-      "description": "Infra app images pinned in role defaults (gatus, healthchecks, recovery nginx, clamav). Manual review, and Trivy-gated -- for real this time. This rule claimed a gate for months while nothing scanned them: the image matrix only ever carried the operator-stack four, which have since moved to catena-admin. The matrix in .github/workflows/trivy.yml now resolves these pins where Renovate reads them, so a bump PR to a tag with a known fixable HIGH/CRITICAL fails CI.",
+      "description": "Infra app images pinned in role defaults (gatus, healthchecks, clamav). Manual review, and Trivy-gated: the matrix in .github/workflows/trivy.yml resolves these pins from the same files Renovate reads them from, so a bump PR to a tag with a known fixable HIGH/CRITICAL fails CI.",
       "matchManagers": [
         "custom.regex"
       ],
       "matchPackageNames": [
         "twinproduction/gatus",
         "healthchecks/healthchecks",
-        "nginx",
         "clamav/clamav"
       ],
       "automerge": false
@@ -56,7 +55,7 @@
       "customType": "regex",
       "description": "Track restic binary version pinned in backup role defaults",
       "managerFilePatterns": [
-        "/^ansible/roles/backup/defaults/main\\.yml$/"
+        "/^ansible/reconcile/roles/backup/defaults/main\\.yml$/"
       ],
       "matchStrings": [
         "backup_restic_version:\\s*\"(?<currentValue>[^\"]+)\""
@@ -69,7 +68,7 @@
       "customType": "regex",
       "description": "Track Gatus image tag pinned in infrastructure role defaults",
       "managerFilePatterns": [
-        "/^ansible/roles/infrastructure/defaults/main\\.yml$/"
+        "/^ansible/reconcile/roles/infrastructure/defaults/main\\.yml$/"
       ],
       "matchStrings": [
         "gatus_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
@@ -81,7 +80,7 @@
       "customType": "regex",
       "description": "Track Healthchecks image tag pinned in infrastructure role defaults",
       "managerFilePatterns": [
-        "/^ansible/roles/infrastructure/defaults/main\\.yml$/"
+        "/^ansible/reconcile/roles/infrastructure/defaults/main\\.yml$/"
       ],
       "matchStrings": [
         "healthchecks_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
@@ -93,7 +92,7 @@
       "customType": "regex",
       "description": "Track Beszel hub image tag pinned in infrastructure role defaults",
       "managerFilePatterns": [
-        "/^ansible/roles/infrastructure/defaults/main\\.yml$/"
+        "/^ansible/reconcile/roles/infrastructure/defaults/main\\.yml$/"
       ],
       "matchStrings": [
         "beszel_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
@@ -105,7 +104,7 @@
       "customType": "regex",
       "description": "Track Beszel agent image tag pinned in infrastructure role defaults (kept in lockstep with the hub)",
       "managerFilePatterns": [
-        "/^ansible/roles/infrastructure/defaults/main\\.yml$/"
+        "/^ansible/reconcile/roles/infrastructure/defaults/main\\.yml$/"
       ],
       "matchStrings": [
         "beszel_agent_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
@@ -115,24 +114,12 @@
     },
     {
       "customType": "regex",
-      "description": "Track recovery-downloads nginx image tag pinned in infrastructure role defaults",
+      "description": "Track shared ClamAV image (full image:tag) pinned in infrastructure role defaults. The _base variant ships without the signature DB; freshclam fetches it on start. Unlike its neighbours this pin carries the whole ref rather than a bare _image_tag scalar, and it sits inside the folded Jinja that runs it through catena_image_pin -- so the ref is single-quoted on the line below the key, which is what this matches.",
       "managerFilePatterns": [
-        "/^ansible/roles/infrastructure/defaults/main\\.yml$/"
+        "/^ansible/reconcile/roles/infrastructure/defaults/main\\.yml$/"
       ],
       "matchStrings": [
-        "recovery_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
-      ],
-      "depNameTemplate": "nginx",
-      "datasourceTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "description": "Track shared ClamAV image (full image:tag) pinned in infrastructure role defaults. The _base variant ships without the signature DB; freshclam fetches it on start.",
-      "managerFilePatterns": [
-        "/^ansible/roles/infrastructure/defaults/main\\.yml$/"
-      ],
-      "matchStrings": [
-        "clamav_image:\\s*\"clamav/clamav:(?<currentValue>[^\"]+)\""
+        "\\{\\{ 'clamav/clamav:(?<currentValue>[^']+)'"
       ],
       "depNameTemplate": "clamav/clamav",
       "datasourceTemplate": "docker"
@@ -141,7 +128,7 @@
       "customType": "regex",
       "description": "Track Phase Two Keycloak image tag pinned in keycloak role defaults",
       "managerFilePatterns": [
-        "/^ansible/roles/keycloak/defaults/main\\.yml$/"
+        "/^ansible/reconcile/roles/keycloak/defaults/main\\.yml$/"
       ],
       "matchStrings": [
         "keycloak_image_tag:\\s*\"(?<currentValue>[^\"]+)\""

@@ -2,7 +2,7 @@
 superuser, the catena project, API keys, the ntfy notification
 channel, and the daily backup check. Idempotent -- re-running
 reconciles drift without wiping operator-added checks."""
-# Managed by Ansible (roles/infrastructure). Do not edit by hand.
+# Managed by Ansible (reconcile/roles/infrastructure). Do not edit by hand.
 #
 # Bootstrap/reconcile seed for self-hosted Healthchecks. Runs inside
 # the Healthchecks container via `docker exec -i ... python manage.py
@@ -11,7 +11,7 @@ reconciles drift without wiping operator-added checks."""
 # additions).
 #
 # Per-host values arrive via `docker exec -e KEY=VALUE` flags rendered
-# in roles/infrastructure/tasks/healthchecks.yml. The script reads them
+# in reconcile/roles/infrastructure/tasks/healthchecks.yml. The script reads them
 # from os.environ; missing vars surface as KeyError so a wiring break
 # fails loud rather than silently seeding empty strings.
 #
@@ -20,7 +20,7 @@ reconciles drift without wiping operator-added checks."""
 #      upstream image's entrypoint runs migrations only - it does NOT
 #      honour SUPERUSER_EMAIL/SUPERUSER_PASSWORD, so a fresh container
 #      starts with an empty auth_user table. Without this bootstrap the
-#      oauth2-proxy forward-auth hop (X-Forwarded-Email header) has no
+#      oauth2-proxy hop (X-Forwarded-Email header) has no
 #      User row to map onto and the UI 403s for every request.
 #   1. Project.api_key_readonly + ping_key + name (pinned to vault).
 #   2. Removes Healthchecks's tutorial check + default email channel if
@@ -43,7 +43,7 @@ import json
 import os
 from datetime import timedelta
 from django.contrib.auth import get_user_model
-from hc.accounts.models import Project
+from hc.accounts.models import Profile, Project
 from hc.api.models import Channel, Check
 
 _hc_email = os.environ["CATENA_ADMIN_EMAIL"]
@@ -58,7 +58,7 @@ _hc_ntfy_server = os.environ["CATENA_NTFY_SERVER"]
 User = get_user_model()
 
 # Bootstrap the superuser. Use username=email so the oauth2-proxy
-# forward-auth hop (REMOTE_USER_HEADER=HTTP_X_FORWARDED_EMAIL) can map
+# identity hop (REMOTE_USER_HEADER=HTTP_X_FORWARDED_EMAIL) can map
 # the incoming email to this User. On re-converge we reconcile the
 # staff/superuser flags but never touch the password - if the operator
 # changed it via /admin/ we don't want to stomp it.
@@ -80,6 +80,25 @@ else:
         _dirty = True
     if _dirty:
         operator.save(update_fields=["email", "is_superuser", "is_staff"])
+
+# Follow the browser's light/dark preference by default.
+#
+# Healthchecks stores the theme per profile, with no global default and no
+# env var: hc/accounts/models.py declares `theme` as a nullable CharField,
+# and the accounts view accepts exactly "" (light), "dark" and "system".
+# A fresh profile is NULL, which renders light whatever the reader's machine
+# is set to -- so a panel in dark mode linked out to a monitoring page in
+# light mode.
+#
+# NULL is what makes this safe to set. It means "never chosen", and it is a
+# DIFFERENT value from "", which is what the view stores when somebody picks
+# Light deliberately. So this fills in a default exactly once and never
+# argues with a client who made a choice -- the same rule the Beszel alert
+# thresholds follow.
+_profile = Profile.objects.for_user(operator)
+if _profile.theme is None:
+    _profile.theme = "system"
+    _profile.save(update_fields=["theme"])
 
 # Ensure the operator has a Project to own the seeded checks/channels.
 # Project.objects.create() does NOT trigger the signup-flow helpers
@@ -115,13 +134,13 @@ Check.objects.filter(project=project, name="My first check").delete()
 Channel.objects.filter(project=project, kind="email").delete()
 
 # The ntfy channel is OPTIONAL, and both halves are required to make one.
-#
-# NTFY_SERVER used to default to https://ntfy.sh -- public and
-# unauthenticated, where the topic is the only access control. A host nobody
-# configured therefore pushed its alerts to a server the operator does not
-# run, which is the wrong thing to do by default. It also produced a channel
-# with an empty topic whenever only the server was set: a route that resolves
-# and delivers nowhere, and reads in the UI as configured.
+# Neither NTFY_SERVER nor NTFY_TOPIC defaults to a value: a default of
+# https://ntfy.sh would be public and unauthenticated, where the topic is
+# the only access control, so a host nobody configured would push its
+# alerts to a server the operator does not run -- the wrong thing to do by
+# default. Requiring both also avoids a channel with an empty topic when
+# only the server is set: a route that resolves and delivers nowhere, yet
+# reads in the UI as configured.
 #
 # Both blank is a supported end state, not a half-finished install: the checks
 # still record every ping and the client attaches their own channel through

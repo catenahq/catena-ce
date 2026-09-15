@@ -7,7 +7,7 @@ holds it, and where it must end up** under the client-owned-config model
 `ROLE_MINTED_SECRETS` minted by the service and captured by its role),
 `seed.py` (`INSTALL_EXTERNAL_KEYS` -- the only creds prompted at install,
 written to the transient `--secrets-out` adopt file and nowhere else),
-`inventory/example/.env.example`, and `roles/backup/defaults/main.yml`
+`inventory/example/.env.example`, and `reconcile/roles/backup/defaults/main.yml`
 (`backup_paths`). **Nothing secret is persisted on the controller** --
 `catena install` writes no secret file into the inventory.
 
@@ -47,13 +47,11 @@ ride the backup, because it is what unlocks the backup.
 | `backup_s3_access_key` | reach the restic bucket | settings page | **yes** |
 | `backup_s3_secret_key` | ^ | settings page | **yes** |
 | `backup_restic_password` | decrypt the restic repo | on-box mint, **shown once** | **yes** |
-| `admin_password` | first login (Portainer + Keycloak) | on-box mint, **shown once** | no |
+| `admin_password` | first login (Portainer + Keycloak + Beszel + this panel) | on-box mint, **shown once** | no |
 | `console_recovery_password` | break-glass login for `ops` at the provider KVM / serial console | on-box mint, **shown once** | **yes** |
 | `smtp_password` | outbound mail (opt) | settings page | no |
 | `mailserver_relay_password` | smarthost (opt) | settings page | no |
 | `mailserver_spamhaus_dqs_key` | RBL (opt) | settings page | no |
-| `nextcloud_s3_access_key` | NC primary S3 (opt) | settings page | no |
-| `nextcloud_s3_secret_key` | ^ | settings page | no |
 | `storage_bulk_username` | CIFS bulk mount (opt; NFS needs neither) | settings page | no |
 | `storage_bulk_password` | ^ | settings page | no |
 
@@ -61,7 +59,7 @@ ride the backup, because it is what unlocks the backup.
 `console_recovery_password` are special: `USER_HELD_SECRETS` in
 `onbox_config.py`. They are minted **on-box if absent**
 (like the internal secrets) but the installer reads them back and **shows them
-once** at the end of `catena install` (`playbooks/show_dr_keyset.yml`) so the
+once** at the end of `catena install` (`playbooks/show-keyset.yml`) so the
 client keeps a copy in their password manager. They are NOT settable through
 the settings config-write API (a restic re-key is a deliberate action). On
 `catena recover` the client re-enters the saved values; the loader adopts them
@@ -110,7 +108,6 @@ old laptop-minting model; dropped with the 0b true-on-box-minting cutover).
 - `element_jitsi_jicofo_component_secret`
 - `element_jitsi_jvb_auth_password`
 - `element_jigasi_xmpp_password`
-- `beszel_admin_password`
 - `beszel_universal_token`
 
 ### 3. Service-minted, role-captured (`ROLE_MINTED_SECRETS`)
@@ -123,7 +120,7 @@ because it has exactly one writer and that writer is the role.
 
 | Key | Minted by | Captured by |
 | --- | --- | --- |
-| `portainer_api_key` | Portainer's own token API, via `helpers/bootstrap_portainer_admin.py` | `roles/portainer` |
+| `portainer_api_key` | Portainer's own token API, via `helpers/bootstrap_portainer_admin.py` | `reconcile/roles/portainer` |
 
 The mint runs mid-converge rather than in the loader: the initial admin has to
 exist first. The helper prints the key on stdout and the role writes it
@@ -136,17 +133,22 @@ is not sufficient here.
 
 Split by the two-phase install boundary:
 
-**Minimal bootstrap (needed to bring the stack + auth up):** `CLOUDFLARE_ZONE`,
-`CLOUDFLARE_ACCOUNT_ID`, the subdomain set (`PORTAINER_SUBDOMAIN`,
-`MONITOR_SUBDOMAIN`, `DASH_SUBDOMAIN`, `HEARTBEAT_SUBDOMAIN`,
-`AUTH_SUBDOMAIN`), `ADMIN_EMAIL`, `CATENA_DEFAULT_LANGUAGE`, `TAILSCALE_TAGS`,
-`OPS_USER`, `COMMON_TIMEZONE`, `COMMON_LOCALE`, `STORAGE_MODE` + mount points.
-Plus the two external creds required to bootstrap: Tailscale OAuth (to join the
-tailnet) and the Cloudflare token (tunnel + DNS).
+**Minimal bootstrap (needed to bring the stack + auth up):** `HOST_PUBLIC_IP`,
+`HOST_INITIAL_USER`, `HOST_SSH_PORT`, `TAILSCALE_TAGS`, `OPS_USER`,
+`COMMON_TIMEZONE`, `COMMON_LOCALE`, `STORAGE_MODE` + the block device. Plus the
+one external cred required to bootstrap: Tailscale OAuth, to join the tailnet.
+The Cloudflare token is never a bootstrap input -- see category 1 above.
 
-**Settings page (post-install):** `BACKUP_RESTIC_REPO`, backup retention +
-tier, WORM/cold repo, SMTP host/port/from, `NTFY_*`, `NEXTCLOUD_*` (S3 +
-retention), mailserver toggles, docker/apt proxy.
+Every public subdomain except one is compiled in: the shipped starter, the
+operator skeleton and the one real inventory all gave the same answer, and a
+value nobody varies belongs to the product rather than to the operator.
+`PORTAINER_SUBDOMAIN` is the exception -- three sources, three answers -- so it
+is a settings key.
+
+**Settings page (post-install):** `CLOUDFLARE_ZONE`, `ADMIN_EMAIL`,
+`PORTAINER_SUBDOMAIN`, `BACKUP_RESTIC_REPO`, backup retention + tier, WORM/cold
+repo, SMTP host/port/from, `NTFY_*`, `NEXTCLOUD_*` (S3 + retention), mailserver
+toggles, docker/apt proxy.
 
 Both halves are DECLARED, in `helpers/onbox_config.py`: `BOOTSTRAP_CONFIG` is
 the `.env`-owned set, `SETTINGS_CONFIG` maps each store-owned key to the
@@ -162,7 +164,7 @@ the converge's silently dead, and let a tag-scoped converge fall back to a
 stale `.env` with no signal.
 
 The published facts are prefixed `cfg_` rather than named after the consuming
-variable. `roles/keycloak` derives `smtp_host` from the Resend/Brevo autofill,
+variable. `reconcile/roles/keycloak` derives `smtp_host` from the Resend/Brevo autofill,
 so a fact named `smtp_host` would have replaced the derivation with the raw
 value -- silently, since a fact outranks a role default.
 
@@ -170,12 +172,11 @@ value -- silently, since a fact outranks a role default.
 
 `/etc/catena/` already rides the backup (`backup_paths` includes `/etc`) and
 already holds `backup.env` (S3 creds) + `restic.pass` (restic password),
-both written reconcile-not-overwrite by `roles/backup`. That is the model
+both written reconcile-not-overwrite by `reconcile/roles/backup`. That is the model
 for every category-2 secret and category-4 value: a single on-box config
 source-of-truth under `/etc/catena/`, written once, reconciled on converge,
 carried in every snapshot. The controller-side inventory is non-secret only
-(`.env`, `hosts.yml`, `group_vars/all/main.yml`); nothing writes a secrets
-file there.
+(`.env`, `hosts.yml`); nothing writes a secrets file there.
 
 The swarm-secret path (catena-postgres, portainer admin) is NOT backed up
 (`/var/lib/docker/swarm` is excluded); those replay correctly because the

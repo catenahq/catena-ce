@@ -1,13 +1,12 @@
 """The backup wrapper arrives with the payload, which is not always first.
 
-roles/backup stopped shipping catena-backup-run on 2026-08-03; it is a lane
-script in the catena-admin image payload now. That introduced an ordering the
-role never had to think about before, because it used to copy the wrapper
-itself and so the file was always there by the time the units were written.
+catena-backup-run is a lane script in the catena-admin image payload.
+reconcile/roles/backup writes the units that call it but does not ship it, so
+the role cannot assume the file is on disk by the time it writes them.
 
 Two hosts, two truths:
 
-  converge owns the payload   roles/payload extracted the engines four roles
+  converge owns the payload   reconcile/roles/payload extracted the engines four roles
                               earlier. A missing wrapper means the extract
                               FAILED, and writing a timer that points at nothing
                               would turn that into a silent unit-level failure
@@ -36,10 +35,13 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-INSTALL = ANSIBLE / "roles" / "backup" / "tasks" / "install.yml"
-VALIDATE = ANSIBLE / "roles" / "backup" / "tasks" / "validate.yml"
+INSTALL = ANSIBLE / "reconcile" / "roles" / "backup" / "tasks" / "install.yml"
+VALIDATE = ANSIBLE / "reconcile" / "roles" / "backup" / "tasks" / "validate.yml"
+# The "is the payload expected here" decision all five callers now share.
+SHARED = ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "_payload_expected.yml"
 
-EXPECTED = "catena_payload_engines_expected"
+EXPECTED = "catena_payload_expected"
+MISSING = "catena_payload_missing"
 
 # Every backup script that now arrives with the image payload rather than from
 # this role. catena-disk-preflight is deliberately absent: restore.yml calls it
@@ -78,7 +80,7 @@ def test_a_converge_that_owns_the_payload_fails_on_a_missing_wrapper():
         "the hard failure is not gated on this converge owning the payload, so "
         "it fires on every out-of-band host too"
     )
-    assert "not (_backup_wrapper_stat.stat.exists" in cond
+    assert MISSING in cond
 
 
 def test_a_host_with_an_out_of_band_payload_defers_instead():
@@ -89,7 +91,7 @@ def test_a_host_with_an_out_of_band_payload_defers_instead():
     )
     cond = _when(task)
     assert f"not ({EXPECTED}" in cond
-    assert "not (_backup_wrapper_stat.stat.exists" in cond
+    assert MISSING in cond
 
 
 def test_the_two_branches_are_mutually_exclusive():
@@ -106,7 +108,7 @@ def test_the_inline_first_snapshot_needs_the_wrapper():
     wrapper fails the converge at the unit rather than at the guard above."""
     task = _find("Run first backup inline")
     cond = _when(task)
-    assert "_backup_wrapper_stat.stat.exists" in cond, (
+    assert "_backup_wrapper_present" in cond, (
         "the inline snapshot does not check for the wrapper; on a host whose "
         "payload lands after this role it starts a unit whose ExecStart does "
         "not exist"
@@ -139,15 +141,30 @@ def test_validate_still_asserts_the_payload_scripts_once_any_is_present():
     here". `some` rather than `all` is the point: a host holding three of four
     is a broken payload install, and requiring all four would make that case
     indistinguishable from the not-yet case and skip the only check that would
-    have caught it."""
-    task = _find("decide whether the payload scripts are expected", VALIDATE)
-    expr = str(task["ansible.builtin.set_fact"]["_bk_payload_expected"])
+    have caught it.
+
+    The decision lives in bootstrap/roles/common/tasks/_payload_expected.yml,
+    shared with the other four callers, and the property is asserted where it
+    lives rather than restated at each caller."""
+    shared = _find("payload-expected: decide", SHARED)
+    expr = str(shared["ansible.builtin.set_fact"]["catena_payload_expected"])
     assert "CATENA_PAYLOAD_INSTALL" in expr
-    assert "selectattr('stat.exists')" in expr
-    assert "> 0" in expr, (
-        "the presence half of the gate requires ALL scripts, so a partial "
+    assert "catena_payload_engines_expected" in expr, (
+        "a converge must prefer reconcile/roles/payload's fact; falling straight to the "
+        "env var would answer for the play rather than for this converge"
+    )
+    assert "catena_payload_present | length > 0" in expr, (
+        "the presence half of the gate requires ALL paths, so a partial "
         "payload install is skipped instead of caught"
     )
+
+    passed = _find("are the payload scripts expected here", VALIDATE)
+    assert passed["vars"]["_payload_paths"] == [
+        "{{ backup_wrapper_script }}",
+        "{{ backup_coverage_script }}",
+        "{{ backup_restic_env_script }}",
+        "{{ backup_snapshot_list_script }}",
+    ], "all four, or the partial-install case cannot be seen"
 
     assertion = _find("payload-shipped scripts installed + executable", VALIDATE)
     assert "_bk_payload_expected" in str(assertion["when"])
@@ -156,11 +173,40 @@ def test_validate_still_asserts_the_payload_scripts_once_any_is_present():
     assert "0755" in that
 
 
+def test_the_partial_install_case_is_named_by_the_shared_predicate():
+    """`catena_payload_partial` exists so a caller can say "three of four" out
+    loud rather than reporting a broken install as a host mid-assembly."""
+    shared = _find("payload-expected: decide", SHARED)
+    expr = str(shared["ansible.builtin.set_fact"]["catena_payload_partial"])
+    assert "catena_payload_present | length > 0" in expr
+    assert "catena_payload_missing | length > 0" in expr
+
+
 def test_validate_gates_the_restic_reachability_probe_on_the_entrypoint():
     """It shells out to catena-restic-env, which is itself a payload script. Left
     ungated it reports on a repository it never managed to ask about."""
     for name in ("restic can reach the repo", "restic cat config exited 0"):
         assert "_bk_payload_expected" in str(_find(name, VALIDATE)["when"])
+
+
+def test_validate_skips_the_restic_probe_until_backup_is_configured():
+    """The repo + S3 keys are entered in catena-admin AFTER the install, so a
+    host nobody has configured yet has the units installed and no restic.pass.
+    That is the documented steady state of a fresh install, not a fault: the
+    probe has to skip, or every install fails validation until someone opens
+    the panel.
+
+    The condition must match install.yml's `_backup_configured` exactly. A
+    looser one (repo alone) passes on a host holding a repo and no keys, which
+    is the half-configured case whose restic call fails for a real reason."""
+    gate = str(_find("is this host backup-configured", VALIDATE)
+               ["ansible.builtin.set_fact"]["_bk_configured"])
+    for cred in ("backup_restic_password", "backup_s3_access_key",
+                 "backup_s3_secret_key", "backup_restic_repo"):
+        assert cred in gate, f"{cred} missing from the configured-gate"
+
+    for name in ("restic can reach the repo", "restic cat config exited 0"):
+        assert "_bk_configured" in str(_find(name, VALIDATE)["when"])
 
 
 def test_the_role_still_installs_the_units_when_the_wrapper_is_absent():

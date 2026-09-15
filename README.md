@@ -1,103 +1,91 @@
-# Catena Community
+# Catena-CE
 
-Catena installs a curated catalog of open-source business apps onto a
-single VPS, wires them behind one sign-on, and adds monitoring, backups
-and whole-host restore -- all driven from one command. No telemetry, no
-license required, no vendor lock-in. Source-available (fair-code).
+Catena installs a curated list of open-source services and software to a computer or VPS, making it a suitable production environment in which to run business applications. A thin dashboard wrapper allows for configuration and orchestration of this infrastructure. Some of the highlights include:
+- Automated installation to a server with [Ansible](https://docs.ansible.com/)
+- Fully hardened installation with [Tailscale](https://tailscale.com/)/[Headscale](https://headscale.net)-only administrator access
+- Secure application access and DDoS protection with [Cloudflared](https://github.com/cloudflare/cloudflared)
+- Scheduled, incremental, encrypted backups with [restic](https://restic.net/)
+- Container management interface with [Portainer](https://www.portainer.io/)
+- Identity and Access Management with [Phase Two](https://phasetwo.io/) [Keycloak](https://github.com/p2-inc/phasetwo-containers)
+- Authentication for any application that does not include it with [OAuth2 Proxy](https://oauth2-proxy.github.io/oauth2-proxy/)
+- Automated app routing with [Traefik](https://doc.traefik.io/)
+- Application status, uptime monitoring, and alerts with [Gatus](https://gatus.io/) and [Healthchecks](https://healthchecks.io/)
+- System state monitoring and alerts with [Beszel](https://www.beszel.dev/)
+- Pre-configured [Catena templates](https://github.com/catenahq/catena-templates)
+- Unified settings with Catena-Admin container
 
-Community is a complete, standalone product, not a trial edition: the
-full app catalog plus the whole base lifecycle -- one-command install,
-single sign-on across every app, monitoring basics, a weekly backup and
-on-demand snapshots, and whole-host restore onto a fresh replacement
-box. Every operation runs through the `catena` CLI, and every byte of
-data stays in standard formats readable with standard tools, with or
-without Catena.
+## Installation
 
-The north star is one sentence, and everything else in this repository
-serves it:
+### Requirements
 
-> A Catena server can be rebuilt from nothing but its backup storage
-> endpoint and the backup key.
+#### Pre-install
+- Tailscale Oauth client id/secret pair or a working Headscale control server and credentials
+- Tailscale client installed on your local computer, with `tailscale` running and connected to the tailnet. Visit the [Tailscale download page](https://tailscale.com/download)
+- `uv` installed on your local machine for python virtual environment management: `wget -qO- https://astral.sh/uv/install.sh | sh`
+- A fresh VPS or server running `Debian 13` (tested)
 
-> A managed **Business** edition adds the catena-admin web panel plus
-> operated extras on top (offsite immutable backups, automated updates,
-> and more). The panel is a convenience layer over the same host-native
-> automation in this repository -- removing it takes away neither the
-> data nor the ability to operate the suite. Details at
-> [catena.run](https://catena.run).
+#### Post-install
+- Cloudflare account and a domain name, along with an API token with `Account -> Cloudflare Tunnel -> Edit` and `Zone -> DNS -> Edit` permissions for your domain
+- An S3 Object storage endpoint along with access/secret keys pair for your backups
 
-## Install
+### Steps
 
-[INSTALL.md](INSTALL.md) -- prerequisites, the vendor credentials to
-have ready, the install command, and the day-two operations.
 
-## How it works
-
-A deployment passes through five flows, in order:
-
+1. Clone this repository and configure variables:
+```sh
+git clone -b main https://github.com/catenahq/catena-ce.git
+cd catena-ce
+cp -r ansible/inventory/example ansible/inventory/prod
+mv ansible/inventory/prod/.env.example ansible/inventory/prod/.env
 ```
-preflight  ->  bootstrap  ->  site  ->  validate          (+ restore for DR)
-```
 
-- **preflight** checks the supplied Tailscale OAuth client before any
-  VPS is touched.
-- **bootstrap** hardens a fresh VPS (user, SSH, ufw, docker) and joins it
-  to the private network.
-- **site** is the converge: networking, Portainer, sign-on, backup, the
-  admin panel. Safe to re-run; it is how every later change is applied.
-- **validate** checks the result from three vantage points -- on the
-  host, over the private network, and from the public internet.
-- **restore** is the disaster-recovery path.
+1. Edit `ansible/inventory/prod/.env` with your own values
+2. Launch installation:
 
-The installer composes them. Nothing in this tree is invoked with raw
-`ansible-playbook`.
-
-## Layout
-
-| Path | What is in it |
-| --- | --- |
-| [ansible/](ansible/) | Everything that deploys a server. Start at [ansible/README.md](ansible/README.md). |
-| [ansible/catena](ansible/catena) | The installer / CLI entry point. |
-| [ansible/playbooks/](ansible/playbooks/) | The five flows plus the day-two operations. |
-| [ansible/roles/](ansible/roles/) | One role per thing a server owns (traefik, postgres, keycloak, backup, ...). |
-| [ansible/helpers/](ansible/helpers/) | Python shared by the installer, the roles, and three host-side reconcilers. |
-| [ansible/scripts/](ansible/scripts/) | Executables installed on the server and run there. |
-| [ansible/inventory/](ansible/inventory/) | Per-deployment configuration. Only `example/` is tracked. |
-| [ansible/tests/](ansible/tests/) | Unit tests, plus the external probes `validate.yml` runs. |
-
-Every one of those directories carries its own `README.md` describing
-its children.
-
-| File | What it is |
-| --- | --- |
-| [SPEC.md](SPEC.md) | What this repository promises. Hand-written; every claim points at a machine-checked gate, and a claim whose gate disappears fails the build. |
-| [VALIDATION.md](VALIDATION.md) | What is tested and how much. Generated; drift fails CI. |
-| [ansible/SECRETS.md](ansible/SECRETS.md) | Every secret: who holds it, where it lives, what happens if it is lost. |
-| [SECURITY.md](SECURITY.md) | Reporting a vulnerability. |
-| [LICENSE](LICENSE) | Fair-code terms. |
-
-## What is not in this repository
-
-The catena-admin web panel is not built from this tree. It ships as a
-public container image, `ghcr.io/catenahq/catena-admin`, pullable
-anonymously by anyone: the binary ships as built, the image is signed,
-and its component inventory (CycloneDX SBOM) is published alongside it,
-so the thing that runs on a server can be inspected and scanned without
-asking Catena for anything.
-[Verify what you run](https://docs.catena.run/en/trust/verify-what-you-run/)
-walks through it.
-
-The panel is a convenience layer over the host-native automation here.
-Every operation it drives -- backup, restore, validate, converge -- runs
-from this repository without it, which is what keeps its absence from
-being a lock-in.
-
-## Develop
-
-Requires `uv`. This tree is Ansible and Python only; there is no Go in
-it.
-
-```
+```sh
 cd ansible
-uv run pytest
+uv run catena install --inventory prod
 ```
+
+4. Enter your Tailscale client id/secret and VPS user's password when prompted. **Those are not persisted anywhere after the install**. The installer with then complete the installation on your VPS.
+
+5. Save your **restic encryption key**, **ops user password** and **application admin password** shown at the end of installation to your password manager along with your Tailscale credentials and Cloudflare API token. You need the restic password to read and restore from your backups, and the ops password to log in to your VPS from your provider's console if Tailscale access is somehow unavailable.
+
+6. Login to the Catena-Admin interface at `http://<your-vps-tailnet-ip>:9010` with the admin email and password and go to the `Settings` tab to finish installation.
+   - Enter your Cloudflare API token to activate access to your apps through their subdomain URLs
+   - Enter your S3 credentials to enable backups
+  
+7. Install applications from the [Catena templates](https://github.com/catenahq/catena-templates) catalogue or configure your own based on them.
+
+
+## Why Tailscale and Cloudflared
+
+1. Access without a public/static IP: tunnels provide a direct access to the server regardless of whether it's being CGNAT or on an internal or public network
+2. No firewall configuration: the tunnels are created directly between the server and the tunnel access provider, bypassing routers and port forwarding
+3. DDoS and spam protection: with no open ports and no direct access through the IP address, all connections go through the tunnels and, in the case of Cloudflare, through their firewalls.
+
+Alternatives to Tailscale include Headscale and Netbird. Cloudflare alternatives include Pangolin. Hosting these services securely requires an additional VPS and creates a single, unprotected point of entry. This is a privacy vs security trade-off.
+
+## Day 2 operations
+
+The `catena` CLI provides other options than `install`. Run them from
+`ansible/`, verb first:
+
+```sh
+uv run catena converge         --inventory prod  # re-apply after a configuration or app change
+uv run catena validate         --inventory prod  # on-host + tailnet + external health checks
+uv run catena backup           --inventory prod  # take an on-demand snapshot
+uv run catena restore          --inventory prod  # in-place whole-host restore
+uv run catena rollback         --inventory prod  # roll a running server back to a prior snapshot
+uv run catena recover          --inventory prod  # rebuild onto a FRESH replacement box
+uv run catena rotate-tunnel    --inventory prod  # mint a new Cloudflare tunnel
+uv run catena rotate-tailscale --inventory prod  # re-authenticate to the private network
+uv run catena show-keyset      --inventory prod  # show the passwords and first-login URLs again
+uv run catena uninstall        --inventory prod  # hand unattended-upgrades back to the OS
+```
+
+A verb that runs one playbook carries that playbook's name, so
+`catena converge` runs `playbooks/converge.yml`. Running `catena` with no
+arguments prompts for the inventory and the operation.
+
+Some of these options are also available from the Catena-Admin app. The recommended method is to always use the Catena-Admin app running on the server to perform the operations, but the `catena` CLI is available as a break-glass should the panel be unavailable (which could happen if the disk is full).

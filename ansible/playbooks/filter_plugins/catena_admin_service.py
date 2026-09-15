@@ -1,11 +1,11 @@
-"""Ansible filters: the catena-admin panel as a tier-1 swarm service.
+"""Ansible filters: the catena-admin panel as a tier-1 swarm service, not a
+Portainer stack.
 
-The panel used to be deployed BY Portainer while holding the API key that
-drives Portainer. That circularity is what this module exists to break: a
-Portainer that will not start took the panel down with it, which is exactly
-when someone needs the panel to fix it. So the converge now creates the
-service directly, the same way roles/traefik, roles/postgres and
-roles/portainer do.
+The panel holds the API key that drives Portainer, so deploying it VIA
+Portainer would make it a dependent of the thing it exists to drive -- a
+Portainer that will not start would take down the only tool that could
+repair it. The converge creates the service directly instead, the same way
+reconcile/roles/traefik, reconcile/roles/postgres and reconcile/roles/portainer do.
 
 Three filters over one spec dict:
 
@@ -14,15 +14,15 @@ Three filters over one spec dict:
     catena_admin_secret_drift(inspect, ss)  -> --secret-add / --secret-rm flags
 
 WHY A SHARED RENDERER. Two consumers deploy this container and must agree
-on its shape: the converge (roles/catena-admin/tasks/deploy.yml) with the
+on its shape: the converge (reconcile/roles/catena-admin/tasks/deploy.yml) with the
 published GHCR image, and the test bench (ops
 automation/test_bench/orchestrator/catena_admin_deploy.py) with an image it
-built on the VPS. They used to share the shape through a compose file both
-pushed to the Portainer stack API. With no stack API in the path there is
-nothing to share unless something renders the argv for both, and the parts
-that MUST NOT drift are exactly the parts nobody looks at: eight mounts and
-six labels. So the mounts, the labels, the publish mode and the host-gateway
-alias live HERE as product facts, and the spec carries only what is
+built on the VPS. Both create the service directly against the local swarm,
+with no stack API between them to hold a shared compose file, so the only thing
+that can keep their argv identical is a renderer they both call. What MUST NOT
+drift is exactly what nobody reads: eight mounts and six labels. So the mounts,
+the labels, the publish mode and the host-gateway alias live HERE as product
+facts, and the spec carries only what is
 genuinely per-host.
 
 The bench imports this module by path, the way it already reads role files
@@ -181,6 +181,12 @@ def catena_admin_service_argv(spec):
 
     argv = [
         "docker", "service", "create",
+        # Without this the CLI waits for the service to converge -- and with
+        # --restart-condition=any below, a task that cannot start is retried
+        # forever, so the wait never ends. Under Ansible that is an install
+        # parked on this task with no output and no timeout. The convergence
+        # wait belongs in the play, where a failure can name the task error.
+        "--detach",
         f"--name={spec['name']}",
         f"--network={spec['network']}",
         # A panel that stays down after one bad exit is a panel nobody can

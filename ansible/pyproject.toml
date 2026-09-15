@@ -18,10 +18,10 @@ dependencies = [
 ]
 
 [project.scripts]
-# Expose the CLI as a bare `catena` console script so self-hosters run
-# `uv run catena install` (not `uv run ./catena`). catena_cli loads the
-# extensionless `catena` script (kept extensionless because the bench + docs
-# invoke it as ./catena) and re-exports its entry point.
+# The one way to run the CLI: `uv run catena <verb> --inventory <name>` from
+# ansible/. catena_cli IS the implementation, not a shim in front of one, so
+# the console script, the module the audit anchors on and the file to read are
+# the same file.
 catena = "catena_cli:_entry"
 
 [build-system]
@@ -39,7 +39,7 @@ dev = [
 testpaths = ["tests/unit"]
 
 [tool.setuptools]
-# catena_cli is the only importable module (the console-script shim). The rest
+# catena_cli is the only importable module (the CLI itself). The rest
 # of the tree (seed.py, helpers/, playbooks/, roles/) is run in place, not
 # packaged.
 py-modules = ["catena_cli"]

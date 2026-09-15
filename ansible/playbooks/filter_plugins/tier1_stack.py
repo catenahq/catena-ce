@@ -7,12 +7,12 @@ the compose ORACLE.
 
 WHAT APPLIES IS NOT HERE. The services are created and reconciled by the
 catena-admin host engine (payload/engines/tier1), dispatched per role from
-roles/tier1_stack/tasks/reconcile_one.yml. This module used to hold a second
-renderer, tier1_service_create_argv, which produced the `docker service create`
-argv the converge ran. Two renderers of the same spec in two languages agree
-only on the cases somebody wrote a fixture for, and the Ansible one was
-reachable only from a converge -- so a control plane that drifted at 3am waited
-for a laptop. The argv renderer now lives once, in Go, on the host.
+reconcile/roles/tier1_stack/tasks/reconcile_one.yml. The argv renderer (`docker
+service create` argv) lives once, in Go, on the host -- not duplicated here
+as a second Ansible renderer. Two renderers of the same spec in two
+languages would agree only on the cases somebody wrote a fixture for, and
+an Ansible-only renderer is reachable only from a converge, so a control
+plane that drifted at 3am would wait for a laptop.
 
 WHAT THIS RENDER IS FOR
 
@@ -65,7 +65,7 @@ SWARM COMPOSE TRAPS, EVERY ONE VERIFIED AGAINST `docker stack config`
     this renderer refuses to emit it and the unit test pins that.
 
 No `version:` key is emitted. The compose loader stamps its own (3.13 on
-the CLI this was verified against) and treats a declared one as obsolete.
+the CLI this is verified against) and treats a declared one as obsolete.
 
 SECRETS. Swarm secrets are immutable, so a rotated value must arrive
 under a NEW name or the container mounts the old bytes forever. Names are
@@ -331,8 +331,8 @@ def tier1_spec_upsert(existing, spec):
     rendered file and the spec the engine applies reading the SAME variable.
     Replace rather
     than append because a role can legitimately run twice in one converge:
-    site.yml re-runs coturn in post_tasks, because the post-restore hooks
-    bring the TURN consumer up after roles/coturn already probed for one and
+    converge.yml re-runs coturn in post_tasks, because the post-restore hooks
+    bring the TURN consumer up after reconcile/roles/coturn already probed for one and
     correctly found none. Appending would hand the renderer a duplicate name
     and fail the converge on the recovery path specifically.
     """

@@ -115,8 +115,8 @@ def _key_already_works(host: str, user: str, privkey: str) -> bool:
 
     When `privkey` points at a file the caller can read, ssh pins to it
     via `-i` + `IdentitiesOnly=yes` to avoid drifting onto an unrelated
-    agent identity. When the file is unreadable (e.g. running inside the
-    Semaphore worker container, where the host's 0600 key files are not
+    agent identity. When the file is unreadable (e.g. running inside an
+    automation container, where the host's 0600 key files are not
     accessible to the container user), fall through to whatever
     identities `$SSH_AUTH_SOCK` offers -- the authorised key is the
     same, the auth path is just agent-mediated.
@@ -341,15 +341,13 @@ def _drive_ssh_session(child, password, pubkey_line, host, user):
     # idempotently. Each command MUST stay under Linux's pty
     # canonical-mode line limit (MAX_CANON, 255 bytes) -- exceed it
     # and the line is silently truncated, the truncated half is
-    # bash-syntax-invalid, and bash drops it without a visible error.
-    # The previous inline form embedded pubkey_line TWICE + sudo + the
-    # matcher + tee + redirects + marker -> ~330 chars; auth.log
-    # showed mkdir/chmod ran but the `sudo tee` part of the second
-    # command never fired (key was never written, /root/.ssh/
-    # authorized_keys stayed empty, _key_already_works returned
-    # False, install_key.py exited rc=5 -- "key install completed but
-    # root key auth verification failed"). Bench-39 reproduced this
-    # 4 runs in a row.
+    # bash-syntax-invalid, and bash drops it without a visible error. A
+    # single combined command (pubkey_line embedded twice + sudo + the
+    # matcher + tee + redirects + marker, ~330 chars) truncates right
+    # where the `sudo tee` half sits: mkdir/chmod run in auth.log, the
+    # key is never written, /root/.ssh/authorized_keys stays empty,
+    # _key_already_works returns False, and install_key.py exits rc=5
+    # ("key install completed but root key auth verification failed").
     #
     # Stage the pubkey to a temp file first so the idempotency check
     # + append commands reference it by path. Every command stays

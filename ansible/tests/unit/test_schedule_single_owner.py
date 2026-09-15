@@ -1,16 +1,15 @@
 """Scheduling, retention, and every host config file have exactly one owner.
 
-Every defect this replaced was a second source of truth:
+Every defect in this family is a second source of truth:
 
-  - retention was templated into backup.env AND read from flat
-    config.BACKUP_KEEP_* keys at runtime -- and backup.env is written
-    only-if-absent, so on any host that already had it the converge's copy
-    was dead while the store's copy was live;
-  - the tier filter existed twice, in this repo and in ops, and the ops test
-    suite imported the ops copy that no playbook used;
-  - timer enable would have been owned by both this role and
-    `catena-schedule apply`, which disagree the moment somebody turns a lane
-    off in the panel and the next converge turns it back on.
+  - retention templated into backup.env AND read from flat config.BACKUP_KEEP_*
+    keys at runtime -- and backup.env is written only-if-absent, so on a host
+    that already has it one copy is live and the other is dead;
+  - the tier filter written twice, in this repo and in ops, with the ops test
+    suite importing the ops copy that no playbook runs;
+  - timer enable owned by both this role and `catena-schedule apply`, which
+    disagree the moment somebody turns a lane off in the panel and the next
+    converge turns it back on.
 
 So these are structural assertions, not behavioural ones. They fail when a
 second writer appears.
@@ -24,12 +23,14 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-BACKUP_INSTALL = ANSIBLE / "roles" / "backup" / "tasks" / "install.yml"
-BACKUP_ENV = ANSIBLE / "roles" / "backup" / "templates" / "backup.env.j2"
-BACKUP_DEFAULTS = ANSIBLE / "roles" / "backup" / "defaults" / "main.yml"
-ADMIN_HOST = ANSIBLE / "roles" / "catena-admin" / "tasks" / "host.yml"
-ADMIN_DEPLOY = ANSIBLE / "roles" / "catena-admin" / "tasks" / "deploy.yml"
-DAILY_ENV = ANSIBLE / "roles" / "catena-admin" / "templates" / "daily.env.j2"
+BACKUP_INSTALL = ANSIBLE / "reconcile" / "roles" / "backup" / "tasks" / "install.yml"
+BACKUP_ENV = ANSIBLE / "reconcile" / "roles" / "backup" / "templates" / "backup.env.j2"
+BACKUP_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "backup" / "defaults" / "main.yml"
+ADMIN_HOST = ANSIBLE / "bootstrap" / "roles" / "catena_admin_host" / "tasks" / "main.yml"
+ADMIN_DEPLOY = ANSIBLE / "reconcile" / "roles" / "catena-admin" / "tasks" / "deploy.yml"
+DAILY_ENV = ANSIBLE / "bootstrap" / "roles" / "catena_admin_host" / "templates" / "daily.env.j2"
+GROUP_VARS = ANSIBLE / "playbooks" / "group_vars" / "all" / "main.yml"
+ONBOX_CONFIG = ANSIBLE / "helpers" / "onbox_config.py"
 
 KEEP_KEYS = (
     "BACKUP_KEEP_LAST", "BACKUP_KEEP_HOURLY", "BACKUP_KEEP_DAILY",
@@ -61,10 +62,32 @@ def test_retention_is_not_templated_into_backup_env():
 
 
 def test_this_repo_sets_no_retention_default():
-    body = _code(BACKUP_DEFAULTS)
-    for gone in ("backup_retention_policy", "backup_retention_defaults"):
-        assert gone not in body, (
-            f"{gone} makes this repo a second writer of a value the panel owns"
+    # Both files, not just the role default. The dict was removed from
+    # reconcile/roles/backup/defaults and reappeared in group_vars/all/main.yml, where
+    # this assertion could not see it -- and it stayed there, read by no role,
+    # template or playbook, so an operator could set BACKUP_KEEP_DAILY=30 in
+    # .env, converge clean, and keep 7.
+    for path in (BACKUP_DEFAULTS, GROUP_VARS):
+        body = _code(path)
+        for gone in ("backup_retention_policy", "backup_retention_defaults"):
+            assert gone not in body, (
+                f"{gone} is back in {path.name}: it makes this repo a second "
+                "writer of a value the panel owns, and the last copy was not a "
+                "writer at all -- nothing read it"
+            )
+
+
+def test_no_retention_key_is_seeded_into_the_store():
+    # BOOTSTRAP_CONFIG is what the inventory may put in the store. Three of the
+    # keep keys were in it, described as seeding the store -- into flat config
+    # keys the wrapper stopped reading when retention got its single owner. A
+    # value stored and never read is indistinguishable, from the operator's
+    # side, from one that took effect.
+    body = _code(ONBOX_CONFIG)
+    for key in KEEP_KEYS:
+        assert f'"{key}"' not in body, (
+            f"{key} is declared in onbox_config.py again; retention reaches the "
+            "store as the backup_retention object, written by catena-schedule"
         )
 
 
@@ -145,11 +168,11 @@ def test_the_daily_env_does_not_carry_a_schedule():
 
 # ─── the other lanes can start at all ──────────────────────────────────
 #
-# daily.env was not the only one. catena-auto-update{,@,-resume}.service and
+# daily.env is not the only one. catena-auto-update{,@,-resume}.service and
 # catena-stack-update-managed.service declare their EnvironmentFile with no
 # leading dash too, and the container engine's --specs-file defaults to a path
-# nothing wrote. All four were missing on every real host for the same reason,
-# and stayed invisible for the same reason: the bench shipped its own copies.
+# nothing writes. All four go missing on a real host for the same reason, and
+# stay invisible for the same reason: the bench ships its own copies.
 
 LANE_CONFIG_TEMPLATES = (
     "auto-update.env.j2",
@@ -184,37 +207,42 @@ def test_the_secret_bearing_lane_config_is_not_world_readable():
         assert str(tpl["mode"]) == "0600", f"{src} must be 0600"
 
 
-def test_the_worm_env_is_rendered_every_converge_not_only_if_absent():
+def test_the_offsite_env_is_rendered_every_converge_not_only_if_absent():
     # backup.env next door is only-if-absent so a converge never clobbers a
-    # rotated credential. The WORM coordinates have to be able to change --
-    # an operator adding a cold tier to an existing host would otherwise write
-    # into a file nothing rewrites, which is the retention bug again.
+    # rotated credential. The lane's dead-man endpoints have to be able to
+    # change -- an operator pointing them off-host on an existing host would
+    # otherwise write into a file nothing rewrites, the retention bug again.
     tasks = yaml.safe_load(BACKUP_INSTALL.read_text())
     renders = [
         t for t in tasks
         if str(t.get("ansible.builtin.template", {}).get("src", ""))
-        == "backup-worm.env.j2"
+        == "offsite.env.j2"
     ]
-    assert len(renders) == 1, "backup-worm.env must be rendered exactly once"
+    assert len(renders) == 1, "offsite.env must be rendered exactly once"
     assert "when" not in renders[0], (
-        "backup-worm.env must be unconditional: every value in it is "
-        "legitimately blank, and blank means the mirror skips"
+        "offsite.env must be unconditional: both values in it are "
+        "legitimately blank, and blank means the lane pings nothing"
     )
-    assert renders[0].get("no_log") is True, "it carries the cold-tier keys"
 
 
-def test_the_worm_env_is_the_only_place_the_worm_keys_are_written():
-    # They were in neither file before this, which is why the cold mirror
-    # reported "WORM unconfigured" on every host it ever ran on.
-    assert "BACKUP_WORM_REPO" not in _code(BACKUP_ENV), (
-        "the WORM coordinates cannot live in backup.env: it is written "
-        "only-if-absent and they have to be able to change"
-    )
-    worm_env = ANSIBLE / "roles" / "backup" / "templates" / "backup-worm.env.j2"
-    body = _code(worm_env)
-    for key in ("BACKUP_WORM_REPO", "BACKUP_WORM_ACCESS_KEY_ID",
-                "NEXTCLOUD_WORM_REPO"):
+def test_which_buckets_get_copied_is_not_a_converge_input():
+    # Nine converge keys across backup-worm.env and the settings schema can
+    # describe exactly two copies, named after the buckets they happen to point
+    # at. The list lives in /etc/catena/config.json instead, which catena-admin
+    # writes and the lane reads straight off disk -- so a client adding a copy
+    # does not need a converge, and no key here can go
+    # stale against it.
+    offsite_env = ANSIBLE / "reconcile" / "roles" / "backup" / "templates" / "offsite.env.j2"
+    body = _code(offsite_env)
+    for key in ("OFFSITE_HEALTHCHECK_URL", "OFFSITE_HEALTHCHECK_ATTEMPTED_URL"):
         assert key in body
+    for gone in ("BACKUP_WORM_REPO", "BACKUP_WORM_ACCESS_KEY_ID",
+                 "NEXTCLOUD_WORM_REPO", "NEXTCLOUD_LIVE_REPO"):
+        assert gone not in body, (
+            f"{gone} is back in a converge-rendered file; the copy list has "
+            "one owner and it is the config store"
+        )
+        assert gone not in _code(BACKUP_ENV)
 
 
 def test_the_managed_lane_needs_no_copy_of_how_traefik_was_built():
@@ -224,7 +252,7 @@ def test_the_managed_lane_needs_no_copy_of_how_traefik_was_built():
     # spec, free to drift from it -- and a lane running a drifted copy
     # relaunches traefik with the wrong mounts.
     specs = _code(
-        ANSIBLE / "roles" / "catena-admin" / "templates"
+        ANSIBLE / "bootstrap" / "roles" / "catena_admin_host" / "templates"
         / "managed-services.json.j2"
     )
     # Assert on the JSON keys, not bare words: the Jinja {# #} header names
@@ -240,7 +268,7 @@ def test_the_managed_lane_needs_no_copy_of_how_traefik_was_built():
     )
     assert '"kind": "infra-swarm"' in specs
 
-    traefik_tasks = _code(ANSIBLE / "roles" / "traefik" / "tasks" / "main.yml")
+    traefik_tasks = _code(ANSIBLE / "reconcile" / "roles" / "traefik" / "tasks" / "main.yml")
     assert "docker run" not in traefik_tasks, (
         "catena-traefik must stay a swarm service; a plain container attaches "
         "to catena-network by ID, so an overlay rebuild strands it with "

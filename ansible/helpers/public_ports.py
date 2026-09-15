@@ -31,7 +31,7 @@ Two feeders, one merged effective set:
     them publicly).
 
 The host reconciler (vps-scripts/catena-public-ports.py) reads the infra
-JSON rendered by roles/common/tasks/public_ports.yml PLUS the live
+JSON rendered by reconcile/roles/public_ports/tasks/main.yml PLUS the live
 `vps.expose.*` labels off running containers, merges them here, applies the
 rule plan idempotently, and re-renders the effective-set JSON + the operator
 inventory doc. validate.yml and tests/external/public-ports.yml read the
@@ -67,7 +67,7 @@ VALID_PROTOS = ("tcp", "udp")
 # Beszel hub are each dialled by a HOST process (gatus-sync, the clamav
 # watchdog, the mail canary, beszel-seed, the host-network agent), so the
 # publish cannot simply be dropped. Declaring the port `loopback` keeps the
-# posture the 127.0.0.1 bind used to give -- reachable from the box, denied
+# posture a 127.0.0.1 bind gives -- reachable from the box, denied
 # on every other interface -- and makes it enforced and auditable rather
 # than a property of a compose string.
 VALID_SCOPES = ("any", "tailnet", "rfc1918", "loopback")

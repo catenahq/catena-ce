@@ -52,6 +52,15 @@ def test_the_image_is_last_and_carries_no_command():
     assert argv[:3] == ["docker", "service", "create"]
 
 
+def test_the_create_does_not_block_on_convergence():
+    """Without --detach the CLI waits for the service to converge, and
+    --restart-condition=any means a task that cannot start is retried forever
+    -- so the wait never returns and the install parks here with no output.
+    The play polls for Running instead, bounded, and can name the task error."""
+    argv = _plugin().catena_admin_service_argv(_spec())
+    assert "--detach" in argv
+
+
 def test_the_port_is_published_host_mode():
     # An ingress publish would put the native-login listener on the routing
     # mesh, where the public-ports registry's tailnet firewall does not
@@ -190,3 +199,96 @@ def test_an_unchanged_secret_reports_no_drift():
         _live(secrets=[{"SecretName": "k-abc12345", "File": {"Name": "K"}}]),
         [{"name": "k-abc12345", "target": "K"}],
     ) == []
+
+
+# ─── the host facts the panel's own links are built from ──────────────────
+
+DEPLOY = (
+    Path(__file__).resolve().parents[2]
+    / "reconcile" / "roles" / "catena-admin" / "tasks" / "deploy.yml"
+)
+
+
+def _converge_env() -> dict:
+    """The env dict the converge builds into the service spec."""
+    import yaml
+
+    tasks = [t for t in yaml.safe_load(DEPLOY.read_text()) if isinstance(t, dict)]
+    spec = next(
+        t["ansible.builtin.set_fact"]["_ca_spec"]
+        for t in tasks
+        if "_ca_spec" in (t.get("ansible.builtin.set_fact") or {})
+    )
+    return spec["env"]
+
+
+@pytest.mark.parametrize("name", [
+    "INFRA_GATUS_HOSTNAME",
+    "INFRA_HEARTBEAT_HOSTNAME",
+    "INFRA_BESZEL_HOSTNAME",
+    "INFRA_PORTAINER_HOSTNAME",
+])
+def test_the_converge_names_every_public_hostname_the_panel_links_to(name):
+    """Each of these is a per-host name the panel cannot derive: it builds the
+    "open in <service>" links and the Portainer console tile out of them, and an
+    empty one makes the panel drop the link rather than render a dead one. So a
+    name silently stopping being passed removes a working link with no error
+    anywhere -- which is what INFRA_PORTAINER_HOSTNAME's absence did to the Apps
+    tab, where Portainer can never appear on its own because it is not one of
+    its own stacks."""
+    env = _converge_env()
+    assert name in env, f"{name} is no longer passed to the panel"
+    assert env[name].strip(), f"{name} is passed empty"
+
+
+# ─── the reconcile has to settle ──────────────────────────────────────────
+
+def _deploy_tasks() -> list[dict]:
+    import yaml
+
+    return [t for t in yaml.safe_load(DEPLOY.read_text()) if isinstance(t, dict)]
+
+
+def test_the_reconcile_checks_that_it_settled():
+    """Docker no-ops an update to a spec it already holds.
+
+    So a comparison that reads converged state as drift exits 0, restarts
+    nothing, and reports the service changed on every converge for ever --
+    silently, because there is nothing to see. The image reference asymmetry was
+    one instance of it. Rather than audit each field and hope the list is
+    complete, the role applies, re-inspects and diffs again: a field that
+    reports drift against state it just wrote reports it twice.
+
+    This is what stops that class of defect being invisible, so it is what a
+    future edit must not quietly drop.
+    """
+    tasks = _deploy_tasks()
+    names = [t.get("name", "") for t in tasks]
+    settle = next(
+        (t for t in tasks if "assert" in str(t.keys()) and "settled" in t.get("name", "")),
+        None,
+    )
+    assert settle is not None, (
+        "the post-reconcile settle assertion is gone; a drift comparison that "
+        "never converges is undetectable without it"
+    )
+    reinspect = [n for n in names if "re-inspect" in n]
+    assert reinspect, "the settle assertion has no re-inspect to read"
+    assert names.index(reinspect[0]) > names.index(
+        next(n for n in names if "reconcile the service spec" in n)), (
+        "the re-inspect runs before the update it is supposed to check"
+    )
+
+
+def test_the_settle_check_is_not_a_retry():
+    """One re-application would hide exactly the bug this looks for: the spec
+    would be rewritten, docker would no-op again, and the second pass would
+    report converged for the same wrong reason as the first."""
+    for task in _deploy_tasks():
+        if "settled" not in task.get("name", ""):
+            continue
+        assert "ansible.builtin.assert" in task, (
+            "the settle check stopped being an assertion"
+        )
+        assert "retries" not in task and "until" not in task
+

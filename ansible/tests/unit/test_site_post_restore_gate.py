@@ -1,6 +1,6 @@
 """A tag-scoped converge must not select a task whose producer it filters out.
 
-site.yml's post_tasks register `_site_post_restore` on the hook-runner task
+converge.yml's post_tasks register `_site_post_restore` on the hook-runner task
 and then read it from consumers. Ansible evaluates `when` only for tasks the
 tag filter SELECTED, and a task the filter dropped registers nothing -- so a
 consumer reachable under a tag set that does not also reach the producer sees
@@ -31,7 +31,7 @@ from pathlib import Path
 import yaml
 
 SITE = (
-    Path(__file__).resolve().parents[2] / "playbooks" / "site.yml"
+    Path(__file__).resolve().parents[2] / "playbooks" / "converge.yml"
 )
 REGISTER = "_site_post_restore"
 
@@ -41,7 +41,7 @@ def _post_tasks() -> list[dict]:
     for play in plays:
         if play.get("post_tasks"):
             return play["post_tasks"]
-    raise AssertionError("site.yml has no play with post_tasks")
+    raise AssertionError("converge.yml has no play with post_tasks")
 
 
 def _tags(task: dict) -> set[str]:
@@ -129,7 +129,7 @@ def test_the_rerun_waits_for_a_redeployed_consumer_to_reach_running():
     assert int(task["retries"]) > 0 and int(task["delay"]) > 0
     assert task["failed_when"] is False, (
         "exhausting the window must not fail the converge -- a genuinely broken "
-        "consumer is roles/coturn's gate to report by skipping"
+        "consumer is reconcile/roles/coturn's gate to report by skipping"
     )
 
 

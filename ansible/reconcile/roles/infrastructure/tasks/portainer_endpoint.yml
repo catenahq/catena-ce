@@ -1,0 +1,63 @@
+---
+# Assert that Portainer has the local Docker environment reconcile/roles/portainer
+# creates, and report its id.
+#
+# Nothing in the converge deploys through the Portainer stack API any
+# more, so this is a HEALTH GATE rather than a lookup: a Portainer whose
+# endpoint creation silently failed answers every later call with an empty
+# list, and the failure would otherwise surface as an application the
+# client cannot deploy.
+#
+# Portainer has no "project" concept; stacks are grouped by their Name prefix
+# instead. The local Docker endpoint is provisioned by reconcile/roles/portainer (POST
+# /api/endpoints, EndpointCreationType=1) on a full converge; here we only look
+# it up so tag-filtered `--tags infrastructure` runs still resolve it
+# independently.
+
+- name: "Portainer: list environments (endpoints)"
+  ansible.builtin.uri:
+    url: "{{ portainer_api_base }}/endpoints"
+    method: GET
+    headers:
+      X-API-Key: "{{ portainer_api_key }}"
+    status_code: 200
+    return_content: true
+  register: _portainer_endpoints
+  delegate_to: localhost
+  become: false
+  # Portainer can be momentarily unreachable when this role runs right after
+  # a heavy converge / swarm reschedule. Wait for the API instead of failing.
+  retries: 30
+  delay: 5
+  until: _portainer_endpoints.status == 200
+
+# Pick the local Docker endpoint. reconcile/roles/portainer names it deterministically
+# (portainer_local_endpoint_name); fall back to the first Docker endpoint
+# (Type 1 = Docker/local) so a manually-added endpoint still resolves.
+- name: "Portainer: resolve local endpoint id"
+  ansible.builtin.set_fact:
+    _portainer_endpoint_id: >-
+      {{
+        (
+          (_portainer_endpoints.json
+            | selectattr('Name', 'equalto', portainer_local_endpoint_name | default('catena-local'))
+            | list)
+          + (_portainer_endpoints.json | selectattr('Type', 'equalto', 1) | list)
+          + (_portainer_endpoints.json | list)
+        ) | map(attribute='Id') | first | default('')
+      }}
+
+- name: "Portainer: assert an endpoint id resolved"
+  ansible.builtin.assert:
+    that:
+      - _portainer_endpoint_id is defined
+      - (_portainer_endpoint_id | string | length) > 0
+    fail_msg: >-
+      No Portainer environment (endpoint) found. reconcile/roles/portainer should have
+      created the local Docker endpoint (POST /api/endpoints,
+      EndpointCreationType=1) on the converge. Endpoints seen:
+      {{ _portainer_endpoints.json | default([]) | map(attribute='Name') | list }}
+
+- name: "Portainer: environment resolved"
+  ansible.builtin.debug:
+    msg: "Portainer endpoint id = {{ _portainer_endpoint_id }}"

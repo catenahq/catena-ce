@@ -1,0 +1,141 @@
+---
+# The half of a converge that does not need an operator.
+#
+# Same roles as converge.yml, in the same order, minus the five an operator has to
+# run and minus the post-install steps that only make sense on a fresh box. What
+# is left is the work a host can do to itself: render config from the image,
+# reconcile swarm services, install units, apply the schedule.
+#
+# THIS IS WHAT A HOST RUNS AGAINST ITSELF. catena-admin's catena-converge copies
+# the tree out of the panel image it is running, writes a one-host inventory
+# naming the box by its own hostname, and runs THIS file. Which roles belong
+# here is boundary.yml, and tests/unit/test_converge_boundary.py holds the two
+# files to each other, so the set is a declaration rather than a decision taken
+# at the moment of extraction.
+#
+# It takes nothing from an operator's inventory -- the count reached zero and
+# the ratchet refuses to let it grow again -- but zero is a floor, not a
+# verdict. The ratchet counts variables a role names directly, and most of the
+# eighteen had defaults, so a value that stopped arriving reconfigures quietly
+# rather than failing. Whether this produces the same host as converge.yml is a
+# bench install, not a unit test.
+#
+# An operator can also run it directly, against a converged host, to exercise
+# the subset:
+#   ansible-playbook -i inventory/<name> playbooks/reconcile.yml
+- name: Reconcile a VPS from its on-box configuration
+  hosts: "{{ stage_hosts | default('vps') }}"
+  become: true
+  gather_facts: true
+
+  vars:
+    # The floor, here rather than in a role's defaults, because the assertion
+    # that reads it runs in pre_tasks where role defaults are not in scope.
+    # bootstrap/roles/ansible_runtime carries the same number as
+    # ansible_runtime_minimum and tests/unit/test_ansible_runtime_pin.py holds
+    # the two together.
+    catena_reconcile_min_ansible: "2.20"
+
+  pre_tasks:
+    # REFUSE FIRST, and say which version. This runs on a host, unattended,
+    # under a transient systemd unit -- so the alternative to one sentence here
+    # is a module failing eleven roles in with a message about a keyword, on a
+    # machine nobody is watching, having already half-converged it.
+    #
+    # bootstrap/roles/ansible_runtime installs the range; this is the floor a host may
+    # RUN. They are different questions: a host converged a year ago runs
+    # whatever ansible-core it received at that converge, and the answer has
+    # to come from the runtime rather than from what the current tree would
+    # have installed.
+    - name: "The ansible-core running this is new enough"
+      ansible.builtin.assert:
+        that:
+          - ansible_version.full is version(catena_reconcile_min_ansible, '>=')
+        fail_msg: >-
+          This reconcile needs ansible-core {{ catena_reconcile_min_ansible }}
+          or newer and is running {{ ansible_version.full }}. The runtime at
+          /opt/catena/ansible is what bootstrap installed; re-run bootstrap, or
+          converge from an operator controller, to move it. Refusing here rather
+          than failing partway through a converge on a host nobody is watching.
+      run_once: true
+      tags: [always]
+
+    # The store is the desired state. Loaded first for the same reason converge.yml
+    # loads it first: every role below reads cfg_* facts projected from it.
+    # include_tasks with apply:, exactly as converge.yml does it and for the reason
+    # converge.yml gives: without apply the include fires but the set_fact tasks
+    # inside it are filtered out under any --tags run, so every role silently
+    # falls back to raw inventory values.
+    - name: "Load the on-box config store"
+      ansible.builtin.include_tasks:
+        file: tasks/load_onbox_config.yml
+        apply:
+          tags: [always, onbox]
+      tags: [always, onbox]
+
+  roles:
+    # First, as in converge.yml: every role below drops a fragment into the
+    # registry this installs.
+    - { role: public_ports, tags: [public_ports] }
+    - { role: payload, tags: [payload] }
+    - { role: traefik, tags: [traefik] }
+    - { role: postgres, tags: [postgres] }
+    - { role: portainer, tags: [portainer] }
+    - { role: cloudflare_tunnel, tags: [cloudflare_tunnel, cloudflare] }
+    - { role: keycloak, tags: [keycloak, auth] }
+    - { role: oauth2_proxy, tags: [oauth2_proxy, auth] }
+    - { role: infrastructure, tags: [infrastructure] }
+    # The panel's container and its action catalog. Its trust path -- the runner
+    # account, the sudoers drop-in, the forced command -- is roles/
+    # catena_admin_host, which is bootstrap-side and deliberately absent here.
+    - { role: catena-admin, tags: [catena_admin] }
+    - { role: coturn, tags: [coturn] }
+    - { role: backup, tags: [backup] }
+
+  post_tasks:
+    # The declarative public-port registry, reconciled after every role has
+    # dropped its fragment. The firewall's default-deny policy is bootstrap's;
+    # this only opens what the deployed apps declare.
+    - name: "Public ports: reconcile firewall from registry"
+      ansible.builtin.systemd_service:
+        name: catena-public-ports.service
+        state: restarted
+      changed_when: true
+      tags: [public_ports]
+
+    # Report -- never repair -- changes to the files boundary.yml puts on the
+    # operator's side. A converge does not write them; this task is what keeps
+    # that rule from also meaning blindness to them.
+    - name: "Bootstrap drift: report changes to operator-owned files"
+      ansible.builtin.include_tasks:
+        file: tasks/report_bootstrap_drift.yml
+        apply:
+          tags: [bootstrap_drift]
+      vars:
+        catena_converge_path: reconcile
+      tags: [bootstrap_drift]
+
+    # Remove what a previous converge installed and this one does not ship.
+    # Before the release manifest, so a converge that fails here does not
+    # record itself as finished.
+    - name: "Prune: remove files withdrawn from the product"
+      ansible.builtin.include_tasks:
+        file: tasks/prune_withdrawn_files.yml
+        apply:
+          tags: [prune]
+      vars:
+        catena_converge_path: reconcile
+      tags: [prune]
+
+    # Record what this converge delivered. The same file converge.yml includes:
+    # the panel reads this manifest to tell "this feature is off" from "this
+    # host's converge predates it", and an on-host converge that left it
+    # describing an operator's last run made that answer a lie.
+    - name: "Release: record what this converge delivered"
+      ansible.builtin.include_tasks:
+        file: tasks/record_release_manifest.yml
+        apply:
+          tags: [release_manifest]
+      vars:
+        catena_converge_path: reconcile
+      tags: [release_manifest]

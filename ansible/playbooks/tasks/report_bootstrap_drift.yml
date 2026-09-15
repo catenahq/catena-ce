@@ -1,0 +1,158 @@
+---
+# Report changes to the files a reconcile may never write.
+#
+# boundary.yml's `bootstrap_owned_paths` is the invariant "a reconcile may not
+# modify anything that would remove your ability to run a reconcile", turned
+# into a list of literals. It is the right rule and this does not touch it:
+# nothing here writes, chmods or repairs. Repair is bootstrap's, which is
+# question one of the boundary.
+#
+# What it removes is the silence. Those six paths had no reader anywhere on the
+# host, so a change to the forced command, the sudoers drop-in or the SSH trust
+# path was invisible until an operator went looking -- and the thing that makes
+# an operator go looking is already suspecting something.
+#
+# The baseline is what the last converge saw. filter_plugins/bootstrap_drift.py
+# carries what that can and cannot tell you.
+
+- name: "Bootstrap drift: the paths a reconcile may never write"
+  ansible.builtin.set_fact:
+    # Read from boundary.yml rather than restated. That file is the
+    # declaration, and a second copy here is a second thing to keep true --
+    # with the failure mode that the copy goes stale and the report quietly
+    # stops covering whatever was added to the real list.
+    _drift_owned: >-
+      {{ (lookup('file', catena_boundary_path) | from_yaml)
+         .bootstrap_owned_paths | default([]) }}
+
+- name: "Bootstrap drift: split the list into directories and single files"
+  ansible.builtin.set_fact:
+    # A trailing slash is how boundary.yml writes a directory. `authorized_keys`
+    # is neither -- it is a basename, because the file lives in whichever home
+    # the runner account has -- so it is searched for rather than stat'd.
+    _drift_dirs: "{{ _drift_owned | select('match', '^/.*/$') | list }}"
+    _drift_files: >-
+      {{ _drift_owned | select('match', '^/.*[^/]$') | list }}
+    _drift_basenames: "{{ _drift_owned | reject('match', '^/') | list }}"
+
+- name: "Bootstrap drift: read the directories"
+  ansible.builtin.find:
+    paths: "{{ _drift_dirs }}"
+    recurse: true
+    file_type: file
+    get_checksum: true
+    checksum_algorithm: sha256
+  register: _drift_found
+  failed_when: false
+
+- name: "Bootstrap drift: read the named files"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    checksum_algorithm: sha256
+  loop: "{{ _drift_files }}"
+  register: _drift_stat
+  failed_when: false
+
+# authorized_keys by basename: the forced command's key file is the one that
+# decides what the panel may ask this host to do, and it lives under an account
+# whose home this play does not otherwise need to know.
+- name: "Bootstrap drift: read every authorized_keys that decides SSH access"
+  ansible.builtin.find:
+    paths: [/root, /home]
+    recurse: true
+    patterns: "{{ _drift_basenames }}"
+    file_type: file
+    get_checksum: true
+    checksum_algorithm: sha256
+  register: _drift_keys
+  failed_when: false
+  when: _drift_basenames | length > 0
+
+- name: "Bootstrap drift: the picture as it is now"
+  ansible.builtin.set_fact:
+    _drift_current: >-
+      {{ [_drift_found, _drift_keys]
+         | bootstrap_digests(_drift_stat.results | default([])) }}
+
+- name: "Bootstrap drift: what the last converge saw"
+  ansible.builtin.slurp:
+    src: "{{ catena_bootstrap_drift_path }}"
+  register: _drift_previous_raw
+  failed_when: false
+
+- name: "Bootstrap drift: parse it, or treat it as absent"
+  vars:
+    _raw: >-
+      {{ (_drift_previous_raw.content | b64decode | trim)
+         if (_drift_previous_raw.content is defined) else '' }}
+  ansible.builtin.set_fact:
+    _drift_previous: >-
+      {{ (_raw | from_json)
+         if (_raw.startswith('{') and _raw.endswith('}'))
+         else {} }}
+
+- name: "Bootstrap drift: compare"
+  ansible.builtin.set_fact:
+    _drift: >-
+      {{ (_drift_previous.digests | default({}))
+         | bootstrap_drift(_drift_current) }}
+
+- name: "Bootstrap drift: first look at this host"
+  ansible.builtin.debug:
+    msg: >-
+      Recorded {{ _drift_current | length }} bootstrap-owned file(s) at
+      {{ catena_bootstrap_drift_path }}. No previous record, so this converge
+      has nothing to compare against and reports no drift -- the baseline is
+      what is on the host now, not what should be.
+  when: "'digests' not in _drift_previous"
+
+- name: "Bootstrap drift: nothing moved"
+  ansible.builtin.debug:
+    msg: >-
+      The {{ _drift_current | length }} bootstrap-owned file(s) are unchanged
+      since the last converge.
+  when:
+    - "'digests' in _drift_previous"
+    - (_drift.added | length + _drift.removed | length + _drift.changed | length) == 0
+
+# Reported, NOT failed. These files are outside this play's authority by
+# design, and a converge that refused to run because one of them moved would be
+# a reconcile taking a position on bootstrap's work -- while also taking the
+# host's only unattended repair path offline over a report.
+- name: "Bootstrap drift: files outside this converge's authority have moved"
+  ansible.builtin.debug:
+    msg: |
+      Files boundary.yml puts on the operator's side of the line have changed
+      since the last converge. Nothing in a converge writes these, so a
+      converge did not do this.
+
+        added:   {{ _drift.added | join(', ') | default('(none)', true) }}
+        removed: {{ _drift.removed | join(', ') | default('(none)', true) }}
+        changed: {{ _drift.changed | join(', ') | default('(none)', true) }}
+
+      Expected if someone re-ran bootstrap, rotated a key or installed a
+      package that ships a sysctl or modprobe drop-in. Not expected otherwise,
+      and the forced command, the sudoers drop-in and the SSH trust path are
+      the three where "not expected" is worth acting on: they are what decides
+      what the panel may ask this host to do.
+  when:
+    - "'digests' in _drift_previous"
+    - (_drift.added | length + _drift.removed | length + _drift.changed | length) > 0
+
+- name: "Bootstrap drift: record what this converge saw"
+  ansible.builtin.copy:
+    dest: "{{ catena_bootstrap_drift_path }}"
+    owner: root
+    group: root
+    # 0600: it lists the files that decide root access on this host, with their
+    # digests. Nothing secret, but nothing that needs a wider reader either.
+    mode: "0600"
+    content: |
+      {{ {
+           'schema': 1,
+           'observed_at': ansible_date_time.iso8601 | default(''),
+           'converged_by': catena_converge_path,
+           'drift': _drift,
+           'digests': _drift_current,
+         } | to_nice_json }}
+  changed_when: false

@@ -387,7 +387,7 @@ def build_service_row(svc: dict, overrides: dict) -> dict:
     else:
         up_to_date = is_up_to_date(tag, latest)
         status = "up-to-date" if up_to_date else "outdated"
-        display_label = f"{tag} ✓" if up_to_date else f"{tag} → {latest}"
+        display_label = f"{tag} ✓" if up_to_date else f"{tag} -> {latest}"
         display_state = "success" if up_to_date else "warning"
 
     return {

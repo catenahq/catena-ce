@@ -15,24 +15,24 @@
 #
 # After Phase 2, the box is reachable over Tailscale. The steady-state host
 # entry (under the `vps:` inventory group) gets its ansible_host auto-updated
-# to the new tailnet IP by the post_tasks below. Run site.yml next -- it targets
-# the `vps:` group and closes public 22 via roles/common/tasks/ufw_lockdown.yml.
+# to the new tailnet IP by the post_tasks below. Run converge.yml next -- it targets
+# the `vps:` group and closes public 22 via bootstrap/roles/common/tasks/ufw_lockdown.yml.
 #
 # Restoring to a different server (hardware upgrade, provider migration):
 #   1. Update ansible_host in inventory/<env>/hosts.yml for the *-bootstrap
 #      entry to the new VPS's public IP.
 #   2. Run this playbook as normal -- the password prompt accepts the new
 #      provider's initial root password.
-#   After bootstrap, run restore.yml then site.yml to bring services back up.
+#   After bootstrap, run restore.yml then converge.yml to bring services back up.
 #
 # Usage (cwd = ansible/):
-#   ansible-playbook -i inventory/example playbooks/bootstrap.yml
-#   ansible-playbook -i inventory/example playbooks/bootstrap.yml --limit host1-bootstrap
+#   ansible-playbook -i inventory/<name> playbooks/bootstrap.yml
+#   ansible-playbook -i inventory/<name> playbooks/bootstrap.yml --limit host1-bootstrap
 #
 # Preflight must run as a SEPARATE invocation BEFORE this playbook (so that
 # --limit does not accidentally skip it). The installer chains it
 # automatically; standalone invocation needs:
-#   ansible-playbook -i inventory/example playbooks/preflight.yml
+#   ansible-playbook -i inventory/<name> playbooks/preflight.yml
 
 # ssh-keyscan the host first, TOFU style. Any stale entry for the same IP
 # (from a previous re-provisioning) is cleared first so the new host's key
@@ -129,10 +129,92 @@
       default: ""
 
   tasks:
-    - name: Skip key install -- no password provided
+    # DECIDE ON THE KEY, NOT ON THE PASSWORD.
+    #
+    # The gate below probes for the KEY, because a blank password is not
+    # evidence about the key. `catena install` ALWAYS emits
+    # bootstrap_root_password, blank when install.yaml carries no
+    # host_initial_password (cli _bootstrap_extra_vars) -- deliberately, so a
+    # vars_prompt cannot stop the deploy chain to ask after preflight has run.
+    # Extra-vars outrank vars_prompt, so on a fresh VPS driven by the CLI with
+    # no host_initial_password the prompt never appears and the password is
+    # blank on exactly the hosts that still need the key. Read there as "the
+    # key is already installed" and this play skips, the key never lands, and
+    # Phase 1 cannot connect:
+    #
+    #   debian@<ip>: Permission denied (publickey).
+    #
+    # A blank password and an installed key are not the same state, so probe
+    # for the state instead of inferring it from the input. Both accounts are
+    # probed because either one answering means there is nothing to install:
+    # the provider account on a fresh box, ops on a box Phase 1 already
+    # hardened (which removes the provider account from AllowUsers).
+    # helpers/install_key.py::_key_already_works checks the same pair for the
+    # same reason -- this is that check, hoisted to where it can decide.
+    - name: "Phase 0.5: does key auth already work for either account?"
+      ansible.builtin.command:
+        argv:
+          - ssh
+          - -o
+          - BatchMode=yes
+          - -o
+          - ConnectTimeout=5
+          - -o
+          - IdentitiesOnly=yes
+          - -o
+          - PreferredAuthentications=publickey
+          - -o
+          - StrictHostKeyChecking=accept-new
+          - -i
+          - "{{ ansible_ssh_private_key_file }}"
+          - "{{ item }}@{{ ansible_host }}"
+          - "true"
+      loop:
+        - "{{ bootstrap_initial_user }}"
+        - "{{ ops_user }}"
+      register: _key_probe
+      changed_when: false
+      failed_when: false
+      delegate_to: localhost
+
+    - name: "Phase 0.5: record whether the operator key already opens this host"
+      ansible.builtin.set_fact:
+        _key_works: >-
+          {{ (_key_probe.results | selectattr('rc', 'equalto', 0) | list | length) > 0 }}
+
+    - name: "Phase 0.5: key already installed -- nothing to do"
       ansible.builtin.debug:
-        msg: "Password blank -- assuming key already installed, skipping Phase 0.5."
-      when: bootstrap_root_password | length == 0
+        msg: >-
+          {{ ansible_ssh_private_key_file }} already opens
+          {{ (_key_probe.results | selectattr('rc', 'equalto', 0) | map(attribute='item') | list | join(' or ')) }}@{{ ansible_host }}.
+          Skipping the key install.
+      when: _key_works | bool
+
+    # Fail HERE, where the fix is one input away, rather than three tasks into
+    # Phase 1 as an unattributed "Permission denied (publickey)".
+    - name: "Phase 0.5: no key on the host and no provider password to install one"
+      ansible.builtin.fail:
+        msg: |
+          {{ ansible_ssh_private_key_file }} does not open
+          {{ bootstrap_initial_user }}@{{ ansible_host }} or {{ ops_user }}@{{ ansible_host }},
+          and no provider password was supplied to install it with.
+
+          This is the normal state of a FRESH VPS. The key install needs the
+          password the provider issued for {{ bootstrap_initial_user }}:
+
+            - via the installer: add `host_initial_password: <password>` to
+              install.yaml. The CLI always passes this variable through, blank
+              when install.yaml omits it, and an extra-var outranks the
+              prompt -- so an omitted password does not fall back to asking.
+
+            - running this playbook directly: answer the password prompt
+              instead of leaving it blank.
+
+          If the host was rebuilt on a recycled IP, also check that
+          HOST_PUBLIC_IP in {{ inventory_dir }}/.env still names it.
+      when:
+        - not (_key_works | bool)
+        - bootstrap_root_password | length == 0
 
     - name: Install your public key (handles forced password change via pexpect)
       ansible.builtin.command:
@@ -148,7 +230,9 @@
       environment:
         INSTALL_KEY_PASSWORD: "{{ bootstrap_root_password }}"
       delegate_to: localhost
-      when: bootstrap_root_password | length > 0
+      when:
+        - not (_key_works | bool)
+        - bootstrap_root_password | length > 0
 
 - name: "Phase 1 -- baseline + harden (connects as initial user, skipped if already done)"
   hosts: "{{ stage_hosts | default('bootstrap') }}"
@@ -182,6 +266,8 @@
           - IdentitiesOnly=yes
           - -o
           - PreferredAuthentications=publickey
+          - -o
+          - StrictHostKeyChecking=accept-new
           - -i
           - "{{ ansible_ssh_private_key_file }}"
           - "root@{{ ansible_host }}"
@@ -205,10 +291,30 @@
       when: bootstrap_initial_user == 'root' and (root_probe.rc | default(0)) != 0
 
     # ── Non-root provider idempotency check ──────────────────────────────────
-    # When initial_user != root: after Phase 1 the common role creates the ops
-    # user. A successful `id <ops_user>` via the initial user means Phase 1
-    # already ran -- skip.
-    - name: "Phase 1 idempotency (non-root path) -- does ops user exist?"
+    # Probe OPS, not the provider account.
+    #
+    # The probe cannot run THROUGH the initial user on a non-root image.
+    # Phase 1's own sshd hardening removes the provider account from
+    # AllowUsers, so any `id <ops_user>` dialled as that account fails from the
+    # moment Phase 1 succeeds -- success and "not done" become the same answer.
+    # A play that carried on from there fails connecting as a user Phase 1
+    # locked out, and the error points at the fact-gathering task rather than
+    # at the cause:
+    #
+    #   debian@<ip>: Permission denied (publickey).
+    #   Origin: playbooks/bootstrap.yml:245  Gather facts now that we know ...
+    #
+    # That costs re-runnability outright on OVH Debian / Ubuntu cloud images,
+    # leaving bootstrap re-runnable only on root-login providers.
+    #
+    # The root path above already probes the account whose access Phase 1
+    # REMOVES and reads failure as "already ran". The non-root path has to probe
+    # the account Phase 1 CREATES and read success the same way. Probing ops
+    # also proves the thing Phase 2 needs next -- that ops accepts the operator
+    # key -- rather than merely that the account exists.
+    # helpers/install_key.py::_key_already_works checks both accounts for the
+    # same reason.
+    - name: "Phase 1 idempotency (non-root path) -- can ops SSH in?"
       ansible.builtin.command:
         argv:
           - ssh
@@ -220,10 +326,12 @@
           - IdentitiesOnly=yes
           - -o
           - PreferredAuthentications=publickey
+          - -o
+          - StrictHostKeyChecking=accept-new
           - -i
           - "{{ ansible_ssh_private_key_file }}"
-          - "{{ bootstrap_initial_user }}@{{ ansible_host }}"
-          - "id {{ ops_user }}"
+          - "{{ ops_user }}@{{ ansible_host }}"
+          - "true"
       register: ops_probe
       changed_when: false
       failed_when: false
@@ -231,16 +339,127 @@
       become: false
       when: bootstrap_initial_user != 'root'
 
-    - name: Phase 1 already complete (non-root path) -- ops user exists
+    - name: Phase 1 already complete (non-root path) -- ops accepts the key
       ansible.builtin.debug:
         msg: |
-          Ops user already exists -- Phase 1 has already run on this host.
-          Skipping to Phase 2 (tailscale).
+          {{ ops_user }}@{{ ansible_host }} accepts the operator key -- Phase 1
+          has already run on this host. Skipping to Phase 2 (tailscale).
       when: bootstrap_initial_user != 'root' and (ops_probe.rc | default(1)) == 0
 
     - name: End Phase 1 (non-root path)
       ansible.builtin.meta: end_play
       when: bootstrap_initial_user != 'root' and (ops_probe.rc | default(1)) == 0
+
+    # Neither account answering is a THIRD state, and it is the one worth
+    # naming. Phase 1 needs the provider account: it is how the common role
+    # gets on the box. Letting the play discover that on its own produces a
+    # connection failure attributed to whatever task ran first, which is how
+    # the defect above stayed unread.
+    # RETRIED, unlike the two probes above, and the asymmetry is deliberate.
+    #
+    # A "no" from those two is the EXPECTED answer on a fresh host -- it means
+    # Phase 1 has not run yet -- so retrying them would add the whole deadline
+    # to every first install to confirm something already true. A "no" HERE is
+    # the one that aborts, and it is the last word before a message that tells
+    # the operator to go and look at their provider console.
+    #
+    # A single sample cannot carry that, and neither can a probe that hides
+    # why it failed. Both halves are load-bearing here.
+    #
+    # StrictHostKeyChecking, explicitly: helpers/install_key.py runs
+    # `ssh-keygen -R` on this address and then does all of its own SSH with
+    # UserKnownHostsFile=/dev/null, so the TOFU entry Phase 0 wrote seconds
+    # earlier is GONE by the time this runs and nothing has put it back. A
+    # probe left on the default `ask` then fails with "Host key verification
+    # failed" against a host that is answering normally -- rc=255, no auth
+    # attempted. accept-new is the posture ansible.cfg already uses for the
+    # connections this probe is predicting, so the probe and the connection
+    # agree; a CHANGED key is still refused.
+    #
+    # And the reason SSH gives goes into the failure, rather than to
+    # /dev/null. Bench run 2026-08-25T05-11-45-7133 died here reading exactly
+    # like a timeout, and the abort listed five candidate causes with the real
+    # one discarded one line earlier.
+    #
+    # Both accounts are re-probed, because either answering means the install
+    # can continue: ops answering means Phase 1 already ran, and the provider
+    # account answering means it can run now.
+    - name: "Phase 1 (non-root path) -- can the provider account still SSH in?"
+      ansible.builtin.shell:
+        cmd: |
+          set -u
+          for user in "{{ bootstrap_initial_user }}" "{{ ops_user }}"; do
+            if out=$(ssh -o BatchMode=yes -o ConnectTimeout=10 \
+                   -o IdentitiesOnly=yes -o PreferredAuthentications=publickey \
+                   -o StrictHostKeyChecking=accept-new \
+                   -i "{{ ansible_ssh_private_key_file }}" \
+                   "$user@{{ ansible_host }}" true 2>&1); then
+              echo "$user"
+              exit 0
+            fi
+            echo "$user: $out" >&2
+          done
+          exit 1
+      register: initial_probe
+      changed_when: false
+      failed_when: false
+      # ~60s of deadline before declaring a host unreachable, which is cheap
+      # against the cost of being wrong: this aborts an install.
+      retries: 5
+      delay: 10
+      until: initial_probe.rc == 0
+      delegate_to: localhost
+      become: false
+      when: bootstrap_initial_user != 'root'
+
+    - name: "Phase 1 (non-root path) -- no account answers at this address"
+      ansible.builtin.fail:
+        msg: |
+          Neither {{ ops_user }} nor {{ bootstrap_initial_user }} can SSH to
+          {{ ansible_host }} with {{ ansible_ssh_private_key_file }}.
+
+          Phase 1 cannot run: it needs {{ bootstrap_initial_user }} to get onto
+          the box, and Phase 1's sshd hardening removes that account once it has
+          run. Phase 0.5 should have caught this and named the case; reaching
+          HERE means it did not.
+
+          Both accounts were re-probed over ~60s before this fired, so a host
+          that was merely slow to answer has already been given its chance --
+          treat this as a real access problem, not a timeout. Check in this
+          order:
+
+            - the key was never installed because no provider password was
+              supplied. Usual cause on a FRESH VPS. Add
+              `host_initial_password: <password>` to install.yaml -- the CLI
+              passes that variable through BLANK when it is omitted, and an
+              extra-var outranks the prompt, so omitting it does not fall back
+              to asking.
+
+            - the host is not reachable at this address. HOST_PUBLIC_IP in
+              {{ inventory_dir }}/.env is {{ ansible_host }}; confirm the
+              rebuilt VPS still has it.
+
+            - Phase 1 already ran and {{ ops_user }} is only reachable on the
+              TAILNET. Public 22 closes at the end of converge.yml. Note that
+              {{ inventory_dir }}/.bootstrap-output.yml is NOT invalidated by a
+              rebuild, so a tailnet IP recorded there may belong to the previous
+              machine. Try:
+              ssh -i {{ ansible_ssh_private_key_file }} {{ ops_user }}@<tailnet-ip>
+
+            - the operator key is not the one installed on this host. Recover at
+              the provider console: {{ bootstrap_initial_user }} still logs in
+              there (sshd's AllowUsers does not govern console login), then
+              inspect /home/{{ ops_user }}/.ssh/authorized_keys.
+
+            - the host is not reachable at all (rebuilt, wrong IP, ufw).
+
+          What SSH reported on the last attempt for each account:
+
+          {{ (initial_probe.stderr | default('(nothing captured)')) | trim | indent(12) }}
+      when:
+        - bootstrap_initial_user != 'root'
+        - (ops_probe.rc | default(1)) != 0
+        - (initial_probe.rc | default(1)) != 0
 
     - name: Gather facts now that we know Phase 1 needs to run
       ansible.builtin.setup:
@@ -254,8 +473,32 @@
     ansible_user: "{{ ops_user }}"
     ansible_python_interpreter: auto_silent
   become: true # ops uses NOPASSWD sudo (set up in Phase 1)
+  pre_tasks:
+    # THE STORE IS BORN HERE, not at the first converge.
+    #
+    # bootstrap/roles/tailscale resolves its provider, control URL and Headscale user from
+    # store-projected facts with no inventory fallback. Run with
+    # no store, all three are empty and the provider inference answers
+    # `tailscale` unconditionally -- so a Headscale install took the Tailscale
+    # fork and died at an OAuth exchange against credentials its operator does
+    # not have, naming a vendor they never chose.
+    #
+    # Only the CONFIG half seeds here. The rest of load_onbox_config.yml MINTS
+    # the internal secrets and the user-held admin/restic DR keyset, and asks the
+    # container registry which catena-admin release to install -- all of it a
+    # converge's work, on a machine that does not have Docker yet.
+    #
+    # Phase 1 has already run the common role, so python3 and ops exist; the
+    # store's parent directory does not have to (onbox_config.dump() creates it).
+    - name: "0b: seed the on-box config store before anything reads it"
+      ansible.builtin.include_tasks:
+        file: tasks/seed_onbox_config.yml
   roles:
     - role: tailscale
+    # The ansible-core the host reconciles itself with. Here rather than in
+    # Phase 1 because Phase 1 can end early on its own idempotency check, and a
+    # host that skipped it would never gain the runtime.
+    - role: ansible_runtime
 
   post_tasks:
     # ─── Capture the steady-state tailnet IP ─────────────────────────────
@@ -264,7 +507,7 @@
     # inventory/<env>/hosts.yml here. Instead:
     #   1. add_host overrides ansible_host on the steady-state hostname for
     #      downstream plays in the SAME ansible-playbook invocation
-    #      (restore.yml + site.yml);
+    #      (restore.yml + converge.yml);
     #   2. helpers/bootstrap_output.py merges the value into
     #      <inventory_dir>/.bootstrap-output.yml (gitignored) so you can copy
     #      it into your inventory before the next invocation.
@@ -313,7 +556,7 @@
           Steady-state host: {{ _steady_state_host }}
 
           The value is live in this run's in-memory inventory (add_host),
-          so downstream plays in this invocation (restore.yml, site.yml)
+          so downstream plays in this invocation (restore.yml, converge.yml)
           target the correct IP.
 
           To persist across invocations, copy from
@@ -321,9 +564,9 @@
           hosts.yml.
 
           Next (cwd = ansible/):
-            ansible-playbook playbooks/site.yml --limit {{ _steady_state_host }}
+            ansible-playbook playbooks/converge.yml --limit {{ _steady_state_host }}
             # (or, to also restore from backup first:)
             ansible-playbook playbooks/restore.yml --limit {{ _steady_state_host }} -e restore_snapshot=latest
-            ansible-playbook playbooks/site.yml    --limit {{ _steady_state_host }}
+            ansible-playbook playbooks/converge.yml    --limit {{ _steady_state_host }}
 
-          At the end of site.yml, public port 22 is closed.
+          At the end of converge.yml, public port 22 is closed.

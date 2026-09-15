@@ -1,5 +1,5 @@
 """Unit tests for the restic_repo_endpoint filter plugin -- the endpoint
-parser feeding site.yml's early external-reachability preflight.
+parser feeding converge.yml's early external-reachability preflight.
 
 Run: uv run pytest tests/unit/test_restic_repo_endpoint.py
 """

@@ -1,9 +1,9 @@
 """The repo integrity check follows the backup; the bit-rot read is a lane.
 
-Before this split, `catena-restic-check` ran ONLY as the RESTIC_CHECK state
-inside the catena-daily chain -- and that chain is the licensed lane. A
-Community host therefore wrote a backup every week and never checked the
-repository at all. There was no timer for it and no other caller.
+The metadata check is tied to the backup itself, not to the RESTIC_CHECK state
+inside the catena-daily chain: that chain is the licensed lane, so a check
+reachable only from there leaves a Community host writing a backup every week
+and never checking the repository at all.
 
 Two halves, two cadences, for reasons that differ:
 
@@ -16,9 +16,8 @@ Two halves, two cadences, for reasons that differ:
     run pulls 5% of the repo out of object storage.
 
 The subset's schedule lives in the catena-schedule lane table, NOT in a
-template and NOT in a `date -u +%u` inside the wrapper -- which is where it
-used to live, making it the one piece of catena's scheduling a client could
-not move.
+template and NOT in a `date -u +%u` inside the wrapper -- so it is
+client-movable like every other lane.
 
 This file holds the half that asserts about THIS repo: the units, the
 templates and the role defaults. The half that read the wrapper moved to
@@ -36,7 +35,7 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-ROLE = ANSIBLE / "roles" / "backup"
+ROLE = ANSIBLE / "reconcile" / "roles" / "backup"
 DEFAULTS = ROLE / "defaults" / "main.yml"
 INSTALL = ROLE / "tasks" / "install.yml"
 TEMPLATES = ROLE / "templates"

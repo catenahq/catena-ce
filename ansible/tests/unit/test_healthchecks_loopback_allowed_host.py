@@ -17,7 +17,7 @@ from pathlib import Path
 
 INFRA = (
     Path(__file__).resolve().parents[2]
-    / "roles" / "infrastructure"
+    / "reconcile" / "roles" / "infrastructure"
 )
 COMPOSE = INFRA / "templates" / "healthchecks.compose.yml.j2"
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"

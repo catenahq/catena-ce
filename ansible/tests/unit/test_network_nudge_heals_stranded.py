@@ -11,7 +11,7 @@ can strand Keycloak until the next converge. Observed live: an overlay that
 appeared 2.5s after "Loading containers: done".
 
 Those compose containers are what the nudge protects, which is why it lives
-in roles/docker -- the race is between dockerd's container restore and the
+in bootstrap/roles/docker -- the race is between dockerd's container restore and the
 swarm init, both owned by that role.
 
 What must hold:
@@ -34,9 +34,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3] / "ansible"
 SCRIPT = ROOT / "scripts" / "catena-network-nudge.sh"
-TASKS = ROOT / "roles" / "docker" / "tasks" / "main.yml"
-UNIT = ROOT / "roles" / "docker" / "templates" / "catena-network-nudge.service.j2"
-DROPIN = ROOT / "roles" / "docker" / "templates" / "docker-service-nudge-dropin.conf.j2"
+TASKS = ROOT / "bootstrap" / "roles" / "docker" / "tasks" / "main.yml"
+UNIT = ROOT / "bootstrap" / "roles" / "docker" / "templates" / "catena-network-nudge.service.j2"
+DROPIN = ROOT / "bootstrap" / "roles" / "docker" / "templates" / "docker-service-nudge-dropin.conf.j2"
 
 
 def _find(name_fragment: str) -> dict:
@@ -106,10 +106,10 @@ def test_role_installs_the_artifacts():
 
 def test_the_nudge_is_owned_by_roles_docker_not_roles_traefik():
     """The race is between dockerd's container restore and the swarm init.
-    roles/traefik has no plain container left and no relationship to it."""
-    traefik_tasks = (ROOT / "roles" / "traefik" / "tasks" / "main.yml").read_text()
+    reconcile/roles/traefik has no plain container left and no relationship to it."""
+    traefik_tasks = (ROOT / "reconcile" / "roles" / "traefik" / "tasks" / "main.yml").read_text()
     assert "catena-network-nudge.service.j2" not in traefik_tasks
-    assert not (ROOT / "roles" / "traefik" / "templates"
+    assert not (ROOT / "reconcile" / "roles" / "traefik" / "templates"
                 / "catena-network-nudge.service.j2").exists()
 
 

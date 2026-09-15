@@ -19,20 +19,18 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-BACKUP_DEFAULTS = ANSIBLE / "roles" / "backup" / "defaults" / "main.yml"
-INFRA_DEFAULTS = ANSIBLE / "roles" / "infrastructure" / "defaults" / "main.yml"
+BACKUP_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "backup" / "defaults" / "main.yml"
+INFRA_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "defaults" / "main.yml"
 EXAMPLE_INVENTORY = (
-    ANSIBLE / "inventory" / "example" / "group_vars" / "all" / "main.yml.example"
+    ANSIBLE / "playbooks" / "group_vars" / "all" / "main.yml"
 )
 
 # Pinged by a unit running on the host.
 HOST_SIDE = [
     "backup_healthcheck_url",
     "backup_healthcheck_attempted_url",
-    "backup_worm_healthcheck_url",
-    "backup_worm_healthcheck_attempted_url",
-    "nextcloud_mirror_healthcheck_url",
-    "nextcloud_mirror_healthcheck_attempted_url",
+    "offsite_healthcheck_url",
+    "offsite_healthcheck_attempted_url",
 ]
 
 # Deliberately off-host: these detect the host being gone.
@@ -70,9 +68,9 @@ def test_every_host_side_ping_keeps_its_override():
     """Loopback is the DEFAULT, not a lock-in: an operator pointing a lane at
     an off-host endpoint must still win.
 
-    The override moved from a live `.env` read to the on-box store (the `.env`
-    seeds it once on the first converge), so what has to be present is the
-    projected `cfg_` fact ahead of the computed loopback URL."""
+    The override lives in the on-box store, which the `.env` seeds once on the
+    first converge, so what has to be present is the projected `cfg_` fact
+    ahead of the computed loopback URL."""
     backup = _defaults(BACKUP_DEFAULTS)
     for key in HOST_SIDE:
         value = backup[key]
@@ -106,6 +104,6 @@ def test_no_inventory_reintroduces_a_hostname_ping():
     inventory = _defaults(EXAMPLE_INVENTORY)
     for key in HOST_SIDE:
         assert key not in inventory, (
-            f"{EXAMPLE_INVENTORY.name} overrides {key}; roles/backup/defaults "
+            f"{EXAMPLE_INVENTORY.name} overrides {key}; reconcile/roles/backup/defaults "
             "owns it"
         )

@@ -29,12 +29,16 @@ def oc():
 # --- load / dump ------------------------------------------------------------
 def test_load_absent_returns_empty_sections(oc, tmp_path):
     store = oc.load(tmp_path / "nope.json")
-    assert store == {"secrets": {}, "config": {}}
+    assert store == {"secrets": {}, "config": {}, oc.CLIENT_APP_SECRETS_KEY: {}}
 
 
 def test_dump_then_load_roundtrip(oc, tmp_path):
     p = tmp_path / "config.json"
-    store = {"secrets": {"admin_password": "s3cr3t/+="}, "config": {"CLOUDFLARE_ZONE": "x.com"}}
+    store = {
+        "secrets": {"admin_password": "s3cr3t/+="},
+        "config": {"CLOUDFLARE_ZONE": "x.com"},
+        oc.CLIENT_APP_SECRETS_KEY: {"kimai/DB_PASSWORD": "abc"},
+    }
     oc.dump(store, p)
     got = oc.load(p)
     assert got == store
@@ -182,10 +186,10 @@ def test_every_registry_is_non_empty(oc):
 # --- secret_names: the converge loader's discriminator ----------------------
 def test_secret_names_is_the_union_of_the_four_registries(oc):
     """playbooks/tasks/load_onbox_config.yml reads this list to decide which
-    in-scope Ansible variables to capture into the store. It used to decide
-    that with the regex ^vault_.+$, which made a name PREFIX load-bearing: a
-    variable was captured for how it was spelled, not because anyone had
-    declared it a secret."""
+    in-scope Ansible variables to capture into the store. Deciding that with a
+    regex such as ^vault_.+$ would make a name PREFIX load-bearing, capturing a
+    variable for how it is spelled rather than because someone declared it a
+    secret. The union of the four registries is the declaration."""
     expected = set().union(*_registries(oc).values())
     assert set(oc.secret_names()) == expected
 
@@ -273,7 +277,7 @@ def test_console_recovery_password_is_console_typeable(oc):
 
 
 def test_cifs_bulk_credentials_are_external(oc):
-    """roles/storage bulk.yml tells the client to enter these in catena-admin
+    """bootstrap/roles/storage bulk.yml tells the client to enter these in catena-admin
     > Settings. apply_inputs RAISES for any key outside EXTERNAL_SECRETS, so
     absent from this set the documented path is closed by code."""
     for key in ("storage_bulk_username", "storage_bulk_password"):
@@ -357,7 +361,7 @@ def test_adopt_fills_only_and_captures_any_key(oc):
 
 
 def test_adopt_overwrite_replaces_a_dead_value(oc):
-    """roles/portainer re-mints when Portainer REJECTS the stored key. Without
+    """reconcile/roles/portainer re-mints when Portainer REJECTS the stored key. Without
     overwrite the store would keep serving the dead one and every API call
     would 401 for the rest of the converge."""
     store = {"secrets": {"portainer_api_key": "revoked"}, "config": {}}
@@ -496,6 +500,127 @@ def test_dispatch_write_rejects_restic_password(oc, tmp_path, monkeypatch):
         oc.main(["--path", str(p), "--dispatch-stdin"])
 
 
+# --- client-app env secrets (the marketplace's per-deploy values) -----------
+def _wanted(key="kimai/DB_PASSWORD", length=32, charset="alnum"):
+    return {key: {"length": length, "charset": charset}}
+
+
+def test_app_secrets_mint_then_reuse(oc):
+    """Asking twice returns the SAME value. The catalog is re-rendered on every
+    marketplace fetch; a mint per render would hand the client a different
+    database password each time they opened the page."""
+    store = {"secrets": {}, "config": {}}
+    first = oc.ensure_app_secrets(store, _wanted())
+    second = oc.ensure_app_secrets(store, _wanted())
+    assert first == second
+    assert len(first["kimai/DB_PASSWORD"]) == 32
+
+
+def test_app_secrets_charsets(oc):
+    store = {"secrets": {}, "config": {}}
+    got = oc.ensure_app_secrets(store, {
+        "outline/OUTLINE_SECRET_KEY": {"length": 64, "charset": "hex"},
+        "kimai/DB_PASSWORD": {"length": 32, "charset": "alnum"},
+    })
+    assert set(got["outline/OUTLINE_SECRET_KEY"]) <= set("0123456789abcdef")
+    assert got["kimai/DB_PASSWORD"].isalnum()
+
+
+def test_app_secrets_blank_is_reminted(oc):
+    """A blank stored value is not a value -- same reconcile rule the internal
+    set follows, and the state a hand-edited store can be left in."""
+    store = {"secrets": {}, "config": {}, oc.CLIENT_APP_SECRETS_KEY: {"kimai/DB_PASSWORD": "  "}}
+    got = oc.ensure_app_secrets(store, _wanted())
+    assert got["kimai/DB_PASSWORD"].strip()
+
+
+@pytest.mark.parametrize("bad", [
+    "../../etc/passwd/KEY",
+    "kimai/db_password",
+    "Kimai/DB_PASSWORD",
+    "kimai DB_PASSWORD",
+    "kimai/",
+])
+def test_app_secrets_rejects_bad_key(oc, bad):
+    """This is the one store write the unprivileged container can ask for by
+    name, so the key shape is what keeps a forged request inside the block."""
+    with pytest.raises(ValueError):
+        oc.ensure_app_secrets({"secrets": {}, "config": {}}, _wanted(key=bad))
+
+
+@pytest.mark.parametrize("length", [0, 8, 257, "32", True, None])
+def test_app_secrets_rejects_bad_length(oc, length):
+    with pytest.raises(ValueError):
+        oc.ensure_app_secrets({"secrets": {}, "config": {}}, _wanted(length=length))
+
+
+def test_app_secrets_rejects_unknown_charset(oc):
+    with pytest.raises(ValueError):
+        oc.ensure_app_secrets({"secrets": {}, "config": {}}, _wanted(charset="base64"))
+
+
+def test_app_secrets_never_takes_a_value_from_the_request(oc):
+    """The request names what it wants, never what it should be. A caller that
+    could supply the value could pin every client's password to one string."""
+    store = {"secrets": {}, "config": {}}
+    got = oc.ensure_app_secrets(store, {
+        "kimai/DB_PASSWORD": {"length": 32, "charset": "alnum", "value": "chosen"},
+    })
+    assert got["kimai/DB_PASSWORD"] != "chosen"
+
+
+def test_dispatch_mint_app_secrets_persists_and_returns(oc, tmp_path, monkeypatch):
+    import io
+    p = tmp_path / "config.json"
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({
+        "op": "mint-app-secrets",
+        "app_secrets": {"kimai/DB_PASSWORD": {"length": 32, "charset": "alnum"}},
+    })))
+    rc = oc.main(["--path", str(p), "--dispatch-stdin"])
+    assert rc == 0
+    stored = oc.client_app_secrets(p)
+    assert len(stored["kimai/DB_PASSWORD"]) == 32
+
+
+def test_dispatch_mint_app_secrets_preserves_other_blocks(oc, tmp_path, monkeypatch):
+    """The store is shared. catena-schedule owns `schedules`, the update lane
+    owns `image_pins`, and a mint must carry both past untouched."""
+    import io
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({
+        "secrets": {"admin_password": "keep"},
+        "config": {"CLOUDFLARE_ZONE": "x.com"},
+        "image_pins": {"catena/thing": "sha256:abc"},
+        "schedules": {"backup": "daily"},
+    }))
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({
+        "op": "mint-app-secrets",
+        "app_secrets": {"kimai/DB_PASSWORD": {"length": 32, "charset": "alnum"}},
+    })))
+    assert oc.main(["--path", str(p), "--dispatch-stdin"]) == 0
+    doc = json.loads(p.read_text())
+    assert doc["image_pins"] == {"catena/thing": "sha256:abc"}
+    assert doc["schedules"] == {"backup": "daily"}
+    assert doc["secrets"]["admin_password"] == "keep"
+
+
+def test_converge_style_dump_does_not_blank_app_secrets(oc, tmp_path):
+    """The converge loader dumps a hand-built {"secrets", "config"} store. It
+    has no opinion about client_app_secrets and must not erase it -- the same
+    trap that made dump() stop re-serialising the whole document."""
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({
+        "secrets": {}, "config": {},
+        oc.CLIENT_APP_SECRETS_KEY: {"kimai/DB_PASSWORD": "survives"},
+    }))
+    oc.dump({"secrets": {"a": "b"}, "config": {}}, p)
+    assert oc.client_app_secrets(p) == {"kimai/DB_PASSWORD": "survives"}
+
+
+def test_client_app_secrets_absent_store_is_empty(oc, tmp_path):
+    assert oc.client_app_secrets(tmp_path / "nope.json") == {}
+
+
 def test_cli_mints_user_held_on_first_install(oc, tmp_path, capsys):
     """A fresh converge (no adopt) mints the admin + restic DR keyset on-box."""
     p = tmp_path / "config.json"
@@ -525,7 +650,14 @@ def test_every_config_key_has_exactly_one_owner(oc):
 
 def test_every_dotenv_key_the_converge_reads_is_declared(oc):
     """The registry has to cover what the tree actually reads, or a new key
-    quietly acquires a third owner: nobody."""
+    quietly acquires a third owner: nobody.
+
+    inventory/ is excluded for the same reason its sibling test below excludes
+    it: it IS the seed surface, not a reader of it. Only `skel/hosts.yml.example`
+    is tracked, and its `.example` suffix kept it out of the scan by accident --
+    so the first real `inventory/<name>/hosts.yml` on any developer's machine
+    failed this gate on keys (HOST_PUBLIC_IP, HOST_SSH_PORT, HOST_INITIAL_USER)
+    that are inventory-only by design and have no on-box owner to declare."""
     import re
     root = ANSIBLE_DIR
     pattern = re.compile(r"lookup\('dotenv',\s*'([A-Z0-9_]+)'")
@@ -535,7 +667,7 @@ def test_every_dotenv_key_the_converge_reads_is_declared(oc):
         s = str(path)
         if not path.is_file() or path.suffix not in {".yml", ".yaml", ".j2"}:
             continue
-        if ".collections" in s or "/tests/" in s:
+        if ".collections" in s or "/tests/" in s or "/inventory/" in s:
             continue
         for key in pattern.findall(path.read_text()):
             if key not in known:
@@ -561,6 +693,14 @@ def test_no_settings_key_is_read_from_dotenv_outside_the_seed(oc):
             continue
         if path.name == "load_onbox_config.yml":
             continue  # the seeding task, by construction
+        if path.name == "preflight.yml":
+            # Runs on the CONTROLLER, before there is a host, and therefore
+            # before there is a store to read. Its one .env read is the tailnet
+            # control URL, which it hands to an advisory check that answers
+            # "is this laptop on the tailnet it is about to converge" -- a
+            # question asked of the inventory, about a machine that does not
+            # exist yet. It is seed surface, not a second live reader.
+            continue
         for key in pattern.findall(path.read_text()):
             if key in oc.SETTINGS_CONFIG:
                 offenders.setdefault(key, s)
@@ -629,3 +769,68 @@ def test_cli_emits_config_vars(oc, tmp_path, capsys):
     rc = oc.main(["--path", str(p), "--no-mint", "--emit", "config-vars"])
     assert rc == 0
     assert json.loads(capsys.readouterr().out) == {"cfg_smtp_host": "mail.example"}
+
+
+# --- other writers' keys ----------------------------------------------------
+#
+# This helper owns `secrets` and `config`. Two other writers share the file:
+# catena-schedule owns `schedules` and `backup_retention`, and the on-host
+# update lane owns `image_pins`. Serialising only the two keys it knows about
+# deleted the others on every converge and on every panel save.
+
+def test_a_converge_keeps_the_keys_other_engines_wrote(oc, tmp_path):
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({
+        "secrets": {"admin_password": "old"},
+        "config": {"CLOUDFLARE_ZONE": "x.com"},
+        "schedules": {"backup": "weekly"},
+        "backup_retention": {"keep_daily": 7},
+        "image_pins": {"traefik": "traefik:v3.7.12"},
+    }))
+
+    store = oc.load(p)
+    store["secrets"]["admin_password"] = "new"
+    oc.dump(store, p)
+
+    got = json.loads(p.read_text())
+    assert got["secrets"]["admin_password"] == "new"
+    assert got["schedules"] == {"backup": "weekly"}, \
+        "catena-schedule's block was wiped by a converge"
+    assert got["image_pins"] == {"traefik": "traefik:v3.7.12"}, (
+        "the image pins were wiped by the very converge that reads them, so "
+        "every managed bump is reverted no matter what the lane recorded")
+
+
+def test_a_corrupt_store_is_not_silently_replaced(oc, tmp_path):
+    p = tmp_path / "config.json"
+    p.write_text("{not json")
+    with pytest.raises(Exception):
+        oc.dump({"secrets": {}, "config": {}}, p)
+    assert p.read_text() == "{not json"
+
+
+# --- image pins -------------------------------------------------------------
+
+def test_image_pins_reads_what_the_lane_wrote(oc, tmp_path):
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"image_pins": {"traefik": "traefik:v3.7.12"}}))
+    assert oc.image_pins(p) == {"traefik": "traefik:v3.7.12"}
+
+
+def test_image_pins_is_empty_on_a_host_that_has_never_bumped(oc, tmp_path):
+    p = tmp_path / "config.json"
+    assert oc.image_pins(p) == {}, "a fresh host must converge, not fail"
+    p.write_text(json.dumps({"secrets": {}, "config": {}}))
+    assert oc.image_pins(p) == {}
+    p.write_text(json.dumps({"image_pins": "not-an-object"}))
+    assert oc.image_pins(p) == {}
+
+
+def test_cli_emits_image_pins_without_touching_the_store(oc, tmp_path, capsys):
+    """Read before reconcile/roles/payload has necessarily installed anything, so it must
+    not mint, must not write, and must answer on a host with no store."""
+    p = tmp_path / "config.json"
+    rc = oc.main(["--path", str(p), "--emit", "image-pins"])
+    assert rc == 0
+    assert not p.exists(), "a pure query must not create the store"
+    assert json.loads(capsys.readouterr().out) == {}

@@ -8,7 +8,7 @@
 # Runs standalone OR as the post-converge leg composed by the installer.
 #
 # Usage (cwd = ansible/):
-#   ansible-playbook -i inventory/example playbooks/validate.yml --limit host1
+#   ansible-playbook -i inventory/<name> playbooks/validate.yml --limit host1
 
 - name: "Vantage 1 -- on-host checks via per-role validate.yml"
   # Each role under test ships its own roles/<role>/tasks/validate.yml.
@@ -47,8 +47,8 @@
       - oauth2_proxy
       - coturn
     # `cloudflared` intentionally absent -- it's not a standalone role;
-    # CF Tunnel lives inside roles/infrastructure and is covered by
-    # roles/infrastructure/tasks/validate.yml's cloudflared-swarm check.
+    # CF Tunnel lives inside reconcile/roles/infrastructure and is covered by
+    # reconcile/roles/infrastructure/tasks/validate.yml's cloudflared-swarm check.
 
   pre_tasks:
     # 0b: load on-box config store so on-host validate checks that read
@@ -71,16 +71,15 @@
         loop_var: _validate_role
         label: "{{ _validate_role }}"
 
-# Vantage 1b -- DR SMTP positive smoke test (Keycloak / Phase Two)
+# DR SMTP positive smoke test (Keycloak / Phase Two)
 #
-# Replaces the previous Authentik docker-exec + ak test_email path. The
-# new path uses kcadm.sh (the Keycloak Admin REST CLI shipped in the
+# Uses kcadm.sh (the Keycloak Admin REST CLI shipped in the
 # server image) to:
 #   1. authenticate as the master-realm admin,
 #   2. trigger sendverifyemail against the bootstrap admin user in the
 #      `vps` realm.
 # Keycloak's worker reads the realm-level smtpServer config (rendered
-# by roles/keycloak's realm-config import), connects out, and dispatches
+# by reconcile/roles/keycloak's realm-config import), connects out, and dispatches
 # the email. Empty / missing SMTP config short-circuits to a "verifyEmail
 # requires email server" error which we catch as a fast-fail.
 #
@@ -88,10 +87,9 @@
 # migrations done, admin REST is accepting tokens" signal. Per project
 # CLAUDE.md atomicity rule.
 #
-# Skip when the inventory has no SMTP configured at all (RESEND_SENDER_EMAIL,
-# BREVO_SENDER_EMAIL, and SMTP_HOST all blank in .env). Same opt-out
-# semantics as the previous Authentik block; the Vantage 1b contract
-# is "if SMTP is supposed to work, prove it works", not "demand SMTP."
+# Skip when the host has no SMTP configured at all (SMTP_PROVIDER unset): the
+# contract is "if SMTP is supposed to work, prove it works", not "demand
+# SMTP."
 
 - name: "Vantage 1b -- Keycloak SMTP reachability (on-host)"
   hosts: "{{ stage_hosts | default('vps') }}"
@@ -101,11 +99,14 @@
   vars:
     _smtp_enabled: >-
       {{
-        (cfg_resend_sender_email | default('') | length > 0)
-        or (cfg_brevo_sender_email | default('') | length > 0)
-        or (cfg_smtp_host | default('') | length > 0)
+        (cfg_smtp_provider | default('') | trim | lower)
+        in ['resend', 'brevo', 'server']
       }}
-    _bootstrap_email: "{{ lookup('dotenv', 'ADMIN_EMAIL', default='') }}"
+    # The store, not the inventory: ADMIN_EMAIL lives in the on-box config
+    # with the zone; this play already loads it, and reading .env here would be
+    # the second live reader the whole seed-once design exists to remove -- the
+    # one that answers with a stale value nobody edited.
+    _bootstrap_email: "{{ admin_email | default('') }}"
 
   tasks:
     - name: "Keycloak: find running server container"
@@ -123,9 +124,24 @@
     - name: "Keycloak: gate test on management port readiness"
       # Phase Two image (quay.io/phasetwo/phasetwo-keycloak) ships
       # without curl, and Keycloak 26 split health to management port
-      # 9000 (NOT 8080 -- 8080 only serves OIDC + admin REST). Probe
-      # readiness via bash /dev/tcp on 9000; if the management port
-      # accepts a TCP connection, /health/ready is up.
+      # 9000 (NOT 8080 -- 8080 only serves OIDC + admin REST). So the
+      # probe speaks HTTP over bash /dev/tcp and reads the answer.
+      #
+      # ACCEPTING A CONNECTION IS NOT BEING READY. Quarkus binds BOTH
+      # listeners before Keycloak finishes bootstrapping, and the login
+      # below lands on 8080 during that window:
+      #
+      #   03:32:16.067  started ... Listening on: http://0.0.0.0:8080.
+      #                 Management interface listening on http://0.0.0.0:9000.
+      #   03:32:18.599  BootstrapFilter: Request received during
+      #                 bootstrapping, returning a 503 error. Use the
+      #                 readiness health endpoint to ensure the service is
+      #                 ready before forwarding requests to the service.
+      #   03:32:19.555  Bootstrap completed in 3.563000 seconds
+      #
+      # A bare TCP connect passed at 16.07 and the gate let kcadm through
+      # 3.5s too early. /health/ready reports the "Keycloak Initialized"
+      # check, which is the state the login actually needs.
       ansible.builtin.command:
         argv:
           - docker
@@ -133,14 +149,21 @@
           - "{{ _keycloak_server_ct.stdout }}"
           - bash
           - -c
-          - "exec 3<>/dev/tcp/127.0.0.1/9000 && echo OK"
+          - >-
+            exec 3<>/dev/tcp/127.0.0.1/9000 &&
+            printf 'GET /health/ready HTTP/1.0\r\n\r\n' >&3 &&
+            cat <&3
       register: _keycloak_ready
       changed_when: false
       retries: 30
       delay: 4
       until:
         - _keycloak_ready.rc == 0
-        - "'OK' in (_keycloak_ready.stdout | default(''))"
+        # The STATUS LINE, not the body: /health/ready answers 503 while
+        # bootstrapping, and its body still carries "status": "UP" for the
+        # individual checks that already passed. Matching the body would
+        # pass on exactly the response this gate exists to wait out.
+        - "'200' in ((_keycloak_ready.stdout | default('')).splitlines() | first | default(''))"
       when:
         - _smtp_enabled | bool
         - (_keycloak_server_ct.stdout | default('') | length) > 0
@@ -321,7 +344,7 @@
       # leaves deploy-from-converge true, so the container is up by the time
       # validate runs. The bench deploys catena-admin out of band AFTER the
       # install-time validate and disables the converge deploy -- as an ANSIBLE
-      # extra-var (catena_admin_deploy_from_converge, the Semaphore migrate/DR
+      # extra-var (catena_admin_deploy_from_converge, the migrate/DR
       # path) OR as an ENV var (the subprocess install path). Honour the ansible
       # var first, then fall back to the env lookup, so the probe skips in BOTH
       # bench paths but still runs in production.
@@ -402,10 +425,9 @@
           {{
             (
               [
-                infrastructure_monitor_hostname | default(''),
+                infrastructure_gatus_hostname | default(''),
                 infrastructure_dash_hostname | default(''),
                 healthchecks_hostname | default(''),
-                infrastructure_recovery_hostname | default(''),
                 portainer_admin_hostname | default(''),
               ]
               + (validate_extra_gated_hosts | default([]))
@@ -457,7 +479,7 @@
 
           Likely causes:
           - oauth2-proxy --oidc-issuer-url mismatch (check
-            roles/oauth2_proxy/defaults/main.yml: oauth2_proxy_oidc_issuer)
+            reconcile/roles/oauth2_proxy/defaults/main.yml: oauth2_proxy_oidc_issuer)
           - Keycloak realm name drift (KEYCLOAK_REALM in .env vs
             keycloak_realm role default)
           - oauth2-proxy container restart-looping (check `docker logs`)
@@ -470,8 +492,8 @@
 
     # Catch host-published-port drift -- a
     # client compose with `ports: ["8080:80"]` would expose its
-    # container directly to the tailnet, bypassing Traefik's
-    # forward-auth chain. Container IPs themselves aren't routable
+    # container directly to the tailnet, bypassing Traefik and the
+    # app's auth proxy. Container IPs themselves aren't routable
     # from tailnet (catena-network is host-internal), so the actual
     # attack surface is host-published ports. Enumerate every
     # listening TCP port on the host and assert the set matches the
@@ -557,7 +579,7 @@
         fail_msg: |
           violation: host has unexpected publicly-bound TCP
           listeners. A container with `ports: ["<host>:<container>"]`
-          binding bypasses Traefik's forward-auth chain and exposes
+          binding bypasses Traefik and the app's auth proxy, exposing
           the service directly to the tailnet (and, depending on UFW,
           to the public internet).
 

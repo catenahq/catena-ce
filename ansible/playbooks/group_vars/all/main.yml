@@ -1,0 +1,283 @@
+---
+# Shared across every inventory -- Ansible auto-loads group_vars/all/*.yml
+# from the playbook directory for every run, regardless of which inventory is
+# targeted (-i inventory/<name>), same as it does from the inventory
+# directory itself. This file is pure structure: reconstructing complex
+# types (lists, dicts) from dotenv strings. It never varies between
+# inventories, only the values it reads do -- the dotenv lookup plugin
+# resolves <inventory_dir>/.env for whichever inventory is active, so one
+# copy here serves all of them. Edit .env per inventory, never this file.
+
+# --- Global ---
+ansible_managed: "Managed by catena -- do not edit directly; regenerate via the installer / converge.yml."
+
+# --- Identity ---
+ops_user: "{{ lookup('dotenv', 'OPS_USER', default='ops') }}"
+ansible_ssh_private_key_file: "{{ lookup('dotenv', 'SSH_PRIVATE_KEY') }}"
+ops_ssh_public_keys:
+  - "{{ lookup('file', lookup('dotenv', 'SSH_PUBLIC_KEY_FILE')) }}"
+
+# --- Tailscale ---
+tailscale_hostname: "{{ inventory_hostname }}"
+tailscale_tags: >-
+  {{ lookup('dotenv', 'TAILSCALE_TAGS').split(',') | map('trim') | list }}
+tailscale_accept_dns: >-
+  {{ lookup('dotenv', 'TAILSCALE_ACCEPT_DNS', default='false') | bool }}
+
+# --- Cloudflare Tunnel ---
+cloudflare_api_base: "https://api.cloudflare.com/client/v4"
+# Store-owned, seeded from .env on the first converge and read from the store
+# ever after. NO default, deliberately: an empty zone builds every hostname as
+# `dash.`, `auth.`, `monitor.` and converges a host that looks finished and
+# serves nothing. The loader asserts it resolved, so the failure is one clear
+# sentence at the start rather than a puzzle three roles later.
+cloudflare_zone: "{{ cfg_cloudflare_zone }}"
+# cloudflare_zone above is the primary domain every <sub>.<zone> hostname
+# interpolates, and the only one a Community host serves. Additional domains
+# are attached in the catena-admin Domains panel and live in the on-box store;
+# the host engine assembles the full list from there and caps it on the
+# subscription, so there is no zone list to set here.
+# Each host owns its own tunnel, and NAMES IT ITSELF: the engine composes
+# <prefix> + the box's hostname, which bootstrap/roles/common set to inventory_hostname.
+# The prefix is a store key (CLOUDFLARED_TUNNEL_NAME_PREFIX) the engine reads
+# for itself, so nothing here has to render a name -- which is what lets the
+# cloudflared dispatch actions ship in the image instead of being converge-owned.
+# Cloudflared runs as a swarm service on catena-network. Ingress target is
+# the catena-traefik container, reachable by service name inside the network.
+cloudflared_ingress_service: "http://catena-traefik:80"
+
+# --- Infrastructure subdomains ---
+# Public-facing hostnames. Each is routed to its own oauth2-proxy instance,
+# which authenticates against Keycloak and proxies to the app behind it. SSO
+# works across them via a session cookie scoped to .<zone>.
+# The product's hostname scheme. Constants, not inventory values: the shipped
+# starter inventory, the operator skeleton and the one real inventory all set
+# these to exactly the strings below, and two of them are not in any .env at
+# all -- so the knob has never been turned and the reconcile could not read it
+# without an operator's file anyway.
+#
+# A client who wants a different name gets a store key, decided at install and
+# read from /etc/catena/config.json like every other host fact. That is a
+# one-line move from here; what it must not be is a value the host can only
+# learn from a laptop.
+infrastructure_gatus_subdomain: "monitor"
+infrastructure_gatus_hostname: "{{ infrastructure_gatus_subdomain }}.{{ cloudflare_zone }}"
+# catena-admin (the Go shell) is served at dash.<zone>.
+infrastructure_dash_subdomain: "dash"
+infrastructure_dash_hostname: "{{ infrastructure_dash_subdomain }}.{{ cloudflare_zone }}"
+
+healthchecks_subdomain: "heartbeat"
+healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
+
+# The SSO host (auth.<zone>) is the only subdomain with no oauth2-proxy in
+# front of it (it IS the auth layer). keycloak_hostname / keycloak_subdomain are defined
+# in reconcile/roles/keycloak/defaults (reading the same AUTH_SUBDOMAIN env key).
+# Store-owned, same seed-once path as the zone. Empty is a real state -- it is
+# what a host has before anyone has said who to contact -- and the roles that
+# use it (ACME registration, the Keycloak admin account) already handle blank.
+admin_email: "{{ cfg_admin_email | default('') }}"
+
+# SMTP -- resolved by reconcile/roles/keycloak from the store. SMTP_PROVIDER
+# (resend | brevo | server) decides where mail goes, SMTP_SENDER is the address
+# it comes from, and smtp_password is the one credential; the role fills in
+# host, port and username from the choice. Don't re-declare
+# smtp_host/smtp_port/etc. here -- doing so shadows the role default and
+# defeats the resolution.
+
+# ntfy + backup repo are NOT set here. They are store-owned (catena-admin >
+# Settings); the converge seeds them from .env once and reads the store after.
+
+# Auth is handled entirely by self-hosted SSO at auth.<zone> plus a per-app
+# oauth2-proxy in front of each gated host. User membership in the access
+# groups controls access to the gated subdomains.
+
+# --- Portainer API (container control plane) ---
+# Global so any role (infrastructure stack seam, dashboard-sync env) can
+# reference it. reconcile/roles/portainer consumes the same names. Reached from the
+# controller over the tailnet.
+# The port, like the hostname scheme, is the product's. It is published
+# host-mode and firewalled to the tailnet, so no client picks it to avoid a
+# collision -- nothing else on the box may bind it either way.
+portainer_ui_port: "9000"
+portainer_api_base: "http://{{ ansible_host }}:{{ portainer_ui_port }}/api"
+
+# The SAME API, addressed from ON the host. Anything that runs on the box --
+# catena-dashboard-sync, the container-update lane -- must use this and never
+# portainer_api_base.
+#
+# ansible_host is where the CONTROLLER reaches the box, and it is not stable:
+# it flips between the public and tailnet address across converges and differs
+# again after a restore onto other infrastructure. Baking it into a file a
+# host-local service reads gives that service an address for a machine it is
+# already running on, which stops working the moment the address changes:
+#
+#   catena-dashboard-sync.service: FAILED
+#   request failed on GET /stacks: <urlopen error [Errno 113] No route to
+#   host>            (env said 10.139.244.121, the host was 10.139.244.110)
+#
+# dashboard-sync is what renders the Traefik route files for client apps, so
+# a stale base means every app deployed after the address moved gets NO route
+# and answers 404. Read on bench run 2026-08-31T14-59-08-adca as
+# "traefik did not route 'book.11003300.xyz'" with the app healthy at 1/1 and
+# its vps.route.host label correct.
+#
+# It is also why these env files are not idempotent: a rendered address
+# that changes between converges rewrites the file every time.
+portainer_api_base_onbox: "http://127.0.0.1:{{ portainer_ui_port }}/api"
+
+# Public, oauth2-gated hostname for the Portainer UI over the Cloudflare
+# tunnel (admin-only; wired by reconcile/roles/oauth2_proxy oauth2_proxy_apps). This is
+# the client admin's self-serve deploy surface. Distinct from
+# portainer_api_base above, which is the tailnet-only operator control
+# path -- both reach the same catena-portainer service.
+# NOT a constant, unlike its neighbours above. This is the one public subdomain
+# the two inventories disagree about: the starter here says `portainer` and the
+# operator skeleton says `apps`, with a note to use `admin` for established
+# clients. A value three sources give three answers for is a host fact, so it
+# is a store key -- PORTAINER_SUBDOMAIN in SETTINGS_CONFIG, seeded from the
+# `.env` on the first converge and answered by the store from then on.
+#
+# The literal here is the fallback for a host whose store has no answer, which
+# is the same string the starter inventory ships.
+portainer_admin_subdomain: "{{ cfg_portainer_admin_subdomain | default('portainer', true) }}"
+portainer_admin_hostname: "{{ portainer_admin_subdomain }}.{{ cloudflare_zone }}"
+
+# --- Declarative public-port registry ---
+# The two paths the registry is built from. Here rather than in
+# reconcile/roles/public_ports because SIX roles read the fragment dir -- coturn,
+# portainer, infrastructure's three lanes and catena-admin's host setup all drop
+# a <owner>.json into it -- and a role default is only reliably in scope once
+# that role has run. A constant six roles share is the product's, not one
+# role's.
+#
+# The reconciler imports public_ports and labels_schema by bare name from its
+# own directory, so all three install side by side in the lib dir.
+public_ports_lib_dir: /usr/local/lib/catena
+public_ports_fragment_dir: /etc/catena/public-ports.d
+
+# --- Provenance of the tree this converge is running ---
+# Written by catena-admin scripts/vendor-catena-ce.sh and shipped beside the
+# ansible/ directory inside the panel image, so it sits one level above
+# playbook_dir's parent on the on-host path and does not exist at all on a
+# controller. tasks/record_release_manifest.yml reads the commit out of it to
+# answer "which catena-ce did this host apply".
+#
+# A variable rather than the literal expression at the point of use, because
+# playbook_dir is a magic variable nothing can override -- so a path written
+# inline is a path no test can point anywhere else.
+catena_vendor_manifest_path: "{{ playbook_dir }}/../../VENDOR.json"
+
+# --- What this converge installed, so the next one can withdraw it ---
+# /var/lib rather than /etc, for the reason the payload's own manifest gives:
+# it describes what is on this host right now, it is rewritten every converge,
+# and /etc rides the backup set -- a restored manifest would describe the
+# machine the snapshot came from and hand the delete leg a list of paths this
+# host never had.
+catena_converge_manifest_path: /var/lib/catena/converge-manifest.json
+
+# --- What the bootstrap-owned files looked like last time a converge ran ---
+# Same reasoning for /var/lib: it describes this host now, it is rewritten
+# every converge, and a copy restored from a snapshot would be a baseline taken
+# on a different machine -- which for a drift report is worse than no baseline,
+# because every file would read as changed.
+catena_bootstrap_drift_path: /var/lib/catena/bootstrap-drift.json
+
+# The boundary declaration itself, read at run time by
+# tasks/report_bootstrap_drift.yml so the list of operator-owned paths has one
+# home. A variable rather than an inline expression for the same reason
+# catena_vendor_manifest_path is one: playbook_dir is magic and cannot be
+# overridden, so a path built from it inline is a path no test can redirect.
+catena_boundary_path: "{{ playbook_dir }}/../boundary.yml"
+
+# --- Storage ---
+storage_mode: "{{ lookup('dotenv', 'STORAGE_MODE', default='built_in') }}"
+# /mnt/data everywhere, and named literally in the backup path set, the docker
+# data-root, the volume layout and the restore machine. It is the product's
+# layout, not an operator choice: moving it means moving every one of those
+# with it, and no inventory has ever asked.
+storage_mount_point: "/mnt/data"
+storage_block_device: "{{ lookup('dotenv', 'STORAGE_BLOCK_DEVICE', default='/dev/sdb') }}"
+storage_bulk_enabled: >-
+  {{ lookup('dotenv', 'STORAGE_BULK_ENABLED', default='false') | bool }}
+storage_bulk_mount_point: "{{ lookup('dotenv', 'STORAGE_BULK_MOUNT_POINT', default='/mnt/bulk') }}"
+
+# --- Backup ---
+# Deferred (0b): backup creds + repo + schedule are configured POST-INSTALL in
+# catena-admin (Settings > Backup), written to the on-box store, and read by
+# run-backup.sh at runtime. This .env value is only a converge-time fallback
+# for the repo URL; default '' so a deferred-backup install converges cleanly.
+# backup_healthcheck_url is NOT set here. reconcile/roles/backup/defaults owns it, and
+# an inventory copy overrides that default while drifting from it: this one
+# still built the single-lane "catena-backup" slug the two-lane succeeded /
+# attempted split replaced, so any inventory carrying it silently opted out of
+# the immediate-page lane. Override with BACKUP_HEALTHCHECK_URL in .env if you
+# want an off-host endpoint.
+# Retention is NOT an inventory value. It is the `backup_retention` object in
+# /etc/catena/config.json, set on the panel's Schedules page and rendered to
+# /etc/catena/backup-retention.env by catena-schedule -- the only file
+# run-backup.sh sources it from. A backup_retention_policy dict lived here
+# reading BACKUP_KEEP_* out of .env, and no role, template or playbook ever
+# consumed it: an operator could set BACKUP_KEEP_DAILY=30 in .env, converge
+# cleanly, and keep 7.
+
+# --- Locale ---
+common_timezone: "{{ lookup('dotenv', 'COMMON_TIMEZONE', default='America/Toronto') }}"
+common_locale: "{{ lookup('dotenv', 'COMMON_LOCALE', default='en_CA.UTF-8') }}"
+
+# --- Per-inventory / per-host customization -------------------------------
+# Universal defaults ship in roles/*/vars/ and roles/*/defaults/ -- a specific
+# deployment that needs to ADD to them (never remove -- fork the repo for
+# that) drops an inventory/<name>/group_vars/all/*.yml file of its own.
+# Ansible loads group_vars from the inventory directory too, so it merges
+# on top of this shared file with no edit here.
+#
+# Extra catena-admin action buttons are the one hook. reconcile/roles/catena-admin/
+# defaults/main.yml defaults catena_admin_extra_actions to [], so most
+# inventories need nothing. A deployment that wants one adds
+# inventory/<name>/group_vars/all/actions.yml:
+#
+#   catena_admin_extra_actions:
+#     - name: acme-refresh-prices
+#       title: "Refresh ACME prices"
+#       icon: "&#128176;"   # 💰
+#       timeout: 60
+#       shell: "sudo -u acme /opt/acme/bin/refresh-prices"
+#
+# Required keys: `name`, `shell`. Optional: `title` (defaults to name),
+# `icon`, `timeout` (defaults to 10s). Same shape as the canonical catalog
+# (reconcile/roles/catena-admin/templates/actions.yml.j2) -- each entry becomes a
+# dispatcher case + allow-list entry automatically.
+
+# --- The admin panel's shared identity ---
+# Read by BOTH halves of the panel's converge -- bootstrap/roles/catena_admin_host, which
+# sets up the trust path and the host lane env files, and reconcile/roles/catena-admin,
+# which deploys the container -- and by reconcile/roles/oauth2_proxy, which resolves
+# catena_admin_hostname by NAME at a point where neither role's defaults are
+# reliably in scope.
+#
+# A role default is only dependable once that role has run, so a value two roles
+# on either side of the boundary share is the product's rather than one role's.
+# Same call as the public-port paths above and the subdomains in phase 3.
+
+# --- Hostname ---------------------------------------------------------
+# The admin panel is served at dash.<zone>. The subdomain is a product
+# constant, like the hostname scheme above: every inventory in this repo, in
+# the operator skeleton and on every host uses it, and nothing looks up an
+# override.
+catena_admin_subdomain: "dash"
+catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
+catena_admin_ui_port: "9010"
+# Host dir where run-backup.sh + gatus-sync.py write their summary JSON
+# files (backup-stats.json, gatus-summary.json, healthchecks-summary.json).
+# Bind-mounted read-only into the admin container; the admin's stats
+# reader picks up the files unchanged. Matches reconcile/roles/backup defaults'
+# backup_stats_dir; do not move without updating that role + the
+# post-restore.needed marker contract (test_restore_option_a).
+catena_admin_stats_dir: "/var/lib/catena"
+catena_admin_state_dir: "/var/lib/catena-admin"
+
+# Default theme rendered into the admin container's env. Inventory override
+# via catena_default_theme. Language has no install-time default: the panel
+# always starts in English, and a visitor can switch to French any time via
+# the header toggle (shell/i18n) -- no inventory field for it.
+catena_admin_default_theme: "{{ catena_default_theme | default('system') }}"

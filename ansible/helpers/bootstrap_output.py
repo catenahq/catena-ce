@@ -7,10 +7,9 @@ hosts.yml off disk, where the entry is still the placeholder. So the value
 is emitted here, into a gitignored file the operator copies into their
 inventory (and apply_to_inventory() applies for the in-flight run).
 
-NO SECRET goes through this file. Every Catena secret lives in the on-box
-store at /etc/catena/config.json (0b); the Portainer API key used to be
-emitted here under a `vault:` section and is now written straight into that
-store by roles/portainer.
+NO SECRET goes through this file. Every Catena secret, including the
+Portainer API key, lives in the on-box store at /etc/catena/config.json
+(0b), written there directly by reconcile/roles/portainer.
 
 File shape:
 
@@ -98,7 +97,7 @@ def apply_to_inventory(inv_dir: Path) -> list[str]:
 
     bootstrap.yml joins the tailnet and rewrites the host's ansible_host in
     its IN-MEMORY inventory (add_host) + emits .bootstrap-output.yml, but a
-    SEPARATE site.yml / validate.yml invocation (as `catena install` runs
+    SEPARATE converge.yml / validate.yml invocation (as `catena install` runs
     each stage) reads hosts.yml, where the entry is still the 0.0.0.0
     placeholder. Applying the emitted IP here makes the later stages target
     the real tailnet address. Returns the list of applied

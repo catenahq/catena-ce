@@ -1,4 +1,4 @@
-"""Unit tests for the keyscan_alias filter used by roles/catena-admin/
+"""Unit tests for the keyscan_alias filter used by reconcile/roles/catena-admin/
 tasks/host.yml to build the admin container's known_hosts.
 
 The container's SSH runner only ever connects to host.docker.internal, so
