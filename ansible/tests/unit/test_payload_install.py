@@ -1,11 +1,11 @@
 """Lock down reconcile/roles/payload -- the host engine install.
 
 The role closes a real ordering hole. reconcile/roles/cloudflare_tunnel at
-site.yml position 9 dispatches one of the engines, so engines arriving any later
+converge.yml position 9 dispatches one of the engines, so engines arriving any later
 -- from reconcile/roles/catena-admin at position 13, say -- leave a first
 converge on a host that already holds a Cloudflare token with no tunnel, and
 reconcile/roles/oauth2_proxy then waits on an edge nobody brought up. These tests
-pin the two things that keep it closed: the role's POSITION in site.yml, and the
+pin the two things that keep it closed: the role's POSITION in converge.yml, and the
 marker semantics that make a re-converge a no-op without freezing an image
 upgrade out.
 
@@ -21,7 +21,7 @@ ANSIBLE = Path(__file__).resolve().parents[2]
 ROLE = ANSIBLE / "reconcile" / "roles" / "payload"
 DEFAULTS = ROLE / "defaults" / "main.yml"
 TASKS = ROLE / "tasks" / "main.yml"
-SITE = ANSIBLE / "playbooks" / "site.yml"
+SITE = ANSIBLE / "playbooks" / "converge.yml"
 CF_TASKS = ANSIBLE / "reconcile" / "roles" / "cloudflare_tunnel" / "tasks" / "main.yml"
 
 
@@ -34,7 +34,7 @@ def _tasks() -> list[dict]:
 
 
 def _role_order() -> list[str]:
-    """Role names in site.yml play order."""
+    """Role names in converge.yml play order."""
     play = yaml.safe_load(SITE.read_text())[0]
     return [r["role"] if isinstance(r, dict) else r for r in play["roles"]]
 
@@ -70,7 +70,7 @@ def _flatten(tasks: list[dict], inherited: list | None = None) -> list[dict]:
 # --- position ---------------------------------------------------------------
 def test_payload_runs_after_docker_and_before_every_engine_consumer():
     order = _role_order()
-    assert "payload" in order, "reconcile/roles/payload is not in site.yml"
+    assert "payload" in order, "reconcile/roles/payload is not in converge.yml"
     pos = order.index("payload")
     # docker is all it needs, and it needs docker.
     assert order.index("docker") < pos

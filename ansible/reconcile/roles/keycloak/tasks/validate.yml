@@ -10,7 +10,7 @@
 # Public-URL reachability via the CF Tunnel is verified post-converge
 # by playbooks/validate.yml Vantage 2 ("Probe Keycloak login page via
 # CF"), NOT here. Reason: reconcile/roles/keycloak runs BEFORE reconcile/roles/infrastructure
-# in site.yml, so the cloudflared ingress + Traefik file route for
+# in converge.yml, so the cloudflared ingress + Traefik file route for
 # auth.<zone> do not exist when this role's validate runs on a fresh
 # install. Probing here would either fail spuriously (wrong) or be
 # best-effort and waste 60s of retries. The end-to-end public probe runs

@@ -4,7 +4,7 @@
 # 1. portainer_endpoint.yml     -- resolve the Portainer local Docker endpoint
 #                              id; capture _portainer_endpoint_id.
 #                              Gated on portainer_api_key (minted in-role
-#                              by reconcile/roles/portainer earlier in site.yml).
+#                              by reconcile/roles/portainer earlier in converge.yml).
 # 2. gatus.yml / healthchecks.yml --
 #    each calls swarm_stack.yml with its own compose YAML, domain and
 #    port. All gated on portainer_api_key.
@@ -16,13 +16,13 @@
 #                              50-catena-apps.yaml.
 #
 # CF tunnel + DNS + cloudflared swarm service moved to reconcile/roles/cloudflare_tunnel
-# on 2026-05-08 so site.yml can deploy them BEFORE keycloak/oauth2_proxy --
+# on 2026-05-08 so converge.yml can deploy them BEFORE keycloak/oauth2_proxy --
 # oauth2_proxy's wait-for-public-Keycloak task otherwise can't succeed on a
 # fresh DR/migrate target in a single converge.
 #
 # The per-app oauth2-proxy instances and their `<app>-oauth2-proxy.yml`
 # Traefik route files are rendered by reconcile/roles/oauth2_proxy (which runs before
-# this role in site.yml), so every gated public URL already resolves to its
+# this role in converge.yml), so every gated public URL already resolves to its
 # own auth proxy by the time this role's compose deploys land.
 
 # Self-hosted SSO gates the four UIs; CF Tunnel is the only public ingress
@@ -33,7 +33,7 @@
 # -> delete the four `<subdomain>.<zone>` entries.
 
 # --- Everything below requires the Portainer API key. It is minted in-role
-#     by reconcile/roles/portainer earlier in site.yml (and self-heals a missing/
+#     by reconcile/roles/portainer earlier in converge.yml (and self-heals a missing/
 #     rejected key on every converge), so the block runs on a normal
 #     converge; it skips cleanly only in the rare window before the key
 #     exists. ------------------------------------------------------------
@@ -412,7 +412,7 @@
 #
 # Refuse-to-start protection is unaffected: disk-preflight.sh still aborts
 # backup / restore / auto-update on low free bytes (every night, not just at
-# install), and site.yml still refuses to converge onto a filesystem at or
+# install), and converge.yml still refuses to converge onto a filesystem at or
 # above its ceiling.
 
 # The weekly stack-update timer (managed floating-tag container updates) and

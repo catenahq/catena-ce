@@ -1,5 +1,5 @@
 ---
-# Final firewall lockdown. Called from site.yml post_tasks AFTER tailscale0
+# Final firewall lockdown. Called from converge.yml post_tasks AFTER tailscale0
 # and cloudflared are confirmed healthy.
 #
 # Designed to fail CLOSED (you stay reachable) rather than fail OPEN

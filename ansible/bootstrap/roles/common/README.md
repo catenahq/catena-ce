@@ -1,6 +1,6 @@
 # common
 
-Baseline host setup. First role in `site.yml`'s converge order.
+Baseline host setup. First role in `converge.yml`'s converge order.
 
 ## Responsibilities
 
@@ -12,7 +12,7 @@ Baseline host setup. First role in `site.yml`'s converge order.
 - Install minimal package baseline (curl, jq, sudo, tzdata,
   ca-certificates) before any later role depends on them.
 - Provide the `ufw_lockdown.yml` task file used as the final lock
-  step in `site.yml` (Tailscale-only ingress).
+  step in `converge.yml` (Tailscale-only ingress).
 
 ## Inputs
 
@@ -31,4 +31,4 @@ Baseline host setup. First role in `site.yml`'s converge order.
 
 ## Related
 
-- Caller: `playbooks/site.yml`.
+- Caller: `playbooks/converge.yml`.

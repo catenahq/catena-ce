@@ -20,7 +20,7 @@
 # Atomicity: gated on /health/ready (the canonical "admin REST is
 # live" signal). Per project CLAUDE.md.
 #
-# Caller: reconcile/roles/keycloak/tasks/main.yml, at the end of every site.yml
+# Caller: reconcile/roles/keycloak/tasks/main.yml, at the end of every converge.yml
 # run, so each converge dumps the realm to backup-staging where the
 # single backup picks it up. (Community runs this at converge time only;
 # the nightly drift-export timer is part of the Business managed lane,

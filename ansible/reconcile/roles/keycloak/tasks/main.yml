@@ -44,7 +44,7 @@
 # converge of ok=28 changed=0 -- the setting was in the store, and nothing
 # rendered it.
 #
-# playbooks/site.yml carries the same apply: on the on-box config loader, for
+# playbooks/converge.yml carries the same apply: on the on-box config loader, for
 # the same reason (fi_s3 caught a poisoned password surviving `--tags
 # postgres` there).
 - name: "Keycloak: provision DB + user inside catena-postgres"
@@ -57,7 +57,7 @@
 
 # The compose-deploy + realm-bootstrap + post-deploy probe all hit the
 # Portainer stack API. portainer_api_key is minted by reconcile/roles/portainer
-# earlier in the SAME site converge (it runs before keycloak in site.yml and
+# earlier in the SAME site converge (it runs before keycloak in converge.yml and
 # set_facts the freshly-minted key into play scope), so this block converges
 # in a single pass -- no two-pass pass-1/pass-2 dance. Mirror the gate
 # reconcile/roles/infrastructure uses; the key is present here on a fresh install

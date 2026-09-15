@@ -21,7 +21,7 @@
 # runs.
 #
 # Ordering is unchanged: each role still reconciles its service where it always
-# did in site.yml, so traefik still makes the overlay before postgres wants it
+# did in converge.yml, so traefik still makes the overlay before postgres wants it
 # and postgres is still accepting connections before keycloak provisions its DB.
 # The engine is handed ONE service and no opinion about what comes next.
 # Role-specific work stays in the role -- traefik force-rolls on a static-config

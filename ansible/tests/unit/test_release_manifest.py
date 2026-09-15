@@ -1,4 +1,4 @@
-"""The release manifest the converge writes at the end of site.yml.
+"""The release manifest the converge writes at the end of converge.yml.
 
 It is the panel's only way to tell "this feature is off" from "this feature's
 plumbing never reached this host". Every button dispatches a FIXED action name
@@ -24,7 +24,7 @@ import pytest
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-SITE = ANSIBLE / "playbooks" / "site.yml"
+SITE = ANSIBLE / "playbooks" / "converge.yml"
 RECONCILE = ANSIBLE / "playbooks" / "reconcile.yml"
 # The tasks themselves, shared by both converge paths.
 SHARED = ANSIBLE / "playbooks" / "tasks" / "record_release_manifest.yml"
@@ -32,7 +32,7 @@ COMMON_DEFAULTS = ANSIBLE / "bootstrap" / "roles" / "common" / "defaults" / "mai
 
 # Both playbooks that converge a host. An assertion about "the converge" has to
 # hold for whichever one ran, which is the whole reason the tasks were lifted
-# out of site.yml.
+# out of converge.yml.
 CONVERGE_PLAYBOOKS = (SITE, RECONCILE)
 
 
@@ -56,7 +56,7 @@ def test_the_manifest_is_the_last_thing_the_converge_writes(playbook):
     say "a converge finished here", and it can only say that from the end.
 
     Asserted for BOTH playbooks. An on-host converge that stamped the manifest
-    before its last role would be making the same claim site.yml was careful
+    before its last role would be making the same claim converge.yml was careful
     not to."""
     play = yaml.safe_load(playbook.read_text())[0]
     names = [t.get("name", "") for t in play["post_tasks"]]
@@ -71,7 +71,7 @@ def test_the_manifest_is_the_last_thing_the_converge_writes(playbook):
 
 @pytest.mark.parametrize("playbook", CONVERGE_PLAYBOOKS, ids=lambda p: p.name)
 def test_both_converge_paths_include_the_same_file(playbook):
-    """The gap this closes. These tasks lived in site.yml, so an on-host
+    """The gap this closes. These tasks lived in converge.yml, so an on-host
     converge left every field describing the last converge an OPERATOR ran --
     including `actions`, which is what the panel checks before deciding a host
     needs a converge. The banner then survived the converge that cleared it."""
@@ -88,7 +88,7 @@ def test_both_converge_paths_include_the_same_file(playbook):
 def test_each_path_names_itself_in_the_manifest(playbook):
     """validate.yml asserts this manifest's version against
     /etc/catena/version.txt, on the reasoning that one converge writes both at
-    opposite ends of itself. site.yml's first role stamps version.txt;
+    opposite ends of itself. converge.yml's first role stamps version.txt;
     reconcile.yml never runs that role, so on a self-converged host the two
     describe different runs. Recording which path wrote the manifest is what
     lets a reader tell a real disagreement from drift."""

@@ -6,7 +6,7 @@ seconds forever, so a missing source is not an error the converge sees: it is
 an install parked on "create the swarm service (first run)" with no output.
 
 That is what /var/backups/catena-export did. Its contents belong to
-reconcile/roles/backup, which runs at site.yml position 23 -- TWO roles after
+reconcile/roles/backup, which runs at converge.yml position 23 -- TWO roles after
 catena-admin at 21 -- so on a first converge the directory the panel mounts
 did not exist yet, and every task swarm placed was rejected on sight:
 

@@ -26,7 +26,7 @@ keycloak_zone_projection_path: "/var/lib/catena/cloudflare-zones.json"
 # A mismatch is refused rather than mis-parsed.
 keycloak_zone_projection_schema: 1
 # How old a projection may be and still be routed on. The tunnel converges on
-# every site.yml run, so a stamp older than this means the engine has not run in
+# every converge.yml run, so a stamp older than this means the engine has not run in
 # a long time and the list may name a domain the edge no longer serves --
 # routing to one of those sends users to a hostname that resolves nowhere.
 keycloak_zone_projection_max_age_hours: 48

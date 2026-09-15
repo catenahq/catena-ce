@@ -19,7 +19,7 @@
 # instead of 409 on the duplicate-username path), so on a post-
 # restore converge we skip the entire keycloak-config-cli step. The
 # next operator-driven converge (after the marker is cleared by
-# site.yml's post_tasks) follows the normal idempotent path.
+# converge.yml's post_tasks) follows the normal idempotent path.
 - name: "Keycloak realm: probe post-restore marker"
   ansible.builtin.stat:
     path: "{{ backup_stats_dir }}/post-restore.needed"

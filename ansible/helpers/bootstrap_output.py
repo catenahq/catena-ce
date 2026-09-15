@@ -97,7 +97,7 @@ def apply_to_inventory(inv_dir: Path) -> list[str]:
 
     bootstrap.yml joins the tailnet and rewrites the host's ansible_host in
     its IN-MEMORY inventory (add_host) + emits .bootstrap-output.yml, but a
-    SEPARATE site.yml / validate.yml invocation (as `catena install` runs
+    SEPARATE converge.yml / validate.yml invocation (as `catena install` runs
     each stage) reads hosts.yml, where the entry is still the 0.0.0.0
     placeholder. Applying the emitted IP here makes the later stages target
     the real tailnet address. Returns the list of applied

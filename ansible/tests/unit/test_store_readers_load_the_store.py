@@ -8,7 +8,7 @@ and a variable somewhere reads that fact. The hop is invisible at the call site
 silently changes which plays can still resolve it.
 
 That is not hypothetical. Moving CLOUDFLARE_ZONE broke exactly one play,
-`regenerate-cf-tunnel.yml`, which has no loader by design: it is dispatched from
+`rotate-tunnel.yml`, which has no loader by design: it is dispatched from
 the panel with the token on the command line. It read the zone from the
 inventory and would have started resolving it to nothing -- and the failure
 would have been a tunnel regenerated against an empty domain, not an error.
@@ -49,7 +49,7 @@ _GROUP_VARS = _PLAYBOOKS / "group_vars" / "all" / "main.yml"
 # Plays that read a store-owned value without the loader, and why that is right.
 # Each one has to read the store itself; "it happens to work" is not a reason.
 LOADER_EXEMPT = {
-    "regenerate-cf-tunnel.yml": (
+    "rotate-tunnel.yml": (
         "dispatched from the panel with the Cloudflare token on the command "
         "line, so it runs without the loader on purpose. It slurps "
         "/etc/catena/config.json itself -- for the token it rotates and for "

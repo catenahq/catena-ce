@@ -3,9 +3,9 @@
 # Manual maintenance action (Community), driven by `catena rotate-tunnel`.
 #
 # Usage (cwd = ansible/):
-#   ./catena rotate-tunnel --inventory prod
+#   uv run catena rotate-tunnel --inventory prod
 #   # or directly:
-#   ansible-playbook -i inventory/prod playbooks/regenerate-cf-tunnel.yml
+#   ansible-playbook -i inventory/prod playbooks/rotate-tunnel.yml
 #
 # Takes no secret. The role authenticates as the cloudflare_api_token in the
 # host's own store, because the engine that mints the replacement tunnel reads

@@ -3,14 +3,14 @@
 # in two scenarios:
 #
 #   1. DR (fresh VPS): common -> storage -> backup(restore). Docker is
-#      NOT installed yet -- that happens later during site.yml.
+#      NOT installed yet -- that happens later during converge.yml.
 #   2. Rollback (same live VPS): docker + containers ARE running. We
 #      stop the daemon as a pre-task so restic doesn't overwrite state
-#      underneath live containers. site.yml (which follows restore in
+#      underneath live containers. converge.yml (which follows restore in
 #      the rollback flow) starts docker back up and swarm reconciles.
 #
-# Contract with site.yml: on success, drop
-# /var/lib/catena/post-restore.needed as a marker. site.yml's post_tasks
+# Contract with converge.yml: on success, drop
+# /var/lib/catena/post-restore.needed as a marker. converge.yml's post_tasks
 # run `catena-recovery post-restore` on that marker, which redeploys the
 # app stacks through the Portainer API, replays their pg dumps into the
 # now-running per-app postgres containers (scope=clients), and checks
@@ -23,7 +23,7 @@
 # A disaster-recovery restore runs on a host where install.yml has never
 # run, so restic isn't installed and the password file doesn't exist.
 # The full install.yml (timer, repo init, initial snapshot) runs later
-# during site.yml; here we only need the binary + creds to execute restic.
+# during converge.yml; here we only need the binary + creds to execute restic.
 
 # Resolve the effective snapshot id once at the top, so the rest of
 # the role can reference `_restic_snapshot_id` without each task
@@ -117,7 +117,7 @@
 # container in one shot. `docker_live_restore` is false for this project
 # (swarm requires it), so stopping docker really does kill containers.
 #
-# Restart: site.yml follows restore in the rollback flow; its docker
+# Restart: converge.yml follows restore in the rollback flow; its docker
 # role starts docker back up, swarm reconciles the services, and
 # restart-policy containers come back. The post-restore.needed marker
 # additionally triggers a full app-stack redeploy via the Portainer API.
@@ -240,7 +240,7 @@
   # "docker-ce installed" from the snapshot, but the binaries in
   # /usr/bin are never in the snapshot. The subsequent `./catena site`
   # sees "already installed" and skips, leaving the host without the
-  # actual binaries. Skip /var/lib/dpkg here so site.yml reinstalls
+  # actual binaries. Skip /var/lib/dpkg here so converge.yml reinstalls
   # every package cleanly from apt.
   ansible.builtin.command:
     argv:
@@ -322,7 +322,7 @@
 - name: "Unmask docker.service + docker.socket (restore window over)"
   # Runs on BOTH restic outcomes (the restore task never hard-fails
   # directly; the surface task below does), so an aborted restore never
-  # leaves docker masked -- the follow-up site.yml converge must be able
+  # leaves docker masked -- the follow-up converge.yml converge must be able
   # to start it again. Units stay STOPPED; the rollback flow's docker
   # role does the actual start after the play hands over.
   ansible.builtin.systemd:
@@ -362,7 +362,7 @@
 # include systemd-timesyncd state files / drop-ins from the source
 # host that disagree with the target clock. If sync got disturbed,
 # OIDC token validation against Keycloak (issued AFTER the restore)
-# will reject when site.yml reaches the post-restore-redeploy step.
+# will reject when converge.yml reaches the post-restore-redeploy step.
 #
 # Two-step sequence:
 #   1. Restart systemd-timesyncd so the daemon picks up the restored
@@ -387,7 +387,7 @@
     state: restarted
   register: _restore_timesyncd_restart
   # changed=true on every run is expected and not a converge concern --
-  # this task only runs in restore.yml, not on every site.yml pass.
+  # this task only runs in restore.yml, not on every converge.yml pass.
   changed_when: false
   failed_when: false
 
@@ -422,14 +422,14 @@
       Fix: inspect /etc/systemd/timesyncd.conf + /etc/systemd/
       timesyncd.conf.d/, restore a working NTP server pool (e.g.
       `NTP=pool.ntp.org`), `systemctl restart systemd-timesyncd`,
-      and wait for sync before letting site.yml's post-restore hooks
+      and wait for sync before letting converge.yml's post-restore hooks
       run (Keycloak OIDC will reject tokens issued under a skewed clock).
 
-# ─── Hand-off to site.yml ───────────────────────────────────────────────
-# Drop a marker so site.yml's post_tasks know to (a) redeploy every app
+# ─── Hand-off to converge.yml ───────────────────────────────────────────────
+# Drop a marker so converge.yml's post_tasks know to (a) redeploy every app
 # stack via the Portainer API (containers are stopped post-restore --
 # image layers aren't in the backup) and (b) replay pg_dumpall into them.
-# Marker is cleared by site.yml after both hooks succeed; operator can
+# Marker is cleared by converge.yml after both hooks succeed; operator can
 # `touch` it manually to re-run hooks out-of-band.
 
 - name: "Ensure stats dir exists for post-restore marker ({{ backup_stats_dir }})"
@@ -489,7 +489,7 @@
                ~ ' (rc ' ~ (_restic_snapshot_ls.rc | default('?')) ~ '), so the '
                ~ 'database replay runs with no leftover guard.') }}
 
-- name: "Drop post-restore marker for site.yml hooks"
+- name: "Drop post-restore marker for converge.yml hooks"
   ansible.builtin.copy:
     dest: "{{ backup_stats_dir }}/post-restore.needed"
     content: |

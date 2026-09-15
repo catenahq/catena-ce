@@ -63,7 +63,7 @@
       traefik.yml is missing forwardedHeaders.trustedIPs covering RFC1918.
       Keycloak will log "Non-secure context detected" on every cross-origin
       POST and the account-console SPA will loop. Re-render via
-      `./catena site --tags traefik` and verify catena-traefik restarted.
+      `catena converge --tags traefik` and verify catena-traefik restarted.
 
 - name: "validate/traefik: catena-network overlay driver"
   ansible.builtin.command: docker network inspect catena-network --format '{% raw %}{{.Driver}}{% endraw %}'

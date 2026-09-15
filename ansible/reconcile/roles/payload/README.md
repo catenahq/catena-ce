@@ -6,7 +6,7 @@ image. No container is deployed here and Portainer is not involved.
 
 ## Why it runs at position 5.5
 
-The payload used to arrive from `reconcile/roles/catena-admin`, role 13 in `site.yml`.
+The payload used to arrive from `reconcile/roles/catena-admin`, role 13 in `converge.yml`.
 Three roles that run BEFORE it already depend on the engines:
 
 - `reconcile/roles/cloudflare_tunnel` (11) dispatches `catena-cloudflared-sync`,

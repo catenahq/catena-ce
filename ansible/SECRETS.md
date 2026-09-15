@@ -59,7 +59,7 @@ ride the backup, because it is what unlocks the backup.
 `console_recovery_password` are special: `USER_HELD_SECRETS` in
 `onbox_config.py`. They are minted **on-box if absent**
 (like the internal secrets) but the installer reads them back and **shows them
-once** at the end of `catena install` (`playbooks/show_dr_keyset.yml`) so the
+once** at the end of `catena install` (`playbooks/show-keyset.yml`) so the
 client keeps a copy in their password manager. They are NOT settable through
 the settings config-write API (a restic re-key is a deliberate action). On
 `catena recover` the client re-enters the saved values; the loader adopts them

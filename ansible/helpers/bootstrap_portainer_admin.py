@@ -72,7 +72,7 @@ API_KEY_LABEL = "catena-installer"
 
 HTTP_TIMEOUT = 10.0
 
-# Reachability probe window. After site.yml deploys reconcile/roles/portainer, the
+# Reachability probe window. After converge.yml deploys reconcile/roles/portainer, the
 # service task may still be scheduling + initialising its BoltDB store.
 # Block until the HTTP port answers anything (even a 4xx proves life).
 REACHABILITY_TIMEOUT_S = 120

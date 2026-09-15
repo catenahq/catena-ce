@@ -331,7 +331,7 @@ def tier1_spec_upsert(existing, spec):
     rendered file and the spec the engine applies reading the SAME variable.
     Replace rather
     than append because a role can legitimately run twice in one converge:
-    site.yml re-runs coturn in post_tasks, because the post-restore hooks
+    converge.yml re-runs coturn in post_tasks, because the post-restore hooks
     bring the TURN consumer up after reconcile/roles/coturn already probed for one and
     correctly found none. Appending would hand the renderer a duplicate name
     and fail the converge on the recovery path specifically.

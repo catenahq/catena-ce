@@ -9,7 +9,7 @@
 # See vps-scripts/catena-public-ports.py for the full rationale.
 #
 # Fired on every docker.service start (Docker recreates DOCKER-USER empty on
-# boot) via a drop-in, plus a periodic timer. site.yml post_tasks runs it
+# boot) via a drop-in, plus a periodic timer. converge.yml post_tasks runs it
 # once at the end of a converge, after all roles have dropped their fragments.
 
 - name: "public-ports: lib + fragment dirs exist"

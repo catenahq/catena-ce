@@ -19,7 +19,7 @@ from pathlib import Path
 import yaml
 
 ANSIBLE_DIR = Path(__file__).resolve().parents[2]
-PLAYBOOK = ANSIBLE_DIR / "playbooks" / "show_dr_keyset.yml"
+PLAYBOOK = ANSIBLE_DIR / "playbooks" / "show-keyset.yml"
 
 FSS_PENDING = "/etc/catena/fss-verification-key.pending"
 

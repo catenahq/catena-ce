@@ -49,22 +49,26 @@ The bundled CLI drives every flow. Prerequisite: `uv` on PATH
 tool to install and no key to have in scope. Run it from this `ansible/`
 directory, where `pyproject.toml` lives.
 
-| Command | What it does |
-| --- | --- |
-| `install` | Seed the configuration, then run preflight, bootstrap, site, validate |
-| `converge` | Re-run `site.yml` after a configuration or app change |
-| `validate` | On-host + tailnet + external checks |
-| `backup` | Take an on-demand snapshot |
-| `restore` | In-place whole-host restore |
-| `recover` | Rebuild onto a fresh replacement box |
-| `uninstall` | Hand unattended-upgrades back to the OS |
+| Command | Playbook | What it does |
+| --- | --- | --- |
+| `install` | chain | Seed the configuration, then run preflight, bootstrap, converge, validate |
+| `recover` | chain | Rebuild onto a fresh replacement box |
+| `rollback` | chain | Roll a still-running host back to a prior snapshot |
+| `converge` | `converge.yml` | Re-apply after a configuration or app change |
+| `validate` | `validate.yml` | On-host + tailnet + external checks |
+| `backup` | `backup.yml` | Take an on-demand snapshot |
+| `restore` | `restore.yml` | In-place whole-host restore |
+| `rotate-tunnel` | `rotate-tunnel.yml` | Mint a new Cloudflare tunnel |
+| `rotate-tailscale` | `rotate-tailscale.yml` | Force re-authentication to the tailnet |
+| `show-keyset` | `show-keyset.yml` | Show the passwords and first-login URLs again |
+| `uninstall` | `uninstall.yml` | Hand unattended-upgrades back to the OS |
 
-Inventory name first, subcommand second (`catena prod converge`); either
-missing prompts for it. `--inventory <name>` before the subcommand still
-works too. With neither, the CLI opens an interactive menu; `catena
---install` is an alias for `catena install`. The script form `uv run
-./catena <cmd>` also works, and is how the maintainers' rehearsal suite
-invokes it.
+One shape: `uv run catena <verb> --inventory <name>`. A verb that runs a
+single playbook carries that playbook's name; the three that chain several
+do not, because there is no one playbook to name them after. With no
+arguments the CLI opens an interactive menu and prompts for both; `catena
+--install` is an alias for `catena install`. A leading inventory name is
+refused with the correct shape rather than an argparse choice error.
 
 `install` first runs `seed.py`: with no `-i`, `.env` must already exist
 (copied from `inventory/example/.env.example`, hand-filled -- the only
@@ -92,7 +96,7 @@ inventory.
   and restic passwords -- is minted **on the server**
   (`helpers/onbox_config.py`). The installer shows the admin and restic
   passwords **once** at the end of install
-  (`playbooks/show_dr_keyset.yml`).
+  (`playbooks/show-keyset.yml`).
 - The restic repo URL and S3 keys are set **post-install in
   catena-admin** (Settings > Backup); `run-backup.sh` reads them from the
   store at runtime.

@@ -62,7 +62,7 @@ service) are idempotent and no-op when already correct.
 
 ## Related
 
-- Entry point: `playbooks/regenerate-cf-tunnel.yml`, driven by
+- Entry point: `playbooks/rotate-tunnel.yml`, driven by
   `catena rotate-tunnel`.
 - Converge counterpart: `reconcile/roles/cloudflare_tunnel`.
 - Declared in `boundary.yml` under `own_playbook_roles`.

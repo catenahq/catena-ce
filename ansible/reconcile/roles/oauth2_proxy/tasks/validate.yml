@@ -21,7 +21,7 @@
 # holds no token -- gating it on tunnel readiness rather than hard-failing the
 # converge on a deferred edge. Once the token is saved (cf_activate / a
 # re-converge with the token present), cloudflare_tunnel brings the edge up
-# earlier in site.yml and this block runs normally.
+# earlier in converge.yml and this block runs normally.
 - name: "validate/oauth2-proxy: tunnel deferred -- skipping public-issuer validation (no Cloudflare token yet)"
   ansible.builtin.debug:
     msg: >-
@@ -84,7 +84,7 @@
       when: (_oauth2_issuer_probe.json | default({})).get('jwks_uri', '') | length > 0
 
     # Targeted kick for oauth2-proxy containers stuck in docker's
-    # restart-backoff window. Post-restore site.yml redeploys every
+    # restart-backoff window. Post-restore converge.yml redeploys every
     # compose in parallel; if oauth2-proxy crashes during startup
     # (Failed to initialise OAuth2 Proxy on a 530/404 from Keycloak)
     # before Keycloak is ready, docker's exponential backoff doubles

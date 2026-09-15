@@ -7,7 +7,7 @@ indistinguishable from a role with nothing left to do.
 
 Twice now:
 
-  * playbooks/site.yml's on-box config loader. `--tags postgres` published no
+  * playbooks/converge.yml's on-box config loader. `--tags postgres` published no
     vault_* facts, every role fell back to the inventory placeholder, and
     fi_s3 caught it as a poisoned postgres password surviving the converge.
   * reconcile/roles/keycloak's realm bootstrap. `--tags keycloak_realm` never ran the

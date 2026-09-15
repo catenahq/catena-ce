@@ -53,7 +53,7 @@
       - { path: /etc/catena/version.txt, type: file, owner: root, group: root, mode: "0644" }
       - { path: "{{ catena_release_manifest_path }}", type: file, owner: root, group: root, mode: "0644" }
 
-# The release manifest is written by the LAST task of site.yml, so its
+# The release manifest is written by the LAST task of converge.yml, so its
 # presence is the only on-host evidence that the converge reached the end
 # rather than dying in a role. version.txt cannot say that: bootstrap/roles/common
 # stamps it first, so it is there after a converge that failed at role 9.

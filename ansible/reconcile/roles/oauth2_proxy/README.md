@@ -37,7 +37,7 @@ though the SSO session is shared.
 
 ## Related
 
-- Caller: `playbooks/site.yml` (after `keycloak`).
+- Caller: `playbooks/converge.yml` (after `keycloak`).
 - Operator-facing: `ops/internal_docs/tools/keycloak-and-oauth2-proxy-gotchas.md`.
 
 ## Planned (deferred): public-with-gated-path Traefik shape

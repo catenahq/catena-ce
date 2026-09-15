@@ -9,7 +9,7 @@ cause directly.
 Three callsites:
 
   1. bootstrap/roles/common/tasks/validate.yml -- Vantage 1a probe, runs every
-     validate / site.yml.
+     validate / converge.yml.
   2. reconcile/roles/backup/tasks/restore.yml prereqs -- pre-restore.
   3. reconcile/roles/backup/tasks/restore.yml after restic restore -- post-restore
      (catches /etc/systemd/timesyncd drop-ins from the source host).
@@ -75,7 +75,7 @@ def test_restore_post_check_asserts_ntp_sync():
     restart_idx = text.index("restart systemd-timesyncd to load restored config")
     poll_idx = text.index("poll for NTP resync")
     assert_idx = text.index("assert NTP sync after restore")
-    marker_idx = text.index("Drop post-restore marker for site.yml hooks")
+    marker_idx = text.index("Drop post-restore marker for converge.yml hooks")
     assert restic_idx < restart_idx < poll_idx < assert_idx < marker_idx, (
         "post-restore clock sequence must be: restic restore -> "
         "timesyncd restart -> NTP poll -> NTP assert -> drop marker. "

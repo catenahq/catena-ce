@@ -1,6 +1,6 @@
 # Moving the reconciler into the image
 
-State of the work that ends `catena prod converge` as routine maintenance.
+State of the work that ends `catena converge` as routine maintenance.
 Read this before touching `boundary.yml`, `playbooks/reconcile.yml`, or the
 dispatch table, and update it when a phase moves.
 
@@ -72,13 +72,13 @@ So the next thing this work needs is a bench run, not another unit test.
 reasoning that one converge writes both at opposite ends of itself -- so
 equality means the converge reached its end.
 
-That reasoning is site.yml's. version.txt is stamped by `common`, which is a
+That reasoning is converge.yml's. version.txt is stamped by `common`, which is a
 BOOTSTRAP role, so `reconcile.yml` does not run it and does not write that
 file. On a host that converged itself the manifest advances and the stamp does
 not, and the assertion reads a correct state as a failed converge.
 
 Nothing hits it today: validate.yml runs as its own playbook composed by the
-CLI after site.yml, and catena-converge runs reconcile.yml alone. It becomes
+CLI after converge.yml, and catena-converge runs reconcile.yml alone. It becomes
 live the moment anything validates a self-converged host -- which the bench
 will, as soon as phase 4's gate is exercised.
 
@@ -461,7 +461,7 @@ which plays can still see it. The value now comes from a task that only some
 plays run.
 
 Moving the zone broke exactly one play, and not loudly:
-`regenerate-cf-tunnel.yml` has no loader by design (it is dispatched from the
+`rotate-tunnel.yml` has no loader by design (it is dispatched from the
 panel with the token on the command line), read the zone from the inventory, and
 would have started regenerating a tunnel against an empty domain. It already
 slurps the store for the token it rotates, so it now takes the zone from the
@@ -475,7 +475,7 @@ user from `cfg_*` with no inventory fallback, and two plays ran it without the
 loader. `rotate-tailscale.yml` is fixed (it runs against an installed host, so
 the loader is simply correct there). `bootstrap.yml` cannot be: it runs before
 there is a store, which means a Headscale host bootstraps against Tailscale SaaS
-and only the first `site.yml` puts it right. Declared in that gate, recorded in
+and only the first `converge.yml` puts it right. Declared in that gate, recorded in
 `ops/BACKLOG_TECHNICAL.md`, and the fix is a decision about where the store is
 born rather than a line in a playbook.
 

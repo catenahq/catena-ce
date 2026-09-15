@@ -82,7 +82,7 @@ silently flips one of these:
 Run **after `bootstrap/roles/common`** (which installs `python3-apt`) and **before
 `bootstrap/roles/docker`** so the sysctl values are in place before dockerd's first
 start. Slot is between `common` and `tailscale` in
-[../../playbooks/site.yml](../../playbooks/site.yml).
+[../../playbooks/converge.yml](../../playbooks/converge.yml).
 
 If `dockerd` starts first, its runtime writes to `/proc/sys` win over
 `/etc/sysctl.d/` until next boot, leaving Day-1 state divergent from

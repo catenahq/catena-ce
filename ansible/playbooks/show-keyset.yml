@@ -11,7 +11,7 @@
 # the user is supposed to be copying down.
 #
 # Usage (driven by `catena install`; cwd = ansible/):
-#   ansible-playbook -i inventory/<name> playbooks/show_dr_keyset.yml
+#   ansible-playbook -i inventory/<name> playbooks/show-keyset.yml
 
 - name: Surface the DR keyset once
   hosts: "{{ stage_hosts | default('vps') }}"

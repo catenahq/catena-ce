@@ -197,7 +197,7 @@ catena_admin_image: >-
      else ((catena_admin_release.ref | default(''))
            | catena_image_pin(catena_image_pins | default({}), '')) }}
 
-# What this converge delivered, written at the very end of site.yml so it
+# What this converge delivered, written at the very end of converge.yml so it
 # describes a converge that finished. The panel reads it to tell "this feature
 # is off" from "this feature's plumbing never reached this host": every button
 # dispatches a FIXED action name through the SSH forced command, and that table

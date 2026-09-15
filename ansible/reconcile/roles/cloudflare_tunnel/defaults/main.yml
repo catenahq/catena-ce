@@ -12,7 +12,7 @@
 # here, and neither is the tunnel name: the engine composes that from the box's
 # own hostname and the prefix the store carries.
 #
-# The role still runs BEFORE keycloak + oauth2_proxy in site.yml (single-pass
+# The role still runs BEFORE keycloak + oauth2_proxy in converge.yml (single-pass
 # converge): oauth2_proxy waits for the public auth.<zone> URL, which needs the
 # tunnel up first when a token is present.
 

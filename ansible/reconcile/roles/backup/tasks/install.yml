@@ -82,7 +82,7 @@
 # NOTE: backup_stats_file (dir + seed + stray-dir repair) is handled
 # by reconcile/roles/infrastructure/tasks/dashboard_sync.yml -- the same role
 # that bind-mounts this path into catena-admin via /etc/catena/stats.
-# Seeding it here (backup runs AFTER infrastructure in site.yml) raced
+# Seeding it here (backup runs AFTER infrastructure in converge.yml) raced
 # Docker auto-creating a directory when the compose started; see
 # session 31 handoff.
 - name: "Ensure backup stats dir exists ({{ backup_stats_dir }})"
@@ -377,7 +377,7 @@
 # Content is deliberately tool-agnostic: restic + docker + psql only, no
 # catena command anywhere, so a client is never dependent on us to get their
 # data back.
-# The seam site.yml runs at the end of a converge when a recovery is pending.
+# The seam converge.yml runs at the end of a converge when a recovery is pending.
 # This repo creates it and never writes to it: whatever manages the host
 # afterwards installs its own script here, and an empty directory means a
 # converge behaves exactly as it did before the seam existed. Same shape as

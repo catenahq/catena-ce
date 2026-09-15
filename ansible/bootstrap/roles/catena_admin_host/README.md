@@ -37,6 +37,6 @@ belongs to the product.
 
 ## Ordering
 
-Immediately before `reconcile/roles/catena-admin` in `site.yml`, which is where these
+Immediately before `reconcile/roles/catena-admin` in `converge.yml`, which is where these
 tasks ran when they were a file inside it. It is deliberately absent from
 `playbooks/reconcile.yml`.

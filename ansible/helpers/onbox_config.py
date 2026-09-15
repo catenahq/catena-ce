@@ -390,7 +390,7 @@ ROLE_MINTED_SECRETS: dict[str, str] = {
 # the converge's silently dead (see the note in backup.env.j2), and a
 # tag-scoped converge that skipped the loader fell back to a stale `.env`
 # value with no signal -- which is how a poisoned postgres password survived
-# `--tags postgres` (fi_s3, site.yml:45-51).
+# `--tags postgres` (fi_s3, converge.yml:45-51).
 #
 # Value is the Ansible variable the loader publishes the stored value as. The
 # projection is DECLARED rather than derived by lowercasing: two keys already

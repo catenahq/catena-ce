@@ -6,7 +6,7 @@
 # explicit re-auth only.
 #
 # Usage (cwd = ansible/):
-#   ./catena rotate-tailscale --inventory prod
+#   uv run catena rotate-tailscale --inventory prod
 #   # or directly:
 #   ansible-playbook -i inventory/prod playbooks/rotate-tailscale.yml
 

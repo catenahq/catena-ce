@@ -8,7 +8,7 @@
 The five flows a Catena server passes through, plus the day-two
 operations. Each file here is a single atomic unit with no
 cross-playbook imports: composition lives in the installer
-(`../catena`), which runs them in order.
+(`../catena_cli.py`), which runs them in order.
 
 `ansible-playbook` is not a supported entry point -- the installer
 resolves the inventory, threads the vendor credentials and orders the
@@ -22,14 +22,14 @@ transforms live in Python with a unit test rather than in Jinja);
 
 | File | What it does |
 | --- | --- |
-| `backup_now.yml` | Trigger an on-demand restic snapshot of the host (Community manual backup). |
+| `backup.yml` | Trigger an on-demand restic snapshot of the host (Community manual backup). |
 | `bootstrap.yml` | Initial bring-up of a fresh VPS (any provider). |
+| `converge.yml` | Main converge: bring a bootstrapped host to the desired state and keep it there. |
 | `preflight.yml` | Controller-side preflight: prove the supplied Tailscale OAuth client works before any VPS is touched. |
 | `reconcile.yml` | The half of a converge that does not need an operator. |
-| `regenerate-cf-tunnel.yml` | Regenerate this host's Cloudflare tunnel without a full site converge. |
 | `restore.yml` | Narrow data-restoration playbook. |
 | `rotate-tailscale.yml` | Re-authenticate this node to the tailnet (force re-auth). |
-| `show_dr_keyset.yml` | Surface the user-held DR keyset (admin + restic + console passwords) ONCE, plus the first-login URLs, at the end of a fresh `catena install`. |
-| `site.yml` | Main converge: bring a bootstrapped host to the desired state and keep it there. |
+| `rotate-tunnel.yml` | Regenerate this host's Cloudflare tunnel without a full site converge. |
+| `show-keyset.yml` | Surface the user-held DR keyset (admin + restic + console passwords) ONCE, plus the first-login URLs, at the end of a fresh `catena install`. |
 | `uninstall.yml` | Hand control of this host back to the operating system. |
 | `validate.yml` | Validation orchestrator: check a converged host from three vantage points, so a service that only answers on the box is not mistaken for a working one. 1. |

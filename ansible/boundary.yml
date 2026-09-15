@@ -67,7 +67,7 @@ bootstrap_roles:
       python3 is, so a host whose runtime broke does not need an operator.
 
 # Roles the host can run against itself, once their inputs come from the store.
-# Order is site.yml's order, which is a dependency order, not a preference.
+# Order is converge.yml's order, which is a dependency order, not a preference.
 reconcile_roles:
   - public_ports
   - payload
@@ -106,7 +106,7 @@ own_playbook_roles:
       Deletes this host's Cloudflare tunnel before handing off to
       cloudflare_tunnel to mint a new one. A converge able to do that would
       drop the public edge on every run. The delete is an intent somebody
-      declares by running playbooks/regenerate-cf-tunnel.yml.
+      declares by running playbooks/rotate-tunnel.yml.
 
 # NOTHING STRADDLES ANY MORE, which is what phase 1b was for.
 #

@@ -8,7 +8,7 @@
 # values into /proc/sys at boot; if dockerd starts first, its writes win
 # at runtime and /etc/sysctl.d/ only re-takes effect on next boot, leaving
 # Day-1 state divergent from reboot-recovery state. The role is slotted
-# between common and tailscale in playbooks/site.yml.
+# between common and tailscale in playbooks/converge.yml.
 #
 # Idempotency: both writes are idempotent ansible.builtin.template tasks;
 # the handlers fire only on actual content change.

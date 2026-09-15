@@ -13,7 +13,7 @@
 # secret is minted on the laptop, then set_facts each one from the store so
 # all downstream roles read the on-box source of truth.
 #
-# Included UNCONDITIONALLY from site.yml + validate.yml + restore.yml pre_tasks
+# Included UNCONDITIONALLY from converge.yml + validate.yml + restore.yml pre_tasks
 # (runs before any role). A rebuild needs only the {restic endpoint, S3 creds,
 # restic password} keyset: the store returns with the data, internals and all.
 

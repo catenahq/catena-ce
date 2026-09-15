@@ -8,7 +8,7 @@
 # Direct invocation runs site alone.
 #
 # Usage (cwd = ansible/):
-#   ansible-playbook -i inventory/<name> playbooks/site.yml --limit host1
+#   ansible-playbook -i inventory/<name> playbooks/converge.yml --limit host1
 
 - name: Converge VPS to desired state
   # `stage_hosts` lets a wrapper target a specific host/group via
@@ -161,7 +161,7 @@
       tags: [always, external_preflight]
 
   # Tags allow iterating on a single role:
-  #   ansible-playbook -i inventory/<name> playbooks/site.yml --limit host1 --tags storage
+  #   ansible-playbook -i inventory/<name> playbooks/converge.yml --limit host1 --tags storage
   # Preflight runs as its own ansible-playbook invocation (the installer
   # runs it first); tag filters here never skip it.
   # Each role's tag matches its name; ufw_lockdown has its own tag so it only
@@ -208,7 +208,7 @@
     # keycloak + oauth2_proxy so the public auth.<zone> URL is reachable
     # by the time oauth2_proxy waits for Keycloak's OIDC discovery doc.
     # Without this ordering, a fresh-target converge would fail in a
-    # single-pass site.yml (CF 530 from oauth2_proxy's wait task).
+    # single-pass converge.yml (CF 530 from oauth2_proxy's wait task).
     # Idempotent: subsequent converges find the tunnel + DNS + service
     # already in the desired state and no-op.
     # No access-mode gate. The role self-defers when the store holds no
@@ -471,7 +471,7 @@
         apply:
           tags: [bootstrap_drift]
       vars:
-        catena_converge_path: site
+        catena_converge_path: converge
       tags: [bootstrap_drift]
 
     # Remove what a previous converge installed and this one does not ship.
@@ -483,7 +483,7 @@
         apply:
           tags: [prune]
       vars:
-        catena_converge_path: site
+        catena_converge_path: converge
       tags: [prune]
 
     # Record what this converge delivered. The tasks live in
@@ -496,7 +496,7 @@
         apply:
           tags: [release_manifest]
       vars:
-        catena_converge_path: site
+        catena_converge_path: converge
       tags: [release_manifest]
 
 # Post-converge validation runs as its own ansible-playbook invocation

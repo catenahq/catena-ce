@@ -109,7 +109,7 @@
   # surfaces two roles later when something tries to run `docker`.
   # Force a --reinstall when the binary is absent. This catches the
   # class of bug where dpkg DB was restored without the package files
-  # (e.g. the restore.yml -> site.yml flow before commit that excluded
+  # (e.g. the restore.yml -> converge.yml flow before commit that excluded
   # /var/lib/dpkg from the full-host restore).
   ansible.builtin.stat:
     path: /usr/bin/docker

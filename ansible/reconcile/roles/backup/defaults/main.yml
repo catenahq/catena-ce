@@ -543,10 +543,10 @@ backup_weekly_timer_oncalendar: "{{ cfg_backup_weekly_timer_oncalendar | default
 backup_stats_dir: /var/lib/catena
 backup_stats_file: "{{ backup_stats_dir }}/backup-stats.json"
 
-# Where site.yml looks for post-restore hooks when the marker above is
+# Where converge.yml looks for post-restore hooks when the marker above is
 # present. Under /etc/catena because it is configuration, and because /etc is in
 # backup_paths -- a restored host keeps the hooks it had. This repo creates the
-# directory and never writes into it; see the seam's comment in site.yml.
+# directory and never writes into it; see the seam's comment in converge.yml.
 catena_post_restore_hook_dir: /etc/catena/post-restore.d
 
 # Snapshot-export mode (catena-admin Recovery-tab button: "Export latest snapshot")

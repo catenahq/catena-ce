@@ -257,7 +257,7 @@ def test_every_declared_path_is_absolute_once_resolved():
 def test_both_converge_paths_prune():
     """A prune that ran on only one path would leave a self-converged host
     accumulating exactly what this exists to remove."""
-    for name in ("site.yml", "reconcile.yml"):
+    for name in ("converge.yml", "reconcile.yml"):
         play = yaml.safe_load((_ANSIBLE / "playbooks" / name).read_text())[0]
         files = [t.get("ansible.builtin.include_tasks", {}).get("file")
                  for t in play["post_tasks"]]
@@ -268,7 +268,7 @@ def test_both_converge_paths_prune():
 def test_the_prune_runs_before_the_release_manifest():
     """The manifest says a converge finished. A prune that ran after it would
     be work the manifest already claimed as done."""
-    for name in ("site.yml", "reconcile.yml"):
+    for name in ("converge.yml", "reconcile.yml"):
         play = yaml.safe_load((_ANSIBLE / "playbooks" / name).read_text())[0]
         files = [t.get("ansible.builtin.include_tasks", {}).get("file")
                  for t in play["post_tasks"]]

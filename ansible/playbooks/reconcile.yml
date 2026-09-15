@@ -1,7 +1,7 @@
 ---
 # The half of a converge that does not need an operator.
 #
-# Same roles as site.yml, in the same order, minus the five an operator has to
+# Same roles as converge.yml, in the same order, minus the five an operator has to
 # run and minus the post-install steps that only make sense on a fresh box. What
 # is left is the work a host can do to itself: render config from the image,
 # reconcile swarm services, install units, apply the schedule.
@@ -17,7 +17,7 @@
 # the ratchet refuses to let it grow again -- but zero is a floor, not a
 # verdict. The ratchet counts variables a role names directly, and most of the
 # eighteen had defaults, so a value that stopped arriving reconfigures quietly
-# rather than failing. Whether this produces the same host as site.yml is a
+# rather than failing. Whether this produces the same host as converge.yml is a
 # bench install, not a unit test.
 #
 # An operator can also run it directly, against a converged host, to exercise
@@ -60,10 +60,10 @@
       run_once: true
       tags: [always]
 
-    # The store is the desired state. Loaded first for the same reason site.yml
+    # The store is the desired state. Loaded first for the same reason converge.yml
     # loads it first: every role below reads cfg_* facts projected from it.
-    # include_tasks with apply:, exactly as site.yml does it and for the reason
-    # site.yml gives: without apply the include fires but the set_fact tasks
+    # include_tasks with apply:, exactly as converge.yml does it and for the reason
+    # converge.yml gives: without apply the include fires but the set_fact tasks
     # inside it are filtered out under any --tags run, so every role silently
     # falls back to raw inventory values.
     - name: "Load the on-box config store"
@@ -74,7 +74,7 @@
       tags: [always, onbox]
 
   roles:
-    # First, as in site.yml: every role below drops a fragment into the
+    # First, as in converge.yml: every role below drops a fragment into the
     # registry this installs.
     - { role: public_ports, tags: [public_ports] }
     - { role: payload, tags: [payload] }
@@ -127,7 +127,7 @@
         catena_converge_path: reconcile
       tags: [prune]
 
-    # Record what this converge delivered. The same file site.yml includes:
+    # Record what this converge delivered. The same file converge.yml includes:
     # the panel reads this manifest to tell "this feature is off" from "this
     # host's converge predates it", and an on-host converge that left it
     # describing an operator's last run made that answer a lie.

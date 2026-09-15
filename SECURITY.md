@@ -15,7 +15,7 @@ it. English or French.
 ## Scope
 
 This repository ships the Catena Community base: the installer/CLI
-(`ansible/catena`, `ansible/seed.py`), the Ansible roles + playbooks,
+(`ansible/catena_cli.py`, `ansible/seed.py`), the Ansible roles + playbooks,
 the host-side scripts under `ansible/scripts/`, and the admin panel's
 deployment surface (`ansible/reconcile/roles/catena-admin`, including the
 compose file). There is no Go in this tree.

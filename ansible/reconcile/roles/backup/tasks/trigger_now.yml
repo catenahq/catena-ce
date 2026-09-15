@@ -3,7 +3,7 @@
 # synchronously, then polling until the Type=oneshot unit exits.
 #
 # Callers:
-#   - ansible/playbooks/backup_now.yml -- entry point used by
+#   - ansible/playbooks/backup.yml -- entry point used by
 #     flows.migrate's snapshot_source leg (and any operator escape
 #     hatch for "snapshot now").
 #   - ansible/playbooks/decommission.yml -- wrapped in a systemd

@@ -15,7 +15,7 @@
 #
 # After Phase 2, the box is reachable over Tailscale. The steady-state host
 # entry (under the `vps:` inventory group) gets its ansible_host auto-updated
-# to the new tailnet IP by the post_tasks below. Run site.yml next -- it targets
+# to the new tailnet IP by the post_tasks below. Run converge.yml next -- it targets
 # the `vps:` group and closes public 22 via bootstrap/roles/common/tasks/ufw_lockdown.yml.
 #
 # Restoring to a different server (hardware upgrade, provider migration):
@@ -23,7 +23,7 @@
 #      entry to the new VPS's public IP.
 #   2. Run this playbook as normal -- the password prompt accepts the new
 #      provider's initial root password.
-#   After bootstrap, run restore.yml then site.yml to bring services back up.
+#   After bootstrap, run restore.yml then converge.yml to bring services back up.
 #
 # Usage (cwd = ansible/):
 #   ansible-playbook -i inventory/<name> playbooks/bootstrap.yml
@@ -440,7 +440,7 @@
               rebuilt VPS still has it.
 
             - Phase 1 already ran and {{ ops_user }} is only reachable on the
-              TAILNET. Public 22 closes at the end of site.yml. Note that
+              TAILNET. Public 22 closes at the end of converge.yml. Note that
               {{ inventory_dir }}/.bootstrap-output.yml is NOT invalidated by a
               rebuild, so a tailnet IP recorded there may belong to the previous
               machine. Try:
@@ -507,7 +507,7 @@
     # inventory/<env>/hosts.yml here. Instead:
     #   1. add_host overrides ansible_host on the steady-state hostname for
     #      downstream plays in the SAME ansible-playbook invocation
-    #      (restore.yml + site.yml);
+    #      (restore.yml + converge.yml);
     #   2. helpers/bootstrap_output.py merges the value into
     #      <inventory_dir>/.bootstrap-output.yml (gitignored) so you can copy
     #      it into your inventory before the next invocation.
@@ -556,7 +556,7 @@
           Steady-state host: {{ _steady_state_host }}
 
           The value is live in this run's in-memory inventory (add_host),
-          so downstream plays in this invocation (restore.yml, site.yml)
+          so downstream plays in this invocation (restore.yml, converge.yml)
           target the correct IP.
 
           To persist across invocations, copy from
@@ -564,9 +564,9 @@
           hosts.yml.
 
           Next (cwd = ansible/):
-            ansible-playbook playbooks/site.yml --limit {{ _steady_state_host }}
+            ansible-playbook playbooks/converge.yml --limit {{ _steady_state_host }}
             # (or, to also restore from backup first:)
             ansible-playbook playbooks/restore.yml --limit {{ _steady_state_host }} -e restore_snapshot=latest
-            ansible-playbook playbooks/site.yml    --limit {{ _steady_state_host }}
+            ansible-playbook playbooks/converge.yml    --limit {{ _steady_state_host }}
 
-          At the end of site.yml, public port 22 is closed.
+          At the end of converge.yml, public port 22 is closed.

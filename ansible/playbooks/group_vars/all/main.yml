@@ -9,7 +9,7 @@
 # copy here serves all of them. Edit .env per inventory, never this file.
 
 # --- Global ---
-ansible_managed: "Managed by catena -- do not edit directly; regenerate via the installer / site.yml."
+ansible_managed: "Managed by catena -- do not edit directly; regenerate via the installer / converge.yml."
 
 # --- Identity ---
 ops_user: "{{ lookup('dotenv', 'OPS_USER', default='ops') }}"

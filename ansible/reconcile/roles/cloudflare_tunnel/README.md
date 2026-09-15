@@ -48,7 +48,7 @@ loader saw no token on a host that had one.
 
 ## Why a separate role (not part of `infrastructure`)
 
-Still runs BEFORE the SSO roles in site.yml. `oauth2_proxy` waits for
+Still runs BEFORE the SSO roles in converge.yml. `oauth2_proxy` waits for
 `https://auth.<zone>/.well-known/openid-configuration` to answer before
 it deploys its compose; that URL is only reachable once the tunnel is
 up. `infrastructure` runs AFTER `oauth2_proxy` (its gated apps need their

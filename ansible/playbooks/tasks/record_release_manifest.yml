@@ -16,9 +16,9 @@
 # host whose converge predates it, and the user would meet a refusal at the far
 # end where the honest answer is "this host needs a converge".
 #
-# SHARED BY BOTH CONVERGE PATHS. site.yml and playbooks/reconcile.yml both
+# SHARED BY BOTH CONVERGE PATHS. converge.yml and playbooks/reconcile.yml both
 # include this file, and each passes `catena_converge_path` naming itself. It
-# lived in site.yml alone, which meant an on-host converge left every field
+# lived in converge.yml alone, which meant an on-host converge left every field
 # here describing the last converge an OPERATOR ran -- including the action
 # list, so the panel kept raising a converge-required banner for actions the
 # converge it just ran had delivered. A banner that lies on the one surface
@@ -27,7 +27,7 @@
 # WHY THE PATH IS RECORDED. bootstrap/roles/common/tasks/validate.yml asserts
 # this manifest's version against /etc/catena/version.txt, on the reasoning
 # that the two are written by the same converge at opposite ends of it. That
-# holds for site.yml, whose FIRST role stamps version.txt. It cannot hold for
+# holds for converge.yml, whose FIRST role stamps version.txt. It cannot hold for
 # reconcile.yml, which does not run that role at all -- so on a host that
 # converged itself the two records describe different runs, and a reader with
 # no way to tell which path wrote this would read a real disagreement as drift.

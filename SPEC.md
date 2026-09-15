@@ -388,22 +388,10 @@ here can outlive the guarantee behind it.
 
 ## Declared, not yet built
 
-This file leads the code. What it declares that the tree does not implement
-yet, and what each item costs:
+This file leads the code. Anything it declares that the tree does not
+implement is listed here, so the gap is a finding rather than a silence.
 
-| Declared | Tree today |
-| --- | --- |
-| `uv run catena <verb> --inventory <inventory>` as the only entry point | A root `catena` bash wrapper and an extensionless `ansible/catena` still exist; `ansible/catena_cli.py` is a loader in front of the second |
-| `catena_cli.py` holds the CLI and is a real audit anchor | It is a 20-line shim. The implementation is extensionless, so the audit's Python parser never sees it |
-| Verb order `<verb> --inventory <inventory>` | Inventory-first positional is also accepted |
-| `converge.yml` | `site.yml` |
-| `backup.yml` | `backup_now.yml` |
-| `rotate-tunnel.yml` | `regenerate-cf-tunnel.yml` |
-| `show-keyset.yml` | `show_dr_keyset.yml` |
-
-The playbook renames reach `ops` immediately: its migration playbook imports
-`converge` and `backup` by path, and the audit manifests anchor on both
-filenames. They land as one change across both repositories or not at all.
+Nothing outstanding.
 
 ## Installation
 

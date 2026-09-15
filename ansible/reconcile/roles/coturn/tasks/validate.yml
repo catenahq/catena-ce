@@ -3,7 +3,7 @@
 # playbooks/validate.yml via include_role + tasks_from: validate.
 
 # NO CONSUMER PROBE HERE. Whether a consumer is running is main.yml's question,
-# asked where roles/coturn sits in site.yml's order; by the time validate runs,
+# asked where roles/coturn sits in converge.yml's order; by the time validate runs,
 # the only question left is what this host HAS. Conditioning the assertions on
 # a second probe makes validate demand a coturn the deploy pass deliberately
 # left undeployed.
@@ -30,7 +30,7 @@
 # what a FUTURE converge will deploy rather than what this host has.
 #
 # The two gates are evaluated at different moments of one converge and they are
-# MEANT to disagree. main.yml decides where roles/coturn sits in site.yml's
+# MEANT to disagree. main.yml decides where roles/coturn sits in converge.yml's
 # order, and says why coturn may legitimately not be there yet: it "lands on the
 # converge after the consumer is first deployed ... matching the established
 # 'deploy app, then converge catches up' rhythm". A DR restore brings Nextcloud

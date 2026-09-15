@@ -8,7 +8,7 @@
 #   - install restic + write password file + restic restore into /
 #
 # NOT in scope (intentionally): docker / portainer / infrastructure --
-# those are site.yml's job. After restore succeeds, run site.yml to bring
+# those are converge.yml's job. After restore succeeds, run converge.yml to bring
 # the apps back up on the restored data.
 #
 # Whole-host restic restore is the Community recovery path. The Business
@@ -19,7 +19,7 @@
 # Usage (cwd = ansible/):
 #   ansible-playbook -i inventory/<name> playbooks/restore.yml \
 #       --limit host1 -e restore_snapshot=latest
-#   ansible-playbook -i inventory/<name> playbooks/site.yml --limit host1
+#   ansible-playbook -i inventory/<name> playbooks/converge.yml --limit host1
 
 - name: Restore VPS filesystem from backup
   # `stage_hosts` allows a wrapper to target source vs target explicitly;
@@ -67,6 +67,6 @@
       ansible.builtin.debug:
         msg: |
           Filesystem restore OK. The restored data is back under /mnt/data.
-          Next: run site.yml to bring services up on the restored data.
+          Next: run converge.yml to bring services up on the restored data.
 
-            ansible-playbook playbooks/site.yml --limit {{ inventory_hostname }}
+            ansible-playbook playbooks/converge.yml --limit {{ inventory_hostname }}

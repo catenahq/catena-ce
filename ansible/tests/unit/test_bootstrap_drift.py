@@ -143,7 +143,7 @@ def test_both_converge_paths_report():
     """A report that ran on only one path would leave the host that converges
     itself -- the unattended one, where nobody is watching -- as the one with
     no reader."""
-    for name in ("site.yml", "reconcile.yml"):
+    for name in ("converge.yml", "reconcile.yml"):
         play = yaml.safe_load((_ANSIBLE / "playbooks" / name).read_text())[0]
         files = [t.get("ansible.builtin.include_tasks", {}).get("file")
                  for t in play["post_tasks"]]

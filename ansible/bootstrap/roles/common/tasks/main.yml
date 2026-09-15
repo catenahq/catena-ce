@@ -188,7 +188,7 @@
 # to *.list.disabled-by-restore, the next pass sees no *.list match.
 # Operator can re-enable post-recovery once the keyring is reinstalled
 # (e.g. tailscale role re-installs its archive keyring on every
-# converge, so the restored .list works again after the next site.yml).
+# converge, so the restored .list works again after the next converge.yml).
 #
 # The backup_stats_dir path is hardcoded /var/lib/catena rather than
 # templated against reconcile/roles/backup/defaults to keep this role free of
@@ -486,7 +486,7 @@
 # which root-disable + AllowUsers already lock out of SSH.
 #
 # The password is USER_HELD (helpers/onbox_config.py): minted on-box if absent
-# on every converge and surfaced once by playbooks/show_dr_keyset.yml, because
+# on every converge and surfaced once by playbooks/show-keyset.yml, because
 # a break-glass credential the user does not hold a copy of is not one. The
 # converge is the only place that can mint it for every host: a self-hoster runs
 # no ops operator tool, and a host whose password nothing mints reaches this
@@ -811,7 +811,7 @@
 # can regenerate the sealing key for any past epoch and re-seal an ALTERED
 # journal. Leaving it on the box would hand a root-level attacker the tool that
 # defeats the tamper evidence they just tripped. It lives here for the minutes
-# between minting and display, 0600 root, and show_dr_keyset.yml removes it.
+# between minting and display, 0600 root, and show-keyset.yml removes it.
 - name: "journald: stage the FSS verification key for the one-shot keyset display"
   when: _journal_setup_keys is not skipped
   block:
@@ -834,7 +834,7 @@
 
 # ─── ufw baseline ────────────────────────────────────────────────────────
 # Public SSH is allowed for the duration of bootstrap. ufw_lockdown.yml
-# (called from site.yml post_tasks, AFTER tailscale is up) swaps this rule
+# (called from converge.yml post_tasks, AFTER tailscale is up) swaps this rule
 # for "allow 22 on tailscale0 only" and closes public 22.
 - name: Set ufw default deny incoming
   community.general.ufw:

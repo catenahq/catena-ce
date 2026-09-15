@@ -31,7 +31,7 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[3] / "ansible"
-SITE = ANSIBLE / "playbooks" / "site.yml"
+SITE = ANSIBLE / "playbooks" / "converge.yml"
 BACKUP_TASKS = ANSIBLE / "reconcile" / "roles" / "backup" / "tasks" / "main.yml"
 BACKUP_INSTALL = ANSIBLE / "reconcile" / "roles" / "backup" / "tasks" / "install.yml"
 BACKUP_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "backup" / "defaults" / "main.yml"
@@ -53,7 +53,7 @@ def _hook_task() -> dict:
         body = task.get("ansible.builtin.shell")
         if body and HOOK_DIR_VAR in str(body):
             return task
-    raise AssertionError("site.yml has no post-restore hook runner")
+    raise AssertionError("converge.yml has no post-restore hook runner")
 
 
 def test_hook_runner_is_gated_on_the_marker():

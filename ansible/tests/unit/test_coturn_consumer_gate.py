@@ -1,7 +1,7 @@
 """The coturn consumer gate is asked ONCE, by the half that can act on it.
 
 coturn deploys only when a real-time app that needs TURN is running. That
-question belongs to main.yml, where roles/coturn sits in site.yml's order. A
+question belongs to main.yml, where roles/coturn sits in converge.yml's order. A
 validate that asks it again, minutes later in the same converge, and asserts
 coturn's presence on its own answer is a second probe that has to agree with the
 first and cannot.
