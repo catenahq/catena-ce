@@ -21,7 +21,7 @@ Two numbers are reported everywhere: **rehearsed** means the scenario was last r
 
 A scheduled weekly backup plus manual backups any time. Backups are encrypted on the server before leaving it and land in object storage the client owns; snapshots can be listed, browsed and exported without a restore. Daily and sub-daily cadence is a Catena Pro feature.
 
-Implemented in: `ansible/playbooks/backup_now.yml`, `ansible/playbooks/filter_plugins/backup_cadence_cap.py`, `ansible/reconcile/roles/backup`, `ansible/scripts/catena-restic-key.py`, `ansible/scripts/disk-preflight.sh`
+Implemented in: `ansible/playbooks/backup.yml`, `ansible/playbooks/filter_plugins/backup_cadence_cap.py`, `ansible/reconcile/roles/backup`, `ansible/scripts/catena-restic-key.py`, `ansible/scripts/disk-preflight.sh`
 
 Rehearsal scenarios (12 of 12 observed passing): `backup_rollback`, `backup_schedule_applied`, `ce_backup_deferred`, `concurrent_backup_lock_contention`, `fi_b2_pg_dump_failed`, `fi_b3_snapshot_id_mismatch`, `fi_b4_locked_pack_rotation`, `fi_b6_healthchecks_down`, `fi_b7_ntfy_delivery_fails`, `malformed_catalog_rejection`, `restic_password_rotation_round_trip`, `snapshot_export_round_trip`
 
@@ -51,7 +51,7 @@ Rehearsal scenarios (1 of 1 observed passing): `marketplace_catalog_resolved`
 
 Prepares a fresh server, installs the platform, and deploys the selected applications. Re-running the same managed operation converges the server back to its declared configuration, so a drifted or half-configured server is repaired, not rebuilt by hand.
 
-Implemented in: `ansible/bootstrap/roles/common`, `ansible/bootstrap/roles/docker`, `ansible/bootstrap/roles/host_hardening`, `ansible/bootstrap/roles/storage`, `ansible/catena_cli.py`, `ansible/helpers/*.py`, `ansible/playbooks/bootstrap.yml`, `ansible/playbooks/preflight.yml`, `ansible/playbooks/reconcile.yml`, `ansible/playbooks/show_dr_keyset.yml`, `ansible/playbooks/site.yml`, `ansible/playbooks/tasks/load_onbox_config.yml`, `ansible/playbooks/uninstall.yml`, `ansible/reconcile/roles/payload`, `ansible/reconcile/roles/portainer`, `ansible/reconcile/roles/postgres`, `ansible/reconcile/roles/tier1_stack`, `ansible/reconcile/roles/traefik`, `ansible/seed.py`
+Implemented in: `ansible/bootstrap/roles/common`, `ansible/bootstrap/roles/docker`, `ansible/bootstrap/roles/host_hardening`, `ansible/bootstrap/roles/storage`, `ansible/catena_cli.py`, `ansible/helpers/*.py`, `ansible/playbooks/bootstrap.yml`, `ansible/playbooks/converge.yml`, `ansible/playbooks/preflight.yml`, `ansible/playbooks/reconcile.yml`, `ansible/playbooks/show-keyset.yml`, `ansible/playbooks/tasks/load_onbox_config.yml`, `ansible/playbooks/uninstall.yml`, `ansible/reconcile/roles/payload`, `ansible/reconcile/roles/portainer`, `ansible/reconcile/roles/postgres`, `ansible/reconcile/roles/tier1_stack`, `ansible/reconcile/roles/traefik`, `ansible/seed.py`
 
 Rehearsal scenarios (18 of 19 observed passing): `ce_converge`, `ce_install_suite`, `ce_uninstall`, `converge_modify`, `converge_preserves_bumped_image`, `fi_c1_docker_daemon_hang`, `fi_c3_portainer_crash_mid_deploy`, `fi_c4_registry_pull_timeout`, `fi_c6_cloudflared_flapping`, `fi_c7_coturn_cert_expired`, `fi_c8_nextcloud_init_loop`, `fi_u1_compose_lint_reject`, `mixed_template_negative_restore`, `payload_prune_respects_ce`, `release_manifest_converge_state`, `repair_broken_template_round_trip`, `scheduler_easyappointments`, `swarm_overlay_selfheal`; declared, not yet observed passing: `dev_to_prod_cutover_round_trip`
 
@@ -75,7 +75,7 @@ Rehearsal scenarios (1 of 1 observed passing): `fi_u3_gatus_baseline_down`
 
 All web traffic reaches the server through an encrypted tunnel, so no web port is ever open on the machine itself; remote administration rides a private peer-to-peer network, and audio/video calls get their own dedicated relay.
 
-Implemented in: `ansible/bootstrap/roles/tailscale`, `ansible/helpers/public_ports.py`, `ansible/playbooks/regenerate-cf-tunnel.yml`, `ansible/playbooks/rotate-tailscale.yml`, `ansible/reconcile/roles/cloudflare_tunnel`, `ansible/reconcile/roles/cloudflare_tunnel_regenerate`, `ansible/reconcile/roles/coturn`, `ansible/scripts/catena-public-ports.py`
+Implemented in: `ansible/bootstrap/roles/tailscale`, `ansible/helpers/public_ports.py`, `ansible/playbooks/rotate-tailscale.yml`, `ansible/playbooks/rotate-tunnel.yml`, `ansible/reconcile/roles/cloudflare_tunnel`, `ansible/reconcile/roles/cloudflare_tunnel_regenerate`, `ansible/reconcile/roles/coturn`, `ansible/scripts/catena-public-ports.py`
 
 Rehearsal scenarios (13 of 16 observed passing): `ce_install_headscale`, `cf_activate`, `cf_tunnel_regenerate_round_trip`, `fi_n10_multidomain_cap`, `fi_n1_tailnet_partition_mid_converge`, `fi_n2_cf_tunnel_down`, `fi_n3_dns_propagation_lag`, `fi_n4_cf_zone_misconfigured`, `fi_n5_provider_outage_mid_restore`, `fi_n6_s3_endpoint_5xx`, `fi_n7_restic_repo_unreachable`, `fi_n8_ufw_concurrent_ssh`, `fi_n9_public_ip_change`; declared, not yet observed passing: `cloudflare_api_rotation_round_trip`, `fi_v3_tailscale_acl_misconfig`, `tailscale_oauth_rotation_round_trip`
 
