@@ -131,7 +131,7 @@ gatus_summary_file: "{{ gatus_summary_dir }}/gatus-summary.json"
 # The OSS project behind healthchecks.io. One container, SQLite, no
 # metrics firehose and no healthchecks.io SaaS dependency.
 # Named Docker volume -> backed up by restic along with other volumes.
-healthchecks_image_tag: "v4.3"
+healthchecks_image_tag: "v4.4"
 healthchecks_image: >-
   {{ ('healthchecks/healthchecks:' ~ healthchecks_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
