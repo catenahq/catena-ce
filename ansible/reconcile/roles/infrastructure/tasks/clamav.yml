@@ -172,6 +172,43 @@
       until: _clamav_ping.rc == 0
       when: (_clamav_container.stdout | default('') | trim) | length > 0
 
+    # ANSWERING IS NOT REACHABLE BY NAME. The PING above runs clamdcheck.sh
+    # INSIDE the clamd container against its own local socket, so it proves
+    # the signature DB loaded and says nothing about the consumers. A swarm
+    # service is reached by NAME, through a virtual IP the node's
+    # load-balancer sandbox has to program, and that programming is
+    # independent of whether the task runs -- so a consumer that was already
+    # running when clamd deployed goes on failing to resolve `clamav` for a
+    # while after the PING comes back clean.
+    #
+    # Measured on run 2026-09-15T23-09-44-11a0: clamd deployed and PINGed
+    # clean in this converge, and `rspamadm configtest` in the dms container
+    # then died with
+    #
+    #     address resolution for clamav failed: Name or service not known
+    #     configuration error: module antivirus: cannot add AV rule: "clamav"
+    #
+    # failing mailserver_deploy on a scanner that was working -- the same
+    # command by hand minutes later printed "syntax OK". The wait above was
+    # written to stop exactly this race and probed the wrong end of it.
+    - name: "ClamAV: wait until each consumer resolves clamav on {{ clamav_network }}"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ item }}"
+          - getent
+          - hosts
+          - clamav
+      loop: "{{ _clamav_consumer.stdout_lines | default([]) | map('trim') | select() | list }}"
+      loop_control:
+        label: "{{ item }}"
+      register: _clamav_name_resolves
+      changed_when: false
+      retries: 30
+      delay: 5
+      until: _clamav_name_resolves.rc == 0
+
     # ── Shared-clamd watchdog (host timer) ───────────────────────────
     # Pings the self-hosted Healthchecks plane so a down clamd pages --
     # but ONLY when a consumer (dms or Nextcloud) is up
