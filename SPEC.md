@@ -300,19 +300,15 @@ retried rather than reported as a green converge.
 ### The timers -- `backup`, `public_ports`, `infrastructure`
 
 Scheduled work is default-deny: an enumerated set, machine-enforced rather
-than conventional. Community schedules one backup timer, rate-limited to
-weekly-or-sparser at converge time, plus local maintenance timers. Daily and
-sub-daily cadence is a Catena Pro feature, and on a Pro host the daily engine
+than conventional. On a Pro host the daily engine
 masks the Community timer and schedules for itself.
 
-Debian's own unattended-upgrades applies OS security patches. The Catena Pro
-daily chain takes ownership of that lane where it is present, which is what
-`uninstall` hands back.
+Debian's own unattended-upgrades applies OS security patches.
 
 | Invariant | Enforced by |
 | --- | --- |
 | Scheduled work is default-deny: the backup timer plus enumerated maintenance timers only | `audit:check-port`, `threat:CV8` |
-| The backup cadence is rate-limited to weekly | `bench:backup_schedule_applied` |
+| An unlicensed host schedules no lane at all | `bench:unlicensed_schedules_nothing` |
 
 ### The release manifest -- written last, by both converge paths
 
