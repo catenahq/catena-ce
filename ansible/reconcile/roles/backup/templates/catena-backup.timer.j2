@@ -1,15 +1,17 @@
 [Unit]
-Description=catena weekly backup timer (Community rate-limited backup lane)
-# Community ships exactly one timer: a weekly backup, capped at weekly
-# cadence by the backup_weekly_cap filter at converge time. Daily and
-# sub-daily cadence (backup_tier realtime/standard) and the full
-# catena-daily orchestrator chain are the Business lane. On a Business
-# host the EE catena-daily engine masks this timer and becomes the
-# scheduler, so the two never double-fire (the chain drives
-# catena-backup.service inline).
+Description=catena backup timer
+# The unit ships; whether it RUNS is a licence question, and one owner answers
+# it. `catena-schedule apply` reads /etc/catena/config.json, verifies the
+# licence on this host, and enables or disables this timer accordingly -- an
+# unlicensed host ends up with every timer off. catena-backup.service itself is
+# Community and stays runnable from the panel's button whatever the licence
+# says.
 
 [Timer]
-OnCalendar={{ backup_weekly_timer_oncalendar }}
+# NO OnCalendar here, and none by default, for the reason the bit-rot probe's
+# timer gives: `catena-schedule apply` writes the drop-in that carries it.
+# Templating a schedule in would make this file a second owner, and the next
+# converge would put the old cadence back.
 # Spread the fleet across a window so clients on a shared restic bucket
 # do not stampede the S3 endpoint at the same instant.
 RandomizedDelaySec=1h

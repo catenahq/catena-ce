@@ -112,44 +112,6 @@
     - /var/lib/catena/restic-home
     - /var/lib/catena/restic-cache
 
-# ─── CV8: the Community cadence cap, enforced where it holds ─────────────
-# catena-admin refuses a tighter-than-weekly backup schedule at the moment an
-# operator types it, and `catena-schedule apply` refuses to enable one. Both
-# of those run on a machine the client owns, and /etc/catena/config.json is a
-# file they can edit. So the converge asserts it too, against the value that
-# is actually stored.
-#
-# The panel is the affordance and this is the boundary. CV8 ("scheduled work
-# is default-deny, Community ships one weekly backup") is a structural claim
-# about this repo; a claim enforced only in a UI is not one.
-- name: "Backup: read the stored backup schedule"
-  ansible.builtin.slurp:
-    src: "{{ catena_config_store_path | default('/etc/catena/config.json') }}"
-  register: _backup_store_raw
-  failed_when: false
-
-- name: "Backup: the stored cadence honours the Community cap"
-  vars:
-    _store: >-
-      {{ (_backup_store_raw.content | default('') | b64decode | from_json)
-         if (_backup_store_raw.content is defined) else {} }}
-    _lane: "{{ (_store.schedules | default({})).backup | default({}) }}"
-  ansible.builtin.assert:
-    that:
-      - (_lane.oncalendar | default('weekly')) | backup_weekly_cap
-    fail_msg: >-
-      /etc/catena/config.json schedules the backup lane at
-      "{{ _lane.oncalendar | default('weekly') }}", which is more frequent than
-      Community allows. Daily and sub-daily backups are a Catena Pro feature.
-      Set a weekly-or-sparser schedule in the Catena admin panel, or apply a
-      licence to this host.
-  # Only when the lane is actually turned on and this host has no licence
-  # token. A stored expression on a disabled lane is not doing anything, and
-  # a licensed host is uncapped.
-  when:
-    - (_lane.enabled | default(false)) | bool
-    - ((_store.secrets | default({})).catena_license | default('')) | length == 0
-
 # Reconcile-not-overwrite: restic password is set ONCE at first
 # install and never re-written by converge. Operator-driven incident
 # rotation goes through the documented runbook (multi-step

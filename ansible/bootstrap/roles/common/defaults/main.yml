@@ -21,6 +21,10 @@ common_baseline_packages:
   - sudo
   - ufw
   - unattended-upgrades
+  # needrestart tells reconcile/roles/host_maintenance which services are
+  # running on libraries that have been replaced under them. Debian's own
+  # /var/run/reboot-required only covers the kernel half.
+  - needrestart
   - curl
   - ca-certificates
   - gnupg

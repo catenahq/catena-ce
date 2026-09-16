@@ -10,9 +10,9 @@ the operator panel (`reconcile/roles/catena-admin`):
 - **Gatus** -- endpoint monitoring (internal alias + public 302-as-up
   per app; auto-generated config via `gatus-sync.py`). Surfaced to
   the operator inside catena-admin's System tab.
-- **Healthchecks** -- self-hosted dead-man-switch service. Backup
-  timer, auto-update timer, gatus, etc. ping it; missed pings
-  alert via ntfy. Surfaced to the operator inside catena-admin's
+- **Healthchecks** -- self-hosted dead-man-switch service. The backup
+  timer, the reboot-required probe, gatus and the rest ping it; missed
+  pings alert via ntfy. Surfaced to the operator inside catena-admin's
   System tab.
 - **Sync timers** -- systemd timers around `dashboard-sync.py` and
   `gatus-sync.py`. `catena-version-check.py` (auto-detecting Versions

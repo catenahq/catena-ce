@@ -401,7 +401,6 @@ ROLE_MINTED_SECRETS: dict[str, str] = {
 SETTINGS_CONFIG: dict[str, str] = {
     # Backup: repo + cadence + the alert lanes.
     "BACKUP_RESTIC_REPO": "cfg_backup_restic_repo",
-    "BACKUP_WEEKLY_TIMER_ONCALENDAR": "cfg_backup_weekly_timer_oncalendar",
     "BACKUP_HEALTHCHECK_URL": "cfg_backup_healthcheck_url",
     "BACKUP_HEALTHCHECK_ATTEMPTED_URL": "cfg_backup_healthcheck_attempted_url",
     "BACKUP_HEALTHCHECK_URL_CLIENT": "cfg_backup_healthcheck_url_client",

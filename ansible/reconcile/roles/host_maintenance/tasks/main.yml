@@ -1,0 +1,57 @@
+---
+# The reboot-required probe: env file, script, units, timer.
+#
+# Same shape as the shared-clamd watch in reconcile/roles/infrastructure,
+# deliberately: both are host timers that report through the Healthchecks
+# plane, and a second shape would be a second thing to learn.
+
+- name: "Reboot check: env file"
+  ansible.builtin.template:
+    src: reboot-check.env.j2
+    dest: "{{ reboot_check_env_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: "Reboot check: probe script"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/run-reboot-check.sh"
+    dest: "{{ reboot_check_script_path }}"
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: "Reboot check: systemd service unit"
+  ansible.builtin.template:
+    src: catena-reboot-check.service.j2
+    dest: "/etc/systemd/system/{{ reboot_check_systemd_unit_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  register: _reboot_check_service
+
+- name: "Reboot check: systemd timer unit"
+  ansible.builtin.template:
+    src: catena-reboot-check.timer.j2
+    dest: "/etc/systemd/system/{{ reboot_check_systemd_unit_name }}.timer"
+    owner: root
+    group: root
+    mode: "0644"
+  register: _reboot_check_timer
+
+- name: "Reboot check: reload systemd if units changed"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: (_reboot_check_service.changed | default(false)) or (_reboot_check_timer.changed | default(false))
+
+# Enabled unconditionally, unlike every lane catena-schedule owns. This one
+# spends no object storage and changes nothing on the host: it reads two files
+# and pings loopback. A host that opted out of it would be a host that applies
+# patches and never mentions that they are not in effect.
+- name: "Reboot check: enable + start timer"
+  ansible.builtin.systemd_service:
+    name: "{{ reboot_check_systemd_unit_name }}.timer"
+    enabled: true
+    state: started
+  when: not ansible_check_mode

@@ -652,19 +652,18 @@
     mode: "0644"
   notify: reload sshd
 
-# ─── unattended-upgrades (Debian-native security patching -- ON in CE) ───
-# Community leans on Debian's OWN unattended-upgrades for OS security
-# patches. This is the operating system's mechanism, NOT a Catena
-# scheduler: the default 50unattended-upgrades filter applies only the
-# Debian-Security suite, so most days it is a no-op, and it never
-# auto-reboots (Automatic-Reboot defaults off -- a new kernel waits for a
-# manual reboot). Community is otherwise manual; this is the one lane we
-# leave to the OS so a free host does not silently go unpatched.
+# ─── unattended-upgrades (Debian-native security patching) ──────────────
+# OS security patches are Debian's job on every Catena host, whatever its
+# edition. This is the operating system's mechanism, NOT a Catena scheduler:
+# the default 50unattended-upgrades filter applies only the Debian-Security
+# suite, so most days it is a no-op, and it never auto-reboots
+# (Automatic-Reboot defaults off -- a new kernel waits for a reboot somebody
+# chooses). reconcile/roles/host_maintenance is the half that says when one is
+# pending, since a patch nobody has rebooted into is not in effect.
 #
-# When a Business license activates, the auto_update driver MASKS
-# apt-daily-upgrade.timer and takes over the apply lane inside its
-# snapshot + health-baseline + rollback envelope. Until then (and on
-# every CE host), the OS lane stays ON.
+# NOTHING ELSE ON THIS HOST APPLIES OS PACKAGES. One applier is the whole
+# point: two of them race for the dpkg lock, and the one that loses reports a
+# failure for work the other did.
 #
 # Config state we want:
 #   /etc/apt/apt.conf.d/50unattended-upgrades -- Debian-default filter,
@@ -677,10 +676,8 @@
   ansible.builtin.copy:
     dest: /etc/apt/apt.conf.d/20auto-upgrades
     content: |
-      # Managed by catena common role. Community leans on Debian's own
-      # unattended-upgrades for OS security patches (security suite only).
-      # A Business license's auto_update driver masks the timer and takes
-      # over the apply lane with snapshot + rollback.
+      # Managed by catena common role. OS security patches are Debian's
+      # own unattended-upgrades (security suite only), on every edition.
       APT::Periodic::Update-Package-Lists "1";
       APT::Periodic::Unattended-Upgrade "1";
       APT::Periodic::AutocleanInterval "7";
@@ -693,9 +690,9 @@
     cmd: systemctl enable --now unattended-upgrades
   changed_when: false
 
-# Unmask + enable the apply timer. A host whose Business license lapsed
-# (the EE driver had masked it) recovers Debian's native lane here, so a
-# downgraded host never ends up with NO autonomous security patching.
+# Unmask as well as enable: a host converged before the apply lane became
+# Debian's on every edition may still carry the mask a licensed chain left
+# behind, and a masked timer enables silently and never fires.
 - name: "Ensure apt-daily-upgrade.timer is unmasked + enabled (Debian-native apply lane)"
   ansible.builtin.shell: |
     systemctl unmask apt-daily-upgrade.timer || true

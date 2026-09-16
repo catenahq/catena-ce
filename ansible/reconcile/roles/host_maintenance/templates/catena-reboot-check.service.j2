@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+[Unit]
+Description=catena reboot-required probe (reports, never reboots)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile={{ reboot_check_env_file }}
+ExecStart={{ reboot_check_script_path }}
+# Two file reads, one needrestart call and a loopback ping. needrestart is the
+# only part that can be slow, and it is bounded by its own scan.
+TimeoutStartSec=2min
+StandardOutput=journal
+StandardError=journal
+Nice=15

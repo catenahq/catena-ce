@@ -232,9 +232,8 @@
       docker.service docker.socket` after investigating.
 
 - name: "Restic restore into / (snapshot {{ _restic_snapshot_id }})"
-  # /var/lib/dpkg is in the backup set so the auto-update two-phase
-  # rollback can downgrade packages in place (scripts/auto-update-
-  # two-phase.sh uses --include to pull it back on a live host). In
+  # /var/lib/dpkg is in the backup set so a host's package state can be
+  # recovered in place, with --include, without rebuilding it. In
   # the FULL-host restore flow (this task), restoring dpkg state on
   # top of a fresh Debian creates a phantom-installed bug: dpkg says
   # "docker-ce installed" from the snapshot, but the binaries in

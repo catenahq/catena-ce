@@ -17,10 +17,9 @@ backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
 
 # Cadence is not set here. It is a customizable RPO: an OnCalendar string
 # per lane, set in the Catena admin panel, stored in /etc/catena/config.json
-# and applied by `catena-schedule apply`. Community is capped at one backup a
-# week (backup_weekly_cap, asserted at converge time -- the panel refuses it
-# too, but a client can edit their own config.json, so the converge is the
-# boundary and the panel is the affordance).
+# and applied by `catena-schedule apply`, which verifies this host's licence
+# before it enables anything. A client editing their own config.json does not
+# get around it: the applier reads the licence, not the file's opinion of it.
 #
 # Every lane ships DISABLED. Scheduled work spends disk and object-store quota
 # nobody has confirmed the client has, so a fresh host schedules nothing until
@@ -222,11 +221,9 @@ backup_paths:
   - /etc/ssh
   - /etc/ufw
   - /etc/fstab
-  # Added for auto_update two-phase rollback: if a kernel/package upgrade
-  # wrecks the host, auto-update-two-phase.sh can restic-restore these
-  # paths to recover dpkg state + stack config without rebuilding the
-  # whole filesystem. Cheap to add (few hundred MB); /etc is the biggest
-  # change-surface apt touches.
+  # dpkg state + stack config, so a host can be recovered without
+  # rebuilding the whole filesystem. Cheap to add (a few hundred MB), and
+  # /etc is the biggest change-surface apt touches.
   - /etc
   - /var/lib/dpkg
   - /usr/local/bin
@@ -517,18 +514,6 @@ backup_managed_paths:
   - "/etc/systemd/system/{{ backup_systemd_unit_name }}.timer"
   - /etc/systemd/system/catena-restic-check-subset.service
   - /etc/systemd/system/catena-restic-check-subset.timer
-
-# Community weekly-backup timer (rate-limited Community lane).
-# CE ships exactly ONE timer -- a weekly backup -- so a self-hosted
-# Community deployment has a proven scheduled-backup lane without a
-# license. Daily and sub-daily cadence (backup_tier realtime/standard)
-# and the catena-daily orchestrator chain stay Business: on a Business
-# host the EE catena-daily engine masks catena-backup.timer and drives
-# scheduling itself, so the two never double-fire. Operators can move
-# the weekly slot via inventory .env (e.g. 'Sun *-*-* 03:00:00') but
-# cannot tighten it below weekly: the backup_weekly_cap filter fails
-# the converge on a daily/sub-weekly value (that is the Business lane).
-backup_weekly_timer_oncalendar: "{{ cfg_backup_weekly_timer_oncalendar | default('weekly') | backup_weekly_cap }}"
 
 # Stats file written by the wrapper after each successful run. Hosts
 # both the catena-admin container's read-only bind-mount target AND

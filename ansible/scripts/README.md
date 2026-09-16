@@ -44,6 +44,7 @@ search `/usr/local/lib/catena` -- where the payload installs its modules
 | `rocketchat-jitsi-wire.sh` | /usr/local/bin/catena-wire-rocketchat-jitsi -- post-deploy wiring for Rocket.Chat's bundled on-server Jitsi. |
 | `run-clamav-watch.sh` | Page when the shared clamd is down, but only while something depends on it -- the mail server's dms container or Nextcloud. |
 | `run-mail-canary.sh` | Prove the mail server is up AND actually filtering, via host-side docker-exec into the dms container -- no external SMTP/IMAP and no auth (the server is OAuth2-only, so there is no password to log in with). |
+| `run-reboot-check.sh` | Say when this host needs a reboot. |
 | `wire-nextcloud-antivirus.sh` | /usr/local/bin/catena-wire-nextcloud-antivirus -- point Nextcloud's files_antivirus app at the shared clamd (catena-clamav network). |
 | `wire-nextcloud-collabora.sh` | /usr/local/bin/catena-wire-nextcloud-collabora -- wire Collabora CODE as the office editor inside a deployed Nextcloud instance. |
 | `wire-nextcloud-mail.sh` | /usr/local/bin/catena-wire-nextcloud-mail -- install + enable the Nextcloud Mail app inside a deployed Nextcloud container. |

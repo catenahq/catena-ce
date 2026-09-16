@@ -26,18 +26,20 @@ imports. Composition lives in the installer, which is why
 
 ## Scheduled work is default-deny
 
-Community ships ONE backup timer: a weekly backup
-(`catena-backup.timer`, rate-limited to weekly-or-sparser by the
-`backup_weekly_cap` filter -- a tighter `.env` value fails the
-converge), plus a handful of local maintenance timers (disk watchdog,
-monitor sync, antivirus watch, mail canary) and an on-demand version/CVE
-check. Everything else is manual. A new `.timer` needs a deliberate
-allowlist entry, machine-enforced rather than conventional.
+Every scheduled lane ships DISABLED, and enabling one needs an active
+Catena Pro licence: `catena-schedule` verifies the licence on the host and
+leaves an unlicensed box with every timer off. The mechanisms themselves are
+Community and stay runnable from the panel's buttons -- what is licensed is
+having them happen while nobody is watching.
 
-The managed lifecycle -- daily and sub-daily backup cadence, secondary
-and cold backup, auto-update with rollback, CVE remediation,
-attestation, the catena-daily orchestrator chain -- is the Business
-edition. Its engines ship in the public catena-admin payload and install
+Local maintenance timers are not lanes and are always on: monitor sync,
+antivirus watch, mail canary, public-port reconciliation and the
+reboot-required probe. Each is an enumerated allowlist entry, machine-enforced
+rather than conventional, and none of them spends object storage.
+
+The managed lifecycle -- scheduled backup, verification and offsite
+copies, container updates with rollback, CVE remediation, attestation,
+the catena-daily orchestrator chain -- is the Business edition. Its engines ship in the public catena-admin payload and install
 on every host, but the license check gates their features at runtime, so
 they stay dormant on a Community host. On a Business host the managed
 engine masks `catena-backup.timer` and takes over scheduling.
@@ -61,7 +63,7 @@ directory, where `pyproject.toml` lives.
 | `rotate-tunnel` | `rotate-tunnel.yml` | Mint a new Cloudflare tunnel |
 | `rotate-tailscale` | `rotate-tailscale.yml` | Force re-authentication to the tailnet |
 | `show-keyset` | `show-keyset.yml` | Show the passwords and first-login URLs again |
-| `uninstall` | `uninstall.yml` | Hand unattended-upgrades back to the OS |
+| `uninstall` | `uninstall.yml` | Unmask the native apt timers on a host an older release masked |
 
 One shape: `uv run catena <verb> --inventory <name>`. A verb that runs a
 single playbook carries that playbook's name; the three that chain several

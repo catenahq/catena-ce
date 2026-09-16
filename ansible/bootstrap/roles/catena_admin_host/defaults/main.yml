@@ -61,36 +61,17 @@ catena_admin_dispatcher_path: "/usr/local/sbin/catena-admin-runner"
 # the config store like everything else.
 catena_daily_env_path: /etc/catena/daily.env
 
-# Per-host configuration for the two managed-update lanes, and the spec list
-# the container lane bumps from. Same story as daily.env above, three more
-# times: catena-auto-update{,@,-resume}.service and
-# catena-stack-update-managed.service all declare their EnvironmentFile with no
-# leading dash, nothing rendered them, and the engine's --specs-file default
-# pointed at a path nothing wrote. Both lanes were unstartable on a real host
-# and neither showed it, because the bench ships its own copies.
+# Per-host configuration for the container-bump lane, and the spec list it
+# bumps from. Same story as daily.env above: catena-stack-update-managed.service
+# declares its EnvironmentFile with no leading dash, nothing rendered it, and
+# the engine's --specs-file default pointed at a path nothing wrote. The lane
+# was unstartable on a real host and did not show it, because the bench ships
+# its own copies.
 #
 # Same owner as daily.env for the same reason: this role installs the payload,
 # so it is the role that knows the host these files describe.
-catena_auto_update_env_path: /etc/catena/auto-update.env
 catena_stack_update_env_path: /etc/catena/stack-update.env
 catena_managed_services_path: /etc/catena/managed-services.json
-
-# What an apply run does. security-only with a reboot when the packages ask
-# for one is the shipped posture; the chain drives this lane behind its own
-# backup and cold-verify gates.
-catena_auto_update_mode: security
-catena_auto_update_reboot: if-required
-# Zero retries after a rollback: a package set that regressed once regresses
-# again, and an apply-rollback loop is worse than a pending update.
-catena_auto_update_max_rollback_retries: 0
-# Abort before apt writes anything below this much free space (3 GiB).
-catena_auto_update_preflight_min_bytes: 3221225472
-catena_auto_update_healthcheck_url: ""
-# Tier-2 provider disk snapshot. none is a no-op; see the template for why the
-# OVH credentials are blank.
-catena_auto_update_provider: none
-catena_auto_update_provider_ovh_region: ovh-ca
-catena_auto_update_provider_ovh_vps_name: ""
 
 # Container-bump gates. Seven days of tag age because a withdrawn upstream
 # release is usually withdrawn within days and this lane runs unattended; two
@@ -108,11 +89,6 @@ catena_stack_update_portainer_api_base: "{{ portainer_api_base_onbox | default('
 # is a skip rather than a failure: the chain cannot ask whether the host is
 # healthy, so it does not pretend to have asked.
 catena_daily_gatus_api_url: "{{ gatus_api_url | default('') }}"
-
-# Whether the chain takes ownership of Debian's apt-daily-upgrade.timer. True
-# is the shipped posture: the chain applies security updates behind its own
-# backup and verify gates, and two things applying updates is one too many.
-catena_daily_manage_apt_timer: true
 
 # The migration lane's PORT. A host process, not a container, because a
 # migration stops docker on this server and the endpoint that puts it back has

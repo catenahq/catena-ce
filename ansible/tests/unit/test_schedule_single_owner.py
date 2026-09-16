@@ -168,14 +168,13 @@ def test_the_daily_env_does_not_carry_a_schedule():
 
 # ─── the other lanes can start at all ──────────────────────────────────
 #
-# daily.env is not the only one. catena-auto-update{,@,-resume}.service and
-# catena-stack-update-managed.service declare their EnvironmentFile with no
-# leading dash too, and the container engine's --specs-file defaults to a path
-# nothing writes. All four go missing on a real host for the same reason, and
-# stay invisible for the same reason: the bench ships its own copies.
+# daily.env is not the only one. catena-stack-update-managed.service declares
+# its EnvironmentFile with no leading dash too, and the container engine's
+# --specs-file defaults to a path nothing writes. Both go missing on a real
+# host for the same reason, and stay invisible for the same reason: the bench
+# ships its own copies.
 
 LANE_CONFIG_TEMPLATES = (
-    "auto-update.env.j2",
     "stack-update.env.j2",
     "managed-services.json.j2",
 )
@@ -196,10 +195,9 @@ def test_every_lane_config_file_is_rendered_exactly_once():
 
 
 def test_the_secret_bearing_lane_config_is_not_world_readable():
-    # auto-update.env carries the provider credentials when a provider is
-    # configured; stack-update.env carries the Portainer API key.
+    # stack-update.env carries the Portainer API key.
     tasks = yaml.safe_load(ADMIN_HOST.read_text())
-    for src in ("auto-update.env.j2", "stack-update.env.j2"):
+    for src in ("stack-update.env.j2",):
         tpl = next(
             t["ansible.builtin.template"] for t in tasks
             if str(t.get("ansible.builtin.template", {}).get("src", "")) == src

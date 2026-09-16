@@ -6,12 +6,11 @@ provides one-shot tasks for verification, restore, and reconciliation.
 
 ## Modes (tasks_from)
 
-- `main.yml` (default) -- install restic + the single weekly-backup
-  systemd timer (`catena-backup.timer`, Community's only timer, capped
-  at weekly cadence) + backup wrapper script, register the Healthchecks
-  ping, ensure restic repo is initialized. On a Business host the EE
-  catena-daily engine masks this timer and schedules daily/sub-daily
-  itself.
+- `main.yml` (default) -- install restic, the `catena-backup.timer` unit
+  (installed, never enabled here) and the backup wrapper script, register
+  the Healthchecks ping, ensure the restic repo is initialized. Whether the
+  timer runs, and when, is `catena-schedule apply` reading
+  /etc/catena/config.json, and it enables no lane without an active licence.
 - `verify.yml` -- run a dry-restore against the latest snapshot
   into a scratch dir; verify file count and size; emit alert on
   drift.
@@ -113,10 +112,6 @@ a backup by itself.
 - `aws_access_key_id` / `aws_secret_access_key` -- S3
   credentials.
 - `backup_restic_repo` -- S3 URL (e.g. `s3:s3.example.com/bucket`).
-- `backup_weekly_timer_oncalendar` -- systemd `OnCalendar` for the CE
-  weekly-backup timer (default `weekly`; the `backup_weekly_cap` filter
-  fails the converge on anything tighter than weekly -- daily and
-  sub-daily cadence is the Business lane).
 Cadence and retention are NOT inputs to this role. Both are set per host
 in the catena-admin panel, stored in `/etc/catena/config.json`, and
 applied by `catena-schedule` -- which is the only thing that enables a

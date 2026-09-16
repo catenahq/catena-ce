@@ -85,6 +85,9 @@
     - { role: keycloak, tags: [keycloak, auth] }
     - { role: oauth2_proxy, tags: [oauth2_proxy, auth] }
     - { role: infrastructure, tags: [infrastructure] }
+    # The reboot-required probe. After infrastructure because it reports
+    # through the Healthchecks plane that role deploys.
+    - { role: host_maintenance, tags: [host_maintenance] }
     # The panel's container and its action catalog. Its trust path -- the runner
     # account, the sudoers drop-in, the forced command -- is roles/
     # catena_admin_host, which is bootstrap-side and deliberately absent here.

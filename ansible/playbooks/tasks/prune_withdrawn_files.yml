@@ -24,6 +24,7 @@
   ansible.builtin.set_fact:
     _prune_declared: >-
       {{ (backup_managed_paths | default([]))
+         + (host_maintenance_managed_paths | default([]))
          + (infrastructure_managed_paths | default([]))
          + (public_ports_managed_paths | default([])) }}
 

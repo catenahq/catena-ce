@@ -1,11 +1,11 @@
 ---
 # Hand control of this host back to the operating system.
 #
-# Community Catena never masks Debian unattended-upgrades. But if this host
-# was ever managed under a Business (EE) license, the auto-update module
-# masks apt-daily-upgrade.timer. This playbook unmasks and re-enables the
-# native apt timers so the box keeps receiving security patches after Catena
-# management stops -- the unattended-upgrades handback contract.
+# Catena does not mask Debian's apt timers: unattended-upgrades applies OS
+# security patches on every edition. A host converged by an older release may
+# still carry the mask a licensed chain left behind, so this unmasks and
+# re-enables the native apt timers -- idempotent on a host that was never
+# masked, and the one thing that matters on a host that was.
 #
 # It deliberately does NOT remove your apps, data, Portainer, or the VPS from
 # Tailscale / Cloudflare. Those are yours; tear them down deliberately. See

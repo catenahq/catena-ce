@@ -78,6 +78,7 @@ reconcile_roles:
   - keycloak
   - oauth2_proxy
   - infrastructure
+  - host_maintenance
   - catena-admin
   - coturn
   - backup
