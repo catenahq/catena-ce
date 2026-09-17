@@ -492,24 +492,63 @@
 # change. Workaround: flip the policy to ENABLED, clear the attr,
 # flip back to DISABLED. Both transitions are idempotent.
 
-- name: "Keycloak realm: kcadm login to master (for temp-admin cleanup)"
-  ansible.builtin.command:
-    argv:
-      - docker
-      - exec
-      - "{{ _keycloak_realm_server_ct.stdout }}"
-      - /opt/keycloak/bin/kcadm.sh
-      - config
-      - credentials
-      - --server
-      - "http://localhost:{{ keycloak_internal_port }}"
-      - --realm
-      - master
-      - --user
-      - "{{ admin_email }}"
-      - --password
-      - "{{ admin_password }}"
+# RE-RESOLVE the container before the cleanup block runs.
+#
+# The name captured at the top of this file is a swarm TASK container
+# (`keycloak_server.1.<task-id>`), and the task id changes on every reschedule.
+# Everything between here and there -- the realm import, the client work, a
+# health blip, a docker restart on a host that was just restored -- can cost
+# the server its task, and swarm replaces it with a new id. The eight
+# docker execs below then address a container that no longer exists.
+#
+# Bench run 2026-09-17T04-03-01-fe03 is what that looks like: `docker service
+# ps keycloak_server` recorded
+#
+#   keycloak_server.1  Failed  "No such container: keycloak_server.1.6h4k73..."
+#
+# and the converge died on the next task, with no_log hiding the reason.
+#
+# The /health/ready gate above this file's import already re-resolves per
+# attempt, for exactly this reason. This is the same rule applied to the half
+# that did not have it.
+- name: "Keycloak realm: re-resolve the server container before cleanup"
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
+      | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' \
+      | head -n1
+  args:
+    executable: /bin/bash
+  register: _keycloak_realm_server_ct
   changed_when: false
+  retries: 30
+  delay: 4
+  until: _keycloak_realm_server_ct.stdout | length > 0
+
+- name: "Keycloak realm: kcadm login to master (for temp-admin cleanup)"
+  # RETRIED, and re-resolving the container each attempt: the login is the
+  # first use of the name above, so a reschedule landing between the two
+  # would put the whole cleanup back where it started. `until` on rc means a
+  # server still finishing its own startup is waited out rather than reported
+  # as a bad password -- which is what no_log turns this failure into.
+  ansible.builtin.shell: |
+    set -o pipefail
+    ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
+      | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' \
+      | head -n1)
+    [ -n "$ct" ] || { echo "no running keycloak container right now" >&2; exit 1; }
+    docker exec "$ct" /opt/keycloak/bin/kcadm.sh config credentials \
+      --server "http://localhost:{{ keycloak_internal_port }}" \
+      --realm master \
+      --user {{ admin_email | quote }} \
+      --password {{ admin_password | quote }}
+  args:
+    executable: /bin/bash
+  register: _keycloak_master_login
+  changed_when: false
+  retries: 15
+  delay: 4
+  until: _keycloak_master_login.rc == 0
   no_log: true
 
 - name: "Keycloak realm: look up bootstrap admin user-id in master"
