@@ -112,6 +112,50 @@
       changed_when: false
       failed_when: false
 
+    # Did the stack converge ANYWAY?
+    #
+    # swarm's update-failure-action is `pause`, so one task dying pauses the
+    # rolling update even when the replacement scheduled in its place comes up
+    # healthy seconds later. The deploy still exits non-zero, and its stderr
+    # carries a task id rather than a reason. The comment above records that
+    # sequence on run 68a4; run 2026-09-17T09-06-07-cc20 hit it again on
+    # keycloak, where the per-task dump read
+    #
+    #   g4oil...  Ready 1 second ago
+    #   v0ws2...  Failed 1 second ago   "task: non-zero exit (1)"
+    #
+    # and the replacement was serving by the time anyone looked. That string
+    # cannot go in the pattern list: a genuine crash loop reports the same one.
+    #
+    # So this asks the daemon for the END STATE -- every service in the stack
+    # running its desired replicas -- which is evidence no pattern can fake.
+    # Bounded, because the replacement may still be starting at the instant the
+    # deploy gave up, and only asked when swarm actually paused the update, so
+    # an ordinary failure pays nothing for it.
+    - name: "Swarm: did the stack converge despite the paused update ({{ svc_name }})"
+      ansible.builtin.shell: |
+        set -o pipefail
+        pending=0
+        for svc in $(docker stack services "{{ svc_name }}" --format '{{ "{{" }}.Name{{ "}}" }}' 2>/dev/null); do
+          reps=$(docker service ls --filter "name=$svc" \
+            --format '{{ "{{" }}.Replicas{{ "}}" }}' 2>/dev/null | head -n1)
+          running=${reps%%/*}
+          desired=${reps##*/}
+          if [ -z "$reps" ] || [ "$running" != "$desired" ]; then
+            pending=$((pending + 1))
+          fi
+        done
+        echo "pending=${pending}"
+      args:
+        executable: /bin/bash
+      register: _swarm_converged_probe
+      changed_when: false
+      failed_when: false
+      retries: 12
+      delay: 5
+      until: "'pending=0' in (_swarm_converged_probe.stdout | default(''))"
+      when: (_swarm_deploy.stderr | default('')) is search('update paused')
+
     # The registry/daemon transient classes -- a transient during image pull
     # taints the deploy; retrying re-pulls cleanly. Matched against stdout AND
     # stderr AND the per-task errors above: `docker stack deploy --detach=false`
@@ -127,6 +171,7 @@
       ansible.builtin.set_fact:
         _swarm_deploy_transient: >-
           {{ (_swarm_deploy.rc | default(1)) == 124
+             or ('pending=0' in (_swarm_converged_probe.stdout | default('')))
              or ((_swarm_deploy.stdout | default('')) ~ (_swarm_deploy.stderr | default(''))
               ~ (_swarm_diag_taskps.stdout | default(''))) is regex(
                '(502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout|TLS handshake timeout|connection reset|i/o timeout|TOOMANYREQUESTS|context deadline exceeded|temporary failure in name resolution|received unexpected HTTP status: 5|did not receive an exit event|cannot stop container|unexpected EOF|short read: expected|Address already in use)'
