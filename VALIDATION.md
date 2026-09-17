@@ -13,7 +13,7 @@ Catena is exercised end-to-end by an automated rehearsal suite: each scenario pr
 
 Two numbers are reported everywhere: **rehearsed** means the scenario was last recorded PASSING on a real run, and is the only number treated as evidence; **declared** additionally counts scenarios that exist but have not been observed passing yet. A scenario is never counted for merely existing.
 
-**Coverage: 12 Community features, 88 of 95 rehearsal scenarios observed passing; 13 Catena Pro features, 41 of 43; plus 17 of 23 maintainer-internal rehearsals.**
+**Coverage: 12 Community features, 88 of 97 rehearsal scenarios observed passing; 13 Catena Pro features, 40 of 42; plus 17 of 23 maintainer-internal rehearsals.**
 
 ## Community features (this repository)
 
@@ -53,7 +53,7 @@ Prepares a fresh server, installs the platform, and deploys the selected applica
 
 Implemented in: `ansible/bootstrap/roles/common`, `ansible/bootstrap/roles/docker`, `ansible/bootstrap/roles/host_hardening`, `ansible/bootstrap/roles/storage`, `ansible/catena_cli.py`, `ansible/helpers/*.py`, `ansible/playbooks/bootstrap.yml`, `ansible/playbooks/converge.yml`, `ansible/playbooks/preflight.yml`, `ansible/playbooks/reconcile.yml`, `ansible/playbooks/show-keyset.yml`, `ansible/playbooks/tasks/load_onbox_config.yml`, `ansible/playbooks/uninstall.yml`, `ansible/reconcile/roles/payload`, `ansible/reconcile/roles/portainer`, `ansible/reconcile/roles/postgres`, `ansible/reconcile/roles/tier1_stack`, `ansible/reconcile/roles/traefik`, `ansible/seed.py`
 
-Rehearsal scenarios (18 of 19 observed passing): `ce_converge`, `ce_install_suite`, `ce_uninstall`, `converge_modify`, `converge_preserves_bumped_image`, `fi_c1_docker_daemon_hang`, `fi_c3_portainer_crash_mid_deploy`, `fi_c4_registry_pull_timeout`, `fi_c6_cloudflared_flapping`, `fi_c7_coturn_cert_expired`, `fi_c8_nextcloud_init_loop`, `fi_u1_compose_lint_reject`, `mixed_template_negative_restore`, `payload_prune_respects_ce`, `release_manifest_converge_state`, `repair_broken_template_round_trip`, `scheduler_easyappointments`, `swarm_overlay_selfheal`; declared, not yet observed passing: `dev_to_prod_cutover_round_trip`
+Rehearsal scenarios (18 of 20 observed passing): `ce_converge`, `ce_install_suite`, `ce_uninstall`, `converge_modify`, `converge_preserves_bumped_image`, `fi_c1_docker_daemon_hang`, `fi_c3_portainer_crash_mid_deploy`, `fi_c4_registry_pull_timeout`, `fi_c6_cloudflared_flapping`, `fi_c7_coturn_cert_expired`, `fi_c8_nextcloud_init_loop`, `fi_u1_compose_lint_reject`, `mixed_template_negative_restore`, `payload_prune_respects_ce`, `release_manifest_converge_state`, `repair_broken_template_round_trip`, `scheduler_easyappointments`, `swarm_overlay_selfheal`; declared, not yet observed passing: `container_delete_recreated`, `dev_to_prod_cutover_round_trip`
 
 ### Operating-system security updates
 
@@ -61,7 +61,7 @@ The operating system applies its own security updates, and the server reports wh
 
 Implemented in: `ansible/reconcile/roles/host_maintenance`, `ansible/scripts/run-reboot-check.sh`
 
-Rehearsal scenarios (0 of 1 observed passing): none yet; declared: `reboot_required_notified`
+Rehearsal scenarios (0 of 2 observed passing): none yet; declared: `host_reboot_recovery`, `reboot_required_notified`
 
 ### Application catalog and suite integrations
 
@@ -123,7 +123,7 @@ They are exercised by the same rehearsal suite as the Community features above, 
 | Tamper-evident central audit trail | 1 | 1 |
 | Offsite immutable backup copy | 7 | 7 |
 | Vulnerability scanning | 1 | 1 |
-| Automated daily maintenance | 12 | 12 |
+| Automated daily maintenance | 11 | 11 |
 | Managed lifecycle operations (migration, decommission) | see note | see note |
 | Licensed feature activation | 6 | 7 |
 | Staff and client account management | 1 | 1 |
