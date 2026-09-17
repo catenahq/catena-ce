@@ -190,53 +190,68 @@
       # repeated OIDC-discovery races where oauth2-proxy crash-restarts
       # for several minutes after Keycloak appears reachable; 6 min was
       # borderline and timed out on flaky CF tunnel windows.
-      ansible.builtin.command:
-        argv:
-          - docker
-          - exec
-          - "{{ _ping.stdout }}"
-          - wget
-          - "-qO-"
-          - "http://localhost:{{ oauth2_proxy_internal_port }}/ping"
+      #
+      # RE-RESOLVED PER ATTEMPT, and that is the whole reason this is a shell
+      # block rather than a docker exec with a name in it. A crash-restart is
+      # exactly what this loop waits out, and swarm gives the replacement task
+      # a NEW container id -- so a name resolved once, twelve minutes earlier,
+      # names a container that no longer exists, and all 180 attempts fail
+      # against it however healthy the app becomes.
+      #
+      # Bench run 2026-09-17T09-06-07-cc20 is what that looks like: the probe
+      # exhausted its retries, and the rescue's own log dump then reported
+      # "No such container: oauth2-proxy_oauth2-proxy-healthchecks.1.9t7riu..."
+      # for every app -- the ids from before the restart.
+      ansible.builtin.shell: |
+        set -o pipefail
+        ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
+          | grep -E '{{ oauth2_proxy_compose_name | swarm_container_regex("oauth2-proxy-" + _app.slug) }}' \
+          | head -n1)
+        [ -n "$ct" ] || { echo "no running oauth2-proxy container for {{ _app.slug }} right now" >&2; exit 1; }
+        docker exec "$ct" wget -qO- "http://localhost:{{ oauth2_proxy_internal_port }}/ping"
+      args:
+        executable: /bin/bash
       register: _oauth2_app_ping
       changed_when: false
       failed_when: _oauth2_app_ping.rc != 0
       retries: 180
       delay: 4
       until: _oauth2_app_ping.rc == 0
-      loop: "{{ _oauth2_app_container.results }}"
+      loop: "{{ oauth2_proxy_apps }}"
       loop_control:
-        loop_var: _ping
-        label: "{{ _ping._app.slug }}"
-      when: (_ping.stdout | default('')) | length > 0
+        loop_var: _app
+        label: "{{ _app.slug }}"
 
   rescue:
     # docker logs / inspect each call swallows its own failures
     # (failed_when: false): a missing-container error must not mask the
     # original /ping rescue.
+    # RE-RESOLVED here too. The dump ran against the ids the probe started
+    # with and printed "No such container" four times, which said the
+    # containers had been replaced -- true, and useless as diagnostics. The
+    # logs worth reading belong to whatever is running NOW.
     - name: "validate/oauth2-proxy: dump per-app container logs (last 100 lines)"
-      ansible.builtin.command:
-        argv:
-          - docker
-          - logs
-          - --tail
-          - "100"
-          - "{{ _ctr.stdout }}"
+      ansible.builtin.shell: |
+        set -o pipefail
+        ct=$(docker ps -a --format '{{ "{{" }}.Names{{ "}}" }}' \
+          | grep -E '{{ oauth2_proxy_compose_name | swarm_container_regex("oauth2-proxy-" + _ctr.slug) }}' \
+          | head -n1)
+        [ -n "$ct" ] || { echo "no oauth2-proxy container for {{ _ctr.slug }}"; exit 0; }
+        docker logs --tail 100 "$ct"
+      args:
+        executable: /bin/bash
       register: _oauth2_app_logs
       changed_when: false
       failed_when: false
-      loop: "{{ _oauth2_app_container.results | default([]) }}"
+      loop: "{{ oauth2_proxy_apps }}"
       loop_control:
         loop_var: _ctr
-        label: "{{ _ctr._app.slug | default('?') }}"
-      when:
-        - _ctr is defined
-        - (_ctr.stdout | default('')) | length > 0
+        label: "{{ _ctr.slug }}"
 
     - name: "validate/oauth2-proxy: per-app container logs"
       ansible.builtin.debug:
         msg: |
-          === oauth2-proxy {{ _r._ctr._app.slug | default('?') | upper }} logs (tail 100) ===
+          === oauth2-proxy {{ _r._ctr.slug | default('?') | upper }} logs (tail 100) ===
           stdout:
           {{ _r.stdout | default('(no stdout)') }}
 
@@ -245,7 +260,7 @@
       loop: "{{ _oauth2_app_logs.results | default([]) }}"
       loop_control:
         loop_var: _r
-        label: "{{ _r._ctr._app.slug | default('?') }}"
+        label: "{{ _r._ctr.slug | default('?') }}"
       when: _oauth2_app_logs is defined
 
     - name: "validate/oauth2-proxy: re-raise original failure"
