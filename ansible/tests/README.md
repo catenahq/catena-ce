@@ -33,5 +33,6 @@ scanner it uses, pure Python so no system `nmap` is required.
 
 End-to-end coverage -- install, break, restore, upgrade on disposable
 VMs -- runs in the maintainers' rehearsal suite, which is not part of
-this repository. What it covers, per feature, is published in
-[../../VALIDATION.md](../../VALIDATION.md).
+this repository. Every scenario it carries, and the behaviour each one
+proves, is listed in
+[../../TEST_SCENARIOS.md](../../TEST_SCENARIOS.md).
