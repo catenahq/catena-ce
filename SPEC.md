@@ -370,7 +370,7 @@ merges.
 | The seeded configuration matches its baseline | `workflow:seed-baseline.yml#seed` |
 | Public prose names no system Catena does not ship | `audit:check-banned-words` |
 | Every file and scenario is classified against the feature manifest; nothing untracked | `audit:check-grid`, `audit:check-all` |
-| This file and [VALIDATION.md](VALIDATION.md) cannot drift from reality | `audit:check-public-specs`, `threat:CP7` |
+| This file cannot drift from reality | `audit:check-public-specs`, `threat:CP7` |
 
 Gate pointer grammar: `bench:<scenario>` is a rehearsal scenario that
 provisions disposable virtual machines and drives the real product;
