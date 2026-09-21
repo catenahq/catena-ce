@@ -393,7 +393,7 @@
     # Coverage:
     #   - Static infrastructure apps (gatus, catena-admin at dash.<zone>,
     #     healthchecks, recovery) are always probed. The dash.<zone> entry
-    #     reaches catena-admin via infrastructure_dash_hostname.
+    #     reaches catena-admin via catena_admin_hostname.
     #   - Operators can add ad-hoc gated hostnames via the
     #     `validate_extra_gated_hosts` inventory variable.
     #   - Dynamic client-app gated hosts (deployed via the Portainer
@@ -426,7 +426,7 @@
             (
               [
                 infrastructure_gatus_hostname | default(''),
-                infrastructure_dash_hostname | default(''),
+                catena_admin_hostname | default(''),
                 healthchecks_hostname | default(''),
                 portainer_admin_hostname | default(''),
               ]

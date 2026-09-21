@@ -9,9 +9,6 @@
 #   monitor.<zone>   -> Gatus        (this role, as a swarm stack)
 #   dash.<zone>      -> catena-admin (reconcile/roles/catena-admin)
 
-# Fallback only -- playbooks/group_vars/all/main.yml sets this too, and
-# role defaults have lowest priority, so that value wins.
-ansible_managed: "Managed by catena - do not edit directly."
 
 # Files this role puts in the prefixes where a withdrawal keeps EXECUTING --
 # units and host binaries. playbooks/tasks/prune_withdrawn_files.yml records
@@ -160,8 +157,6 @@ healthchecks_host_localhost_port: 18000
 # cannot detect a host that is gone.
 healthchecks_ping_base: "http://127.0.0.1:{{ healthchecks_host_localhost_port }}"
 
-healthchecks_subdomain: "heartbeat"
-healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
 
 # Alert delivery. Store-owned (the client changes these in catena-admin), so
 # they read the projected fact rather than .env; the inventory only seeds them

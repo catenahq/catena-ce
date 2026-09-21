@@ -99,7 +99,7 @@
           First login. Same password everywhere; the USERNAME differs per
           service, so it is spelled out per service below.
 
-            catena-admin panel  https://{{ infrastructure_dash_hostname }}
+            catena-admin panel  https://{{ catena_admin_hostname }}
                                 http://{{ ansible_host }}:{{ _admin_port }}  (tailnet, no Cloudflare)
                                 username: {{ admin_email }}
 

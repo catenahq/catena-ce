@@ -62,9 +62,12 @@ cloudflared_ingress_service: "http://catena-traefik:80"
 # learn from a laptop.
 infrastructure_gatus_subdomain: "monitor"
 infrastructure_gatus_hostname: "{{ infrastructure_gatus_subdomain }}.{{ cloudflare_zone }}"
-# catena-admin (the Go shell) is served at dash.<zone>.
-infrastructure_dash_subdomain: "dash"
-infrastructure_dash_hostname: "{{ infrastructure_dash_subdomain }}.{{ cloudflare_zone }}"
+# catena-admin is served at dash.<zone>, and `catena_admin_hostname` below
+# is where that is said. There were two names for it here, both rendering
+# dash.<zone> from their own subdomain variable, so they agreed and nothing
+# noticed -- until the first thing to CHANGE one would have moved the panel
+# for oauth2-proxy and the trust path while the DR keyset banner and the
+# gated-host probe set kept printing the old name.
 
 healthchecks_subdomain: "heartbeat"
 healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
