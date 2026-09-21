@@ -83,6 +83,26 @@ from helpers import net_retry  # noqa: E402
 
 PLACEHOLDER_VALUES = {"REPLACE", "REPLACE-LONG-RANDOM-STRING"}
 
+# The template's illustrative domains. RFC 2606 reserves these, so none of them
+# can ever be a real answer -- which is what makes refusing them safe.
+#
+# They are placeholders that do not LOOK like placeholders, and that is the
+# whole problem: "REPLACE" stops a seed, `example.com` sails through it. The
+# template carries two, CLOUDFLARE_ZONE and ADMIN_EMAIL, and both are identity:
+# every public hostname is <sub>.<zone>, and the admin address is who the box
+# thinks it belongs to. A host that converged on either did not fail, it
+# finished -- serving a domain nobody owns.
+_PLACEHOLDER_DOMAINS = ("example.com", "example.net", "example.org")
+
+
+def _is_placeholder(value: str) -> bool:
+    """Whether this value is the template illustrating a field, not answering it."""
+    s = str(value).strip()
+    if s in PLACEHOLDER_VALUES:
+        return True
+    low = s.lower()
+    return any(low == d or low.endswith("@" + d) for d in _PLACEHOLDER_DOMAINS)
+
 
 def _declared_secret_names() -> frozenset[str]:
     """Which install.yaml keys are secrets, per the on-box store's own
@@ -435,7 +455,7 @@ def _is_filled(value) -> bool:
     if isinstance(value, bool):
         return True
     s = str(value).strip()
-    return bool(s) and s not in PLACEHOLDER_VALUES
+    return bool(s) and not _is_placeholder(s)
 
 
 # Enumerated .env values, shown inline in the prompt. Booleans are
@@ -484,6 +504,13 @@ def prompt(label: str, default: str = "", *, secret: bool = False,
         if val and eff and val not in eff:
             warn(f"must be one of: {', '.join(eff)}")
             continue
+        # Enter accepts the default, and for an illustrative one that means
+        # accepting `example.com` as the domain this server will serve. The
+        # default is still SHOWN, because it is the right shape to copy; it
+        # just cannot be the answer.
+        if _is_placeholder(val):
+            warn("the default is an example -- please enter a real value")
+            continue
         if val or allow_empty:
             return val
         warn("required -- please enter a value")
@@ -506,7 +533,7 @@ def fill(provided: dict, key: str, default: str, label: str | None = None,
         if isinstance(raw, bool):
             return "true" if raw else "false"
         s = "" if raw is None else str(raw).strip()
-        if s and s not in PLACEHOLDER_VALUES:
+        if s and not _is_placeholder(s):
             if eff and s not in eff:
                 warn(f"{key}={s!r} is not a valid value (expected one of "
                      f"{', '.join(eff)}); falling through to prompt.")
@@ -515,7 +542,11 @@ def fill(provided: dict, key: str, default: str, label: str | None = None,
         elif allow_empty and not s:
             return ""
     if not sys.stdin.isatty():
-        if default:
+        # An ILLUSTRATIVE default is not an answer, and there is nobody to ask.
+        # Returning it here is how a non-interactive seed that simply omitted
+        # the key produced a host that believed it served example.com: no
+        # prompt, no warning, and a converge that finishes.
+        if default and not _is_placeholder(default):
             return default
         if allow_empty:
             return ""

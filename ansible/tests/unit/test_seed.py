@@ -514,6 +514,21 @@ def _fake_tty_stdin(monkeypatch, text):
     monkeypatch.setattr("sys.stdin", fake)
 
 
+def _answered(env_keys):
+    """The template's defaults as a FILLED-IN inventory would carry them.
+
+    The template's two illustrative values are not answers -- seed refuses
+    them, on a TTY and off one, because a host that accepts `example.com`
+    converges serving a domain nobody owns. A fixture that handed them back
+    verbatim was answering every field except the two that identify the
+    server, and it blocked on the prompt that refusal produces.
+    """
+    provided = dict(env_keys)
+    provided["CLOUDFLARE_ZONE"] = "client.test"
+    provided["ADMIN_EMAIL"] = "admin@client.test"
+    return provided
+
+
 def test_no_control_server_question_is_asked(seed):
     """The inventory declares the backend by whether the Headscale fields are
     filled. A separate question could disagree with the file it asks about, so
@@ -527,7 +542,7 @@ def test_blank_headscale_fields_are_an_answer_not_a_prompt(seed, monkeypatch):
     treated as unanswered."""
     _fake_tty_stdin(monkeypatch, "SHOULD_NOT_BE_READ\n")
     env_keys, _ = seed.parse_env_template(seed.ENV_TEMPLATE)
-    provided = dict(env_keys)
+    provided = _answered(env_keys)
     provided["TAILNET_CONTROL_URL"] = ""
     provided["HEADSCALE_USER"] = ""
     got = seed._collect_env_values(env_keys, provided)
@@ -540,7 +555,7 @@ def test_blank_headscale_fields_are_an_answer_not_a_prompt(seed, monkeypatch):
 def test_filled_headscale_fields_select_headscale(seed, monkeypatch):
     _fake_tty_stdin(monkeypatch, "SHOULD_NOT_BE_READ\n")
     env_keys, _ = seed.parse_env_template(seed.ENV_TEMPLATE)
-    provided = dict(env_keys)
+    provided = _answered(env_keys)
     provided["TAILNET_CONTROL_URL"] = "https://hs.example.net"
     provided["HEADSCALE_USER"] = "alice"
     got = seed._collect_env_values(env_keys, provided)
@@ -571,3 +586,49 @@ def test_ipv4_endpoint_shows_the_bootstrap_target(seed):
 
 def test_resolve_admin_override_still_present(seed):
     assert hasattr(seed, "_resolve_admin_override")
+
+
+# --- the template's illustrative values are not answers -----------------------
+#
+# `REPLACE` stops a seed. `example.com` sailed through it: the non-interactive
+# path returned the template default for any key the caller omitted, without
+# the placeholder check the supplied-value path applies. A host seeded that way
+# did not fail, it FINISHED -- converging every <sub>.<zone> hostname against a
+# domain nobody owns, and telling the licence it served one.
+def test_an_example_domain_is_not_an_answer(seed):
+    assert seed._is_placeholder("example.com")
+    assert seed._is_placeholder("EXAMPLE.COM")
+    assert seed._is_placeholder("operator@example.com")
+    assert seed._is_placeholder("REPLACE")
+
+
+def test_a_real_domain_that_merely_contains_example_is_an_answer(seed):
+    """The match is the reserved name itself, not the substring: refusing
+    every domain with `example` in it would reject real ones."""
+    assert not seed._is_placeholder("examplecorp.com")
+    assert not seed._is_placeholder("client.example-hosting.com")
+    assert not seed._is_placeholder("admin@examplecorp.com")
+
+
+def test_a_non_interactive_seed_refuses_to_invent_a_domain(seed, monkeypatch):
+    """No TTY and no supplied value: there is nobody to ask, so it must die
+    rather than hand back the illustration."""
+    fake = io.StringIO("")
+    fake.isatty = lambda: False
+    monkeypatch.setattr("sys.stdin", fake)
+    with pytest.raises(SystemExit):
+        seed.fill({}, "CLOUDFLARE_ZONE", "example.com")
+
+
+def test_a_non_interactive_seed_still_takes_a_real_default(seed, monkeypatch):
+    """The refusal is of PLACEHOLDERS, not of defaults. A template default that
+    is a genuine answer still answers, or every field would need supplying."""
+    fake = io.StringIO("")
+    fake.isatty = lambda: False
+    monkeypatch.setattr("sys.stdin", fake)
+    assert seed.fill({}, "HOST_SSH_PORT", "22") == "22"
+
+
+def test_the_structural_check_counts_an_example_domain_as_missing(seed):
+    assert not seed._is_filled("example.com")
+    assert seed._is_filled("client.test")
