@@ -1,6 +1,12 @@
 ---
-ops_user: ops
-ops_ssh_public_keys: [] # filled from group_vars; usually a file lookup
+# ops_user, ops_ssh_public_keys, common_timezone and common_locale are NOT
+# declared here. playbooks/group_vars/all/main.yml declares each one from a
+# dotenv lookup that already carries the same default inline
+# (`default='ops'`, `default='America/Toronto'`, ...), group_vars is
+# playbook-adjacent so it loads on every path this role runs on, and role
+# defaults are Ansible's lowest precedence. A copy here could never apply --
+# it only offered a second place to change a default, one of which does
+# nothing. ops_ssh_public_keys said so itself: `[] # filled from group_vars`.
 
 # Every user that sshd is allowed to let in. OpenSSH's AllowUsers is
 # NOT additive across sshd_config.d drop-ins (first-match wins), so the
@@ -13,9 +19,6 @@ ops_ssh_public_keys: [] # filled from group_vars; usually a file lookup
 ssh_allowed_users:
   - "{{ ops_user }}"
   - "{{ catena_admin_runner_user | default('catena-admin-runner') }}"
-
-common_timezone: "America/Toronto"
-common_locale: "en_CA.UTF-8"
 
 common_baseline_packages:
   - sudo

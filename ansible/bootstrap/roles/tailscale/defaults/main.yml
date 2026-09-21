@@ -1,8 +1,12 @@
 ---
-tailscale_hostname: "{{ inventory_hostname }}"
-tailscale_tags:
-  - "tag:vps"
-tailscale_accept_dns: false # keep systemd-resolved in charge of DNS
+# tailscale_hostname, tailscale_tags and tailscale_accept_dns are NOT
+# declared here. playbooks/group_vars/all/main.yml declares each one, it is
+# playbook-adjacent so it loads on every path this role runs on, and role
+# defaults are Ansible's lowest precedence, so a copy here could never
+# apply. tailscale_tags is the one worth naming: group_vars reads
+# TAILSCALE_TAGS with NO default, so a missing key fails the lookup -- it
+# never falls back to a `tag:vps` here, and leaving that line in implied a
+# safety net that does not exist.
 tailscale_force_reauth: false
 
 # Ephemeral nodes auto-evict from the tailnet shortly after `tailscale logout`

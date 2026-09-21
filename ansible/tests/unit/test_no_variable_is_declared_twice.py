@@ -34,19 +34,20 @@ def _load(path: Path) -> dict:
 
 
 def _role_defaults() -> list[Path]:
-    """Reconcile roles only.
+    """Both trees.
 
-    The bootstrap tree has twelve more collisions of the same mechanical
-    shape (`common` 4, `storage` 5, `tailscale` 3), and they are NOT the
-    same finding. Those are inventory-owned values -- the block device,
-    the ops keys, the tailnet tags -- that group_vars renders from
-    `lookup('dotenv', ...)` and the role declares as a standalone
-    fallback. Deleting them is a judgement about bootstrap's ownership
-    model, on the side of the boundary where "if this is wrong, is
-    anything left that can fix it" answers no. Raised separately rather
-    than settled by a test written for a different question.
+    bootstrap/ is not exempt. playbooks/bootstrap.yml sits beside
+    group_vars/, so group_vars loads there exactly as it does for
+    reconcile, and a bootstrap role's duplicate default is just as
+    unreachable. Its twelve collisions were mostly a default written
+    twice -- group_vars carries `default='/dev/sdb'` inline in the dotenv
+    lookup and the role repeated `/dev/sdb` -- which is two places to
+    change one value and only one that works.
     """
-    return sorted((ANSIBLE_DIR / "reconcile" / "roles").glob("*/defaults/main.yml"))
+    out: list[Path] = []
+    for tree in ("reconcile", "bootstrap"):
+        out.extend(sorted((ANSIBLE_DIR / tree / "roles").glob("*/defaults/main.yml")))
+    return out
 
 
 def test_group_vars_shares_no_key_with_any_role_default() -> None:
