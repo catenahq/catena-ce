@@ -210,7 +210,7 @@ beszel_agent_compose_name: "beszel-agent"
 # network_mode: host (canonical upstream shape for host + docker metrics)
 # so it reaches the hub at 127.0.0.1:{{ beszel_hub_host_localhost_port }}.
 beszel_agent_port: 45876
-beszel_subdomain: "hub"
+beszel_subdomain: "{{ cfg_beszel_subdomain | default('hub', true) }}"
 
 # Label on the hub's OIDC sign-in button. Client-facing copy, so it names the
 # product rather than the software behind it -- "Keycloak" is a word the client

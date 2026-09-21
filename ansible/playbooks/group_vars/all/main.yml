@@ -60,7 +60,7 @@ cloudflared_ingress_service: "http://catena-traefik:80"
 # read from /etc/catena/config.json like every other host fact. That is a
 # one-line move from here; what it must not be is a value the host can only
 # learn from a laptop.
-infrastructure_gatus_subdomain: "monitor"
+infrastructure_gatus_subdomain: "{{ cfg_gatus_subdomain | default('monitor', true) }}"
 infrastructure_gatus_hostname: "{{ infrastructure_gatus_subdomain }}.{{ cloudflare_zone }}"
 # catena-admin is served at dash.<zone>, and `catena_admin_hostname` below
 # is where that is said. There were two names for it here, both rendering
@@ -69,7 +69,7 @@ infrastructure_gatus_hostname: "{{ infrastructure_gatus_subdomain }}.{{ cloudfla
 # for oauth2-proxy and the trust path while the DR keyset banner and the
 # gated-host probe set kept printing the old name.
 
-healthchecks_subdomain: "heartbeat"
+healthchecks_subdomain: "{{ cfg_healthchecks_subdomain | default('heartbeat', true) }}"
 healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
 
 # The SSO host (auth.<zone>) is the only subdomain with no oauth2-proxy in
@@ -267,7 +267,7 @@ common_locale: "{{ lookup('dotenv', 'COMMON_LOCALE', default='en_CA.UTF-8') }}"
 # constant, like the hostname scheme above: every inventory in this repo, in
 # the operator skeleton and on every host uses it, and nothing looks up an
 # override.
-catena_admin_subdomain: "dash"
+catena_admin_subdomain: "{{ cfg_catena_admin_subdomain | default('dash', true) }}"
 catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
 catena_admin_ui_port: "9010"
 # Host dir where run-backup.sh + gatus-sync.py write their summary JSON

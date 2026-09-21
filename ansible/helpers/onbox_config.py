@@ -509,6 +509,23 @@ SETTINGS_CONFIG: dict[str, str] = {
     # -- so it is a host fact rather than the product's. The `.env` seeds it on
     # the first converge and the panel owns it after that.
     "PORTAINER_SUBDOMAIN": "cfg_portainer_admin_subdomain",
+    # The rest of the public subdomains, on the same footing as the one above.
+    #
+    # They were compiled in because every inventory gave them the same answer,
+    # which was true and is no longer the whole question: a client whose own
+    # naming puts the dashboard somewhere other than dash. had no way to say so
+    # without an operator editing an inventory they do not have. The product
+    # still decides the DEFAULT -- each reads its compiled-in value when the
+    # store is silent -- so nothing changes on a host that never sets one.
+    #
+    # Each is a single DNS label, never an FQDN: the zone is appended by
+    # group_vars. A field holding "auth.example.com" would render
+    # "auth.example.com.example.com".
+    "KEYCLOAK_SUBDOMAIN": "cfg_keycloak_subdomain",
+    "GATUS_SUBDOMAIN": "cfg_gatus_subdomain",
+    "HEALTHCHECKS_SUBDOMAIN": "cfg_healthchecks_subdomain",
+    "BESZEL_SUBDOMAIN": "cfg_beszel_subdomain",
+    "CATENA_ADMIN_SUBDOMAIN": "cfg_catena_admin_subdomain",
     # Whether every account in the realm must set up a second factor. A
     # settings value rather than an install input because it is a decision a
     # client makes about their own people, and one they may make later: turning

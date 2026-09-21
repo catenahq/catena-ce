@@ -13,7 +13,7 @@
 # piggyback on).
 
 # --- Hostname ---
-keycloak_subdomain: "auth"
+keycloak_subdomain: "{{ cfg_keycloak_subdomain | default('auth', true) }}"
 keycloak_hostname: "{{ keycloak_subdomain }}.{{ cloudflare_zone }}"
 
 # --- Multi-domain routing (one auth.<zone> island per attached domain) ---
