@@ -27,11 +27,21 @@ tailscale_accept_dns: >-
 # --- Cloudflare Tunnel ---
 cloudflare_api_base: "https://api.cloudflare.com/client/v4"
 # Store-owned, seeded from .env on the first converge and read from the store
-# ever after. NO default, deliberately: an empty zone builds every hostname as
-# `dash.`, `auth.`, `monitor.` and converges a host that looks finished and
-# serves nothing. The loader asserts it resolved, so the failure is one clear
-# sentence at the start rather than a puzzle three roles later.
-cloudflare_zone: "{{ cfg_cloudflare_zone }}"
+# ever after. Empty until a domain is entered: a server is installed before its
+# domain is decided, and the domain arrives with the Cloudflare token in the
+# dashboard's Settings, afterwards.
+cloudflare_zone: "{{ cfg_cloudflare_zone | default('', true) }}"
+# An empty zone builds every hostname as `dash.`, `auth.`, `monitor.` -- names
+# that resolve nowhere and certificates no authority will issue. So nothing
+# public is published until there is a domain to publish it under, and this is
+# what every role that would publish a name gates on.
+#
+# DERIVED, not set: a fact set by one play is absent in every play that does not
+# run it, and the roles reading this are reached from several. The question is
+# the same wherever it is asked -- is there a domain -- so it is answered in one
+# place from the value it depends on.
+catena_public_surface_deferred: >-
+  {{ (cloudflare_zone | default('') | trim | length) == 0 }}
 # cloudflare_zone above is the primary domain every <sub>.<zone> hostname
 # interpolates, and the only one a Community host serves. Additional domains
 # are attached in the catena-admin Domains panel and live in the on-box store;

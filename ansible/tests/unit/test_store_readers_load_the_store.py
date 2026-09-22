@@ -186,8 +186,14 @@ def test_the_seed_is_the_loaders_own_config_block():
         "converge and bootstrap have separate copies of the config block"
     )
     seed = (_PLAYBOOKS / "tasks" / "seed_onbox_config.yml").read_text(encoding="utf-8")
+    # `_onbox_cfg_emit` rather than one key's name. This read
+    # `cfg_cloudflare_zone`, which was in the seed only because an assert there
+    # named it -- so the marker tracked that assert rather than the behaviour,
+    # and went out with it when the zone stopped being mandatory. The fan-out
+    # itself is the thing worth pinning: it is what publishes EVERY cfg_* fact,
+    # so it cannot go without taking the whole hop with it.
     for marker in ("settings-config-names", "--set-config", "config-vars",
-                   "cfg_cloudflare_zone"):
+                   "_onbox_cfg_emit"):
         assert marker in seed, f"the seed no longer {marker!r}s"
     for forbidden in ("--emit secrets", "catena_admin_release.py", "image-pins"):
         assert forbidden not in seed, (

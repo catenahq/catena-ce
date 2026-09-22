@@ -66,19 +66,26 @@
   loop_control:
     label: "{{ item.key }}"
 
-# The one store value with no usable default. Every public hostname is
-# <sub>.<zone>, so an empty one converges a host that looks finished and serves
-# nothing -- the failure mode a default would buy. Asserted here, once, where
-# the answer has just been established, rather than left to surface as a
-# certificate for `dash.` three roles later.
-- name: "onbox: the zone every hostname is built from has to be known"
-  ansible.builtin.assert:
-    that:
-      - (cfg_cloudflare_zone | default('') | trim | length) > 0
-    fail_msg: >-
-      This host has no Cloudflare zone. It is seeded from CLOUDFLARE_ZONE in the
-      inventory .env on the first converge and read from
-      {{ catena_onbox_config_path | default('/etc/catena/config.json') }} from
-      then on, so either this is a first install with the key missing from .env,
-      or the store was replaced by one belonging to no domain.
+# Every public hostname is <sub>.<zone>, so a host with no zone has no public
+# surface to build. That used to be an assert, on the reasoning that an empty
+# zone "converges a host that looks finished and serves nothing".
+#
+# The reasoning was right and the remedy was backwards. A server is installed
+# before its domain is decided -- SPEC guarantees a credential-free install, and
+# the domain arrives with the Cloudflare token in Settings, afterwards. Failing
+# the converge made the supported order impossible: the install could not
+# finish, so the panel that takes the domain never came up.
+#
+# So the state is DECLARED rather than refused. Deferred is not the same as
+# broken, and the difference has to be visible: every role that would publish a
+# name gates on this fact and says it skipped, so a host serving nothing says
+# why, once, instead of issuing a certificate for `dash.` three roles later.
+- name: "onbox: say that the public surface is waiting for a domain"
+  ansible.builtin.debug:
+    msg: >-
+      No domain is configured, so nothing public is published on this converge:
+      no certificates, no routes, no DNS records. The server is reachable on the
+      private network and everything on it runs. Enter a domain in the
+      dashboard's Settings, then converge again.
+  when: catena_public_surface_deferred | bool
   run_once: true
