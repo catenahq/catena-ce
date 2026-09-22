@@ -7,6 +7,11 @@
 # Mirrors reconcile/roles/cloudflare_tunnel/tasks/main.yml's wildcard CNAME
 # pattern (look up + create-if-absent + update-if-drift) but for an
 # A record with proxied=false.
+#
+# This record is NOT removed when a client changes their domain. The tunnel
+# engine retires the old domain's wildcard, which is what stops every name
+# under it resolving; turn.<old-zone> is left pointing at this host's public
+# IP until an operator deletes it.
 
 # cloudflare_zone_id is normally set by the cloudflare_tunnel role
 # earlier in a full converge. Under a targeted converge (the cert-renewal
