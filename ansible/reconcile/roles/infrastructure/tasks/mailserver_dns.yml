@@ -37,8 +37,22 @@
       mail DNS.
   when: not (mailserver_deployed | bool)
 
+- name: "Mailserver DNS: skip when the host has no domain yet"
+  ansible.builtin.debug:
+    msg: >-
+      No domain is configured, so no mail DNS is published: no A record, no
+      MTA-STS policy, no TLS-RPT. Mail needs a domain before any of those mean
+      anything. Enter one in the dashboard's Settings.
+  when: catena_public_surface_deferred | default(false) | bool
+
+# Deployed AND a domain to publish under. The records below are written
+# straight against the Cloudflare API from mailserver_hostname, which is
+# mail.<zone> -- so on a zone-less host this reaches the API with "mail." and
+# a zone id that was never resolved.
 - name: "Mailserver DNS: publish mail A + MTA-STS + TLS-RPT (dms deployed)"
-  when: (mailserver_dms_ct | length) > 0
+  when:
+    - (mailserver_dms_ct | length) > 0
+    - not (catena_public_surface_deferred | default(false) | bool)
   delegate_to: localhost
   become: false
   block:

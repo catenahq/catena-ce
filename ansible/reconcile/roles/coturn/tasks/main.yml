@@ -72,9 +72,15 @@
 
 - name: "coturn: resolve the deploy gate"
   ansible.builtin.set_fact:
+    # Consumer-present AND zone-known. The consumer half is this role's own
+    # reason to exist; the zone half is that everything it then does is named
+    # after a domain -- a turn.<zone> A record through the Cloudflare API and a
+    # DNS-01 certificate for that name. On a host with no domain yet, a client
+    # deploying Nextcloud Talk reaches both with nothing to put in them.
     _coturn_wanted: >-
-      {{ ((_coturn_consumer.stdout | default('') | trim) | length > 0)
-         or ((_coturn_existing.stdout | default('') | trim) | length > 0) }}
+      {{ (((_coturn_consumer.stdout | default('') | trim) | length > 0)
+          or ((_coturn_existing.stdout | default('') | trim) | length > 0))
+         and not (catena_public_surface_deferred | default(false) | bool) }}
 
 - name: "coturn: skip deploy when no consumer is running"
   ansible.builtin.debug:
@@ -84,7 +90,21 @@
       no DNS-01 certificate, no certbot timer, and no public UDP/TCP media
       ports. It deploys automatically on the converge after a consumer
       first comes up.
-  when: not (_coturn_wanted | bool)
+  when:
+    - not (_coturn_wanted | bool)
+    - not (catena_public_surface_deferred | default(false) | bool)
+
+# Said separately, because it is a different situation with the same outcome
+# and a different remedy. The consumer message tells a client to deploy an app;
+# this one tells them their calls will not connect until they enter a domain.
+- name: "coturn: skip deploy when the host has no domain yet"
+  ansible.builtin.debug:
+    msg: >-
+      No domain is configured, so coturn is NOT deployed. Voice and video
+      calls in Nextcloud Talk, Rocket.Chat and Element need a relay at a
+      public name, and there is no domain to build one under yet. Enter a
+      domain in the dashboard's Settings; the next converge deploys it.
+  when: catena_public_surface_deferred | default(false) | bool
 
 - name: "coturn: deploy / maintain (consumer running, or already deployed)"
   ansible.builtin.include_tasks:
