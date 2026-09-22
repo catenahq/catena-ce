@@ -858,6 +858,50 @@ def adopt(store: dict, mapping: dict | None, *, overwrite: bool = False) -> list
     return adopted
 
 
+def preserve_outgoing_zone_token(store: dict, config_in: dict | None) -> str | None:
+    """Record the outgoing domain's Cloudflare token before the new one lands.
+
+    Every public hostname is <sub>.<zone>, so changing CLOUDFLARE_ZONE moves the
+    whole published surface. What it does NOT do by itself is take down the
+    `*.<old zone>` record still pointing at this host's tunnel -- so every name
+    under the domain the client left keeps resolving, to the ingress catch-all's
+    418. Retiring it is catena-cloudflared-sync's job (RetireZones), and that
+    needs a credential for a zone the new token usually does not cover.
+
+    The client had one: it is the token being replaced in this very request. By
+    the time the engine runs, the singular `cloudflare_api_token` holds the NEW
+    domain's token and the old one is gone, so the only moment it can be kept is
+    here, in the sole writer, with both halves of the change in hand.
+
+    It goes into the per-zone map the engine already consults
+    (`secrets.cloudflare_api_tokens`, zone -> token), keyed by the domain being
+    left. catena-cloudflared-sync drops the entry once the wildcard is gone, so
+    a replaced credential does not outlive the one operation it exists for.
+
+    Returns the domain whose token was preserved, or None when this write is not
+    a domain change (a first-time set has no outgoing domain, and a host with no
+    token has nothing to keep).
+    """
+    if not config_in or "CLOUDFLARE_ZONE" not in config_in:
+        return None
+    new_zone = str(config_in.get("CLOUDFLARE_ZONE") or "").strip()
+    old_zone = str((store.get("config") or {}).get("CLOUDFLARE_ZONE") or "").strip()
+    if not new_zone or not old_zone or new_zone == old_zone:
+        return None
+    secrets_map = store.get("secrets") or {}
+    outgoing = str(secrets_map.get("cloudflare_api_token") or "").strip()
+    if not outgoing:
+        return None
+    tokens = secrets_map.get("cloudflare_api_tokens")
+    if not isinstance(tokens, dict):
+        tokens = {}
+    if tokens.get(old_zone) == outgoing:
+        return None
+    tokens[old_zone] = outgoing
+    store.setdefault("secrets", {})["cloudflare_api_tokens"] = tokens
+    return old_zone
+
+
 def apply_inputs(
     store: dict,
     *,
@@ -872,6 +916,11 @@ def apply_inputs(
     keys in EXTERNAL_SECRETS are accepted into secrets (a typo can't smuggle
     an internal-secret override in). Returns the list of keys changed."""
     changed: list[str] = []
+    # BEFORE either map is written: the outgoing token is only readable while
+    # the store still holds it, and this same request usually replaces both the
+    # domain and the token.
+    if preserve_outgoing_zone_token(store, config_in):
+        changed.append("cloudflare_api_tokens")
     if secrets_in:
         secrets_map = store.setdefault("secrets", {})
         for key, val in secrets_in.items():
