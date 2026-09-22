@@ -377,6 +377,7 @@
           tags: [verify_gated]
       when:
         - _infra_cf_token_present
+        - not (catena_public_surface_deferred | default(false) | bool)
       tags: [verify_gated]
 
     - name: "Verify gated services: tunnel deferred -- skipping public-URL probe (no Cloudflare token yet)"
@@ -388,6 +389,26 @@
           persists a token and re-converges.
       when:
         - not _infra_cf_token_present
+      tags: [verify_gated]
+
+    # A SECOND WAY TO HAVE NO PUBLIC URLS, and the token check does not catch
+    # it. A domain and a token used to arrive together -- the zone was an
+    # install input and the token the only thing outstanding -- so "no token"
+    # stood in for "nothing public yet". The domain is its own field now, and a
+    # host can hold a token while its zone is still empty.
+    #
+    # The probe would then GET https://monitor./ three times over, twelve
+    # retries apiece, and call the result a service verdict.
+    - name: "Verify gated services: no domain yet -- skipping public-URL probe"
+      ansible.builtin.debug:
+        msg: >-
+          No domain is configured, so there are no public URLs to probe. The
+          shared services are running and reachable on the private network.
+          Enter a domain in the dashboard's Settings; the next converge
+          publishes them and this probe starts checking them.
+      when:
+        - _infra_cf_token_present
+        - catena_public_surface_deferred | default(false) | bool
       tags: [verify_gated]
 
 # gatus-sync reads CLIENT-app monitoring from `docker ps` labels
