@@ -78,6 +78,10 @@
   delegate_to: localhost
   become: false
 
+# A Cloudflare PUT REPLACES the record, so the comment has to be re-sent: a
+# record that ever drifts would otherwise come back with the ownership marker
+# stripped, and cleanup keyed on "Managed by catena" stops recognising it as
+# ours -- leaving it behind on a domain this host no longer serves.
 - name: "coturn DNS: update A record if content / proxy state drifted"
   ansible.builtin.uri:
     url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records/{{ _coturn_dns_existing.json.result[0].id }}"
@@ -91,6 +95,7 @@
       content: "{{ public_ip }}"
       proxied: false
       ttl: 1
+      comment: "Managed by catena reconcile/roles/coturn -- MUST be gray-cloud (UDP)"
     status_code: 200
   when:
     - _coturn_dns_existing.json.result | length > 0

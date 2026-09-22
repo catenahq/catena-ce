@@ -135,6 +135,11 @@
           content: "{{ public_ip }}"
           proxied: false
           ttl: 1
+          # Re-sent because a Cloudflare PUT REPLACES the record: without it a
+          # record that drifts once comes back with the ownership marker
+          # stripped, and cleanup keyed on "Managed by catena" no longer sees
+          # it as ours.
+          comment: "Managed by catena -- mail plane, MUST be gray-cloud"
         status_code: 200
       when:
         - _ms_dns_a.json.result | length > 0
@@ -167,6 +172,7 @@
           name: "_mta-sts.{{ cloudflare_zone }}"
           content: "v=STSv1; id={{ mailserver_mta_sts_policy_id }};"
           ttl: 1
+          comment: "Managed by catena -- mail plane, MTA-STS policy id"
         status_code: 200
       when: >-
         (_ms_dns_stsid.json.result | length) == 0
@@ -197,6 +203,7 @@
           name: "_smtp._tls.{{ cloudflare_zone }}"
           content: "v=TLSRPTv1; rua={{ mailserver_tlsrpt_rua }}"
           ttl: 1
+          comment: "Managed by catena -- mail plane, TLS reporting"
         status_code: 200
       when: >-
         (_ms_dns_tlsrpt.json.result | length) == 0
