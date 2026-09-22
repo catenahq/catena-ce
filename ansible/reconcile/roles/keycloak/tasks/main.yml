@@ -1,6 +1,6 @@
 ---
 # Orchestrator for reconcile/roles/keycloak. Order:
-# 1. Preflight: secrets + admin email + cloudflare_zone defined.
+# 1. Preflight: secrets + admin email, and the domain once there is one.
 # 2. Provision keycloak DB + user inside catena-postgres (idempotent
 #    via `CREATE ... IF NOT EXISTS`-equivalent guards).
 # 3. Render compose + deploy via the Portainer API. Health-gated readiness
@@ -23,13 +23,30 @@
       - admin_password is defined
       - admin_password | length >= 16
       - admin_email | length > 0
+    fail_msg: >-
+      Missing Keycloak config. Expected keycloak_db_password
+      (>= 20 chars), admin_password (>= 16 chars) and ADMIN_EMAIL. Both
+      secrets are minted on the box by the converge loader.
+
+# Separate, because Keycloak itself does not need a domain and the rest of this
+# role does not either: the realm is imported over the overlay, the panel and
+# the other services reach it by its network alias, and its public name is one
+# env var and one route file. Only the ISSUER is public, and an issuer is
+# exactly what a host with no domain cannot have yet.
+#
+# So the domain is asserted once there is one -- catching the real defect, a
+# zone that went missing from a host that had published under it -- and a host
+# that has never had one deploys the identity server it will need the moment a
+# domain arrives, rather than refusing to converge at all.
+- name: "Keycloak: the domain is required once the host has published under one"
+  ansible.builtin.assert:
+    that:
       - keycloak_hostname | length > 0
       - cloudflare_zone | length > 0
     fail_msg: >-
-      Missing Keycloak config. Expected keycloak_db_password
-      (>= 20 chars), admin_password (>= 16 chars), ADMIN_EMAIL,
-      AUTH_SUBDOMAIN, and CLOUDFLARE_ZONE in .env. Both secrets are minted
-      on the box by the converge loader.
+      CLOUDFLARE_ZONE is empty but this host is not deferring its public
+      surface, so AUTH_SUBDOMAIN resolves against nothing.
+  when: not (catena_public_surface_deferred | default(false) | bool)
 
 # apply: propagate the tag to every task INSIDE each include. Without it the
 # include fires (it carries the tag) and its inner tasks are filtered out under

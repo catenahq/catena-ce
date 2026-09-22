@@ -1,5 +1,6 @@
 ---
 # Orchestrator for reconcile/roles/oauth2_proxy. Order:
+# 0. Defer entirely when the host has no domain yet.
 # 1. Preflight: secrets + Keycloak realm exists.
 # 2. Render the Keycloak `oauth2-proxy` client into the keycloak realm
 #    config dir + re-run keycloak-config-cli (merge mode -- safe).
@@ -12,6 +13,25 @@
 # exist before keycloak-config-cli can add the client) and BEFORE
 # reconcile/roles/infrastructure deploys gated apps (so the chain middleware is
 # in place when those apps' routes get registered with Traefik).
+
+# EVERY output of this role is named after the domain: the Host() each route
+# matches, the issuer and login URL it redirects to, the cookie domain it sets
+# and the callback list it registers with Keycloak. With no domain those render
+# as bare trailing dots -- monitor., auth. -- which resolve nowhere, so the role
+# would publish a gate in front of nothing and then probe it.
+#
+# Deferred rather than allowed to fail: the preflight below asserts the zone, so
+# an ungated run turns "this host has no domain yet" into a converge that cannot
+# finish -- which is the order the install is supposed to support, since the
+# domain arrives in Settings after the install that brings Settings up.
+- name: "oauth2-proxy: skip the auth gates when the host has no domain yet"
+  ansible.builtin.debug:
+    msg: >-
+      No domain is configured, so the single sign-on gates in front of the
+      shared services are NOT deployed. Those services stay reachable on the
+      private network; nothing is published publicly for them to guard. Enter
+      a domain in the dashboard's Settings; the next converge deploys them.
+  when: catena_public_surface_deferred | default(false) | bool
 
 - name: "oauth2-proxy: preflight secrets + env"
   ansible.builtin.assert:
@@ -47,6 +67,7 @@
       oauth2_proxy_cookie_secret from /etc/catena/config.json and
       re-converge (minting is fill-only, so it will not touch a value that
       is still there).
+  when: not (catena_public_surface_deferred | default(false) | bool)
 
 # Realm-config render + middleware render + compose deploy + validate
 # all assume Keycloak is up (so keycloak-config-cli can reach it) AND
@@ -57,6 +78,7 @@
 # pass -- mirrors reconcile/roles/keycloak's gate.
 - name: "oauth2-proxy: Portainer-API-gated body (realm + middleware + compose + validate)"
   when:
+    - not (catena_public_surface_deferred | default(false) | bool)
     - portainer_api_key is defined
     - portainer_api_key | length > 10
   block:
@@ -172,4 +194,6 @@
       portainer_api_key is not yet present. It is normally minted by
       reconcile/roles/portainer earlier in this same converge; if you see this,
       portainer did not run or failed to mint the key.
-  when: portainer_api_key is not defined or (portainer_api_key | length) < 10
+  when:
+    - not (catena_public_surface_deferred | default(false) | bool)
+    - portainer_api_key is not defined or (portainer_api_key | length) < 10

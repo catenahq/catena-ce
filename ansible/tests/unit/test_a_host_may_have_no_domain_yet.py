@@ -23,6 +23,12 @@ ANSIBLE_DIR = Path(__file__).resolve().parents[2]
 GROUP_VARS = ANSIBLE_DIR / "playbooks" / "group_vars" / "all" / "main.yml"
 SEED = ANSIBLE_DIR / "playbooks" / "tasks" / "seed_onbox_config.yml"
 ENV_EXAMPLE = ANSIBLE_DIR / "inventory" / "example" / ".env.example"
+PLAYBOOKS = (
+    ANSIBLE_DIR / "playbooks" / "converge.yml",
+    ANSIBLE_DIR / "playbooks" / "reconcile.yml",
+)
+RECONCILE_ROLES_DIR = ANSIBLE_DIR / "reconcile" / "roles"
+DEFERRED_FLAG = "catena_public_surface_deferred"
 
 
 def test_the_converge_no_longer_refuses_a_host_with_no_domain() -> None:
@@ -70,6 +76,83 @@ def test_an_empty_zone_resolves_rather_than_failing() -> None:
     assert "default(" in zone, (
         f"cloudflare_zone has no default, so a store with no domain fails with "
         f"an undefined variable instead of deferring: {zone!r}"
+    )
+
+
+def _roles_the_converge_runs() -> set[str]:
+    """Every role name converge.yml or reconcile.yml includes.
+
+    Read from the plays rather than from the roles directory: a role that
+    exists but no converge runs -- cloudflare_tunnel_regenerate, driven by
+    rotate-tunnel.yml -- may assert whatever it likes, because an operator
+    asking to rotate a tunnel has already told it there is a domain.
+    """
+    names: set[str] = set()
+    for path in PLAYBOOKS:
+        for play in yaml.safe_load(path.read_text(encoding="utf-8")) or []:
+            for entry in (play or {}).get("roles") or []:
+                names.add(entry["role"] if isinstance(entry, dict) else entry)
+    return names
+
+
+def _every_task(node) -> list[dict]:
+    """Flatten a task file, descending into block / rescue / always."""
+    out: list[dict] = []
+    if isinstance(node, list):
+        for item in node:
+            out += _every_task(item)
+    elif isinstance(node, dict):
+        out.append(node)
+        for key in ("block", "rescue", "always"):
+            if key in node:
+                out += _every_task(node[key])
+    return out
+
+
+def _condition(task: dict) -> str:
+    when = task.get("when")
+    if isinstance(when, list):
+        return " ".join(str(c) for c in when)
+    return str(when or "")
+
+
+def test_no_role_the_converge_runs_asserts_the_zone_unconditionally() -> None:
+    """The class of defect, not one instance of it.
+
+    An assert on the zone inside a role the converge runs turns "no domain
+    yet" into a converge that cannot finish -- and the failure lands wherever
+    that role sits in the play, several roles after the one line that could
+    have said the host is waiting. oauth2-proxy did exactly that: every name
+    it publishes is built from the domain, so its preflight asserted one, and
+    a zone-less host died at the auth layer with a message about secrets.
+
+    Such a role has to DEFER -- announce it and do nothing -- so the gate here
+    is the deferral flag in the task's own condition, not the absence of the
+    assert.
+    """
+    offenders: list[str] = []
+    for role in sorted(_roles_the_converge_runs()):
+        for path in sorted((RECONCILE_ROLES_DIR / role).glob("tasks/*.yml")):
+            try:
+                loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+            except yaml.YAMLError as e:
+                raise AssertionError(f"{path} does not parse: {e}") from e
+            for task in _every_task(loaded):
+                body = task.get("ansible.builtin.assert") or task.get("assert")
+                if not isinstance(body, dict):
+                    continue
+                that = body.get("that")
+                clauses = that if isinstance(that, list) else [that]
+                if not any("cloudflare_zone" in str(c) for c in clauses):
+                    continue
+                if DEFERRED_FLAG not in _condition(task):
+                    offenders.append(
+                        f"{path.relative_to(ANSIBLE_DIR)}: "
+                        f"{task.get('name', '<unnamed>')!r}"
+                    )
+    assert not offenders, (
+        "these tasks refuse a host that has no domain yet, in roles the "
+        f"converge runs, without deferring on {DEFERRED_FLAG}: {offenders}"
     )
 
 
