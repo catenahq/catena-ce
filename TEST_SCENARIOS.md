@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 164 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 165 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -140,6 +140,7 @@ The 164 scenarios the maintainers' test bench carries, and the behaviour each on
 | `payload_prune_respects_ce` | Installing the licensed payload deletes what it withdraws and leaves everything owned by the public installer in place. |
 | `pg_major_version_cross_restore` | A snapshot captured on one major database version replays cleanly onto a host running a newer one. |
 | `pitr_fuse_round_trip` | A single application is recovered to a point in time by browsing the backup repository as a file system. |
+| `primary_domain_change_round_trip` | A server is moved to a different domain, and the domain it left stops answering. |
 | `quiesce_resume_round_trip` | A host is frozen in both available degrees and resumed exactly as it was found. |
 | `rclone_copy_preserves_pruned_packs` | The offsite copy keeps snapshots that have already been pruned from the primary repository. |
 | `reboot_required_notified` | A host that needs a reboot reports it and waits for a person rather than restarting itself. |
