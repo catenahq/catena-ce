@@ -81,8 +81,8 @@ silently flips one of these:
 
 Run **after `bootstrap/roles/common`** (which installs `python3-apt`) and **before
 `bootstrap/roles/docker`** so the sysctl values are in place before dockerd's first
-start. Slot is between `common` and `tailscale` in
-[../../playbooks/converge.yml](../../playbooks/converge.yml).
+start. Slot is between `public_ports` and `tailscale` in
+[../../../playbooks/converge.yml](../../../playbooks/converge.yml).
 
 If `dockerd` starts first, its runtime writes to `/proc/sys` win over
 `/etc/sysctl.d/` until next boot, leaving Day-1 state divergent from
@@ -111,7 +111,7 @@ not via this role.
 ## Validation
 
 [tasks/validate.yml](tasks/validate.yml) is invoked by the project's
-top-level [../../playbooks/validate.yml](../../playbooks/validate.yml)
+top-level [../../../playbooks/validate.yml](../../../playbooks/validate.yml)
 and asserts:
 
 - Every positive-side sysctl matches its expected value.
@@ -124,5 +124,5 @@ and asserts:
   re-introduction).
 
 Container-side escape probes live in
-[../../../test_bench/scenarios/security_scan.py](../../../test_bench/scenarios/security_scan.py)
+`ops/automation/test_bench/scenarios/security_scan.py`
 and exercise the policy from inside a real container.

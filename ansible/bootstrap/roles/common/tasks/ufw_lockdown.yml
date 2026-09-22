@@ -55,10 +55,11 @@
     comment: "ssh via tailnet only"
 
 # Allow SSH from RFC 1918 Docker bridge networks. catena-admin runs as
-# a container on catena-network and SSHs to the host's tailnet IP to
-# hit the forced-command dispatcher. Its packets arrive via the Docker
-# bridge interface (not tailscale0), so the rule above doesn't match
-# them. RFC 1918 can't be spoofed from the public internet; the
+# a container and reaches the forced-command dispatcher at
+# host.docker.internal, the host-gateway alias its service carries
+# (playbooks/filter_plugins/catena_admin_service.py). Those packets
+# arrive on the Docker bridge, which the tailscale0 rule above does not
+# match. RFC 1918 can't be spoofed from the public internet; the
 # dispatcher is the actual authz boundary (key-auth + allow-list),
 # not this UFW rule.
 - name: Allow SSH from Docker bridge networks (catena-admin dispatcher path)

@@ -256,8 +256,8 @@
 # node at that IP. ACL mismatch, DERP-only routes, MagicDNS resolver
 # timing, or a stale tailnet route from a previous ephemeral node can
 # all leave the node technically "joined" but unreachable. bootstrap.yml
-# flips inventory_hostname to this IP immediately after this role runs;
-# if the flip lands before the route is live, every subsequent task
+# add_hosts this IP as the steady-state host's ansible_host right after this
+# role runs; if that lands before the route is live, every subsequent task
 # fails with a misleading SSH/connection error. Probe now so the
 # failure (if any) surfaces here with a clear message.
 #
