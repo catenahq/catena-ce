@@ -16,9 +16,8 @@ traefik_container_name: catena-traefik
 catena_network_name: catena-network
 
 # Traefik config tree: traefik.yml (static), dynamic/ (file-provider routes
-# written by oauth2_proxy + dashboard-sync + portainer_stack), and
-# dynamic/acme.json. Rooted under /etc/catena with the rest of the catena
-# host config.
+# written by oauth2_proxy + dashboard-sync + portainer_stack). Rooted under
+# /etc/catena with the rest of the catena host config.
 traefik_config_dir: /etc/catena/traefik
 traefik_dynamic_dir: "{{ traefik_config_dir }}/dynamic"
 

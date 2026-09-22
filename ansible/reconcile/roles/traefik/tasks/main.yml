@@ -192,15 +192,14 @@
 # The static config is a bind mount, so a changed traefik.yml is already on
 # disk inside the running task -- but Traefik reads it once at startup. Only
 # the FILE PROVIDER hot-reloads, and that covers the dynamic/ dir, not this.
-# So the task has to roll. Same for the acme.json directory fix: a running
-# task still holds the bad mount. `--force` rolls a service whose spec is
-# otherwise unchanged, which is exactly this case.
+# So the task has to roll. `--force` rolls a service whose spec is otherwise
+# unchanged, which is exactly this case.
 #
 # Skipped when the engine above already changed the service: its update rolls
 # the task on its own, and forcing a second roll would take ingress down twice.
 # The engine's summary line carries changed=<n>, so this reads the same number
 # the reconcile reported rather than re-deriving whether anything happened.
-- name: "traefik: force-roll to pick up a static config or acme.json change"
+- name: "traefik: force-roll to pick up a static config change"
   ansible.builtin.command:
     argv:
       - docker
@@ -210,7 +209,7 @@
       - "{{ traefik_container_name }}"
   when:
     - _traefik_service.rc == 0
-    - _traefik_static_cfg.changed or (_traefik_acme_dir_rm.changed | default(false))
+    - _traefik_static_cfg.changed
     - "'changed=0' in (_t1_apply.stdout | default('changed=0'))"
   register: _traefik_force_roll
   changed_when: _traefik_force_roll.rc == 0
