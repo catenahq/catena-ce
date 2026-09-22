@@ -24,8 +24,21 @@ services:
         constraints:
           - node.labels.catena.role==data
     environment:
+      # A host with no domain yet has no public name to be reached at, and
+      # `<sub>.` with the zone empty is not a degraded name -- it is one Django
+      # rejects. SITE_ROOT https://heartbeat. normalises to host "heartbeat"
+      # while ALLOWED_HOSTS carried "heartbeat.", so every request raised
+      # hc.api.E002, the migrate step exited 1, the FATAL hook stopped the
+      # container on 137 and the converge returned rc=2: healthchecks could not
+      # start at all before a domain was entered. Deferred, it addresses itself
+      # by the network alias every on-box consumer already dials.
+{% if catena_public_surface_deferred | default(false) | bool %}
+      SITE_ROOT: "http://{{ healthchecks_network_alias }}:{{ healthchecks_internal_port }}"
+      SITE_NAME: "heartbeats"
+{% else %}
       SITE_ROOT: "https://{{ healthchecks_hostname }}"
       SITE_NAME: "{{ cloudflare_zone }} heartbeats"
+{% endif %}
       # 127.0.0.1 is not decoration. Django matches ALLOWED_HOSTS against the
       # literal Host header, and every host-side consumer dials the loopback
       # publish below BY IP: gatus-sync (HEALTHCHECKS_API_URL), the clamav
@@ -35,7 +48,11 @@ services:
       # Host localhost -> 401 (reached the app). Two watchdogs and the panel's
       # check summary were failing in a way that looks exactly like "nothing to
       # report".
+{% if catena_public_surface_deferred | default(false) | bool %}
+      ALLOWED_HOSTS: "{{ healthchecks_network_alias }},localhost,127.0.0.1"
+{% else %}
       ALLOWED_HOSTS: "{{ healthchecks_hostname }},{{ healthchecks_network_alias }},localhost,127.0.0.1"
+{% endif %}
       SECRET_KEY: "{{ healthchecks_secret_key }}"
       DEBUG: "False"
       # Closed registration -- oauth2-proxy + Keycloak gate the UI, and our seed
@@ -61,7 +78,9 @@ services:
       # Alerts route out via ntfy (seeded automatically by the bootstrap
       # task in healthchecks.yml). No SMTP needed.
       EMAIL_HOST: ""
-      DEFAULT_FROM_EMAIL: "heartbeat@{{ cloudflare_zone }}"
+      # localhost rather than `heartbeat@` with the zone empty: alerts route
+      # over ntfy, so this address is never dialled, but it still has to parse.
+      DEFAULT_FROM_EMAIL: "heartbeat@{{ cloudflare_zone | default('', true) | trim or 'localhost' }}"
       # ─── SSO passthrough via oauth2-proxy reverse-proxy ────────────
       # The per-app oauth2-proxy container in front of healthchecks
       # injects X-Forwarded-Email on every authenticated request

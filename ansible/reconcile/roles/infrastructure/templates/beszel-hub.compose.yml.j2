@@ -28,7 +28,15 @@ services:
     environment:
       USER_EMAIL: "{{ admin_email }}"
       USER_PASSWORD: "{{ admin_password }}"
+      # Same reason healthchecks branches here: with no domain entered yet
+      # `beszel_hostname` renders `beszel.`, and a URL whose host ends in a
+      # dot is not a degraded address, it is a malformed one. Deferred, the
+      # hub addresses itself by the network alias it is already reachable at.
+{% if catena_public_surface_deferred | default(false) | bool %}
+      APP_URL: "http://{{ beszel_hub_network_alias }}:{{ beszel_hub_internal_port }}"
+{% else %}
       APP_URL: "https://{{ beszel_hostname }}"
+{% endif %}
       # Let an OIDC identity with no local record sign in. Without it the
       # Keycloak button works for exactly ONE person -- the holder of
       # admin_email, whose users record the bootstrap already created -- and
