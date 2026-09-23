@@ -79,20 +79,28 @@ COLLECTIONS_DIR = _collections_dir()
 
 # The ordered converge chain a fresh install runs. preflight is a SEPARATE
 # invocation BEFORE bootstrap so a stray --limit can never skip it.
-INSTALL_CHAIN = ("preflight", "bootstrap", "converge", "validate")
+#
+# `lockdown` is its own leg, after the converge and before validate. It is the
+# one step that can make a host unreachable, so it runs alone and last, where a
+# failure is a failure of lockdown rather than of a converge that did fifteen
+# other things correctly -- and validate then measures the posture it produced.
+INSTALL_CHAIN = ("preflight", "bootstrap", "converge", "lockdown", "validate")
 
 # Whole-host disaster recovery onto a FRESH replacement box: same as install
 # but with `restore` inserted after bootstrap (push the last snapshot onto the
 # new host before the converge), and no seed step (the existing inventory's
 # group_vars + .env are reused). Mirrors the operator disaster_recovery flow.
-RECOVER_CHAIN = ("preflight", "bootstrap", "restore", "converge", "validate")
+RECOVER_CHAIN = ("preflight", "bootstrap", "restore", "converge", "lockdown",
+                 "validate")
 
 # Roll a STILL-RUNNING host back to a prior restic snapshot: restore in place
-# then re-converge + validate. No bootstrap (the box is alive + on the
-# tailnet). The `converge` leg is load-bearing for password coherence
-# (pg_password_reconcile re-aligns the store -> swarm secret -> pg_authid if a
-# secret was rotated between snapshot and rollback) -- never drop it.
-ROLLBACK_CHAIN = ("preflight", "restore", "converge", "validate")
+# then re-converge + validate. No bootstrap (the box is alive and reachable at
+# its administrative address). The `converge` leg is load-bearing for password
+# coherence (pg_password_reconcile re-aligns the store -> swarm secret ->
+# pg_authid if a secret was rotated between snapshot and rollback) -- never drop
+# it. `lockdown` runs for the same reason it does on the other two: a restore
+# replaces /etc, and the firewall state it brings back is the snapshot's.
+ROLLBACK_CHAIN = ("preflight", "restore", "converge", "lockdown", "validate")
 
 # Host binaries the wrapper shells out to. ansible-playbook/ansible run the
 # base; the plaintext vault needs no separate secret-tooling binary.
@@ -435,18 +443,49 @@ def cmd_install(args: argparse.Namespace) -> int:
 
 
 # The user-held DR keyset re-entered at recover time: the box is wiped, so
-# nothing is read from a persisted laptop vault (0b). (key, label, hidden?).
+# nothing is read from a persisted laptop vault (0b).
+#
+# (key, label, hidden?, needs_tailnet?). The last field is the one that is not
+# about secrecy: a host whose access method is public SSH joins no tailnet, so
+# asking for the credential that joins one is asking for a value this recover
+# would store and nothing would read. The answer comes from the inventory rather
+# than the store, because on a recover there is no store yet -- that is what is
+# being rebuilt.
 DR_ADOPT_SECRETS = (
-    ("backup_restic_password", "Restic backup password", True),
-    ("backup_s3_access_key", "S3 access key", True),
-    ("backup_s3_secret_key", "S3 secret key", True),
-    ("cloudflare_api_token", "Cloudflare API token", True),
-    ("tailscale_oauth_client_id", "Tailscale OAuth client id", False),
-    ("tailscale_oauth_client_secret", "Tailscale OAuth client secret", True),
+    ("backup_restic_password", "Restic backup password", True, False),
+    ("backup_s3_access_key", "S3 access key", True, False),
+    ("backup_s3_secret_key", "S3 secret key", True, False),
+    ("cloudflare_api_token", "Cloudflare API token", True, False),
+    ("tailscale_oauth_client_id", "Tailscale OAuth client id", False, True),
+    ("tailscale_oauth_client_secret", "Tailscale OAuth client secret", True, True),
+    ("headscale_api_key", "Headscale API key", True, True),
+    ("headscale_preauth_key", "Headscale pre-authentication key", True, True),
 )
 
 
-def _collect_dr_adopt_file(input_path: str | None) -> tuple[list[str], Path | None]:
+def _recover_access_method(inv_dir: Path, provided_env: dict) -> str:
+    """Which access method the host being rebuilt declared.
+
+    From the answers file when one was given, else from the inventory `.env`
+    that seeded the store in the first place. Defaults to `tailnet`, which is
+    what a host installed before the key existed is on -- and the safer guess:
+    it asks for a credential that may go unused rather than skipping one the
+    bootstrap cannot continue without.
+    """
+    declared = str(provided_env.get("ACCESS_METHOD", "") or "").strip()
+    if not declared:
+        env_path = inv_dir / ".env"
+        if env_path.is_file():
+            import seed  # shares ANSIBLE_DIR on sys.path
+            declared = str(
+                seed.read_existing_env(env_path).get("ACCESS_METHOD", "") or ""
+            ).strip()
+    return declared or "tailnet"
+
+
+def _collect_dr_adopt_file(
+    input_path: str | None, inv_dir: Path,
+) -> tuple[list[str], Path | None]:
     """Collect the DR keyset for a fresh-box recover into a 0600 temp adopt
     file (`-e @file`), threaded onto every recover stage so `restore` can
     decrypt the backup and the on-box loader adopts the creds. Values come from
@@ -461,8 +500,11 @@ def _collect_dr_adopt_file(input_path: str | None) -> tuple[list[str], Path | No
         provided_vault = inp.get("vault") or {}
         provided_env = inp.get("env") or {}
 
+    on_tailnet = _recover_access_method(inv_dir, provided_env) == "tailnet"
     values: dict[str, str] = {}
-    for key, label, hidden in DR_ADOPT_SECRETS:
+    for key, label, hidden, needs_tailnet in DR_ADOPT_SECRETS:
+        if needs_tailnet and not on_tailnet:
+            continue
         val = str(provided_vault.get(key, "") or "").strip()
         if not val and sys.stdin.isatty():
             val = (getpass.getpass(f"{label}: ") if hidden
@@ -503,7 +545,7 @@ def cmd_recover(args: argparse.Namespace) -> int:
     bootstrap_extra, bootstrap_vars_tmp = _bootstrap_extra_vars(
         inv_dir, args.input, prompt_password=True)
     restore_extra = _snapshot_extra(args)
-    dr_extra, dr_tmp = _collect_dr_adopt_file(args.input)
+    dr_extra, dr_tmp = _collect_dr_adopt_file(args.input, inv_dir)
     try:
         _run_deploy_chain(
             inv_dir, RECOVER_CHAIN,

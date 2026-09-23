@@ -5,21 +5,21 @@ mean "never reachable from the public internet" and do not care how they are
 reached instead. The migration lane means `tailnet` literally: it binds this
 host's tailnet address and refuses to start without one.
 
-Declared as `tailnet`, both came out the same -- and on a host with no tailnet
-the defect is honesty rather than enforcement. `tailnet` emits the RFC1918 rules
-plus one `tailscale0` interface rule; with no such interface iptables accepts
-that rule and it never matches, so the port stays correctly private. What went
-wrong was the generated document: `render_doc` wrote "tailscale0 + RFC1918 only
-(enforced; public refused)" into the client-facing /etc/catena/public-ports.md
-for a host that is on no tailnet, promising a restriction to a network it is not
-on.
+Declare both as `tailnet` and both come out the same -- and on a host with no
+tailnet the defect is honesty rather than enforcement. `tailnet` emits the
+RFC1918 rules plus one `tailscale0` interface rule; with no such interface
+iptables accepts that rule and it never matches, so the port stays correctly
+private. The damage is to the generated document: `render_doc` writes
+"tailscale0 + RFC1918 only (enforced; public refused)" into the client-facing
+/etc/catena/public-ports.md for a host on no tailnet, promising a restriction to
+a network it is not on.
 
 WHY THE ANSWER IS A PARAMETER. `rule_plan` keeps the plan as DATA so the mapping
 is unit-tested without root, and the resolution comes from the store's declared
-access method rather than from `ip link show tailscale0`. A tailnet that was
-declared and failed to come up would otherwise silently downgrade the document
-to RFC1918 while the declared posture still said tailnet -- the quiet divergence
-`rules_unapplied` exists to prevent, one layer up.
+access method rather than from the live interface. A host that declares a
+tailnet and fails to bring it up would otherwise silently downgrade the document
+to RFC1918 while its declared posture still reads tailnet -- the quiet
+divergence `rules_unapplied` exists to prevent, one layer up.
 
 Run: uv run pytest tests/unit/test_public_ports_private_scope.py
 """

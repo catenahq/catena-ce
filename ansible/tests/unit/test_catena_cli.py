@@ -25,14 +25,16 @@ def cli():
 
 def test_install_chain_order(cli):
     """Fresh install runs preflight before bootstrap, then site, then validate."""
-    assert cli.INSTALL_CHAIN == ("preflight", "bootstrap", "converge", "validate")
+    assert cli.INSTALL_CHAIN == (
+        "preflight", "bootstrap", "converge", "lockdown", "validate",
+    )
 
 
 def test_recover_chain_order(cli):
     """DR onto a fresh box runs preflight -> bootstrap -> restore -> site ->
     validate: the install chain with `restore` inserted after bootstrap."""
     assert cli.RECOVER_CHAIN == (
-        "preflight", "bootstrap", "restore", "converge", "validate",
+        "preflight", "bootstrap", "restore", "converge", "lockdown", "validate",
     )
 
 
@@ -72,7 +74,7 @@ def test_recover_runs_full_chain_with_snapshot(cli, monkeypatch):
 
     pb_calls = [c for c in calls if c and c[0] == "ansible-playbook"]
     assert [_stage_of(c) for c in pb_calls] == [
-        "preflight", "bootstrap", "restore", "converge", "validate",
+        "preflight", "bootstrap", "restore", "converge", "lockdown", "validate",
     ]
     restore_cmd = next(c for c in pb_calls if _stage_of(c) == "restore")
     assert "restore_snapshot=snap42" in " ".join(restore_cmd)
@@ -116,7 +118,7 @@ def test_collect_dr_adopt_file_from_install_yaml(cli, tmp_path):
         "tailscale_oauth_client_secret: tsec\n"
         "BACKUP_RESTIC_REPO: s3:ep/bucket\n"
     )
-    extra, tmp = cli._collect_dr_adopt_file(str(iy))
+    extra, tmp = cli._collect_dr_adopt_file(str(iy), tmp_path)
     try:
         assert extra[0] == "-e" and extra[1].startswith("@")
         data = yaml.safe_load(tmp.read_text())
@@ -128,17 +130,72 @@ def test_collect_dr_adopt_file_from_install_yaml(cli, tmp_path):
         tmp.unlink(missing_ok=True)
 
 
-def test_collect_dr_adopt_file_empty_without_input_or_tty(cli, monkeypatch):
+def test_collect_dr_adopt_file_empty_without_input_or_tty(cli, monkeypatch, tmp_path):
     """No --input and no TTY (the bench) -> nothing collected, no temp file."""
     monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: False)
-    extra, tmp = cli._collect_dr_adopt_file(None)
+    extra, tmp = cli._collect_dr_adopt_file(None, tmp_path)
     assert extra == [] and tmp is None
+
+
+# --- the DR keyset follows the access method ---------------------------------
+#
+# `catena recover` rebuilds a wiped box, so there is no store to ask: the
+# inventory that seeded it is the only record of what the host declared.
+
+def test_a_tailnet_free_host_is_not_asked_for_a_tailnet_credential(cli, tmp_path):
+    """Asking would collect a value this recover stores and nothing reads, on a
+    host that joins no tailnet at all."""
+    (tmp_path / ".env").write_text("ACCESS_METHOD=public_ssh\n")
+    iy = tmp_path / "install.yaml"
+    iy.write_text(
+        "backup_restic_password: rp\n"
+        "tailscale_oauth_client_id: tid\n"
+        "tailscale_oauth_client_secret: tsec\n"
+        "headscale_api_key: hs\n"
+    )
+    import yaml
+
+    _extra, tmp = cli._collect_dr_adopt_file(str(iy), tmp_path)
+    try:
+        data = yaml.safe_load(tmp.read_text())
+        assert data["backup_restic_password"] == "rp"
+        for key in ("tailscale_oauth_client_id", "tailscale_oauth_client_secret",
+                    "headscale_api_key"):
+            assert key not in data, f"{key} was collected for a host with no tailnet"
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def test_a_host_that_declared_nothing_is_still_asked(cli, tmp_path):
+    """The safer guess. A host installed before the key existed is on a
+    tailnet, and skipping the credential would leave its bootstrap unable to
+    join -- a failure, where asking for one that goes unused is a question."""
+    (tmp_path / ".env").write_text("OPS_USER=ops\n")
+    iy = tmp_path / "install.yaml"
+    iy.write_text("tailscale_oauth_client_id: tid\n")
+    import yaml
+
+    _extra, tmp = cli._collect_dr_adopt_file(str(iy), tmp_path)
+    try:
+        assert yaml.safe_load(tmp.read_text())["tailscale_oauth_client_id"] == "tid"
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def test_the_answers_file_outranks_the_inventory(cli, tmp_path):
+    """A recover driven by an answers file is answering for the host it is
+    about to build, not describing the one on disk."""
+    (tmp_path / ".env").write_text("ACCESS_METHOD=tailnet\n")
+    assert cli._recover_access_method(tmp_path, {"ACCESS_METHOD": "public_ssh"}) == "public_ssh"
+    assert cli._recover_access_method(tmp_path, {}) == "tailnet"
 
 
 def test_rollback_chain_order(cli):
     """In-place rollback runs preflight -> restore -> site -> validate, no
     bootstrap (the host is alive)."""
-    assert cli.ROLLBACK_CHAIN == ("preflight", "restore", "converge", "validate")
+    assert cli.ROLLBACK_CHAIN == (
+        "preflight", "restore", "converge", "lockdown", "validate",
+    )
 
 
 def test_rollback_parser_wires_snapshot(cli):
@@ -168,7 +225,7 @@ def test_rollback_runs_chain_with_snapshot_no_bootstrap(cli, monkeypatch):
 
     pb_calls = [c for c in calls if c and c[0] == "ansible-playbook"]
     stages = [_stage_of(c) for c in pb_calls]
-    assert stages == ["preflight", "restore", "converge", "validate"]
+    assert stages == ["preflight", "restore", "converge", "lockdown", "validate"]
     assert "bootstrap" not in stages
     restore_cmd = next(c for c in pb_calls if _stage_of(c) == "restore")
     assert "restore_snapshot=snap7" in " ".join(restore_cmd)
@@ -191,7 +248,8 @@ def test_recover_runs_single_site_pass(cli, monkeypatch):
     assert ns.func(ns) == 0
 
     stages = [_stage_of(c) for c in calls if c and c[0] == "ansible-playbook"]
-    assert stages == ["preflight", "bootstrap", "restore", "converge", "validate"]
+    assert stages == [
+        "preflight", "bootstrap", "restore", "converge", "lockdown", "validate"]
     assert stages.count("converge") == 1
 
 

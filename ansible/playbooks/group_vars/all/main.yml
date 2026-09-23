@@ -34,6 +34,12 @@ ops_ssh_public_keys:
 # choice existed -- so a host with nothing stored keeps the firewall it has.
 catena_access_method: "{{ cfg_access_method | default('tailnet', true) }}"
 
+# Port 22's declaration in the public-port registry. Shared because two tasks
+# write it and they must agree on the name: bootstrap/roles/common creates it
+# open and never narrows it, and tasks/ufw_lockdown.yml narrows it to `private`
+# once it has proven the alternative path.
+catena_ssh_fragment_name: ssh.json
+
 # --- Tailscale ---
 tailscale_hostname: "{{ inventory_hostname }}"
 tailscale_tags: >-

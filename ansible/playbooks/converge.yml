@@ -164,8 +164,12 @@
   #   ansible-playbook -i inventory/<name> playbooks/converge.yml --limit host1 --tags storage
   # Preflight runs as its own ansible-playbook invocation (the installer
   # runs it first); tag filters here never skip it.
-  # Each role's tag matches its name; ufw_lockdown has its own tag so it only
-  # runs in a full converge (otherwise it re-probes tailscale0 unnecessarily).
+  # Each role's tag matches its name.
+  #
+  # Closing public 22 is NOT here. It is playbooks/lockdown.yml, which the
+  # install chain runs last and the panel's toggle drives: a converge is
+  # something a host runs on itself, and the one step that can make it
+  # unreachable is a decision taken once rather than re-taken every run.
   roles:
     - { role: common, tags: [common] }
     # The declarative public-port registry. It sits right after common and
@@ -180,7 +184,12 @@
     # divergent). See bootstrap/roles/host_hardening/README.md for the full var-set
     # rationale.
     - { role: host_hardening, tags: [host_hardening, hardening] }
-    - { role: tailscale, tags: [tailscale] }
+    # Skipped entirely on a host whose access method is public SSH: there is no
+    # tailnet to join, and installing the daemon anyway would leave a node this
+    # host never authenticates and a tailscale0 that never appears.
+    - role: tailscale
+      tags: [tailscale]
+      when: catena_access_method == 'tailnet'
     - { role: storage, tags: [storage] } # mount block volume at /mnt/data (+ optional bulk)
     - { role: docker, tags: [docker] } # Docker CE + single-node swarm init
     # Host engine payload (catena-cloudflared-sync, catena-recovery,
@@ -451,19 +460,6 @@
         apply:
           tags: [tier1_stack]
       tags: [tier1_stack]
-
-    # Final lockdown. Must come AFTER tailscale + infrastructure are healthy,
-    # otherwise we lock ourselves out.
-    - name: Lock ufw to tailscale-only ingress
-      ansible.builtin.include_role:
-        name: common
-        tasks_from: ufw_lockdown.yml
-        # apply: propagates tags to every task inside ufw_lockdown.yml.
-        # Without it, `--tags lockdown` would fire the include but then
-        # filter out all the inner tasks (they have no "lockdown" tag).
-        apply:
-          tags: [lockdown]
-      tags: [lockdown]
 
     # Report -- never repair -- changes to the files boundary.yml puts on the
     # operator's side. A converge does not write them; this task is what keeps

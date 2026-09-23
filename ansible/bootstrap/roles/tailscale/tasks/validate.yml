@@ -1,75 +1,94 @@
 ---
-# Validation tasks for bootstrap/roles/tailscale. Replaces tests/goss/tailscale.yaml.
-- name: "validate/tailscale: package_facts"
-  ansible.builtin.package_facts:
-    manager: apt
+# Validation tasks for bootstrap/roles/tailscale.
+#
+# GATED HERE, not by filtering playbooks/validate.yml's `validate_roles`. That
+# list is deliberately a literal: the audit's Ansible parser resolves
+# validate.yml to its role edges from it, statically, so a role removed from it
+# by a condition is a role the feature grid stops knowing about.
+#
+# So the role stays in the list and answers for itself. On a host whose access
+# method is public SSH there is no tailnet, and every assertion below would be
+# an assertion about software this host deliberately does not run.
+- name: "validate/tailscale: this host joins no tailnet"
+  ansible.builtin.debug:
+    msg: >-
+      skipped: the access method is {{ catena_access_method }}, so this host
+      runs no tailscale daemon and has no tailscale0 to validate.
+  when: catena_access_method != 'tailnet'
 
-- name: "validate/tailscale: tailscale apt package installed"
-  ansible.builtin.assert:
-    that:
-      - "'tailscale' in ansible_facts.packages"
-    fail_msg: "tailscale package not installed via apt"
+- name: "validate/tailscale: the tailnet this host declared is up and tagged"
+  when: catena_access_method == 'tailnet'
+  block:
+    - name: "validate/tailscale: package_facts"
+      ansible.builtin.package_facts:
+        manager: apt
 
-- name: "validate/tailscale: stat keyring + apt source"
-  ansible.builtin.stat:
-    path: "{{ item }}"
-  register: _ts_stats
-  loop:
-    - /usr/share/keyrings/tailscale-archive-keyring.gpg
-    - /etc/apt/sources.list.d/tailscale.list
+    - name: "validate/tailscale: tailscale apt package installed"
+      ansible.builtin.assert:
+        that:
+          - "'tailscale' in ansible_facts.packages"
+        fail_msg: "tailscale package not installed via apt"
 
-- name: "validate/tailscale: keyring + apt source exist"
-  ansible.builtin.assert:
-    that:
-      - item.stat.exists
-      - item.stat.pw_name == 'root'
-      - item.stat.gr_name == 'root'
-    fail_msg: "{{ item.item }}: missing or bad owner/group"
-  loop: "{{ _ts_stats.results }}"
-  loop_control:
-    label: "{{ item.item }}"
+    - name: "validate/tailscale: stat keyring + apt source"
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      register: _ts_stats
+      loop:
+        - /usr/share/keyrings/tailscale-archive-keyring.gpg
+        - /etc/apt/sources.list.d/tailscale.list
 
-- name: "validate/tailscale: service_facts"
-  ansible.builtin.service_facts:
+    - name: "validate/tailscale: keyring + apt source exist"
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.pw_name == 'root'
+          - item.stat.gr_name == 'root'
+        fail_msg: "{{ item.item }}: missing or bad owner/group"
+      loop: "{{ _ts_stats.results }}"
+      loop_control:
+        label: "{{ item.item }}"
 
-- name: "validate/tailscale: tailscaled active + enabled"
-  ansible.builtin.assert:
-    that:
-      - "ansible_facts.services['tailscaled.service'].state == 'running'"
-      - "ansible_facts.services['tailscaled.service'].status == 'enabled'"
-    fail_msg: "tailscaled service not running/enabled"
+    - name: "validate/tailscale: service_facts"
+      ansible.builtin.service_facts:
 
-- name: "validate/tailscale: tailscale0 interface exists"
-  ansible.builtin.command: ip -brief link show tailscale0
-  register: _ts_link
-  failed_when: false
-  changed_when: false
+    - name: "validate/tailscale: tailscaled active + enabled"
+      ansible.builtin.assert:
+        that:
+          - "ansible_facts.services['tailscaled.service'].state == 'running'"
+          - "ansible_facts.services['tailscaled.service'].status == 'enabled'"
+        fail_msg: "tailscaled service not running/enabled"
 
-- name: "validate/tailscale: tailscale0 present"
-  ansible.builtin.assert:
-    that:
-      - _ts_link.rc == 0
-    fail_msg: "tailscale0 interface missing (rc={{ _ts_link.rc }}, stderr={{ _ts_link.stderr }})"
+    - name: "validate/tailscale: tailscale0 interface exists"
+      ansible.builtin.command: ip -brief link show tailscale0
+      register: _ts_link
+      failed_when: false
+      changed_when: false
 
-- name: "validate/tailscale: tailscale status --json"
-  ansible.builtin.command: tailscale status --json
-  register: _ts_status
-  failed_when: false
-  changed_when: false
+    - name: "validate/tailscale: tailscale0 present"
+      ansible.builtin.assert:
+        that:
+          - _ts_link.rc == 0
+        fail_msg: "tailscale0 interface missing (rc={{ _ts_link.rc }}, stderr={{ _ts_link.stderr }})"
 
-- name: "validate/tailscale: backend Running, online, tagged"
-  ansible.builtin.assert:
-    that:
-      - _ts_status.rc == 0
-      - "'\"BackendState\": \"Running\"' in _ts_status.stdout"
-      - "'\"Online\": true' in _ts_status.stdout"
-      # tailscale_tags comes from .env (TAILSCALE_TAGS) via the dotenv
-      # lookup in playbooks/group_vars/all/main.yml. Verify EACH configured
-      # tag is present in the VPS's live status JSON, not a hardcoded
-      # `tag:vps` -- the test bench uses `tag:vps-test`, and any custom tag
-      # (tag:dev, tag:client-foo, ...) validates the same way.
-      - item in _ts_status.stdout
-    fail_msg: >-
-      tailscale status JSON missing one of
-      BackendState=Running, Online=true, {{ item }}
-  loop: "{{ tailscale_tags }}"
+    - name: "validate/tailscale: tailscale status --json"
+      ansible.builtin.command: tailscale status --json
+      register: _ts_status
+      failed_when: false
+      changed_when: false
+
+    - name: "validate/tailscale: backend Running, online, tagged"
+      ansible.builtin.assert:
+        that:
+          - _ts_status.rc == 0
+          - "'\"BackendState\": \"Running\"' in _ts_status.stdout"
+          - "'\"Online\": true' in _ts_status.stdout"
+          # tailscale_tags comes from .env (TAILSCALE_TAGS) via the dotenv
+          # lookup in playbooks/group_vars/all/main.yml. Verify EACH configured
+          # tag is present in the VPS's live status JSON, not a hardcoded
+          # `tag:vps` -- the test bench uses `tag:vps-test`, and any custom tag
+          # (tag:dev, tag:client-foo, ...) validates the same way.
+          - item in _ts_status.stdout
+        fail_msg: >-
+          tailscale status JSON missing one of
+          BackendState=Running, Online=true, {{ item }}
+      loop: "{{ tailscale_tags }}"

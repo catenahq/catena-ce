@@ -830,9 +830,11 @@
       no_log: true
 
 # ─── ufw baseline ────────────────────────────────────────────────────────
-# Public SSH is allowed for the duration of bootstrap. ufw_lockdown.yml
-# (called from converge.yml post_tasks, AFTER tailscale is up) swaps this rule
-# for "allow 22 on tailscale0 only" and closes public 22.
+# Public SSH is allowed for the duration of bootstrap. On a host whose access
+# method is `tailnet`, playbooks/lockdown.yml swaps this rule for "allow 22 on
+# tailscale0 only" and closes public 22 -- but only after it has PROVEN the
+# tailnet path from the machine about to lose this one. On a `public_ssh` host
+# it stays, because there is no other path to prove.
 - name: Set ufw default deny incoming
   community.general.ufw:
     default: deny
@@ -854,17 +856,53 @@
   changed_when: false
   failed_when: false
 
-- name: Allow public SSH (bootstrap only -- replaced by tailscale-only rule later)
+- name: Allow public SSH (bootstrap, and permanently on a host with no tailnet)
   community.general.ufw:
     rule: allow
     port: "22"
     proto: tcp
-    comment: "bootstrap; replaced by ufw_lockdown.yml"
-  when: _ufw_tailscale_iface.rc != 0
+    comment: "public ssh; lockdown.yml closes this on a tailnet host"
+  when: >-
+    _ufw_tailscale_iface.rc != 0
+    or catena_access_method != 'tailnet'
 
 - name: Enable ufw
   community.general.ufw:
     state: enabled
+
+# ─── port 22 in the public-port registry ─────────────────────────────────
+# Without a declaration, a host that keeps 22 open FAILS validation: the
+# external scan's expectation is derived from the registry's scope=any ports,
+# and a port nothing declares reads as an unexpected open one -- "SECURITY
+# REGRESSION" for the posture the client chose.
+#
+# WRITTEN ONCE, AND ONLY WIDENED HERE. `force: false` is load-bearing: this
+# task runs on every converge, and rewriting the fragment to `any` on a host
+# whose lockdown already closed 22 would have the reconciler re-open it on the
+# next timer fire. The only writer that may NARROW it is
+# tasks/ufw_lockdown.yml, which does so after proving the alternative path.
+- name: "ufw: public-port fragment dir exists"
+  ansible.builtin.file:
+    path: "{{ public_ports_fragment_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "ufw: declare port 22 as open (first converge only)"
+  ansible.builtin.copy:
+    dest: "{{ public_ports_fragment_dir }}/{{ catena_ssh_fragment_name }}"
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+    content: |
+      {{
+        [
+          {"proto": "tcp", "port": 22, "scope": "any", "bind": "host",
+           "owner": "ssh", "comment": "administrative SSH"}
+        ] | to_nice_json
+      }}
 
 # ─── Version stamp ──────────────────────────────────────────────────────
 # /etc/catena/version.txt records the catena commit that produced

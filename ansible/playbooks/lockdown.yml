@@ -1,0 +1,52 @@
+---
+# Close public port 22, or report why it stays open.
+#
+# ITS OWN PLAYBOOK, not a converge post_task. Three reasons, and the first is
+# the one that matters:
+#
+#   - It is the one step that can make a host unreachable, so it runs LAST and
+#     alone, where a failure is a failure of lockdown rather than of a converge
+#     that did fifteen other things correctly.
+#   - A converge is something a host runs on itself, on a timer. Closing the
+#     administrative port is not; it is a decision, taken once, and re-taking it
+#     on every converge re-probes a path nobody asked about.
+#   - The panel's open/close toggle and the installer's last step are the same
+#     action. One playbook means they cannot diverge.
+#
+# `catena install`, `catena recover` and `catena rollback` all run it after
+# their converge. It is idempotent: on a host already locked down the public
+# rule is gone, the delete is a no-op, and the proof runs again as a cheap
+# reachability check.
+#
+# The decision itself is bootstrap/roles/common's tasks/ufw_lockdown.yml, which
+# reads the access method this host declared and either proves the alternative
+# path before closing, or refuses and says so.
+
+- name: Close public SSH behind the declared access method
+  hosts: "{{ stage_hosts | default('vps') }}"
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    # The access method is a STORE key, so the store has to be loaded before
+    # anything reads it. Without this the method resolves to its default on
+    # every run, and a host that chose public SSH would have its port closed
+    # by the fallback rather than by its own answer.
+    - name: "0b: load on-box config store"
+      ansible.builtin.include_tasks:
+        file: tasks/load_onbox_config.yml
+        apply:
+          tags: [always, onbox]
+      tags: [always, onbox]
+
+  tasks:
+    - name: Lock ufw to the declared access method
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: ufw_lockdown.yml
+        # apply: propagates tags to every task inside ufw_lockdown.yml.
+        # Without it, `--tags lockdown` would fire the include but then
+        # filter out all the inner tasks (they have no "lockdown" tag).
+        apply:
+          tags: [lockdown]
+      tags: [lockdown]
