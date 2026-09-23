@@ -1,0 +1,708 @@
+{
+  "version": 1,
+  "secrets": [
+    {
+      "key": "cloudflare_api_token",
+      "doc": "The one credential the public surface needs. The account id is not an input: the host engine resolves it from the token.",
+      "panel": {
+        "group": "tunnel",
+        "section": "secrets",
+        "kind": "secret",
+        "optional": false
+      }
+    },
+    {
+      "key": "cloudflare_api_tokens",
+      "doc": "Multi-domain (Business): a JSON map of zone to API token, each token scoped to its one zone. The panel's domains page owns it, so it is not a field on the settings form."
+    },
+    {
+      "key": "tailscale_oauth_client_id",
+      "doc": "Tailscale SaaS mints a per-converge tagged auth key from this client, so nothing long-lived lands on the VPS. Required on that path, hidden on the Headscale one, so the badge is only read where it is true.",
+      "panel": {
+        "group": "tunnel",
+        "section": "secrets",
+        "kind": "secret",
+        "optional": false
+      },
+      "depends": {
+        "choice": "TAILNET_PROVIDER",
+        "values": [
+          "tailscale"
+        ]
+      }
+    },
+    {
+      "key": "tailscale_oauth_client_secret",
+      "panel": {
+        "group": "tunnel",
+        "section": "secrets",
+        "kind": "secret",
+        "optional": false
+      },
+      "depends": {
+        "choice": "TAILNET_PROVIDER",
+        "values": [
+          "tailscale"
+        ]
+      }
+    },
+    {
+      "key": "headscale_api_key",
+      "doc": "Headscale has no OAuth API. The node joins with a pre-auth key, minted per converge from this one (preferred, nothing long-lived on the VPS). Either this or the static key satisfies the converge, so neither is required on its own.",
+      "panel": {
+        "group": "tunnel",
+        "section": "secrets",
+        "kind": "secret",
+        "optional": true
+      },
+      "depends": {
+        "choice": "TAILNET_PROVIDER",
+        "values": [
+          "headscale"
+        ]
+      }
+    },
+    {
+      "key": "headscale_preauth_key",
+      "doc": "The static fallback when no API key is stored. Long-lived, hence second.",
+      "panel": {
+        "group": "tunnel",
+        "section": "secrets",
+        "kind": "secret",
+        "optional": true
+      },
+      "depends": {
+        "choice": "TAILNET_PROVIDER",
+        "values": [
+          "headscale"
+        ]
+      }
+    },
+    {
+      "key": "backup_s3_access_key",
+      "panel": {
+        "group": "backup",
+        "section": "secrets",
+        "kind": "secret",
+        "optional": false
+      }
+    },
+    {
+      "key": "backup_s3_secret_key",
+      "panel": {
+        "group": "backup",
+        "section": "secrets",
+        "kind": "secret",
+        "optional": false
+      }
+    },
+    {
+      "key": "smtp_password",
+      "doc": "The one mail credential, whichever provider is chosen: the Resend API key, the Brevo SMTP key, or the relay's password.",
+      "panel": {
+        "group": "mail",
+        "section": "secrets",
+        "kind": "secret",
+        "optional": true
+      },
+      "depends": {
+        "choice": "SMTP_PROVIDER",
+        "values": [
+          "resend",
+          "brevo",
+          "server"
+        ]
+      }
+    },
+    {
+      "key": "mailserver_relay_password",
+      "doc": "Configures the mailserver APPLICATION, not the host's shared outbound path, so it belongs to that template's own configuration rather than the mail group on the settings page."
+    },
+    {
+      "key": "mailserver_spamhaus_dqs_key",
+      "doc": "The mailserver template's Spamhaus subscription. Same reasoning."
+    },
+    {
+      "key": "storage_bulk_username",
+      "doc": "CIFS credentials for the optional bulk mount. Client-held: the share is the client's NAS. NFS authenticates by source IP and supplies neither.",
+      "panel": {
+        "group": "share",
+        "section": "secrets",
+        "kind": "secret",
+        "optional": true
+      }
+    },
+    {
+      "key": "storage_bulk_password",
+      "panel": {
+        "group": "share",
+        "section": "secrets",
+        "kind": "secret",
+        "optional": true
+      }
+    },
+    {
+      "key": "catena_license",
+      "doc": "A signed claim rather than a shared secret: this repo neither mints nor verifies it, it only stores it. Optional -- Community is the default and an empty field must stay empty rather than reading as \"not set yet\".",
+      "panel": {
+        "group": "license",
+        "section": "secrets",
+        "kind": "secret",
+        "optional": true
+      }
+    },
+    {
+      "key": "portal_stripe_secret_key",
+      "doc": "The optional client portal's billing keys. Never minted; billing routes degrade gracefully while they are blank."
+    },
+    {
+      "key": "portal_stripe_webhook_secret"
+    }
+  ],
+  "config": [
+    {
+      "key": "HOST_PUBLIC_IP",
+      "residence": "host",
+      "doc": "The provider's public IPv4. Used during bootstrap, before the firewall closes and the box is reached another way.",
+      "env": {
+        "default": "203.0.113.10"
+      }
+    },
+    {
+      "key": "HOST_INITIAL_USER",
+      "residence": "host",
+      "doc": "The provider's default login for that same phase (root, ubuntu, debian, ec2-user). Not OPS_USER -- that account does not exist yet.",
+      "env": {
+        "default": "root"
+      }
+    },
+    {
+      "key": "HOST_SSH_PORT",
+      "residence": "host",
+      "doc": "The port the controller CONNECTS on, written into hosts.yml as ansible_port. The firewall rules are a separate question and name 22 literally, so a non-default port here is not yet carried end to end.",
+      "env": {
+        "default": "22"
+      }
+    },
+    {
+      "key": "SSH_PRIVATE_KEY",
+      "residence": "controller",
+      "doc": "A dedicated keypair for this project, so revoking at engagement end is throwing away one file. The installer offers to generate it when absent.",
+      "env": {
+        "default": "~/.ssh/catena_ed25519"
+      }
+    },
+    {
+      "key": "SSH_PUBLIC_KEY_FILE",
+      "residence": "controller",
+      "env": {
+        "default": "~/.ssh/catena_ed25519.pub"
+      }
+    },
+    {
+      "key": "OPS_USER",
+      "residence": "controller",
+      "doc": "The non-root account created on every VPS, authorized for the key above.",
+      "env": {
+        "default": "ops"
+      }
+    },
+    {
+      "key": "COMMON_TIMEZONE",
+      "residence": "controller",
+      "env": {
+        "default": "America/Toronto"
+      }
+    },
+    {
+      "key": "COMMON_LOCALE",
+      "residence": "controller",
+      "env": {
+        "default": "en_CA.UTF-8"
+      }
+    },
+    {
+      "key": "TAILSCALE_TAGS",
+      "residence": "controller",
+      "doc": "Comma-separated tags advertised by each node. Every tag must be authorized on the control server first, or key minting rejects with a 400. Read with NO default, so a missing key fails the lookup rather than falling back to a tag the credential is not scoped for.",
+      "env": {
+        "default": "tag:vps"
+      }
+    },
+    {
+      "key": "TAILSCALE_ACCEPT_DNS",
+      "residence": "controller",
+      "doc": "Whether Tailscale may override systemd-resolved. Usually false.",
+      "env": {
+        "default": "false"
+      }
+    },
+    {
+      "key": "STORAGE_MODE",
+      "residence": "controller",
+      "doc": "built_in carves directories on the root disk; attached formats and mounts a separate block device. Scheduled for removal -- the product is dropping block-device management, and switching mode on a live host mounts over a populated directory and hides every volume.",
+      "env": {
+        "default": "built_in",
+        "options": [
+          "built_in",
+          "attached"
+        ]
+      }
+    },
+    {
+      "key": "STORAGE_BLOCK_DEVICE",
+      "residence": "controller",
+      "doc": "Read only when STORAGE_MODE is attached. Removed with it.",
+      "env": {
+        "default": "/dev/sdb"
+      }
+    },
+    {
+      "key": "STORAGE_BULK_ENABLED",
+      "residence": "controller",
+      "doc": "A separate optional tier over CIFS or NFS, independent of the primary disk. Append-only data only: never database storage, never the Docker data-root.",
+      "env": {
+        "default": "false"
+      }
+    },
+    {
+      "key": "STORAGE_BULK_MOUNT_POINT",
+      "residence": "controller",
+      "env": {
+        "default": "/mnt/bulk"
+      }
+    },
+    {
+      "key": "CLOUDFLARE_ZONE",
+      "residence": "store",
+      "var": "cfg_cloudflare_zone",
+      "doc": "THE identity of the install: every public hostname is <sub>.<zone>, so this is the value the rest of the page renders against. Blank is a real state -- a server is installed before its domain is decided, and the public surface defers until one arrives.",
+      "env": {
+        "default": ""
+      },
+      "panel": {
+        "group": "hostnames",
+        "section": "config",
+        "kind": "text",
+        "optional": true
+      }
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "residence": "store",
+      "var": "cfg_admin_email",
+      "doc": "One address for the Portainer admin and the initial realm admin. The matching password is minted on the box and shown once. A host fact by any reading, which is why the `.env` only seeds it.",
+      "env": {
+        "default": "operator@example.com"
+      }
+    },
+    {
+      "key": "PORTAINER_SUBDOMAIN",
+      "residence": "store",
+      "var": "cfg_portainer_admin_subdomain",
+      "doc": "The one subdomain three sources give three answers for -- `portainer` in the shipped starter, `apps` in the operator skeleton, `admin` for established clients -- which is what makes it a host fact rather than the product's.",
+      "env": {
+        "default": "portainer"
+      },
+      "panel": {
+        "group": "hostnames",
+        "section": "config",
+        "kind": "text",
+        "optional": true
+      }
+    },
+    {
+      "key": "KEYCLOAK_SUBDOMAIN",
+      "residence": "store",
+      "var": "cfg_keycloak_subdomain",
+      "panel": {
+        "group": "hostnames",
+        "section": "config",
+        "kind": "text",
+        "optional": true
+      }
+    },
+    {
+      "key": "CATENA_ADMIN_SUBDOMAIN",
+      "residence": "store",
+      "var": "cfg_catena_admin_subdomain",
+      "panel": {
+        "group": "hostnames",
+        "section": "config",
+        "kind": "text",
+        "optional": true
+      }
+    },
+    {
+      "key": "GATUS_SUBDOMAIN",
+      "residence": "store",
+      "var": "cfg_gatus_subdomain",
+      "panel": {
+        "group": "hostnames",
+        "section": "config",
+        "kind": "text",
+        "optional": true
+      }
+    },
+    {
+      "key": "HEALTHCHECKS_SUBDOMAIN",
+      "residence": "store",
+      "var": "cfg_healthchecks_subdomain",
+      "panel": {
+        "group": "hostnames",
+        "section": "config",
+        "kind": "text",
+        "optional": true
+      }
+    },
+    {
+      "key": "BESZEL_SUBDOMAIN",
+      "residence": "store",
+      "var": "cfg_beszel_subdomain",
+      "panel": {
+        "group": "hostnames",
+        "section": "config",
+        "kind": "text",
+        "optional": true
+      }
+    },
+    {
+      "key": "CLOUDFLARED_TUNNEL_NAME_PREFIX",
+      "residence": "store",
+      "var": "cfg_cloudflared_tunnel_prefix",
+      "doc": "Prefixes the name of the tunnel a host creates. A store key because the host composes its own tunnel name and reads the prefix straight off the store, which is what lets the cloudflared actions ship in the image instead of being rendered by a converge.",
+      "env": {
+        "default": ""
+      }
+    },
+    {
+      "key": "TAILNET_PROVIDER",
+      "residence": "store",
+      "var": "cfg_tailnet_provider",
+      "doc": "The whole routing decision. Explicit rather than inferred from whether a control URL happens to be filled in: that inference made \"switch back to Tailscale\" mean \"know to CLEAR a field\", and a blank submission on the settings page means \"leave this alone\", so the client could make that decision in one direction only.",
+      "env": {
+        "default": ""
+      },
+      "panel": {
+        "group": "tunnel",
+        "section": "config",
+        "kind": "choice",
+        "optional": true,
+        "options": [
+          "tailscale",
+          "headscale"
+        ],
+        "warning": "settings.warning.tailnet_provider"
+      }
+    },
+    {
+      "key": "TAILNET_CONTROL_URL",
+      "residence": "store",
+      "var": "cfg_tailnet_control_url",
+      "doc": "The Headscale server's base URL.",
+      "env": {
+        "default": ""
+      },
+      "panel": {
+        "group": "tunnel",
+        "section": "config",
+        "kind": "text",
+        "optional": true
+      },
+      "depends": {
+        "choice": "TAILNET_PROVIDER",
+        "values": [
+          "headscale"
+        ]
+      }
+    },
+    {
+      "key": "HEADSCALE_USER",
+      "residence": "store",
+      "var": "cfg_headscale_user",
+      "doc": "The Headscale user the minted pre-auth keys belong to; Headscale keys are per-user, and the advertised tag must be in THAT user's tagOwners.",
+      "env": {
+        "default": ""
+      },
+      "panel": {
+        "group": "tunnel",
+        "section": "config",
+        "kind": "text",
+        "optional": true
+      },
+      "depends": {
+        "choice": "TAILNET_PROVIDER",
+        "values": [
+          "headscale"
+        ]
+      }
+    },
+    {
+      "key": "BACKUP_RESTIC_REPO",
+      "residence": "store",
+      "var": "cfg_backup_restic_repo",
+      "panel": {
+        "group": "backup",
+        "section": "config",
+        "kind": "text",
+        "optional": false
+      }
+    },
+    {
+      "key": "BACKUP_MIN_INTERVAL_HOURS",
+      "residence": "store",
+      "doc": "Lengthens the effective cadence beyond the base timer. No Ansible projection: the backup wrapper reads it off the store at runtime, with no converge in between. There is deliberately no enable switch beside it -- whether a host backs up is answered by whether the endpoint is usable and whether the lane is scheduled, and a third answer could disagree with both.",
+      "panel": {
+        "group": "backup",
+        "section": "config",
+        "kind": "text",
+        "optional": true
+      }
+    },
+    {
+      "key": "BACKUP_HEALTHCHECK_URL",
+      "residence": "store",
+      "var": "cfg_backup_healthcheck_url",
+      "panel": {
+        "group": "alerts",
+        "section": "config",
+        "kind": "text",
+        "optional": true
+      }
+    },
+    {
+      "key": "BACKUP_HEALTHCHECK_ATTEMPTED_URL",
+      "residence": "store",
+      "var": "cfg_backup_healthcheck_attempted_url",
+      "panel": {
+        "group": "alerts",
+        "section": "config",
+        "kind": "text",
+        "optional": true
+      }
+    },
+    {
+      "key": "BACKUP_HEALTHCHECK_URL_CLIENT",
+      "residence": "store",
+      "var": "cfg_backup_healthcheck_url_client",
+      "panel": {
+        "group": "alerts",
+        "section": "config",
+        "kind": "text",
+        "optional": true
+      }
+    },
+    {
+      "key": "BACKUP_HEALTHCHECK_URL_OPERATOR",
+      "residence": "store",
+      "var": "cfg_backup_healthcheck_url_operator",
+      "panel": {
+        "group": "alerts",
+        "section": "config",
+        "kind": "text",
+        "optional": true
+      }
+    },
+    {
+      "key": "OFFSITE_HEALTHCHECK_URL",
+      "residence": "store",
+      "var": "cfg_offsite_healthcheck_url",
+      "doc": "The offsite-copy lane's dead-man endpoints. WHICH buckets it copies is not a knob: that is the store's offsite_copies list, read straight off disk so adding a copy takes effect with no converge in between."
+    },
+    {
+      "key": "OFFSITE_HEALTHCHECK_ATTEMPTED_URL",
+      "residence": "store",
+      "var": "cfg_offsite_healthcheck_attempted_url"
+    },
+    {
+      "key": "SMTP_PROVIDER",
+      "residence": "store",
+      "var": "cfg_smtp_provider",
+      "doc": "`none` is a real stored value, not a blank: a blank submission means \"leave this alone\", so an off position spelled as the empty string would be a control that could turn mail on and never off.",
+      "panel": {
+        "group": "mail",
+        "section": "config",
+        "kind": "choice",
+        "optional": true,
+        "options": [
+          "none",
+          "resend",
+          "brevo",
+          "server"
+        ]
+      }
+    },
+    {
+      "key": "SMTP_SENDER",
+      "residence": "store",
+      "var": "cfg_smtp_sender",
+      "panel": {
+        "group": "mail",
+        "section": "config",
+        "kind": "text",
+        "optional": true
+      },
+      "depends": {
+        "choice": "SMTP_PROVIDER",
+        "values": [
+          "resend",
+          "brevo",
+          "server"
+        ]
+      }
+    },
+    {
+      "key": "SMTP_HOST",
+      "residence": "store",
+      "var": "cfg_smtp_host",
+      "doc": "Applies to the `server` choice only.",
+      "panel": {
+        "group": "mail",
+        "section": "config",
+        "kind": "text",
+        "optional": true
+      },
+      "depends": {
+        "choice": "SMTP_PROVIDER",
+        "values": [
+          "server"
+        ]
+      }
+    },
+    {
+      "key": "SMTP_PORT",
+      "residence": "store",
+      "var": "cfg_smtp_port",
+      "panel": {
+        "group": "mail",
+        "section": "config",
+        "kind": "text",
+        "optional": true
+      },
+      "depends": {
+        "choice": "SMTP_PROVIDER",
+        "values": [
+          "server"
+        ]
+      }
+    },
+    {
+      "key": "SMTP_USER",
+      "residence": "store",
+      "var": "cfg_smtp_user",
+      "doc": "The `server` relay's login, and also the Brevo one, which is account-specific unlike Resend's.",
+      "panel": {
+        "group": "mail",
+        "section": "config",
+        "kind": "text",
+        "optional": true
+      },
+      "depends": {
+        "choice": "SMTP_PROVIDER",
+        "values": [
+          "brevo",
+          "server"
+        ]
+      }
+    },
+    {
+      "key": "NTFY_SERVER",
+      "residence": "store",
+      "var": "cfg_ntfy_server",
+      "panel": {
+        "group": "alerts",
+        "section": "config",
+        "kind": "text",
+        "optional": true
+      }
+    },
+    {
+      "key": "NTFY_TOPIC",
+      "residence": "store",
+      "var": "cfg_ntfy_topic",
+      "doc": "Must be hard to guess -- anyone who knows it can post to it.",
+      "panel": {
+        "group": "alerts",
+        "section": "config",
+        "kind": "text",
+        "optional": true
+      }
+    },
+    {
+      "key": "IDENTITY_ENFORCE_MFA",
+      "residence": "store",
+      "var": "cfg_identity_enforce_mfa",
+      "doc": "Whether every account must enrol a second factor. A choice rather than free text because the converge renders it straight into the realm's required-action config, where a value it cannot read as a boolean would either fail the import or silently mean off. The identity probe reads the resulting posture back and reports drift, which is the pair this completes.",
+      "panel": {
+        "group": "access",
+        "section": "config",
+        "kind": "choice",
+        "optional": true,
+        "options": [
+          "false",
+          "true"
+        ]
+      }
+    },
+    {
+      "key": "APT_PROXY_URL",
+      "residence": "store",
+      "var": "cfg_apt_proxy_url",
+      "doc": "Optional apt HTTP proxy. HTTPS sources stay direct. A site policy rather than an install input.",
+      "env": {
+        "default": ""
+      }
+    },
+    {
+      "key": "DOCKER_REGISTRY_MIRROR_URL",
+      "residence": "store",
+      "var": "cfg_docker_registry_mirror_url",
+      "doc": "Optional pull-through mirror. Empty pulls from docker.io directly.",
+      "env": {
+        "default": ""
+      }
+    },
+    {
+      "key": "COTURN_CERTBOT_STAGING",
+      "residence": "store",
+      "var": "cfg_coturn_certbot_staging",
+      "env": {
+        "default": "false"
+      }
+    },
+    {
+      "key": "MAILSERVER_CERTBOT_STAGING",
+      "residence": "store",
+      "var": "cfg_mailserver_certbot_staging",
+      "env": {
+        "default": "false"
+      }
+    },
+    {
+      "key": "CATENA_ACME_DIRECTORY_URL",
+      "residence": "store",
+      "var": "cfg_acme_directory_url",
+      "env": {
+        "default": ""
+      }
+    },
+    {
+      "key": "CATENA_ACME_HOST_IP",
+      "residence": "store",
+      "var": "cfg_acme_host_ip",
+      "doc": "Mapped to the hostname `pebble` in /etc/hosts, Pebble's endpoint-cert SAN.",
+      "env": {
+        "default": ""
+      }
+    },
+    {
+      "key": "CATENA_ACME_CA_BUNDLE_PEM_B64",
+      "residence": "store",
+      "var": "cfg_acme_ca_bundle_b64",
+      "doc": "Base64 because a raw multi-line PEM cannot live in a `.env`.",
+      "env": {
+        "default": ""
+      }
+    }
+  ]
+}
