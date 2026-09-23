@@ -23,11 +23,26 @@
 # because someone said it is a secret, not because of how it is spelled.
 # Asking the module keeps one declaration.
 #
+# The script module ships onbox_config.py alone, and it reads the knob registry
+# from a file. A fresh host has no payload to provide one yet, so the registry
+# from this same checkout is staged beside the adopt map and named through
+# CATENA_KNOBS on every call. seed_onbox_config.yml stages the same file for
+# bootstrap, which does not run this loader.
+- name: "onbox: stage the knob registry for the store helper"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../helpers/knobs.json"
+    dest: /root/.catena-knobs.json
+    owner: root
+    group: root
+    mode: "0644"
+
 # Pure query, no store I/O -- it answers before the store exists on a fresh box.
 - name: "onbox: read the declared secret names"
   ansible.builtin.script:
     cmd: "{{ playbook_dir }}/../helpers/onbox_config.py --emit secret-names"
     executable: python3
+  environment:
+    CATENA_KNOBS: /root/.catena-knobs.json
   register: _onbox_known
   changed_when: false
 
@@ -75,6 +90,8 @@
       --path {{ catena_onbox_config_path | default('/etc/catena/config.json') }}
       --adopt-file /root/.catena-onbox-adopt.json --emit secrets
     executable: python3
+  environment:
+    CATENA_KNOBS: /root/.catena-knobs.json
   register: _onbox_emit
   changed_when: false
   no_log: true
@@ -134,6 +151,8 @@
       --path {{ catena_onbox_config_path | default('/etc/catena/config.json') }}
       --emit image-pins
     executable: python3
+  environment:
+    CATENA_KNOBS: /root/.catena-knobs.json
   register: _onbox_image_pins
   changed_when: false
 

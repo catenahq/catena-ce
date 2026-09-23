@@ -107,6 +107,42 @@ def test_an_explicit_path_wins(tmp_path, monkeypatch):
     assert onbox_config._knobs_path() == target
 
 
+_STAGED_KNOBS = "/root/.catena-knobs.json"
+
+
+def _script_tasks_running_the_store(node):
+    if isinstance(node, dict):
+        script = node.get("ansible.builtin.script")
+        if isinstance(script, dict) and "onbox_config.py" in str(script.get("cmd", "")):
+            yield node
+        for value in node.values():
+            yield from _script_tasks_running_the_store(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _script_tasks_running_the_store(item)
+
+
+def test_every_remote_store_call_names_the_staged_registry():
+    """The script module copies onbox_config.py to the host ALONE, so the
+    registry beside it in the checkout never arrives. On a host the payload has
+    not reached yet -- every bootstrap, every first converge -- there is no
+    installed copy either, and the module raises at import. Each call has to
+    name the copy the loader staged."""
+    calls = []
+    for path in ANSIBLE_DIR.rglob("*.yml"):
+        if ".collections" in path.parts:
+            continue
+        doc = yaml.safe_load(path.read_text())
+        for task in _script_tasks_running_the_store(doc):
+            calls.append(path)
+            env = task.get("environment") or {}
+            assert env.get("CATENA_KNOBS") == _STAGED_KNOBS, (
+                f"{path.relative_to(ANSIBLE_DIR)}: {task.get('name')!r} runs "
+                f"onbox_config.py without CATENA_KNOBS={_STAGED_KNOBS}"
+            )
+    assert calls, "found no remote onbox_config.py call; the scan is broken"
+
+
 def test_every_knob_has_exactly_one_owner(registry):
     """No key belongs to two residences, and none belongs to none.
 

@@ -31,6 +31,16 @@
       failed_when: false
       no_log: true
 
+    # The script module ships onbox_config.py alone; the knob registry it reads
+    # is staged from this same checkout (see tasks/load_onbox_config.yml).
+    - name: Stage the knob registry for the store helper
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../helpers/knobs.json"
+        dest: /root/.catena-knobs.json
+        owner: root
+        group: root
+        mode: "0644"
+
     - name: Read the on-box config store
       ansible.builtin.script:
         cmd: >-
@@ -38,6 +48,8 @@
           --path {{ catena_onbox_config_path | default('/etc/catena/config.json') }}
           --emit all --no-mint
         executable: python3
+      environment:
+        CATENA_KNOBS: /root/.catena-knobs.json
       register: _dr_store
       changed_when: false
       no_log: true

@@ -21,10 +21,25 @@
 # at runtime, retention ended up with two copies and the converge's silently
 # dead, and a tag-scoped converge that skipped the loader fell back to a stale
 # `.env` with no signal.
+#
+# The script module ships onbox_config.py alone, and it reads the knob registry
+# from a file. Bootstrap runs before the payload installs one, so the registry
+# from this same checkout is staged beside the adopt maps and named through
+# CATENA_KNOBS on every call.
+- name: "onbox: stage the knob registry for the store helper"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../helpers/knobs.json"
+    dest: /root/.catena-knobs.json
+    owner: root
+    group: root
+    mode: "0644"
+
 - name: "onbox: read the store-owned config key names"
   ansible.builtin.script:
     cmd: "{{ playbook_dir }}/../helpers/onbox_config.py --emit settings-config-names"
     executable: python3
+  environment:
+    CATENA_KNOBS: /root/.catena-knobs.json
   register: _onbox_cfg_known
   changed_when: false
 
@@ -46,6 +61,8 @@
       {% if v | string | length > 0 %}--set-config {{ (k ~ '=' ~ v) | quote }} {% endif %}
       {% endfor %}
     executable: python3
+  environment:
+    CATENA_KNOBS: /root/.catena-knobs.json
   register: _onbox_cfg_seeded
   changed_when: false
 
@@ -56,6 +73,8 @@
       --path {{ catena_onbox_config_path | default('/etc/catena/config.json') }}
       --no-mint --emit config-vars
     executable: python3
+  environment:
+    CATENA_KNOBS: /root/.catena-knobs.json
   register: _onbox_cfg_emit
   changed_when: false
 
