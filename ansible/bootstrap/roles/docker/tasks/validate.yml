@@ -40,7 +40,7 @@
 - name: "validate/docker: daemon.json has required settings"
   ansible.builtin.assert:
     that:
-      - "'\"data-root\": \"/mnt/data/docker\"' in (_docker_daemon_json.content | b64decode)"
+      - "'\"data-root\": \"/srv/catena/docker\"' in (_docker_daemon_json.content | b64decode)"
       - "'\"log-driver\": \"json-file\"' in (_docker_daemon_json.content | b64decode)"
       - "'\"max-size\": \"50m\"' in (_docker_daemon_json.content | b64decode)"
       - "'\"live-restore\":' in (_docker_daemon_json.content | b64decode)"
@@ -65,12 +65,12 @@
   failed_when: false
   changed_when: false
 
-- name: "validate/docker: data-root == /mnt/data/docker"
+- name: "validate/docker: data-root == /srv/catena/docker"
   ansible.builtin.assert:
     that:
       - _docker_info_root.rc == 0
-      - _docker_info_root.stdout | trim == "/mnt/data/docker"
-    fail_msg: "dockerd DockerRootDir={{ _docker_info_root.stdout | trim }} (expected /mnt/data/docker)"
+      - _docker_info_root.stdout | trim == "/srv/catena/docker"
+    fail_msg: "dockerd DockerRootDir={{ _docker_info_root.stdout | trim }} (expected /srv/catena/docker)"
 
 - name: "validate/docker: ops in docker group"
   ansible.builtin.command: id -nG ops

@@ -29,7 +29,7 @@
     {
       "name": "storage",
       "title": "Storage",
-      "doc": "The primary disk holds app data and the Docker data-root under one\nprefix, which the backup set, the volume layout and the restore machine\nall name."
+      "doc": "App data and the Docker data-root live under one prefix on the disk this\nhost already has: /srv/catena, which the backup set, the volume layout\nand the restore machine all name. Catena does not manage block devices.\nMore space is a disk the client mounts themselves, bind-mounts into the\napp, and declares in backup_extra_paths so the backup set knows about it."
     },
     {
       "name": "site",
@@ -293,28 +293,6 @@
       }
     },
     {
-      "key": "STORAGE_MODE",
-      "residence": "controller",
-      "doc": "built_in carves directories on the root disk; attached formats and mounts a separate block device.",
-      "env": {
-        "section": "storage",
-        "default": "built_in",
-        "options": [
-          "built_in",
-          "attached"
-        ]
-      }
-    },
-    {
-      "key": "STORAGE_BLOCK_DEVICE",
-      "residence": "controller",
-      "doc": "Read only when STORAGE_MODE is attached.",
-      "env": {
-        "section": "storage",
-        "default": "/dev/sdb"
-      }
-    },
-    {
       "key": "STORAGE_BULK_ENABLED",
       "residence": "controller",
       "doc": "A separate optional tier over CIFS or NFS, independent of the primary disk. Append-only data only: never database storage, never the Docker data-root.",
@@ -543,6 +521,18 @@
         "section": "config",
         "kind": "text",
         "optional": false
+      }
+    },
+    {
+      "key": "BACKUP_EXTRA_PATHS",
+      "residence": "store",
+      "var": "cfg_backup_extra_paths",
+      "doc": "Absolute paths outside /srv/catena to include in the backup, separated by commas. This is what a client who mounted their own disk declares: the product carves its prefix out of the disk the host already has and does not manage block devices, so a bind mount from somewhere else is invisible to the backup set until it is named here. The nightly coverage lane reads the same value, so one declaration both captures the path and stops it reading as an uncovered bind-mount source.",
+      "panel": {
+        "group": "backup",
+        "section": "config",
+        "kind": "text",
+        "optional": true
       }
     },
     {

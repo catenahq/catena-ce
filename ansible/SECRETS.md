@@ -143,8 +143,8 @@ is not sufficient here.
 Split by the two-phase install boundary:
 
 **Minimal bootstrap (needed to bring the stack + auth up):** `HOST_PUBLIC_IP`,
-`HOST_INITIAL_USER`, `HOST_SSH_PORT`, `TAILSCALE_TAGS`, `OPS_USER`,
-`COMMON_TIMEZONE`, `COMMON_LOCALE`, `STORAGE_MODE` + the block device. Plus the
+`HOST_INITIAL_USER`, `HOST_SSH_PORT`, `ACCESS_METHOD`, `TAILSCALE_TAGS`,
+`OPS_USER`, `COMMON_TIMEZONE`, `COMMON_LOCALE`. Plus the
 one external cred required to bootstrap: the tailnet join credential. The
 Cloudflare token is collected in the same run when `CLOUDFLARE_ZONE` is
 answered, but it is not REQUIRED: bootstrap does not read it, and an install

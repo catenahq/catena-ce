@@ -51,7 +51,10 @@ def test_readme_templates_exist_in_both_languages():
 
 
 def test_readme_rendered_into_etc_catena():
-    """/etc is in backup_paths -- that is the whole reason for this path."""
+    """/etc is in the product's own backup paths -- that is the whole reason
+    for this path. Held against that literal rather than against backup_paths,
+    which is an expression adding whatever the client declared and does not
+    resolve outside a converge."""
     tasks = _install_tasks()
     task = next(
         (t for t in tasks if "manual-rebuild README" in (t.get("name") or "")),
@@ -66,7 +69,7 @@ def test_readme_rendered_into_etc_catena():
     assert sorted(task["loop"]) == sorted(_LANGS)
 
     defaults = yaml.safe_load(_DEFAULTS.read_text())
-    assert "/etc" in defaults["backup_paths"], (
+    assert "/etc" in defaults["backup_product_paths"], (
         "backup_paths lost /etc -- the README and version stamp would stop "
         "riding snapshots and the sovereign-exit promise would silently break"
     )

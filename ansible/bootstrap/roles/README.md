@@ -27,5 +27,5 @@ generated from the leading comment of each role's `tasks/main.yml`.
 | `common` | Baseline host setup. |
 | `docker` | Install Docker CE from the official apt repo (NOT distro's docker.io, which lags upstream by months-to-years and occasionally ships broken containerd combos). |
 | `host_hardening` | Drop two config files (sysctl + modprobe) and apply them. |
-| `storage` | Dispatcher. |
+| `storage` | The product's data prefix, plus an independent optional bulk tier. |
 | `tailscale` | Install Tailscale on the target, then join it to the tailnet using an auth key freshly minted via OAuth on the controller. |

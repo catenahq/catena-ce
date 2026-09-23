@@ -23,7 +23,7 @@
     # above crit_pct full, ABORTING before any role writes. Live disk
     # alerting is Beszel's; this is the install-time refusal, which Beszel
     # cannot provide because it reports rather than blocks.
-    converge_disk_preflight_paths: ["/", "/mnt/data"]
+    converge_disk_preflight_paths: ["/", "/srv/catena"]
     converge_disk_preflight_crit_pct: 90
 
   # ─── Fail-fast external-service reachability ───────────────────────────
@@ -63,7 +63,7 @@
     # reconcile/roles/backup's catena-disk-preflight (backup/restore/auto-update
     # free-bytes aborts) and Beszel's threshold alerting -- this is the
     # converge-time gate. gather_facts already populated ansible_mounts;
-    # /mnt/data may be absent on a fresh target (storage role mounts it
+    # /srv/catena may be absent on a fresh target (storage role mounts it
     # later), so the selectattr filter checks only mounts that exist now.
     # Bypass for dev with -e skip_disk_preflight=true.
     - name: "Preflight (disk): refuse to converge on a critically full filesystem"
@@ -190,7 +190,7 @@
     - role: tailscale
       tags: [tailscale]
       when: catena_access_method == 'tailnet'
-    - { role: storage, tags: [storage] } # mount block volume at /mnt/data (+ optional bulk)
+    - { role: storage, tags: [storage] } # mount block volume at /srv/catena (+ optional bulk)
     - { role: docker, tags: [docker] } # Docker CE + single-node swarm init
     # Host engine payload (catena-cloudflared-sync, catena-recovery,
     # catena-schedule, catena-daily, the lanes + units), extracted from the
@@ -328,7 +328,7 @@
         executable: /bin/bash
       # The facts about the scene a hook cannot discover for itself. Passing
       # them is the seam's whole contract: this repo says WHERE things are,
-      # the hook decides what to do about them. A hook that guessed /mnt/data
+      # the hook decides what to do about them. A hook that guessed /srv/catena
       # would silently do nothing on a host with a different storage mount.
       environment:
         STORAGE_MOUNT_POINT: "{{ storage_mount_point }}"

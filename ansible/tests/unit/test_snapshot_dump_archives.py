@@ -24,12 +24,12 @@ _spec.loader.exec_module(sda)
 
 f = sda.snapshot_dump_archives
 
-PG = "/mnt/data/backup-staging/pg"
+PG = "/srv/catena/backup-staging/pg"
 
 
 def _header() -> str:
     return json.dumps({
-        "time": "2026-08-13T22:23:21Z", "tree": "abc", "paths": ["/mnt/data"],
+        "time": "2026-08-13T22:23:21Z", "tree": "abc", "paths": ["/srv/catena"],
         "hostname": "testvm-b", "struct_type": "snapshot",
     })
 

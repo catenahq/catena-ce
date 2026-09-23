@@ -37,7 +37,11 @@ _GROUP_VARS = (
 HOST_TASKS = _HOST_ROLE / "tasks" / "main.yml"
 PLUGIN = _ANSIBLE / "playbooks" / "filter_plugins" / "catena_admin_service.py"
 
-STATE_DIR = "/var/lib/catena-admin"
+# Under /var/lib/catena, not beside it: one directory for the host's runtime
+# state, with the panel's writable scope carved out as a subdirectory. The
+# parent is mounted read-only, so this being NESTED is the whole reason the
+# panel can write its chain without being able to rewrite the lanes' state.
+STATE_DIR = "/var/lib/catena/admin"
 
 
 def _plugin():
@@ -97,6 +101,24 @@ def test_shell_is_pointed_at_the_state_dir():
         "without this the chain is disabled and the export silently degrades "
         "to unverifiable journald rows"
     )
+
+
+def test_the_writable_scope_is_nested_inside_a_read_only_parent():
+    """The property that lets one state directory serve both writers.
+
+    /var/lib/catena holds the host lanes' state and is mounted read-only: the
+    panel reads the backup stats and the gatus summary and must not be able to
+    rewrite them. Its own directory is nested inside that, read-write, the same
+    shape ee-payload uses. Docker sorts binds by destination depth, so the
+    nested one shadows the parent whatever order they are declared in.
+    """
+    argv = _argv()
+    parent = "--mount=type=bind,source=/var/lib/catena,destination=/var/lib/catena"
+    assert f"{parent},readonly" in argv, (
+        f"the state parent is not mounted read-only: {argv}")
+    assert STATE_DIR.startswith("/var/lib/catena/"), (
+        "the panel's state dir is not under the parent, so folding the two "
+        "into one tier did not happen")
 
 
 def test_host_dir_is_owned_by_the_container_uid():

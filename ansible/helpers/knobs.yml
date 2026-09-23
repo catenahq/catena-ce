@@ -144,9 +144,11 @@ env_sections:
   - name: storage
     title: Storage
     doc: |-
-      The primary disk holds app data and the Docker data-root under one
-      prefix, which the backup set, the volume layout and the restore machine
-      all name.
+      App data and the Docker data-root live under one prefix on the disk this
+      host already has: /srv/catena, which the backup set, the volume layout
+      and the restore machine all name. Catena does not manage block devices.
+      More space is a disk the client mounts themselves, bind-mounts into the
+      app, and declares in backup_extra_paths so the backup set knows about it.
 
   - name: site
     title: Site policy
@@ -318,18 +320,6 @@ config:
     doc: Whether Tailscale may override systemd-resolved. Usually false.
     env: {section: access, default: "false"}
 
-  - key: STORAGE_MODE
-    residence: controller
-    doc: >-
-      built_in carves directories on the root disk; attached formats and mounts
-      a separate block device.
-    env: {section: storage, default: "built_in", options: [built_in, attached]}
-
-  - key: STORAGE_BLOCK_DEVICE
-    residence: controller
-    doc: Read only when STORAGE_MODE is attached.
-    env: {section: storage, default: "/dev/sdb"}
-
   - key: STORAGE_BULK_ENABLED
     residence: controller
     doc: >-
@@ -483,6 +473,19 @@ config:
     residence: store
     var: cfg_backup_restic_repo
     panel: {group: backup, section: config, kind: text, optional: false}
+
+  - key: BACKUP_EXTRA_PATHS
+    residence: store
+    var: cfg_backup_extra_paths
+    doc: >-
+      Absolute paths outside /srv/catena to include in the backup, separated by
+      commas. This is what a client who mounted their own disk declares: the
+      product carves its prefix out of the disk the host already has and does
+      not manage block devices, so a bind mount from somewhere else is
+      invisible to the backup set until it is named here. The nightly coverage
+      lane reads the same value, so one declaration both captures the path and
+      stops it reading as an uncovered bind-mount source.
+    panel: {group: backup, section: config, kind: text, optional: true}
 
   - key: BACKUP_MIN_INTERVAL_HOURS
     residence: store

@@ -28,7 +28,14 @@ _LANE_BIN_DIR = "/usr/local/bin"
 
 
 def _backup_paths() -> list[str]:
-    return yaml.safe_load(BACKUP_DEFAULTS.read_text())["backup_paths"]
+    """The PRODUCT's half of backup_paths.
+
+    `backup_paths` itself is an expression -- the product's set plus whatever
+    the client declared in BACKUP_EXTRA_PATHS -- so it does not resolve outside
+    a converge. What this file is about is the product's own set, which is the
+    literal.
+    """
+    return yaml.safe_load(BACKUP_DEFAULTS.read_text())["backup_product_paths"]
 
 
 def _lib_dir() -> str:

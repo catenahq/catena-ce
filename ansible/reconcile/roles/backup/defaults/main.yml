@@ -163,10 +163,10 @@ backup_healthcheck_url_operator: "{{ cfg_backup_healthcheck_url_operator | defau
 # recursively; we pick the subtrees we want rather than listing the
 # parent and excluding most of it.
 #
-# Under /mnt/data we skip:
+# Under /srv/catena we skip:
 #   - docker/overlay2, image, buildkit, containers, network, plugins, runtimes,
 #     swarm, tmp, trust -- image layers and runtime state, all reproducible
-#     from the registry. Listing /mnt/data/docker/volumes lets us keep
+#     from the registry. Listing /srv/catena/docker/volumes lets us keep
 #     named-volume data (app stacks rely on these) without
 #     scooping up tens of GB of reproducible image layers.
 #
@@ -191,7 +191,7 @@ backup_healthcheck_url_operator: "{{ cfg_backup_healthcheck_url_operator | defau
 # Covered storage contract for Docker data on this stack:
 #
 #   A. Named volumes (compose `volumes: [myapp_data:/data]`)
-#      -> /mnt/data/docker/volumes/<name>/_data/
+#      -> /srv/catena/docker/volumes/<name>/_data/
 #      ✓ covered by {{ storage_mount_point }}/docker/volumes
 #
 #   B. Relative bind mounts in a Portainer stack (`- ./myapp:/app`)
@@ -202,19 +202,28 @@ backup_healthcheck_url_operator: "{{ cfg_backup_healthcheck_url_operator | defau
 #      -> /etc/catena/<component>
 #      ✓ covered by /etc (below)
 #
-#   D. Absolute bind mounts under /mnt/data/apps (operator convention)
+#   D. Absolute bind mounts under /srv/catena/apps (operator convention)
 #      ✓ covered by {{ storage_mount_point }}/apps
 #
-#   E. Absolute bind mounts anywhere else (/srv/..., /opt/..., /home/...)
+#   E. Absolute bind mounts anywhere else (/opt/..., /home/..., a disk the
+#      client mounted themselves)
 #      ✗ NOT covered by default. catena-backup-coverage (a lane script in the
 #      catena-admin image payload) runs at the end of every nightly and fails
-#      the run listing any uncovered bind-mount sources. If a client app needs data in a
-#      non-standard location, either move it under /mnt/data/apps OR
-#      extend this list via an inventory-level backup_paths override.
+#      the run listing any uncovered bind-mount sources. The client's answer is
+#      BACKUP_EXTRA_PATHS in catena-admin > Settings, which appends to the set
+#      below and which the coverage lane reads as well -- so declaring a path
+#      both backs it up and stops it reading as uncovered. Moving the data
+#      under {{ storage_mount_point }}/apps works too.
 #
 # pg_dumpall output gets its own dedicated path (backup-staging/pg)
 # populated by the wrapper before restic walks the tree.
-backup_paths:
+#
+# backup_extra_paths is APPENDED rather than merged into the literal: the
+# product's own set is the product's, and a client value that could rewrite it
+# would be a settings field able to stop a host backing up /etc.
+backup_paths: "{{ backup_product_paths + backup_extra_paths }}"
+
+backup_product_paths:
   - "{{ storage_mount_point }}/apps"
   - "{{ storage_mount_point }}/backup-staging"
   - "{{ storage_mount_point }}/docker/volumes"
@@ -235,27 +244,32 @@ backup_paths:
   # `ModuleNotFoundError: No module named 'clients_provisioner'` the moment the
   # timer fires. That is bench 1216 nc_s3_hot_recovery stage-4.
   - /usr/local/lib/catena
-  # Catena's own runtime state. Both were outside the snapshot entirely,
-  # which made them bump-safe but not host-loss-safe -- the one failure
-  # mode the whole product is built around.
+  # Catena's own runtime state. It was outside the snapshot entirely, which
+  # made it bump-safe but not host-loss-safe -- the one failure mode the whole
+  # product is built around.
   #
-  #   /var/lib/catena       chain + recovery + migration state, the
-  #                         verify-hot report, backup-stats. Losing it
-  #                         means a rebuilt host cannot tell what its
-  #                         predecessor had already done: whether the last
-  #                         verify passed, where a half-finished recovery
-  #                         had got to, when the last successful backup
-  #                         ran. This is also what left restore_dr's second
-  #                         converge with work to do.
-  #   /var/lib/catena-admin the hash-chained audit trail (auditlog.go
-  #                         DefaultStateDir). It is the evidence a client
-  #                         shows an auditor, and it is the one artifact
-  #                         the trust work builds that a host loss erases.
+  # It holds the chain, recovery and migration state, the verify-hot report,
+  # the backup stats, and the hash-chained audit trail the panel writes.
+  # Losing it means a rebuilt host cannot tell what its predecessor had already
+  # done: whether the last verify passed, where a half-finished recovery had
+  # got to, when the last successful backup ran. The audit trail is the
+  # evidence a client shows an auditor, and the one artifact the trust work
+  # builds that a host loss erases.
   #
-  # The restic home + cache under /var/lib/catena are excluded below: they
-  # are rebuildable and would churn every snapshot.
+  # The restic home + cache under it are excluded below: they are rebuildable
+  # and would churn every snapshot.
   - /var/lib/catena
-  - /var/lib/catena-admin
+
+# What the client declared, comma-separated in the settings field. Newlines
+# count as separators too, so a value pasted from a file works the same.
+#
+# Relative paths are DROPPED rather than resolved: restic would take one as
+# relative to the wrapper's working directory, which is not a place a client
+# can reason about, and a path that silently backed up the wrong tree is worse
+# than one that is ignored.
+backup_extra_paths: >-
+  {{ (cfg_backup_extra_paths | default('')) | replace('\n', ',')
+     | split(',') | map('trim') | select('match', '^/') | list }}
 
 # restic --exclude patterns (fnmatch-style, applied to absolute paths).
 # Useful for large, already-redundant, or operator-disposable data --

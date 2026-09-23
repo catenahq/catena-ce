@@ -226,13 +226,20 @@ catena_bootstrap_drift_path: /var/lib/catena/bootstrap-drift.json
 catena_boundary_path: "{{ playbook_dir }}/../boundary.yml"
 
 # --- Storage ---
-storage_mode: "{{ lookup('dotenv', 'STORAGE_MODE', default='built_in') }}"
-# /mnt/data everywhere, and named literally in the backup path set, the docker
-# data-root, the volume layout and the restore machine. It is the product's
-# layout, not an operator choice: moving it means moving every one of those
-# with it, and no inventory has ever asked.
-storage_mount_point: "/mnt/data"
-storage_block_device: "{{ lookup('dotenv', 'STORAGE_BLOCK_DEVICE', default='/dev/sdb') }}"
+# The product's data prefix. FHS: "data for services provided by this system".
+# Named literally in the backup path set, the docker data-root, the volume
+# layout and the restore machine, so it is the product's layout rather than an
+# operator choice -- moving it means moving every one of those with it.
+#
+# It also carries a meaning that decides what may live under it: THIS COMES
+# BACK ON A RESTORE. /etc, /usr/local and /var/lib belong to the machine, not
+# to the data, and reconcile's restore engine skips them deliberately. See
+# reconcile/roles/backup/defaults/main.yml.
+#
+# One tier, on the disk the host already has. Catena does not manage block
+# devices: more space is a disk the client mounts themselves and declares in
+# BACKUP_EXTRA_PATHS.
+storage_mount_point: "/srv/catena"
 storage_bulk_enabled: >-
   {{ lookup('dotenv', 'STORAGE_BULK_ENABLED', default='false') | bool }}
 storage_bulk_mount_point: "{{ lookup('dotenv', 'STORAGE_BULK_MOUNT_POINT', default='/mnt/bulk') }}"
@@ -310,7 +317,19 @@ catena_admin_ui_port: "9010"
 # backup_stats_dir; do not move without updating that role + the
 # post-restore.needed marker contract (test_restore_option_a).
 catena_admin_stats_dir: "/var/lib/catena"
-catena_admin_state_dir: "/var/lib/catena-admin"
+# Where the panel writes its own state, chiefly the hash-chained audit trail.
+#
+# UNDER the state directory above rather than beside it. One tier, one parent:
+# two top-level directories for the one answer to "where does Catena keep its
+# runtime state" meant two entries in the backup set, two things a restore
+# could half-carry, and one more path an operator had to know before they could
+# find the audit trail.
+#
+# A SUBDIRECTORY and not the parent itself, because the parent is bind-mounted
+# READ-ONLY into the panel: the lanes' own state is not the panel's to rewrite.
+# The panel's writable scope stays exactly its own directory, the same shape
+# /var/lib/catena/ee-payload already uses.
+catena_admin_state_dir: "/var/lib/catena/admin"
 
 # Default theme rendered into the admin container's env. Inventory override
 # via catena_default_theme. Language has no install-time default: the panel

@@ -4,7 +4,7 @@
 #
 # Scope:
 #   - apt + base packages (common)
-#   - mount /mnt/data (storage)
+#   - mount /srv/catena (storage)
 #   - install restic + write password file + restic restore into /
 #
 # NOT in scope (intentionally): docker / portainer / infrastructure --
@@ -66,7 +66,7 @@
     - name: "Restore complete -- next step"
       ansible.builtin.debug:
         msg: |
-          Filesystem restore OK. The restored data is back under /mnt/data.
+          Filesystem restore OK. The restored data is back under /srv/catena.
           Next: run converge.yml to bring services up on the restored data.
 
             ansible-playbook playbooks/converge.yml --limit {{ inventory_hostname }}

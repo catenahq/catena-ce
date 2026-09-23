@@ -27,6 +27,13 @@ public_ports_managed_paths:
   - "{{ public_ports_lib_dir }}/catena-public-ports.py"
   - "{{ public_ports_lib_dir }}/public_ports.py"
   - "{{ public_ports_lib_dir }}/labels_schema.py"
+  - "{{ public_ports_lib_dir }}/host_paths.py"
+  - "{{ catena_paths_bin }}"
   - /etc/systemd/system/catena-public-ports.service
   - /etc/systemd/system/catena-public-ports.timer
   - /etc/systemd/system/docker.service.d/30-catena-public-ports.conf
+
+# The path inventory a person runs. On PATH because that is what makes it
+# findable, which is the whole point of a command that answers "where does this
+# host keep its things".
+catena_paths_bin: /usr/local/bin/catena-paths

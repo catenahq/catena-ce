@@ -305,7 +305,7 @@
           }}
 
     # The marker lives under /var/lib/catena, which is NOT in backup_paths
-    # (only /etc + /mnt/data + /var/lib/dpkg + /usr/local/bin are), while the
+    # (only /etc + /srv/catena + /var/lib/dpkg + /usr/local/bin are), while the
     # WordPress database that carries the admin's tuned values IS restored. So
     # a restored host has the settings and none of the markers, and without
     # this the seed gate below opens and puts catena's NPP preload method and

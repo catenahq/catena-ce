@@ -1,14 +1,14 @@
 ---
-# built_in mode: no filesystem, no fstab, no mount -- just a parent dir on the
-# root SSD and subdirs under it. All data lives on the VPS's single built-in
-# disk, which is the OVH-VPS / Hetzner-CX-line / DO-basic-droplet shape.
+# The data prefix: a parent directory on the disk the host already has, and the
+# subdirectories under it. No filesystem, no fstab, no mount.
 #
-# Trade-off vs attached mode: cheaper and simpler, but the data disk and the
-# OS disk are the same disk -- a filesystem-level issue takes both. Restic
-# backups mitigate (disk-level corruption is rare in practice on modern SSDs),
-# but for production workloads storage_mode=attached is the stronger posture.
+# The data and the OS share a disk, so a filesystem-level failure takes both.
+# Restic is the mitigation, and it is the one that works across the failures a
+# second disk does not cover -- the provider losing the instance, a delete, a
+# ransom. A client who wants a separate disk mounts one and declares its path
+# for backup; the product does not manage it.
 
-- name: Ensure primary storage mount point exists
+- name: Ensure the data prefix exists
   ansible.builtin.file:
     path: "{{ storage_mount_point }}"
     state: directory

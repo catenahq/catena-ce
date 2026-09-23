@@ -1,28 +1,14 @@
 ---
-# storage_mode, storage_mount_point, storage_block_device,
-# storage_bulk_enabled and storage_bulk_mount_point are NOT declared here.
-# playbooks/group_vars/all/main.yml declares each from a dotenv lookup
-# carrying the same default inline (`default='built_in'`,
-# `default='/dev/sdb'`, ...), it is playbook-adjacent so it loads on every
-# path this role runs on, and role defaults are Ansible's lowest
-# precedence. A copy here could never apply.
-#
-# storage_mode is the whole shape of this role, so what it MEANS belongs
-# next to the tasks that read it rather than next to a value that does not
-# take effect:
-#   built_in  -- carve a subdirectory out of the VPS's built-in SSD. No formatting,
-#               no fstab changes for the primary disk. This is the default for OVH VPS
-#               and any provider without attachable block volumes.
-#   attached  -- format and mount a separate block device (e.g. OVH Public Cloud volume,
-#               Hetzner Volume, DO Block Storage) at storage_mount_point. Persisted in
-#               fstab by UUID (device letters like /dev/sdb shift on reboot).
-#               storage_block_device is read only in this mode.
+# storage_mount_point, storage_bulk_enabled and storage_bulk_mount_point are
+# NOT declared here. playbooks/group_vars/all/main.yml declares each one, it is
+# playbook-adjacent so it loads on every path this role runs on, and role
+# defaults are Ansible's lowest precedence -- a copy here could never apply.
 
 storage_filesystem: ext4
 storage_mount_options: "defaults,noatime"
 
-# Subdirectory layout under storage_mount_point. Consumed by both built_in and
-# attached modes. Ownership + mode chosen for the consumer:
+# Subdirectory layout under storage_mount_point. Ownership + mode chosen for
+# the consumer:
 #   apps           -- per-app compose files, logs, bind-mounted app data.
 #   backup-staging -- pg_dumpall output + restic scratch. Ops-owned.
 #   docker         -- Docker daemon data-root. Named volumes live under
@@ -36,10 +22,11 @@ storage_data_subdirs:
   - { name: backup-staging, owner: "{{ ops_user }}", group: "{{ ops_user }}", mode: "0750" }
   - { name: docker, owner: root, group: root, mode: "0710" }
 
-# Optional bulk tier (Hetzner Storage Box / NFS share / client NAS over tailnet).
-# Runs regardless of storage_mode. Use ONLY for append-only data (media,
-# archives) -- never as DB storage or Docker data-root; latency + availability
-# characteristics are wrong for those.
+# Optional bulk tier (a Storage Box, an NFS share, a client NAS over the
+# tailnet). A REMOTE mount, which is why it survives the removal of the
+# block-device mode: it is genuinely external, and mounting it is the only way
+# to reach it. Use ONLY for append-only data (media, archives) -- never as DB
+# storage or Docker data-root; its latency and availability are wrong for both.
 storage_bulk_type: cifs # or nfs
 storage_bulk_remote: "" # e.g. //u123456.your-storagebox.de/backup, or server:/export
 storage_bulk_mount_options: "" # type-specific default applied when empty

@@ -38,7 +38,7 @@ def test_non_s3_backends_skip() -> None:
     # HTTP probe -- the filter returns "" so the preflight skips them.
     assert f("sftp:user@host:/srv/restic") == ""
     assert f("rest:https://rest.example.com/") == ""
-    assert f("/mnt/data/local-restic") == ""
+    assert f("/srv/catena/local-restic") == ""
 
 
 def test_empty_and_non_string() -> None:

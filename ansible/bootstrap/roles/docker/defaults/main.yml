@@ -1,6 +1,6 @@
 ---
 # Where Docker stores containers/images/volumes. Points at the storage role's
-# /mnt/data/docker subdir so container layers + named volumes live on the
+# /srv/catena/docker subdir so container layers + named volumes live on the
 # block volume (attached mode) or the pre-carved dir (built_in mode), not on
 # the root filesystem where they'd eat into the OS disk.
 docker_data_root: "{{ storage_mount_point }}/docker"

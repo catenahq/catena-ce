@@ -154,15 +154,26 @@ def test_the_prompt_order_is_the_template_order(seed):
     assert [key for key, _ in seed.ENV_KEYS] == in_template
 
 
-def test_env_options_keep_ce_enums(seed):
-    assert seed.ENV_OPTIONS.get("STORAGE_MODE") == ["built_in", "attached"]
+def test_env_options_are_the_registrys_enumerations(seed):
+    """Derived, so the set is whatever the registry enumerates. Held against
+    the registry rather than a literal list, which would be the copy this whole
+    derivation exists to remove."""
+    declared = {
+        knob["key"]: knob["env"]["options"]
+        for knob in render_knobs.env_knobs(render_knobs.rendered())
+        if "options" in knob["env"]
+    }
+    assert seed.ENV_OPTIONS == declared
 
 
 def test_env_options_drop_managed_lifecycle_knobs(seed):
     """Auto-update + scheduled-backup tiers are Business managed-lifecycle
-    features, absent from the Community template + wizard."""
+    features, absent from the Community template + wizard. STORAGE_MODE is not
+    a Community knob either: the product owns one data prefix on the disk the
+    host already has and manages no block devices."""
     for key in ("AUTO_UPDATE_MODE", "AUTO_UPDATE_REBOOT",
-                "AUTO_UPDATE_PROVIDER", "BACKUP_TIER"):
+                "AUTO_UPDATE_PROVIDER", "BACKUP_TIER",
+                "STORAGE_MODE", "STORAGE_BLOCK_DEVICE"):
         assert key not in seed.ENV_OPTIONS
 
 

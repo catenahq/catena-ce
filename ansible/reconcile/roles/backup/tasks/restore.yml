@@ -109,7 +109,7 @@
       Fix: `systemctl enable --now systemd-timesyncd` and wait for
       NTPSynchronized=yes before re-running.
 
-# Restore is a cold operation -- restoring /mnt/data (and friends)
+# Restore is a cold operation -- restoring /srv/catena (and friends)
 # underneath live containers corrupts state. Operators can't stop
 # catena-portainer / catena-postgres / cloudflared / catena-traefik by
 # hand: they're swarm services (auto-reconciled) or `restart=always`
@@ -226,7 +226,7 @@
       Stopped docker.service + docker.socket but `docker ps` still lists
       running containers after a 60s drain window. Something is keeping the
       daemon up (socket activation, watchdog, operator session). Investigate
-      before re-running restore -- writing into /mnt/data under live
+      before re-running restore -- writing into /srv/catena under live
       containers corrupts state. NOTE: this play masked docker.service +
       docker.socket for the restore window; run `systemctl unmask
       docker.service docker.socket` after investigating.

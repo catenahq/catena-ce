@@ -604,6 +604,6 @@
           Diagnostic output dumped above. Common causes:
             - restic can't reach the S3 endpoint (DNS, ufw, creds).
             - pg_dumpall failed (postgres down, auth mismatch).
-            - /mnt/data/backup-staging/pg is not writable.
+            - /srv/catena/backup-staging/pg is not writable.
             - restic repo init race (another host reaching the
               same bucket concurrently).
