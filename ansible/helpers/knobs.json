@@ -168,7 +168,7 @@
     },
     {
       "key": "storage_bulk_username",
-      "doc": "CIFS credentials for the optional bulk mount. Client-held: the share is the client's NAS. NFS authenticates by source IP and supplies neither.",
+      "doc": "CIFS credentials for the optional bulk mount. Client-held: the share is the client's NAS. NFS authenticates by source IP and supplies neither. The storage role's bulk.yml names both on the settings page when it asks for them, so the page has to offer them under exactly these names.",
       "panel": {
         "group": "share",
         "section": "secrets",
@@ -601,6 +601,7 @@
       "key": "SMTP_SENDER",
       "residence": "store",
       "var": "cfg_smtp_sender",
+      "doc": "ONE address, whichever provider routes it. A field per provider (RESEND_SENDER_EMAIL, BREVO_SENDER_EMAIL, SMTP_FROM, one non-empty at a time) would make the converge infer which is active, and switching provider would mean knowing to CLEAR the old field rather than filling the new one -- leaving it filled would keep sending through the provider the client just left.",
       "panel": {
         "group": "mail",
         "section": "config",
