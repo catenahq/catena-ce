@@ -28,13 +28,18 @@ Run: uv run pytest tests/unit/test_every_hostname_a_template_uses_is_declared.py
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 import yaml
 
 ANSIBLE_DIR = Path(__file__).resolve().parents[2]
+if str(ANSIBLE_DIR) not in sys.path:
+    sys.path.insert(0, str(ANSIBLE_DIR))
+
+from helpers import onbox_config  # noqa: E402
+
 GROUP_VARS = ANSIBLE_DIR / "playbooks" / "group_vars" / "all" / "main.yml"
-ONBOX_CONFIG = ANSIBLE_DIR / "helpers" / "onbox_config.py"
 TREES = ("reconcile", "bootstrap", "playbooks")
 
 # Ansible's own. Always defined, never declared by this tree.
@@ -77,12 +82,11 @@ def _declared() -> set[str]:
     names.update(k for k in gv if _ADDRESS_REF.fullmatch(str(k)))
 
     # The store projection. load_onbox_config.yml set_facts one `cfg_<name>`
-    # per key the panel can write, from the map in onbox_config.py, so those
-    # are declared at runtime rather than in any vars file. Read from that map
-    # rather than skipped by prefix: a `cfg_` name the projection does NOT
-    # carry is still a variable nothing defines, which is the whole point.
-    names.update(re.findall(
-        r'"(cfg_[a-z0-9_]+)"', ONBOX_CONFIG.read_text(encoding="utf-8")))
+    # per key the panel can write, so those are declared at runtime rather than
+    # in any vars file. Read THE MAP, not a prefix: a `cfg_` name the
+    # projection does not carry is still a variable nothing defines, which is
+    # the whole point.
+    names.update(onbox_config.SETTINGS_CONFIG.values())
 
     for path in _text_files():
         text = path.read_text(encoding="utf-8", errors="replace")
