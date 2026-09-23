@@ -5,7 +5,7 @@ With `-i install.yaml` (bench / power user), generates a fresh inventory:
 reads env/host/vault values from the file, prompts for anything missing.
 
 Without one, inventory/<name>/.env must already exist -- copied from
-inventory/example/.env.example and hand-filled, same as any other config
+inventory/example/.env.example and filled in, same as any other config
 file -- and seed reads it directly instead of prompting field by field.
 hosts.yml/localhost.yml auto-scaffold from skel/ regardless of which path
 ran; an existing file's values always win (reconcile-not-overwrite):
@@ -79,7 +79,32 @@ HOSTS_YML_SKEL = SKEL / "hosts.yml.example"
 # or loaded via importlib spec_from_file_location (the test fixture pattern).
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
-from helpers import net_retry  # noqa: E402
+from helpers import net_retry, render_knobs  # noqa: E402
+
+# --- the knobs the installer asks about -------------------------------------
+#
+# Declared in helpers/knobs.yml, read here from the rendered registry, and
+# rendered into ENV_TEMPLATE by the same renderer. So the prompts, the template
+# and the on-box store cannot disagree about which keys exist, what they
+# default to, or which values a key accepts.
+#
+# The template is still read as TEXT, for emit_env: an inventory `.env` keeps
+# the explanation beside the value, and what a client reads in their own file
+# has to be what they read in the one they copied.
+#
+# Order is the template's, not the registry's, so a client answering prompts
+# and a client editing the file walk the same sequence.
+_KNOBS = render_knobs.rendered()
+ENV_KEYS: list[tuple[str, str]] = [
+    (knob["key"], knob["env"]["default"]) for knob in render_knobs.env_knobs(_KNOBS)
+]
+# Enumerated values, shown inline in the prompt. Booleans are auto-detected
+# from the default, so only a non-boolean enumeration is declared.
+ENV_OPTIONS: dict[str, list[str]] = {
+    knob["key"]: knob["env"]["options"]
+    for knob in render_knobs.env_knobs(_KNOBS)
+    if "options" in knob["env"]
+}
 
 PLACEHOLDER_VALUES = {"REPLACE", "REPLACE-LONG-RANDOM-STRING"}
 
@@ -424,9 +449,9 @@ def load_input(path: Path | None) -> dict:
     return split_install_dict(raw)
 
 
-def parse_env_template(path: Path) -> tuple[list[tuple[str, str]], str]:
-    text = path.read_text()
-    keys: list[tuple[str, str]] = []
+def parse_env_pairs(text: str) -> list[tuple[str, str]]:
+    """The KEY=value lines of a `.env`, in file order, quotes stripped."""
+    pairs: list[tuple[str, str]] = []
     for raw in text.splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
@@ -435,8 +460,8 @@ def parse_env_template(path: Path) -> tuple[list[tuple[str, str]], str]:
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
             value = value[1:-1]
-        keys.append((key.strip(), value))
-    return keys, text
+        pairs.append((key.strip(), value))
+    return pairs
 
 
 def read_existing_env(path: Path) -> dict[str, str]:
@@ -444,8 +469,7 @@ def read_existing_env(path: Path) -> dict[str, str]:
     as the template) into a provided-values dict, so _collect_env_values()
     takes the already-in-provided fast path for every key instead of
     prompting for it."""
-    pairs, _ = parse_env_template(path)
-    return dict(pairs)
+    return dict(parse_env_pairs(path.read_text()))
 
 
 # --- prompting --------------------------------------------------------------
@@ -457,14 +481,6 @@ def _is_filled(value) -> bool:
     s = str(value).strip()
     return bool(s) and not _is_placeholder(s)
 
-
-# Enumerated .env values, shown inline in the prompt. Booleans are
-# auto-detected from the default (no entry needed). The managed-lifecycle
-# knobs (auto-update mode/reboot/provider, scheduled backup tier) are
-# Business features and absent from the Community template.
-ENV_OPTIONS: dict[str, list[str]] = {
-    "STORAGE_MODE": ["built_in", "attached"],
-}
 
 _BOOL_VALUES = ("true", "false")
 
@@ -561,15 +577,7 @@ def emit_env(template_text: str, values: dict[str, str], target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     existing: dict[str, str] = {}
     if target.exists():
-        for raw in target.read_text().splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, _, v = line.partition("=")
-            v = v.strip()
-            if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
-                v = v[1:-1]
-            existing[k.strip()] = v
+        existing = dict(parse_env_pairs(target.read_text()))
 
     out: list[str] = []
     for raw in template_text.splitlines():
@@ -939,10 +947,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         inv_dir = REPO_ROOT / "inventory" / inventory
 
-    env_keys, env_template = parse_env_template(ENV_TEMPLATE)
+    env_keys, env_template = ENV_KEYS, ENV_TEMPLATE.read_text()
     # install.yaml (bench / power user) supplies env values directly and
     # generates the inventory from scratch. Without one, .env must already
-    # exist -- copied from inventory/example/.env.example and hand-filled --
+    # exist -- copied from inventory/example/.env.example and filled in --
     # so it answers every field instead of prompting for it one at a time.
     if args.input:
         if inv_dir.exists():

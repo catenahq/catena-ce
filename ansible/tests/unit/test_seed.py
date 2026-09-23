@@ -1,12 +1,15 @@
 """Unit tests for the Community installer's seed.py.
 
-Covers the Community decomposition: the plaintext vault emit, the trimmed
-VAULT_SKIP_KEYS / ENV_OPTIONS (no managed-lifecycle knobs), the CE-only
-service-secret minting, and the file-emit helpers."""
+Covers what seed owns under 0b: it holds no vault and mints nothing, it asks
+only for the credentials that JOIN the host to its tailnet, it reads its
+question list from the knob registry, and it writes the inventory files plus
+one transient adopt map.
+"""
 from __future__ import annotations
 
 import importlib.util
 import io
+import sys
 from pathlib import Path
 
 import pytest
@@ -14,6 +17,10 @@ import yaml
 
 ANSIBLE_DIR = Path(__file__).resolve().parents[2]
 SEED_PATH = ANSIBLE_DIR / "seed.py"
+if str(ANSIBLE_DIR) not in sys.path:
+    sys.path.insert(0, str(ANSIBLE_DIR))
+
+from helpers import render_knobs  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -119,7 +126,29 @@ def test_vault_template_machinery_is_gone(seed):
         assert not hasattr(seed, gone), f"{gone} should be removed"
 
 
-# --- ENV_OPTIONS (no managed-lifecycle knobs) -------------------------------
+# --- the question list comes from the registry ------------------------------
+def test_the_prompts_are_the_registrys_env_knobs(seed):
+    """Which keys seed asks about, and what each defaults to, is declared once.
+
+    A hand-kept list here is a fourth copy of the same names, beside the
+    template, the store's two maps and the panel's schema. Copies of one
+    declaration drift, which is what the registry exists to stop: so the list
+    is DERIVED, and the template it prompts from renders from the same source.
+    """
+    declared = [
+        (knob["key"], knob["env"]["default"])
+        for knob in render_knobs.env_knobs(render_knobs.rendered())
+    ]
+    assert seed.ENV_KEYS == declared
+
+
+def test_the_prompt_order_is_the_template_order(seed):
+    """A client answering prompts and a client editing the file walk the same
+    sequence, or the two surfaces describe the install in different orders."""
+    in_template = [key for key, _ in seed.parse_env_pairs(seed.ENV_TEMPLATE.read_text())]
+    assert [key for key, _ in seed.ENV_KEYS] == in_template
+
+
 def test_env_options_keep_ce_enums(seed):
     assert seed.ENV_OPTIONS.get("STORAGE_MODE") == ["built_in", "attached"]
 
@@ -541,7 +570,7 @@ def test_blank_headscale_fields_are_an_answer_not_a_prompt(seed, monkeypatch):
     TTY that must consume no input: reading here would mean the blank was
     treated as unanswered."""
     _fake_tty_stdin(monkeypatch, "SHOULD_NOT_BE_READ\n")
-    env_keys, _ = seed.parse_env_template(seed.ENV_TEMPLATE)
+    env_keys = seed.ENV_KEYS
     provided = _answered(env_keys)
     provided["TAILNET_CONTROL_URL"] = ""
     provided["HEADSCALE_USER"] = ""
@@ -554,7 +583,7 @@ def test_blank_headscale_fields_are_an_answer_not_a_prompt(seed, monkeypatch):
 
 def test_filled_headscale_fields_select_headscale(seed, monkeypatch):
     _fake_tty_stdin(monkeypatch, "SHOULD_NOT_BE_READ\n")
-    env_keys, _ = seed.parse_env_template(seed.ENV_TEMPLATE)
+    env_keys = seed.ENV_KEYS
     provided = _answered(env_keys)
     provided["TAILNET_CONTROL_URL"] = "https://hs.example.net"
     provided["HEADSCALE_USER"] = "alice"

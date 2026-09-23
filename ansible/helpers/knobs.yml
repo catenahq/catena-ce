@@ -19,12 +19,24 @@
 # drifted across two sessions before a test was written to hold two of the four
 # together.
 #
+# `inventory/example/.env.example` is the SECOND rendered artifact, produced by
+# the same `render_knobs.py --write`. `env_header` is its preamble,
+# `env_sections` is the ordered list of headings it groups keys under, and each
+# knob's `env.section` names the one it belongs to. Its order comes from
+# `env_sections`, so this file can group by residence while the file a client
+# edits groups by subject.
+#
 # WHAT IS NOT HERE. Secrets the client never supplies: the internal service
 # secrets and the user-held DR keyset are minted on-box, and the role-minted
 # ones are captured by the role that provisioned them. All three carry python
 # callables or a role name rather than a client-facing shape, nothing outside
 # the box reads them, and none of them is ever rendered on a form. They stay in
 # `onbox_config.py`.
+#
+# PROSE IS RENDERED, so write it for a client reading the template as well as
+# for whoever edits this file. A `doc` is one folded paragraph and is re-wrapped
+# on the way out; a line indented further than its neighbours is held verbatim,
+# which is how a command or a JSON fragment keeps its shape.
 #
 # FIELD MEANINGS
 #
@@ -41,9 +53,11 @@
 #               not follow that rule, and a derived mapping fails silently by
 #               publishing a fact nothing reads. Absent means no projection --
 #               a runtime lane reads the value straight off the store.
-#   env         the value the generated `.env.example` carries. Absent means
-#               the key never appears in the template. An EMPTY default is also
-#               what marks a key optional to seed's structural checks.
+#   env         the key's place in the generated `.env.example`: which
+#               `section` it prints under, the `default` it carries, and the
+#               `options` it is limited to. Absent means the key never appears
+#               in the template. An EMPTY default is also what marks a key
+#               optional to seed's structural checks.
 #   panel       how catena-admin renders it. Absent means the settings page
 #               does not show it.
 #   depends     the choice field and values that govern whether the panel shows
@@ -52,6 +66,88 @@
 #               rather than the `on` it reads as in English, because YAML 1.1
 #               parses a bare `on` as the boolean true.
 version: 1
+
+env_header: |-
+  catena: client-editable, non-secret configuration.
+
+  GENERATED from catena-ce/ansible/helpers/knobs.yml. To change a key or its
+  explanation, edit that file and run `python3 helpers/render_knobs.py
+  --write`; an edit made here is replaced by the next render, and fails the
+  CI check until then.
+
+  Copy it to `.env` inside a host directory (gitignored), one per inventory
+  so several hosts coexist in one checkout: inventory/example/.env,
+  inventory/clientco/.env. Ansible resolves <inventory_dir>/.env through the
+  `dotenv` lookup plugin at playbooks/lookup_plugins/, and group_vars reads a
+  value with "{{ lookup('dotenv', 'KEY') }}".
+
+  No secret belongs in here, or anywhere else in an inventory. Every secret
+  lives on the target at /etc/catena/config.json, minted there or entered in
+  catena-admin > Settings. See catena-ce/SECRETS.md.
+
+env_sections:
+  - name: host
+    title: Host
+    doc: |-
+      Where the box is and how the first SSH lands on it, before the ops
+      account exists and before the firewall closes.
+
+  - name: ssh
+    title: SSH
+    doc: |-
+      Generate the pair once:
+
+          ssh-keygen -t ed25519 -f ~/.ssh/catena_ed25519 -C catena
+
+  - name: tailnet
+    title: Private network
+    doc: |-
+      Every host joins a private network before anything else is reachable.
+      One method, two providers: Tailscale SaaS or a self-hosted Headscale.
+
+      The three keys below SEED the on-box store on the first converge and
+      are never read again. After the install the choice lives in
+      catena-admin > Settings > Access and tunnels, which is where a client
+      changes it; editing them here afterwards changes nothing.
+
+      Tailscale SaaS: leave all three blank. `catena install` prints the
+      one-time admin-console steps, then prompts for the OAuth client id and
+      secret. Headscale: set TAILNET_PROVIDER=headscale and fill the two
+      below it; `catena install` prompts instead for a headscale_api_key
+      (preferred, a short-lived tagged pre-auth key is minted per run) or a
+      static headscale_preauth_key.
+
+      Either credential is asked for at install rather than in the panel,
+      because it is what JOINS the host to the tailnet and the panel is
+      published on that tailnet. Rotating it later is a Settings job;
+      supplying it the first time cannot be.
+
+  - name: cloudflare
+    title: Cloudflare
+
+  - name: admin
+    title: Admin identity
+
+  - name: storage
+    title: Storage
+    doc: |-
+      The primary disk holds app data and the Docker data-root under one
+      prefix, which the backup set, the volume layout and the restore machine
+      all name.
+
+  - name: site
+    title: Site policy
+
+  - name: locale
+    title: Locale and timezone
+
+  - name: development
+    title: Development only
+    doc: |-
+      Leave every key in this section at its default on a client install.
+      They point certificate issuance at a local Pebble or at Let's Encrypt
+      staging, whose certificates browsers, TURN clients and sending MTAs all
+      reject. The test bench sets them to its own host-side ACME server.
 
 # --- vendor credentials the client HOLDS ------------------------------------
 #
@@ -151,22 +247,22 @@ config:
     doc: >-
       The provider's public IPv4. Used during bootstrap, before the firewall
       closes and the box is reached another way.
-    env: {default: "203.0.113.10"}
+    env: {section: host, default: "203.0.113.10"}
 
   - key: HOST_INITIAL_USER
     residence: host
     doc: >-
       The provider's default login for that same phase (root, ubuntu, debian,
       ec2-user). Not OPS_USER -- that account does not exist yet.
-    env: {default: "root"}
+    env: {section: host, default: "root"}
 
   - key: HOST_SSH_PORT
     residence: host
     doc: >-
       The port the controller CONNECTS on, written into hosts.yml as
-      ansible_port. The firewall rules are a separate question and name 22
-      literally, so a non-default port here is not yet carried end to end.
-    env: {default: "22"}
+      ansible_port. The firewall rules name 22 literally, so a value here moves
+      what the controller dials and not what the host opens.
+    env: {section: host, default: "22"}
 
   # ---- the installer needs these before there is a box to ask ----
   - key: SSH_PRIVATE_KEY
@@ -174,24 +270,24 @@ config:
     doc: >-
       A dedicated keypair for this project, so revoking at engagement end is
       throwing away one file. The installer offers to generate it when absent.
-    env: {default: "~/.ssh/catena_ed25519"}
+    env: {section: ssh, default: "~/.ssh/catena_ed25519"}
 
   - key: SSH_PUBLIC_KEY_FILE
     residence: controller
-    env: {default: "~/.ssh/catena_ed25519.pub"}
+    env: {section: ssh, default: "~/.ssh/catena_ed25519.pub"}
 
   - key: OPS_USER
     residence: controller
     doc: The non-root account created on every VPS, authorized for the key above.
-    env: {default: "ops"}
+    env: {section: ssh, default: "ops"}
 
   - key: COMMON_TIMEZONE
     residence: controller
-    env: {default: "America/Toronto"}
+    env: {section: locale, default: "America/Toronto"}
 
   - key: COMMON_LOCALE
     residence: controller
-    env: {default: "en_CA.UTF-8"}
+    env: {section: locale, default: "en_CA.UTF-8"}
 
   - key: TAILSCALE_TAGS
     residence: controller
@@ -200,26 +296,24 @@ config:
       authorized on the control server first, or key minting rejects with a
       400. Read with NO default, so a missing key fails the lookup rather than
       falling back to a tag the credential is not scoped for.
-    env: {default: "tag:vps"}
+    env: {section: tailnet, default: "tag:vps"}
 
   - key: TAILSCALE_ACCEPT_DNS
     residence: controller
     doc: Whether Tailscale may override systemd-resolved. Usually false.
-    env: {default: "false"}
+    env: {section: tailnet, default: "false"}
 
   - key: STORAGE_MODE
     residence: controller
     doc: >-
       built_in carves directories on the root disk; attached formats and mounts
-      a separate block device. Scheduled for removal -- the product is dropping
-      block-device management, and switching mode on a live host mounts over a
-      populated directory and hides every volume.
-    env: {default: "built_in", options: [built_in, attached]}
+      a separate block device.
+    env: {section: storage, default: "built_in", options: [built_in, attached]}
 
   - key: STORAGE_BLOCK_DEVICE
     residence: controller
-    doc: Read only when STORAGE_MODE is attached. Removed with it.
-    env: {default: "/dev/sdb"}
+    doc: Read only when STORAGE_MODE is attached.
+    env: {section: storage, default: "/dev/sdb"}
 
   - key: STORAGE_BULK_ENABLED
     residence: controller
@@ -227,11 +321,11 @@ config:
       A separate optional tier over CIFS or NFS, independent of the primary
       disk. Append-only data only: never database storage, never the Docker
       data-root.
-    env: {default: "false"}
+    env: {section: storage, default: "false"}
 
   - key: STORAGE_BULK_MOUNT_POINT
     residence: controller
-    env: {default: "/mnt/bulk"}
+    env: {section: storage, default: "/mnt/bulk"}
 
   # ---- the install's identity ----
   - key: CLOUDFLARE_ZONE
@@ -242,7 +336,7 @@ config:
       this is the value the rest of the page renders against. Blank is a real
       state -- a server is installed before its domain is decided, and the
       public surface defers until one arrives.
-    env: {default: ""}
+    env: {section: cloudflare, default: ""}
     panel: {group: hostnames, section: config, kind: text, optional: true}
 
   - key: ADMIN_EMAIL
@@ -250,9 +344,10 @@ config:
     var: cfg_admin_email
     doc: >-
       One address for the Portainer admin and the initial realm admin. The
-      matching password is minted on the box and shown once. A host fact by any
-      reading, which is why the `.env` only seeds it.
-    env: {default: "operator@example.com"}
+      matching password is minted on the box and shown once at the end of the
+      install, with the first-login URLs. A host fact by any reading, which is
+      why the `.env` only seeds it.
+    env: {section: admin, default: "operator@example.com"}
 
   # ---- public hostnames ----
   #
@@ -267,8 +362,9 @@ config:
       The one subdomain three sources give three answers for -- `portainer` in
       the shipped starter, `apps` in the operator skeleton, `admin` for
       established clients -- which is what makes it a host fact rather than the
-      product's.
-    env: {default: "portainer"}
+      product's. The rest are the product's scheme and are compiled in, because
+      a host has to converge itself without reading this file.
+    env: {section: cloudflare, default: "portainer"}
     panel: {group: hostnames, section: config, kind: text, optional: true}
 
   - key: KEYCLOAK_SUBDOMAIN
@@ -300,23 +396,25 @@ config:
     residence: store
     var: cfg_cloudflared_tunnel_prefix
     doc: >-
-      Prefixes the name of the tunnel a host creates. A store key because the
-      host composes its own tunnel name and reads the prefix straight off the
-      store, which is what lets the cloudflared actions ship in the image
-      instead of being rendered by a converge.
-    env: {default: ""}
+      Prefixes the name of the tunnel a host creates. Blank leaves each host
+      owning one tunnel named after its inventory hostname; a prefix of
+      "corp-" on a host named "vps1" names the tunnel "corp-vps1". A store key
+      because the host composes its own tunnel name and reads the prefix
+      straight off the store, which is what lets the cloudflared actions ship
+      in the image instead of being rendered by a converge.
+    env: {section: cloudflare, default: ""}
 
   # ---- the private network ----
   - key: TAILNET_PROVIDER
     residence: store
     var: cfg_tailnet_provider
     doc: >-
-      The whole routing decision. Explicit rather than inferred from whether a
-      control URL happens to be filled in: that inference made "switch back to
-      Tailscale" mean "know to CLEAR a field", and a blank submission on the
-      settings page means "leave this alone", so the client could make that
-      decision in one direction only.
-    env: {default: ""}
+      The whole routing decision. Blank means Tailscale SaaS. Explicit rather
+      than inferred from whether a control URL happens to be filled in: that
+      inference made "switch back to Tailscale" mean "know to CLEAR a field",
+      and a blank submission on the settings page means "leave this alone", so
+      the client could make that decision in one direction only.
+    env: {section: tailnet, default: ""}
     panel:
       group: tunnel
       section: config
@@ -329,7 +427,7 @@ config:
     residence: store
     var: cfg_tailnet_control_url
     doc: The Headscale server's base URL.
-    env: {default: ""}
+    env: {section: tailnet, default: ""}
     panel: {group: tunnel, section: config, kind: text, optional: true}
     depends: {choice: TAILNET_PROVIDER, values: [headscale]}
 
@@ -339,7 +437,7 @@ config:
     doc: >-
       The Headscale user the minted pre-auth keys belong to; Headscale keys are
       per-user, and the advertised tag must be in THAT user's tagOwners.
-    env: {default: ""}
+    env: {section: tailnet, default: ""}
     panel: {group: tunnel, section: config, kind: text, optional: true}
     depends: {choice: TAILNET_PROVIDER, values: [headscale]}
 
@@ -477,15 +575,18 @@ config:
     residence: store
     var: cfg_apt_proxy_url
     doc: >-
-      Optional apt HTTP proxy. HTTPS sources stay direct. A site policy rather
-      than an install input.
-    env: {default: ""}
+      Optional apt HTTP proxy, typically an apt-cacher-ng. Blank pulls direct.
+      HTTPS sources stay direct either way. A site policy rather than an
+      install input.
+    env: {section: site, default: ""}
 
   - key: DOCKER_REGISTRY_MIRROR_URL
     residence: store
     var: cfg_docker_registry_mirror_url
-    doc: Optional pull-through mirror. Empty pulls from docker.io directly.
-    env: {default: ""}
+    doc: >-
+      Optional pull-through mirror, as a base URL with scheme, host and port.
+      Blank pulls from docker.io directly.
+    env: {section: site, default: ""}
 
   # ---- certificate issuance, development only ----
   #
@@ -496,26 +597,33 @@ config:
   - key: COTURN_CERTBOT_STAGING
     residence: store
     var: cfg_coturn_certbot_staging
-    env: {default: "false"}
+    doc: >-
+      Issue the coturn TLS-TURN certificate from Let's Encrypt's staging CA.
+      Staging has no rate limit and coturn only validates presence and expiry.
+    env: {section: development, default: "false"}
 
   - key: MAILSERVER_CERTBOT_STAGING
     residence: store
     var: cfg_mailserver_certbot_staging
-    env: {default: "false"}
+    doc: The same, for the self-hosted mailserver's mail.<zone> certificate.
+    env: {section: development, default: "false"}
 
   - key: CATENA_ACME_DIRECTORY_URL
     residence: store
     var: cfg_acme_directory_url
-    env: {default: ""}
+    doc: >-
+      A local ACME server's directory endpoint. Blank issues against Let's
+      Encrypt as normal.
+    env: {section: development, default: ""}
 
   - key: CATENA_ACME_HOST_IP
     residence: store
     var: cfg_acme_host_ip
     doc: Mapped to the hostname `pebble` in /etc/hosts, Pebble's endpoint-cert SAN.
-    env: {default: ""}
+    env: {section: development, default: ""}
 
   - key: CATENA_ACME_CA_BUNDLE_PEM_B64
     residence: store
     var: cfg_acme_ca_bundle_b64
     doc: Base64 because a raw multi-line PEM cannot live in a `.env`.
-    env: {default: ""}
+    env: {section: development, default: ""}

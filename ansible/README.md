@@ -73,7 +73,7 @@ arguments the CLI opens an interactive menu and prompts for both; `catena
 refused with the correct shape rather than an argparse choice error.
 
 `install` first runs `seed.py`: with no `-i`, `.env` must already exist
-(copied from `inventory/example/.env.example`, hand-filled -- the only
+(copied from `inventory/example/.env.example` and filled in -- the only
 file in that directory, and the only one a self-hoster ever copies), and
 seed reads its config from there instead of prompting field by field --
 the only thing it still prompts for is the Tailscale OAuth credential,

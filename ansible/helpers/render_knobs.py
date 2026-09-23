@@ -1,30 +1,38 @@
 #!/usr/bin/env python3
-"""Render helpers/knobs.yml to helpers/knobs.json, and check the two agree.
+"""Render helpers/knobs.yml to its two artifacts, and check they are current.
 
-THE JSON IS THE ARTIFACT EVERY CONSUMER READS. The YAML is what a human edits:
-it carries the rationale, and the rationale is the half that decides whether
-the next knob is declared in the right place.
+THE ARTIFACTS ARE WHAT EVERY CONSUMER READS. The YAML is what a human edits: it
+carries the rationale, and the rationale is the half that decides whether the
+next knob is declared in the right place.
+
+    helpers/knobs.json                  the registry, for the store, the panel
+                                        and the installer
+    inventory/example/.env.example      the template a client fills in
 
 Why a rendered copy rather than one file. `onbox_config.py` runs as root on a
 minimal target host whose system python has no PyYAML -- it says so about
 itself, and being stdlib-only is the reason it can run there at all. So the
 registry has to reach that host as JSON. catena-admin reads the same JSON
 rather than regex-parsing python out of a sibling repo, which is what it did
-before this file existed.
+before this file existed. The `.env` template is rendered for a different
+reason: it was a fourth place the same keys, defaults and prose were written
+down by hand.
 
-    render_knobs.py --write     regenerate knobs.json
-    render_knobs.py --check     exit 1 when it is stale
+    render_knobs.py --write     regenerate both artifacts
+    render_knobs.py --check     exit 1 when either is stale
 
-The check runs in CI. A knob added to the YAML without re-rendering would be a
-knob the panel and the store never learn about, which is exactly the drift the
-registry exists to stop -- so it has to fail loudly rather than take effect on
-whoever next happens to run --write.
+`tests/unit/test_knobs_registry_is_the_declaration.py` runs the check, so CI
+fails on a stale artifact. A knob added to the YAML without re-rendering would
+be a knob the panel and the store never learn about, which is exactly the drift
+the registry exists to stop -- so it has to fail loudly rather than take effect
+on whoever next happens to run --write.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+import textwrap
 from pathlib import Path
 
 import yaml
@@ -32,6 +40,7 @@ import yaml
 HERE = Path(__file__).resolve().parent
 SOURCE = HERE / "knobs.yml"
 RENDERED = HERE / "knobs.json"
+ENV_TEMPLATE = HERE.parent / "inventory" / "example" / ".env.example"
 
 RESIDENCES = ("store", "controller", "host")
 KINDS = ("secret", "text", "choice")
@@ -41,6 +50,14 @@ SECTIONS = ("secrets", "config")
 # the two lists together.
 GROUPS = ("tunnel", "backup", "mail", "alerts", "share", "access", "license",
           "hostnames")
+
+# The rendered template's comment width, and the characters a `.env` value
+# cannot carry unquoted. A default holding one of them would render a line that
+# parses back as something else, so it is refused at the source rather than
+# quoted on the way out: a template default is an illustration, and one that
+# needs escaping is the wrong illustration.
+ENV_WIDTH = 74
+ENV_UNQUOTABLE = " \t#\"'$"
 
 
 class KnobError(ValueError):
@@ -77,9 +94,30 @@ def _check_panel(key: str, panel: dict) -> None:
                  f"{key}: options on a {panel['kind']} field are read by nothing")
 
 
+def _check_env(key: str, env: dict, sections: set[str]) -> None:
+    _require(isinstance(env, dict), f"{key}: env is not a mapping")
+    _require(env.get("section") in sections,
+             f"{key}: env section {env.get('section')!r} is not a declared "
+             f"section; the template would have nowhere to print it")
+    default = env.get("default")
+    _require(isinstance(default, str),
+             f"{key}: env needs a string default (an empty one marks it optional)")
+    _require(not any(c in default for c in ENV_UNQUOTABLE),
+             f"{key}: the default {default!r} cannot be written unquoted in a "
+             ".env, so it is the wrong default to illustrate the field with")
+    options = env.get("options")
+    if options is not None:
+        _require(isinstance(options, list) and options,
+                 f"{key}: env options is empty")
+        _require(all(isinstance(o, str) for o in options),
+                 f"{key}: env options must be strings")
+        _require(default in options,
+                 f"{key}: the default {default!r} is not one of {options}")
+
+
 def load(source: Path = SOURCE) -> dict:
-    """Parse and VALIDATE the registry. Every consumer reads the rendered JSON,
-    so this is the only place the shape is enforced."""
+    """Parse and VALIDATE the registry. Every consumer reads a rendered
+    artifact, so this is the only place the shape is enforced."""
     doc = yaml.safe_load(source.read_text())
     _require(isinstance(doc, dict), "knobs.yml: top level is not a mapping")
     _require(doc.get("version") == 1, "knobs.yml: expected version 1")
@@ -88,6 +126,20 @@ def load(source: Path = SOURCE) -> dict:
     config = doc.get("config") or []
     _require(isinstance(secrets, list), "knobs.yml: secrets is not a list")
     _require(isinstance(config, list), "knobs.yml: config is not a list")
+
+    _require(isinstance(doc.get("env_header"), str) and doc["env_header"].strip(),
+             "knobs.yml: env_header is the template's preamble and cannot be empty")
+    env_sections = doc.get("env_sections") or []
+    _require(isinstance(env_sections, list) and env_sections,
+             "knobs.yml: env_sections is the template's running order")
+    section_names: list[str] = []
+    for section in env_sections:
+        _require(isinstance(section, dict), f"env_sections: {section!r} is not a mapping")
+        name, title = section.get("name"), section.get("title")
+        _require(isinstance(name, str) and name, f"env_sections: {section!r} has no name")
+        _require(isinstance(title, str) and title, f"env_sections {name}: no title")
+        _require(name not in section_names, f"env_sections {name}: declared twice")
+        section_names.append(name)
 
     seen: set[str] = set()
     for entry in [*secrets, *config]:
@@ -120,12 +172,20 @@ def load(source: Path = SOURCE) -> dict:
         if "var" in entry:
             _require(residence == "store",
                      f"{key}: only a stored value is projected onto an Ansible fact")
+        if "env" in entry:
+            _check_env(key, entry["env"], set(section_names))
         if entry.get("panel"):
             _require(residence == "store",
                      f"{key}: the panel writes the store, so only a stored value "
                      "can be a field on it")
             _require(entry["panel"]["section"] == "config",
                      f"{key}: a config value renders in the config section")
+
+    # A heading with nothing under it renders as a section break followed by the
+    # next section, which reads as a key having gone missing.
+    used = {e["env"]["section"] for e in config if "env" in e}
+    empty = [n for n in section_names if n not in used]
+    _require(not empty, f"env_sections: {empty} carry no key")
 
     # `depends` is checked last, against the whole registry: it names another
     # knob and values of it, and both halves have to resolve or the page hides
@@ -155,39 +215,130 @@ def load(source: Path = SOURCE) -> dict:
     return doc
 
 
+def rendered(path: Path = RENDERED) -> dict:
+    """The registry as the consumers read it. Every reader that has PyYAML
+    still reads the JSON, so a stale render makes them all stale together
+    rather than making one of them disagree with the rest."""
+    return json.loads(path.read_text())
+
+
 def render(doc: dict) -> str:
-    """The artifact. Declaration order is preserved -- it is the order the
-    settings page renders fields within a group -- and the trailing newline
+    """The registry artifact. Declaration order is preserved -- it is the order
+    the settings page renders fields within a group -- and the trailing newline
     keeps the file diffable."""
     return json.dumps(doc, indent=2) + "\n"
+
+
+def env_knobs(doc: dict) -> list[dict]:
+    """The config knobs the `.env` carries, in the order the template prints
+    them. seed prompts in this order too, so a client answering the prompts and
+    a client editing the file walk the same sequence."""
+    by_section: dict[str, list[dict]] = {}
+    for entry in doc["config"]:
+        env = entry.get("env")
+        if env:
+            by_section.setdefault(env["section"], []).append(entry)
+    out: list[dict] = []
+    for section in doc["env_sections"]:
+        out.extend(by_section.get(section["name"], []))
+    return out
+
+
+def _comment(text: str) -> list[str]:
+    """Prose as `#` comment lines, re-wrapped to one column.
+
+    Consecutive unindented lines are one paragraph, so a folded scalar and a
+    hand-wrapped literal block come out the same width. A blank line ends a
+    paragraph and a line indented further than the margin is held verbatim,
+    which is how a command keeps its shape.
+    """
+    out: list[str] = []
+    paragraph: list[str] = []
+
+    def flush() -> None:
+        if paragraph:
+            # Neither a hyphenated word nor a long path is a wrap point: both
+            # break into halves that read as two things.
+            out.extend(f"# {chunk}" for chunk
+                       in textwrap.wrap(" ".join(paragraph), ENV_WIDTH,
+                                        break_on_hyphens=False,
+                                        break_long_words=False))
+            paragraph.clear()
+
+    for line in (text or "").strip("\n").splitlines():
+        if not line.strip():
+            flush()
+            out.append("#")
+        elif line.startswith((" ", "\t")):
+            flush()
+            out.append(f"# {line}".rstrip())
+        else:
+            paragraph.append(line.strip())
+    flush()
+    return out
+
+
+def render_env(doc: dict) -> str:
+    """The `.env` template: the preamble, then one block per section, then one
+    commented, defaulted key per knob that declares an env home."""
+    lines = _comment(doc["env_header"])
+    by_section: dict[str, list[dict]] = {}
+    for entry in doc["config"]:
+        env = entry.get("env")
+        if env:
+            by_section.setdefault(env["section"], []).append(entry)
+
+    for section in doc["env_sections"]:
+        lines.append("")
+        lines.append(f"# --- {section['title']} ".ljust(78, "-"))
+        if section.get("doc"):
+            lines.append("#")
+            lines.extend(_comment(section["doc"]))
+        for entry in by_section.get(section["name"], []):
+            lines.append("")
+            if entry.get("doc"):
+                lines.extend(_comment(entry["doc"]))
+            options = entry["env"].get("options")
+            if options:
+                lines.extend(_comment(f"One of: {', '.join(options)}."))
+            lines.append(f"{entry['key']}={entry['env']['default']}")
+    return "\n".join(lines) + "\n"
+
+
+# Each artifact: where it lives, and what rendering the source produces for it.
+_ARTIFACTS = ((RENDERED, render), (ENV_TEMPLATE, render_env))
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     mode = ap.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--write", action="store_true", help="regenerate knobs.json")
+    mode.add_argument("--write", action="store_true", help="regenerate both artifacts")
     mode.add_argument("--check", action="store_true",
-                      help="exit 1 when knobs.json is stale")
+                      help="exit 1 when either artifact is stale")
     args = ap.parse_args(argv)
 
     try:
-        payload = render(load())
+        doc = load()
+        payloads = [(path, renderer(doc)) for path, renderer in _ARTIFACTS]
     except KnobError as exc:
         print(f"knobs.yml: {exc}", file=sys.stderr)
         return 1
 
     if args.write:
-        RENDERED.write_text(payload)
-        print(f"wrote {RENDERED}")
+        for path, payload in payloads:
+            path.write_text(payload)
+            print(f"wrote {path}")
         return 0
 
-    current = RENDERED.read_text() if RENDERED.exists() else ""
-    if current == payload:
-        print(f"{RENDERED.name} is current")
+    stale = [path for path, payload in payloads
+             if (path.read_text() if path.exists() else "") != payload]
+    if not stale:
+        print(f"{', '.join(p.name for p in (RENDERED, ENV_TEMPLATE))} are current")
         return 0
-    print(f"{RENDERED.name} is STALE -- run `python3 helpers/render_knobs.py --write` "
-          "and commit the result", file=sys.stderr)
+    print(f"STALE: {', '.join(str(p) for p in stale)} -- run "
+          "`python3 helpers/render_knobs.py --write` and commit the result",
+          file=sys.stderr)
     return 1
 
 

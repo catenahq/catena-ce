@@ -1,20 +1,17 @@
-"""helpers/knobs.yml is the registry, and the rendered JSON says the same thing.
+"""helpers/knobs.yml is the registry, and its two artifacts say the same thing.
 
 Three properties, and the third is the one with teeth.
 
-The first two are about the artifact: the YAML parses and validates, and
-knobs.json is what rendering it produces. A stale JSON is a knob the store and
-the panel never learn about, so `render_knobs.py --check` failing here is the
-same signal CI gives.
+The first two are about the artifacts: the YAML parses and validates, and
+knobs.json plus inventory/example/.env.example are what rendering it produces.
+A stale artifact is a knob the store, the panel or the installer never learns
+about, so `render_knobs.py --check` failing here is the same signal CI gives.
 
 The third holds what onbox_config DERIVES from the registry: which credentials
 the store accepts, which knobs reach the converge as facts, and that the three
 residences partition rather than overlap. Plus the two failure modes of reading
 a file instead of holding a literal -- an absent registry has to raise rather
 than empty, and an explicit path has to win.
-
-The `.env` template is still hand-written, so the last assertion holds it
-against the registry's defaults. It goes when the template is generated.
 """
 from __future__ import annotations
 
@@ -23,14 +20,13 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 ANSIBLE_DIR = Path(__file__).resolve().parents[2]
 if str(ANSIBLE_DIR) not in sys.path:
     sys.path.insert(0, str(ANSIBLE_DIR))
 
 from helpers import onbox_config, render_knobs  # noqa: E402
-
-ENV_TEMPLATE = ANSIBLE_DIR / "inventory" / "example" / ".env.example"
 
 
 @pytest.fixture(scope="module")
@@ -43,9 +39,9 @@ def test_source_validates():
     render_knobs.load()
 
 
-def test_rendered_json_is_current():
+def test_both_artifacts_are_current():
     assert render_knobs.main(["--check"]) == 0, (
-        "knobs.json is stale -- run `python3 helpers/render_knobs.py --write`"
+        "an artifact is stale -- run `python3 helpers/render_knobs.py --write`"
     )
 
 
@@ -123,27 +119,44 @@ def test_every_knob_has_exactly_one_owner(registry):
         assert knob["residence"] in render_knobs.RESIDENCES, knob["key"]
 
 
-def test_env_template_keys_are_declared(registry):
-    """Every KEY= line in the shipped template is a knob that declares an env
-    default, and every such knob appears in the template.
+def test_the_env_template_carries_every_key_that_declares_one(registry):
+    """The generated template is the registry's env knobs and nothing else.
 
-    This is what lets seed stop parsing the template for its key list: once the
-    generated file IS the registry's output, the two cannot disagree. Until
-    then, they must not.
+    `test_both_artifacts_are_current` already compares the file byte for byte
+    with what rendering produces, so what is left to state is the property that
+    comparison cannot: that the RENDERER emits one line per declared key. A
+    renderer that dropped a section would still be self-consistent, and the
+    missing key would read as a knob nobody ever added.
     """
     declared = {k["key"]: k["env"]["default"] for k in registry["config"] if "env" in k}
+    assert declared, "no knob declares an env home, so the template is empty"
 
     in_template: dict[str, str] = {}
-    for raw in ENV_TEMPLATE.read_text().splitlines():
+    for raw in render_knobs.render_env(registry).splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
         in_template[key.strip()] = value.strip()
 
-    assert set(in_template) == set(declared), (
-        "template and registry disagree about WHICH keys are in the .env"
-    )
-    assert in_template == declared, (
-        "template and registry disagree about a DEFAULT"
-    )
+    assert in_template == declared
+
+
+def test_a_section_with_no_key_is_refused(tmp_path):
+    """A heading renders as a section break followed by the next section, so an
+    empty one reads as a key having gone missing rather than as a heading nobody
+    filled in."""
+    doc = render_knobs.load()
+    doc["env_sections"].append({"name": "orphan", "title": "Orphan"})
+    source = tmp_path / "knobs.yml"
+    source.write_text(yaml.safe_dump(doc, sort_keys=False))
+    with pytest.raises(render_knobs.KnobError, match="orphan"):
+        render_knobs.load(source)
+
+
+def test_a_default_that_needs_quoting_is_refused():
+    """A template default is an illustration, and one that renders a line
+    parsing back as something else is the wrong illustration."""
+    with pytest.raises(render_knobs.KnobError, match="unquoted"):
+        render_knobs._check_env(
+            "SOME_KEY", {"section": "host", "default": "two words"}, {"host"})

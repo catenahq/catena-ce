@@ -2,14 +2,21 @@
 
 Source of truth for **where every secret and config value comes from, who
 holds it, and where it must end up** under the client-owned-config model
-(0b). Derived from `helpers/onbox_config.py` (`INTERNAL_SECRETS` +
-`USER_HELD_SECRETS` minted on-box; `EXTERNAL_SECRETS` client-supplied;
-`ROLE_MINTED_SECRETS` minted by the service and captured by its role),
-`seed.py` (`INSTALL_EXTERNAL_KEYS` -- the only creds prompted at install,
-written to the transient `--secrets-out` adopt file and nowhere else),
-`inventory/example/.env.example`, and `reconcile/roles/backup/defaults/main.yml`
-(`backup_paths`). **Nothing secret is persisted on the controller** --
-`catena install` writes no secret file into the inventory.
+(0b). Derived from:
+
+- `helpers/knobs.yml`, the registry: every value a client supplies, with
+  its residence, its `.env` default and its panel shape. `EXTERNAL_SECRETS`
+  and the non-secret config maps are read from it, and
+  `inventory/example/.env.example` is rendered from it.
+- `helpers/onbox_config.py` for the three categories no client supplies:
+  `INTERNAL_SECRETS` + `USER_HELD_SECRETS` minted on-box, and
+  `ROLE_MINTED_SECRETS` minted by the service and captured by its role.
+- `seed.py` (`INSTALL_EXTERNAL_KEYS` -- the only creds prompted at install,
+  written to the transient `--secrets-out` adopt file and nowhere else).
+- `reconcile/roles/backup/defaults/main.yml` (`backup_paths`).
+
+**Nothing secret is persisted on the controller** -- `catena install`
+writes no secret file into the inventory.
 
 ## North star
 

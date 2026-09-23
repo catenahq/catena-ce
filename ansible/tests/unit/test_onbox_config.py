@@ -657,7 +657,12 @@ def test_every_dotenv_key_the_converge_reads_is_declared(oc):
     is tracked, and its `.example` suffix kept it out of the scan by accident --
     so the first real `inventory/<name>/hosts.yml` on any developer's machine
     failed this gate on keys (HOST_PUBLIC_IP, HOST_SSH_PORT, HOST_INITIAL_USER)
-    that are inventory-only by design and have no on-box owner to declare."""
+    that are inventory-only by design and have no on-box owner to declare.
+
+    `helpers/knobs.yml` is excluded on the same ground, one level further back:
+    it is the DECLARATION every owner in `known` comes from, and it shows a
+    client how group_vars reads a value, so the lookup it prints is an
+    illustration rather than a read."""
     import re
     root = ANSIBLE_DIR
     pattern = re.compile(r"lookup\('dotenv',\s*'([A-Z0-9_]+)'")
@@ -668,6 +673,8 @@ def test_every_dotenv_key_the_converge_reads_is_declared(oc):
         if not path.is_file() or path.suffix not in {".yml", ".yaml", ".j2"}:
             continue
         if ".collections" in s or "/tests/" in s or "/inventory/" in s:
+            continue
+        if path.name == "knobs.yml":
             continue
         for key in pattern.findall(path.read_text()):
             if key not in known:
