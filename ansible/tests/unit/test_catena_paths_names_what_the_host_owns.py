@@ -43,9 +43,9 @@ def test_the_data_prefix_is_the_only_thing_a_restore_brings_back():
 
 def test_the_machine_keeps_its_own_identity():
     """These are in the snapshot and skipped by a restore. A listing that
-    called them data would tell a client a rebuilt host comes back with its ssh
-    host keys, its firewall state and its binaries replaced by the dead host's
-    -- which is exactly what the restore engine refuses to do."""
+    called them data would promise a client that a rebuilt host comes back
+    carrying the dead host's ssh host keys, firewall state and binaries, which
+    is exactly what the restore engine refuses to do."""
     for path in ("/etc/catena/config.json", "/etc/ssh/ssh_host_ed25519_key",
                  "/usr/local/bin/catena-backup-run",
                  "/usr/local/lib/catena/public_ports.py",

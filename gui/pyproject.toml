@@ -1,0 +1,32 @@
+[project]
+name = "catena-gui"
+version = "0.1.0"
+description = "Graphical installer for Catena: a local console process serving a browser UI on loopback"
+requires-python = ">=3.12"
+# PyYAML only. The launcher writes one install.yaml and hands it to the CLI;
+# the UI is stdlib http.server, because a wizard on loopback needs routing and
+# forms and nothing a framework adds beyond that -- and every dependency here
+# is one a client has to install before they can install anything else.
+dependencies = [
+    "pyyaml>=6",
+]
+
+[project.scripts]
+# `uv run catena-gui` from gui/. catena_gui.__main__ IS the implementation, so
+# the console script and the file to read are the same place.
+catena-gui = "catena_gui.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools]
+packages = ["catena_gui"]

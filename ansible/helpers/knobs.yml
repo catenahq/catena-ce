@@ -60,6 +60,11 @@
 #               optional to seed's structural checks.
 #   panel       how catena-admin renders it. Absent means the settings page
 #               does not show it.
+#   step        which page of the graphical installer asks for it, named in
+#               `gui_steps`. Absent means the launcher never asks: the value is
+#               either the product's, or a setting the client makes afterwards
+#               in the panel. An install has to be answerable in one sitting,
+#               so this list is deliberately shorter than the panel's.
 #   depends     the choice field and values that govern whether the panel shows
 #               this one. The same fact the converge acts on, which is why it
 #               is declared and not left to a template. The field is `choice`
@@ -84,6 +89,88 @@ env_header: |-
   No secret belongs in here, or anywhere else in an inventory. Every secret
   lives on the target at /etc/catena/config.json, minted there or entered in
   catena-admin > Settings. See catena-ce/SECRETS.md.
+
+# The graphical installer's pages, in order. Each knob that names one appears
+# on it; a knob that names none is never asked for.
+#
+# EVERY STEP VALIDATES BEFORE IT ADVANCES, and the `validates` line says what it
+# proves. An installer that collects six pages of answers and discovers on the
+# last one that the first credential was wrong has spent the client's whole
+# sitting to tell them something it knew at the start.
+#
+# The launcher holds no knob knowledge of its own: it renders these pages from
+# this file. Adding a knob with a `step` puts it on that page.
+gui_steps:
+  - name: target
+    title: The server
+    doc: |-
+      Where Catena is going, and the key that reaches it. A machine that
+      already exists: the launcher does not order one, because ordering means
+      holding a client's cloud credentials.
+    validates: |-
+      The address answers on the SSH port, and the keypair is on this machine
+      (the launcher offers to generate one when it is not).
+
+  - name: domain
+    title: The domain
+    doc: |-
+      The name this server answers on. Every address it publishes is a name
+      under it, and the token is what lets the server create them.
+
+      Blank is a real answer. A server installed with no domain finishes with
+      no public surface and is reached over the private network; the domain and
+      its token are entered together in the panel afterwards, and the next
+      converge publishes it.
+    validates: |-
+      The token is live, it reaches this domain, and the domain is ACTIVE at
+      Cloudflare. A domain still waiting on its registrar's nameservers
+      resolves nowhere, so an install on one would publish records nobody can
+      follow.
+
+  - name: access
+    title: Getting back in
+    doc: |-
+      How this server is reached for maintenance after the install. On the
+      private network the installer closes the public SSH port once it has
+      proven the new path from this machine; without one the port stays open,
+      because a server with no other way in has nothing to prove.
+    validates: |-
+      The credential exchanges for a token at the provider, and this machine
+      can reach the network it joins. Both, because minting a key for a network
+      this machine cannot reach produces a server nobody here can administer.
+
+  - name: backup
+    title: Backup
+    doc: |-
+      Where snapshots go. The repository is ONE address that already carries
+      the endpoint and the bucket, and the keys are what open it.
+
+      This is also the keyset a client keeps: with the repository, the two S3
+      keys and the restic password, a wiped server is rebuilt from nothing
+      else.
+    validates: |-
+      The endpoint answers. Whether the credentials open the repository is
+      proven by the first backup, on the server, where restic runs.
+
+  - name: locale
+    title: Language and time
+    doc: |-
+      The server's own locale and timezone. They decide what its logs and its
+      scheduled jobs are stamped with, not what the panel is read in -- the
+      panel switches language per visitor.
+    validates: |-
+      Nothing to prove: both are settings on the server itself.
+
+  - name: keyset
+    title: Save these
+    doc: |-
+      The passwords the server mints for itself and shows ONCE: the first-login
+      password, the backup encryption password, and the console break-glass
+      password. Nothing off the server holds a copy.
+    validates: |-
+      An explicit acknowledgement that they are saved. This step is the last
+      one and it cannot be skipped: without it the launcher ships installs
+      nobody can recover.
 
 env_sections:
   - name: host
@@ -172,6 +259,7 @@ env_sections:
 # a documented path that raises.
 secrets:
   - key: cloudflare_api_token
+    step: domain
     doc: >-
       The one credential the public surface needs. The account id is not an
       input: the host engine resolves it from the token.
@@ -184,6 +272,7 @@ secrets:
       field on the settings form.
 
   - key: tailscale_oauth_client_id
+    step: access
     doc: >-
       Tailscale SaaS mints a per-converge tagged auth key from this client, so
       nothing long-lived lands on the VPS. Required on that path, hidden on the
@@ -192,10 +281,12 @@ secrets:
     depends: {choice: TAILNET_PROVIDER, values: [tailscale]}
 
   - key: tailscale_oauth_client_secret
+    step: access
     panel: {group: tunnel, section: secrets, kind: secret, optional: false}
     depends: {choice: TAILNET_PROVIDER, values: [tailscale]}
 
   - key: headscale_api_key
+    step: access
     doc: >-
       Headscale has no OAuth API. The node joins with a pre-auth key, minted
       per converge from this one (preferred, nothing long-lived on the VPS).
@@ -205,14 +296,17 @@ secrets:
     depends: {choice: TAILNET_PROVIDER, values: [headscale]}
 
   - key: headscale_preauth_key
+    step: access
     doc: The static fallback when no API key is stored. Long-lived, hence second.
     panel: {group: tunnel, section: secrets, kind: secret, optional: true}
     depends: {choice: TAILNET_PROVIDER, values: [headscale]}
 
   - key: backup_s3_access_key
+    step: backup
     panel: {group: backup, section: secrets, kind: secret, optional: false}
 
   - key: backup_s3_secret_key
+    step: backup
     panel: {group: backup, section: secrets, kind: secret, optional: false}
 
   - key: smtp_password
@@ -260,6 +354,7 @@ secrets:
 config:
   # ---- the target's identity (hosts.yml, neither store nor .env) ----
   - key: HOST_PUBLIC_IP
+    step: target
     residence: host
     doc: >-
       The provider's public IPv4. Used during bootstrap, before the firewall
@@ -267,6 +362,7 @@ config:
     env: {section: host, default: "203.0.113.10"}
 
   - key: HOST_INITIAL_USER
+    step: target
     residence: host
     doc: >-
       The provider's default login for that same phase (root, ubuntu, debian,
@@ -274,6 +370,7 @@ config:
     env: {section: host, default: "root"}
 
   - key: HOST_SSH_PORT
+    step: target
     residence: host
     doc: >-
       The port the controller CONNECTS on, written into hosts.yml as
@@ -283,6 +380,7 @@ config:
 
   # ---- the installer needs these before there is a box to ask ----
   - key: SSH_PRIVATE_KEY
+    step: target
     residence: controller
     doc: >-
       A dedicated keypair for this project, so revoking at engagement end is
@@ -290,23 +388,28 @@ config:
     env: {section: ssh, default: "~/.ssh/catena_ed25519"}
 
   - key: SSH_PUBLIC_KEY_FILE
+    step: target
     residence: controller
     env: {section: ssh, default: "~/.ssh/catena_ed25519.pub"}
 
   - key: OPS_USER
+    step: target
     residence: controller
     doc: The non-root account created on every VPS, authorized for the key above.
     env: {section: ssh, default: "ops"}
 
   - key: COMMON_TIMEZONE
+    step: locale
     residence: controller
     env: {section: locale, default: "America/Toronto"}
 
   - key: COMMON_LOCALE
+    step: locale
     residence: controller
     env: {section: locale, default: "en_CA.UTF-8"}
 
   - key: TAILSCALE_TAGS
+    step: access
     residence: controller
     doc: >-
       Comma-separated tags advertised by each node. Every tag must be
@@ -334,6 +437,7 @@ config:
 
   # ---- the install's identity ----
   - key: CLOUDFLARE_ZONE
+    step: domain
     residence: store
     var: cfg_cloudflare_zone
     doc: >-
@@ -361,6 +465,7 @@ config:
   # Blank means the product's own default, which is what every host used when
   # these were compiled in.
   - key: PORTAINER_SUBDOMAIN
+    step: domain
     residence: store
     var: cfg_portainer_admin_subdomain
     doc: >-
@@ -411,6 +516,7 @@ config:
 
   # ---- the access plane ----
   - key: ACCESS_METHOD
+    step: access
     residence: store
     var: cfg_access_method
     doc: >-
@@ -431,6 +537,7 @@ config:
       warning: settings.warning.access_method
 
   - key: TAILNET_PROVIDER
+    step: access
     residence: store
     var: cfg_tailnet_provider
     doc: >-
@@ -451,6 +558,7 @@ config:
     depends: {choice: ACCESS_METHOD, values: [tailnet]}
 
   - key: TAILNET_CONTROL_URL
+    step: access
     residence: store
     var: cfg_tailnet_control_url
     doc: The Headscale server's base URL.
@@ -459,6 +567,7 @@ config:
     depends: {choice: TAILNET_PROVIDER, values: [headscale]}
 
   - key: HEADSCALE_USER
+    step: access
     residence: store
     var: cfg_headscale_user
     doc: >-
@@ -470,6 +579,7 @@ config:
 
   # ---- backup ----
   - key: BACKUP_RESTIC_REPO
+    step: backup
     residence: store
     var: cfg_backup_restic_repo
     panel: {group: backup, section: config, kind: text, optional: false}

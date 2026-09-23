@@ -1,6 +1,44 @@
 {
   "version": 1,
   "env_header": "catena: client-editable, non-secret configuration.\n\nGENERATED from catena-ce/ansible/helpers/knobs.yml. To change a key or its\nexplanation, edit that file and run `python3 helpers/render_knobs.py\n--write`; an edit made here is replaced by the next render, and fails the\nCI check until then.\n\nCopy it to `.env` inside a host directory (gitignored), one per inventory\nso several hosts coexist in one checkout: inventory/example/.env,\ninventory/clientco/.env. Ansible resolves <inventory_dir>/.env through the\n`dotenv` lookup plugin at playbooks/lookup_plugins/, and group_vars reads a\nvalue with \"{{ lookup('dotenv', 'KEY') }}\".\n\nNo secret belongs in here, or anywhere else in an inventory. Every secret\nlives on the target at /etc/catena/config.json, minted there or entered in\ncatena-admin > Settings. See catena-ce/SECRETS.md.",
+  "gui_steps": [
+    {
+      "name": "target",
+      "title": "The server",
+      "doc": "Where Catena is going, and the key that reaches it. A machine that\nalready exists: the launcher does not order one, because ordering means\nholding a client's cloud credentials.",
+      "validates": "The address answers on the SSH port, and the keypair is on this machine\n(the launcher offers to generate one when it is not)."
+    },
+    {
+      "name": "domain",
+      "title": "The domain",
+      "doc": "The name this server answers on. Every address it publishes is a name\nunder it, and the token is what lets the server create them.\n\nBlank is a real answer. A server installed with no domain finishes with\nno public surface and is reached over the private network; the domain and\nits token are entered together in the panel afterwards, and the next\nconverge publishes it.",
+      "validates": "The token is live, it reaches this domain, and the domain is ACTIVE at\nCloudflare. A domain still waiting on its registrar's nameservers\nresolves nowhere, so an install on one would publish records nobody can\nfollow."
+    },
+    {
+      "name": "access",
+      "title": "Getting back in",
+      "doc": "How this server is reached for maintenance after the install. On the\nprivate network the installer closes the public SSH port once it has\nproven the new path from this machine; without one the port stays open,\nbecause a server with no other way in has nothing to prove.",
+      "validates": "The credential exchanges for a token at the provider, and this machine\ncan reach the network it joins. Both, because minting a key for a network\nthis machine cannot reach produces a server nobody here can administer."
+    },
+    {
+      "name": "backup",
+      "title": "Backup",
+      "doc": "Where snapshots go. The repository is ONE address that already carries\nthe endpoint and the bucket, and the keys are what open it.\n\nThis is also the keyset a client keeps: with the repository, the two S3\nkeys and the restic password, a wiped server is rebuilt from nothing\nelse.",
+      "validates": "The endpoint answers. Whether the credentials open the repository is\nproven by the first backup, on the server, where restic runs."
+    },
+    {
+      "name": "locale",
+      "title": "Language and time",
+      "doc": "The server's own locale and timezone. They decide what its logs and its\nscheduled jobs are stamped with, not what the panel is read in -- the\npanel switches language per visitor.",
+      "validates": "Nothing to prove: both are settings on the server itself."
+    },
+    {
+      "name": "keyset",
+      "title": "Save these",
+      "doc": "The passwords the server mints for itself and shows ONCE: the first-login\npassword, the backup encryption password, and the console break-glass\npassword. Nothing off the server holds a copy.",
+      "validates": "An explicit acknowledgement that they are saved. This step is the last\none and it cannot be skipped: without it the launcher ships installs\nnobody can recover."
+    }
+  ],
   "env_sections": [
     {
       "name": "host",
@@ -48,6 +86,7 @@
   "secrets": [
     {
       "key": "cloudflare_api_token",
+      "step": "domain",
       "doc": "The one credential the public surface needs. The account id is not an input: the host engine resolves it from the token.",
       "panel": {
         "group": "tunnel",
@@ -62,6 +101,7 @@
     },
     {
       "key": "tailscale_oauth_client_id",
+      "step": "access",
       "doc": "Tailscale SaaS mints a per-converge tagged auth key from this client, so nothing long-lived lands on the VPS. Required on that path, hidden on the Headscale one, so the badge is only read where it is true.",
       "panel": {
         "group": "tunnel",
@@ -78,6 +118,7 @@
     },
     {
       "key": "tailscale_oauth_client_secret",
+      "step": "access",
       "panel": {
         "group": "tunnel",
         "section": "secrets",
@@ -93,6 +134,7 @@
     },
     {
       "key": "headscale_api_key",
+      "step": "access",
       "doc": "Headscale has no OAuth API. The node joins with a pre-auth key, minted per converge from this one (preferred, nothing long-lived on the VPS). Either this or the static key satisfies the converge, so neither is required on its own.",
       "panel": {
         "group": "tunnel",
@@ -109,6 +151,7 @@
     },
     {
       "key": "headscale_preauth_key",
+      "step": "access",
       "doc": "The static fallback when no API key is stored. Long-lived, hence second.",
       "panel": {
         "group": "tunnel",
@@ -125,6 +168,7 @@
     },
     {
       "key": "backup_s3_access_key",
+      "step": "backup",
       "panel": {
         "group": "backup",
         "section": "secrets",
@@ -134,6 +178,7 @@
     },
     {
       "key": "backup_s3_secret_key",
+      "step": "backup",
       "panel": {
         "group": "backup",
         "section": "secrets",
@@ -207,6 +252,7 @@
   "config": [
     {
       "key": "HOST_PUBLIC_IP",
+      "step": "target",
       "residence": "host",
       "doc": "The provider's public IPv4. Used during bootstrap, before the firewall closes and the box is reached another way.",
       "env": {
@@ -216,6 +262,7 @@
     },
     {
       "key": "HOST_INITIAL_USER",
+      "step": "target",
       "residence": "host",
       "doc": "The provider's default login for that same phase (root, ubuntu, debian, ec2-user). Not OPS_USER -- that account does not exist yet.",
       "env": {
@@ -225,6 +272,7 @@
     },
     {
       "key": "HOST_SSH_PORT",
+      "step": "target",
       "residence": "host",
       "doc": "The port the controller CONNECTS on, written into hosts.yml as ansible_port. The firewall rules name 22 literally, so a value here moves what the controller dials and not what the host opens.",
       "env": {
@@ -234,6 +282,7 @@
     },
     {
       "key": "SSH_PRIVATE_KEY",
+      "step": "target",
       "residence": "controller",
       "doc": "A dedicated keypair for this project, so revoking at engagement end is throwing away one file. The installer offers to generate it when absent.",
       "env": {
@@ -243,6 +292,7 @@
     },
     {
       "key": "SSH_PUBLIC_KEY_FILE",
+      "step": "target",
       "residence": "controller",
       "env": {
         "section": "ssh",
@@ -251,6 +301,7 @@
     },
     {
       "key": "OPS_USER",
+      "step": "target",
       "residence": "controller",
       "doc": "The non-root account created on every VPS, authorized for the key above.",
       "env": {
@@ -260,6 +311,7 @@
     },
     {
       "key": "COMMON_TIMEZONE",
+      "step": "locale",
       "residence": "controller",
       "env": {
         "section": "locale",
@@ -268,6 +320,7 @@
     },
     {
       "key": "COMMON_LOCALE",
+      "step": "locale",
       "residence": "controller",
       "env": {
         "section": "locale",
@@ -276,6 +329,7 @@
     },
     {
       "key": "TAILSCALE_TAGS",
+      "step": "access",
       "residence": "controller",
       "doc": "Comma-separated tags advertised by each node. Every tag must be authorized on the control server first, or key minting rejects with a 400. Read with NO default, so a missing key fails the lookup rather than falling back to a tag the credential is not scoped for.",
       "env": {
@@ -311,6 +365,7 @@
     },
     {
       "key": "CLOUDFLARE_ZONE",
+      "step": "domain",
       "residence": "store",
       "var": "cfg_cloudflare_zone",
       "doc": "THE identity of the install: every public hostname is <sub>.<zone>, so this is the value the rest of the page renders against. Blank is a real state -- a server is installed before its domain is decided, and the public surface defers until one arrives.",
@@ -337,6 +392,7 @@
     },
     {
       "key": "PORTAINER_SUBDOMAIN",
+      "step": "domain",
       "residence": "store",
       "var": "cfg_portainer_admin_subdomain",
       "doc": "The one subdomain three sources give three answers for -- `portainer` in the shipped starter, `apps` in the operator skeleton, `admin` for established clients -- which is what makes it a host fact rather than the product's. The rest are the product's scheme and are compiled in, because a host has to converge itself without reading this file.",
@@ -418,6 +474,7 @@
     },
     {
       "key": "ACCESS_METHOD",
+      "step": "access",
       "residence": "store",
       "var": "cfg_access_method",
       "doc": "How this host is reached for administration, and therefore whether public port 22 can be closed. `tailnet` closes it once the tailnet path has been proven from the machine about to lose it; `public_ssh` keeps it open, because a host with no alternative path has nothing to prove and closing it would be a lockout. A stored value rather than a derived one: it rides /etc into the snapshot, so a rebuilt host comes back with the firewall posture it had rather than the one a default would pick.",
@@ -443,6 +500,7 @@
     },
     {
       "key": "TAILNET_PROVIDER",
+      "step": "access",
       "residence": "store",
       "var": "cfg_tailnet_provider",
       "doc": "Which control plane the tailnet runs on. Blank means Tailscale SaaS. Explicit rather than inferred from whether a control URL happens to be filled in: that inference made \"switch back to Tailscale\" mean \"know to CLEAR a field\", and a blank submission on the settings page means \"leave this alone\", so the client could make that decision in one direction only.",
@@ -470,6 +528,7 @@
     },
     {
       "key": "TAILNET_CONTROL_URL",
+      "step": "access",
       "residence": "store",
       "var": "cfg_tailnet_control_url",
       "doc": "The Headscale server's base URL.",
@@ -492,6 +551,7 @@
     },
     {
       "key": "HEADSCALE_USER",
+      "step": "access",
       "residence": "store",
       "var": "cfg_headscale_user",
       "doc": "The Headscale user the minted pre-auth keys belong to; Headscale keys are per-user, and the advertised tag must be in THAT user's tagOwners.",
@@ -514,6 +574,7 @@
     },
     {
       "key": "BACKUP_RESTIC_REPO",
+      "step": "backup",
       "residence": "store",
       "var": "cfg_backup_restic_repo",
       "panel": {

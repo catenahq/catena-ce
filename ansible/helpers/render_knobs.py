@@ -141,6 +141,21 @@ def load(source: Path = SOURCE) -> dict:
         _require(name not in section_names, f"env_sections {name}: declared twice")
         section_names.append(name)
 
+    gui_steps = doc.get("gui_steps") or []
+    _require(isinstance(gui_steps, list) and gui_steps,
+             "knobs.yml: gui_steps is the launcher's running order")
+    step_names: list[str] = []
+    for step in gui_steps:
+        _require(isinstance(step, dict), f"gui_steps: {step!r} is not a mapping")
+        name = step.get("name")
+        _require(isinstance(name, str) and name, f"gui_steps: {step!r} has no name")
+        _require(name not in step_names, f"gui_steps {name}: declared twice")
+        for field in ("title", "doc", "validates"):
+            value = step.get(field)
+            _require(isinstance(value, str) and value.strip(),
+                     f"gui_steps {name}: no {field}")
+        step_names.append(name)
+
     seen: set[str] = set()
     for entry in [*secrets, *config]:
         _require(isinstance(entry, dict), f"knobs.yml: entry {entry!r} is not a mapping")
@@ -150,6 +165,10 @@ def load(source: Path = SOURCE) -> dict:
         seen.add(key)
         if "panel" in entry:
             _check_panel(key, entry["panel"])
+        if "step" in entry:
+            _require(entry["step"] in step_names,
+                     f"{key}: step {entry['step']!r} is not a declared gui step, "
+                     f"so the launcher would have nowhere to ask for it")
 
     for entry in secrets:
         key = entry["key"]
@@ -186,6 +205,14 @@ def load(source: Path = SOURCE) -> dict:
     used = {e["env"]["section"] for e in config if "env" in e}
     empty = [n for n in section_names if n not in used]
     _require(not empty, f"env_sections: {empty} carry no key")
+
+    # A step with no field is not the same mistake. `keyset` deliberately has
+    # none -- it is an acknowledgement, not a form -- so only a step that is
+    # neither used nor LAST is a heading nobody filled in.
+    asked = {e["step"] for e in [*secrets, *config] if "step" in e}
+    orphan = [n for n in step_names[:-1] if n not in asked]
+    _require(not orphan,
+             f"gui_steps: {orphan} ask for nothing and are not the final step")
 
     # `depends` is checked last, against the whole registry: it names another
     # knob and values of it, and both halves have to resolve or the page hides
@@ -227,6 +254,17 @@ def render(doc: dict) -> str:
     the settings page renders fields within a group -- and the trailing newline
     keeps the file diffable."""
     return json.dumps(doc, indent=2) + "\n"
+
+
+def step_knobs(doc: dict, step: str) -> list[dict]:
+    """What one installer page asks for, secrets first.
+
+    Secrets first because that is the order a page reads in: the credential
+    that proves a thing, then the values it configures. It is also the order
+    the settings page uses, so a client who has seen one recognises the other.
+    """
+    return [entry for entry in [*doc["secrets"], *doc["config"]]
+            if entry.get("step") == step]
 
 
 def env_knobs(doc: dict) -> list[dict]:
