@@ -76,8 +76,9 @@ refused with the correct shape rather than an argparse choice error.
 (copied from `inventory/example/.env.example` and filled in -- the only
 file in that directory, and the only one a self-hoster ever copies), and
 seed reads its config from there instead of prompting field by field --
-the only thing it still prompts for is the Tailscale OAuth credential,
-staged to a transient 0600 file. `hosts.yml`/`localhost.yml` auto-scaffold
+what it still prompts for is the tailnet join credential, and the
+Cloudflare token when the inventory names a domain, both staged to a
+transient 0600 file. `hosts.yml`/`localhost.yml` auto-scaffold
 from `skel/` on that same first run; nothing else to copy or edit.
 `-i install.yaml --no-confirm` generates a fresh inventory from an
 answers file instead (the bench / power-user path), unattended.

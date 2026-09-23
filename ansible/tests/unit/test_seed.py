@@ -97,22 +97,27 @@ def test_no_client_age_pubkey_field(seed):
     assert "client_age_pubkey" not in seed.load_input(None)
 
 
-# --- INSTALL_EXTERNAL_KEYS (the only secrets prompted at install) -----------
-def test_install_external_keys_are_the_tailscale_creds_only(seed):
-    """0b no-laptop-vault + CF-token-Settings-only: seed prompts only for the
-    Tailscale OAuth creds (needed to join the tailnet) and writes them to the
-    transient --secrets-out file. The Cloudflare API token is NOT here -- it is
-    entered in catena-admin > Settings. Everything else is minted on-box."""
+# --- INSTALL_EXTERNAL_KEYS (every secret the installer may collect) ---------
+def test_install_external_keys_are_the_creds_a_panel_cannot_take_first(seed):
+    """0b no-laptop-vault: seed collects the tailnet join credential and the
+    Cloudflare token, writes them to the transient --secrets-out file, and keeps
+    nothing. Everything else is minted on-box or set post-install."""
     assert seed.INSTALL_EXTERNAL_KEYS == (
+        "tailscale_oauth_client_id",
+        "tailscale_oauth_client_secret",
+        "headscale_api_key",
+        "headscale_preauth_key",
+        "cloudflare_api_token",
+    )
+    assert seed.TAILSCALE_OAUTH_KEYS == (
         "tailscale_oauth_client_id",
         "tailscale_oauth_client_secret",
     )
 
 
-def test_cloudflare_token_is_not_an_install_input(seed):
-    """The CF token is never prompted / required at install (Settings-only), and
-    the seed-time auto-fetch machinery that needed it is gone."""
-    assert "cloudflare_api_token" not in seed.INSTALL_EXTERNAL_KEYS
+def test_the_seed_time_account_fetch_is_gone(seed):
+    """The account id is not a seed input: the host engine resolves it from the
+    token, so a second resolver here would be a second answer."""
     for gone in ("fetch_cloudflare_account_id", "_resolve_cloudflare_account",
                  "_install_secret_keys"):
         assert not hasattr(seed, gone), f"{gone} should be removed"
@@ -441,18 +446,106 @@ def test_access_mode_is_gone(seed):
     assert "ACCESS_MODE" not in seed.ENV_OPTIONS
 
 
-def test_collect_install_secrets_never_collects_cf_token(seed):
-    """Even when a fully-specified install.yaml carries the CF token, the
-    install-secret prompt loop only iterates the Tailscale creds -- the CF token
-    is Settings-only, never collected here."""
+def test_collect_install_secrets_is_the_tailnet_credential_only(seed):
+    """The two are collected apart because they fail apart: the tailnet one has
+    no later surface to arrive through, the Cloudflare one does."""
     got = seed._collect_install_secrets({
         "tailscale_oauth_client_id": "x",
         "tailscale_oauth_client_secret": "y",
-        "cloudflare_api_token": "cf-should-not-be-collected",
+        "cloudflare_api_token": "cf-collected-by-its-own-step",
     }, {"TAILNET_CONTROL_URL": ""})
     assert got == {"tailscale_oauth_client_id": "x",
                    "tailscale_oauth_client_secret": "y"}
-    assert "cloudflare_api_token" not in got
+
+
+# --- the Cloudflare token: eager when there is a domain, deferred otherwise ---
+def test_a_domain_at_install_asks_for_the_token_that_publishes_it(seed):
+    """The inversion this program is built on. With both, the converge brings
+    the tunnel up in the same run and the install ends reachable."""
+    got = seed._collect_cloudflare_token(
+        {"cloudflare_api_token": "cf-tok"}, {"CLOUDFLARE_ZONE": "client.test"})
+    assert got == {"cloudflare_api_token": "cf-tok"}
+
+
+def test_no_domain_asks_nothing(seed, monkeypatch):
+    """A server is installed before its domain is decided. Asking for a
+    credential that proves a domain nobody has named is a question with no right
+    answer, so on a TTY it must consume no input."""
+    _fake_tty_stdin(monkeypatch, "SHOULD_NOT_BE_READ\n")
+    assert seed._collect_cloudflare_token({}, {"CLOUDFLARE_ZONE": ""}) == {}
+    assert seed.sys.stdin.read() == "SHOULD_NOT_BE_READ\n"
+
+
+def test_a_blank_token_beside_a_domain_still_installs(seed, monkeypatch):
+    """Blank is an answer: the tunnel engine reads the store, skips, and the
+    client publishes from catena-admin > Settings afterwards."""
+    fake = io.StringIO("")
+    fake.isatty = lambda: False
+    monkeypatch.setattr("sys.stdin", fake)
+    assert seed._collect_cloudflare_token({}, {"CLOUDFLARE_ZONE": "client.test"}) == {}
+
+
+def _cf_responses(seed, monkeypatch, verify, zones):
+    """Stub the two Cloudflare calls the probe makes, in the order it makes
+    them: token verify, then the zone lookup."""
+    calls: list[str] = []
+
+    def fake(url, *, headers=None, data=None, timeout=10.0):
+        calls.append(url)
+        return verify if "tokens/verify" in url else zones
+
+    monkeypatch.setattr(seed, "_http_json", fake)
+    return calls
+
+
+_CF_LIVE = (200, {"result": {"status": "active"}})
+
+
+def test_an_active_zone_and_a_live_token_are_clean(seed, monkeypatch):
+    _cf_responses(seed, monkeypatch, _CF_LIVE, (200, {"result": [
+        {"id": "z1", "status": "active", "name_servers": ["a.ns", "b.ns"]}]}))
+    assert seed._probe_cloudflare("tok", "client.test") == 0
+
+
+def test_a_pending_zone_blocks_the_install(seed, monkeypatch, capsys):
+    """Records created through the API on a pending zone resolve NOWHERE, so
+    the converge publishes a wildcard nobody can follow and then waits on
+    auth.<zone> forever. The remedy has to be on screen, not three roles later.
+    """
+    _cf_responses(seed, monkeypatch, _CF_LIVE, (200, {"result": [
+        {"id": "z1", "status": "pending",
+         "name_servers": ["gail.ns.cloudflare.com", "hugh.ns.cloudflare.com"]}]}))
+    assert seed._probe_cloudflare("tok", "client.test") == 1
+    err = capsys.readouterr().err
+    assert "pending" in err
+    assert "gail.ns.cloudflare.com" in err
+
+
+def test_a_dead_token_blocks_before_the_zone_is_asked_about(seed, monkeypatch):
+    """An expired or revoked token verifies as inactive. Stopping here means the
+    second call is never made with a credential already known to be dead."""
+    calls = _cf_responses(
+        seed, monkeypatch, (200, {"result": {"status": "expired"}}), (200, {}))
+    assert seed._probe_cloudflare("tok", "client.test") == 1
+    assert all("tokens/verify" in c for c in calls)
+
+
+def test_a_token_scoped_to_another_domain_blocks(seed, monkeypatch, capsys):
+    """The shape a copy-paste from another account takes: the token is valid
+    and grants nothing on the domain this host is about to serve."""
+    _cf_responses(seed, monkeypatch, _CF_LIVE, (200, {"result": []}))
+    assert seed._probe_cloudflare("tok", "client.test") == 1
+    assert "Zone Resources" in capsys.readouterr().err
+
+
+def test_no_token_is_not_a_problem(seed, monkeypatch, capsys):
+    """The deferred install, which is a product case rather than a degraded
+    one. No call is made at all."""
+    calls = _cf_responses(seed, monkeypatch, _CF_LIVE, (200, {"result": []}))
+    assert seed._probe_cloudflare("", "client.test") == 0
+    assert seed._probe_cloudflare("tok", "") == 0
+    assert calls == []
+    assert "deferred" in capsys.readouterr().err
 
 
 def test_collect_install_secrets_asks_for_the_headscale_key(seed):

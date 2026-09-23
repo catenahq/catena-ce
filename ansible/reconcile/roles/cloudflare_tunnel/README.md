@@ -30,7 +30,8 @@ looked first. That is why the role no longer looks:
 - **No token**: the engine prints `cloudflared-sync: skipped (no token)`
   and exits 0, so the tunnel is DEFERRED. The client enters the token in
   catena-admin > Settings; the panel validates it (`cloudflared-check`)
-  and fires `cloudflared-sync` in the background.
+  and fires `cloudflared-sync` in the background. This is the shape of an
+  install given no domain.
 - **Token present**: the engine converges the tunnel. A
   present-but-invalid token exits nonzero and **aborts the converge**
   (fail-fast, preserving the fi_n4/fi_s5 abort intent).
@@ -78,8 +79,10 @@ roles:
 - The `catena-cloudflared-sync` engine on `/usr/local/bin` (installed by
   `reconcile/roles/payload`, four roles earlier).
 - On-box store token `cloudflare_api_token` (Zone:DNS:Edit +
-  Cloudflare Tunnel:Edit on the target zone) -- entered ONLY in
-  catena-admin > Settings, never at install.
+  Cloudflare Tunnel:Edit on the target zone). `catena install` asks for it
+  when the inventory answers `CLOUDFLARE_ZONE`, and the client enters it in
+  catena-admin > Settings otherwise. Either way the engine reads it from
+  the store and this role passes nothing.
 - `catena-network` exists (provided by `reconcile/roles/traefik`); Docker swarm
   initialized (provided by `bootstrap/roles/docker`).
 

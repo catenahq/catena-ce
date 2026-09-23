@@ -124,6 +124,12 @@ env_sections:
 
   - name: cloudflare
     title: Cloudflare
+    doc: |-
+      Filling the domain in makes `catena install` ask for the API token that
+      publishes it, and the tunnel comes up during the install. Leaving it
+      blank installs a server with no public surface; the domain and the token
+      are then entered together in catena-admin > Settings, and the next
+      converge publishes it.
 
   - name: admin
     title: Admin identity

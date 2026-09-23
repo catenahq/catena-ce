@@ -49,7 +49,9 @@ ride the backup, because it is what unlocks the backup.
 | --- | --- | --- | --- |
 | `tailscale_oauth_client_id` | Join the client's own tailnet | minimal bootstrap | no |
 | `tailscale_oauth_client_secret` | ^ | minimal bootstrap | no |
-| `cloudflare_api_token` | Tunnel + DNS | catena-admin Settings (never at install) | no |
+| `headscale_api_key` | ^, on the self-hosted backend | minimal bootstrap | no |
+| `headscale_preauth_key` | ^, static fallback | minimal bootstrap | no |
+| `cloudflare_api_token` | Tunnel + DNS | install when a domain is known, else catena-admin Settings | no |
 | `BACKUP_RESTIC_REPO` (.env) | restic repo URL | settings page | **yes** |
 | `backup_s3_access_key` | reach the restic bucket | settings page | **yes** |
 | `backup_s3_secret_key` | ^ | settings page | **yes** |
@@ -143,8 +145,10 @@ Split by the two-phase install boundary:
 **Minimal bootstrap (needed to bring the stack + auth up):** `HOST_PUBLIC_IP`,
 `HOST_INITIAL_USER`, `HOST_SSH_PORT`, `TAILSCALE_TAGS`, `OPS_USER`,
 `COMMON_TIMEZONE`, `COMMON_LOCALE`, `STORAGE_MODE` + the block device. Plus the
-one external cred required to bootstrap: Tailscale OAuth, to join the tailnet.
-The Cloudflare token is never a bootstrap input -- see category 1 above.
+one external cred required to bootstrap: the tailnet join credential. The
+Cloudflare token is collected in the same run when `CLOUDFLARE_ZONE` is
+answered, but it is not REQUIRED: bootstrap does not read it, and an install
+without one finishes with a private surface -- see category 1 above.
 
 Every public subdomain except one is compiled in: the shipped starter, the
 operator skeleton and the one real inventory all gave the same answer, and a

@@ -19,7 +19,8 @@
     },
     {
       "name": "cloudflare",
-      "title": "Cloudflare"
+      "title": "Cloudflare",
+      "doc": "Filling the domain in makes `catena install` ask for the API token that\npublishes it, and the tunnel comes up during the install. Leaving it\nblank installs a server with no public surface; the domain and the token\nare then entered together in catena-admin > Settings, and the next\nconverge publishes it."
     },
     {
       "name": "admin",
