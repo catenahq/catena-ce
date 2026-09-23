@@ -341,11 +341,17 @@
     group: root
     mode: "0644"
 
-# --- tailnet-only firewall for the native-login UI port (registry fragment) ---
+# --- private-only firewall for the native-login UI port (registry fragment) ---
 # The admin panel's host-published port (compose ports: mode=host -> :8001)
-# must be reachable only from the tailnet + RFC1918, never the public internet
-# -- same posture as Portainer's UI port. The public-ports reconciler applies
-# the DOCKER-USER rules from this fragment.
+# must never be reachable from the public internet -- same posture as
+# Portainer's UI port. The public-ports reconciler applies the DOCKER-USER
+# rules from this fragment.
+#
+# `private` rather than `tailnet`: the port means "never public" and does not
+# care which private path carries it, so the reconciler resolves it from the
+# host's declared access method. The migration lane below means `tailnet`
+# literally -- it binds this host's tailnet address and refuses to start
+# without one -- so it keeps saying so.
 - name: "catena-admin: ensure public-port fragment dir exists"
   ansible.builtin.file:
     path: "{{ public_ports_fragment_dir }}"
@@ -354,7 +360,7 @@
     group: root
     mode: "0755"
 
-- name: "catena-admin: declare UI + migration-lane ports (registry fragment, tailnet-only)"
+- name: "catena-admin: declare UI + migration-lane ports (registry fragment, private)"
   # The migration lane binds this host's tailnet address directly (a host
   # process, bind=host, not a published container port), and refuses to start
   # with no tailnet address rather than binding every interface. The declaration
@@ -370,8 +376,8 @@
       {{
         [
           {"proto": "tcp", "port": catena_admin_ui_port | int,
-           "scope": "tailnet", "bind": "docker", "owner": "catena-admin",
-           "comment": "catena-admin native-login panel -- tailnet + RFC1918 only"},
+           "scope": "private", "bind": "docker", "owner": "catena-admin",
+           "comment": "catena-admin native-login panel -- never public"},
           {"proto": "tcp", "port": catena_migrate_lane_port | int,
            "scope": "tailnet", "bind": "host", "owner": "catena-admin",
            "comment": "migration lane (source side) -- tailnet only"}

@@ -17,6 +17,23 @@ ansible_ssh_private_key_file: "{{ lookup('dotenv', 'SSH_PRIVATE_KEY') }}"
 ops_ssh_public_keys:
   - "{{ lookup('file', lookup('dotenv', 'SSH_PUBLIC_KEY_FILE')) }}"
 
+# --- The access plane ---
+# How this host is reached for administration, and therefore whether public
+# port 22 may be closed at all. Store-owned so it rides /etc into the snapshot:
+# a rebuilt host has to come back with the firewall posture it had, not the one
+# a default would pick for it.
+#
+# `tailnet`     a private network carries administration, and the install closes
+#               public 22 once it has PROVEN that path from the machine about to
+#               lose it. bootstrap/roles/tailscale runs.
+# `public_ssh`  no private network; port 22 stays open on the public IP, because
+#               a host with no alternative path has nothing to prove and closing
+#               it would be a lockout. The tailscale role is skipped.
+#
+# Defaults to `tailnet`, which is the posture of every host installed before the
+# choice existed -- so a host with nothing stored keeps the firewall it has.
+catena_access_method: "{{ cfg_access_method | default('tailnet', true) }}"
+
 # --- Tailscale ---
 tailscale_hostname: "{{ inventory_hostname }}"
 tailscale_tags: >-

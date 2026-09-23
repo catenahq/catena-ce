@@ -99,23 +99,30 @@ env_sections:
 
           ssh-keygen -t ed25519 -f ~/.ssh/catena_ed25519 -C catena
 
-  - name: tailnet
-    title: Private network
+  - name: access
+    title: Access
     doc: |-
-      Every host joins a private network before anything else is reachable.
-      One method, two providers: Tailscale SaaS or a self-hosted Headscale.
+      How this host is reached for administration. Two methods, and the choice
+      decides whether public port 22 can be closed at all.
 
-      The three keys below SEED the on-box store on the first converge and
-      are never read again. After the install the choice lives in
-      catena-admin > Settings > Access and tunnels, which is where a client
-      changes it; editing them here afterwards changes nothing.
+      `tailnet` joins a private network before anything else is reachable, and
+      the install closes public 22 once it has PROVEN the tailnet path from
+      the machine that is about to lose it. `public_ssh` joins no network and
+      keeps 22 open, because a host with no alternative path has nothing to
+      prove and closing it would be a lockout.
 
-      Tailscale SaaS: leave all three blank. `catena install` prints the
-      one-time admin-console steps, then prompts for the OAuth client id and
-      secret. Headscale: set TAILNET_PROVIDER=headscale and fill the two
-      below it; `catena install` prompts instead for a headscale_api_key
-      (preferred, a short-lived tagged pre-auth key is minted per run) or a
-      static headscale_preauth_key.
+      The keys below SEED the on-box store on the first converge and are never
+      read again. After the install the choice lives in catena-admin >
+      Settings > Access and tunnels, which is where a client changes it;
+      editing them here afterwards changes nothing.
+
+      On the tailnet method there are two providers. Tailscale SaaS: leave
+      TAILNET_PROVIDER blank or set it to `tailscale`, and `catena install`
+      prints the one-time admin-console steps, then prompts for the OAuth
+      client id and secret. Headscale: set TAILNET_PROVIDER=headscale and fill
+      the two below it; `catena install` prompts instead for a
+      headscale_api_key (preferred, a short-lived tagged pre-auth key is
+      minted per run) or a static headscale_preauth_key.
 
       Either credential is asked for at install rather than in the panel,
       because it is what JOINS the host to the tailnet and the panel is
@@ -304,12 +311,12 @@ config:
       authorized on the control server first, or key minting rejects with a
       400. Read with NO default, so a missing key fails the lookup rather than
       falling back to a tag the credential is not scoped for.
-    env: {section: tailnet, default: "tag:vps"}
+    env: {section: access, default: "tag:vps"}
 
   - key: TAILSCALE_ACCEPT_DNS
     residence: controller
     doc: Whether Tailscale may override systemd-resolved. Usually false.
-    env: {section: tailnet, default: "false"}
+    env: {section: access, default: "false"}
 
   - key: STORAGE_MODE
     residence: controller
@@ -412,17 +419,38 @@ config:
       in the image instead of being rendered by a converge.
     env: {section: cloudflare, default: ""}
 
-  # ---- the private network ----
+  # ---- the access plane ----
+  - key: ACCESS_METHOD
+    residence: store
+    var: cfg_access_method
+    doc: >-
+      How this host is reached for administration, and therefore whether public
+      port 22 can be closed. `tailnet` closes it once the tailnet path has been
+      proven from the machine about to lose it; `public_ssh` keeps it open,
+      because a host with no alternative path has nothing to prove and closing
+      it would be a lockout. A stored value rather than a derived one: it rides
+      /etc into the snapshot, so a rebuilt host comes back with the firewall
+      posture it had rather than the one a default would pick.
+    env: {section: access, default: "tailnet", options: [tailnet, public_ssh]}
+    panel:
+      group: tunnel
+      section: config
+      kind: choice
+      optional: true
+      options: [tailnet, public_ssh]
+      warning: settings.warning.access_method
+
   - key: TAILNET_PROVIDER
     residence: store
     var: cfg_tailnet_provider
     doc: >-
-      The whole routing decision. Blank means Tailscale SaaS. Explicit rather
-      than inferred from whether a control URL happens to be filled in: that
-      inference made "switch back to Tailscale" mean "know to CLEAR a field",
-      and a blank submission on the settings page means "leave this alone", so
-      the client could make that decision in one direction only.
-    env: {section: tailnet, default: ""}
+      Which control plane the tailnet runs on. Blank means Tailscale SaaS.
+      Explicit rather than inferred from whether a control URL happens to be
+      filled in: that inference made "switch back to Tailscale" mean "know to
+      CLEAR a field", and a blank submission on the settings page means "leave
+      this alone", so the client could make that decision in one direction
+      only.
+    env: {section: access, default: ""}
     panel:
       group: tunnel
       section: config
@@ -430,12 +458,13 @@ config:
       optional: true
       options: [tailscale, headscale]
       warning: settings.warning.tailnet_provider
+    depends: {choice: ACCESS_METHOD, values: [tailnet]}
 
   - key: TAILNET_CONTROL_URL
     residence: store
     var: cfg_tailnet_control_url
     doc: The Headscale server's base URL.
-    env: {section: tailnet, default: ""}
+    env: {section: access, default: ""}
     panel: {group: tunnel, section: config, kind: text, optional: true}
     depends: {choice: TAILNET_PROVIDER, values: [headscale]}
 
@@ -445,7 +474,7 @@ config:
     doc: >-
       The Headscale user the minted pre-auth keys belong to; Headscale keys are
       per-user, and the advertised tag must be in THAT user's tagOwners.
-    env: {section: tailnet, default: ""}
+    env: {section: access, default: ""}
     panel: {group: tunnel, section: config, kind: text, optional: true}
     depends: {choice: TAILNET_PROVIDER, values: [headscale]}
 

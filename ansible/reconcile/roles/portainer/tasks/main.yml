@@ -98,7 +98,12 @@
   vars:
     tier1_spec: "{{ _pt_spec }}"
 
-# ─── tailnet-only firewall for the UI port (registry fragment) ───────────
+# ─── private-only firewall for the UI port (registry fragment) ───────────
+# `private`, not `tailnet`: this port means "never public" and does not care
+# which private path carries it. The reconciler resolves it to the tailnet path
+# or to RFC1918 from the host's declared access method, so the generated
+# /etc/catena/public-ports.md stops promising a tailscale0 restriction on a host
+# that is on no tailnet.
 - name: "portainer: ensure public-port fragment dir exists"
   ansible.builtin.file:
     path: "{{ public_ports_fragment_dir }}"
@@ -107,7 +112,7 @@
     group: root
     mode: "0755"
 
-- name: "portainer: declare UI port (registry fragment, tailnet-only)"
+- name: "portainer: declare UI port (registry fragment, private-only)"
   ansible.builtin.copy:
     dest: "{{ public_ports_fragment_dir }}/portainer.json"
     owner: root
@@ -117,8 +122,8 @@
       {{
         [
           {"proto": "tcp", "port": portainer_ui_port | int,
-           "scope": "tailnet", "bind": "docker", "owner": "portainer",
-           "comment": "Portainer control-plane UI -- tailnet + RFC1918 only"}
+           "scope": "private", "bind": "docker", "owner": "portainer",
+           "comment": "Portainer control-plane UI -- never public"}
         ] | to_nice_json
       }}
   register: _pt_ports_fragment

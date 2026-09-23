@@ -13,9 +13,9 @@
       "doc": "Generate the pair once:\n\n    ssh-keygen -t ed25519 -f ~/.ssh/catena_ed25519 -C catena"
     },
     {
-      "name": "tailnet",
-      "title": "Private network",
-      "doc": "Every host joins a private network before anything else is reachable.\nOne method, two providers: Tailscale SaaS or a self-hosted Headscale.\n\nThe three keys below SEED the on-box store on the first converge and\nare never read again. After the install the choice lives in\ncatena-admin > Settings > Access and tunnels, which is where a client\nchanges it; editing them here afterwards changes nothing.\n\nTailscale SaaS: leave all three blank. `catena install` prints the\none-time admin-console steps, then prompts for the OAuth client id and\nsecret. Headscale: set TAILNET_PROVIDER=headscale and fill the two\nbelow it; `catena install` prompts instead for a headscale_api_key\n(preferred, a short-lived tagged pre-auth key is minted per run) or a\nstatic headscale_preauth_key.\n\nEither credential is asked for at install rather than in the panel,\nbecause it is what JOINS the host to the tailnet and the panel is\npublished on that tailnet. Rotating it later is a Settings job;\nsupplying it the first time cannot be."
+      "name": "access",
+      "title": "Access",
+      "doc": "How this host is reached for administration. Two methods, and the choice\ndecides whether public port 22 can be closed at all.\n\n`tailnet` joins a private network before anything else is reachable, and\nthe install closes public 22 once it has PROVEN the tailnet path from\nthe machine that is about to lose it. `public_ssh` joins no network and\nkeeps 22 open, because a host with no alternative path has nothing to\nprove and closing it would be a lockout.\n\nThe keys below SEED the on-box store on the first converge and are never\nread again. After the install the choice lives in catena-admin >\nSettings > Access and tunnels, which is where a client changes it;\nediting them here afterwards changes nothing.\n\nOn the tailnet method there are two providers. Tailscale SaaS: leave\nTAILNET_PROVIDER blank or set it to `tailscale`, and `catena install`\nprints the one-time admin-console steps, then prompts for the OAuth\nclient id and secret. Headscale: set TAILNET_PROVIDER=headscale and fill\nthe two below it; `catena install` prompts instead for a\nheadscale_api_key (preferred, a short-lived tagged pre-auth key is\nminted per run) or a static headscale_preauth_key.\n\nEither credential is asked for at install rather than in the panel,\nbecause it is what JOINS the host to the tailnet and the panel is\npublished on that tailnet. Rotating it later is a Settings job;\nsupplying it the first time cannot be."
     },
     {
       "name": "cloudflare",
@@ -279,7 +279,7 @@
       "residence": "controller",
       "doc": "Comma-separated tags advertised by each node. Every tag must be authorized on the control server first, or key minting rejects with a 400. Read with NO default, so a missing key fails the lookup rather than falling back to a tag the credential is not scoped for.",
       "env": {
-        "section": "tailnet",
+        "section": "access",
         "default": "tag:vps"
       }
     },
@@ -288,7 +288,7 @@
       "residence": "controller",
       "doc": "Whether Tailscale may override systemd-resolved. Usually false.",
       "env": {
-        "section": "tailnet",
+        "section": "access",
         "default": "false"
       }
     },
@@ -439,12 +439,37 @@
       }
     },
     {
+      "key": "ACCESS_METHOD",
+      "residence": "store",
+      "var": "cfg_access_method",
+      "doc": "How this host is reached for administration, and therefore whether public port 22 can be closed. `tailnet` closes it once the tailnet path has been proven from the machine about to lose it; `public_ssh` keeps it open, because a host with no alternative path has nothing to prove and closing it would be a lockout. A stored value rather than a derived one: it rides /etc into the snapshot, so a rebuilt host comes back with the firewall posture it had rather than the one a default would pick.",
+      "env": {
+        "section": "access",
+        "default": "tailnet",
+        "options": [
+          "tailnet",
+          "public_ssh"
+        ]
+      },
+      "panel": {
+        "group": "tunnel",
+        "section": "config",
+        "kind": "choice",
+        "optional": true,
+        "options": [
+          "tailnet",
+          "public_ssh"
+        ],
+        "warning": "settings.warning.access_method"
+      }
+    },
+    {
       "key": "TAILNET_PROVIDER",
       "residence": "store",
       "var": "cfg_tailnet_provider",
-      "doc": "The whole routing decision. Blank means Tailscale SaaS. Explicit rather than inferred from whether a control URL happens to be filled in: that inference made \"switch back to Tailscale\" mean \"know to CLEAR a field\", and a blank submission on the settings page means \"leave this alone\", so the client could make that decision in one direction only.",
+      "doc": "Which control plane the tailnet runs on. Blank means Tailscale SaaS. Explicit rather than inferred from whether a control URL happens to be filled in: that inference made \"switch back to Tailscale\" mean \"know to CLEAR a field\", and a blank submission on the settings page means \"leave this alone\", so the client could make that decision in one direction only.",
       "env": {
-        "section": "tailnet",
+        "section": "access",
         "default": ""
       },
       "panel": {
@@ -457,6 +482,12 @@
           "headscale"
         ],
         "warning": "settings.warning.tailnet_provider"
+      },
+      "depends": {
+        "choice": "ACCESS_METHOD",
+        "values": [
+          "tailnet"
+        ]
       }
     },
     {
@@ -465,7 +496,7 @@
       "var": "cfg_tailnet_control_url",
       "doc": "The Headscale server's base URL.",
       "env": {
-        "section": "tailnet",
+        "section": "access",
         "default": ""
       },
       "panel": {
@@ -487,7 +518,7 @@
       "var": "cfg_headscale_user",
       "doc": "The Headscale user the minted pre-auth keys belong to; Headscale keys are per-user, and the advertised tag must be in THAT user's tagOwners.",
       "env": {
-        "section": "tailnet",
+        "section": "access",
         "default": ""
       },
       "panel": {
