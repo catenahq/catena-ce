@@ -393,9 +393,13 @@ config:
     env: {section: ssh, default: "~/.ssh/catena_ed25519.pub"}
 
   - key: OPS_USER
-    step: target
     residence: controller
-    doc: The non-root account created on every VPS, authorized for the key above.
+    doc: >-
+      The non-root account created on every VPS, authorized for the key above.
+      A variable and not a question: it defaults to `ops`, every host uses that,
+      and it is named in sshd's AllowUsers, the sudoers drop-in, the home paths
+      and the bootstrap probes -- so the launcher does not ask, and an operator
+      who needs a different one sets it in the inventory.
     env: {section: ssh, default: "ops"}
 
   - key: COMMON_TIMEZONE

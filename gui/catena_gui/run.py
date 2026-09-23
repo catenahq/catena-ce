@@ -49,9 +49,9 @@ class Run:
 
     `secret_keys` is the REGISTRY's answer to which is which, carried so the
     writer can enforce it rather than trusting every caller to have filtered.
-    A name heuristic was the obvious alternative and it is wrong in both
-    directions: `SSH_PRIVATE_KEY` holds a path and `_keyset_acknowledged` holds
-    a yes, and a credential named `cloudflare_zone_proof` would sail past it.
+    Classifying by NAME instead is wrong in both directions: `SSH_PRIVATE_KEY`
+    holds a path and `_keyset_acknowledged` holds a yes, while a credential
+    called `cloudflare_zone_proof` sails past every marker a heuristic carries.
     """
 
     path: Path

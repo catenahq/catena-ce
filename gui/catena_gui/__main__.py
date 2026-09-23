@@ -5,10 +5,10 @@
     catena-gui --answers answers.yaml --no-browser
                                         validate and install with no UI
 
-THE THIRD MODE IS WHAT THE BENCH DRIVES, and it is not a shortcut around the
-wizard: it walks the same steps, runs the same probes and produces the same
-install.yaml. A non-interactive path that skipped the validation would let the
-bench prove an install shape no client can reach.
+THE THIRD MODE IS WHAT THE BENCH DRIVES. It walks the same steps, runs the same
+probes and produces the same install.yaml, so a green there is a shape a client
+can reach -- a non-interactive path that skipped the validation would prove an
+install nobody could repeat through the UI.
 
 CLOSING THE BROWSER CHANGES NOTHING. This process owns the job. Closing IT
 abandons the run, and the run directory says how to resume -- which matters
