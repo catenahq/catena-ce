@@ -49,3 +49,24 @@ def test_a_play_without_the_tunnel_role_still_validates():
     would skip validation on a host whose edge is up."""
     assert "_cf_sync_present | default(true)" in _when(
         _task("per-app container probes"))
+
+
+INFRA_MAIN = (
+    Path(__file__).resolve().parents[2]
+    / "reconcile" / "roles" / "infrastructure" / "tasks" / "main.yml"
+)
+
+
+def test_the_infrastructure_edge_gate_also_follows_the_tunnel():
+    """Same deferral, one role later: the gated-services public-URL probe and
+    the mailserver chain both need the edge, and gating them on the token
+    alone failed the no-tailnet install at a 530 (run
+    2026-09-24T03-24-43-1c7c)."""
+    text = INFRA_MAIN.read_text()
+    gate = next(t for t in yaml.safe_load(text)
+                if t.get("name") == "Resolve the tunnel-deferred gate")
+    expr = gate["ansible.builtin.set_fact"]["_infra_edge_up"]
+    assert "cloudflare_api_token" in expr
+    assert "_cf_sync_present | default(true)" in expr
+    assert "_infra_cf_token_present" not in text, (
+        "a gate still reads the token-only fact")

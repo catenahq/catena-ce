@@ -48,11 +48,16 @@
 # all.
 - name: "Resolve the tunnel-deferred gate"
   ansible.builtin.set_fact:
-    # Tunnel-deferred gate: no Cloudflare token in the on-box store yet means
-    # cloudflared is not configured (reconcile/roles/cloudflare_tunnel skips), so no
-    # *.<zone> public hostname resolves. End-of-role public-URL probes must
-    # be deferred until cf_activate persists a token and re-converges.
-    _infra_cf_token_present: "{{ (cloudflare_api_token | default('')) | length > 0 }}"
+    # Tunnel-deferred gate. reconcile/roles/cloudflare_tunnel brings the edge up
+    # only with a token in the on-box store AND its engine on the host; it pins
+    # the second as _cf_sync_present and defers when the engine was staged out
+    # of band and has not landed yet. Without both, no *.<zone> public hostname
+    # serves, so everything below that needs the edge waits for the converge
+    # that has it. Undefined (a tag-scoped play that skipped the tunnel role)
+    # reads as present.
+    _infra_edge_up: >-
+      {{ (cloudflare_api_token | default('')) | length > 0
+         and (_cf_sync_present | default(true) | bool) }}
   tags: [always]
 
 # ─── catena-declared services (swarm stacks, no Portainer in the path) ────
@@ -183,7 +188,7 @@
         apply:
           tags: [mailserver_cert]
       when:
-        - _infra_cf_token_present
+        - _infra_edge_up
       tags: [mailserver_cert]
 
     # Mailserver accounts. docker-mailserver will not start Dovecot until
@@ -205,7 +210,7 @@
         file: mailserver_accounts.yml
         apply:
           tags: [mailserver_accounts]
-      when: _infra_cf_token_present
+      when: _infra_edge_up
       tags: [mailserver_accounts]
 
     # Mailserver SSO. Opt-in template: registers the roundcube +
@@ -218,7 +223,7 @@
         apply:
           tags: [mailserver_oidc]
       when:
-        - _infra_cf_token_present
+        - _infra_edge_up
       tags: [mailserver_oidc]
 
     # Mailserver spam + antivirus filtering. Injects rspamd local.d
@@ -230,7 +235,7 @@
         file: mailserver_filtering.yml
         apply:
           tags: [mailserver_filtering]
-      when: _infra_cf_token_present
+      when: _infra_edge_up
       tags: [mailserver_filtering]
 
     # Mailserver DNS. ops owns only the safe mail-specific records (the
@@ -243,7 +248,7 @@
         apply:
           tags: [mailserver_dns]
       when:
-        - _infra_cf_token_present
+        - _infra_edge_up
       tags: [mailserver_dns]
 
     # Mail canary host timer. Proves dms is listening on 25/993 + that the
@@ -255,7 +260,7 @@
         apply:
           tags: [mailserver_canary]
       when:
-        - _infra_cf_token_present
+        - _infra_edge_up
       tags: [mailserver_canary]
 
     # The five includes above all defer on a tokenless host, and all five
@@ -267,19 +272,20 @@
     # succeeded. One notice rather than five: they share one condition, and
     # five copies of the same line trains the reader to skip it. Same shape
     # as the verify_gated_services notice further down.
-    - name: "Mailserver chain: tunnel deferred -- five wiring steps skipped (no Cloudflare token yet)"
+    - name: "Mailserver chain: tunnel deferred -- five wiring steps skipped (no Cloudflare edge yet)"
       ansible.builtin.debug:
         msg: >-
-          No Cloudflare API token in the on-box store, so the mailserver
-          wiring chain is DEFERRED, not applied: TLS cert injection, the
+          The Cloudflare edge is not up on this converge (no API token in the
+          on-box store, or the tunnel engine is not on the host yet), so the
+          mailserver wiring chain is DEFERRED, not applied: TLS cert injection, the
           postmaster mailbox bootstrap, OIDC (Roundcube + Dovecot
           introspection), rspamd filtering (DQS RBL + antivirus) and the mail
           canary. The dms container stays in its stable no-account window
           meanwhile. Order matters -- the cert has to land before the first
           account or Dovecot strands at gate 2 -- which is why the whole
-          chain waits rather than running the half that would work. Run
-          cf_activate to persist a token, then re-converge.
-      when: not _infra_cf_token_present
+          chain waits rather than running the half that would work. The next
+          converge with the edge up applies it.
+      when: not _infra_edge_up
       tags: [mailserver_accounts, mailserver_cert, mailserver_oidc,
              mailserver_filtering, mailserver_canary]
 
@@ -367,28 +373,29 @@
     # we test. Fails fast with diagnostic output if any gated app's
     # public URL doesn't respond with 200/302/etc. Total additional
     # wall clock on a healthy run: 6 probes × ~1s each = 6s.
-    # Gated on token presence too: on a tokenless install the tunnel is
-    # deferred, so none of these public *.<zone> URLs resolve. cf_activate
-    # persists the token and re-converges, at which point this probe runs.
+    # Gated on the edge too: while the tunnel is deferred none of these public
+    # *.<zone> URLs serve, and the converge that brings the edge up runs this
+    # probe.
     - name: Verify gated services serve healthy HTTP
       ansible.builtin.include_tasks:
         file: verify_gated_services.yml
         apply:
           tags: [verify_gated]
       when:
-        - _infra_cf_token_present
+        - _infra_edge_up
         - not (catena_public_surface_deferred | default(false) | bool)
       tags: [verify_gated]
 
-    - name: "Verify gated services: tunnel deferred -- skipping public-URL probe (no Cloudflare token yet)"
+    - name: "Verify gated services: tunnel deferred -- skipping public-URL probe (no Cloudflare edge yet)"
       ansible.builtin.debug:
         msg: >-
-          No Cloudflare API token in the on-box store: the tunnel is deferred,
-          so the gated *.{{ cloudflare_zone | default('<zone>') }} URLs are not
-          resolvable. Skipping the public-URL readiness probe until cf_activate
-          persists a token and re-converges.
+          The Cloudflare tunnel is deferred on this converge (no API token in
+          the on-box store, or the tunnel engine is not on the host yet), so the
+          gated *.{{ cloudflare_zone | default('<zone>') }} URLs do not serve.
+          Skipping the public-URL readiness probe until a converge with the
+          edge up.
       when:
-        - not _infra_cf_token_present
+        - not _infra_edge_up
       tags: [verify_gated]
 
     # A SECOND WAY TO HAVE NO PUBLIC URLS, and the token check does not catch
@@ -407,7 +414,7 @@
           Enter a domain in the dashboard's Settings; the next converge
           publishes them and this probe starts checking them.
       when:
-        - _infra_cf_token_present
+        - _infra_edge_up
         - catena_public_surface_deferred | default(false) | bool
       tags: [verify_gated]
 
