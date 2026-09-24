@@ -22,18 +22,31 @@
 # converge on a deferred edge. Once the token is saved (cf_activate / a
 # re-converge with the token present), cloudflare_tunnel brings the edge up
 # earlier in converge.yml and this block runs normally.
-- name: "validate/oauth2-proxy: tunnel deferred -- skipping public-issuer validation (no Cloudflare token yet)"
+#
+# The tunnel is also deferred when its engine was staged out of band and is not
+# on the host yet: reconcile/roles/cloudflare_tunnel pins _cf_sync_present and
+# defers to the next converge. A token in the store does not bring the edge up
+# on its own, so both reasons skip. Undefined (a play that did not run the
+# tunnel role) counts as present, which keeps the validation on.
+- name: "validate/oauth2-proxy: tunnel deferred -- skipping public-issuer validation"
   ansible.builtin.debug:
     msg: >-
-      No Cloudflare API token in the on-box store: the tunnel is deferred, so
+      The Cloudflare tunnel is deferred on this converge
+      ({{ 'no Cloudflare API token in the on-box store'
+          if (cloudflare_api_token | default('')) | length == 0
+          else 'the tunnel engine is not on the host yet' }}), so
       auth.{{ cloudflare_zone | default('<zone>') }} is not resolvable and
       oauth2-proxy is expected to be in OIDC-discovery restart-backoff until the
-      token is entered in catena-admin > Settings. Skipping the oauth2-proxy
-      public-issuer + per-app validation this converge.
-  when: (cloudflare_api_token | default('')) | length == 0
+      edge comes up. Skipping the oauth2-proxy public-issuer + per-app
+      validation this converge.
+  when: >-
+    (cloudflare_api_token | default('')) | length == 0
+    or not (_cf_sync_present | default(true) | bool)
 
 - name: "validate/oauth2-proxy: per-app container probes (with rescue diagnostics)"
-  when: (cloudflare_api_token | default('')) | length > 0
+  when:
+    - (cloudflare_api_token | default('')) | length > 0
+    - _cf_sync_present | default(true) | bool
   block:
     # Post-restore (backup_rollback, restore_dr) brings every service back
     # in parallel. oauth2-proxy crash-exits on a failed OIDC discovery
