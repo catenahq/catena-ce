@@ -188,7 +188,7 @@
     #     address resolution for clamav failed: Name or service not known
     #     configuration error: module antivirus: cannot add AV rule: "clamav"
     #
-    # failing mailserver_deploy on a scanner that was working -- the same
+    # failing the mailserver wiring on a scanner that was working -- the same
     # command by hand minutes later printed "syntax OK". The wait above was
     # written to stop exactly this race and probed the wrong end of it.
     #

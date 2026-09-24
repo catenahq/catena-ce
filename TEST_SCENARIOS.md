@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 169 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 165 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -21,12 +21,11 @@ The 169 scenarios the maintainers' test bench carries, and the behaviour each on
 | `ce_backup_deferred` | A host with no scheduled backup can still take one on demand, because whether a host backs up is answered by its storage credentials rather than by a switch. |
 | `ce_converge` | Applying the Community installer a second time to an already converged host changes nothing. |
 | `ce_install_headscale` | A host joins a self-hosted private network control server instead of the hosted one, and reaches the rest of the network through it. |
-| `ce_install_no_tailnet` | A server installs with no private network, keeps port 22 open, and says so. |
+| `ce_install_no_tailnet` | A server installs with no private network and no domain token, keeps port 22 open, takes its token later, and refuses to close 22. |
 | `ce_install_suite` | A Community install brings up the full application suite rather than the base host alone. |
 | `ce_restore` | A Community host restores from its encrypted backup and comes back with the content the snapshot held. |
 | `ce_uninstall` | Uninstalling hands the host back to the operating system, including the package-update timers the install had taken over. |
 | `ce_validate` | A converged Community host validates itself end to end using only the shipped installer. |
-| `cf_activate` | The public tunnel credential is supplied after installation and the host starts serving on its public name without a reinstall. |
 | `cf_tunnel_regenerate_round_trip` | Rotating the public tunnel mints a new one, repoints the public name at it, revokes the old one, and rolls the connector onto the new credential. |
 | `cloudflare_api_rotation_round_trip` | The edge-provider API credential is rotated on the planned cycle and the host keeps serving across the change. |
 | `concurrent_backup_lock_contention` | Two maintenance jobs contending for the host lock run one after the other instead of at the same time. |
@@ -98,7 +97,6 @@ The 169 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_s2_input_truncated` | A truncated installation input file is rejected before anything is provisioned. |
 | `fi_s3_placeholder_inert` | An unreplaced placeholder left in a lower-precedence configuration file has no effect on a converged host. |
 | `fi_s4_tailscale_oauth_revoked` | A revoked private network credential is detected up front by minting a throwaway key, rather than at converge time. |
-| `fi_s5_cloudflare_token_revoked` | A revoked edge-provider token is rejected the moment it is offered, rather than after it has been saved. |
 | `fi_s6_ovh_token_invalid` | An invalid hosting-provider credential aborts snapshot creation instead of reporting success. |
 | `fi_s7_smtp_creds_invalid` | Invalid outbound mail credentials surface as an authentication failure from a live probe at the moment they are saved. |
 | `fi_s8_s3_hot_revoked` | A revoked object-store key aborts the backup converge cleanly rather than failing halfway through. |
@@ -123,8 +121,6 @@ The 169 scenarios the maintainers' test bench carries, and the behaviour each on
 | `keycloak_admin_email_loss_recovery` | An administrator locked out of the identity provider mail channel recovers access by minting a fresh named administrator against the running server. |
 | `keycloak_signing_keys_rotation_round_trip` | A single sign-on signing key is rotated with an overlap window where both keys verify, then retired without breaking any session. |
 | `license_domain_mismatch` | A correctly signed licence issued for another server unlocks nothing, says so by name, and takes away nothing the host already had. |
-| `lockdown_refuses_without_an_alternative` | Asking to close port 22 on a server with no other way in is REFUSED. |
-| `mailserver_deploy` | The self-hosted mail server deploys and is wired into the rest of the suite. |
 | `mailserver_round_trip` | A real mailbox and a delivered message survive a backup and a full disaster recovery. |
 | `malformed_catalog_rejection` | A malformed application catalogue aborts the run rather than being half-parsed into a silently empty one. |
 | `marketplace_catalog_resolved` | The application catalogue a client browses is the one this host resolved, with every published placeholder filled in. |

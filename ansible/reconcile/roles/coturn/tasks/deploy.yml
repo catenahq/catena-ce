@@ -87,8 +87,8 @@
 # token-dependent work (all of dns.yml; the creds-render + issue + confirm
 # steps inside cert.yml) -- certbot install, /etc/letsencrypt scaffolding, the
 # deploy hook, and certbot.timer still run so coturn's letsencrypt bind-mount
-# source exists and the service comes up STUN-only until cf_activate persists a
-# token and re-converges (which issues the cert + SIGHUPs coturn for TLS).
+# source exists and the service comes up STUN-only until a Cloudflare token is
+# saved and a converge runs (which issues the cert + SIGHUPs coturn for TLS).
 - name: "coturn: resolve tunnel-deferred gate (Cloudflare token presence)"
   ansible.builtin.set_fact:
     _coturn_cf_token_present: "{{ (cloudflare_api_token | default('')) | length > 0 }}"
@@ -97,8 +97,8 @@
   ansible.builtin.debug:
     msg: >-
       No Cloudflare API token in the on-box store: deferring turn.<zone> DNS
-      registration and the DNS-01 certificate until cf_activate persists a
-      token and re-converges. coturn deploys STUN-only (no public TLS) for now.
+      registration and the DNS-01 certificate until a Cloudflare token is
+      saved and the next converge runs. coturn deploys STUN-only (no public TLS) for now.
   when: not _coturn_cf_token_present
 
 # ── Step 2: DNS A record (gray-cloud) ─────────────────────────────────

@@ -72,8 +72,8 @@
     # main.yml is not in scope -- recompute it. On a tokenless install the
     # DNS-01 cert is deferred (reconcile/roles/coturn/tasks/cert.yml), so coturn comes up
     # STUN-only: no cert, and the TLS-TURN listener on 5349 does not bind.
-    # Assert only the STUN plane (3478 + ufw) until cf_activate persists a
-    # token and re-converges.
+    # Assert only the STUN plane (3478 + ufw) until a Cloudflare token is
+    # saved and a converge runs.
     - name: "validate coturn: resolve tunnel-deferred gate (Cloudflare token presence)"
       ansible.builtin.set_fact:
         _coturn_cf_token_present: "{{ (cloudflare_api_token | default('')) | length > 0 }}"
@@ -132,8 +132,8 @@
         msg: >-
           No Cloudflare API token in the on-box store: the DNS-01 cert is
           deferred, so coturn runs STUN-only (3478/udp). Skipping the TLS cert
-          + 5349 listener assertions until cf_activate persists a token and
-          re-converges.
+          + 5349 listener assertions until a Cloudflare token is saved and the
+          next converge runs.
       when: not _coturn_cf_token_present
 
     - name: "validate coturn: TLS cert is present + valid for at least 24h"

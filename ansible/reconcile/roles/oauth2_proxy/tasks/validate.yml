@@ -19,8 +19,8 @@
 # is not resolvable and oauth2-proxy is EXPECTED to sit in OIDC-discovery
 # restart-backoff until then. Skip this whole validation block while the store
 # holds no token -- gating it on tunnel readiness rather than hard-failing the
-# converge on a deferred edge. Once the token is saved (cf_activate / a
-# re-converge with the token present), cloudflare_tunnel brings the edge up
+# converge on a deferred edge. Once the token is saved and a converge runs
+# with it, cloudflare_tunnel brings the edge up
 # earlier in converge.yml and this block runs normally.
 #
 # The tunnel is also deferred when its engine was staged out of band and is not

@@ -202,7 +202,7 @@
     # then proceeds to gate 2 expecting the manual cert. On a tokenless install
     # the cert task above is deferred, so adding the account here would strand
     # Dovecot at gate 2 (no cert). Defer the whole mailserver wiring chain
-    # (accounts + oidc + filtering + canary) until cf_activate persists a token
+    # (accounts + oidc + filtering + canary) until a Cloudflare token is saved
     # and a converge re-runs it in the correct cert -> account -> boot order.
     # The dms container stays in its stable, no-account gate-1 window meanwhile.
     - name: Mailserver accounts (bootstrap postmaster mailbox so DMS can start)

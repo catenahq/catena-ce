@@ -221,7 +221,7 @@
     # Idempotent: subsequent converges find the tunnel + DNS + service
     # already in the desired state and no-op.
     # No access-mode gate. The role self-defers when the store holds no
-    # Cloudflare token (_infra_cf_token_present + cf_activate), so one install
+    # Cloudflare token, or its engine is not on the host yet, so one install
     # shape covers both the tailnet-only host and the tunnelled one.
     - { role: cloudflare_tunnel, tags: [cloudflare_tunnel, cloudflare] } # CF tunnel + DNS + cloudflared swarm service
     # Keycloak MUST come before oauth2_proxy so its realm exists before
