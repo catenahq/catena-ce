@@ -24,29 +24,36 @@
 # earlier in converge.yml and this block runs normally.
 #
 # The tunnel is also deferred when its engine was staged out of band and is not
-# on the host yet: reconcile/roles/cloudflare_tunnel pins _cf_sync_present and
-# defers to the next converge. A token in the store does not bring the edge up
-# on its own, so both reasons skip. Undefined (a play that did not run the
-# tunnel role) counts as present, which keeps the validation on.
+# on the host yet. A token in the store does not bring the edge up on its own,
+# so both reasons skip. Where that is known depends on the play:
+#
+#   converge   reconcile/roles/cloudflare_tunnel ran earlier and pinned
+#              _cf_sync_present.
+#   validate   playbooks/validate.yml runs reconcile/roles/infrastructure's
+#              validate first, which resolves _infra_edge_up (token AND engine).
+#
+# Neither defined (a play with neither role) keeps the validation on.
+- name: "validate/oauth2-proxy: resolve whether the edge should be up"
+  ansible.builtin.set_fact:
+    _oauth2_edge_up: >-
+      {{ (cloudflare_api_token | default('')) | length > 0
+         and (_cf_sync_present | default(_infra_edge_up | default(true)) | bool) }}
+
 - name: "validate/oauth2-proxy: tunnel deferred -- skipping public-issuer validation"
   ansible.builtin.debug:
     msg: >-
-      The Cloudflare tunnel is deferred on this converge
+      The Cloudflare tunnel is deferred
       ({{ 'no Cloudflare API token in the on-box store'
           if (cloudflare_api_token | default('')) | length == 0
           else 'the tunnel engine is not on the host yet' }}), so
       auth.{{ cloudflare_zone | default('<zone>') }} is not resolvable and
       oauth2-proxy is expected to be in OIDC-discovery restart-backoff until the
       edge comes up. Skipping the oauth2-proxy public-issuer + per-app
-      validation this converge.
-  when: >-
-    (cloudflare_api_token | default('')) | length == 0
-    or not (_cf_sync_present | default(true) | bool)
+      validation.
+  when: not (_oauth2_edge_up | bool)
 
 - name: "validate/oauth2-proxy: per-app container probes (with rescue diagnostics)"
-  when:
-    - (cloudflare_api_token | default('')) | length > 0
-    - _cf_sync_present | default(true) | bool
+  when: _oauth2_edge_up | bool
   block:
     # Post-restore (backup_rollback, restore_dr) brings every service back
     # in parallel. oauth2-proxy crash-exits on a failed OIDC discovery

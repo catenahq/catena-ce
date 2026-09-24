@@ -32,23 +32,34 @@ def _when(task: dict) -> str:
     return " and ".join(when) if isinstance(when, list) else str(when)
 
 
-def test_the_skip_names_both_deferral_reasons():
-    when = _when(_task("tunnel deferred"))
-    assert "cloudflare_api_token" in when
-    assert "_cf_sync_present" in when
+def _edge() -> str:
+    task = _task("resolve whether the edge should be up")
+    return task["ansible.builtin.set_fact"]["_oauth2_edge_up"]
 
 
-def test_the_probes_run_only_when_the_edge_can_be_up():
-    when = _when(_task("per-app container probes"))
-    assert "cloudflare_api_token" in when
-    assert "_cf_sync_present" in when
+def test_the_edge_needs_the_token_and_the_engine():
+    edge = _edge()
+    assert "cloudflare_api_token" in edge
+    assert "_cf_sync_present" in edge
 
 
-def test_a_play_without_the_tunnel_role_still_validates():
-    """Undefined must read as present, or a play that never ran the tunnel role
-    would skip validation on a host whose edge is up."""
-    assert "_cf_sync_present | default(true)" in _when(
-        _task("per-app container probes"))
+def test_the_validate_play_reads_the_infrastructure_verdict():
+    """Run 2026-09-24T15-57-36-753a: the tunnel role is not in the validate
+    play, so _cf_sync_present was undefined, defaulted to present, and the
+    probe waited on an edge the converge had deferred. infrastructure's
+    validate runs first there and has already decided."""
+    assert "default(_infra_edge_up" in _edge()
+
+
+def test_a_play_with_neither_role_still_validates():
+    """Neither fact defined must read as present, or validation would be off
+    on a host whose edge is up."""
+    assert "_infra_edge_up | default(true)" in _edge()
+
+
+def test_the_skip_and_the_probes_read_the_one_verdict():
+    assert "_oauth2_edge_up" in _when(_task("tunnel deferred"))
+    assert "_oauth2_edge_up" in _when(_task("per-app container probes"))
 
 
 INFRA_MAIN = (
