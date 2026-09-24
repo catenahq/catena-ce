@@ -12,6 +12,26 @@
     # playbooks/validate.yml's load_onbox_config pre_task.
     _infra_cf_token_present: "{{ (cloudflare_api_token | default('')) | length > 0 }}"
 
+# A token does not bring the tunnel up on its own: the converge defers it when
+# the tunnel engine was staged out of band and has not landed yet
+# (reconcile/roles/cloudflare_tunnel). Same helper, same decision, asked from a
+# play that does not load that role -- hence the path's fallback, which is that
+# role's default.
+- name: "validate/infrastructure: is the tunnel engine expected here"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _payload_expected
+  vars:
+    _payload_paths:
+      - "{{ cloudflared_sync_bin | default('/usr/local/bin/catena-cloudflared-sync') }}"
+
+- name: "validate/infrastructure: resolve whether the edge should be up"
+  ansible.builtin.set_fact:
+    _infra_edge_up: >-
+      {{ (_infra_cf_token_present | bool)
+         and (catena_payload_missing | length == 0
+              or catena_payload_expected | bool) }}
+
 # The fixtures here do not all arrive at the same time. gatus-sync, the
 # nextcloud OIDC wirer, the export dir and Traefik's dynamic dir are written by
 # THIS role; catena-dashboard-sync is a lane script in the catena-admin image
@@ -137,20 +157,21 @@
       - _infra_net.rc == 0
     fail_msg: "docker network inspect catena-network rc={{ _infra_net.rc }}"
 
-- name: "validate/infrastructure: cloudflared tunnel deferred (no token yet)"
+- name: "validate/infrastructure: cloudflared tunnel deferred"
   ansible.builtin.debug:
     msg: >-
-      Skipping the cloudflared swarm-service asserts -- no Cloudflare token in
-      the on-box store yet; the tunnel is deferred until one is saved in
-      catena-admin > Settings.
-  when: not (_infra_cf_token_present | bool)
+      Skipping the cloudflared swarm-service asserts -- the tunnel is deferred
+      ({{ 'no Cloudflare token in the on-box store yet'
+          if not (_infra_cf_token_present | bool)
+          else 'the tunnel engine is not on the host yet' }}).
+  when: not (_infra_edge_up | bool)
 
 - name: "validate/infrastructure: cloudflared 1/1 replica"
   ansible.builtin.command: docker service ls --filter name=cloudflared --format '{% raw %}{{.Name}}|{{.Replicas}}{% endraw %}'
   register: _infra_cf
   failed_when: false
   changed_when: false
-  when: _infra_cf_token_present | bool
+  when: _infra_edge_up | bool
 
 - name: "validate/infrastructure: cloudflared replicas healthy"
   ansible.builtin.assert:
@@ -158,7 +179,7 @@
       - _infra_cf.rc == 0
       - _infra_cf.stdout_lines | select('match', '^cloudflared\\|1/1') | list | length > 0
     fail_msg: "cloudflared swarm service not 1/1: {{ _infra_cf.stdout }}"
-  when: _infra_cf_token_present | bool
+  when: _infra_edge_up | bool
 
 - name: "validate/infrastructure: host binds no port 80 or 443 (architecture invariant)"
   ansible.builtin.shell: |

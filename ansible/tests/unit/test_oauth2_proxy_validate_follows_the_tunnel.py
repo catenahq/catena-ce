@@ -70,3 +70,29 @@ def test_the_infrastructure_edge_gate_also_follows_the_tunnel():
     assert "_cf_sync_present | default(true)" in expr
     assert "_infra_cf_token_present" not in text, (
         "a gate still reads the token-only fact")
+
+
+INFRA_VALIDATE = INFRA_MAIN.parent / "validate.yml"
+PLAYBOOK_VALIDATE = Path(__file__).resolve().parents[2] / "playbooks" / "validate.yml"
+
+
+def test_the_standalone_validate_asks_whether_the_engine_is_here():
+    """Run 2026-09-24T15-24-09-c565: the converge now deferred cleanly, and the
+    install's validate then asserted cloudflared 1/1 because a token existed."""
+    tasks = yaml.safe_load(INFRA_VALIDATE.read_text())
+    edge = next(t for t in tasks
+                if "resolve whether the edge should be up" in (t.get("name") or ""))
+    assert "catena_payload_missing" in edge["ansible.builtin.set_fact"]["_infra_edge_up"]
+    for t in tasks:
+        if "cloudflared" in (t.get("name") or ""):
+            assert "_infra_edge_up" in str(t.get("when")), t["name"]
+
+
+def test_the_via_tunnel_probes_follow_the_edge():
+    text = PLAYBOOK_VALIDATE.read_text()
+    assert "_infra_edge_up" in text
+    for name in ("Tunnel probes deferred", "Probe Keycloak (auth.<zone>)",
+                 "Build gated-host probe set"):
+        block = text[text.index(name):]
+        when = block[:block.index("\n    - name:")] if "\n    - name:" in block else block
+        assert "_v2_edge_up" in when, name

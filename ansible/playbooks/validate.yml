@@ -358,13 +358,25 @@
     # been saved (catena-admin > Settings) and the tunnel converged. With no
     # token the tunnel is DEFERRED, so skip them with a clear reason. The token
     # is a host fact from the Vantage-1 load_onbox_config pre_task.
-    - name: "Tunnel probes deferred (no Cloudflare token yet)"
+    #
+    # A token alone is not an edge: the tunnel also defers while its engine is
+    # not on the host. Vantage 1's reconcile/roles/infrastructure validate
+    # resolves both into _infra_edge_up, a host fact that outlives its play;
+    # token presence is the fallback for a run that skipped Vantage 1.
+    - name: "Resolve whether the edge should be up"
+      ansible.builtin.set_fact:
+        _v2_edge_up: >-
+          {{ _infra_edge_up
+             | default((cloudflare_api_token | default('')) | length > 0)
+             | bool }}
+
+    - name: "Tunnel probes deferred"
       ansible.builtin.debug:
         msg: >-
-          Skipping the via-tunnel probes (auth.<zone>, /oauth2/start) -- no
-          Cloudflare token in the on-box store yet; tunnel deferred until one is
-          saved in catena-admin > Settings.
-      when: (cloudflare_api_token | default('')) | length == 0
+          Skipping the via-tunnel probes (auth.<zone>, /oauth2/start) -- the
+          tunnel is deferred (no Cloudflare token in the on-box store yet, or
+          the tunnel engine is not on the host yet).
+      when: not (_v2_edge_up | bool)
 
     - name: "Probe Keycloak (auth.<zone>) login page via CF"
       ansible.builtin.uri:
@@ -372,9 +384,9 @@
         status_code: [200, 302]
         timeout: 15
       delegate_to: localhost
-      # Gated on a present CF token: no token -> tunnel deferred ->
-      # auth.<zone> is not reachable via CF yet.
-      when: (cloudflare_api_token | default('')) | length > 0
+      # Gated on the edge: while the tunnel is deferred auth.<zone> is not
+      # reachable via CF.
+      when: _v2_edge_up | bool
       # Keycloak's Account Console redirects unauth'd hits to the login
       # page (302). Authenticated would be 200. Either is healthy.
 
@@ -439,9 +451,9 @@
           }}
         _r3_keycloak_login_prefix: >-
           https://{{ keycloak_hostname | default('auth.' ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default('vps') }}/protocol/openid-connect/auth?
-      # Only build the probe set when the tunnel is actually up (token present);
-      # otherwise _gated_hosts stays unset and the probe loop below skips.
-      when: (cloudflare_api_token | default('')) | length > 0
+      # Only build the probe set when the edge is up; otherwise _gated_hosts
+      # stays unset and the probe loop below skips.
+      when: _v2_edge_up | bool
 
     - name: "Probe /oauth2/start on each gated host (Location -> Keycloak)"
       ansible.builtin.uri:
