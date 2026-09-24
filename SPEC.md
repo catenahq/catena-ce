@@ -268,7 +268,7 @@ its public edge up later without a reinstall.
 | No web port is open on the server itself; an external scan proves it | `bench:security_scan`, `bench:fi_v2_external_scan_blocked`, `threat:CV1` |
 | Every open port is declared before it is opened | `bench:security_scan`, `bench:ce_validate` |
 | SSH is key-only and tailnet-only after bootstrap; no root login | `bench:security_scan`, `bench:fi_n8_ufw_concurrent_ssh`, `threat:CV6` |
-| A server installs with no tunnel credential and brings its public edge up later without a reinstall | `bench:ce_install_suite`, `bench:cf_activate` |
+| A server installs with no tunnel credential and brings its public edge up later without a reinstall | `bench:ce_install_suite`, `bench:ce_install_no_tailnet` |
 | The tunnel can be replaced on a live host without a converge | `bench:cf_tunnel_regenerate_round_trip` |
 | Each domain token grants exactly one domain; Community caps at one | `bench:fi_n10_multidomain_cap` |
 | The private-network control server is pluggable | `bench:ce_install_headscale` |
