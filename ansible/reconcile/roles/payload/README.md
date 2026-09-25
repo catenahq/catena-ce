@@ -41,11 +41,11 @@ needs -- removes the window. Every role from 6 onward can assume
 
 Step 1 is the reason the two halves cannot drift apart. The engines and the
 shell come out of one image because there is one place the version is decided:
-the service spec. `reconcile/roles/catena-admin` reconciles hardening, environment and
-secrets, never the image -- so when this role resolved `max(floor, pin)`
-independently, raising the shipped floor reinstalled the engines and left the
-shell on the image it was created with. Following the spec removes the second
-input rather than adding a check against it.
+the service spec. `reconcile/roles/catena-admin` resolves `max(floor, pin)` and
+reconciles the service to it, image included, several roles after this one.
+Resolving the same expression here would be a second reader of one value, and a
+pin written between the two would give the host engines from one image under a
+shell from another; following the spec leaves one input.
 
 `install-ee-payload.sh` installs binaries, python lib modules, post-restore
 hooks and systemd units, and does NOT enable any unit. Enabling is the

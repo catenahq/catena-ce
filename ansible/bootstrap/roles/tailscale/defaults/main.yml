@@ -10,9 +10,7 @@
 tailscale_force_reauth: false
 
 # Ephemeral nodes auto-evict from the tailnet shortly after `tailscale logout`
-# (or when the daemon stops). Production default is false - we want persistent
-# node identity surviving reboots. Test benches override to true so throwaway
-# VMs don't pollute the admin console.
+# (or when the daemon stops). False keeps the node identity across reboots.
 tailscale_ephemeral: false
 
 # Debian codename-aware repo path.

@@ -7,8 +7,8 @@
 #   catalog.yml -- merges the source-of-truth action catalog with
 #                  per-inventory extras, renders the allow-list +
 #                  dispatch table on the host.
-#   deploy.yml  -- pushes the catena-admin Go shell container as a
-#                  Portainer stack (pulls the published GHCR image). Runs
+#   deploy.yml  -- creates or reconciles the catena-admin Go shell as a
+#                  swarm service (pulls the published GHCR image). Runs
 #                  after the host-side state its container binds to exists.
 #
 # catalog.yml prepares the host-side state the container binds to; deploy.yml
@@ -25,6 +25,6 @@
   ansible.builtin.import_tasks: catalog.yml
   tags: [catena_admin, catena_admin_catalog]
 
-- name: Catena-admin container deploy (Portainer stack)
+- name: Catena-admin container deploy (swarm service)
   ansible.builtin.import_tasks: deploy.yml
   tags: [catena_admin, catena_admin_deploy]

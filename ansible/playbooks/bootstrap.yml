@@ -15,8 +15,9 @@
 #
 # After Phase 2, the box is reachable over Tailscale. The steady-state host
 # entry (under the `vps:` inventory group) gets its ansible_host auto-updated
-# to the new tailnet IP by the post_tasks below. Run converge.yml next -- it targets
-# the `vps:` group and closes public 22 via bootstrap/roles/common/tasks/ufw_lockdown.yml.
+# to the new tailnet IP by the post_tasks below. Run converge.yml next (it
+# targets the `vps:` group), then playbooks/lockdown.yml, which closes public 22
+# via bootstrap/roles/common/tasks/ufw_lockdown.yml.
 #
 # Restoring to a different server (hardware upgrade, provider migration):
 #   1. Update ansible_host in inventory/<env>/hosts.yml for the *-bootstrap

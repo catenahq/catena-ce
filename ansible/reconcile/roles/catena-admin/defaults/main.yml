@@ -2,7 +2,7 @@
 # reconcile/roles/catena-admin -- per-VPS admin panel (the catena-admin Go shell).
 #
 # The role manages the container's HOST-SIDE state (host.yml + catalog.yml)
-# AND deploys the container itself as a Portainer stack (deploy.yml, pulling
+# AND deploys the container itself as a swarm service (deploy.yml, pulling
 # catena_admin_image). See README.md.
 
 # --- Container image + port -------------------------------------------
@@ -25,11 +25,10 @@
 catena_admin_image_digest: "{{ catena_payload_image_digest | default('') }}"
 
 # Deploy the catena-admin container FROM the converge (deploy.yml). Production
-# pulls the published GHCR image at converge time. The test bench builds the
-# image on the VPS and deploys it OUT OF BAND (stage-2.6, build-on-host per the
-# resolved 1z decision) -- the published GHCR image does not exist there -- so
-# the bench sets CATENA_ADMIN_DEPLOY_FROM_CONVERGE=false to skip the converge
-# deploy. Production leaves it true.
+# pulls the published GHCR image at converge time. The test bench builds its
+# working-tree image on the VPS and deploys it out of band, so it sets
+# CATENA_ADMIN_DEPLOY_FROM_CONVERGE=false to skip the converge deploy.
+# Production leaves it true.
 catena_admin_deploy_from_converge: >-
   {{ lookup('env', 'CATENA_ADMIN_DEPLOY_FROM_CONVERGE', default='true') | bool }}
 
