@@ -1,6 +1,6 @@
 ---
 # Dispatcher -- backup_mode picks which subfile to run.
-#   install   (default, converge.yml path) -- install binaries, unit files,
+#   install   (default, converge.yml path) -- configuration, unit files,
 #             the manual oneshot service, and the initial snapshot
 #   verify    (verify-backup.yml)      -- dry-restore + assert
 #

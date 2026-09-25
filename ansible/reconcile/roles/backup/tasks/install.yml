@@ -27,10 +27,12 @@
       catena-admin > Settings > Backup; run-backup self-gates until then.
   when: not (_backup_configured | bool)
 
-- name: Install postgresql-client + curl + fuse3
+# Every dump and replay runs inside the database's own container (docker
+# exec); catena-admin payload/lanes/backup_run_no_host_postgres_test.go pins
+# that the backup needs no database client on the host.
+- name: Install curl + fuse3
   ansible.builtin.apt:
     name:
-      - postgresql-client # pg_dumpall for DB dumps
       - curl # healthcheck ping
       - fuse3 # restic mount (per-app PITR recovery via FUSE)
     state: present
