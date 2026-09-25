@@ -309,8 +309,8 @@
       # keycloak-config-cli defaults every managed-entity type it supports to
       # FULL, so a type this list does not name is a type whose entities get
       # DELETED when a per-app YAML does not declare them. The list below is
-      # what is set for adorsys/keycloak-config-cli:latest-26.5.5
-      # (keycloak_config_cli_image_tag in ../defaults/main.yml). It has NOT
+      # what is set for the keycloak-config-cli release that
+      # keycloak_config_cli_image_tag pins (../defaults/main.yml). It has NOT
       # been diffed against that release's own `import.managed.*` property
       # list, and until it has, "no client data is deleted here" rests on the
       # list happening to be complete rather than on anything checking.
@@ -497,9 +497,9 @@
 # The name captured at the top of this file is a swarm TASK container
 # (`keycloak_server.1.<task-id>`), and the task id changes on every reschedule.
 # Everything between here and there -- the realm import, the client work, a
-# health blip, a docker restart on a host that was just restored -- can cost
-# the server its task, and swarm replaces it with a new id. The eight
-# docker execs below then address a container that no longer exists.
+# health blip, a docker restart on a freshly restored host -- can cost the
+# server its task, and swarm replaces it with a new id. The eight docker execs
+# below would then address a container that is gone.
 #
 # Bench run 2026-09-17T04-03-01-fe03 is what that looks like: `docker service
 # ps keycloak_server` recorded

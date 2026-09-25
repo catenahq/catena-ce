@@ -34,13 +34,13 @@ keycloak_zone_projection_max_age_hours: 48
 # --- Image pin ---
 # Phase Two distribution image. Repo:
 #   https://github.com/p2-inc/phasetwo-containers
-#   quay.io/phasetwo/phasetwo-keycloak (rolling + timestamped tags).
-# Tag form: <kc-version>[.<unix-build-time>]. Use the rolling
-# semver-like tag (e.g. 26.6.4) for stability across patch builds; the
-# fully-qualified timestamp form (26.6.4.1783921878) is available when
-# operators need an immutable pin. Phase Two tracks Keycloak 26.6.x (one
-# minor behind stock 26.7).
-keycloak_image_tag: "26.6.4"
+#   quay.io/phasetwo/phasetwo-keycloak
+# Pinned to an immutable build, <kc-version>.<unix-build-time>. Phase Two
+# re-pushes the plain <kc-version> tag on every rebuild, so that tag names
+# different bytes over time; a build tag names one image, and the update
+# engine orders builds of one version by their build time. Phase Two tracks
+# Keycloak 26.6.x (one minor behind stock 26.7).
+keycloak_image_tag: "26.6.4.1787207391"
 keycloak_image: >-
   {{ ('quay.io/phasetwo/phasetwo-keycloak:' ~ keycloak_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
@@ -75,18 +75,17 @@ keycloak_health_path: "/health/ready"
 # --- Realm bootstrap (keycloak-config-cli) ---
 # adorsys' import-update-merge tool. Runs as a one-shot docker container
 # attached to catena-network so it can hit keycloak-server:8080. Image
-# tag must match Keycloak's major.minor (the tool's CRD parser breaks
-# across major-version drift). Track upstream:
+# tag must not target a Keycloak major.minor newer than
+# keycloak_image_tag (the tool's CRD parser breaks across major-version
+# drift). Track upstream:
 #   https://hub.docker.com/r/adorsys/keycloak-config-cli/tags
-# Tag form: `latest-<kc-major>.<kc-minor>.<kc-patch>`. Use the
-# specific patch when our Keycloak pin (keycloak_image_tag) is also
-# pinned to a specific patch. adorsys has not yet published a
-# latest-26.6.x build, so config-cli runs one MINOR behind our Keycloak
-# pin (26.5 vs 26.6). The realm-import REST surface is stable across
-# minors -- only MAJOR drift breaks the CRD parser -- and ce_install
-# runs config-cli during bootstrap, so the bench gates this pairing.
-# Move to latest-26.6.x as soon as adorsys ships it.
-keycloak_config_cli_image_tag: "latest-26.5.5"
+# Tag form: `<cli-version>-<kc-version>`, immutable (the `latest-<kc>`
+# form is re-pushed on every cli release). The update engine moves it
+# together with Keycloak and caps it at Keycloak's major.minor. It can run
+# one minor behind Keycloak while adorsys has no build for the newer minor:
+# the realm-import REST surface is stable across minors, and ce_install
+# runs config-cli during bootstrap, so the bench gates the pairing.
+keycloak_config_cli_image_tag: "6.5.1-26.5.5"
 keycloak_config_cli_image: >-
   {{ ('adorsys/keycloak-config-cli:' ~ keycloak_config_cli_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
