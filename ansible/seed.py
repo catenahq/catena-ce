@@ -422,7 +422,11 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
     ts_id = vault.get("tailscale_oauth_client_id", "")
     ts_secret = vault.get("tailscale_oauth_client_secret", "")
     api_token = ""
-    if _is_filled(ts_id) and _is_filled(ts_secret):
+    joins_tailnet = _joins_tailnet(env)
+    if not joins_tailnet:
+        _check("Tailnet credential", True,
+               "not required -- public SSH access joins no tailnet")
+    elif _is_filled(ts_id) and _is_filled(ts_secret):
         from base64 import b64encode
         auth = b64encode(f"{ts_id}:{ts_secret}".encode()).decode()
         status, body = _http_json(
@@ -471,20 +475,21 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
     # converge probes the real address the moment the node has one. Reuses the
     # token just exchanged, so the strong check costs one request and no extra
     # scope.
-    banner("Controller on the tailnet")
-    from helpers import tailnet_check
+    if joins_tailnet:
+        banner("Controller on the tailnet")
+        from helpers import tailnet_check
 
-    control_url = str(env.get("TAILNET_CONTROL_URL", "") or "").strip()
-    tailnet = tailnet_check.check(token=api_token, control_url=control_url)
-    for line in tailnet.lines:
-        if tailnet.ok or tailnet.blocking:
-            _check(line, tailnet.ok)
-        else:
-            warn(f" {line}")
-    if not tailnet.ok:
-        if tailnet.blocking:
-            problems += 1
-        print(f"\n{tailnet.remedy}", file=sys.stderr)
+        control_url = str(env.get("TAILNET_CONTROL_URL", "") or "").strip()
+        tailnet = tailnet_check.check(token=api_token, control_url=control_url)
+        for line in tailnet.lines:
+            if tailnet.ok or tailnet.blocking:
+                _check(line, tailnet.ok)
+            else:
+                warn(f" {line}")
+        if not tailnet.ok:
+            if tailnet.blocking:
+                problems += 1
+            print(f"\n{tailnet.remedy}", file=sys.stderr)
 
     print(file=sys.stderr)
     if problems:
@@ -876,10 +881,20 @@ def _uses_headscale(env_values: dict[str, str]) -> bool:
     return _is_filled(env_values.get("TAILNET_CONTROL_URL"))
 
 
+def _joins_tailnet(env_values: dict[str, str]) -> bool:
+    """Whether this install joins a tailnet at all. A public_ssh host is
+    reached on port 22 and joins none, so it needs no tailnet credential and
+    no controller on a tailnet. Blank reads as the knob's default, tailnet."""
+    method = str(env_values.get("ACCESS_METHOD", "") or "").strip()
+    return (method or "tailnet") != "public_ssh"
+
+
 def _tailnet_backend(values: dict[str, str]) -> str:
     """Which control server the inventory declared. Deduced from the Headscale
     fields rather than asked -- blank means Tailscale SaaS -- so it is echoed
     back instead, since the user never confirmed it at a prompt."""
+    if not _joins_tailnet(values):
+        return "none -- public SSH (port 22 stays open)"
     if not _uses_headscale(values):
         return "Tailscale SaaS (TAILNET_CONTROL_URL blank)"
     user = (values.get("HEADSCALE_USER") or "").strip() or "HEADSCALE_USER NOT SET"
@@ -939,7 +954,13 @@ def _collect_install_secrets(
     address -- so a credential that only arrives later, through a panel that is
     only reachable over that tailnet, can never arrive at all. The Cloudflare
     token has no such circularity, so it is collected separately and may be
-    left blank (_collect_cloudflare_token)."""
+    left blank (_collect_cloudflare_token).
+
+    A public_ssh install joins no tailnet and is asked for nothing here; one
+    supplied in install.yaml anyway still reaches the store through
+    _absorb_provided_secrets, ready for a later switch to the tailnet."""
+    if not _joins_tailnet(env_values):
+        return {}
     if _uses_headscale(env_values):
         return _collect_headscale_secret(vault_provided)
     banner("Install-critical vendor credentials (not stored on this machine)")
@@ -1149,13 +1170,17 @@ def main(argv: list[str] | None = None) -> int:
     # Headscale install collects no OAuth creds, so requiring them here would
     # block a valid inventory on credentials that backend has no API for. It
     # needs exactly one of its own pair instead, which validate_install checks
-    # directly -- "one of two" does not fit the all-required key list.
+    # directly -- "one of two" does not fit the all-required key list. A
+    # public_ssh install joins no tailnet and requires neither.
     #
     # The Cloudflare token is never required: an install with no domain is a
     # supported shape, and its own probe refuses the token that cannot publish
     # the domain it was given beside.
-    if _uses_headscale(env_values):
+    if not _joins_tailnet(env_values):
         required_vault: list[str] = []
+        expected_creds = 0
+    elif _uses_headscale(env_values):
+        required_vault = []
         expected_creds = 1
     else:
         required_vault = list(TAILSCALE_OAUTH_KEYS)

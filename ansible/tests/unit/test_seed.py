@@ -613,6 +613,36 @@ def test_headscale_install_with_either_credential_passes(seed, on_tailnet):
         assert seed.validate_install(_headscale_inp({key: "x"}), [], []) == 0, key
 
 
+def test_a_public_ssh_install_asks_for_no_tailnet_credential(seed):
+    """ADR 0012: a host reached on port 22 joins no tailnet, so it needs no
+    Tailscale account and no Headscale key."""
+    assert seed._collect_install_secrets(
+        {}, {"ACCESS_METHOD": "public_ssh"}) == {}
+    assert seed._collect_install_secrets(
+        {}, {"ACCESS_METHOD": "public_ssh",
+             "TAILNET_CONTROL_URL": "https://hs.example.net"}) == {}
+
+
+def test_a_public_ssh_install_validates_without_one(seed, monkeypatch):
+    """No credential probe and no controller-on-the-tailnet check: neither
+    has anything to do with a host that joins no tailnet."""
+    from helpers import tailnet_check
+
+    def _no_tailnet_check(**_kw):
+        raise AssertionError("a public_ssh install must not check the tailnet")
+    monkeypatch.setattr(tailnet_check, "check", _no_tailnet_check)
+    inp = {"inventory": "prod", "host": {},
+           "env": {"ACCESS_METHOD": "public_ssh"}, "vault": {}}
+    assert seed.validate_install(inp, [], []) == 0
+
+
+def test_blank_access_method_still_joins_the_tailnet(seed):
+    assert seed._joins_tailnet({}) is True
+    assert seed._joins_tailnet({"ACCESS_METHOD": ""}) is True
+    assert seed._joins_tailnet({"ACCESS_METHOD": "tailnet"}) is True
+    assert seed._joins_tailnet({"ACCESS_METHOD": "public_ssh"}) is False
+
+
 def test_oauth_tag_follows_the_inventory_tags(seed):
     """The printed setup steps must name the tag the OAuth client will
     actually be scoped to -- the FIRST of TAILSCALE_TAGS, the same entry
