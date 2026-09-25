@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 164 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 162 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -21,7 +21,7 @@ The 164 scenarios the maintainers' test bench carries, and the behaviour each on
 | `ce_backup_deferred` | A host with no scheduled backup can still take one on demand, because whether a host backs up is answered by its storage credentials rather than by a switch. |
 | `ce_converge` | Applying the Community installer a second time to an already converged host changes nothing. |
 | `ce_install_headscale` | A host joins a self-hosted private network control server instead of the hosted one, and reaches the rest of the network through it. |
-| `ce_install_no_tailnet` | A server installs with no private network and no domain token, keeps port 22 open, takes its token later, and refuses to close 22. |
+| `ce_install_no_tailnet` | A server installs with no private network and no domain token, keeps port 22 open, takes its token later, refuses to close 22, then joins a private network and closes it. |
 | `ce_install_suite` | A Community install brings up the full application suite rather than the base host alone. |
 | `ce_restore` | A Community host restores from its encrypted backup and comes back with the content the snapshot held. |
 | `ce_uninstall` | Uninstalling hands the host back to the operating system, including the package-update timers the install had taken over. |
@@ -59,7 +59,6 @@ The 164 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_a1_realm_marker_collision` | A single sign-on realm that has already been imported is left alone by the next converge. |
 | `fi_a2_oidc_secret_rotation` | Rotating the single sign-on client secret propagates to both the identity provider and the proxy in one converge. |
 | `fi_a3_keycloak_unreachable` | An unreachable identity provider is reported as a failed readiness gate rather than passing silently. |
-| `fi_a4_master_realm_idempotent` | A second converge of the identity provider bootstrap changes nothing. |
 | `fi_a5_wrong_group_assignment` | A user outside the administrator group is refused at the authenticating proxy, before any request reaches the application behind it. |
 | `fi_b2_pg_dump_failed` | A failed database dump aborts the backup before any archive is written, so no partial snapshot is ever created. |
 | `fi_b3_snapshot_id_mismatch` | A restore asking for a snapshot that does not exist is refused with an error naming what was asked for. |
@@ -126,7 +125,6 @@ The 164 scenarios the maintainers' test bench carries, and the behaviour each on
 | `migrate` | A host is replaced end to end by another machine, with the source quiesced and the destination serving what it served. |
 | `migrate_lane_auth_denied` | The migration endpoint refuses every unauthenticated and unauthorised caller, and is absent entirely on a host that is not migrating. |
 | `migrate_preseed_no_split_brain` | The bulk pre-copy leg of a migration starts nothing on the destination, so two hosts can never serve at once. |
-| `migration_rollback` | A migration is called off and the source host is returned to the snapshot taken before it started. |
 | `mirror_skips_on_bad_verify_hot` | The offsite copy refuses to run when the backup it would copy failed verification. |
 | `mixed_template_negative_restore` | A restore whose verification fails names the application that failed, rather than reporting a generic error or a silent partial success. |
 | `nc_s3_hot_recovery` | File-sync content living in object storage is recovered from the primary bucket after the live copy is lost. |
