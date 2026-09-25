@@ -164,8 +164,8 @@
     # this converge step does is register the matching `element`
     # client in Keycloak so the discovery URL works the moment the
     # operator clicks Deploy. No post-deploy hook needed -- the
-    # template's env_managed_keys re-injects OIDC_CLIENT_SECRET on
-    # every converge.
+    # template's env_managed_keys has dashboard-sync re-inject
+    # OIDC_CLIENT_SECRET whenever it drifts.
     - name: Element / Matrix OIDC (Keycloak realm client)
       ansible.builtin.include_tasks:
         file: element_oidc.yml

@@ -88,6 +88,18 @@ _CONTROLLER_FACING_TEMPLATES: dict[str, str] = {
 }
 
 
+def test_the_managed_env_url_is_one_the_host_can_resolve():
+    """dashboard-sync runs as a host unit, and a swarm service name resolves
+    only inside the overlay. Pointed at catena-admin:8000 the fetch failed on
+    every run, the lane logged a warning and moved on, and no stack env ever
+    followed a rotation or a domain change."""
+    text = (_ANSIBLE / _ONBOX_ENV_TEMPLATES[0]).read_text()
+    line = next(l for l in text.splitlines()
+                if l.startswith("CATENA_MANAGED_ENV_URL="))
+    assert "http://127.0.0.1:{{ catena_admin_ui_port }}/marketplace/" in line, line
+    assert "catena_admin_service_name" not in line, line
+
+
 def test_no_role_template_renders_the_controller_address():
     """The rule, rather than the two files that broke first.
 

@@ -6,7 +6,7 @@
 # renders the OIDC block straight into homeserver.yaml from env vars
 # at container start. The catena template ships
 # OIDC_CLIENT_SECRET={{ element_oidc_client_secret }} in
-# env_managed_keys (re-injected on every converge), so as long as
+# env_managed_keys (dashboard-sync re-injects it when it drifts), so as long as
 # Keycloak has a matching `element` client with the same secret, the
 # discovery URL works the instant the operator clicks Deploy.
 #

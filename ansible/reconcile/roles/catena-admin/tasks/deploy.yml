@@ -380,6 +380,22 @@
     - _ca_reconcile is changed
     - _ca_reinspect.rc | default(1) == 0
 
+# A panel whose env moved answers a different managed env: a new domain moves
+# every managed DOMAIN_HOST with it. dashboard-sync already ran in this converge
+# (reconcile/roles/infrastructure), against the panel as it was, so run it again
+# now and the client stacks and their routes follow in this converge rather
+# than on the next timer tick. restarted, not started: a start joins a run that
+# is already in flight and reports work done before the panel moved.
+- name: "Catena-admin: re-run dashboard-sync against the reconciled panel"
+  ansible.builtin.systemd:
+    name: catena-dashboard-sync.service
+    state: restarted
+  changed_when: false
+  when:
+    - catena_admin_deploy_from_converge | bool
+    - _ca_reconcile is changed
+    - _dashboard_sync_present | default(false) | bool
+
 # --- host engine payload install --------------------------------------------
 # Not here any more. reconcile/roles/payload extracts the engines straight out of the
 # image and installs them right after bootstrap/roles/docker, so they are on the host
