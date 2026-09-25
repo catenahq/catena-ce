@@ -289,10 +289,10 @@ retried rather than reported as a green converge.
 
 | Invariant | Enforced by |
 | --- | --- |
-| A server rebuilds from only the backup endpoint and key | `bench:restore_dr`, `bench:ce_restore`, `bench:recover_secrets_from_running_host`, `threat:CV9` |
-| Backups are encrypted on the host before upload, and the key is never minted on-box | `bench:restore_dr`, `bench:ce_restore`, `threat:CV4` |
+| A server rebuilds from only the backup endpoint and key | `bench:dr_suite#stage-19-onbox-store`, `bench:ce_restore`, `bench:recover_secrets_from_running_host`, `threat:CV9` |
+| Backups are encrypted on the host before upload, and the key is never minted on-box | `bench:dr_suite#stage-13-disaster-recovery`, `bench:ce_restore`, `threat:CV4` |
 | Backups restore -- rehearsed, not assumed | `bench:backup_rollback`, `bench:ce_restore` |
-| An interrupted recovery is retried, never reported as finished | `bench:backup_rollback`, `bench:restore_version_skew_abort` |
+| An interrupted recovery is retried, never reported as finished | `bench:backup_rollback`, `bench:inplace_restore_suite#skew-abort-stage-3-zero-side-effects` |
 | Snapshots export without a restore | `bench:snapshot_export_round_trip` |
 | The backup key rotates without losing the repository | `bench:restic_password_rotation_round_trip` |
 | Deleting the dashboard costs convenience, never data: backups run, restores work, applications stay online | `bench:sovereign_exit`, `bench:recovery_readme_manual_restore` |

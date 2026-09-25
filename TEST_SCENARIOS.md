@@ -5,13 +5,12 @@
 
 # Test scenarios
 
-The 162 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 153 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
 | `activate_ee` | A Community host becomes a licensed Pro host when a valid offline licence token is installed, and unlocks nothing without one. |
 | `admin_action_unknown_rejected` | The administrative action dispatcher refuses a request for an action it does not carry, exits non-zero, and names nothing it might have run. |
-| `app_restore_round_trip` | Restoring one application returns it to its snapshot content and leaves every other application on the host untouched. |
 | `audit_chain_tamper_evident` | An exported administrative audit trail verifies away from the host it came from, and stops verifying as soon as any row is altered. |
 | `backup_rollback` | A file changed after a backup is returned to its snapshot content by a rollback, and the applications come back with it. |
 | `backup_schedule_applied` | The scheduled maintenance a host actually runs matches what its configuration store asks for, and a freshly converged host schedules nothing at all. |
@@ -31,8 +30,7 @@ The 162 scenarios the maintainers' test bench carries, and the behaviour each on
 | `concurrent_backup_lock_contention` | Two maintenance jobs contending for the host lock run one after the other instead of at the same time. |
 | `container_delete_recreated` | A container deleted out from under the orchestrator, and a whole service deleted with it, are scheduled again and come back serving. |
 | `control_plane_update_rollback` | A bad version bump of a control-plane service is detected, rolled back automatically, and quarantined so it is never retried blindly. |
-| `converge_modify` | Rotating a secret in the host configuration store and re-converging propagates the new value into every service that uses it. |
-| `converge_preserves_bumped_image` | An image version bumped on the host survives the next converge instead of being reverted to the shipped default. |
+| `converge_suite` | One converge after an on-host image bump, a doctored release record and a rotated secret keeps the bump, restores the record and delivers the secret. |
 | `cve_residual_emits_findings` | The vulnerability scan produces a well-formed machine-readable report on a real host, whether or not it finds anything. |
 | `daily_chain_container_rollback` | A failed container update inside the daily maintenance chain rolls that service back and lets the chain continue. |
 | `daily_chain_full_pass` | The daily maintenance chain runs every stage end to end on a real host and reports itself idle when it finishes. |
@@ -47,6 +45,7 @@ The 162 scenarios the maintainers' test bench carries, and the behaviour each on
 | `decommission` | Decommissioning tears a host down cleanly, releasing every external resource it held. |
 | `decommission_recovery` | A decommissioned host is rebuilt from the archival snapshot its decommission left behind. |
 | `dev_to_prod_cutover_round_trip` | A staging deployment is promoted to its production hostname on the same machine, with every application reconciled to the new address. |
+| `dr_suite` | A lost server is rebuilt on a new machine from one backup, with every service, the stored mail and the synced files back at the state that backup captured, including a file deleted after it was taken. |
 | `ee_attest` | A signed monthly compliance attestation is produced from a host's own evidence and verifies against the published key. |
 | `ee_audit_ship` | Administrative audit events shipped from a host arrive intact at the central collector. |
 | `ee_ce_regression` | Community actions keep working on a host that has been licensed for Pro. |
@@ -115,11 +114,11 @@ The 162 scenarios the maintainers' test bench carries, and the behaviour each on
 | `immich_extra_disk_round_trip` | A photo library kept on a separately mounted disk is backed up once its location is declared, and comes back whole after a rollback. |
 | `infra_stack_update_rollback` | A bad version bump of an infrastructure service deployed through the application control plane is detected and rolled back automatically. |
 | `infra_subdomain_change` | A shared service moves to a new address when its name is changed, and every route to it moves with it. |
+| `inplace_restore_suite` | A restore on a running server brings the data back without taking the dashboard down, can put back one application while leaving the others alone, can be started from the dashboard, and refuses a backup from a newer installer, or from an older one unless the upgrade is asked for, before it changes anything. |
 | `install_without_a_domain` | A server with no domain converges green and says what it is waiting for. |
 | `keycloak_admin_email_loss_recovery` | An administrator locked out of the identity provider mail channel recovers access by minting a fresh named administrator against the running server. |
 | `keycloak_signing_keys_rotation_round_trip` | A single sign-on signing key is rotated with an overlap window where both keys verify, then retired without breaking any session. |
 | `license_domain_mismatch` | A correctly signed licence issued for another server unlocks nothing, says so by name, and takes away nothing the host already had. |
-| `mailserver_round_trip` | A real mailbox and a delivered message survive a backup and a full disaster recovery. |
 | `malformed_catalog_rejection` | A malformed application catalogue aborts the run rather than being half-parsed into a silently empty one. |
 | `marketplace_catalog_resolved` | The application catalogue a client browses is the one this host resolved, with every published placeholder filled in. |
 | `migrate` | A host is replaced end to end by another machine, with the source quiesced and the destination serving what it served. |
@@ -127,8 +126,6 @@ The 162 scenarios the maintainers' test bench carries, and the behaviour each on
 | `migrate_preseed_no_split_brain` | The bulk pre-copy leg of a migration starts nothing on the destination, so two hosts can never serve at once. |
 | `mirror_skips_on_bad_verify_hot` | The offsite copy refuses to run when the backup it would copy failed verification. |
 | `mixed_template_negative_restore` | A restore whose verification fails names the application that failed, rather than reporting a generic error or a silent partial success. |
-| `nc_s3_hot_recovery` | File-sync content living in object storage is recovered from the primary bucket after the live copy is lost. |
-| `nc_sync_wipe_restore` | A synced folder deleted from a client device and propagated to the server is brought back from the previous day backup. |
 | `nextcloud_versions_retention_applied` | The file-version retention configured for the file-sync application reaches the running container instead of stopping at the catalogue. |
 | `oauth2_proxy_cookie_rotation_round_trip` | Rotating the session-cookie secret invalidates existing sessions cleanly while a fresh sign-in keeps working. |
 | `offsite_copy_unreachable_target` | One offsite destination being unreachable costs exactly that copy, visibly, and leaves the others alone. |
@@ -144,19 +141,14 @@ The 162 scenarios the maintainers' test bench carries, and the behaviour each on
 | `recover_secrets_from_running_host` | A client whose installation inputs are lost rebuilds a usable credential set by reading the configuration store off the running host. |
 | `recovery_landing_page_bilingual_parity` | The recovery page a client lands on presents the same content in both supported languages. |
 | `recovery_readme_manual_restore` | A client rebuilds their data from a snapshot using only ordinary tools and the instructions shipped beside it. |
-| `release_manifest_converge_state` | The release manifest records what the last converge delivered, so a feature that is off is distinguishable from one still waiting for an apply. |
 | `repair_broken_template_round_trip` | An application whose deployment file has been hand-edited into an invalid state is repaired by re-rendering it from the canonical published source. |
 | `restic_check_subset_weekly` | The backup integrity check runs its cheap structural pass and its expensive data-reading pass on separate cadences. |
 | `restic_password_rotation_round_trip` | The backup repository password is rotated with an overlap where both keys open it, and the backup chain stays unbroken across the change. |
-| `restore_dr` | A client whose primary machine died gets every service back on a new one, at the state the snapshot captured. |
-| `restore_version_skew_abort` | A restore from a snapshot newer than the host refuses and changes nothing. |
-| `restore_version_skew_upgrade` | A restore from a snapshot older than the host is refused by default and permitted only when the caller asks for the upgrade explicitly. |
 | `rotate_all_secrets_sequencer` | Every secret a host holds is rotated in dependency order by one resumable sequence. |
 | `s3_backup_keys_rotation_round_trip` | The object-store credentials behind both the primary and the offsite backup buckets are rotated together without breaking either. |
 | `s3_reconcile_orphan_cleanup` | A database row whose object-store file is missing is reported rather than passed over in silence. |
 | `scheduler_easyappointments` | The default appointment scheduler deploys from the catalogue and serves its public booking page. |
 | `security_scan` | A converged host is scanned from outside for exposed services and common web vulnerabilities, and the findings are held to the declared baseline. |
-| `selective_restore_round_trip` | A restore returns the data without ever taking the server out of service. |
 | `smtp_rotation_round_trip` | Outbound mail credentials are rotated on the planned cycle and a live send confirms the new ones work. |
 | `snapshot_export_round_trip` | A snapshot is exported to a single portable archive that unpacks away from the host with its content intact. |
 | `sovereign_exit` | The suite keeps running after the administration panel is deleted, because the panel is glue rather than a data hub. |
@@ -168,6 +160,5 @@ The 162 scenarios the maintainers' test bench carries, and the behaviour each on
 | `verify_hot_bootprobe_weekly` | The weekly deep backup verification boots what it restored and records the outcome in its report. |
 | `wizard_migrate_resume_source` | A migration that fails after the source has been stopped brings the source back into service rather than stranding the client between two machines. |
 | `wizard_migrate_round_trip` | A client moves their server to a new machine end to end from the panel, with the old one still serving until the switch. |
-| `wizard_restore_smoke` | A client runs a restore from the panel and gets their data back without a command line. |
 | `worm_object_lock_expiry_edge` | Backup data whose immutability window expired while the repository still references it is reported as a gap rather than silently degrading. |
 | `worm_round_trip` | A full recovery is performed from the immutable offsite copy alone. |
