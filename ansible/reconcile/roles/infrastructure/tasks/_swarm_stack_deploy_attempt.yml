@@ -167,6 +167,11 @@
     # converges, so hitting the bound means a task was still trying. The text
     # is the wrong thing to read there -- a killed progress stream carries
     # whatever it had printed, which on a stalled pull is nothing.
+    #
+    # "update out of sequence" follows a DeadlineExceeded (already matched as
+    # "context deadline exceeded"): the timed-out update still commits once
+    # the manager catches up, so the retry sends a stale spec version. The
+    # attempt after it re-reads the version and succeeds.
     - name: "Swarm: detect transient in deploy output ({{ svc_name }})"
       ansible.builtin.set_fact:
         _swarm_deploy_transient: >-
@@ -174,7 +179,7 @@
              or ('pending=0' in (_swarm_converged_probe.stdout | default('')))
              or ((_swarm_deploy.stdout | default('')) ~ (_swarm_deploy.stderr | default(''))
               ~ (_swarm_diag_taskps.stdout | default(''))) is regex(
-               '(502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout|TLS handshake timeout|connection reset|i/o timeout|TOOMANYREQUESTS|context deadline exceeded|temporary failure in name resolution|received unexpected HTTP status: 5|did not receive an exit event|cannot stop container|unexpected EOF|short read: expected|Address already in use)'
+               '(502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout|TLS handshake timeout|connection reset|i/o timeout|TOOMANYREQUESTS|context deadline exceeded|temporary failure in name resolution|received unexpected HTTP status: 5|did not receive an exit event|cannot stop container|unexpected EOF|short read: expected|Address already in use|update out of sequence)'
              ) }}
 
     # "Address already in use" is a transient we can RETRY but never one a
