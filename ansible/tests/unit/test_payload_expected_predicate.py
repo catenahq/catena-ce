@@ -23,26 +23,31 @@ import yaml
 ANSIBLE = Path(__file__).resolve().parents[2]
 SHARED = ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "_payload_expected.yml"
 
-# Every place that has to make this decision. A sixth that hand-rolls it is the
+# Every place that has to make this decision, one `_payload_paths` per include
+# in the order the file makes them. A caller that hand-rolls it is the
 # regression this file exists to catch.
 CALLERS = {
-    "reconcile/roles/cloudflare_tunnel/tasks/main.yml": ["{{ cloudflared_sync_bin }}"],
-    "reconcile/roles/backup/tasks/install.yml": ["{{ backup_wrapper_script }}"],
-    "reconcile/roles/backup/tasks/validate.yml": [
+    "reconcile/roles/cloudflare_tunnel/tasks/main.yml": [["{{ cloudflared_sync_bin }}"]],
+    "reconcile/roles/backup/tasks/install.yml": [["{{ backup_wrapper_script }}"]],
+    "reconcile/roles/backup/tasks/validate.yml": [[
         "{{ backup_wrapper_script }}",
         "{{ backup_coverage_script }}",
         "{{ backup_restic_env_script }}",
         "{{ backup_snapshot_list_script }}",
-    ],
+    ]],
     # The lib dir rides along because the reconciler imports four modules from
     # it at module scope. /usr/local/bin is in backup_paths and the modules
     # arrive with the payload, so the two can land separately -- and a host
     # holding the binary alone answered "the engines are here" and then died
     # inside systemd on ModuleNotFoundError.
     "reconcile/roles/infrastructure/tasks/dashboard_sync.yml":
+        ["{{ dashboard_sync_required_paths }}"],
+    # Two questions, asked apart: whether the tunnel engine is expected (the
+    # cloudflared and via-tunnel checks), and whether the reconciler is.
+    "reconcile/roles/infrastructure/tasks/validate.yml": [
+        ["{{ cloudflared_sync_bin | default('/usr/local/bin/catena-cloudflared-sync') }}"],
         "{{ dashboard_sync_required_paths }}",
-    "reconcile/roles/infrastructure/tasks/validate.yml":
-        "{{ dashboard_sync_required_paths }}",
+    ],
 }
 
 
@@ -68,10 +73,9 @@ def _decide() -> dict:
 # ── one implementation ─────────────────────────────────────────────────
 
 def test_every_caller_uses_the_shared_predicate():
-    for rel, paths in CALLERS.items():
+    for rel, expected in CALLERS.items():
         incs = _includes(ANSIBLE / rel)
-        assert len(incs) == 1, f"{rel}: expected one include, got {len(incs)}"
-        assert incs[0]["vars"]["_payload_paths"] == paths, rel
+        assert [i["vars"]["_payload_paths"] for i in incs] == expected, rel
 
 
 def test_no_caller_still_hand_rolls_the_decision():
