@@ -11,10 +11,12 @@ on the old path with it, all at once. A pin that changes shape in place -- a
 scalar folded into a Jinja expression, a variable renamed -- takes only its
 own, which is harder to notice.
 
-scanctl's image_pins read the same pins out of the same files, so a manager
-that cannot find its pin is also an image nothing scans. scanctl fails its own
-run on an unresolvable pin; this asserts the same thing where it is cheap to
-fix, and covers the Renovate half, which has no such gate.
+scanctl's image_pins are the list of every image pin this repo ships: scanctl
+scans them, and the catena-admin update engine's repository job (ops
+bump_versions.py) moves them. A pin that stops resolving is an image nothing
+scans and nothing updates. scanctl fails its own run on an unresolvable pin;
+this asserts the same thing where it is cheap to fix, and covers the Renovate
+half, which has no such gate.
 """
 from __future__ import annotations
 

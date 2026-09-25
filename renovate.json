@@ -5,48 +5,13 @@
   ],
   "packageRules": [
     {
-      "description": "The restic BINARY version pinned in ansible/reconcile/roles/backup. Bumps stay manual: restic is what every backup and every restore runs through. It is a github-releases pin, not an image, so no Trivy image scan applies -- the scanctl fs gate covers the repo side. cloudflared, traefik, postgres, portainer and coturn all left this repo by 2026-08-03; their pins live where the host engines read them, in catena-admin.",
+      "description": "The restic BINARY version pinned in ansible/reconcile/roles/backup. Bumps stay manual: restic is what every backup and every restore runs through. It is a github-releases pin, not an image, so no Trivy image scan applies -- the scanctl fs gate covers the repo side. The image pins in role defaults (scanctl.yml image_pins) are moved by the catena-admin update engine's repository job (catenahq/renovate engine-bump.yml), not by Renovate.",
       "matchManagers": [
         "custom.regex"
       ],
       "matchPackageNames": [
         "restic/restic"
       ],
-      "automerge": false
-    },
-    {
-      "description": "Infra app images pinned in role defaults (gatus, healthchecks, clamav). Manual review, and Trivy-gated: the matrix in .github/workflows/trivy.yml resolves these pins from the same files Renovate reads them from, so a bump PR to a tag with a known fixable HIGH/CRITICAL fails CI.",
-      "matchManagers": [
-        "custom.regex"
-      ],
-      "matchPackageNames": [
-        "twinproduction/gatus",
-        "healthchecks/healthchecks",
-        "clamav/clamav"
-      ],
-      "automerge": false
-    },
-    {
-      "description": "Beszel hub + agent stay ONE PR: the agent pin is kept in lockstep with the hub (same upstream release), so splitting them would merge a hub bump without its matching agent.",
-      "matchManagers": [
-        "custom.regex"
-      ],
-      "matchPackageNames": [
-        "henrygd/beszel",
-        "henrygd/beszel-agent"
-      ],
-      "groupName": "beszel hub+agent",
-      "automerge": false
-    },
-    {
-      "description": "Keycloak (Phase Two distribution) image pinned in the keycloak role defaults. Manual review like the other infra pins -- a Keycloak major/minor can break SSO + the oauth2-proxy wiring out-of-band; Trivy gates the PR. Restricted to the rolling X.Y.Z tag; the timestamped X.Y.Z.<unixtime> immutable builds are excluded.",
-      "matchManagers": [
-        "custom.regex"
-      ],
-      "matchPackageNames": [
-        "quay.io/phasetwo/phasetwo-keycloak"
-      ],
-      "allowedVersions": "/^\\d+\\.\\d+\\.\\d+$/",
       "automerge": false
     }
   ],
@@ -63,78 +28,6 @@
       "depNameTemplate": "restic/restic",
       "datasourceTemplate": "github-releases",
       "extractVersionTemplate": "^v?(?<version>.+)$"
-    },
-    {
-      "customType": "regex",
-      "description": "Track Gatus image tag pinned in infrastructure role defaults",
-      "managerFilePatterns": [
-        "/^ansible/reconcile/roles/infrastructure/defaults/main\\.yml$/"
-      ],
-      "matchStrings": [
-        "gatus_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
-      ],
-      "depNameTemplate": "twinproduction/gatus",
-      "datasourceTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "description": "Track Healthchecks image tag pinned in infrastructure role defaults",
-      "managerFilePatterns": [
-        "/^ansible/reconcile/roles/infrastructure/defaults/main\\.yml$/"
-      ],
-      "matchStrings": [
-        "healthchecks_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
-      ],
-      "depNameTemplate": "healthchecks/healthchecks",
-      "datasourceTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "description": "Track Beszel hub image tag pinned in infrastructure role defaults",
-      "managerFilePatterns": [
-        "/^ansible/reconcile/roles/infrastructure/defaults/main\\.yml$/"
-      ],
-      "matchStrings": [
-        "beszel_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
-      ],
-      "depNameTemplate": "henrygd/beszel",
-      "datasourceTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "description": "Track Beszel agent image tag pinned in infrastructure role defaults (kept in lockstep with the hub)",
-      "managerFilePatterns": [
-        "/^ansible/reconcile/roles/infrastructure/defaults/main\\.yml$/"
-      ],
-      "matchStrings": [
-        "beszel_agent_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
-      ],
-      "depNameTemplate": "henrygd/beszel-agent",
-      "datasourceTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "description": "Track shared ClamAV image (full image:tag) pinned in infrastructure role defaults. The _base variant ships without the signature DB; freshclam fetches it on start. Unlike its neighbours this pin carries the whole ref rather than a bare _image_tag scalar, and it sits inside the folded Jinja that runs it through catena_image_pin -- so the ref is single-quoted on the line below the key, which is what this matches.",
-      "managerFilePatterns": [
-        "/^ansible/reconcile/roles/infrastructure/defaults/main\\.yml$/"
-      ],
-      "matchStrings": [
-        "\\{\\{ 'clamav/clamav:(?<currentValue>[^']+)'"
-      ],
-      "depNameTemplate": "clamav/clamav",
-      "datasourceTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "description": "Track Phase Two Keycloak image tag pinned in keycloak role defaults",
-      "managerFilePatterns": [
-        "/^ansible/reconcile/roles/keycloak/defaults/main\\.yml$/"
-      ],
-      "matchStrings": [
-        "keycloak_image_tag:\\s*\"(?<currentValue>[^\"]+)\""
-      ],
-      "depNameTemplate": "quay.io/phasetwo/phasetwo-keycloak",
-      "datasourceTemplate": "docker"
     }
   ]
 }
