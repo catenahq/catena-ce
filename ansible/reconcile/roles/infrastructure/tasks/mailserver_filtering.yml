@@ -2,7 +2,8 @@
 # Mailserver spam + antivirus filtering (rspamd drop-ins). Injects rspamd
 # local.d config into the dms container the same way mailserver_oidc.yml
 # injects the Dovecot/Roundcube config: render on the host -> docker cp
-# into the mounted /tmp/docker-mailserver volume -> reload rspamd.
+# into the mounted /tmp/docker-mailserver volume -> reload rspamd. A start
+# hook in the same volume re-applies them in every new container.
 #
 # Drops:
 #   - antivirus.conf      -> shared clamd (catena-clamav) over TCP
@@ -123,6 +124,37 @@
       loop: "{{ _ms_rspamd_confs }}"
       loop_control:
         label: "{{ item.name }}"
+      changed_when: false
+
+    # A NEW dms container (node reboot, swarm reschedule, image update,
+    # restore) starts with /etc/rspamd at the image defaults: antivirus off,
+    # stock thresholds. docker-mailserver runs /tmp/docker-mailserver/
+    # user-patches.sh from the mail-config volume once per new container,
+    # after its own rspamd setup and before rspamd starts, so this hook puts
+    # the staged drop-ins back with the container. The sync below stays the
+    # gate for a container that is already running.
+    - name: "Mailserver filtering: render the dms start hook that re-applies the drop-ins"
+      ansible.builtin.copy:
+        dest: /var/lib/catena/mailserver/rspamd-user-patches.sh
+        owner: root
+        group: root
+        mode: "0755"
+        content: |
+          #!/bin/bash
+          # Rendered by the catena converge (mailserver filtering). Runs once per
+          # new dms container and re-applies the staged rspamd drop-ins.
+          mkdir -p /etc/rspamd/local.d
+          {% for c in _ms_rspamd_confs %}
+          cp /tmp/docker-mailserver/rspamd/local.d/{{ c.name }} /etc/rspamd/local.d/{{ c.name }}
+          {% endfor %}
+
+    - name: "Mailserver filtering: stage the start hook into the mail-config volume"
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/catena-dms-exec
+          - cp
+          - /var/lib/catena/mailserver/rspamd-user-patches.sh
+          - /tmp/docker-mailserver/user-patches.sh
       changed_when: false
 
     # Sync each drop-in into the LIVE /etc/rspamd/local.d (what rspamd
