@@ -120,7 +120,7 @@ declared, not decided at the moment of extraction.
 
 | Invariant | Enforced by |
 | --- | --- |
-| Re-running a converge repairs a drifted server; it never duplicates or breaks a healthy one | `bench:ce_converge`, `bench:converge_modify`, `bench:converge_preserves_bumped_image` |
+| Re-running a converge repairs a drifted server; it never duplicates or breaks a healthy one | `bench:ce_converge`, `bench:converge_suite#stage-7c-rotated-secret-arrives`, `bench:converge_suite#stage-7b-bump-survives` |
 | A host converges itself from the image with no controller inventory | `bench:payload_action_dispatches_without_converge` |
 | Validation checks both directions: services answer, forbidden exposure does not | `bench:ce_validate` |
 | Uninstall hands the OS update lane back to Debian | `bench:ce_uninstall` |
@@ -242,7 +242,7 @@ full one does.
 | Invariant | Enforced by |
 | --- | --- |
 | The store is 0600 root, holds the full secret set, and rides the backup | `bench:ce_install_suite`, `bench:recover_secrets_from_running_host`, `threat:CV3` |
-| A tag-filtered converge reads the store, not a stale inventory value | `bench:converge_modify` |
+| A tag-filtered converge reads the store, not a stale inventory value | `bench:converge_suite#stage-7c-rotated-secret-arrives` |
 
 ### The public-port registry -- `public_ports`
 
@@ -319,7 +319,7 @@ previous converge installed that this one no longer ships.
 
 | Invariant | Enforced by |
 | --- | --- |
-| Every converge records what it delivered | `bench:release_manifest_converge_state` |
+| Every converge records what it delivered | `bench:converge_suite#stage-7a-the-action-is-back` |
 | Withdrawn files are removed, and Community files are not pruned as though they were licensed | `bench:payload_prune_respects_ce` |
 
 ## Applications
