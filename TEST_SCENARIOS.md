@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 154 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 151 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -46,7 +46,7 @@ The 154 scenarios the maintainers' test bench carries, and the behaviour each on
 | `decommission` | Decommissioning tears a host down cleanly, releasing every external resource it held. |
 | `decommission_recovery` | A decommissioned host is rebuilt from the archival snapshot its decommission left behind. |
 | `dev_to_prod_cutover_round_trip` | A staging deployment is promoted to its production hostname on the same machine, with every application reconciled to the new address. |
-| `dr_suite` | A lost server is rebuilt on a new machine from one backup, with every service, the stored mail and the synced files back at the state that backup captured, including a file deleted after it was taken. |
+| `dr_suite` | A lost server is rebuilt on a new machine from one backup, with every service, the stored mail and the synced files back at the state that backup captured, including a file deleted after the backup. |
 | `ee_attest` | A signed monthly compliance attestation is produced from a host's own evidence and verifies against the published key. |
 | `ee_audit_ship` | Administrative audit events shipped from a host arrive intact at the central collector. |
 | `ee_ce_regression` | Community actions keep working on a host that has been licensed for Pro. |
@@ -56,7 +56,6 @@ The 154 scenarios the maintainers' test bench carries, and the behaviour each on
 | `ee_lapse` | A host whose licence lapses freezes its licensed features while everything Community keeps working. |
 | `ee_multidomain` | A second, unrelated domain is attached to a licensed host and both domains are served through the one tunnel. |
 | `ee_named_buttons` | Each licensed maintenance button dispatches its own distinct action rather than sharing one. |
-| `fi_a1_realm_marker_collision` | A single sign-on realm that has already been imported is left alone by the next converge. |
 | `fi_a2_oidc_secret_rotation` | Rotating the single sign-on client secret propagates to both the identity provider and the proxy in one converge. |
 | `fi_a3_keycloak_unreachable` | An unreachable identity provider is reported as a failed readiness gate rather than passing silently. |
 | `fi_a5_wrong_group_assignment` | A user outside the administrator group is refused at the authenticating proxy, before any request reaches the application behind it. |
@@ -72,13 +71,11 @@ The 154 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_c7_coturn_cert_expired` | An expired media-relay certificate is renewed automatically by the scheduled renewal timer and its deploy hook. |
 | `fi_c8_nextcloud_init_loop` | An application whose environment has been corrupted fails visibly with captured diagnostics rather than looping in silence. |
 | `fi_d2_pg_dumpall_replay_constraint` | Replaying a database dump recreates a database role the cluster has lost. |
-| `fi_d3_postgres_oom_mid_restore` | A restore that exhausts the host disk fails cleanly rather than leaving a half-loaded database. |
+| `fi_d3_postgres_oom_mid_restore` | A restore that would exhaust the host disk is refused before it starts, rather than leaving a half-loaded database. |
 | `fi_d4_disk_full_mid_snapshot` | A backup that runs out of disk partway through fails loudly and writes no half-finished archive. |
 | `fi_d5_disk_full_mid_converge` | A converge on a host with too little free disk aborts at its preflight check before pulling anything. |
 | `fi_d6_volume_uid_drift` | A service whose user has drifted away from what it requires is reconciled back by the next converge. |
 | `fi_d7_restic_corrupt_pack` | Corruption introduced into the backup repository is detected by the deep verification pass. |
-| `fi_m1_target_unreachable` | A migration whose destination host is unreachable aborts before it stops anything on the source. |
-| `fi_m2_cross_provider_proxy` | A host migrates across hosting providers and regions, not only between machines at one of them. |
 | `fi_n10_multidomain_cap` | A Community host asked to serve more than one domain degrades to the one it supports rather than refusing to converge. |
 | `fi_n1_tailnet_partition_mid_converge` | A private network partition during a converge fails the reachability probe instead of proceeding blind. |
 | `fi_n2_cf_tunnel_down` | Blocked access to the edge provider at validation time is reported as a warning rather than stopping the converge. |
