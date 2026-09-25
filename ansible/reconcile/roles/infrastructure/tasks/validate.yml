@@ -166,11 +166,18 @@
           else 'the tunnel engine is not on the host yet' }}).
   when: not (_infra_edge_up | bool)
 
+# Polled, not sampled. Swarm replaces a task whose node went away -- after a
+# restart or a restore that re-pins the swarm -- and the replacement takes
+# minutes to come up, so one read can land in that gap on a healthy tunnel. A
+# tunnel that is really down is still 0/1 when the bound runs out.
 - name: "validate/infrastructure: cloudflared 1/1 replica"
   ansible.builtin.command: docker service ls --filter name=cloudflared --format '{% raw %}{{.Name}}|{{.Replicas}}{% endraw %}'
   register: _infra_cf
   failed_when: false
   changed_when: false
+  retries: 48
+  delay: 5
+  until: _infra_cf.stdout_lines | default([]) | select('match', '^cloudflared\\|1/1') | list | length > 0
   when: _infra_edge_up | bool
 
 - name: "validate/infrastructure: cloudflared replicas healthy"
