@@ -93,9 +93,9 @@ def test_no_retention_key_is_seeded_into_the_store():
 
 # The READER half of the retention contract -- what the wrapper sources, and
 # that it refuses to prune on an emptied policy while still finishing clean on
-# a never-written one -- moved to catena-admin
-# payload/lanes/backup_run_retention_owner_test.go with the wrapper. This file
-# keeps the WRITER half, which is what this repo owns.
+# a never-written one -- lives in catena-admin
+# payload/lanes/backup_run_retention_owner_test.go, beside the wrapper. This
+# file keeps the WRITER half, which is what this repo owns.
 
 
 # ─── the timer has one owner ───────────────────────────────────────────
@@ -164,6 +164,14 @@ def test_the_daily_env_does_not_carry_a_schedule():
     body = _code(DAILY_ENV)
     assert "OnCalendar" not in body
     assert "DAILY_TIMER_ONCALENDAR" not in body
+
+
+def test_the_daily_env_does_not_carry_the_update_policy():
+    # Whether a host without a backup still gets container updates is a
+    # Schedules page setting: catena-schedule renders it into
+    # /etc/catena/daily-policy.env. catena-daily reads daily.env first and
+    # keeps the first value it sees, so a copy here would win over the panel.
+    assert "DAILY_UPDATE_WITHOUT_BACKUP" not in _code(DAILY_ENV)
 
 
 # ─── the other lanes can start at all ──────────────────────────────────

@@ -234,10 +234,6 @@ beszel_hc_shim_image: >-
 # Host dir the shim script is dropped into + bind-mounted read-only.
 beszel_hc_shim_host_dir: "/etc/catena/beszel-hc-shim"
 
-# stack-update (the weekly managed container-BUMP engine) is a
-# Business-edition / operator-side capability, not part of Community.
-# Its roles/templates live in the private repos; nothing here deploys it.
-
 # version-check (the current-vs-latest Versions report) is CE: a
 # self-hosted Community deployment sees its own version + CVE-visibility
 # without a license. It auto-detects every running container + swarm

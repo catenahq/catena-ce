@@ -398,11 +398,9 @@
         - not _infra_edge_up
       tags: [verify_gated]
 
-    # A SECOND WAY TO HAVE NO PUBLIC URLS, and the token check does not catch
-    # it. A domain and a token used to arrive together -- the zone was an
-    # install input and the token the only thing outstanding -- so "no token"
-    # stood in for "nothing public yet". The domain is its own field now, and a
-    # host can hold a token while its zone is still empty.
+    # A SECOND WAY TO HAVE NO PUBLIC URLS, which the token check does not
+    # catch: the domain is its own field, so a host can hold a token while its
+    # zone is still empty.
     #
     # The probe would then GET https://monitor./ three times over, twelve
     # retries apiece, and call the result a service verdict.
@@ -429,23 +427,6 @@
     apply:
       tags: [gatus, gatus_sync]
   tags: [gatus, gatus_sync]
-
-# The disk fill-level watchdog (catena-disk-watch.timer) was REMOVED
-# 2026-07-29. Beszel already collects per-host disk fill with threshold
-# alerting into the same Healthchecks plane, so the two were duplicate
-# collectors of one signal with two independently-drifting thresholds --
-# and a disk past the mark paged twice, from two checks with different
-# slugs. Beszel is base plane now, so the "unconditional host watchdog"
-# argument for keeping a second one went with the off-switch.
-#
-# Refuse-to-start protection is unaffected: disk-preflight.sh still aborts
-# backup / restore / auto-update on low free bytes (every night, not just at
-# install), and converge.yml still refuses to converge onto a filesystem at or
-# above its ceiling.
-
-# The weekly stack-update timer (managed floating-tag container updates) and
-# the hourly external dead-man watchdog are SCHEDULED automation -- they are
-# the Business managed lane, not Community, and are not installed here.
 
 - name: Note -- Portainer-managed services skipped (no API key yet)
   ansible.builtin.debug:
