@@ -3,6 +3,7 @@ one does not ship.
 
     converge_installed(declared, stats)  -> [{path, sha256}, ...]
     converge_withdrawn(previous, declared) -> [{path, sha256}, ...]
+    converge_unclaimed(withdrawn, payload_manifest) -> [{path, sha256}, ...]
 
 WHAT THIS IS FOR. The converge was copy-only. A unit, script or helper module
 withdrawn from a later release was simply not copied, and the old one kept
@@ -19,7 +20,7 @@ the same shape, because the two share directories: /usr/local/bin/catena-* and
 only what it wrote, each checking content before it deletes, compose correctly.
 A glob would not: either side would reap the other's files.
 
-TWO RULES, and the safety of the whole thing rests on them.
+THREE RULES, and the safety of the whole thing rests on them.
 
 1. DELETE ONLY WHAT IS NOT DECLARED ANYMORE. The previous manifest records what
    was installed; the current converge declares what the product ships. The
@@ -35,6 +36,12 @@ TWO RULES, and the safety of the whole thing rests on them.
    an operator, a package -- the digest differs and the file is left alone.
    That rule needs no cross-repo knowledge: "still byte-for-byte what I wrote"
    is decidable on this host, from this host.
+
+3. LEAVE WHAT THE PAYLOAD CLAIMS. A path this converge stops declaring can be
+   one the panel payload installs from then on -- /usr/local/bin/restic moved
+   that way. The same upstream release can be the same bytes on both sides, so
+   rule 2 alone would delete the payload's copy. A withdrawn path that the
+   payload's current manifest lists is the payload's, whatever its content.
 
 A path missing from `declared` is therefore never deleted, only unmanaged. That
 direction is chosen: an incomplete declaration costs coverage, and the opposite
@@ -129,6 +136,21 @@ def converge_withdrawn(previous, declared) -> list[dict]:
     return sorted(out, key=lambda e: e["path"])
 
 
+def converge_unclaimed(withdrawn, payload_manifest) -> list[dict]:
+    """The withdrawn candidates the payload does not claim (rule 3).
+
+    `payload_manifest` is the parsed /var/lib/catena/payload-manifest.json,
+    whose `entries` carry every path the last payload install wrote. An absent
+    or unreadable manifest claims nothing: the candidates still face rule 2."""
+    claimed: set[str] = set()
+    if isinstance(payload_manifest, dict):
+        for entry in (payload_manifest.get("entries") or []):
+            if isinstance(entry, dict) and entry.get("path"):
+                claimed.add(str(entry["path"]).strip())
+    return [e for e in (withdrawn or [])
+            if isinstance(e, dict) and e.get("path") not in claimed]
+
+
 def _split(stats) -> tuple[list[dict], list[dict]]:
     """(still ours, someone else's) from a stat loop over withdrawn candidates.
 
@@ -178,6 +200,7 @@ class FilterModule:
         return {
             "converge_installed": converge_installed,
             "converge_withdrawn": converge_withdrawn,
+            "converge_unclaimed": converge_unclaimed,
             "converge_prunable": converge_prunable,
             "converge_foreign": converge_foreign,
         }

@@ -2,32 +2,5 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "github>catenahq/renovate-config"
-  ],
-  "packageRules": [
-    {
-      "description": "The restic BINARY version pinned in ansible/reconcile/roles/backup. Bumps stay manual: restic is what every backup and every restore runs through. It is a github-releases pin, not an image, so no Trivy image scan applies -- the scanctl fs gate covers the repo side. The image pins in role defaults (scanctl.yml image_pins) are moved by the catena-admin update engine's repository job (catenahq/renovate engine-bump.yml), not by Renovate.",
-      "matchManagers": [
-        "custom.regex"
-      ],
-      "matchPackageNames": [
-        "restic/restic"
-      ],
-      "automerge": false
-    }
-  ],
-  "customManagers": [
-    {
-      "customType": "regex",
-      "description": "Track restic binary version pinned in backup role defaults",
-      "managerFilePatterns": [
-        "/^ansible/reconcile/roles/backup/defaults/main\\.yml$/"
-      ],
-      "matchStrings": [
-        "backup_restic_version:\\s*\"(?<currentValue>[^\"]+)\""
-      ],
-      "depNameTemplate": "restic/restic",
-      "datasourceTemplate": "github-releases",
-      "extractVersionTemplate": "^v?(?<version>.+)$"
-    }
   ]
 }

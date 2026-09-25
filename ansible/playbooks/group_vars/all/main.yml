@@ -210,6 +210,12 @@ catena_vendor_manifest_path: "{{ playbook_dir }}/../../VENDOR.json"
 # host never had.
 catena_converge_manifest_path: /var/lib/catena/converge-manifest.json
 
+# What the panel payload installed (catena-admin
+# payload/installer/install-ee-payload.sh writes it). The prune reads it so a
+# path handed from this converge to the payload is never withdrawn from under
+# the payload.
+catena_payload_manifest_path: /var/lib/catena/payload-manifest.json
+
 # --- What the bootstrap-owned files looked like last time a converge ran ---
 # Same reasoning for /var/lib: it describes this host now, it is rewritten
 # every converge, and a copy restored from a snapshot would be a baseline taken

@@ -43,14 +43,6 @@ common_baseline_packages:
   # cve_residual scenarios saw "report missing"). Baseline-install it so the
   # report writers always have it, CE and EE alike.
   - jq
-  # rclone is the WORM-mirror's transport (reconcile/roles/backup ships
-  # the offsite-copy lane); installing it at common/baseline
-  # means a freshly-bootstrapped recovery VPS already has the tool
-  # available for the operator's manual `rclone-copy WORM -> fresh
-  # mutable bucket` recovery step before reconcile/roles/backup gets a chance
-  # to run. Backup role keeps it in its own apt list anyway -- both
-  # paths are idempotent.
-  - rclone
 
 # Optional apt HTTP proxy (e.g. apt-cacher-ng). Empty = apt pulls
 # direct. When set, the common role drops /etc/apt/apt.conf.d/01proxy

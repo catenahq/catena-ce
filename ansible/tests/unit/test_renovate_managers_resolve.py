@@ -33,7 +33,7 @@ SCANCTL = REPO / "scanctl.yml"
 
 
 def _managers() -> list[dict]:
-    return json.loads(RENOVATE.read_text())["customManagers"]
+    return json.loads(RENOVATE.read_text()).get("customManagers") or []
 
 
 def _pin_file(manager: dict) -> Path:

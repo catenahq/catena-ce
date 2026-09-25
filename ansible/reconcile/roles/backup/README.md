@@ -7,15 +7,14 @@ provides a one-shot verification task. Restores run in the
 
 ## Modes (tasks_from)
 
-- `main.yml` (default) -- install restic, the `catena-backup.timer` unit
-  (installed, never enabled here) and the backup wrapper script, register
-  the Healthchecks ping, ensure the restic repo is initialized. Whether the
-  timer runs, and when, is `catena-schedule apply` reading
+- `main.yml` (default) -- write the backup configuration and the
+  `catena-backup.timer` unit (installed, never enabled here), register the
+  Healthchecks ping, and purge any apt restic or rclone. Whether the timer
+  runs, and when, is `catena-schedule apply` reading
   /etc/catena/config.json, and it enables no lane without an active licence.
 - `verify.yml` -- run a dry-restore against the latest snapshot
   into a scratch dir; verify file count and size; emit alert on
   drift.
-- `ensure_restic.yml` -- apt-install + binary version pin only.
 
 ## Where the scripts come from
 
@@ -27,7 +26,9 @@ paths and every systemd unit. The code that reads them is not here:
 `catena-snapshot-export` and `catena-snapshot-list` are lane scripts in
 the catena-admin image payload, installed by `reconcile/roles/payload` right after
 `bootstrap/roles/docker`. A fix to any of them reaches a host by bumping the image,
-the same way every host engine already does.
+the same way every host engine already does. `restic` and `rclone` themselves
+ship in the same payload, pinned by digest in the catena-admin `Dockerfile`, and
+`catena-backup-run` creates the repository the first time it finds none.
 
 `catena-disk-preflight` is the exception: this role installs it from
 `ansible/scripts/disk-preflight.sh`.
@@ -93,10 +94,12 @@ is inside the restic snapshots, so a file bucket copied on its own is not
 a backup by itself.
 ## Inputs
 
-- `vault_restic_password` -- restic repository password.
-- `aws_access_key_id` / `aws_secret_access_key` -- S3
-  credentials.
+- `backup_restic_password` -- restic repository password.
+- `backup_s3_access_key` / `backup_s3_secret_key` -- S3 credentials.
 - `backup_restic_repo` -- S3 URL (e.g. `s3:s3.example.com/bucket`).
+
+All four come from the on-box store, where catena-admin > Settings > Backup
+writes them after the install.
 Cadence and retention are NOT inputs to this role. Both are set per host
 in the catena-admin panel, stored in `/etc/catena/config.json`, and
 applied by `catena-schedule` -- which is the only thing that enables a
@@ -108,4 +111,6 @@ stored value.
 ## Idempotency
 
 - All file/systemd resources converge.
-- restic init is a no-op against an existing repo.
+- The wrapper initializes a repository only where restic reports none
+  (exit 10), and stops on a wrong password (exit 12) rather than
+  initializing over an intact repository.

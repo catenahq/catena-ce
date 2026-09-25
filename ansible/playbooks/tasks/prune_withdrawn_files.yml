@@ -8,10 +8,11 @@
 # catena-acquire-lock.sh, which is this problem solved once, by hand, for the
 # one instance somebody noticed.
 #
-# filter_plugins/converge_manifest.py holds the two rules and the reasoning:
+# filter_plugins/converge_manifest.py holds the three rules and the reasoning:
 # delete only what is not declared anymore (never merely "not installed here",
-# which is a feature switched off), and delete only what is still byte-for-byte
-# what this converge's predecessor wrote.
+# which is a feature switched off), delete only what is still byte-for-byte
+# what this converge's predecessor wrote, and never a path the panel payload
+# claims now.
 #
 # SCOPE: the prefixes where a withdrawn file keeps EXECUTING. Units, host
 # scripts, and the helper modules the reconciler imports by bare name. A
@@ -62,6 +63,28 @@
 - name: "Prune: what the last converge installed and this one dropped"
   ansible.builtin.set_fact:
     _prune_withdrawn: "{{ _prune_previous | converge_withdrawn(_prune_declared) }}"
+
+# A dropped path the panel payload installs now is the payload's, even when
+# its bytes match what this converge once wrote (the same upstream release
+# can be both). The manifest records the payload's latest install on this
+# host; unreadable or absent, it claims nothing.
+- name: "Prune: read what the panel payload installed"
+  ansible.builtin.slurp:
+    src: "{{ catena_payload_manifest_path }}"
+  register: _prune_payload_raw
+  failed_when: false
+
+- name: "Prune: leave every path the payload claims"
+  vars:
+    _raw: >-
+      {{ (_prune_payload_raw.content | b64decode | trim)
+         if (_prune_payload_raw.content is defined) else '' }}
+  ansible.builtin.set_fact:
+    _prune_withdrawn: >-
+      {{ _prune_withdrawn | converge_unclaimed(
+           (_raw | from_json)
+           if (_raw.startswith('{') and _raw.endswith('}'))
+           else {}) }}
 
 - name: "Prune: check each candidate is still the file the converge wrote"
   ansible.builtin.stat:

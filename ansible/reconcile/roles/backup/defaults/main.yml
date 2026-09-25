@@ -1,14 +1,6 @@
 ---
 backup_mode: install # install | verify
 
-# Restic binary version, pulled directly from upstream GitHub releases
-# (not Debian's repo -- trixie's restic lags upstream). Installed into
-# /usr/local/bin/restic which shadows any apt-shipped /usr/bin/restic
-# thanks to $PATH order. Bump this to pick up new releases -- the role
-# will download + verify SHA256 + swap the binary atomically. Matches
-# our pattern for the cloudflared binary.
-backup_restic_version: "0.19.1"
-
 # e.g. s3:s3.bhs.io.cloud.ovh.net/<client>-restic. Store-owned: the inventory
 # .env seeds it on the first converge and catena-admin > Settings owns it
 # after that. catena-backup-run already read the store at runtime; this makes the
@@ -505,7 +497,6 @@ backup_systemd_unit_name: catena-backup
 # deleted, so the cost of an omission is coverage rather than a missing file --
 # and tests/unit/test_converge_prune.py fails on one anyway.
 backup_managed_paths:
-  - /usr/local/bin/restic
   - "{{ backup_disk_preflight_script }}"
   - "/etc/systemd/system/{{ backup_systemd_unit_name }}.service"
   - "/etc/systemd/system/{{ backup_systemd_unit_name }}.timer"
