@@ -2,7 +2,7 @@
 # reconcile/roles/payload -- install the catena host engine payload onto the VPS.
 #
 # The engines (catena-cloudflared-sync, catena-recovery, catena-schedule,
-# catena-daily, the lane scripts, the systemd units, the post-restore hooks)
+# catena-daily, the lane scripts, the systemd units, the dispatch drop-ins)
 # are Go binaries built into the PUBLIC catena-admin image. This role extracts
 # them from that image and installs them to /usr/local/bin -- WITHOUT deploying
 # the container, and without Portainer.

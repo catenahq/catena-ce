@@ -47,8 +47,8 @@ Resolving the same expression here would be a second reader of one value, and a
 pin written between the two would give the host engines from one image under a
 shell from another; following the spec leaves one input.
 
-`install-ee-payload.sh` installs binaries, python lib modules, post-restore
-hooks and systemd units, and does NOT enable any unit. Enabling is the
+`install-ee-payload.sh` installs binaries, python lib modules, dispatch
+drop-ins and systemd units, and does NOT enable any unit. Enabling is the
 `catena-daily` engine's job, which keeps install and activate two separate
 observable steps.
 

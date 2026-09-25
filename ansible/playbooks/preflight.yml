@@ -113,13 +113,13 @@
       ansible.builtin.meta: end_play
       when: preflight_skip_oauth | bool
 
-    # No persisted laptop vault (0b): the Tailscale OAuth creds arrive as
-    # extra-vars that `catena install` / `catena recover` thread in from the
-    # transient adopt file (`-e @file`). When they are NOT in scope -- e.g. an
-    # in-place `catena rollback` on a box already on the tailnet -- there is
-    # nothing to validate before a fresh join, so skip the OAuth checks rather
-    # than fail. On install/recover the creds are always present (seed already
-    # live-validated them before the deploy chain started).
+    # No persisted laptop vault: the Tailscale OAuth creds arrive as extra-vars
+    # that `catena install` threads in from the transient adopt file
+    # (`-e @file`). When they are NOT in scope -- a host whose access method
+    # joins no tailnet -- there is nothing to validate before a fresh join, so
+    # skip the OAuth checks rather than fail. On a tailnet install the creds are
+    # always present (seed already live-validated them before the deploy chain
+    # started).
     - name: Skip OAuth validation when no Tailscale creds are in scope
       ansible.builtin.meta: end_play
       when: >-

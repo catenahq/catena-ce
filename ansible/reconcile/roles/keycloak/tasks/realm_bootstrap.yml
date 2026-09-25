@@ -13,18 +13,6 @@
 # migrate; /health/ready is the canonical "migrations are done" signal,
 # stronger than "container exists in docker ps".
 
-# DR detection: realm + clients + users come back via the
-# catena-postgres pg_dumpall replay. Re-importing on top of that
-# triggers Keycloak 500s on user-create (Phase Two image returns 500
-# instead of 409 on the duplicate-username path), so on a post-
-# restore converge we skip the entire keycloak-config-cli step. The
-# next operator-driven converge (after the marker is cleared by
-# converge.yml's post_tasks) follows the normal idempotent path.
-- name: "Keycloak realm: probe post-restore marker"
-  ansible.builtin.stat:
-    path: "{{ backup_stats_dir }}/post-restore.needed"
-  register: _keycloak_realm_post_restore_marker
-
 - name: "Keycloak realm: ensure host-side realm dir"
   ansible.builtin.file:
     path: "{{ keycloak_realm_host_dir }}"
@@ -40,47 +28,11 @@
 # Operator-driven SMTP rotation goes through the runbook (rotate at
 # upstream provider, edit the Portainer env, optionally rm the marker
 # below to force a re-bootstrap from the on-box store).
-# On a post-restore converge the marker doesn't exist on disk (it
-# lives under /var/lib/catena/, which is NOT in backup_paths -- only
-# /etc + /srv/catena + /var/lib/dpkg + /usr/local/bin are). But the
-# restored catena-postgres DB already carries the smtpServer config
-# from the source host (pg_dumpall replay path). Drop the marker
-# pre-import so the "render without smtpServer" + "skip mark" paths
-# below both behave the same way they would on a normal converge.
-# Without this, stage-2.5-idempotency-rerun reports one change (the
-# mark task firing for the first time post-DR).
 #
-# The realm-settings marker rides along for exactly the same reason and it
-# matters more: without it, a DR converge leaves no marker (the import is
-# skipped, so the mark task does not fire), and then the NEXT ordinary converge
-# finds no marker, renders the tunables, and resets the restored realm's login
-# flow, lockout numbers, default groups and locales to product defaults. The
-# restore would come back green and the client's realm configuration would be
-# gone one converge later.
-#
-# EVERY FIRST-IMPORT MARKER BELONGS HERE, and the admin-password one is the
-# reason that is worth stating rather than leaving to the list. All three are
-# written only on a successful import, and the import is skipped post-restore,
-# so all three are absent on a restored host for the same mechanical reason.
-# Leaving the admin marker out let the next ordinary converge render the
-# credentials block and reset the Keycloak admin password to the on-box store's
-# value -- silently undoing a password changed in the Account Console, which is
-# the single thing that marker exists to prevent. A marker added below without
-# a line here is the same bug again.
-- name: "Keycloak realm: drop first-import markers on post-restore converge"
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: touch
-    owner: root
-    group: root
-    mode: "0644"
-  loop:
-    - /var/lib/catena/keycloak-realm-smtp-bootstrapped
-    - /var/lib/catena/keycloak-realm-admin-bootstrapped
-    - /var/lib/catena/keycloak-realm-settings-bootstrapped
-  when: _keycloak_realm_post_restore_marker.stat.exists | default(false)
-  changed_when: false
-
+# The markers live under /var/lib/catena, outside the restore set, so a host
+# that restores its data keeps its own: its realm was imported here once, and
+# the restored database carries the source's settings, which a later converge
+# must not reset.
 - name: "Keycloak realm: probe SMTP-bootstrap marker"
   ansible.builtin.stat:
     path: /var/lib/catena/keycloak-realm-smtp-bootstrapped
@@ -379,7 +331,6 @@
   retries: 6
   delay: 8
   until: _keycloak_realm_import.rc == 0
-  when: not (_keycloak_realm_post_restore_marker.stat.exists | default(false))
   no_log: true
 
 # Surface stdout + stderr from the kc-config-cli run. Restricted to
@@ -396,9 +347,7 @@
       - "{{ (_keycloak_realm_import.stdout_lines | default([]))[-60:] }}"
       - "stderr (last 60 lines):"
       - "{{ (_keycloak_realm_import.stderr_lines | default([]))[-60:] }}"
-  when:
-    - not (_keycloak_realm_post_restore_marker.stat.exists | default(false))
-    - (_keycloak_realm_import.rc | default(0)) != 0
+  when: (_keycloak_realm_import.rc | default(0)) != 0
 
 - name: "Keycloak realm: abort the play when kc-config-cli import failed"
   ansible.builtin.fail:
@@ -411,9 +360,7 @@
       that left a Jinja placeholder un-substituted, or a Keycloak
       Phase Two version drift that the import schema does not yet
       handle.
-  when:
-    - not (_keycloak_realm_post_restore_marker.stat.exists | default(false))
-    - (_keycloak_realm_import.rc | default(0)) != 0
+  when: (_keycloak_realm_import.rc | default(0)) != 0
 
 # Reconcile-not-overwrite: write the SMTP marker after the FIRST
 # successful import, so subsequent runs render the realm template
@@ -429,7 +376,6 @@
   when:
     - smtp_enabled | bool
     - not _kc_smtp_marker.stat.exists
-    - not (_keycloak_realm_post_restore_marker.stat.exists | default(false))
     - (_keycloak_realm_import.rc | default(1)) == 0
 
 # Same reconcile-not-overwrite rule for the admin password: written after the
@@ -446,17 +392,11 @@
     mode: "0644"
   when:
     - not _kc_admin_pw_marker.stat.exists
-    - not (_keycloak_realm_post_restore_marker.stat.exists | default(false))
     - (_keycloak_realm_import.rc | default(1)) == 0
 
 # Same rule for the tunable realm settings: written after the FIRST successful
 # import, so later converges render the realm without them and stop reverting a
 # change made in the Keycloak admin UI.
-#
-# On a post-restore converge the import is skipped entirely, so there is nothing
-# to mark: the restored database already carries whatever the source host's
-# realm was configured with, and the next ordinary converge takes the normal
-# path. Same condition the two markers above use, for the same reason.
 - name: "Keycloak realm: mark the realm settings as bootstrapped"
   ansible.builtin.file:
     path: /var/lib/catena/keycloak-realm-settings-bootstrapped
@@ -466,7 +406,6 @@
     mode: "0644"
   when:
     - not _kc_settings_marker.stat.exists
-    - not (_keycloak_realm_post_restore_marker.stat.exists | default(false))
     - (_keycloak_realm_import.rc | default(1)) == 0
 
 # ─── Clear the "temporary admin" marker on the master-realm bootstrap user ───

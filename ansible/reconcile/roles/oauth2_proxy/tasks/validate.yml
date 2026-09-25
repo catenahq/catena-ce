@@ -82,7 +82,7 @@
     # oauth2-proxy's startup OIDC dance fetches BOTH the discovery
     # document AND the jwks_uri it references; the discovery doc can
     # answer 200 while JWKS still 404s while Keycloak finishes loading
-    # the realm post-restore. Without this second gate, the gate above
+    # the realm (after a restore, say). Without this second gate, the gate above
     # passes but per-app oauth2-proxy containers keep crash-looping on
     # "discovery OIDC configuration: unexpected status 404" -- and
     # whichever ones climbed deepest into docker's exponential restart
@@ -206,22 +206,17 @@
       until: (_oauth2_still_stuck.stdout_lines | default([])) | length == 0
 
     - name: "validate/oauth2-proxy: per-app /ping returns 200"
-      # 180 retries * 4s = 12 min. The post-restore path has shown
-      # repeated OIDC-discovery races where oauth2-proxy crash-restarts
-      # for several minutes after Keycloak appears reachable; 6 min was
-      # borderline and timed out on flaky CF tunnel windows.
+      # 180 retries * 4s = 12 min. A restored host shows repeated
+      # OIDC-discovery races where oauth2-proxy crash-restarts for several
+      # minutes after Keycloak appears reachable; 6 min is borderline on
+      # flaky CF tunnel windows.
       #
       # RE-RESOLVED PER ATTEMPT, and that is the whole reason this is a shell
       # block rather than a docker exec with a name in it. A crash-restart is
       # exactly what this loop waits out, and swarm gives the replacement task
       # a NEW container id -- so a name resolved once, twelve minutes earlier,
-      # names a container that no longer exists, and all 180 attempts fail
-      # against it however healthy the app becomes.
-      #
-      # Bench run 2026-09-17T09-06-07-cc20 is what that looks like: the probe
-      # exhausted its retries, and the rescue's own log dump then reported
-      # "No such container: oauth2-proxy_oauth2-proxy-healthchecks.1.9t7riu..."
-      # for every app -- the ids from before the restart.
+      # names a container that is gone, and all 180 attempts fail against it
+      # however healthy the app becomes.
       ansible.builtin.shell: |
         set -o pipefail
         ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
@@ -246,10 +241,10 @@
     # docker logs / inspect each call swallows its own failures
     # (failed_when: false): a missing-container error must not mask the
     # original /ping rescue.
-    # RE-RESOLVED here too. The dump ran against the ids the probe started
-    # with and printed "No such container" four times, which said the
-    # containers had been replaced -- true, and useless as diagnostics. The
-    # logs worth reading belong to whatever is running NOW.
+    # RE-RESOLVED here too. A dump against the ids the probe started with
+    # prints "No such container" for every replaced container -- true, and
+    # useless as diagnostics. The logs worth reading belong to whatever is
+    # running NOW.
     - name: "validate/oauth2-proxy: dump per-app container logs (last 100 lines)"
       ansible.builtin.shell: |
         set -o pipefail

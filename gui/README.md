@@ -30,12 +30,9 @@ producer** of that file, beside a person writing it and the test bench rendering
 it -- which is what lets a host it built be indistinguishable from one the CLI
 built, because it is one.
 
-Not a replacement for the CLI either. `converge`, `recover`, `rollback` and
-`show-keyset` are operator verbs that should not need a browser. Recover and
-roll back appear here as disabled tabs naming the command to use instead:
-`catena recover` re-prompts the whole recovery keyset, because nothing off the
-server holds a copy, so it is a different wizard rather than a variant of this
-one.
+Not a replacement for the CLI either. `converge` and `show-keyset` are
+operator verbs that should not need a browser. Recovering a server is this
+install followed by a restore from the panel, so it needs nothing else here.
 
 ## It holds no knob knowledge
 

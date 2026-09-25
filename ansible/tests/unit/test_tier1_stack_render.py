@@ -265,10 +265,9 @@ def test_detach_does_not_leak_into_the_compose_service() -> None:
 
 
 def test_upsert_replaces_a_same_named_spec_rather_than_appending() -> None:
-    """converge.yml re-runs coturn in post_tasks: the post-restore hooks bring
-    the TURN consumer up AFTER reconcile/roles/coturn probed for one and correctly
-    found none. Appending would hand the renderer a duplicate name and fail
-    the converge on the recovery path specifically."""
+    """A role that contributes its spec twice in one converge (a re-run, a
+    tag-scoped include) must replace the first. Appending would hand the
+    renderer a duplicate name and fail the converge."""
     first = {"name": "coturn", "image": "coturn/coturn:4.10.0-alpine"}
     second = {"name": "coturn", "image": "coturn/coturn:4.11.0-alpine"}
     out = upsert(upsert([_pg()], first), second)

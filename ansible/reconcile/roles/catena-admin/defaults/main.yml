@@ -35,9 +35,9 @@ catena_admin_deploy_from_converge: >-
 # --- tier-1 swarm service ---------------------------------------------
 # The panel is created directly with `docker service create`, not through
 # Portainer's stack API. It holds the key that drives Portainer, so being
-# deployed BY Portainer meant a broken Portainer took down the one tool that
-# could repair it -- and the post-restore path that needs the panel runs
-# precisely when Portainer is the thing that did not come back.
+# deployed BY Portainer would let a broken Portainer take down the one tool
+# that can repair it -- including the restore that needs the panel precisely
+# when Portainer is the thing that did not come back.
 #
 # catena_admin_service_name lives in bootstrap/roles/common/defaults for the same reason
 # the image does: reconcile/roles/payload reads it at role 5.5 to ask swarm which image
@@ -146,9 +146,9 @@ catena_admin_converge_delay: 5
 catena_admin_allowed_actions_path: "/etc/catena/admin-allowed.yaml"
 catena_admin_dispatch_actions_path: "/etc/catena/admin-actions"
 # Where the PAYLOAD drops dispatch arms the converge does not know about. The
-# converge creates the directory root-owned and reads nothing from it, the same
-# one-way dependency /etc/catena/post-restore.d has: the converge provides the
-# moment, the image subscribes to it.
+# converge creates the directory root-owned and reads nothing from it, a
+# one-way dependency: the converge provides the moment, the image subscribes to
+# it.
 #
 # Base-first: the rendered case arms are tried first and win outright, so a
 # drop-in can only ADD a name. It also can never add an env var -- AcceptEnv and

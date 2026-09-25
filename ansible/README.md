@@ -54,20 +54,18 @@ directory, where `pyproject.toml` lives.
 | Command | Playbook | What it does |
 | --- | --- | --- |
 | `install` | chain | Seed the configuration, then run preflight, bootstrap, converge, validate |
-| `recover` | chain | Rebuild onto a fresh replacement box |
-| `rollback` | chain | Roll a still-running host back to a prior snapshot |
 | `converge` | `converge.yml` | Re-apply after a configuration or app change |
 | `validate` | `validate.yml` | On-host + tailnet + external checks |
 | `backup` | `backup.yml` | Take an on-demand snapshot |
-| `restore` | `restore.yml` | In-place whole-host restore |
 | `rotate-tunnel` | `rotate-tunnel.yml` | Mint a new Cloudflare tunnel |
 | `rotate-tailscale` | `rotate-tailscale.yml` | Force re-authentication to the tailnet |
 | `show-keyset` | `show-keyset.yml` | Show the passwords and first-login URLs again |
 | `uninstall` | `uninstall.yml` | Unmask the native apt timers on a host an older release masked |
 
 One shape: `uv run catena <verb> --inventory <name>`. A verb that runs a
-single playbook carries that playbook's name; the three that chain several
-do not, because there is no one playbook to name them after. With no
+single playbook carries that playbook's name; `install` chains several, so
+there is no one playbook to name it after. Restores run from the panel, on
+an installed host. With no
 arguments the CLI opens an interactive menu and prompts for both; `catena
 --install` is an alias for `catena install`. A leading inventory name is
 refused with the correct shape rather than an argparse choice error.

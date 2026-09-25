@@ -47,9 +47,8 @@ Design constraints:
     a copy of: the installer reads them back and shows them ONCE for the
     user's password manager. They are NOT settable through the config-write
     API (a restic-password change is a deliberate re-key action, not a passive
-    settings save), and they remain ADOPTABLE so `catena recover` seeds the
-    user's saved restic password into the store BEFORE the restore decrypts
-    the backup.
+    settings save), and they remain ADOPTABLE: a value handed to the loader
+    is kept rather than replaced by a fresh mint.
   - Format contracts for the minted values match the historical seed.py
     (oauth2 cookie length-after-decode, Healthchecks 32-char API keys,
     url-safe ping key, 20-char admin password, 64-char base64 restic password).
@@ -92,8 +91,8 @@ DEFAULT_STORE_PATH = "/etc/catena/config.json"
 # A MISSING REGISTRY RAISES. Falling back to empty sets would leave
 # apply_inputs refusing every credential the client supplies and the converge
 # publishing no config facts at all -- both silent, both indistinguishable from
-# a host that was simply never configured. An install that lost the file is
-# broken, and this is the only place that can say so.
+# a host nobody has configured. An install missing the file is broken, and this
+# is the only place that can say so.
 _KNOBS_FILENAME = "knobs.json"
 
 
@@ -348,9 +347,8 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
 #   - backup_restic_password -- encrypts the backup repo. Minting it
 #     on-box would trap it inside the very snapshot it decrypts IF the user
 #     lost their copy -- so it is surfaced once at install for the password
-#     manager, and `catena recover` ADOPTS the user's saved value into the
-#     store BEFORE the restore runs (adopt is fill-only, so the freshly-minted
-#     value is only used on a first install, never a recover). A rotation is a
+#     manager. A value handed to the loader is ADOPTED (fill-only, so the
+#     freshly-minted value is only used when none was given). A rotation is a
 #     deliberate `restic key passwd` action in catena-admin, not a store write.
 #   - console_recovery_password -- the ops account's break-glass password
 #     for the provider KVM / serial console (bootstrap/roles/common sets it; key-only SSH
@@ -700,8 +698,8 @@ def ensure_app_secrets(store: dict, wanted: object) -> dict:
 def ensure_user_held_secrets(store: dict) -> list[str]:
     """Mint every USER_HELD secret (admin + restic passwords) missing or blank
     from the store, reconcile-not-overwrite. Runs AFTER adopt/apply_inputs so a
-    value the user re-entered on `catena recover` (adopted before the restore)
-    is preserved and only a genuine first install mints fresh. Returns the keys
+    value handed to the loader is preserved and only a store with none mints
+    fresh. Returns the keys
     minted -- the installer surfaces these once for the user's password
     manager."""
     secrets_map = store.setdefault("secrets", {})

@@ -173,54 +173,6 @@
     group: root
     mode: "0644"
 
-# Post-restore apt-sources sanitize (DR-only). Restic-restored /etc
-# carries every /etc/apt/sources.list.d/*.list the source VPS had,
-# including ones (notably tailscale's) that reference signed-by=
-# keyrings under /usr/share/keyrings/. The restic snapshot covers
-# /etc + /var/lib/dpkg + /usr/local/bin but NOT /usr/share, so on a
-# fresh recovery target the keyring is absent and the next apt-get
-# update emits "repository is not signed", which can cascade into the
-# downstream apt steps failing.
-#
-# Marker-gated: only runs when /var/lib/catena/post-restore.needed
-# exists (drop-marker contract owned by reconcile/roles/backup/tasks/restore.yml).
-# Idempotent on re-run: each *.list with a missing keyring is renamed
-# to *.list.disabled-by-restore, the next pass sees no *.list match.
-# Operator can re-enable post-recovery once the keyring is reinstalled
-# (e.g. tailscale role re-installs its archive keyring on every
-# converge, so the restored .list works again after the next converge.yml).
-#
-# The backup_stats_dir path is hardcoded /var/lib/catena rather than
-# templated against reconcile/roles/backup/defaults to keep this role free of
-# a backup dependency; that path is the locked-in marker location
-# (test_restore_option_a guards it).
-- name: "Post-restore: detect marker for apt-sources sanitize"
-  ansible.builtin.stat:
-    path: /var/lib/catena/post-restore.needed
-  register: _common_post_restore_marker
-
-- name: "Post-restore: disable apt sources whose signed-by keyrings vanished"
-  ansible.builtin.shell: |
-    set -uo pipefail
-    shopt -s nullglob
-    disabled=0
-    for src in /etc/apt/sources.list.d/*.list; do
-        key=$(grep -oE 'signed-by=[^] ]+' "$src" 2>/dev/null \
-              | sed -E 's/^signed-by=//' \
-              | head -n1 || true)
-        if [ -n "$key" ] && [ ! -f "$key" ]; then
-            mv "$src" "$src.disabled-by-restore"
-            disabled=$((disabled + 1))
-            echo "disabled $src (signed-by=$key missing)"
-        fi
-    done
-    echo "TOTAL_DISABLED=$disabled"
-  args:
-    executable: /bin/bash
-  register: _common_apt_sanitize
-  changed_when: "'TOTAL_DISABLED=0' not in _common_apt_sanitize.stdout"
-  when: _common_post_restore_marker.stat.exists | bool
-
 # apt-cacher-ng (and any operator-supplied APT_PROXY_URL) is a single
 # failure point for every downstream apt operation. When it goes flaky
 # the apt module's `update_cache_retries` loop returns the unhelpful

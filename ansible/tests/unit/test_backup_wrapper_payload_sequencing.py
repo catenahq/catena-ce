@@ -43,9 +43,8 @@ SHARED = ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "_payload_expect
 EXPECTED = "catena_payload_expected"
 MISSING = "catena_payload_missing"
 
-# Every backup script that now arrives with the image payload rather than from
-# this role. catena-disk-preflight is deliberately absent: restore.yml calls it
-# on a fresh DR box with no docker, so it is still copied here.
+# Every backup script that arrives with the image payload rather than from this
+# role. catena-disk-preflight is absent: this role installs it.
 PAYLOAD_SCRIPTS = (
     "backup_wrapper_script",
     "backup_coverage_script",

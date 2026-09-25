@@ -1,8 +1,9 @@
 # backup
 
 Dispatcher for the host's backup pipeline. Wires up restic against
-the operator's S3 backup repo, schedules the snapshot timer, and
-provides one-shot tasks for verification, restore, and reconciliation.
+the operator's S3 backup repo, installs the snapshot timer, and
+provides a one-shot verification task. Restores run in the
+`catena-recovery` host binary, driven from the panel.
 
 ## Modes (tasks_from)
 
@@ -14,38 +15,22 @@ provides one-shot tasks for verification, restore, and reconciliation.
 - `verify.yml` -- run a dry-restore against the latest snapshot
   into a scratch dir; verify file count and size; emit alert on
   drift.
-- `restore.yml` -- full filesystem restore from a chosen snapshot.
-  catena-postgres is restored raw (its store-derived password makes a
-  byte-for-byte restore correct); per-app DBs are restored raw and then
-  reconciled by a fresh `pg_dumpall` replay (scope=clients), which is
-  the `catena-recovery` host binary, not a mode of this role. It also
-  records `dump_archives` in the post-restore marker: the archives the
-  restored snapshot CARRIES, which is what the replay uses to refuse one an
-  earlier pass left behind. Timestamps cannot answer that -- an archive is
-  written before the `restic backup` that captures it, a host snapshots many
-  times between two dumps, and a migrated host's newest archive was written
-  on the machine its data came from. An absent line means the listing could
-  not be read and leaves the replay unguarded; a present but empty one means
-  the snapshot carried nothing and admits nothing.
 - `ensure_restic.yml` -- apt-install + binary version pin only.
 
 ## Where the scripts come from
 
 This role renders the per-host CONFIGURATION -- `backup.env`,
 `offsite.env`, `backup-paths`, the exclude patterns, the coverage
-paths and every systemd unit. It no longer ships the code that reads
-them: `catena-backup-run`, `catena-backup-coverage`, `catena-restic-env`,
+paths and every systemd unit. The code that reads them is not here:
+`catena-backup-run`, `catena-backup-coverage`, `catena-restic-env`,
 `catena-restic-mount`, `catena-restic-unmount`, `catena-restic-short-id`,
 `catena-snapshot-export` and `catena-snapshot-list` are lane scripts in
 the catena-admin image payload, installed by `reconcile/roles/payload` right after
 `bootstrap/roles/docker`. A fix to any of them reaches a host by bumping the image,
 the same way every host engine already does.
 
-`catena-disk-preflight` is the exception and is still copied here.
-`restore.yml` calls it on a fresh disaster-recovery box that has run
-`common`, `storage` and `backup` and has no docker -- so there is no
-image to extract a payload from at that point. A script has to live
-where its earliest caller can reach it.
+`catena-disk-preflight` is the exception: this role installs it from
+`ansible/scripts/disk-preflight.sh`.
 
 `install.yml` fails loudly when the wrapper is absent rather than
 installing a timer that points at nothing.
@@ -124,10 +109,3 @@ stored value.
 
 - All file/systemd resources converge.
 - restic init is a no-op against an existing repo.
-- The post-restore reconciliation only fires on the marker file
-  `restore.yml` drops; `catena-recovery post-restore` clears it after a
-  successful pass, so an interrupted recovery is retried.
-
-## Related
-
-- Operator-facing: `ops/internal_docs/tools/incident-playbooks/restore-to-new-vps.md`.

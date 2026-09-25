@@ -1,5 +1,5 @@
 ---
-backup_mode: install # install | restore | verify
+backup_mode: install # install | verify
 
 # Restic binary version, pulled directly from upstream GitHub releases
 # (not Debian's repo -- trixie's restic lags upstream). Installed into
@@ -181,10 +181,10 @@ backup_healthcheck_url_operator: "{{ cfg_backup_healthcheck_url_operator | defau
 #     backup-staging/pg/ for cross-check / partial replay.
 #   - Client postgres containers (app stacks) are restored RAW:
 #     their named volumes are in the restic set and replay back
-#     deterministically. pg_dumpall captures them too, and
-#     `catena-recovery post-restore` logically replays them
-#     (scope=clients) after the stacks redeploy -- belt-and-suspenders
-#     against a volume that doesn't survive the compose recreate.
+#     deterministically. pg_dumpall captures them too, and a restore
+#     (catena-recovery) logically replays them after the stacks
+#     redeploy -- belt-and-suspenders against a volume that doesn't
+#     survive the compose recreate.
 #
 # pg_dumpall failures are fatal (catena-backup-run exits non-zero) so a
 # silent dump gap can't lead to silent data loss.
@@ -393,10 +393,7 @@ backup_exclude_patterns:
   # IDENTITY, not data, and are a private key = a secret we must not
   # store in the restic repo. A fresh box mints its own via cloud-init,
   # and admin access is over the tailnet, so nothing depends on carrying
-  # the source key forward. restore.yml also excludes these on the way
-  # back so an older snapshot that still holds them can never overwrite a
-  # recovered box's own keys (the DR SSH-identity-clone that aborted
-  # validate.yml Vantage 3). Locked in by
+  # the source key forward. Locked in by
   # tests/unit/test_backup_ssh_host_key_exclusion.py.
   - "/etc/ssh/ssh_host_*"
   # restic's own home + cache, created by catena-backup.service's
@@ -417,10 +414,10 @@ backup_pg_dump_user: postgres
 # immediately. Subsequent plays skip (repo already has snapshots).
 backup_run_initial_snapshot: true
 
-# Single canonical environment dict for every restic CLI invocation. All five
-# callsites (install init + initial snapshot + forget; restore; verify) reach
-# it through `environment: "{{ backup_restic_env }}"`, so the four credential
-# keys have one definition and one audit surface.
+# Single canonical environment dict for every restic CLI invocation. Every
+# callsite (install init + initial snapshot; verify) reaches it through
+# `environment: "{{ backup_restic_env }}"`, so the four credential keys have
+# one definition and one audit surface.
 #
 # CRITICAL: every task that uses backup_restic_env MUST also set
 # `no_log: true`. The dict still expands at runtime; no_log is what
@@ -440,16 +437,13 @@ backup_restic_env:
 # configuration they read (backup.env, backup-paths, the unit files), so the
 # names stay here: they are what the env file and the units point at.
 #
-# The one exception is backup_disk_preflight_script further down, which this
-# role still copies, because restore.yml calls it on a fresh DR box that has no
-# docker and therefore no payload.
+# The exception is backup_disk_preflight_script further down, which this role
+# installs from ansible/scripts/disk-preflight.sh.
 #
-# catena-backup-run was /usr/local/bin/run-backup.sh while this role copied it.
-# Renamed on the move so it matches every other host command: catena-prefixed,
-# no language suffix, same family as catena-restore-run and catena-migrate-run.
-# Nothing in backup.env names it (that file is written only-if-absent, so a
-# path recorded in it could never be corrected), and the unit that does name it
-# is re-templated on every converge.
+# catena-backup-run is named like every other host command: catena-prefixed,
+# no language suffix. Nothing in backup.env names it (that file is written
+# only-if-absent, so a path recorded in it could never be corrected), and the
+# unit that does name it is re-templated on every converge.
 backup_wrapper_script: /usr/local/bin/catena-backup-run
 backup_coverage_script: /usr/local/bin/catena-backup-coverage
 # Single canonical entrypoint for running restic with backup.env loaded
@@ -482,14 +476,8 @@ backup_restic_check_timeout: 600
 # which controls enable/disable and OnCalendar for every lane out of
 # /etc/catena/config.json -- an Ansible default here would only relocate a
 # value the client still could not move, not make it configurable.
-# Shared disk-space preflight. Used by catena-backup-run, the auto-update
-# two-phase driver, and reconcile/roles/backup/tasks/restore.yml. One implementation,
-# three callers; source is ansible/scripts/disk-preflight.sh.
-#
-# This is the ONE backup script this role still copies. restore.yml calls it on
-# a fresh DR box -- common, storage, backup, no docker -- so there is no image
-# to extract a payload from at that point. A script has to live where its
-# EARLIEST caller can reach it, and this one's earliest caller has no docker.
+# Disk-space preflight catena-backup-run calls before dumping; source is
+# ansible/scripts/disk-preflight.sh.
 backup_disk_preflight_script: /usr/local/bin/catena-disk-preflight
 # FLOOR for free bytes at {{ storage_mount_point }}/backup-staging before a
 # backup run is allowed to start -- not the requirement. catena-backup-run sums
@@ -499,11 +487,6 @@ backup_disk_preflight_script: /usr/local/bin/catena-disk-preflight
 # cannot know when it stops being right. 5 GiB covers restic's temp/cache plus
 # a small stack; the derived value takes over from there.
 backup_preflight_min_bytes: 5368709120 # 5 GiB
-# Minimum free bytes at / before a restore is allowed to start. Restic's
-# tar-style extraction can balloon transiently above the snapshot's
-# logical size; 5 GiB headroom on / catches the disk-full failure mode
-# loudly instead of leaving a half-restored filesystem.
-restore_preflight_min_bytes: 5368709120 # 5 GiB
 backup_env_file: /etc/catena/backup.env
 # The cold-tier half, kept separate because backup.env is only-if-absent and
 # the WORM coordinates have to be able to change on an existing host.
@@ -529,24 +512,14 @@ backup_managed_paths:
   - /etc/systemd/system/catena-restic-check-subset.service
   - /etc/systemd/system/catena-restic-check-subset.timer
 
-# Stats file written by the wrapper after each successful run. Hosts
-# both the catena-admin container's read-only bind-mount target AND
-# the post-restore.needed marker referenced by playbooks + several
-# roles. The catena-admin role binds this dir at /var/lib/catena
-# (read-only) into the container; the writers (catena-backup-run,
-# gatus-sync.py) drop *.json siblings to the marker file. Path is
-# locked by test_restore_option_a.py; don't move without updating
-# the hardcoded reference in bootstrap/roles/common/tasks/main.yml.
-# World-readable (0644) because the sidecars run as non-root users
-# inside their containers.
+# Stats file written by the wrapper after each successful run. This dir is
+# the catena-admin container's read-only bind-mount target: the catena-admin
+# role binds it at /var/lib/catena into the container, and the writers
+# (catena-backup-run, gatus-sync.py) drop *.json files here. Path is locked
+# by test_restore_option_a.py. World-readable (0644) because the sidecars run
+# as non-root users inside their containers.
 backup_stats_dir: /var/lib/catena
 backup_stats_file: "{{ backup_stats_dir }}/backup-stats.json"
-
-# Where converge.yml looks for post-restore hooks when the marker above is
-# present. Under /etc/catena because it is configuration, and because /etc is in
-# backup_paths -- a restored host keeps the hooks it had. This repo creates the
-# directory and never writes into it; see the seam's comment in converge.yml.
-catena_post_restore_hook_dir: /etc/catena/post-restore.d
 
 # Snapshot-export mode (catena-admin Recovery-tab button: "Export latest snapshot")
 # Streams `restic dump latest /` through gzip into a single tarball under
@@ -563,17 +536,6 @@ backup_export_keep_last: 1 # rotation: keep only the newest N exports
 # renders its own list from the same files, so this one is for whoever ends
 # up holding a copy of the folder and no panel.
 backup_snapshot_list_script: /usr/local/bin/catena-snapshot-list
-
-# Restore mode -- snapshot id selector. Operator/runner passes
-# `restore_snapshot` via -e (cli or ansible-playbook);
-# composed flows (fresh_install / migrate / disaster_recovery) gate
-# on whether the OUTER scope's `restore_snapshot` is set, so this
-# fallback lives under a role-private name and the role tasks derive
-# `_restic_snapshot` from `restore_snapshot or backup_default_snapshot`.
-# Naming this `restore_snapshot` directly leaked into the play scope
-# and made the conditional `import_playbook: restore.yml` fire even
-# when the parent flow had not requested a restore.
-backup_default_snapshot: latest
 
 # Verify mode
 verify_scratch_dir: /var/tmp/restic-verify

@@ -329,12 +329,9 @@ def tier1_spec_upsert(existing, spec):
 
     Each role appends its own spec as it deploys, which is what keeps the
     rendered file and the spec the engine applies reading the SAME variable.
-    Replace rather
-    than append because a role can legitimately run twice in one converge:
-    converge.yml re-runs coturn in post_tasks, because the post-restore hooks
-    bring the TURN consumer up after reconcile/roles/coturn already probed for one and
-    correctly found none. Appending would hand the renderer a duplicate name
-    and fail the converge on the recovery path specifically.
+    Replace rather than append because a role can run twice in one converge
+    (a re-run, a tag-scoped include). Appending would hand the renderer a
+    duplicate name and fail the converge.
     """
     name = str((spec or {}).get("name") or "").strip()
     if not name:

@@ -19,12 +19,12 @@
 # targets the `vps:` group), then playbooks/lockdown.yml, which closes public 22
 # via bootstrap/roles/common/tasks/ufw_lockdown.yml.
 #
-# Restoring to a different server (hardware upgrade, provider migration):
+# Moving to a different server (hardware upgrade, provider migration):
 #   1. Update ansible_host in inventory/<env>/hosts.yml for the *-bootstrap
 #      entry to the new VPS's public IP.
 #   2. Run this playbook as normal -- the password prompt accepts the new
 #      provider's initial root password.
-#   After bootstrap, run restore.yml then converge.yml to bring services back up.
+#   After the install, restore or migrate the data from the panel.
 #
 # Usage (cwd = ansible/):
 #   ansible-playbook -i inventory/<name> playbooks/bootstrap.yml
@@ -520,8 +520,7 @@
     #
     # We do NOT mutate inventory/<env>/hosts.yml here. Instead:
     #   1. add_host overrides ansible_host on the steady-state hostname for
-    #      downstream plays in the SAME ansible-playbook invocation
-    #      (restore.yml + converge.yml);
+    #      downstream plays in the SAME ansible-playbook invocation;
     #   2. helpers/bootstrap_output.py merges the value into
     #      <inventory_dir>/.bootstrap-output.yml (gitignored) so you can copy
     #      it into your inventory before the next invocation.
@@ -576,8 +575,7 @@
           Steady-state host: {{ _steady_state_host }}
 
           The value is live in this run's in-memory inventory (add_host),
-          so downstream plays in this invocation (restore.yml, converge.yml)
-          target the correct IP.
+          so downstream plays in this invocation target the correct IP.
 
           To persist across invocations, copy from
           {{ inventory_dir }}/.bootstrap-output.yml into your inventory's
@@ -586,10 +584,6 @@
           Next (cwd = ansible/):
             ansible-playbook playbooks/converge.yml --limit {{ _steady_state_host }}
             ansible-playbook playbooks/lockdown.yml --limit {{ _steady_state_host }}
-            # (or, to also restore from backup first:)
-            ansible-playbook playbooks/restore.yml --limit {{ _steady_state_host }} -e restore_snapshot=latest
-            ansible-playbook playbooks/converge.yml    --limit {{ _steady_state_host }}
-            ansible-playbook playbooks/lockdown.yml    --limit {{ _steady_state_host }}
 
           lockdown.yml is what closes public port 22, and only on a host whose
           access method is the tailnet -- after proving that path from here.

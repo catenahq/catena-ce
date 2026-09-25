@@ -24,8 +24,7 @@
       - { path: /etc/systemd/system/catena-backup.service }
       - { path: /etc/systemd/system/catena-backup.timer }
       - { path: /usr/local/bin/restic, mode: "0755" }
-      # The one backup script this role still copies: restore.yml calls it on a
-      # fresh DR box with no docker, so it cannot come from the image payload.
+      # The one backup script this role installs.
       - { path: /usr/local/bin/catena-disk-preflight, mode: "0755" }
 
 # Assert when the payload is EXPECTED here -- either this deployment installs it

@@ -96,10 +96,9 @@ cloudflared_ingress_service: "http://catena-traefik:80"
 infrastructure_gatus_subdomain: "{{ cfg_gatus_subdomain | default('monitor', true) }}"
 infrastructure_gatus_hostname: "{{ infrastructure_gatus_subdomain }}.{{ cloudflare_zone }}"
 # catena-admin is served at dash.<zone>, and `catena_admin_hostname` below
-# is where that is said. There were two names for it here, both rendering
-# dash.<zone> from their own subdomain variable, so they agreed and nothing
-# noticed -- until the first thing to CHANGE one would have moved the panel
-# for oauth2-proxy and the trust path while the DR keyset banner and the
+# is the one place that is said. A second name rendering dash.<zone> from its
+# own subdomain variable would agree until the first change to one moved the
+# panel for oauth2-proxy and the trust path while the DR keyset banner and the
 # gated-host probe set kept printing the old name.
 
 healthchecks_subdomain: "{{ cfg_healthchecks_subdomain | default('heartbeat', true) }}"
@@ -310,12 +309,12 @@ common_locale: "{{ lookup('dotenv', 'COMMON_LOCALE', default='en_CA.UTF-8') }}"
 catena_admin_subdomain: "{{ cfg_catena_admin_subdomain | default('dash', true) }}"
 catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
 catena_admin_ui_port: "9010"
-# Host dir where run-backup.sh + gatus-sync.py write their summary JSON
+# Host dir where catena-backup-run + gatus-sync.py write their summary JSON
 # files (backup-stats.json, gatus-summary.json, healthchecks-summary.json).
 # Bind-mounted read-only into the admin container; the admin's stats
 # reader picks up the files unchanged. Matches reconcile/roles/backup defaults'
-# backup_stats_dir; do not move without updating that role + the
-# post-restore.needed marker contract (test_restore_option_a).
+# backup_stats_dir; do not move without updating that role
+# (test_restore_option_a).
 catena_admin_stats_dir: "/var/lib/catena"
 # Where the panel writes its own state, chiefly the hash-chained audit trail.
 #

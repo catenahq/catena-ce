@@ -30,62 +30,17 @@ def test_install_chain_order(cli):
     )
 
 
-def test_recover_chain_order(cli):
-    """DR onto a fresh box runs preflight -> bootstrap -> restore -> site ->
-    validate: the install chain with `restore` inserted after bootstrap."""
-    assert cli.RECOVER_CHAIN == (
-        "preflight", "bootstrap", "restore", "converge", "lockdown", "validate",
-    )
-
-
-def test_recover_parser_wires_snapshot_and_input(cli):
-    ns = cli.build_parser().parse_args(
-        ["recover", "--inventory", "test", "--snapshot", "snap42",
-         "-i", "install.yaml"]
-    )
-    assert ns.func is cli.cmd_recover
-    assert ns.snapshot == "snap42"
-    assert ns.input == "install.yaml"
-
-
 def _stage_of(cmd):
     """The playbook stem of an ansible-playbook argv (the .yml arg)."""
     pb = next(a for a in cmd if a.endswith(".yml"))
     return pb.rsplit("/", 1)[-1].removesuffix(".yml")
 
 
-def test_recover_runs_full_chain_with_snapshot(cli, monkeypatch):
-    """cmd_recover drives the whole DR chain in order, threads the snapshot
-    onto the restore stage, and (reused vault holds the key) makes a single
-    site pass -- no seed."""
-    from helpers import bootstrap_output
-
-    calls: list[list[str]] = []
-    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
-    monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
-    monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_collections", lambda: None)
-    monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
-
-    ns = cli.build_parser().parse_args(
-        ["recover", "--inventory", "test", "--snapshot", "snap42"]
-    )
-    assert ns.func(ns) == 0
-
-    pb_calls = [c for c in calls if c and c[0] == "ansible-playbook"]
-    assert [_stage_of(c) for c in pb_calls] == [
-        "preflight", "bootstrap", "restore", "converge", "lockdown", "validate",
-    ]
-    restore_cmd = next(c for c in pb_calls if _stage_of(c) == "restore")
-    assert "restore_snapshot=snap42" in " ".join(restore_cmd)
-
-
 # ---- transient secret threading (0b: no persisted laptop vault) ----
 
 def test_run_deploy_chain_threads_global_extra_on_every_stage(cli, monkeypatch, tmp_path):
     """The transient adopt file (`-e @file`) rides EVERY stage so the on-box
-    loader adopts the vendor creds / DR keyset; bootstrap also carries its own
-    creds."""
+    loader adopts the vendor creds; bootstrap also carries its own creds."""
     from helpers import bootstrap_output
 
     calls: list[list[str]] = []
@@ -101,156 +56,6 @@ def test_run_deploy_chain_threads_global_extra_on_every_stage(cli, monkeypatch, 
         assert "@secrets" in " ".join(c), _stage_of(c)
     boot = next(c for c in pb if _stage_of(c) == "bootstrap")
     assert "@boot" in " ".join(boot)
-
-
-def test_collect_dr_adopt_file_from_install_yaml(cli, tmp_path):
-    """Recover reads the DR keyset from --input, writes a 0600 temp adopt file
-    with the vault_* creds + the restic repo, referenced as `-e @file`."""
-    import yaml
-
-    iy = tmp_path / "install.yaml"
-    iy.write_text(
-        "backup_restic_password: rp\n"
-        "backup_s3_access_key: ak\n"
-        "backup_s3_secret_key: sk\n"
-        "cloudflare_api_token: cf\n"
-        "tailscale_oauth_client_id: tid\n"
-        "tailscale_oauth_client_secret: tsec\n"
-        "BACKUP_RESTIC_REPO: s3:ep/bucket\n"
-    )
-    extra, tmp = cli._collect_dr_adopt_file(str(iy), tmp_path)
-    try:
-        assert extra[0] == "-e" and extra[1].startswith("@")
-        data = yaml.safe_load(tmp.read_text())
-        assert data["backup_restic_password"] == "rp"
-        assert data["backup_s3_access_key"] == "ak"
-        assert data["backup_restic_repo"] == "s3:ep/bucket"
-        assert (tmp.stat().st_mode & 0o777) == 0o600
-    finally:
-        tmp.unlink(missing_ok=True)
-
-
-def test_collect_dr_adopt_file_empty_without_input_or_tty(cli, monkeypatch, tmp_path):
-    """No --input and no TTY (the bench) -> nothing collected, no temp file."""
-    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: False)
-    extra, tmp = cli._collect_dr_adopt_file(None, tmp_path)
-    assert extra == [] and tmp is None
-
-
-# --- the DR keyset follows the access method ---------------------------------
-#
-# `catena recover` rebuilds a wiped box, so there is no store to ask: the
-# inventory that seeded it is the only record of what the host declared.
-
-def test_a_tailnet_free_host_is_not_asked_for_a_tailnet_credential(cli, tmp_path):
-    """Asking would collect a value this recover stores and nothing reads, on a
-    host that joins no tailnet at all."""
-    (tmp_path / ".env").write_text("ACCESS_METHOD=public_ssh\n")
-    iy = tmp_path / "install.yaml"
-    iy.write_text(
-        "backup_restic_password: rp\n"
-        "tailscale_oauth_client_id: tid\n"
-        "tailscale_oauth_client_secret: tsec\n"
-        "headscale_api_key: hs\n"
-    )
-    import yaml
-
-    _extra, tmp = cli._collect_dr_adopt_file(str(iy), tmp_path)
-    try:
-        data = yaml.safe_load(tmp.read_text())
-        assert data["backup_restic_password"] == "rp"
-        for key in ("tailscale_oauth_client_id", "tailscale_oauth_client_secret",
-                    "headscale_api_key"):
-            assert key not in data, f"{key} was collected for a host with no tailnet"
-    finally:
-        tmp.unlink(missing_ok=True)
-
-
-def test_a_host_that_declared_nothing_is_still_asked(cli, tmp_path):
-    """The safer guess. A host installed before the key existed is on a
-    tailnet, and skipping the credential would leave its bootstrap unable to
-    join -- a failure, where asking for one that goes unused is a question."""
-    (tmp_path / ".env").write_text("OPS_USER=ops\n")
-    iy = tmp_path / "install.yaml"
-    iy.write_text("tailscale_oauth_client_id: tid\n")
-    import yaml
-
-    _extra, tmp = cli._collect_dr_adopt_file(str(iy), tmp_path)
-    try:
-        assert yaml.safe_load(tmp.read_text())["tailscale_oauth_client_id"] == "tid"
-    finally:
-        tmp.unlink(missing_ok=True)
-
-
-def test_the_answers_file_outranks_the_inventory(cli, tmp_path):
-    """A recover driven by an answers file is answering for the host it is
-    about to build, not describing the one on disk."""
-    (tmp_path / ".env").write_text("ACCESS_METHOD=tailnet\n")
-    assert cli._recover_access_method(tmp_path, {"ACCESS_METHOD": "public_ssh"}) == "public_ssh"
-    assert cli._recover_access_method(tmp_path, {}) == "tailnet"
-
-
-def test_rollback_chain_order(cli):
-    """In-place rollback runs preflight -> restore -> site -> validate, no
-    bootstrap (the host is alive)."""
-    assert cli.ROLLBACK_CHAIN == (
-        "preflight", "restore", "converge", "lockdown", "validate",
-    )
-
-
-def test_rollback_parser_wires_snapshot(cli):
-    ns = cli.build_parser().parse_args(
-        ["rollback", "--inventory", "test", "--snapshot", "snap7"]
-    )
-    assert ns.func is cli.cmd_rollback
-    assert ns.snapshot == "snap7"
-
-
-def test_rollback_runs_chain_with_snapshot_no_bootstrap(cli, monkeypatch):
-    """cmd_rollback drives restore -> site -> validate (preflight first), threads
-    the snapshot onto restore, and never runs bootstrap."""
-    from helpers import bootstrap_output
-
-    calls: list[list[str]] = []
-    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
-    monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
-    monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_collections", lambda: None)
-    monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
-
-    ns = cli.build_parser().parse_args(
-        ["rollback", "--inventory", "test", "--snapshot", "snap7"]
-    )
-    assert ns.func(ns) == 0
-
-    pb_calls = [c for c in calls if c and c[0] == "ansible-playbook"]
-    stages = [_stage_of(c) for c in pb_calls]
-    assert stages == ["preflight", "restore", "converge", "lockdown", "validate"]
-    assert "bootstrap" not in stages
-    restore_cmd = next(c for c in pb_calls if _stage_of(c) == "restore")
-    assert "restore_snapshot=snap7" in " ".join(restore_cmd)
-
-
-def test_recover_runs_single_site_pass(cli, monkeypatch):
-    """Post-Portainer-migration there is no CLI-driven second site pass: the
-    Portainer API key the auth stack needs is minted in-band by
-    reconcile/roles/portainer during `site`, so the chain runs `site` exactly once."""
-    from helpers import bootstrap_output
-
-    calls: list[list[str]] = []
-    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
-    monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
-    monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_collections", lambda: None)
-    monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
-
-    ns = cli.build_parser().parse_args(["recover", "--inventory", "test"])
-    assert ns.func(ns) == 0
-
-    stages = [_stage_of(c) for c in calls if c and c[0] == "ansible-playbook"]
-    assert stages == [
-        "preflight", "bootstrap", "restore", "converge", "lockdown", "validate"]
-    assert stages.count("converge") == 1
 
 
 def test_playbook_cmd_shape(cli):
@@ -308,24 +113,6 @@ def test_backup_runs_backup_now_playbook(cli, monkeypatch):
     assert ns.func(ns) == 0
     assert len(calls) == 1
     assert calls[0][-1].endswith("playbooks/backup.yml")
-
-
-def test_restore_accepts_snapshot_passthrough(cli):
-    """`catena restore --snapshot <id>` restores a specific restic snapshot
-    via restore.yml's restore_snapshot extra-var."""
-    ns = cli.build_parser().parse_args(
-        ["restore", "--inventory", "test", "--snapshot", "abc123"]
-    )
-    assert cli._snapshot_extra(ns) == ["-e", "restore_snapshot=abc123"]
-    cmd = cli.playbook_cmd(ns.inventory, "restore", cli._snapshot_extra(ns))
-    assert cmd[-2:] == ["-e", "restore_snapshot=abc123"]
-    assert cmd[-3].endswith("playbooks/restore.yml")
-
-
-def test_snapshot_extra_is_none_when_unset(cli):
-    """No --snapshot -> restore.yml defaults to latest."""
-    ns = cli.build_parser().parse_args(["restore", "--inventory", "test"])
-    assert cli._snapshot_extra(ns) is None
 
 
 def test_check_prereqs_reports_missing(cli, monkeypatch):
@@ -440,15 +227,13 @@ def test_bootstrap_extra_vars_writes_secret_to_file_not_argv(cli, tmp_path):
 
 
 def test_bootstrap_extra_vars_install_yaml_initial_user_overrides_env(cli, tmp_path):
-    """`catena recover` reuses the OLD inventory's .env, whose
-    HOST_INITIAL_USER reflects the dead box, not necessarily the fresh
-    replacement -- install.yaml's host_initial_user (write_dr_install_yaml
-    in the bench) must win when given."""
+    """An answers file describes the box about to be built, so its
+    host_initial_user wins over an inventory .env written for another one."""
     inv_dir = tmp_path / "inv"
     inv_dir.mkdir()
-    (inv_dir / ".env").write_text("HOST_INITIAL_USER=debian\n")  # the dead box
+    (inv_dir / ".env").write_text("HOST_INITIAL_USER=debian\n")
     iy = tmp_path / "install.yaml"
-    iy.write_text("host_initial_user: root\n")  # the fresh replacement
+    iy.write_text("host_initial_user: root\n")
     extra, tmp = cli._bootstrap_extra_vars(inv_dir, str(iy))
     try:
         import yaml
@@ -659,7 +444,7 @@ def test_inventory_path_threads_to_ansible_playbook_i_flag(cli, monkeypatch, tmp
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
     monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
 
-    ns = cli.build_parser().parse_args(["rollback", "--inventory-path", str(ext)])
+    ns = cli.build_parser().parse_args(["converge", "--inventory-path", str(ext)])
     assert ns.func(ns) == 0
     pb_calls = [c for c in calls if c and c[0] == "ansible-playbook"]
     assert pb_calls
@@ -792,6 +577,16 @@ def test_main_dispatches_verb_first_shape(cli, monkeypatch):
     assert cli.main(["converge", "--inventory", "dev"]) == 0
     assert seen["ns"].func is cli.cmd_converge
     assert seen["ns"].inventory == "dev"
+
+
+@pytest.mark.parametrize("verb", ["restore", "recover", "rollback"])
+def test_restores_are_not_cli_verbs(cli, verb):
+    """A restore runs on an installed host, from the panel. A CLI verb that
+    restored through the converge would be a second path with its own
+    marker, hooks and bugs."""
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args([verb, "--inventory", "prod"])
+    assert verb not in cli.KNOWN_COMMANDS
 
 
 def test_main_refuses_inventory_first_shape(cli, monkeypatch):

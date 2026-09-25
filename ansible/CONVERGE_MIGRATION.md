@@ -394,13 +394,10 @@ bench to pass them another way (an exported env var, the shape
 `CATENA_ADMIN_IMAGE` already uses). That is a cross-repo change gated on a bench
 run, which is why they were not done with the other thirteen.
 
-### 6. Three misclassifications the boundary gates caught
+### 6. Misclassifications the boundary gates caught
 
 Writing the gates found these rather than confirming the guesses.
 
-- A **restore** rewrites the host's SSH identity and is reached only from
-  `playbooks/restore.yml`. It belongs to neither side; declared in
-  `boundary.yml` as `operator_only_files`.
 - `reconcile/roles/backup` names `/etc/ssh` in its defaults because **restic reads it** --
   it is in the backup set with host keys excluded. The bootstrap-owned-path
   scan therefore covers task files only. A rule that cannot tell reading a path

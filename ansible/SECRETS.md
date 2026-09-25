@@ -70,12 +70,12 @@ ride the backup, because it is what unlocks the backup.
 (like the internal secrets) but the installer reads them back and **shows them
 once** at the end of `catena install` (`playbooks/show-keyset.yml`) so the
 client keeps a copy in their password manager. They are NOT settable through
-the settings config-write API (a restic re-key is a deliberate action). On
-`catena recover` the client re-enters the saved values; the loader adopts them
-into the store BEFORE the restore decrypts the backup (adopt is fill-only, so
-the freshly-minted value is only used on a first install). Minting the restic
-password on-box is safe precisely because it is surfaced once off-box: without
-that copy a lost box is unrecoverable, which is the client's responsibility.
+the settings config-write API (a restic re-key is a deliberate action). To
+recover a lost server the client installs Catena on a new one and enters the
+old repository with the saved restic password in the panel's restore; the
+restore brings the old store back with it. Minting the restic password on-box
+is safe precisely because it is surfaced once off-box: without that copy a
+lost box is unrecoverable, which is the client's responsibility.
 
 The console password is the same shape one layer down: SSH is key-only, so it
 is rejected there and works ONLY at a local console (provider KVM/serial or a

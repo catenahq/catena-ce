@@ -75,9 +75,6 @@ The `catena` CLI provides other options than `install`. Run them from
 uv run catena converge         --inventory prod  # re-apply after a configuration or app change
 uv run catena validate         --inventory prod  # on-host + tailnet + external health checks
 uv run catena backup           --inventory prod  # take an on-demand snapshot
-uv run catena restore          --inventory prod  # in-place whole-host restore
-uv run catena rollback         --inventory prod  # roll a running server back to a prior snapshot
-uv run catena recover          --inventory prod  # rebuild onto a FRESH replacement box
 uv run catena rotate-tunnel    --inventory prod  # mint a new Cloudflare tunnel
 uv run catena rotate-tailscale --inventory prod  # re-authenticate to the private network
 uv run catena show-keyset      --inventory prod  # show the passwords and first-login URLs again
@@ -87,5 +84,9 @@ uv run catena uninstall        --inventory prod  # hand unattended-upgrades back
 A verb that runs one playbook carries that playbook's name, so
 `catena converge` runs `playbooks/converge.yml`. Running `catena` with no
 arguments prompts for the inventory and the operation.
+
+Restores run from the Catena-Admin panel: a rollback restores an earlier
+snapshot on the same server, and a lost server is recovered by installing
+Catena on a new one and restoring from the old server's backup repository.
 
 Some of these options are also available from the Catena-Admin app. The recommended method is to always use the Catena-Admin app running on the server to perform the operations, but the `catena` CLI is available as a break-glass should the panel be unavailable (which could happen if the disk is full).

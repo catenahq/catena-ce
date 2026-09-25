@@ -25,21 +25,6 @@ from pathlib import Path
 
 from . import render, run as run_mod, steps as steps_mod
 
-# Verbs the wizard does not offer yet, rendered as disabled so the page says
-# what the tool does rather than implying it does less.
-#
-# `catena recover` re-prompts the whole disaster-recovery keyset, because
-# nothing off the server holds a copy -- so it is a different wizard with
-# different inputs rather than a variant of install. Rollback is the same
-# shape. Hiding them would make the launcher look like the whole tool.
-DISABLED_TABS = (
-    ("Recover", "Rebuild a wiped server from its backup. It asks for the "
-                "recovery passwords rather than creating them, so it is a "
-                "different set of questions -- use `catena recover` for now."),
-    ("Roll back", "Put a running server back to an earlier snapshot. Same "
-                  "reason -- use `catena rollback` for now."),
-)
-
 _STYLE = """
 :root { color-scheme: light dark; --fg: #1a1a1a; --bg: #fdfdfc; --muted: #666;
         --line: #d8d8d4; --bad: #a11; --warn: #a60; --ok: #161; }
@@ -90,9 +75,6 @@ def _nav(all_steps: list[steps_mod.Step], current: str) -> str:
     for step in all_steps:
         cls = " class=on" if step.name == current else ""
         out.append(f'<a href="/step/{step.name}"{cls}>{html.escape(step.title)}</a>')
-    for label, why in DISABLED_TABS:
-        out.append(f'<span class=off title="{html.escape(why)}">'
-                   f"{html.escape(label)}</span>")
     out.append("</nav>")
     return "".join(out)
 
@@ -330,4 +312,4 @@ def serve(current: run_mod.Run, doc: dict, *, port: int, ansible_dir: Path) -> i
     return 0
 
 
-__all__ = ["serve", "DISABLED_TABS", "start_install"]
+__all__ = ["serve", "start_install"]

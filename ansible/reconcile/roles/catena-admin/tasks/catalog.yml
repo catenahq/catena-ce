@@ -94,8 +94,8 @@
   # refusing it, which is what lets an action ship with a panel image instead
   # of waiting for the next converge.
   #
-  # One-way, like /etc/catena/post-restore.d: the converge provides the moment,
-  # the image subscribes to it. Root-owned 0755 because the dispatcher REFUSES
+  # One-way: the converge provides the moment, the image subscribes to it.
+  # Root-owned 0755 because the dispatcher REFUSES
   # a drop-in that is not root-owned or is group/world-writable -- root sourcing
   # a file anything else can write is anything else choosing what root runs.
   ansible.builtin.file:

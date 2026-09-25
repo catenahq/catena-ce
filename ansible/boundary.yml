@@ -95,10 +95,7 @@ post_task_roles:
       A fold over the converge rather than a step in it. traefik, postgres,
       portainer and coturn each append their service spec to an accumulator;
       this renders the accumulated set and type-checks it against the docker
-      actually installed. It can only run once every contributor has, and it
-      runs after the post-restore seam specifically: that seam is what brings a
-      TURN consumer back up, so a render from the roles list would write a
-      coturn-less companions.yml on the one path that needs one.
+      actually installed. It can only run once every contributor has.
 
 # Applied only by their own playbook, never by a converge.
 own_playbook_roles:
@@ -134,13 +131,9 @@ own_playbook_roles:
 # and it applies to whatever is listed here.
 straddling_roles: {}
 
-# Reached only from their own operator playbook, never from a converge.
-#
-# A restore rewrites the host's identity, SSH host keys included, and it runs
-# when an operator has decided that is what should happen. Classifying it as
-# reconcile would be saying a timer may do it.
-operator_only_files:
-  - reconcile/roles/backup/tasks/restore.yml
+# Task files reached only from their own operator playbook, never from a
+# converge. Classifying one as reconcile would be saying a timer may run it.
+operator_only_files: []
 
 # Paths a reconcile-side TASK may never write.
 #

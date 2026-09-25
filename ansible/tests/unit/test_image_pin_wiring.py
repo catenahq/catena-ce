@@ -344,7 +344,7 @@ def test_the_loader_resolves_the_catena_admin_release_before_any_role():
     assert "CATENA_ADMIN_IMAGE" in loader, (
         "the operator override must short-circuit the registry call, or an "
         "explicitly pinned host still fails when the registry is unreachable")
-    for playbook in ("converge.yml", "validate.yml", "restore.yml"):
+    for playbook in ("converge.yml", "validate.yml"):
         text = (tasks.parent / playbook).read_text()
         assert "load_onbox_config.yml" in text, (
             f"{playbook} does not load the on-box config, so it would run "

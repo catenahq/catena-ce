@@ -62,7 +62,7 @@ def test_a_different_inventory_value_cannot_replace_a_stored_licence(oc):
 
 
 def test_the_licence_seeds_into_an_empty_store(oc):
-    """Fill-only still has to FILL, or `catena recover` could not restore an
+    """Fill-only still has to FILL, or an install could not seed an
     activation from the client's saved token."""
     store = {"secrets": {}, "config": {}}
     oc.adopt(store, {"catena_license": "RESTORED"})

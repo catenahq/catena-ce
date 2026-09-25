@@ -85,10 +85,9 @@
 # A swarm service rather than a plain container, for three reasons:
 #
 #   1. It rejoins catena-network by NAME. A plain container attaches by
-#      network ID, so an overlay that is torn down and recreated (a restore
-#      rebuilds swarm+overlay from scratch -- see reconcile/roles/backup/tasks/
-#      restore.yml; an interrupted converge or daemon flap does the same)
-#      leaves the baked-in reference stale: `docker start` fails with
+#      network ID, so an overlay that is torn down and recreated (an
+#      interrupted converge or a daemon flap) leaves the baked-in reference
+#      stale: `docker start` fails with
 #      "network <old-id> not found" and ingress stays dead until something
 #      starts it. The task manager re-dispatches a service on its own.
 #   2. The managed-bump lane needs no copy of how the service was built.

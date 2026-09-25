@@ -304,34 +304,6 @@
             | default(_wp_ct.stdout | regex_replace('^(wordpress-[0-9a-z]+).*$', '\1'), true)
           }}
 
-    # The marker lives under /var/lib/catena, which is NOT in backup_paths
-    # (only /etc + /srv/catena + /var/lib/dpkg + /usr/local/bin are), while the
-    # WordPress database that carries the admin's tuned values IS restored. So
-    # a restored host has the settings and none of the markers, and without
-    # this the seed gate below opens and puts catena's NPP preload method and
-    # WP Mail SMTP sender back over the restored ones -- exactly the silent
-    # overwrite the marker exists to stop, reached through DR instead of
-    # through a converge.
-    #
-    # reconcile/roles/keycloak does the same for its three realm markers in one loop.
-    # This one cannot ride that loop: the name is per site and is not known
-    # until _wp_seed_marker is computed above, which is why it is a task here
-    # rather than a line there.
-    - name: "WordPress plugins: probe post-restore marker"
-      ansible.builtin.stat:
-        path: "{{ backup_stats_dir | default('/var/lib/catena') }}/post-restore.needed"
-      register: _wp_post_restore_marker
-
-    - name: "WordPress plugins: treat a restored site as already seeded"
-      ansible.builtin.file:
-        path: "{{ _wp_seed_marker }}"
-        state: touch
-        owner: root
-        group: root
-        mode: "0644"
-      when: _wp_post_restore_marker.stat.exists | default(false)
-      changed_when: false
-
     - name: "WordPress plugins: probe the option-seed marker"
       ansible.builtin.stat:
         path: "{{ _wp_seed_marker }}"

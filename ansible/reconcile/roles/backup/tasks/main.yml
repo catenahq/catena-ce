@@ -3,30 +3,22 @@
 #   install   (default, converge.yml path) -- install binaries, unit files,
 #             the manual oneshot service, and the initial snapshot
 #   verify    (verify-backup.yml)      -- dry-restore + assert
-#   restore   (restore.yml playbook)   -- filesystem restore from restic
 #
-# pg_replay + s3_reconcile live in the catena-recovery host binary, invoked
-# from converge.yml's post_tasks on the post-restore marker -- reachable only
-# through a restore and needing a controller to drive it, so one binary is
-# what the panel and the converge share rather than two implementations of
-# the same recovery logic. Its scope flag keeps the operator escape hatch
-# for a corrupt infra database:
-#   catena-recovery post-restore -scope infra -force
+# Restores run in the catena-recovery host binary, driven from the panel.
 
 - name: Assert backup_mode is valid
   ansible.builtin.assert:
     that:
-      - backup_mode in ['install', 'verify', 'restore']
-    fail_msg: "backup_mode must be install | verify | restore (got: {{ backup_mode }})"
+      - backup_mode in ['install', 'verify']
+    fail_msg: "backup_mode must be install | verify (got: {{ backup_mode }})"
 
-# Restore / verify / replay / reconcile genuinely need the creds NOW (they
-# read or write the repo this run). The `install` (converge) path does NOT:
-# backup creds are deferred -- the user sets them post-install in catena-admin
-# and the run-backup wrapper self-gates on the on-box store at runtime. So the
-# converge installs the units unconditionally and only these active modes
-# assert. On a live box the creds come from the on-box store (load_onbox facts);
-# on a fresh recover they are threaded in as the DR keyset.
-- name: Assert restic credentials are available (active backup modes)
+# verify reads the repo this run, so it needs the creds NOW. The `install`
+# (converge) path does NOT: backup creds are deferred -- the user sets them
+# post-install in catena-admin and the run-backup wrapper self-gates on the
+# on-box store at runtime. So the converge installs the units unconditionally
+# and only verify asserts. The creds come from the on-box store (load_onbox
+# facts).
+- name: Assert restic credentials are available (verify)
   ansible.builtin.assert:
     that:
       - backup_restic_password is defined
@@ -35,8 +27,7 @@
       - backup_restic_repo | length > 0
     fail_msg: >-
       Restic credentials are not available for backup_mode={{ backup_mode }}.
-      On a live box they come from /etc/catena/config.json (set in catena-admin);
-      on a fresh-box recover they are the DR keyset threaded into `catena recover`.
+      They come from /etc/catena/config.json (set in catena-admin).
   when: backup_mode != 'install'
 
 - name: Install backup infrastructure
@@ -46,7 +37,3 @@
 - name: Verify restic repo is restorable (dry-restore drill)
   ansible.builtin.include_tasks: verify.yml
   when: backup_mode == 'verify'
-
-- name: Restore from backup
-  ansible.builtin.include_tasks: restore.yml
-  when: backup_mode == 'restore'

@@ -290,8 +290,8 @@ def test_cifs_bulk_credentials_are_external(oc):
 
 
 def test_ensure_user_held_does_not_overwrite_adopted(oc):
-    """A restic password the user re-entered on `catena recover` (adopted first)
-    is preserved; only a first install mints fresh."""
+    """A restic password handed to the loader (adopted first) is preserved;
+    only a store with none mints fresh."""
     store = {"secrets": {"backup_restic_password": "user-saved"}, "config": {}}
     minted = oc.ensure_user_held_secrets(store)
     assert "backup_restic_password" not in minted

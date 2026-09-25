@@ -212,14 +212,9 @@
 # host code most likely to need a correction, yet unable to reach a host
 # without someone's laptop in the loop.
 #
-# The split that decides where a script lives is what its EARLIEST caller can
-# reach. catena-disk-preflight is still copied below because restore.yml calls
-# it on a fresh DR box that has no docker yet, so no payload can exist. Every
-# script moved out has a converged host as its earliest caller.
-#
-# The per-host half did NOT move: backup.env, backup-paths, the excludes and
-# the unit files are still rendered here. Code ships in the image, configuration
-# stays with the converge.
+# The per-host half is rendered here: backup.env, backup-paths, the excludes
+# and the unit files. Code ships in the image, configuration stays with the
+# converge.
 # "The payload did not land" and "the payload has not landed YET" are different
 # failures and only the first is worth stopping a converge for.
 # bootstrap/roles/common/tasks/_payload_expected.yml is the one place that distinction is
@@ -268,13 +263,10 @@
   ansible.builtin.set_fact:
     _backup_wrapper_present: "{{ catena_payload_missing | length == 0 }}"
 
-- name: Drop disk-preflight helper (R16 -- shared across backup/restore/auto-update)
-  # Single source of truth for the "is there enough free disk to start"
-  # check. catena-backup-run, auto-update-two-phase.sh, and
-  # reconcile/roles/backup/tasks/restore.yml all invoke this script with their own
-  # mountpoint + threshold. Plain /bin/sh, world-readable, 0755 so any
-  # caller (including root-only systemd-launched scripts and Ansible's
-  # `command:`) can exec it without sudo gymnastics.
+- name: Drop disk-preflight helper
+  # The "is there enough free disk to start" check catena-backup-run invokes
+  # with its own mountpoint + threshold. Plain /bin/sh, 0755 so a root-only
+  # systemd-launched script can exec it.
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../scripts/disk-preflight.sh"
     dest: "{{ backup_disk_preflight_script }}"
@@ -339,19 +331,6 @@
 # Content is deliberately tool-agnostic: restic + docker + psql only, no
 # catena command anywhere, so a client is never dependent on us to get their
 # data back.
-# The seam converge.yml runs at the end of a converge when a recovery is pending.
-# This repo creates it and never writes to it: whatever manages the host
-# afterwards installs its own script here, and an empty directory means a
-# converge behaves exactly as it did before the seam existed. Same shape as
-# /etc/catena/quiesce.d.
-- name: "Post-restore: the hook directory the converge runs"
-  ansible.builtin.file:
-    path: "{{ catena_post_restore_hook_dir }}"
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
-
 - name: "Sovereign-exit: drop the manual-rebuild README (EN + FR)"
   ansible.builtin.template:
     src: "RECOVERY-README.{{ item }}.md.j2"
@@ -518,24 +497,12 @@
   no_log: true
   when: _backup_configured | bool
 
-# DR / migrate path: the post-restore marker means restore.yml has
-# extracted the source host's restic state into place. The repo
-# already has snapshots from before; an inline first-backup here
-# only races the source's own scheduled timer (lock contention) and
-# brings nothing the next scheduled run won't bring. Skip cleanly --
-# the timer keeps the cadence going on its own.
-- name: "Stat post-restore marker (gates inline first-backup skip)"
-  ansible.builtin.stat:
-    path: "{{ backup_stats_dir }}/post-restore.needed"
-  register: _backup_post_restore_marker
-
 - name: "Run first backup inline (sync) so verify-backup finds a snapshot"
   when:
     - _backup_configured | bool
     - not ansible_check_mode
     - backup_run_initial_snapshot | bool
     - _restic_has_snapshot.rc | default(1) != 0
-    - not (_backup_post_restore_marker.stat.exists | default(false))
     # No wrapper, no snapshot. On a host whose payload arrives after this role
     # (CATENA_PAYLOAD_INSTALL=false) the unit would exec a path that does not
     # exist yet and fail the converge. The next converge, or the first scheduled

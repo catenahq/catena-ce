@@ -3,9 +3,9 @@
 # stack: the panel holds PORTAINER_API_BASE + PORTAINER_API_KEY and
 # reconciles Portainer's stacks, so deploying it VIA Portainer would make it
 # a dependent of the thing it exists to drive -- a Portainer that would not
-# start would take down the only tool that could repair it, and the
-# post-restore path that needs the panel runs at exactly the moment
-# Portainer is what did not come back.
+# start would take down the only tool that could repair it, including the
+# restore that needs the panel at exactly the moment Portainer is what did
+# not come back.
 #
 # So it is created the same way reconcile/roles/traefik, reconcile/roles/postgres and
 # reconcile/roles/portainer create theirs -- `docker service create` against the local

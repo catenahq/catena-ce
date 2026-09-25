@@ -21,8 +21,7 @@ etc.) keep their own containers -- this hosts infra databases only.
   default restic set: the password comes from the (also-backed-up)
   on-box store and Postgres skips initdb on a restored non-empty
   volume, so a raw restore is password-consistent by construction --
-  no post-restore reconciliation. (Exercised by the restore_dr +
-  hot-restore bench scenarios.)
+  no reconciliation after the restore.
 - A first-task guard that refuses the converge while
   `catena_postgres_password` is a placeholder -- BEFORE the
   create-once secret can be minted wrong (the fi_s3 bench scenario

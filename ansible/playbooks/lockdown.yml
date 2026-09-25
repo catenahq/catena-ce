@@ -13,8 +13,7 @@
 #   - The panel's open/close toggle and the installer's last step are the same
 #     action. One playbook means they cannot diverge.
 #
-# `catena install`, `catena recover` and `catena rollback` all run it after
-# their converge. It is idempotent: on a host already locked down the public
+# `catena install` runs it after its converge. It is idempotent: on a host already locked down the public
 # rule is gone, the delete is a no-op, and the proof runs again as a cheap
 # reachability check.
 #
