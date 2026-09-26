@@ -16,7 +16,7 @@
 # brought up.
 
 # Image the payload is extracted from. The SAME variable reconcile/roles/catena-admin
-# runs the shell from, declared in bootstrap/roles/common because this role runs at 5.5
+# runs the shell from, declared in playbooks/group_vars/all/main.yml because this role runs at 5.5
 # and that one at 13: extracting the engines from one image while running the
 # shell from another is how a host ends up with an engine and a panel that
 # disagree about the config schema.

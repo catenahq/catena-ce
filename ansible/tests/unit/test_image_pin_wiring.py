@@ -20,6 +20,9 @@ import yaml
 ANSIBLE = Path(__file__).resolve().parents[2]
 _ROLE_ROOTS = (ANSIBLE / "bootstrap" / "roles",
                ANSIBLE / "reconcile" / "roles")
+# The values both sides share: a host converging itself runs no bootstrap role,
+# so a constant the reconcile roles need cannot live in one.
+SHARED_VARS = ANSIBLE / "playbooks" / "group_vars" / "all" / "main.yml"
 
 def _role_dir(name: str) -> Path:
     """Where a role lives, whichever side it is on.
@@ -55,10 +58,11 @@ RESOLVED_ELSEWHERE = {
 
 
 def _image_defaults() -> dict[str, tuple[str, str]]:
-    """{variable: (role, value)} for every *_image default across the roles."""
+    """{variable: (role, value)} for every *_image default across the roles
+    and the shared group_vars."""
     out: dict[str, tuple[str, str]] = {}
     for path in sorted(p for root in _ROLE_ROOTS
-                       for p in root.glob("*/defaults/main.yml")):
+                       for p in root.glob("*/defaults/main.yml")) + [SHARED_VARS]:
         data = yaml.safe_load(path.read_text()) or {}
         for key, value in data.items():
             # _image_floor is still scanned even though none is left: a
@@ -106,14 +110,12 @@ def test_the_exemptions_are_real_variables():
 
 
 def test_no_role_carries_a_hand_maintained_catena_admin_version():
-    """The version and its digest were two literals in bootstrap/roles/common, bumped by
-    hand together on every release. They drifted -- v0.5.1 published as
-    sha256:205a5a70... while the recorded digest stayed sha256:09e03d74... --
-    and reconcile/roles/payload correctly refused to extract, so a correct host holding a
-    correctly published image could not complete a fresh install.
-
-    Both halves now come from one registry answer. A literal reappearing in a
-    role default is that defect being rebuilt."""
+    """A version and its digest kept as two literals drift apart -- v0.5.1
+    published as sha256:205a5a70... while the recorded digest said
+    sha256:09e03d74... -- and reconcile/roles/payload correctly refuses to
+    extract, so a correct host holding a correctly published image cannot
+    complete a fresh install. Both halves come from one registry answer; a
+    literal in a default is that defect being rebuilt."""
     for var, (role, value) in _image_defaults().items():
         if "catena-admin" not in str(value):
             continue
@@ -122,13 +124,12 @@ def test_no_role_carries_a_hand_maintained_catena_admin_version():
             "The version is resolved from the registry by "
             "playbooks/tasks/load_onbox_config.yml, together with its digest, "
             "so the two cannot drift apart again.")
-    common = yaml.safe_load(
-        (_role_dir("common") / "defaults" / "main.yml").read_text())
+    shared = yaml.safe_load(SHARED_VARS.read_text())
     for gone in ("catena_admin_image_floor", "catena_admin_image_floor_digest"):
-        assert gone not in common, (
+        assert gone not in _image_defaults(), (
             f"{gone} is back; it is half of a two-writer answer and the other "
             "half is the registry")
-    assert "catena_admin_release" in str(common["catena_admin_image"]), (
+    assert "catena_admin_release" in str(shared["catena_admin_image"]), (
         "catena_admin_image no longer reads the resolved release; a converge "
         "would install whatever the remaining literal says")
 
@@ -214,12 +215,11 @@ def _render_image(release=None, override="", pins=None):
                            / "filter_plugins"))
     from image_pin import catena_image_pin  # noqa: PLC0415
 
-    common = yaml.safe_load(
-        (_role_dir("common") / "defaults" / "main.yml").read_text())
+    shared = yaml.safe_load(SHARED_VARS.read_text())
     env = jinja2.Environment()
     env.filters["catena_image_pin"] = catena_image_pin
     env.filters["ternary"] = lambda c, a, b: a if c else b
-    return env.from_string(str(common["catena_admin_image"])).render(
+    return env.from_string(str(shared["catena_admin_image"])).render(
         catena_admin_image_override=override,
         catena_admin_release=(jinja2.Undefined() if release is None else release),
         catena_image_pins=pins if pins is not None else {},
@@ -296,14 +296,14 @@ def test_a_corrupt_pin_does_not_choose_the_panel_image():
 
 def test_the_engines_and_the_shell_come_from_one_image():
     """reconcile/roles/payload runs at 5.5 and reconcile/roles/catena-admin at 13, so neither can
-    see the other's defaults. The value they share has to be declared in a role
-    that runs before both, or the earlier one silently uses a fallback and the
-    two agree only by coincidence of spelling."""
-    common = yaml.safe_load(
-        (_role_dir("common") / "defaults" / "main.yml").read_text())
-    assert "catena_admin_image" in common
-    assert "catena_admin_image_override" in common
-    assert "catena_admin_service_name" in common, (
+    see the other's defaults. The value they share is declared in the shared
+    group_vars, which every playbook loads -- including reconcile.yml on a host
+    converging itself, which runs no bootstrap role -- or the earlier one
+    silently uses a fallback and the two agree only by coincidence of spelling."""
+    shared = yaml.safe_load(SHARED_VARS.read_text())
+    assert "catena_admin_image" in shared
+    assert "catena_admin_image_override" in shared
+    assert "catena_admin_service_name" in shared, (
         "reconcile/roles/payload reads it at 5.5 to find the service whose image the "
         "engines follow; reconcile/roles/catena-admin's defaults are not in scope there")
     admin = yaml.safe_load(

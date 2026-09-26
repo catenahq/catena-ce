@@ -41,10 +41,9 @@ catena_admin_dispatch_env_passthrough:
 catena_admin_container_uid: "{{ catena_container_uid }}"
 catena_admin_container_gid: "{{ catena_container_gid }}"
 
-# Host paths -- the bind-mount targets the admin compose expects. Keep
-# these in sync with the compose file when you rename either.
+# Host path -- the bind-mount target the admin compose expects. Keep it in
+# sync with the compose file when you rename it.
 catena_admin_host_ssh_dir: "/etc/catena/admin-ssh"
-catena_admin_dispatcher_path: "/usr/local/sbin/catena-admin-runner"
 
 # Per-host configuration for the daily orchestrator chain.
 #

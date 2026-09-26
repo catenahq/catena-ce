@@ -13,7 +13,11 @@ ansible_managed: "Managed by catena -- do not edit directly; regenerate via the 
 
 # --- Identity ---
 ops_user: "{{ lookup('dotenv', 'OPS_USER', default='ops') }}"
-ansible_ssh_private_key_file: "{{ lookup('dotenv', 'SSH_PRIVATE_KEY') }}"
+# The controller's key for reaching the host over SSH. A host converging itself
+# (catena-converge, local connection) has no .env and no use for one.
+ansible_ssh_private_key_file: >-
+  {{ lookup('dotenv', 'SSH_PRIVATE_KEY')
+     if (ansible_connection | default('ssh')) != 'local' else '' }}
 ops_ssh_public_keys:
   - "{{ lookup('file', lookup('dotenv', 'SSH_PUBLIC_KEY_FILE')) }}"
 
@@ -305,7 +309,75 @@ common_locale: "{{ lookup('dotenv', 'COMMON_LOCALE', default='en_CA.UTF-8') }}"
 #
 # A role default is only dependable once that role has run, so a value two roles
 # on either side of the boundary share is the product's rather than one role's.
-# Same call as the public-port paths above and the subdomains in phase 3.
+# Same call as the public-port paths above and the subdomains in phase 3. It is
+# also what lets a host converge itself: playbooks/reconcile.yml runs no
+# bootstrap role, so a bootstrap default is undefined there.
+
+# The swarm service's name, and its DNS name on catena-network, which
+# reconcile/roles/oauth2_proxy upstreams to: renaming it 502s every
+# authenticated dash.<zone> request. reconcile/roles/catena-admin creates the
+# service; reconcile/roles/payload asks swarm which image it runs.
+catena_admin_service_name: "catena-admin"
+
+# What the shell binds. reconcile/roles/portainer builds the App Templates URL
+# from the name and this port, long before reconcile/roles/catena-admin runs.
+catena_admin_internal_port: 8000
+
+# The distroless image's `USER nonroot:nonroot`. reconcile/roles/payload owns
+# /var/lib/catena/ee-payload for it and reconcile/roles/catena-admin chowns what
+# the container writes. Keep in lockstep with catena-admin's Dockerfile.
+catena_container_uid: "65532"
+catena_container_gid: "65532"
+
+# Where bootstrap/roles/catena_admin_host installs the SSH forced command the
+# panel dispatches through; the admin-actions templates name it.
+catena_admin_dispatcher_path: "/usr/local/sbin/catena-admin-runner"
+
+# The recovery export directory. reconcile/roles/backup owns what goes in it;
+# reconcile/roles/catena-admin BIND-MOUNTS it into the panel earlier, and swarm
+# rejects a task whose bind source does not exist. The container joins the
+# group so it can list the artifacts; the recovery sidecar serves them.
+catena_export_dir: /var/backups/catena-export
+catena_export_dir_group: "1000"
+catena_export_dir_mode: "0750"
+
+# Where reconcile/roles/infrastructure/tasks/swarm_stack.yml writes the body it
+# hands to `docker stack deploy`; keycloak and oauth2_proxy include that helper
+# from their own roles. Kept on disk so a failed deploy is reproducible by hand:
+# `docker stack deploy -c <dir>/<name>.yml <name>`.
+swarm_stack_dir: /etc/catena/stacks
+
+# The catena-admin image. reconcile/roles/payload extracts the host engines from
+# it and reconcile/roles/catena-admin runs the shell from it, so both read this
+# one declaration: a host whose engines and panel come from different images
+# disagrees with itself about the config schema.
+#
+# The BOOTSTRAP input: it decides the image a first converge creates the service
+# from; afterwards reconcile/roles/payload follows the service's own image, so a
+# host has one version input at a time and the update lane moves both halves.
+# PUBLIC, pulled anonymously: the Business set is gated at runtime by the
+# licence check.
+#
+# Precedence:
+#   1. CATENA_ADMIN_IMAGE, if set -- change control, ahead of any pin. The bench
+#      converges against an image it built this way.
+#   2. The version this host recorded in /etc/catena/config.json, rollback
+#      included.
+#   3. The newest published release, asked of the registry once per converge by
+#      playbooks/tasks/load_onbox_config.yml (catena_admin_release).
+#
+# The empty minimum on the pin filter is what lets (2) beat (3); a pin must name
+# this repository and a real version, and the result carries its digest, so the
+# pull is byte-addressed (playbooks/filter_plugins/image_pin.py). An inline
+# conditional rather than ternary: ternary evaluates both branches, and the pin
+# filter refuses the empty reference an override leaves behind.
+catena_admin_image_override: >-
+  {{ lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) }}
+catena_admin_image: >-
+  {{ catena_admin_image_override
+     if (catena_admin_image_override | default('', true) | length > 0)
+     else ((catena_admin_release.ref | default(''))
+           | catena_image_pin(catena_image_pins | default({}), '')) }}
 
 # --- Hostname ---------------------------------------------------------
 # The admin panel is served at dash.<zone>. The subdomain is a product

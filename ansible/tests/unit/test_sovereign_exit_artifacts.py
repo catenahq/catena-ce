@@ -97,9 +97,10 @@ def test_the_export_directory_is_created_for_the_payload_scripts():
 
     reconcile/roles/catena-admin creates the same directory two roles earlier, because
     it bind-mounts it and swarm rejects a task whose bind source is missing.
-    The group therefore comes from bootstrap/roles/common rather than a literal here:
-    two literals is how the two creators drift, and the loser's ownership is
-    whatever ran last. Assert the resolved value, not the spelling."""
+    The group therefore comes from the playbooks' shared group_vars rather than a
+    literal here: two literals is how the two creators drift, and the loser's
+    ownership is whatever ran last. Assert the resolved value, not the
+    spelling."""
     tasks = _install_tasks()
     task = next(
         (t for t in tasks if "snapshot export directory" in (t.get("name") or "")),
@@ -109,6 +110,6 @@ def test_the_export_directory_is_created_for_the_payload_scripts():
     spec = task["ansible.builtin.file"]
     assert spec["state"] == "directory"
     assert str(spec["group"]) == "{{ catena_export_dir_group }}"
-    common = yaml.safe_load(
-        (_ANSIBLE / "bootstrap" / "roles" / "common" / "defaults" / "main.yml").read_text())
-    assert str(common["catena_export_dir_group"]) == "1000"
+    shared = yaml.safe_load(
+        (_ANSIBLE / "playbooks" / "group_vars" / "all" / "main.yml").read_text())
+    assert str(shared["catena_export_dir_group"]) == "1000"

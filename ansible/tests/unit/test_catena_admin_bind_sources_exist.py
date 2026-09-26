@@ -30,7 +30,7 @@ import yaml
 _ANSIBLE = Path(__file__).resolve().parents[2]
 PLUGIN = _ANSIBLE / "playbooks" / "filter_plugins" / "catena_admin_service.py"
 HOST_TASKS = _ANSIBLE / "bootstrap" / "roles" / "catena_admin_host" / "tasks" / "main.yml"
-COMMON_DEFAULTS = _ANSIBLE / "bootstrap" / "roles" / "common" / "defaults" / "main.yml"
+SHARED_VARS = _ANSIBLE / "playbooks" / "group_vars" / "all" / "main.yml"
 BACKUP_DEFAULTS = _ANSIBLE / "reconcile" / "roles" / "backup" / "defaults" / "main.yml"
 
 EXPORT_DIR = "/var/backups/catena-export"
@@ -79,9 +79,9 @@ def test_one_literal_for_the_path_across_the_two_roles():
     """reconcile/roles/backup creates the same directory two roles later. Two literals
     is how they drift, and a drifted path is a bind source that exists under
     the other name -- the same rejection loop, harder to read."""
-    common = yaml.safe_load(COMMON_DEFAULTS.read_text())
+    shared = yaml.safe_load(SHARED_VARS.read_text())
     backup = yaml.safe_load(BACKUP_DEFAULTS.read_text())
-    assert common["catena_export_dir"] == EXPORT_DIR
+    assert shared["catena_export_dir"] == EXPORT_DIR
     assert backup["backup_export_dir"] == "{{ catena_export_dir }}"
 
 
@@ -89,9 +89,9 @@ def test_both_creators_agree_on_ownership():
     """The panel joins gid 1000 as a supplementary group to read this dir. If
     the two creators disagree, whichever runs last wins and the /recovery tab
     is empty on exactly one of the two orderings."""
-    common = yaml.safe_load(COMMON_DEFAULTS.read_text())
-    assert common["catena_export_dir_group"] == "1000"
-    assert common["catena_export_dir_mode"] == "0750"
+    shared = yaml.safe_load(SHARED_VARS.read_text())
+    assert shared["catena_export_dir_group"] == "1000"
+    assert shared["catena_export_dir_mode"] == "0750"
     for task in yaml.safe_load(HOST_TASKS.read_text()) or []:
         f = task.get("ansible.builtin.file") or {}
         if f.get("path") == "{{ catena_export_dir }}":
