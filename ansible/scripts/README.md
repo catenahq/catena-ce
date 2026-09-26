@@ -36,8 +36,6 @@ search `/usr/local/lib/catena` -- where the payload installs its modules
 | `catena-paths.py` | Print every path this host's Catena owns, grouped by the restore boundary. |
 | `catena-public-ports.py` | Host reconciler for the declarative public-port registry. |
 | `catena-restic-key.py` | catena-restic-key -- validate or rotate the restic repository password. |
-| `catena-version-check.py` | Auto-detecting version + CVE-visibility check (Community). |
-| `gatus-sync.py` | Regenerate Gatus endpoint config (50-catena-apps.yaml) from docker labels. |
 | `healthchecks-seed.py` | Bootstrap/reconcile self-hosted Healthchecks: seed the operator superuser, the catena project, API keys, the ntfy notification channel, and the daily backup check. |
 | `mailserver-cert-reload.sh` | Inject the renewed mail TLS cert into the dms container and reload Postfix + Dovecot so it takes effect without dropping established connections. |
 | `nextcloud-talk-hpb-wire.sh` | /usr/local/bin/catena-wire-nextcloud-talk-hpb -- post-deploy wiring for Nextcloud Talk's High-Performance Backend (HPB). |

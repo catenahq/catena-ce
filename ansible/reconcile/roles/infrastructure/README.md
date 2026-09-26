@@ -8,15 +8,17 @@ the operator panel (`reconcile/roles/catena-admin`):
   every public app a hostname under the operator's CF zone without
   any host port bindings.
 - **Gatus** -- endpoint monitoring (internal alias + public 302-as-up
-  per app; auto-generated config via `gatus-sync.py`). Surfaced to
+  per app; auto-generated config via `catena-gatus-sync`). Surfaced to
   the operator inside catena-admin's System tab.
 - **Healthchecks** -- self-hosted dead-man-switch service. The backup
   timer, the reboot-required probe, gatus and the rest ping it; missed
   pings alert via ntfy. Surfaced to the operator inside catena-admin's
   System tab.
-- **Sync timers** -- systemd timers around `dashboard-sync.py` and
-  `gatus-sync.py`. `catena-version-check.py` (auto-detecting Versions
-  report) runs as gatus-sync's ExecStartPre producer, not its own timer.
+- **Sync timers** -- `catena-dashboard-sync.timer` and `gatus-sync.timer`.
+  The scripts and their units ship in the catena-admin payload
+  (`catena-dashboard-sync`, `catena-gatus-sync`, and `catena-version-check`,
+  the auto-detecting Versions report gatus-sync.service runs first); this
+  role renders their env files and enables the timers.
 
 ## Auxiliary task files
 

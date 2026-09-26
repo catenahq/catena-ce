@@ -18,7 +18,6 @@ ansible/playbooks/validate.yml -- 1 finding(s): NoHistory ("used to" meaning "in
 ansible/reconcile/roles/backup/defaults/main.yml -- 1 finding(s): NoHistoryWeak (describes what postmaster.opts CONTAINS -- the command line a postgres server was started with -- not a past shape of this file)
 ansible/reconcile/roles/catena-admin/tasks/deploy.yml -- 1 finding(s): NoHistoryWeak (quotes the literal runtime message "Keycloak was not reachable")
 ansible/reconcile/roles/keycloak/defaults/main.yml -- 1 finding(s): NoHistory (runtime state of the EDGE, same condition as catena_served_zones.py: a stale projection may name a domain the edge does not serve any more)
-ansible/scripts/gatus-sync.py -- 1 finding(s): NoHistory ("used to" meaning "in order to": the map is used to format endpoint names)
 ansible/scripts/healthchecks-seed.py -- 1 finding(s): NoHistoryWeak (runtime state of the CLIENT'S Healthchecks project: a channel seeded by an earlier converge, which this delete reconciles)
 ansible/scripts/nextcloud-talk-hpb-wire.sh -- 1 finding(s): NoHistory (false match across a sentence boundary: "does not come up until the next converge" is runtime sequencing, not repo history)
 ansible/seed.py -- 1 finding(s): NoHistory (runtime state of the OPERATOR'S inventory: the box a HOST_PUBLIC_IP value points at, which the echo exists to catch)

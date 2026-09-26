@@ -22,16 +22,13 @@
 # on the host, which is the input a delete leg must never be given -- and these
 # directories are shared with the panel payload.
 #
-# catena-dashboard-sync is deliberately ABSENT: its script and units ship in
-# the panel image, not from here (tests/unit/test_no_lane_is_half_owned.py is
-# why), so this role does not own that path and must not delete it.
+# catena-dashboard-sync and gatus-sync (with catena-version-check) are
+# deliberately ABSENT: their scripts and units ship in the panel image
+# (tests/unit/test_no_lane_is_half_owned.py is why), so this role does not own
+# those paths and must not delete them.
 infrastructure_managed_paths:
-  - "{{ gatus_sync_script_path }}"
-  - "{{ version_check_script_path }}"
   - "{{ clamav_watch_script_path }}"
   - "{{ mail_canary_script_path }}"
-  - /etc/systemd/system/gatus-sync.service
-  - /etc/systemd/system/gatus-sync.timer
   - "/etc/systemd/system/{{ clamav_watch_systemd_unit_name }}.service"
   - "/etc/systemd/system/{{ clamav_watch_systemd_unit_name }}.timer"
   - "/etc/systemd/system/{{ mail_canary_systemd_unit_name }}.service"
@@ -113,10 +110,10 @@ gatus_infra_spec_path: "/etc/catena/gatus-infra-spec.json"
 gatus_host_localhost_port: 18080
 
 # gatus-sync (systemd timer + Actions tab button) regenerates
-# 50-catena-apps.yaml from `docker ps` labels.
-gatus_sync_script_path: "/usr/local/bin/gatus-sync"
+# 50-catena-apps.yaml from `docker ps` labels. The script and its units ship in
+# the catena-admin payload; this role renders the env file and wires the timer.
+gatus_sync_script_path: "/usr/local/bin/catena-gatus-sync"
 gatus_sync_env_path: "/etc/catena/gatus-sync.env"
-gatus_sync_interval: "*:0/10" # every 10 minutes
 
 # gatus-sync also writes a small summary here on every run.
 # catena-admin reads it via the backup_stats_dir read-only bind-mount
@@ -234,9 +231,9 @@ beszel_hc_shim_image: >-
 # Host dir the shim script is dropped into + bind-mounted read-only.
 beszel_hc_shim_host_dir: "/etc/catena/beszel-hc-shim"
 
-# version-check (the current-vs-latest Versions report) is CE: a
-# self-hosted Community deployment sees its own version + CVE-visibility
-# without a license. It auto-detects every running container + swarm
+# version-check (the current-vs-latest Versions report, a catena-admin
+# payload script) runs on every edition: a self-hosted Community deployment
+# sees its own version + CVE-visibility without a license. It auto-detects every running container + swarm
 # service and derives each upstream from the image ref (no registry to
 # maintain), running as the ExecStartPre producer of gatus-sync so the
 # report is fresh before gatus-sync reads it. When the Business managed-

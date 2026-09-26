@@ -281,18 +281,20 @@ def test_validate_says_so_when_it_defers():
     assert f"not ({_V_EXPECTED}" in _cond(task)
 
 
-def test_the_reconciler_left_the_unconditional_fixture_loop():
-    """The unconditional fixture loop covers gatus-sync and the traefik dynamic
-    dir, both written by this role on every converge. A payload-installed
-    reconciler in that loop is an assertion with no gate in front of it."""
+def test_the_reconcilers_left_the_unconditional_fixture_loop():
+    """The unconditional fixture loop covers what this role writes on every
+    converge (the OIDC wirer, the export dir, the traefik dynamic dir). A
+    payload-installed reconciler in that loop is an assertion with no gate in
+    front of it."""
     loop = str(_find_v("stat sync scripts + traefik dynamic dir")["loop"])
     assert "catena-dashboard-sync" not in loop
-    assert "gatus-sync" in loop
+    assert "gatus-sync" not in loop
+    assert "traefik/dynamic" in loop
 
 
 def test_the_role_owned_fixtures_are_still_asserted_unconditionally():
-    """The deferral must not become a way to skip everything. gatus-sync, the
-    OIDC wirer, the export dir and the traefik dynamic dir are this role's."""
+    """The deferral must not become a way to skip everything. The OIDC wirer,
+    the export dir and the traefik dynamic dir are this role's."""
     for task_name in ("stat sync scripts + traefik dynamic dir",
                       "fixture files/dirs correct"):
         assert _cond(_find_v(task_name)) == "", task_name

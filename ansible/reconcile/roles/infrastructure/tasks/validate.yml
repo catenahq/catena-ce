@@ -32,10 +32,10 @@
          and (catena_payload_missing | length == 0
               or catena_payload_expected | bool) }}
 
-# The fixtures here do not all arrive at the same time. gatus-sync, the
-# nextcloud OIDC wirer, the export dir and Traefik's dynamic dir are written by
-# THIS role; catena-dashboard-sync is a lane script in the catena-admin image
-# payload. On a host that stages its payload out of band
+# The fixtures here do not all arrive at the same time. The nextcloud OIDC
+# wirer, the export dir and Traefik's dynamic dir are written by THIS role;
+# catena-dashboard-sync and gatus-sync are lane scripts in the catena-admin
+# image payload. On a host that stages its payload out of band
 # (CATENA_PAYLOAD_INSTALL=false -- the bench builds the image on the VPS with
 # the docker this converge installs, so it cannot stage it any earlier) the
 # reconciler lands AFTER a converge, and a validate in between would be
@@ -92,8 +92,7 @@
     path: "{{ item.path }}"
   register: _infra_stats
   loop: >-
-    {{ [{'path': '/usr/local/bin/gatus-sync', 'mode': '0755'},
-        {'path': '/usr/local/bin/catena-wire-nextcloud-oidc', 'mode': '0755'},
+    {{ [{'path': '/usr/local/bin/catena-wire-nextcloud-oidc', 'mode': '0755'},
         {'path': '/var/backups/catena-export', 'type': 'directory', 'mode': '0750'},
         {'path': '/etc/catena/traefik/dynamic', 'type': 'directory'}] }}
   loop_control:
@@ -110,17 +109,14 @@
   loop_control:
     label: "{{ item.item.path }}"
 
-# catena-dashboard-sync.timer only when the reconciler it triggers is expected
-# here: the converge does not wire a timer whose .service is absent, because
-# systemd refuses to start one. gatus-sync is this role's own and is always
-# asserted -- dropping both would turn a deferred payload into no timer
-# coverage at all.
+# Both sync timers ship in the payload, so both are asserted only when the
+# payload is expected here: the converge does not wire a timer whose .service
+# is absent, because systemd refuses to start one.
 - name: "validate/infrastructure: which sync timers should be armed"
   ansible.builtin.set_fact:
     _infra_sync_timers: >-
-      {{ (['catena-dashboard-sync.timer']
-          if (_infra_payload_expected | bool) else [])
-         + ['gatus-sync.timer'] }}
+      {{ ['catena-dashboard-sync.timer', 'gatus-sync.timer']
+         if (_infra_payload_expected | bool) else [] }}
 
 - name: "validate/infrastructure: sync timers are active + enabled"
   # service_facts enumerates .service units reliably but can miss .timer
