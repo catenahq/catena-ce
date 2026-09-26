@@ -185,24 +185,17 @@
   when: >-
     (not _backup_env_stat.stat.exists) or (_backup_configured | bool)
 
-# The offsite-copy lane's dead-man endpoints, written on EVERY converge
-# unlike backup.env above.
+# The offsite-copy lane's dead-man endpoints, written on EVERY converge,
+# including on a host whose backup is not configured yet, where backup.env
+# above is left as first written. An operator pointing the lane at an
+# off-host heartbeat takes effect on the next converge either way.
 #
-# It cannot share backup.env: that file is only-if-absent so a converge never
-# clobbers a rotated credential, and these have to be able to change -- an
-# operator pointing the lane at an off-host heartbeat on an existing host
-# would otherwise write into a file nothing rewrites. Same reasoning that
-# moved retention out to backup-retention.env.
-#
-# WHICH buckets get copied is NOT in here. That is the `offsite_copies` list
-# in /etc/catena/config.json, which catena-admin writes and the lane reads
+# WHICH buckets get copied is the `offsite_copies` list in
+# /etc/catena/config.json, which catena-admin writes and the lane reads
 # straight off disk, so a client adding a copy does not need a converge.
 #
 # The lane's unit loads this with a leading dash, so it is legal for both
-# values to be blank; blank means the lane pings nothing. That fail-soft
-# contract is also how this file's absence stayed invisible for months in its
-# previous form: every run reported "WORM unconfigured" and exited 0, and no
-# host ever made the offsite immutable copy the lane exists for.
+# values to be blank; blank means the lane pings nothing.
 - name: "Backup: write offsite copy env file"
   ansible.builtin.template:
     src: offsite.env.j2
