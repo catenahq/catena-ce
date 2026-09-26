@@ -42,7 +42,7 @@ that would remove your ability to run a reconcile.
 | 2. Dispatch table into the image | **done** | catena-admin `6557adf`, catena-ce `829b914` |
 | 3. Inventory into the store | **done**, 18 -> 0 | catena-ce `836261a` `c29b978` `4893394` `c677205` `95ed945` |
 | 3'. Registry is the enforcement point | **done** | catena-ce `d63318a` |
-| 4. On-host reconcile + panel button + timer | **built**, timer ships DISABLED | catena-ce `6a0473b`; catena-admin `a9dbd54` `81a6d15` `96c230d` |
+| 4. On-host reconcile + panel button + timer | **built and run on a host**, timer ships DISABLED | catena-ce `6a0473b` `4e02d39` `f655871` `be759d6`; catena-admin `a9dbd54` `81a6d15` `96c230d` `3a9543c` |
 | 5. Re-home split owners, retire the laptop path | **2 of 3**, the third is bench-gated | catena-ce `bb1fbb6`; catena-admin `e2eaf77` `da7067b` |
 | 6. Optional: Go reconciler | not started | -- |
 
@@ -568,13 +568,29 @@ deliberately switched off.
 - **The panel section**, under Settings beside the panel update. It withholds
   the button on an unreachable host and on one already converging, and it
   renders a paused host as paused rather than failed.
+- **What reconcile.yml reads resolves without an operator.** A value both
+  halves need lives in `playbooks/group_vars/all/main.yml`, never in a
+  bootstrap role's defaults, and `test_reconcile_reads_no_bootstrap_default.py`
+  fails on a read that only a bootstrap role defines. `public_ip` falls back to
+  the default route's address (private behind a provider's NAT), and the SSH
+  key lookup applies only to a non-local connection.
+- **The image the tree came from is the image it configures.**
+  `catena-converge` passes `CATENA_ADMIN_IMAGE` set to the image the panel is
+  running, so the converge never moves the panel; the panel self-update does.
+
+**Proven on a host.** On a restored bench VM, `reconcile.yml` run alone the way
+`catena-converge` runs it completed (rc 0), and a second run changed one task:
+`Public ports: reconcile firewall from registry`, which is `changed_when: true`
+and restarts `catena-public-ports.service` on every converge.
 
 **The timer ships DISABLED, and that is the gate.** The unit pair
 (`catena-converge-scheduled.service` / `.timer`) is installed by the payload
 installer, which enables nothing -- that is what keeps install and activate two
 observable steps. Enabling it needs a reconcile against an unchanged store that
-reports zero changed tasks and restarts nothing, proven on the bench. Until
-then a timer is a scheduled outage rather than a scheduled converge.
+reports zero changed tasks and restarts nothing. The firewall task above is
+what stands between the proven run and that bar: it needs a changed signal from
+the reconciler. Until then a timer is a scheduled outage rather than a
+scheduled converge.
 
 Note the unit is not called `catena-converge.service`: the panel dispatches an
 ad-hoc converge through `systemd-run --unit catena-converge`, and a persistent
