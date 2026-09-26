@@ -25,13 +25,15 @@ not implement.
 ## Community vs Catena Pro
 
 This repository is complete and functional on its own, including a proven
-scheduled-backup lane. Catena Pro adds licensed automation on top of the same
-host-native operations: daily and sub-daily backups, managed updates with
-rollback, daily maintenance, offsite immutable copies, attestation, central
-audit shipping, multiple sign-on domains, and server-to-server moves.
+on-demand backup and restore. Catena Pro adds licensed automation on top of the
+same host-native operations: scheduled backups, daily and sub-daily, managed
+updates with rollback, daily maintenance, offsite immutable copies,
+attestation, central audit shipping, multiple sign-on domains, and
+server-to-server moves.
 
-Every operation the dashboard drives -- install, converge, validate, backup,
-restore -- runs from this repository without it.
+Every operation the dashboard drives runs on the host without it: install,
+converge, validate and backup from this repository, and restore through the
+`catena-recovery` binary the payload installs.
 
 ## How this repository is layered
 
@@ -67,7 +69,6 @@ several does not, because there is no single playbook to name it after.
 | `converge` | `converge.yml` |
 | `validate` | `validate.yml` |
 | `backup` | `backup.yml` |
-| `restore` | `restore.yml` |
 | `rotate-tunnel` | `rotate-tunnel.yml` |
 | `rotate-tailscale` | `rotate-tailscale.yml` |
 | `show-keyset` | `show-keyset.yml` |
@@ -77,9 +78,7 @@ several does not, because there is no single playbook to name it after.
 
 | Verb | Chain | For |
 | --- | --- | --- |
-| `install` | seed, then `preflight`, `bootstrap`, `converge`, `validate` | A fresh server |
-| `recover` | `preflight`, `bootstrap`, `restore`, `converge`, `validate` | A FRESH replacement box, reusing the existing inventory. No seed: the keyset already exists |
-| `rollback` | `preflight`, `restore`, `converge`, `validate` | A still-running server, in place. No bootstrap: the host is already prepared |
+| `install` | seed, then `preflight`, `bootstrap`, `converge`, `lockdown`, `validate` | A fresh server |
 
 `preflight` runs as its own invocation ahead of the chain, so a stray
 `--limit` cannot skip it.
@@ -104,10 +103,10 @@ already seeded is not an operation.
 | `preflight.yml` | Controller-side. Proves the supplied Tailscale OAuth client works before any server is touched |
 | `bootstrap.yml` | The half that cannot self-repair. Run by hand, over SSH, from outside |
 | `converge.yml` | The full converge. Safe to re-run |
+| `lockdown.yml` | Closes public SSH behind the access method the host declared, or reports why it stays open. The install chain runs it after the converge, and the dashboard's SSH toggle runs the same playbook |
 | `reconcile.yml` | The half a host runs against itself, from the dashboard image, with no controller inventory. Has no verb: nothing on a controller dispatches it |
 | `validate.yml` | Three vantages: on-host per-role checks, tailnet from the controller, external from the controller |
 | `backup.yml` | On-demand snapshot |
-| `restore.yml` | Whole-host restore from a chosen snapshot |
 | `show-keyset.yml` | Re-display the disaster-recovery keyset |
 | `rotate-tunnel.yml` | Replace the host's Cloudflare tunnel without a converge. Takes no secret: both halves of the rotation authenticate as the Cloudflare token already in the store |
 | `rotate-tailscale.yml` | Force re-authentication to the mesh |
@@ -166,17 +165,18 @@ Order is the converge order, which is dependency order.
 | Role | Contract |
 | --- | --- |
 | `public_ports` | The declarative public-port registry and its applier |
-| `payload` | Installs the host engine binaries by extracting them from the running dashboard image. Deploys no container |
+| `payload` | Installs the host engine binaries, the lane scripts and their units, restic and rclone, by extracting them from the running dashboard image. Deploys no container |
 | `traefik` | The reverse proxy and the `catena-network` overlay |
 | `postgres` | The infrastructure Postgres swarm service, hosting the sign-on database |
 | `portainer` | The container control plane |
 | `cloudflare_tunnel` | The cloudflared swarm service, the tunnel and wildcard DNS. Self-defers when the store holds no Cloudflare token |
 | `keycloak` | The sign-on identity provider and its realm |
 | `oauth2_proxy` | One auth proxy per gated upstream |
-| `infrastructure` | Gatus, Healthchecks, Beszel and its agent, the antivirus watch, the mail canary, the application wiring scripts, and the sync timers |
+| `infrastructure` | Gatus, Healthchecks, Beszel and its agent, the antivirus watch, the mail canary, the application wiring scripts, and the configuration of the dashboard and Gatus sync lanes, whose scripts and timers ship in the payload |
+| `host_maintenance` | The reboot-required probe's configuration. The probe and its hourly timer ship in the payload |
 | `catena-admin` | The action catalogue, the bind-mount targets and the dashboard container, created directly against the local swarm. It holds the key that drives Portainer, so it cannot depend on Portainer to run |
 | `coturn` | The shared TURN and STUN relay for the audio and video media plane |
-| `backup` | restic against the client's object storage, the weekly snapshot timer and the backup wrapper |
+| `backup` | The backup lane's per-host configuration (repository, credentials, paths, excludes) and the first snapshot. restic, rclone, the backup wrapper and its units ship in the payload |
 
 ### How a role is reached
 
@@ -187,7 +187,7 @@ converge's `roles:` list is classified rather than exempted.
 | Reached as | Roles | Meaning |
 | --- | --- | --- |
 | A converge role | The two tables above | Applied by `converge.yml`, and by `reconcile.yml` for the reconcile half |
-| A post-task role | `tier1_stack` | A fold over the converge rather than a step in it: the control-plane roles each append their service spec to an accumulator, and this renders the accumulated set and type-checks it against the docker installed. It applies nothing. It runs after the post-restore seam because that seam is what brings a TURN consumer back up |
+| A post-task role | `tier1_stack` | A fold over the converge rather than a step in it: the control-plane roles each append their service spec to an accumulator, and this renders the accumulated set and type-checks it against the docker installed. It applies nothing, and runs from `post_tasks` once every contributor has |
 | An own-playbook role | `cloudflare_tunnel_regenerate` | Deletes this host's tunnel before handing back to `cloudflare_tunnel` to mint a new one. A converge able to do that would drop the public edge every run, so the delete is an intent somebody declares by running `rotate-tunnel.yml` |
 
 ### Paths a reconcile task may never write
@@ -207,20 +207,17 @@ command is allowed to say so.
 
 ### Reachability, not location
 
-`reconcile/roles/backup/tasks/restore.yml` sits on the reconcile side and does
-write a bootstrap-owned path: a restore rewrites the host's identity, SSH host
-keys included. It is allowed to because no converge imports it. Only
-`restore.yml` does, and a restore runs when somebody decided a restore should
-happen.
-
-So the exemption is about what can reach the file, not where the file lives. A
-converge may not reach it, and a timer may not reach it.
+A reconcile-side task file that only its own operator playbook reaches, never
+a converge, may be declared under `operator_only_files` in `boundary.yml`, and
+the rule then does not apply to it. The exemption is about what can reach the
+file, not where the file lives: a converge may not reach it, and a timer may
+not reach it. None is declared.
 
 | Invariant | Enforced by |
 | --- | --- |
 | Every role is on exactly one side, with a stated reason if it is bootstrap | `audit:check-grid` |
 | No reconcile task writes a bootstrap-owned path, and no reconcile play reaches a bootstrap task file | `bench:ce_install_suite` |
-| A restore is reachable only from its own playbook, never from a converge or a timer | `bench:backup_rollback`, `bench:ce_restore` |
+| A restore is neither a CLI verb nor a converge step: it runs only when somebody starts one on the host | `workflow:ci.yml#installer`, `bench:ce_restore`, `bench:backup_rollback` |
 | The reconcile half reads nothing from a controller inventory | `bench:payload_action_dispatches_without_converge` |
 
 ## State the tasks produce
@@ -280,34 +277,49 @@ upload. The restic password is never minted on-box: it must not ride inside
 the backup it decrypts. A whole server rebuilds from only its backup endpoint
 and its keyset.
 
+restic and rclone ship in the payload, pinned by digest. The backup wrapper
+creates the repository the first time it finds none, and stops rather than
+creating one when the password is wrong.
+
 Snapshots can be listed, browsed and exported without a restore.
 
-A restore drops a marker, and a converge provides the moment: it runs whatever
-is installed in `/etc/catena/post-restore.d/` and knows nothing about what
-that is. The marker survives a failed pass, so an interrupted recovery is
-retried rather than reported as a green converge.
+A restore runs on the host, from the dashboard's restore page or
+`catena-recovery restore`, and needs no converge afterwards. It records its
+progress in `/var/lib/catena/recovery.state`: a restore that stops part-way
+stays on record, the next run resumes it and refuses a different snapshot or
+set of applications, and only a finished run clears it.
 
 | Invariant | Enforced by |
 | --- | --- |
 | A server rebuilds from only the backup endpoint and key | `bench:dr_suite#stage-19-onbox-store`, `bench:ce_restore`, `bench:recover_secrets_from_running_host`, `threat:CV9` |
 | Backups are encrypted on the host before upload, and the key is never minted on-box | `bench:dr_suite#stage-13-disaster-recovery`, `bench:ce_restore`, `threat:CV4` |
 | Backups restore -- rehearsed, not assumed | `bench:backup_rollback`, `bench:ce_restore` |
-| An interrupted recovery is retried, never reported as finished | `bench:backup_rollback`, `bench:inplace_restore_suite#skew-abort-stage-3-zero-side-effects` |
+| An interrupted restore resumes with the same snapshot and scope, and is never reported as finished | `bench:fi_n5_provider_outage_mid_restore`, `bench:inplace_restore_suite#app-restore-stage-6-halted-scope-refuses-to-widen` |
 | Snapshots export without a restore | `bench:snapshot_export_round_trip` |
 | The backup key rotates without losing the repository | `bench:restic_password_rotation_round_trip` |
 | Deleting the dashboard costs convenience, never data: backups run, restores work, applications stay online | `bench:sovereign_exit`, `bench:recovery_readme_manual_restore` |
 
-### The timers -- `backup`, `public_ports`, `infrastructure`
+### The timers -- `public_ports`, `infrastructure`, `host_maintenance`
 
 Scheduled work is default-deny: an enumerated set, machine-enforced rather
-than conventional. On a Pro host the daily engine
-masks the Community timer and schedules for itself.
+than conventional. This repository ships three local-maintenance timers: the
+public-port reconcile, the antivirus watch and the mail canary. It enables
+three more that the payload ships and that run on every host: the dashboard
+and Gatus syncs and the hourly reboot-required probe. None of them spends
+object storage.
+
+Every lane -- backup, the bit-rot check, the offsite copy, the daily chain
+that runs container updates, and dashboard updates -- ships in the payload
+with its timer off.
+`catena-schedule apply` turns a lane on only on a licensed host, at the
+cadence set on the dashboard's Schedules page. The backup, container-update
+and dashboard-update services stay runnable by hand on every host.
 
 Debian's own unattended-upgrades applies OS security patches.
 
 | Invariant | Enforced by |
 | --- | --- |
-| Scheduled work is default-deny: the backup timer plus enumerated maintenance timers only | `audit:check-port`, `threat:CV8` |
+| Scheduled work is default-deny: this repository ships only enumerated local-maintenance timers, and every lane ships in the payload | `audit:check-port`, `threat:CV8` |
 | An unlicensed host schedules no lane at all | `bench:unlicensed_schedules_nothing` |
 
 ### The release manifest -- written last, by both converge paths
@@ -315,12 +327,16 @@ Debian's own unattended-upgrades applies OS security patches.
 Every converge records what it delivered, from `converge.yml` and from
 `reconcile.yml` alike, so an on-host converge does not leave the fields
 describing the last one a human ran. Before that, a prune removes files a
-previous converge installed that this one no longer ships.
+previous converge installed that this one no longer ships, provided the file
+is still byte-for-byte what the converge wrote and the payload manifest
+(`/var/lib/catena/payload-manifest.json`) does not claim it. A file that moves
+from a role into the payload stays installed.
 
 | Invariant | Enforced by |
 | --- | --- |
 | Every converge records what it delivered | `bench:converge_suite#stage-7a-the-action-is-back` |
 | Withdrawn files are removed, and Community files are not pruned as though they were licensed | `bench:payload_prune_respects_ce` |
+| A converge never prunes a file the payload claims | `workflow:ci.yml#installer` |
 
 ## Applications
 
@@ -352,7 +368,12 @@ antivirus watch and delivery canaries.
 | `trivy.yml` | `trivyignore-expiry`, `trivy-gate` | the container images pinned in role defaults. A pin that stops matching fails the scan |
 | `seed-baseline.yml` | `seed` | the seeded configuration against its recorded baseline |
 
-Dependencies are kept current by
+The container images pinned in role defaults move with the catena-admin update
+engine, run from the [renovate](https://github.com/catenahq/renovate)
+repository's engine-bump workflow: the decision a host makes for a running
+service (a seven-day soak, a CVE gate, upgrade stops), one pull request per
+defaults file, merged when this repository's required checks pass. Every other
+dependency is kept current by
 [renovate](https://github.com/catenahq/renovate) and
 [renovate-config](https://github.com/catenahq/renovate-config), under a
 seven-day cooldown, with GitHub Actions pinned by digest.
