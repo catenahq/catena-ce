@@ -24,9 +24,11 @@
 # `catena_admin_image` is not a literal anybody maintains. The config loader
 # runs helpers/catena_admin_release.py on the host once per converge, which
 # asks GHCR for the highest published `vX.Y.Z` tag and its digest. That is the
-# INTENT: catena-ce installs the newest published release, so a client converge
-# picks up a release without anyone editing a pin here. There is deliberately
-# no floor and no second version input.
+# INTENT: catena-ce installs the newest published release, so a converge from a
+# controller picks up a release without anyone editing a pin here. There is
+# deliberately no floor and no second version input. A host converging itself
+# (catena-admin catena-converge) sets CATENA_ADMIN_IMAGE to the image it is
+# running and stays on it; the panel's self-update moves it.
 #
 # The version TAG, not `:latest`. publish-image.yml moves `:latest` with
 # `docker buildx imagetools create`, which builds a new index -- so `:latest`
