@@ -38,9 +38,25 @@ def _top_keys(paths) -> set[str]:
     return out
 
 
+_INCLUDED_FILE = re.compile(
+    r"""^\s*file:\s*["']?(?:\{\{\s*playbook_dir\s*\}\}/)?(tasks/[^"'\s]+\.yml)["']?\s*$""",
+    re.M)
+
+
 def _reconcile_files() -> list[Path]:
+    """The reconcile roles, reconcile.yml, and every playbooks/tasks file it
+    includes, followed through their own includes."""
     files = [p for p in (ANSIBLE / "reconcile").rglob("*") if p.is_file()]
-    return files + [ANSIBLE / "playbooks" / "reconcile.yml"]
+    queue = [ANSIBLE / "playbooks" / "reconcile.yml"]
+    seen: set[Path] = set()
+    while queue:
+        p = queue.pop()
+        if p in seen or not p.is_file():
+            continue
+        seen.add(p)
+        queue += [ANSIBLE / "playbooks" / rel
+                  for rel in _INCLUDED_FILE.findall(p.read_text(errors="replace"))]
+    return files + sorted(seen)
 
 
 def _defined_for_reconcile(files) -> set[str]:

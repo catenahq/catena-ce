@@ -11,6 +11,14 @@
 # --- Global ---
 ansible_managed: "Managed by catena -- do not edit directly; regenerate via the installer / converge.yml."
 
+# This machine's public address: coturn advertises it in its ICE candidates and
+# the mail and TURN A records point at it. A controller's inventory states it
+# (hosts.yml, from HOST_PUBLIC_IP), and a host var outranks this file. A host
+# converging itself has no inventory to ask and reads the address of its own
+# default route, which is the public address on a provider that puts it on the
+# interface; behind a provider's NAT that address is private.
+public_ip: "{{ ansible_default_ipv4.address | default('') }}"
+
 # --- Identity ---
 ops_user: "{{ lookup('dotenv', 'OPS_USER', default='ops') }}"
 # The controller's key for reaching the host over SSH. A host converging itself
@@ -219,6 +227,18 @@ catena_converge_manifest_path: /var/lib/catena/converge-manifest.json
 # path handed from this converge to the payload is never withdrawn from under
 # the payload.
 catena_payload_manifest_path: /var/lib/catena/payload-manifest.json
+
+# What this converge delivered, written at the very end of converge.yml and
+# reconcile.yml so it describes a converge that finished. The panel reads it to
+# tell "this feature is off" from "this feature's plumbing never reached this
+# host": every button dispatches a FIXED action name through the SSH forced
+# command, and that table is rendered by the converge, so a panel built after
+# an action was added shows a button a host converged before it will refuse.
+#
+# It lives under /var/lib/catena: it is rebuildable state, that directory is
+# already bind-mounted read-only into the panel, and it stays out of restic
+# snapshots because a restored host's converge state is its own.
+catena_release_manifest_path: "/var/lib/catena/release.json"
 
 # --- What the bootstrap-owned files looked like last time a converge ran ---
 # Same reasoning for /var/lib: it describes this host now, it is rewritten
