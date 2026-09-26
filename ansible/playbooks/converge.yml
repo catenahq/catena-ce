@@ -248,7 +248,7 @@
     # by it.
     - { role: catena-admin, tags: [catena_admin] }
     - { role: coturn, tags: [coturn] } # shared TURN/STUN for NC Talk HPB + RC Jitsi (UDP media plane, direct on VPS public IP)
-    - { role: backup, tags: [backup] } # restic + the manual oneshot catena-backup.service
+    - { role: backup, tags: [backup] } # backup configuration + the first snapshot
 
   post_tasks:
     # Reconcile the declarative public-port registry. Runs AFTER every role

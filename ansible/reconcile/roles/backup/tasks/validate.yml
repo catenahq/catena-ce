@@ -1,12 +1,10 @@
 ---
 # Validation tasks for reconcile/roles/backup. Replaces tests/goss/backup.yaml.
 #
-# Community ships the backup oneshot service PLUS exactly one timer: a
-# single daily backup (catena-backup.timer). Sub-daily cadence + the
-# catena-daily orchestrator chain are the Business lane -- on a Business
-# host the EE engine MASKS catena-backup.timer and schedules itself, so
-# this validate only asserts the units exist; it does NOT assert the
-# timer is enabled (it is legitimately masked on Business).
+# The backup units ship in the payload with their timers off, and
+# `catena-schedule apply` enables a timer only on a licensed host with a
+# schedule set, so this validate asserts the units exist and never that a
+# timer is enabled.
 #
 # The fixtures split in two, because they do not all arrive at the same time.
 # The configuration is written by THIS role; the scripts and the units ship in

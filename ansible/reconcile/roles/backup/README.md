@@ -1,7 +1,7 @@
 # backup
 
-Dispatcher for the host's backup pipeline. Wires up restic against
-the operator's S3 backup repo, installs the snapshot timer, and
+Dispatcher for the host's backup pipeline. Writes the configuration
+the payload's backup lane reads, takes the first snapshot, and
 provides a one-shot verification task. Restores run in the
 `catena-recovery` host binary, driven from the panel.
 
@@ -32,8 +32,9 @@ host engine already does. `restic` and `rclone` themselves ship in the same
 payload, pinned by digest in the catena-admin `Dockerfile`, and
 `catena-backup-run` creates the repository the first time it finds none.
 
-`install.yml` fails loudly when the wrapper is absent rather than
-installing a timer that points at nothing.
+`install.yml` fails loudly when a converge that installs the payload
+leaves the wrapper absent, because the payload's units would then point at
+nothing.
 
 ## Logical dumps
 
@@ -103,9 +104,7 @@ Cadence and retention are NOT inputs to this role. Both are set per host
 in the catena-admin panel, stored in `/etc/catena/config.json`, and
 applied by `catena-schedule` -- which is the only thing that enables a
 timer, writes a timer OnCalendar drop-in, or renders
-`/etc/catena/backup-retention.env`. This role installs the units and
-enables nothing; the converge asserts the Community cap against the
-stored value.
+`/etc/catena/backup-retention.env`. This role enables nothing.
 
 ## Idempotency
 

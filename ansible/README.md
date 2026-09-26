@@ -41,8 +41,8 @@ The managed lifecycle -- scheduled backup, verification and offsite
 copies, container updates with rollback, CVE remediation, attestation,
 the catena-daily orchestrator chain -- is the Business edition. Its engines ship in the public catena-admin payload and install
 on every host, but the license check gates their features at runtime, so
-they stay dormant on a Community host. On a Business host the managed
-engine masks `catena-backup.timer` and takes over scheduling.
+they stay dormant on a Community host. On a Business host `catena-schedule`
+turns on the lanes set on the panel's Schedules page.
 
 ## Installer (`catena`)
 
@@ -53,7 +53,7 @@ directory, where `pyproject.toml` lives.
 
 | Command | Playbook | What it does |
 | --- | --- | --- |
-| `install` | chain | Seed the configuration, then run preflight, bootstrap, converge, validate |
+| `install` | chain | Seed the configuration, then run preflight, bootstrap, converge, lockdown, validate |
 | `converge` | `converge.yml` | Re-apply after a configuration or app change |
 | `validate` | `validate.yml` | On-host + tailnet + external checks |
 | `backup` | `backup.yml` | Take an on-demand snapshot |

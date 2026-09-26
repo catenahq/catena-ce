@@ -41,4 +41,4 @@ is provisioned by `reconcile/roles/keycloak/tasks/_portal_realm.yml`.
 
 - Every Portainer stack deploy goes through the API and is gated
   on a shape comparison; idempotent across re-runs.
-- Sync timers are templated with stable content.
+- The sync lanes' env files are templated with stable content.

@@ -1,13 +1,13 @@
 ---
-# Install the backup's runtime deps, write the env files and the units, and
+# Install the backup's runtime deps, write the configuration files, and
 # (optionally) take an initial snapshot so the repo isn't empty the first time
-# validate or verify-backup runs against it. restic, rclone and the wrapper
-# ship in the catena-admin payload; the wrapper creates the repository on its
-# first run.
+# validate or verify-backup runs against it. restic, rclone, the wrapper and the
+# units ship in the catena-admin payload; the wrapper creates the repository on
+# its first run.
 #
 # Backup creds are DEFERRED: a fresh install may not have them yet (the user
-# sets restic repo + S3 keys in catena-admin post-install). This whole file
-# installs the units UNCONDITIONALLY; the cred-file writes and the initial
+# sets restic repo + S3 keys in catena-admin post-install). The configuration
+# files are written UNCONDITIONALLY; the cred-file writes and the initial
 # snapshot are gated on `_backup_configured` so a not-yet-configured host
 # converges cleanly and catena-backup-run self-gates at runtime.
 
@@ -22,9 +22,9 @@
 - name: "Backup: note deferred configuration when creds are absent"
   ansible.builtin.debug:
     msg: >-
-      Backup credentials are not set yet -- installing the backup units but
-      leaving the restic repo unconfigured. Set the repo + S3 keys in
-      catena-admin > Settings > Backup; run-backup self-gates until then.
+      Backup credentials are not set yet -- writing the backup configuration
+      but leaving the restic repo unconfigured. Set the repo + S3 keys in
+      catena-admin > Settings > Backup; catena-backup-run self-gates until then.
   when: not (_backup_configured | bool)
 
 # Every dump and replay runs inside the database's own container (docker
