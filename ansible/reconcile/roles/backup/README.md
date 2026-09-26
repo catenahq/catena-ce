@@ -7,11 +7,11 @@ provides a one-shot verification task. Restores run in the
 
 ## Modes (tasks_from)
 
-- `main.yml` (default) -- write the backup configuration and the
-  `catena-backup.timer` unit (installed, never enabled here), register the
-  Healthchecks ping, and purge any apt restic or rclone. Whether the timer
-  runs, and when, is `catena-schedule apply` reading
-  /etc/catena/config.json, and it enables no lane without an active licence.
+- `main.yml` (default) -- write the backup configuration, register the
+  Healthchecks ping, and purge any apt restic or rclone. Whether the
+  payload's `catena-backup.timer` runs, and when, is `catena-schedule apply`
+  reading /etc/catena/config.json, and it enables no lane without an active
+  licence.
 - `verify.yml` -- run a dry-restore against the latest snapshot
   into a scratch dir; verify file count and size; emit alert on
   drift.
@@ -19,19 +19,18 @@ provides a one-shot verification task. Restores run in the
 ## Where the scripts come from
 
 This role renders the per-host CONFIGURATION -- `backup.env`,
-`offsite.env`, `backup-paths`, the exclude patterns, the coverage
-paths and every systemd unit. The code that reads them is not here:
-`catena-backup-run`, `catena-backup-coverage`, `catena-restic-env`,
+`offsite.env`, `backup-paths`, the exclude patterns and the coverage
+paths. The code that reads them is not here: `catena-backup-run`,
+`catena-backup-coverage`, `catena-disk-preflight`, `catena-restic-env`,
 `catena-restic-mount`, `catena-restic-unmount`, `catena-restic-short-id`,
 `catena-snapshot-export` and `catena-snapshot-list` are lane scripts in
 the catena-admin image payload, installed by `reconcile/roles/payload` right after
-`bootstrap/roles/docker`. A fix to any of them reaches a host by bumping the image,
-the same way every host engine already does. `restic` and `rclone` themselves
-ship in the same payload, pinned by digest in the catena-admin `Dockerfile`, and
+`bootstrap/roles/docker`, together with the static units
+`catena-backup.service`/`.timer` and `catena-restic-check-subset.service`/`.timer`.
+A fix to any of them reaches a host by bumping the image, the same way every
+host engine already does. `restic` and `rclone` themselves ship in the same
+payload, pinned by digest in the catena-admin `Dockerfile`, and
 `catena-backup-run` creates the repository the first time it finds none.
-
-`catena-disk-preflight` is the exception: this role installs it from
-`ansible/scripts/disk-preflight.sh`.
 
 `install.yml` fails loudly when the wrapper is absent rather than
 installing a timer that points at nothing.

@@ -107,7 +107,7 @@
 # Restic insists on a cache directory under $XDG_CACHE_HOME or $HOME.
 # Systemd services run without either by default, which makes restic
 # either fail outright or re-download repo indexes every run. The
-# backup unit (catena-backup.service.j2) declares
+# payload's catena-backup.service declares
 # `Environment=HOME=...` + `Environment=XDG_CACHE_HOME=...` to point
 # at these paths, AND catena-restic-env defaults the same env vars
 # for non-systemd callers. Creating the directories up-front lets both
@@ -211,31 +211,25 @@
     group: root
     mode: "0600"
 
-# ─── the backup scripts ship in the image payload, not from here ─────────
-# run-backup, coverage, snapshot-list/export and the restic helpers are lane
-# scripts in the catena-admin image payload, installed by reconcile/roles/payload
-# right after bootstrap/roles/docker.
+# ─── the backup lane ships in the image payload ─────────────────────────
+# The wrapper, coverage, snapshot-list/export, the restic helpers, the disk
+# preflight, restic and rclone, and the four units (catena-backup.service and
+# .timer, catena-restic-check-subset.service and .timer) come from the
+# catena-admin image payload, installed by reconcile/roles/payload right after
+# bootstrap/roles/docker. A fix to any of them reaches a host by bumping the
+# image, like every other piece of host code.
 #
-# WHY. A fix to the backup wrapper could only reach a host through a converge,
-# which means through someone's laptop. Every other piece of host code -- the
-# recovery engine, the migrate lane, the schedule engine -- reaches a host by
-# bumping the image. Keeping the wrapper here would make it the one piece of
-# host code most likely to need a correction, yet unable to reach a host
-# without someone's laptop in the loop.
+# The per-host half is rendered here: backup.env, backup-paths and the
+# excludes. The units are static and read backup.env.
 #
-# The per-host half is rendered here: backup.env, backup-paths, the excludes
-# and the unit files. Code ships in the image, configuration stays with the
-# converge.
 # "The payload did not land" and "the payload has not landed YET" are different
 # failures and only the first is worth stopping a converge for.
 # bootstrap/roles/common/tasks/_payload_expected.yml is the one place that distinction is
 # drawn; the two legs below are this role's own, because the message is what
 # makes a deferral something other than a silent skip.
 #
-# Deferring is safe here in a way it is not for the tier-1 engine: this role
-# installs the units but ENABLES nothing -- `catena-schedule apply` owns
-# enable/disable for every lane -- so a host in the gap has a disabled timer
-# pointing at a path that is about to exist, and nothing fires in between.
+# Deferring is safe: this role ENABLES nothing -- `catena-schedule apply` owns
+# enable/disable for every lane -- so nothing fires in the gap.
 - name: "Backup: is the payload-shipped wrapper expected on this host"
   ansible.builtin.include_role:
     name: common
@@ -248,8 +242,8 @@
   ansible.builtin.fail:
     msg: >-
       {{ backup_wrapper_script }} is absent although reconcile/roles/payload ran in this
-      converge, so catena-backup.service would be installed pointing at nothing
-      and every scheduled backup would fail silently at the unit level. Check
+      converge, so catena-backup.service would point at nothing and every
+      scheduled backup would fail silently at the unit level. Check
       the "Payload:" tasks above for why the extract from
       {{ catena_payload_image | default('the catena-admin image') }} did not
       land.
@@ -257,12 +251,12 @@
     - catena_payload_missing | length > 0
     - catena_payload_expected | bool
 
-- name: "Backup: wrapper staged out of band and not present yet -- units only"
+- name: "Backup: wrapper staged out of band and not present yet -- configuration only"
   ansible.builtin.debug:
     msg: >-
       {{ backup_wrapper_script }} is not on the host and this converge does not
-      install it (CATENA_PAYLOAD_INSTALL=false). The units and the configuration
-      are being written now; the wrapper arrives with the payload install. No
+      install it (CATENA_PAYLOAD_INSTALL=false). The configuration is being
+      written now; the wrapper and the units arrive with the payload install. No
       lane is enabled by this role, so nothing fires in the gap, and the initial
       inline snapshot below is skipped rather than run against a missing binary.
   when:
@@ -273,17 +267,6 @@
 - name: "Backup: pin whether the wrapper is here"
   ansible.builtin.set_fact:
     _backup_wrapper_present: "{{ catena_payload_missing | length == 0 }}"
-
-- name: Drop disk-preflight helper
-  # The "is there enough free disk to start" check catena-backup-run invokes
-  # with its own mountpoint + threshold. Plain /bin/sh, 0755 so a root-only
-  # systemd-launched script can exec it.
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../scripts/disk-preflight.sh"
-    dest: "{{ backup_disk_preflight_script }}"
-    owner: root
-    group: root
-    mode: "0755"
 
 - name: Remove legacy acquire-lock helper (R21 mutex is flock now)
   # Every unit sharing /run/catena.lock takes it via
@@ -353,73 +336,13 @@
     - en
     - fr
 
-- name: Drop systemd service unit
-  ansible.builtin.template:
-    src: catena-backup.service.j2
-    dest: "/etc/systemd/system/{{ backup_systemd_unit_name }}.service"
-    owner: root
-    group: root
-    mode: "0644"
-  register: _backup_service_unit
-
-# Community ships exactly ONE timer: a single daily backup, so a self-
-# hosted CE deployment backs itself up without a license. Sub-daily
-# cadence (backup_tier realtime/standard) + the cold/WORM mirror + the
-# catena-daily orchestrator chain are the Business managed lane and are
-# NOT shipped here. On a Business host the EE catena-daily engine masks
-# catena-backup.timer and drives scheduling itself, so the daily timer
-# and the chain never double-fire (the enable below tolerates the mask).
-- name: Drop systemd daily-backup timer unit
-  ansible.builtin.template:
-    src: catena-backup.timer.j2
-    dest: "/etc/systemd/system/{{ backup_systemd_unit_name }}.timer"
-    owner: root
-    group: root
-    mode: "0644"
-  register: _backup_timer_unit
-
-# The bit-rot probe. Ships on EVERY edition, unlike the daily chain: the
-# metadata check follows each backup from catena-backup-run, and this is the half
-# that reads pack data end to end. Before both, the check existed only as a
-# state in the licensed chain, so a Community host backed up weekly and never
-# checked the repository at all.
-#
-# Installed here, enabled and scheduled by `catena-schedule apply` like every
-# other lane -- see the note below the timer tasks.
-- name: Drop the bit-rot probe service unit
-  ansible.builtin.template:
-    src: catena-restic-check-subset.service.j2
-    dest: /etc/systemd/system/catena-restic-check-subset.service
-    owner: root
-    group: root
-    mode: "0644"
-  register: _restic_check_subset_service_unit
-
-- name: Drop the bit-rot probe timer unit
-  ansible.builtin.template:
-    src: catena-restic-check-subset.timer.j2
-    dest: /etc/systemd/system/catena-restic-check-subset.timer
-    owner: root
-    group: root
-    mode: "0644"
-  register: _restic_check_subset_timer_unit
-
-- name: Reload systemd if the backup service or timer unit changed
-  ansible.builtin.systemd_service:
-    daemon_reload: true
-  when: >-
-    _backup_service_unit.changed or _backup_timer_unit.changed
-    or _restic_check_subset_service_unit.changed
-    or _restic_check_subset_timer_unit.changed
-
-# The timer unit is INSTALLED here and enabled nowhere in this repo.
+# The timer units ship in the payload and are enabled nowhere in this repo.
 #
 # Whether a lane runs, and when, is `catena-schedule apply` reading
-# /etc/catena/config.json -- one owner for enable/disable across all four
-# lanes (backup, the daily chain, and the two cold mirrors). Enabling it here
-# as well would make two things responsible for the same unit, and they would
-# disagree the moment somebody turned the lane off in the panel: the next
-# converge would turn it back on.
+# /etc/catena/config.json -- one owner for enable/disable across every lane.
+# Enabling one here as well would make two things responsible for the same
+# unit, and they would disagree the moment somebody turned the lane off in the
+# panel: the next converge would turn it back on.
 #
 # The consequence is deliberate and it is the point: a fresh host schedules
 # NOTHING. Scheduled work spends disk and object-store quota nobody has
@@ -427,10 +350,6 @@
 # check is provisioned and none can go late -- the operator sees an unscheduled
 # host in the panel rather than being paged about a host nobody asked to back
 # anything up yet.
-#
-# The unit file's own OnCalendar is a safe weekly default that a drop-in from
-# catena-schedule replaces; it is what the timer would do if it were enabled by
-# hand with nothing configured.
 
 # ─── initial snapshot ────────────────────────────────────────────────────
 # Take one snapshot inline so the repo has data before the first scheduled

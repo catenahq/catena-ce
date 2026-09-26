@@ -57,12 +57,12 @@
           tags: [always, onbox]
       tags: [always, onbox]
 
-    # 0c: hard disk-space preflight. A converge onto a critically full
+    # Hard disk-space preflight. A converge onto a critically full
     # filesystem fails deep inside a role (image pull ENOSPC, container
-    # write failure) 10-30 min in; refuse up front instead. Complements
-    # reconcile/roles/backup's catena-disk-preflight (backup/restore/auto-update
-    # free-bytes aborts) and Beszel's threshold alerting -- this is the
-    # converge-time gate. gather_facts already populated ansible_mounts;
+    # write failure) 10-30 min in; refuse up front instead. Complements the
+    # backup's own free-bytes abort (catena-disk-preflight, in the catena-admin
+    # payload) and Beszel's threshold alerting -- this is the converge-time
+    # gate. gather_facts already populated ansible_mounts;
     # /srv/catena may be absent on a fresh target (storage role mounts it
     # later), so the selectattr filter checks only mounts that exist now.
     # Bypass for dev with -e skip_disk_preflight=true.

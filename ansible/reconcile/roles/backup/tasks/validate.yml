@@ -9,22 +9,20 @@
 # timer is enabled (it is legitimately masked on Business).
 #
 # The fixtures split in two, because they do not all arrive at the same time.
-# The units and the config are written by THIS role; the
-# scripts are lane scripts in the catena-admin image payload, and on a host that
-# stages its payload out of band (CATENA_PAYLOAD_INSTALL=false -- the bench
-# builds the image on the VPS and installs it at a later stage) they land AFTER
-# a converge, so a validate in between would be asserting on a host that is
-# legitimately mid-assembly.
+# The configuration is written by THIS role; the scripts and the units ship in
+# the catena-admin image payload, and on a host that stages its payload out of
+# band (CATENA_PAYLOAD_INSTALL=false -- the bench builds the image on the VPS
+# and installs it at a later stage) they land AFTER a converge, so a validate
+# in between would be asserting on a host that is legitimately mid-assembly.
 - name: "validate/backup: role-owned fixtures exist + correct mode"
   ansible.builtin.include_role:
     name: common
     tasks_from: _assert_path_perms
   vars:
     _assert_paths:
-      - { path: /etc/systemd/system/catena-backup.service }
-      - { path: /etc/systemd/system/catena-backup.timer }
-      # The one backup script this role installs.
-      - { path: /usr/local/bin/catena-disk-preflight, mode: "0755" }
+      - { path: /etc/catena/backup-paths, mode: "0644" }
+      - { path: /etc/catena/backup-exclude-patterns, mode: "0644" }
+      - { path: /etc/catena/backup-coverage.paths, mode: "0644" }
 
 # Assert when the payload is EXPECTED here -- either this deployment installs it
 # from the converge (production), or some of it is already on the host.
@@ -45,6 +43,7 @@
       - "{{ backup_coverage_script }}"
       - "{{ backup_restic_env_script }}"
       - "{{ backup_snapshot_list_script }}"
+      - "{{ backup_disk_preflight_script }}"
 
 - name: "validate/backup: pin the payload decision"
   ansible.builtin.set_fact:
@@ -67,6 +66,7 @@
     - "{{ backup_coverage_script }}"
     - "{{ backup_restic_env_script }}"
     - "{{ backup_snapshot_list_script }}"
+    - "{{ backup_disk_preflight_script }}"
   register: _bk_payload_scripts
   when: _bk_payload_expected | bool
 
@@ -86,6 +86,30 @@
       host payload; check that reconcile/roles/payload extracted it, or that the
       out-of-band payload install ran.
   loop: "{{ _bk_payload_scripts.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: _bk_payload_expected | bool
+
+- name: "validate/backup: stat the payload-shipped units"
+  ansible.builtin.stat:
+    path: "/etc/systemd/system/{{ item }}"
+  loop:
+    - "{{ backup_systemd_unit_name }}.service"
+    - "{{ backup_systemd_unit_name }}.timer"
+    - catena-restic-check-subset.service
+    - catena-restic-check-subset.timer
+  register: _bk_payload_units
+  when: _bk_payload_expected | bool
+
+- name: "validate/backup: payload-shipped units installed"
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+    fail_msg: >-
+      /etc/systemd/system/{{ item.item }} is missing. It ships in the
+      catena-admin host payload; check that reconcile/roles/payload extracted
+      it, or that the out-of-band payload install ran.
+  loop: "{{ _bk_payload_units.results }}"
   loop_control:
     label: "{{ item.item }}"
   when: _bk_payload_expected | bool

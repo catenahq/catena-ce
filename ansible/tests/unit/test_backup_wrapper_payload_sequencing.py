@@ -17,11 +17,9 @@ Two hosts, two truths:
                               the payload at a later stage, so at THIS point the
                               wrapper legitimately does not exist yet.
 
-The first version of the guard had only the first branch and failed the bench's
-very first converge (run 2026-08-03T21-33-27-7a33, stage-1). Deferring is safe
-because this role enables NOTHING -- `catena-schedule apply` owns enable/disable
-for every lane -- so a host in the gap has a disabled timer pointing at a path
-that is about to exist.
+Deferring is safe because this role enables NOTHING -- `catena-schedule apply`
+owns enable/disable for every lane -- and the backup units arrive with the same
+payload as the wrapper.
 
 The inline first snapshot has to respect the same fact: it starts the unit
 synchronously, so with no wrapper it fails the converge for the same reason.
@@ -44,12 +42,13 @@ EXPECTED = "catena_payload_expected"
 MISSING = "catena_payload_missing"
 
 # Every backup script that arrives with the image payload rather than from this
-# role. catena-disk-preflight is absent: this role installs it.
+# role.
 PAYLOAD_SCRIPTS = (
     "backup_wrapper_script",
     "backup_coverage_script",
     "backup_restic_env_script",
     "backup_snapshot_list_script",
+    "backup_disk_preflight_script",
 )
 
 
@@ -117,11 +116,9 @@ def test_the_inline_first_snapshot_needs_the_wrapper():
 def test_validate_does_not_assert_payload_scripts_on_a_role_owned_fixture_list():
     """The always-present list must not name a payload script.
 
-    validate.yml asserted all four in one flat list with the units and restic,
-    which failed the bench's stage-1 validate for the same reason the guard did
-    -- the payload had not landed yet. The role-owned fixtures and the
-    payload-shipped ones now assert separately because they arrive at different
-    times."""
+    The role-owned fixtures and the payload-shipped ones assert separately
+    because they arrive at different times: on a host whose payload lands after
+    the converge, a flat list fails every validate in between."""
     task = _find("role-owned fixtures exist", VALIDATE)
     listed = str(task["vars"]["_assert_paths"])
     for var in PAYLOAD_SCRIPTS:
@@ -129,16 +126,19 @@ def test_validate_does_not_assert_payload_scripts_on_a_role_owned_fixture_list()
             f"{var} is in validate's always-present fixture list; it ships in "
             "the image payload and can legitimately arrive after a converge"
         )
-    # The one script this role still copies must stay asserted unconditionally.
-    assert "catena-disk-preflight" in listed
+    for path in ("/usr/local/bin/", "/etc/systemd/system/"):
+        assert path not in listed, (
+            f"validate's always-present list names a path under {path}; "
+            "the backup lane's scripts and units ship in the payload"
+        )
 
 
 def test_validate_still_asserts_the_payload_scripts_once_any_is_present():
     """Deferring must not become never-checking.
 
     The gate is "this deployment installs the payload, OR some of it is already
-    here". `some` rather than `all` is the point: a host holding three of four
-    is a broken payload install, and requiring all four would make that case
+    here". `some` rather than `all` is the point: a host holding some of them
+    is a broken payload install, and requiring all of them would make that case
     indistinguishable from the not-yet case and skip the only check that would
     have caught it.
 
@@ -163,7 +163,8 @@ def test_validate_still_asserts_the_payload_scripts_once_any_is_present():
         "{{ backup_coverage_script }}",
         "{{ backup_restic_env_script }}",
         "{{ backup_snapshot_list_script }}",
-    ], "all four, or the partial-install case cannot be seen"
+        "{{ backup_disk_preflight_script }}",
+    ], "all five, or the partial-install case cannot be seen"
 
     assertion = _find("payload-shipped scripts installed + executable", VALIDATE)
     assert "_bk_payload_expected" in str(assertion["when"])
@@ -208,12 +209,12 @@ def test_validate_skips_the_restic_probe_until_backup_is_configured():
         assert "_bk_configured" in str(_find(name, VALIDATE)["when"])
 
 
-def test_the_role_still_installs_the_units_when_the_wrapper_is_absent():
-    """The deferral is units-and-config now, binary later. If the unit drops
-    were gated on the wrapper too, the later payload install would leave a host
-    with a binary and no timer."""
-    for name in ("Drop systemd service unit", "Drop systemd daily-backup timer unit"):
-        assert "_backup_wrapper_stat" not in _when(_find(name)), (
-            f"{name!r} is gated on the wrapper; the units must be written "
-            "regardless so the payload install completes a working lane"
-        )
+def test_the_role_writes_no_unit_and_no_host_script():
+    """The backup lane's units and scripts ship in the payload. A unit written
+    here as well would have two owners, and the converge's copy would overwrite
+    the payload's on every run."""
+    for task in _tasks():
+        for module in ("ansible.builtin.template", "ansible.builtin.copy"):
+            dest = str((task.get(module) or {}).get("dest", ""))
+            assert not dest.startswith(("/etc/systemd/system/", "/usr/local/bin/")), (
+                f"{task.get('name')!r} writes {dest}, which the payload ships")
