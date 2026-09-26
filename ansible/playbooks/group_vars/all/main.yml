@@ -23,9 +23,14 @@ public_ip: "{{ ansible_default_ipv4.address | default('') }}"
 ops_user: "{{ lookup('dotenv', 'OPS_USER', default='ops') }}"
 # The controller's key for reaching the host over SSH. A host converging itself
 # (catena-converge, local connection) has no .env and no use for one.
+# The HOST's own connection, read through hostvars: a task delegated to
+# localhost (bootstrap.yml's key install and key checks) templates
+# ansible_connection as localhost's `local`, which would blank the key the
+# task hands to ssh.
 ansible_ssh_private_key_file: >-
   {{ lookup('dotenv', 'SSH_PRIVATE_KEY')
-     if (ansible_connection | default('ssh')) != 'local' else '' }}
+     if (hostvars[inventory_hostname].ansible_connection | default('ssh')) != 'local'
+     else '' }}
 ops_ssh_public_keys:
   - "{{ lookup('file', lookup('dotenv', 'SSH_PUBLIC_KEY_FILE')) }}"
 
