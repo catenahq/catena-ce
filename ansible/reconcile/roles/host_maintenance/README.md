@@ -18,7 +18,9 @@ problem as a backup nobody has verified.
 
 ## What it does
 
-`catena-reboot-check.timer` runs `run-reboot-check.sh` hourly. It reads
+`catena-reboot-check.timer` runs `catena-reboot-check` hourly. The script and
+both units ship in the catena-admin payload; this role renders
+`/etc/catena/reboot-check.env` and enables the timer. The probe reads
 `/var/run/reboot-required` and, when `needrestart` is installed, the services
 still running on replaced libraries. It writes
 `/var/lib/catena/reboot-required.json` and pings the self-hosted Healthchecks

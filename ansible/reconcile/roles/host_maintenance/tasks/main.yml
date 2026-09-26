@@ -1,9 +1,8 @@
 ---
-# The reboot-required probe: env file, script, units, timer.
-#
-# Same shape as the shared-clamd watch in reconcile/roles/infrastructure,
-# deliberately: both are host timers that report through the Healthchecks
-# plane, and a second shape would be a second thing to learn.
+# The reboot-required probe: its env file, and enabling its timer. The script
+# (catena-reboot-check) and catena-reboot-check.service/.timer ship in the
+# catena-admin payload, installed by reconcile/roles/payload earlier in the
+# play.
 
 - name: "Reboot check: env file"
   ansible.builtin.template:
@@ -14,36 +13,34 @@
     mode: "0600"
   no_log: true
 
-- name: "Reboot check: probe script"
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../scripts/run-reboot-check.sh"
-    dest: "{{ reboot_check_script_path }}"
-    owner: root
-    group: root
-    mode: "0750"
+- name: "Reboot check: is the payload-shipped timer expected on this host"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _payload_expected
+  vars:
+    _payload_paths:
+      - "/etc/systemd/system/{{ reboot_check_systemd_unit_name }}.timer"
 
-- name: "Reboot check: systemd service unit"
-  ansible.builtin.template:
-    src: catena-reboot-check.service.j2
-    dest: "/etc/systemd/system/{{ reboot_check_systemd_unit_name }}.service"
-    owner: root
-    group: root
-    mode: "0644"
-  register: _reboot_check_service
+- name: "Reboot check: the timer is missing from a converge that installs it"
+  ansible.builtin.fail:
+    msg: >-
+      /etc/systemd/system/{{ reboot_check_systemd_unit_name }}.timer is absent
+      although reconcile/roles/payload ran in this converge, so this host would
+      never report a pending reboot. Check the "Payload:" tasks above for why
+      the extract did not land.
+  when:
+    - catena_payload_missing | length > 0
+    - catena_payload_expected | bool
 
-- name: "Reboot check: systemd timer unit"
-  ansible.builtin.template:
-    src: catena-reboot-check.timer.j2
-    dest: "/etc/systemd/system/{{ reboot_check_systemd_unit_name }}.timer"
-    owner: root
-    group: root
-    mode: "0644"
-  register: _reboot_check_timer
-
-- name: "Reboot check: reload systemd if units changed"
-  ansible.builtin.systemd_service:
-    daemon_reload: true
-  when: (_reboot_check_service.changed | default(false)) or (_reboot_check_timer.changed | default(false))
+- name: "Reboot check: timer staged out of band and not present yet"
+  ansible.builtin.debug:
+    msg: >-
+      The reboot-check timer is not on the host and this converge does not
+      install the payload (CATENA_PAYLOAD_INSTALL=false). It is enabled by the
+      first converge after the payload install.
+  when:
+    - catena_payload_missing | length > 0
+    - not (catena_payload_expected | bool)
 
 # Enabled unconditionally, unlike every lane catena-schedule owns. This one
 # spends no object storage and changes nothing on the host: it reads two files
@@ -54,4 +51,7 @@
     name: "{{ reboot_check_systemd_unit_name }}.timer"
     enabled: true
     state: started
-  when: not ansible_check_mode
+    daemon_reload: true
+  when:
+    - not ansible_check_mode
+    - catena_payload_missing | length == 0

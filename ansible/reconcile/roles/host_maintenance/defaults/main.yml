@@ -6,7 +6,6 @@
 # nothing on this host reboots itself, by design. This role is the half that
 # makes "patched but not in effect yet" visible instead of silent.
 
-reboot_check_script_path: /usr/local/bin/run-reboot-check
 reboot_check_env_file: /etc/catena/reboot-check.env
 reboot_check_report_file: /var/lib/catena/reboot-required.json
 reboot_check_systemd_unit_name: catena-reboot-check
@@ -15,16 +14,8 @@ reboot_check_systemd_unit_name: catena-reboot-check
 # matching the clamd watch and the mail canary.
 reboot_check_slug: catena-reboot-required
 
-# Hourly. A pending reboot is not urgent to the minute, and the check's own
-# grace in Healthchecks is what decides when silence becomes an alert -- but
-# hourly means a host that took a kernel patch at 06:00 is reported the same
-# morning rather than the next day.
-reboot_check_schedule: hourly
-
 # Files this role puts in the prefixes where a withdrawal keeps EXECUTING.
 # playbooks/tasks/prune_withdrawn_files.yml removes what a later release stops
-# declaring; tests/unit/test_converge_prune.py fails on an omission.
-host_maintenance_managed_paths:
-  - "{{ reboot_check_script_path }}"
-  - /etc/systemd/system/catena-reboot-check.service
-  - /etc/systemd/system/catena-reboot-check.timer
+# declaring; tests/unit/test_converge_prune.py fails on an omission. Empty: the
+# probe and its units ship in the catena-admin payload.
+host_maintenance_managed_paths: []
