@@ -241,8 +241,8 @@
 
 # --- Bind-mount targets the admin container expects -----------------
 # {{ catena_admin_stats_dir }} hosts the backup/gatus/healthchecks
-# summary JSON files written by run-backup.sh + gatus-sync.py (Phase 4a
-# fold). The backup role's install task creates this dir; we mirror
+# summary JSON files written by catena-backup-run + catena-gatus-sync.
+# The backup role's install task creates this dir; we mirror
 # `state: directory` here as belt-and-braces in case catena-admin runs
 # on a host where backup is somehow disabled.
 - name: "Stats dir for admin gauges ({{ catena_admin_stats_dir }})"

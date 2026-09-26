@@ -304,9 +304,7 @@ backup_exclude_patterns:
   # bytes shift continuously and defeat restic's content-defined-
   # chunking dedup -- each nightly snapshot brings ~all-new chunks for
   # this volume. Disposable telemetry: a fresh container repopulates
-  # the dashboard from live probes within one cycle. Locked in by
-  # tests/unit/test_restore_option_a.py::
-  #   test_backup_defaults_exclude_gatus_data_volume
+  # the dashboard from live probes within one cycle.
   - "*/docker/volumes/gatus-data"
   - "*/docker/volumes/gatus-data/*"
   # Healthchecks ping history (sqlite at /data/hc.sqlite, see
@@ -314,11 +312,9 @@ backup_exclude_patterns:
   # high-churn-defeats-CDC failure mode as gatus-data -- every Gatus
   # alert flow + every backup run + every auto-update tick writes a
   # row. Check + project + channel definitions are re-seeded by
-  # vps-scripts/healthchecks-seed.py on every
+  # ansible/scripts/healthchecks-seed.py on every
   # converge, so excluding the volume only loses ping history (not
-  # auth, routing, or notification config). Locked in by
-  # tests/unit/test_restore_option_a.py::
-  #   test_backup_defaults_exclude_healthchecks_data_volume
+  # auth, routing, or notification config).
   - "*/docker/volumes/healthchecks-data"
   - "*/docker/volumes/healthchecks-data/*"
   # Beszel resource-monitor history (SQLite/PocketBase at /beszel_data,
@@ -328,9 +324,7 @@ backup_exclude_patterns:
   # backing the history up is client-paid bloat. Reconstructs from live
   # agents within a cycle after restore -- and the converge re-reads the
   # regenerated hub key + re-seeds the universal token + redeploys the
-  # agent, so only the charts reset. Locked in by
-  # tests/unit/test_restore_option_a.py::
-  #   test_backup_defaults_exclude_beszel_hub_data_volume
+  # agent, so only the charts reset.
   - "*/docker/volumes/beszel-hub-data"
   - "*/docker/volumes/beszel-hub-data/*"
   # Shared ClamAV signature database (clamav-db:/var/lib/clamav, see
@@ -341,8 +335,6 @@ backup_exclude_patterns:
   # free from Spamhaus/ClamAV mirrors. A fresh volume on restore is correct:
   # freshclam repopulates it within minutes. The mailboxes themselves
   # (mail-data/mail-state) are NOT excluded -- only this regenerable cache.
-  # Locked in by tests/unit/test_restore_option_a.py::
-  #   test_backup_defaults_exclude_clamav_db_volume
   - "*/docker/volumes/clamav-db"
   - "*/docker/volumes/clamav-db/*"
   # Postgres runtime lock files, in EVERY data dir -- the infra DB and
@@ -491,9 +483,9 @@ backup_managed_paths: []
 # Stats file written by the wrapper after each successful run. This dir is
 # the catena-admin container's read-only bind-mount target: the catena-admin
 # role binds it at /var/lib/catena into the container, and the writers
-# (catena-backup-run, gatus-sync.py) drop *.json files here. Path is locked
-# by test_restore_option_a.py. World-readable (0644) because the sidecars run
-# as non-root users inside their containers.
+# (catena-backup-run, catena-gatus-sync) drop *.json files here.
+# World-readable (0644) because the sidecars run as non-root users inside
+# their containers.
 backup_stats_dir: /var/lib/catena
 backup_stats_file: "{{ backup_stats_dir }}/backup-stats.json"
 
