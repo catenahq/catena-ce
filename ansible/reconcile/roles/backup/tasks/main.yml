@@ -1,7 +1,7 @@
 ---
 # Dispatcher -- backup_mode picks which subfile to run.
-#   install   (default, converge.yml path) -- configuration, unit files,
-#             the manual oneshot service, and the initial snapshot
+#   install   (default, converge.yml path) -- configuration and the initial
+#             snapshot; the units and scripts ship in the catena-admin payload
 #   verify    (verify-backup.yml)      -- dry-restore + assert
 #
 # Restores run in the catena-recovery host binary, driven from the panel.
