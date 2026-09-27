@@ -105,7 +105,7 @@
 - name: "coturn: ensure turn.<zone> A record points at VPS public IP"
   ansible.builtin.import_tasks: dns.yml
   when: _coturn_cf_token_present
-  tags: [coturn_dns]
+  tags: [coturn_dns, edge]
 
 # ── Step 3: cert via DNS-01 (Cloudflare) ─────────────────────────────
 # cert.yml itself gates the token-dependent tasks on _coturn_cf_token_present;

@@ -184,8 +184,8 @@
       ansible.builtin.include_tasks:
         file: validate.yml
         apply:
-          tags: [oauth2_proxy_health]
-      tags: [oauth2_proxy_health]
+          tags: [oauth2_proxy_health, edge]
+      tags: [oauth2_proxy_health, edge]
 
 - name: "oauth2-proxy: skipped Portainer-API steps (no API key yet)"
   ansible.builtin.debug:
