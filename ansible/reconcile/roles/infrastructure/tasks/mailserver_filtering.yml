@@ -131,8 +131,9 @@
     # stock thresholds. docker-mailserver runs /tmp/docker-mailserver/
     # user-patches.sh from the mail-config volume once per new container,
     # after its own rspamd setup and before rspamd starts, so this hook puts
-    # the staged drop-ins back with the container. The sync below stays the
-    # gate for a container that is already running.
+    # the staged drop-ins back with the container and holds rspamd until
+    # clamd's name resolves. The sync below stays the gate for a container
+    # that is already running.
     - name: "Mailserver filtering: render the dms start hook that re-applies the drop-ins"
       ansible.builtin.copy:
         dest: /var/lib/catena/mailserver/rspamd-user-patches.sh
@@ -147,6 +148,21 @@
           {% for c in _ms_rspamd_confs %}
           cp /tmp/docker-mailserver/rspamd/local.d/{{ c.name }} /etc/rspamd/local.d/{{ c.name }}
           {% endfor %}
+          # rspamd resolves clamav once, when it loads antivirus.conf, and drops
+          # the whole antivirus rule when the name does not resolve: nothing is
+          # scanned and CLAM_VIRUS_FAIL never fires for force_actions.conf. On a
+          # boot or a restore the clamav task can start after this container, so
+          # rspamd waits for the name, at most 120s (inside the dms healthcheck's
+          # start period plus retries).
+          i=0
+          while ! getent hosts clamav >/dev/null; do
+            if [ "$i" -ge 60 ]; then
+              echo "catena: clamav did not resolve within 120s; rspamd starts without its antivirus rule" >&2
+              break
+            fi
+            sleep 2
+            i=$((i + 1))
+          done
 
     - name: "Mailserver filtering: stage the start hook into the mail-config volume"
       ansible.builtin.command:
