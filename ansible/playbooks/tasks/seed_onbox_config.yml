@@ -7,9 +7,9 @@
 # internal service secrets and the user-held admin/restic DR keyset, and it asks
 # the container registry which catena-admin release to install -- on a machine
 # that has no Docker yet. Bootstrap needs neither, and needs the config half
-# because bootstrap/roles/tailscale chooses its control plane from cfg_tailnet_provider
-# with no inventory fallback. A machine that reaches its first converge already
-# on the wrong tailnet is the defect this split exists to close.
+# because every later leg reads the access method, the tailnet provider and its
+# tags from cfg_* facts with no inventory fallback -- the panel's on-host
+# lockdown has no inventory at all.
 #
 # The full loader includes this file, so there is one copy of these four tasks.
 #
@@ -86,14 +86,10 @@
     label: "{{ item.key }}"
 
 # Every public hostname is <sub>.<zone>, so a host with no zone has no public
-# surface to build. That used to be an assert, on the reasoning that an empty
-# zone "converges a host that looks finished and serves nothing".
-#
-# The reasoning was right and the remedy was backwards. A server is installed
-# before its domain is decided -- SPEC guarantees a credential-free install, and
-# the domain arrives with the Cloudflare token in Settings, afterwards. Failing
-# the converge made the supported order impossible: the install could not
-# finish, so the panel that takes the domain never came up.
+# surface to build. A server on the tailnet is installed before its domain is
+# decided, and the domain arrives with the Cloudflare token in Settings,
+# afterwards -- so the converge has to finish without one, or the panel that
+# takes the domain never comes up.
 #
 # So the state is DECLARED rather than refused. Deferred is not the same as
 # broken, and the difference has to be visible: every role that would publish a

@@ -47,10 +47,10 @@ ride the backup, because it is what unlocks the backup.
 
 | Key | Purpose | Phase where entered | DR-critical (client-kept) |
 | --- | --- | --- | --- |
-| `tailscale_oauth_client_id` | Join the client's own tailnet | minimal bootstrap | no |
-| `tailscale_oauth_client_secret` | ^ | minimal bootstrap | no |
-| `headscale_api_key` | ^, on the self-hosted backend | minimal bootstrap | no |
-| `headscale_preauth_key` | ^, static fallback | minimal bootstrap | no |
+| `tailscale_oauth_client_id` | Join the client's own tailnet | install when a tailnet is declared, else catena-admin Settings | no |
+| `tailscale_oauth_client_secret` | ^ | ^ | no |
+| `headscale_api_key` | ^, on the self-hosted backend | ^ | no |
+| `headscale_preauth_key` | ^, static fallback | ^ | no |
 | `cloudflare_api_token` | Tunnel + DNS | install when a domain is known, else catena-admin Settings | no |
 | `BACKUP_RESTIC_REPO` (.env) | restic repo URL | settings page | **yes** |
 | `backup_s3_access_key` | reach the restic bucket | settings page | **yes** |
@@ -89,8 +89,7 @@ converge loader (`playbooks/tasks/load_onbox_config.yml` ->
 `helpers/onbox_config.py` `ensure_internal_secrets`) mints every missing one
 **on the box** (reconcile-not-overwrite) into the on-box config store
 (`/etc/catena/config.json`, 0600 root), which persists under a backed-up path,
-then set_facts them for the roles. `seed.py` mints NONE of these (that was the
-old laptop-minting model; dropped with the 0b true-on-box-minting cutover).
+then set_facts them for the roles. `seed.py` mints none of these.
 
 - `catena_postgres_password`
 - `keycloak_db_password`
@@ -144,11 +143,11 @@ Split by the two-phase install boundary:
 
 **Minimal bootstrap (needed to bring the stack + auth up):** `HOST_PUBLIC_IP`,
 `HOST_INITIAL_USER`, `HOST_SSH_PORT`, `ACCESS_METHOD`, `TAILSCALE_TAGS`,
-`OPS_USER`, `COMMON_TIMEZONE`, `COMMON_LOCALE`. Plus the
-one external cred required to bootstrap: the tailnet join credential. The
-Cloudflare token is collected in the same run when `CLOUDFLARE_ZONE` is
-answered, but it is not REQUIRED: bootstrap does not read it, and an install
-without one finishes with a private surface -- see category 1 above.
+`OPS_USER`, `COMMON_TIMEZONE`, `COMMON_LOCALE`. Plus at least one way into
+the panel: the tailnet join credential, or `CLOUDFLARE_ZONE` with its token,
+or both. Bootstrap reads neither: the converge brings the tunnel up and the
+lockdown joins the tailnet. The one left out is entered later in the panel --
+see category 1 above.
 
 Every public subdomain except one is compiled in: the shipped starter, the
 operator skeleton and the one real inventory all gave the same answer, and a

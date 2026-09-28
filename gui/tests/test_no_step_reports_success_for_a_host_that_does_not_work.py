@@ -104,9 +104,25 @@ def test_a_domain_with_no_token_blocks(cf):
 def test_no_private_network_passes_and_says_the_port_stays_open(monkeypatch):
     """A posture rather than a failure. The installer will not close the port,
     and the client should read that here rather than discover it later."""
-    checks = steps_mod.check_access({"ACCESS_METHOD": "public_ssh"}, {})
+    checks = steps_mod.check_access(
+        {"ACCESS_METHOD": "public_ssh", "CLOUDFLARE_ZONE": "client.test"},
+        {"cloudflare_api_token": "tok"})
     assert not _blocking(checks)
     assert "keeps its SSH port open" in checks[0].detail
+    assert any("dash.client.test" in c.detail for c in checks)
+
+
+def test_no_private_network_and_no_domain_blocks(monkeypatch):
+    """The panel is reached through the tunnel or over the tailnet. With
+    neither, the server would finish with a panel nobody can open."""
+    for answers, secrets in (
+        ({"ACCESS_METHOD": "public_ssh"}, {}),
+        ({"ACCESS_METHOD": "public_ssh", "CLOUDFLARE_ZONE": "client.test"}, {}),
+        ({"ACCESS_METHOD": "public_ssh"}, {"cloudflare_api_token": "tok"}),
+    ):
+        blocked = _blocking(steps_mod.check_access(answers, secrets))
+        assert blocked, (answers, secrets)
+        assert "tunnel" in blocked[0].detail
 
 
 def test_a_tailnet_with_no_credential_blocks(monkeypatch):

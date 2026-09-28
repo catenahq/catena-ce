@@ -59,8 +59,13 @@ catena_ssh_fragment_name: ssh.json
 
 # --- Tailscale ---
 tailscale_hostname: "{{ inventory_hostname }}"
+# From the store, which the inventory `.env` seeds and the panel may change --
+# the only copy the panel's on-host lockdown has. No fallback tag: a missing
+# value fails here rather than advertising a tag the credential is not scoped
+# for. The controller-side preflight reads the `.env` itself, before any store
+# exists.
 tailscale_tags: >-
-  {{ lookup('dotenv', 'TAILSCALE_TAGS').split(',') | map('trim') | list }}
+  {{ cfg_tailscale_tags.split(',') | map('trim') | list }}
 tailscale_accept_dns: >-
   {{ lookup('dotenv', 'TAILSCALE_ACCEPT_DNS', default='false') | bool }}
 

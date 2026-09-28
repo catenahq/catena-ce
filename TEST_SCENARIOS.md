@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 154 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 155 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -19,9 +19,10 @@ The 154 scenarios the maintainers' test bench carries, and the behaviour each on
 | `ce_admin_smoke` | A Community host carries the host-side state its administration panel needs, and the panel answers. |
 | `ce_backup_deferred` | A host with no scheduled backup can still take one on demand, because whether a host backs up is answered by its storage credentials rather than by a switch. |
 | `ce_converge` | Applying the Community installer a second time to an already converged host changes nothing. |
+| `ce_install_cloudflare_first` | A server installs with a public domain and no private network, then joins a private network from its panel and closes public SSH behind it. |
 | `ce_install_headscale` | A host joins a self-hosted private network control server instead of the hosted one, and reaches the rest of the network through it. |
-| `ce_install_no_tailnet` | A server installs with no private network and no domain token, keeps port 22 open, takes its token later, refuses to close 22, then joins a private network and closes it. |
 | `ce_install_suite` | A Community install brings up the full application suite rather than the base host alone. |
+| `ce_install_tailnet_first` | A server installs on its private network with no domain, then publishes its panel on a public domain from the panel itself. |
 | `ce_restore` | A Community host restores from its encrypted backup and comes back with the content the snapshot held. |
 | `ce_uninstall` | Uninstalling hands the host back to the operating system, including the package-update timers the install had taken over. |
 | `ce_validate` | A converged Community host validates itself end to end using only the shipped installer. |

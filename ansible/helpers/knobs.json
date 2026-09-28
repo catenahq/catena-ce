@@ -11,13 +11,13 @@
     {
       "name": "domain",
       "title": "The domain",
-      "doc": "The name this server answers on. Every address it publishes is a name\nunder it, and the token is what lets the server create them.\n\nBlank is a real answer. A server installed with no domain finishes with\nno public surface and is reached over the private network; the domain and\nits token are entered together in the panel afterwards, and the next\nconverge publishes it.",
+      "doc": "The name this server answers on. Every address it publishes is a name\nunder it, and the token is what lets the server create them.\n\nBlank is a real answer on a server that joins the private network: it\nfinishes with no public surface, its panel is reached over that network,\nand the domain and its token are entered together in the panel\nafterwards. A server that joins no private network needs both here, since\nthe tunnel is then the only way into its panel.",
       "validates": "The token is live, it reaches this domain, and the domain is ACTIVE at\nCloudflare. A domain still waiting on its registrar's nameservers\nresolves nowhere, so an install on one would publish records nobody can\nfollow."
     },
     {
       "name": "access",
       "title": "Getting back in",
-      "doc": "How this server is reached for maintenance after the install. On the\nprivate network the installer closes the public SSH port once it has\nproven the new path from this machine; without one the port stays open,\nbecause a server with no other way in has nothing to prove.",
+      "doc": "How this server is reached for maintenance after the install. The install\nitself always runs over the SSH address above. On the private network it\njoins last, then closes the public SSH port once it has proven the new\npath from this machine; without one the port stays open, because a server\nwith no other way in has nothing to prove, and the domain and its token\nbecome required. Either one can be added in the panel afterwards.",
       "validates": "The credential exchanges for a token at the provider, and this machine\ncan reach the network it joins. Both, because minting a key for a network\nthis machine cannot reach produces a server nobody here can administer."
     },
     {
@@ -53,12 +53,12 @@
     {
       "name": "access",
       "title": "Access",
-      "doc": "How this host is reached for administration. Two methods, and the choice\ndecides whether public port 22 can be closed at all.\n\n`tailnet` joins a private network before anything else is reachable, and\nthe install closes public 22 once it has PROVEN the tailnet path from\nthe machine that is about to lose it. `public_ssh` joins no network and\nkeeps 22 open, because a host with no alternative path has nothing to\nprove and closing it would be a lockout.\n\nThe keys below SEED the on-box store on the first converge and are never\nread again. After the install the choice lives in catena-admin >\nSettings > Access and tunnels, which is where a client changes it;\nediting them here afterwards changes nothing.\n\nOn the tailnet method there are two providers. Tailscale SaaS: leave\nTAILNET_PROVIDER blank or set it to `tailscale`, and `catena install`\nprints the one-time admin-console steps, then prompts for the OAuth\nclient id and secret. Headscale: set TAILNET_PROVIDER=headscale and fill\nthe two below it; `catena install` prompts instead for a\nheadscale_api_key (preferred, a short-lived tagged pre-auth key is\nminted per run) or a static headscale_preauth_key.\n\nEither credential is asked for at install rather than in the panel,\nbecause it is what JOINS the host to the tailnet and the panel is\npublished on that tailnet. Rotating it later is a Settings job;\nsupplying it the first time cannot be."
+      "doc": "How this host is reached for administration. Two methods, and the choice\ndecides whether public port 22 can be closed at all.\n\nThe install runs over the public SSH address on both. `tailnet` joins a\nprivate network in the install's last leg and closes public 22 once it\nhas PROVEN the tailnet path from the machine that is about to lose it.\n`public_ssh` joins no network and keeps 22 open, because a host with no\nalternative path has nothing to prove and closing it would be a lockout;\nit needs CLOUDFLARE_ZONE and its token, the only other way into the\npanel.\n\nThe keys below SEED the on-box store on the first converge and are never\nread again. After the install the choice lives in catena-admin >\nSettings > Access and tunnels, which is where a client changes it;\nediting them here afterwards changes nothing.\n\nOn the tailnet method there are two providers. Tailscale SaaS: leave\nTAILNET_PROVIDER blank or set it to `tailscale`, and `catena install`\nprints the one-time admin-console steps, then prompts for the OAuth\nclient id and secret. Headscale: set TAILNET_PROVIDER=headscale and fill\nthe two below it; `catena install` prompts instead for a\nheadscale_api_key (preferred, a short-lived tagged pre-auth key is\nminted per run) or a static headscale_preauth_key.\n\nA `public_ssh` server takes these in catena-admin > Settings > Access and\ntunnels later, reached through the tunnel; the panel's lockdown then\njoins the tailnet and closes public 22, as the install's last leg does."
     },
     {
       "name": "cloudflare",
       "title": "Cloudflare",
-      "doc": "Filling the domain in makes `catena install` ask for the API token that\npublishes it, and the tunnel comes up during the install. Leaving it\nblank installs a server with no public surface; the domain and the token\nare then entered together in catena-admin > Settings, and the next\nconverge publishes it."
+      "doc": "Filling the domain in makes `catena install` ask for the API token that\npublishes it, and the tunnel comes up during the install. Leaving it\nblank installs a server with no public surface, which only a server on\nthe tailnet may do; the domain and the token are then entered together in\ncatena-admin > Settings over the tailnet, and the tunnel comes up from\nthere."
     },
     {
       "name": "admin",
@@ -102,7 +102,7 @@
     {
       "key": "tailscale_oauth_client_id",
       "step": "access",
-      "doc": "Tailscale SaaS mints a per-converge tagged auth key from this client, so nothing long-lived lands on the VPS. Required on that path, hidden on the Headscale one, so the badge is only read where it is true.",
+      "doc": "Tailscale SaaS mints a tagged auth key from this client each time the lockdown joins the host, so nothing long-lived lands on the VPS. Required on that path, hidden on the Headscale one, so the badge is only read where it is true.",
       "panel": {
         "group": "tunnel",
         "section": "secrets",
@@ -135,7 +135,7 @@
     {
       "key": "headscale_api_key",
       "step": "access",
-      "doc": "Headscale has no OAuth API. The node joins with a pre-auth key, minted per converge from this one (preferred, nothing long-lived on the VPS). Either this or the static key satisfies the converge, so neither is required on its own.",
+      "doc": "Headscale has no OAuth API. The node joins with a pre-auth key, minted from this one at each join (preferred, nothing long-lived on the VPS). Either this or the static key satisfies the converge, so neither is required on its own.",
       "panel": {
         "group": "tunnel",
         "section": "secrets",
@@ -329,11 +329,24 @@
     {
       "key": "TAILSCALE_TAGS",
       "step": "access",
-      "residence": "controller",
-      "doc": "Comma-separated tags advertised by each node. Every tag must be authorized on the control server first, or key minting rejects with a 400. Read with NO default, so a missing key fails the lookup rather than falling back to a tag the credential is not scoped for.",
+      "residence": "store",
+      "var": "cfg_tailscale_tags",
+      "doc": "Comma-separated tags advertised by each node. Every tag must be authorized on the control server first, or key minting rejects with a 400. A store value because the tailnet join may run on the host, from the panel's lockdown, where no inventory exists. Read with NO fallback tag, so a missing value fails the join rather than advertising a tag the credential is not scoped for.",
       "env": {
         "section": "access",
         "default": "tag:vps"
+      },
+      "panel": {
+        "group": "tunnel",
+        "section": "config",
+        "kind": "text",
+        "optional": true
+      },
+      "depends": {
+        "choice": "ACCESS_METHOD",
+        "values": [
+          "tailnet"
+        ]
       }
     },
     {
@@ -367,7 +380,7 @@
       "step": "domain",
       "residence": "store",
       "var": "cfg_cloudflare_zone",
-      "doc": "THE identity of the install: every public hostname is <sub>.<zone>, so this is the value the rest of the page renders against. Blank is a real state -- a server is installed before its domain is decided, and the public surface defers until one arrives.",
+      "doc": "THE identity of the install: every public hostname is <sub>.<zone>, so this is the value the rest of the page renders against. Blank is a real state on a server that joins the tailnet -- it is installed before its domain is decided, and the public surface defers until one arrives.",
       "env": {
         "section": "cloudflare",
         "default": ""

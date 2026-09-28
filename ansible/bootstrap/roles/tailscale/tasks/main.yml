@@ -1,13 +1,14 @@
 ---
 # Install Tailscale on the target, then join it to the tailnet using an
-# auth key freshly minted via OAuth on the controller. The minted key has
-# a 10-minute TTL and is single-use -- no long-lived tailscale secret ever
-# lands on the VPS.
+# auth key freshly minted where the play is driven from (the controller
+# during the install, the host itself from the panel's lockdown). The
+# minted key has a 10-minute TTL and is single-use, so no long-lived
+# tailscale secret is kept on the VPS.
 
 # ─── install via Debian's codename-aware apt repo ────────────────────────
 # Both downloads retry on the same contract as the apt tasks below: a
 # fresh host's first outbound HTTPS can land in a transient no-route
-# window (bench: errno 101 right after VM boot, 2026-07-10 run ca74).
+# window (errno 101 right after boot).
 - name: Install Tailscale apt keyring
   ansible.builtin.get_url:
     url: "{{ tailscale_apt_keyring_url }}"
@@ -77,7 +78,7 @@
   ansible.builtin.set_fact:
     ts_backend_state: "{{ _ts_status_parsed.BackendState | default('NotRunning') }}"
 
-# ─── join the tailnet (controller mints the credential, VPS runs `up`) ───
+# ─── join the tailnet (the play's driver mints, the VPS runs `up`) ───────
 # Fork on tailnet_provider: Tailscale SaaS (OAuth mint) OR self-hosted
 # Headscale (pre-auth key + --login-server). Both converge on `tailscale up`.
 #
@@ -255,19 +256,16 @@
 # but not sufficient -- the controller also needs to actually reach the
 # node at that IP. ACL mismatch, DERP-only routes, MagicDNS resolver
 # timing, or a stale tailnet route from a previous ephemeral node can
-# all leave the node technically "joined" but unreachable. bootstrap.yml
-# add_hosts this IP as the steady-state host's ansible_host right after this
-# role runs; if that lands before the route is live, every subsequent task
-# fails with a misleading SSH/connection error. Probe now so the
-# failure (if any) surfaces here with a clear message.
+# all leave the node technically "joined" but unreachable. The lockdown that
+# runs right after this role closes public 22 behind this address; if the route
+# is not live yet, its proof fails with a misleading connection error. Probe
+# now so the failure (if any) surfaces here with a clear message.
 #
-# 120s (was 30s): a fresh DERP-relayed path, ACL/route propagation, or a
-# session momentarily superseded (another node briefly presenting the same
-# key -- the bench's snapshot-clone churn reproduces this) can take
-# well over 30s to settle into a direct, reachable route. wait_for polls the
-# port internally for the whole window, so a node that genuinely never
-# becomes reachable still fails -- just after a realistic settle budget
-# rather than a single tight 30s shot that flaked the converge keystone.
+# 120s: a fresh DERP-relayed path, ACL/route propagation, or a session
+# momentarily superseded (another node briefly presenting the same key, as
+# the bench's snapshot clones do) can take well over 30s to settle into a
+# reachable route. wait_for polls the port for the whole window, so a node
+# that never becomes reachable still fails.
 - name: "Verify controller can reach node via tailnet IPv4"
   ansible.builtin.wait_for:
     host: "{{ tailscale_ipv4 }}"

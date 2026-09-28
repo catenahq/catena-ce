@@ -3,8 +3,13 @@
 THE INVARIANT, stated once so it is not filed later as a coverage gap. Two
 combinations are reachable and only two:
 
-    tailnet + 22 closed      the path every host took until now
+    tailnet + 22 closed      the lockdown joined the tailnet and proved it
     no tailnet + 22 open     a host with no alternative keeps the one it has
+
+ONE INSTALL PATH. Every leg up to the lockdown reaches the host over the public
+SSH address the install started on. Joining the tailnet is the lockdown's first
+step, in one playbook the installer runs last and the panel runs on the host, so
+a tailnet added after the install gets the same join and the same proof.
 
 `no tailnet + 22 closed` is unreachable BY CONSTRUCTION. There is nothing to
 prove, so nothing may close the port, and a lockdown that could reach that state
@@ -88,19 +93,60 @@ def test_the_method_is_one_variable_read_from_the_store():
 
 # --- shape one: no tailnet, 22 open ----------------------------------------
 
+def _runs_tailscale(path: Path) -> list[dict]:
+    """Every roles-list entry or include_role task in `path` naming tailscale."""
+    found: list[dict] = []
+    for play in _load(path) or []:
+        for entry in (play or {}).get("roles") or []:
+            if isinstance(entry, dict) and entry.get("role") == "tailscale":
+                found.append(entry)
+        for key in ("pre_tasks", "tasks", "post_tasks"):
+            for task in _flatten((play or {}).get(key) or []):
+                inc = task.get("ansible.builtin.include_role") or {}
+                if isinstance(inc, dict) and inc.get("name") == "tailscale":
+                    found.append(task)
+    return found
+
+
 def test_the_tailscale_role_is_skipped_on_a_host_with_no_tailnet():
     """Installing the daemon anyway leaves a node that never authenticates and
     a tailscale0 that never appears, which every later assertion then reads as
     a broken tailnet rather than an absent one."""
-    for path in (CONVERGE, BOOTSTRAP):
-        gated = False
-        for play in _load(path) or []:
-            for entry in (play or {}).get("roles") or []:
-                if isinstance(entry, dict) and entry.get("role") == "tailscale":
-                    assert "catena_access_method" in _conditions(entry), (
-                        f"{path.name}: the tailscale role runs unconditionally")
-                    gated = True
-        assert gated, f"{path.name} does not run the tailscale role at all"
+    joins = _runs_tailscale(LOCKDOWN_PLAY)
+    assert joins, "lockdown.yml does not join the tailnet"
+    for entry in joins:
+        assert "catena_access_method == 'tailnet'" in _conditions(entry), (
+            "lockdown.yml joins the tailnet whatever the access method")
+
+
+def test_the_tailnet_is_joined_by_the_lockdown_alone():
+    """One install path. A join in bootstrap or the converge moves the host
+    onto the tailnet mid-install, so the legs after it take a second path, and
+    the panel's on-host converge -- which has no tailscale role -- could never
+    join a tailnet entered after the install."""
+    for path in (CONVERGE, BOOTSTRAP, ANSIBLE / "playbooks" / "reconcile.yml"):
+        assert not _runs_tailscale(path), (
+            f"{path.name} joins the tailnet; the join belongs to lockdown.yml")
+
+
+def test_the_lockdown_joins_before_it_closes():
+    """The close proves the tailnet path, so the node has to be on it first."""
+    tasks = _flatten((_load(LOCKDOWN_PLAY) or [])[0].get("tasks") or [])
+    join = _index(tasks, "Join the tailnet")
+    close = _index(tasks, "Lock ufw to the declared access method")
+    assert join < close, f"join={join} close={close}"
+
+
+def test_only_the_installer_emits_the_tailnet_address():
+    """The next install leg reaches the host at its tailnet address once 22 is
+    closed, and learns it from .bootstrap-output.yml. The panel runs the same
+    play on the host, where there is no controller inventory to write."""
+    tasks = _flatten((_load(LOCKDOWN_PLAY) or [])[0].get("tasks") or [])
+    emit = tasks[_index(tasks, "Emit the tailnet address")]
+    cond = _conditions(emit)
+    assert "catena_lockdown_emit_address" in cond
+    assert "catena_access_method == 'tailnet'" in cond
+    assert emit.get("delegate_to") == "localhost"
 
 
 def test_validate_gates_inside_the_role_not_by_filtering_the_role_list():

@@ -625,15 +625,35 @@ def test_a_public_ssh_install_asks_for_no_tailnet_credential(seed):
 
 def test_a_public_ssh_install_validates_without_one(seed, monkeypatch):
     """No credential probe and no controller-on-the-tailnet check: neither
-    has anything to do with a host that joins no tailnet."""
+    has anything to do with a host that joins no tailnet. Its way into the
+    panel is the tunnel, so the domain and token are what it needs."""
     from helpers import tailnet_check
 
     def _no_tailnet_check(**_kw):
         raise AssertionError("a public_ssh install must not check the tailnet")
     monkeypatch.setattr(tailnet_check, "check", _no_tailnet_check)
+    monkeypatch.setattr(seed, "_probe_cloudflare", lambda token, zone: 0)
     inp = {"inventory": "prod", "host": {},
-           "env": {"ACCESS_METHOD": "public_ssh"}, "vault": {}}
+           "env": {"ACCESS_METHOD": "public_ssh",
+                   "CLOUDFLARE_ZONE": "example.com"},
+           "vault": {"cloudflare_api_token": "t"}}
     assert seed.validate_install(inp, [], []) == 0
+
+
+def test_an_install_with_no_way_into_the_panel_is_refused(seed, monkeypatch):
+    """The panel is published through the tunnel and on the tailnet, and its
+    own port is private. A public_ssh install with no domain and token would
+    finish with a panel nobody can open."""
+    from helpers import tailnet_check
+
+    monkeypatch.setattr(tailnet_check, "check", lambda **_kw: None)
+    for env, vault in (
+        ({"ACCESS_METHOD": "public_ssh"}, {}),
+        ({"ACCESS_METHOD": "public_ssh", "CLOUDFLARE_ZONE": "example.com"}, {}),
+        ({"ACCESS_METHOD": "public_ssh"}, {"cloudflare_api_token": "t"}),
+    ):
+        inp = {"inventory": "prod", "host": {}, "env": env, "vault": vault}
+        assert seed.validate_install(inp, [], []) == 1, (env, vault)
 
 
 def test_blank_access_method_still_joins_the_tailnet(seed):

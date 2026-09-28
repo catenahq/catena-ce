@@ -5,7 +5,7 @@ A thin wrapper over the Ansible base so self-hosters never touch raw
 ansible-playbook. Subcommands:
 
   install    seed config + secrets (reuses seed.py), then run
-             preflight -> bootstrap -> converge -> validate
+             preflight -> bootstrap -> converge -> lockdown -> validate
   converge   re-run converge.yml (apply config changes / new app tags)
   validate   run validate.yml (on-host + tailnet + external checks)
   backup     trigger an on-demand snapshot (the manual CE backup)
@@ -74,11 +74,20 @@ COLLECTIONS_DIR = _collections_dir()
 # The ordered converge chain a fresh install runs. preflight is a SEPARATE
 # invocation BEFORE bootstrap so a stray --limit can never skip it.
 #
-# `lockdown` is its own leg, after the converge and before validate. It is the
-# one step that can make a host unreachable, so it runs alone and last, where a
-# failure is a failure of lockdown rather than of a converge that did fifteen
-# other things correctly -- and validate then measures the posture it produced.
+# Every leg up to the lockdown reaches the host over the public SSH address the
+# install started on, so there is one install path whatever access method the
+# client chose. `lockdown` is its own leg, after the converge and before
+# validate: it joins the tailnet on that method and closes public 22 behind it.
+# It is the one step that can make a host unreachable, so it runs alone and
+# last, where a failure is a failure of lockdown rather than of a converge that
+# did fifteen other things correctly -- and validate then measures the posture
+# it produced.
 INSTALL_CHAIN = ("preflight", "bootstrap", "converge", "lockdown", "validate")
+
+# Stages after which the host's administrative address may have changed, and
+# which emit it into .bootstrap-output.yml: bootstrap records the install
+# address, lockdown the tailnet address it moved the host onto.
+_ADDRESS_STAGES = ("bootstrap", "lockdown")
 
 # Host binaries the wrapper shells out to. ansible-playbook/ansible run the
 # base; the plaintext vault needs no separate secret-tooling binary.
@@ -300,26 +309,31 @@ def _run_deploy_chain(
     loader adopts them -- no persisted laptop vault. Plus the one inter-stage
     bridge a deploy needs:
 
-      - after `bootstrap`: fold the steady-state tailnet IP that bootstrap
+      - after `bootstrap` and after `lockdown`: fold the address the stage
         emitted into .bootstrap-output.yml back into hosts.yml, so the later
-        stages (each a separate ansible invocation) reach the host instead of
-        the 0.0.0.0 placeholder.
+        stages (each a separate ansible invocation) reach the host: the
+        install address after bootstrap instead of the 0.0.0.0 placeholder,
+        the tailnet address after a lockdown that closed public 22. The
+        lockdown leg is asked to emit it; the panel runs the same playbook on
+        the host, where there is no controller inventory to write.
 
     The Portainer API key that the auth stack (Keycloak, oauth2-proxy) is
-    gated on is minted in-band by roles/portainer during `site` (it mints
-    from the initial admin, reloads the vault into play scope via
+    gated on is minted in-band by roles/portainer during the converge (it
+    mints from the initial admin, reloads the vault into play scope via
     include_vars, and self-heals a missing/rejected key on every converge),
-    so a single `site` pass deploys everything -- no second pass."""
+    so a single converge pass deploys everything."""
     for stage in chain:
         banner(f"Stage: {stage}")
         if stage == "bootstrap":
             extra = list(bootstrap_extra or [])
+        elif stage == "lockdown":
+            extra = ["-e", "catena_lockdown_emit_address=true"]
         else:
             extra = []
         if global_extra:
             extra = extra + global_extra
         _run(playbook_cmd(inv_dir, stage, extra or None))
-        if stage == "bootstrap":
+        if stage in _ADDRESS_STAGES:
             from helpers import bootstrap_output
             applied = bootstrap_output.apply_to_inventory(inv_dir)
             for line in applied:
@@ -389,7 +403,7 @@ def cmd_install(args: argparse.Namespace) -> int:
 
         ensure_collections()
 
-        banner("Step 2/2 -- deploy (preflight -> bootstrap -> site -> validate)")
+        banner("Step 2/2 -- deploy (" + " -> ".join(INSTALL_CHAIN) + ")")
         _run_deploy_chain(inv_dir, INSTALL_CHAIN,
                           bootstrap_extra=bootstrap_extra, global_extra=adopt_extra)
         _show_dr_keyset(inv_dir)

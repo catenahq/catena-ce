@@ -82,8 +82,8 @@
           - _ts_status.rc == 0
           - "'\"BackendState\": \"Running\"' in _ts_status.stdout"
           - "'\"Online\": true' in _ts_status.stdout"
-          # tailscale_tags comes from .env (TAILSCALE_TAGS) via the dotenv
-          # lookup in playbooks/group_vars/all/main.yml. Verify EACH configured
+          # tailscale_tags comes from the store's TAILSCALE_TAGS via
+          # playbooks/group_vars/all/main.yml. Verify EACH configured
           # tag is present in the VPS's live status JSON, not a hardcoded
           # `tag:vps` -- the test bench uses `tag:vps-test`, and any custom tag
           # (tag:dev, tag:client-foo, ...) validates the same way.

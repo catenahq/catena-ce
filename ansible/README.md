@@ -7,16 +7,24 @@ installer that drives it. For the install walkthrough itself see
 ## The five flows
 
 ```
-preflight  ->  bootstrap  ->  converge  ->  validate       (+ restore for DR)
+preflight  ->  bootstrap  ->  converge  ->  lockdown  ->  validate   (+ restore for DR)
 ```
+
+Every flow up to the lockdown reaches the host over the public SSH address
+the install started on, whichever access method was chosen. An install needs
+at least one way into the panel: tailnet credentials, or a Cloudflare zone
+and token, or both.
 
 - **preflight** -- controller-side check that the supplied Tailscale
   OAuth client is valid before any VPS work.
 - **bootstrap** -- first-contact hardening of a fresh VPS (user, SSH,
-  ufw, docker), then it joins the tailnet.
-- **converge** -- the converge: networking (Tailscale / Cloudflare Tunnel /
-  coturn), Portainer, sign-on (Keycloak + oauth2-proxy), the restic
-  backup, the catena-admin shell.
+  ufw) and the on-box config store.
+- **converge** -- the converge: networking (Cloudflare Tunnel / coturn),
+  Docker, Portainer, sign-on (Keycloak + oauth2-proxy), the restic backup,
+  the catena-admin shell.
+- **lockdown** -- joins the tailnet on that access method, proves the path,
+  then closes public port 22. The panel's lockdown action runs the same
+  playbook on the host.
 - **validate** -- on-host, tailnet and external checks.
 - **restore** -- whole-host disaster recovery.
 
@@ -87,12 +95,12 @@ answers file instead (the bench / power-user path), unattended.
 plaintext: `catena install` writes only non-secret files into the
 inventory.
 
-- The one install-critical vendor credential (Tailscale OAuth id and
-  secret) is prompted, live-validated, written to a **transient 0600
-  file** that the CLI threads onto the converge as `-e @file`, and then
-  deleted. The on-box loader adopts it into the store. The Cloudflare API
-  token is never an install input at all -- entered later in catena-admin
-  > Settings.
+- The install's vendor credentials (the tailnet credential, and the
+  Cloudflare API token when the inventory names a domain) are prompted,
+  live-validated, written to a **transient 0600 file** that the CLI
+  threads onto every stage as `-e @file`, and then deleted. The on-box
+  loader adopts them into the store. Whichever is left out is entered
+  later in catena-admin > Settings.
 - Every other secret -- internal service secrets AND the user-held admin
   and restic passwords -- is minted **on the server**
   (`helpers/onbox_config.py`). The installer shows the admin and restic

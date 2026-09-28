@@ -1,12 +1,8 @@
 ---
-# tailscale_hostname, tailscale_tags and tailscale_accept_dns are NOT
-# declared here. playbooks/group_vars/all/main.yml declares each one, it is
-# playbook-adjacent so it loads on every path this role runs on, and role
-# defaults are Ansible's lowest precedence, so a copy here could never
-# apply. tailscale_tags is the one worth naming: group_vars reads
-# TAILSCALE_TAGS with NO default, so a missing key fails the lookup -- it
-# never falls back to a `tag:vps` here, and leaving that line in implied a
-# safety net that does not exist.
+# tailscale_hostname, tailscale_tags and tailscale_accept_dns are declared in
+# playbooks/group_vars/all/main.yml, which loads on every path this role runs
+# on and outranks role defaults. tailscale_tags reads the store's
+# TAILSCALE_TAGS with no default, so a missing value fails the join.
 tailscale_force_reauth: false
 
 # Ephemeral nodes auto-evict from the tailnet shortly after `tailscale logout`
@@ -18,24 +14,23 @@ tailscale_apt_codename: "{{ ansible_facts['distribution_release'] }}"
 tailscale_apt_keyring_url: "https://pkgs.tailscale.com/stable/debian/{{ tailscale_apt_codename }}.noarmor.gpg"
 tailscale_apt_source_url: "https://pkgs.tailscale.com/stable/debian/{{ tailscale_apt_codename }}.tailscale-keyring.list"
 
-# API endpoints (OAuth mint happens on the controller, not on the VPS).
+# API endpoints (the OAuth mint runs where the play is driven from: the
+# controller during the install, the host itself from the panel's lockdown).
 tailscale_api_base: "https://api.tailscale.com/api/v2"
 tailscale_auth_key_ttl_seconds: 600 # 10 minutes -- plenty for one `tailscale up`
 
 # --- Control server: Tailscale SaaS (default) or self-hosted Headscale ---
 # tailnet_provider is the whole routing decision. `tailscale` mints a tagged
-# auth key per converge from the OAuth client above; `headscale` joins a
-# self-hosted control server with a pre-auth key -- minted per-converge via the
+# auth key per join from the OAuth client above; `headscale` joins a
+# self-hosted control server with a pre-auth key -- minted per join via the
 # Headscale API (headscale_api_key, preferred: no long-lived key on the VPS) or
 # a static key the operator supplies (headscale_preauth_key, fallback).
 #
 # All three values are store-owned (catena-admin > Settings), seeded once from
-# the inventory .env by the config loader. A host installed before the choice
-# existed has nothing stored, and falls back to the rule that decided it until
-# now: a control-server URL means Headscale, no URL means Tailscale SaaS. That
-# inference is the fallback only -- as the live rule it made "switch back to
-# Tailscale" mean "know to CLEAR a field", which the settings form cannot
-# express (a blank submission there means "leave this alone").
+# the inventory .env by the config loader. A host with no stored provider
+# falls back to inferring it: a control-server URL means Headscale, no URL
+# means Tailscale SaaS. The stored choice is the live rule because the
+# settings form cannot clear a field (a blank submission leaves it alone).
 #
 # tailnet_headscale_user names the Headscale user the minted key belongs to
 # (Headscale pre-auth keys are per-user). tag:vps must be in that user's ACL

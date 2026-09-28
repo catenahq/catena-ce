@@ -46,10 +46,11 @@
       administrative path at all -- the provider's console, which is not a
       path this playbook can reach.
 
-      To close it, choose the private-network method in
-      catena-admin > Settings > Access and tunnels, let a converge bring the
-      tailnet up, then run this lockdown again. It closes the port only after
-      proving the new path from the machine that is about to lose this one.
+      To close it, choose the private-network method and enter its
+      credentials in catena-admin > Settings > Access and tunnels, then apply
+      the lockdown again. It joins the tailnet first, and closes the port only
+      after proving the new path from the machine that is about to lose this
+      one.
   when: catena_access_method != 'tailnet'
 
 # ─── The tailnet path ────────────────────────────────────────────────────

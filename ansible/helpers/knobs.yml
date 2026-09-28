@@ -117,10 +117,11 @@ gui_steps:
       The name this server answers on. Every address it publishes is a name
       under it, and the token is what lets the server create them.
 
-      Blank is a real answer. A server installed with no domain finishes with
-      no public surface and is reached over the private network; the domain and
-      its token are entered together in the panel afterwards, and the next
-      converge publishes it.
+      Blank is a real answer on a server that joins the private network: it
+      finishes with no public surface, its panel is reached over that network,
+      and the domain and its token are entered together in the panel
+      afterwards. A server that joins no private network needs both here, since
+      the tunnel is then the only way into its panel.
     validates: |-
       The token is live, it reaches this domain, and the domain is ACTIVE at
       Cloudflare. A domain still waiting on its registrar's nameservers
@@ -130,10 +131,12 @@ gui_steps:
   - name: access
     title: Getting back in
     doc: |-
-      How this server is reached for maintenance after the install. On the
-      private network the installer closes the public SSH port once it has
-      proven the new path from this machine; without one the port stays open,
-      because a server with no other way in has nothing to prove.
+      How this server is reached for maintenance after the install. The install
+      itself always runs over the SSH address above. On the private network it
+      joins last, then closes the public SSH port once it has proven the new
+      path from this machine; without one the port stays open, because a server
+      with no other way in has nothing to prove, and the domain and its token
+      become required. Either one can be added in the panel afterwards.
     validates: |-
       The credential exchanges for a token at the provider, and this machine
       can reach the network it joins. Both, because minting a key for a network
@@ -192,11 +195,13 @@ env_sections:
       How this host is reached for administration. Two methods, and the choice
       decides whether public port 22 can be closed at all.
 
-      `tailnet` joins a private network before anything else is reachable, and
-      the install closes public 22 once it has PROVEN the tailnet path from
-      the machine that is about to lose it. `public_ssh` joins no network and
-      keeps 22 open, because a host with no alternative path has nothing to
-      prove and closing it would be a lockout.
+      The install runs over the public SSH address on both. `tailnet` joins a
+      private network in the install's last leg and closes public 22 once it
+      has PROVEN the tailnet path from the machine that is about to lose it.
+      `public_ssh` joins no network and keeps 22 open, because a host with no
+      alternative path has nothing to prove and closing it would be a lockout;
+      it needs CLOUDFLARE_ZONE and its token, the only other way into the
+      panel.
 
       The keys below SEED the on-box store on the first converge and are never
       read again. After the install the choice lives in catena-admin >
@@ -211,19 +216,19 @@ env_sections:
       headscale_api_key (preferred, a short-lived tagged pre-auth key is
       minted per run) or a static headscale_preauth_key.
 
-      Either credential is asked for at install rather than in the panel,
-      because it is what JOINS the host to the tailnet and the panel is
-      published on that tailnet. Rotating it later is a Settings job;
-      supplying it the first time cannot be.
+      A `public_ssh` server takes these in catena-admin > Settings > Access and
+      tunnels later, reached through the tunnel; the panel's lockdown then
+      joins the tailnet and closes public 22, as the install's last leg does.
 
   - name: cloudflare
     title: Cloudflare
     doc: |-
       Filling the domain in makes `catena install` ask for the API token that
       publishes it, and the tunnel comes up during the install. Leaving it
-      blank installs a server with no public surface; the domain and the token
-      are then entered together in catena-admin > Settings, and the next
-      converge publishes it.
+      blank installs a server with no public surface, which only a server on
+      the tailnet may do; the domain and the token are then entered together in
+      catena-admin > Settings over the tailnet, and the tunnel comes up from
+      there.
 
   - name: admin
     title: Admin identity
@@ -274,8 +279,8 @@ secrets:
   - key: tailscale_oauth_client_id
     step: access
     doc: >-
-      Tailscale SaaS mints a per-converge tagged auth key from this client, so
-      nothing long-lived lands on the VPS. Required on that path, hidden on the
+      Tailscale SaaS mints a tagged auth key from this client each time the
+      lockdown joins the host, so nothing long-lived lands on the VPS. Required on that path, hidden on the
       Headscale one, so the badge is only read where it is true.
     panel: {group: tunnel, section: secrets, kind: secret, optional: false}
     depends: {choice: TAILNET_PROVIDER, values: [tailscale]}
@@ -289,7 +294,7 @@ secrets:
     step: access
     doc: >-
       Headscale has no OAuth API. The node joins with a pre-auth key, minted
-      per converge from this one (preferred, nothing long-lived on the VPS).
+      from this one at each join (preferred, nothing long-lived on the VPS).
       Either this or the static key satisfies the converge, so neither is
       required on its own.
     panel: {group: tunnel, section: secrets, kind: secret, optional: true}
@@ -414,13 +419,18 @@ config:
 
   - key: TAILSCALE_TAGS
     step: access
-    residence: controller
+    residence: store
+    var: cfg_tailscale_tags
     doc: >-
       Comma-separated tags advertised by each node. Every tag must be
       authorized on the control server first, or key minting rejects with a
-      400. Read with NO default, so a missing key fails the lookup rather than
-      falling back to a tag the credential is not scoped for.
+      400. A store value because the tailnet join may run on the host, from the
+      panel's lockdown, where no inventory exists. Read with NO fallback tag,
+      so a missing value fails the join rather than advertising a tag the
+      credential is not scoped for.
     env: {section: access, default: "tag:vps"}
+    panel: {group: tunnel, section: config, kind: text, optional: true}
+    depends: {choice: ACCESS_METHOD, values: [tailnet]}
 
   - key: TAILSCALE_ACCEPT_DNS
     residence: controller
@@ -447,8 +457,8 @@ config:
     doc: >-
       THE identity of the install: every public hostname is <sub>.<zone>, so
       this is the value the rest of the page renders against. Blank is a real
-      state -- a server is installed before its domain is decided, and the
-      public surface defers until one arrives.
+      state on a server that joins the tailnet -- it is installed before its
+      domain is decided, and the public surface defers until one arrives.
     env: {section: cloudflare, default: ""}
     panel: {group: hostnames, section: config, kind: text, optional: true}
 

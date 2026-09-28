@@ -188,7 +188,9 @@ def check_domain(answers: dict[str, str], secrets: dict[str, str]) -> list[Check
     if not zone and not token:
         return [Check("Cloudflare", True,
                       "no domain yet -- this server installs with no public "
-                      "surface and publishes one from the panel later")]
+                      "surface, its panel is reached over the private network "
+                      "chosen on the next page, and the domain is entered there "
+                      "later")]
     if not token:
         return [Check("Cloudflare token", False,
                       f"a domain was given ({zone}) and no token. The server "
@@ -235,12 +237,27 @@ def check_access(answers: dict[str, str], secrets: dict[str, str]) -> list[Check
     Both, because a key minted for a network this machine cannot reach produces
     a server nobody here can administer -- and the install closes the public
     port on the strength of that network working.
+
+    With no private network, the domain and its token are required instead.
+    The panel is published on two paths only, the Cloudflare tunnel and the
+    tailnet, so a server with neither has a panel nobody can open. The one left
+    out is entered in the panel after the install.
     """
     method = (answers.get("ACCESS_METHOD") or "tailnet").strip()
     if method != "tailnet":
+        zone = (answers.get("CLOUDFLARE_ZONE") or "").strip()
+        token = (secrets.get("cloudflare_api_token") or "").strip()
+        if not (zone and token):
+            return [Check("a way into the panel", False,
+                          "with no private network the panel is reached only "
+                          "through the Cloudflare tunnel. Give the domain and "
+                          "its token on the domain page, or choose the private "
+                          "network here")]
         return [Check("direct SSH on the public address", True,
                       "this server joins no private network and keeps its SSH "
-                      "port open. The installer will not close it")]
+                      "port open. The installer will not close it"),
+                Check("a way into the panel", True,
+                      f"dash.{zone}, through the Cloudflare tunnel")]
 
     provider = (answers.get("TAILNET_PROVIDER") or "tailscale").strip() or "tailscale"
     if provider == "headscale":

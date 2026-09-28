@@ -58,6 +58,28 @@ def test_run_deploy_chain_threads_global_extra_on_every_stage(cli, monkeypatch, 
     assert "@boot" in " ".join(boot)
 
 
+def test_the_lockdown_leg_emits_and_the_chain_applies_its_address(cli, monkeypatch, tmp_path):
+    """The lockdown joins the tailnet and closes public 22, so validate and every
+    later invocation have to reach the host at its tailnet address. The leg is
+    asked to emit it, and the chain folds it in before the next leg."""
+    from helpers import bootstrap_output
+
+    events: list[str] = []
+    monkeypatch.setattr(cli, "_run", lambda cmd: events.append(
+        f"run {_stage_of(cmd)} {' '.join(cmd)}"))
+    monkeypatch.setattr(bootstrap_output, "apply_to_inventory",
+                        lambda p: events.append("apply") or [])
+    cli._run_deploy_chain(tmp_path, cli.INSTALL_CHAIN, bootstrap_extra=None)
+    runs = [e for e in events if e.startswith("run ")]
+    lock = next(e for e in runs if e.startswith("run lockdown "))
+    assert "catena_lockdown_emit_address=true" in lock
+    assert all("catena_lockdown_emit_address" not in e
+               for e in runs if not e.startswith("run lockdown "))
+    order = [e.split()[1] if e.startswith("run ") else e for e in events]
+    assert order == ["preflight", "bootstrap", "apply", "converge",
+                     "lockdown", "apply", "validate"], order
+
+
 def test_playbook_cmd_shape(cli):
     cmd = cli.playbook_cmd("prod", "converge")
     assert cmd[0] == "ansible-playbook"

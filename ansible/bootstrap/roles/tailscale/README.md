@@ -14,18 +14,19 @@ edits) and join the host to the tailnet its stored credentials belong to.
 | `tailscale` | Tailscale SaaS | `POST /api/v2/tailnet/-/keys` with a bearer token exchanged from the OAuth client |
 | `headscale` | self-hosted, at `tailnet_control_url` | `POST {control_url}/api/v1/preauthkey` with `headscale_api_key`, falling back to the static `headscale_preauth_key` |
 
-The value is store-owned (catena-admin > Settings). A host whose store
-predates the choice has nothing to read, so `defaults/main.yml` infers it:
-a control-server URL means Headscale, no URL means Tailscale SaaS. That
-inference is the fallback, and every task reads the declared value.
+The value is store-owned (catena-admin > Settings). A host with no stored
+value falls back to `defaults/main.yml`'s inference: a control-server URL
+means Headscale, no URL means Tailscale SaaS. Every task reads the declared
+value.
 
 ## Auth flow
 
-This role never leaves a long-lived credential on the VPS. Every join mints
-a fresh single-use key on the CONTROLLER, with the tags in `tailscale_tags`
-and a TTL of `tailscale_auth_key_ttl_seconds` (10 minutes), consumed by one
-`tailscale up` on the host. If the client itself leaks, rotation is the
-runbook -- there are no auth keys to revoke retroactively.
+This role never leaves a long-lived auth key on the VPS. Every join mints a
+fresh single-use key where the play is driven from -- the controller during
+the install, the host itself when the panel's lockdown runs it -- with the
+tags in `tailscale_tags` and a TTL of `tailscale_auth_key_ttl_seconds` (10
+minutes), consumed by one `tailscale up` on the host. If the OAuth client
+itself leaks, rotation is the runbook: there are no auth keys to revoke.
 
 The Headscale fork accepts a static `headscale_preauth_key` when no API key
 is stored. That one IS long-lived, which is why the API key is preferred.
@@ -48,8 +49,8 @@ All credentials come from the on-box store, seeded once from the inventory
 - `tailscale_tags` -- both the minted key's tag list and `--advertise-tags`.
   Declared in
   [../../../playbooks/group_vars/all/main.yml](../../../playbooks/group_vars/all/main.yml),
-  which reads `TAILSCALE_TAGS` with NO default: a missing key fails the
-  lookup. The tag must be in the control server's `tagOwners` and the
+  which reads the store's `TAILSCALE_TAGS` with NO default: a missing value
+  fails the join. The tag must be in the control server's `tagOwners` and the
   credential must be authorized for it.
 - `tailscale_hostname` (the inventory hostname), `tailscale_accept_dns`,
   `tailscale_ephemeral`, `tailscale_force_reauth`.
@@ -61,12 +62,13 @@ All credentials come from the on-box store, seeded once from the inventory
 - `tailscale up` with the minted key (plus `--login-server` on the Headscale
   fork).
 - Exposes the joined node's tailnet IPv4 as the `tailscale_ipv4` fact.
-  `bootstrap.yml` reads the same address straight afterwards and `add_host`es
-  it as the steady-state host's `ansible_host`, so every downstream play in
-  that invocation connects over the tailnet.
-- Probes port 22 at that address from the controller (120s budget), so a node
-  that is `Running` but unroutable fails here instead of as a misleading SSH
-  error in the next role.
+  `playbooks/lockdown.yml` runs this role first, then closes public 22 behind
+  that address and, from the installer, emits it as the steady-state host's
+  `ansible_host` for the legs that follow.
+- Probes port 22 at that address from whatever drives the play (120s
+  budget) -- the controller during the install, the host itself from the
+  panel -- so a node that is `Running` but unroutable fails here instead of as
+  a misleading error in the lockdown.
 
 ## Idempotency
 
