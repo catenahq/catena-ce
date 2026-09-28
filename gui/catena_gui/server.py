@@ -19,6 +19,7 @@ from __future__ import annotations
 import html
 import http.server
 import subprocess
+import sys
 import threading
 import urllib.parse
 from pathlib import Path
@@ -70,9 +71,14 @@ def _page(title: str, body: str) -> bytes:
     ).encode("utf-8")
 
 
-def _nav(all_steps: list[steps_mod.Step], current: str) -> str:
-    out = ["<nav>"]
+def _nav(all_steps: list[steps_mod.Step], current: str, inventory: str) -> str:
+    cls = " class=on" if current == "" else ""
+    label = f"Inventory: {inventory}" if inventory else "Inventory"
+    out = ["<nav>", f'<a href="/inventory"{cls}>{html.escape(label)}</a>']
     for step in all_steps:
+        if not inventory:
+            out.append(f"<span class=off>{html.escape(step.title)}</span>")
+            continue
         cls = " class=on" if step.name == current else ""
         out.append(f'<a href="/step/{step.name}"{cls}>{html.escape(step.title)}</a>')
     out.append("</nav>")
@@ -90,11 +96,38 @@ def _field_html(field: steps_mod.Field, value: str) -> str:
         control = f'<select name="{key}">{opts}</select>'
     else:
         kind = "password" if field.secret else "text"
+        placeholder = (f' placeholder="{html.escape(field.example)}"'
+                       if field.example else "")
         control = (f'<input type="{kind}" name="{key}" '
-                   f'value="{html.escape(value)}" autocomplete="off">')
+                   f'value="{html.escape(value)}"{placeholder} autocomplete="off">')
     optional = "" if not field.optional else " <span class=d>optional</span>"
-    return (f'<label><span class=k>{key}</span>{optional}'
+    unsaved = (" <span class=d>not saved: entered again each time the "
+               "installer is opened</span>" if field.secret else "")
+    return (f'<label><span class=k>{key}</span>{optional}{unsaved}'
             f'{f"<span class=d>{doc}</span>" if doc else ""}{control}</label>')
+
+
+def _inventory_html(names: list[str], current: str, problem: str) -> str:
+    """The first page: open an inventory under ansible/inventory/, or name a
+    new one. Everything answered afterwards is saved into it."""
+    opened = "".join(
+        f'<button type=submit name=open value="{html.escape(n)}">'
+        f'{html.escape(n)}{" (open now)" if n == current else ""}</button> '
+        for n in names)
+    existing = (f"<form method=post action=/inventory><p class=doc>Open one to "
+                f"edit it or finish its install:</p>{opened}</form>"
+                if names else "<p class=doc>No inventory yet.</p>")
+    error = f"<p class=bad>{html.escape(problem)}</p>" if problem else ""
+    return (
+        "<h1>Inventory</h1><p class=doc>Each server has an inventory, a "
+        "directory under ansible/inventory/ holding its settings. The "
+        "answers on every page are saved there as you go. Credentials never "
+        "are: they are asked for again each time the installer is opened.</p>"
+        f"{existing}{error}"
+        "<form method=post action=/inventory><label><span class=k>new "
+        "inventory</span><span class=d>lower-case letters, digits, dashes and "
+        "underscores</span><input type=text name=create autocomplete=off>"
+        "</label><button type=submit>Create</button></form>")
 
 
 def _checks_html(checks: list[steps_mod.Check]) -> str:
@@ -110,32 +143,37 @@ def _checks_html(checks: list[steps_mod.Check]) -> str:
 
 
 def start_install(current: run_mod.Run, ansible_dir: Path) -> threading.Thread:
-    """Run `catena install` in the background and stream it to the run's log.
+    """Run `catena-cli install` in the background, streaming what it prints to
+    the console window and to the run's in-memory tail.
 
     IN A THREAD, because the install takes tens of minutes and the browser
     cannot hold a request open for it -- and because the console process owns
-    the job either way. The page polls the log; closing the tab does not stop
+    the job either way. The page polls the tail; closing the tab does not stop
     the install, and neither does losing the network the browser is on.
 
-    The install.yaml is removed whatever happens. It carries the client's cloud
-    credentials, and a file that outlives the install is one nothing ever comes
-    back to delete.
+    Nothing it prints is written to a file: it ends with the passwords the
+    install shows once. The install.yaml is removed whatever happens, for the
+    same reason: it carries the client's cloud credentials.
     """
-    target = current.path / "install.yaml"
-    render.write_install_yaml(target, render.install_yaml(
-        inventory=current.inventory, answers=current.answers,
-        secrets=current.secrets))
-    argv = render.install_command(ansible_dir, target, current.inventory)
+    body_yaml = render.install_yaml(inventory=current.inventory,
+                                    answers=current.answers,
+                                    secrets=current.secrets)
     current.state = run_mod.STATE_INSTALLING
+    current.log.clear()
     current.save()
 
     def body() -> None:
-        try:
-            with open(current.log_path, "wb") as log:
-                rc = subprocess.run(argv, stdout=log, stderr=subprocess.STDOUT,
-                                    check=False).returncode
-        finally:
-            target.unlink(missing_ok=True)
+        rc = 1
+        with render.transient_install_yaml(body_yaml) as target:
+            argv = render.install_command(ansible_dir, target, current.inventory)
+            proc = subprocess.Popen(argv, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, text=True,
+                                    errors="replace")
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                sys.stderr.write(line)
+                current.log.append(line.rstrip("\n"))
+            rc = proc.wait()
         current.state = (run_mod.STATE_DONE if rc == 0
                          else run_mod.STATE_FAILED)
         current.save()
@@ -154,19 +192,17 @@ def _install_html(current: run_mod.Run) -> str:
     """
     if current.state == run_mod.STATE_ANSWERING:
         return ""
-    try:
-        tail = current.log_path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        tail = "(nothing logged yet)"
-    lines = tail.splitlines()[-40:]
+    lines = list(current.log) or [
+        "(this installer was opened again after the install ran: its output "
+        "went to the console window it ran in, and was not kept)"]
     words = {
         run_mod.STATE_INSTALLING: "Installing. This continues if you close "
                                   "this tab; closing the console window stops "
                                   "it.",
-        run_mod.STATE_DONE: "Finished. The installer printed the three "
-                            "passwords once, in the console window.",
-        run_mod.STATE_FAILED: "The install stopped. Nothing was left "
-                              "half-applied; the last lines say where.",
+        run_mod.STATE_DONE: "Finished. The passwords the installer shows once "
+                            "are in the last lines below and in the console "
+                            "window. Nothing kept a copy: save them now.",
+        run_mod.STATE_FAILED: "The install stopped. The last lines say where.",
     }
     refresh = ('<meta http-equiv=refresh content=5>'
                if current.state == run_mod.STATE_INSTALLING else "")
@@ -177,11 +213,14 @@ def _install_html(current: run_mod.Run) -> str:
 class _Handler(http.server.BaseHTTPRequestHandler):
     # Filled in by serve(). Class attributes rather than constructor arguments
     # because BaseHTTPRequestHandler constructs one instance per request.
-    run: run_mod.Run
+    # `run` is None until an inventory is opened or created.
+    run: run_mod.Run | None = None
     doc: dict
     ansible_dir: Path
+    inventory_root: Path
     all_steps: list[steps_mod.Step]
     last_checks: dict[str, list[steps_mod.Check]] = {}
+    inventory_problem: str = ""
 
     def log_message(self, *_args) -> None:
         """Quiet. The console prints what the install is doing; a request log
@@ -205,26 +244,81 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802 -- the stdlib's spelling
         path = urllib.parse.urlparse(self.path).path
         if path == "/":
+            if self.run is None:
+                self._redirect("/inventory")
+                return
             first = self.run.step or self.all_steps[0].name
             self._redirect(f"/step/{first}")
             return
+        if path == "/inventory":
+            self._render_inventory()
+            return
         if path.startswith("/step/"):
+            if self.run is None:
+                self._redirect("/inventory")
+                return
             self._render_step(path[len("/step/"):])
             return
         self._send(_page("Not found", "<main><h1>Not found</h1></main>"), 404)
 
+    def _form(self) -> dict[str, list[str]]:
+        length = int(self.headers.get("Content-Length") or 0)
+        return urllib.parse.parse_qs(self.rfile.read(length).decode("utf-8"),
+                                     keep_blank_values=True)
+
+    def _render_inventory(self) -> None:
+        current = self.run.inventory if self.run else ""
+        body = (f"{_nav(self.all_steps, '', current)}<main>"
+                f"{_inventory_html(run_mod.inventories(self.inventory_root), current, _Handler.inventory_problem)}"
+                "</main>")
+        _Handler.inventory_problem = ""
+        self._send(_page("Inventory", body))
+
+    def _open(self, name: str) -> None:
+        """Make `name` the run: its `.env` read back, its credentials asked for
+        again. Anything typed for the previous inventory stays with it."""
+        opened = run_mod.load(self.inventory_root / name,
+                              run_mod.secret_keys_from(self.doc))
+        opened.save()
+        _Handler.run = opened
+        _Handler.last_checks = {}
+        self._redirect(f"/step/{opened.step or self.all_steps[0].name}")
+
+    def _post_inventory(self) -> None:
+        form = self._form()
+        name = (form.get("open") or [""])[0].strip()
+        if name:
+            if name not in run_mod.inventories(self.inventory_root):
+                _Handler.inventory_problem = f"there is no inventory {name!r}"
+                self._redirect("/inventory")
+                return
+            self._open(name)
+            return
+        name = (form.get("create") or [""])[0].strip()
+        problem = run_mod.new_name_problem(name, self.inventory_root)
+        if problem:
+            _Handler.inventory_problem = f"{name!r}: {problem}"
+            self._redirect("/inventory")
+            return
+        self._open(name)
+
     def do_POST(self) -> None:  # noqa: N802
         path = urllib.parse.urlparse(self.path).path
+        if path == "/inventory":
+            self._post_inventory()
+            return
         if not path.startswith("/step/"):
             self._send(_page("Not found", "<main><h1>Not found</h1></main>"), 404)
+            return
+        if self.run is None:
+            self._redirect("/inventory")
             return
         name = path[len("/step/"):]
         step = self._step(name)
         if step is None:
             self._send(_page("Not found", "<main><h1>Not found</h1></main>"), 404)
             return
-        length = int(self.headers.get("Content-Length") or 0)
-        form = urllib.parse.parse_qs(self.rfile.read(length).decode("utf-8"))
+        form = self._form()
         for field in step.fields:
             if field.key in form:
                 self.run.answer(field.key, form[field.key][0], secret=field.secret)
@@ -268,19 +362,19 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             rows.append(_field_html(field, value))
         last = name == self.all_steps[-1].name
         if name == "keyset":
-            acked = self.run.answers.get("_keyset_acknowledged") == "yes"
+            acked = self.run.value("_keyset_acknowledged") == "yes"
             rows.append(
                 '<label><input type=checkbox name=ack value=yes'
                 f'{" checked" if acked else ""}> '
-                "<span>I have somewhere to save the three passwords the "
-                "installer shows once.</span></label>")
+                "<span>I have somewhere to save the three passwords and the "
+                "journal key the installer shows once.</span></label>")
         started = self.run.state != run_mod.STATE_ANSWERING
         form = "" if (last and started) else (
             f'<form method=post action="/step/{html.escape(name)}">'
             f'{"".join(rows)}<button type=submit>'
             f'{"Install" if last else "Check and continue"}</button></form>')
         body = (
-            f"{_nav(self.all_steps, name)}<main>"
+            f"{_nav(self.all_steps, name, self.run.inventory)}<main>"
             f"<h1>{html.escape(step.title)}</h1>"
             f"<p class=doc>{html.escape(step.doc)}</p>"
             f"<p class=doc><strong>Checked before this page advances:</strong> "
@@ -291,8 +385,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         self._send(_page(step.title, body))
 
 
-def serve(current: run_mod.Run, doc: dict, *, port: int, ansible_dir: Path) -> int:
-    """Serve until the console process is stopped.
+def serve(current: run_mod.Run | None, doc: dict, *, port: int,
+          ansible_dir: Path) -> int:
+    """Serve until the console process is stopped. With no `current` run the
+    first page is the inventory picker.
 
     ThreadingHTTPServer so a probe that takes ten seconds -- and one of them
     reaches Cloudflare -- does not make the rest of the UI look hung.
@@ -300,6 +396,7 @@ def serve(current: run_mod.Run, doc: dict, *, port: int, ansible_dir: Path) -> i
     _Handler.run = current
     _Handler.doc = doc
     _Handler.ansible_dir = ansible_dir
+    _Handler.inventory_root = ansible_dir / "inventory"
     _Handler.all_steps = steps_mod.build(doc)
     _Handler.last_checks = {}
     server = http.server.ThreadingHTTPServer(("127.0.0.1", port), _Handler)

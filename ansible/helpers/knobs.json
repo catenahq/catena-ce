@@ -17,7 +17,7 @@
     {
       "name": "access",
       "title": "Getting back in",
-      "doc": "How this server is reached for maintenance after the install. The install\nitself always runs over the SSH address above. On the private network it\njoins last, then closes the public SSH port once it has proven the new\npath from this machine; without one the port stays open, because a server\nwith no other way in has nothing to prove, and the domain and its token\nbecome required. Either one can be added in the panel afterwards.",
+      "doc": "How this server is reached for maintenance after the install. The install\nitself always runs over the SSH address above. On the private network it\njoins last, then closes the public SSH port once it has proven the new\npath from this machine; without one the port stays open, because a server\nwith no other way in has nothing to prove, and the domain and its token\nbecome required. Either one can be added in the panel afterwards. The\nemail is the panel's login and the sign-on administrator's address.",
       "validates": "The credential exchanges for a token at the provider, and this machine\ncan reach the network it joins. Both, because minting a key for a network\nthis machine cannot reach produces a server nobody here can administer."
     },
     {
@@ -35,7 +35,7 @@
     {
       "name": "keyset",
       "title": "Save these",
-      "doc": "The passwords the server mints for itself and shows ONCE: the first-login\npassword, the backup encryption password, and the console break-glass\npassword. Nothing off the server holds a copy.",
+      "doc": "The passwords the server mints for itself and shows ONCE: the first-login\npassword, the backup encryption password, and the console break-glass\npassword, with the journal verification key. Nothing off the server\nholds a copy.",
       "validates": "An explicit acknowledgement that they are saved. This step is the last\none and it cannot be skipped: without it the launcher ships installs\nnobody can recover."
     }
   ],
@@ -53,12 +53,12 @@
     {
       "name": "access",
       "title": "Access",
-      "doc": "How this host is reached for administration. Two methods, and the choice\ndecides whether public port 22 can be closed at all.\n\nThe install runs over the public SSH address on both. `tailnet` joins a\nprivate network in the install's last leg and closes public 22 once it\nhas PROVEN the tailnet path from the machine that is about to lose it.\n`public_ssh` joins no network and keeps 22 open, because a host with no\nalternative path has nothing to prove and closing it would be a lockout;\nit needs CLOUDFLARE_ZONE and its token, the only other way into the\npanel.\n\nThe keys below SEED the on-box store on the first converge and are never\nread again. After the install the choice lives in catena-admin >\nSettings > Access and tunnels, which is where a client changes it;\nediting them here afterwards changes nothing.\n\nOn the tailnet method there are two providers. Tailscale SaaS: leave\nTAILNET_PROVIDER blank or set it to `tailscale`, and `catena install`\nprints the one-time admin-console steps, then prompts for the OAuth\nclient id and secret. Headscale: set TAILNET_PROVIDER=headscale and fill\nthe two below it; `catena install` prompts instead for a\nheadscale_api_key (preferred, a short-lived tagged pre-auth key is\nminted per run) or a static headscale_preauth_key.\n\nA `public_ssh` server takes these in catena-admin > Settings > Access and\ntunnels later, reached through the tunnel; the panel's lockdown then\njoins the tailnet and closes public 22, as the install's last leg does."
+      "doc": "How this host is reached for administration. Two methods, and the choice\ndecides whether public port 22 can be closed at all.\n\nThe install runs over the public SSH address on both. `tailnet` joins a\nprivate network in the install's last leg and closes public 22 once it\nhas PROVEN the tailnet path from the machine that is about to lose it.\n`public_ssh` joins no network and keeps 22 open, because a host with no\nalternative path has nothing to prove and closing it would be a lockout;\nit needs CLOUDFLARE_ZONE and its token, the only other way into the\npanel.\n\nThe keys below SEED the on-box store on the first converge and are never\nread again. After the install the choice lives in catena-admin >\nSettings > Access and tunnels, which is where a client changes it;\nediting them here afterwards changes nothing.\n\nOn the tailnet method there are two providers. Tailscale SaaS: leave\nTAILNET_PROVIDER blank or set it to `tailscale`, and `catena-cli install`\nprints the one-time admin-console steps, then prompts for the OAuth\nclient id and secret. Headscale: set TAILNET_PROVIDER=headscale and fill\nthe two below it; `catena-cli install` prompts instead for a\nheadscale_api_key (preferred, a short-lived tagged pre-auth key is\nminted per run) or a static headscale_preauth_key.\n\nA `public_ssh` server takes these in catena-admin > Settings > Access and\ntunnels later, reached through the tunnel; the panel's lockdown then\njoins the tailnet and closes public 22, as the install's last leg does."
     },
     {
       "name": "cloudflare",
       "title": "Cloudflare",
-      "doc": "Filling the domain in makes `catena install` ask for the API token that\npublishes it, and the tunnel comes up during the install. Leaving it\nblank installs a server with no public surface, which only a server on\nthe tailnet may do; the domain and the token are then entered together in\ncatena-admin > Settings over the tailnet, and the tunnel comes up from\nthere."
+      "doc": "Filling the domain in makes `catena-cli install` ask for the API token that\npublishes it, and the tunnel comes up during the install. Leaving it\nblank installs a server with no public surface, which only a server on\nthe tailnet may do; the domain and the token are then entered together in\ncatena-admin > Settings over the tailnet, and the tunnel comes up from\nthere."
     },
     {
       "name": "admin",
@@ -257,7 +257,8 @@
       "doc": "The provider's public IPv4. Used during bootstrap, before the firewall closes and the box is reached another way.",
       "env": {
         "section": "host",
-        "default": "203.0.113.10"
+        "default": "",
+        "example": "203.0.113.10"
       }
     },
     {
@@ -394,6 +395,7 @@
     },
     {
       "key": "ADMIN_EMAIL",
+      "step": "access",
       "residence": "store",
       "var": "cfg_admin_email",
       "doc": "One address for the Portainer admin and the initial realm admin. The matching password is minted on the box and shown once at the end of the install, with the first-login URLs. A host fact by any reading, which is why the `.env` only seeds it.",

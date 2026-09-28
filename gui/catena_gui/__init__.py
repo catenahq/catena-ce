@@ -17,7 +17,7 @@ catena-ce/ansible/helpers/knobs.json, the same registry the on-box store, the
 installer and the settings page read. That is what makes "the doors cannot
 drift" true rather than aspirational: adding a knob there puts it here.
 
-IT ADDS NO MIDDLE LAYER. `install.yaml` plus `catena install -i ... --no-confirm`
+IT ADDS NO MIDDLE LAYER. `install.yaml` plus `catena-cli install -i ... --no-confirm`
 is already the declarative, non-interactive contract, and seed.py already
 live-probes credentials. This is a THIRD producer of that contract, beside a
 person writing the file and the test bench rendering it.

@@ -6,8 +6,3 @@
 *.egg-info/
 __pycache__/
 *.pyc
-
-# A run directory a client pointed at this checkout. It holds their answers,
-# 0600, and is theirs rather than the product's.
-run/
-runs/

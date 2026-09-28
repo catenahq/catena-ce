@@ -30,6 +30,6 @@ transforms live in Python with a unit test rather than in Jinja);
 | `reconcile.yml` | The half of a converge that does not need an operator. |
 | `rotate-tailscale.yml` | Re-authenticate this node to the tailnet (force re-auth). |
 | `rotate-tunnel.yml` | Regenerate this host's Cloudflare tunnel without a full site converge. |
-| `show-keyset.yml` | Surface the user-held DR keyset (admin + restic + console passwords) ONCE, plus the first-login URLs, at the end of a fresh `catena install`. |
+| `show-keyset.yml` | Surface the user-held DR keyset (admin + restic + console passwords) ONCE, plus the first-login URLs, at the end of a fresh `catena-cli install`. |
 | `uninstall.yml` | Hand control of this host back to the operating system. |
 | `validate.yml` | Validation orchestrator: check a converged host from three vantage points, so a service that only answers on the box is not mistaken for a working one. 1. |

@@ -22,7 +22,7 @@
 #     tailnet credentials in the panel after the install gets the same join and
 #     the same proof the installer runs.
 #
-# `catena install` runs it after its converge and passes
+# `catena-cli install` runs it after its converge and passes
 # catena_lockdown_emit_address, so the tailnet address lands in
 # .bootstrap-output.yml for the legs and invocations that follow. It is
 # idempotent: on a host already locked down the join is a no-op, the public rule

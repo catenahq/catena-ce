@@ -1,6 +1,6 @@
 ---
 # Surface the user-held DR keyset (admin + restic + console passwords) ONCE,
-# plus the first-login URLs, at the end of a fresh `catena install`. The
+# plus the first-login URLs, at the end of a fresh `catena-cli install`. The
 # passwords are minted ON-BOX (helpers/onbox_config.py USER_HELD_SECRETS) and
 # never touch the laptop, so the installer reads them back from the store here
 # and prints them for the user's password manager. Deliberately NOT no_log on
@@ -10,7 +10,7 @@
 # reads and the FSS delete run ahead of it so nothing prints after the thing
 # the user is supposed to be copying down.
 #
-# Usage (driven by `catena install`; cwd = ansible/):
+# Usage (driven by `catena-cli install`; cwd = ansible/):
 #   ansible-playbook -i inventory/<name> playbooks/show-keyset.yml
 
 - name: Surface the DR keyset once

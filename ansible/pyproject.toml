@@ -18,15 +18,16 @@ dependencies = [
 ]
 
 [project.scripts]
-# The one way to run the CLI: `uv run catena <verb> --inventory <name>` from
-# ansible/. catena_cli IS the implementation, not a shim in front of one, so
-# the console script, the module the audit anchors on and the file to read are
-# the same file.
-catena = "catena_cli:_entry"
+# `uv run catena-cli <verb> --inventory <name>`, from the repository root or
+# from ansible/. catena_cli IS the implementation, not a shim in front of one,
+# so the console script, the module the audit anchors on and the file to read
+# are the same file. gui/tests/test_the_entry_points_agree.py holds this name to
+# the root pyproject, the launcher and the docs.
+catena-cli = "catena_cli:_entry"
 
 [build-system]
 # Required so uv builds + installs this project into the env, which is what
-# creates the `catena` console script above.
+# creates the `catena-cli` console script above.
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 

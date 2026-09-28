@@ -113,6 +113,16 @@ def _check_env(key: str, env: dict, sections: set[str]) -> None:
                  f"{key}: env options must be strings")
         _require(default in options,
                  f"{key}: the default {default!r} is not one of {options}")
+    # An example illustrates a value that has no sensible default, such as a
+    # server's address: shown beside the field and in the template's comment,
+    # never filled in, because a pre-filled example is an answer nobody gave.
+    example = env.get("example")
+    if example is not None:
+        _require(isinstance(example, str) and bool(example),
+                 f"{key}: env example must be a non-empty string")
+        _require(not default,
+                 f"{key}: a knob with a default needs no example; the default "
+                 "already illustrates it")
 
 
 def load(source: Path = SOURCE) -> dict:
@@ -339,6 +349,9 @@ def render_env(doc: dict) -> str:
             options = entry["env"].get("options")
             if options:
                 lines.extend(_comment(f"One of: {', '.join(options)}."))
+            example = entry["env"].get("example")
+            if example:
+                lines.extend(_comment(f"For example: {example}"))
             lines.append(f"{entry['key']}={entry['env']['default']}")
     return "\n".join(lines) + "\n"
 

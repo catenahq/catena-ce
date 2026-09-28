@@ -1,17 +1,19 @@
 """`catena-gui`: the console process that owns an install.
 
-    catena-gui                          open the wizard in a browser
-    catena-gui --run-dir ~/.catena/run1 resume that run
-    catena-gui --answers answers.yaml --no-browser
+    catena-gui                          open the installer in a browser; its
+                                        first page opens or creates an
+                                        inventory under ansible/inventory/
+    catena-gui --inventory clientco     open (or create) that inventory first
+    catena-gui --inventory clientco --answers answers.yaml --no-browser
                                         validate and install with no UI
 
-THE THIRD MODE IS WHAT THE BENCH DRIVES. It walks the same steps, runs the same
-probes and produces the same install.yaml, so a green there is a shape a client
-can reach -- a non-interactive path that skipped the validation would prove an
-install nobody could repeat through the UI.
+THE THIRD MODE walks the same steps, runs the same probes and produces the same
+install.yaml, so a green there is a shape a client can reach -- a
+non-interactive path that skipped the validation would prove an install nobody
+could repeat through the UI.
 
 CLOSING THE BROWSER CHANGES NOTHING. This process owns the job. Closing IT
-abandons the run, and the run directory says how to resume -- which matters
+abandons the run, and the inventory keeps what was answered -- which matters
 because an install contains two waits nobody can time: a server being
 delivered, and a domain being activated by its registrar.
 """
@@ -28,8 +30,6 @@ import yaml
 
 from . import registry, render, run as run_mod, steps as steps_mod
 
-DEFAULT_RUN_DIR = Path.home() / ".catena" / "gui"
-
 
 def _load_answers_file(path: Path, run: run_mod.Run, doc: dict) -> None:
     """Fill a run from a YAML answers file.
@@ -37,14 +37,14 @@ def _load_answers_file(path: Path, run: run_mod.Run, doc: dict) -> None:
     Each value goes to the side of the line the REGISTRY puts it on, not the
     side this file guesses. That is the same classification seed applies when
     it splits a flat install.yaml, so a credential cannot be filed as config by
-    one and as a secret by the other.
+    one and as a secret by the other. The inventory is the run's directory, so
+    an `inventory:` key in the file is not an answer.
     """
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     if not isinstance(raw, dict):
         raise SystemExit(f"{path}: expected a mapping of answers")
     for key, value in raw.items():
         if key == "inventory":
-            run.inventory = str(value)
             continue
         run.answer(str(key), "" if value is None else str(value),
                    secret=registry.is_secret(doc, str(key)))
@@ -74,38 +74,44 @@ def walk(run: run_mod.Run, doc: dict) -> int:
     return problems
 
 
-def install(run: run_mod.Run, doc: dict, ansible_dir: Path) -> int:
+def install(run: run_mod.Run, ansible_dir: Path) -> int:
     """Write the contract, run it, and record where it got to.
 
     The install.yaml is removed whatever happens. It carries the client's cloud
     credentials, and a file that outlives the install is one nothing ever comes
     back to delete.
     """
-    target = run.path / "install.yaml"
-    render.write_install_yaml(target, render.install_yaml(
-        inventory=run.inventory, answers=run.answers, secrets=run.secrets))
     run.state = run_mod.STATE_INSTALLING
     run.save()
-    argv = render.install_command(ansible_dir, target, run.inventory)
-    print(f"\n== install: {' '.join(argv)}", file=sys.stderr)
-    try:
+    body = render.install_yaml(inventory=run.inventory, answers=run.answers,
+                               secrets=run.secrets)
+    with render.transient_install_yaml(body) as target:
+        argv = render.install_command(ansible_dir, target, run.inventory)
+        print(f"\n== install: {' '.join(argv)}", file=sys.stderr)
         rc = subprocess.run(argv, check=False).returncode
-    finally:
-        target.unlink(missing_ok=True)
     run.state = run_mod.STATE_DONE if rc == 0 else run_mod.STATE_FAILED
     run.save()
     return rc
+
+
+def _open(name: str, doc: dict) -> run_mod.Run:
+    """The inventory `name` as a run: opened when it exists, created when the
+    name is a valid new one."""
+    if name not in run_mod.inventories():
+        problem = run_mod.new_name_problem(name)
+        if problem:
+            raise SystemExit(f"--inventory {name!r}: {problem}")
+    return run_mod.load(run_mod.inventory_root() / name,
+                        run_mod.secret_keys_from(doc))
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--run-dir", default=str(DEFAULT_RUN_DIR),
-                    help="where this run's answers live. Resuming means "
-                         "pointing at the same directory again.")
     ap.add_argument("--inventory", default="",
-                    help="inventory name to create under ansible/inventory/")
+                    help="inventory under ansible/inventory/ to open, or to "
+                         "create when it does not exist yet")
     ap.add_argument("--answers",
                     help="a YAML file of answers, for a run with no UI")
     ap.add_argument("--no-browser", action="store_true",
@@ -118,13 +124,14 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     doc = registry.load()
-    current = run_mod.load(Path(args.run_dir).expanduser(),
-                           run_mod.secret_keys_from(doc))
-    if args.inventory:
-        current.inventory = args.inventory
+    current = _open(args.inventory, doc) if args.inventory else None
     if args.answers:
+        if current is None:
+            raise SystemExit("--inventory is required with --answers: it names "
+                             "the directory the answers are saved into")
         _load_answers_file(Path(args.answers).expanduser(), current, doc)
-    current.save()
+    if current is not None:
+        current.save()
 
     if not args.answers and not args.no_browser:
         from .server import serve
@@ -136,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
         webbrowser.open(url)
         return serve(current, doc, port=args.port, ansible_dir=registry.ANSIBLE_DIR)
 
-    if not current.inventory:
+    if current is None:
         raise SystemExit("--inventory is required for a run with no UI: it "
                          "names the directory the install writes into")
 
@@ -148,7 +155,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.validate_only:
         print("\ncatena-gui: every step checks out.", file=sys.stderr)
         return 0
-    return install(current, doc, registry.ANSIBLE_DIR)
+    return install(current, registry.ANSIBLE_DIR)
 
 
 if __name__ == "__main__":

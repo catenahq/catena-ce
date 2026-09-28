@@ -1,0 +1,27 @@
+[project]
+name = "catena-ce"
+version = "0.1.0"
+description = "Catena Community: the installer's entry points, run from the repository root"
+requires-python = ">=3.12"
+# The two entry points a fresh clone runs, each implemented by its own project:
+#
+#   uv run catena-gui           the graphical installer          (gui/)
+#   uv run catena-cli <verb>    the command-line installer       (ansible/)
+#
+# Each project keeps its own pyproject and lock, because ansible/ ships into
+# the panel image and gui/ must not. This one only depends on both, so their
+# console scripts land in one environment. gui/tests/test_the_entry_points_agree.py
+# holds the names here, in the two projects, in the launcher and in the docs to
+# one another.
+dependencies = [
+    "catena-ce-installer",
+    "catena-gui",
+]
+
+[tool.uv]
+# Nothing here is built or installed except the two projects it depends on.
+package = false
+
+[tool.uv.sources]
+catena-ce-installer = { path = "ansible", editable = true }
+catena-gui = { path = "gui", editable = true }

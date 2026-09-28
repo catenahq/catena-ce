@@ -24,7 +24,7 @@ REGISTRY_FILENAME = "knobs.json"
 
 # Where the ansible tree sits relative to this file: gui/catena_gui/ -> gui/ ->
 # the repo root. A checkout is the only layout this runs in, because the thing
-# it drives (`catena install`) is in that same checkout.
+# it drives (`catena-cli install`) is in that same checkout.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 ANSIBLE_DIR = _REPO_ROOT / "ansible"
 
@@ -81,6 +81,32 @@ def default_for(entry: dict) -> str:
     starts blank, which for every one of them is a real answer.
     """
     return str((entry.get("env") or {}).get("default") or "")
+
+
+def example_for(entry: dict) -> str:
+    """What a blank field shows greyed out: an illustration of a value with no
+    sensible default, such as a server's address. Never filled in, because a
+    pre-filled example is an answer nobody gave."""
+    return str((entry.get("env") or {}).get("example") or "")
+
+
+def cli_script() -> str:
+    """The console-script name `ansible/pyproject.toml` gives the installer CLI.
+
+    Read, not written down here: the launcher runs `catena-cli install`, and a
+    name held in two places is a name that drifts. The one whose target is the
+    CLI's entry function is the one, whatever it is called."""
+    import tomllib
+
+    doc = tomllib.loads((ANSIBLE_DIR / "pyproject.toml").read_text(encoding="utf-8"))
+    for name, target in (doc.get("project", {}).get("scripts") or {}).items():
+        if target == CLI_ENTRY:
+            return name
+    raise LookupError(f"ansible/pyproject.toml declares no script for {CLI_ENTRY}")
+
+
+# The installer CLI's entry function, as `[project.scripts]` names it.
+CLI_ENTRY = "catena_cli:_entry"
 
 
 def options_for(entry: dict) -> list[str]:

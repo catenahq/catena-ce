@@ -136,7 +136,8 @@ gui_steps:
       joins last, then closes the public SSH port once it has proven the new
       path from this machine; without one the port stays open, because a server
       with no other way in has nothing to prove, and the domain and its token
-      become required. Either one can be added in the panel afterwards.
+      become required. Either one can be added in the panel afterwards. The
+      email is the panel's login and the sign-on administrator's address.
     validates: |-
       The credential exchanges for a token at the provider, and this machine
       can reach the network it joins. Both, because minting a key for a network
@@ -169,7 +170,8 @@ gui_steps:
     doc: |-
       The passwords the server mints for itself and shows ONCE: the first-login
       password, the backup encryption password, and the console break-glass
-      password. Nothing off the server holds a copy.
+      password, with the journal verification key. Nothing off the server
+      holds a copy.
     validates: |-
       An explicit acknowledgement that they are saved. This step is the last
       one and it cannot be skipped: without it the launcher ships installs
@@ -209,10 +211,10 @@ env_sections:
       editing them here afterwards changes nothing.
 
       On the tailnet method there are two providers. Tailscale SaaS: leave
-      TAILNET_PROVIDER blank or set it to `tailscale`, and `catena install`
+      TAILNET_PROVIDER blank or set it to `tailscale`, and `catena-cli install`
       prints the one-time admin-console steps, then prompts for the OAuth
       client id and secret. Headscale: set TAILNET_PROVIDER=headscale and fill
-      the two below it; `catena install` prompts instead for a
+      the two below it; `catena-cli install` prompts instead for a
       headscale_api_key (preferred, a short-lived tagged pre-auth key is
       minted per run) or a static headscale_preauth_key.
 
@@ -223,7 +225,7 @@ env_sections:
   - name: cloudflare
     title: Cloudflare
     doc: |-
-      Filling the domain in makes `catena install` ask for the API token that
+      Filling the domain in makes `catena-cli install` ask for the API token that
       publishes it, and the tunnel comes up during the install. Leaving it
       blank installs a server with no public surface, which only a server on
       the tailnet may do; the domain and the token are then entered together in
@@ -369,7 +371,7 @@ config:
     doc: >-
       The provider's public IPv4. Used during bootstrap, before the firewall
       closes and the box is reached another way.
-    env: {section: host, default: "203.0.113.10"}
+    env: {section: host, default: "", example: "203.0.113.10"}
 
   - key: HOST_INITIAL_USER
     step: target
@@ -468,6 +470,7 @@ config:
     panel: {group: hostnames, section: config, kind: text, optional: true}
 
   - key: ADMIN_EMAIL
+    step: access
     residence: store
     var: cfg_admin_email
     doc: >-

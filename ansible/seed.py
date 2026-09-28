@@ -18,9 +18,9 @@ is pure `lookup('dotenv', ...)` boilerplate, identical for every inventory,
 so it is not written per-inventory here -- only the .env VALUES it reads
 differ between inventories.
 
-No secret file is written into the inventory (0b: no persisted laptop vault).
+No secret file is written into the inventory (no persisted laptop vault).
 The vendor creds seed collects are prompted, live-validated, and written to the
-TRANSIENT 0600 file given by `--secrets-out`. The installer (`catena`) threads
+TRANSIENT 0600 file given by `--secrets-out`. The installer (`catena-cli`) threads
 that file onto the converge as `-e @file` (so the on-box loader ADOPTS it into
 /etc/catena/config.json) and deletes it; nothing secret persists on the laptop.
 
@@ -717,10 +717,16 @@ def fill(provided: dict, key: str, default: str, label: str | None = None,
 
 
 # --- file emission ----------------------------------------------------------
-def emit_env(template_text: str, values: dict[str, str], target: Path) -> None:
+def emit_env(template_text: str, values: dict[str, str], target: Path, *,
+             keep_existing: bool = True) -> None:
+    """Write an inventory `.env` from the template, the explanation beside each
+    value. With `keep_existing` a value already in the file wins over the
+    input, so a re-run of `catena-cli install` never rewrites what a client
+    edited by hand. The graphical installer passes False: what it saves IS the
+    client's edit."""
     target.parent.mkdir(parents=True, exist_ok=True)
     existing: dict[str, str] = {}
-    if target.exists():
+    if keep_existing and target.exists():
         existing = dict(parse_env_pairs(target.read_text()))
 
     out: list[str] = []

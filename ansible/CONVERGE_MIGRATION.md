@@ -1,6 +1,6 @@
 # Moving the reconciler into the image
 
-State of the work that ends `catena converge` as routine maintenance.
+State of the work that ends `catena-cli converge` as routine maintenance.
 Read this before touching `boundary.yml`, `playbooks/reconcile.yml`, or the
 dispatch table, and update it when a phase moves.
 
@@ -620,7 +620,7 @@ a field, and the exclusion map now says why for each -- including that
 `ADMIN_EMAIL` has no panel surface, which is a gap worth naming rather than
 hiding.
 
-**Retiring `catena converge` to bootstrap and DR is bench-gated**, and not
+**Retiring `catena-cli converge` to bootstrap and DR is bench-gated**, and not
 incidentally: doing it before the on-host reconcile is proven would leave a host
 with no converge path at all. It waits on the same evidence the timer does.
 

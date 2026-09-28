@@ -64,6 +64,7 @@ class Field:
     doc: str
     governor: str
     governor_values: list[str]
+    example: str = ""
 
     def shown_for(self, answers: dict[str, str]) -> bool:
         """Whether this field applies, given what is answered so far.
@@ -103,6 +104,7 @@ def _field(doc: dict, entry: dict) -> Field:
         doc=str(entry.get("doc") or ""),
         governor=governor,
         governor_values=values,
+        example=registry.example_for(entry),
     )
 
 
@@ -347,9 +349,10 @@ def check_locale(answers: dict[str, str]) -> list[Check]:
 def check_keyset(answers: dict[str, str]) -> list[Check]:
     """The acknowledgement, and it is the one check that cannot be waived.
 
-    `catena install` ends by showing three passwords once: the first-login
+    `catena-cli install` ends by showing three passwords once: the first-login
     password, the backup encryption password and the console break-glass
-    password. Nothing off the server holds a copy. Without an explicit
+    password, with the journal verification key. Nothing off the server holds
+    a copy. Without an explicit
     acknowledgement here the launcher ships installs nobody can recover.
     """
     acked = (answers.get("_keyset_acknowledged") or "").strip() == "yes"
@@ -359,8 +362,7 @@ def check_keyset(answers: dict[str, str]) -> list[Check]:
 
 
 # The probe for each step, by name. A step with no entry has nothing to prove
-# from here -- and there are none today, which is the point of listing them all
-# rather than defaulting.
+# from here; every step is listed rather than defaulted.
 PROBES = {
     "target": lambda a, s: check_target(a),
     "domain": check_domain,

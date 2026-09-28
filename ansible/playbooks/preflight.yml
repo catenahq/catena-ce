@@ -69,7 +69,7 @@
 
       3. Hand the credentials to the install.
 
-         `catena install` prompts for them and threads them in as transient
+         `catena-cli install` prompts for them and threads them in as transient
          extra-vars; the converge adopts them into the on-box store at
          /etc/catena/config.json. Nothing writes them to this laptop. On an
          already-installed host, set them from catena-admin > Settings, or
@@ -117,7 +117,7 @@
       when: preflight_skip_oauth | bool
 
     # No persisted laptop vault: the Tailscale OAuth creds arrive as extra-vars
-    # that `catena install` threads in from the transient adopt file
+    # that `catena-cli install` threads in from the transient adopt file
     # (`-e @file`). When they are NOT in scope -- a host whose access method
     # joins no tailnet -- there is nothing to validate before a fresh join, so
     # skip the OAuth checks rather than fail. On a tailnet install the creds are

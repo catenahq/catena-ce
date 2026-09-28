@@ -1,7 +1,7 @@
 """The Portainer API-key mint reads stdin and persists to the on-box store.
 
 The mint must not want `<inventory>/group_vars/all/vault.yml` as BOTH the
-source of admin_password and the destination of the minted key. `catena install`
+source of admin_password and the destination of the minted key. `catena-cli install`
 writes no such file (0b, seed.py: "No vault.yml: secrets never persist on the
 laptop"), so a helper that requires it answers EXIT_ERROR ("vault not found") on
 every real install and the un-guarded command task fails the converge. Both

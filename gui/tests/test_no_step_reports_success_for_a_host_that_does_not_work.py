@@ -210,7 +210,7 @@ def test_a_server_that_does_not_answer_blocks(monkeypatch):
 # --- the keyset --------------------------------------------------------------
 
 def test_the_keyset_acknowledgement_cannot_be_skipped():
-    """`catena install` shows three passwords once and nothing off the server
+    """`catena-cli install` shows three passwords once and nothing off the server
     holds a copy. Without this the launcher ships installs nobody can
     recover."""
     assert _blocking(steps_mod.check_keyset({}))

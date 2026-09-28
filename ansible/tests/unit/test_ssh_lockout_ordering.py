@@ -170,7 +170,7 @@ def _phase05_tasks() -> list[dict]:
 def test_the_key_install_decides_on_the_key_not_on_the_password():
     """Phase 0.5 must not skip itself on a blank bootstrap_root_password, on the
     reasoning that "blank means the key is already installed" -- nothing about
-    the password says anything about the key. `catena install` ALWAYS emits the
+    the password says anything about the key. `catena-cli install` ALWAYS emits the
     variable, blank when install.yaml carries no host_initial_password,
     deliberately, so a vars_prompt cannot stop the deploy chain. Extra-vars
     outrank vars_prompt,
