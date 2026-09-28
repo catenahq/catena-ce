@@ -266,6 +266,10 @@
 # the bench's snapshot clones do) can take well over 30s to settle into a
 # reachable route. wait_for polls the port for the whole window, so a node
 # that never becomes reachable still fails.
+#
+# From the controller only: on the host itself (the panel's lockdown) this
+# would dial the host's own address. There, tasks/reachable.yml asks the
+# control server and a peer instead.
 - name: "Verify controller can reach node via tailnet IPv4"
   ansible.builtin.wait_for:
     host: "{{ tailscale_ipv4 }}"
@@ -273,6 +277,7 @@
     timeout: 120
   delegate_to: localhost
   become: false
+  when: not (tailscale_on_host | bool)
 
 - name: Report tailnet identity
   ansible.builtin.debug:

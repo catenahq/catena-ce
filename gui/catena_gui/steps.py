@@ -274,6 +274,12 @@ def check_access(answers: dict[str, str], secrets: dict[str, str]) -> list[Check
             out.append(Check(f"{control} answers", status != 0,
                              "the control server did not answer from this "
                              "machine", blocking=False))
+        out.append(Check("an API key for the panel's lockdown",
+                         bool((secrets.get("headscale_api_key") or "").strip()),
+                         "with a pre-authentication key only, the install "
+                         "still locks down, but a lockdown applied later from "
+                         "the panel cannot ask Headscale whether this server "
+                         "is online, and refuses", blocking=False))
         return out
 
     client_id = (secrets.get("tailscale_oauth_client_id") or "").strip()
@@ -290,8 +296,18 @@ def check_access(answers: dict[str, str], secrets: dict[str, str]) -> list[Check
         headers={"Authorization": f"Basic {auth}",
                  "Content-Type": "application/x-www-form-urlencoded"},
         data=b"grant_type=client_credentials")
-    return [Check("the OAuth client exchanges for a token", status == 200,
-                  f"HTTP {status} {(body or {}).get('error', '')}".strip())]
+    out = [Check("the OAuth client exchanges for a token", status == 200,
+                 f"HTTP {status} {(body or {}).get('error', '')}".strip())]
+    token = str((body or {}).get("access_token") or "")
+    if status == 200 and token:
+        # The lockdown asks the control server whether this server is connected
+        # before it closes public SSH, and that needs the device read scope.
+        dstatus, _ = _http_json(f"{TAILSCALE_API}/tailnet/-/devices",
+                                headers={"Authorization": f"Bearer {token}"})
+        out.append(Check("the OAuth client can read devices", dstatus == 200,
+                         f"HTTP {dstatus}: add Devices > Core (read) to the "
+                         f"client's scopes"))
+    return out
 
 
 def check_backup(answers: dict[str, str]) -> list[Check]:

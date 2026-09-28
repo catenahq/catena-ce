@@ -102,7 +102,7 @@
     {
       "key": "tailscale_oauth_client_id",
       "step": "access",
-      "doc": "Tailscale SaaS mints a tagged auth key from this client each time the lockdown joins the host, so nothing long-lived lands on the VPS. Required on that path, hidden on the Headscale one, so the badge is only read where it is true.",
+      "doc": "Tailscale SaaS mints a tagged auth key from this client each time the lockdown joins the host, so nothing long-lived lands on the VPS, and the lockdown reads the device list to confirm the host is connected before it closes public SSH: the client needs the Auth Keys (write) and Devices > Core (read) scopes. Required on that path, hidden on the Headscale one, so the badge is only read where it is true.",
       "panel": {
         "group": "tunnel",
         "section": "secrets",
@@ -135,7 +135,7 @@
     {
       "key": "headscale_api_key",
       "step": "access",
-      "doc": "Headscale has no OAuth API. The node joins with a pre-auth key, minted from this one at each join (preferred, nothing long-lived on the VPS). Either this or the static key satisfies the converge, so neither is required on its own.",
+      "doc": "Headscale has no OAuth API. The node joins with a pre-auth key, minted from this one at each join (preferred, nothing long-lived on the VPS). Either this or the static key satisfies the join, so neither is required on its own. A lockdown applied from the panel also uses this key to ask Headscale whether the host is online, and refuses without it.",
       "panel": {
         "group": "tunnel",
         "section": "secrets",

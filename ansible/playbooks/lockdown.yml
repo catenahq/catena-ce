@@ -62,6 +62,19 @@
       when: catena_access_method == 'tailnet'
       tags: [lockdown, tailscale]
 
+    # Before anything is closed: the control server has to see this host
+    # connected and accepting, and on the host itself (the panel's lockdown) a
+    # peer has to answer through the tunnel. A failure ends the play here, with
+    # public 22 still open.
+    - name: Prove the tailnet reaches this host
+      ansible.builtin.include_role:
+        name: tailscale
+        tasks_from: reachable.yml
+        apply:
+          tags: [lockdown, tailscale]
+      when: catena_access_method == 'tailnet'
+      tags: [lockdown, tailscale]
+
     - name: Lock ufw to the declared access method
       ansible.builtin.include_role:
         name: common

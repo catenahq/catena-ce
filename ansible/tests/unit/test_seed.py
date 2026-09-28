@@ -613,6 +613,25 @@ def test_headscale_install_with_either_credential_passes(seed, on_tailnet):
         assert seed.validate_install(_headscale_inp({key: "x"}), [], []) == 0, key
 
 
+def test_an_oauth_client_that_cannot_read_devices_is_refused(seed, on_tailnet,
+                                                            monkeypatch):
+    """The lockdown asks the control server whether the server is connected
+    before it closes public SSH. Without the device read scope that question
+    is refused at the install's last step, so seed refuses it first."""
+    def http(url, *, headers=None, data=None, timeout=10.0):
+        if url.endswith("/oauth/token"):
+            return 200, {"access_token": "t"}
+        return (dev_status, {})
+    monkeypatch.setattr(seed, "_http_json", http)
+    inp = {"inventory": "prod", "host": {}, "env": {},
+           "vault": {"tailscale_oauth_client_id": "id",
+                     "tailscale_oauth_client_secret": "secret"}}
+    dev_status = 403
+    assert seed.validate_install(inp, [], []) == 1
+    dev_status = 200
+    assert seed.validate_install(inp, [], []) == 0
+
+
 def test_a_public_ssh_install_asks_for_no_tailnet_credential(seed):
     """ADR 0012: a host reached on port 22 joins no tailnet, so it needs no
     Tailscale account and no Headscale key."""

@@ -442,6 +442,17 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
                       f"HTTP {status}" + (f" {body.get('error', '')}" if body else "")):
             problems += 1
         api_token = str((body or {}).get("access_token") or "")
+        if api_token:
+            # The lockdown asks the control server whether the server is
+            # connected before it closes public SSH, which needs this scope.
+            dstatus, _ = _http_json(
+                "https://api.tailscale.com/api/v2/tailnet/-/devices",
+                headers={"Authorization": f"Bearer {api_token}"})
+            if not _check("Tailscale OAuth client reads devices", dstatus == 200,
+                          f"HTTP {dstatus}" if dstatus == 200 else
+                          f"HTTP {dstatus} -- add Devices > Core (read) to the "
+                          f"OAuth client's scopes"):
+                problems += 1
     elif "tailscale_oauth_client_id" in vault_keys:
         _check("Tailscale OAuth token exchange", False, "skipped -- creds not set")
     else:
@@ -461,6 +472,10 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
             _check("Headscale pre-auth credential", True,
                    "headscale_api_key" if _is_filled(vault.get("headscale_api_key"))
                    else "headscale_preauth_key (static)")
+            if not _is_filled(vault.get("headscale_api_key")):
+                warn(" no headscale_api_key: the install locks down from here, "
+                     "but the panel's lockdown needs it to ask Headscale whether "
+                     "this server is online, and refuses without it")
 
     cf_token = str(vault.get(CLOUDFLARE_TOKEN_KEY, "") or "").strip()
     cf_zone = str(env.get("CLOUDFLARE_ZONE", "") or "").strip()

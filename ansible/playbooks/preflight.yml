@@ -12,6 +12,8 @@
 #   1. OAuth credentials are in scope and NOT placeholders.
 #   2. Tailscale OAuth token exchange actually works.
 #   3. OAuth client can mint a tagged auth key (proves scopes + ACL tag).
+#   4. OAuth client can read devices: the lockdown asks the control server
+#      whether the host is connected before it closes public 22.
 #
 # On any failure, admin-console setup instructions are printed inline so the
 # operator sees the exact clicks needed. Validation runs BEFORE any VPS work.
@@ -60,6 +62,7 @@
          -> Settings -> Trust Credentials -> Generate OAuth client.
          - Description: catena-ansible
          - Scopes: check  Auth Keys -> Write
+                   check  Devices -> Core -> Read
          - Tags:   check  {{ oauth_test_tag }}
          Click generate. COPY client_id AND client_secret immediately -- the
          secret is displayed once.
@@ -201,11 +204,34 @@
 
     # The minted key has TTL=60s and is never used -- it self-expires.
 
+    - name: Read the device list to prove the OAuth client can see devices
+      ansible.builtin.uri:
+        url: https://api.tailscale.com/api/v2/tailnet/-/devices
+        method: GET
+        headers:
+          Authorization: "Bearer {{ oauth_token.json.access_token }}"
+        status_code: 200
+      register: device_read
+      no_log: true
+      failed_when: false
+
+    - name: Show setup instructions if the OAuth client cannot read devices
+      ansible.builtin.fail:
+        msg: |
+          {{ tailscale_setup_instructions }}
+
+          OAuth token exchange and key minting succeeded, but reading the device
+          list failed (status {{ device_read.status | default('unknown') }}).
+          The lockdown asks the control server whether the server is connected
+          before it closes public SSH, and that needs the Devices -> Core -> Read
+          scope (fix: Settings -> Trust Credentials -> edit the client -> add it).
+      when: device_read.status | default(0) != 200
+
     - name: Preflight summary
       ansible.builtin.debug:
         msg: >-
           Preflight OK -- Tailscale OAuth client validated
-          (token + test-mint with {{ oauth_test_tag }}).
+          (token + test-mint with {{ oauth_test_tag }} + device read).
 
     # Version capture lives in bootstrap/roles/common (runs against VPS hosts with
     # delegate_to: localhost) -- NOT here. Preflight's hosts: localhost play

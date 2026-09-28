@@ -22,7 +22,7 @@ Catena installs a curated list of open-source services and software to a compute
 - `uv` installed on your local machine for python virtual environment management: `wget -qO- https://astral.sh/uv/install.sh | sh`
 - A fresh VPS or server running `Debian 13` (tested)
 - At least one way into the Catena-Admin panel once the install ends, or both:
-  - a Tailscale OAuth client id/secret pair, or a working Headscale control server and credentials, with the `tailscale` client running and connected to that tailnet on your local computer. Visit the [Tailscale download page](https://tailscale.com/download)
+  - a Tailscale OAuth client id/secret pair with the `Auth Keys -> Write` and `Devices -> Core -> Read` scopes, or a working Headscale control server and credentials (an API key lets a lockdown applied later from the panel confirm the server is online), with the `tailscale` client running and connected to that tailnet on your local computer. Visit the [Tailscale download page](https://tailscale.com/download)
   - a Cloudflare account and a domain name, along with an API token with `Account -> Cloudflare Tunnel -> Edit` and `Zone -> DNS -> Edit` permissions for your domain
 
   The install runs over SSH to the server's public address either way. The one left out is entered in the panel's `Settings` afterwards.
