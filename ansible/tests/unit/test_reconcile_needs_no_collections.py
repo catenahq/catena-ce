@@ -25,9 +25,11 @@ include is not parsed until it runs, which is the same reason the defect
 survived. The only two things that would have caught it are this and an
 on-host converge.
 
-The bootstrap side is deliberately out of scope. An operator runs it from a
-controller that has the collections installed, which is what
-`ansible-galaxy collection install -r requirements.yml` is for.
+The bootstrap side is out of scope, except for one playbook. An operator runs
+bootstrap from a controller that has the collections installed, which is what
+`ansible-galaxy collection install -r requirements.yml` is for. The panel's
+Lockdown apply runs `playbooks/lockdown.yml` on the host, so that playbook and
+every role task file it includes are gated here too.
 
 Run: uv run pytest tests/unit/test_reconcile_needs_no_collections.py
 """
@@ -83,11 +85,33 @@ def _reconcile_files() -> list[Path]:
     out += [p for p in (_ANSIBLE / "playbooks" / "tasks").rglob("*.yml")
             if p.is_file()]
     out.append(_ANSIBLE / "playbooks" / "reconcile.yml")
+    out += _lockdown_files()
 
     skip = _operator_only()
     kept = [p for p in out if str(p.relative_to(_ANSIBLE)) not in skip]
     assert kept, "no reconcile-side tasks found; this gate would pass over nothing"
     return kept
+
+
+def _lockdown_files() -> list[Path]:
+    """playbooks/lockdown.yml and the role task files it includes, which the
+    panel's Lockdown apply runs on the host.
+
+    Read from the playbook's include_role tasks rather than listed, so a role
+    added to the lockdown is gated the day it lands."""
+    playbook = _ANSIBLE / "playbooks" / "lockdown.yml"
+    out = [playbook]
+    for task in _tasks_in(_load(playbook)):
+        include = task.get("ansible.builtin.include_role")
+        if not include:
+            continue
+        tasks_from = include.get("tasks_from", "main.yml")
+        found = [p for side in ("bootstrap", "reconcile")
+                 if (p := _ANSIBLE / side / "roles" / include["name"]
+                     / "tasks" / tasks_from).is_file()]
+        assert found, f"lockdown.yml includes {include}, which resolves to no file"
+        out += found
+    return out
 
 
 def _tasks_in(doc) -> list[dict]:
@@ -235,6 +259,16 @@ def test_the_gate_catches_the_defect_it_was_written_for():
     keys = _module_keys(_tasks_in(allowed)[0])
     assert keys == ["ansible.builtin.copy"], keys
     assert keys[0].startswith(_SHIPPED_NAMESPACES)
+
+
+def test_the_gate_reads_what_the_panel_lockdown_runs():
+    """The panel's Lockdown apply parses ufw_lockdown.yml on a host, and a
+    collection module there fails the parse before any task runs. Both role
+    files lockdown.yml includes have to be in the gated set."""
+    rel = {str(p.relative_to(_ANSIBLE)) for p in _reconcile_files()}
+    assert "playbooks/lockdown.yml" in rel
+    assert "bootstrap/roles/tailscale/tasks/main.yml" in rel
+    assert "bootstrap/roles/common/tasks/ufw_lockdown.yml" in rel
 
 
 def test_the_gate_sees_inside_a_block():
