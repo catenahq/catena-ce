@@ -158,9 +158,8 @@
       stderr (last 500 chars): {{ (_kc_export_dump.stderr | default(''))[-500:] }}
       Skipping JSON export this converge -- the next converge retries.
       Likely causes:
-      (1) realm absent because realm_bootstrap was deliberately
-          skipped on a post-restore converge (the replayed DB rows
-          have not yet been observed by this Keycloak container),
+      (1) realm absent because a restore just replayed the database
+          and this Keycloak container has not observed it yet,
       (2) Keycloak transient on the admin REST endpoint.
   when:
     - (_kc_export_server_ct.stdout | default('') | length) > 0
@@ -198,7 +197,7 @@
   register: _kc_export_clients
   changed_when: false
   # Same warn-and-skip semantics as the realm dump above: a missing
-  # realm (404) on a post-restore converge is non-critical drift-catch.
+  # realm (404) is non-critical drift-catch.
   failed_when: false
   when:
     - (_kc_export_server_ct.stdout | default('') | length) > 0

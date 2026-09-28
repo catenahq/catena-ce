@@ -47,9 +47,8 @@ Design constraints:
     a copy of: the installer reads them back and shows them ONCE for the
     user's password manager. They are NOT settable through the config-write
     API (a restic-password change is a deliberate re-key action, not a passive
-    settings save), and they remain ADOPTABLE so `catena recover` seeds the
-    user's saved restic password into the store BEFORE the restore decrypts
-    the backup.
+    settings save), and they remain ADOPTABLE: a value handed to the loader
+    is kept rather than replaced by a fresh mint.
   - Format contracts for the minted values match the historical seed.py
     (oauth2 cookie length-after-decode, Healthchecks 32-char API keys,
     url-safe ping key, 20-char admin password, 64-char base64 restic password).
@@ -68,6 +67,67 @@ from pathlib import Path
 from typing import Callable
 
 DEFAULT_STORE_PATH = "/etc/catena/config.json"
+
+# --- the knob registry ------------------------------------------------------
+#
+# Which vendor credentials the store accepts, which config keys it owns, and
+# which the inventory keeps, are DECLARED in helpers/knobs.yml and read here
+# from the JSON rendered beside it. One declaration, four consumers: this
+# module, seed.py, the panel's settings schema and the launcher.
+#
+# JSON rather than the YAML itself for the reason this module is stdlib-only in
+# the first place: it runs as root on a minimal target host, where PyYAML is
+# not installed and cannot be assumed.
+#
+# Resolution order mirrors the payload's own lane scripts, which resolve their
+# modules the same way and for the same reason -- the payload ships the file,
+# and a checkout runs from the tree:
+#
+#   CATENA_KNOBS          an explicit path (tests, and a host with an odd layout)
+#   CATENA_PAYLOAD_LIB    the payload's lib dir, when it is set
+#   /usr/local/lib/catena where the payload installs it
+#   this script's directory   the catena-ce checkout
+#
+# A MISSING REGISTRY RAISES. Falling back to empty sets would leave
+# apply_inputs refusing every credential the client supplies and the converge
+# publishing no config facts at all -- both silent, both indistinguishable from
+# a host nobody has configured. An install missing the file is broken, and this
+# is the only place that can say so.
+_KNOBS_FILENAME = "knobs.json"
+
+
+def _knobs_path() -> Path:
+    candidates = []
+    explicit = os.environ.get("CATENA_KNOBS", "").strip()
+    if explicit:
+        candidates.append(Path(explicit))
+    payload_lib = os.environ.get("CATENA_PAYLOAD_LIB", "").strip()
+    if payload_lib:
+        candidates.append(Path(payload_lib) / _KNOBS_FILENAME)
+    candidates.append(Path("/usr/local/lib/catena") / _KNOBS_FILENAME)
+    candidates.append(Path(__file__).resolve().parent / _KNOBS_FILENAME)
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError(
+        f"the knob registry ({_KNOBS_FILENAME}) is not at any of "
+        f"{[str(c) for c in candidates]}. It is rendered from "
+        "helpers/knobs.yml and installed by the payload; without it this host "
+        "would refuse every credential and publish no config."
+    )
+
+
+def _load_knobs() -> dict:
+    doc = json.loads(_knobs_path().read_text())
+    if doc.get("version") != 1:
+        raise ValueError(
+            f"{_KNOBS_FILENAME} declares version {doc.get('version')!r}; "
+            "this reader knows version 1"
+        )
+    return doc
+
+
+_KNOBS = _load_knobs()
 
 
 # --- minters (format contracts mirror seed.py) ------------------------------
@@ -287,9 +347,8 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
 #   - backup_restic_password -- encrypts the backup repo. Minting it
 #     on-box would trap it inside the very snapshot it decrypts IF the user
 #     lost their copy -- so it is surfaced once at install for the password
-#     manager, and `catena recover` ADOPTS the user's saved value into the
-#     store BEFORE the restore runs (adopt is fill-only, so the freshly-minted
-#     value is only used on a first install, never a recover). A rotation is a
+#     manager. A value handed to the loader is ADOPTED (fill-only, so the
+#     freshly-minted value is only used when none was given). A rotation is a
 #     deliberate `restic key passwd` action in catena-admin, not a store write.
 #   - console_recovery_password -- the ops account's break-glass password
 #     for the provider KVM / serial console (bootstrap/roles/common sets it; key-only SSH
@@ -308,50 +367,17 @@ USER_HELD_SECRETS: dict[str, Callable[[], str]] = {
 # the catena-admin settings API. The optional ones may legitimately be empty.
 #
 # This set is also the ALLOWLIST apply_inputs enforces, so a credential a role
-# tells the client to "enter in catena-admin > Settings" and that is NOT listed
-# here has a documented path that raises. Keep it a superset of the settings
-# schema (catena-admin shell/settings/settings.go Fields).
+# tells the client to "enter in catena-admin > Settings" and that is NOT
+# declared in the registry has a documented path that raises. The panel's
+# schema is held against the same declaration by its own test, so the two
+# cannot disagree about which credentials exist.
 #
-# The offsite-copy credentials are NOT here and are not flat keys at all. Six
-# of them were, describing exactly two hardcoded copies; they are now two per
+# The offsite-copy credentials are not flat keys at all: they are two per
 # declared copy inside the store's ``offsite_copies`` list, which catena-admin
-# owns end to end. Nothing in this repo reads them, so nothing here has to
-# name them.
-EXTERNAL_SECRETS: frozenset[str] = frozenset({
-    "tailscale_oauth_client_id",
-    "tailscale_oauth_client_secret",
-    # Self-hosted Headscale control server (alternative to Tailscale SaaS).
-    # api_key mints a short-lived pre-auth key per converge (preferred); the
-    # static preauth_key is the fallback. Optional -- empty on Tailscale hosts.
-    "headscale_api_key",
-    "headscale_preauth_key",
-    "cloudflare_api_token",
-    # Multi-domain (EE): JSON map zone -> API token. Each token is one-zone
-    # scoped; catena-admin verifies the single-zone grant before storing. The
-    # scalar cloudflare_api_token stays for the CE single-domain path.
-    "cloudflare_api_tokens",
-    "backup_s3_access_key",
-    "backup_s3_secret_key",
-    "smtp_password",
-    "mailserver_relay_password",
-    "mailserver_spamhaus_dqs_key",
-    # CIFS credentials for the optional bulk mount (bootstrap/roles/storage bulk.yml,
-    # storage_bulk_type=cifs). Client-held: the share is the client's NAS.
-    # NFS authenticates by source IP and supplies neither.
-    "storage_bulk_username",
-    "storage_bulk_password",
-    # Business licence token. Client-held like any other external credential:
-    # the client is given it on purchase and pastes it into catena-admin >
-    # Settings, and the panel plus the host engines read it back from here. It
-    # is a signed claim rather than a shared secret, so this repo neither mints
-    # nor verifies it -- it only stores it.
-    "catena_license",
-    # Stripe live + webhook keys for the optional client portal. Never minted:
-    # the operator pastes them from the Stripe dashboard. Billing routes
-    # degrade gracefully while they are blank.
-    "portal_stripe_secret_key",
-    "portal_stripe_webhook_secret",
-})
+# owns end to end. Nothing in this repo reads them, so nothing here names them.
+EXTERNAL_SECRETS: frozenset[str] = frozenset(
+    entry["key"] for entry in _KNOBS["secrets"]
+)
 
 # ROLE_MINTED: minted by the SERVICE, captured by the role that provisioned it.
 # Neither internal-minted (this module never generates them) nor client-supplied
@@ -392,160 +418,32 @@ ROLE_MINTED_SECRETS: dict[str, str] = {
 # value with no signal -- which is how a poisoned postgres password survived
 # `--tags postgres` (fi_s3, converge.yml:45-51).
 #
-# Value is the Ansible variable the loader publishes the stored value as. The
-# projection is DECLARED rather than derived by lowercasing: two keys already
-# do not follow the rule (BACKUP_RESTIC_REPO -> backup_restic_repo is fine,
-# NTFY_SERVER -> ntfy_server is fine, but MAILSERVER_CERTBOT_STAGING ->
-# mailserver_certbot_staging and CATENA_ACME_* -> coturn_acme_* are not), and
-# a derived mapping fails silently by publishing a fact nothing reads.
+# Value is the Ansible variable the loader publishes the stored value as, which
+# the registry declares per knob rather than deriving by lowercasing: four keys
+# do not follow that rule, and a derived mapping fails silently by publishing a
+# fact nothing reads.
+#
+# A stored knob with NO declared variable is deliberately absent from this map:
+# a runtime lane reads it straight off the store with no converge in between,
+# so there is no fact to publish.
 SETTINGS_CONFIG: dict[str, str] = {
-    # Backup: repo + cadence + the alert lanes.
-    "BACKUP_RESTIC_REPO": "cfg_backup_restic_repo",
-    "BACKUP_WEEKLY_TIMER_ONCALENDAR": "cfg_backup_weekly_timer_oncalendar",
-    "BACKUP_HEALTHCHECK_URL": "cfg_backup_healthcheck_url",
-    "BACKUP_HEALTHCHECK_ATTEMPTED_URL": "cfg_backup_healthcheck_attempted_url",
-    "BACKUP_HEALTHCHECK_URL_CLIENT": "cfg_backup_healthcheck_url_client",
-    "BACKUP_HEALTHCHECK_URL_OPERATOR": "cfg_backup_healthcheck_url_operator",
-    # Offsite copy lane. WHICH buckets it copies is not here: that is the
-    # store's ``offsite_copies`` list, read straight off disk by the lane so
-    # adding a copy takes effect with no converge in between. These two are
-    # only the lane's dead-man endpoints, and both default to the on-box
-    # Healthchecks -- an operator overrides them to point somewhere else.
-    "OFFSITE_HEALTHCHECK_URL": "cfg_offsite_healthcheck_url",
-    "OFFSITE_HEALTHCHECK_ATTEMPTED_URL": "cfg_offsite_healthcheck_attempted_url",
-    # Outbound mail. The password is an EXTERNAL_SECRET; these are its
-    # non-secret companions.
-    #
-    # SMTP_PROVIDER is the whole routing decision: resend | brevo | server.
-    # It is an explicit field rather than an inference from WHICH of three
-    # sender-address keys is non-empty. Inferring it spreads the answer to
-    # "where does mail go" across three fields and a precedence rule, hands
-    # Resend a silent win when two are filled, and leaves a client who switches
-    # providers without clearing the old address still sending through it.
-    #
-    # SMTP_HOST / SMTP_PORT / SMTP_USER apply to the `server` choice; SMTP_USER
-    # also carries the Brevo login, which is account-specific. Resend needs
-    # neither: its host and its literal `resend` username are constants.
-    # Mesh control plane. TAILNET_PROVIDER is the whole routing decision:
-    # tailscale | headscale. Explicit for the same reason: inferring it from
-    # whether TAILNET_CONTROL_URL happens to be filled in makes "switch back to
-    # Tailscale" mean "know to CLEAR a field" -- and the settings API treats a
-    # blank submission as "leave this alone", so that is a decision the client
-    # can make in one direction only.
-    #
-    # All three live here rather than in BOOTSTRAP_CONFIG: the URL and the user
-    # are the Headscale half of the same decision, and holding them in the
-    # `.env` splits a choice the panel can make from a target it cannot reach.
-    "TAILNET_PROVIDER": "cfg_tailnet_provider",
-    "TAILNET_CONTROL_URL": "cfg_tailnet_control_url",
-    "HEADSCALE_USER": "cfg_headscale_user",
-    "SMTP_PROVIDER": "cfg_smtp_provider",
-    "SMTP_SENDER": "cfg_smtp_sender",
-    "SMTP_HOST": "cfg_smtp_host",
-    "SMTP_PORT": "cfg_smtp_port",
-    "SMTP_USER": "cfg_smtp_user",
-    # Alert delivery. Both blank by default; see reconcile/roles/infrastructure.
-    "NTFY_SERVER": "cfg_ntfy_server",
-    "NTFY_TOPIC": "cfg_ntfy_topic",
-    # Egress proxies / mirrors -- a site policy, not an install input.
-    "APT_PROXY_URL": "cfg_apt_proxy_url",
-    "DOCKER_REGISTRY_MIRROR_URL": "cfg_docker_registry_mirror_url",
-    # Mailserver toggles.
-    "MAILSERVER_CERTBOT_STAGING": "cfg_mailserver_certbot_staging",
-    # THE OTHER TEST-BENCH KNOBS, kept as store keys for the same reason as
-    # CLOUDFLARED_TUNNEL_NAME_PREFIX above.
-    #
-    # They point certificate issuance at something other than production Let's
-    # Encrypt: a local Pebble on the bench network (the three CATENA_ACME_ ones,
-    # read by BOTH reconcile/roles/coturn and reconcile/roles/infrastructure), or LE's staging CA
-    # (the certbot toggles, one per service, because the bench re-issues
-    # turn.<zone> and mail.<zone> on every run and production enforces five
-    # certs per exact identifier per 168h -- one hit blocks the next ~32h).
-    # Empty and false on every client install.
-    #
-    # A store key rather than a `.env` one because the roles that read them are
-    # RECONCILE-side: a host that converges itself cannot ask an operator's
-    # laptop which CA to trust. That they happen to be set only by a test
-    # harness does not change which side of the boundary the reader sits on --
-    # and MAILSERVER_CERTBOT_STAGING was already here, with its coturn twin left
-    # behind in the `.env` for no reason anybody wrote down.
-    "CATENA_ACME_DIRECTORY_URL": "cfg_acme_directory_url",
-    "CATENA_ACME_HOST_IP": "cfg_acme_host_ip",
-    "CATENA_ACME_CA_BUNDLE_PEM_B64": "cfg_acme_ca_bundle_b64",
-    "COTURN_CERTBOT_STAGING": "cfg_coturn_certbot_staging",
-    # The primary domain, and the address every ACME registration and admin
-    # account uses. These are the last two values a reconcile could otherwise
-    # read only from the operator's .env, and the zone is the one value of the
-    # eighteen with no default -- which makes it the one that decides whether a
-    # host can converge on its own at all, rather than merely converge wrong.
-    #
-    # Both are host facts by any reading: the zone is THE identity of the
-    # install, and the email is the client's. The .env keeps seeding them
-    # fill-only on the first converge, exactly as it seeds a vendor credential,
-    # and never answers again.
-    "CLOUDFLARE_ZONE": "cfg_cloudflare_zone",
-    "ADMIN_EMAIL": "cfg_admin_email",
-    # A TEST-BENCH KNOB, deliberately kept as a store key.
-    #
-    # It prefixes the name of the Cloudflare tunnel a host creates, so the
-    # bench's cleanup can tell its own tunnels from the real ones in a Cloudflare
-    # account that holds both. Empty on every client install, and nothing reads
-    # it but catena-cloudflared-sync.
-    #
-    # It is here rather than in BOOTSTRAP_CONFIG because the host composes its
-    # own tunnel name -- box hostname plus this prefix, read straight from the
-    # store by the engine. That is what lets cloudflared-check and
-    # cloudflared-sync ship as image drop-ins: their bodies interpolate nothing,
-    # so no converge has to render them. Putting the prefix back in the `.env`
-    # would put the name back in the converge and both actions with it.
-    #
-    # It travels with the store, which is right for both cases that copy one: a
-    # bench clone keeps the tag and takes its own hostname, and a migrated host
-    # keeps the tag its operator chose.
-    "CLOUDFLARED_TUNNEL_NAME_PREFIX": "cfg_cloudflared_tunnel_prefix",
-    # The one public subdomain that is genuinely per-host. Eleven of its
-    # neighbours were compiled in because every inventory gave them the same
-    # answer; this one gets three different ones -- `portainer` in the shipped
-    # starter, `apps` in the operator skeleton, `admin` for established clients
-    # -- so it is a host fact rather than the product's. The `.env` seeds it on
-    # the first converge and the panel owns it after that.
-    "PORTAINER_SUBDOMAIN": "cfg_portainer_admin_subdomain",
-    # Whether every account in the realm must set up a second factor. A
-    # settings value rather than an install input because it is a decision a
-    # client makes about their own people, and one they may make later: turning
-    # it on requires every existing user to enrol at their next login.
-    #
-    # The converge writes it into the realm (reconcile/roles/keycloak). The identity
-    # probe READS the resulting posture and reports drift, which is the pair
-    # this key completes -- the probe has always been able to see the answer
-    # and nothing could set it.
-    "IDENTITY_ENFORCE_MFA": "cfg_identity_enforce_mfa",
+    entry["key"]: entry["var"]
+    for entry in _KNOBS["config"]
+    if entry["residence"] == "store" and "var" in entry
 }
 
 # Read from the inventory `.env` at converge time, by design: the installer
-# needs them before the box exists. Declared so a key that is in NEITHER set
-# is a gate failure rather than an unnoticed third owner.
+# needs them before the box exists.
 #
-# Eleven names belong to neither set: every public subdomain, the two UI ports,
-# the storage mount point and the realm display name. The inventory does not own
-# them in any meaningful sense -- the shipped starter, the operator skeleton and
-# the one real inventory all set them to the same strings, and four appear in no
-# .env at all. A value nobody varies is the product's, so they are compiled in.
-# If one ever needs to vary it becomes a settings key above, which is where a
-# per-host value belongs on a host that converges itself.
-BOOTSTRAP_CONFIG: frozenset[str] = frozenset({
-    "COMMON_LOCALE",
-    "COMMON_TIMEZONE",
-    "OPS_USER",
-    "SSH_PRIVATE_KEY",
-    "SSH_PUBLIC_KEY_FILE",
-    "STORAGE_BLOCK_DEVICE",
-    "STORAGE_BULK_ENABLED",
-    "STORAGE_BULK_MOUNT_POINT",
-    "STORAGE_MODE",
-    "TAILSCALE_ACCEPT_DNS",
-    "TAILSCALE_TAGS",
-})
+# A config knob belongs to exactly one residence, which the registry states and
+# its renderer enforces, so a key owned by neither of these two is not a state
+# this module has to guard against. The third residence is `host` -- the target
+# identity seed writes into hosts.yml -- and it is owned by neither of the maps
+# here for the same reason the `.env` does not own a stored value.
+BOOTSTRAP_CONFIG: frozenset[str] = frozenset(
+    entry["key"] for entry in _KNOBS["config"]
+    if entry["residence"] == "controller"
+)
 
 
 # Ansible variables the store may not decide, whatever it holds.
@@ -800,8 +698,8 @@ def ensure_app_secrets(store: dict, wanted: object) -> dict:
 def ensure_user_held_secrets(store: dict) -> list[str]:
     """Mint every USER_HELD secret (admin + restic passwords) missing or blank
     from the store, reconcile-not-overwrite. Runs AFTER adopt/apply_inputs so a
-    value the user re-entered on `catena recover` (adopted before the restore)
-    is preserved and only a genuine first install mints fresh. Returns the keys
+    value handed to the loader is preserved and only a store with none mints
+    fresh. Returns the keys
     minted -- the installer surfaces these once for the user's password
     manager."""
     secrets_map = store.setdefault("secrets", {})
@@ -842,6 +740,50 @@ def adopt(store: dict, mapping: dict | None, *, overwrite: bool = False) -> list
     return adopted
 
 
+def preserve_outgoing_zone_token(store: dict, config_in: dict | None) -> str | None:
+    """Record the outgoing domain's Cloudflare token before the new one lands.
+
+    Every public hostname is <sub>.<zone>, so changing CLOUDFLARE_ZONE moves the
+    whole published surface. What it does NOT do by itself is take down the
+    `*.<old zone>` record still pointing at this host's tunnel -- so every name
+    under the domain the client left keeps resolving, to the ingress catch-all's
+    418. Retiring it is catena-cloudflared-sync's job (RetireZones), and that
+    needs a credential for a zone the new token usually does not cover.
+
+    The client had one: it is the token being replaced in this very request. By
+    the time the engine runs, the singular `cloudflare_api_token` holds the NEW
+    domain's token and the old one is gone, so the only moment it can be kept is
+    here, in the sole writer, with both halves of the change in hand.
+
+    It goes into the per-zone map the engine already consults
+    (`secrets.cloudflare_api_tokens`, zone -> token), keyed by the domain being
+    left. catena-cloudflared-sync drops the entry once the wildcard is gone, so
+    a replaced credential does not outlive the one operation it exists for.
+
+    Returns the domain whose token was preserved, or None when this write is not
+    a domain change (a first-time set has no outgoing domain, and a host with no
+    token has nothing to keep).
+    """
+    if not config_in or "CLOUDFLARE_ZONE" not in config_in:
+        return None
+    new_zone = str(config_in.get("CLOUDFLARE_ZONE") or "").strip()
+    old_zone = str((store.get("config") or {}).get("CLOUDFLARE_ZONE") or "").strip()
+    if not new_zone or not old_zone or new_zone == old_zone:
+        return None
+    secrets_map = store.get("secrets") or {}
+    outgoing = str(secrets_map.get("cloudflare_api_token") or "").strip()
+    if not outgoing:
+        return None
+    tokens = secrets_map.get("cloudflare_api_tokens")
+    if not isinstance(tokens, dict):
+        tokens = {}
+    if tokens.get(old_zone) == outgoing:
+        return None
+    tokens[old_zone] = outgoing
+    store.setdefault("secrets", {})["cloudflare_api_tokens"] = tokens
+    return old_zone
+
+
 def apply_inputs(
     store: dict,
     *,
@@ -856,6 +798,11 @@ def apply_inputs(
     keys in EXTERNAL_SECRETS are accepted into secrets (a typo can't smuggle
     an internal-secret override in). Returns the list of keys changed."""
     changed: list[str] = []
+    # BEFORE either map is written: the outgoing token is only readable while
+    # the store still holds it, and this same request usually replaces both the
+    # domain and the token.
+    if preserve_outgoing_zone_token(store, config_in):
+        changed.append("cloudflare_api_tokens")
     if secrets_in:
         secrets_map = store.setdefault("secrets", {})
         for key, val in secrets_in.items():

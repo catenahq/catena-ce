@@ -30,22 +30,46 @@ LOOPBACK_CONSUMERS = [
 ]
 
 
-def _allowed_hosts() -> list[str]:
+def _allowed_host_variants() -> list[list[str]]:
+    """Every ALLOWED_HOSTS the template can render, one per branch.
+
+    There are two: a host with no domain yet cannot be given `heartbeat.` as
+    an allowed host, because Django compares the literal Host header and the
+    trailing dot never matches anything -- see
+    test_no_service_is_addressed_at_a_dangling_hostname.
+    """
+    out: list[list[str]] = []
     for line in COMPOSE.read_text().splitlines():
         stripped = line.strip()
         if stripped.startswith("ALLOWED_HOSTS:"):
             value = stripped.split(":", 1)[1].strip().strip('"')
-            return [h.strip() for h in value.split(",")]
-    raise AssertionError("healthchecks.compose.yml.j2 defines no ALLOWED_HOSTS")
+            out.append([h.strip() for h in value.split(",")])
+    if not out:
+        raise AssertionError(
+            "healthchecks.compose.yml.j2 defines no ALLOWED_HOSTS")
+    return out
+
+
+def _allowed_hosts() -> list[str]:
+    """The served-domain branch: the one that carries the public hostname."""
+    for hosts in _allowed_host_variants():
+        if any("_hostname" in h for h in hosts):
+            return hosts
+    raise AssertionError(
+        "no ALLOWED_HOSTS branch lists the public hostname, so a host that "
+        "HAS a domain would refuse requests to its own address")
 
 
 def test_the_loopback_ip_is_an_allowed_host():
-    hosts = _allowed_hosts()
-    assert "127.0.0.1" in hosts, (
-        "host-side units reach Healthchecks at http://127.0.0.1:<port>; "
-        "Django answers 400 DisallowedHost unless the IP itself is listed. "
-        f"ALLOWED_HOSTS is {hosts}"
-    )
+    """In EVERY branch: the watchdogs dial the loopback publish whether or not
+    a domain has been entered, so a deferred host that dropped the IP would
+    have the same silent-monitor failure with no domain to blame it on."""
+    for hosts in _allowed_host_variants():
+        assert "127.0.0.1" in hosts, (
+            "host-side units reach Healthchecks at http://127.0.0.1:<port>; "
+            "Django answers 400 DisallowedHost unless the IP itself is listed. "
+            f"ALLOWED_HOSTS is {hosts}"
+        )
 
 
 def test_the_container_alias_and_public_hostname_are_still_allowed():
@@ -54,6 +78,11 @@ def test_the_container_alias_and_public_hostname_are_still_allowed():
     hosts = _allowed_hosts()
     assert "{{ healthchecks_network_alias }}" in hosts
     assert "{{ healthchecks_hostname }}" in hosts
+    # And the alias is in every branch, because it is how the container is
+    # addressed when there is no public name to use instead.
+    for variant in _allowed_host_variants():
+        assert "{{ healthchecks_network_alias }}" in variant, (
+            f"a branch drops the network alias: {variant}")
 
 
 def test_every_loopback_consumer_uses_a_host_the_container_admits():

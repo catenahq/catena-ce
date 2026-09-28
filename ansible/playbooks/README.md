@@ -25,9 +25,9 @@ transforms live in Python with a unit test rather than in Jinja);
 | `backup.yml` | Trigger an on-demand restic snapshot of the host (Community manual backup). |
 | `bootstrap.yml` | Initial bring-up of a fresh VPS (any provider). |
 | `converge.yml` | Main converge: bring a bootstrapped host to the desired state and keep it there. |
+| `lockdown.yml` | Join the tailnet, then close public port 22 -- or report why it stays open. |
 | `preflight.yml` | Controller-side preflight: prove the supplied Tailscale OAuth client works before any VPS is touched. |
 | `reconcile.yml` | The half of a converge that does not need an operator. |
-| `restore.yml` | Narrow data-restoration playbook. |
 | `rotate-tailscale.yml` | Re-authenticate this node to the tailnet (force re-auth). |
 | `rotate-tunnel.yml` | Regenerate this host's Cloudflare tunnel without a full site converge. |
 | `show-keyset.yml` | Surface the user-held DR keyset (admin + restic + console passwords) ONCE, plus the first-login URLs, at the end of a fresh `catena install`. |

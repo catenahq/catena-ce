@@ -1,8 +1,12 @@
 # {{ ansible_managed }}
-# One covered prefix per line. Read by vps-scripts/backup-coverage.sh to
-# classify bind-mount sources as covered / uncovered at backup time.
-# Kept in sync with backup_paths in reconcile/roles/backup/defaults/main.yml --
-# if that list changes, re-run the backup role.
+# One covered prefix per line. Read by the coverage lane
+# (catena-backup-coverage) to classify bind-mount sources as covered or
+# uncovered at backup time.
+#
+# Rendered from backup_paths, which is the product's own set plus whatever the
+# client declared in BACKUP_EXTRA_PATHS. One list, so a path that is backed up
+# is a path this check knows about -- declaring a disk in the settings field
+# both captures it and stops it reading as an uncovered bind-mount source.
 {% for p in backup_paths %}
 {{ p }}
 {% endfor %}

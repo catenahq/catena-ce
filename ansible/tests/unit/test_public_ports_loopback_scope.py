@@ -64,7 +64,7 @@ def test_survives_the_effective_json_round_trip():
 # --- the ufw layer denies, and denies ONLY --------------------------------
 
 def test_host_bind_emits_exactly_one_deny_and_no_allow():
-    plan = pp.rule_plan([_entry(bind="host")])
+    plan = pp.rule_plan([_entry(bind="host")], tailnet_available=True)
     assert [r["action"] for r in plan] == ["deny"]
     assert plan[0]["engine"] == "ufw"
     assert plan[0]["port"] == "9021"
@@ -79,7 +79,7 @@ def test_docker_bind_adds_a_dnat_drop_with_no_allowed_source():
     # 18190 open on the bridge IP). Unlike tailnet/rfc1918 there is no source
     # to RETURN first: anything reaching that chain came from off-box, because
     # 127.0.0.1 is delivered on loopback and never traverses FORWARD.
-    plan = pp.rule_plan([_entry(bind="docker")])
+    plan = pp.rule_plan([_entry(bind="docker")], tailnet_available=True)
     assert [(r["engine"], r["action"]) for r in plan] == [
         ("ufw", "deny"),
         ("docker-user", "DROP"),
@@ -102,7 +102,7 @@ def test_bound_but_not_public():
 
 
 def test_generated_inventory_explains_the_scope():
-    doc = pp.render_doc([_entry()])
+    doc = pp.render_doc([_entry()], tailnet_available=True)
     assert "loopback" in doc
     assert "9021" in doc
 
@@ -111,7 +111,7 @@ def test_generated_inventory_explains_the_scope():
 
 def test_ufw_spec_renders_deny_not_allow():
     mod = _reconciler()
-    rule = pp.rule_plan([_entry(bind="host")])[0]
+    rule = pp.rule_plan([_entry(bind="host")], tailnet_available=True)[0]
     assert mod._ufw_spec(rule)[0] == "deny"
     # The full argv is what actually runs; a stray "allow" anywhere in it
     # would open the port.
@@ -149,7 +149,7 @@ def test_dnat_guard_matches_the_dialled_port_not_the_container_port():
     9000 -> 9000 and is unchanged by the rewrite."""
     mod = _reconciler()
     rule = next(
-        r for r in pp.rule_plan([_entry(bind="docker")])
+        r for r in pp.rule_plan([_entry(bind="docker")], tailnet_available=True)
         if r["engine"] == "docker-user"
     )
     match = mod._docker_user_match(rule)
@@ -173,7 +173,7 @@ def test_a_guarded_docker_range_is_refused_rather_than_half_covered():
          "bind": "docker", "owner": "hypothetical"},
     ])
     with pytest.raises(pp.PortDeclError, match="single port"):
-        pp.rule_plan(entries)
+        pp.rule_plan(entries, tailnet_available=True)
 
 
 def test_a_host_bound_range_is_still_fine():
@@ -183,7 +183,7 @@ def test_a_host_bound_range_is_still_fine():
         {"proto": "udp", "port": "49160-49200", "scope": "any",
          "bind": "host", "owner": "coturn"},
     ])
-    plan = pp.rule_plan(entries)
+    plan = pp.rule_plan(entries, tailnet_available=True)
     assert [r["engine"] for r in plan] == ["ufw"]
     assert plan[0]["port"] == "49160:49200"
 
@@ -194,6 +194,6 @@ def test_ufw_spec_still_defaults_to_allow_for_the_existing_scopes():
         entries = pp.normalize_infra([
             {"proto": "tcp", "port": 5349, "scope": scope, "bind": "host"},
         ])
-        for rule in pp.rule_plan(entries):
+        for rule in pp.rule_plan(entries, tailnet_available=True):
             if rule["engine"] == "ufw":
                 assert mod._ufw_spec(rule)[0] == "allow"

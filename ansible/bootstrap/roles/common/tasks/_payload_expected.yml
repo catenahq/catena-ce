@@ -2,7 +2,7 @@
 # Shared decision helper: is the catena-admin payload expected on THIS host,
 # and are the paths this caller needs actually here?
 #
-# Five callers ask this and one predicate answers all five, across two
+# Several roles ask this and one predicate answers them all, across two
 # different read paths. reconcile/roles/payload publishes
 # `catena_payload_engines_expected` during a converge, so
 # reconcile/roles/cloudflare_tunnel and reconcile/roles/backup/tasks/install.yml read the fact;

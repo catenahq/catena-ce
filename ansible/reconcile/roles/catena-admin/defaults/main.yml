@@ -2,7 +2,7 @@
 # reconcile/roles/catena-admin -- per-VPS admin panel (the catena-admin Go shell).
 #
 # The role manages the container's HOST-SIDE state (host.yml + catalog.yml)
-# AND deploys the container itself as a Portainer stack (deploy.yml, pulling
+# AND deploys the container itself as a swarm service (deploy.yml, pulling
 # catena_admin_image). See README.md.
 
 # --- Container image + port -------------------------------------------
@@ -14,7 +14,7 @@
 # the licence check. The bench does not use it (it builds
 # local/catena-admin:bench on the VPS and passes that tag).
 #
-# catena_admin_image lives in bootstrap/roles/common/defaults: reconcile/roles/payload extracts the
+# catena_admin_image lives in playbooks/group_vars/all/main.yml: reconcile/roles/payload extracts the
 # host engines from the same image at role 5.5, long before this role's defaults
 # are in scope, and the two must agree. Which release it names, and that
 # release's digest, are resolved from the registry once per converge by
@@ -25,22 +25,21 @@
 catena_admin_image_digest: "{{ catena_payload_image_digest | default('') }}"
 
 # Deploy the catena-admin container FROM the converge (deploy.yml). Production
-# pulls the published GHCR image at converge time. The test bench builds the
-# image on the VPS and deploys it OUT OF BAND (stage-2.6, build-on-host per the
-# resolved 1z decision) -- the published GHCR image does not exist there -- so
-# the bench sets CATENA_ADMIN_DEPLOY_FROM_CONVERGE=false to skip the converge
-# deploy. Production leaves it true.
+# pulls the published GHCR image at converge time. The test bench builds its
+# working-tree image on the VPS and deploys it out of band, so it sets
+# CATENA_ADMIN_DEPLOY_FROM_CONVERGE=false to skip the converge deploy.
+# Production leaves it true.
 catena_admin_deploy_from_converge: >-
   {{ lookup('env', 'CATENA_ADMIN_DEPLOY_FROM_CONVERGE', default='true') | bool }}
 
 # --- tier-1 swarm service ---------------------------------------------
 # The panel is created directly with `docker service create`, not through
 # Portainer's stack API. It holds the key that drives Portainer, so being
-# deployed BY Portainer meant a broken Portainer took down the one tool that
-# could repair it -- and the post-restore path that needs the panel runs
-# precisely when Portainer is the thing that did not come back.
+# deployed BY Portainer would let a broken Portainer take down the one tool
+# that can repair it -- including the restore that needs the panel precisely
+# when Portainer is the thing that did not come back.
 #
-# catena_admin_service_name lives in bootstrap/roles/common/defaults for the same reason
+# catena_admin_service_name lives in playbooks/group_vars/all/main.yml for the same reason
 # the image does: reconcile/roles/payload reads it at role 5.5 to ask swarm which image
 # this service runs, and this role's defaults are not in scope that early. See
 # the block there, including why the name is load-bearing for oauth2_proxy.
@@ -128,7 +127,7 @@ catena_admin_desired:
 
 # Port the Go shell listens on inside the container (CATENA_ADMIN_ADDR
 # in the service env; oauth2_proxy upstreams to catena-admin:8000).
-# catena_admin_internal_port lives in bootstrap/roles/common/defaults for the same reason
+# catena_admin_internal_port lives in playbooks/group_vars/all/main.yml for the same reason
 # catena_admin_service_name does: reconcile/roles/portainer builds the App Templates URL
 # out of the pair, and cannot see this role's defaults.
 
@@ -147,9 +146,9 @@ catena_admin_converge_delay: 5
 catena_admin_allowed_actions_path: "/etc/catena/admin-allowed.yaml"
 catena_admin_dispatch_actions_path: "/etc/catena/admin-actions"
 # Where the PAYLOAD drops dispatch arms the converge does not know about. The
-# converge creates the directory root-owned and reads nothing from it, the same
-# one-way dependency /etc/catena/post-restore.d has: the converge provides the
-# moment, the image subscribes to it.
+# converge creates the directory root-owned and reads nothing from it, a
+# one-way dependency: the converge provides the moment, the image subscribes to
+# it.
 #
 # Base-first: the rendered case arms are tried first and win outright, so a
 # drop-in can only ADD a name. It also can never add an env var -- AcceptEnv and

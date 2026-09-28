@@ -7,9 +7,9 @@
 # internal service secrets and the user-held admin/restic DR keyset, and it asks
 # the container registry which catena-admin release to install -- on a machine
 # that has no Docker yet. Bootstrap needs neither, and needs the config half
-# because bootstrap/roles/tailscale chooses its control plane from cfg_tailnet_provider
-# with no inventory fallback. A machine that reaches its first converge already
-# on the wrong tailnet is the defect this split exists to close.
+# because every later leg reads the access method, the tailnet provider and its
+# tags from cfg_* facts with no inventory fallback -- the panel's on-host
+# lockdown has no inventory at all.
 #
 # The full loader includes this file, so there is one copy of these four tasks.
 #
@@ -21,10 +21,25 @@
 # at runtime, retention ended up with two copies and the converge's silently
 # dead, and a tag-scoped converge that skipped the loader fell back to a stale
 # `.env` with no signal.
+#
+# The script module ships onbox_config.py alone, and it reads the knob registry
+# from a file. Bootstrap runs before the payload installs one, so the registry
+# from this same checkout is staged beside the adopt maps and named through
+# CATENA_KNOBS on every call.
+- name: "onbox: stage the knob registry for the store helper"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../helpers/knobs.json"
+    dest: /root/.catena-knobs.json
+    owner: root
+    group: root
+    mode: "0644"
+
 - name: "onbox: read the store-owned config key names"
   ansible.builtin.script:
     cmd: "{{ playbook_dir }}/../helpers/onbox_config.py --emit settings-config-names"
     executable: python3
+  environment:
+    CATENA_KNOBS: /root/.catena-knobs.json
   register: _onbox_cfg_known
   changed_when: false
 
@@ -46,6 +61,8 @@
       {% if v | string | length > 0 %}--set-config {{ (k ~ '=' ~ v) | quote }} {% endif %}
       {% endfor %}
     executable: python3
+  environment:
+    CATENA_KNOBS: /root/.catena-knobs.json
   register: _onbox_cfg_seeded
   changed_when: false
 
@@ -56,6 +73,8 @@
       --path {{ catena_onbox_config_path | default('/etc/catena/config.json') }}
       --no-mint --emit config-vars
     executable: python3
+  environment:
+    CATENA_KNOBS: /root/.catena-knobs.json
   register: _onbox_cfg_emit
   changed_when: false
 
@@ -66,19 +85,22 @@
   loop_control:
     label: "{{ item.key }}"
 
-# The one store value with no usable default. Every public hostname is
-# <sub>.<zone>, so an empty one converges a host that looks finished and serves
-# nothing -- the failure mode a default would buy. Asserted here, once, where
-# the answer has just been established, rather than left to surface as a
-# certificate for `dash.` three roles later.
-- name: "onbox: the zone every hostname is built from has to be known"
-  ansible.builtin.assert:
-    that:
-      - (cfg_cloudflare_zone | default('') | trim | length) > 0
-    fail_msg: >-
-      This host has no Cloudflare zone. It is seeded from CLOUDFLARE_ZONE in the
-      inventory .env on the first converge and read from
-      {{ catena_onbox_config_path | default('/etc/catena/config.json') }} from
-      then on, so either this is a first install with the key missing from .env,
-      or the store was replaced by one belonging to no domain.
+# Every public hostname is <sub>.<zone>, so a host with no zone has no public
+# surface to build. A server on the tailnet is installed before its domain is
+# decided, and the domain arrives with the Cloudflare token in Settings,
+# afterwards -- so the converge has to finish without one, or the panel that
+# takes the domain never comes up.
+#
+# So the state is DECLARED rather than refused. Deferred is not the same as
+# broken, and the difference has to be visible: every role that would publish a
+# name gates on this fact and says it skipped, so a host serving nothing says
+# why, once, instead of issuing a certificate for `dash.` three roles later.
+- name: "onbox: say that the public surface is waiting for a domain"
+  ansible.builtin.debug:
+    msg: >-
+      No domain is configured, so nothing public is published on this converge:
+      no certificates, no routes, no DNS records. The server is reachable on the
+      private network and everything on it runs. Enter a domain in the
+      dashboard's Settings, then converge again.
+  when: catena_public_surface_deferred | bool
   run_once: true

@@ -28,7 +28,7 @@ BACKUP_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "backup" / "defaults" / "mai
 
 def test_the_staging_directory_rides_the_backup():
     defaults = yaml.safe_load(BACKUP_DEFAULTS.read_text())
-    paths = defaults["backup_paths"]
+    paths = defaults["backup_product_paths"]
     assert any("backup-staging" in p for p in paths), (
         "the mysql dumps live under backup-staging, which must be in the set"
     )

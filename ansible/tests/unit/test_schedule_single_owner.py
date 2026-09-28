@@ -93,9 +93,9 @@ def test_no_retention_key_is_seeded_into_the_store():
 
 # The READER half of the retention contract -- what the wrapper sources, and
 # that it refuses to prune on an emptied policy while still finishing clean on
-# a never-written one -- moved to catena-admin
-# payload/lanes/backup_run_retention_owner_test.go with the wrapper. This file
-# keeps the WRITER half, which is what this repo owns.
+# a never-written one -- lives in catena-admin
+# payload/lanes/backup_run_retention_owner_test.go, beside the wrapper. This
+# file keeps the WRITER half, which is what this repo owns.
 
 
 # ─── the timer has one owner ───────────────────────────────────────────
@@ -166,16 +166,23 @@ def test_the_daily_env_does_not_carry_a_schedule():
     assert "DAILY_TIMER_ONCALENDAR" not in body
 
 
+def test_the_daily_env_does_not_carry_the_update_policy():
+    # Whether a host without a backup still gets container updates is a
+    # Schedules page setting: catena-schedule renders it into
+    # /etc/catena/daily-policy.env. catena-daily reads daily.env first and
+    # keeps the first value it sees, so a copy here would win over the panel.
+    assert "DAILY_UPDATE_WITHOUT_BACKUP" not in _code(DAILY_ENV)
+
+
 # ─── the other lanes can start at all ──────────────────────────────────
 #
-# daily.env is not the only one. catena-auto-update{,@,-resume}.service and
-# catena-stack-update-managed.service declare their EnvironmentFile with no
-# leading dash too, and the container engine's --specs-file defaults to a path
-# nothing writes. All four go missing on a real host for the same reason, and
-# stay invisible for the same reason: the bench ships its own copies.
+# daily.env is not the only one. catena-stack-update-managed.service declares
+# its EnvironmentFile with no leading dash too, and the container engine's
+# --specs-file defaults to a path nothing writes. Both go missing on a real
+# host for the same reason, and stay invisible for the same reason: the bench
+# ships its own copies.
 
 LANE_CONFIG_TEMPLATES = (
-    "auto-update.env.j2",
     "stack-update.env.j2",
     "managed-services.json.j2",
 )
@@ -196,10 +203,9 @@ def test_every_lane_config_file_is_rendered_exactly_once():
 
 
 def test_the_secret_bearing_lane_config_is_not_world_readable():
-    # auto-update.env carries the provider credentials when a provider is
-    # configured; stack-update.env carries the Portainer API key.
+    # stack-update.env carries the Portainer API key.
     tasks = yaml.safe_load(ADMIN_HOST.read_text())
-    for src in ("auto-update.env.j2", "stack-update.env.j2"):
+    for src in ("stack-update.env.j2",):
         tpl = next(
             t["ansible.builtin.template"] for t in tasks
             if str(t.get("ansible.builtin.template", {}).get("src", "")) == src

@@ -139,3 +139,19 @@ def test_hitting_the_bound_is_treated_as_transient() -> None:
         "the transient classifier does not recognise rc=124, so a bounded "
         f"attempt fails the play instead of retrying: {t_expr!r}"
     )
+
+
+def test_a_late_commit_after_a_deadline_is_transient() -> None:
+    """A DeadlineExceeded update still commits once the swarm manager catches
+    up, so the retry after it carries a stale version and is refused. Bench run
+    2026-09-25T14-12-35-d518 failed the whole converge on exactly that, on the
+    third attempt, where a fourth would have re-read the version."""
+    classifier = next(
+        t for t in _tasks(ATTEMPT)
+        if "_swarm_deploy_transient" in str(t.get("ansible.builtin.set_fact", ""))
+    )
+    expr = str(classifier["ansible.builtin.set_fact"]["_swarm_deploy_transient"])
+    pattern = re.search(r"regex\(\s*'([^']+)'", expr).group(1)
+    seen = ("failed to update service keycloak_server: Error response from "
+            "daemon: rpc error: code = Unknown desc = update out of sequence")
+    assert re.search(pattern, seen), pattern

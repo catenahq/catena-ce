@@ -1,0 +1,21 @@
+---
+# Host-level maintenance reporting. One thing today: telling somebody the host
+# needs a reboot.
+#
+# Debian's unattended-upgrades applies the patches (bootstrap/roles/common);
+# nothing on this host reboots itself, by design. This role is the half that
+# makes "patched but not in effect yet" visible instead of silent.
+
+reboot_check_env_file: /etc/catena/reboot-check.env
+reboot_check_report_file: /var/lib/catena/reboot-required.json
+reboot_check_systemd_unit_name: catena-reboot-check
+
+# The Healthchecks check this reports through. One slug per host-level probe,
+# matching the clamd watch and the mail canary.
+reboot_check_slug: catena-reboot-required
+
+# Files this role puts in the prefixes where a withdrawal keeps EXECUTING.
+# playbooks/tasks/prune_withdrawn_files.yml removes what a later release stops
+# declaring; tests/unit/test_converge_prune.py fails on an omission. Empty: the
+# probe and its units ship in the catena-admin payload.
+host_maintenance_managed_paths: []

@@ -86,6 +86,41 @@ def test_a_prerelease_does_not_beat_the_release_it_precedes():
         == "traefik:v3.8.0"
 
 
+KEYCLOAK = "quay.io/phasetwo/phasetwo-keycloak"
+
+
+def test_a_newer_build_of_the_same_version_survives_the_converge():
+    """Phase Two publishes each build as <version>.<unix-build-time>. Without
+    the fourth part the host's newer build reads as incomparable and the next
+    converge reverts it."""
+    floor = KEYCLOAK + ":26.6.4.1787207391"
+    newer = KEYCLOAK + ":26.6.4.1789712219"
+    assert catena_image_pin(floor, {KEYCLOAK: newer}) == newer
+    assert catena_image_pin(newer, {KEYCLOAK: floor}) == newer
+
+
+def test_a_newer_version_beats_every_build_of_an_older_one():
+    floor = KEYCLOAK + ":26.6.4.1789712219"
+    pin = KEYCLOAK + ":26.6.7.1789712000"
+    assert catena_image_pin(floor, {KEYCLOAK: pin}) == pin
+
+
+def test_a_plain_version_does_not_beat_a_build_of_itself():
+    floor = KEYCLOAK + ":26.6.4.1787207391"
+    assert catena_image_pin(floor, {KEYCLOAK: KEYCLOAK + ":26.6.4"}) == floor
+
+
+@pytest.mark.parametrize("floor,pin", [
+    # Five parts is not a build of a semver version: collabora's scheme stays
+    # incomparable here.
+    ("collabora/code:26.04.3.2.1", "collabora/code:26.04.4.2.1"),
+    ("postgres:18", "postgres:18.4.1.2"),
+])
+def test_more_parts_do_not_make_a_scheme_comparable(floor, pin):
+    repo = floor.rsplit(":", 1)[0]
+    assert catena_image_pin(floor, {repo: pin}) == floor
+
+
 def test_a_registry_port_is_not_read_as_a_tag():
     floor = "registry.example:5000/app:v1.0.0"
     pins = {"registry.example:5000/app": "registry.example:5000/app:v1.2.0"}

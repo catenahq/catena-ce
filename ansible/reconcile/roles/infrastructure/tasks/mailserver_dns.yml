@@ -37,8 +37,22 @@
       mail DNS.
   when: not (mailserver_deployed | bool)
 
+- name: "Mailserver DNS: skip when the host has no domain yet"
+  ansible.builtin.debug:
+    msg: >-
+      No domain is configured, so no mail DNS is published: no A record, no
+      MTA-STS policy, no TLS-RPT. Mail needs a domain before any of those mean
+      anything. Enter one in the dashboard's Settings.
+  when: catena_public_surface_deferred | default(false) | bool
+
+# Deployed AND a domain to publish under. The records below are written
+# straight against the Cloudflare API from mailserver_hostname, which is
+# mail.<zone> -- so on a zone-less host this reaches the API with "mail." and
+# a zone id that was never resolved.
 - name: "Mailserver DNS: publish mail A + MTA-STS + TLS-RPT (dms deployed)"
-  when: (mailserver_dms_ct | length) > 0
+  when:
+    - (mailserver_dms_ct | length) > 0
+    - not (catena_public_surface_deferred | default(false) | bool)
   delegate_to: localhost
   become: false
   block:
@@ -121,6 +135,11 @@
           content: "{{ public_ip }}"
           proxied: false
           ttl: 1
+          # Re-sent because a Cloudflare PUT REPLACES the record: without it a
+          # record that drifts once comes back with the ownership marker
+          # stripped, and cleanup keyed on "Managed by catena" no longer sees
+          # it as ours.
+          comment: "Managed by catena -- mail plane, MUST be gray-cloud"
         status_code: 200
       when:
         - _ms_dns_a.json.result | length > 0
@@ -153,6 +172,7 @@
           name: "_mta-sts.{{ cloudflare_zone }}"
           content: "v=STSv1; id={{ mailserver_mta_sts_policy_id }};"
           ttl: 1
+          comment: "Managed by catena -- mail plane, MTA-STS policy id"
         status_code: 200
       when: >-
         (_ms_dns_stsid.json.result | length) == 0
@@ -183,6 +203,7 @@
           name: "_smtp._tls.{{ cloudflare_zone }}"
           content: "v=TLSRPTv1; rua={{ mailserver_tlsrpt_rua }}"
           ttl: 1
+          comment: "Managed by catena -- mail plane, TLS reporting"
         status_code: 200
       when: >-
         (_ms_dns_tlsrpt.json.result | length) == 0

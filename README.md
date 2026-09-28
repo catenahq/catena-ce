@@ -2,7 +2,7 @@
 
 Catena installs a curated list of open-source services and software to a computer or VPS, making it a suitable production environment in which to run business applications. A thin dashboard wrapper allows for configuration and orchestration of this infrastructure. Some of the highlights include:
 - Automated installation to a server with [Ansible](https://docs.ansible.com/)
-- Fully hardened installation with [Tailscale](https://tailscale.com/)/[Headscale](https://headscale.net)-only administrator access
+- Fully hardened installation, with administrator access over [Tailscale](https://tailscale.com/)/[Headscale](https://headscale.net) and public SSH closed once that path is proven
 - Secure application access and DDoS protection with [Cloudflared](https://github.com/cloudflare/cloudflared)
 - Scheduled, incremental, encrypted backups with [restic](https://restic.net/)
 - Container management interface with [Portainer](https://www.portainer.io/)
@@ -19,13 +19,15 @@ Catena installs a curated list of open-source services and software to a compute
 ### Requirements
 
 #### Pre-install
-- Tailscale Oauth client id/secret pair or a working Headscale control server and credentials
-- Tailscale client installed on your local computer, with `tailscale` running and connected to the tailnet. Visit the [Tailscale download page](https://tailscale.com/download)
 - `uv` installed on your local machine for python virtual environment management: `wget -qO- https://astral.sh/uv/install.sh | sh`
 - A fresh VPS or server running `Debian 13` (tested)
+- At least one way into the Catena-Admin panel once the install ends, or both:
+  - a Tailscale OAuth client id/secret pair, or a working Headscale control server and credentials, with the `tailscale` client running and connected to that tailnet on your local computer. Visit the [Tailscale download page](https://tailscale.com/download)
+  - a Cloudflare account and a domain name, along with an API token with `Account -> Cloudflare Tunnel -> Edit` and `Zone -> DNS -> Edit` permissions for your domain
+
+  The install runs over SSH to the server's public address either way. The one left out is entered in the panel's `Settings` afterwards.
 
 #### Post-install
-- Cloudflare account and a domain name, along with an API token with `Account -> Cloudflare Tunnel -> Edit` and `Zone -> DNS -> Edit` permissions for your domain
 - An S3 Object storage endpoint along with access/secret keys pair for your backups
 
 ### Steps
@@ -47,12 +49,12 @@ cd ansible
 uv run catena install --inventory prod
 ```
 
-4. Enter your Tailscale client id/secret and VPS user's password when prompted. **Those are not persisted anywhere after the install**. The installer with then complete the installation on your VPS.
+4. Enter your Tailscale or Headscale credentials, your Cloudflare API token, and the VPS user's password when prompted. **Those are not persisted anywhere after the install**. The installer will then complete the installation on your VPS; with a tailnet, its last step joins the server to it and closes public SSH.
 
-5. Save your **restic encryption key**, **ops user password** and **application admin password** shown at the end of installation to your password manager along with your Tailscale credentials and Cloudflare API token. You need the restic password to read and restore from your backups, and the ops password to log in to your VPS from your provider's console if Tailscale access is somehow unavailable.
+5. Save your **restic encryption key**, **ops user password** and **application admin password** shown at the end of installation to your password manager along with your Tailscale credentials and Cloudflare API token. You need the restic password to read and restore from your backups, and the ops password to log in to your VPS from your provider's console if the tailnet is somehow unavailable.
 
-6. Login to the Catena-Admin interface at `http://<your-vps-tailnet-ip>:9010` with the admin email and password and go to the `Settings` tab to finish installation.
-   - Enter your Cloudflare API token to activate access to your apps through their subdomain URLs
+6. Login to the Catena-Admin interface at `https://dash.<your-domain>` (with Cloudflare) or `http://<your-vps-tailnet-ip>:9010` (with a tailnet) with the admin email and password and go to the `Settings` tab to finish installation.
+   - Enter the access method you did not give at install: the Cloudflare domain and API token to publish your apps, or the tailnet credentials, then apply the lockdown to join the tailnet and close public SSH
    - Enter your S3 credentials to enable backups
   
 7. Install applications from the [Catena templates](https://github.com/catenahq/catena-templates) catalogue or configure your own based on them.
@@ -75,9 +77,6 @@ The `catena` CLI provides other options than `install`. Run them from
 uv run catena converge         --inventory prod  # re-apply after a configuration or app change
 uv run catena validate         --inventory prod  # on-host + tailnet + external health checks
 uv run catena backup           --inventory prod  # take an on-demand snapshot
-uv run catena restore          --inventory prod  # in-place whole-host restore
-uv run catena rollback         --inventory prod  # roll a running server back to a prior snapshot
-uv run catena recover          --inventory prod  # rebuild onto a FRESH replacement box
 uv run catena rotate-tunnel    --inventory prod  # mint a new Cloudflare tunnel
 uv run catena rotate-tailscale --inventory prod  # re-authenticate to the private network
 uv run catena show-keyset      --inventory prod  # show the passwords and first-login URLs again
@@ -87,5 +86,9 @@ uv run catena uninstall        --inventory prod  # hand unattended-upgrades back
 A verb that runs one playbook carries that playbook's name, so
 `catena converge` runs `playbooks/converge.yml`. Running `catena` with no
 arguments prompts for the inventory and the operation.
+
+Restores run from the Catena-Admin panel: a rollback restores an earlier
+snapshot on the same server, and a lost server is recovered by installing
+Catena on a new one and restoring from the old server's backup repository.
 
 Some of these options are also available from the Catena-Admin app. The recommended method is to always use the Catena-Admin app running on the server to perform the operations, but the `catena` CLI is available as a break-glass should the panel be unavailable (which could happen if the disk is full).

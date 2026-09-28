@@ -70,9 +70,42 @@ APPLIED_STATE = os.environ.get(
 )
 UFW_COMMENT_PREFIX = "catena-ports"
 
+# The on-box config store, read for one key: which access method this host
+# declared. A `private`-scoped port resolves to the tailnet path or to RFC1918
+# by that answer.
+STORE_PATH = os.environ.get("CATENA_STORE_PATH", "/etc/catena/config.json")
+
 
 def log(msg: str) -> None:
     print(f"catena-public-ports: {msg}", flush=True)
+
+
+def tailnet_available(store_path: str = STORE_PATH) -> bool:
+    """Whether this host DECLARED a tailnet, per the store.
+
+    Declared rather than detected. `ip link show tailscale0` answers a different
+    question -- whether the interface is up right now -- so a host that chooses
+    a tailnet and fails to bring it up would silently rewrite every `private`
+    port to RFC1918 in the document a client reads, while its declared posture
+    still reads tailnet. The declaration is the posture; whether it is achieved
+    is what the lockdown proof and rules_unapplied are for.
+
+    An unreadable or absent store reads as `tailnet`, which is the posture of
+    every host installed before the key existed and the safer of the two: it
+    keeps the tailscale0 rule, which on a host without the interface matches
+    nothing rather than opening anything.
+    """
+    try:
+        with open(store_path, encoding="utf-8") as fh:
+            store = json.load(fh)
+    except (OSError, ValueError):
+        return True
+    if not isinstance(store, dict):
+        return True
+    config = store.get("config")
+    if not isinstance(config, dict):
+        return True
+    return str(config.get("ACCESS_METHOD") or "tailnet").strip() != "public_ssh"
 
 
 def _run(argv: list[str], check_only: bool = False) -> int:
@@ -299,17 +332,24 @@ def prune_docker_user(stale: list[dict]) -> None:
 # ─── Effective-set output (read by validation) ─────────────────────────────
 
 
-def write_effective(entries: list[pp.PortEntry], unapplied: int = 0) -> None:
+def write_effective(
+    entries: list[pp.PortEntry], unapplied: int = 0, *, on_tailnet: bool = True
+) -> None:
     """Write the three artifacts validation reads.
 
     They describe what the registry DECLARES. `unapplied` rides in the
     summary because it is the only field that says whether the host is
     actually in that state -- without it a scan of a host whose DOCKER-USER
     guards never installed reads exactly like a scan of a correct one.
+
+    The JSON keeps the DECLARED scope and the document renders the RESOLVED
+    one. They answer different questions: the machine-read file says what was
+    asked for, and the document a client opens has to say which private path
+    their ports are actually restricted to on this host.
     """
     for path, content in (
         (EFFECTIVE_JSON, pp.to_effective_json(entries)),
-        (EFFECTIVE_DOC, pp.render_doc(entries)),
+        (EFFECTIVE_DOC, pp.render_doc(entries, tailnet_available=on_tailnet)),
         (EFFECTIVE_SUMMARY, pp.summary_json(entries, rules_unapplied=unapplied)),
     ):
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -326,7 +366,8 @@ def reconcile() -> tuple[list[pp.PortEntry], int]:
     infra = load_infra_fragments()
     labels = harvest_label_entries()
     entries = pp.merge(infra, labels)  # infra wins ties
-    plan = pp.rule_plan(entries)
+    on_tailnet = tailnet_available()
+    plan = pp.rule_plan(entries, tailnet_available=on_tailnet)
 
     # Auto-heal: delete rules whose declaration disappeared since last run
     # (e.g. a removed template). Diff by signature so an owner-only change
@@ -345,12 +386,13 @@ def reconcile() -> tuple[list[pp.PortEntry], int]:
     # every subsequent run.
     save_applied(applied)
     unapplied = len(plan) - len(applied)
-    write_effective(entries, unapplied)
+    write_effective(entries, unapplied, on_tailnet=on_tailnet)
 
     log(
         f"reconciled {len(entries)} port entries "
         f"({len([e for e in entries if e.scope == 'any'])} public), "
-        f"{len(applied)}/{len(plan)} firewall rules applied"
+        f"{len(applied)}/{len(plan)} firewall rules applied, "
+        f"private ports on {'tailscale0 + RFC1918' if on_tailnet else 'RFC1918'}"
     )
     if unapplied:
         log(f"ERROR: {unapplied} firewall rule(s) NOT applied -- the effective "

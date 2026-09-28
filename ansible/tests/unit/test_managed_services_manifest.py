@@ -96,8 +96,7 @@ def test_every_entry_declares_a_reachable_upstream(manifest):
     the service is never bumped, which is the state this file exists to end."""
     for spec in manifest:
         up = spec.get("upstream") or {}
-        assert up.get("source") in ("dockerhub", "github", "quay",
-                                    "docker.elastic.co"), spec
+        assert up.get("source") in ("dockerhub", "github", "quay", "ghcr"), spec
         assert up.get("repo"), spec
         pattern = up.get("tag_pattern")
         assert pattern, spec
@@ -141,6 +140,14 @@ def test_a_partial_tag_declares_its_scheme(manifest):
     the engine classifies the running tag as not-full-semver and skips it."""
     hc = next(s for s in manifest if s["name"] == "healthchecks")
     assert hc["upstream"].get("scheme") == "partial_line"
+
+
+def test_keycloak_is_ordered_by_its_builds(manifest):
+    """Keycloak is pinned to an immutable <version>.<unix-build-time> build.
+    Without scheme=build_suffix the engine compares only three parts, so a
+    rebuild never ranks above the running build."""
+    kc = next(s for s in manifest if s["name"] == "keycloak")
+    assert kc["upstream"].get("scheme") == "build_suffix"
 
 
 def test_nothing_carries_a_copy_of_how_the_service_was_built(manifest):

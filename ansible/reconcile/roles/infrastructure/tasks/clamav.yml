@@ -172,6 +172,68 @@
       until: _clamav_ping.rc == 0
       when: (_clamav_container.stdout | default('') | trim) | length > 0
 
+    # ANSWERING IS NOT REACHABLE BY NAME. The PING above runs clamdcheck.sh
+    # INSIDE the clamd container against its own local socket, so it proves
+    # the signature DB loaded and says nothing about the consumers. A swarm
+    # service is reached by NAME, through a virtual IP the node's
+    # load-balancer sandbox has to program, and that programming is
+    # independent of whether the task runs -- so a consumer that was already
+    # running when clamd deployed goes on failing to resolve `clamav` for a
+    # while after the PING comes back clean.
+    #
+    # Measured on run 2026-09-15T23-09-44-11a0: clamd deployed and PINGed
+    # clean in this converge, and `rspamadm configtest` in the dms container
+    # then died with
+    #
+    #     address resolution for clamav failed: Name or service not known
+    #     configuration error: module antivirus: cannot add AV rule: "clamav"
+    #
+    # failing the mailserver wiring on a scanner that was working -- the same
+    # command by hand minutes later printed "syntax OK". The wait above was
+    # written to stop exactly this race and probed the wrong end of it.
+    #
+    # Consumers re-resolved PER ATTEMPT, for the reason the clamd PING gives:
+    # a swarm task id changes on every reschedule, and this loop exists to
+    # span exactly the window in which that happens. Looping over the names
+    # `_clamav_consumer` captured spent all 30 attempts on
+    #
+    #     Error response from daemon: No such container:
+    #     catena-mailserver_dms.1.eht590lgrnajk7kngnmcnnsqo
+    #
+    # because the dms task had been replaced meanwhile -- a verdict about a
+    # container id rather than about whether clamav resolves.
+    #
+    # No `set -o pipefail`: `docker ps | head -n1` closes the pipe and the
+    # upstream takes SIGPIPE, which pipefail would promote into a failure of
+    # a probe that worked.
+    - name: "ClamAV: wait until each consumer resolves clamav on {{ clamav_network }}"
+      ansible.builtin.shell: |
+        fail=0
+        found=0
+        for sel in "{{ clamav_consumer_mail_app }}|dms" \
+                   "{{ clamav_consumer_files_app }}|app"; do
+          app=${sel%|*}
+          comp=${sel#*|}
+          ct=$(docker ps --filter "label=vps.app=$app" \
+                         --filter "label=vps.component=$comp" \
+                         --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1)
+          [ -n "$ct" ] || continue
+          found=1
+          docker exec "$ct" getent hosts clamav >/dev/null 2>&1 || {
+            echo "$ct does not resolve clamav yet" >&2
+            fail=1
+          }
+        done
+        [ "$found" = 1 ] || { echo "no consumer container right now" >&2; exit 1; }
+        exit $fail
+      args:
+        executable: /bin/bash
+      register: _clamav_name_resolves
+      changed_when: false
+      retries: 30
+      delay: 5
+      until: _clamav_name_resolves.rc == 0
+
     # ── Shared-clamd watchdog (host timer) ───────────────────────────
     # Pings the self-hosted Healthchecks plane so a down clamd pages --
     # but ONLY when a consumer (dms or Nextcloud) is up

@@ -19,21 +19,41 @@
 # is not resolvable and oauth2-proxy is EXPECTED to sit in OIDC-discovery
 # restart-backoff until then. Skip this whole validation block while the store
 # holds no token -- gating it on tunnel readiness rather than hard-failing the
-# converge on a deferred edge. Once the token is saved (cf_activate / a
-# re-converge with the token present), cloudflare_tunnel brings the edge up
+# converge on a deferred edge. Once the token is saved and a converge runs
+# with it, cloudflare_tunnel brings the edge up
 # earlier in converge.yml and this block runs normally.
-- name: "validate/oauth2-proxy: tunnel deferred -- skipping public-issuer validation (no Cloudflare token yet)"
+#
+# The tunnel is also deferred when its engine was staged out of band and is not
+# on the host yet. A token in the store does not bring the edge up on its own,
+# so both reasons skip. Where that is known depends on the play:
+#
+#   converge   reconcile/roles/cloudflare_tunnel ran earlier and pinned
+#              _cf_sync_present.
+#   validate   playbooks/validate.yml runs reconcile/roles/infrastructure's
+#              validate first, which resolves _infra_edge_up (token AND engine).
+#
+# Neither defined (a play with neither role) keeps the validation on.
+- name: "validate/oauth2-proxy: resolve whether the edge should be up"
+  ansible.builtin.set_fact:
+    _oauth2_edge_up: >-
+      {{ (cloudflare_api_token | default('')) | length > 0
+         and (_cf_sync_present | default(_infra_edge_up | default(true)) | bool) }}
+
+- name: "validate/oauth2-proxy: tunnel deferred -- skipping public-issuer validation"
   ansible.builtin.debug:
     msg: >-
-      No Cloudflare API token in the on-box store: the tunnel is deferred, so
+      The Cloudflare tunnel is deferred
+      ({{ 'no Cloudflare API token in the on-box store'
+          if (cloudflare_api_token | default('')) | length == 0
+          else 'the tunnel engine is not on the host yet' }}), so
       auth.{{ cloudflare_zone | default('<zone>') }} is not resolvable and
       oauth2-proxy is expected to be in OIDC-discovery restart-backoff until the
-      token is entered in catena-admin > Settings. Skipping the oauth2-proxy
-      public-issuer + per-app validation this converge.
-  when: (cloudflare_api_token | default('')) | length == 0
+      edge comes up. Skipping the oauth2-proxy public-issuer + per-app
+      validation.
+  when: not (_oauth2_edge_up | bool)
 
 - name: "validate/oauth2-proxy: per-app container probes (with rescue diagnostics)"
-  when: (cloudflare_api_token | default('')) | length > 0
+  when: _oauth2_edge_up | bool
   block:
     # Post-restore (backup_rollback, restore_dr) brings every service back
     # in parallel. oauth2-proxy crash-exits on a failed OIDC discovery
@@ -62,7 +82,7 @@
     # oauth2-proxy's startup OIDC dance fetches BOTH the discovery
     # document AND the jwks_uri it references; the discovery doc can
     # answer 200 while JWKS still 404s while Keycloak finishes loading
-    # the realm post-restore. Without this second gate, the gate above
+    # the realm (after a restore, say). Without this second gate, the gate above
     # passes but per-app oauth2-proxy containers keep crash-looping on
     # "discovery OIDC configuration: unexpected status 404" -- and
     # whichever ones climbed deepest into docker's exponential restart
@@ -186,57 +206,67 @@
       until: (_oauth2_still_stuck.stdout_lines | default([])) | length == 0
 
     - name: "validate/oauth2-proxy: per-app /ping returns 200"
-      # 180 retries * 4s = 12 min. The post-restore path has shown
-      # repeated OIDC-discovery races where oauth2-proxy crash-restarts
-      # for several minutes after Keycloak appears reachable; 6 min was
-      # borderline and timed out on flaky CF tunnel windows.
-      ansible.builtin.command:
-        argv:
-          - docker
-          - exec
-          - "{{ _ping.stdout }}"
-          - wget
-          - "-qO-"
-          - "http://localhost:{{ oauth2_proxy_internal_port }}/ping"
+      # 180 retries * 4s = 12 min. A restored host shows repeated
+      # OIDC-discovery races where oauth2-proxy crash-restarts for several
+      # minutes after Keycloak appears reachable; 6 min is borderline on
+      # flaky CF tunnel windows.
+      #
+      # RE-RESOLVED PER ATTEMPT, and that is the whole reason this is a shell
+      # block rather than a docker exec with a name in it. A crash-restart is
+      # exactly what this loop waits out, and swarm gives the replacement task
+      # a NEW container id -- so a name resolved once, twelve minutes earlier,
+      # names a container that is gone, and all 180 attempts fail against it
+      # however healthy the app becomes.
+      ansible.builtin.shell: |
+        set -o pipefail
+        ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \
+          | grep -E '{{ oauth2_proxy_compose_name | swarm_container_regex("oauth2-proxy-" + _app.slug) }}' \
+          | head -n1)
+        [ -n "$ct" ] || { echo "no running oauth2-proxy container for {{ _app.slug }} right now" >&2; exit 1; }
+        docker exec "$ct" wget -qO- "http://localhost:{{ oauth2_proxy_internal_port }}/ping"
+      args:
+        executable: /bin/bash
       register: _oauth2_app_ping
       changed_when: false
       failed_when: _oauth2_app_ping.rc != 0
       retries: 180
       delay: 4
       until: _oauth2_app_ping.rc == 0
-      loop: "{{ _oauth2_app_container.results }}"
+      loop: "{{ oauth2_proxy_apps }}"
       loop_control:
-        loop_var: _ping
-        label: "{{ _ping._app.slug }}"
-      when: (_ping.stdout | default('')) | length > 0
+        loop_var: _app
+        label: "{{ _app.slug }}"
 
   rescue:
     # docker logs / inspect each call swallows its own failures
     # (failed_when: false): a missing-container error must not mask the
     # original /ping rescue.
+    # RE-RESOLVED here too. A dump against the ids the probe started with
+    # prints "No such container" for every replaced container -- true, and
+    # useless as diagnostics. The logs worth reading belong to whatever is
+    # running NOW.
     - name: "validate/oauth2-proxy: dump per-app container logs (last 100 lines)"
-      ansible.builtin.command:
-        argv:
-          - docker
-          - logs
-          - --tail
-          - "100"
-          - "{{ _ctr.stdout }}"
+      ansible.builtin.shell: |
+        set -o pipefail
+        ct=$(docker ps -a --format '{{ "{{" }}.Names{{ "}}" }}' \
+          | grep -E '{{ oauth2_proxy_compose_name | swarm_container_regex("oauth2-proxy-" + _ctr.slug) }}' \
+          | head -n1)
+        [ -n "$ct" ] || { echo "no oauth2-proxy container for {{ _ctr.slug }}"; exit 0; }
+        docker logs --tail 100 "$ct"
+      args:
+        executable: /bin/bash
       register: _oauth2_app_logs
       changed_when: false
       failed_when: false
-      loop: "{{ _oauth2_app_container.results | default([]) }}"
+      loop: "{{ oauth2_proxy_apps }}"
       loop_control:
         loop_var: _ctr
-        label: "{{ _ctr._app.slug | default('?') }}"
-      when:
-        - _ctr is defined
-        - (_ctr.stdout | default('')) | length > 0
+        label: "{{ _ctr.slug }}"
 
     - name: "validate/oauth2-proxy: per-app container logs"
       ansible.builtin.debug:
         msg: |
-          === oauth2-proxy {{ _r._ctr._app.slug | default('?') | upper }} logs (tail 100) ===
+          === oauth2-proxy {{ _r._ctr.slug | default('?') | upper }} logs (tail 100) ===
           stdout:
           {{ _r.stdout | default('(no stdout)') }}
 
@@ -245,7 +275,7 @@
       loop: "{{ _oauth2_app_logs.results | default([]) }}"
       loop_control:
         loop_var: _r
-        label: "{{ _r._ctr._app.slug | default('?') }}"
+        label: "{{ _r._ctr.slug | default('?') }}"
       when: _oauth2_app_logs is defined
 
     - name: "validate/oauth2-proxy: re-raise original failure"

@@ -70,7 +70,21 @@ VALID_PROTOS = ("tcp", "udp")
 # posture a 127.0.0.1 bind gives -- reachable from the box, denied
 # on every other interface -- and makes it enforced and auditable rather
 # than a property of a compose string.
-VALID_SCOPES = ("any", "tailnet", "rfc1918", "loopback")
+# `private` means "never public, and it does not matter which private path
+# carries it". The Portainer and catena-admin UI ports mean exactly that. Two
+# different things shared the word `tailnet` before it existed: those ports, and
+# the migration lane, which binds this host's tailnet address and refuses to
+# start without one. The lane still declares `tailnet` because it means it.
+#
+# The defect that separates them is honesty rather than enforcement. `tailnet`
+# emits the RFC1918 rules plus one `tailscale0` interface rule; on a host with no
+# such interface iptables accepts that rule and it never matches, so the port
+# stays correctly private -- but render_doc wrote "tailscale0 + RFC1918 only" into
+# the client-facing /etc/catena/public-ports.md for a host on no tailnet.
+#
+# `private` is RESOLVED to `tailnet` or `rfc1918` by resolve_scopes(), and every
+# consumer works on resolved entries.
+VALID_SCOPES = ("any", "tailnet", "rfc1918", "loopback", "private")
 VALID_BINDS = ("host", "docker")
 
 
@@ -184,6 +198,31 @@ def entries_from_labels(app_name: str, compose_text: str) -> list[PortEntry]:
     return out
 
 
+def resolve_scopes(
+    entries: list[PortEntry], *, tailnet_available: bool
+) -> list[PortEntry]:
+    """Replace `private` with the private path this host actually has.
+
+    `tailnet_available` is a PARAMETER, never looked up in here: this module
+    keeps the plan as DATA so the mapping is unit-tested without root, and a
+    lookup would put a host fact inside a pure function.
+
+    The answer comes from the store's access-method key rather than from
+    `ip link show tailscale0`. A host that declares a tailnet and fails to bring
+    it up would otherwise silently downgrade the generated document to
+    `rfc1918` while its declared posture still reads tailnet -- the quiet
+    divergence `rules_unapplied` exists to prevent, one layer up.
+    """
+    target = "tailnet" if tailnet_available else "rfc1918"
+    return [
+        e if e.scope != "private" else PortEntry(
+            proto=e.proto, lo=e.lo, hi=e.hi, scope=target, bind=e.bind,
+            owner=e.owner, comment=e.comment,
+        )
+        for e in entries
+    ]
+
+
 def merge(*entry_lists: list[PortEntry]) -> list[PortEntry]:
     """Dedup (by identity = proto/lo/hi/scope/bind) and sort. When the same
     port is declared twice, the first occurrence's owner/comment wins (infra
@@ -288,10 +327,16 @@ def from_effective_json(text: str) -> list[PortEntry]:
     return normalize_infra(json.loads(text))
 
 
-def render_doc(entries: list[PortEntry]) -> str:
+def render_doc(entries: list[PortEntry], *, tailnet_available: bool) -> str:
     """Generated operator inventory: the "know what's what" table. Never
     hand-maintained -- regenerated from the effective set on every reconcile
-    / converge."""
+    / converge.
+
+    Renders the RESOLVED scope. A client reading this document on a host with no
+    tailnet has to see the path their ports are actually restricted to, not the
+    one a `private` declaration would have used somewhere else.
+    """
+    entries = resolve_scopes(entries, tailnet_available=tailnet_available)
     lines = [
         "# Public ports (generated -- do not edit)",
         "",
@@ -411,11 +456,14 @@ def _docker_user_layer(e: PortEntry) -> list[dict]:
     return rules
 
 
-def rule_plan(entries: list[PortEntry]) -> list[dict]:
+def rule_plan(entries: list[PortEntry], *, tailnet_available: bool) -> list[dict]:
     """Ordered firewall rules for the merged set: the ufw layer for every
-    entry, then each restricted docker entry's DOCKER-USER guard."""
+    entry, then each restricted docker entry's DOCKER-USER guard.
+
+    `private` is resolved first, so neither layer below ever sees it.
+    """
     plan: list[dict] = []
-    for e in entries:
+    for e in resolve_scopes(entries, tailnet_available=tailnet_available):
         plan.extend(_ufw_layer(e))
         plan.extend(_docker_user_layer(e))
     return plan

@@ -95,16 +95,18 @@ def test_every_declared_projection_is_read():
 
 
 def _definition(var: str) -> tuple[Path, str] | None:
-    """The value block for `var` in whichever defaults file defines it.
+    """The value block for `var` in whichever defaults file defines it, or the
+    playbooks' shared group_vars.
 
     Line-based rather than a YAML parse: what matters is the literal text of
     the definition, including the folded scalars and Jinja these files are
     written in, and a parse would resolve exactly the thing being inspected.
     """
-    # Both role roots since phase 1b. A scan of one of them would call every
-    # variable on the other side undefined, and this gate reads that as a
-    # protected name nothing defines.
-    for path in sorted(_ANSIBLE.glob("*/roles/*/defaults/main.yml")):
+    # Both role roots, and the group_vars both sides share. A scan of any one
+    # of them would call a variable defined in another undefined, and this
+    # gate reads that as a protected name nothing defines.
+    for path in (sorted(_ANSIBLE.glob("*/roles/*/defaults/main.yml"))
+                 + [_ANSIBLE / "playbooks" / "group_vars" / "all" / "main.yml"]):
         lines = path.read_text(encoding="utf-8").split("\n")
         for i, line in enumerate(lines):
             if not line.startswith(var + ":"):

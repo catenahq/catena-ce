@@ -6,12 +6,15 @@ install` then reads it rather than writing it, and creates `hosts.yml` +
 `localhost.yml` itself from `../skel/` on that same first run.
 `bootstrap.yml` rewrites one field afterward (the tailnet address a host
 got, once it joins). `-i install.yaml` generates everything from scratch
-instead (the bench / power-user path); nothing here is generated from a
-source elsewhere either way.
+instead (the bench / power-user path).
 
-Real inventories are gitignored. Only `example/.env.example` is tracked as
-the documented schema; `hosts.yml`/`localhost.yml` have no per-deployment
-variation to document -- `../skel/` carries those.
+Real inventories are gitignored. Only `example/.env.example` is tracked,
+and it is GENERATED from
+[../helpers/knobs.yml](../helpers/knobs.yml) by
+`python3 helpers/render_knobs.py --write`: a key, its default and its
+explanation are declared there once, for this template and for the store
+and panel that read the same value later. `hosts.yml`/`localhost.yml` have
+no per-deployment variation to document -- `../skel/` carries those.
 
 | File | What it holds |
 | --- | --- |

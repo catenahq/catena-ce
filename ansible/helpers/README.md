@@ -30,9 +30,11 @@ Unit tests for these live in `../tests/unit/`.
 | `bootstrap_output.py` | Merge a key/value into <inventory_dir>/.bootstrap-output.yml. |
 | `bootstrap_portainer_admin.py` | Leaf utility: mint a Portainer X-API-Key from the initial admin. |
 | `catena_admin_release.py` | Ask the registry which catena-admin release to install, and for its digest. |
+| `host_paths.py` | Every path this host's Catena owns, grouped by whether a restore brings it back. |
 | `install_key.py` | Automate the pre-bootstrap manual-SSH step across providers. |
 | `labels_schema.py` | Compose-label parsing + image-tag classification for the vps.* vocabulary. |
 | `net_retry.py` | Wait-and-retry around urllib for transient DNS / connection blips. |
 | `onbox_config.py` | On-box config store for Catena (0b client-owned config). |
 | `public_ports.py` | Declarative public-port registry: single source of truth for every direct public port the VPS exposes outside the Cloudflare Tunnel. |
+| `render_knobs.py` | Render helpers/knobs.yml to its two artifacts, and check they are current. |
 | `tailnet_check.py` | Controller-side tailnet preflight: is THIS machine on the tailnet? |

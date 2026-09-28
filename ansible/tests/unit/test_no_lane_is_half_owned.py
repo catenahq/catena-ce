@@ -26,7 +26,7 @@ _ANSIBLE = Path(__file__).resolve().parents[2]
 _ADMIN = _ANSIBLE.parents[1] / "catena-admin" / "payload"
 
 # Units the converge writes, whether the destination is literal or templated.
-_DEST = re.compile(r"dest:\s*/etc/systemd/system/([A-Za-z0-9@._{}\s-]+\.(?:service|timer))")
+_DEST = re.compile(r"dest:\s*[\"']?/etc/systemd/system/([A-Za-z0-9@._{}\s-]+\.(?:service|timer))")
 
 
 def _converge_units() -> dict[str, str]:

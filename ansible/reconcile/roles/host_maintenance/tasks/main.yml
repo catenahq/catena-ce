@@ -1,0 +1,57 @@
+---
+# The reboot-required probe: its env file, and enabling its timer. The script
+# (catena-reboot-check) and catena-reboot-check.service/.timer ship in the
+# catena-admin payload, installed by reconcile/roles/payload earlier in the
+# play.
+
+- name: "Reboot check: env file"
+  ansible.builtin.template:
+    src: reboot-check.env.j2
+    dest: "{{ reboot_check_env_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: "Reboot check: is the payload-shipped timer expected on this host"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _payload_expected
+  vars:
+    _payload_paths:
+      - "/etc/systemd/system/{{ reboot_check_systemd_unit_name }}.timer"
+
+- name: "Reboot check: the timer is missing from a converge that installs it"
+  ansible.builtin.fail:
+    msg: >-
+      /etc/systemd/system/{{ reboot_check_systemd_unit_name }}.timer is absent
+      although reconcile/roles/payload ran in this converge, so this host would
+      never report a pending reboot. Check the "Payload:" tasks above for why
+      the extract did not land.
+  when:
+    - catena_payload_missing | length > 0
+    - catena_payload_expected | bool
+
+- name: "Reboot check: timer staged out of band and not present yet"
+  ansible.builtin.debug:
+    msg: >-
+      The reboot-check timer is not on the host and this converge does not
+      install the payload (CATENA_PAYLOAD_INSTALL=false). It is enabled by the
+      first converge after the payload install.
+  when:
+    - catena_payload_missing | length > 0
+    - not (catena_payload_expected | bool)
+
+# Enabled unconditionally, unlike every lane catena-schedule owns. This one
+# spends no object storage and changes nothing on the host: it reads two files
+# and pings loopback. A host that opted out of it would be a host that applies
+# patches and never mentions that they are not in effect.
+- name: "Reboot check: enable + start timer"
+  ansible.builtin.systemd_service:
+    name: "{{ reboot_check_systemd_unit_name }}.timer"
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - not ansible_check_mode
+    - catena_payload_missing | length == 0

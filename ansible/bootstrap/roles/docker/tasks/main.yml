@@ -108,9 +108,7 @@
   # missing, apt's idempotent install is a no-op and the failure only
   # surfaces two roles later when something tries to run `docker`.
   # Force a --reinstall when the binary is absent. This catches the
-  # class of bug where dpkg DB was restored without the package files
-  # (e.g. the restore.yml -> converge.yml flow before commit that excluded
-  # /var/lib/dpkg from the full-host restore).
+  # class of bug where dpkg DB was restored without the package files.
   ansible.builtin.stat:
     path: /usr/bin/docker
   register: _docker_bin
@@ -220,12 +218,7 @@
 # Idempotent: `docker swarm init` errors on an already-active node, so gate on
 # LocalNodeState. Swarm raft + overlay IPAM are NOT in the restic set (backup
 # captures only {{ storage_mount_point }}/docker/volumes); they are rebuilt,
-# not restored. On a DR restore the fresh host has no swarm state -> this init
-# runs clean. On a rollback restore, reconcile/roles/backup/tasks/restore.yml removes the
-# surviving {{ storage_mount_point }}/docker/swarm raft while dockerd is stopped
-# (but keeps docker/network, so per-stack compose bridges survive), so this init
-# runs clean there too instead of reconciling a stale raft against just-restored
-# volumes.
+# never restored.
 - name: "swarm: read local node state"
   ansible.builtin.command: docker info --format '{{ "{{" }}.Swarm.LocalNodeState{{ "}}" }}'
   register: _docker_swarm_state

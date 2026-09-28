@@ -51,7 +51,10 @@ def test_readme_templates_exist_in_both_languages():
 
 
 def test_readme_rendered_into_etc_catena():
-    """/etc is in backup_paths -- that is the whole reason for this path."""
+    """/etc is in the product's own backup paths -- that is the whole reason
+    for this path. Held against that literal rather than against backup_paths,
+    which is an expression adding whatever the client declared and does not
+    resolve outside a converge."""
     tasks = _install_tasks()
     task = next(
         (t for t in tasks if "manual-rebuild README" in (t.get("name") or "")),
@@ -66,7 +69,7 @@ def test_readme_rendered_into_etc_catena():
     assert sorted(task["loop"]) == sorted(_LANGS)
 
     defaults = yaml.safe_load(_DEFAULTS.read_text())
-    assert "/etc" in defaults["backup_paths"], (
+    assert "/etc" in defaults["backup_product_paths"], (
         "backup_paths lost /etc -- the README and version stamp would stop "
         "riding snapshots and the sovereign-exit promise would silently break"
     )
@@ -94,9 +97,10 @@ def test_the_export_directory_is_created_for_the_payload_scripts():
 
     reconcile/roles/catena-admin creates the same directory two roles earlier, because
     it bind-mounts it and swarm rejects a task whose bind source is missing.
-    The group therefore comes from bootstrap/roles/common rather than a literal here:
-    two literals is how the two creators drift, and the loser's ownership is
-    whatever ran last. Assert the resolved value, not the spelling."""
+    The group therefore comes from the playbooks' shared group_vars rather than a
+    literal here: two literals is how the two creators drift, and the loser's
+    ownership is whatever ran last. Assert the resolved value, not the
+    spelling."""
     tasks = _install_tasks()
     task = next(
         (t for t in tasks if "snapshot export directory" in (t.get("name") or "")),
@@ -106,6 +110,6 @@ def test_the_export_directory_is_created_for_the_payload_scripts():
     spec = task["ansible.builtin.file"]
     assert spec["state"] == "directory"
     assert str(spec["group"]) == "{{ catena_export_dir_group }}"
-    common = yaml.safe_load(
-        (_ANSIBLE / "bootstrap" / "roles" / "common" / "defaults" / "main.yml").read_text())
-    assert str(common["catena_export_dir_group"]) == "1000"
+    shared = yaml.safe_load(
+        (_ANSIBLE / "playbooks" / "group_vars" / "all" / "main.yml").read_text())
+    assert str(shared["catena_export_dir_group"]) == "1000"

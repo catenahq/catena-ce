@@ -27,8 +27,21 @@
       cert issuance for {{ mailserver_hostname }}.
   when: (mailserver_dms_ct | length) == 0
 
+- name: "Mailserver cert: skip when the host has no domain yet"
+  ansible.builtin.debug:
+    msg: >-
+      No domain is configured, so no mail certificate is requested. A
+      certificate is issued FOR a name, and there is no name yet. Enter a
+      domain in the dashboard's Settings.
+  when: catena_public_surface_deferred | default(false) | bool
+
+# Deployed AND a domain to issue for. certbot is asked for mailserver_hostname
+# (mail.<zone>); with no zone that is a request for "mail.", which no authority
+# issues and which burns an ACME rate-limit slot to find out.
 - name: "Mailserver cert: issue + inject (only when dms is deployed)"
-  when: (mailserver_dms_ct | length) > 0
+  when:
+    - (mailserver_dms_ct | length) > 0
+    - not (catena_public_surface_deferred | default(false) | bool)
   block:
     - name: "Mailserver cert: install certbot + Cloudflare DNS plugin"
       ansible.builtin.apt:

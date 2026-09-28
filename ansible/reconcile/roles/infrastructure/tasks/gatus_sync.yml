@@ -1,35 +1,14 @@
 ---
-# Install /usr/local/bin/gatus-sync (stdlib-only Python) + its env file
-# + the systemd service and timer that runs it every {{ gatus_sync_interval }}.
-# Also exposed via the catena-admin "Sync all (apps + monitors)" action.
+# Per-host wiring for gatus-sync, the Gatus monitor-config regenerator.
+#
+# The scripts (catena-gatus-sync, and catena-version-check, which the service
+# runs first) and gatus-sync.service/.timer ship in the catena-admin payload,
+# which reconcile/roles/payload extracts earlier in the play. What stays here is
+# the env file, whose values are this host's, and enabling the timer.
 #
 # The script regenerates ONLY {{ gatus_host_config_dir }}/50-catena-apps.yaml
-# (two endpoints per gated client app: internal + public). 00-base.yaml
-# stays Ansible-owned; 99-*.yaml files are operator-owned and untouched.
-
-- name: "gatus-sync: script"
-  # Plain Python file (no Jinja) -- per-host values come from the env
-  # file below. Copy vs. template avoids Jinja chewing on docker
-  # --format Go templates like `{{.Names}}` inside the script's string
-  # literals (see commit history for prior fragile `{{ '{{' }}` dance).
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../scripts/gatus-sync.py"
-    dest: "{{ gatus_sync_script_path }}"
-    owner: root
-    group: root
-    mode: "0755"
-
-- name: "version-check: script (auto-detecting Versions producer)"
-  # Plain Python (no Jinja) -- same docker --format reasoning as
-  # gatus-sync. Runs as gatus-sync.service's ExecStartPre so the
-  # version-check.json gatus-sync reads is always fresh. Auto-detects
-  # every running service; no registry to maintain.
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../scripts/catena-version-check.py"
-    dest: "{{ version_check_script_path }}"
-    owner: root
-    group: root
-    mode: "0755"
+# and 40-infra.yaml. 00-base.yaml stays Ansible-owned; 99-*.yaml files are
+# operator-owned and untouched.
 
 - name: "gatus-sync: env file ({{ gatus_sync_env_path }})"
   ansible.builtin.template:
@@ -40,42 +19,52 @@
     mode: "0600"
   no_log: true
 
-- name: "gatus-sync: systemd service unit"
-  ansible.builtin.template:
-    src: gatus-sync.service.j2
-    dest: /etc/systemd/system/gatus-sync.service
-    owner: root
-    group: root
-    mode: "0644"
-  register: _gatus_sync_service_unit
+- name: "gatus-sync: is the payload-shipped sync expected on this host"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _payload_expected
+  vars:
+    _payload_paths:
+      - "{{ gatus_sync_script_path }}"
+      - "{{ version_check_script_path }}"
+      - /etc/systemd/system/gatus-sync.timer
 
-- name: "gatus-sync: systemd timer unit"
-  ansible.builtin.template:
-    src: gatus-sync.timer.j2
-    dest: /etc/systemd/system/gatus-sync.timer
-    owner: root
-    group: root
-    mode: "0644"
-  register: _gatus_sync_timer_unit
+- name: "gatus-sync: the sync is missing from a converge that installs it"
+  ansible.builtin.fail:
+    msg: >-
+      gatus-sync is incomplete although reconcile/roles/payload ran in this
+      converge. Missing: {{ catena_payload_missing | join(', ') }}. It ships in
+      the catena-admin payload, so the extract did not land or did not carry all
+      of it -- check the "Payload:" tasks above.
+  when:
+    - catena_payload_missing | length > 0
+    - catena_payload_expected | bool
 
-- name: "gatus-sync: daemon-reload if units changed"
-  ansible.builtin.systemd_service:
-    daemon_reload: true
-  when: _gatus_sync_service_unit.changed or _gatus_sync_timer_unit.changed
+- name: "gatus-sync: staged out of band and not present -- wiring deferred"
+  ansible.builtin.debug:
+    msg: >-
+      gatus-sync is not on the host and this converge does not install the
+      payload (CATENA_PAYLOAD_INSTALL=false). The timer is wired, and the
+      monitors are regenerated, by the first converge after the payload install.
+  when:
+    - catena_payload_missing | length > 0
+    - not (catena_payload_expected | bool)
 
-# Atomicity: see the matching comment in dashboard_sync.yml's
-# "enable + start timer" task. `changed_when: false` is correct --
-# real unit-file drift is captured by the template tasks above,
-# which notify daemon-reload; this systemctl invocation is the
-# idempotent "ensure enabled" follow-up.
+- name: "gatus-sync: pin whether the sync is here"
+  ansible.builtin.set_fact:
+    _gatus_sync_present: "{{ catena_payload_missing | length == 0 }}"
+
 - name: "gatus-sync: enable + start timer"
   ansible.builtin.systemd_service:
     name: gatus-sync.timer
     enabled: true
     state: started
+    daemon_reload: true
+  when: _gatus_sync_present | bool
 
 - name: "gatus-sync: run once now (populate 50-catena-apps.yaml)"
   ansible.builtin.systemd:
     name: gatus-sync.service
     state: started
   changed_when: false
+  when: _gatus_sync_present | bool

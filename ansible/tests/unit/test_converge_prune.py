@@ -8,14 +8,16 @@ problem solved once, by hand, for the one instance somebody noticed; the
 comment there records that the stale helper made every unit that found it spin
 to its full timeout.
 
-Two rules carry the whole thing, and this file exists because both of them are
+Three rules carry the whole thing, and this file exists because all of them are
 about DELETING files on a client host:
 
   1. delete only what the product has withdrawn from its declaration -- never
      merely "not installed here", which is what a feature switched off looks
      like;
   2. delete only what is still byte-for-byte what a converge wrote -- these
-     directories are shared with the panel payload.
+     directories are shared with the panel payload;
+  3. never delete a path the panel payload's manifest lists -- a path handed
+     to the payload can hold the same bytes the converge once wrote.
 
 The third property is coverage: a path a role writes but does not declare is
 unmanaged forever, silently. That one cannot be asserted from the filter, so
@@ -40,6 +42,7 @@ from converge_manifest import (  # noqa: E402
     converge_foreign,
     converge_installed,
     converge_prunable,
+    converge_unclaimed,
     converge_withdrawn,
 )
 
@@ -131,6 +134,38 @@ def test_a_candidate_already_gone_is_neither():
     stats = [_stat("/usr/local/bin/x", "aa", exists=False)]
     assert converge_prunable(stats) == []
     assert converge_foreign(stats) == []
+
+
+# --- rule 3: leave what the payload claims ---------------------------------
+def test_a_path_handed_to_the_payload_is_never_withdrawn():
+    """/usr/local/bin/restic left the backup role's declaration when the
+    payload started shipping it. The same upstream release can be the same
+    bytes on both sides, so rule 2 would call the payload's copy ours."""
+    withdrawn = [{"path": "/usr/local/bin/restic", "sha256": "aa"},
+                 {"path": "/usr/local/bin/gone", "sha256": "bb"}]
+    payload = {"entries": [{"path": "/usr/local/bin/restic", "sha256": "aa"}]}
+    assert converge_unclaimed(withdrawn, payload) == [
+        {"path": "/usr/local/bin/gone", "sha256": "bb"}]
+
+
+def test_no_payload_manifest_claims_nothing():
+    withdrawn = [{"path": "/usr/local/bin/gone", "sha256": "bb"}]
+    assert converge_unclaimed(withdrawn, {}) == withdrawn
+    assert converge_unclaimed(withdrawn, None) == withdrawn
+    assert converge_unclaimed(withdrawn, {"entries": None}) == withdrawn
+
+
+def test_the_prune_asks_the_payload_before_removing_anything():
+    """The filter is only the rule; the prune has to apply it before the
+    candidates are checked and removed."""
+    tasks = yaml.safe_load(
+        (_ANSIBLE / "playbooks" / "tasks" / "prune_withdrawn_files.yml").read_text())
+    names = [t.get("name", "") for t in tasks]
+    claim = next(i for i, t in enumerate(tasks)
+                 if "converge_unclaimed" in str(t.get("ansible.builtin.set_fact", "")))
+    check = names.index("Prune: check each candidate is still the file the converge wrote")
+    assert claim < check, names
+    assert "catena_payload_manifest_path" in str(tasks[claim - 1])
 
 
 # --- declaration hygiene ---------------------------------------------------

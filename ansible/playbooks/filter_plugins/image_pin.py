@@ -57,10 +57,12 @@ from __future__ import annotations
 import re
 
 
-# A full semver tag, optionally v-prefixed, optionally with a pre-release or
-# build suffix. Anything else is incomparable on purpose.
+# A full semver tag, optionally v-prefixed, optionally with a fourth numeric
+# part (a build of that version: phasetwo-keycloak's 26.6.4.<unix-build-time>),
+# optionally with a pre-release or build suffix. Anything else is incomparable
+# on purpose.
 _SEMVER = re.compile(
-    r"^v?(\d+)\.(\d+)\.(\d+)(?:[-+](.+))?$"
+    r"^v?(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?(?:[-+](.+))?$"
 )
 
 
@@ -85,12 +87,15 @@ def _order(tag):
     """A sortable key for a full-semver tag, or None when it is not one.
 
     A pre-release sorts BELOW the same version without one, which is semver's
-    own rule and the one that matters here: v3.8.0-rc1 must not beat v3.8.0."""
+    own rule and the one that matters here: v3.8.0-rc1 must not beat v3.8.0.
+    A build sorts above the plain version and below the next one, so a newer
+    build of the running version survives the converge."""
     m = _SEMVER.match(tag or "")
     if not m:
         return None
-    major, minor, patch, suffix = m.groups()
-    return (int(major), int(minor), int(patch), 0 if suffix else 1, suffix or "")
+    major, minor, patch, build, suffix = m.groups()
+    return (int(major), int(minor), int(patch), int(build or 0),
+            0 if suffix else 1, suffix or "")
 
 
 def catena_image_pin(default_ref, pins, minimum=None):

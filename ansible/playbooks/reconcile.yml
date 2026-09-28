@@ -81,10 +81,16 @@
     - { role: traefik, tags: [traefik] }
     - { role: postgres, tags: [postgres] }
     - { role: portainer, tags: [portainer] }
-    - { role: cloudflare_tunnel, tags: [cloudflare_tunnel, cloudflare] }
+    # `edge` marks what moves or checks the public edge (this role, the mail
+    # and TURN A records, the public-URL probes). A restore converges with
+    # --skip-tags edge; tests/unit/test_restore_converge_leaves_the_edge_alone.py.
+    - { role: cloudflare_tunnel, tags: [cloudflare_tunnel, cloudflare, edge] }
     - { role: keycloak, tags: [keycloak, auth] }
     - { role: oauth2_proxy, tags: [oauth2_proxy, auth] }
     - { role: infrastructure, tags: [infrastructure] }
+    # The reboot-required probe. After infrastructure because it reports
+    # through the Healthchecks plane that role deploys.
+    - { role: host_maintenance, tags: [host_maintenance] }
     # The panel's container and its action catalog. Its trust path -- the runner
     # account, the sudoers drop-in, the forced command -- is roles/
     # catena_admin_host, which is bootstrap-side and deliberately absent here.

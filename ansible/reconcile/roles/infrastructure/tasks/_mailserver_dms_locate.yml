@@ -16,7 +16,7 @@
 # mailbox, and the task that creates the mailbox skips BECAUSE it is
 # missing.
 #
-# Bench run 2026-08-25T18-01-29-b726 at cf_activate stage-3b has shown that
+# Bench run 2026-08-25T18-01-29-b726 at its first tokenful converge showed
 # shape: the cert step located the container and, seconds later, the accounts
 # step did not. Whether an install completes comes down to which phase of a
 # restart cycle each lookup samples.

@@ -28,7 +28,7 @@ SITE = ANSIBLE / "playbooks" / "converge.yml"
 RECONCILE = ANSIBLE / "playbooks" / "reconcile.yml"
 # The tasks themselves, shared by both converge paths.
 SHARED = ANSIBLE / "playbooks" / "tasks" / "record_release_manifest.yml"
-COMMON_DEFAULTS = ANSIBLE / "bootstrap" / "roles" / "common" / "defaults" / "main.yml"
+GROUP_VARS = ANSIBLE / "playbooks" / "group_vars" / "all" / "main.yml"
 
 # Both playbooks that converge a host. An assertion about "the converge" has to
 # hold for whichever one ran, which is the whole reason the tasks were lifted
@@ -167,8 +167,8 @@ def test_the_manifest_path_is_under_var_lib_not_etc():
     converge -- which docker creates as a DIRECTORY. It is also rebuildable
     state rather than configuration, and it must not ride a restic snapshot: a
     restored host's converge state is its own, not the source's."""
-    defaults = yaml.safe_load(COMMON_DEFAULTS.read_text())
-    path = defaults["catena_release_manifest_path"]
+    shared = yaml.safe_load(GROUP_VARS.read_text())
+    path = shared["catena_release_manifest_path"]
     assert path == "/var/lib/catena/release.json", path
 
 

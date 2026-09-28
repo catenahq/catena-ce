@@ -252,8 +252,8 @@ catena_admin_dispatch_payload() {
 
 
 def test_the_overlay_directory_is_created_root_owned_by_the_converge():
-    """Created by the converge and read by nothing there: the same one-way
-    dependency /etc/catena/post-restore.d has."""
+    """Created by the converge and read by nothing there: a one-way
+    dependency, the payload drops its actions into it."""
     import yaml
 
     tasks = yaml.safe_load(

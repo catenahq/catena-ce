@@ -46,7 +46,13 @@ services:
       KC_DB_PASSWORD: "{{ keycloak_db_password }}"
       # --- HTTP / proxy ---
       KC_HTTP_ENABLED: "{{ keycloak_http_enabled | string | lower }}"
-{% if (cloudflare_zones | default([]) | length) > 1 %}
+{% if (cloudflare_zones | default([]) | length) > 1 or (catena_public_surface_deferred | default(false) | bool) %}
+      # Also the NO-domain case, which needs the same shape for the opposite
+      # reason: there is no public name to fix rather than several. A fixed
+      # KC_HOSTNAME would be "https://auth." -- the subdomain with nothing
+      # after it -- and every issuer claim minted under it would have to be
+      # reissued once a domain arrives anyway.
+      #
       # Multi-domain (EE): one Keycloak serves an auth.<zone> island per
       # attached domain. Relaxing HOSTNAME_STRICT + dropping the fixed
       # KC_HOSTNAME lets Keycloak derive issuer/login URLs from the incoming

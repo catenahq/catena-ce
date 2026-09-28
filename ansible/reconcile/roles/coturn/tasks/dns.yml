@@ -7,6 +7,11 @@
 # Mirrors reconcile/roles/cloudflare_tunnel/tasks/main.yml's wildcard CNAME
 # pattern (look up + create-if-absent + update-if-drift) but for an
 # A record with proxied=false.
+#
+# This record is NOT removed when a client changes their domain. The tunnel
+# engine retires the old domain's wildcard, which is what stops every name
+# under it resolving; turn.<old-zone> is left pointing at this host's public
+# IP until an operator deletes it.
 
 # cloudflare_zone_id is normally set by the cloudflare_tunnel role
 # earlier in a full converge. Under a targeted converge (the cert-renewal
@@ -78,6 +83,10 @@
   delegate_to: localhost
   become: false
 
+# A Cloudflare PUT REPLACES the record, so the comment has to be re-sent: a
+# record that ever drifts would otherwise come back with the ownership marker
+# stripped, and cleanup keyed on "Managed by catena" stops recognising it as
+# ours -- leaving it behind on a domain this host no longer serves.
 - name: "coturn DNS: update A record if content / proxy state drifted"
   ansible.builtin.uri:
     url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records/{{ _coturn_dns_existing.json.result[0].id }}"
@@ -91,6 +100,7 @@
       content: "{{ public_ip }}"
       proxied: false
       ttl: 1
+      comment: "Managed by catena reconcile/roles/coturn -- MUST be gray-cloud (UDP)"
     status_code: 200
   when:
     - _coturn_dns_existing.json.result | length > 0

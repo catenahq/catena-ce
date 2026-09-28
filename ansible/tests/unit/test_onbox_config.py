@@ -290,8 +290,8 @@ def test_cifs_bulk_credentials_are_external(oc):
 
 
 def test_ensure_user_held_does_not_overwrite_adopted(oc):
-    """A restic password the user re-entered on `catena recover` (adopted first)
-    is preserved; only a first install mints fresh."""
+    """A restic password handed to the loader (adopted first) is preserved;
+    only a store with none mints fresh."""
     store = {"secrets": {"backup_restic_password": "user-saved"}, "config": {}}
     minted = oc.ensure_user_held_secrets(store)
     assert "backup_restic_password" not in minted
@@ -657,7 +657,12 @@ def test_every_dotenv_key_the_converge_reads_is_declared(oc):
     is tracked, and its `.example` suffix kept it out of the scan by accident --
     so the first real `inventory/<name>/hosts.yml` on any developer's machine
     failed this gate on keys (HOST_PUBLIC_IP, HOST_SSH_PORT, HOST_INITIAL_USER)
-    that are inventory-only by design and have no on-box owner to declare."""
+    that are inventory-only by design and have no on-box owner to declare.
+
+    `helpers/knobs.yml` is excluded on the same ground, one level further back:
+    it is the DECLARATION every owner in `known` comes from, and it shows a
+    client how group_vars reads a value, so the lookup it prints is an
+    illustration rather than a read."""
     import re
     root = ANSIBLE_DIR
     pattern = re.compile(r"lookup\('dotenv',\s*'([A-Z0-9_]+)'")
@@ -668,6 +673,8 @@ def test_every_dotenv_key_the_converge_reads_is_declared(oc):
         if not path.is_file() or path.suffix not in {".yml", ".yaml", ".j2"}:
             continue
         if ".collections" in s or "/tests/" in s or "/inventory/" in s:
+            continue
+        if path.name == "knobs.yml":
             continue
         for key in pattern.findall(path.read_text()):
             if key not in known:
@@ -834,3 +841,81 @@ def test_cli_emits_image_pins_without_touching_the_store(oc, tmp_path, capsys):
     assert rc == 0
     assert not p.exists(), "a pure query must not create the store"
     assert json.loads(capsys.readouterr().out) == {}
+
+
+# ── the outgoing domain's Cloudflare token ──────────────────────────────────
+# Changing CLOUDFLARE_ZONE moves the whole published surface but does NOT take
+# down `*.<old zone>`, which keeps pointing at this host's tunnel and answering
+# the ingress catch-all's 418 to every name under the domain the client left.
+# catena-cloudflared-sync retires it, and needs a credential for a zone the new
+# token usually does not cover. The client had one: the token this very request
+# replaces. This is the only moment it is still readable.
+
+
+def test_the_outgoing_domain_keeps_its_token_when_the_domain_changes(oc):
+    store = {
+        "config": {"CLOUDFLARE_ZONE": "old.example"},
+        "secrets": {"cloudflare_api_token": "old-tok"},
+    }
+    changed = oc.apply_inputs(
+        store,
+        config_in={"CLOUDFLARE_ZONE": "new.example"},
+        secrets_in={"cloudflare_api_token": "new-tok"},
+        overwrite=True,
+    )
+    assert store["secrets"]["cloudflare_api_tokens"] == {"old.example": "old-tok"}, (
+        "the token for the domain being left was not kept, so nothing can "
+        "authenticate against that zone to retire its wildcard"
+    )
+    # The new values still land; preserving is not instead of applying.
+    assert store["config"]["CLOUDFLARE_ZONE"] == "new.example"
+    assert store["secrets"]["cloudflare_api_token"] == "new-tok"
+    assert "cloudflare_api_tokens" in changed
+
+
+def test_a_first_time_domain_has_no_outgoing_token_to_keep(oc):
+    """A host installed without a domain is the supported order, not a change."""
+    store = {"config": {}, "secrets": {"cloudflare_api_token": "tok"}}
+    oc.apply_inputs(
+        store, config_in={"CLOUDFLARE_ZONE": "first.example"}, overwrite=True
+    )
+    assert "cloudflare_api_tokens" not in store["secrets"]
+
+
+def test_resaving_the_same_domain_keeps_nothing(oc):
+    """The settings page resubmits every field. Only a CHANGE is a change."""
+    store = {
+        "config": {"CLOUDFLARE_ZONE": "same.example"},
+        "secrets": {"cloudflare_api_token": "tok"},
+    }
+    oc.apply_inputs(
+        store, config_in={"CLOUDFLARE_ZONE": "same.example"}, overwrite=True
+    )
+    assert "cloudflare_api_tokens" not in store["secrets"]
+
+
+def test_an_attached_domains_token_is_not_clobbered(oc):
+    """A licensed multidomain host already has per-zone tokens; preserving the
+    outgoing one must add to that map, never replace it."""
+    store = {
+        "config": {"CLOUDFLARE_ZONE": "old.example"},
+        "secrets": {
+            "cloudflare_api_token": "old-tok",
+            "cloudflare_api_tokens": {"attached.example": "attached-tok"},
+        },
+    }
+    oc.apply_inputs(
+        store, config_in={"CLOUDFLARE_ZONE": "new.example"}, overwrite=True
+    )
+    assert store["secrets"]["cloudflare_api_tokens"] == {
+        "attached.example": "attached-tok",
+        "old.example": "old-tok",
+    }
+
+
+def test_a_host_with_no_token_has_nothing_to_preserve(oc):
+    store = {"config": {"CLOUDFLARE_ZONE": "old.example"}, "secrets": {}}
+    oc.apply_inputs(
+        store, config_in={"CLOUDFLARE_ZONE": "new.example"}, overwrite=True
+    )
+    assert "cloudflare_api_tokens" not in store["secrets"]

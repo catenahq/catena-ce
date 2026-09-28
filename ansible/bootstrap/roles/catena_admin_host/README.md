@@ -7,7 +7,7 @@ and the env files the host lanes read.
 - the sudoers drop-in and the sshd `AcceptEnv` allow-list
 - the forced command and the runner's `authorized_keys`
 - the SSH client config the panel's container uses
-- `daily.env`, `auto-update.env`, `stack-update.env`, `managed-services.json`
+- `daily.env`, `stack-update.env`, `managed-services.json`
 
 ## Why it is a role rather than a file in reconcile/roles/catena-admin
 

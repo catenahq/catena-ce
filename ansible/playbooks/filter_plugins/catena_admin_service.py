@@ -54,14 +54,18 @@ import hashlib
 # whole security story of this list: the panel WRITES its audit hash chain
 # and the synced host payload, and reads everything else.
 #
-# /var/lib/catena/ee-payload is nested inside the read-only /var/lib/catena
-# and must stay writable -- the shell mirrors its embedded host payload
-# there at startup and the installer reads it back from the host side.
-# Docker sorts mounts by destination depth, so the nested rw bind shadows
-# the ro parent regardless of the order here.
+# TWO nested rw binds inside the read-only /var/lib/catena, which is one
+# directory for one tier of state with the panel's write scope carved out of
+# it. ee-payload is where the shell mirrors its embedded host payload at
+# startup, for the installer to read back from the host side; admin/ is the
+# panel's own state, chiefly its audit hash chain. Everything else under the
+# parent belongs to the host lanes and the panel only reads it.
+#
+# Docker sorts mounts by destination depth, so a nested rw bind shadows the ro
+# parent regardless of the order here.
 _MOUNTS = (
     ("/var/lib/catena/ee-payload", "/var/lib/catena/ee-payload", False),
-    ("/var/lib/catena-admin", "/var/lib/catena-admin", False),
+    ("/var/lib/catena/admin", "/var/lib/catena/admin", False),
     ("/etc/catena/admin-ssh", "/etc/catena/admin-ssh", True),
     ("/var/backups/catena-export", "/var/backups/catena-export", True),
     ("/var/lib/catena", "/var/lib/catena", True),

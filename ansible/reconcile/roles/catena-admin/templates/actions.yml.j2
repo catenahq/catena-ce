@@ -75,7 +75,7 @@ actions:
   # soft-delete are exhausted (e.g. Nextcloud trash purged after 30
   # days), the operator mounts the restic repo read-only at
   # /mnt/restic-browse, copies the single file or directory back out
-  # to /mnt/data/docker/volumes/<service>/, and unmounts. Auto-unmount
+  # to /srv/catena/docker/volumes/<service>/, and unmounts. Auto-unmount
   # after 1h so a forgotten browse session does not leave a FUSE mount
   # behind.
   - name: restic-mount-browse
@@ -209,8 +209,8 @@ actions:
     # The System tab shows the free/used gauge. This button answers the
     # "WHERE is the space going?" question -- filesystems totals, Docker
     # breakdown (images/containers/volumes/build cache), top dirs under
-    # /mnt/data. One-line form to keep dispatcher rendering predictable.
-    shell: "echo '=== filesystems ==='; df -h / /mnt/data 2>/dev/null; echo; echo '=== docker (images, containers, volumes, build cache) ==='; docker system df -v 2>/dev/null; echo; echo '=== top dirs in /mnt/data ==='; du -sh /mnt/data/*/ 2>/dev/null | sort -hr | head -15"
+    # /srv/catena. One-line form to keep dispatcher rendering predictable.
+    shell: "echo '=== filesystems ==='; df -h / /srv/catena 2>/dev/null; echo; echo '=== docker (images, containers, volumes, build cache) ==='; docker system df -v 2>/dev/null; echo; echo '=== top dirs in /srv/catena ==='; du -sh /srv/catena/*/ 2>/dev/null | sort -hr | head -15"
 
   - name: apt-upgradable
     title: "Pending apt updates"

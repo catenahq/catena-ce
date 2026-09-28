@@ -9,9 +9,6 @@
 #   monitor.<zone>   -> Gatus        (this role, as a swarm stack)
 #   dash.<zone>      -> catena-admin (reconcile/roles/catena-admin)
 
-# Fallback only -- playbooks/group_vars/all/main.yml sets this too, and
-# role defaults have lowest priority, so that value wins.
-ansible_managed: "Managed by catena - do not edit directly."
 
 # Files this role puts in the prefixes where a withdrawal keeps EXECUTING --
 # units and host binaries. playbooks/tasks/prune_withdrawn_files.yml records
@@ -25,16 +22,13 @@ ansible_managed: "Managed by catena - do not edit directly."
 # on the host, which is the input a delete leg must never be given -- and these
 # directories are shared with the panel payload.
 #
-# catena-dashboard-sync is deliberately ABSENT: its script and units ship in
-# the panel image, not from here (tests/unit/test_no_lane_is_half_owned.py is
-# why), so this role does not own that path and must not delete it.
+# catena-dashboard-sync and gatus-sync (with catena-version-check) are
+# deliberately ABSENT: their scripts and units ship in the panel image
+# (tests/unit/test_no_lane_is_half_owned.py is why), so this role does not own
+# those paths and must not delete them.
 infrastructure_managed_paths:
-  - "{{ gatus_sync_script_path }}"
-  - "{{ version_check_script_path }}"
   - "{{ clamav_watch_script_path }}"
   - "{{ mail_canary_script_path }}"
-  - /etc/systemd/system/gatus-sync.service
-  - /etc/systemd/system/gatus-sync.timer
   - "/etc/systemd/system/{{ clamav_watch_systemd_unit_name }}.service"
   - "/etc/systemd/system/{{ clamav_watch_systemd_unit_name }}.timer"
   - "/etc/systemd/system/{{ mail_canary_systemd_unit_name }}.service"
@@ -116,10 +110,10 @@ gatus_infra_spec_path: "/etc/catena/gatus-infra-spec.json"
 gatus_host_localhost_port: 18080
 
 # gatus-sync (systemd timer + Actions tab button) regenerates
-# 50-catena-apps.yaml from `docker ps` labels.
-gatus_sync_script_path: "/usr/local/bin/gatus-sync"
+# 50-catena-apps.yaml from `docker ps` labels. The script and its units ship in
+# the catena-admin payload; this role renders the env file and wires the timer.
+gatus_sync_script_path: "/usr/local/bin/catena-gatus-sync"
 gatus_sync_env_path: "/etc/catena/gatus-sync.env"
-gatus_sync_interval: "*:0/10" # every 10 minutes
 
 # gatus-sync also writes a small summary here on every run.
 # catena-admin reads it via the backup_stats_dir read-only bind-mount
@@ -160,8 +154,6 @@ healthchecks_host_localhost_port: 18000
 # cannot detect a host that is gone.
 healthchecks_ping_base: "http://127.0.0.1:{{ healthchecks_host_localhost_port }}"
 
-healthchecks_subdomain: "heartbeat"
-healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
 
 # Alert delivery. Store-owned (the client changes these in catena-admin), so
 # they read the projected fact rather than .env; the inventory only seeds them
@@ -215,7 +207,7 @@ beszel_agent_compose_name: "beszel-agent"
 # network_mode: host (canonical upstream shape for host + docker metrics)
 # so it reaches the hub at 127.0.0.1:{{ beszel_hub_host_localhost_port }}.
 beszel_agent_port: 45876
-beszel_subdomain: "hub"
+beszel_subdomain: "{{ cfg_beszel_subdomain | default('hub', true) }}"
 
 # Label on the hub's OIDC sign-in button. Client-facing copy, so it names the
 # product rather than the software behind it -- "Keycloak" is a word the client
@@ -239,13 +231,9 @@ beszel_hc_shim_image: >-
 # Host dir the shim script is dropped into + bind-mounted read-only.
 beszel_hc_shim_host_dir: "/etc/catena/beszel-hc-shim"
 
-# stack-update (the weekly managed container-BUMP engine) is a
-# Business-edition / operator-side capability, not part of Community.
-# Its roles/templates live in the private repos; nothing here deploys it.
-
-# version-check (the current-vs-latest Versions report) is CE: a
-# self-hosted Community deployment sees its own version + CVE-visibility
-# without a license. It auto-detects every running container + swarm
+# version-check (the current-vs-latest Versions report, a catena-admin
+# payload script) runs on every edition: a self-hosted Community deployment
+# sees its own version + CVE-visibility without a license. It auto-detects every running container + swarm
 # service and derives each upstream from the image ref (no registry to
 # maintain), running as the ExecStartPre producer of gatus-sync so the
 # report is fresh before gatus-sync reads it. When the Business managed-

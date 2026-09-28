@@ -67,7 +67,7 @@ def test_the_one_block_carries_both_the_secrets_and_the_urls():
     for needed in ("admin_password", "backup_restic_password",
                    "console_recovery_password"):
         assert needed in banner, needed
-    assert "infrastructure_dash_hostname" in banner, "panel URL missing"
+    assert "catena_admin_hostname" in banner, "panel URL missing"
     assert "portainer_admin_hostname" in banner, "Portainer URL missing"
     # The tailnet address is the way in when Cloudflare or SSO is not working,
     # so it is the half that has to survive an edit. Its port comes through
@@ -92,7 +92,7 @@ def test_the_banner_names_portainers_username_and_it_is_not_the_email():
     portainer_at = next(
         i for i, ln in enumerate(lines) if "portainer_admin_hostname" in ln)
     panel_at = next(
-        i for i, ln in enumerate(lines) if "infrastructure_dash_hostname" in ln)
+        i for i, ln in enumerate(lines) if "catena_admin_hostname" in ln)
 
     def username_after(start: int) -> str:
         for ln in lines[start:start + 4]:

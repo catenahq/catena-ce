@@ -1,21 +1,16 @@
 #!/usr/bin/env python3
 """Ask the registry which catena-admin release to install, and for its digest.
 
-WHAT THIS REPLACES. The image was two hand-maintained literals in
-bootstrap/roles/common/defaults -- `catena_admin_image_floor` and
-`catena_admin_image_floor_digest` -- bumped together by hand on every
-catena-admin release. Drift between them is the one thing that pair cannot
-survive, because reconcile/roles/payload refuses to extract from an image whose digest is
-not the recorded one:
+ONE WRITER. A version and its digest answer ONE question -- "which bytes is
+this release of catena-ce installing" -- and reconcile/roles/payload refuses to
+extract from an image whose digest is not the recorded one:
 
     ghcr.io/catenahq/catena-admin:v0.5.1 resolved to sha256:205a5a70... but
     this deployment pins sha256:09e03d74... Refusing to extract or
     root-execute the payload.
 
-A correct host, a published image, and a fresh install that cannot proceed. The
-two literals answered ONE question -- "which bytes is this release of catena-ce
-installing" -- and a question with two writers is answered wrong eventually.
-There is now one writer, and it is the registry.
+Two writers for the pair leave a correct host, a published image, and a fresh
+install that cannot proceed. The registry answers both halves at once.
 
 THE HIGHEST RELEASE TAG, NOT `:latest`. Both name the newest publish; only one
 of them is checkable.
@@ -34,11 +29,10 @@ outright rather than ordered below releases: a `-rc1` publish must not become
 what a client's first install pulls, and "excluded" cannot be got wrong the way
 an ordering rule can.
 
-WHAT THIS DOES NOT DO. It does not verify a signature. The digest it returns is
-whatever the registry says the tag resolves to right now, so the assertion
-downstream ("the image I am about to extract is the one I resolved") is a
-same-converge consistency check, not provenance. Provenance is `cosign verify`,
-which needs cosign on the host; see the pin note in bootstrap/roles/common/defaults.
+PROVENANCE. The digest it returns is whatever the registry says the tag
+resolves to right now, so the assertion downstream ("the image I am about to
+extract is the one I resolved") is a same-converge consistency check.
+Provenance is `cosign verify`, which needs cosign on the host.
 
 Emits one JSON object on stdout:
 

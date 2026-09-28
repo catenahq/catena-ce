@@ -23,7 +23,7 @@ land on a stopped container took the whole converge with it:
 
     Error response from daemon: container 48f7969363cc is not running
 
-Run 2026-08-26T03-27-25-c458, cf_activate stage-3b. So the lookup and the
+Run 2026-08-26T03-27-25-c458, first tokenful converge. So the lookup and the
 commands that use it have to be one retried unit, not a lookup followed by a
 sequence that assumes the container outlives it.
 
@@ -220,7 +220,7 @@ def test_the_cert_hook_bounds_its_wait_and_fails_loudly() -> None:
 # calls against that one answer. A converge that updates the nextcloud stack
 # replaces the task underneath, and `docker exec` on a killed container exits
 # 137 -- which under `set -e` took the whole converge with it on run
-# 2026-08-27T03-01-27-cee0, cf_activate stage-3b.
+# 2026-08-27T03-01-27-cee0, first tokenful converge.
 WEBMAIL_HOOK = ANSIBLE / "scripts" / "wire-nextcloud-webmail-link.sh"
 
 

@@ -13,7 +13,7 @@
 #       tasks_from: _assert_path_perms
 #     vars:
 #       _assert_paths:
-#         - { path: /mnt/data, type: directory, owner: root, group: root, mode: "0755" }
+#         - { path: /srv/catena, type: directory, owner: root, group: root, mode: "0755" }
 #         - { path: /usr/local/bin/restic, mode: "0755" }
 #
 # Each entry: path (required); type ('file'|'directory', optional --

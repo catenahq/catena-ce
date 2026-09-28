@@ -5,16 +5,10 @@ A thin wrapper over the Ansible base so self-hosters never touch raw
 ansible-playbook. Subcommands:
 
   install    seed config + secrets (reuses seed.py), then run
-             preflight -> bootstrap -> converge -> validate
+             preflight -> bootstrap -> converge -> lockdown -> validate
   converge   re-run converge.yml (apply config changes / new app tags)
   validate   run validate.yml (on-host + tailnet + external checks)
   backup     trigger an on-demand snapshot (the manual CE backup)
-  restore    run restore.yml (in-place whole-host restore)
-  recover    whole-host DR onto a FRESH replacement box: preflight ->
-             bootstrap -> restore -> converge -> validate (reuses the
-             existing inventory's group_vars + .env; no seed)
-  rollback   roll a STILL-RUNNING host back to a prior snapshot: preflight ->
-             restore -> converge -> validate (in place, no bootstrap)
   rotate-tunnel
              regenerate the host's Cloudflare tunnel without a full
              converge (manual maintenance); authenticates as the
@@ -79,20 +73,21 @@ COLLECTIONS_DIR = _collections_dir()
 
 # The ordered converge chain a fresh install runs. preflight is a SEPARATE
 # invocation BEFORE bootstrap so a stray --limit can never skip it.
-INSTALL_CHAIN = ("preflight", "bootstrap", "converge", "validate")
+#
+# Every leg up to the lockdown reaches the host over the public SSH address the
+# install started on, so there is one install path whatever access method the
+# client chose. `lockdown` is its own leg, after the converge and before
+# validate: it joins the tailnet on that method and closes public 22 behind it.
+# It is the one step that can make a host unreachable, so it runs alone and
+# last, where a failure is a failure of lockdown rather than of a converge that
+# did fifteen other things correctly -- and validate then measures the posture
+# it produced.
+INSTALL_CHAIN = ("preflight", "bootstrap", "converge", "lockdown", "validate")
 
-# Whole-host disaster recovery onto a FRESH replacement box: same as install
-# but with `restore` inserted after bootstrap (push the last snapshot onto the
-# new host before the converge), and no seed step (the existing inventory's
-# group_vars + .env are reused). Mirrors the operator disaster_recovery flow.
-RECOVER_CHAIN = ("preflight", "bootstrap", "restore", "converge", "validate")
-
-# Roll a STILL-RUNNING host back to a prior restic snapshot: restore in place
-# then re-converge + validate. No bootstrap (the box is alive + on the
-# tailnet). The `converge` leg is load-bearing for password coherence
-# (pg_password_reconcile re-aligns the store -> swarm secret -> pg_authid if a
-# secret was rotated between snapshot and rollback) -- never drop it.
-ROLLBACK_CHAIN = ("preflight", "restore", "converge", "validate")
+# Stages after which the host's administrative address may have changed, and
+# which emit it into .bootstrap-output.yml: bootstrap records the install
+# address, lockdown the tailnet address it moved the host onto.
+_ADDRESS_STAGES = ("bootstrap", "lockdown")
 
 # Host binaries the wrapper shells out to. ansible-playbook/ansible run the
 # base; the plaintext vault needs no separate secret-tooling binary.
@@ -169,15 +164,6 @@ def _tags_extra(args: argparse.Namespace) -> list[str] | None:
     return ["--tags", tags] if tags else None
 
 
-def _snapshot_extra(args: argparse.Namespace) -> list[str] | None:
-    """Turn a `--snapshot <id>` CLI value into the restore.yml extra-var
-    passthrough (`-e restore_snapshot=<id>`), or None when unset (restore.yml
-    then defaults to `latest`). Lets a self-hoster restore from a SPECIFIC
-    restic snapshot, not just the most recent. Pure -- unit-testable."""
-    snap = (getattr(args, "snapshot", "") or "").strip()
-    return ["-e", f"restore_snapshot={snap}"] if snap else None
-
-
 def _prompt_provider_password(inv_dir: Path, initial_user: str) -> str:
     """Ask for the VPS provider's password for the initial login, up front.
 
@@ -211,13 +197,9 @@ def _bootstrap_extra_vars(
     with no TTY it silently takes its own default ("root"), never the real
     provider user. Extra-vars (-e) are the only thing that outranks
     vars_prompt, so both are injected there.
-    bootstrap_initial_user: install.yaml's host.initial_user when given --
-    `catena recover` reuses the OLD inventory's .env, whose HOST_INITIAL_USER
-    reflects the box that died, not necessarily the fresh replacement (a
-    different provider/image can mean a different login) -- else the
-    inventory's own .env (HOST_INITIAL_USER; on disk by now regardless of
-    install.yaml, since seed.py already wrote or confirmed it for a normal
-    install). bootstrap_root_password comes from install.yaml when given,
+    bootstrap_initial_user: install.yaml's host.initial_user when given,
+    else the inventory's own .env (HOST_INITIAL_USER; on disk by now
+    regardless of install.yaml, since seed.py already wrote or confirmed it). bootstrap_root_password comes from install.yaml when given,
     else from the up-front prompt (`prompt_password`, interactive callers
     only); blank is meaningful either way -- Phase 0.5 then skips key
     install, the host assumed already keyed.
@@ -318,41 +300,40 @@ def _run_deploy_chain(
     chain: tuple[str, ...],
     *,
     bootstrap_extra: list[str] | None,
-    restore_extra: list[str] | None = None,
     global_extra: list[str] | None = None,
 ) -> None:
-    """Run an ordered deploy chain (install or recover) stage by stage,
-    threading the bootstrap creds onto the bootstrap stage, (recover only) the
-    restore snapshot onto the restore stage, and `global_extra` onto EVERY
-    stage. `global_extra` is the transient secret-adopt file (`-e @file`) that
-    carries the install-critical vendor creds / DR keyset into each play so the
-    on-box loader adopts them -- no persisted laptop vault (0b). Plus the one
-    inter-stage bridge a deploy needs:
+    """Run an ordered deploy chain stage by stage, threading the bootstrap
+    creds onto the bootstrap stage and `global_extra` onto EVERY stage.
+    `global_extra` is the transient secret-adopt file (`-e @file`) that
+    carries the install-critical vendor creds into each play so the on-box
+    loader adopts them -- no persisted laptop vault. Plus the one inter-stage
+    bridge a deploy needs:
 
-      - after `bootstrap`: fold the steady-state tailnet IP that bootstrap
+      - after `bootstrap` and after `lockdown`: fold the address the stage
         emitted into .bootstrap-output.yml back into hosts.yml, so the later
-        stages (each a separate ansible invocation) reach the host instead of
-        the 0.0.0.0 placeholder.
+        stages (each a separate ansible invocation) reach the host: the
+        install address after bootstrap instead of the 0.0.0.0 placeholder,
+        the tailnet address after a lockdown that closed public 22. The
+        lockdown leg is asked to emit it; the panel runs the same playbook on
+        the host, where there is no controller inventory to write.
 
     The Portainer API key that the auth stack (Keycloak, oauth2-proxy) is
-    gated on is minted in-band by roles/portainer during `site` (it mints
-    from the initial admin, reloads the vault into play scope via
+    gated on is minted in-band by roles/portainer during the converge (it
+    mints from the initial admin, reloads the vault into play scope via
     include_vars, and self-heals a missing/rejected key on every converge),
-    so a single `site` pass deploys everything -- no second pass.
-
-    Shared by install + recover so the bridge logic lives in one place."""
+    so a single converge pass deploys everything."""
     for stage in chain:
         banner(f"Stage: {stage}")
         if stage == "bootstrap":
             extra = list(bootstrap_extra or [])
-        elif stage == "restore":
-            extra = list(restore_extra or [])
+        elif stage == "lockdown":
+            extra = ["-e", "catena_lockdown_emit_address=true"]
         else:
             extra = []
         if global_extra:
             extra = extra + global_extra
         _run(playbook_cmd(inv_dir, stage, extra or None))
-        if stage == "bootstrap":
+        if stage in _ADDRESS_STAGES:
             from helpers import bootstrap_output
             applied = bootstrap_output.apply_to_inventory(inv_dir)
             for line in applied:
@@ -422,7 +403,7 @@ def cmd_install(args: argparse.Namespace) -> int:
 
         ensure_collections()
 
-        banner("Step 2/2 -- deploy (preflight -> bootstrap -> site -> validate)")
+        banner("Step 2/2 -- deploy (" + " -> ".join(INSTALL_CHAIN) + ")")
         _run_deploy_chain(inv_dir, INSTALL_CHAIN,
                           bootstrap_extra=bootstrap_extra, global_extra=adopt_extra)
         _show_dr_keyset(inv_dir)
@@ -431,111 +412,6 @@ def cmd_install(args: argparse.Namespace) -> int:
             bootstrap_vars_tmp.unlink(missing_ok=True)
         secrets_tmp.unlink(missing_ok=True)
     banner("Install complete.")
-    return 0
-
-
-# The user-held DR keyset re-entered at recover time: the box is wiped, so
-# nothing is read from a persisted laptop vault (0b). (key, label, hidden?).
-DR_ADOPT_SECRETS = (
-    ("backup_restic_password", "Restic backup password", True),
-    ("backup_s3_access_key", "S3 access key", True),
-    ("backup_s3_secret_key", "S3 secret key", True),
-    ("cloudflare_api_token", "Cloudflare API token", True),
-    ("tailscale_oauth_client_id", "Tailscale OAuth client id", False),
-    ("tailscale_oauth_client_secret", "Tailscale OAuth client secret", True),
-)
-
-
-def _collect_dr_adopt_file(input_path: str | None) -> tuple[list[str], Path | None]:
-    """Collect the DR keyset for a fresh-box recover into a 0600 temp adopt
-    file (`-e @file`), threaded onto every recover stage so `restore` can
-    decrypt the backup and the on-box loader adopts the creds. Values come from
-    --input install.yaml when present, else an interactive prompt; the restic
-    repo URL rides as `backup_restic_repo`. Returns ([], None) when nothing was
-    collected. Mirrors _bootstrap_extra_vars: never on argv, cleaned by caller."""
-    provided_vault: dict = {}
-    provided_env: dict = {}
-    if input_path:
-        import seed  # shares ANSIBLE_DIR on sys.path
-        inp = seed.load_input(Path(input_path))
-        provided_vault = inp.get("vault") or {}
-        provided_env = inp.get("env") or {}
-
-    values: dict[str, str] = {}
-    for key, label, hidden in DR_ADOPT_SECRETS:
-        val = str(provided_vault.get(key, "") or "").strip()
-        if not val and sys.stdin.isatty():
-            val = (getpass.getpass(f"{label}: ") if hidden
-                   else input(f"{label}: ")).strip()
-        if val:
-            values[key] = val
-    repo = str(provided_env.get("BACKUP_RESTIC_REPO", "") or "").strip()
-    if not repo and sys.stdin.isatty():
-        repo = input("Restic repo URL (s3:<endpoint>/<bucket>): ").strip()
-    if repo:
-        values["backup_restic_repo"] = repo
-
-    if not values:
-        return [], None
-    import yaml
-    tmp = _mktemp_secrets("catena-recover-secrets-")
-    tmp.write_text(yaml.safe_dump(values, default_flow_style=False))
-    tmp.chmod(0o600)
-    return ["-e", f"@{tmp}"], tmp
-
-
-def cmd_recover(args: argparse.Namespace) -> int:
-    """Whole-host disaster recovery onto a FRESH replacement box: preflight ->
-    bootstrap -> restore -> site -> validate. The provider creds come from
-    --input install.yaml (0600 temp file, never on argv). The DR keyset (restic
-    password + S3 keys + repo URL + Cloudflare/Tailscale creds) is re-entered
-    here -- prompted or from --input -- since nothing persists on the laptop;
-    it is threaded onto every stage so restore can decrypt the backup.
-    --snapshot picks the restic snapshot to push (default: latest)."""
-    _preflight_checks()
-    inv_dir = resolve_inventory(args)
-    _require_inventory(inv_dir)
-    ensure_collections()
-
-    banner("Recover -- preflight -> bootstrap -> restore -> site -> validate")
-    # Same rule as install: the replacement box's provider password is asked
-    # for here, alongside the DR keyset, not by bootstrap.yml mid-chain.
-    bootstrap_extra, bootstrap_vars_tmp = _bootstrap_extra_vars(
-        inv_dir, args.input, prompt_password=True)
-    restore_extra = _snapshot_extra(args)
-    dr_extra, dr_tmp = _collect_dr_adopt_file(args.input)
-    try:
-        _run_deploy_chain(
-            inv_dir, RECOVER_CHAIN,
-            bootstrap_extra=bootstrap_extra, restore_extra=restore_extra,
-            global_extra=dr_extra or None,
-        )
-    finally:
-        if bootstrap_vars_tmp is not None:
-            bootstrap_vars_tmp.unlink(missing_ok=True)
-        if dr_tmp is not None:
-            dr_tmp.unlink(missing_ok=True)
-    banner("Recovery complete.")
-    return 0
-
-
-def cmd_rollback(args: argparse.Namespace) -> int:
-    """Roll a still-running host back to a prior restic snapshot: preflight ->
-    restore -> site -> validate, in place (no bootstrap). Reuses the existing
-    inventory's vault. --snapshot picks the restic snapshot to roll back to
-    (default: latest). The `site` leg is load-bearing for password coherence
-    (pg_password_reconcile) -- never dropped."""
-    _preflight_checks()
-    inv_dir = resolve_inventory(args)
-    _require_inventory(inv_dir)
-    ensure_collections()
-
-    banner("Rollback -- preflight -> restore -> site -> validate")
-    _run_deploy_chain(
-        inv_dir, ROLLBACK_CHAIN,
-        bootstrap_extra=None, restore_extra=_snapshot_extra(args),
-    )
-    banner("Rollback complete.")
     return 0
 
 
@@ -568,15 +444,6 @@ def cmd_backup(args: argparse.Namespace) -> int:
     ensure_collections()
     banner("Backup -- trigger an on-demand snapshot")
     _run(playbook_cmd(inv_dir, "backup"))
-    return 0
-
-
-def cmd_restore(args: argparse.Namespace) -> int:
-    _preflight_checks()
-    inv_dir = resolve_inventory(args)
-    _require_inventory(inv_dir)
-    ensure_collections()
-    _run(playbook_cmd(inv_dir, "restore", _snapshot_extra(args)))
     return 0
 
 
@@ -652,9 +519,6 @@ MENU_COMMANDS = (
     ("converge", "Re-apply configuration or app changes"),
     ("validate", "On-host + tailnet + external health checks"),
     ("backup", "Take an on-demand backup snapshot"),
-    ("restore", "In-place whole-host restore"),
-    ("recover", "Rebuild onto a fresh replacement box"),
-    ("rollback", "Roll a running host back to a snapshot"),
     ("rotate-tunnel", "Regenerate the Cloudflare tunnel"),
     ("rotate-tailscale", "Re-authenticate the node to the tailnet"),
     ("show-keyset", "Show the passwords and first-login URLs again"),
@@ -733,35 +597,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_inventory_args(p_bak, required=True)
     p_bak.set_defaults(func=cmd_backup)
-
-    p_res = sub.add_parser("restore", help="run restore.yml (in-place restore)")
-    _add_inventory_args(p_res, required=True)
-    p_res.add_argument("--snapshot", default="",
-                       help="restic snapshot id to restore (default: latest)")
-    p_res.set_defaults(func=cmd_restore)
-
-    p_rec = sub.add_parser(
-        "recover",
-        help="whole-host DR onto a fresh replacement box "
-             "(bootstrap -> restore -> site -> validate)",
-    )
-    _add_inventory_args(p_rec, required=True)
-    p_rec.add_argument("-i", "--input",
-                       help="install.yaml supplying the replacement box's "
-                            "provider user + password for bootstrap")
-    p_rec.add_argument("--snapshot", default="",
-                       help="restic snapshot id to restore (default: latest)")
-    p_rec.set_defaults(func=cmd_recover)
-
-    p_rb = sub.add_parser(
-        "rollback",
-        help="roll a running host back to a prior snapshot "
-             "(restore -> site -> validate, in place)",
-    )
-    _add_inventory_args(p_rb, required=True)
-    p_rb.add_argument("--snapshot", default="",
-                      help="restic snapshot id to roll back to (default: latest)")
-    p_rb.set_defaults(func=cmd_rollback)
 
     p_rtun = sub.add_parser(
         "rotate-tunnel",
