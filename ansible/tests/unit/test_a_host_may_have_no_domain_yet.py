@@ -2,9 +2,9 @@
 
 SPEC guarantees a credential-free install: the Cloudflare token that proves a
 domain is entered in the dashboard's Settings, afterwards. So at install time
-the zone is not merely unknown, it is unknowable -- and the converge used to
-ASSERT it, which made the supported order impossible. The install could not
-finish, so the panel that takes the domain never came up.
+the zone is not merely unknown, it is unknowable -- and a converge that
+ASSERTS it makes the supported order impossible: the install cannot finish,
+so the panel that takes the domain never comes up.
 
 Deferred is not broken, and the difference has to be visible. `cloudflare_zone`
 may be empty; `catena_public_surface_deferred` is what every role that would

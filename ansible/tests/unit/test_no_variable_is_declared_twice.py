@@ -70,11 +70,10 @@ def test_group_vars_shares_no_key_with_any_role_default() -> None:
 
 
 def test_the_panel_hostname_has_exactly_one_name() -> None:
-    """`infrastructure_dash_hostname` was a second name for
-    `catena_admin_hostname`. oauth2_proxy and the trust path read one; the
-    DR keyset banner and validate's gated-host probe set read the other.
-    Both resolved to dash.<zone>, so a rename would have moved half of
-    them and left the banner printing a URL that does not resolve."""
+    """`catena_admin_hostname` is the panel's one name. oauth2_proxy, the
+    trust path, the DR keyset banner and validate's gated-host probe set all
+    read it; a second name for dash.<zone> lets a rename move half of them and
+    leave the banner printing a URL that does not resolve."""
     text = GROUP_VARS.read_text()
     assert "catena_admin_hostname:" in text, "the panel lost its hostname"
     assert "infrastructure_dash_hostname" not in text, (
