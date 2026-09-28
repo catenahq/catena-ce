@@ -91,7 +91,8 @@
     # it already has ("Skipping adding existing rule"), so a rerun is a no-op.
     - name: Allow SSH on tailscale0
       ansible.builtin.command:
-        argv: [ufw, allow, in, on, tailscale0, from, any, to, any, port, "22",
+        # "on" quoted: YAML 1.1 reads a bare on as the boolean true.
+        argv: [ufw, allow, in, "on", tailscale0, from, any, to, any, port, "22",
                proto, tcp, comment, "ssh via tailnet only"]
       register: _ufw_tailnet_ssh
       changed_when: >-
