@@ -79,7 +79,7 @@ The 155 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_d6_volume_uid_drift` | A service whose user has drifted away from what it requires is reconciled back by the next converge. |
 | `fi_d7_restic_corrupt_pack` | Corruption introduced into the backup repository is detected by the deep verification pass. |
 | `fi_n10_multidomain_cap` | A Community host asked to serve more than one domain degrades to the one it supports rather than refusing to converge. |
-| `fi_n1_tailnet_partition_mid_converge` | A private network partition during a converge fails the reachability probe instead of proceeding blind. |
+| `fi_n1_tailnet_partition_mid_converge` | A private network partition while a host joins it fails the reachability probe instead of proceeding blind. |
 | `fi_n2_cf_tunnel_down` | Blocked access to the edge provider at validation time is reported as a warning rather than stopping the converge. |
 | `fi_n3_dns_propagation_lag` | Slow public name propagation is absorbed by the certificate retry budget, and issuance still completes. |
 | `fi_n4_cf_zone_misconfigured` | A wrong edge-provider credential or zone aborts the converge immediately with a clear failure. |
