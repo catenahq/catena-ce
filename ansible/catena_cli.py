@@ -73,19 +73,18 @@ COLLECTIONS_DIR = _collections_dir()
 # The ordered converge chain a fresh install runs. preflight is a SEPARATE
 # invocation BEFORE bootstrap so a stray --limit can never skip it.
 #
-# Every leg up to the lockdown reaches the host over the public SSH address the
-# install started on, so there is one install path whatever access method the
-# client chose. `lockdown` is its own leg, after the converge and before
-# validate: it joins the tailnet on that method and closes public 22 behind it.
-# It is the one step that can make a host unreachable, so it runs alone and
-# last, where a failure is a failure of lockdown rather than of a converge that
-# did fifteen other things correctly -- and validate then measures the posture
-# it produced.
+# Every leg reaches the host over the public SSH address the install started
+# on, so there is one install path whatever access method the client chose.
+# `lockdown` is its own leg, after the converge and before validate: it joins
+# the tailnet on that method and proves the path. It leaves public 22 open --
+# closing it is the panel's Lockdown alone -- and it runs alone and last, where
+# a failure is a failure of the join rather than of a converge that did fifteen
+# other things correctly, and validate then measures the posture it produced.
 INSTALL_CHAIN = ("preflight", "bootstrap", "converge", "lockdown", "validate")
 
 # Stages after which the host's administrative address may have changed, and
 # which emit it into .bootstrap-output.yml: bootstrap records the install
-# address, lockdown the tailnet address it moved the host onto.
+# address, lockdown the tailnet address it joined the host on.
 _ADDRESS_STAGES = ("bootstrap", "lockdown")
 
 # Host binaries the wrapper shells out to. ansible-playbook/ansible run the
@@ -312,9 +311,10 @@ def _run_deploy_chain(
         emitted into .bootstrap-output.yml back into hosts.yml, so the later
         stages (each a separate ansible invocation) reach the host: the
         install address after bootstrap instead of the 0.0.0.0 placeholder,
-        the tailnet address after a lockdown that closed public 22. The
-        lockdown leg is asked to emit it; the panel runs the same playbook on
-        the host, where there is no controller inventory to write.
+        the tailnet address after the lockdown leg joined it, which keeps
+        answering once the panel's Lockdown closes public 22. The lockdown leg
+        is asked to emit it; the panel runs the same playbook on the host,
+        where there is no controller inventory to write.
 
     The Portainer API key that the auth stack (Keycloak, oauth2-proxy) is
     gated on is minted in-band by roles/portainer during the converge (it

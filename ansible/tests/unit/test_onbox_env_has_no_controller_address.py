@@ -1,9 +1,8 @@
 """A file a host-local service reads must not carry the controller's address.
 
-`portainer_api_base` is `http://{{ ansible_host }}:.../api` -- where the
-CONTROLLER reaches the box. It is not stable: it flips between the public and
-tailnet address across converges and differs again after a restore onto other
-infrastructure. Rendering it into an env file that a unit on the host reads
+`ansible_host` is where the CONTROLLER reaches the box. It is not stable: it
+flips between the public and tailnet address across converges and differs
+again after a restore onto other infrastructure. Rendering it into an env file that a unit on the host reads
 gives that unit an address for the machine it is already running on, and the
 value goes stale the moment the address moves:
 
@@ -49,9 +48,9 @@ def test_the_onbox_base_is_loopback():
     main = yaml.safe_load(
         (_ANSIBLE / "playbooks/group_vars/all/main.yml").read_text())
     assert "127.0.0.1" in main["portainer_api_base_onbox"]
-    # And the controller-facing one still resolves through ansible_host --
-    # the uri tasks run from the controller and need a reachable address.
-    assert "ansible_host" in main["portainer_api_base"]
+    # No controller-facing base exists: the UI port answers this host only, so
+    # an address the controller would dial is one the firewall refuses.
+    assert "portainer_api_base" not in main
 
 
 @pytest.mark.parametrize("rel", _ONBOX_ENV_TEMPLATES)

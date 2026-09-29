@@ -143,11 +143,11 @@ Split by the two-phase install boundary:
 
 **Minimal bootstrap (needed to bring the stack + auth up):** `HOST_PUBLIC_IP`,
 `HOST_INITIAL_USER`, `HOST_SSH_PORT`, `ACCESS_METHOD`, `TAILSCALE_TAGS`,
-`OPS_USER`, `COMMON_TIMEZONE`, `COMMON_LOCALE`. Plus at least one way into
-the panel: the tailnet join credential, or `CLOUDFLARE_ZONE` with its token,
-or both. Bootstrap reads neither: the converge brings the tunnel up and the
-lockdown joins the tailnet. The one left out is entered later in the panel --
-see category 1 above.
+`OPS_USER`, `COMMON_TIMEZONE`, `COMMON_LOCALE`. The tailnet join credential and
+`CLOUDFLARE_ZONE` with its token are optional: the panel is always reachable
+through an SSH forward. Bootstrap reads neither: the converge brings the tunnel
+up and the lockdown joins the tailnet. What is left out is entered later in the
+panel -- see category 1 above.
 
 Every public subdomain except one is compiled in: the shipped starter, the
 operator skeleton and the one real inventory all gave the same answer, and a

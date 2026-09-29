@@ -11,8 +11,12 @@ Baseline host setup. First role in `converge.yml`'s converge order.
   it -- the test bench -- passed the override on every run.
 - Install minimal package baseline (curl, jq, sudo, tzdata,
   ca-certificates) before any later role depends on them.
-- Provide the `ufw_lockdown.yml` task file used as the final lock
-  step in `converge.yml` (Tailscale-only ingress).
+- Create the `ops` sudo account and the `panel` account, which has no shell
+  and whose keys may only forward to the panel (9010) and Portainer (9000) on
+  the host's loopback.
+- Provide the `ufw_lockdown.yml` task file `playbooks/lockdown.yml` runs: it
+  allows SSH over the tailnet, and closes public 22 only when the panel's
+  Lockdown asks.
 
 ## Inputs
 
@@ -31,4 +35,5 @@ Baseline host setup. First role in `converge.yml`'s converge order.
 
 ## Related
 
-- Caller: `playbooks/converge.yml`.
+- Callers: `playbooks/bootstrap.yml` and `playbooks/converge.yml`;
+  `playbooks/lockdown.yml` for `ufw_lockdown.yml`.

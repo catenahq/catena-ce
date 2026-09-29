@@ -359,11 +359,10 @@ def _probe_cloudflare(token: str, zone: str) -> int:
     the assigned nameservers in the message, is the difference between an
     install that explains itself and one that dies three roles in.
 
-    A blank token is not a failure here: a server that joins a tailnet is
-    installed before its domain is decided, the tunnel engine reads the store
-    and skips, and the client enters both in catena-admin > Settings, reached
-    over the tailnet, afterwards. validate_install refuses the one case with no
-    way into the panel at all.
+    A blank token is not a failure here: a server can be installed before its
+    domain is decided, the tunnel engine reads the store and skips, and the
+    client enters both in catena-admin > Settings afterwards, reached over an
+    SSH forward or the tailnet.
     """
     token = token.strip()
     zone = zone.strip()
@@ -488,29 +487,23 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
     cf_zone = str(env.get("CLOUDFLARE_ZONE", "") or "").strip()
     problems += _probe_cloudflare(cf_token, cf_zone)
 
-    # AT LEAST ONE WAY INTO THE PANEL. After the install the client runs the
-    # server from catena-admin, and the panel is published on two paths only:
-    # the Cloudflare tunnel at dash.<zone>, and the tailnet. Its own port is
-    # private. A server with neither finishes with a panel nobody can open, so
-    # the install needs the tailnet credentials, or the domain and its token,
-    # or both -- and the one left out is entered in the panel afterwards.
-    if not joins_tailnet and not (cf_zone and cf_token):
-        _check("A way into the panel", False,
-               "public SSH with no Cloudflare domain and token: the panel would "
-               "be reachable on no path. Set CLOUDFLARE_ZONE and "
-               "cloudflare_api_token, or choose the tailnet with its credentials")
-        problems += 1
-    else:
-        _check("A way into the panel", True,
-               " and ".join(p for p, on in (
-                   ("the tailnet", joins_tailnet),
-                   (f"dash.{cf_zone}", bool(cf_zone and cf_token))) if on))
+    # THE WAYS INTO THE PANEL, stated rather than required. The panel's own
+    # port answers the server's loopback, and an SSH local forward as the panel
+    # account lands there -- so SSH, which the install itself runs over, is
+    # always one. The tunnel at dash.<zone> and the tailnet are conveniences on
+    # top of it, and either can be entered in the panel afterwards.
+    _check("Ways into the panel", True,
+           ", ".join(p for p, on in (
+               ("SSH forward (panel account)", True),
+               ("the tailnet", joins_tailnet),
+               (f"dash.{cf_zone}", bool(cf_zone and cf_token))) if on))
 
     # Last, so its remedy is the final thing on screen when it fails.
     #
     # This machine has to be able to REACH the tailnet, not merely mint keys
-    # for it: the lockdown leg proves the tailnet path from here before it
-    # closes public 22. Only one half of that is decidable here. Being joined to a
+    # for it: the lockdown leg proves the tailnet path from here, and later
+    # invocations from here use the tailnet address. Only one half of that is
+    # decidable here. Being joined to a
     # different tailnet than the credentials belong to is a fact and blocks;
     # an unreadable local Tailscale state is an absence of evidence -- a
     # controller can route to the tailnet through a subnet router with no
@@ -1043,11 +1036,10 @@ def _collect_cloudflare_token(
     """The public surface's one credential, asked for when a domain was given.
 
     With both, the converge brings the tunnel up in the same run and the install
-    ends at a reachable dash.<zone>. With neither, a server that joins a tailnet
-    finishes with a private surface and the client supplies both in
-    catena-admin > Settings over the tailnet, which is what
-    `catena_public_surface_deferred` exists to serve; a public_ssh server has
-    no other way in, and validate_install refuses it.
+    ends at a reachable dash.<zone>. With neither, the server finishes with a
+    private surface and the client supplies both in catena-admin > Settings,
+    reached over an SSH forward or the tailnet, which is what
+    `catena_public_surface_deferred` exists to serve.
 
     A blank answer is an answer, so this never blocks. It is the probe in
     validate_install that refuses a token that cannot publish the domain it was
@@ -1235,11 +1227,9 @@ def main(argv: list[str] | None = None) -> int:
     # directly -- "one of two" does not fit the all-required key list. A
     # public_ssh install joins no tailnet and requires neither.
     #
-    # The Cloudflare token is not on that list: an install that joins a tailnet
-    # may have no domain yet. validate_install requires the domain and token
-    # when the install joins no tailnet, since they are then the only way into
-    # the panel, and its probe refuses a token that cannot publish the domain it
-    # was given beside.
+    # The Cloudflare token is not on that list: a server may have no domain yet,
+    # and the panel is always reachable over an SSH forward. validate_install's
+    # probe refuses a token that cannot publish the domain it was given beside.
     if not _joins_tailnet(env_values):
         required_vault: list[str] = []
         expected_creds = 0

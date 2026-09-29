@@ -112,18 +112,21 @@
           service, so it is spelled out per service below.
 
             catena-admin panel  https://{{ catena_admin_hostname }}
-                                http://{{ ansible_host }}:{{ _admin_port }}  (tailnet, no Cloudflare)
+                                http://localhost:{{ _admin_port }}  (over the SSH forward below)
                                 username: {{ admin_email }}
 
             Portainer           https://{{ portainer_admin_hostname }}
-                                http://{{ ansible_host }}:{{ portainer_ui_port }}  (tailnet, no Cloudflare)
+                                http://localhost:{{ portainer_ui_port }}  (over the SSH forward below)
                                 username: admin
                                 (the literal word `admin`, NOT an email address --
                                  Portainer's first-boot admin has no email field)
 
           The public hostnames are SSO-gated and go through the Cloudflare
-          tunnel; the tailnet addresses stay reachable when the tunnel or
-          Cloudflare is not, and are the way in if SSO itself is broken.
+          tunnel. The localhost addresses work whenever SSH does -- when the
+          tunnel, Cloudflare or SSO is not -- through a forward as the
+          `{{ catena_panel_user }}` account, which can do nothing but forward:
+
+            ssh -N -L {{ _admin_port }}:127.0.0.1:{{ _admin_port }} -L {{ portainer_ui_port }}:127.0.0.1:{{ portainer_ui_port }} {{ catena_panel_user }}@{{ ansible_host }}
 
           On a public hostname the SSO gate asks first, and it wants
           {{ admin_email }}. The service's own login form comes after it, and

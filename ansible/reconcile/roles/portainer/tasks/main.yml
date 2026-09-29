@@ -51,10 +51,11 @@
 # `docker stack config` type-checks, so the running service and the rendered
 # plane cannot describe different things.
 #
-# Host-mode publish so the port lands on the node IP (reached over the tailnet;
-# the registry fragment below firewalls it to tailnet + RFC1918) -- never
-# ingress, which would put it on the routing mesh where that firewall does not
-# apply. Docker socket lets Portainer manage the local Docker/Swarm endpoint.
+# Host-mode publish so the port lands on the node (the registry fragment below
+# confines it to this host; an administrator reaches it through an SSH local
+# forward) -- never ingress, which would put it on the routing mesh where that
+# firewall does not apply. Docker socket lets Portainer manage the local
+# Docker/Swarm endpoint.
 # /data on a named volume persists its BoltDB store. The trailing
 # --admin-password-file arg is passed to the portainer binary.
 #
@@ -67,8 +68,8 @@
 #
 # portainer_ui_port is threaded in because it is the one genuinely per-host
 # value in the whole control plane: the public-ports registry fragment below
-# firewalls THAT number to the tailnet, so the publish and the firewall have to
-# name the same port or the UI is reachable on neither.
+# confines THAT number to the host, so the publish and the firewall have to
+# name the same port or the guard covers a port nothing listens on.
 - name: "portainer: read the built-in tier-1 spec from the host engine"
   ansible.builtin.include_role:
     name: tier1_stack
@@ -98,12 +99,12 @@
   vars:
     tier1_spec: "{{ _pt_spec }}"
 
-# ─── private-only firewall for the UI port (registry fragment) ───────────
-# `private`, not `tailnet`: this port means "never public" and does not care
-# which private path carries it. The reconciler resolves it to the tailnet path
-# or to RFC1918 from the host's declared access method, so the generated
-# /etc/catena/public-ports.md stops promising a tailscale0 restriction on a host
-# that is on no tailnet.
+# ─── host-only firewall for the UI port (registry fragment) ──────────────
+# `loopback`: nothing off this host reaches the UI. Every API call below runs
+# on the host against 127.0.0.1, and an administrator opens the UI through an
+# SSH local forward (`ssh -N -L 9000:127.0.0.1:9000 panel@<host>`), which
+# arrives on the loopback like any host process. The swarm publish is DNAT'd,
+# so the guard is DOCKER-USER (bind docker), with a ufw deny beside it.
 - name: "portainer: ensure public-port fragment dir exists"
   ansible.builtin.file:
     path: "{{ public_ports_fragment_dir }}"
@@ -112,7 +113,7 @@
     group: root
     mode: "0755"
 
-- name: "portainer: declare UI port (registry fragment, private-only)"
+- name: "portainer: declare UI port (registry fragment, host-only)"
   ansible.builtin.copy:
     dest: "{{ public_ports_fragment_dir }}/portainer.json"
     owner: root
@@ -122,8 +123,8 @@
       {{
         [
           {"proto": "tcp", "port": portainer_ui_port | int,
-           "scope": "private", "bind": "docker", "owner": "portainer",
-           "comment": "Portainer control-plane UI -- never public"}
+           "scope": "loopback", "bind": "docker", "owner": "portainer",
+           "comment": "Portainer control-plane UI -- this host only, SSH forward"}
         ] | to_nice_json
       }}
   register: _pt_ports_fragment
@@ -168,15 +169,13 @@
 # in). The validate is one cheap GET; the mint only runs on the miss.
 - name: "portainer: validate portainer_api_key against Portainer"
   ansible.builtin.uri:
-    url: "{{ portainer_api_base }}/stacks"
+    url: "{{ portainer_api_base_onbox }}/stacks"
     method: GET
     headers:
       X-API-Key: "{{ portainer_api_key }}"
     status_code: [200, 401, 403]
     timeout: 10
   register: _pt_apikey_validate
-  delegate_to: localhost
-  become: false
   # Transient 5xx / connection refused (Portainer mid-reschedule) must not
   # bomb the converge -- the mint condition below only fires on missing key
   # or an explicit 401/403.
@@ -205,29 +204,40 @@
 - name: "portainer: mint Portainer API key (missing or rejected by live Portainer)"
   when: _pt_apikey_needs_mint | bool
   block:
-    # Runs on the CONTROLLER: it reaches Portainer's tailnet address, the
-    # same path every other API task here takes. The admin password goes in
-    # on stdin so it never lands in argv (world-readable via /proc) and no
-    # file holding it is created.
+    # Runs ON THE HOST against 127.0.0.1, like every other API task here: the
+    # UI port answers this host only. The helper is staged beside the store
+    # (root-only) because `script` has no stdin, and the admin password goes in
+    # on stdin so it never lands in argv (world-readable via /proc) and no file
+    # holding it is created.
+    - name: "portainer: stage the API-key mint helper on the host"
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../helpers/bootstrap_portainer_admin.py"
+        dest: /root/.catena-bootstrap-portainer-admin.py
+        owner: root
+        group: root
+        mode: "0700"
+      changed_when: false
+
     - name: "portainer: invoke bootstrap_portainer_admin.py to mint an API key"
       ansible.builtin.command:
-        # Stdlib-only helper -- skip the `uv` indirection so a minimal
-        # controller (Alpine system python) can run it via python3 directly.
         argv:
           - python3
-          - "{{ playbook_dir }}/../helpers/bootstrap_portainer_admin.py"
-          - --tailnet-ip
-          - "{{ ansible_host }}"
+          - /root/.catena-bootstrap-portainer-admin.py
+          - --host
+          - 127.0.0.1
           - --port
           - "{{ portainer_ui_port }}"
         stdin: "{{ admin_password }}"
         stdin_add_newline: false
-        chdir: "{{ playbook_dir }}/../.."
       register: _pt_apikey_mint
-      delegate_to: localhost
-      become: false
       changed_when: true
       no_log: true
+
+    - name: "portainer: remove the staged mint helper"
+      ansible.builtin.file:
+        path: /root/.catena-bootstrap-portainer-admin.py
+        state: absent
+      changed_when: false
 
     - name: "portainer: publish the minted key for the rest of the converge"
       ansible.builtin.set_fact:
@@ -278,15 +288,13 @@
 # reconcile/roles/infrastructure/tasks/portainer_endpoint.yml resolves its Id per converge.
 - name: "portainer: list environments (endpoints)"
   ansible.builtin.uri:
-    url: "{{ portainer_api_base }}/endpoints"
+    url: "{{ portainer_api_base_onbox }}/endpoints"
     method: GET
     headers:
       X-API-Key: "{{ portainer_api_key }}"
     status_code: 200
     return_content: true
   register: _pt_endpoints
-  delegate_to: localhost
-  become: false
   failed_when: false
   when:
     - portainer_api_key is defined
@@ -294,7 +302,7 @@
 
 - name: "portainer: create local Docker environment (create-once)"
   ansible.builtin.uri:
-    url: "{{ portainer_api_base }}/endpoints"
+    url: "{{ portainer_api_base_onbox }}/endpoints"
     method: POST
     headers:
       X-API-Key: "{{ portainer_api_key }}"
@@ -304,8 +312,6 @@
       # 1 = local Docker environment via the mounted /var/run/docker.sock.
       EndpointCreationType: "1"
     status_code: [200, 201]
-  delegate_to: localhost
-  become: false
   when:
     - portainer_api_key is defined
     - portainer_api_key | length > 10
@@ -330,15 +336,13 @@
 # re-minted, and a stale URL 404s rather than falling back to anything.
 - name: "portainer: read settings"
   ansible.builtin.uri:
-    url: "{{ portainer_api_base }}/settings"
+    url: "{{ portainer_api_base_onbox }}/settings"
     method: GET
     headers:
       X-API-Key: "{{ portainer_api_key }}"
     status_code: 200
     return_content: true
   register: _pt_settings
-  delegate_to: localhost
-  become: false
   failed_when: false
   when:
     - portainer_api_key is defined
@@ -347,7 +351,7 @@
 
 - name: "portainer: point App Templates at this host's catalog"
   ansible.builtin.uri:
-    url: "{{ portainer_api_base }}/settings"
+    url: "{{ portainer_api_base_onbox }}/settings"
     method: PUT
     headers:
       X-API-Key: "{{ portainer_api_key }}"
@@ -357,8 +361,6 @@
     # every other setting to its zero value.
     body: "{{ _pt_settings.json | combine({'TemplatesURL': portainer_templates_url}) }}"
     status_code: 200
-  delegate_to: localhost
-  become: false
   when:
     - portainer_api_key is defined
     - portainer_api_key | length > 10

@@ -236,4 +236,4 @@ def test_neither_account_answering_is_its_own_reported_state():
     assert "tailnet" in msg.lower(), (
         "the message does not mention the tailnet address, which is where a "
         "hardened host on that access method is actually reachable once "
-        "lockdown.yml has closed public 22")
+        "the panel's Lockdown has closed public 22")

@@ -641,8 +641,9 @@ def test_headscale_install_with_either_credential_passes(seed, on_tailnet):
 def test_an_oauth_client_that_cannot_read_devices_is_refused(seed, on_tailnet,
                                                             monkeypatch):
     """The lockdown asks the control server whether the server is connected
-    before it closes public SSH. Without the device read scope that question
-    is refused at the install's last step, so seed refuses it first."""
+    before it closes public SSH, and the install's join proves the same. Without
+    the device read scope that question is refused at the install's last step,
+    so seed refuses it first."""
     def http(url, *, headers=None, data=None, timeout=10.0):
         if url.endswith("/oauth/token"):
             return 200, {"access_token": "t"}
@@ -669,8 +670,7 @@ def test_a_public_ssh_install_asks_for_no_tailnet_credential(seed):
 
 def test_a_public_ssh_install_validates_without_one(seed, monkeypatch):
     """No credential probe and no controller-on-the-tailnet check: neither
-    has anything to do with a host that joins no tailnet. Its way into the
-    panel is the tunnel, so the domain and token are what it needs."""
+    has anything to do with a host that joins no tailnet."""
     from helpers import tailnet_check
 
     def _no_tailnet_check(**_kw):
@@ -684,20 +684,21 @@ def test_a_public_ssh_install_validates_without_one(seed, monkeypatch):
     assert seed.validate_install(inp, [], []) == 0
 
 
-def test_an_install_with_no_way_into_the_panel_is_refused(seed, monkeypatch):
-    """The panel is published through the tunnel and on the tailnet, and its
-    own port is private. A public_ssh install with no domain and token would
-    finish with a panel nobody can open."""
+def test_an_install_with_neither_tunnel_nor_tailnet_is_accepted(seed, monkeypatch):
+    """The panel answers the server's loopback and an SSH forward as the panel
+    account lands there, so SSH -- which the install itself runs over -- is
+    always a way in. The tunnel and the tailnet are conveniences on top of it."""
     from helpers import tailnet_check
 
     monkeypatch.setattr(tailnet_check, "check", lambda **_kw: None)
+    monkeypatch.setattr(seed, "_probe_cloudflare", lambda token, zone: 0)
     for env, vault in (
         ({"ACCESS_METHOD": "public_ssh"}, {}),
         ({"ACCESS_METHOD": "public_ssh", "CLOUDFLARE_ZONE": "example.com"}, {}),
         ({"ACCESS_METHOD": "public_ssh"}, {"cloudflare_api_token": "t"}),
     ):
         inp = {"inventory": "prod", "host": {}, "env": env, "vault": vault}
-        assert seed.validate_install(inp, [], []) == 1, (env, vault)
+        assert seed.validate_install(inp, [], []) == 0, (env, vault)
 
 
 def test_blank_access_method_still_joins_the_tailnet(seed):

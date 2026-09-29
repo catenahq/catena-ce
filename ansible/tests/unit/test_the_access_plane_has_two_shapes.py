@@ -1,15 +1,19 @@
-"""A host installs with a tailnet or without one, and 22 closes only on proof.
+"""A host installs with a tailnet or without one, and 22 closes only on the
+panel's Lockdown, after proof.
 
-THE INVARIANT, stated once so it is not filed later as a coverage gap. Two
-combinations are reachable and only two:
+THE INVARIANT, stated once so it is not filed later as a coverage gap. Three
+combinations are reachable:
 
-    tailnet + 22 closed      the lockdown joined the tailnet and proved it
     no tailnet + 22 open     a host with no alternative keeps the one it has
+    tailnet + 22 open        where every install with a tailnet ends
+    tailnet + 22 closed      the panel's Lockdown joined, proved, and closed
 
-ONE INSTALL PATH. Every leg up to the lockdown reaches the host over the public
-SSH address the install started on. Joining the tailnet is the lockdown's first
-step, in one playbook the installer runs last and the panel runs on the host, so
-a tailnet added after the install gets the same join and the same proof.
+ONE INSTALL PATH. Every leg reaches the host over the public SSH address the
+install started on. Joining the tailnet is the lockdown playbook's first step,
+which the installer runs last and the panel runs on the host, so a tailnet added
+after the install gets the same join and the same proof. Only the panel's run
+closes the port: key-only SSH is the host's security, and the tailnet is a
+convenience whose one security feature is closing 22.
 
 `no tailnet + 22 closed` is unreachable BY CONSTRUCTION. There is nothing to
 prove, so nothing may close the port, and a lockdown that could reach that state
@@ -17,11 +21,13 @@ would be a lockout with a green checkmark. These tests are what makes "by
 construction" true rather than aspirational.
 
 THE SECOND FAILURE MODE is the inverse and just as quiet: a host whose lockdown
-already closed 22 must not have it re-opened. The port is a public-port registry
-entry, and the registry's reconciler runs on a timer -- so the fragment that
-declares the port has exactly one widening writer (bootstrap/roles/common, which
-refuses to overwrite) and exactly one narrowing writer (the lockdown, after its
-proof).
+already closed 22 must not have it re-opened by a converge. The port is a
+public-port registry entry, and the registry's reconciler runs on a timer -- so
+the fragment that declares the port has exactly one widening writer
+(bootstrap/roles/common, which refuses to overwrite) and exactly one narrowing
+writer (the lockdown, after its proof). The reconciler itself serves the
+narrowed declaration as open while the tailnet is down
+(tests/unit/test_public_ports_ssh_fallback.py), without rewriting it.
 
 Run: uv run pytest tests/unit/test_the_access_plane_has_two_shapes.py
 """
@@ -172,9 +178,10 @@ def test_on_the_host_no_probe_dials_its_own_address():
 
 
 def test_only_the_installer_emits_the_tailnet_address():
-    """The next install leg reaches the host at its tailnet address once 22 is
-    closed, and learns it from .bootstrap-output.yml. The panel runs the same
-    play on the host, where there is no controller inventory to write."""
+    """The next install leg and every later invocation reach the host at its
+    tailnet address, which keeps answering once the panel's Lockdown closes 22,
+    and learn it from .bootstrap-output.yml. The panel runs the same play on the
+    host, where there is no controller inventory to write."""
     tasks = _flatten((_load(LOCKDOWN_PLAY) or [])[0].get("tasks") or [])
     emit = tasks[_index(tasks, "Emit the tailnet address")]
     cond = _conditions(emit)
@@ -226,7 +233,42 @@ def test_the_lockdown_refuses_rather_than_closing_the_only_way_in():
         "who wants the port closed is told only that it is not")
 
 
-# --- shape two: tailnet, 22 closed after proof ------------------------------
+# --- shape two: tailnet, 22 open after the install --------------------------
+
+def _close_block() -> dict:
+    tasks = _flatten(_load(LOCKDOWN_TASKS))
+    return tasks[_index(tasks, "close public 22 behind the tailnet")]
+
+
+def test_only_the_panels_lockdown_closes_the_port():
+    """The close block runs on catena_lockdown_close_public_ssh alone, which
+    lockdown.yml reads from the environment the panel's Lockdown unit carries
+    and defaults to false. The installer's run never sets it."""
+    assert "catena_lockdown_close_public_ssh" in _conditions(_close_block())
+    play = (_load(LOCKDOWN_PLAY) or [])[0]
+    flag = str((play.get("vars") or {}).get("catena_lockdown_close_public_ssh", ""))
+    assert "CATENA_LOCKDOWN_CLOSE_PUBLIC_SSH" in flag, flag
+    assert "default('false'" in flag, (
+        "the flag must default to false: a caller that forgets it joins and "
+        "leaves 22 open, which is the safe side")
+    cli = (ANSIBLE / "catena_cli.py").read_text(encoding="utf-8")
+    assert "catena_lockdown_close_public_ssh" not in cli, (
+        "the installer asks for the close; installs never close public 22")
+
+
+def test_the_tailnet_rules_and_address_do_not_wait_for_the_close():
+    """An install still joins, adds the tailnet SSH rule and learns the tailnet
+    address -- the access page and every later invocation use it -- with 22
+    left open."""
+    tasks = _flatten(_load(LOCKDOWN_TASKS))
+    allow = tasks[_index(tasks, "allow SSH over the tailnet")]
+    assert "catena_lockdown_close_public_ssh" not in _conditions(allow)
+    names = [t.get("name", "") for t in allow.get("block") or []]
+    assert any("Extract tailnet IPv4" in n for n in names)
+    assert any("Allow SSH on tailscale0" in n for n in names)
+
+
+# --- shape three: tailnet, 22 closed after proof ----------------------------
 
 def test_the_close_is_still_gated_on_a_proof_from_the_controller():
     """The sequence that keeps this from being a lockout, unchanged by the

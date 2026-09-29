@@ -155,10 +155,10 @@ oauth2_proxy_apps:
     upstream_port: 8000
     allowed_groups: ["staff", "admin"]
   # Portainer is the per-VPS container control plane -- admin-only. It is
-  # ALSO reachable operator-side on the tailnet (host-mode :9000, firewalled
-  # to tailnet+RFC1918 by reconcile/roles/portainer); this entry adds the public,
-  # oauth2-gated path over the Cloudflare tunnel so a client admin can
-  # self-serve deploys from portainer.<zone>. upstream_alias is the swarm
+  # ALSO reachable over an SSH forward (host-mode :9000, confined to the host
+  # by reconcile/roles/portainer); this entry adds the public, oauth2-gated
+  # path over the Cloudflare tunnel so a client admin can self-serve deploys
+  # from portainer.<zone>. upstream_alias is the swarm
   # service name on catena-network;
   # 9000 is the container's internal port (target), not the published host
   # port. An empty allowed_groups would mean "any authenticated user", so

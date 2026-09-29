@@ -63,10 +63,10 @@ def test_the_password_comes_from_stdin(bpa, monkeypatch, capsys):
 
     monkeypatch.setattr(bpa, "bootstrap", _fake_bootstrap)
     monkeypatch.setattr("sys.stdin", io.StringIO("hunter2\n"))
-    rc = bpa.main(["--tailnet-ip", "100.1.2.3", "--port", "9000"])
+    rc = bpa.main(["--host", "127.0.0.1", "--port", "9000"])
     assert rc == bpa.EXIT_OK
     assert seen["password"] == "hunter2"
-    assert seen["base_url"] == "http://100.1.2.3:9000"
+    assert seen["base_url"] == "http://127.0.0.1:9000"
     # stdout carries ONLY the key -- the role registers it into a set_fact.
     assert capsys.readouterr().out.strip() == "MINTED-KEY"
 
@@ -79,13 +79,13 @@ def test_a_trailing_space_in_the_password_survives(bpa, monkeypatch):
     monkeypatch.setattr(bpa, "bootstrap",
                         lambda *a, **k: seen.update(password=a[2]) or "K")
     monkeypatch.setattr("sys.stdin", io.StringIO("pw with space \n"))
-    assert bpa.main(["--tailnet-ip", "1.2.3.4"]) == bpa.EXIT_OK
+    assert bpa.main(["--host", "127.0.0.1"]) == bpa.EXIT_OK
     assert seen["password"] == "pw with space "
 
 
 def test_empty_stdin_is_an_error_not_an_anonymous_signin(bpa, monkeypatch):
     monkeypatch.setattr("sys.stdin", io.StringIO(""))
-    assert bpa.main(["--tailnet-ip", "1.2.3.4"]) == bpa.EXIT_ERROR
+    assert bpa.main(["--host", "127.0.0.1"]) == bpa.EXIT_ERROR
 
 
 def test_the_helper_takes_no_vault_argument(bpa, monkeypatch):
@@ -93,7 +93,7 @@ def test_the_helper_takes_no_vault_argument(bpa, monkeypatch):
     laptop is load-bearing again."""
     monkeypatch.setattr("sys.stdin", io.StringIO("pw"))
     with pytest.raises(SystemExit):
-        bpa.main(["--tailnet-ip", "1.2.3.4", "--vault", "/tmp/x.yml"])
+        bpa.main(["--host", "127.0.0.1", "--vault", "/tmp/x.yml"])
 
 
 def test_the_helper_does_not_import_yaml():
@@ -130,6 +130,33 @@ def test_the_staged_key_file_is_0600_and_removed():
     stage = _named(block, "stage the minted key")["ansible.builtin.copy"]
     assert stage["mode"] == "0600"
     rm = _named(block, "remove the staged key file")["ansible.builtin.file"]
+    assert rm["path"] == stage["dest"] and rm["state"] == "absent"
+
+
+def test_every_portainer_api_call_runs_on_the_host():
+    """The UI port is loopback-only: nothing off the host reaches it, the
+    installer's machine included. A task delegated to the controller, or one
+    aimed at ansible_host, is refused on every install, whichever way in the
+    client chose."""
+    tasks = _tasks() + _mint_block()
+    calls = [t for t in tasks if "ansible.builtin.uri" in t]
+    assert calls, "the role makes no API call at all"
+    for task in calls:
+        assert task.get("delegate_to") is None, task["name"]
+        url = task["ansible.builtin.uri"]["url"]
+        assert "portainer_api_base_onbox" in url or "localhost" in url, (
+            f"{task['name']}: {url}")
+    mint = _named(_mint_block(), "invoke bootstrap_portainer_admin.py")
+    assert mint.get("delegate_to") is None
+    argv = mint["ansible.builtin.command"]["argv"]
+    assert argv[argv.index("--host") + 1] == "127.0.0.1"
+
+
+def test_the_staged_mint_helper_is_root_only_and_removed():
+    block = _mint_block()
+    stage = _named(block, "stage the API-key mint helper")["ansible.builtin.copy"]
+    assert stage["mode"] == "0700"
+    rm = _named(block, "remove the staged mint helper")["ansible.builtin.file"]
     assert rm["path"] == stage["dest"] and rm["state"] == "absent"
 
 

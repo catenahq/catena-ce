@@ -69,11 +69,13 @@ def test_the_one_block_carries_both_the_secrets_and_the_urls():
         assert needed in banner, needed
     assert "catena_admin_hostname" in banner, "panel URL missing"
     assert "portainer_admin_hostname" in banner, "Portainer URL missing"
-    # The tailnet address is the way in when Cloudflare or SSO is not working,
-    # so it is the half that has to survive an edit. Its port comes through
+    # The SSH forward is the way in when Cloudflare or SSO is not working, so
+    # it is the half that has to survive an edit. Its port comes through
     # _admin_port, which is where the role default is read.
-    assert "_admin_port" in banner, "tailnet panel port missing"
+    assert "_admin_port" in banner, "forwarded panel port missing"
     assert "catena_admin_ui_port" in task_vars["_admin_port"]
+    assert "ssh -N -L" in banner and "catena_panel_user" in banner, (
+        "the banner does not say how to open the forward, as which account")
 
 
 def test_the_banner_names_portainers_username_and_it_is_not_the_email():

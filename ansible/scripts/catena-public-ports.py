@@ -12,6 +12,8 @@ via helpers/public_ports.py, and idempotently applies the firewall rule plan:
      containers, so deploying a template opens its ports without a converge.
 
 Then it:
+  - reopens administrative SSH to the internet while this host's tailnet is
+    down, on a host whose panel Lockdown narrowed it (public_ports.ssh_fallback),
   - applies ufw allow rules for host-bound ports (ufw INPUT sees them),
   - applies DOCKER-USER RETURN/DROP guards for docker-bound RESTRICTED ports
     (Docker DNAT bypasses ufw INPUT). docker-bound scope=any ports need no
@@ -106,6 +108,35 @@ def tailnet_available(store_path: str = STORE_PATH) -> bool:
     if not isinstance(config, dict):
         return True
     return str(config.get("ACCESS_METHOD") or "tailnet").strip() != "public_ssh"
+
+
+def tailnet_up() -> bool:
+    """Whether this host's tailnet is working RIGHT NOW, from tailscaled.
+
+    Detected rather than declared, the inverse of tailnet_available: the
+    question here is whether the path a Lockdown closed public SSH behind still
+    exists. Anything short of a running backend that holds a tailnet address
+    and reaches its control server reads as down, including a tailscaled that
+    is absent, hung, or answering garbage -- a false "down" reopens a port that
+    key-only SSH already guards, a false "up" can leave the host unreachable.
+    """
+    try:
+        out = subprocess.run(["tailscale", "status", "--json"],
+                             capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if out.returncode != 0:
+        return False
+    try:
+        status = json.loads(out.stdout or "null")
+    except ValueError:
+        return False
+    if not isinstance(status, dict) or status.get("BackendState") != "Running":
+        return False
+    me = status.get("Self")
+    if not isinstance(me, dict) or me.get("Online") is False:
+        return False
+    return any(str(ip).startswith("100.") for ip in me.get("TailscaleIPs") or [])
 
 
 def _run(argv: list[str], check_only: bool = False) -> int:
@@ -367,6 +398,13 @@ def reconcile() -> tuple[list[pp.PortEntry], int]:
     labels = harvest_label_entries()
     entries = pp.merge(infra, labels)  # infra wins ties
     on_tailnet = tailnet_available()
+    # Asked only when a Lockdown has narrowed SSH: an open declaration has
+    # nothing to reopen, and tailscaled need not exist on such a host.
+    if any(e.owner == pp.SSH_OWNER and e.scope != "any" for e in entries):
+        up = tailnet_up()
+        entries = pp.ssh_fallback(entries, tailnet_up=up)
+        if not up:
+            log("the tailnet is down: public SSH is reopened until it is back")
     plan = pp.rule_plan(entries, tailnet_available=on_tailnet)
 
     # Auto-heal: delete rules whose declaration disappeared since last run

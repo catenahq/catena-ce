@@ -138,15 +138,17 @@ def test_an_unreadable_store_reads_as_a_tailnet_host(tmp_path):
     assert mod.tailnet_available(str(broken))
 
 
-def test_the_two_ui_ports_declare_private_and_the_lane_declares_tailnet():
-    """The declarations themselves, because the distinction only pays off if
-    the callers make it. A UI port that went back to `tailnet` would start
-    overstating its restriction again on a tailnet-free host."""
+def test_the_two_ui_ports_are_host_only_and_the_lane_declares_tailnet():
+    """The declarations themselves. The panel and Portainer answer this host
+    only: an administrator reaches them through an SSH forward that lands on
+    the loopback, and the panel's direct login is a password over plain HTTP,
+    so no network path may carry it. The migration lane binds the tailnet
+    address and means `tailnet` literally."""
     portainer = (ANSIBLE_DIR / "reconcile" / "roles" / "portainer" / "tasks"
                  / "main.yml").read_text(encoding="utf-8")
-    assert '"scope": "private", "bind": "docker", "owner": "portainer"' in portainer
+    assert '"scope": "loopback", "bind": "docker", "owner": "portainer"' in portainer
 
     admin = (ANSIBLE_DIR / "bootstrap" / "roles" / "catena_admin_host" / "tasks"
              / "main.yml").read_text(encoding="utf-8")
-    assert '"port": catena_admin_ui_port | int,\n           "scope": "private"' in admin
+    assert '"port": catena_admin_ui_port | int,\n           "scope": "loopback"' in admin
     assert '"port": catena_migrate_lane_port | int,\n           "scope": "tailnet"' in admin

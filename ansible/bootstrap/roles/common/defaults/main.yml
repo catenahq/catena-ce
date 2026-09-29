@@ -18,6 +18,7 @@
 # harmless no-op entry (sshd allows the name, user doesn't exist).
 ssh_allowed_users:
   - "{{ ops_user }}"
+  - "{{ catena_panel_user }}"
   - "{{ catena_admin_runner_user | default('catena-admin-runner') }}"
 
 common_baseline_packages:

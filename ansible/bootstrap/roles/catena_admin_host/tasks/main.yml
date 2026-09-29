@@ -341,17 +341,17 @@
     group: root
     mode: "0644"
 
-# --- private-only firewall for the native-login UI port (registry fragment) ---
-# The admin panel's host-published port (compose ports: mode=host -> :8001)
-# must never be reachable from the public internet -- same posture as
-# Portainer's UI port. The public-ports reconciler applies the DOCKER-USER
-# rules from this fragment.
+# --- host-only firewall for the native-login UI port (registry fragment) ---
+# The admin panel's host-published port (mode=host -> :8001) answers this host
+# only -- same posture as Portainer's UI port. Its login is the recovery admin
+# password over plain HTTP, so the transport has to be something else's: an
+# administrator opens it through an SSH local forward
+# (`ssh -N -L 9010:127.0.0.1:9010 panel@<host>`), which arrives on the loopback
+# like the host's own dashboard-sync lane does. The public-ports reconciler
+# applies the DOCKER-USER DROP from this fragment.
 #
-# `private` rather than `tailnet`: the port means "never public" and does not
-# care which private path carries it, so the reconciler resolves it from the
-# host's declared access method. The migration lane below means `tailnet`
-# literally -- it binds this host's tailnet address and refuses to start
-# without one -- so it keeps saying so.
+# The migration lane below means `tailnet` literally -- it binds this host's
+# tailnet address and refuses to start without one -- so it keeps saying so.
 - name: "catena-admin: ensure public-port fragment dir exists"
   ansible.builtin.file:
     path: "{{ public_ports_fragment_dir }}"
@@ -360,7 +360,7 @@
     group: root
     mode: "0755"
 
-- name: "catena-admin: declare UI + migration-lane ports (registry fragment, private)"
+- name: "catena-admin: declare UI + migration-lane ports (registry fragment)"
   # The migration lane binds this host's tailnet address directly (a host
   # process, bind=host, not a published container port), and refuses to start
   # with no tailnet address rather than binding every interface. The declaration
@@ -376,8 +376,8 @@
       {{
         [
           {"proto": "tcp", "port": catena_admin_ui_port | int,
-           "scope": "private", "bind": "docker", "owner": "catena-admin",
-           "comment": "catena-admin native-login panel -- never public"},
+           "scope": "loopback", "bind": "docker", "owner": "catena-admin",
+           "comment": "catena-admin native-login panel -- this host only, SSH forward"},
           {"proto": "tcp", "port": catena_migrate_lane_port | int,
            "scope": "tailnet", "bind": "host", "owner": "catena-admin",
            "comment": "migration lane (source side) -- tailnet only"}

@@ -59,9 +59,10 @@ def test_run_deploy_chain_threads_global_extra_on_every_stage(cli, monkeypatch, 
 
 
 def test_the_lockdown_leg_emits_and_the_chain_applies_its_address(cli, monkeypatch, tmp_path):
-    """The lockdown joins the tailnet and closes public 22, so validate and every
-    later invocation have to reach the host at its tailnet address. The leg is
-    asked to emit it, and the chain folds it in before the next leg."""
+    """The lockdown leg joins the tailnet, and every later invocation reaches
+    the host at its tailnet address, which keeps answering once the panel's
+    Lockdown closes public 22. The leg is asked to emit it, and the chain folds
+    it in before the next leg. The install never asks it to close the port."""
     from helpers import bootstrap_output
 
     events: list[str] = []
@@ -73,6 +74,7 @@ def test_the_lockdown_leg_emits_and_the_chain_applies_its_address(cli, monkeypat
     runs = [e for e in events if e.startswith("run ")]
     lock = next(e for e in runs if e.startswith("run lockdown "))
     assert "catena_lockdown_emit_address=true" in lock
+    assert "catena_lockdown_close_public_ssh" not in lock
     assert all("catena_lockdown_emit_address" not in e
                for e in runs if not e.startswith("run lockdown "))
     order = [e.split()[1] if e.startswith("run ") else e for e in events]

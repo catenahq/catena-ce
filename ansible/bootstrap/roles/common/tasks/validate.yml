@@ -39,6 +39,40 @@
       - "'sudo' in _ops_groups.stdout.split()"
     fail_msg: "ops user is not in sudo group (got: {{ _ops_groups.stdout }})"
 
+# The panel account is how an administrator reaches the two host-only UIs, and
+# it must be able to do NOTHING else: no shell, no sudo, every key restricted to
+# forwarding to the panel and Portainer ports.
+- name: "validate/common: panel forwarding account"
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ catena_panel_user }}"
+  register: _panel_passwd
+  failed_when: false
+  changed_when: false
+
+- name: "validate/common: panel account keys"
+  ansible.builtin.slurp:
+    src: "/home/{{ catena_panel_user }}/.ssh/authorized_keys"
+  register: _panel_keys
+  failed_when: false
+
+- name: "validate/common: panel account has no shell and forward-only keys"
+  ansible.builtin.assert:
+    that:
+      - catena_panel_user in _panel_passwd.ansible_facts.getent_passwd | default({})
+      - _panel_passwd.ansible_facts.getent_passwd[catena_panel_user][5] == '/usr/sbin/nologin'
+      - _keys | length > 0
+      - _keys | reject('match', '^restrict,port-forwarding,permitopen=') | list | length == 0
+      - _keys | select('search', 'permitopen="127.0.0.1:' ~ catena_admin_ui_port ~ '"') | list | length == _keys | length
+    fail_msg: >-
+      The {{ catena_panel_user }} account must have /usr/sbin/nologin and only
+      keys restricted to forwarding to 127.0.0.1:{{ catena_admin_ui_port }} and
+      :{{ portainer_ui_port }}. A key without `restrict` is a shell on this host.
+  vars:
+    _keys: >-
+      {{ ((_panel_keys.content | default('')) | b64decode).splitlines()
+         | map('trim') | reject('equalto', '') | reject('match', '^#') | list }}
+
 - name: "validate/common: fixture files exist + correct type/owner/perms"
   ansible.builtin.include_role:
     name: common
@@ -107,7 +141,8 @@
       - "'PasswordAuthentication no' in (_sshd_conf.content | b64decode)"
       - "'PubkeyAuthentication yes' in (_sshd_conf.content | b64decode)"
       - "'AllowUsers ops' in (_sshd_conf.content | b64decode)"
-    fail_msg: "sshd drop-in missing one of the four required hardening directives"
+      - "(' ' ~ catena_panel_user ~ ' ') in ((_sshd_conf.content | b64decode) | regex_search('AllowUsers .*') ~ ' ')"
+    fail_msg: "sshd drop-in missing a required hardening directive, or AllowUsers omits {{ catena_panel_user }}"
 
 # The check above reads the file we WROTE. sshd only reads that file if the
 # main config includes the drop-in directory, so on an image whose

@@ -1,5 +1,5 @@
 ---
-# Close public port 22, or say why it stays open.
+# Close public port 22 when the panel's Lockdown asks, or say why it stays open.
 #
 # THE ONE TASK FILE THAT CAN LOCK EVERYBODY OUT. It is built to fail CLOSED --
 # you stay reachable -- rather than fail OPEN, and the shape that guarantees
@@ -16,6 +16,12 @@
 # nobody is locked out. The rules added at step 2 are harmless on their own:
 # they allow traffic the broader public rule already allowed.
 #
+# STEPS 3 TO 5 RUN ONLY WHEN catena_lockdown_close_public_ssh IS TRUE, which
+# playbooks/lockdown.yml sets from the panel's Lockdown action and nowhere else.
+# An install joins the tailnet, adds the step-2 rules and stops: public 22 stays
+# open, because the host's security rests on key-only SSH and the tailnet is a
+# convenience whose one security feature is closing the port.
+#
 # Steps 3 and 5 run from the installer's controller only. On the host itself
 # (the panel's lockdown, a local connection) localhost IS this host, and a
 # handshake with its own address proves nothing; there the proof is
@@ -23,11 +29,13 @@
 # runs before this file: the control server sees the host connected and
 # accepting, and a peer answers through the tunnel.
 #
-# TWO REACHABLE COMBINATIONS AND ONLY TWO. `tailnet + 22 closed` is the path
-# below. `no tailnet + 22 open` is what a host with no alternative gets, and it
-# is a posture rather than a failure. `no tailnet + 22 closed` is unreachable by
-# construction, which is what step 3 asserts: there is nothing to prove, so
-# there is nothing that may close the port.
+# THREE REACHABLE COMBINATIONS. `no tailnet + 22 open` is what a host with no
+# alternative gets, and it is a posture rather than a failure. `tailnet + 22
+# open` is where every install with a tailnet ends. `tailnet + 22 closed` is the
+# panel's Lockdown, below; the port reconciler reopens 22 while the tailnet is
+# down and closes it again when it is back. `no tailnet + 22 closed` is
+# unreachable by construction: there is nothing to prove, so there is nothing
+# that may close the port.
 #
 # Detection is not proof. `ip link show tailscale0` says an interface exists,
 # which is a different question from whether the controller can reach this host
@@ -38,7 +46,9 @@
   ansible.builtin.debug:
     msg: >-
       access method: {{ catena_access_method }}
-      ({{ 'public 22 closes once the tailnet path is proven'
+      ({{ ('public 22 closes once the tailnet path is proven'
+           if catena_lockdown_close_public_ssh | default(false) | bool
+           else "public 22 stays open; the panel's Lockdown closes it")
           if catena_access_method == 'tailnet'
           else 'public 22 stays open -- this host has no other path' }})
 
@@ -61,7 +71,7 @@
   when: catena_access_method != 'tailnet'
 
 # ─── The tailnet path ────────────────────────────────────────────────────
-- name: "Lockdown: close public 22 behind the tailnet"
+- name: "Lockdown: allow SSH over the tailnet"
   when: catena_access_method == 'tailnet'
   block:
     - name: Assert tailscale0 interface is up
@@ -126,6 +136,22 @@
         'Rule added' in _ufw_bridge_ssh.stdout
         or 'Rule updated' in _ufw_bridge_ssh.stdout
 
+- name: "Lockdown: public 22 stays open until the panel's Lockdown closes it"
+  ansible.builtin.debug:
+    msg: >-
+      This host is on the tailnet at {{ tailnet_ipv4 }} and public port 22
+      stays open. Choose Lockdown in catena-admin > Settings to close it; the
+      host then keeps 22 closed while its tailnet is up and reopens it while
+      the tailnet is down.
+  when:
+    - catena_access_method == 'tailnet'
+    - not (catena_lockdown_close_public_ssh | default(false) | bool)
+
+- name: "Lockdown: close public 22 behind the tailnet"
+  when:
+    - catena_access_method == 'tailnet'
+    - catena_lockdown_close_public_ssh | default(false) | bool
+  block:
     # ─── Step 3: PROVE the tailnet path works end-to-end ─────────────────
     # Run from the operator's laptop. If we can complete a TCP handshake to
     # port 22 on the tailnet IP, the new rule path is functional.
@@ -166,7 +192,8 @@
     # before the proof above would be the lockout this sequence exists to
     # prevent. `private` rather than `tailnet`: the reconciler resolves it from
     # the same declared method, so the client's port document names the path
-    # this host actually has.
+    # this host actually has. The same reconciler reopens 22 while the tailnet
+    # is down, so this declaration never strands a host whose tailnet broke.
     - name: "Lockdown: declare port 22 private now that the tailnet is proven"
       ansible.builtin.copy:
         dest: "{{ public_ports_fragment_dir }}/{{ catena_ssh_fragment_name }}"

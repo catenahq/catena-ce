@@ -42,8 +42,9 @@ broken client.
 ## Reachability before the lockdown
 
 [tasks/reachable.yml](tasks/reachable.yml), which `playbooks/lockdown.yml`
-runs right after the join and before public 22 closes, asks the tailnet
-rather than the host whether the host is reachable
+runs right after the join and before public 22 can close (only the panel's
+Lockdown closes it), asks the tailnet rather than the host whether the host
+is reachable
 ([../../../helpers/tailnet_reachability.py](../../../helpers/tailnet_reachability.py),
 run on the host):
 
@@ -83,9 +84,9 @@ All credentials come from the on-box store, seeded once from the inventory
 - `tailscale up` with the minted key (plus `--login-server` on the Headscale
   fork).
 - Exposes the joined node's tailnet IPv4 as the `tailscale_ipv4` fact.
-  `playbooks/lockdown.yml` runs this role first, then closes public 22 behind
-  that address and, from the installer, emits it as the steady-state host's
-  `ansible_host` for the legs that follow.
+  `playbooks/lockdown.yml` runs this role first and, from the installer, emits
+  that address as the steady-state host's `ansible_host` for the legs that
+  follow; from the panel's Lockdown it then closes public 22 behind it.
 - From the controller, probes port 22 at that address (120s budget), so a
   node that is `Running` but unroutable fails here instead of as a misleading
   error in the lockdown. On the host itself that probe would dial its own

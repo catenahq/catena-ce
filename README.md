@@ -2,7 +2,7 @@
 
 Catena installs a curated list of open-source services and software to a computer or VPS, making it a suitable production environment in which to run business applications. A thin dashboard wrapper allows for configuration and orchestration of this infrastructure. Some of the highlights include:
 - Automated installation to a server with [Ansible](https://docs.ansible.com/)
-- Fully hardened installation, with administrator access over [Tailscale](https://tailscale.com/)/[Headscale](https://headscale.net) and public SSH closed once that path is proven
+- Fully hardened installation: key-only SSH with no root and no password login, the admin panel reached through an SSH forward, and optionally [Tailscale](https://tailscale.com/)/[Headscale](https://headscale.net), over which the panel's Lockdown closes public SSH
 - Secure application access and DDoS protection with [Cloudflared](https://github.com/cloudflare/cloudflared)
 - Scheduled, incremental, encrypted backups with [restic](https://restic.net/)
 - Container management interface with [Portainer](https://www.portainer.io/)
@@ -21,11 +21,11 @@ Catena installs a curated list of open-source services and software to a compute
 #### Pre-install
 - `uv` installed on your local machine for python virtual environment management: `wget -qO- https://astral.sh/uv/install.sh | sh`
 - A fresh VPS or server running `Debian 13` (tested), its public address and its initial login (`root`, `debian`...). The graphical installer needs the server to already accept your SSH key for that login, which most providers set up from the public key given when the server is ordered; the command-line installer can instead install the key with the provider's password
-- At least one way into the Catena-Admin panel once the install ends, or both:
+- Optionally, either or both of:
   - a Tailscale OAuth client id/secret pair with the `Auth Keys -> Write` and `Devices -> Core -> Read` scopes, or a working Headscale control server and credentials (an API key lets a lockdown applied later from the panel confirm the server is online), with the `tailscale` client running and connected to that tailnet on your local computer. Visit the [Tailscale download page](https://tailscale.com/download)
   - a Cloudflare account and a domain name, along with an API token with `Account -> Cloudflare Tunnel -> Edit` and `Zone -> DNS -> Edit` permissions for your domain
 
-  The install runs over SSH to the server's public address either way. The one left out is entered in the panel's `Settings` afterwards.
+  The install runs over SSH to the server's public address, and the panel is always reachable through an SSH forward, with or without either. What is left out can be entered in the panel's `Settings` afterwards.
 
 #### Post-install
 - An S3 Object storage endpoint along with access/secret keys pair for your backups. The graphical installer also accepts them on its `Backup` page
@@ -52,12 +52,17 @@ uv run catena-cli install --inventory prod
 ```
    It asks for the provider's password for the initial login (blank when the server already accepts your key), the tailnet credentials when the access method is the tailnet, and the Cloudflare API token when the `.env` names a domain. **Those are not persisted anywhere after the install**.
 
-3. The installer completes the installation on your server. With a tailnet, its last step joins the server to it and closes public SSH.
+3. The installer completes the installation on your server. With a tailnet, its last step joins the server to it. Public SSH stays open until you choose `Lockdown` in the panel.
 
-4. Save the **admin password**, the **restic backup password**, the **console password for `ops`** and the **journal verification key** shown at the end of the installation to your password manager, along with your Tailscale credentials and Cloudflare API token. You need the restic password to read and restore your backups, and the console password to log in from your provider's console if the tailnet is unavailable. `uv run catena-cli show-keyset --inventory <name>` shows the passwords again; the journal key is shown once.
+4. Save the **admin password**, the **restic backup password**, the **console password for `ops`** and the **journal verification key** shown at the end of the installation to your password manager, along with your Tailscale credentials and Cloudflare API token. You need the restic password to read and restore your backups, and the console password to log in from your provider's console if SSH is unavailable. `uv run catena-cli show-keyset --inventory <name>` shows the passwords again; the journal key is shown once.
 
-5. Log in to the Catena-Admin interface at `https://dash.<your-domain>` (with Cloudflare) or `http://<your-server-tailnet-ip>:9010` (with a tailnet) with the admin email and password, and go to the `Settings` tab to finish the installation:
-   - Enter the access method you did not give at install: the Cloudflare domain and API token to publish your apps, or the tailnet credentials, then apply the lockdown to join the tailnet and close public SSH
+5. Log in to the Catena-Admin interface with the admin email and password, at `https://dash.<your-domain>` (with Cloudflare), or at `http://localhost:9010` through an SSH forward as the `panel` account, which can do nothing but forward:
+```sh
+ssh -N -L 9010:127.0.0.1:9010 panel@<your-server-address>
+```
+   The server's address is its public IP, or its tailnet IP once the lockdown has closed public SSH. Portainer is reached the same way on port `9000`. Then go to the `Settings` tab to finish the installation:
+   - Enter what you did not give at install: the Cloudflare domain and API token to publish your apps, or the tailnet credentials
+   - Apply the `Lockdown` to join the tailnet and close public SSH. The server reopens public SSH by itself while its tailnet is down, and closes it again when the tailnet is back
    - Enter your S3 credentials to enable backups, if the installer did not take them
 
 6. Install applications from the [Catena templates](https://github.com/catenahq/catena-templates) catalogue or configure your own based on them.
@@ -67,7 +72,7 @@ uv run catena-cli install --inventory prod
 
 1. Access without a public/static IP: tunnels provide a direct access to the server regardless of whether it's being CGNAT or on an internal or public network
 2. No firewall configuration: the tunnels are created directly between the server and the tunnel access provider, bypassing routers and port forwarding
-3. DDoS and spam protection: with no open ports and no direct access through the IP address, all connections go through the tunnels and, in the case of Cloudflare, through their firewalls.
+3. DDoS and spam protection: with no open ports but key-only SSH, which the lockdown closes too once administration is on the tailnet, all connections go through the tunnels and, in the case of Cloudflare, through their firewalls.
 
 Alternatives to Tailscale include Headscale and Netbird. Cloudflare alternatives include Pangolin. Hosting these services securely requires an additional VPS and creates a single, unprotected point of entry. This is a privacy vs security trade-off.
 

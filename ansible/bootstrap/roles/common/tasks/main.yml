@@ -415,6 +415,34 @@
     exclusive: false
   loop: "{{ ops_ssh_public_keys }}"
 
+# ─── panel account: SSH local forwards to the two host-only UIs ─────────
+# The panel (9010) and Portainer (9000) answer this host's loopback only. An
+# administrator reaches them through `ssh -N -L 9010:127.0.0.1:9010
+# panel@<host>`, and doing that as ops would mean holding a sudo shell open to
+# look at a web page. This account can do nothing else: no shell, no password,
+# and a key restricted to forwarding to exactly those two ports. Same keys as
+# ops -- the ones the installer was given.
+- name: Create the panel forwarding account
+  ansible.builtin.user:
+    name: "{{ catena_panel_user }}"
+    shell: /usr/sbin/nologin
+    create_home: true
+    # `*`, not the useradd default `!`, for the reason the ops account gives:
+    # OpenSSH 9.8+ refuses pubkey auth to a locked account.
+    password: "*"
+    update_password: on_create
+    state: present
+
+- name: Install the panel account's forward-only keys
+  ansible.posix.authorized_key:
+    user: "{{ catena_panel_user }}"
+    key: "{{ item }}"
+    key_options: >-
+      restrict,port-forwarding,permitopen="127.0.0.1:{{ catena_admin_ui_port }}",permitopen="127.0.0.1:{{ portainer_ui_port }}"
+    state: present
+    exclusive: false
+  loop: "{{ ops_ssh_public_keys }}"
+
 - name: Grant ops passwordless sudo
   ansible.builtin.copy:
     dest: /etc/sudoers.d/010-ops
@@ -782,11 +810,11 @@
       no_log: true
 
 # ─── ufw baseline ────────────────────────────────────────────────────────
-# Public SSH is allowed for the duration of bootstrap. On a host whose access
-# method is `tailnet`, playbooks/lockdown.yml swaps this rule for "allow 22 on
-# tailscale0 only" and closes public 22 -- but only after it has PROVEN the
-# tailnet path from the machine about to lose this one. On a `public_ssh` host
-# it stays, because there is no other path to prove.
+# Public SSH is allowed, and stays allowed after the install. On a host whose
+# access method is `tailnet`, the panel's Lockdown (playbooks/lockdown.yml)
+# swaps this rule for "allow 22 on tailscale0 only" and closes public 22 -- but
+# only after it has PROVEN the tailnet path. On a `public_ssh` host it stays,
+# because there is no other path to prove.
 - name: Set ufw default deny incoming
   community.general.ufw:
     default: deny

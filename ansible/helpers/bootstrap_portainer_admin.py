@@ -31,7 +31,7 @@ Contract:
   stdin        : the admin password, one line.
   stdout       : the minted rawAPIKey, on success only.
   Exit code 0  : API key minted.
-  Exit code 2  : Portainer unreachable at tailnet:port -- caller should
+  Exit code 2  : Portainer unreachable at host:port -- caller should
                  fall back / retry. Not a hard failure; Portainer may
                  still be initialising its BoltDB store.
   Exit code 3  : Portainer reachable but the admin password does not match
@@ -41,10 +41,12 @@ Contract:
   Exit code 1  : unexpected error (empty stdin, unexpected HTTP code,
                  malformed responses, etc.).
 
+Runs on the Portainer host itself: the UI port answers the loopback only.
+
 Usage:
     printf '%s' "$ADMIN_PASSWORD" | python3 \\
-        helpers/bootstrap_portainer_admin.py \\
-        --tailnet-ip 100.77.16.46 \\
+        bootstrap_portainer_admin.py \\
+        --host 127.0.0.1 \\
         --port 9000
 """
 from __future__ import annotations
@@ -269,10 +271,10 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("--tailnet-ip", required=True,
-                    help="Tailnet IPv4 of the Portainer host.")
+    ap.add_argument("--host", required=True,
+                    help="Address Portainer answers on (127.0.0.1 on the host).")
     ap.add_argument("--port", type=int, default=9000,
-                    help="Portainer UI/API port on the tailnet (default 9000).")
+                    help="Portainer UI/API port (default 9000).")
     ap.add_argument("--admin-user", default=DEFAULT_ADMIN_USER,
                     help=f"Portainer admin username (default "
                          f"{DEFAULT_ADMIN_USER!r}).")
@@ -285,7 +287,7 @@ def main(argv: list[str] | None = None) -> int:
         _warn("no admin password on stdin -- can't mint a Portainer API key.")
         return EXIT_ERROR
 
-    base_url = f"http://{args.tailnet_ip}:{args.port}"
+    base_url = f"http://{args.host}:{args.port}"
     print(
         "\n\033[1;34m== Portainer API key (mint from initial admin)\033[0m",
         file=sys.stderr,

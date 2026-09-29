@@ -107,7 +107,8 @@
       Timed out (300s) waiting for a running container matching
       '{{ beszel_hub_compose_name | swarm_container_regex("app") }}'.
       Check the Portainer stack status for {{ beszel_hub_compose_name }}
-      at http://{{ ansible_host }}:{{ portainer_ui_port | default(9000) }}.
+      at http://localhost:{{ portainer_ui_port | default(9000) }} through
+      `ssh -N -L {{ portainer_ui_port | default(9000) }}:127.0.0.1:{{ portainer_ui_port | default(9000) }} {{ catena_panel_user | default('panel') }}@<host>`.
   when: (_beszel_hub_container.stdout | default('') | trim) | length == 0
 
 # Read the hub-generated private key out of the container and derive the

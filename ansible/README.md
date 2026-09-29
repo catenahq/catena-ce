@@ -10,10 +10,12 @@ installer that drives it. For the install walkthrough itself see
 preflight  ->  bootstrap  ->  converge  ->  lockdown  ->  validate   (+ restore for DR)
 ```
 
-Every flow up to the lockdown reaches the host over the public SSH address
-the install started on, whichever access method was chosen. An install needs
-at least one way into the panel: tailnet credentials, or a Cloudflare zone
-and token, or both.
+Every flow reaches the host over the public SSH address the install started
+on, whichever access method was chosen, and public port 22 stays open after
+the install. The panel and Portainer answer the host's loopback only and are
+reached through an SSH forward as the `panel` account, which can do nothing but
+forward; tailnet credentials and a Cloudflare zone with its token are optional
+conveniences on top of that.
 
 - **preflight** -- controller-side check that the supplied Tailscale
   OAuth client is valid before any VPS work.
@@ -22,9 +24,10 @@ and token, or both.
 - **converge** -- the converge: networking (Cloudflare Tunnel / coturn),
   Docker, Portainer, sign-on (Keycloak + oauth2-proxy), the restic backup,
   the catena-admin shell.
-- **lockdown** -- joins the tailnet on that access method, proves the path,
-  then closes public port 22. The panel's lockdown action runs the same
-  playbook on the host.
+- **lockdown** -- joins the tailnet on that access method and proves the
+  path. The panel's Lockdown action runs the same playbook on the host and is
+  the only caller that then closes public port 22; the port reconciler
+  reopens it while the tailnet is down.
 - **validate** -- on-host, tailnet and external checks.
 - **restore** -- whole-host disaster recovery.
 

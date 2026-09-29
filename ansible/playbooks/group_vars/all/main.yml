@@ -33,6 +33,10 @@ ansible_ssh_private_key_file: >-
      else '' }}
 ops_ssh_public_keys:
   - "{{ lookup('file', lookup('dotenv', 'SSH_PUBLIC_KEY_FILE')) }}"
+# The forward-only account an administrator opens the panel and Portainer
+# through (`ssh -N -L 9010:127.0.0.1:9010 panel@<host>`). A product constant:
+# the installer's access page and the keyset banner print it.
+catena_panel_user: panel
 
 # --- The access plane ---
 # How this host is reached for administration, and therefore whether public
@@ -40,9 +44,10 @@ ops_ssh_public_keys:
 # a rebuilt host has to come back with the firewall posture it had, not the one
 # a default would pick for it.
 #
-# `tailnet`     a private network carries administration, and the install closes
-#               public 22 once it has PROVEN that path from the machine about to
-#               lose it. bootstrap/roles/tailscale runs.
+# `tailnet`     the host joins a private network. Public 22 stays open until the
+#               panel's Lockdown closes it, which it does only once it has
+#               PROVEN that path; the port reconciler reopens 22 while the
+#               tailnet is down. bootstrap/roles/tailscale runs.
 # `public_ssh`  no private network; port 22 stays open on the public IP, because
 #               a host with no alternative path has nothing to prove and closing
 #               it would be a lockout. The tailscale role is skipped.
@@ -150,21 +155,21 @@ admin_email: "{{ cfg_admin_email | default('') }}"
 
 # --- Portainer API (container control plane) ---
 # Global so any role (infrastructure stack seam, dashboard-sync env) can
-# reference it. reconcile/roles/portainer consumes the same names. Reached from the
-# controller over the tailnet.
+# reference it. reconcile/roles/portainer consumes the same names.
 # The port, like the hostname scheme, is the product's. It is published
-# host-mode and firewalled to the tailnet, so no client picks it to avoid a
-# collision -- nothing else on the box may bind it either way.
+# host-mode and confined to this host by the public-ports registry, so no client
+# picks it to avoid a collision -- nothing else on the box may bind it either
+# way. An administrator opens the UI through an SSH local forward.
 portainer_ui_port: "9000"
-portainer_api_base: "http://{{ ansible_host }}:{{ portainer_ui_port }}/api"
 
-# The SAME API, addressed from ON the host. Anything that runs on the box --
-# catena-dashboard-sync, the container-update lane -- must use this and never
-# portainer_api_base.
+# The API, addressed from ON the host, which is the only place it answers. The
+# converge's own API calls run on the host against it, and so does everything
+# that runs on the box -- catena-dashboard-sync, the container-update lane.
 #
-# ansible_host is where the CONTROLLER reaches the box, and it is not stable:
-# it flips between the public and tailnet address across converges and differs
-# again after a restore onto other infrastructure. Baking it into a file a
+# Never ansible_host. It is where the CONTROLLER reaches the box, the UI port
+# refuses it, and it is not stable: it flips between the public and tailnet
+# address across converges and differs again after a restore onto other
+# infrastructure. Baking it into a file a
 # host-local service reads gives that service an address for a machine it is
 # already running on, which stops working the moment the address changes:
 #
@@ -185,8 +190,8 @@ portainer_api_base_onbox: "http://127.0.0.1:{{ portainer_ui_port }}/api"
 # Public, oauth2-gated hostname for the Portainer UI over the Cloudflare
 # tunnel (admin-only; wired by reconcile/roles/oauth2_proxy oauth2_proxy_apps). This is
 # the client admin's self-serve deploy surface. Distinct from
-# portainer_api_base above, which is the tailnet-only operator control
-# path -- both reach the same catena-portainer service.
+# portainer_api_base_onbox above, which only this host reaches -- both reach
+# the same catena-portainer service.
 # NOT a constant, unlike its neighbours above. This is the one public subdomain
 # the two inventories disagree about: the starter here says `portainer` and the
 # operator skeleton says `apps`, with a note to use `admin` for established
