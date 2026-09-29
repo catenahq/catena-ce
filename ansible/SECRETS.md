@@ -15,7 +15,7 @@ holds it, and where it must end up** under the client-owned-config model
   written to the transient `--secrets-out` adopt file and nowhere else).
 - `reconcile/roles/backup/defaults/main.yml` (`backup_paths`).
 
-**Nothing secret is persisted on the controller** -- `catena install`
+**Nothing secret is persisted on the controller** -- `catena-cli install`
 writes no secret file into the inventory.
 
 ## North star
@@ -68,7 +68,7 @@ ride the backup, because it is what unlocks the backup.
 `console_recovery_password` are special: `USER_HELD_SECRETS` in
 `onbox_config.py`. They are minted **on-box if absent**
 (like the internal secrets) but the installer reads them back and **shows them
-once** at the end of `catena install` (`playbooks/show-keyset.yml`) so the
+once** at the end of `catena-cli install` (`playbooks/show-keyset.yml`) so the
 client keeps a copy in their password manager. They are NOT settable through
 the settings config-write API (a restic re-key is a deliberate action). To
 recover a lost server the client installs Catena on a new one and enters the

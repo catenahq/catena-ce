@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""catena -- Community Catena installer / CLI.
+"""catena-cli -- Community Catena installer / CLI.
 
 A thin wrapper over the Ansible base so self-hosters never touch raw
 ansible-playbook. Subcommands:
@@ -28,13 +28,12 @@ The inventory is a PLAINTEXT group_vars tree; the on-box config store
 restic backup.
 
 This module IS the CLI. `[project.scripts]` in pyproject.toml exposes it as
-the `catena` console script, so there is one file to read and one way to run
-it, from `ansible/`:
+the `catena-cli` console script, run from the repository root or `ansible/`:
 
-    uv run catena install --inventory prod
+    uv run catena-cli install --inventory prod
 
 Verb first, inventory as a flag. A verb that runs a single playbook carries
-that playbook's name. Bare `catena` prompts for both.
+that playbook's name. Bare `catena-cli` prompts for both.
 """
 from __future__ import annotations
 
@@ -158,7 +157,7 @@ def _add_inventory_args(parser: argparse.ArgumentParser, *, required: bool) -> N
 def _tags_extra(args: argparse.Namespace) -> list[str] | None:
     """Turn a `--tags a,b` CLI value into the ansible-playbook passthrough,
     or None when unset. Lets `converge`/`validate` run a tag-scoped subset
-    (e.g. `catena converge --tags keycloak,oauth2_proxy` to re-apply only
+    (e.g. `catena-cli converge --tags keycloak,oauth2_proxy` to re-apply only
     the auth roles after rotating a secret), Pure -- unit-testable."""
     tags = (getattr(args, "tags", "") or "").strip()
     return ["--tags", tags] if tags else None
@@ -173,7 +172,7 @@ def _prompt_provider_password(inv_dir: Path, initial_user: str) -> str:
     playbook, is the whole point; ansible-playbook skips a vars_prompt whose
     name is already an extra-var, so the mid-run question never appears.
 
-    Blank is a real answer: Phase 0.5 then skips the key install and assumes
+    Blank is a real answer: bootstrap then skips the key install and assumes
     the box is already keyed, which is what the vars_prompt default means."""
     env_path = inv_dir / ".env"
     target = ""
@@ -201,7 +200,7 @@ def _bootstrap_extra_vars(
     else the inventory's own .env (HOST_INITIAL_USER; on disk by now
     regardless of install.yaml, since seed.py already wrote or confirmed it). bootstrap_root_password comes from install.yaml when given,
     else from the up-front prompt (`prompt_password`, interactive callers
-    only); blank is meaningful either way -- Phase 0.5 then skips key
+    only); blank is meaningful either way -- bootstrap then skips key
     install, the host assumed already keyed.
 
     Both names are emitted whenever either source answered, so the play-scoped
@@ -281,7 +280,7 @@ def _preflight_checks(binaries: tuple[str, ...] = REQUIRED_BINARIES) -> None:
     if missing:
         die(
             "missing required tools on PATH: " + ", ".join(missing) + "\n"
-            "  - ansible-core: run this via `uv run catena ...`, or "
+            "  - ansible-core: run this via `uv run catena-cli ...`, or "
             "`pipx install ansible-core`"
         )
 
@@ -291,7 +290,7 @@ def _require_inventory(inv_dir: Path) -> None:
         die(
             f"inventory not found at {inv_dir}. Copy inventory/example/ "
             f"there, fill in .env and hosts.yml, then run "
-            f"`catena install --inventory {inv_dir.name}` first."
+            f"`catena-cli install --inventory {inv_dir.name}` first."
         )
 
 
@@ -529,7 +528,7 @@ KNOWN_COMMANDS = tuple(name for name, _ in MENU_COMMANDS)
 
 def _choose_command() -> str:
     """Print the numbered menu and return the chosen subcommand name."""
-    print(_c("1;34", "catena -- choose an operation:"), file=sys.stderr)
+    print(_c("1;34", "catena-cli -- choose an operation:"), file=sys.stderr)
     for i, (name, desc) in enumerate(MENU_COMMANDS, 1):
         print(f"  {i:>2}) {name:<18} {desc}", file=sys.stderr)
     choice = input("\nNumber [1=install]: ").strip() or "1"
@@ -540,7 +539,7 @@ def _choose_command() -> str:
 
 
 def interactive_menu() -> list[str]:
-    """Bare `catena` (no args): prompt for inventory, then the operation, and
+    """Bare `catena-cli` (no args): prompt for inventory, then the operation, and
     return the argv for the chosen subcommand. Pure of side effects beyond
     stdin/stdout, so the caller just feeds the result back through the
     parser."""
@@ -558,21 +557,23 @@ def _reject_bare_inventory(argv: list[str]) -> None:
         return
     rest = " ".join(argv[1:])
     die(f"{argv[0]!r} is not a command. The inventory is a flag, and the verb "
-        f"comes first: `catena {rest or '<verb>'} --inventory {argv[0]}`. "
+        f"comes first: `catena-cli {rest or '<verb>'} --inventory {argv[0]}`. "
         f"Commands: {', '.join(KNOWN_COMMANDS)}.", code=2)
 
 
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        prog="catena",
+        prog="catena-cli",
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    # Not required: bare `catena` drops into interactive_menu() instead of
+    # Not required: bare `catena-cli` drops into interactive_menu() instead of
     # erroring, so a self-hoster can discover the subcommands.
     sub = ap.add_subparsers(dest="command", required=False)
 
-    p_install = sub.add_parser("install", help="seed + preflight/bootstrap/site/validate")
+    p_install = sub.add_parser(
+        "install",
+        help="seed, then " + ", ".join(INSTALL_CHAIN))
     _add_inventory_args(p_install, required=False)
     p_install.add_argument("-i", "--input", help="install.yaml for non-interactive values")
     p_install.add_argument("--no-confirm", action="store_true",
@@ -635,16 +636,16 @@ def main(argv: list[str] | None = None) -> int:
     # paths resolve regardless of where the user invoked us.
     os.chdir(ANSIBLE_DIR)
     argv = list(sys.argv[1:] if argv is None else argv)
-    # `--install` is an alias for the `install` subcommand (so `catena
-    # --install` == `catena install`); rewrite it to the positional form and
+    # `--install` is an alias for the `install` subcommand (so `catena-cli
+    # --install` == `catena-cli install`); rewrite it to the positional form and
     # let install's own parser handle any trailing flags.
     if argv and argv[0] == "--install":
         argv = ["install", *argv[1:]]
-    # Bare `catena` (no args): interactive menu, when a TTY is present.
+    # Bare `catena-cli` (no args): interactive menu, when a TTY is present.
     if not argv:
         if not sys.stdin.isatty():
             die("no subcommand given (and no TTY for the menu). "
-                "Try `catena install --inventory <name>` or `catena --help`.",
+                "Try `catena-cli install --inventory <name>` or `catena-cli --help`.",
                 code=2)
         argv = interactive_menu()
     else:
@@ -654,7 +655,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _entry(argv: list[str] | None = None) -> int:
-    """Entry point for the `catena` console script; keeps the Ctrl-C handling
+    """Entry point for the `catena-cli` console script; keeps the Ctrl-C handling
     in one place."""
     try:
         return main(argv)

@@ -22,7 +22,7 @@
 #     tailnet credentials in the panel after the install gets the same join and
 #     the same proof the installer runs.
 #
-# `catena install` runs it after its converge and passes
+# `catena-cli install` runs it after its converge and passes
 # catena_lockdown_emit_address, so the tailnet address lands in
 # .bootstrap-output.yml for the legs and invocations that follow. It is
 # idempotent: on a host already locked down the join is a no-op, the public rule
@@ -57,6 +57,19 @@
     - name: Join the tailnet
       ansible.builtin.include_role:
         name: tailscale
+        apply:
+          tags: [lockdown, tailscale]
+      when: catena_access_method == 'tailnet'
+      tags: [lockdown, tailscale]
+
+    # Before anything is closed: the control server has to see this host
+    # connected and accepting, and on the host itself (the panel's lockdown) a
+    # peer has to answer through the tunnel. A failure ends the play here, with
+    # public 22 still open.
+    - name: Prove the tailnet reaches this host
+      ansible.builtin.include_role:
+        name: tailscale
+        tasks_from: reachable.yml
         apply:
           tags: [lockdown, tailscale]
       when: catena_access_method == 'tailnet'

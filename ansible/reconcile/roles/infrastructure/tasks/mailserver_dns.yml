@@ -48,7 +48,7 @@
 # Deployed AND a domain to publish under. The records below are written
 # straight against the Cloudflare API from mailserver_hostname, which is
 # mail.<zone> -- so on a zone-less host this reaches the API with "mail." and
-# a zone id that was never resolved.
+# an unresolved zone id.
 - name: "Mailserver DNS: publish mail A + MTA-STS + TLS-RPT (dms deployed)"
   when:
     - (mailserver_dms_ct | length) > 0
@@ -137,8 +137,8 @@
           ttl: 1
           # Re-sent because a Cloudflare PUT REPLACES the record: without it a
           # record that drifts once comes back with the ownership marker
-          # stripped, and cleanup keyed on "Managed by catena" no longer sees
-          # it as ours.
+          # stripped, and cleanup keyed on "Managed by catena" stops seeing it
+          # as ours.
           comment: "Managed by catena -- mail plane, MUST be gray-cloud"
         status_code: 200
       when:

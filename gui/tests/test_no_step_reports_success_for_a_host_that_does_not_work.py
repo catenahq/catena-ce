@@ -150,6 +150,33 @@ def test_the_oauth_pair_is_exchanged_rather_than_taken_on_trust(monkeypatch):
     assert not _blocking(checks)
 
 
+def test_an_oauth_client_that_cannot_read_devices_blocks(monkeypatch):
+    """The lockdown asks the control server whether the server is connected
+    before it closes public SSH. A client without the scope would install and
+    then refuse at its last step, so the page names the scope now."""
+    def fake(url, *, headers=None, data=None, timeout=10.0):
+        return (403, {}) if url.endswith("/devices") else (200, {"access_token": "t"})
+    monkeypatch.setattr(steps_mod, "_http_json", fake)
+    blocked = _blocking(steps_mod.check_access(
+        {"ACCESS_METHOD": "tailnet", "TAILNET_PROVIDER": "tailscale"},
+        {"tailscale_oauth_client_id": "x", "tailscale_oauth_client_secret": "y"}))
+    assert blocked and "Devices > Core (read)" in blocked[0].detail
+
+
+def test_headscale_with_a_preauth_key_only_warns_about_the_panel(monkeypatch):
+    """The install locks down from this machine with either key; a lockdown
+    applied later from the panel needs the API key to ask Headscale."""
+    monkeypatch.setattr(steps_mod, "_http_json", lambda *a, **k: (200, {}))
+    answers = {"ACCESS_METHOD": "tailnet", "TAILNET_PROVIDER": "headscale",
+               "TAILNET_CONTROL_URL": "https://hs.example.net"}
+    checks = steps_mod.check_access(answers, {"headscale_preauth_key": "k"})
+    warning = [c for c in checks if not c.ok]
+    assert warning and not _blocking(checks)
+    assert "panel" in warning[0].detail
+    assert all(c.ok for c in steps_mod.check_access(answers,
+                                                    {"headscale_api_key": "k"}))
+
+
 def test_headscale_needs_an_address_and_one_of_its_two_keys(monkeypatch):
     monkeypatch.setattr(steps_mod, "_http_json", lambda *a, **k: (200, {}))
     answers = {"ACCESS_METHOD": "tailnet", "TAILNET_PROVIDER": "headscale",
@@ -183,7 +210,7 @@ def test_a_server_that_does_not_answer_blocks(monkeypatch):
 # --- the keyset --------------------------------------------------------------
 
 def test_the_keyset_acknowledgement_cannot_be_skipped():
-    """`catena install` shows three passwords once and nothing off the server
+    """`catena-cli install` shows three passwords once and nothing off the server
     holds a copy. Without this the launcher ships installs nobody can
     recover."""
     assert _blocking(steps_mod.check_keyset({}))

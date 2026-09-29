@@ -18,9 +18,9 @@ is pure `lookup('dotenv', ...)` boilerplate, identical for every inventory,
 so it is not written per-inventory here -- only the .env VALUES it reads
 differ between inventories.
 
-No secret file is written into the inventory (0b: no persisted laptop vault).
+No secret file is written into the inventory (no persisted laptop vault).
 The vendor creds seed collects are prompted, live-validated, and written to the
-TRANSIENT 0600 file given by `--secrets-out`. The installer (`catena`) threads
+TRANSIENT 0600 file given by `--secrets-out`. The installer (`catena-cli`) threads
 that file onto the converge as `-e @file` (so the on-box loader ADOPTS it into
 /etc/catena/config.json) and deletes it; nothing secret persists on the laptop.
 
@@ -106,6 +106,12 @@ ENV_OPTIONS: dict[str, list[str]] = {
     for knob in render_knobs.env_knobs(_KNOBS)
     if "options" in knob["env"]
 }
+# Keys with no default that still need an answer, such as the server's
+# address: the registry gives them an example instead of a default.
+ENV_EXAMPLED: frozenset[str] = frozenset(
+    knob["key"] for knob in render_knobs.env_knobs(_KNOBS)
+    if knob["env"].get("example")
+)
 
 PLACEHOLDER_VALUES = {"REPLACE", "REPLACE-LONG-RANDOM-STRING"}
 
@@ -300,11 +306,12 @@ def validate_install_structural(
         _check("host_initial_password blank (install_key.py will prompt)", True)
 
     # "Optional" env keys are inferred from an empty template default -- the
-    # template author's signal that blank is acceptable.
+    # template author's signal that blank is acceptable -- unless the key
+    # carries an example, which marks a value with no default that is needed.
     for key, default in env_keys:
         val = env.get(key, default)
         eff = _effective_options(default, ENV_OPTIONS.get(key))
-        is_optional = not default
+        is_optional = not default and key not in ENV_EXAMPLED
         if is_optional and not _is_filled(val):
             continue
         # YAML bool -> "true"/"false".
@@ -442,6 +449,17 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
                       f"HTTP {status}" + (f" {body.get('error', '')}" if body else "")):
             problems += 1
         api_token = str((body or {}).get("access_token") or "")
+        if api_token:
+            # The lockdown asks the control server whether the server is
+            # connected before it closes public SSH, which needs this scope.
+            dstatus, _ = _http_json(
+                "https://api.tailscale.com/api/v2/tailnet/-/devices",
+                headers={"Authorization": f"Bearer {api_token}"})
+            if not _check("Tailscale OAuth client reads devices", dstatus == 200,
+                          f"HTTP {dstatus}" if dstatus == 200 else
+                          f"HTTP {dstatus} -- add Devices > Core (read) to the "
+                          f"OAuth client's scopes"):
+                problems += 1
     elif "tailscale_oauth_client_id" in vault_keys:
         _check("Tailscale OAuth token exchange", False, "skipped -- creds not set")
     else:
@@ -461,6 +479,10 @@ def validate_install(inp: dict, env_keys: list, vault_keys: list) -> int:
             _check("Headscale pre-auth credential", True,
                    "headscale_api_key" if _is_filled(vault.get("headscale_api_key"))
                    else "headscale_preauth_key (static)")
+            if not _is_filled(vault.get("headscale_api_key")):
+                warn(" no headscale_api_key: the install locks down from here, "
+                     "but the panel's lockdown needs it to ask Headscale whether "
+                     "this server is online, and refuses without it")
 
     cf_token = str(vault.get(CLOUDFLARE_TOKEN_KEY, "") or "").strip()
     cf_zone = str(env.get("CLOUDFLARE_ZONE", "") or "").strip()
@@ -702,19 +724,37 @@ def fill(provided: dict, key: str, default: str, label: str | None = None,
 
 
 # --- file emission ----------------------------------------------------------
-def emit_env(template_text: str, values: dict[str, str], target: Path) -> None:
+def emit_env(template_text: str, values: dict[str, str], target: Path, *,
+             keep_existing: bool = True) -> None:
+    """Write an inventory `.env` from the template, the explanation beside each
+    value. With `keep_existing` a value already in the file wins over the
+    input, so a re-run of `catena-cli install` never rewrites what a client
+    edited by hand. The graphical installer passes False: what it saves IS the
+    client's edit.
+
+    A key already in the file that the template does not carry is kept, after
+    the template's keys, in either mode: the template decides the layout, not
+    which of a client's lines survive."""
     target.parent.mkdir(parents=True, exist_ok=True)
-    existing: dict[str, str] = {}
+    on_disk: dict[str, str] = {}
     if target.exists():
-        existing = dict(parse_env_pairs(target.read_text()))
+        on_disk = dict(parse_env_pairs(target.read_text()))
+    existing = on_disk if keep_existing else {}
+
+    def line(key: str, value: str) -> str:
+        if any(c in value for c in " \t#\"'$"):
+            value = '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+        return f"{key}={value}"
 
     out: list[str] = []
+    template_keys: set[str] = set()
     for raw in template_text.splitlines():
         stripped = raw.strip()
         if not stripped or stripped.startswith("#") or "=" not in stripped:
             out.append(raw)
             continue
         key = stripped.split("=", 1)[0].strip()
+        template_keys.add(key)
         if key in existing:
             value = existing[key]
             if key in values and values[key] != value:
@@ -724,9 +764,10 @@ def emit_env(template_text: str, values: dict[str, str], target: Path) -> None:
                 )
         else:
             value = values.get(key, "")
-        if any(c in value for c in " \t#\"'$"):
-            value = '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
-        out.append(f"{key}={value}")
+        out.append(line(key, value))
+    extra = [line(k, v) for k, v in on_disk.items() if k not in template_keys]
+    if extra:
+        out += ["", "# Not in the template, kept as found."] + extra
     target.write_text("\n".join(out) + "\n")
 
 

@@ -1,4 +1,4 @@
-"""Unit tests for the `catena` CLI wrapper: command wiring."""
+"""Unit tests for the `catena-cli` CLI wrapper: command wiring."""
 from __future__ import annotations
 
 import importlib.util
@@ -95,7 +95,7 @@ def test_playbook_cmd_extra_args(cli):
 
 
 def test_converge_accepts_tags_passthrough(cli):
-    """`catena converge --tags a,b` scopes the converge to those roles
+    """`catena-cli converge --tags a,b` scopes the converge to those roles
     (e.g. re-apply only keycloak,oauth2_proxy after rotating a secret)."""
     ns = cli.build_parser().parse_args(
         ["converge", "--inventory", "test", "--tags", "keycloak,oauth2_proxy"]
@@ -118,7 +118,7 @@ def test_tags_extra_is_none_when_unset(cli):
 
 
 def test_backup_parser_wires_backup_now(cli):
-    """`catena backup` runs the backup_now playbook (the manual CE snapshot)."""
+    """`catena-cli backup` runs the backup_now playbook (the manual CE snapshot)."""
     ns = cli.build_parser().parse_args(["backup", "--inventory", "test"])
     assert ns.func is cli.cmd_backup
     cmd = cli.playbook_cmd(ns.inventory, "backup")
@@ -496,15 +496,15 @@ def test_install_accepts_inventory_path_and_skips_the_name(cli):
 # ---- no-argument menu + `--install` alias ----
 
 def test_bare_invocation_is_not_an_error(cli):
-    """Subparsers are not required: bare `catena` parses to command=None (the
+    """Subparsers are not required: bare `catena-cli` parses to command=None (the
     dispatcher then drops into the interactive menu) instead of erroring."""
     ns = cli.build_parser().parse_args([])
     assert ns.command is None
 
 
 def test_install_flag_is_alias_for_install_subcommand(cli, monkeypatch):
-    """`catena --install [flags]` dispatches to cmd_install, same as
-    `catena install [flags]`."""
+    """`catena-cli --install [flags]` dispatches to cmd_install, same as
+    `catena-cli install [flags]`."""
     seen = {}
     monkeypatch.setattr(cli.os, "chdir", lambda p: None)
     monkeypatch.setattr(cli, "cmd_install", lambda ns: (seen.update(ns=ns), 0)[1])
@@ -541,7 +541,7 @@ def test_interactive_menu_rejects_bad_choice(cli, monkeypatch):
 
 # --- one argv shape ----------------------------------------------------------
 def test_verb_first_shape_is_accepted(cli):
-    """`catena <verb> --inventory <name>` is the shape, and nothing rewrites
+    """`catena-cli <verb> --inventory <name>` is the shape, and nothing rewrites
     it on the way to the parser."""
     argv = ["install", "--inventory", "prod", "--no-confirm"]
     assert cli._reject_bare_inventory(argv) is None
@@ -569,7 +569,7 @@ def test_lone_inventory_name_is_refused(cli, capsys):
 
 
 def test_main_runs_menu_when_no_args_and_tty(cli, monkeypatch):
-    """Bare `catena` on a TTY drives interactive_menu() and dispatches the
+    """Bare `catena-cli` on a TTY drives interactive_menu() and dispatches the
     chosen command."""
     seen = {}
     monkeypatch.setattr(cli.os, "chdir", lambda p: None)
@@ -591,7 +591,7 @@ def test_main_no_args_without_tty_dies(cli, monkeypatch):
 
 
 def test_main_dispatches_verb_first_shape(cli, monkeypatch):
-    """`catena <verb> --inventory <name>` end to end: main() dispatches to the
+    """`catena-cli <verb> --inventory <name>` end to end: main() dispatches to the
     right subcommand with the right inventory."""
     seen = {}
     monkeypatch.setattr(cli.os, "chdir", lambda p: None)

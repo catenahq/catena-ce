@@ -16,6 +16,13 @@
 # nobody is locked out. The rules added at step 2 are harmless on their own:
 # they allow traffic the broader public rule already allowed.
 #
+# Steps 3 and 5 run from the installer's controller only. On the host itself
+# (the panel's lockdown, a local connection) localhost IS this host, and a
+# handshake with its own address proves nothing; there the proof is
+# bootstrap/roles/tailscale/tasks/reachable.yml, which playbooks/lockdown.yml
+# runs before this file: the control server sees the host connected and
+# accepting, and a peer answers through the tunnel.
+#
 # TWO REACHABLE COMBINATIONS AND ONLY TWO. `tailnet + 22 closed` is the path
 # below. `no tailnet + 22 open` is what a host with no alternative gets, and it
 # is a posture rather than a failure. `no tailnet + 22 closed` is unreachable by
@@ -132,6 +139,7 @@
       become: false
       register: tailnet_reachable
       failed_when: tailnet_reachable.failed | default(false)
+      when: (ansible_connection | default('ssh')) != 'local'
 
     # ─── Step 4: NOW close the port ──────────────────────────────────────
     # The same rule bootstrap/roles/common adds (from any to any port 22
@@ -190,6 +198,7 @@
         state: started
       delegate_to: localhost
       become: false
+      when: (ansible_connection | default('ssh')) != 'local'
 
     - name: Capture ufw status for assertion
       ansible.builtin.command: ufw status verbose

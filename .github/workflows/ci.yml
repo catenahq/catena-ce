@@ -28,6 +28,35 @@ jobs:
         working-directory: ansible
         run: uv run --no-project --with pytest --with pyyaml python -m pytest tests/unit -q
 
+  entry-points:
+    # The two entry points a client runs, `catena-cli` and `catena-gui`, from
+    # the root project and from their own. The launcher's tests include the
+    # gate that holds the declarations, the code they point at, the launcher's
+    # call into the CLI and the documented commands to one another; the locks
+    # are held to their pyprojects here, since resolving needs the index.
+    name: Entry points and the graphical installer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      - name: Locks match their pyprojects
+        run: |
+          set -eu
+          uv lock --check
+          uv lock --check --project ansible
+          uv lock --check --project gui
+      - name: Both entry points run from the root
+        run: |
+          set -eu
+          uv run catena-cli --help
+          uv run catena-gui --help
+      - name: Graphical installer tests
+        working-directory: gui
+        run: uv run pytest -q
+
   syntax:
     # Every playbook parses, roles and all. The unit job above deliberately
     # runs without ansible-core, so nothing until now READ the tree Ansible

@@ -2,8 +2,8 @@
 
 Every public hostname is `<sub>.{{ cloudflare_zone }}`, so with no domain
 entered the zone is empty and the name renders `heartbeat.` -- a trailing dot
-with nothing after it. That is not a degraded address, it is a malformed one,
-and an app that validates its own hostname refuses to start on it.
+with nothing after it. A malformed address, and an app that validates its own
+hostname refuses to start on it.
 
 Healthchecks proved it. `SITE_ROOT=https://heartbeat.` normalises to host
 "heartbeat" while `ALLOWED_HOSTS` carried "heartbeat.", so Django raised

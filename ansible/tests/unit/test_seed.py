@@ -210,6 +210,20 @@ def test_emit_env_quotes_values_with_whitespace(seed, tmp_path):
     assert '"topic with spaces"' in target.read_text()
 
 
+@pytest.mark.parametrize("keep_existing", [True, False])
+def test_emit_env_keeps_a_key_the_template_does_not_carry(seed, tmp_path,
+                                                          keep_existing):
+    """The template decides the layout, not which of a client's lines
+    survive: a key only the file has comes back after the template's."""
+    target = tmp_path / ".env"
+    target.write_text("SMTP_PORT=587\nCLIENT_OWN_KEY=kept value\n")
+    seed.emit_env("SMTP_PORT=25\n", {"SMTP_PORT": "2525"}, target,
+                  keep_existing=keep_existing)
+    pairs = seed.read_existing_env(target)
+    assert pairs["CLIENT_OWN_KEY"] == "kept value"
+    assert pairs["SMTP_PORT"] == ("587" if keep_existing else "2525")
+
+
 # --- read_existing_env -------------------------------------------------------
 def test_read_existing_env_parses_a_hand_filled_file(seed, tmp_path):
     """A self-hoster's own inventory/<name>/.env feeds _collect_env_values as
@@ -440,6 +454,17 @@ def test_validate_structural_blank_restic_repo_is_ok(seed):
     assert seed.validate_install_structural(inp, _ENV_KEYS, _VAULT_KEYS) == 0
 
 
+def test_validate_structural_requires_a_key_with_an_example(seed):
+    """HOST_PUBLIC_IP has no default, only an example, and an install still
+    needs it: an empty default alone does not make it optional."""
+    assert "HOST_PUBLIC_IP" in seed.ENV_EXAMPLED
+    env_keys = [("HOST_PUBLIC_IP", "")]
+    assert seed.validate_install_structural(_good_inp(), env_keys, _VAULT_KEYS) >= 1
+    inp = _good_inp()
+    inp["env"]["HOST_PUBLIC_IP"] = "198.51.100.7"
+    assert seed.validate_install_structural(inp, env_keys, _VAULT_KEYS) == 0
+
+
 # --- Cloudflare zone ---------------------------------------------------------
 def test_validate_structural_requires_cf_zone(seed):
     """A blank zone is a problem on every host: every hostname derives from
@@ -611,6 +636,25 @@ def test_headscale_install_without_a_join_credential_is_refused(seed, on_tailnet
 def test_headscale_install_with_either_credential_passes(seed, on_tailnet):
     for key in ("headscale_api_key", "headscale_preauth_key"):
         assert seed.validate_install(_headscale_inp({key: "x"}), [], []) == 0, key
+
+
+def test_an_oauth_client_that_cannot_read_devices_is_refused(seed, on_tailnet,
+                                                            monkeypatch):
+    """The lockdown asks the control server whether the server is connected
+    before it closes public SSH. Without the device read scope that question
+    is refused at the install's last step, so seed refuses it first."""
+    def http(url, *, headers=None, data=None, timeout=10.0):
+        if url.endswith("/oauth/token"):
+            return 200, {"access_token": "t"}
+        return (dev_status, {})
+    monkeypatch.setattr(seed, "_http_json", http)
+    inp = {"inventory": "prod", "host": {}, "env": {},
+           "vault": {"tailscale_oauth_client_id": "id",
+                     "tailscale_oauth_client_secret": "secret"}}
+    dev_status = 403
+    assert seed.validate_install(inp, [], []) == 1
+    dev_status = 200
+    assert seed.validate_install(inp, [], []) == 0
 
 
 def test_a_public_ssh_install_asks_for_no_tailnet_credential(seed):

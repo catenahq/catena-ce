@@ -1,12 +1,13 @@
 # Inventory
 
-One subdirectory per deployment: `inventory/<name>/`. Copy
-`example/.env.example` here as `.env` and fill it in -- `catena <name>
-install` then reads it rather than writing it, and creates `hosts.yml` +
-`localhost.yml` itself from `../skel/` on that same first run.
-`bootstrap.yml` rewrites one field afterward (the tailnet address a host
-got, once it joins). `-i install.yaml` generates everything from scratch
-instead (the bench / power-user path).
+One subdirectory per deployment: `inventory/<name>/`. The graphical
+installer (`uv run catena-gui`) creates one and writes its `.env` page by
+page; by hand, copy `example/.env.example` here as `.env` and fill it in.
+`catena-cli install --inventory <name>` then reads it rather than writing
+it, and creates `hosts.yml` + `localhost.yml` itself from `../skel/` on
+that same first run. `lockdown.yml` records the tailnet address a host got
+once it joins, and `catena-cli` folds it into `hosts.yml`. `-i install.yaml` generates
+everything from scratch instead (the bench / power-user path).
 
 Real inventories are gitignored. Only `example/.env.example` is tracked,
 and it is GENERATED from
@@ -18,10 +19,11 @@ no per-deployment variation to document -- `../skel/` carries those.
 
 | File | What it holds |
 | --- | --- |
-| `hosts.yml` | The two host groups: `vps` (steady state, reached over the tailnet) and `bootstrap` (public IP, used only by `bootstrap.yml` before port 22 closes). Auto-created from `../skel/hosts.yml.example` on first `catena install` -- every field reads from `.env`. |
+| `hosts.yml` | The two host groups: `vps` (steady state, reached over the tailnet) and `bootstrap` (public IP, used only by `bootstrap.yml` before port 22 closes). Auto-created from `../skel/hosts.yml.example` on first `catena-cli install` -- every field reads from `.env`. |
 | `localhost.yml` | Anchors localhost to this inventory so controller-side plays such as `preflight.yml` have an `inventory_dir`. Auto-created from `../skel/localhost.yml`, committed as-is. |
 | `.env` | Non-secret deployment configuration: host IP, domain, zone, sizing, feature toggles. |
-| `.bootstrap-output.yml` | Written by `bootstrap.yml`; carries facts later flows read back. |
+| `.bootstrap-output.yml` | Written by `bootstrap.yml` and `lockdown.yml`; carries facts later flows read back. |
+| `.catena-gui.json` | Written by the graphical installer: its page, the install's state, the keyset acknowledgement. |
 
 Ansible variables that do not belong in `.env` (structure reading it, not
 per-deployment values) live once at
@@ -32,7 +34,7 @@ drops a file under its own `group_vars/all/`.
 ## No secrets here
 
 An inventory holds configuration, never credentials. The vendor
-credentials `catena install` collects go to a transient 0600 file that
+credentials `catena-cli install` collects go to a transient 0600 file that
 the CLI passes to the converge and then deletes; everything else is
 minted on the server and stored at `/etc/catena/config.json`. See
 [../SECRETS.md](../SECRETS.md) for the full classification.

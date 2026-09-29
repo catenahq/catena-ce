@@ -63,6 +63,6 @@ service) are idempotent and no-op when already correct.
 ## Related
 
 - Entry point: `playbooks/rotate-tunnel.yml`, driven by
-  `catena rotate-tunnel`.
+  `catena-cli rotate-tunnel`.
 - Converge counterpart: `reconcile/roles/cloudflare_tunnel`.
 - Declared in `boundary.yml` under `own_playbook_roles`.

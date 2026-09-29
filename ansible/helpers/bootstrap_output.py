@@ -3,7 +3,7 @@
 
 bootstrap.yml sets the host's ansible_host in its IN-MEMORY inventory to the
 install address, and lockdown.yml moves it to the tailnet address once it has
-joined; a later `catena install` stage reads hosts.yml off disk, where the
+joined; a later `catena-cli install` stage reads hosts.yml off disk, where the
 entry is still what it was before. So the value is emitted here, into a
 gitignored file the operator copies into their inventory (and
 apply_to_inventory() applies for the in-flight run).
@@ -51,7 +51,7 @@ HEADER = """\
 # Non-secret only.
 #
 # To apply by hand: set hosts[<host>].ansible_host in <inventory>/hosts.yml
-# under the `vps:` group. `catena install` does this for you between stages.
+# under the `vps:` group. `catena-cli install` does this for you between stages.
 """
 
 
@@ -100,7 +100,7 @@ def apply_to_inventory(inv_dir: Path) -> list[str]:
     bootstrap.yml (the install address) and lockdown.yml (the tailnet
     address, once joined) set the host's ansible_host in their IN-MEMORY
     inventory (add_host) + emit .bootstrap-output.yml, but a SEPARATE
-    converge.yml / validate.yml invocation (as `catena install` runs each
+    converge.yml / validate.yml invocation (as `catena-cli install` runs each
     stage) reads hosts.yml, where the entry is still the 0.0.0.0 placeholder
     or the install address. Applying the emitted IP here makes the later
     stages target the host's current address. Returns the list of applied

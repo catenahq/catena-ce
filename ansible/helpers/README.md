@@ -38,3 +38,4 @@ Unit tests for these live in `../tests/unit/`.
 | `public_ports.py` | Declarative public-port registry: single source of truth for every direct public port the VPS exposes outside the Cloudflare Tunnel. |
 | `render_knobs.py` | Render helpers/knobs.yml to its two artifacts, and check they are current. |
 | `tailnet_check.py` | Controller-side tailnet preflight: is THIS machine on the tailnet? |
+| `tailnet_reachability.py` | Ask the tailnet whether this host is reachable on it, before public 22 closes. |

@@ -52,12 +52,15 @@ on every host, but the license check gates their features at runtime, so
 they stay dormant on a Community host. On a Business host `catena-schedule`
 turns on the lanes set on the panel's Schedules page.
 
-## Installer (`catena`)
+## Installer (`catena-cli`)
 
 The bundled CLI drives every flow. Prerequisite: `uv` on PATH
 (ansible-core comes from `uv`). Nothing else -- there is no encryption
-tool to install and no key to have in scope. Run it from this `ansible/`
-directory, where `pyproject.toml` lives.
+tool to install and no key to have in scope. Run it from the repository
+root, whose project depends on this one, or from this `ansible/`
+directory, where its own `pyproject.toml` lives. The graphical installer
+(`uv run catena-gui`, in `../gui/`) writes the same inventory and runs
+the same `install`.
 
 | Command | Playbook | What it does |
 | --- | --- | --- |
@@ -70,21 +73,20 @@ directory, where `pyproject.toml` lives.
 | `show-keyset` | `show-keyset.yml` | Show the passwords and first-login URLs again |
 | `uninstall` | `uninstall.yml` | Unmask the native apt timers on a host an older release masked |
 
-One shape: `uv run catena <verb> --inventory <name>`. A verb that runs a
+One shape: `uv run catena-cli <verb> --inventory <name>`. A verb that runs a
 single playbook carries that playbook's name; `install` chains several, so
 there is no one playbook to name it after. Restores run from the panel, on
 an installed host. With no
-arguments the CLI opens an interactive menu and prompts for both; `catena
---install` is an alias for `catena install`. A leading inventory name is
+arguments the CLI opens an interactive menu and prompts for both; `catena-cli
+--install` is an alias for `catena-cli install`. A leading inventory name is
 refused with the correct shape rather than an argparse choice error.
 
 `install` first runs `seed.py`: with no `-i`, `.env` must already exist
-(copied from `inventory/example/.env.example` and filled in -- the only
-file in that directory, and the only one a self-hoster ever copies), and
-seed reads its config from there instead of prompting field by field --
-what it still prompts for is the tailnet join credential, and the
-Cloudflare token when the inventory names a domain, both staged to a
-transient 0600 file. `hosts.yml`/`localhost.yml` auto-scaffold
+(written by the graphical installer, or copied from
+`inventory/example/.env.example` and filled in), and seed reads its
+config from there instead of prompting field by field -- what it still
+prompts for is the tailnet join credential, and the Cloudflare token when
+the inventory names a domain, both staged to a transient 0600 file. `hosts.yml`/`localhost.yml` auto-scaffold
 from `skel/` on that same first run; nothing else to copy or edit.
 `-i install.yaml --no-confirm` generates a fresh inventory from an
 answers file instead (the bench / power-user path), unattended.
@@ -92,7 +94,7 @@ answers file instead (the bench / power-user path), unattended.
 ## Secrets
 
 **No secret ever persists on the controller.** Not encrypted, not
-plaintext: `catena install` writes only non-secret files into the
+plaintext: `catena-cli install` writes only non-secret files into the
 inventory.
 
 - The install's vendor credentials (the tailnet credential, and the

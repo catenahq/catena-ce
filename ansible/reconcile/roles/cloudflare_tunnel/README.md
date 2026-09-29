@@ -79,7 +79,7 @@ roles:
 - The `catena-cloudflared-sync` engine on `/usr/local/bin` (installed by
   `reconcile/roles/payload`, four roles earlier).
 - On-box store token `cloudflare_api_token` (Zone:DNS:Edit +
-  Cloudflare Tunnel:Edit on the target zone). `catena install` asks for it
+  Cloudflare Tunnel:Edit on the target zone). `catena-cli install` asks for it
   when the inventory answers `CLOUDFLARE_ZONE`, and the client enters it in
   catena-admin > Settings otherwise. Either way the engine reads it from
   the store and this role passes nothing.

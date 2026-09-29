@@ -137,6 +137,40 @@ def test_the_lockdown_joins_before_it_closes():
     assert join < close, f"join={join} close={close}"
 
 
+def test_the_tailnet_is_asked_before_anything_closes():
+    """The control server's record of the host, and on the host a peer, are
+    the proof the panel's lockdown has. It runs between the join and the ufw
+    change, so a refusal leaves public 22 open."""
+    tasks = _flatten((_load(LOCKDOWN_PLAY) or [])[0].get("tasks") or [])
+    join = _index(tasks, "Join the tailnet")
+    prove = _index(tasks, "Prove the tailnet reaches this host")
+    close = _index(tasks, "Lock ufw to the declared access method")
+    assert join < prove < close, f"join={join} prove={prove} close={close}"
+    inc = tasks[prove].get("ansible.builtin.include_role") or {}
+    assert (inc.get("name"), inc.get("tasks_from")) == ("tailscale", "reachable.yml")
+
+
+def test_on_the_host_no_probe_dials_its_own_address():
+    """The panel runs lockdown.yml over a local connection, where `localhost`
+    is the host: a handshake with its own tailnet address passes whatever the
+    tailnet thinks. Those probes run from the installer's controller only, and
+    on the host the reachability check requires a peer instead."""
+    tasks = _flatten(_load(LOCKDOWN_TASKS))
+    for name in ("Verify tailnet SSH reachability", "Re-verify tailnet SSH"):
+        probe = tasks[_index(tasks, name)]
+        assert "ansible_connection" in _conditions(probe) \
+            and "!= 'local'" in _conditions(probe), (
+                f"{name!r} runs on the host, where it dials itself")
+    role = ANSIBLE / "bootstrap" / "roles" / "tailscale"
+    main = _flatten(_load(role / "tasks" / "main.yml"))
+    probe = main[_index(main, "Verify controller can reach node")]
+    assert "tailscale_on_host" in _conditions(probe)
+    defaults = _load(role / "defaults" / "main.yml") or {}
+    assert "== 'local'" in str(defaults.get("tailscale_on_host", ""))
+    reachable = (role / "tasks" / "reachable.yml").read_text(encoding="utf-8")
+    assert "TAILNET_REQUIRE_PEER" in reachable and "tailscale_on_host" in reachable
+
+
 def test_only_the_installer_emits_the_tailnet_address():
     """The next install leg reaches the host at its tailnet address once 22 is
     closed, and learns it from .bootstrap-output.yml. The panel runs the same

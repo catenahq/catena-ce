@@ -1,0 +1,50 @@
+---
+# Ask the tailnet whether this host is reachable on it, before public 22
+# closes. playbooks/lockdown.yml runs this right after the join, from the
+# installer and from the panel alike; helpers/tailnet_reachability.py runs ON
+# the host and says what each check asks.
+#
+# From the installer, common's ufw_lockdown.yml also probes the tailnet address
+# from the controller, the machine about to lose public 22, so no peer is
+# required here. From the panel, the play runs on the host itself, where that
+# probe would dial its own address; there an online peer answering through the
+# tunnel is required (tailscale_on_host).
+
+- name: "Tailnet: ask the control server and a peer whether this host is reachable"
+  ansible.builtin.script:
+    cmd: "{{ playbook_dir }}/../helpers/tailnet_reachability.py"
+    executable: python3
+  environment:
+    TAILNET_PROVIDER: "{{ tailnet_provider }}"
+    TAILSCALE_API_BASE: "{{ tailscale_api_base }}"
+    TAILSCALE_OAUTH_CLIENT_ID: "{{ tailscale_oauth_client_id | default('') }}"
+    TAILSCALE_OAUTH_CLIENT_SECRET: "{{ tailscale_oauth_client_secret | default('') }}"
+    HEADSCALE_URL: "{{ tailnet_control_url | default('') }}"
+    HEADSCALE_API_KEY: "{{ headscale_api_key | default('') }}"
+    TAILNET_OWN_TAGS: "{{ tailscale_tags | join(',') }}"
+    TAILNET_REQUIRE_PEER: "{{ '1' if tailscale_on_host | bool else '0' }}"
+  register: _ts_reachable
+  changed_when: false
+  failed_when: false
+  no_log: true # the environment carries the OAuth secret and the API key
+
+# Two tasks rather than a ternary: ansible-core 2.19 templates both branches,
+# and from_json on the empty stdout of a crashed helper fails the play with a
+# parse error instead of the helper's own stderr.
+- name: "Tailnet: read the verdict"
+  ansible.builtin.set_fact:
+    tailnet_reachability: "{{ _ts_reachable.stdout | from_json }}"
+  when: (_ts_reachable.stdout | default('') | trim | length) > 0
+
+- name: "Tailnet: this host is reachable on it"
+  ansible.builtin.assert:
+    that:
+      - tailnet_reachability is defined
+      - tailnet_reachability.ok | bool
+    fail_msg: >-
+      The tailnet does not confirm this server is reachable on it, so public
+      port 22 stays open:
+      {{ tailnet_reachability.summary
+         if tailnet_reachability is defined
+         else (_ts_reachable.stderr | default('the check printed nothing') | trim) }}
+    success_msg: "{{ tailnet_reachability.summary | default('') }}"

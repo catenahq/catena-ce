@@ -1,8 +1,9 @@
-"""What each page shows, and what it proves before it advances.
+"""What each section asks, and what it proves before the install starts.
 
-EVERY STEP VALIDATES BEFORE IT ADVANCES. An installer that collects six pages
-of answers and discovers on the last one that the first credential was wrong
-has spent a client's whole sitting to tell them something it knew at the start.
+EVERY SECTION HAS ITS CHECK, and Install runs all of them first. An installer
+that collects every answer and discovers at the end that the first credential
+was wrong has spent a client's whole sitting to tell them something it knew at
+the start.
 
 AND IT NEVER REPORTS SUCCESS FOR A HOST THAT DOES NOT WORK. That is the harder
 half and it decides the shape of the probes below: a step passes only when the
@@ -54,7 +55,7 @@ class Check:
 
 @dataclass
 class Field:
-    """One question on a page, resolved from the registry."""
+    """One question in a section, resolved from the registry."""
 
     key: str
     secret: bool
@@ -64,6 +65,7 @@ class Field:
     doc: str
     governor: str
     governor_values: list[str]
+    example: str = ""
 
     def shown_for(self, answers: dict[str, str]) -> bool:
         """Whether this field applies, given what is answered so far.
@@ -103,6 +105,7 @@ def _field(doc: dict, entry: dict) -> Field:
         doc=str(entry.get("doc") or ""),
         governor=governor,
         governor_values=values,
+        example=registry.example_for(entry),
     )
 
 
@@ -158,7 +161,7 @@ def check_target(answers: dict[str, str]) -> list[Check]:
         checks.append(Check(
             f"{host}:{port} answers", _tcp_open(host, int(port)),
             "nothing accepted a connection. A server still being delivered is "
-            "the ordinary reason, and this page is where a run waits for it"))
+            "the ordinary reason, and this section is where a run waits for it"))
     for label, key in (("private key", "SSH_PRIVATE_KEY"),
                        ("public key", "SSH_PUBLIC_KEY_FILE")):
         raw = (answers.get(key) or "").strip()
@@ -189,7 +192,7 @@ def check_domain(answers: dict[str, str], secrets: dict[str, str]) -> list[Check
         return [Check("Cloudflare", True,
                       "no domain yet -- this server installs with no public "
                       "surface, its panel is reached over the private network "
-                      "chosen on the next page, and the domain is entered there "
+                      "chosen in the next section, and the domain is entered there "
                       "later")]
     if not token:
         return [Check("Cloudflare token", False,
@@ -226,7 +229,7 @@ def check_domain(answers: dict[str, str], secrets: dict[str, str]) -> list[Check
     out.append(Check(
         f"{zone} is active", False,
         f"it is {zone_status}. Cloudflare serves no DNS for this domain until "
-        f"the registrar delegates it to {nameservers}. This page is where a "
+        f"the registrar delegates it to {nameservers}. This section is where a "
         "run waits for that"))
     return out
 
@@ -251,7 +254,7 @@ def check_access(answers: dict[str, str], secrets: dict[str, str]) -> list[Check
             return [Check("a way into the panel", False,
                           "with no private network the panel is reached only "
                           "through the Cloudflare tunnel. Give the domain and "
-                          "its token on the domain page, or choose the private "
+                          "its token in the domain section, or choose the private "
                           "network here")]
         return [Check("direct SSH on the public address", True,
                       "this server joins no private network and keeps its SSH "
@@ -274,6 +277,12 @@ def check_access(answers: dict[str, str], secrets: dict[str, str]) -> list[Check
             out.append(Check(f"{control} answers", status != 0,
                              "the control server did not answer from this "
                              "machine", blocking=False))
+        out.append(Check("an API key for the panel's lockdown",
+                         bool((secrets.get("headscale_api_key") or "").strip()),
+                         "with a pre-authentication key only, the install "
+                         "still locks down, but a lockdown applied later from "
+                         "the panel cannot ask Headscale whether this server "
+                         "is online, and refuses", blocking=False))
         return out
 
     client_id = (secrets.get("tailscale_oauth_client_id") or "").strip()
@@ -290,8 +299,18 @@ def check_access(answers: dict[str, str], secrets: dict[str, str]) -> list[Check
         headers={"Authorization": f"Basic {auth}",
                  "Content-Type": "application/x-www-form-urlencoded"},
         data=b"grant_type=client_credentials")
-    return [Check("the OAuth client exchanges for a token", status == 200,
-                  f"HTTP {status} {(body or {}).get('error', '')}".strip())]
+    out = [Check("the OAuth client exchanges for a token", status == 200,
+                 f"HTTP {status} {(body or {}).get('error', '')}".strip())]
+    token = str((body or {}).get("access_token") or "")
+    if status == 200 and token:
+        # The lockdown asks the control server whether this server is connected
+        # before it closes public SSH, and that needs the device read scope.
+        dstatus, _ = _http_json(f"{TAILSCALE_API}/tailnet/-/devices",
+                                headers={"Authorization": f"Bearer {token}"})
+        out.append(Check("the OAuth client can read devices", dstatus == 200,
+                         f"HTTP {dstatus}: add Devices > Core (read) to the "
+                         f"client's scopes"))
+    return out
 
 
 def check_backup(answers: dict[str, str]) -> list[Check]:
@@ -331,9 +350,10 @@ def check_locale(answers: dict[str, str]) -> list[Check]:
 def check_keyset(answers: dict[str, str]) -> list[Check]:
     """The acknowledgement, and it is the one check that cannot be waived.
 
-    `catena install` ends by showing three passwords once: the first-login
+    `catena-cli install` ends by showing three passwords once: the first-login
     password, the backup encryption password and the console break-glass
-    password. Nothing off the server holds a copy. Without an explicit
+    password, with the journal verification key. Nothing off the server holds
+    a copy. Without an explicit
     acknowledgement here the launcher ships installs nobody can recover.
     """
     acked = (answers.get("_keyset_acknowledged") or "").strip() == "yes"
@@ -343,8 +363,7 @@ def check_keyset(answers: dict[str, str]) -> list[Check]:
 
 
 # The probe for each step, by name. A step with no entry has nothing to prove
-# from here -- and there are none today, which is the point of listing them all
-# rather than defaulting.
+# from here; every step is listed rather than defaulted.
 PROBES = {
     "target": lambda a, s: check_target(a),
     "domain": check_domain,

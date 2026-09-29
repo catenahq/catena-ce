@@ -12,3 +12,9 @@ coverage.*
 # Python (PEP723 scripts under .github/scripts leave bytecode caches)
 __pycache__/
 *.pyc
+
+# The root project's environment: `uv run catena-cli` / `uv run catena-gui`
+# from here install both projects into it.
+.venv/
+.pytest_cache/
+*.egg-info/

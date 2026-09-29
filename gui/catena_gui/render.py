@@ -1,34 +1,41 @@
 """Turn a run's answers into the contract the installer already takes.
 
-NO NEW MIDDLE LAYER. `install.yaml` plus `catena install -i ... --no-confirm`
+NO NEW MIDDLE LAYER. `install.yaml` plus `catena-cli install -i ... --no-confirm`
 is the declarative, non-interactive contract, and seed.py already live-probes
 what it is given. The launcher is a THIRD producer of that file, beside a
 person writing it and the test bench rendering it -- not a second way to
 install.
 
 That is what makes the acceptance test possible: a host the launcher built has
-to be indistinguishable from one `catena install -i install.yaml` built,
+to be indistinguishable from one `catena-cli install -i install.yaml` built,
 because it IS one.
 
 THE SECRETS RIDE THE FILE AND THE FILE IS TRANSIENT. seed reads them, writes
 the ones the converge adopts into its own 0600 map, and the CLI deletes that.
-This writer creates the install.yaml 0600 and its caller removes it, so the
-window in which a client's cloud credentials exist on their disk is the length
-of one install rather than the life of a run directory.
+This writer creates the install.yaml 0600 in a fresh 0700 directory outside the
+inventory and removes both when the install ends, so the window in which a
+client's cloud credentials exist on their disk is the length of one install,
+and never inside the inventory a client keeps.
 """
 
 from __future__ import annotations
 
 import os
+import shutil
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
 import yaml
 
+from . import registry
+
 # Answers the launcher keeps for itself. They describe the RUN rather than the
-# install -- an acknowledgement, a page position -- and seed would file an
+# install -- an acknowledgement, the last section checked -- and seed would file an
 # unknown key as .env config, which is how a wizard's bookkeeping ends up in a
 # client's inventory.
-_LAUNCHER_ONLY = ("_keyset_acknowledged", "_step")
+_LAUNCHER_ONLY = ("_keyset_acknowledged",)
 
 
 def install_yaml(*, inventory: str, answers: dict[str, str],
@@ -70,12 +77,25 @@ def write_install_yaml(path: Path, body: str) -> None:
         os.close(fd)
 
 
+@contextmanager
+def transient_install_yaml(body: str) -> Iterator[Path]:
+    """The install.yaml, in a fresh 0700 directory, removed with it on exit."""
+    workdir = Path(tempfile.mkdtemp(prefix="catena-gui-"))
+    target = workdir / "install.yaml"
+    try:
+        write_install_yaml(target, body)
+        yield target
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 def install_command(ansible_dir: Path, install_yaml_path: Path,
                     inventory: str) -> list[str]:
-    """The argv the launcher runs.
+    """The argv the launcher runs: the installer CLI, by the script name its own
+    pyproject gives it, in its own project.
 
-    `--no-confirm` because the confirmation already happened: a client walked
-    six pages and pressed the button. A second prompt on a process whose
+    `--no-confirm` because the confirmation already happened: a client checked
+    the sections and pressed Install. A second prompt on a process whose
     console they may have closed would stop the install and look like a hang.
 
     The inventory name rides as an explicit flag rather than being left to the
@@ -83,7 +103,7 @@ def install_command(ansible_dir: Path, install_yaml_path: Path,
     """
     return [
         "uv", "run", "--project", str(ansible_dir),
-        "catena", "install",
+        registry.cli_script(), "install",
         "--inventory", inventory,
         "-i", str(install_yaml_path),
         "--no-confirm",

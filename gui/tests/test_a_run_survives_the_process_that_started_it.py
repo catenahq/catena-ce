@@ -1,15 +1,14 @@
-"""An install contains two waits nobody can time, so the answers outlive the run.
+"""An inventory is the run: the answers outlive the process, the credentials do not.
 
-A server being delivered by a provider, and a domain being activated by its
-registrar. Neither fits inside a page load or a sitting somebody is present
-for, which is why the run directory is the single biggest structural
-requirement of the launcher -- above any individual step.
+An install contains two waits nobody can time -- a server being delivered by a
+provider, and a domain being activated by its registrar -- so what a client
+answered is saved into their inventory under ansible/inventory/ as they go,
+through seed's own writer, and a launcher opened again picks it up.
 
 WHAT IS ON DISK AND WHAT IS NOT is the other half. The answers are; the
-CREDENTIALS are not. A resumed run asks for them again, which is the honest
-cost of refusing to write a client's cloud credentials to their disk: the
-alternative is a file that outlives the install and that nothing ever comes
-back to remove.
+CREDENTIALS are not, anywhere in the inventory. A reopened inventory asks for
+them again, which is the honest cost of refusing to write a client's cloud
+credentials to their disk.
 
 Run: uv run pytest tests/test_a_run_survives_the_process_that_started_it.py
 """
@@ -22,109 +21,160 @@ import pytest
 
 from catena_gui import registry, run as run_mod
 
-SECRETS = run_mod.secret_keys_from(registry.load())
+DOC = registry.load()
+SECRETS = run_mod.secret_keys_from(DOC)
 
 
-def test_a_new_directory_is_a_new_run_rather_than_an_error(tmp_path):
-    """The launcher is started with a path and makes it, which is the same
-    shape as being started twice with the same path."""
-    r = run_mod.load(tmp_path / "never-used", SECRETS)
+def _files_text(path) -> str:
+    return "".join(p.read_text(encoding="utf-8", errors="replace")
+                   for p in path.rglob("*") if p.is_file())
+
+
+def test_a_new_inventory_is_a_new_run_rather_than_an_error(tmp_path):
+    r = run_mod.load(tmp_path / "clientco", SECRETS)
     assert r.state == run_mod.STATE_ANSWERING
     assert r.answers == {}
+    assert r.inventory == "clientco"
 
 
-def test_answers_come_back_and_credentials_do_not(tmp_path):
-    r = run_mod.load(tmp_path / "run", SECRETS)
-    r.inventory = "clientco"
+def test_answers_come_back_through_the_env_and_credentials_do_not(tmp_path):
+    r = run_mod.load(tmp_path / "clientco", SECRETS)
     r.answer("CLOUDFLARE_ZONE", "client.test", secret=False)
     r.answer("cloudflare_api_token", "cf-secret", secret=True)
     r.save()
 
-    resumed = run_mod.load(tmp_path / "run", SECRETS)
+    resumed = run_mod.load(tmp_path / "clientco", SECRETS)
     assert resumed.answers["CLOUDFLARE_ZONE"] == "client.test"
-    assert resumed.inventory == "clientco"
     assert resumed.secrets == {}, (
         "a credential came back from disk, so it was written there")
-    assert "cf-secret" not in resumed.answers_path.read_text(encoding="utf-8")
+    assert "cf-secret" not in _files_text(tmp_path / "clientco")
 
 
-def test_a_resumed_run_says_which_credentials_it_still_needs(tmp_path):
-    """Non-empty on every resumed run that needs one, which is the point: the
-    launcher asks again rather than pretending a value it deliberately did not
-    keep is still available."""
-    r = run_mod.load(tmp_path / "run", SECRETS)
+def test_the_env_is_the_one_the_cli_reads(tmp_path):
+    """seed's reader parses what the launcher saved, so `catena-cli install
+    --inventory clientco` and the launcher agree about every value."""
+    r = run_mod.load(tmp_path / "clientco", SECRETS)
+    r.answer("HOST_PUBLIC_IP", "198.51.100.7", secret=False)
+    r.save()
+    seed = run_mod._seed()
+    env = seed.read_existing_env(r.env_path)
+    assert env["HOST_PUBLIC_IP"] == "198.51.100.7"
+    # Every key the template declares is written, the unanswered ones with the
+    # template's own default.
+    for key, default in seed.ENV_KEYS:
+        assert key in env
+        if key != "HOST_PUBLIC_IP":
+            assert env[key] == default, key
+
+
+def test_an_edit_replaces_the_value_already_saved(tmp_path):
+    """seed keeps an existing value on a CLI re-run; the launcher's save IS
+    the client's edit, so it has to land."""
+    r = run_mod.load(tmp_path / "clientco", SECRETS)
+    r.answer("COMMON_TIMEZONE", "Europe/Paris", secret=False)
+    r.save()
+    r.answer("COMMON_TIMEZONE", "Asia/Tokyo", secret=False)
+    r.save()
+    assert run_mod.load(tmp_path / "clientco", SECRETS).answers[
+        "COMMON_TIMEZONE"] == "Asia/Tokyo"
+
+
+def test_a_value_edited_by_hand_is_kept_by_the_launcher(tmp_path):
+    """A key the launcher never asks about survives its saves."""
+    r = run_mod.load(tmp_path / "clientco", SECRETS)
+    r.save()
+    text = r.env_path.read_text(encoding="utf-8").replace(
+        "OPS_USER=ops", "OPS_USER=admin2")
+    r.env_path.write_text(text, encoding="utf-8")
+    reopened = run_mod.load(tmp_path / "clientco", SECRETS)
+    reopened.answer("COMMON_LOCALE", "fr_CA.UTF-8", secret=False)
+    reopened.save()
+    assert run_mod.load(tmp_path / "clientco", SECRETS).answers[
+        "OPS_USER"] == "admin2"
+
+
+def test_a_reopened_inventory_says_which_credentials_it_still_needs(tmp_path):
+    r = run_mod.load(tmp_path / "clientco", SECRETS)
     r.answer("cloudflare_api_token", "cf", secret=True)
     r.save()
-    resumed = run_mod.load(tmp_path / "run", SECRETS)
+    resumed = run_mod.load(tmp_path / "clientco", SECRETS)
     assert resumed.missing_secrets(["cloudflare_api_token"]) == [
         "cloudflare_api_token"]
 
 
 def test_the_writer_refuses_a_credential_a_caller_misfiled(tmp_path):
     """The second gate. The registry classifies and the caller routes; this is
-    the writer enforcing the same answer, so a caller that assigned the whole
-    form into `answers` could not persist a token by forgetting to filter."""
-    r = run_mod.load(tmp_path / "run", SECRETS)
+    the writer enforcing the same answer."""
+    r = run_mod.load(tmp_path / "clientco", SECRETS)
     r.answers["backup_s3_secret_key"] = "leaked"
+    r.launcher["backup_s3_secret_key"] = "leaked-too"
     r.save()
-    on_disk = json.loads(r.answers_path.read_text(encoding="utf-8"))
-    assert "backup_s3_secret_key" not in on_disk["answers"]
-    assert "leaked" not in r.answers_path.read_text(encoding="utf-8")
+    assert "leaked" not in _files_text(tmp_path / "clientco")
 
 
-def test_a_path_that_merely_contains_the_word_key_is_persisted(tmp_path):
-    """The reason the classification is the registry's rather than the name's.
-    SSH_PRIVATE_KEY holds a path and _keyset_acknowledged holds a yes; a name
-    heuristic filed both as credentials, and the launcher could then not read
-    back its own answers on a resumed run."""
-    r = run_mod.load(tmp_path / "run", SECRETS)
-    r.answer("SSH_PRIVATE_KEY", "~/.ssh/catena_ed25519", secret=False)
+def test_the_launchers_bookkeeping_stays_out_of_the_env(tmp_path):
+    """An acknowledgement describes the run, not the server."""
+    r = run_mod.load(tmp_path / "clientco", SECRETS)
     r.answer("_keyset_acknowledged", "yes", secret=False)
     r.save()
-    resumed = run_mod.load(tmp_path / "run", SECRETS)
-    assert resumed.answers["SSH_PRIVATE_KEY"] == "~/.ssh/catena_ed25519"
-    assert resumed.answers["_keyset_acknowledged"] == "yes"
+    assert "_keyset_acknowledged" not in r.env_path.read_text(encoding="utf-8")
+    assert run_mod.load(tmp_path / "clientco", SECRETS).value(
+        "_keyset_acknowledged") == "yes"
 
 
-def test_the_answers_file_is_0600(tmp_path):
-    """Which server and which domain is still a client's business, even though
-    neither opens anything."""
-    r = run_mod.load(tmp_path / "run", SECRETS)
-    r.answer("HOST_PUBLIC_IP", "203.0.113.10", secret=False)
+def test_both_files_are_0600(tmp_path):
+    r = run_mod.load(tmp_path / "clientco", SECRETS)
+    r.answer("HOST_PUBLIC_IP", "198.51.100.7", secret=False)
     r.save()
-    assert (os.stat(r.answers_path).st_mode & 0o777) == 0o600
+    for path in (r.env_path, r.state_path):
+        assert (os.stat(path).st_mode & 0o777) == 0o600, path
 
 
 def test_the_state_says_whether_the_install_already_started(tmp_path):
-    """What a resumed run needs to know. A launcher that reopened the form for
-    a run whose install is still going would let a client answer the same
-    questions twice into a host that is already being built."""
-    r = run_mod.load(tmp_path / "run", SECRETS)
+    r = run_mod.load(tmp_path / "clientco", SECRETS)
     r.state = run_mod.STATE_INSTALLING
     r.step = "keyset"
     r.save()
-    resumed = run_mod.load(tmp_path / "run", SECRETS)
+    resumed = run_mod.load(tmp_path / "clientco", SECRETS)
     assert resumed.state == run_mod.STATE_INSTALLING
     assert resumed.step == "keyset"
 
 
-def test_a_malformed_answers_file_is_an_error(tmp_path):
-    """Resuming from one would silently drop whichever answers failed to
-    parse, and a client would meet them again as blank fields with no
-    explanation."""
-    path = tmp_path / "run"
+def test_a_malformed_state_file_is_an_error(tmp_path):
+    path = tmp_path / "clientco"
     path.mkdir()
-    (path / run_mod.ANSWERS_FILENAME).write_text("[]", encoding="utf-8")
+    (path / run_mod.STATE_FILENAME).write_text("[]", encoding="utf-8")
     with pytest.raises(ValueError):
         run_mod.load(path, SECRETS)
 
 
+def test_the_inventories_listed_are_the_clients_not_the_template(tmp_path):
+    for name in ("example", "clientco", "beta", ".hidden"):
+        (tmp_path / name).mkdir()
+    (tmp_path / "stray.txt").write_text("x", encoding="utf-8")
+    assert run_mod.inventories(tmp_path) == ["beta", "clientco"]
+
+
+def test_a_new_inventory_name_is_checked(tmp_path):
+    (tmp_path / "clientco").mkdir()
+    assert run_mod.new_name_problem("newco", tmp_path) == ""
+    for bad in ("", "Upper", "../up", "has space", "example", "clientco"):
+        assert run_mod.new_name_problem(bad, tmp_path), bad
+
+
 def test_a_value_is_found_whichever_half_holds_it(tmp_path):
-    """A page rendering a field does not care which half of the run the value
-    came from. Only the writer does."""
-    r = run_mod.load(tmp_path / "run", SECRETS)
+    r = run_mod.load(tmp_path / "clientco", SECRETS)
     r.answer("CLOUDFLARE_ZONE", "client.test", secret=False)
     r.answer("cloudflare_api_token", "cf", secret=True)
     assert r.value("CLOUDFLARE_ZONE") == "client.test"
     assert r.value("cloudflare_api_token") == "cf"
     assert r.value("never_answered") == ""
+
+
+def test_the_state_file_holds_no_answer(tmp_path):
+    """One home per value: the answers are the `.env`'s."""
+    r = run_mod.load(tmp_path / "clientco", SECRETS)
+    r.answer("CLOUDFLARE_ZONE", "client.test", secret=False)
+    r.save()
+    state = json.loads(r.state_path.read_text(encoding="utf-8"))
+    assert "client.test" not in json.dumps(state)

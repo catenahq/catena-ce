@@ -12,8 +12,7 @@ with 164 scenarios queued behind it:
     Origin: reconcile/roles/infrastructure/templates/gatus-infra-spec.json.j2
 
 The sibling test (test_no_variable_is_declared_twice) gates DECLARATIONS, so
-it could not see this: the problem was not a second declaration, it was a
-reference with none left.
+it cannot see this class: a reference whose declaration is gone.
 
 SCOPED TO ADDRESSES, deliberately. A general undefined-variable checker over
 every Jinja expression in the tree would need to model loop variables,

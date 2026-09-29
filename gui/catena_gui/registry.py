@@ -2,7 +2,7 @@
 
 ONE DECLARATION, READ NOT COPIED. `helpers/knobs.json` is the same artifact the
 on-box store, the installer and the settings page read. The launcher renders
-its pages from it and holds no list of its own, so a knob added there appears
+its sections from it and holds no list of its own, so a knob added there appears
 here and a knob removed there disappears -- which is the only version of "the
 installer and the server agree" that survives a year of edits.
 
@@ -10,7 +10,7 @@ RESOLVED, NOT PACKAGED. The registry lives in the sibling `ansible/` tree
 rather than inside this package, because `vendor-catena-ce.sh` copies
 `git ls-files -- ansible` into the public panel image and the launcher must not
 ship there. So it is found by path, and a missing one RAISES: a launcher that
-fell back to an empty registry would render six blank pages and then produce an
+fell back to an empty registry would render six blank sections and then produce an
 install.yaml that answered nothing.
 """
 
@@ -24,7 +24,7 @@ REGISTRY_FILENAME = "knobs.json"
 
 # Where the ansible tree sits relative to this file: gui/catena_gui/ -> gui/ ->
 # the repo root. A checkout is the only layout this runs in, because the thing
-# it drives (`catena install`) is in that same checkout.
+# it drives (`catena-cli install`) is in that same checkout.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 ANSIBLE_DIR = _REPO_ROOT / "ansible"
 
@@ -55,15 +55,14 @@ def load() -> dict:
 
 
 def steps(doc: dict) -> list[dict]:
-    """The installer's pages, in order."""
+    """The installer's sections, in order."""
     return list(doc.get("gui_steps") or [])
 
 
 def step_fields(doc: dict, step: str) -> list[dict]:
-    """What one page asks for: secrets first, then the values they configure.
-
-    That order is the settings page's too, so a client who has seen one
-    recognises the other.
+    """What one section asks for: secrets first, then the values they
+    configure. That order is the settings page's too; the launcher only moves
+    a choice ahead of the fields it governs.
     """
     entries = [*(doc.get("secrets") or []), *(doc.get("config") or [])]
     return [entry for entry in entries if entry.get("step") == step]
@@ -81,6 +80,32 @@ def default_for(entry: dict) -> str:
     starts blank, which for every one of them is a real answer.
     """
     return str((entry.get("env") or {}).get("default") or "")
+
+
+def example_for(entry: dict) -> str:
+    """What a blank field shows greyed out: an illustration of a value with no
+    sensible default, such as a server's address. Never filled in, because a
+    pre-filled example is an answer nobody gave."""
+    return str((entry.get("env") or {}).get("example") or "")
+
+
+def cli_script() -> str:
+    """The console-script name `ansible/pyproject.toml` gives the installer CLI.
+
+    Read, not written down here: the launcher runs `catena-cli install`, and a
+    name held in two places is a name that drifts. The one whose target is the
+    CLI's entry function is the one, whatever it is called."""
+    import tomllib
+
+    doc = tomllib.loads((ANSIBLE_DIR / "pyproject.toml").read_text(encoding="utf-8"))
+    for name, target in (doc.get("project", {}).get("scripts") or {}).items():
+        if target == CLI_ENTRY:
+            return name
+    raise LookupError(f"ansible/pyproject.toml declares no script for {CLI_ENTRY}")
+
+
+# The installer CLI's entry function, as `[project.scripts]` names it.
+CLI_ENTRY = "catena_cli:_entry"
 
 
 def options_for(entry: dict) -> list[str]:

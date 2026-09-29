@@ -134,7 +134,7 @@
     # DECIDE ON THE KEY, NOT ON THE PASSWORD.
     #
     # The gate below probes for the KEY, because a blank password is not
-    # evidence about the key. `catena install` ALWAYS emits
+    # evidence about the key. `catena-cli install` ALWAYS emits
     # bootstrap_root_password, blank when install.yaml carries no
     # host_initial_password (cli _bootstrap_extra_vars) -- deliberately, so a
     # vars_prompt cannot stop the deploy chain to ask after preflight has run.

@@ -1,12 +1,12 @@
 """What the launcher hands the installer is the file a person would have written.
 
-NO NEW MIDDLE LAYER. `install.yaml` plus `catena install -i ... --no-confirm`
+NO NEW MIDDLE LAYER. `install.yaml` plus `catena-cli install -i ... --no-confirm`
 is already the declarative, non-interactive contract, and seed already
 live-probes what it is given. The launcher is a THIRD producer of that file,
 beside a person writing it and the test bench rendering it.
 
 That is what makes the acceptance test possible at all: a host the launcher
-built is indistinguishable from one `catena install -i install.yaml` built,
+built is indistinguishable from one `catena-cli install -i install.yaml` built,
 because it IS one.
 
 Run: uv run pytest tests/test_the_launcher_produces_the_existing_contract.py
@@ -86,7 +86,27 @@ def test_the_command_is_the_cli_the_bench_already_drives(tmp_path: Path):
     argv = render.install_command(tmp_path / "ansible",
                                   tmp_path / "install.yaml", "clientco")
     assert argv[:2] == ["uv", "run"]
-    assert "catena" in argv and "install" in argv
+    assert "catena-cli" in argv and "install" in argv
     assert "--no-confirm" in argv
     assert argv[argv.index("--inventory") + 1] == "clientco"
     assert argv[argv.index("-i") + 1] == str(tmp_path / "install.yaml")
+
+
+def test_the_credentials_file_lives_outside_the_inventory_and_is_removed():
+    """It carries the client's cloud credentials. A fresh 0700 directory keeps
+    it off the inventory a client keeps, and both go when the install ends,
+    whatever the install did."""
+    with render.transient_install_yaml("token: secret\n") as target:
+        assert (os.stat(target).st_mode & 0o777) == 0o600
+        assert (os.stat(target.parent).st_mode & 0o777) == 0o700
+        assert "inventory" not in target.parts
+        workdir = target.parent
+    assert not workdir.exists()
+
+    try:
+        with render.transient_install_yaml("token: secret\n") as target:
+            workdir = target.parent
+            raise RuntimeError("the install died")
+    except RuntimeError:
+        pass
+    assert not workdir.exists()
