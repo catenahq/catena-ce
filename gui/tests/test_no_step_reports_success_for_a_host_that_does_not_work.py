@@ -27,8 +27,7 @@ def _keypair(tmp_path):
     key = tmp_path / "id"
     key.write_text("k")
     (tmp_path / "id.pub").write_text("p")
-    return {"HOST_PUBLIC_IP": "203.0.113.10", "SSH_PRIVATE_KEY": str(key),
-            "SSH_PUBLIC_KEY_FILE": str(key) + ".pub"}
+    return {"HOST_PUBLIC_IP": "203.0.113.10", "SSH_PRIVATE_KEY": str(key)}
 
 
 def test_a_server_that_does_not_speak_ssh_blocks(monkeypatch, tmp_path):
@@ -39,11 +38,19 @@ def test_a_server_that_does_not_speak_ssh_blocks(monkeypatch, tmp_path):
         assert _blocking(steps_mod.check_target(_keypair(tmp_path), {}))
 
 
+def test_a_private_key_without_its_pub_beside_it_blocks(monkeypatch, tmp_path):
+    monkeypatch.setattr(steps_mod, "_ssh_banner", lambda *a, **k: "SSH-2.0-OpenSSH")
+    (tmp_path / "id").write_text("k")
+    blocked = _blocking(steps_mod.check_target({"HOST_PUBLIC_IP": "203.0.113.10",
+                                                "SSH_PRIVATE_KEY": str(tmp_path / "id")},
+                                               {}))
+    assert blocked and "its .pub" in blocked[0].detail
+
+
 def test_a_missing_keypair_blocks_and_says_how_to_make_one(monkeypatch):
     monkeypatch.setattr(steps_mod, "_ssh_banner", lambda *a, **k: "SSH-2.0-OpenSSH")
     blocked = _blocking(steps_mod.check_target({"HOST_PUBLIC_IP": "203.0.113.10",
-                                                "SSH_PRIVATE_KEY": "/nope/id",
-                                                "SSH_PUBLIC_KEY_FILE": "/nope/id.pub"},
+                                                "SSH_PRIVATE_KEY": "/nope/id"},
                                                {}))
     assert blocked and "ssh-keygen" in blocked[0].detail
 

@@ -553,7 +553,7 @@
       still work. Check, in order:
 
         1. /home/{{ ops_user }}/.ssh/authorized_keys against
-           {{ lookup('dotenv', 'SSH_PUBLIC_KEY_FILE', default='SSH_PUBLIC_KEY_FILE') }}
+           {{ ansible_ssh_private_key_file }}.pub
         2. `passwd -S {{ ops_user }}` -- an L (locked) account is refused
            pubkey auth by OpenSSH 9.8+ even with a correct key
         3. ssh's own reason: {{ _ops_key_proof.stderr | default('') | trim }}

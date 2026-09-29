@@ -245,20 +245,10 @@
       "required": true,
       "residence": "controller",
       "gui_suggestions_from": "ssh_keys",
-      "doc": "The key that reaches the server: the one whose public half the provider installed when the server was ordered, or a dedicated pair for this project, so revoking it at engagement end is throwing away one file. `catena-cli install` offers to generate that pair when it is absent; the graphical installer lists the pairs already in ~/.ssh.",
+      "doc": "The key that reaches the server: the one whose public half the provider installed when the server was ordered, or a dedicated pair for this project, so revoking it at engagement end is throwing away one file. Its public half is the same path with .pub appended, as ssh-keygen writes it. `catena-cli install` offers to generate that pair when it is absent; the graphical installer lists the pairs already in ~/.ssh.",
       "env": {
         "section": "ssh",
         "default": "~/.ssh/catena_ed25519"
-      }
-    },
-    {
-      "key": "SSH_PUBLIC_KEY_FILE",
-      "step": "target",
-      "required": true,
-      "residence": "controller",
-      "env": {
-        "section": "ssh",
-        "default": "~/.ssh/catena_ed25519.pub"
       }
     },
     {

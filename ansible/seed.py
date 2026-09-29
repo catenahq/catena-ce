@@ -280,8 +280,9 @@ def validate_install(inp: dict, env_keys: list) -> int:
     # label states which file was looked for and the detail states what was
     # found, rather than asserting the file exists and then marking that false.
     banner("Local prerequisites")
-    for label, path in (("SSH private key", os.path.expanduser(env.get("SSH_PRIVATE_KEY", ""))),
-                        ("SSH public key", os.path.expanduser(env.get("SSH_PUBLIC_KEY_FILE", "")))):
+    private = os.path.expanduser(env.get("SSH_PRIVATE_KEY", ""))
+    for label, path in (("SSH private key", private),
+                        ("SSH public key", private and private + ".pub")):
         if not path:
             # Already counted by the structural pass, which requires the key.
             _check(label, False, "no path set in .env")
@@ -585,9 +586,9 @@ def emit_hosts_yml_entry(
 
 
 # --- prereqs ----------------------------------------------------------------
-def ensure_ssh_key(privkey_path: str, pubkey_path: str) -> None:
+def ensure_ssh_key(privkey_path: str) -> None:
     privkey = Path(os.path.expanduser(privkey_path))
-    pubkey = Path(os.path.expanduser(pubkey_path))
+    pubkey = Path(str(privkey) + ".pub")
     if privkey.exists() and pubkey.exists():
         ok(f"SSH key present at {privkey}")
         return
@@ -821,7 +822,7 @@ def main(argv: list[str] | None = None) -> int:
             die("Aborted.", code=130)
 
     banner("Prereqs")
-    ensure_ssh_key(env_values["SSH_PRIVATE_KEY"], env_values["SSH_PUBLIC_KEY_FILE"])
+    ensure_ssh_key(env_values["SSH_PRIVATE_KEY"])
 
     _write_inventory_files(
         inv_dir=inv_dir, inventory=inventory,

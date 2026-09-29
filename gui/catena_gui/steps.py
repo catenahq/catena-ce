@@ -196,8 +196,7 @@ def check_target(answers: dict[str, str], secrets: dict[str, str]) -> list[Check
                     "where a run waits for it")]
     raw = (answers.get("SSH_PRIVATE_KEY") or "").strip()
     key = os.path.expanduser(raw) if raw else ""
-    pub = os.path.expanduser((answers.get("SSH_PUBLIC_KEY_FILE") or "").strip())
-    have_key = bool(key) and Path(key).is_file() and bool(pub) and Path(pub).is_file()
+    have_key = bool(key) and Path(key).is_file() and Path(key + ".pub").is_file()
     checks.append(Check("the keypair is on this machine", have_key,
                         "" if have_key else f"{raw or '(no path)'} or its .pub is "
                         "missing; generate one with ssh-keygen -t ed25519 -f "

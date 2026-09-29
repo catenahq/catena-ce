@@ -247,7 +247,7 @@ def test_the_installers_required_fields_are_the_ones_it_cannot_install_without(
     required = {e["key"] for e in [*registry["secrets"], *registry["config"]]
                 if e.get("required")}
     assert required == {"HOST_PUBLIC_IP", "HOST_INITIAL_USER", "HOST_SSH_PORT",
-                        "SSH_PRIVATE_KEY", "SSH_PUBLIC_KEY_FILE", "ADMIN_EMAIL"}
+                        "SSH_PRIVATE_KEY", "ADMIN_EMAIL"}
 
 
 def test_a_default_that_needs_quoting_is_refused():

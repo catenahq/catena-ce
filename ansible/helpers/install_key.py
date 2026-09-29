@@ -26,10 +26,10 @@ Usage (the installer / bootstrap.yml invoke this for you):
                   ubuntu    AWS, Vultr Ubuntu, some others
                   ec2-user  Amazon Linux
     --port      The SSH port (default 22)
-    --pubkey    Public key to install (default: $SSH_PUBLIC_KEY_FILE from .env,
-                then ~/.ssh/catena_ed25519.pub as a last resort)
-    --env-file  Path to the .env file to read SSH_PUBLIC_KEY_FILE / SSH_PRIVATE_KEY
-                from (default: inventory/example/.env, then ansible-root .env).
+    --pubkey    Public key to install (default: $SSH_PRIVATE_KEY from .env plus
+                .pub, then ~/.ssh/catena_ed25519.pub as a last resort)
+    --env-file  Path to the .env file to read SSH_PRIVATE_KEY from (default:
+                inventory/dev/.env, then ansible/.env).
                 Use this when running against a non-default inventory.
     --check-password
                 Only log in with the password and say whether it opens the
@@ -91,7 +91,7 @@ _AUTH_FAILED = [r"Permission denied", r"Authentication failed"]
 # in playbooks/lookup_plugins/dotenv.py: per-inventory first, repo-root
 # fallback for a single-inventory checkout.
 DEFAULT_DOTENV_CANDIDATES = (
-    REPO_ROOT / "ansible" / "inventory" / "dev" / ".env",
+    REPO_ROOT / "inventory" / "dev" / ".env",
     REPO_ROOT / ".env",
 )
 
@@ -123,8 +123,7 @@ def _read_dotenv(path: Path | None) -> dict[str, str]:
 
 
 def _default_pubkey_path(env: dict[str, str]) -> str:
-    candidate = env.get("SSH_PUBLIC_KEY_FILE") or "~/.ssh/catena_ed25519.pub"
-    return os.path.expanduser(candidate)
+    return _default_privkey_path(env) + ".pub"
 
 
 def _default_privkey_path(env: dict[str, str]) -> str:
@@ -452,13 +451,13 @@ def main() -> int:
         "--env-file",
         dest="env_file",
         default=None,
-        help="Path to the .env file to read SSH_PUBLIC_KEY_FILE / SSH_PRIVATE_KEY from "
-             "(default: inventory/dev/.env, then repo-root .env).",
+        help="Path to the .env file to read SSH_PRIVATE_KEY from "
+             "(default: inventory/dev/.env, then ansible/.env).",
     )
     ap.add_argument(
         "--pubkey",
         default=None,
-        help="Public key file to install (default: from .env or ~/.ssh/catena_ed25519.pub)",
+        help="Public key file to install (default: the private key's .pub)",
     )
     ap.add_argument(
         "--privkey",

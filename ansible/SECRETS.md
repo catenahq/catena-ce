@@ -147,7 +147,7 @@ the installer needs to reach and install the server, and what is hard to
 change afterwards.
 
 **Inventory `.env` (the installer's):** `HOST_PUBLIC_IP`, `HOST_INITIAL_USER`,
-`HOST_SSH_PORT`, `SSH_PRIVATE_KEY`, `SSH_PUBLIC_KEY_FILE`, `OPS_USER`,
+`HOST_SSH_PORT`, `SSH_PRIVATE_KEY` (its `.pub` beside it), `OPS_USER`,
 `STORAGE_BULK_*` (the bulk mount is applied by an operator-run role, so the
 panel could not change it).
 

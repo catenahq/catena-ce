@@ -425,8 +425,7 @@ def test_missing_ssh_key_is_not_reported_as_a_failed_check(seed, capsys, tmp_pat
     the same breath promises to generate the file reads as both 'exists' and
     'does not exist' at once."""
     absent = tmp_path / "nope"
-    lines = _prereq_lines(seed, capsys, {
-        "SSH_PRIVATE_KEY": str(absent), "SSH_PUBLIC_KEY_FILE": str(absent) + ".pub"})
+    lines = _prereq_lines(seed, capsys, {"SSH_PRIVATE_KEY": str(absent)})
     assert len(lines) == 2
     for line in lines:
         assert _FAIL_MARK not in line
@@ -435,19 +434,19 @@ def test_missing_ssh_key_is_not_reported_as_a_failed_check(seed, capsys, tmp_pat
 
 
 def test_present_ssh_key_says_found(seed, capsys, tmp_path):
+    """The public half is looked for beside the private key."""
     priv = tmp_path / "id"
-    pub = tmp_path / "id.pub"
     priv.write_text("k")
-    pub.write_text("k")
-    lines = _prereq_lines(seed, capsys, {
-        "SSH_PRIVATE_KEY": str(priv), "SSH_PUBLIC_KEY_FILE": str(pub)})
+    (tmp_path / "id.pub").write_text("k")
+    lines = _prereq_lines(seed, capsys, {"SSH_PRIVATE_KEY": str(priv)})
+    assert len(lines) == 2
     assert all("(found)" in line for line in lines)
 
 
 def test_unset_ssh_key_path_is_a_real_failure(seed, capsys):
     """Blank is the one state that IS wrong here -- and the only one that keeps
     the failure mark."""
-    lines = _prereq_lines(seed, capsys, {"SSH_PRIVATE_KEY": "", "SSH_PUBLIC_KEY_FILE": ""})
+    lines = _prereq_lines(seed, capsys, {"SSH_PRIVATE_KEY": ""})
     assert all("no path set in .env" in line and _FAIL_MARK in line for line in lines)
 
 
