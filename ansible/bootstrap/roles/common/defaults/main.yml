@@ -1,12 +1,9 @@
 ---
-# ops_user, ops_ssh_public_keys, common_timezone and common_locale are NOT
-# declared here. playbooks/group_vars/all/main.yml declares each one from a
-# dotenv lookup that already carries the same default inline
-# (`default='ops'`, `default='America/Toronto'`, ...), group_vars is
-# playbook-adjacent so it loads on every path this role runs on, and role
-# defaults are Ansible's lowest precedence. A copy here could never apply --
-# it only offered a second place to change a default, one of which does
-# nothing. ops_ssh_public_keys said so itself: `[] # filled from group_vars`.
+# ops_user and ops_ssh_public_keys are NOT declared here.
+# playbooks/group_vars/all/main.yml declares each one from a dotenv lookup that
+# already carries its default inline, group_vars is playbook-adjacent so it
+# loads on every path this role runs on, and role defaults are Ansible's lowest
+# precedence, so a copy here could never apply.
 
 # Every user that sshd is allowed to let in. OpenSSH's AllowUsers is
 # NOT additive across sshd_config.d drop-ins (first-match wins), so the

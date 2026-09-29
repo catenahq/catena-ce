@@ -1,8 +1,57 @@
 ---
-# The reboot-required probe: its env file, and enabling its timer. The script
+# The server's time zone and locale, set in catena-admin > Settings, and the
+# reboot-required probe: its env file, and enabling its timer. The script
 # (catena-reboot-check) and catena-reboot-check.service/.timer ship in the
 # catena-admin payload, installed by reconcile/roles/payload earlier in the
 # play.
+
+# A zone this host does not know is reported and left unapplied: a converge
+# the panel starts must not fail on a name typed in the panel.
+- name: "Host: is the time zone one this host knows"
+  ansible.builtin.stat:
+    path: "/usr/share/zoneinfo/{{ host_maintenance_timezone }}"
+    follow: true
+  register: _host_tz_file
+
+- name: "Host: read the time zone"
+  ansible.builtin.command:
+    argv: [timedatectl, show, --property=Timezone, --value]
+  register: _host_tz
+  changed_when: false
+  check_mode: false
+  when: _host_tz_file.stat.isreg | default(false)
+
+- name: "Host: set the time zone"
+  ansible.builtin.command:
+    argv: [timedatectl, set-timezone, "{{ host_maintenance_timezone }}"]
+  changed_when: true
+  when:
+    - _host_tz_file.stat.isreg | default(false)
+    - (_host_tz.stdout | default('') | trim) != host_maintenance_timezone
+
+- name: "Host: the time zone is not one this host knows"
+  ansible.builtin.debug:
+    msg: >-
+      COMMON_TIMEZONE is {{ host_maintenance_timezone }}, which this host does
+      not know, so its clock zone is unchanged. Enter an IANA name such as
+      America/Toronto in catena-admin > Settings.
+  when: not (_host_tz_file.stat.isreg | default(false))
+
+# Uncomments the locale in Debian's list; a name the list does not carry
+# changes nothing.
+- name: "Host: enable the locale"
+  ansible.builtin.lineinfile:
+    path: /etc/locale.gen
+    regexp: '^#\s*({{ host_maintenance_locale | regex_escape }}\s.*)$'
+    line: '\1'
+    backrefs: true
+  register: _host_locale_line
+
+- name: "Host: generate the locale"
+  ansible.builtin.command:
+    argv: [locale-gen]
+  changed_when: true
+  when: _host_locale_line.changed
 
 - name: "Reboot check: env file"
   ansible.builtin.template:

@@ -24,7 +24,7 @@ generated from the leading comment of each role's `tasks/main.yml`.
 | `cloudflare_tunnel` | Cloudflare tunnel converge -- unconditional dispatch to the host engine. |
 | `cloudflare_tunnel_regenerate` | Regenerate the Cloudflare tunnel for this host. |
 | `coturn` | Shared TURN/STUN server -- consumer-gated orchestrator. |
-| `host_maintenance` | The reboot-required probe: its env file, and enabling its timer. |
+| `host_maintenance` | The server's time zone and locale, set in catena-admin > Settings, and the reboot-required probe: its env file, and enabling its timer. |
 | `infrastructure` | Orchestrator for reconcile/roles/infrastructure. |
 | `keycloak` | Orchestrator for reconcile/roles/keycloak. |
 | `oauth2_proxy` | Orchestrator for reconcile/roles/oauth2_proxy. |

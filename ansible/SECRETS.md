@@ -148,7 +148,8 @@ change afterwards.
 
 **Inventory `.env` (the installer's):** `HOST_PUBLIC_IP`, `HOST_INITIAL_USER`,
 `HOST_SSH_PORT`, `SSH_PRIVATE_KEY`, `SSH_PUBLIC_KEY_FILE`, `OPS_USER`,
-`COMMON_TIMEZONE`, `COMMON_LOCALE`, `STORAGE_BULK_*`.
+`STORAGE_BULK_*` (the bulk mount is applied by an operator-run role, so the
+panel could not change it).
 
 **Store, seeded from the `.env`:** `ADMIN_EMAIL`, `APT_PROXY_URL`,
 `DOCKER_REGISTRY_MIRROR_URL` and the development-only ACME and staging keys.
@@ -158,7 +159,8 @@ them fill-only on that converge and is never read for them again.
 **Store, catena-admin Settings only:** the domain (`CLOUDFLARE_ZONE`), the
 subdomains, the tailnet (`TAILNET_PROVIDER`, `TAILNET_CONTROL_URL`,
 `HEADSCALE_USER`, `TAILSCALE_TAGS`), backups (`BACKUP_*`), mail (`SMTP_*`),
-notifications (`NTFY_*`) and `IDENTITY_ENFORCE_MFA`. They have no `.env`
+notifications (`NTFY_*`), `IDENTITY_ENFORCE_MFA`, and the server's time zone
+and locale (`COMMON_TIMEZONE`, `COMMON_LOCALE`). They have no `.env`
 line; `catena-cli` names a filled one it finds, because nothing reads it.
 
 The owners are DECLARED, in `helpers/knobs.yml` (a knob has an `env` entry, a

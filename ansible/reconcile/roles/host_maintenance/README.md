@@ -1,9 +1,18 @@
 # reconcile/roles/host_maintenance
 
-Host-level maintenance reporting. One probe today: whether this host needs a
-reboot.
+Host-level settings the client changes in catena-admin > Settings, and
+maintenance reporting: whether this host needs a reboot.
 
-## Why it exists
+## Time zone and locale
+
+`COMMON_TIMEZONE` and `COMMON_LOCALE` live in the store; the role applies them
+on every converge (`timedatectl set-timezone`, then the locale uncommented in
+`/etc/locale.gen` and `locale-gen`). Unset, the host runs on America/Toronto
+and generates en_CA.UTF-8. A zone the host does not know is reported and left
+unapplied, and a locale `/etc/locale.gen` does not list changes nothing, so a
+value typed in the panel never fails a converge.
+
+## Why the reboot probe exists
 
 Debian's `unattended-upgrades` applies the OS security patches on a Catena host
 (`bootstrap/roles/common` installs and configures it), and it does not reboot:

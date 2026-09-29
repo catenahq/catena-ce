@@ -49,7 +49,7 @@ SECTIONS = ("secrets", "config")
 # this repo cannot import Go -- so the panel's own schema test is what holds
 # the two lists together.
 GROUPS = ("tunnel", "backup", "mail", "alerts", "share", "access", "license",
-          "hostnames")
+          "hostnames", "server")
 # The named sources the graphical installer suggests values from.
 GUI_SUGGESTION_SOURCES = ("ssh_keys",)
 

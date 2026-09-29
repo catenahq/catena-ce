@@ -367,15 +367,6 @@
     cache_valid_time: 3600
     lock_timeout: 300
 
-- name: Set timezone
-  community.general.timezone:
-    name: "{{ common_timezone }}"
-
-- name: Ensure locale is generated
-  community.general.locale_gen:
-    name: "{{ common_locale }}"
-    state: present
-
 # ─── ops user + SSH key ──────────────────────────────────────────────────
 - name: Create ops user
   ansible.builtin.user:

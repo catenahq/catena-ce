@@ -183,9 +183,6 @@ env_sections:
   - name: site
     title: Site policy
 
-  - name: locale
-    title: Locale and timezone
-
   - name: development
     title: Development only
     doc: |-
@@ -196,8 +193,8 @@ env_sections:
 
 # --- vendor credentials the client HOLDS ------------------------------------
 #
-# Stored, never minted here. They arrive through the transient bootstrap adopt
-# file or the settings API, and this list is the allowlist that write enforces:
+# Stored, never minted here. They arrive through the settings API, and this
+# list is the allowlist that write enforces:
 # a credential a role tells the client to enter, that is not declared here, has
 # a documented path that raises.
 secrets:
@@ -352,12 +349,21 @@ config:
     env: {section: ssh, default: "ops"}
 
   - key: COMMON_TIMEZONE
-    residence: controller
-    env: {section: locale, default: "America/Toronto"}
+    residence: store
+    var: cfg_common_timezone
+    doc: >-
+      The server's clock zone, an IANA name such as America/Toronto, which
+      schedules and logs follow. Applied by the next converge; America/Toronto
+      while unset.
+    panel: {group: server, section: config, kind: text, optional: true}
 
   - key: COMMON_LOCALE
-    residence: controller
-    env: {section: locale, default: "en_CA.UTF-8"}
+    residence: store
+    var: cfg_common_locale
+    doc: >-
+      A locale the server generates for its shells, such as en_CA.UTF-8.
+      Applied by the next converge; en_CA.UTF-8 while unset.
+    panel: {group: server, section: config, kind: text, optional: true}
 
   - key: TAILSCALE_TAGS
     residence: store

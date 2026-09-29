@@ -40,10 +40,6 @@
       "title": "Site policy"
     },
     {
-      "name": "locale",
-      "title": "Locale and timezone"
-    },
-    {
       "name": "development",
       "title": "Development only",
       "doc": "Leave every key in this section at its default on a client install.\nThey point certificate issuance at a local Pebble or at Let's Encrypt\nstaging, whose certificates browsers, TURN clients and sending MTAs all\nreject. The test bench sets them to its own host-side ACME server."
@@ -276,18 +272,26 @@
     },
     {
       "key": "COMMON_TIMEZONE",
-      "residence": "controller",
-      "env": {
-        "section": "locale",
-        "default": "America/Toronto"
+      "residence": "store",
+      "var": "cfg_common_timezone",
+      "doc": "The server's clock zone, an IANA name such as America/Toronto, which schedules and logs follow. Applied by the next converge; America/Toronto while unset.",
+      "panel": {
+        "group": "server",
+        "section": "config",
+        "kind": "text",
+        "optional": true
       }
     },
     {
       "key": "COMMON_LOCALE",
-      "residence": "controller",
-      "env": {
-        "section": "locale",
-        "default": "en_CA.UTF-8"
+      "residence": "store",
+      "var": "cfg_common_locale",
+      "doc": "A locale the server generates for its shells, such as en_CA.UTF-8. Applied by the next converge; en_CA.UTF-8 while unset.",
+      "panel": {
+        "group": "server",
+        "section": "config",
+        "kind": "text",
+        "optional": true
       }
     },
     {

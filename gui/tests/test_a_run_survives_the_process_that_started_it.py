@@ -70,12 +70,12 @@ def test_an_edit_replaces_the_value_already_saved(tmp_path):
     """seed keeps an existing value on a CLI re-run; the launcher's save IS
     the client's edit, so it has to land."""
     r = run_mod.load(tmp_path / "clientco", SECRETS)
-    r.answer("COMMON_TIMEZONE", "Europe/Paris", secret=False)
+    r.answer("HOST_SSH_PORT", "2222", secret=False)
     r.save()
-    r.answer("COMMON_TIMEZONE", "Asia/Tokyo", secret=False)
+    r.answer("HOST_SSH_PORT", "2200", secret=False)
     r.save()
     assert run_mod.load(tmp_path / "clientco", SECRETS).answers[
-        "COMMON_TIMEZONE"] == "Asia/Tokyo"
+        "HOST_SSH_PORT"] == "2200"
 
 
 def test_a_value_edited_by_hand_is_kept_by_the_launcher(tmp_path):
@@ -86,7 +86,7 @@ def test_a_value_edited_by_hand_is_kept_by_the_launcher(tmp_path):
         "OPS_USER=ops", "OPS_USER=admin2")
     r.env_path.write_text(text, encoding="utf-8")
     reopened = run_mod.load(tmp_path / "clientco", SECRETS)
-    reopened.answer("COMMON_LOCALE", "fr_CA.UTF-8", secret=False)
+    reopened.answer("HOST_SSH_PORT", "2222", secret=False)
     reopened.save()
     assert run_mod.load(tmp_path / "clientco", SECRETS).answers[
         "OPS_USER"] == "admin2"

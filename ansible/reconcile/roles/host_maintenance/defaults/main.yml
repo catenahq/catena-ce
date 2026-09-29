@@ -1,10 +1,15 @@
 ---
-# Host-level maintenance reporting. One thing today: telling somebody the host
-# needs a reboot.
+# Host-level settings the client changes in catena-admin, and maintenance
+# reporting: telling somebody the host needs a reboot.
 #
 # Debian's unattended-upgrades applies the patches (bootstrap/roles/common);
 # nothing on this host reboots itself, by design. This role is the half that
 # makes "patched but not in effect yet" visible instead of silent.
+
+# From the store (COMMON_TIMEZONE, COMMON_LOCALE); the literals are what a host
+# with nothing stored uses.
+host_maintenance_timezone: "{{ cfg_common_timezone | default('America/Toronto', true) | trim }}"
+host_maintenance_locale: "{{ cfg_common_locale | default('en_CA.UTF-8', true) | trim }}"
 
 reboot_check_env_file: /etc/catena/reboot-check.env
 reboot_check_report_file: /var/lib/catena/reboot-required.json
