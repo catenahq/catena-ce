@@ -44,19 +44,31 @@ tooltip; one that does not is never asked. There is no list of fields in this
 package, and a test refuses one.
 
 Adding a question is therefore a registry edit. Adding a *proof* is a function
-in `catena_gui/steps.py`: every section has a Check whose results show under
-its button, and Install runs every section's check before it starts. An
-installer that collects every answer and discovers at the end that the first
-credential was wrong has spent a client's whole sitting to say something it
-knew at the start.
+in `catena_gui/steps.py`: a section that says what it `validates` has a Check
+that observes it -- the SSH server and the key's login, the Cloudflare token and
+its active domain, the tailnet credential at its provider, a signed request to
+the backup bucket -- with its results under its button. A section whose answers
+are picked from lists (language and time) has no check. Install runs every
+check before it starts. An installer that collects every answer and discovers
+at the end that the first credential was wrong has spent a client's whole
+sitting to say something it knew at the start.
+
+Fields the registry marks `required` block until filled; everything else is
+labelled optional. The domain, the private network and the backup are each
+optional and all or nothing: blank installs without it, half of one is
+refused. The access method is not asked -- it follows from whether the tailnet
+credentials were given.
 
 ## An inventory is the run
 
-Two pages. The first lists the directories under `../ansible/inventory/` (the
+Three pages. The first lists the directories under `../ansible/inventory/` (the
 shipped `example` excluded), one per line, and creates new ones. The second
 holds every section in one form. Every field starts from the registry's
 default, and a knob that declares an `example` shows it as a placeholder, never
-as a value. Each Check saves the whole form:
+as a value. The third, "Reaching the panel", gives the command for each way in
+this install leaves: an SSH forward as the `panel` account always, the tailnet
+and the Cloudflare tunnel when they are configured. Each Check saves the whole
+form:
 
 ```
 ansible/inventory/<name>/

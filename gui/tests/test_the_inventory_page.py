@@ -37,6 +37,7 @@ def client(tmp_path, monkeypatch):
     server._Handler.inventory_root = ansible / "inventory"
     server._Handler.all_steps = STEPS
     server._Handler.last_checks = {}
+    server._Handler.found_options = {}
     httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), server._Handler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
@@ -51,6 +52,9 @@ def client(tmp_path, monkeypatch):
 
     yield request, ansible / "inventory"
     httpd.shutdown()
+
+
+_REQUIRED = {"HOST_PUBLIC_IP": "203.0.113.10", "ADMIN_EMAIL": "admin@client.test"}
 
 
 def _plain_field(step: str) -> steps_mod.Field:
@@ -148,7 +152,7 @@ def test_checking_one_section_saves_every_section(client):
     """One form: a check further up keeps what was typed further down."""
     request, root = client
     request("POST", "/inventory", {"create": "newco"})
-    first, other = _plain_field(STEPS[0].name), _plain_field("locale")
+    first, other = _plain_field(STEPS[0].name), _plain_field("backup")
     status, where, _ = request("POST", "/", {
         first.key: "first-value", other.key: "other-value",
         "check": STEPS[0].name})
@@ -186,7 +190,8 @@ def test_install_checks_every_section_and_stops_on_the_first_that_fails(
         return [steps_mod.Check("reachable", step != "access")]
 
     monkeypatch.setattr(steps_mod, "validate", validate)
-    status, where, _ = request("POST", "/", {"install": "yes", "ack": "yes"})
+    status, where, _ = request("POST", "/", {"install": "yes", "ack": "yes",
+                                             **_REQUIRED})
     assert (status, where) == (303, "/#access")
     assert seen == [s.name for s in STEPS]
     assert started == []
@@ -197,9 +202,73 @@ def test_install_starts_when_every_section_passes(client, monkeypatch):
     request("POST", "/inventory", {"create": "newco"})
     started = []
     monkeypatch.setattr(server, "start_install", lambda *a: started.append(a))
-    status, where, _ = request("POST", "/", {"install": "yes", "ack": "yes"})
+    status, where, _ = request("POST", "/", {"install": "yes", "ack": "yes",
+                                             **_REQUIRED})
     assert (status, where) == (303, "/#install")
     assert len(started) == 1
+
+
+def test_a_required_field_left_empty_stops_the_install_on_its_section(
+        client, monkeypatch):
+    """No probe runs on a section whose required answers are missing, and
+    Install does not start."""
+    request, _ = client
+    request("POST", "/inventory", {"create": "newco"})
+    started = []
+    monkeypatch.setattr(server, "start_install", lambda *a: started.append(a))
+    status, where, _ = request("POST", "/", {"install": "yes", "ack": "yes"})
+    assert (status, where) == (303, f"/#{STEPS[0].name}")
+    assert started == []
+    section = _section(request("GET", "/")[2], STEPS[0].name)
+    assert "is required" in section
+
+
+def test_the_access_method_is_saved_from_the_credentials(client):
+    """Not a question on the page: it follows from whether the tailnet
+    section was answered, and reaches the .env the installer reads."""
+    request, root = client
+    request("POST", "/inventory", {"create": "newco"})
+    request("POST", "/", {"check": "access"})
+    saved = run_mod._seed().read_existing_env(root / "newco" / ".env")
+    assert saved["ACCESS_METHOD"] == "public_ssh"
+    request("POST", "/", {"tailscale_oauth_client_id": "x",
+                          "tailscale_oauth_client_secret": "y", "check": "access"})
+    saved = run_mod._seed().read_existing_env(root / "newco" / ".env")
+    assert saved["ACCESS_METHOD"] == "tailnet"
+
+
+def test_a_section_with_nothing_to_prove_has_no_check_button(client):
+    request, _ = client
+    request("POST", "/inventory", {"create": "newco"})
+    page = request("GET", "/")[2]
+    quiet = [s.name for s in STEPS if not s.validates]
+    assert quiet, "every section has a check; nothing to assert"
+    for name in quiet:
+        assert 'name=check' not in _section(page, name), name
+
+
+def test_a_check_fills_the_list_it_found(client, monkeypatch):
+    """The domains a token reaches become the domain field's choices, with a
+    blank to leave it unset."""
+    request, _ = client
+    request("POST", "/inventory", {"create": "newco"})
+    monkeypatch.setattr(steps_mod, "options_after_check",
+                        lambda step, a, s: {"CLOUDFLARE_ZONE": ["client.test"]}
+                        if step == "domain" else {})
+    request("POST", "/", {"check": "domain"})
+    section = _section(request("GET", "/")[2], "domain")
+    assert re.search(r'<select id="f-CLOUDFLARE_ZONE"[^>]*>'
+                     r'<option value="" selected>\(none\)</option>'
+                     r'<option value="client.test">', section), section
+
+
+def test_the_access_page_names_the_ssh_forward(client):
+    request, _ = client
+    request("POST", "/inventory", {"create": "newco"})
+    request("POST", "/", {"HOST_PUBLIC_IP": "203.0.113.10", "check": "target"})
+    page = request("GET", "/access")[2]
+    assert "Reaching the panel" in page
+    assert "panel@203.0.113.10" in page
 
 
 def test_the_acknowledgement_box_comes_before_its_text(client):
@@ -223,22 +292,23 @@ def test_a_governing_choice_comes_before_the_fields_it_governs(client):
                         < body.index(f'data-key="{field.key}"')), field.key
 
 
-def test_a_field_under_a_hidden_choice_is_hidden_too(client):
-    """With no private network the provider choice is hidden, and so is every
-    field that choice governs, whatever the hidden select still holds."""
+def test_the_provider_choice_hides_the_other_providers_fields(client):
+    """The provider is always asked; the credentials shown are the chosen
+    provider's."""
     request, _ = client
     request("POST", "/inventory", {"create": "newco"})
 
     def hidden(page):
         return set(re.findall(r'<div class=field data-key="(\w+)"[^>]* hidden>', page))
 
-    tailnet = hidden(request("GET", "/")[2])
-    assert "TAILNET_PROVIDER" not in tailnet
-    assert "tailscale_oauth_client_id" not in tailnet
-    request("POST", "/", {"ACCESS_METHOD": "public_ssh", "check": "access"})
-    public = hidden(request("GET", "/")[2])
-    assert {"TAILNET_PROVIDER", "tailscale_oauth_client_id",
-            "headscale_api_key"} <= public
+    tailscale = hidden(request("GET", "/")[2])
+    assert "TAILNET_PROVIDER" not in tailscale
+    assert "tailscale_oauth_client_id" not in tailscale
+    assert "headscale_api_key" in tailscale
+    request("POST", "/", {"TAILNET_PROVIDER": "headscale", "check": "access"})
+    headscale = hidden(request("GET", "/")[2])
+    assert "headscale_api_key" not in headscale
+    assert "tailscale_oauth_client_id" in headscale
 
 
 def test_the_install_output_reaches_no_file(tmp_path, monkeypatch):

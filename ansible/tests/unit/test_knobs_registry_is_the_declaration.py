@@ -190,6 +190,55 @@ def test_a_section_with_no_key_is_refused(tmp_path):
         render_knobs.load(source)
 
 
+def _refused(tmp_path, doc: dict, match: str) -> None:
+    source = tmp_path / "knobs.yml"
+    source.write_text(yaml.safe_dump(doc, sort_keys=False))
+    with pytest.raises(render_knobs.KnobError, match=match):
+        render_knobs.load(source)
+
+
+def _entry(doc: dict, key: str) -> dict:
+    return next(e for e in [*doc["secrets"], *doc["config"]] if e["key"] == key)
+
+
+def test_launcher_fields_need_a_step_and_a_sound_shape(tmp_path):
+    """`required` and the dropdown lists are read by the launcher alone, so on
+    a knob it never asks for they are read by nothing, and a malformed one
+    would reach the page as a broken control."""
+    doc = render_knobs.load()
+    _entry(doc, "OPS_USER")["required"] = True
+    _refused(tmp_path, doc, "has no step")
+
+    doc = render_knobs.load()
+    _entry(doc, "HOST_PUBLIC_IP")["required"] = "yes"
+    _refused(tmp_path, doc, "not a boolean")
+
+    doc = render_knobs.load()
+    _entry(doc, "COMMON_LOCALE")["gui_options"] = []
+    _refused(tmp_path, doc, "gui_options")
+
+    doc = render_knobs.load()
+    _entry(doc, "COMMON_TIMEZONE")["gui_options_from"] = "planets"
+    _refused(tmp_path, doc, "gui_options_from")
+
+
+def test_a_step_link_must_be_https_with_text(tmp_path):
+    doc = render_knobs.load()
+    doc["gui_steps"][0]["links"] = [{"text": "x", "url": "http://example.com"}]
+    _refused(tmp_path, doc, "https")
+
+
+def test_the_installers_required_fields_are_the_ones_it_cannot_install_without(
+        registry):
+    """The server's address, its initial login and SSH port, the keypair that
+    reaches it, and the administrator's email. Nothing else blocks an install:
+    the domain, the tailnet and the backup can all be entered in the panel."""
+    required = {e["key"] for e in [*registry["secrets"], *registry["config"]]
+                if e.get("required")}
+    assert required == {"HOST_PUBLIC_IP", "HOST_INITIAL_USER", "HOST_SSH_PORT",
+                        "SSH_PRIVATE_KEY", "SSH_PUBLIC_KEY_FILE", "ADMIN_EMAIL"}
+
+
 def test_a_default_that_needs_quoting_is_refused():
     """A template default is an illustration, and one that renders a line
     parsing back as something else is the wrong illustration."""

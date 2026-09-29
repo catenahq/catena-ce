@@ -156,19 +156,18 @@ def _declared_secret_names() -> frozenset[str]:
 # admin/restic DR keyset -- is minted ON-BOX (helpers/onbox_config.py), and the
 # S3 backup credentials are set post-install in catena-admin.
 #
-# Two kinds, and either one may be deferred as long as the other is not: the
-# panel a deferred one is entered in is reached over the other.
+# Two kinds, and either or both may be deferred: the panel a deferred one is
+# entered in is always reachable through an SSH forward as the panel account.
 #
 # The tailnet join credential is asked for when the access method is the
 # tailnet; the install's lockdown leg joins with it. Which of the three it is
 # follows from the backend the inventory declared. A public_ssh install enters
-# it later in the panel, reached through the tunnel.
+# it later in the panel.
 #
 # The Cloudflare token is asked for when the inventory answered
-# CLOUDFLARE_ZONE. Deferring it is a supported product case on a tailnet
-# install: a server is installed before its domain is decided, and
-# `catena_public_surface_deferred` is what every role that would publish a name
-# reads.
+# CLOUDFLARE_ZONE. Deferring it is a supported product case: a server is
+# installed before its domain is decided, and `catena_public_surface_deferred`
+# is what every role that would publish a name reads.
 INSTALL_EXTERNAL_KEYS: tuple[str, ...] = (
     "tailscale_oauth_client_id",
     "tailscale_oauth_client_secret",
@@ -216,7 +215,10 @@ One-time setup in https://dash.cloudflare.com/profile/api-tokens :
   1. Create Token -> Create Custom Token.
      - Permissions: Account -> Cloudflare Tunnel -> Edit
                     Zone    -> DNS               -> Edit
+     - Account Resources: Include -> your account
      - Zone Resources: Include -> Specific zone -> {zone}
+     - TTL: open-ended, or an end date -- replace the token in
+       catena-admin > Settings before it, or the tunnel stops syncing
 
   2. Continue, Create, then copy the token -- it is displayed once.
 

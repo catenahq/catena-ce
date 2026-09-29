@@ -66,9 +66,12 @@ def walk(run: run_mod.Run, doc: dict) -> int:
     sittings saying what it could have said in one.
     """
     problems = 0
-    for step in steps_mod.build(doc):
+    built = steps_mod.build(doc)
+    values = {f.key: (run.value(f.key) or f.default) for s in built for f in s.fields}
+    for step in built:
         print(f"\n== {step.title}", file=sys.stderr)
-        checks = steps_mod.validate(step.name, run.answers, run.secrets)
+        missing = steps_mod.missing_required(step, values)
+        checks = missing or steps_mod.validate(step.name, run.answers, run.secrets)
         _report(checks)
         problems += sum(1 for check in checks if check.blocks)
     return problems
@@ -130,6 +133,8 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("--inventory is required with --answers: it names "
                              "the directory the answers are saved into")
         _load_answers_file(Path(args.answers).expanduser(), current, doc)
+        for key, value in steps_mod.derive(current.answers, current.secrets).items():
+            current.answer(key, value, secret=False)
     # An existing inventory is written when something was answered, never just
     # for being opened: the `.env` is a file its client may have edited.
     if current is not None and (args.answers or not current.path.is_dir()):

@@ -9,9 +9,10 @@ THE BROWSER IS A VIEW. Every answer goes straight into the Run this process
 holds, and the state that matters is in the inventory. Closing the tab loses
 nothing checked; reopening it shows the same page.
 
-TWO PAGES. The inventory picker, then one install page holding every section
-in a single form: checking one section saves what was typed in all of them, so
-nothing entered further down is lost to a check further up.
+THREE PAGES. The inventory picker; one install page holding every section in a
+single form, where checking one section saves what was typed in all of them, so
+nothing entered further down is lost to a check further up; and the access
+page, which says how the panel is reached once the install ends.
 
 STDLIB, DELIBERATELY. An installer on loopback needs routing, forms and HTML
 and nothing a framework adds beyond that -- and every dependency here is one a
@@ -74,6 +75,8 @@ button { padding: .5rem 1.1rem; font: inherit;
 ul.inv { list-style: none; padding: 0; margin: .75rem 0; }
 ul.inv li { margin: 0 0 .4rem; }
 ul.inv button { display: block; width: 100%; text-align: left; }
+ul.links { padding-left: 1.2rem; margin: .5rem 0; }
+code { font-family: ui-monospace, monospace; font-size: .9rem; }
 ul.checks { list-style: none; padding: 0; margin: .75rem 0 0; }
 ul.checks li { padding: .2rem 0; }
 .bad { color: var(--bad); } .warn { color: var(--warn); } .ok { color: var(--ok); }
@@ -91,12 +94,15 @@ def _page(title: str, body: str) -> bytes:
     ).encode("utf-8")
 
 
-def _nav(inventory: str, *, on_inventory: bool) -> str:
-    out = ["<nav>", f'<a href="/inventory"{" class=on" if on_inventory else ""}>'
-                    "Inventory</a>"]
+def _nav(inventory: str, *, on: str) -> str:
+    """`on` is the page shown: "inventory", "install" or "access"."""
+    def link(href: str, name: str, text: str) -> str:
+        return f'<a href="{href}"{" class=on" if on == name else ""}>{text}</a>'
+
+    out = ["<nav>", link("/inventory", "inventory", "Inventory")]
     if inventory:
-        out.append(f'<a href="/"{"" if on_inventory else " class=on"}>'
-                   f"Install {html.escape(inventory)}</a>")
+        out.append(link("/", "install", f"Install {html.escape(inventory)}"))
+        out.append(link("/access", "access", "Reaching the panel"))
     out.append("</nav>")
     return "".join(out)
 
@@ -108,21 +114,28 @@ def _tip(text: str, about: str) -> str:
 
 
 def _field_html(field: steps_mod.Field, value: str, *, shown: bool,
-                governed: bool) -> str:
+                governed: bool, options: list[str] | None = None) -> str:
     """One field: its name, `(optional)` and a `(?)` holding the explanation,
     above the control.
 
     Every field is rendered and a governed one is hidden rather than left out,
     so the page shows or hides it the moment its governing choice changes
     (`governed`: the governing field is on this page too). `shown` is the
-    server's answer from what is saved, for a browser without scripts."""
+    server's answer from what is saved, for a browser without scripts.
+
+    `options` are ones a check found (the domains a token reaches). They open
+    with a blank "(none)", and a saved value missing from any list stays
+    selected as an extra option, so opening the page never changes it."""
     key = html.escape(field.key)
     fid = f"f-{key}"
-    if field.options:
+    choices = ([""] + options) if options is not None else list(field.options)
+    if value and choices and value not in choices:
+        choices.append(value)
+    if choices:
         opts = "".join(
             f'<option value="{html.escape(o)}"'
-            f'{" selected" if o == value else ""}>{html.escape(o)}</option>'
-            for o in field.options)
+            f'{" selected" if o == value else ""}>{html.escape(o) or "(none)"}</option>'
+            for o in choices)
         control = f'<select id="{fid}" name="{key}">{opts}</select>'
     else:
         kind = "password" if field.secret else "text"
@@ -237,6 +250,33 @@ def _checks_html(checks: list[steps_mod.Check]) -> str:
     return f'<ul class=checks>{"".join(rows)}</ul>'
 
 
+def _links_html(links: list[dict]) -> str:
+    if not links:
+        return ""
+    items = "".join(
+        f'<li><a href="{html.escape(str(l.get("url", "")))}" target=_blank '
+        f'rel=noopener>{html.escape(str(l.get("text", "")))}</a></li>'
+        for l in links)
+    return f"<ul class=links>{items}</ul>"
+
+
+def _access_html(ways: list[steps_mod.WayIn]) -> str:
+    """The third page: every way into the panel this install leaves, with the
+    command to type. SSH is always one of them."""
+    out = ["<h1>Reaching the panel</h1><p class=doc>The panel and Portainer "
+           "answer the server itself only. Each way below reaches them; the "
+           "admin password is the one the install shows once.</p>"]
+    for way in ways:
+        commands = "".join(f"<pre>{html.escape(c)}</pre>" for c in way.commands)
+        urls = "".join(f"<li><code>{html.escape(u)}</code></li>" for u in way.urls)
+        then = "<p class=doc>Then open:</p>" if way.commands else ""
+        out.append(f"<section><h2>{html.escape(way.title)}</h2>"
+                   f"<p class=doc>{html.escape(way.when)}</p>{commands}"
+                   f"{then}<ul class=links>{urls}</ul>"
+                   f"<p class=doc>{html.escape(way.login)}</p></section>")
+    return "".join(out)
+
+
 def start_install(current: run_mod.Run, ansible_dir: Path) -> threading.Thread:
     """Run `catena-cli install` in the background, streaming what it prints to
     the console window and to the run's in-memory tail.
@@ -301,8 +341,10 @@ def _install_html(current: run_mod.Run) -> str:
     }
     refresh = ('<meta http-equiv=refresh content="5;url=/#install">'
                if current.state == run_mod.STATE_INSTALLING else "")
+    after = ('<p><a href="/access">How to reach the panel now</a></p>'
+             if current.state == run_mod.STATE_DONE else "")
     return (f"<section id=install>{refresh}<h2>Install output</h2>"
-            f"<p class=doc>{html.escape(words[current.state])}</p>"
+            f"<p class=doc>{html.escape(words[current.state])}</p>{after}"
             f"<pre>{html.escape(chr(10).join(lines))}</pre></section>")
 
 
@@ -316,6 +358,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     inventory_root: Path
     all_steps: list[steps_mod.Step]
     last_checks: dict[str, list[steps_mod.Check]] = {}
+    # Choice lists a check found, by field (the domains a token reaches).
+    found_options: dict[str, list[str]] = {}
     inventory_problem: str = ""
 
     def log_message(self, *_args) -> None:
@@ -348,6 +392,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if path == "/inventory":
             self._render_inventory()
             return
+        if path == "/access":
+            if self.run is None:
+                self._redirect("/inventory")
+                return
+            self._render_access()
+            return
         self._send(_page("Not found", "<main><h1>Not found</h1></main>"), 404)
 
     def _form(self) -> dict[str, list[str]]:
@@ -357,7 +407,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
     def _render_inventory(self) -> None:
         current = self.run.inventory if self.run else ""
-        body = (f"{_nav(current, on_inventory=True)}<main>"
+        body = (f"{_nav(current, on='inventory')}<main>"
                 f"{_inventory_html(run_mod.inventories(self.inventory_root), current, _Handler.inventory_problem)}"
                 "</main>")
         _Handler.inventory_problem = ""
@@ -374,6 +424,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             opened.save()
         _Handler.run = opened
         _Handler.last_checks = {}
+        _Handler.found_options = {}
         self._redirect(f"/#{opened.step}" if self._step(opened.step) else "/")
 
     def _post_inventory(self) -> None:
@@ -417,6 +468,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     self.run.answer(field.key, form[field.key][0], secret=field.secret)
         self.run.answer("_keyset_acknowledged",
                         "yes" if form.get("ack") else "", secret=False)
+        for key, value in steps_mod.derive(self.run.answers, self.run.secrets).items():
+            self.run.answer(key, value, secret=False)
 
         # Check one section, or every section before the install. Install
         # starts only when none of them blocks, so there is no second
@@ -425,9 +478,15 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         checked = (form.get("check") or [""])[0]
         names = ([s.name for s in self.all_steps] if installing
                  else [checked] if self._step(checked) else [])
+        values = self._shown_values()
         for name in names:
-            _Handler.last_checks[name] = steps_mod.validate(
-                name, self.run.answers, self.run.secrets)
+            step = self._step(name)
+            missing = steps_mod.missing_required(step, values) if step else []
+            _Handler.last_checks[name] = missing + (
+                [] if missing else steps_mod.validate(
+                    name, self.run.answers, self.run.secrets))
+            _Handler.found_options.update(steps_mod.options_after_check(
+                name, self.run.answers, self.run.secrets))
         blocked = next((n for n in names
                         if steps_mod.blocked(_Handler.last_checks[n])), "")
         self.run.step = blocked or checked or self.run.step
@@ -455,7 +514,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         for field in _governors_first(step.fields):
             rows.append(_field_html(field, values[field.key],
                                     shown=_visible(field, by_key, values),
-                                    governed=field.governor in by_key))
+                                    governed=field.governor in by_key,
+                                    options=_Handler.found_options.get(field.key)))
         last = step.name == self.all_steps[-1].name
         if last:
             acked = self.run.value("_keyset_acknowledged") == "yes"
@@ -464,7 +524,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 f'{" checked" if acked else ""}>'
                 "<span>I have somewhere to save the three passwords and the "
                 "journal key the installer shows once.</span></label>")
-        if started:
+        if started or not (last or step.validates):
+            # A section with nothing to prove has no Check: its answers are
+            # saved with the next check or with Install.
             action = ""
         elif last:
             action = ("<div class=act><button type=submit name=install value=yes>"
@@ -481,6 +543,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         return (f'<section id="{html.escape(step.name)}">'
                 f"<h2>{html.escape(step.title)}</h2>"
                 f"<p class=doc>{html.escape(step.doc)}</p>"
+                f"{_links_html(step.links)}"
                 f'{"".join(rows)}{action}'
                 f"{_checks_html(_Handler.last_checks.get(step.name) or [])}"
                 "</section>")
@@ -489,7 +552,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         started = self.run.state != run_mod.STATE_ANSWERING
         sections = "".join(self._section_html(s, started) for s in self.all_steps)
         body = (
-            f"{_nav(self.run.inventory, on_inventory=False)}<main>"
+            f"{_nav(self.run.inventory, on='install')}<main>"
             f"<h1>Install {html.escape(self.run.inventory)}</h1>"
             "<p class=doc>Answers are saved to ansible/inventory/"
             f"{html.escape(self.run.inventory)}/.env each time a section is "
@@ -499,6 +562,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             f"{_install_html(self.run)}"
             f"<script>{_SCRIPT}</script></main>")
         self._send(_page(f"Install {self.run.inventory}", body))
+
+    def _render_access(self) -> None:
+        ways = steps_mod.ways_in(self.run.answers, self.run.secrets, self.run.path)
+        body = (f"{_nav(self.run.inventory, on='access')}<main>"
+                f"{_access_html(ways)}</main>")
+        self._send(_page("Reaching the panel", body))
 
 
 def serve(current: run_mod.Run | None, doc: dict, *, port: int,
@@ -515,6 +584,7 @@ def serve(current: run_mod.Run | None, doc: dict, *, port: int,
     _Handler.inventory_root = ansible_dir / "inventory"
     _Handler.all_steps = steps_mod.build(doc)
     _Handler.last_checks = {}
+    _Handler.found_options = {}
     server = http.server.ThreadingHTTPServer(("127.0.0.1", port), _Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

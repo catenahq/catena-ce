@@ -108,14 +108,28 @@ def cli_script() -> str:
 CLI_ENTRY = "catena_cli:_entry"
 
 
-def options_for(entry: dict) -> list[str]:
-    """The values a field accepts, or an empty list for free text.
+def is_required(entry: dict) -> bool:
+    """Whether the installer refuses to install without a value. Everything
+    else is labelled optional; a section whose fields only make sense together
+    says so in its own check."""
+    return bool(entry.get("required"))
 
-    Read from the panel's declaration first and the template's second. They
-    agree today; the panel is preferred because it is the one a client has
+
+def options_for(entry: dict) -> list[str]:
+    """The values a field offers, or an empty list for free text.
+
+    The launcher's own suggestion list first (`gui_options`, or a named source
+    in `gui_options_from`), then the panel's declaration, then the template's.
+    The panel is preferred over the template because it is the one a client has
     already used, and an installer offering a choice the panel does not is an
     install that cannot be edited afterwards.
     """
+    if entry.get("gui_options"):
+        return list(entry["gui_options"])
+    if entry.get("gui_options_from") == "timezones":
+        import zoneinfo
+
+        return sorted(zoneinfo.available_timezones())
     panel = entry.get("panel") or {}
     if panel.get("kind") == "choice" and panel.get("options"):
         return list(panel["options"])

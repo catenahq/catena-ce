@@ -71,7 +71,17 @@
 #               this one. The same fact the converge acts on, which is why it
 #               is declared and not left to a template. The field is `choice`
 #               rather than the `on` it reads as in English, because YAML 1.1
-#               parses a bare `on` as the boolean true.
+#               parses a bare `on` as the boolean true. The launcher applies it
+#               only when the governing field is on its page too.
+#   required    true when the graphical installer refuses to install without a
+#               value. Everything else is labelled optional there; a section
+#               whose fields only make sense together (a token and its domain)
+#               says so in its own check.
+#   gui_options / gui_options_from
+#               the values the graphical installer offers as a dropdown, as a
+#               list or from a named source (`timezones`: the IANA database).
+#               A suggestion list for the launcher only: seed and the panel
+#               accept any value, which is why these are not `env.options`.
 version: 1
 
 env_header: |-
@@ -95,10 +105,14 @@ env_header: |-
 # The graphical installer's sections, in order, all on one page. Each knob that
 # names one appears in it; a knob that names none is never asked for.
 #
-# EVERY SECTION HAS ITS CHECK, and the `validates` line says what it proves;
-# Install runs every section's check first. An installer that collects every
-# answer and discovers at the end that the first credential was wrong has spent
-# the client's whole sitting to tell them something it knew at the start.
+# A section with a `validates` line has a check, and says what it proves; Install
+# runs every section's check first. An installer that collects every answer and
+# discovers at the end that the first credential was wrong has spent the
+# client's whole sitting to tell them something it knew at the start. A section
+# whose answers are picked from a list has nothing to prove and no check.
+#
+# `links` are shown under a section's text, for the account or console its
+# answers come from.
 #
 # The launcher holds no knob knowledge of its own: it renders these sections
 # from this file. Adding a knob with a `step` puts it in that section.
@@ -106,57 +120,76 @@ gui_steps:
   - name: target
     title: The server
     doc: |-
-      Where Catena is going, and the key that reaches it. A machine that
-      already exists: the launcher does not order one, because ordering means
-      holding a client's cloud credentials.
+      Where Catena is going, the key that reaches it, and the administrator's
+      email, which is the panel's login. A machine that already exists and
+      already accepts this key for its initial login: most providers install
+      the public key given when the server is ordered. The launcher does not
+      order one, because ordering means holding a client's cloud credentials.
     validates: |-
-      The address answers on the SSH port, and the keypair is on this machine
-      (the launcher offers to generate one when it is not).
+      An SSH server answers at the address and port, and it accepts this key
+      for the initial login (or for the ops account on a server already
+      installed).
 
   - name: domain
     title: The domain
     doc: |-
-      The name this server answers on. Every address it publishes is a name
-      under it, and the token is what lets the server create them.
+      Optional, and all or nothing: the Cloudflare API token and the domain it
+      publishes. Every public address is a name under the domain. Left blank,
+      the server finishes with no public surface, its panel is reached through
+      an SSH forward, and both can be entered in the panel afterwards.
 
-      Blank is a real answer on a server that joins the private network: it
-      finishes with no public surface, its panel is reached over that network,
-      and the domain and its token are entered together in the panel
-      afterwards. A server that joins no private network needs both here, since
-      the tunnel is then the only way into its panel.
+      Creating the token, in the Cloudflare dashboard:
+
+        1. My Profile > API Tokens > Create Token > Custom token.
+        2. Permissions, two rows:
+             Account > Cloudflare Tunnel > Edit
+             Zone    > DNS               > Edit
+        3. Account Resources: Include > your account.
+        4. Zone Resources: Include > Specific zone > the domain, or All zones
+           to pick it from the list here.
+        5. TTL: leave it open-ended, or set an end date and replace the token
+           in the panel before it expires -- the tunnel stops syncing when it
+           does.
+        6. Continue to summary > Create Token, and copy it: it is shown once.
+
+      Paste the token and Check: the domains it reaches appear in the list.
+    links:
+      - {text: "Create a Cloudflare account", url: "https://dash.cloudflare.com/sign-up"}
+      - {text: "Cloudflare API tokens", url: "https://dash.cloudflare.com/profile/api-tokens"}
     validates: |-
-      The token is live, it reaches this domain, and the domain is ACTIVE at
+      The token is live, it reaches the domain, and the domain is ACTIVE at
       Cloudflare. A domain still waiting on its registrar's nameservers
       resolves nowhere, so an install on one would publish records nobody can
       follow.
 
   - name: access
-    title: Getting back in
+    title: The private network
     doc: |-
-      How this server is reached for maintenance after the install. The install
-      itself always runs over the SSH address above. On the private network it
-      joins last, then closes the public SSH port once it has proven the new
-      path from this machine; without one the port stays open, because a server
-      with no other way in has nothing to prove, and the domain and its token
-      become required. Either one can be added in the panel afterwards. The
-      email is the panel's login and the sign-on administrator's address.
+      Optional. SSH on the public address stays the way in after the install,
+      key-only, with no root and no password login. A private network (a
+      tailnet) is a convenience on top of it: the server joins it last, and
+      choosing Lockdown in the panel afterwards closes the public SSH port
+      behind it. The server reopens that port by itself while the tailnet is
+      down. Leave the credentials blank to install without one.
+    links:
+      - {text: "Tailscale admin console", url: "https://login.tailscale.com/admin"}
     validates: |-
-      The credential exchanges for a token at the provider, and this machine
-      can reach the network it joins. Both, because minting a key for a network
-      this machine cannot reach produces a server nobody here can administer.
+      The credential works at the provider, and this machine can reach the
+      network the server joins.
 
   - name: backup
     title: Backup
     doc: |-
-      Where snapshots go. The repository is ONE address that already carries
-      the endpoint and the bucket, and the keys are what open it.
+      Optional, and all or nothing: where snapshots go. The repository is ONE
+      address that already carries the endpoint and the bucket, and the keys
+      are what open it. Left blank, nothing is backed up until they are
+      entered in the panel, which owns them afterwards.
 
       This is also the keyset a client keeps: with the repository, the two S3
       keys and the restic password, a wiped server is rebuilt from nothing
       else.
     validates: |-
-      The endpoint answers. Whether the credentials open the repository is
-      proven by the first backup, on the server, where restic runs.
+      The keys open the bucket: a signed request to the endpoint is accepted.
 
   - name: locale
     title: Language and time
@@ -164,8 +197,6 @@ gui_steps:
       The server's own locale and timezone. They decide what its logs and its
       scheduled jobs are stamped with, not what the panel is read in -- the
       panel switches language per visitor.
-    validates: |-
-      Nothing to prove: both are settings on the server itself.
 
   - name: keyset
     title: Save these
@@ -230,13 +261,19 @@ env_sections:
     doc: |-
       Filling the domain in makes `catena-cli install` ask for the API token that
       publishes it, and the tunnel comes up during the install. Leaving it
-      blank installs a server with no public surface, which only a server on
-      the tailnet may do; the domain and the token are then entered together in
-      catena-admin > Settings over the tailnet, and the tunnel comes up from
-      there.
+      blank installs a server with no public surface; the domain and the token
+      are then entered together in catena-admin > Settings, reached through an
+      SSH forward or the tailnet, and the tunnel comes up from there.
 
   - name: admin
     title: Admin identity
+
+  - name: backup
+    title: Backup
+    doc: |-
+      Optional. The repository seeds the server's settings on the first
+      converge; its S3 keys are credentials and are asked for, never written
+      here. Both can be entered in catena-admin > Settings instead.
 
   - name: storage
     title: Storage
@@ -370,6 +407,7 @@ config:
   # ---- the target's identity (hosts.yml, neither store nor .env) ----
   - key: HOST_PUBLIC_IP
     step: target
+    required: true
     residence: host
     doc: >-
       The provider's public IPv4. Used during bootstrap, before the firewall
@@ -378,6 +416,7 @@ config:
 
   - key: HOST_INITIAL_USER
     step: target
+    required: true
     residence: host
     doc: >-
       The provider's default login for that same phase (root, ubuntu, debian,
@@ -386,6 +425,7 @@ config:
 
   - key: HOST_SSH_PORT
     step: target
+    required: true
     residence: host
     doc: >-
       The port the controller CONNECTS on, written into hosts.yml as
@@ -396,6 +436,7 @@ config:
   # ---- the installer needs these before there is a box to ask ----
   - key: SSH_PRIVATE_KEY
     step: target
+    required: true
     residence: controller
     doc: >-
       A dedicated keypair for this project, so revoking at engagement end is
@@ -404,6 +445,7 @@ config:
 
   - key: SSH_PUBLIC_KEY_FILE
     step: target
+    required: true
     residence: controller
     env: {section: ssh, default: "~/.ssh/catena_ed25519.pub"}
 
@@ -420,11 +462,15 @@ config:
   - key: COMMON_TIMEZONE
     step: locale
     residence: controller
+    gui_options_from: timezones
     env: {section: locale, default: "America/Toronto"}
 
   - key: COMMON_LOCALE
     step: locale
     residence: controller
+    gui_options: [en_CA.UTF-8, fr_CA.UTF-8, en_US.UTF-8, en_GB.UTF-8, fr_FR.UTF-8,
+                  de_DE.UTF-8, es_ES.UTF-8, it_IT.UTF-8, nl_NL.UTF-8, pt_BR.UTF-8,
+                  C.UTF-8]
     env: {section: locale, default: "en_CA.UTF-8"}
 
   - key: TAILSCALE_TAGS
@@ -473,7 +519,8 @@ config:
     panel: {group: hostnames, section: config, kind: text, optional: true}
 
   - key: ADMIN_EMAIL
-    step: access
+    step: target
+    required: true
     residence: store
     var: cfg_admin_email
     doc: >-
@@ -481,7 +528,7 @@ config:
       matching password is minted on the box and shown once at the end of the
       install, with the first-login URLs. A host fact by any reading, which is
       why the `.env` only seeds it.
-    env: {section: admin, default: "operator@example.com"}
+    env: {section: admin, default: "", example: "you@example.com"}
 
   # ---- public hostnames ----
   #
@@ -490,7 +537,6 @@ config:
   # Blank means the product's own default, which is what every host used when
   # these were compiled in.
   - key: PORTAINER_SUBDOMAIN
-    step: domain
     residence: store
     var: cfg_portainer_admin_subdomain
     doc: >-
@@ -541,7 +587,6 @@ config:
 
   # ---- the access plane ----
   - key: ACCESS_METHOD
-    step: access
     residence: store
     var: cfg_access_method
     doc: >-
@@ -608,6 +653,12 @@ config:
     step: backup
     residence: store
     var: cfg_backup_restic_repo
+    doc: >-
+      The restic repository, as ONE address that carries the endpoint and the
+      bucket: s3:https://<endpoint>/<bucket>. Optional at install: blank
+      schedules no backup until it is entered in catena-admin > Settings,
+      which owns it afterwards.
+    env: {section: backup, default: ""}
     panel: {group: backup, section: config, kind: text, optional: false}
 
   - key: BACKUP_EXTRA_PATHS

@@ -99,27 +99,40 @@ def test_the_probes_name_only_keys_the_registry_declares():
                 f"steps.py probes {value}, which the registry does not declare")
 
 
-def test_every_step_has_a_probe(doc):
-    """A step with no probe advances on anything typed into it. The plan's
-    rule is that every step validates before it advances, and a missing entry
-    here is the quiet way to lose that."""
+def test_every_step_that_says_what_it_proves_has_a_probe(doc):
+    """A step whose `validates` line promises a proof and has no probe would
+    advance on anything typed into it. A step with no `validates` has nothing
+    to observe -- its answers are picked from lists -- and no probe either,
+    rather than one that passes on anything."""
     for step in registry.steps(doc):
-        assert step["name"] in steps_mod.PROBES, (
-            f"{step['name']} has no check, so it would advance on any answer")
+        if step.get("validates"):
+            assert step["name"] in steps_mod.PROBES, (
+                f"{step['name']} has no check, so it would advance on any answer")
+        else:
+            assert step["name"] not in steps_mod.PROBES, (
+                f"{step['name']} declares nothing to prove and still has a probe")
 
 
 def test_a_field_hidden_by_its_governing_choice_is_not_asked(doc):
     """Offering a Headscale server address to a client who chose the hosted
-    network asks for a value nothing will read; offering an OAuth pair to one
-    who chose no private network asks for a credential to a network their
-    server does not join."""
+    network asks for a value nothing will read."""
     access = next(s for s in steps_mod.build(doc) if s.name == "access")
     by_key = {f.key: f for f in access.fields}
 
-    tailnet = {"ACCESS_METHOD": "tailnet", "TAILNET_PROVIDER": "tailscale"}
-    assert by_key["tailscale_oauth_client_id"].shown_for(tailnet)
-    assert not by_key["TAILNET_CONTROL_URL"].shown_for(tailnet)
+    tailscale = {"TAILNET_PROVIDER": "tailscale"}
+    assert by_key["tailscale_oauth_client_id"].shown_for(tailscale)
+    assert not by_key["TAILNET_CONTROL_URL"].shown_for(tailscale)
 
-    headscale = {"ACCESS_METHOD": "tailnet", "TAILNET_PROVIDER": "headscale"}
+    headscale = {"TAILNET_PROVIDER": "headscale"}
     assert by_key["TAILNET_CONTROL_URL"].shown_for(headscale)
     assert not by_key["tailscale_oauth_client_id"].shown_for(headscale)
+
+
+def test_a_governor_the_page_does_not_ask_for_governs_nothing_here(doc):
+    """The access method is not a question on the page -- it follows from the
+    tailnet credentials -- so the fields the panel shows only for `tailnet` are
+    shown here whatever it holds, and the credentials decide."""
+    access = next(s for s in steps_mod.build(doc) if s.name == "access")
+    by_key = {f.key: f for f in access.fields}
+    assert "ACCESS_METHOD" not in by_key
+    assert by_key["TAILNET_PROVIDER"].shown_for({"ACCESS_METHOD": "public_ssh"})

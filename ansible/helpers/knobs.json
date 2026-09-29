@@ -5,32 +5,47 @@
     {
       "name": "target",
       "title": "The server",
-      "doc": "Where Catena is going, and the key that reaches it. A machine that\nalready exists: the launcher does not order one, because ordering means\nholding a client's cloud credentials.",
-      "validates": "The address answers on the SSH port, and the keypair is on this machine\n(the launcher offers to generate one when it is not)."
+      "doc": "Where Catena is going, the key that reaches it, and the administrator's\nemail, which is the panel's login. A machine that already exists and\nalready accepts this key for its initial login: most providers install\nthe public key given when the server is ordered. The launcher does not\norder one, because ordering means holding a client's cloud credentials.",
+      "validates": "An SSH server answers at the address and port, and it accepts this key\nfor the initial login (or for the ops account on a server already\ninstalled)."
     },
     {
       "name": "domain",
       "title": "The domain",
-      "doc": "The name this server answers on. Every address it publishes is a name\nunder it, and the token is what lets the server create them.\n\nBlank is a real answer on a server that joins the private network: it\nfinishes with no public surface, its panel is reached over that network,\nand the domain and its token are entered together in the panel\nafterwards. A server that joins no private network needs both here, since\nthe tunnel is then the only way into its panel.",
-      "validates": "The token is live, it reaches this domain, and the domain is ACTIVE at\nCloudflare. A domain still waiting on its registrar's nameservers\nresolves nowhere, so an install on one would publish records nobody can\nfollow."
+      "doc": "Optional, and all or nothing: the Cloudflare API token and the domain it\npublishes. Every public address is a name under the domain. Left blank,\nthe server finishes with no public surface, its panel is reached through\nan SSH forward, and both can be entered in the panel afterwards.\n\nCreating the token, in the Cloudflare dashboard:\n\n  1. My Profile > API Tokens > Create Token > Custom token.\n  2. Permissions, two rows:\n       Account > Cloudflare Tunnel > Edit\n       Zone    > DNS               > Edit\n  3. Account Resources: Include > your account.\n  4. Zone Resources: Include > Specific zone > the domain, or All zones\n     to pick it from the list here.\n  5. TTL: leave it open-ended, or set an end date and replace the token\n     in the panel before it expires -- the tunnel stops syncing when it\n     does.\n  6. Continue to summary > Create Token, and copy it: it is shown once.\n\nPaste the token and Check: the domains it reaches appear in the list.",
+      "links": [
+        {
+          "text": "Create a Cloudflare account",
+          "url": "https://dash.cloudflare.com/sign-up"
+        },
+        {
+          "text": "Cloudflare API tokens",
+          "url": "https://dash.cloudflare.com/profile/api-tokens"
+        }
+      ],
+      "validates": "The token is live, it reaches the domain, and the domain is ACTIVE at\nCloudflare. A domain still waiting on its registrar's nameservers\nresolves nowhere, so an install on one would publish records nobody can\nfollow."
     },
     {
       "name": "access",
-      "title": "Getting back in",
-      "doc": "How this server is reached for maintenance after the install. The install\nitself always runs over the SSH address above. On the private network it\njoins last, then closes the public SSH port once it has proven the new\npath from this machine; without one the port stays open, because a server\nwith no other way in has nothing to prove, and the domain and its token\nbecome required. Either one can be added in the panel afterwards. The\nemail is the panel's login and the sign-on administrator's address.",
-      "validates": "The credential exchanges for a token at the provider, and this machine\ncan reach the network it joins. Both, because minting a key for a network\nthis machine cannot reach produces a server nobody here can administer."
+      "title": "The private network",
+      "doc": "Optional. SSH on the public address stays the way in after the install,\nkey-only, with no root and no password login. A private network (a\ntailnet) is a convenience on top of it: the server joins it last, and\nchoosing Lockdown in the panel afterwards closes the public SSH port\nbehind it. The server reopens that port by itself while the tailnet is\ndown. Leave the credentials blank to install without one.",
+      "links": [
+        {
+          "text": "Tailscale admin console",
+          "url": "https://login.tailscale.com/admin"
+        }
+      ],
+      "validates": "The credential works at the provider, and this machine can reach the\nnetwork the server joins."
     },
     {
       "name": "backup",
       "title": "Backup",
-      "doc": "Where snapshots go. The repository is ONE address that already carries\nthe endpoint and the bucket, and the keys are what open it.\n\nThis is also the keyset a client keeps: with the repository, the two S3\nkeys and the restic password, a wiped server is rebuilt from nothing\nelse.",
-      "validates": "The endpoint answers. Whether the credentials open the repository is\nproven by the first backup, on the server, where restic runs."
+      "doc": "Optional, and all or nothing: where snapshots go. The repository is ONE\naddress that already carries the endpoint and the bucket, and the keys\nare what open it. Left blank, nothing is backed up until they are\nentered in the panel, which owns them afterwards.\n\nThis is also the keyset a client keeps: with the repository, the two S3\nkeys and the restic password, a wiped server is rebuilt from nothing\nelse.",
+      "validates": "The keys open the bucket: a signed request to the endpoint is accepted."
     },
     {
       "name": "locale",
       "title": "Language and time",
-      "doc": "The server's own locale and timezone. They decide what its logs and its\nscheduled jobs are stamped with, not what the panel is read in -- the\npanel switches language per visitor.",
-      "validates": "Nothing to prove: both are settings on the server itself."
+      "doc": "The server's own locale and timezone. They decide what its logs and its\nscheduled jobs are stamped with, not what the panel is read in -- the\npanel switches language per visitor."
     },
     {
       "name": "keyset",
@@ -58,11 +73,16 @@
     {
       "name": "cloudflare",
       "title": "Cloudflare",
-      "doc": "Filling the domain in makes `catena-cli install` ask for the API token that\npublishes it, and the tunnel comes up during the install. Leaving it\nblank installs a server with no public surface, which only a server on\nthe tailnet may do; the domain and the token are then entered together in\ncatena-admin > Settings over the tailnet, and the tunnel comes up from\nthere."
+      "doc": "Filling the domain in makes `catena-cli install` ask for the API token that\npublishes it, and the tunnel comes up during the install. Leaving it\nblank installs a server with no public surface; the domain and the token\nare then entered together in catena-admin > Settings, reached through an\nSSH forward or the tailnet, and the tunnel comes up from there."
     },
     {
       "name": "admin",
       "title": "Admin identity"
+    },
+    {
+      "name": "backup",
+      "title": "Backup",
+      "doc": "Optional. The repository seeds the server's settings on the first\nconverge; its S3 keys are credentials and are asked for, never written\nhere. Both can be entered in catena-admin > Settings instead."
     },
     {
       "name": "storage",
@@ -253,6 +273,7 @@
     {
       "key": "HOST_PUBLIC_IP",
       "step": "target",
+      "required": true,
       "residence": "host",
       "doc": "The provider's public IPv4. Used during bootstrap, before the firewall closes and the box is reached another way.",
       "env": {
@@ -264,6 +285,7 @@
     {
       "key": "HOST_INITIAL_USER",
       "step": "target",
+      "required": true,
       "residence": "host",
       "doc": "The provider's default login for that same phase (root, ubuntu, debian, ec2-user). Not OPS_USER -- that account does not exist yet.",
       "env": {
@@ -274,6 +296,7 @@
     {
       "key": "HOST_SSH_PORT",
       "step": "target",
+      "required": true,
       "residence": "host",
       "doc": "The port the controller CONNECTS on, written into hosts.yml as ansible_port. The firewall rules name 22 literally, so a value here moves what the controller dials and not what the host opens.",
       "env": {
@@ -284,6 +307,7 @@
     {
       "key": "SSH_PRIVATE_KEY",
       "step": "target",
+      "required": true,
       "residence": "controller",
       "doc": "A dedicated keypair for this project, so revoking at engagement end is throwing away one file. The installer offers to generate it when absent.",
       "env": {
@@ -294,6 +318,7 @@
     {
       "key": "SSH_PUBLIC_KEY_FILE",
       "step": "target",
+      "required": true,
       "residence": "controller",
       "env": {
         "section": "ssh",
@@ -313,6 +338,7 @@
       "key": "COMMON_TIMEZONE",
       "step": "locale",
       "residence": "controller",
+      "gui_options_from": "timezones",
       "env": {
         "section": "locale",
         "default": "America/Toronto"
@@ -322,6 +348,19 @@
       "key": "COMMON_LOCALE",
       "step": "locale",
       "residence": "controller",
+      "gui_options": [
+        "en_CA.UTF-8",
+        "fr_CA.UTF-8",
+        "en_US.UTF-8",
+        "en_GB.UTF-8",
+        "fr_FR.UTF-8",
+        "de_DE.UTF-8",
+        "es_ES.UTF-8",
+        "it_IT.UTF-8",
+        "nl_NL.UTF-8",
+        "pt_BR.UTF-8",
+        "C.UTF-8"
+      ],
       "env": {
         "section": "locale",
         "default": "en_CA.UTF-8"
@@ -395,18 +434,19 @@
     },
     {
       "key": "ADMIN_EMAIL",
-      "step": "access",
+      "step": "target",
+      "required": true,
       "residence": "store",
       "var": "cfg_admin_email",
       "doc": "One address for the Portainer admin and the initial realm admin. The matching password is minted on the box and shown once at the end of the install, with the first-login URLs. A host fact by any reading, which is why the `.env` only seeds it.",
       "env": {
         "section": "admin",
-        "default": "operator@example.com"
+        "default": "",
+        "example": "you@example.com"
       }
     },
     {
       "key": "PORTAINER_SUBDOMAIN",
-      "step": "domain",
       "residence": "store",
       "var": "cfg_portainer_admin_subdomain",
       "doc": "The one subdomain three sources give three answers for -- `portainer` in the shipped starter, `apps` in the operator skeleton, `admin` for established clients -- which is what makes it a host fact rather than the product's. The rest are the product's scheme and are compiled in, because a host has to converge itself without reading this file.",
@@ -488,7 +528,6 @@
     },
     {
       "key": "ACCESS_METHOD",
-      "step": "access",
       "residence": "store",
       "var": "cfg_access_method",
       "doc": "How this host is reached for administration, and therefore whether public port 22 can be closed. On `tailnet` the panel's Lockdown closes it once the tailnet path has been proven, and the host reopens it while the tailnet is down; `public_ssh` keeps it open, because a host with no alternative path has nothing to prove and closing it would be a lockout. A stored value rather than a derived one: it rides /etc into the snapshot, so a rebuilt host comes back with the firewall posture it had rather than the one a default would pick.",
@@ -591,6 +630,11 @@
       "step": "backup",
       "residence": "store",
       "var": "cfg_backup_restic_repo",
+      "doc": "The restic repository, as ONE address that carries the endpoint and the bucket: s3:https://<endpoint>/<bucket>. Optional at install: blank schedules no backup until it is entered in catena-admin > Settings, which owns it afterwards.",
+      "env": {
+        "section": "backup",
+        "default": ""
+      },
       "panel": {
         "group": "backup",
         "section": "config",
