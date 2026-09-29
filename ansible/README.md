@@ -105,11 +105,12 @@ inventory.
   Cloudflare API token, the restic repo URL and the S3 keys are entered
   **post-install in catena-admin** > Settings, which writes them to the
   store.
-- Every other secret -- internal service secrets AND the user-held admin
-  and restic passwords -- is minted **on the server**
-  (`helpers/onbox_config.py`). The installer shows the admin and restic
+- Every other secret is minted **on the server**
+  (`helpers/onbox_config.py`). The installer shows the admin and console
   passwords **once** at the end of install
-  (`playbooks/show-keyset.yml`). An install.yaml may pin the admin
+  (`playbooks/show-keyset.yml`); the restic password is generated in
+  catena-admin > Settings > Backup and shown there once
+  (`scripts/catena-restic-key.py`). An install.yaml may pin the admin
   password; it reaches the converge through a **transient 0600 file**
   (`-e @file`) that is deleted afterwards.
 

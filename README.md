@@ -56,14 +56,14 @@ uv run catena-cli install --inventory prod
 
 3. The installer completes the installation on your server. Public SSH stays open until you choose `Lockdown` in the panel.
 
-4. Save the **admin password**, the **restic backup password**, the **console password for `ops`** and the **journal verification key** shown at the end of the installation to your password manager. You need the restic password to read and restore your backups, and the console password to log in from your provider's console if SSH is unavailable. `uv run catena-cli show-keyset --inventory <name>` shows the passwords again; the journal key is shown once.
+4. Save the **admin password**, the **console password for `ops`** and the **journal verification key** shown at the end of the installation to your password manager. You need the console password to log in from your provider's console if SSH is unavailable. `uv run catena-cli show-keyset --inventory <name>` shows the passwords again; the journal key is shown once.
 
 5. Log in to the Catena-Admin interface with the admin email and password at `http://localhost:9010`, through an SSH forward as the `panel` account, which can do nothing but forward:
 ```sh
 ssh -N -L 9010:127.0.0.1:9010 panel@<your-server-address>
 ```
    The server's address is its public IP, or its tailnet IP once the lockdown has closed public SSH. Portainer is reached the same way on port `9000`. Then go to the `Settings` tab to finish the installation:
-   - Enter your S3 endpoint and credentials to enable backups
+   - Enter your S3 endpoint and credentials, then `Generate backup encryption password` and save it to your password manager: you need it to read and restore your backups
    - Enter the Cloudflare domain and API token to publish your apps; the panel is then also at `https://dash.<your-domain>`
    - Enter the tailnet credentials, then apply the `Lockdown` to join the tailnet and close public SSH. The server reopens public SSH by itself while its tailnet is down, and closes it again when the tailnet is back
    - Keep your Tailscale credentials and Cloudflare API token in your password manager

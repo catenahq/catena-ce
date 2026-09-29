@@ -11,7 +11,7 @@
     {
       "name": "keyset",
       "title": "Save these",
-      "doc": "The passwords the server mints for itself and shows ONCE: the first-login\npassword, the backup encryption password, and the console break-glass\npassword, with the journal verification key. Nothing off the server\nholds a copy.",
+      "doc": "The passwords the server mints for itself and shows ONCE: the first-login\npassword and the console break-glass password, with the journal\nverification key. Nothing off the server holds a copy. The backup\nencryption password comes later, generated in the panel with the backup\nrepository, and is saved then.",
       "validates": "An explicit acknowledgement that they are saved. This step is the last\none and it cannot be skipped: without it the launcher ships installs\nnobody can recover."
     }
   ],

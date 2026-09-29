@@ -17,7 +17,7 @@ ansible-playbook. Subcommands:
              re-authenticate the node to the tailnet (force re-auth;
              manual maintenance)
   show-keyset
-             re-display the admin / restic / console passwords and the
+             re-display the admin / console passwords and the
              first-login URLs (install shows them once; this asks again)
   uninstall  hand control back to the OS: unmask + re-enable Debian's
              apt-daily-upgrade.timer (the unattended-upgrades handback)
@@ -360,8 +360,8 @@ def _mktemp_secrets(prefix: str) -> Path:
 
 
 def _show_dr_keyset(inv_dir: Path) -> None:
-    """After a fresh install, surface the on-box-minted DR keyset (admin +
-    restic passwords) ONCE for the user's password manager. Non-fatal: a
+    """After a fresh install, surface the on-box-minted passwords (admin +
+    console) ONCE for the user's password manager. Non-fatal: a
     failure here must never fail an otherwise-successful install (the keyset
     is always retrievable later from catena-admin > Recovery)."""
     banner("Your disaster-recovery keyset -- shown once, save it now")

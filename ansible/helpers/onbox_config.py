@@ -265,8 +265,8 @@ def configured_zone_names(zones: object) -> list[str]:
 # No human ever supplies these and they NEVER leave the box (they are minted
 # here, ride the restic backup inside the store, and return with the data on a
 # restore). The admin + restic-backup passwords are NOT here: they are the
-# user-held DR keyset / first-login credential -- also on-box-minted-if-absent
-# but surfaced once for the user's password manager (see USER_HELD_SECRETS).
+# user-held DR keyset / first-login credential, generated on-box but surfaced
+# once for the user's password manager (see USER_HELD_SECRETS).
 INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     "catena_postgres_password": mint_strong_password,
     "turn_static_auth_secret": mint_strong_password,
@@ -339,22 +339,22 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     "zap_api_key": mint_url_safe,
 }
 
-# USER_HELD: the DR keyset + first-login credential. Minted on-box IF ABSENT
-# (same reconcile-not-overwrite as INTERNAL), but the installer shows them
+# USER_HELD: the DR keyset + first-login credential, generated on-box and shown
 # ONCE so the user keeps an off-box copy in their password manager. NOT in
 # EXTERNAL_SECRETS, so the config-write API (settings save) cannot set them:
 #   - admin_password    -- first-login credential (Portainer + Keycloak).
-#   - backup_restic_password -- encrypts the backup repo. Minting it
-#     on-box would trap it inside the very snapshot it decrypts IF the user
-#     lost their copy -- so it is surfaced once at install for the password
-#     manager. A value handed to the loader is ADOPTED (fill-only, so the
-#     freshly-minted value is only used when none was given). A rotation is a
-#     deliberate `restic key passwd` action in catena-admin, not a store write.
+#     Minted by the converge if absent, shown at the end of the install.
 #   - console_recovery_password -- the ops account's break-glass password
-#     for the provider KVM / serial console (bootstrap/roles/common sets it; key-only SSH
-#     keeps it console-only). Same shape as the restic password: a credential
-#     whose whole purpose is the case where the normal path is gone, so a copy
-#     that lives only inside the box is no copy at all.
+#     for the provider KVM / serial console (bootstrap/roles/common sets it;
+#     key-only SSH keeps it console-only). Minted and shown like the admin
+#     password: a credential whose whole purpose is the case where the normal
+#     path is gone, so a copy that lives only inside the box is no copy at all.
+#   - backup_restic_password -- encrypts the backup repo. Never minted by a
+#     converge (MINTED_ON_REQUEST): the client generates it in catena-admin >
+#     Settings > Backup, beside the repository it encrypts, and saves it then
+#     (scripts/catena-restic-key.py `generate`). A whole-server restore brings
+#     back the password that opened the repository. A rotation is a deliberate
+#     `restic key passwd` action in catena-admin, not a store write.
 USER_HELD_SECRETS: dict[str, Callable[[], str]] = {
     "admin_password": mint_admin_password,
     "backup_restic_password": mint_strong_password,
@@ -362,9 +362,13 @@ USER_HELD_SECRETS: dict[str, Callable[[], str]] = {
     "console_recovery_password": mint_admin_password,
 }
 
+# The user-held secrets a converge leaves alone: each is generated when the
+# client asks for it, where the client is looking when it is shown.
+MINTED_ON_REQUEST: frozenset[str] = frozenset({"backup_restic_password"})
+
 # EXTERNAL: vendor credentials the client HOLDS (never on-box-minted). Stored,
-# never minted here -- they arrive via the transient bootstrap adopt file or
-# the catena-admin settings API. The optional ones may legitimately be empty.
+# never minted here -- they arrive via the catena-admin settings API. The
+# optional ones may legitimately be empty.
 #
 # This set is also the ALLOWLIST apply_inputs enforces, so a credential a role
 # tells the client to "enter in catena-admin > Settings" and that is NOT
@@ -696,15 +700,17 @@ def ensure_app_secrets(store: dict, wanted: object) -> dict:
 
 
 def ensure_user_held_secrets(store: dict) -> list[str]:
-    """Mint every USER_HELD secret (admin + restic passwords) missing or blank
-    from the store, reconcile-not-overwrite. Runs AFTER adopt/apply_inputs so a
-    value handed to the loader is preserved and only a store with none mints
-    fresh. Returns the keys
-    minted -- the installer surfaces these once for the user's password
-    manager."""
+    """Mint every USER_HELD secret the converge owns (admin + console
+    passwords) missing or blank from the store, reconcile-not-overwrite. Runs
+    AFTER adopt/apply_inputs so a value handed to the loader is preserved and
+    only a store with none mints fresh. MINTED_ON_REQUEST keys are skipped.
+    Returns the keys minted -- the installer surfaces these once for the
+    user's password manager."""
     secrets_map = store.setdefault("secrets", {})
     minted: list[str] = []
     for key, minter in USER_HELD_SECRETS.items():
+        if key in MINTED_ON_REQUEST:
+            continue
         cur = secrets_map.get(key)
         if cur is None or (isinstance(cur, str) and not cur.strip()):
             secrets_map[key] = minter()

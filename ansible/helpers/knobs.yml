@@ -141,9 +141,10 @@ gui_steps:
     title: Save these
     doc: |-
       The passwords the server mints for itself and shows ONCE: the first-login
-      password, the backup encryption password, and the console break-glass
-      password, with the journal verification key. Nothing off the server
-      holds a copy.
+      password and the console break-glass password, with the journal
+      verification key. Nothing off the server holds a copy. The backup
+      encryption password comes later, generated in the panel with the backup
+      repository, and is saved then.
     validates: |-
       An explicit acknowledgement that they are saved. This step is the last
       one and it cannot be skipped: without it the launcher ships installs

@@ -230,11 +230,10 @@ def check_target(answers: dict[str, str], secrets: dict[str, str]) -> list[Check
 def check_keyset(answers: dict[str, str]) -> list[Check]:
     """The acknowledgement, and it is the one check that cannot be waived.
 
-    `catena-cli install` ends by showing three passwords once: the first-login
-    password, the backup encryption password and the console break-glass
-    password, with the journal verification key. Nothing off the server holds
-    a copy. Without an explicit acknowledgement here the launcher ships
-    installs nobody can recover.
+    `catena-cli install` ends by showing two passwords once: the first-login
+    password and the console break-glass password, with the journal
+    verification key. Nothing off the server holds a copy. Without an explicit
+    acknowledgement here the launcher ships installs nobody can recover.
     """
     acked = (answers.get("_keyset_acknowledged") or "").strip() == "yes"
     return [Check("the recovery passwords are saved", acked,

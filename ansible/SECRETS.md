@@ -57,7 +57,7 @@ ride the backup, because it is what unlocks the backup.
 | `BACKUP_RESTIC_REPO` (config) | restic repo URL | settings page | **yes** |
 | `backup_s3_access_key` | reach the restic bucket | settings page | **yes** |
 | `backup_s3_secret_key` | ^ | settings page | **yes** |
-| `backup_restic_password` | decrypt the restic repo | on-box mint, **shown once** | **yes** |
+| `backup_restic_password` | decrypt the restic repo | generated in the settings page, **shown once** | **yes** |
 | `admin_password` | first login (Portainer + Keycloak + Beszel + this panel) | on-box mint, **shown once** | no |
 | `console_recovery_password` | break-glass login for `ops` at the provider KVM / serial console | on-box mint, **shown once** | **yes** |
 | `smtp_password` | outbound mail (opt) | settings page | no |
@@ -68,16 +68,21 @@ ride the backup, because it is what unlocks the backup.
 
 `backup_restic_password`, `admin_password` and
 `console_recovery_password` are special: `USER_HELD_SECRETS` in
-`onbox_config.py`. They are minted **on-box if absent**
-(like the internal secrets) but the installer reads them back and **shows them
-once** at the end of `catena-cli install` (`playbooks/show-keyset.yml`) so the
-client keeps a copy in their password manager. They are NOT settable through
-the settings config-write API (a restic re-key is a deliberate action). To
-recover a lost server the client installs Catena on a new one and enters the
-old repository with the saved restic password in the panel's restore; the
-restore brings the old store back with it. Minting the restic password on-box
-is safe precisely because it is surfaced once off-box: without that copy a
-lost box is unrecoverable, which is the client's responsibility.
+`onbox_config.py`. They are generated **on-box** and **shown once** so the
+client keeps a copy in their password manager, and they are NOT settable
+through the settings config-write API (a restic re-key is a deliberate action).
+The converge mints the admin and console passwords if absent, and the installer
+shows them at the end of `catena-cli install` (`playbooks/show-keyset.yml`).
+The restic password is `MINTED_ON_REQUEST`: the client generates it in the
+panel beside the backup repository (`scripts/catena-restic-key.py generate`,
+which refuses when a password exists or the repository already holds backups
+under another one), and saves it there. To recover a lost server the client
+installs Catena on a new one and enters the old repository with the saved
+restic password in the panel's restore; the restore brings the old store back
+with it, and the password that opened the repository stays. Generating the
+restic password on-box is safe precisely because it is surfaced once off-box:
+without that copy a lost box is unrecoverable, which is the client's
+responsibility.
 
 The console password is the same shape one layer down: SSH is key-only, so it
 is rejected there and works ONLY at a local console (provider KVM/serial or a

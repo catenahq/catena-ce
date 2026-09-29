@@ -35,7 +35,7 @@ search `/usr/local/lib/catena` -- where the payload installs its modules
 | `catena-network-nudge.sh` | Recover containers stranded by the catena-network overlay race after a docker.service start (boot, daemon restart, snapshot restore). |
 | `catena-paths.py` | Print every path this host's Catena owns, grouped by the restore boundary. |
 | `catena-public-ports.py` | Host reconciler for the declarative public-port registry. |
-| `catena-restic-key.py` | catena-restic-key -- validate or rotate the restic repository password. |
+| `catena-restic-key.py` | catena-restic-key -- generate, validate or rotate the restic repository password. |
 | `healthchecks-seed.py` | Bootstrap/reconcile self-hosted Healthchecks: seed the operator superuser, the catena project, API keys, the ntfy notification channel, and the daily backup check. |
 | `mailserver-cert-reload.sh` | Inject the renewed mail TLS cert into the dms container and reload Postfix + Dovecot so it takes effect without dropping established connections. |
 | `nextcloud-talk-hpb-wire.sh` | /usr/local/bin/catena-wire-nextcloud-talk-hpb -- post-deploy wiring for Nextcloud Talk's High-Performance Backend (HPB). |

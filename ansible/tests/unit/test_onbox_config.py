@@ -233,9 +233,9 @@ def test_role_minted_secrets_are_not_settable_through_the_api(oc):
 
 def test_dr_keyset_is_user_held_not_external(oc):
     """The admin password (first-login), restic backup password (DR keyset)
-    and console break-glass password are USER_HELD: minted on-box if absent,
-    shown once at install, but NOT EXTERNAL -- so the config-write API cannot
-    set them, and ensure_internal does not mint them."""
+    and console break-glass password are USER_HELD: generated on-box and shown
+    once, but NOT EXTERNAL -- so the config-write API cannot set them, and
+    ensure_internal does not mint them."""
     for key in ("admin_password", "backup_restic_password",
                 "console_recovery_password"):
         assert key in oc.USER_HELD_SECRETS
@@ -245,14 +245,15 @@ def test_dr_keyset_is_user_held_not_external(oc):
     assert "admin_password" not in oc.ensure_internal_secrets(store)
 
 
-def test_ensure_user_held_mints_the_whole_dr_keyset(oc):
+def test_a_converge_mints_the_admin_and_console_passwords_only(oc):
+    """The backup encryption password is generated when the client asks, in
+    the panel, beside the repository it encrypts."""
     store = {"secrets": {}, "config": {}}
     minted = oc.ensure_user_held_secrets(store)
-    assert set(minted) == {"admin_password", "backup_restic_password",
-                           "console_recovery_password"}
-    # format contracts: admin 20 url-safe chars, restic 64 base64 chars.
+    assert set(minted) == {"admin_password", "console_recovery_password"}
+    assert set(minted) == set(oc.USER_HELD_SECRETS) - oc.MINTED_ON_REQUEST
+    assert "backup_restic_password" not in store["secrets"]
     assert len(store["secrets"]["admin_password"]) == 20
-    assert len(store["secrets"]["backup_restic_password"]) == 64
 
 
 def test_console_recovery_password_is_console_typeable(oc):
@@ -277,12 +278,12 @@ def test_cifs_bulk_credentials_are_external(oc):
 
 
 def test_ensure_user_held_does_not_overwrite_adopted(oc):
-    """A restic password handed to the loader (adopted first) is preserved;
+    """An admin password handed to the loader (adopted first) is preserved;
     only a store with none mints fresh."""
-    store = {"secrets": {"backup_restic_password": "user-saved"}, "config": {}}
+    store = {"secrets": {"admin_password": "user-saved"}, "config": {}}
     minted = oc.ensure_user_held_secrets(store)
-    assert "backup_restic_password" not in minted
-    assert store["secrets"]["backup_restic_password"] == "user-saved"
+    assert "admin_password" not in minted
+    assert store["secrets"]["admin_password"] == "user-saved"
 
 
 def test_admin_password_is_20_chars(oc):
@@ -609,13 +610,14 @@ def test_client_app_secrets_absent_store_is_empty(oc, tmp_path):
 
 
 def test_cli_mints_user_held_on_first_install(oc, tmp_path, capsys):
-    """A fresh converge (no adopt) mints the admin + restic DR keyset on-box."""
+    """A fresh converge (no adopt) mints the admin and console passwords
+    on-box, and not the backup one."""
     p = tmp_path / "config.json"
     rc = oc.main(["--path", str(p), "--set-config", "CLOUDFLARE_ZONE=x.com"])
     assert rc == 0
     store = oc.load(p)
     assert len(store["secrets"]["admin_password"]) == 20
-    assert len(store["secrets"]["backup_restic_password"]) == 64
+    assert "backup_restic_password" not in store["secrets"]
 
 
 def test_cli_no_mint_seeds_only(oc, tmp_path, capsys):
