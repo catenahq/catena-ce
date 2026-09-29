@@ -60,7 +60,7 @@
 #               optional to seed's structural checks.
 #   panel       how catena-admin renders it. Absent means the settings page
 #               does not show it.
-#   step        which page of the graphical installer asks for it, named in
+#   step        which section of the graphical installer asks for it, named in
 #               `gui_steps`. Absent means the launcher never asks: the value is
 #               either the product's, or a setting the client makes afterwards
 #               in the panel. An install has to be answerable in one sitting,
@@ -90,16 +90,16 @@ env_header: |-
   lives on the target at /etc/catena/config.json, minted there or entered in
   catena-admin > Settings. See catena-ce/SECRETS.md.
 
-# The graphical installer's pages, in order. Each knob that names one appears
-# on it; a knob that names none is never asked for.
+# The graphical installer's sections, in order, all on one page. Each knob that
+# names one appears in it; a knob that names none is never asked for.
 #
-# EVERY STEP VALIDATES BEFORE IT ADVANCES, and the `validates` line says what it
-# proves. An installer that collects six pages of answers and discovers on the
-# last one that the first credential was wrong has spent the client's whole
-# sitting to tell them something it knew at the start.
+# EVERY SECTION HAS ITS CHECK, and the `validates` line says what it proves;
+# Install runs every section's check first. An installer that collects every
+# answer and discovers at the end that the first credential was wrong has spent
+# the client's whole sitting to tell them something it knew at the start.
 #
-# The launcher holds no knob knowledge of its own: it renders these pages from
-# this file. Adding a knob with a `step` puts it on that page.
+# The launcher holds no knob knowledge of its own: it renders these sections
+# from this file. Adding a knob with a `step` puts it in that section.
 gui_steps:
   - name: target
     title: The server

@@ -36,30 +36,34 @@ install followed by a restore from the panel, so it needs nothing else here.
 
 ## It holds no knob knowledge
 
-Which questions each page asks comes from
+Which questions each section asks comes from
 [`../ansible/helpers/knobs.json`](../ansible/helpers/knobs.json), the registry
 the on-box store, the installer and the settings page all read. A knob that
-declares a `step` appears on that page; one that does not is never asked. There
-is no list of fields in this package, and a test refuses one.
+declares a `step` appears in that section, with its explanation behind a `(?)`
+tooltip; one that does not is never asked. There is no list of fields in this
+package, and a test refuses one.
 
 Adding a question is therefore a registry edit. Adding a *proof* is a function
-in `catena_gui/steps.py`, because every step validates before it advances --
-and an installer that collects six pages and discovers on the last one that the
-first credential was wrong has spent a client's whole sitting to say something
-it knew at the start.
+in `catena_gui/steps.py`: every section has a Check whose results show under
+its button, and Install runs every section's check before it starts. An
+installer that collects every answer and discovers at the end that the first
+credential was wrong has spent a client's whole sitting to say something it
+knew at the start.
 
 ## An inventory is the run
 
-The first page lists the directories under `../ansible/inventory/` (the shipped
-`example` excluded) and creates new ones. Every field starts from the
-registry's default, and a knob that declares an `example` shows it as a
-placeholder, never as a value. Each page is saved as the client advances:
+Two pages. The first lists the directories under `../ansible/inventory/` (the
+shipped `example` excluded), one per line, and creates new ones. The second
+holds every section in one form. Every field starts from the registry's
+default, and a knob that declares an `example` shows it as a placeholder, never
+as a value. Each Check saves the whole form:
 
 ```
 ansible/inventory/<name>/
   .env                the answers, written by seed.py's own writer: the file
                       `catena-cli install` reads. NOT the credentials.
-  .catena-gui.json    the page, the install's state, the acknowledgement. 0600.
+  .catena-gui.json    the last section checked, the install's state, the
+                      acknowledgement. 0600.
 ```
 
 Credentials are held in memory for the life of the process and reach
@@ -74,7 +78,7 @@ to a file: it ends with the passwords the server shows once.
 
 ## Running it without a UI
 
-The path the test bench drives. It walks the same steps and runs the same
+The path the test bench drives. It checks the same sections with the same
 probes, so a bench green is a shape a client can reach:
 
 ```sh

@@ -1,8 +1,9 @@
-"""What each page shows, and what it proves before it advances.
+"""What each section asks, and what it proves before the install starts.
 
-EVERY STEP VALIDATES BEFORE IT ADVANCES. An installer that collects six pages
-of answers and discovers on the last one that the first credential was wrong
-has spent a client's whole sitting to tell them something it knew at the start.
+EVERY SECTION HAS ITS CHECK, and Install runs all of them first. An installer
+that collects every answer and discovers at the end that the first credential
+was wrong has spent a client's whole sitting to tell them something it knew at
+the start.
 
 AND IT NEVER REPORTS SUCCESS FOR A HOST THAT DOES NOT WORK. That is the harder
 half and it decides the shape of the probes below: a step passes only when the
@@ -54,7 +55,7 @@ class Check:
 
 @dataclass
 class Field:
-    """One question on a page, resolved from the registry."""
+    """One question in a section, resolved from the registry."""
 
     key: str
     secret: bool
@@ -160,7 +161,7 @@ def check_target(answers: dict[str, str]) -> list[Check]:
         checks.append(Check(
             f"{host}:{port} answers", _tcp_open(host, int(port)),
             "nothing accepted a connection. A server still being delivered is "
-            "the ordinary reason, and this page is where a run waits for it"))
+            "the ordinary reason, and this section is where a run waits for it"))
     for label, key in (("private key", "SSH_PRIVATE_KEY"),
                        ("public key", "SSH_PUBLIC_KEY_FILE")):
         raw = (answers.get(key) or "").strip()
@@ -191,7 +192,7 @@ def check_domain(answers: dict[str, str], secrets: dict[str, str]) -> list[Check
         return [Check("Cloudflare", True,
                       "no domain yet -- this server installs with no public "
                       "surface, its panel is reached over the private network "
-                      "chosen on the next page, and the domain is entered there "
+                      "chosen in the next section, and the domain is entered there "
                       "later")]
     if not token:
         return [Check("Cloudflare token", False,
@@ -228,7 +229,7 @@ def check_domain(answers: dict[str, str], secrets: dict[str, str]) -> list[Check
     out.append(Check(
         f"{zone} is active", False,
         f"it is {zone_status}. Cloudflare serves no DNS for this domain until "
-        f"the registrar delegates it to {nameservers}. This page is where a "
+        f"the registrar delegates it to {nameservers}. This section is where a "
         "run waits for that"))
     return out
 
@@ -253,7 +254,7 @@ def check_access(answers: dict[str, str], secrets: dict[str, str]) -> list[Check
             return [Check("a way into the panel", False,
                           "with no private network the panel is reached only "
                           "through the Cloudflare tunnel. Give the domain and "
-                          "its token on the domain page, or choose the private "
+                          "its token in the domain section, or choose the private "
                           "network here")]
         return [Check("direct SSH on the public address", True,
                       "this server joins no private network and keeps its SSH "

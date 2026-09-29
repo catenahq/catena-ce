@@ -7,7 +7,7 @@
     catena-gui --inventory clientco --answers answers.yaml --no-browser
                                         validate and install with no UI
 
-THE THIRD MODE walks the same steps, runs the same probes and produces the same
+THE THIRD MODE checks the same sections, runs the same probes and produces the same
 install.yaml, so a green there is a shape a client can reach -- a
 non-interactive path that skipped the validation would prove an install nobody
 could repeat through the UI.

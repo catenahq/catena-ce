@@ -32,7 +32,7 @@ import yaml
 from . import registry
 
 # Answers the launcher keeps for itself. They describe the RUN rather than the
-# install -- an acknowledgement, a page position -- and seed would file an
+# install -- an acknowledgement, the last section checked -- and seed would file an
 # unknown key as .env config, which is how a wizard's bookkeeping ends up in a
 # client's inventory.
 _LAUNCHER_ONLY = ("_keyset_acknowledged",)
@@ -94,8 +94,8 @@ def install_command(ansible_dir: Path, install_yaml_path: Path,
     """The argv the launcher runs: the installer CLI, by the script name its own
     pyproject gives it, in its own project.
 
-    `--no-confirm` because the confirmation already happened: a client walked
-    the pages and pressed the button. A second prompt on a process whose
+    `--no-confirm` because the confirmation already happened: a client checked
+    the sections and pressed Install. A second prompt on a process whose
     console they may have closed would stop the install and look like a hang.
 
     The inventory name rides as an explicit flag rather than being left to the

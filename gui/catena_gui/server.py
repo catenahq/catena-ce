@@ -6,11 +6,15 @@ bound every interface would put them on whatever network the machine happens to
 be on, including a cafe's.
 
 THE BROWSER IS A VIEW. Every answer goes straight into the Run this process
-holds, and the state that matters is in the run directory. Closing the tab
-loses nothing; reopening it shows the same page.
+holds, and the state that matters is in the inventory. Closing the tab loses
+nothing checked; reopening it shows the same page.
 
-STDLIB, DELIBERATELY. A wizard on loopback needs routing, forms and HTML and
-nothing a framework adds beyond that -- and every dependency here is one a
+TWO PAGES. The inventory picker, then one install page holding every section
+in a single form: checking one section saves what was typed in all of them, so
+nothing entered further down is lost to a check further up.
+
+STDLIB, DELIBERATELY. An installer on loopback needs routing, forms and HTML
+and nothing a framework adds beyond that -- and every dependency here is one a
 client installs before they can install anything else.
 """
 
@@ -39,22 +43,38 @@ body { margin: 0; font: 16px/1.6 system-ui, sans-serif; color: var(--fg);
 main { max-width: 42rem; margin: 0 auto; padding: 2rem 1rem 4rem; }
 nav { display: flex; gap: .5rem; flex-wrap: wrap; border-bottom: 1px solid var(--line);
       padding: .75rem 1rem; }
-nav a, nav span { padding: .25rem .6rem; border-radius: 4px; text-decoration: none;
-                  color: var(--muted); }
+nav a { padding: .25rem .6rem; border-radius: 4px; text-decoration: none;
+        color: var(--muted); }
 nav a.on { color: var(--fg); font-weight: 600; background: rgba(128,128,128,.14); }
-nav span.off { opacity: .45; cursor: not-allowed; }
 h1 { font-size: 1.4rem; margin: 1.5rem 0 .25rem; }
+h2 { font-size: 1.15rem; margin: 0 0 .25rem; }
+section { border-top: 1px solid var(--line); margin-top: 2rem; padding-top: 1.25rem; }
+fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
 p.doc { color: var(--muted); white-space: pre-wrap; }
-label { display: block; margin: 1.1rem 0 0; }
-label .k { font-family: ui-monospace, monospace; font-size: .85rem; }
-label .d { display: block; color: var(--muted); font-size: .85rem; }
+.field { margin: 1rem 0 0; }
+.head { display: flex; align-items: baseline; gap: .4rem; flex-wrap: wrap; }
+.k { font-family: ui-monospace, monospace; font-size: .85rem; }
+.d { color: var(--muted); font-size: .85rem; }
+.tip { position: relative; color: var(--muted); font-size: .85rem; cursor: help; }
+.tip .tt { display: none; position: absolute; z-index: 10; left: 0; top: 1.5rem;
+           width: min(26rem, 80vw); padding: .6rem .75rem; white-space: pre-line;
+           font-size: .85rem; line-height: 1.45; color: var(--fg); background: var(--bg);
+           border: 1px solid var(--line); border-radius: 4px;
+           box-shadow: 0 4px 16px rgba(0,0,0,.2); }
+.tip:hover .tt, .tip:focus .tt { display: block; }
 input, select { width: 100%; padding: .45rem .5rem; margin-top: .3rem;
                 border: 1px solid var(--line); border-radius: 4px;
                 background: var(--bg); color: var(--fg); font: inherit; }
-button { margin-top: 1.5rem; padding: .5rem 1.1rem; font: inherit;
+label.ack { display: flex; align-items: center; gap: .6rem; margin-top: 1.1rem; }
+label.ack input { width: auto; margin: 0; flex: none; }
+button { padding: .5rem 1.1rem; font: inherit;
          border: 1px solid var(--line); border-radius: 4px; cursor: pointer;
          background: rgba(128,128,128,.12); color: var(--fg); }
-ul.checks { list-style: none; padding: 0; }
+.act { display: flex; align-items: center; gap: .5rem; margin-top: 1.25rem; }
+ul.inv { list-style: none; padding: 0; margin: .75rem 0; }
+ul.inv li { margin: 0 0 .4rem; }
+ul.inv button { display: block; width: 100%; text-align: left; }
+ul.checks { list-style: none; padding: 0; margin: .75rem 0 0; }
 ul.checks li { padding: .2rem 0; }
 .bad { color: var(--bad); } .warn { color: var(--warn); } .ok { color: var(--ok); }
 pre { white-space: pre-wrap; border: 1px solid var(--line); border-radius: 4px;
@@ -71,63 +91,138 @@ def _page(title: str, body: str) -> bytes:
     ).encode("utf-8")
 
 
-def _nav(all_steps: list[steps_mod.Step], current: str, inventory: str) -> str:
-    cls = " class=on" if current == "" else ""
-    label = f"Inventory: {inventory}" if inventory else "Inventory"
-    out = ["<nav>", f'<a href="/inventory"{cls}>{html.escape(label)}</a>']
-    for step in all_steps:
-        if not inventory:
-            out.append(f"<span class=off>{html.escape(step.title)}</span>")
-            continue
-        cls = " class=on" if step.name == current else ""
-        out.append(f'<a href="/step/{step.name}"{cls}>{html.escape(step.title)}</a>')
+def _nav(inventory: str, *, on_inventory: bool) -> str:
+    out = ["<nav>", f'<a href="/inventory"{" class=on" if on_inventory else ""}>'
+                    "Inventory</a>"]
+    if inventory:
+        out.append(f'<a href="/"{"" if on_inventory else " class=on"}>'
+                   f"Install {html.escape(inventory)}</a>")
     out.append("</nav>")
     return "".join(out)
 
 
-def _field_html(field: steps_mod.Field, value: str) -> str:
+def _tip(text: str, about: str) -> str:
+    """A `(?)` that shows `text` on hover, and on keyboard focus."""
+    return (f'<span class=tip tabindex=0 aria-label="{html.escape(about)}">(?)'
+            f'<span class=tt role=tooltip>{html.escape(text)}</span></span>')
+
+
+def _field_html(field: steps_mod.Field, value: str, *, shown: bool,
+                governed: bool) -> str:
+    """One field: its name, `(optional)` and a `(?)` holding the explanation,
+    above the control.
+
+    Every field is rendered and a governed one is hidden rather than left out,
+    so the page shows or hides it the moment its governing choice changes
+    (`governed`: the governing field is on this page too). `shown` is the
+    server's answer from what is saved, for a browser without scripts."""
     key = html.escape(field.key)
-    doc = html.escape(field.doc)
+    fid = f"f-{key}"
     if field.options:
         opts = "".join(
             f'<option value="{html.escape(o)}"'
             f'{" selected" if o == value else ""}>{html.escape(o)}</option>'
             for o in field.options)
-        control = f'<select name="{key}">{opts}</select>'
+        control = f'<select id="{fid}" name="{key}">{opts}</select>'
     else:
         kind = "password" if field.secret else "text"
         placeholder = (f' placeholder="{html.escape(field.example)}"'
                        if field.example else "")
-        control = (f'<input type="{kind}" name="{key}" '
+        control = (f'<input type="{kind}" id="{fid}" name="{key}" '
                    f'value="{html.escape(value)}"{placeholder} autocomplete="off">')
-    optional = "" if not field.optional else " <span class=d>optional</span>"
-    unsaved = (" <span class=d>not saved: entered again each time the "
-               "installer is opened</span>" if field.secret else "")
-    return (f'<label><span class=k>{key}</span>{optional}{unsaved}'
-            f'{f"<span class=d>{doc}</span>" if doc else ""}{control}</label>')
+    notes = [field.doc] if field.doc else []
+    if field.secret:
+        notes.append("Not saved: entered again each time the installer is opened.")
+    tip = _tip("\n\n".join(notes), f"About {field.key}") if notes else ""
+    optional = " <span class=d>(optional)</span>" if field.optional else ""
+    gov = (f' data-gov="{html.escape(field.governor)}"'
+           f' data-vals="{html.escape(" ".join(field.governor_values))}"'
+           if governed else "")
+    return (f'<div class=field data-key="{key}"{gov}{"" if shown else " hidden"}>'
+            f'<div class=head><label class=k for="{fid}">{key}</label>'
+            f"{optional}{tip}</div>{control}</div>")
+
+
+def _governors_first(fields: list[steps_mod.Field]) -> list[steps_mod.Field]:
+    """The section's fields with each choice placed before the fields it
+    governs, so changing a choice shows or hides fields below it rather than
+    above it. Otherwise in registry order."""
+    by_key = {f.key: f for f in fields}
+    out: list[steps_mod.Field] = []
+
+    def place(field: steps_mod.Field) -> None:
+        if any(f.key == field.key for f in out):
+            return
+        governor = by_key.get(field.governor)
+        if governor is not None:
+            place(governor)
+        out.append(field)
+
+    for field in fields:
+        place(field)
+    return out
+
+
+def _visible(field: steps_mod.Field, by_key: dict[str, steps_mod.Field],
+             values: dict[str, str]) -> bool:
+    """Whether a field shows, given what every field shows: its governor's
+    value is one it applies to, and its governor shows too."""
+    if not field.governor:
+        return True
+    governor = by_key.get(field.governor)
+    if governor is not None and not _visible(governor, by_key, values):
+        return False
+    return values.get(field.governor, "") in field.governor_values
+
+
+# The same rule as _visible, in the browser: shows or hides each governed field
+# as its governing choice changes, and once on load.
+_SCRIPT = """
+(function () {
+  function value(key) {
+    var el = document.querySelector('[name="' + key + '"]');
+    return el ? el.value : "";
+  }
+  function shown(box) {
+    var gov = box.getAttribute("data-gov");
+    var govBox = document.querySelector('.field[data-key="' + gov + '"]');
+    if (govBox && govBox.hasAttribute("data-gov") && !shown(govBox)) return false;
+    return box.getAttribute("data-vals").split(" ").indexOf(value(gov)) >= 0;
+  }
+  function apply() {
+    document.querySelectorAll(".field[data-gov]").forEach(function (box) {
+      box.hidden = !shown(box);
+    });
+  }
+  document.addEventListener("change", apply);
+  apply();
+})();
+"""
 
 
 def _inventory_html(names: list[str], current: str, problem: str) -> str:
-    """The first page: open an inventory under ansible/inventory/, or name a
-    new one. Everything answered afterwards is saved into it."""
-    opened = "".join(
-        f'<button type=submit name=open value="{html.escape(n)}">'
-        f'{html.escape(n)}{" (open now)" if n == current else ""}</button> '
+    """The first page: open an inventory under ansible/inventory/, one per
+    line, or name a new one. Everything answered afterwards is saved into it."""
+    rows = "".join(
+        f'<li><button type=submit name=open value="{html.escape(n)}">'
+        f'{html.escape(n)}{" (open now)" if n == current else ""}</button></li>'
         for n in names)
     existing = (f"<form method=post action=/inventory><p class=doc>Open one to "
-                f"edit it or finish its install:</p>{opened}</form>"
+                f"edit it or finish its install:</p><ul class=inv>{rows}</ul></form>"
                 if names else "<p class=doc>No inventory yet.</p>")
     error = f"<p class=bad>{html.escape(problem)}</p>" if problem else ""
     return (
         "<h1>Inventory</h1><p class=doc>Each server has an inventory, a "
-        "directory under ansible/inventory/ holding its settings. The "
-        "answers on every page are saved there as you go. Credentials never "
-        "are: they are asked for again each time the installer is opened.</p>"
+        "directory under ansible/inventory/ holding its settings. Answers are "
+        "saved there each time a section is checked. Credentials never are: "
+        "they are asked for again each time the installer is opened.</p>"
         f"{existing}{error}"
-        "<form method=post action=/inventory><label><span class=k>new "
-        "inventory</span><span class=d>lower-case letters, digits, dashes and "
-        "underscores</span><input type=text name=create autocomplete=off>"
-        "</label><button type=submit>Create</button></form>")
+        "<form method=post action=/inventory><div class=field><div class=head>"
+        "<label class=k for=f-create>new inventory</label>"
+        + _tip("Lower-case letters, digits, dashes and underscores, starting "
+               "with a letter or digit.", "About the inventory name")
+        + "</div><input type=text id=f-create name=create autocomplete=off></div>"
+        "<div class=act><button type=submit>Create</button></div></form>")
 
 
 def _checks_html(checks: list[steps_mod.Check]) -> str:
@@ -137,7 +232,7 @@ def _checks_html(checks: list[steps_mod.Check]) -> str:
     for check in checks:
         cls = "ok" if check.ok else ("bad" if check.blocking else "warn")
         mark = "&#10003;" if check.ok else ("&#10007;" if check.blocking else "!")
-        detail = f" &mdash; {html.escape(check.detail)}" if check.detail else ""
+        detail = f": {html.escape(check.detail)}" if check.detail else ""
         rows.append(f'<li class={cls}>{mark} {html.escape(check.label)}{detail}</li>')
     return f'<ul class=checks>{"".join(rows)}</ul>'
 
@@ -184,7 +279,7 @@ def start_install(current: run_mod.Run, ansible_dir: Path) -> threading.Thread:
 
 
 def _install_html(current: run_mod.Run) -> str:
-    """What the last page shows once the install is under way.
+    """The section below the form once the install is under way.
 
     The log TAIL rather than a spinner. "Installing" answers nothing a client
     can act on, and the thing they want when it stops is which task failed --
@@ -204,10 +299,11 @@ def _install_html(current: run_mod.Run) -> str:
                             "window. Nothing kept a copy: save them now.",
         run_mod.STATE_FAILED: "The install stopped. The last lines say where.",
     }
-    refresh = ('<meta http-equiv=refresh content=5>'
+    refresh = ('<meta http-equiv=refresh content="5;url=/#install">'
                if current.state == run_mod.STATE_INSTALLING else "")
-    return (f"{refresh}<p class=doc>{html.escape(words[current.state])}</p>"
-            f'<pre>{html.escape(chr(10).join(lines))}</pre>')
+    return (f"<section id=install>{refresh}<h2>Install output</h2>"
+            f"<p class=doc>{html.escape(words[current.state])}</p>"
+            f"<pre>{html.escape(chr(10).join(lines))}</pre></section>")
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
@@ -247,17 +343,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             if self.run is None:
                 self._redirect("/inventory")
                 return
-            first = self.run.step or self.all_steps[0].name
-            self._redirect(f"/step/{first}")
+            self._render_install()
             return
         if path == "/inventory":
             self._render_inventory()
-            return
-        if path.startswith("/step/"):
-            if self.run is None:
-                self._redirect("/inventory")
-                return
-            self._render_step(path[len("/step/"):])
             return
         self._send(_page("Not found", "<main><h1>Not found</h1></main>"), 404)
 
@@ -268,7 +357,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
     def _render_inventory(self) -> None:
         current = self.run.inventory if self.run else ""
-        body = (f"{_nav(self.all_steps, '', current)}<main>"
+        body = (f"{_nav(current, on_inventory=True)}<main>"
                 f"{_inventory_html(run_mod.inventories(self.inventory_root), current, _Handler.inventory_problem)}"
                 "</main>")
         _Handler.inventory_problem = ""
@@ -282,7 +371,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         opened.save()
         _Handler.run = opened
         _Handler.last_checks = {}
-        self._redirect(f"/step/{opened.step or self.all_steps[0].name}")
+        self._redirect(f"/#{opened.step}" if self._step(opened.step) else "/")
 
     def _post_inventory(self) -> None:
         form = self._form()
@@ -307,82 +396,106 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if path == "/inventory":
             self._post_inventory()
             return
-        if not path.startswith("/step/"):
+        if path != "/":
             self._send(_page("Not found", "<main><h1>Not found</h1></main>"), 404)
             return
         if self.run is None:
             self._redirect("/inventory")
             return
-        name = path[len("/step/"):]
-        step = self._step(name)
-        if step is None:
-            self._send(_page("Not found", "<main><h1>Not found</h1></main>"), 404)
+        if self.run.state != run_mod.STATE_ANSWERING:
+            # The answers went to an install that already started; an edit now
+            # would describe a host nobody is building.
+            self._redirect("/#install")
             return
         form = self._form()
-        for field in step.fields:
-            if field.key in form:
-                self.run.answer(field.key, form[field.key][0], secret=field.secret)
-        if name == "keyset":
-            self.run.answer("_keyset_acknowledged",
-                            "yes" if form.get("ack") else "", secret=False)
-        self.run.step = name
-        self.run.save()
+        for step in self.all_steps:
+            for field in step.fields:
+                if field.key in form:
+                    self.run.answer(field.key, form[field.key][0], secret=field.secret)
+        self.run.answer("_keyset_acknowledged",
+                        "yes" if form.get("ack") else "", secret=False)
 
-        checks = steps_mod.validate(name, self.run.answers, self.run.secrets)
-        _Handler.last_checks[name] = checks
-        if steps_mod.blocked(checks):
-            self._redirect(f"/step/{name}")
-            return
-        nxt = self._next_step(name)
-        if nxt:
-            self._redirect(f"/step/{nxt}")
-            return
-        # The last step, checked and acknowledged. Starting the install is the
-        # one thing left, and a separate button for it would be a second
+        # Check one section, or every section before the install. Install
+        # starts only when none of them blocks, so there is no second
         # confirmation of the same decision.
-        if self.run.state == run_mod.STATE_ANSWERING:
+        installing = bool(form.get("install"))
+        checked = (form.get("check") or [""])[0]
+        names = ([s.name for s in self.all_steps] if installing
+                 else [checked] if self._step(checked) else [])
+        for name in names:
+            _Handler.last_checks[name] = steps_mod.validate(
+                name, self.run.answers, self.run.secrets)
+        blocked = next((n for n in names
+                        if steps_mod.blocked(_Handler.last_checks[n])), "")
+        self.run.step = blocked or checked or self.run.step
+        self.run.save()
+        if installing and not blocked:
             start_install(self.run, self.ansible_dir)
-        self._redirect(f"/step/{name}")
-
-    def _next_step(self, name: str) -> str:
-        names = [s.name for s in self.all_steps]
-        i = names.index(name)
-        return names[i + 1] if i + 1 < len(names) else ""
-
-    def _render_step(self, name: str) -> None:
-        step = self._step(name)
-        if step is None:
-            self._send(_page("Not found", "<main><h1>Not found</h1></main>"), 404)
+            self._redirect("/#install")
             return
+        where = blocked or checked
+        self._redirect(f"/#{where}" if where else "/")
+
+    def _shown_values(self) -> dict[str, str]:
+        """What each field shows: the answer, else the default, else for a
+        choice the first option, which is what a select with no match shows."""
+        return {f.key: (self.run.value(f.key) or f.default
+                        or (f.options[0] if f.options else ""))
+                for s in self.all_steps for f in s.fields}
+
+    def _section_html(self, step: steps_mod.Step, started: bool) -> str:
+        """One section: its fields, then its button with the results of its
+        last check directly under it. The last section's button is Install."""
+        by_key = {f.key: f for s in self.all_steps for f in s.fields}
+        values = self._shown_values()
         rows = []
-        for field in step.fields:
-            if not field.shown_for(self.run.answers):
-                continue
-            value = self.run.value(field.key) or field.default
-            rows.append(_field_html(field, value))
-        last = name == self.all_steps[-1].name
-        if name == "keyset":
+        for field in _governors_first(step.fields):
+            rows.append(_field_html(field, values[field.key],
+                                    shown=_visible(field, by_key, values),
+                                    governed=field.governor in by_key))
+        last = step.name == self.all_steps[-1].name
+        if last:
             acked = self.run.value("_keyset_acknowledged") == "yes"
             rows.append(
-                '<label><input type=checkbox name=ack value=yes'
-                f'{" checked" if acked else ""}> '
+                '<label class=ack><input type=checkbox name=ack value=yes'
+                f'{" checked" if acked else ""}>'
                 "<span>I have somewhere to save the three passwords and the "
                 "journal key the installer shows once.</span></label>")
+        if started:
+            action = ""
+        elif last:
+            action = ("<div class=act><button type=submit name=install value=yes>"
+                      "Install</button>"
+                      + _tip("Every section is checked first, and the install "
+                             "starts only when none of them fails.\n\n"
+                             + step.validates, "What Install checks")
+                      + "</div>")
+        else:
+            action = (f"<div class=act><button type=submit name=check "
+                      f'value="{html.escape(step.name)}">Check</button>'
+                      + _tip(step.validates, f"What {step.title} checks")
+                      + "</div>")
+        return (f'<section id="{html.escape(step.name)}">'
+                f"<h2>{html.escape(step.title)}</h2>"
+                f"<p class=doc>{html.escape(step.doc)}</p>"
+                f'{"".join(rows)}{action}'
+                f"{_checks_html(_Handler.last_checks.get(step.name) or [])}"
+                "</section>")
+
+    def _render_install(self) -> None:
         started = self.run.state != run_mod.STATE_ANSWERING
-        form = "" if (last and started) else (
-            f'<form method=post action="/step/{html.escape(name)}">'
-            f'{"".join(rows)}<button type=submit>'
-            f'{"Install" if last else "Check and continue"}</button></form>')
+        sections = "".join(self._section_html(s, started) for s in self.all_steps)
         body = (
-            f"{_nav(self.all_steps, name, self.run.inventory)}<main>"
-            f"<h1>{html.escape(step.title)}</h1>"
-            f"<p class=doc>{html.escape(step.doc)}</p>"
-            f"<p class=doc><strong>Checked before this page advances:</strong> "
-            f"{html.escape(step.validates)}</p>"
-            f"{_checks_html(_Handler.last_checks.get(name) or [])}"
-            f"{form}"
-            f"{_install_html(self.run) if last else ''}</main>")
-        self._send(_page(step.title, body))
+            f"{_nav(self.run.inventory, on_inventory=False)}<main>"
+            f"<h1>Install {html.escape(self.run.inventory)}</h1>"
+            "<p class=doc>Answers are saved to ansible/inventory/"
+            f"{html.escape(self.run.inventory)}/.env each time a section is "
+            "checked. Credentials are not.</p>"
+            f'<form method=post action="/"><fieldset{" disabled" if started else ""}>'
+            f"{sections}</fieldset></form>"
+            f"{_install_html(self.run)}"
+            f"<script>{_SCRIPT}</script></main>")
+        self._send(_page(f"Install {self.run.inventory}", body))
 
 
 def serve(current: run_mod.Run | None, doc: dict, *, port: int,

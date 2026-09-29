@@ -2,7 +2,7 @@
 
 ONE DECLARATION, READ NOT COPIED. `helpers/knobs.json` is the same artifact the
 on-box store, the installer and the settings page read. The launcher renders
-its pages from it and holds no list of its own, so a knob added there appears
+its sections from it and holds no list of its own, so a knob added there appears
 here and a knob removed there disappears -- which is the only version of "the
 installer and the server agree" that survives a year of edits.
 
@@ -10,7 +10,7 @@ RESOLVED, NOT PACKAGED. The registry lives in the sibling `ansible/` tree
 rather than inside this package, because `vendor-catena-ce.sh` copies
 `git ls-files -- ansible` into the public panel image and the launcher must not
 ship there. So it is found by path, and a missing one RAISES: a launcher that
-fell back to an empty registry would render six blank pages and then produce an
+fell back to an empty registry would render six blank sections and then produce an
 install.yaml that answered nothing.
 """
 
@@ -55,15 +55,14 @@ def load() -> dict:
 
 
 def steps(doc: dict) -> list[dict]:
-    """The installer's pages, in order."""
+    """The installer's sections, in order."""
     return list(doc.get("gui_steps") or [])
 
 
 def step_fields(doc: dict, step: str) -> list[dict]:
-    """What one page asks for: secrets first, then the values they configure.
-
-    That order is the settings page's too, so a client who has seen one
-    recognises the other.
+    """What one section asks for: secrets first, then the values they
+    configure. That order is the settings page's too; the launcher only moves
+    a choice ahead of the fields it governs.
     """
     entries = [*(doc.get("secrets") or []), *(doc.get("config") or [])]
     return [entry for entry in entries if entry.get("step") == step]

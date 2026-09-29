@@ -42,7 +42,7 @@ cd catena-ce
 ```sh
 uv run catena-gui
 ```
-It opens a browser page on this machine. The first page lists the inventories in `ansible/inventory/` and creates new ones. Every field starts from its default value where one makes sense, each page checks its answers before moving on, and the answers are saved to `ansible/inventory/<name>/.env` as the pages advance, so a closed installer resumes where it stopped. **Credentials (Tailscale, Headscale, Cloudflare, S3) are never saved**: they stay in memory until the install ends and are asked for again when the inventory is reopened. The last page starts the install, and its output shows in the console and on the page.
+It opens a browser page on this machine. The first page lists the inventories in `ansible/inventory/` and creates new ones. The second asks everything, in sections: every field starts from its default value where one makes sense, with its explanation behind a `(?)`, and each section's `Check` button tests its answers and saves the page to `ansible/inventory/<name>/.env`, so a closed installer resumes where it stopped. **Credentials (Tailscale, Headscale, Cloudflare, S3) are never saved**: they stay in memory until the install ends and are asked for again when the inventory is reopened. `Install`, at the bottom, checks every section and starts the install, whose output shows in the console and on the page.
 
    The command-line installer is the alternative. Copy the template, fill in the `.env`, then run the install:
 ```sh

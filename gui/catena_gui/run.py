@@ -8,8 +8,8 @@ ansible/inventory/ or creates one, and everything it keeps lives there:
                        the file `catena-cli install` reads -- so an inventory
                        the launcher saved and one a client edited by hand are
                        the same file
-    .catena-gui.json   where the launcher got to: the page, the install's
-                       state, the keyset acknowledgement. 0600.
+    .catena-gui.json   where the launcher got to: the last section checked,
+                       the install's state, the keyset acknowledgement. 0600.
 
 What `catena-cli install` prints is NOT kept: it ends with the passwords the
 install shows once. It goes to the console window and, for the page, to the
@@ -17,7 +17,7 @@ last lines held in memory.
 
 An install contains two unbounded waits -- a server being delivered by a
 provider, and a domain being activated by its registrar -- so the answers are
-on disk from the first page, and a launcher started again picks up where the
+on disk from the first check, and a launcher started again picks up where the
 last one stopped.
 
 THE CREDENTIALS ARE NEVER ON DISK. They are held in memory for the life of the
@@ -27,7 +27,7 @@ for them again: the alternative is a file that outlives the install and that
 nothing ever comes back to remove.
 
 THE STATE IS A WORD AND A STEP, not a percentage. What a resumed run needs to
-know is which page to open and whether the install already started.
+know is which section to show and whether the install already started.
 """
 
 from __future__ import annotations
