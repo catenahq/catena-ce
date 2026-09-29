@@ -4,8 +4,8 @@
 A thin wrapper over the Ansible base so self-hosters never touch raw
 ansible-playbook. Subcommands:
 
-  install    seed config + secrets (reuses seed.py), then run
-             preflight -> bootstrap -> converge -> lockdown -> validate
+  install    seed config (reuses seed.py), then run
+             preflight -> bootstrap -> converge -> validate
   converge   re-run converge.yml (apply config changes / new app tags)
   validate   run validate.yml (on-host + tailnet + external checks)
   backup     trigger an on-demand snapshot (the manual CE backup)
@@ -74,18 +74,14 @@ COLLECTIONS_DIR = _collections_dir()
 # invocation BEFORE bootstrap so a stray --limit can never skip it.
 #
 # Every leg reaches the host over the public SSH address the install started
-# on, so there is one install path whatever access method the client chose.
-# `lockdown` is its own leg, after the converge and before validate: it joins
-# the tailnet on that method and proves the path. It leaves public 22 open --
-# closing it is the panel's Lockdown alone -- and it runs alone and last, where
-# a failure is a failure of the join rather than of a converge that did fifteen
-# other things correctly, and validate then measures the posture it produced.
-INSTALL_CHAIN = ("preflight", "bootstrap", "converge", "lockdown", "validate")
+# on. The install configures nothing beyond reaching and installing the server:
+# the domain, the private network and the backups are entered in the panel
+# once it runs, and the panel joins the tailnet itself.
+INSTALL_CHAIN = ("preflight", "bootstrap", "converge", "validate")
 
-# Stages after which the host's administrative address may have changed, and
-# which emit it into .bootstrap-output.yml: bootstrap records the install
-# address, lockdown the tailnet address it joined the host on.
-_ADDRESS_STAGES = ("bootstrap", "lockdown")
+# Stages that emit the host's administrative address into
+# .bootstrap-output.yml: bootstrap records the install address.
+_ADDRESS_STAGES = ("bootstrap",)
 
 # Host binaries the wrapper shells out to. ansible-playbook/ansible run the
 # base; the plaintext vault needs no separate secret-tooling binary.
@@ -162,27 +158,50 @@ def _tags_extra(args: argparse.Namespace) -> list[str] | None:
     return ["--tags", tags] if tags else None
 
 
+def _key_already_opens(env: dict[str, str], initial_user: str) -> str:
+    """The account the operator key already logs in to -- the provider's
+    initial login, or ops on a server a previous run hardened -- or ""."""
+    host = (env.get("HOST_PUBLIC_IP") or "").strip()
+    if not host:
+        return ""
+    from helpers import install_key
+
+    key = os.path.expanduser(env.get("SSH_PRIVATE_KEY") or "")
+    port = int((env.get("HOST_SSH_PORT") or "22").strip() or "22")
+    for user in dict.fromkeys((initial_user or "root", env.get("OPS_USER") or "ops")):
+        if install_key._key_already_works(host, user, key, port):
+            return user
+    return ""
+
+
 def _prompt_provider_password(inv_dir: Path, initial_user: str) -> str:
-    """Ask for the VPS provider's password for the initial login, up front.
+    """Ask for the VPS provider's password for the initial login, up front --
+    only when the key does not open the server already.
 
-    bootstrap.yml declares this as a play-scoped vars_prompt, so left to
-    itself it stops the deploy chain to ask -- after preflight has already
-    run and the operator has walked away. Asking here, before the first
-    playbook, is the whole point; ansible-playbook skips a vars_prompt whose
-    name is already an extra-var, so the mid-run question never appears.
-
-    Blank is a real answer: bootstrap then skips the key install and assumes
-    the box is already keyed, which is what the vars_prompt default means."""
+    Many providers install the public key given when the server is ordered, and
+    then there is no password to type. Otherwise bootstrap.yml needs it to add
+    the key, and declares it as a play-scoped vars_prompt that, left to itself,
+    stops the deploy chain to ask -- after preflight has already run and the
+    operator has walked away. Asking here, before the first playbook, is the
+    whole point; ansible-playbook skips a vars_prompt whose name is already an
+    extra-var, so the mid-run question never appears."""
     env_path = inv_dir / ".env"
-    target = ""
+    env: dict[str, str] = {}
     if env_path.is_file():
         import seed
 
-        target = seed.read_existing_env(env_path).get("HOST_PUBLIC_IP", "").strip()
+        env = seed.read_existing_env(env_path)
+    target = (env.get("HOST_PUBLIC_IP") or "").strip()
     where = f"{initial_user}@{target}" if target else (initial_user or "the initial user")
+    opened = _key_already_opens(env, initial_user)
+    if opened:
+        print(_c("1;32", f"\n+ the SSH key already opens {opened}@{target}: no "
+                 "provider password needed"), file=sys.stderr)
+        return ""
     print(_c("1;34", f"\n== Provider password for {where}"), file=sys.stderr)
-    print("The password the VPS provider issued for that login, used once to "
-          "install\nyour SSH key. Leave blank if the key is already installed.",
+    print("The SSH key does not open that login yet. The password the VPS "
+          "provider\nissued for it is used once, to install the key. Leave it "
+          "blank if the\nserver is not up yet and the key will be there.",
           file=sys.stderr)
     return getpass.getpass("Provider password (blank to skip): ")
 
@@ -303,18 +322,14 @@ def _run_deploy_chain(
     """Run an ordered deploy chain stage by stage, threading the bootstrap
     creds onto the bootstrap stage and `global_extra` onto EVERY stage.
     `global_extra` is the transient secret-adopt file (`-e @file`) that
-    carries the install-critical vendor creds into each play so the on-box
-    loader adopts them -- no persisted laptop vault. Plus the one inter-stage
-    bridge a deploy needs:
+    carries an admin password override, when install.yaml pins one, into each
+    play so the on-box loader adopts it -- no persisted laptop vault. Plus the
+    one inter-stage bridge a deploy needs:
 
-      - after `bootstrap` and after `lockdown`: fold the address the stage
-        emitted into .bootstrap-output.yml back into hosts.yml, so the later
-        stages (each a separate ansible invocation) reach the host: the
-        install address after bootstrap instead of the 0.0.0.0 placeholder,
-        the tailnet address after the lockdown leg joined it, which keeps
-        answering once the panel's Lockdown closes public 22. The lockdown leg
-        is asked to emit it; the panel runs the same playbook on the host,
-        where there is no controller inventory to write.
+      - after `bootstrap`: fold the install address it emitted into
+        .bootstrap-output.yml back into hosts.yml, so the later stages (each a
+        separate ansible invocation) reach the host instead of the 0.0.0.0
+        placeholder.
 
     The Portainer API key that the auth stack (Keycloak, oauth2-proxy) is
     gated on is minted in-band by roles/portainer during the converge (it
@@ -323,12 +338,7 @@ def _run_deploy_chain(
     so a single converge pass deploys everything."""
     for stage in chain:
         banner(f"Stage: {stage}")
-        if stage == "bootstrap":
-            extra = list(bootstrap_extra or [])
-        elif stage == "lockdown":
-            extra = ["-e", "catena_lockdown_emit_address=true"]
-        else:
-            extra = []
+        extra = list(bootstrap_extra or []) if stage == "bootstrap" else []
         if global_extra:
             extra = extra + global_extra
         _run(playbook_cmd(inv_dir, stage, extra or None))
@@ -366,12 +376,12 @@ def _show_dr_keyset(inv_dir: Path) -> None:
 def cmd_install(args: argparse.Namespace) -> int:
     _preflight_checks()
 
-    # The transient adopt file seed writes the vendor creds into (never a
+    # The transient adopt file seed writes an admin override into (never a
     # persisted inventory vault). Threaded onto every deploy stage as `-e @file`
-    # so the on-box loader adopts them, then deleted.
+    # so the on-box loader adopts it, then deleted.
     secrets_tmp = _mktemp_secrets("catena-install-secrets-")
 
-    banner("Step 1/2 -- collect config + vendor creds (seed)")
+    banner("Step 1/2 -- collect config (seed)")
     seed_cmd = [sys.executable, str(ANSIBLE_DIR / "seed.py"),
                 "--secrets-out", str(secrets_tmp)]
     if args.inventory_path:
@@ -418,6 +428,10 @@ def cmd_converge(args: argparse.Namespace) -> int:
     _preflight_checks()
     inv_dir = resolve_inventory(args)
     _require_inventory(inv_dir)
+    if (inv_dir / ".env").is_file():
+        import seed
+
+        seed.warn_server_held_lines(inv_dir / ".env")
     ensure_collections()
     _run(playbook_cmd(inv_dir, "converge", _tags_extra(args)))
     return 0

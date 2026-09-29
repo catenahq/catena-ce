@@ -4,16 +4,15 @@ panel's Lockdown, after proof.
 THE INVARIANT, stated once so it is not filed later as a coverage gap. Three
 combinations are reachable:
 
-    no tailnet + 22 open     a host with no alternative keeps the one it has
-    tailnet + 22 open        where every install with a tailnet ends
+    no tailnet + 22 open     every install ends here
+    tailnet + 22 open        the host joined the tailnet entered in the panel
     tailnet + 22 closed      the panel's Lockdown joined, proved, and closed
 
 ONE INSTALL PATH. Every leg reaches the host over the public SSH address the
-install started on. Joining the tailnet is the lockdown playbook's first step,
-which the installer runs last and the panel runs on the host, so a tailnet added
-after the install gets the same join and the same proof. Only the panel's run
-closes the port: key-only SSH is the host's security, and the tailnet is a
-convenience whose one security feature is closing 22.
+install started on, and the install configures no tailnet. Joining one is the
+lockdown playbook's first step, which the panel runs on the host. Only the
+panel's Lockdown closes the port: key-only SSH is the host's security, and the
+tailnet is a convenience whose one security feature is closing 22.
 
 `no tailnet + 22 closed` is unreachable BY CONSTRUCTION. There is nothing to
 prove, so nothing may close the port, and a lockdown that could reach that state
@@ -35,6 +34,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
@@ -83,18 +83,22 @@ def _conditions(task: dict) -> str:
 
 # --- the method is declared, and it is what everything reads ----------------
 
-def test_the_method_is_one_variable_read_from_the_store():
+@pytest.mark.parametrize("provider,method", [
+    ("tailscale", "tailnet"), ("headscale", "tailnet"), (" Headscale ", "tailnet"),
+    ("none", "public_ssh"), ("", "public_ssh"), (None, "public_ssh"),
+])
+def test_the_method_follows_from_the_stored_provider(provider, method):
     """A second derivation of "is this host on a tailnet" is a second answer.
-    The store's key is the one, because it rides /etc into the snapshot and a
-    rebuilt host has to come back with the posture it had."""
+    The store's TAILNET_PROVIDER is the one, because it rides /etc into the
+    snapshot and a rebuilt host has to come back with the posture it had. A
+    host with nothing stored was installed over SSH alone, and joins nothing."""
+    from jinja2 import Environment
+
     gv = _load(GROUP_VARS) or {}
     expr = str(gv.get("catena_access_method", ""))
-    assert "cfg_access_method" in expr, (
-        "the access method is not read from the store projection; a host's "
-        f"declared posture would not survive a rebuild: {expr!r}")
-    assert "tailnet" in expr, (
-        "the fallback is not the tailnet, so a host that stored nothing would "
-        "have its firewall decided by the wrong default")
+    assert "cfg_tailnet_provider" in expr, expr
+    context = {} if provider is None else {"cfg_tailnet_provider": provider}
+    assert Environment().from_string(expr).render(**context).strip() == method
 
 
 # --- shape one: no tailnet, 22 open ----------------------------------------
@@ -177,17 +181,13 @@ def test_on_the_host_no_probe_dials_its_own_address():
     assert "TAILNET_REQUIRE_PEER" in reachable and "tailscale_on_host" in reachable
 
 
-def test_only_the_installer_emits_the_tailnet_address():
-    """The next install leg and every later invocation reach the host at its
-    tailnet address, which keeps answering once the panel's Lockdown closes 22,
-    and learn it from .bootstrap-output.yml. The panel runs the same play on the
-    host, where there is no controller inventory to write."""
+def test_the_lockdown_writes_nothing_on_a_controller():
+    """The panel runs the play on the host, where there is no controller
+    inventory to write, and the install does not run it."""
     tasks = _flatten((_load(LOCKDOWN_PLAY) or [])[0].get("tasks") or [])
-    emit = tasks[_index(tasks, "Emit the tailnet address")]
-    cond = _conditions(emit)
-    assert "catena_lockdown_emit_address" in cond
-    assert "catena_access_method == 'tailnet'" in cond
-    assert emit.get("delegate_to") == "localhost"
+    assert not [t.get("name") for t in tasks if t.get("delegate_to") == "localhost"]
+    cli = (ANSIBLE / "catena_cli.py").read_text(encoding="utf-8")
+    assert '"lockdown"' not in cli, "the install runs the lockdown"
 
 
 def test_validate_gates_inside_the_role_not_by_filtering_the_role_list():
@@ -243,7 +243,7 @@ def _close_block() -> dict:
 def test_only_the_panels_lockdown_closes_the_port():
     """The close block runs on catena_lockdown_close_public_ssh alone, which
     lockdown.yml reads from the environment the panel's Lockdown unit carries
-    and defaults to false. The installer's run never sets it."""
+    and defaults to false. Nothing else sets it."""
     assert "catena_lockdown_close_public_ssh" in _conditions(_close_block())
     play = (_load(LOCKDOWN_PLAY) or [])[0]
     flag = str((play.get("vars") or {}).get("catena_lockdown_close_public_ssh", ""))
@@ -257,9 +257,8 @@ def test_only_the_panels_lockdown_closes_the_port():
 
 
 def test_the_tailnet_rules_and_address_do_not_wait_for_the_close():
-    """An install still joins, adds the tailnet SSH rule and learns the tailnet
-    address -- the access page and every later invocation use it -- with 22
-    left open."""
+    """A run that does not close still joins, adds the tailnet SSH rule and
+    learns the tailnet address, with 22 left open."""
     tasks = _flatten(_load(LOCKDOWN_TASKS))
     allow = tasks[_index(tasks, "allow SSH over the tailnet")]
     assert "catena_lockdown_close_public_ssh" not in _conditions(allow)

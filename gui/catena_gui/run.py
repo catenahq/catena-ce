@@ -15,16 +15,16 @@ What `catena-cli install` prints is NOT kept: it ends with the passwords the
 install shows once. It goes to the console window and, for the page, to the
 last lines held in memory.
 
-An install contains two unbounded waits -- a server being delivered by a
-provider, and a domain being activated by its registrar -- so the answers are
-on disk from the first check, and a launcher started again picks up where the
-last one stopped.
+An install can start with an unbounded wait -- a server being delivered by a
+provider -- so the answers are on disk from the first check, and a launcher
+started again picks up where the last one stopped.
 
-THE CREDENTIALS ARE NEVER ON DISK. They are held in memory for the life of the
-process and handed to `catena-cli install` in a transient 0600 file outside the
-inventory, which is deleted when the install ends. A reopened inventory asks
-for them again: the alternative is a file that outlives the install and that
-nothing ever comes back to remove.
+A PASSWORD IS NEVER ON DISK. The provider's password, the one the launcher can
+be given, is held in memory for the life of the process and handed to
+`catena-cli install` in a transient 0600 file outside the inventory, which is
+deleted when the install ends. A reopened inventory asks for it again: the
+alternative is a file that outlives the install and that nothing ever comes
+back to remove.
 
 THE STATE IS A WORD AND A STEP, not a percentage. What a resumed run needs to
 know is which section to show and whether the install already started.

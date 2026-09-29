@@ -1,9 +1,9 @@
 """The browser UI, on loopback, serving the run this process owns.
 
 LOOPBACK ONLY, and bound explicitly to 127.0.0.1 rather than left to a default.
-The pages carry a client's cloud credentials in form fields; a server that
-bound every interface would put them on whatever network the machine happens to
-be on, including a cafe's.
+The pages can carry the provider's password for a client's server; a server
+that bound every interface would put it on whatever network the machine happens
+to be on, including a cafe's.
 
 THE BROWSER IS A VIEW. Every answer goes straight into the Run this process
 holds, and the state that matters is in the inventory. Closing the tab loses
@@ -113,22 +113,18 @@ def _tip(text: str, about: str) -> str:
             f'<span class=tt role=tooltip>{html.escape(text)}</span></span>')
 
 
-def _field_html(field: steps_mod.Field, value: str, *, shown: bool,
-                governed: bool, options: list[str] | None = None) -> str:
+def _field_html(field: steps_mod.Field, value: str) -> str:
     """One field: its name, `(optional)` and a `(?)` holding the explanation,
     above the control.
 
-    Every field is rendered and a governed one is hidden rather than left out,
-    so the page shows or hides it the moment its governing choice changes
-    (`governed`: the governing field is on this page too). `shown` is the
-    server's answer from what is saved, for a browser without scripts.
-
-    `options` are ones a check found (the domains a token reaches). They open
-    with a blank "(none)", and a saved value missing from any list stays
-    selected as an extra option, so opening the page never changes it."""
+    A field limited to a list is a select, and a saved value missing from the
+    list stays selected as an extra option, so opening the page never changes
+    it. A field with suggestions is free text with the suggestions offered
+    beside it: the key the provider installed is usually one of the pairs
+    already on this machine, and sometimes it is not."""
     key = html.escape(field.key)
     fid = f"f-{key}"
-    choices = ([""] + options) if options is not None else list(field.options)
+    choices = list(field.options)
     if value and choices and value not in choices:
         choices.append(value)
     if choices:
@@ -141,76 +137,23 @@ def _field_html(field: steps_mod.Field, value: str, *, shown: bool,
         kind = "password" if field.secret else "text"
         placeholder = (f' placeholder="{html.escape(field.example)}"'
                        if field.example else "")
+        listed = f' list="s-{key}"' if field.suggestions else ""
         control = (f'<input type="{kind}" id="{fid}" name="{key}" '
-                   f'value="{html.escape(value)}"{placeholder} autocomplete="off">')
+                   f'value="{html.escape(value)}"{placeholder}{listed} '
+                   'autocomplete="off">')
+        if field.suggestions:
+            control += (f'<datalist id="s-{key}">'
+                        + "".join(f'<option value="{html.escape(s)}">'
+                                  for s in field.suggestions)
+                        + "</datalist>")
     notes = [field.doc] if field.doc else []
     if field.secret:
         notes.append("Not saved: entered again each time the installer is opened.")
     tip = _tip("\n\n".join(notes), f"About {field.key}") if notes else ""
     optional = " <span class=d>(optional)</span>" if field.optional else ""
-    gov = (f' data-gov="{html.escape(field.governor)}"'
-           f' data-vals="{html.escape(" ".join(field.governor_values))}"'
-           if governed else "")
-    return (f'<div class=field data-key="{key}"{gov}{"" if shown else " hidden"}>'
+    return (f'<div class=field data-key="{key}">'
             f'<div class=head><label class=k for="{fid}">{key}</label>'
             f"{optional}{tip}</div>{control}</div>")
-
-
-def _governors_first(fields: list[steps_mod.Field]) -> list[steps_mod.Field]:
-    """The section's fields with each choice placed before the fields it
-    governs, so changing a choice shows or hides fields below it rather than
-    above it. Otherwise in registry order."""
-    by_key = {f.key: f for f in fields}
-    out: list[steps_mod.Field] = []
-
-    def place(field: steps_mod.Field) -> None:
-        if any(f.key == field.key for f in out):
-            return
-        governor = by_key.get(field.governor)
-        if governor is not None:
-            place(governor)
-        out.append(field)
-
-    for field in fields:
-        place(field)
-    return out
-
-
-def _visible(field: steps_mod.Field, by_key: dict[str, steps_mod.Field],
-             values: dict[str, str]) -> bool:
-    """Whether a field shows, given what every field shows: its governor's
-    value is one it applies to, and its governor shows too."""
-    if not field.governor:
-        return True
-    governor = by_key.get(field.governor)
-    if governor is not None and not _visible(governor, by_key, values):
-        return False
-    return values.get(field.governor, "") in field.governor_values
-
-
-# The same rule as _visible, in the browser: shows or hides each governed field
-# as its governing choice changes, and once on load.
-_SCRIPT = """
-(function () {
-  function value(key) {
-    var el = document.querySelector('[name="' + key + '"]');
-    return el ? el.value : "";
-  }
-  function shown(box) {
-    var gov = box.getAttribute("data-gov");
-    var govBox = document.querySelector('.field[data-key="' + gov + '"]');
-    if (govBox && govBox.hasAttribute("data-gov") && !shown(govBox)) return false;
-    return box.getAttribute("data-vals").split(" ").indexOf(value(gov)) >= 0;
-  }
-  function apply() {
-    document.querySelectorAll(".field[data-gov]").forEach(function (box) {
-      box.hidden = !shown(box);
-    });
-  }
-  document.addEventListener("change", apply);
-  apply();
-})();
-"""
 
 
 def _inventory_html(names: list[str], current: str, problem: str) -> str:
@@ -227,8 +170,8 @@ def _inventory_html(names: list[str], current: str, problem: str) -> str:
     return (
         "<h1>Inventory</h1><p class=doc>Each server has an inventory, a "
         "directory under ansible/inventory/ holding its settings. Answers are "
-        "saved there each time a section is checked. Credentials never are: "
-        "they are asked for again each time the installer is opened.</p>"
+        "saved there each time a section is checked. A password never is: it "
+        "is asked for again each time the installer is opened.</p>"
         f"{existing}{error}"
         "<form method=post action=/inventory><div class=field><div class=head>"
         "<label class=k for=f-create>new inventory</label>"
@@ -250,31 +193,20 @@ def _checks_html(checks: list[steps_mod.Check]) -> str:
     return f'<ul class=checks>{"".join(rows)}</ul>'
 
 
-def _links_html(links: list[dict]) -> str:
-    if not links:
-        return ""
-    items = "".join(
-        f'<li><a href="{html.escape(str(l.get("url", "")))}" target=_blank '
-        f'rel=noopener>{html.escape(str(l.get("text", "")))}</a></li>'
-        for l in links)
-    return f"<ul class=links>{items}</ul>"
-
-
-def _access_html(ways: list[steps_mod.WayIn]) -> str:
-    """The third page: every way into the panel this install leaves, with the
-    command to type. SSH is always one of them."""
-    out = ["<h1>Reaching the panel</h1><p class=doc>The panel and Portainer "
-           "answer the server itself only. Each way below reaches them; the "
-           "admin password is the one the install shows once.</p>"]
-    for way in ways:
-        commands = "".join(f"<pre>{html.escape(c)}</pre>" for c in way.commands)
-        urls = "".join(f"<li><code>{html.escape(u)}</code></li>" for u in way.urls)
-        then = "<p class=doc>Then open:</p>" if way.commands else ""
-        out.append(f"<section><h2>{html.escape(way.title)}</h2>"
-                   f"<p class=doc>{html.escape(way.when)}</p>{commands}"
-                   f"{then}<ul class=links>{urls}</ul>"
-                   f"<p class=doc>{html.escape(way.login)}</p></section>")
-    return "".join(out)
+def _access_html(way: steps_mod.WayIn) -> str:
+    """The third page: the SSH forward into the panel, and what to do there."""
+    urls = "".join(f"<li><code>{html.escape(u)}</code></li>" for u in way.urls)
+    return (
+        "<h1>Reaching the panel</h1><p class=doc>The panel and Portainer answer "
+        "the server itself only. An SSH forward as the panel account, which "
+        "can do nothing but forward, reaches them:</p>"
+        f"<pre>{html.escape(way.command)}</pre>"
+        f"<p class=doc>Then open:</p><ul class=links>{urls}</ul>"
+        f"<p class=doc>{html.escape(way.login)}</p>"
+        "<section><h2>Then, in the panel</h2><p class=doc>Settings is where the "
+        "rest is entered: the domain and its Cloudflare token, which publish "
+        "the panel at dash.&lt;domain&gt;; the private network, behind which "
+        "Lockdown closes public SSH; and the backups.</p></section>")
 
 
 def start_install(current: run_mod.Run, ansible_dir: Path) -> threading.Thread:
@@ -288,7 +220,7 @@ def start_install(current: run_mod.Run, ansible_dir: Path) -> threading.Thread:
 
     Nothing it prints is written to a file: it ends with the passwords the
     install shows once. The install.yaml is removed whatever happens, for the
-    same reason: it carries the client's cloud credentials.
+    same reason: it can carry the provider's password.
     """
     body_yaml = render.install_yaml(inventory=current.inventory,
                                     answers=current.answers,
@@ -358,8 +290,6 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     inventory_root: Path
     all_steps: list[steps_mod.Step]
     last_checks: dict[str, list[steps_mod.Check]] = {}
-    # Choice lists a check found, by field (the domains a token reaches).
-    found_options: dict[str, list[str]] = {}
     inventory_problem: str = ""
 
     def log_message(self, *_args) -> None:
@@ -424,7 +354,6 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             opened.save()
         _Handler.run = opened
         _Handler.last_checks = {}
-        _Handler.found_options = {}
         self._redirect(f"/#{opened.step}" if self._step(opened.step) else "/")
 
     def _post_inventory(self) -> None:
@@ -468,8 +397,6 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     self.run.answer(field.key, form[field.key][0], secret=field.secret)
         self.run.answer("_keyset_acknowledged",
                         "yes" if form.get("ack") else "", secret=False)
-        for key, value in steps_mod.derive(self.run.answers, self.run.secrets).items():
-            self.run.answer(key, value, secret=False)
 
         # Check one section, or every section before the install. Install
         # starts only when none of them blocks, so there is no second
@@ -485,8 +412,6 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             _Handler.last_checks[name] = missing + (
                 [] if missing else steps_mod.validate(
                     name, self.run.answers, self.run.secrets))
-            _Handler.found_options.update(steps_mod.options_after_check(
-                name, self.run.answers, self.run.secrets))
         blocked = next((n for n in names
                         if steps_mod.blocked(_Handler.last_checks[n])), "")
         self.run.step = blocked or checked or self.run.step
@@ -508,14 +433,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     def _section_html(self, step: steps_mod.Step, started: bool) -> str:
         """One section: its fields, then its button with the results of its
         last check directly under it. The last section's button is Install."""
-        by_key = {f.key: f for s in self.all_steps for f in s.fields}
         values = self._shown_values()
-        rows = []
-        for field in _governors_first(step.fields):
-            rows.append(_field_html(field, values[field.key],
-                                    shown=_visible(field, by_key, values),
-                                    governed=field.governor in by_key,
-                                    options=_Handler.found_options.get(field.key)))
+        rows = [_field_html(field, values[field.key]) for field in step.fields]
         last = step.name == self.all_steps[-1].name
         if last:
             acked = self.run.value("_keyset_acknowledged") == "yes"
@@ -543,7 +462,6 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         return (f'<section id="{html.escape(step.name)}">'
                 f"<h2>{html.escape(step.title)}</h2>"
                 f"<p class=doc>{html.escape(step.doc)}</p>"
-                f"{_links_html(step.links)}"
                 f'{"".join(rows)}{action}'
                 f"{_checks_html(_Handler.last_checks.get(step.name) or [])}"
                 "</section>")
@@ -556,17 +474,15 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             f"<h1>Install {html.escape(self.run.inventory)}</h1>"
             "<p class=doc>Answers are saved to ansible/inventory/"
             f"{html.escape(self.run.inventory)}/.env each time a section is "
-            "checked. Credentials are not.</p>"
+            "checked. The password is not.</p>"
             f'<form method=post action="/"><fieldset{" disabled" if started else ""}>'
             f"{sections}</fieldset></form>"
-            f"{_install_html(self.run)}"
-            f"<script>{_SCRIPT}</script></main>")
+            f"{_install_html(self.run)}</main>")
         self._send(_page(f"Install {self.run.inventory}", body))
 
     def _render_access(self) -> None:
-        ways = steps_mod.ways_in(self.run.answers, self.run.secrets, self.run.path)
         body = (f"{_nav(self.run.inventory, on='access')}<main>"
-                f"{_access_html(ways)}</main>")
+                f"{_access_html(steps_mod.way_in(self.run.answers))}</main>")
         self._send(_page("Reaching the panel", body))
 
 
@@ -575,8 +491,9 @@ def serve(current: run_mod.Run | None, doc: dict, *, port: int,
     """Serve until the console process is stopped. With no `current` run the
     first page is the inventory picker.
 
-    ThreadingHTTPServer so a probe that takes ten seconds -- and one of them
-    reaches Cloudflare -- does not make the rest of the UI look hung.
+    ThreadingHTTPServer so a probe that takes ten seconds -- an SSH login
+    waiting on a server still booting -- does not make the rest of the UI look
+    hung.
     """
     _Handler.run = current
     _Handler.doc = doc
@@ -584,7 +501,6 @@ def serve(current: run_mod.Run | None, doc: dict, *, port: int,
     _Handler.inventory_root = ansible_dir / "inventory"
     _Handler.all_steps = steps_mod.build(doc)
     _Handler.last_checks = {}
-    _Handler.found_options = {}
     server = http.server.ThreadingHTTPServer(("127.0.0.1", port), _Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

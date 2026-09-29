@@ -4,7 +4,7 @@ inventory (so multiple clients / environments can coexist in one repo).
 
 Usage in group_vars / playbooks:
     "{{ lookup('dotenv', 'SSH_PRIVATE_KEY') }}"
-    "{{ lookup('dotenv', 'TAILSCALE_ACCEPT_DNS', default='false') }}"
+    "{{ lookup('dotenv', 'STORAGE_BULK_ENABLED', default='false') }}"
 
 Search order:
   1. <inventory_dir>/.env       -- per-inventory config (the canonical location)

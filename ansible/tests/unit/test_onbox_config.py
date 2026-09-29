@@ -231,19 +231,6 @@ def test_role_minted_secrets_are_not_settable_through_the_api(oc):
         oc.apply_inputs(store, secrets_in={"portainer_api_key": "x"})
 
 
-def test_install_external_keys_are_a_subset_of_external_secrets(oc):
-    """seed.py prompts for these at install and writes them to the transient
-    adopt file; the loader hands them to apply_inputs, which RAISES on any key
-    outside EXTERNAL_SECRETS. A prompt for a key not in the set is an install
-    that aborts on its own input."""
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location("seed", ANSIBLE_DIR / "seed.py")
-    seed = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(seed)
-    assert set(seed.INSTALL_EXTERNAL_KEYS) <= set(oc.EXTERNAL_SECRETS)
-
-
 def test_dr_keyset_is_user_held_not_external(oc):
     """The admin password (first-login), restic backup password (DR keyset)
     and console break-glass password are USER_HELD: minted on-box if absent,
@@ -761,13 +748,16 @@ def test_a_settings_write_overwrites(oc, tmp_path):
     assert store["config"]["NTFY_SERVER"] == "https://new.example"
 
 
-def test_cli_emits_the_settings_key_names_without_touching_the_store(oc, tmp_path, capsys):
-    """The loader asks for this before the store exists on a fresh box."""
+def test_cli_emits_the_env_seeded_names_without_touching_the_store(oc, tmp_path, capsys):
+    """The loader asks for this before the store exists on a fresh box. Only
+    the keys the `.env` declares are seeded from it; the panel holds the rest."""
     p = tmp_path / "config.json"
-    rc = oc.main(["--path", str(p), "--emit", "settings-config-names"])
+    rc = oc.main(["--path", str(p), "--emit", "env-seed-names"])
     assert rc == 0
     assert not p.exists(), "a pure query must not create the store"
-    assert "BACKUP_RESTIC_REPO" in json.loads(capsys.readouterr().out)
+    names = json.loads(capsys.readouterr().out)
+    assert "ADMIN_EMAIL" in names
+    assert not {"BACKUP_RESTIC_REPO", "CLOUDFLARE_ZONE", "PORTAINER_SUBDOMAIN"} & set(names)
 
 
 def test_cli_emits_config_vars(oc, tmp_path, capsys):
@@ -775,7 +765,9 @@ def test_cli_emits_config_vars(oc, tmp_path, capsys):
     oc.dump({"secrets": {}, "config": {"SMTP_HOST": "mail.example"}}, p)
     rc = oc.main(["--path", str(p), "--no-mint", "--emit", "config-vars"])
     assert rc == 0
-    assert json.loads(capsys.readouterr().out) == {"cfg_smtp_host": "mail.example"}
+    # The settled provider rides with every projection.
+    assert json.loads(capsys.readouterr().out) == {
+        "cfg_smtp_host": "mail.example", "cfg_tailnet_provider": "none"}
 
 
 # --- other writers' keys ----------------------------------------------------
@@ -919,3 +911,39 @@ def test_a_host_with_no_token_has_nothing_to_preserve(oc):
         store, config_in={"CLOUDFLARE_ZONE": "new.example"}, overwrite=True
     )
     assert "cloudflare_api_tokens" not in store["secrets"]
+
+
+# --- the tailnet provider is always stated ------------------------------------
+@pytest.mark.parametrize("config,secrets_map,want", [
+    # Installed over SSH alone: nothing stored, no tailnet.
+    ({}, {}, "none"),
+    # A choice already stored stays, in every direction.
+    ({"TAILNET_PROVIDER": "headscale"}, {}, "headscale"),
+    ({"TAILNET_PROVIDER": "none", "TAILNET_CONTROL_URL": "https://hs.test"}, {},
+     "none"),
+    # A store written before the provider was always stored keeps the posture
+    # it describes.
+    ({"ACCESS_METHOD": "public_ssh", "TAILNET_PROVIDER": "tailscale"}, {}, "none"),
+    ({"ACCESS_METHOD": "tailnet"}, {}, "tailscale"),
+    ({"ACCESS_METHOD": "tailnet", "TAILNET_CONTROL_URL": "https://hs.test"}, {},
+     "headscale"),
+    ({"TAILNET_CONTROL_URL": "https://hs.test"}, {}, "headscale"),
+    ({}, {"tailscale_oauth_client_id": "id"}, "tailscale"),
+])
+def test_the_provider_is_settled_on_every_store(oc, config, secrets_map, want):
+    store = {"config": dict(config), "secrets": dict(secrets_map)}
+    oc.settle_tailnet_provider(store)
+    assert store["config"]["TAILNET_PROVIDER"] == want
+    assert "ACCESS_METHOD" not in store["config"]
+
+
+def test_a_settled_store_is_left_alone(oc):
+    store = {"config": {"TAILNET_PROVIDER": "tailscale"}, "secrets": {}}
+    assert oc.settle_tailnet_provider(store) is False
+
+
+def test_the_loader_settles_the_store_it_writes(oc, tmp_path):
+    path = tmp_path / "config.json"
+    oc.dump({"config": {"ACCESS_METHOD": "public_ssh"}, "secrets": {}}, path)
+    oc.main(["--path", str(path), "--no-mint", "--emit", "none"])
+    assert oc.load(path)["config"] == {"TAILNET_PROVIDER": "none"}

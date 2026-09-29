@@ -7,20 +7,17 @@
 # internal service secrets and the user-held admin/restic DR keyset, and it asks
 # the container registry which catena-admin release to install -- on a machine
 # that has no Docker yet. Bootstrap needs neither, and needs the config half
-# because every later leg reads the access method, the tailnet provider and its
-# tags from cfg_* facts with no inventory fallback -- the panel's on-host
-# lockdown has no inventory at all.
+# because every later leg reads the tailnet provider and its tags from cfg_*
+# facts with no inventory fallback -- the panel's on-host lockdown has no
+# inventory at all.
 #
 # The full loader includes this file, so there is one copy of these four tasks.
 #
-# Post-install config has to have ONE live reader. The inventory `.env` is the
-# first-install SEED (fill-only, so a converge never overwrites what the client
-# later set in catena-admin), and from then on the store answers.
-#
-# Before this, both were live at once: run-backup.sh reconciled them in shell
-# at runtime, retention ended up with two copies and the converge's silently
-# dead, and a tag-scoped converge that skipped the loader fell back to a stale
-# `.env` with no signal.
+# Post-install config has ONE live reader: the store. The few store keys the
+# first converge needs before the panel exists (the registry gives them an
+# `env` entry) are seeded from the inventory `.env`, fill-only, so a converge
+# never overwrites what the client later set in catena-admin. Every other store
+# key has no `.env` line; catena_cli warns about one it finds.
 #
 # The script module ships onbox_config.py alone, and it reads the knob registry
 # from a file. Bootstrap runs before the payload installs one, so the registry
@@ -34,9 +31,9 @@
     group: root
     mode: "0644"
 
-- name: "onbox: read the store-owned config key names"
+- name: "onbox: read the store keys the .env seeds"
   ansible.builtin.script:
-    cmd: "{{ playbook_dir }}/../helpers/onbox_config.py --emit settings-config-names"
+    cmd: "{{ playbook_dir }}/../helpers/onbox_config.py --emit env-seed-names"
     executable: python3
   environment:
     CATENA_KNOBS: /root/.catena-knobs.json

@@ -4,32 +4,32 @@ The deployment automation for a Catena Community host, plus the
 installer that drives it. For the install walkthrough itself see
 [../README.md](../README.md); this page describes what the pieces are.
 
-## The five flows
+## The flows
 
 ```
-preflight  ->  bootstrap  ->  converge  ->  lockdown  ->  validate   (+ restore for DR)
+install:  preflight  ->  bootstrap  ->  converge  ->  validate
+panel:    lockdown, restore
 ```
 
-Every flow reaches the host over the public SSH address the install started
-on, whichever access method was chosen, and public port 22 stays open after
+The install reaches the host over its public SSH address and configures
+nothing beyond reaching and installing it; public port 22 stays open after
 the install. The panel and Portainer answer the host's loopback only and are
 reached through an SSH forward as the `panel` account, which can do nothing but
-forward; tailnet credentials and a Cloudflare zone with its token are optional
-conveniences on top of that.
+forward. The domain, the tailnet and the backups are entered in the panel.
 
-- **preflight** -- controller-side check that the supplied Tailscale
-  OAuth client is valid before any VPS work.
+- **preflight** -- controller-side check of a Tailscale OAuth client in
+  scope, before any VPS work.
 - **bootstrap** -- first-contact hardening of a fresh VPS (user, SSH,
   ufw) and the on-box config store.
 - **converge** -- the converge: networking (Cloudflare Tunnel / coturn),
   Docker, Portainer, sign-on (Keycloak + oauth2-proxy), the restic backup,
-  the catena-admin shell.
-- **lockdown** -- joins the tailnet on that access method and proves the
-  path. The panel's Lockdown action runs the same playbook on the host and is
-  the only caller that then closes public port 22; the port reconciler
-  reopens it while the tailnet is down.
+  the catena-admin shell. Whatever the store does not configure yet (a
+  domain, backups) is skipped and says so.
 - **validate** -- on-host, tailnet and external checks.
-- **restore** -- whole-host disaster recovery.
+- **lockdown** -- run by the panel's Lockdown on the host: joins the tailnet,
+  proves the path, and closes public port 22; the port reconciler reopens it
+  while the tailnet is down.
+- **restore** -- whole-host disaster recovery, from the panel.
 
 Each is one playbook and one atomic unit, with no cross-playbook
 imports. Composition lives in the installer, which is why
@@ -67,7 +67,7 @@ the same `install`.
 
 | Command | Playbook | What it does |
 | --- | --- | --- |
-| `install` | chain | Seed the configuration, then run preflight, bootstrap, converge, lockdown, validate |
+| `install` | chain | Seed the configuration, then run preflight, bootstrap, converge, validate |
 | `converge` | `converge.yml` | Re-apply after a configuration or app change |
 | `validate` | `validate.yml` | On-host + tailnet + external checks |
 | `backup` | `backup.yml` | Take an on-demand snapshot |
@@ -87,12 +87,13 @@ refused with the correct shape rather than an argparse choice error.
 `install` first runs `seed.py`: with no `-i`, `.env` must already exist
 (written by the graphical installer, or copied from
 `inventory/example/.env.example` and filled in), and seed reads its
-config from there instead of prompting field by field -- what it still
-prompts for is the tailnet join credential, and the Cloudflare token when
-the inventory names a domain, both staged to a transient 0600 file. `hosts.yml`/`localhost.yml` auto-scaffold
-from `skel/` on that same first run; nothing else to copy or edit.
-`-i install.yaml --no-confirm` generates a fresh inventory from an
-answers file instead (the bench / power-user path), unattended.
+config from there instead of prompting field by field. `hosts.yml`/
+`localhost.yml` auto-scaffold from `skel/` on that same first run; nothing
+else to copy or edit. `-i install.yaml --no-confirm` generates a fresh
+inventory from an answers file instead (the bench / power-user path),
+unattended; an answers file naming a value the server holds (the domain, the
+tailnet, backups, a vendor credential) is refused. The CLI then asks for the
+provider's password only when the SSH key does not open the server already.
 
 ## Secrets
 
@@ -100,20 +101,17 @@ answers file instead (the bench / power-user path), unattended.
 plaintext: `catena-cli install` writes only non-secret files into the
 inventory.
 
-- The install's vendor credentials (the tailnet credential, and the
-  Cloudflare API token when the inventory names a domain) are prompted,
-  live-validated, written to a **transient 0600 file** that the CLI
-  threads onto every stage as `-e @file`, and then deleted. The on-box
-  loader adopts them into the store. Whichever is left out is entered
-  later in catena-admin > Settings.
+- The install takes no vendor credential. The tailnet credential, the
+  Cloudflare API token, the restic repo URL and the S3 keys are entered
+  **post-install in catena-admin** > Settings, which writes them to the
+  store.
 - Every other secret -- internal service secrets AND the user-held admin
   and restic passwords -- is minted **on the server**
   (`helpers/onbox_config.py`). The installer shows the admin and restic
   passwords **once** at the end of install
-  (`playbooks/show-keyset.yml`).
-- The restic repo URL and S3 keys are set **post-install in
-  catena-admin** (Settings > Backup); `run-backup.sh` reads them from the
-  store at runtime.
+  (`playbooks/show-keyset.yml`). An install.yaml may pin the admin
+  password; it reaches the converge through a **transient 0600 file**
+  (`-e @file`) that is deleted afterwards.
 
 The on-box config store (`/etc/catena/config.json`, 0600 root) is the
 sole runtime source of truth, and `/etc` rides the restic backup, so a
@@ -124,7 +122,7 @@ keyset. Full classification: [SECRETS.md](SECRETS.md).
 
 | Directory | What is in it |
 | --- | --- |
-| [playbooks/](playbooks/) | The five flows plus the day-two operations, and the filter plugins Ansible loads from beside them |
+| [playbooks/](playbooks/) | The flows plus the day-two operations, and the filter plugins Ansible loads from beside them |
 | [bootstrap/roles/](bootstrap/roles/) | Operator-run roles, from outside the server |
 | [reconcile/roles/](reconcile/roles/) | Roles a server runs against itself |
 | [helpers/](helpers/) | Python shared by the installer, the roles, and three host-side reconcilers |

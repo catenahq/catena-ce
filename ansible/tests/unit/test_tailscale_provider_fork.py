@@ -120,26 +120,24 @@ def test_headscale_requires_an_address_before_it_is_used():
     assert guard < mint, "the address assert runs after the API call that needs it"
 
 
-# --- the fallback rule ------------------------------------------------------
+# --- the provider is the store's --------------------------------------------
 @pytest.mark.parametrize(
     "context,want",
     [
-        # Nothing stored, no control URL: a Tailscale SaaS host, which is
-        # every host that has never touched the setting.
-        ({}, "tailscale"),
-        # Nothing stored, a control URL: the rule that decided it before the
-        # field existed. Every already-installed Headscale host is this case,
-        # and getting it wrong moves them onto Tailscale on the next converge.
-        ({"tailnet_control_url": "https://hs.example.net"}, "headscale"),
-        # An explicit choice outranks the inference, in BOTH directions --
-        # being unable to go back is the bug the declared choice fixes.
+        # The stored choice decides, in BOTH directions -- being unable to go
+        # back is the bug the declared choice fixes. A control URL left behind
+        # does not make a Tailscale host Headscale.
         ({"cfg_tailnet_provider": "headscale"}, "headscale"),
         ({"cfg_tailnet_provider": "tailscale",
           "tailnet_control_url": "https://hs.example.net"}, "tailscale"),
         # A value that arrived from the settings form with the shape a select
-        # submits, and one that did not.
+        # submits.
         ({"cfg_tailnet_provider": "  HEADSCALE  "}, "headscale"),
-        ({"cfg_tailnet_provider": ""}, "tailscale"),
+        # Nothing stored is no tailnet: helpers/onbox_config.py settles every
+        # store to an explicit provider, and a host installed over SSH alone
+        # has none.
+        ({}, "none"),
+        ({"cfg_tailnet_provider": ""}, "none"),
     ],
 )
 def test_the_provider_default_resolves(context, want):
@@ -153,9 +151,8 @@ def test_the_provider_default_resolves(context, want):
 def test_the_store_is_the_only_reader_of_the_three_values():
     """defaults/main.yml reads the store's projected facts and nothing else.
     A `lookup('dotenv', ...)` back here is the silent-fallback bug class: the
-    .env seeds the store on the first converge and is never read again, so a
-    second reader here would serve a stale value to a host whose client had
-    already changed the setting in the panel."""
+    panel is where these are set, so a second reader here would serve a value
+    the client never entered, or one they had already changed."""
     text = DEFAULTS.read_text()
     assert "lookup('dotenv'" not in text, (
         "bootstrap/roles/tailscale/defaults reads the .env directly again"

@@ -40,21 +40,23 @@ catena_panel_user: panel
 
 # --- The access plane ---
 # How this host is reached for administration, and therefore whether public
-# port 22 may be closed at all. Store-owned so it rides /etc into the snapshot:
-# a rebuilt host has to come back with the firewall posture it had, not the one
-# a default would pick for it.
+# port 22 may be closed at all. Derived from the store's TAILNET_PROVIDER, the
+# one answer the panel's Settings gives (helpers/onbox_config.py settles it on
+# every load), so it rides /etc into the snapshot and a rebuilt host comes back
+# with the firewall posture it had.
 #
-# `tailnet`     the host joins a private network. Public 22 stays open until the
-#               panel's Lockdown closes it, which it does only once it has
-#               PROVEN that path; the port reconciler reopens 22 while the
-#               tailnet is down. bootstrap/roles/tailscale runs.
-# `public_ssh`  no private network; port 22 stays open on the public IP, because
-#               a host with no alternative path has nothing to prove and closing
-#               it would be a lockout. The tailscale role is skipped.
-#
-# Defaults to `tailnet`, which is the posture of every host installed before the
-# choice existed -- so a host with nothing stored keeps the firewall it has.
-catena_access_method: "{{ cfg_access_method | default('tailnet', true) }}"
+# `tailnet`     a provider is chosen: the host joins that private network.
+#               Public 22 stays open until the panel's Lockdown closes it, which
+#               it does only once it has PROVEN that path; the port reconciler
+#               reopens 22 while the tailnet is down.
+# `public_ssh`  `none`: no private network; port 22 stays open on the public IP,
+#               because a host with no alternative path has nothing to prove and
+#               closing it would be a lockout. The tailscale role is skipped.
+catena_access_method: >-
+  {{ 'tailnet'
+     if (cfg_tailnet_provider | default('none', true) | trim | lower)
+        in ['tailscale', 'headscale']
+     else 'public_ssh' }}
 
 # Port 22's declaration in the public-port registry. Shared because two tasks
 # write it and they must agree on the name: bootstrap/roles/common creates it
@@ -64,22 +66,18 @@ catena_ssh_fragment_name: ssh.json
 
 # --- Tailscale ---
 tailscale_hostname: "{{ inventory_hostname }}"
-# From the store, which the inventory `.env` seeds and the panel may change --
-# the only copy the panel's on-host lockdown has. No fallback tag: a missing
-# value fails here rather than advertising a tag the credential is not scoped
-# for. The controller-side preflight reads the `.env` itself, before any store
-# exists.
+# From the store, which the panel writes. No fallback tag: a missing value
+# fails here rather than advertising a tag the credential is not scoped for.
 tailscale_tags: >-
   {{ cfg_tailscale_tags.split(',') | map('trim') | list }}
-tailscale_accept_dns: >-
-  {{ lookup('dotenv', 'TAILSCALE_ACCEPT_DNS', default='false') | bool }}
+# Tailscale leaves systemd-resolved alone: the host resolves through its own
+# resolvers whether or not the tailnet is up.
+tailscale_accept_dns: false
 
 # --- Cloudflare Tunnel ---
 cloudflare_api_base: "https://api.cloudflare.com/client/v4"
-# Store-owned, seeded from .env on the first converge and read from the store
-# ever after. Empty until a domain is entered: a server is installed before its
-# domain is decided, and the domain arrives with the Cloudflare token in the
-# dashboard's Settings, afterwards.
+# Store-owned, entered in the panel's Settings with the Cloudflare token. Empty
+# until then: every server is installed without a domain.
 cloudflare_zone: "{{ cfg_cloudflare_zone | default('', true) }}"
 # An empty zone builds every hostname as `dash.`, `auth.`, `monitor.` -- names
 # that resolve nowhere and certificates no authority will issue. So nothing

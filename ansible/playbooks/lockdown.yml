@@ -2,39 +2,28 @@
 # Join the tailnet, and -- only when the panel's Lockdown asks -- close public
 # port 22 behind it.
 #
-# THE INSTALL'S LAST LEG AND THE PANEL'S LOCKDOWN ACTION. Every leg before this
-# one reaches the host over the public SSH address the install started on, so
-# there is one install path whatever the client chose. On the tailnet method
-# this leg joins and proves the new path. Public 22 stays open after an install:
-# the host's security rests on key-only SSH with no root and no password login,
-# and the tailnet is a convenience whose one security feature is closing 22.
+# THE PANEL'S LOCKDOWN ACTION, run on the host. The install never runs it:
+# public 22 stays open after an install, because the host's security rests on
+# key-only SSH with no root and no password login, and the tailnet is a
+# convenience whose one security feature is closing 22.
 #
 # CLOSING IS THE PANEL'S DECISION ALONE. catena_lockdown_close_public_ssh is
 # false unless the panel's Lockdown action sets CATENA_LOCKDOWN_CLOSE_PUBLIC_SSH
-# on the unit it starts. The installer and every other caller join and prove,
-# and leave 22 open. Once closed, the port reconciler (catena-public-ports)
-# reopens 22 whenever this host's tailnet is down, and closes it again when the
-# tailnet is back.
+# on the unit it starts; any other run joins and proves, and leaves 22 open.
+# Once closed, the port reconciler (catena-public-ports) reopens 22 whenever
+# this host's tailnet is down, and closes it again when the tailnet is back.
 #
-# ITS OWN PLAYBOOK, not a converge post_task. Three reasons, and the first is
-# the one that matters:
+# ITS OWN PLAYBOOK, not a converge post_task:
 #
-#   - It is the one step that can make a host unreachable, so it runs LAST and
-#     alone, where a failure is a failure of lockdown rather than of a converge
-#     that did fifteen other things correctly.
+#   - It is the one step that can make a host unreachable, so it runs alone,
+#     where a failure is a failure of lockdown rather than of a converge that
+#     did fifteen other things correctly.
 #   - A converge is something a host runs on itself, on a timer. Closing the
 #     administrative port is not; it is a decision, taken once, and re-taking it
 #     on every converge re-probes a path nobody asked about.
-#   - The panel's apply button and the installer's last step join the same
-#     way. One playbook means they cannot diverge: a client who enters the
-#     tailnet credentials in the panel after the install gets the same join and
-#     the same proof the installer runs.
 #
-# `catena-cli install` runs it after its converge and passes
-# catena_lockdown_emit_address, so the tailnet address lands in
-# .bootstrap-output.yml for the legs and invocations that follow. It is
-# idempotent: on a host already joined the join is a no-op, and on one already
-# locked down the delete is a no-op and the proof runs again as a cheap
+# It is idempotent: on a host already joined the join is a no-op, and on one
+# already locked down the delete is a no-op and the proof runs again as a cheap
 # reachability check.
 #
 # The firewall half is bootstrap/roles/common's tasks/ufw_lockdown.yml, which
@@ -53,10 +42,9 @@
       {{ lookup('env', 'CATENA_LOCKDOWN_CLOSE_PUBLIC_SSH') | default('false', true) | bool }}
 
   pre_tasks:
-    # The access method is a STORE key, so the store has to be loaded before
-    # anything reads it. Without this the method resolves to its default on
-    # every run, and a host that chose public SSH would have its port closed
-    # by the fallback rather than by its own answer.
+    # The tailnet provider is a STORE key, so the store has to be loaded before
+    # anything reads it. Without this the access method resolves to its default
+    # on every run rather than to this host's own answer.
     - name: "0b: load on-box config store"
       ansible.builtin.include_tasks:
         file: tasks/load_onbox_config.yml
@@ -98,32 +86,4 @@
         # filter out all the inner tasks (they have no "lockdown" tag).
         apply:
           tags: [lockdown]
-      tags: [lockdown]
-
-    # The next leg and every later invocation reach the host at its tailnet
-    # address, which keeps answering once the panel's Lockdown closes public
-    # 22. add_host is not enough on its own: each leg of the install is its own
-    # ansible-playbook run, so the address has to travel through
-    # <inventory_dir>/.bootstrap-output.yml, which catena_cli folds into
-    # hosts.yml after this leg. Only the installer asks for it; the panel runs
-    # this play on the host, where there is no controller inventory.
-    - name: "Emit the tailnet address into <inventory_dir>/.bootstrap-output.yml"
-      ansible.builtin.command:
-        argv:
-          - python3
-          - "{{ playbook_dir }}/../helpers/bootstrap_output.py"
-          - --inventory-dir
-          - "{{ inventory_dir }}"
-          - --host
-          - "{{ inventory_hostname }}"
-          - --key
-          - ansible_host
-          - --value
-          - "{{ tailnet_ipv4 }}"
-      delegate_to: localhost
-      become: false
-      changed_when: true
-      when:
-        - catena_lockdown_emit_address | default(false) | bool
-        - catena_access_method == 'tailnet'
       tags: [lockdown]

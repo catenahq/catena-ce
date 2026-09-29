@@ -11,24 +11,27 @@ uv run catena-gui --inventory clientco # open or create one directly
 ## Where it runs, and what that decides
 
 On the **client's own machine**, as a console process serving a browser UI on
-loopback. Whoever runs Ansible holds the SSH private key and every vendor
-credential, so a hosted installer would make the operator custodian of every
-client's cloud accounts.
+loopback. Whoever runs Ansible holds the SSH private key, so a hosted installer
+would make the operator custodian of every client's server.
 
 The **console owns the job; the browser is a view**. Closing the browser changes
 nothing. Closing the console abandons the run, and reopening its inventory
-resumes it. That is structural rather than cosmetic: an install contains two waits
-nobody can time -- a server being delivered, and a domain being activated by its
-registrar -- and neither fits inside a page load.
+resumes it. That is structural rather than cosmetic: an install can start with
+a wait nobody can time -- a server being delivered -- and it does not fit inside
+a page load.
 
 ## What it is not
 
 Not a second way to install. `install.yaml` plus
 `catena-cli install -i ... --no-confirm` is already the declarative, non-interactive
-contract, and `seed.py` already live-probes credentials. This is a **third
-producer** of that file, beside a person writing it and the test bench rendering
-it -- which is what lets a host it built be indistinguishable from one the CLI
-built, because it is one.
+contract. This is a **third producer** of that file, beside a person writing it
+and the test bench rendering it -- which is what lets a host it built be
+indistinguishable from one the CLI built, because it is one.
+
+Not where a server is configured. It asks for what reaches and installs the
+server: its address, the key that opens it, and the administrator's email. The
+domain, the private network and the backups are entered in the panel's Settings
+once the server runs, and the installer has no field for any of them.
 
 Not a replacement for the CLI either. `converge` and `show-keyset` are
 operator verbs that should not need a browser. Recovering a server is this
@@ -45,19 +48,19 @@ package, and a test refuses one.
 
 Adding a question is therefore a registry edit. Adding a *proof* is a function
 in `catena_gui/steps.py`: a section that says what it `validates` has a Check
-that observes it -- the SSH server and the key's login, the Cloudflare token and
-its active domain, the tailnet credential at its provider, a signed request to
-the backup bucket -- with its results under its button. A section whose answers
-are picked from lists (language and time) has no check. Install runs every
-check before it starts. An installer that collects every answer and discovers
-at the end that the first credential was wrong has spent a client's whole
-sitting to say something it knew at the start.
+that observes it, with its results under its button. Install runs every check
+before it starts.
+
+The server's check is the one that matters: an SSH server has to answer, and
+the install has to be able to log in. Either the key already opens the initial
+login -- most providers install it when the server is ordered, and the key
+field suggests the pairs already in `~/.ssh` -- or the provider's password
+does, and the install uses it once to add the key. The password is the one
+field the section has beside the registry's: the install contract's
+`host_initial_password`, held in memory only.
 
 Fields the registry marks `required` block until filled; everything else is
-labelled optional. The domain, the private network and the backup are each
-optional and all or nothing: blank installs without it, half of one is
-refused. The access method is not asked -- it follows from whether the tailnet
-credentials were given.
+labelled optional.
 
 ## An inventory is the run
 
@@ -65,10 +68,9 @@ Three pages. The first lists the directories under `../ansible/inventory/` (the
 shipped `example` excluded), one per line, and creates new ones. The second
 holds every section in one form. Every field starts from the registry's
 default, and a knob that declares an `example` shows it as a placeholder, never
-as a value. The third, "Reaching the panel", gives the command for each way in
-this install leaves: an SSH forward as the `panel` account always, the tailnet
-and the Cloudflare tunnel when they are configured. Each Check saves the whole
-form:
+as a value. The third, "Reaching the panel", gives the SSH forward as the
+`panel` account that opens the panel once the install ends. Each Check saves
+the whole form:
 
 ```
 ansible/inventory/<name>/
@@ -78,12 +80,12 @@ ansible/inventory/<name>/
                       acknowledgement. 0600.
 ```
 
-Credentials are held in memory for the life of the process and reach
-`catena-cli install` only through a transient 0600 `install.yaml` outside the
-inventory, deleted when the install ends. A reopened inventory asks for them
-again. That is the honest cost of not writing a client's cloud credentials to
-their disk: the alternative is a file that outlives the install and that nothing
-ever comes back to remove.
+The provider's password is held in memory for the life of the process and
+reaches `catena-cli install` only through a transient 0600 `install.yaml`
+outside the inventory, deleted when the install ends. A reopened inventory asks
+for it again. That is the honest cost of not writing it to a client's disk: the
+alternative is a file that outlives the install and that nothing ever comes
+back to remove.
 
 What the install prints goes to the console and to the page from memory, never
 to a file: it ends with the passwords the server shows once.

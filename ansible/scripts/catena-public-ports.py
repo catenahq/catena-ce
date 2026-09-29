@@ -92,10 +92,13 @@ def tailnet_available(store_path: str = STORE_PATH) -> bool:
     still reads tailnet. The declaration is the posture; whether it is achieved
     is what the lockdown proof and rules_unapplied are for.
 
-    An unreadable or absent store reads as `tailnet`, which is the posture of
-    every host installed before the key existed and the safer of the two: it
-    keeps the tailscale0 rule, which on a host without the interface matches
-    nothing rather than opening anything.
+    The declaration is TAILNET_PROVIDER: `none` is no tailnet. This runs on a
+    timer, possibly before a converge has settled the store
+    (onbox_config.settle_tailnet_provider), so a store that still says it with
+    ACCESS_METHOD is read the same way. Anything unreadable, absent or blank
+    reads as a tailnet, the safer of the two: it keeps the tailscale0 rule,
+    which on a host without the interface matches nothing rather than opening
+    anything.
     """
     try:
         with open(store_path, encoding="utf-8") as fh:
@@ -107,7 +110,10 @@ def tailnet_available(store_path: str = STORE_PATH) -> bool:
     config = store.get("config")
     if not isinstance(config, dict):
         return True
-    return str(config.get("ACCESS_METHOD") or "tailnet").strip() != "public_ssh"
+    provider = str(config.get("TAILNET_PROVIDER") or "").strip().lower()
+    if provider:
+        return provider != "none"
+    return str(config.get("ACCESS_METHOD") or "").strip() != "public_ssh"
 
 
 def tailnet_up() -> bool:

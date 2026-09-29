@@ -190,7 +190,7 @@ def test_the_seed_is_the_loaders_own_config_block():
     # whatever happens to mention it, and the fan-out is the behaviour. It is
     # what publishes EVERY cfg_* fact, so it cannot go without taking the whole
     # hop with it.
-    for marker in ("settings-config-names", "--set-config", "config-vars",
+    for marker in ("env-seed-names", "--set-config", "config-vars",
                    "_onbox_cfg_emit"):
         assert marker in seed, f"the seed no longer {marker!r}s"
     for forbidden in ("--emit secrets", "catena_admin_release.py", "image-pins"):

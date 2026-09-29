@@ -1,14 +1,13 @@
-"""An inventory is the run: the answers outlive the process, the credentials do not.
+"""An inventory is the run: the answers outlive the process, a password does not.
 
-An install contains two waits nobody can time -- a server being delivered by a
-provider, and a domain being activated by its registrar -- so what a client
-answered is saved into their inventory under ansible/inventory/ as they go,
-through seed's own writer, and a launcher opened again picks it up.
+An install can start with a wait nobody can time -- a server being delivered by
+a provider -- so what a client answered is saved into their inventory under
+ansible/inventory/ as they go, through seed's own writer, and a launcher opened
+again picks it up.
 
-WHAT IS ON DISK AND WHAT IS NOT is the other half. The answers are; the
-CREDENTIALS are not, anywhere in the inventory. A reopened inventory asks for
-them again, which is the honest cost of refusing to write a client's cloud
-credentials to their disk.
+WHAT IS ON DISK AND WHAT IS NOT is the other half. The answers are; a PASSWORD
+is not, anywhere in the inventory. A reopened inventory asks for it again,
+which is the honest cost of refusing to write it to a client's disk.
 
 Run: uv run pytest tests/test_a_run_survives_the_process_that_started_it.py
 """
@@ -39,15 +38,15 @@ def test_a_new_inventory_is_a_new_run_rather_than_an_error(tmp_path):
 
 def test_answers_come_back_through_the_env_and_credentials_do_not(tmp_path):
     r = run_mod.load(tmp_path / "clientco", SECRETS)
-    r.answer("CLOUDFLARE_ZONE", "client.test", secret=False)
-    r.answer("cloudflare_api_token", "cf-secret", secret=True)
+    r.answer("ADMIN_EMAIL", "admin@client.test", secret=False)
+    r.answer("host_initial_password", "provider-secret", secret=True)
     r.save()
 
     resumed = run_mod.load(tmp_path / "clientco", SECRETS)
-    assert resumed.answers["CLOUDFLARE_ZONE"] == "client.test"
+    assert resumed.answers["ADMIN_EMAIL"] == "admin@client.test"
     assert resumed.secrets == {}, (
         "a credential came back from disk, so it was written there")
-    assert "cf-secret" not in _files_text(tmp_path / "clientco")
+    assert "provider-secret" not in _files_text(tmp_path / "clientco")
 
 
 def test_the_env_is_the_one_the_cli_reads(tmp_path):
@@ -95,11 +94,11 @@ def test_a_value_edited_by_hand_is_kept_by_the_launcher(tmp_path):
 
 def test_a_reopened_inventory_says_which_credentials_it_still_needs(tmp_path):
     r = run_mod.load(tmp_path / "clientco", SECRETS)
-    r.answer("cloudflare_api_token", "cf", secret=True)
+    r.answer("host_initial_password", "pw", secret=True)
     r.save()
     resumed = run_mod.load(tmp_path / "clientco", SECRETS)
-    assert resumed.missing_secrets(["cloudflare_api_token"]) == [
-        "cloudflare_api_token"]
+    assert resumed.missing_secrets(["host_initial_password"]) == [
+        "host_initial_password"]
 
 
 def test_the_writer_refuses_a_credential_a_caller_misfiled(tmp_path):
@@ -164,17 +163,17 @@ def test_a_new_inventory_name_is_checked(tmp_path):
 
 def test_a_value_is_found_whichever_half_holds_it(tmp_path):
     r = run_mod.load(tmp_path / "clientco", SECRETS)
-    r.answer("CLOUDFLARE_ZONE", "client.test", secret=False)
-    r.answer("cloudflare_api_token", "cf", secret=True)
-    assert r.value("CLOUDFLARE_ZONE") == "client.test"
-    assert r.value("cloudflare_api_token") == "cf"
+    r.answer("ADMIN_EMAIL", "admin@client.test", secret=False)
+    r.answer("host_initial_password", "pw", secret=True)
+    assert r.value("ADMIN_EMAIL") == "admin@client.test"
+    assert r.value("host_initial_password") == "pw"
     assert r.value("never_answered") == ""
 
 
 def test_the_state_file_holds_no_answer(tmp_path):
     """One home per value: the answers are the `.env`'s."""
     r = run_mod.load(tmp_path / "clientco", SECRETS)
-    r.answer("CLOUDFLARE_ZONE", "client.test", secret=False)
+    r.answer("ADMIN_EMAIL", "admin@client.test", secret=False)
     r.save()
     state = json.loads(r.state_path.read_text(encoding="utf-8"))
-    assert "client.test" not in json.dumps(state)
+    assert "admin@client.test" not in json.dumps(state)

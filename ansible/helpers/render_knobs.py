@@ -50,8 +50,8 @@ SECTIONS = ("secrets", "config")
 # the two lists together.
 GROUPS = ("tunnel", "backup", "mail", "alerts", "share", "access", "license",
           "hostnames")
-# The named lists the graphical installer can build a dropdown from.
-GUI_OPTION_SOURCES = ("timezones",)
+# The named sources the graphical installer suggests values from.
+GUI_SUGGESTION_SOURCES = ("ssh_keys",)
 
 # The rendered template's comment width, and the characters a `.env` value
 # cannot carry unquoted. A default holding one of them would render a line that
@@ -170,10 +170,6 @@ def load(source: Path = SOURCE) -> dict:
         if "validates" in step:
             _require(isinstance(step["validates"], str) and step["validates"].strip(),
                      f"gui_steps {name}: validates is empty; leave it out instead")
-        for link in step.get("links") or []:
-            _require(isinstance(link, dict) and link.get("text")
-                     and str(link.get("url", "")).startswith("https://"),
-                     f"gui_steps {name}: a link needs text and an https url: {link!r}")
         step_names.append(name)
 
     seen: set[str] = set()
@@ -185,11 +181,20 @@ def load(source: Path = SOURCE) -> dict:
         seen.add(key)
         if "panel" in entry:
             _check_panel(key, entry["panel"])
+        # One place to edit each value: the `.env` the installer writes, or the
+        # panel. A knob in both is a value the client changes in one and finds
+        # the other still holding the old one.
+        _require(not ("env" in entry and entry.get("panel")),
+                 f"{key}: has an env home and a panel field; a value lives in "
+                 "one place")
         if "step" in entry:
             _require(entry["step"] in step_names,
                      f"{key}: step {entry['step']!r} is not a declared gui step, "
                      f"so the launcher would have nowhere to ask for it")
-        for field in ("required", "gui_options", "gui_options_from"):
+            _require("env" in entry,
+                     f"{key}: the installer asks only for what its .env keeps, "
+                     "and this knob has no env home")
+        for field in ("required", "gui_suggestions_from"):
             if field in entry:
                 _require("step" in entry,
                          f"{key}: {field} is read by the launcher, and this knob "
@@ -197,14 +202,10 @@ def load(source: Path = SOURCE) -> dict:
         if "required" in entry:
             _require(isinstance(entry["required"], bool),
                      f"{key}: required is not a boolean")
-        if "gui_options" in entry:
-            options = entry["gui_options"]
-            _require(isinstance(options, list) and options
-                     and all(isinstance(o, str) and o for o in options),
-                     f"{key}: gui_options must be a non-empty list of strings")
-        if "gui_options_from" in entry:
-            _require(entry["gui_options_from"] in GUI_OPTION_SOURCES,
-                     f"{key}: gui_options_from is not one of {GUI_OPTION_SOURCES}")
+        if "gui_suggestions_from" in entry:
+            _require(entry["gui_suggestions_from"] in GUI_SUGGESTION_SOURCES,
+                     f"{key}: gui_suggestions_from is not one of "
+                     f"{GUI_SUGGESTION_SOURCES}")
 
     for entry in secrets:
         key = entry["key"]

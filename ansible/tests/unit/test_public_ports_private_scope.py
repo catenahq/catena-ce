@@ -119,7 +119,16 @@ def _store(tmp_path: Path, config: dict | None) -> str:
     return str(path)
 
 
-def test_the_reconciler_reads_the_declared_access_method(tmp_path):
+def test_the_reconciler_reads_the_declared_provider(tmp_path):
+    mod = _reconciler()
+    for provider in ("tailscale", "headscale"):
+        assert mod.tailnet_available(_store(tmp_path, {"TAILNET_PROVIDER": provider}))
+    assert not mod.tailnet_available(_store(tmp_path, {"TAILNET_PROVIDER": "none"}))
+
+
+def test_a_store_no_converge_has_settled_yet_keeps_its_posture(tmp_path):
+    """The reconciler runs on a timer, so it can read a store still saying it
+    with ACCESS_METHOD before the next converge settles it."""
     mod = _reconciler()
     assert mod.tailnet_available(_store(tmp_path, {"ACCESS_METHOD": "tailnet"}))
     assert not mod.tailnet_available(

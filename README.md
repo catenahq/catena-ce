@@ -18,17 +18,19 @@ Catena installs a curated list of open-source services and software to a compute
 
 ### Requirements
 
-#### Pre-install
+#### Install
 - `uv` installed on your local machine for python virtual environment management: `wget -qO- https://astral.sh/uv/install.sh | sh`
-- A fresh VPS or server running `Debian 13` (tested), its public address and its initial login (`root`, `debian`...). The graphical installer needs the server to already accept your SSH key for that login, which most providers set up from the public key given when the server is ordered; the command-line installer can instead install the key with the provider's password
+- A fresh VPS or server running `Debian 13` (tested), its public address and its initial login (`root`, `debian`...)
+- An SSH key pair on your local machine. Most providers install the public key given when the server is ordered; otherwise the installer installs it once with the provider's password for the initial login
+- The email address of the administrator, which is the panel's login
+
+The installer reaches and installs the server over SSH, and asks for nothing else.
+
+#### In the panel, afterwards
+- An S3 Object storage endpoint along with access/secret keys pair for your backups
 - Optionally, either or both of:
-  - a Tailscale OAuth client id/secret pair with the `Auth Keys -> Write` and `Devices -> Core -> Read` scopes, or a working Headscale control server and credentials (an API key lets a lockdown applied later from the panel confirm the server is online), with the `tailscale` client running and connected to that tailnet on your local computer. Visit the [Tailscale download page](https://tailscale.com/download)
+  - a Tailscale OAuth client id/secret pair with the `Auth Keys -> Write` and `Devices -> Core -> Read` scopes, or a working Headscale control server and credentials, with the `tailscale` client running and connected to that tailnet on your local computer. Visit the [Tailscale download page](https://tailscale.com/download)
   - a Cloudflare account and a domain name, along with an API token with `Account -> Cloudflare Tunnel -> Edit` and `Zone -> DNS -> Edit` permissions for your domain
-
-  The install runs over SSH to the server's public address, and the panel is always reachable through an SSH forward, with or without either. What is left out can be entered in the panel's `Settings` afterwards.
-
-#### Post-install
-- An S3 Object storage endpoint along with access/secret keys pair for your backups. The graphical installer also accepts them on its `Backup` page
 
 ### Steps
 
@@ -42,7 +44,7 @@ cd catena-ce
 ```sh
 uv run catena-gui
 ```
-It opens a browser page on this machine. The first page lists the inventories in `ansible/inventory/` and creates new ones. The second asks everything, in sections: every field starts from its default value where one makes sense, with its explanation behind a `(?)`, and each section's `Check` button tests its answers against the real thing (the server's SSH login, Cloudflare, the tailnet provider, the backup bucket) and saves the page to `ansible/inventory/<name>/.env`, so a closed installer resumes where it stopped. The domain, the private network and the backup sections are optional. **Credentials (Tailscale, Headscale, Cloudflare, S3) are never saved**: they stay in memory until the install ends and are asked for again when the inventory is reopened. `Install`, at the bottom, checks every section and starts the install, whose output shows in the console and on the page. The third page, `Reaching the panel`, gives the commands to open the panel once the install ends.
+It opens a browser page on this machine. The first page lists the inventories in `ansible/inventory/` and creates new ones. The second asks for the server, the SSH key and the admin email, each field with its explanation behind a `(?)`. `Check` tests them against the server (its SSH banner, then whether the key opens the initial login, else whether the provider's password does) and saves the page to `ansible/inventory/<name>/.env`, so a closed installer resumes where it stopped. **The provider's password is never saved**: it stays in memory until the install ends. `Install`, at the bottom, checks every section and starts the install, whose output shows in the console and on the page. The third page, `Reaching the panel`, gives the commands to open the panel once the install ends.
 
    The command-line installer is the alternative. Copy the template, fill in the `.env`, then run the install:
 ```sh
@@ -50,20 +52,21 @@ mkdir ansible/inventory/prod
 cp ansible/inventory/example/.env.example ansible/inventory/prod/.env
 uv run catena-cli install --inventory prod
 ```
-   It asks for the provider's password for the initial login (blank when the server already accepts your key), the tailnet credentials when the access method is the tailnet, and the Cloudflare API token when the `.env` names a domain. **Those are not persisted anywhere after the install**.
+   It asks for the provider's password for the initial login only when your key does not open it already. **The password is not persisted anywhere after the install**.
 
-3. The installer completes the installation on your server. With a tailnet, its last step joins the server to it. Public SSH stays open until you choose `Lockdown` in the panel.
+3. The installer completes the installation on your server. Public SSH stays open until you choose `Lockdown` in the panel.
 
-4. Save the **admin password**, the **restic backup password**, the **console password for `ops`** and the **journal verification key** shown at the end of the installation to your password manager, along with your Tailscale credentials and Cloudflare API token. You need the restic password to read and restore your backups, and the console password to log in from your provider's console if SSH is unavailable. `uv run catena-cli show-keyset --inventory <name>` shows the passwords again; the journal key is shown once.
+4. Save the **admin password**, the **restic backup password**, the **console password for `ops`** and the **journal verification key** shown at the end of the installation to your password manager. You need the restic password to read and restore your backups, and the console password to log in from your provider's console if SSH is unavailable. `uv run catena-cli show-keyset --inventory <name>` shows the passwords again; the journal key is shown once.
 
-5. Log in to the Catena-Admin interface with the admin email and password, at `https://dash.<your-domain>` (with Cloudflare), or at `http://localhost:9010` through an SSH forward as the `panel` account, which can do nothing but forward:
+5. Log in to the Catena-Admin interface with the admin email and password at `http://localhost:9010`, through an SSH forward as the `panel` account, which can do nothing but forward:
 ```sh
 ssh -N -L 9010:127.0.0.1:9010 panel@<your-server-address>
 ```
    The server's address is its public IP, or its tailnet IP once the lockdown has closed public SSH. Portainer is reached the same way on port `9000`. Then go to the `Settings` tab to finish the installation:
-   - Enter what you did not give at install: the Cloudflare domain and API token to publish your apps, or the tailnet credentials
-   - Apply the `Lockdown` to join the tailnet and close public SSH. The server reopens public SSH by itself while its tailnet is down, and closes it again when the tailnet is back
-   - Enter your S3 credentials to enable backups, if the installer did not take them
+   - Enter your S3 endpoint and credentials to enable backups
+   - Enter the Cloudflare domain and API token to publish your apps; the panel is then also at `https://dash.<your-domain>`
+   - Enter the tailnet credentials, then apply the `Lockdown` to join the tailnet and close public SSH. The server reopens public SSH by itself while its tailnet is down, and closes it again when the tailnet is back
+   - Keep your Tailscale credentials and Cloudflare API token in your password manager
 
 6. Install applications from the [Catena templates](https://github.com/catenahq/catena-templates) catalogue or configure your own based on them.
 

@@ -20,8 +20,9 @@ tailscale_apt_codename: "{{ ansible_facts['distribution_release'] }}"
 tailscale_apt_keyring_url: "https://pkgs.tailscale.com/stable/debian/{{ tailscale_apt_codename }}.noarmor.gpg"
 tailscale_apt_source_url: "https://pkgs.tailscale.com/stable/debian/{{ tailscale_apt_codename }}.tailscale-keyring.list"
 
-# API endpoints (the OAuth mint runs where the play is driven from: the
-# controller during the install, the host itself from the panel's lockdown).
+# API endpoints (the OAuth mint runs where the play is driven from: the host
+# itself from the panel's lockdown, the controller for catena-cli
+# rotate-tailscale).
 tailscale_api_base: "https://api.tailscale.com/api/v2"
 tailscale_auth_key_ttl_seconds: 600 # 10 minutes -- plenty for one `tailscale up`
 
@@ -32,20 +33,13 @@ tailscale_auth_key_ttl_seconds: 600 # 10 minutes -- plenty for one `tailscale up
 # Headscale API (headscale_api_key, preferred: no long-lived key on the VPS) or
 # a static key the operator supplies (headscale_preauth_key, fallback).
 #
-# All three values are store-owned (catena-admin > Settings), seeded once from
-# the inventory .env by the config loader. A host with no stored provider
-# falls back to inferring it: a control-server URL means Headscale, no URL
-# means Tailscale SaaS. The stored choice is the live rule because the
-# settings form cannot clear a field (a blank submission leaves it alone).
+# All three values are store-owned (catena-admin > Settings). The provider is
+# always stored -- helpers/onbox_config.py settles it on every load -- and this
+# role only runs when it names one (catena_access_method == 'tailnet').
 #
 # tailnet_headscale_user names the Headscale user the minted key belongs to
 # (Headscale pre-auth keys are per-user). tag:vps must be in that user's ACL
 # tagOwners for --advertise-tags to succeed.
 tailnet_control_url: "{{ cfg_tailnet_control_url | default('') }}"
 tailnet_headscale_user: "{{ cfg_headscale_user | default('') }}"
-tailnet_provider: >-
-  {{
-    (cfg_tailnet_provider | default('') | trim | lower)
-    or ('headscale' if (tailnet_control_url | default('') | length) > 0
-        else 'tailscale')
-  }}
+tailnet_provider: "{{ cfg_tailnet_provider | default('none', true) | trim | lower }}"

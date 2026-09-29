@@ -41,13 +41,21 @@
 # FIELD MEANINGS
 #
 #   residence   where the value LIVES.
-#               store      -- /etc/catena/config.json. The client owns it and
-#                             the panel may write it; the `.env` only seeds it
-#                             on the first converge and is never read again.
+#               store      -- /etc/catena/config.json, which the host reads.
+#                             A knob with a `panel` field is edited there and
+#                             nowhere else. A knob with an `env` home instead
+#                             is one the first converge needs before the panel
+#                             exists: the `.env` seeds it once and is never
+#                             read for it again.
 #               controller -- the inventory `.env`. The installer needs it
 #                             before there is a box to ask.
 #               host       -- the target's identity. Written into hosts.yml by
 #                             seed, not into either registry above.
+#
+#   ONE PLACE TO EDIT EACH VALUE. A knob has an `env` home or a `panel` field,
+#   never both. The installer asks only for what reaches and installs the
+#   server; anything the panel can change without consequence lives in the
+#   panel alone.
 #   var         the Ansible fact the converge loader publishes a stored value
 #               as. Declared rather than derived by lowercasing: four keys do
 #               not follow that rule, and a derived mapping fails silently by
@@ -63,10 +71,10 @@
 #   panel       how catena-admin renders it. Absent means the settings page
 #               does not show it.
 #   step        which section of the graphical installer asks for it, named in
-#               `gui_steps`. Absent means the launcher never asks: the value is
-#               either the product's, or a setting the client makes afterwards
-#               in the panel. An install has to be answerable in one sitting,
-#               so this list is deliberately shorter than the panel's.
+#               `gui_steps`. Only a knob with an `env` home has one. Absent
+#               means the launcher never asks: the value is either the
+#               product's, or a setting the client makes afterwards in the
+#               panel.
 #   depends     the choice field and values that govern whether the panel shows
 #               this one. The same fact the converge acts on, which is why it
 #               is declared and not left to a template. The field is `choice`
@@ -74,14 +82,12 @@
 #               parses a bare `on` as the boolean true. The launcher applies it
 #               only when the governing field is on its page too.
 #   required    true when the graphical installer refuses to install without a
-#               value. Everything else is labelled optional there; a section
-#               whose fields only make sense together (a token and its domain)
-#               says so in its own check.
-#   gui_options / gui_options_from
-#               the values the graphical installer offers as a dropdown, as a
-#               list or from a named source (`timezones`: the IANA database).
-#               A suggestion list for the launcher only: seed and the panel
-#               accept any value, which is why these are not `env.options`.
+#               value. Everything else is labelled optional there.
+#   gui_suggestions_from
+#               a named source of values the graphical installer suggests
+#               beside a free-text field (`ssh_keys`: the keypairs in the
+#               client's ~/.ssh). Suggestions only: any value is accepted,
+#               which is why these are not `env.options`.
 version: 1
 
 env_header: |-
@@ -107,12 +113,8 @@ env_header: |-
 #
 # A section with a `validates` line has a check, and says what it proves; Install
 # runs every section's check first. An installer that collects every answer and
-# discovers at the end that the first credential was wrong has spent the
-# client's whole sitting to tell them something it knew at the start. A section
-# whose answers are picked from a list has nothing to prove and no check.
-#
-# `links` are shown under a section's text, for the account or console its
-# answers come from.
+# discovers at the end that the first one was wrong has spent the client's
+# whole sitting to tell them something it knew at the start.
 #
 # The launcher holds no knob knowledge of its own: it renders these sections
 # from this file. Adding a knob with a `step` puts it in that section.
@@ -121,82 +123,19 @@ gui_steps:
     title: The server
     doc: |-
       Where Catena is going, the key that reaches it, and the administrator's
-      email, which is the panel's login. A machine that already exists and
-      already accepts this key for its initial login: most providers install
-      the public key given when the server is ordered. The launcher does not
-      order one, because ordering means holding a client's cloud credentials.
+      email, which is the panel's login. A machine that already exists: the
+      launcher does not order one, because ordering means holding a client's
+      cloud credentials. Most providers install a public key given when the
+      server is ordered; a server that does not accept this key yet takes the
+      provider's password for its initial login instead, once, to add it.
+
+      Everything else -- the domain, the private network, the backups -- is
+      entered in the panel once the server runs.
     validates: |-
-      An SSH server answers at the address and port, and it accepts this key
-      for the initial login (or for the ops account on a server already
-      installed).
-
-  - name: domain
-    title: The domain
-    doc: |-
-      Optional, and all or nothing: the Cloudflare API token and the domain it
-      publishes. Every public address is a name under the domain. Left blank,
-      the server finishes with no public surface, its panel is reached through
-      an SSH forward, and both can be entered in the panel afterwards.
-
-      Creating the token, in the Cloudflare dashboard:
-
-        1. My Profile > API Tokens > Create Token > Custom token.
-        2. Permissions, two rows:
-             Account > Cloudflare Tunnel > Edit
-             Zone    > DNS               > Edit
-        3. Account Resources: Include > your account.
-        4. Zone Resources: Include > Specific zone > the domain, or All zones
-           to pick it from the list here.
-        5. TTL: leave it open-ended, or set an end date and replace the token
-           in the panel before it expires -- the tunnel stops syncing when it
-           does.
-        6. Continue to summary > Create Token, and copy it: it is shown once.
-
-      Paste the token and Check: the domains it reaches appear in the list.
-    links:
-      - {text: "Create a Cloudflare account", url: "https://dash.cloudflare.com/sign-up"}
-      - {text: "Cloudflare API tokens", url: "https://dash.cloudflare.com/profile/api-tokens"}
-    validates: |-
-      The token is live, it reaches the domain, and the domain is ACTIVE at
-      Cloudflare. A domain still waiting on its registrar's nameservers
-      resolves nowhere, so an install on one would publish records nobody can
-      follow.
-
-  - name: access
-    title: The private network
-    doc: |-
-      Optional. SSH on the public address stays the way in after the install,
-      key-only, with no root and no password login. A private network (a
-      tailnet) is a convenience on top of it: the server joins it last, and
-      choosing Lockdown in the panel afterwards closes the public SSH port
-      behind it. The server reopens that port by itself while the tailnet is
-      down. Leave the credentials blank to install without one.
-    links:
-      - {text: "Tailscale admin console", url: "https://login.tailscale.com/admin"}
-    validates: |-
-      The credential works at the provider, and this machine can reach the
-      network the server joins.
-
-  - name: backup
-    title: Backup
-    doc: |-
-      Optional, and all or nothing: where snapshots go. The repository is ONE
-      address that already carries the endpoint and the bucket, and the keys
-      are what open it. Left blank, nothing is backed up until they are
-      entered in the panel, which owns them afterwards.
-
-      This is also the keyset a client keeps: with the repository, the two S3
-      keys and the restic password, a wiped server is rebuilt from nothing
-      else.
-    validates: |-
-      The keys open the bucket: a signed request to the endpoint is accepted.
-
-  - name: locale
-    title: Language and time
-    doc: |-
-      The server's own locale and timezone. They decide what its logs and its
-      scheduled jobs are stamped with, not what the panel is read in -- the
-      panel switches language per visitor.
+      An SSH server answers at the address and port, and either this key
+      already opens the initial login (or the ops account on a server already
+      installed), or the provider's password does and the install adds the
+      key with it.
 
   - name: keyset
     title: Save these
@@ -215,7 +154,12 @@ env_sections:
     title: Host
     doc: |-
       Where the box is and how the first SSH lands on it, before the ops
-      account exists and before the firewall closes.
+      account exists.
+
+      That is all this file configures about the server's reach. The domain,
+      the private network and the backups are entered in catena-admin >
+      Settings once it runs, reached through an SSH forward as the `panel`
+      account.
 
   - name: ssh
     title: SSH
@@ -224,56 +168,8 @@ env_sections:
 
           ssh-keygen -t ed25519 -f ~/.ssh/catena_ed25519 -C catena
 
-  - name: access
-    title: Access
-    doc: |-
-      How this host is reached for administration, beyond key-only SSH on its
-      public address, which every host keeps after the install. The panel and
-      Portainer are reached through an SSH forward as the `panel` account on
-      either method.
-
-      `tailnet` joins a private network in the install's last leg. Public 22
-      stays open until the panel's Lockdown closes it, which it does only once
-      it has PROVEN the tailnet path; the host reopens 22 while its tailnet is
-      down. `public_ssh` joins no network and keeps 22 open, because a host
-      with no alternative path has nothing to prove and closing it would be a
-      lockout.
-
-      The keys below SEED the on-box store on the first converge and are never
-      read again. After the install the choice lives in catena-admin >
-      Settings > Access and tunnels, which is where a client changes it;
-      editing them here afterwards changes nothing.
-
-      On the tailnet method there are two providers. Tailscale SaaS: leave
-      TAILNET_PROVIDER blank or set it to `tailscale`, and `catena-cli install`
-      prints the one-time admin-console steps, then prompts for the OAuth
-      client id and secret. Headscale: set TAILNET_PROVIDER=headscale and fill
-      the two below it; `catena-cli install` prompts instead for a
-      headscale_api_key (preferred, a short-lived tagged pre-auth key is
-      minted per run) or a static headscale_preauth_key.
-
-      A `public_ssh` server takes these in catena-admin > Settings > Access and
-      tunnels later; the panel's Lockdown then joins the tailnet, as the
-      install's last leg does, and closes public 22 behind it.
-
-  - name: cloudflare
-    title: Cloudflare
-    doc: |-
-      Filling the domain in makes `catena-cli install` ask for the API token that
-      publishes it, and the tunnel comes up during the install. Leaving it
-      blank installs a server with no public surface; the domain and the token
-      are then entered together in catena-admin > Settings, reached through an
-      SSH forward or the tailnet, and the tunnel comes up from there.
-
   - name: admin
     title: Admin identity
-
-  - name: backup
-    title: Backup
-    doc: |-
-      Optional. The repository seeds the server's settings on the first
-      converge; its S3 keys are credentials and are asked for, never written
-      here. Both can be entered in catena-admin > Settings instead.
 
   - name: storage
     title: Storage
@@ -306,7 +202,6 @@ env_sections:
 # a documented path that raises.
 secrets:
   - key: cloudflare_api_token
-    step: domain
     doc: >-
       The one credential the public surface needs. The account id is not an
       input: the host engine resolves it from the token.
@@ -319,7 +214,6 @@ secrets:
       field on the settings form.
 
   - key: tailscale_oauth_client_id
-    step: access
     doc: >-
       Tailscale SaaS mints a tagged auth key from this client each time the
       lockdown joins the host, so nothing long-lived lands on the VPS, and the
@@ -331,12 +225,10 @@ secrets:
     depends: {choice: TAILNET_PROVIDER, values: [tailscale]}
 
   - key: tailscale_oauth_client_secret
-    step: access
     panel: {group: tunnel, section: secrets, kind: secret, optional: false}
     depends: {choice: TAILNET_PROVIDER, values: [tailscale]}
 
   - key: headscale_api_key
-    step: access
     doc: >-
       Headscale has no OAuth API. The node joins with a pre-auth key, minted
       from this one at each join (preferred, nothing long-lived on the VPS).
@@ -348,17 +240,14 @@ secrets:
     depends: {choice: TAILNET_PROVIDER, values: [headscale]}
 
   - key: headscale_preauth_key
-    step: access
     doc: The static fallback when no API key is stored. Long-lived, hence second.
     panel: {group: tunnel, section: secrets, kind: secret, optional: true}
     depends: {choice: TAILNET_PROVIDER, values: [headscale]}
 
   - key: backup_s3_access_key
-    step: backup
     panel: {group: backup, section: secrets, kind: secret, optional: false}
 
   - key: backup_s3_secret_key
-    step: backup
     panel: {group: backup, section: secrets, kind: secret, optional: false}
 
   - key: smtp_password
@@ -410,8 +299,7 @@ config:
     required: true
     residence: host
     doc: >-
-      The provider's public IPv4. Used during bootstrap, before the firewall
-      closes and the box is reached another way.
+      The provider's public IPv4, which the installer reaches the server on.
     env: {section: host, default: "", example: "203.0.113.10"}
 
   - key: HOST_INITIAL_USER
@@ -438,9 +326,13 @@ config:
     step: target
     required: true
     residence: controller
+    gui_suggestions_from: ssh_keys
     doc: >-
-      A dedicated keypair for this project, so revoking at engagement end is
-      throwing away one file. The installer offers to generate it when absent.
+      The key that reaches the server: the one whose public half the provider
+      installed when the server was ordered, or a dedicated pair for this
+      project, so revoking it at engagement end is throwing away one file.
+      `catena-cli install` offers to generate that pair when it is absent; the
+      graphical installer lists the pairs already in ~/.ssh.
     env: {section: ssh, default: "~/.ssh/catena_ed25519"}
 
   - key: SSH_PUBLIC_KEY_FILE
@@ -460,38 +352,23 @@ config:
     env: {section: ssh, default: "ops"}
 
   - key: COMMON_TIMEZONE
-    step: locale
     residence: controller
-    gui_options_from: timezones
     env: {section: locale, default: "America/Toronto"}
 
   - key: COMMON_LOCALE
-    step: locale
     residence: controller
-    gui_options: [en_CA.UTF-8, fr_CA.UTF-8, en_US.UTF-8, en_GB.UTF-8, fr_FR.UTF-8,
-                  de_DE.UTF-8, es_ES.UTF-8, it_IT.UTF-8, nl_NL.UTF-8, pt_BR.UTF-8,
-                  C.UTF-8]
     env: {section: locale, default: "en_CA.UTF-8"}
 
   - key: TAILSCALE_TAGS
-    step: access
     residence: store
     var: cfg_tailscale_tags
     doc: >-
       Comma-separated tags advertised by each node. Every tag must be
       authorized on the control server first, or key minting rejects with a
-      400. A store value because the tailnet join may run on the host, from the
-      panel's lockdown, where no inventory exists. Read with NO fallback tag,
-      so a missing value fails the join rather than advertising a tag the
-      credential is not scoped for.
-    env: {section: access, default: "tag:vps"}
+      400. Read with NO fallback tag, so a missing value fails the join
+      rather than advertising a tag the credential is not scoped for.
     panel: {group: tunnel, section: config, kind: text, optional: true}
-    depends: {choice: ACCESS_METHOD, values: [tailnet]}
-
-  - key: TAILSCALE_ACCEPT_DNS
-    residence: controller
-    doc: Whether Tailscale may override systemd-resolved. Usually false.
-    env: {section: access, default: "false"}
+    depends: {choice: TAILNET_PROVIDER, values: [tailscale, headscale]}
 
   - key: STORAGE_BULK_ENABLED
     residence: controller
@@ -507,15 +384,12 @@ config:
 
   # ---- the install's identity ----
   - key: CLOUDFLARE_ZONE
-    step: domain
     residence: store
     var: cfg_cloudflare_zone
     doc: >-
       THE identity of the install: every public hostname is <sub>.<zone>, so
-      this is the value the rest of the page renders against. Blank is a real
-      state on a server that joins the tailnet -- it is installed before its
-      domain is decided, and the public surface defers until one arrives.
-    env: {section: cloudflare, default: ""}
+      this is the value the rest of the page renders against. Every server is
+      installed without one; the public surface defers until one arrives.
     panel: {group: hostnames, section: config, kind: text, optional: true}
 
   - key: ADMIN_EMAIL
@@ -534,18 +408,10 @@ config:
   #
   # Each is a single DNS label, never an FQDN: the zone is appended by the
   # converge, so "auth.example.com" here would render auth.example.com.example.com.
-  # Blank means the product's own default, which is what every host used when
-  # these were compiled in.
+  # Blank means the product's own default (playbooks/group_vars/all/main.yml).
   - key: PORTAINER_SUBDOMAIN
     residence: store
     var: cfg_portainer_admin_subdomain
-    doc: >-
-      The one subdomain three sources give three answers for -- `portainer` in
-      the shipped starter, `apps` in the operator skeleton, `admin` for
-      established clients -- which is what makes it a host fact rather than the
-      product's. The rest are the product's scheme and are compiled in, because
-      a host has to converge itself without reading this file.
-    env: {section: cloudflare, default: "portainer"}
     panel: {group: hostnames, section: config, kind: text, optional: true}
 
   - key: KEYCLOAK_SUBDOMAIN
@@ -582,83 +448,55 @@ config:
       "corp-" on a host named "vps1" names the tunnel "corp-vps1". A store key
       because the host composes its own tunnel name and reads the prefix
       straight off the store, which is what lets the cloudflared actions ship
-      in the image instead of being rendered by a converge.
-    env: {section: cloudflare, default: ""}
+      in the image instead of being rendered by a converge. Not a field on any
+      form: it is written to the store (catena-onbox-config) before the
+      domain's token is saved, and names the tunnel created next.
 
   # ---- the access plane ----
-  - key: ACCESS_METHOD
-    residence: store
-    var: cfg_access_method
-    doc: >-
-      How this host is reached for administration, and therefore whether public
-      port 22 can be closed. On `tailnet` the panel's Lockdown closes it once
-      the tailnet path has been proven, and the host reopens it while the
-      tailnet is down; `public_ssh` keeps it open, because a host with no
-      alternative path has nothing to prove and closing it would be a lockout.
-      A stored value rather than a derived one: it rides
-      /etc into the snapshot, so a rebuilt host comes back with the firewall
-      posture it had rather than the one a default would pick.
-    env: {section: access, default: "tailnet", options: [tailnet, public_ssh]}
-    panel:
-      group: tunnel
-      section: config
-      kind: choice
-      optional: true
-      options: [tailnet, public_ssh]
-      warning: settings.warning.access_method
-
   - key: TAILNET_PROVIDER
-    step: access
     residence: store
     var: cfg_tailnet_provider
     doc: >-
-      Which control plane the tailnet runs on. Blank means Tailscale SaaS.
-      Explicit rather than inferred from whether a control URL happens to be
-      filled in: that inference made "switch back to Tailscale" mean "know to
-      CLEAR a field", and a blank submission on the settings page means "leave
-      this alone", so the client could make that decision in one direction
-      only.
-    env: {section: access, default: ""}
+      Whether this host joins a private network, and which control plane runs
+      it. `none` keeps key-only SSH on the public address as the only way in,
+      and port 22 open, because a host with no alternative path has nothing to
+      prove and closing it would be a lockout. With a provider, the host joins
+      the tailnet, and the panel's Lockdown can close public 22 once it has
+      proven that path; the host reopens 22 while its tailnet is down. Always
+      stored, `none` included: a blank submission on the settings page means
+      "leave this alone", so an off position spelled as the empty string could
+      be turned on and never off.
     panel:
       group: tunnel
       section: config
       kind: choice
       optional: true
-      options: [tailscale, headscale]
+      options: [none, tailscale, headscale]
       warning: settings.warning.tailnet_provider
-    depends: {choice: ACCESS_METHOD, values: [tailnet]}
 
   - key: TAILNET_CONTROL_URL
-    step: access
     residence: store
     var: cfg_tailnet_control_url
     doc: The Headscale server's base URL.
-    env: {section: access, default: ""}
     panel: {group: tunnel, section: config, kind: text, optional: true}
     depends: {choice: TAILNET_PROVIDER, values: [headscale]}
 
   - key: HEADSCALE_USER
-    step: access
     residence: store
     var: cfg_headscale_user
     doc: >-
       The Headscale user the minted pre-auth keys belong to; Headscale keys are
       per-user, and the advertised tag must be in THAT user's tagOwners.
-    env: {section: access, default: ""}
     panel: {group: tunnel, section: config, kind: text, optional: true}
     depends: {choice: TAILNET_PROVIDER, values: [headscale]}
 
   # ---- backup ----
   - key: BACKUP_RESTIC_REPO
-    step: backup
     residence: store
     var: cfg_backup_restic_repo
     doc: >-
       The restic repository, as ONE address that carries the endpoint and the
-      bucket: s3:https://<endpoint>/<bucket>. Optional at install: blank
-      schedules no backup until it is entered in catena-admin > Settings,
-      which owns it afterwards.
-    env: {section: backup, default: ""}
+      bucket: s3:https://<endpoint>/<bucket>. Blank schedules no backup.
     panel: {group: backup, section: config, kind: text, optional: false}
 
   - key: BACKUP_EXTRA_PATHS

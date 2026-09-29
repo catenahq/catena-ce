@@ -202,8 +202,8 @@ def _entry(doc: dict, key: str) -> dict:
 
 
 def test_launcher_fields_need_a_step_and_a_sound_shape(tmp_path):
-    """`required` and the dropdown lists are read by the launcher alone, so on
-    a knob it never asks for they are read by nothing, and a malformed one
+    """`required` and the suggestion source are read by the launcher alone, so
+    on a knob it never asks for they are read by nothing, and a malformed one
     would reach the page as a broken control."""
     doc = render_knobs.load()
     _entry(doc, "OPS_USER")["required"] = True
@@ -214,18 +214,29 @@ def test_launcher_fields_need_a_step_and_a_sound_shape(tmp_path):
     _refused(tmp_path, doc, "not a boolean")
 
     doc = render_knobs.load()
-    _entry(doc, "COMMON_LOCALE")["gui_options"] = []
-    _refused(tmp_path, doc, "gui_options")
+    _entry(doc, "SSH_PRIVATE_KEY")["gui_suggestions_from"] = "planets"
+    _refused(tmp_path, doc, "gui_suggestions_from")
 
+
+def test_a_value_has_one_place_to_be_edited(tmp_path):
+    """The `.env` or the panel, never both: a client who changes it in one
+    finds the other still holding the old value."""
     doc = render_knobs.load()
-    _entry(doc, "COMMON_TIMEZONE")["gui_options_from"] = "planets"
-    _refused(tmp_path, doc, "gui_options_from")
+    _entry(doc, "CLOUDFLARE_ZONE")["env"] = {"section": "admin", "default": ""}
+    _refused(tmp_path, doc, "one place")
 
 
-def test_a_step_link_must_be_https_with_text(tmp_path):
+def test_the_installer_asks_only_for_what_its_env_keeps(tmp_path):
+    """A step on a knob with no `.env` home is a question whose answer the
+    installer has nowhere to write."""
     doc = render_knobs.load()
-    doc["gui_steps"][0]["links"] = [{"text": "x", "url": "http://example.com"}]
-    _refused(tmp_path, doc, "https")
+    _entry(doc, "CLOUDFLARE_ZONE")["step"] = "target"
+    _refused(tmp_path, doc, "no env home")
+
+
+def test_nothing_the_panel_edits_is_asked_at_install(registry):
+    for entry in [*registry["secrets"], *registry["config"]]:
+        assert not (entry.get("panel") and entry.get("step")), entry["key"]
 
 
 def test_the_installers_required_fields_are_the_ones_it_cannot_install_without(

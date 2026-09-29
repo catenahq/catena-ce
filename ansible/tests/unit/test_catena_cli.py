@@ -24,10 +24,9 @@ def cli():
 
 
 def test_install_chain_order(cli):
-    """Fresh install runs preflight before bootstrap, then site, then validate."""
-    assert cli.INSTALL_CHAIN == (
-        "preflight", "bootstrap", "converge", "lockdown", "validate",
-    )
+    """Fresh install runs preflight before bootstrap, then site, then validate.
+    No leg joins a tailnet: the install configures none."""
+    assert cli.INSTALL_CHAIN == ("preflight", "bootstrap", "converge", "validate")
 
 
 def _stage_of(cmd):
@@ -58,11 +57,9 @@ def test_run_deploy_chain_threads_global_extra_on_every_stage(cli, monkeypatch, 
     assert "@boot" in " ".join(boot)
 
 
-def test_the_lockdown_leg_emits_and_the_chain_applies_its_address(cli, monkeypatch, tmp_path):
-    """The lockdown leg joins the tailnet, and every later invocation reaches
-    the host at its tailnet address, which keeps answering once the panel's
-    Lockdown closes public 22. The leg is asked to emit it, and the chain folds
-    it in before the next leg. The install never asks it to close the port."""
+def test_the_chain_applies_the_install_address_after_bootstrap(cli, monkeypatch, tmp_path):
+    """Bootstrap emits the address it reached the host on, and the chain folds
+    it in before the next leg, which would otherwise dial the placeholder."""
     from helpers import bootstrap_output
 
     events: list[str] = []
@@ -71,15 +68,34 @@ def test_the_lockdown_leg_emits_and_the_chain_applies_its_address(cli, monkeypat
     monkeypatch.setattr(bootstrap_output, "apply_to_inventory",
                         lambda p: events.append("apply") or [])
     cli._run_deploy_chain(tmp_path, cli.INSTALL_CHAIN, bootstrap_extra=None)
-    runs = [e for e in events if e.startswith("run ")]
-    lock = next(e for e in runs if e.startswith("run lockdown "))
-    assert "catena_lockdown_emit_address=true" in lock
-    assert "catena_lockdown_close_public_ssh" not in lock
-    assert all("catena_lockdown_emit_address" not in e
-               for e in runs if not e.startswith("run lockdown "))
     order = [e.split()[1] if e.startswith("run ") else e for e in events]
-    assert order == ["preflight", "bootstrap", "apply", "converge",
-                     "lockdown", "apply", "validate"], order
+    assert order == ["preflight", "bootstrap", "apply", "converge", "validate"], order
+    assert not any("catena_lockdown" in e for e in events)
+
+
+def test_no_provider_password_is_asked_when_the_key_already_opens(cli, monkeypatch, tmp_path):
+    """Many providers install the key at order time; asking for a password the
+    install will not use is a question with no reason."""
+    from helpers import install_key
+
+    (tmp_path / ".env").write_text("HOST_PUBLIC_IP=203.0.113.10\nOPS_USER=ops\n")
+    tried = []
+    monkeypatch.setattr(install_key, "_key_already_works",
+                        lambda host, user, key, port=22: tried.append(user) or user == "debian")
+    monkeypatch.setattr(cli.getpass, "getpass",
+                        lambda prompt: pytest.fail("asked for a password"))
+    assert cli._prompt_provider_password(tmp_path, "debian") == ""
+    assert tried == ["debian"]
+
+
+def test_the_provider_password_is_asked_when_the_key_does_not_open(cli, monkeypatch, tmp_path):
+    from helpers import install_key
+
+    (tmp_path / ".env").write_text("HOST_PUBLIC_IP=203.0.113.10\n")
+    monkeypatch.setattr(install_key, "_key_already_works",
+                        lambda host, user, key, port=22: False)
+    monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: "provider-pw")
+    assert cli._prompt_provider_password(tmp_path, "debian") == "provider-pw"
 
 
 def test_playbook_cmd_shape(cli):

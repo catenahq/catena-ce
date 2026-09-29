@@ -48,10 +48,15 @@ def test_every_page_asks_for_something_except_the_last(doc):
 
 def test_a_page_shows_exactly_what_the_registry_gives_it(doc):
     """Read, not transcribed. The comparison is against the registry itself,
-    so a hand-kept list here could not satisfy it."""
+    so a hand-kept list here could not satisfy it. The one addition is the
+    install contract's provider password, which the server section needs for a
+    server that does not accept the key yet and which no knob declares,
+    because nothing keeps it."""
     for step in registry.steps(doc):
         built = next(s for s in steps_mod.build(doc) if s.name == step["name"])
         declared = [e["key"] for e in registry.step_fields(doc, step["name"])]
+        if step["name"] == "target":
+            declared.append(steps_mod.PROVIDER_PASSWORD)
         assert [f.key for f in built.fields] == declared
 
 
@@ -80,10 +85,15 @@ def test_no_field_name_is_written_down_in_this_package():
         f"declaration they are supposed to read: {offenders}")
 
 
+# Names in steps.py that look like knobs and are not: the environment variable
+# helpers/install_key.py reads the provider's password from.
+_NOT_KNOBS = {"INSTALL_KEY_PASSWORD"}
+
+
 def test_the_probes_name_only_keys_the_registry_declares():
     """The other direction. A probe that checks a key nobody declares is a
     proof about a value no page collects."""
-    declared = set()
+    declared = set(_NOT_KNOBS)
     doc = registry.load()
     for entry in [*doc["secrets"], *doc["config"]]:
         declared.add(entry["key"])
@@ -102,8 +112,7 @@ def test_the_probes_name_only_keys_the_registry_declares():
 def test_every_step_that_says_what_it_proves_has_a_probe(doc):
     """A step whose `validates` line promises a proof and has no probe would
     advance on anything typed into it. A step with no `validates` has nothing
-    to observe -- its answers are picked from lists -- and no probe either,
-    rather than one that passes on anything."""
+    to observe, and no probe either, rather than one that passes on anything."""
     for step in registry.steps(doc):
         if step.get("validates"):
             assert step["name"] in steps_mod.PROBES, (
@@ -113,26 +122,14 @@ def test_every_step_that_says_what_it_proves_has_a_probe(doc):
                 f"{step['name']} declares nothing to prove and still has a probe")
 
 
-def test_a_field_hidden_by_its_governing_choice_is_not_asked(doc):
-    """Offering a Headscale server address to a client who chose the hosted
-    network asks for a value nothing will read."""
-    access = next(s for s in steps_mod.build(doc) if s.name == "access")
-    by_key = {f.key: f for f in access.fields}
-
-    tailscale = {"TAILNET_PROVIDER": "tailscale"}
-    assert by_key["tailscale_oauth_client_id"].shown_for(tailscale)
-    assert not by_key["TAILNET_CONTROL_URL"].shown_for(tailscale)
-
-    headscale = {"TAILNET_PROVIDER": "headscale"}
-    assert by_key["TAILNET_CONTROL_URL"].shown_for(headscale)
-    assert not by_key["tailscale_oauth_client_id"].shown_for(headscale)
-
-
-def test_a_governor_the_page_does_not_ask_for_governs_nothing_here(doc):
-    """The access method is not a question on the page -- it follows from the
-    tailnet credentials -- so the fields the panel shows only for `tailnet` are
-    shown here whatever it holds, and the credentials decide."""
-    access = next(s for s in steps_mod.build(doc) if s.name == "access")
-    by_key = {f.key: f for f in access.fields}
-    assert "ACCESS_METHOD" not in by_key
-    assert by_key["TAILNET_PROVIDER"].shown_for({"ACCESS_METHOD": "public_ssh"})
+def test_the_suggested_keys_are_the_pairs_on_this_machine(tmp_path):
+    """A private key with its public half beside it, and nothing else: a
+    lone private key or a stray .pub is not a pair the install can use."""
+    ssh = tmp_path / ".ssh"
+    ssh.mkdir()
+    for name in ("id_ed25519", "id_ed25519.pub", "catena_ed25519",
+                 "catena_ed25519.pub", "lonely", "stray.pub", "config"):
+        (ssh / name).write_text("x")
+    got = registry.suggestions_for({"gui_suggestions_from": "ssh_keys"}, ssh)
+    assert [Path(p).name for p in got] == ["catena_ed25519", "id_ed25519"]
+    assert registry.suggestions_for({}, ssh) == []
