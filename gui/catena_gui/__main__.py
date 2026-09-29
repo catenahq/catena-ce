@@ -130,7 +130,9 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("--inventory is required with --answers: it names "
                              "the directory the answers are saved into")
         _load_answers_file(Path(args.answers).expanduser(), current, doc)
-    if current is not None:
+    # An existing inventory is written when something was answered, never just
+    # for being opened: the `.env` is a file its client may have edited.
+    if current is not None and (args.answers or not current.path.is_dir()):
         current.save()
 
     if not args.answers and not args.no_browser:

@@ -368,7 +368,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         again. Anything typed for the previous inventory stays with it."""
         opened = run_mod.load(self.inventory_root / name,
                               run_mod.secret_keys_from(self.doc))
-        opened.save()
+        # Created on disk when new. An existing one is written by its first
+        # Check, never just for being opened.
+        if not opened.path.is_dir():
+            opened.save()
         _Handler.run = opened
         _Handler.last_checks = {}
         self._redirect(f"/#{opened.step}" if self._step(opened.step) else "/")

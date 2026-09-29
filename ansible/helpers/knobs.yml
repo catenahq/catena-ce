@@ -57,7 +57,9 @@
 #               `section` it prints under, the `default` it carries, and the
 #               `options` it is limited to. Absent means the key never appears
 #               in the template. An EMPTY default is also what marks a key
-#               optional to seed's structural checks.
+#               optional to seed's structural checks, unless the key has an
+#               `example`: a value with no sensible default that is still
+#               needed, shown as a placeholder and never filled in.
 #   panel       how catena-admin renders it. Absent means the settings page
 #               does not show it.
 #   step        which section of the graphical installer asks for it, named in

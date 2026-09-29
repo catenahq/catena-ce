@@ -106,6 +106,12 @@ ENV_OPTIONS: dict[str, list[str]] = {
     for knob in render_knobs.env_knobs(_KNOBS)
     if "options" in knob["env"]
 }
+# Keys with no default that still need an answer, such as the server's
+# address: the registry gives them an example instead of a default.
+ENV_EXAMPLED: frozenset[str] = frozenset(
+    knob["key"] for knob in render_knobs.env_knobs(_KNOBS)
+    if knob["env"].get("example")
+)
 
 PLACEHOLDER_VALUES = {"REPLACE", "REPLACE-LONG-RANDOM-STRING"}
 
@@ -300,11 +306,12 @@ def validate_install_structural(
         _check("host_initial_password blank (install_key.py will prompt)", True)
 
     # "Optional" env keys are inferred from an empty template default -- the
-    # template author's signal that blank is acceptable.
+    # template author's signal that blank is acceptable -- unless the key
+    # carries an example, which marks a value with no default that is needed.
     for key, default in env_keys:
         val = env.get(key, default)
         eff = _effective_options(default, ENV_OPTIONS.get(key))
-        is_optional = not default
+        is_optional = not default and key not in ENV_EXAMPLED
         if is_optional and not _is_filled(val):
             continue
         # YAML bool -> "true"/"false".
@@ -723,19 +730,31 @@ def emit_env(template_text: str, values: dict[str, str], target: Path, *,
     value. With `keep_existing` a value already in the file wins over the
     input, so a re-run of `catena-cli install` never rewrites what a client
     edited by hand. The graphical installer passes False: what it saves IS the
-    client's edit."""
+    client's edit.
+
+    A key already in the file that the template does not carry is kept, after
+    the template's keys, in either mode: the template decides the layout, not
+    which of a client's lines survive."""
     target.parent.mkdir(parents=True, exist_ok=True)
-    existing: dict[str, str] = {}
-    if keep_existing and target.exists():
-        existing = dict(parse_env_pairs(target.read_text()))
+    on_disk: dict[str, str] = {}
+    if target.exists():
+        on_disk = dict(parse_env_pairs(target.read_text()))
+    existing = on_disk if keep_existing else {}
+
+    def line(key: str, value: str) -> str:
+        if any(c in value for c in " \t#\"'$"):
+            value = '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+        return f"{key}={value}"
 
     out: list[str] = []
+    template_keys: set[str] = set()
     for raw in template_text.splitlines():
         stripped = raw.strip()
         if not stripped or stripped.startswith("#") or "=" not in stripped:
             out.append(raw)
             continue
         key = stripped.split("=", 1)[0].strip()
+        template_keys.add(key)
         if key in existing:
             value = existing[key]
             if key in values and values[key] != value:
@@ -745,9 +764,10 @@ def emit_env(template_text: str, values: dict[str, str], target: Path, *,
                 )
         else:
             value = values.get(key, "")
-        if any(c in value for c in " \t#\"'$"):
-            value = '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
-        out.append(f"{key}={value}")
+        out.append(line(key, value))
+    extra = [line(k, v) for k, v in on_disk.items() if k not in template_keys]
+    if extra:
+        out += ["", "# Not in the template, kept as found."] + extra
     target.write_text("\n".join(out) + "\n")
 
 

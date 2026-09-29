@@ -89,6 +89,29 @@ def test_the_inventories_are_listed_one_per_line(client):
     assert rows == ["alpha", "beta", "gamma"]
 
 
+def test_opening_an_inventory_writes_nothing(client):
+    """The `.env` is a file its client may have edited: it is written by a
+    Check, never by being opened."""
+    request, root = client
+    (root / "handmade").mkdir()
+    env = root / "handmade" / ".env"
+    env.write_text("# my notes\nHOST_PUBLIC_IP=198.51.100.7\n")
+    request("POST", "/inventory", {"open": "handmade"})
+    assert env.read_text() == "# my notes\nHOST_PUBLIC_IP=198.51.100.7\n"
+    assert not (root / "handmade" / run_mod.STATE_FILENAME).exists()
+
+
+def test_a_check_keeps_a_key_the_template_does_not_carry(client):
+    request, root = client
+    (root / "handmade").mkdir()
+    env = root / "handmade" / ".env"
+    env.write_text("HOST_PUBLIC_IP=198.51.100.7\nCLIENT_OWN_KEY=kept\n")
+    request("POST", "/inventory", {"open": "handmade"})
+    request("POST", "/", {"check": STEPS[0].name})
+    saved = run_mod._seed().read_existing_env(env)
+    assert (saved["CLIENT_OWN_KEY"], saved["HOST_PUBLIC_IP"]) == ("kept", "198.51.100.7")
+
+
 def test_a_bad_name_is_refused_on_the_page(client):
     request, root = client
     status, where, _ = request("POST", "/inventory", {"create": "Bad Name"})
