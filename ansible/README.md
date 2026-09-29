@@ -57,7 +57,7 @@ turns on the lanes set on the panel's Schedules page.
 
 ## Installer (`catena-cli`)
 
-The bundled CLI drives every flow. Prerequisite: `uv` on PATH
+The bundled CLI reaches the server over SSH. Prerequisite: `uv` on PATH
 (ansible-core comes from `uv`). Nothing else -- there is no encryption
 tool to install and no key to have in scope. Run it from the repository
 root, whose project depends on this one, or from this `ansible/`
@@ -67,19 +67,14 @@ the same `install`.
 
 | Command | Playbook | What it does |
 | --- | --- | --- |
-| `install` | chain | Seed the configuration, then run preflight, bootstrap, converge, validate |
-| `converge` | `converge.yml` | Re-apply after a configuration or app change |
-| `validate` | `validate.yml` | On-host + tailnet + external checks |
-| `backup` | `backup.yml` | Take an on-demand snapshot |
-| `rotate-tunnel` | `rotate-tunnel.yml` | Mint a new Cloudflare tunnel |
-| `rotate-tailscale` | `rotate-tailscale.yml` | Force re-authentication to the tailnet |
-| `show-keyset` | `show-keyset.yml` | Show the passwords and first-login URLs again |
+| `install` | chain | Seed the configuration, run preflight, bootstrap, converge, validate, then show the passwords (`show-keyset.yml`) |
+| `converge` | `converge.yml` | Re-apply from this machine; `--address` reaches the host at its tailnet address once the panel's Lockdown has closed public SSH |
 | `uninstall` | `uninstall.yml` | Unmask the native apt timers on a host an older release masked |
 
 One shape: `uv run catena-cli <verb> --inventory <name>`. A verb that runs a
 single playbook carries that playbook's name; `install` chains several, so
-there is no one playbook to name it after. Restores run from the panel, on
-an installed host. With no
+there is no one playbook to name it after. Backups, the tunnel, the tailnet,
+the lockdown and restores run from the panel, on the installed host. With no
 arguments the CLI opens an interactive menu and prompts for both; `catena-cli
 --install` is an alias for `catena-cli install`. A leading inventory name is
 refused with the correct shape rather than an argparse choice error.

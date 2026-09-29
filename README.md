@@ -81,25 +81,13 @@ Alternatives to Tailscale include Headscale and Netbird. Cloudflare alternatives
 
 ## Day 2 operations
 
-The `catena-cli` CLI provides other options than `install`. Run them from the
-repository root, verb first:
+Day 2 operations run from the Catena-Admin panel on the server: settings, backups, the tunnel, the private network, the lockdown, updates and restores. A rollback restores an earlier snapshot on the same server, and a lost server is recovered by installing Catena on a new one and restoring from the old server's backup repository.
+
+The `catena-cli` CLI keeps two verbs besides `install`. Run them from the repository root, verb first:
 
 ```sh
-uv run catena-cli converge         --inventory prod  # re-apply after a configuration or app change
-uv run catena-cli validate         --inventory prod  # on-host + tailnet + external health checks
-uv run catena-cli backup           --inventory prod  # take an on-demand snapshot
-uv run catena-cli rotate-tunnel    --inventory prod  # mint a new Cloudflare tunnel
-uv run catena-cli rotate-tailscale --inventory prod  # re-authenticate to the private network
-uv run catena-cli show-keyset      --inventory prod  # show the passwords and first-login URLs again
-uv run catena-cli uninstall        --inventory prod  # hand unattended-upgrades back to the OS
+uv run catena-cli converge  --inventory prod  # re-apply the configuration from this machine
+uv run catena-cli uninstall --inventory prod  # hand unattended-upgrades back to the OS
 ```
 
-A verb that runs one playbook carries that playbook's name, so
-`catena-cli converge` runs `playbooks/converge.yml`. Running `catena-cli` with no
-arguments prompts for the inventory and the operation.
-
-Restores run from the Catena-Admin panel: a rollback restores an earlier
-snapshot on the same server, and a lost server is recovered by installing
-Catena on a new one and restoring from the old server's backup repository.
-
-Some of these options are also available from the Catena-Admin app. The recommended method is to always use the Catena-Admin app running on the server to perform the operations, but the `catena-cli` CLI is available as a break-glass should the panel be unavailable (which could happen if the disk is full).
+`converge` applies what only this machine can (the operator-run roles), and is the way in should the panel be unavailable, which could happen if the disk is full. Once the panel's `Lockdown` has closed public SSH, add `--address <tailnet-ip>`. Running `catena-cli install` again shows the passwords again. Running `catena-cli` with no arguments prompts for the inventory and the operation.

@@ -2,23 +2,18 @@
 """catena-cli -- Community Catena installer / CLI.
 
 A thin wrapper over the Ansible base so self-hosters never touch raw
-ansible-playbook. Subcommands:
+ansible-playbook. It reaches the server over SSH; everything else -- backups,
+the tunnel, the tailnet, the passwords -- runs from catena-admin on the host.
+Subcommands:
 
   install    seed config (reuses seed.py), then run
-             preflight -> bootstrap -> converge -> validate
-  converge   re-run converge.yml (apply config changes / new app tags)
-  validate   run validate.yml (on-host + tailnet + external checks)
-  backup     trigger an on-demand snapshot (the manual CE backup)
-  rotate-tunnel
-             regenerate the host's Cloudflare tunnel without a full
-             converge (manual maintenance); authenticates as the
-             Cloudflare API token already in the host's store
-  rotate-tailscale
-             re-authenticate the node to the tailnet (force re-auth;
-             manual maintenance)
-  show-keyset
-             re-display the admin / console passwords and the
-             first-login URLs (install shows them once; this asks again)
+             preflight -> bootstrap -> converge -> validate, and show the
+             passwords the server minted. Run again, it shows them again.
+  converge   re-run converge.yml: it applies the operator-run roles the
+             panel's own converge cannot, and is the way in when the panel
+             is down. --address reaches the host somewhere other than
+             hosts.yml's address: its tailnet address once the panel's
+             Lockdown has closed public SSH.
   uninstall  hand control back to the OS: unmask + re-enable Debian's
              apt-daily-upgrade.timer (the unattended-upgrades handback)
              and print teardown guidance
@@ -41,6 +36,7 @@ import argparse
 import configparser
 import getpass
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -151,11 +147,28 @@ def _add_inventory_args(parser: argparse.ArgumentParser, *, required: bool) -> N
 
 def _tags_extra(args: argparse.Namespace) -> list[str] | None:
     """Turn a `--tags a,b` CLI value into the ansible-playbook passthrough,
-    or None when unset. Lets `converge`/`validate` run a tag-scoped subset
-    (e.g. `catena-cli converge --tags keycloak,oauth2_proxy` to re-apply only
-    the auth roles after rotating a secret), Pure -- unit-testable."""
+    or None when unset. Lets `converge` run a tag-scoped subset (e.g.
+    `catena-cli converge --tags keycloak,oauth2_proxy` to re-apply only the
+    auth roles after rotating a secret). Pure -- unit-testable."""
     tags = (getattr(args, "tags", "") or "").strip()
     return ["--tags", tags] if tags else None
+
+
+def _address(value: str) -> str:
+    """An IP address or host name, as argparse's type for --address."""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.:-]*", value):
+        raise argparse.ArgumentTypeError(f"{value!r} is not an address")
+    return value
+
+
+def _converge_extra(args: argparse.Namespace) -> list[str] | None:
+    """The converge's passthrough: its tags, and the address to reach the host
+    at when --address names one. hosts.yml keeps the address the install
+    recorded; this one is for this run only."""
+    extra = list(_tags_extra(args) or [])
+    if getattr(args, "address", None):
+        extra += ["-e", f"ansible_host={args.address}"]
+    return extra or None
 
 
 def _key_already_opens(env: dict[str, str], initial_user: str) -> str:
@@ -361,15 +374,15 @@ def _mktemp_secrets(prefix: str) -> Path:
 
 def _show_dr_keyset(inv_dir: Path) -> None:
     """After a fresh install, surface the on-box-minted passwords (admin +
-    console) ONCE for the user's password manager. Non-fatal: a
-    failure here must never fail an otherwise-successful install (the keyset
-    is always retrievable later from catena-admin > Recovery)."""
+    console) ONCE for the user's password manager. Non-fatal: a failure here
+    must never fail an otherwise-successful install. The passwords stay on the
+    server, and running the install again shows them again."""
     banner("Your disaster-recovery keyset -- shown once, save it now")
     cmd = playbook_cmd(inv_dir, "show-keyset")
     print(_c("1;30", "  $ " + " ".join(cmd)), file=sys.stderr)
     if subprocess.run(cmd).returncode != 0:
-        print(_c("1;33", "! could not display the DR keyset automatically; "
-                 "retrieve it later from catena-admin > Recovery."),
+        print(_c("1;33", "! could not display the passwords; run "
+                 "`catena-cli install` again to show them."),
               file=sys.stderr)
 
 
@@ -433,84 +446,7 @@ def cmd_converge(args: argparse.Namespace) -> int:
 
         seed.warn_server_held_lines(inv_dir / ".env")
     ensure_collections()
-    _run(playbook_cmd(inv_dir, "converge", _tags_extra(args)))
-    return 0
-
-
-def cmd_validate(args: argparse.Namespace) -> int:
-    _preflight_checks()
-    inv_dir = resolve_inventory(args)
-    _require_inventory(inv_dir)
-    ensure_collections()
-    _run(playbook_cmd(inv_dir, "validate", _tags_extra(args)))
-    return 0
-
-
-def cmd_backup(args: argparse.Namespace) -> int:
-    """Trigger an on-demand backup snapshot: run catena-backup.service
-    synchronously via the backup role's trigger_now (the same mechanism the
-    admin shell "Backup now" button drives). CE ships a single, manual
-    backup -- this is its CLI entry point. No preflight (mints no keys)."""
-    _preflight_checks()
-    inv_dir = resolve_inventory(args)
-    _require_inventory(inv_dir)
-    ensure_collections()
-    banner("Backup -- trigger an on-demand snapshot")
-    _run(playbook_cmd(inv_dir, "backup"))
-    return 0
-
-
-def cmd_rotate_tunnel(args: argparse.Namespace) -> int:
-    """Regenerate this host's Cloudflare tunnel without a full converge
-    (manual maintenance).
-
-    Takes no token. The playbook authenticates as the cloudflare_api_token
-    already in the host's store, because the half that mints the replacement
-    tunnel is a host engine that reads that store directly -- a token handed in
-    here would reach the delete and not the re-create. Rotating the API token
-    is a separate act, done in catena-admin > Settings, and it has to land
-    before this runs."""
-    _preflight_checks()
-    inv_dir = resolve_inventory(args)
-    _require_inventory(inv_dir)
-    ensure_collections()
-    banner("Rotate -- regenerate the Cloudflare tunnel")
-    _run(playbook_cmd(inv_dir, "rotate-tunnel"))
-    return 0
-
-
-def cmd_rotate_tailscale(args: argparse.Namespace) -> int:
-    """Re-authenticate the node to the tailnet, forcing a fresh OAuth key
-    (manual maintenance: node lost tailnet reachability or you are rotating
-    tags). The tailscale role's tailscale_force_reauth is set by the
-    playbook itself, so this just runs it."""
-    _preflight_checks()
-    inv_dir = resolve_inventory(args)
-    _require_inventory(inv_dir)
-    ensure_collections()
-    banner("Rotate -- re-authenticate Tailscale")
-    _run(playbook_cmd(inv_dir, "rotate-tailscale"))
-    return 0
-
-
-def cmd_show_keyset(args: argparse.Namespace) -> int:
-    """Re-display the DR keyset and the first-login URLs.
-
-    The install shows these once, at the very end. An install that fails
-    anywhere before that point -- or a closed terminal -- leaves a working
-    server nobody can sign in to, which is a worse state than a failed
-    install. The values are all still on the box, so asking for them again
-    costs nothing and re-runs nothing.
-
-    The journal verification key is the one exception: it is deleted from the
-    server the first time it is shown, by design, so a later call has nothing
-    to print for it.
-    """
-    _preflight_checks()
-    inv_dir = resolve_inventory(args)
-    _require_inventory(inv_dir)
-    ensure_collections()
-    _show_dr_keyset(inv_dir)
+    _run(playbook_cmd(inv_dir, "converge", _converge_extra(args)))
     return 0
 
 
@@ -529,12 +465,7 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
 # an inventory name".
 MENU_COMMANDS = (
     ("install", "Set up a new host (seed + deploy)"),
-    ("converge", "Re-apply configuration or app changes"),
-    ("validate", "On-host + tailnet + external health checks"),
-    ("backup", "Take an on-demand backup snapshot"),
-    ("rotate-tunnel", "Regenerate the Cloudflare tunnel"),
-    ("rotate-tailscale", "Re-authenticate the node to the tailnet"),
-    ("show-keyset", "Show the passwords and first-login URLs again"),
+    ("converge", "Re-apply the configuration from this machine"),
     ("uninstall", "Hand unattended-upgrades back to the OS"),
 )
 KNOWN_COMMANDS = tuple(name for name, _ in MENU_COMMANDS)
@@ -599,41 +530,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_conv.add_argument("--tags", default="",
                         help="comma-separated ansible tags to scope the "
                              "converge (e.g. keycloak,oauth2_proxy)")
+    p_conv.add_argument("--address", type=_address,
+                        help="reach the host at this address for this run, "
+                             "such as its tailnet address once the panel's "
+                             "Lockdown has closed public SSH")
     p_conv.set_defaults(func=cmd_converge)
-
-    p_val = sub.add_parser("validate", help="run validate.yml")
-    _add_inventory_args(p_val, required=True)
-    p_val.add_argument("--tags", default="",
-                       help="comma-separated ansible tags to scope validation")
-    p_val.set_defaults(func=cmd_validate)
-
-    p_bak = sub.add_parser(
-        "backup", help="trigger an on-demand snapshot (manual CE backup)",
-    )
-    _add_inventory_args(p_bak, required=True)
-    p_bak.set_defaults(func=cmd_backup)
-
-    p_rtun = sub.add_parser(
-        "rotate-tunnel",
-        help="regenerate the Cloudflare tunnel (manual; uses the stored token)",
-    )
-    _add_inventory_args(p_rtun, required=True)
-    p_rtun.set_defaults(func=cmd_rotate_tunnel)
-
-    p_rts = sub.add_parser(
-        "rotate-tailscale",
-        help="re-authenticate the node to the tailnet (manual force re-auth)",
-    )
-    _add_inventory_args(p_rts, required=True)
-    p_rts.set_defaults(func=cmd_rotate_tailscale)
-
-    p_keys = sub.add_parser(
-        "show-keyset",
-        help="re-display the DR keyset + first-login URLs (reads the box; "
-             "runs no converge)",
-    )
-    _add_inventory_args(p_keys, required=True)
-    p_keys.set_defaults(func=cmd_show_keyset)
 
     p_uni = sub.add_parser(
         "uninstall",

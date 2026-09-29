@@ -21,8 +21,8 @@ tailscale_apt_keyring_url: "https://pkgs.tailscale.com/stable/debian/{{ tailscal
 tailscale_apt_source_url: "https://pkgs.tailscale.com/stable/debian/{{ tailscale_apt_codename }}.tailscale-keyring.list"
 
 # API endpoints (the OAuth mint runs where the play is driven from: the host
-# itself from the panel's lockdown, the controller for catena-cli
-# rotate-tailscale).
+# itself from the panel's lockdown, the controller when rotate-tailscale.yml
+# runs from one).
 tailscale_api_base: "https://api.tailscale.com/api/v2"
 tailscale_auth_key_ttl_seconds: 600 # 10 minutes -- plenty for one `tailscale up`
 

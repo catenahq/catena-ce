@@ -22,8 +22,8 @@ is not `none`, and every task reads the stored value.
 
 This role never leaves a long-lived auth key on the VPS. Every join mints a
 fresh single-use key where the play is driven from -- the host itself when
-the panel's lockdown runs it, the controller for `catena-cli
-rotate-tailscale` -- with the
+the panel's lockdown runs it, the controller when `playbooks/rotate-tailscale.yml`
+runs from one -- with the
 tags in `tailscale_tags` and a TTL of `tailscale_auth_key_ttl_seconds` (10
 minutes), consumed by one `tailscale up` on the host. If the OAuth client
 itself leaks, rotation is the runbook: there are no auth keys to revoke.

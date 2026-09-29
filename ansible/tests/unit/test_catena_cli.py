@@ -125,34 +125,45 @@ def test_converge_accepts_tags_passthrough(cli):
 
 
 def test_tags_extra_is_none_when_unset(cli):
-    """No --tags -> no passthrough (a full converge / validate). validate
-    accepts the same flag."""
+    """No --tags -> no passthrough (a full converge)."""
     conv = cli.build_parser().parse_args(["converge", "--inventory", "test"])
     assert cli._tags_extra(conv) is None
-    val = cli.build_parser().parse_args(
-        ["validate", "--inventory", "test", "--tags", "keycloak"]
-    )
-    assert cli._tags_extra(val) == ["--tags", "keycloak"]
+    assert cli._converge_extra(conv) is None
 
 
-def test_backup_parser_wires_backup_now(cli):
-    """`catena-cli backup` runs the backup_now playbook (the manual CE snapshot)."""
-    ns = cli.build_parser().parse_args(["backup", "--inventory", "test"])
-    assert ns.func is cli.cmd_backup
-    cmd = cli.playbook_cmd(ns.inventory, "backup")
-    assert cmd[-1].endswith("playbooks/backup.yml")
-
-
-def test_backup_runs_backup_now_playbook(cli, monkeypatch):
+def _converge_calls(cli, monkeypatch, argv):
     calls: list[list[str]] = []
     monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
     monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
     monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
-    ns = cli.build_parser().parse_args(["backup", "--inventory", "test"])
+    ns = cli.build_parser().parse_args(argv)
     assert ns.func(ns) == 0
-    assert len(calls) == 1
-    assert calls[0][-1].endswith("playbooks/backup.yml")
+    return calls
+
+
+def test_converge_reaches_the_address_it_is_given(cli, monkeypatch):
+    """Once the panel's Lockdown has closed public SSH, the host answers on its
+    tailnet address; the run takes it for this invocation only."""
+    calls = _converge_calls(cli, monkeypatch, [
+        "converge", "--inventory", "test", "--address", "100.64.0.7",
+        "--tags", "keycloak"])
+    cmd = calls[0]
+    assert _stage_of(cmd) == "converge"
+    assert cmd[cmd.index("-e") + 1] == "ansible_host=100.64.0.7"
+    assert cmd[cmd.index("--tags") + 1] == "keycloak"
+
+
+def test_converge_without_an_address_uses_the_inventorys(cli, monkeypatch):
+    calls = _converge_calls(cli, monkeypatch, ["converge", "--inventory", "test"])
+    assert "-e" not in calls[0]
+
+
+@pytest.mark.parametrize("bad", ["", "1.2.3.4; rm -rf /", "-e", "a b"])
+def test_an_address_that_is_not_one_is_refused(cli, bad):
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(
+            ["converge", "--inventory", "test", "--address", bad])
 
 
 def test_check_prereqs_reports_missing(cli, monkeypatch):
@@ -386,63 +397,17 @@ def test_install_password_prompt_precedes_the_deploy_chain(cli, tmp_path, monkey
     assert order == [("prompt", True), ("chain",), ("keyset",)]
 
 
-def test_rotate_tunnel_parser_wires_playbook(cli):
-    ns = cli.build_parser().parse_args(["rotate-tunnel", "--inventory", "test"])
-    assert ns.func is cli.cmd_rotate_tunnel
-    cmd = cli.playbook_cmd(ns.inventory, "rotate-tunnel")
-    assert cmd[-1].endswith("playbooks/rotate-tunnel.yml")
+def test_the_verbs_are_install_converge_and_uninstall(cli):
+    """The CLI reaches the server over SSH. Backups, the tunnel, the tailnet
+    and the passwords are the panel's, on the host."""
+    assert cli.KNOWN_COMMANDS == ("install", "converge", "uninstall")
 
 
-def test_rotate_tailscale_parser_wires_playbook(cli):
-    ns = cli.build_parser().parse_args(["rotate-tailscale", "--inventory", "test"])
-    assert ns.func is cli.cmd_rotate_tailscale
-    cmd = cli.playbook_cmd(ns.inventory, "rotate-tailscale")
-    assert cmd[-1].endswith("playbooks/rotate-tailscale.yml")
-
-
-def test_rotate_tunnel_passes_no_secret(cli, monkeypatch):
-    """cmd_rotate_tunnel hands the playbook nothing.
-
-    The regression this guards. The delete half of the rotation runs from the
-    controller and could take a token; the re-create half is a host engine that
-    reads /etc/catena/config.json and cannot. A token accepted here would
-    authenticate the delete and not the mint, so a rotation run with anything
-    other than the stored token would revoke the tunnel and leave the host with
-    no edge. Passing nothing is what keeps the two halves on one credential.
-    """
-    calls: list[list[str]] = []
-    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
-    monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
-    monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_collections", lambda: None)
-
-    ns = cli.build_parser().parse_args(["rotate-tunnel", "--inventory", "test"])
-    assert ns.func(ns) == 0
-    assert len(calls) == 1
-    assert "-e" not in calls[0]
-    assert _stage_of(calls[0]) == "rotate-tunnel"
-
-
-def test_rotate_tunnel_rejects_a_token_flag(cli):
-    """A token cannot reach the mint, so accepting one silently would promise
-    something the rotation does not do."""
+@pytest.mark.parametrize("verb", ["backup", "validate", "rotate-tunnel",
+                                  "rotate-tailscale", "show-keyset"])
+def test_the_panels_operations_are_not_cli_verbs(cli, verb):
     with pytest.raises(SystemExit):
-        cli.build_parser().parse_args(
-            ["rotate-tunnel", "--inventory", "test", "--cf-api-token", "cf-tok"]
-        )
-
-
-def test_rotate_tailscale_runs_playbook(cli, monkeypatch):
-    calls: list[list[str]] = []
-    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
-    monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
-    monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_collections", lambda: None)
-
-    ns = cli.build_parser().parse_args(["rotate-tailscale", "--inventory", "test"])
-    assert ns.func(ns) == 0
-    assert len(calls) == 1
-    assert _stage_of(calls[0]) == "rotate-tailscale"
+        cli.build_parser().parse_args([verb, "--inventory", "prod"])
 
 
 # ---- --inventory-path: drive an inventory OUTSIDE the checkout ----
@@ -546,9 +511,9 @@ def test_interactive_menu_other_command(cli, monkeypatch):
 
 
 def test_interactive_menu_inventory_defaults_to_prod(cli, monkeypatch):
-    answers = iter(["", "3"])  # blank inventory -> prod, then 3 == validate
+    answers = iter(["", "3"])  # blank inventory -> prod, then 3 == uninstall
     monkeypatch.setattr("builtins.input", lambda *a: next(answers))
-    assert cli.interactive_menu() == ["validate", "--inventory", "prod"]
+    assert cli.interactive_menu() == ["uninstall", "--inventory", "prod"]
 
 
 def test_interactive_menu_rejects_bad_choice(cli, monkeypatch):
@@ -592,10 +557,10 @@ def test_main_runs_menu_when_no_args_and_tty(cli, monkeypatch):
     seen = {}
     monkeypatch.setattr(cli.os, "chdir", lambda p: None)
     monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True)
-    monkeypatch.setattr(cli, "interactive_menu", lambda: ["validate", "--inventory", "dev"])
-    monkeypatch.setattr(cli, "cmd_validate", lambda ns: (seen.update(ns=ns), 0)[1])
+    monkeypatch.setattr(cli, "interactive_menu", lambda: ["converge", "--inventory", "dev"])
+    monkeypatch.setattr(cli, "cmd_converge", lambda ns: (seen.update(ns=ns), 0)[1])
     assert cli.main([]) == 0
-    assert seen["ns"].func is cli.cmd_validate
+    assert seen["ns"].func is cli.cmd_converge
     assert seen["ns"].inventory == "dev"
 
 

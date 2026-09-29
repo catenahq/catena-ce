@@ -9,8 +9,8 @@ and writes an install.yaml; it has no business there, and it is at the repo
 root with its own pyproject for exactly that reason.
 
 And it is a PEER of the CLI rather than a replacement. The bench drives
-`catena-cli install -i ... --no-confirm`, and converge and show-keyset are
-operator verbs that should not need a browser.
+`catena-cli install -i ... --no-confirm`, and converge is an operator verb
+that should not need a browser.
 
 Run: uv run pytest tests/test_the_launcher_ships_where_it_belongs.py
 """
@@ -48,7 +48,7 @@ def test_the_cli_is_untouched():
     """A peer, not a replacement. The bench drives `catena-cli install`, and the
     operator verbs should not need a browser."""
     cli = (REPO / "ansible" / "catena_cli.py").read_text(encoding="utf-8")
-    for verb in ("install", "converge", "show-keyset"):
+    for verb in ("install", "converge", "uninstall"):
         assert verb in cli, f"the CLI lost {verb}"
 
 

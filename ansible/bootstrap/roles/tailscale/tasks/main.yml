@@ -1,7 +1,7 @@
 ---
 # Install Tailscale on the target, then join it to the tailnet using an
 # auth key freshly minted where the play is driven from (the host itself
-# from the panel's lockdown, the controller for rotate-tailscale). The
+# from the panel's lockdown, a controller running rotate-tailscale). The
 # minted key has a 10-minute TTL and is single-use, so no long-lived
 # tailscale secret is kept on the VPS.
 

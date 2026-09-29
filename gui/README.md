@@ -33,8 +33,8 @@ server: its address, the key that opens it, and the administrator's email. The
 domain, the private network and the backups are entered in the panel's Settings
 once the server runs, and the installer has no field for any of them.
 
-Not a replacement for the CLI either. `converge` and `show-keyset` are
-operator verbs that should not need a browser. Recovering a server is this
+Not a replacement for the CLI either. `converge` is an operator verb that
+should not need a browser. Recovering a server is this
 install followed by a restore from the panel, so it needs nothing else here.
 
 ## It holds no knob knowledge

@@ -6,8 +6,6 @@
 # explicit re-auth only.
 #
 # Usage (cwd = ansible/):
-#   uv run catena-cli rotate-tailscale --inventory prod
-#   # or directly:
 #   ansible-playbook -i inventory/prod playbooks/rotate-tailscale.yml
 
 - name: Rotate Tailscale auth on VPS nodes
