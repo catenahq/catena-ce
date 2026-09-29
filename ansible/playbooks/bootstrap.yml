@@ -442,9 +442,8 @@
               {{ inventory_dir }}/.env is {{ ansible_host }}; confirm the
               rebuilt VPS still has it.
 
-            - Phase 1 already ran and this host's access method is the tailnet,
-              so {{ ops_user }} is only reachable there: playbooks/lockdown.yml
-              closes public 22 on that method. Note that
+            - Phase 1 already ran and the panel's Lockdown closed public 22,
+              so {{ ops_user }} is only reachable over the tailnet. Note that
               {{ inventory_dir }}/.bootstrap-output.yml is NOT invalidated by a
               rebuild, so a tailnet IP recorded there may belong to the previous
               machine. Try:
@@ -563,6 +562,6 @@
             ansible-playbook playbooks/converge.yml --limit {{ _steady_state_host }}
             ansible-playbook playbooks/lockdown.yml --limit {{ _steady_state_host }}
 
-          lockdown.yml joins the tailnet and closes public port 22, and only
-          on a host whose access method is the tailnet -- after proving that
-          path from here.
+          lockdown.yml joins the tailnet on a host whose access method is the
+          tailnet, and leaves public port 22 open: the panel's Lockdown closes
+          it, after proving the tailnet path.

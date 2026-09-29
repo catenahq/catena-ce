@@ -2,7 +2,7 @@
 # Main converge: bring a bootstrapped host to the desired state and keep it
 # there. Safe to re-run. Runs over the host's administrative address: the public
 # SSH address during the install, the tailnet address once playbooks/lockdown.yml
-# has joined the tailnet and closed public 22.
+# has joined the tailnet.
 #
 # This file is a single atomic unit (one converge), with no cross-playbook
 # imports. Composition (preflight + site + validate) lives in the
@@ -169,7 +169,7 @@
   # Each role's tag matches its name.
   #
   # Joining the tailnet and closing public 22 are playbooks/lockdown.yml, which
-  # the install chain runs last and the panel's lockdown action drives: a
+  # the install chain runs last to join and the panel's Lockdown runs to close: a
   # converge is something a host runs on itself, and the step that can make it
   # unreachable is a decision taken once rather than re-taken every run.
   roles:

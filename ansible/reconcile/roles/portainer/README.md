@@ -6,8 +6,9 @@ provides the compose/stack + env + logs + lifecycle API. Routing stays with
 `catena-traefik` (Portainer does no reverse proxy).
 
 This role deploys `catena-portainer` (swarm service on catena-network, docker
-socket, `/data` BoltDB volume, admin via `--admin-password-file`, tailnet-only
-UI). See `defaults/main.yml` + `tasks/main.yml`.
+socket, `/data` BoltDB volume, admin via `--admin-password-file`, UI on this
+host's loopback only, reached through the `panel` account's SSH forward). See
+`defaults/main.yml` + `tasks/main.yml`.
 
 ## Verified Portainer API endpoint map
 

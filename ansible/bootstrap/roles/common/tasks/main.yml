@@ -825,11 +825,11 @@
     default: allow
     direction: outgoing
 
-# Detect whether tailscale0 is already up. On first boot it isn't, so we
-# need the public SSH rule to keep the operator reachable until tailscale
-# is installed + connected. On every subsequent converge it IS up, so
-# adding (then removing) public 22 each run is just a flap that logs
-# `changed=2` in PLAY RECAP and trips the bench's idempotency check.
+# Detect whether tailscale0 is up. On first boot it is not, and the public SSH
+# rule is the only way in. On a tailnet host where it is up, the rule the
+# install added stays until the panel's Lockdown removes it, and adding it back
+# on every converge would undo that Lockdown. The port reconciler reopens 22 by
+# itself while the tailnet is down.
 - name: "ufw bootstrap: probe tailscale0 to decide if public SSH is still needed"
   ansible.builtin.command: ip link show tailscale0
   register: _ufw_tailscale_iface

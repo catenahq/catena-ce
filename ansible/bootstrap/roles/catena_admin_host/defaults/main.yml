@@ -92,9 +92,8 @@ catena_daily_gatus_api_url: "{{ gatus_api_url | default('') }}"
 # to still be answering afterwards -- so it listens on this host's tailnet
 # address only, and it answers nothing until someone on this server arms it.
 #
-# The port is what this repo still needs: it is declared tailnet-only in the
-# public-port registry below, for the same reason Portainer's UI port is,
-# defence in depth behind the bind rather than instead of it. The binary and its
-# two state files went with the actions that name them, into the payload that
-# installs them.
+# The port is declared tailnet-only in the public-port registry below: defence
+# in depth behind the bind rather than instead of it. The binary and its two
+# state files belong to the payload, which installs them with the actions that
+# name them.
 catena_migrate_lane_port: 9040

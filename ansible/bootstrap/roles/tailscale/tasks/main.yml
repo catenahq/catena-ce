@@ -256,10 +256,11 @@
 # but not sufficient -- the controller also needs to actually reach the
 # node at that IP. ACL mismatch, DERP-only routes, MagicDNS resolver
 # timing, or a stale tailnet route from a previous ephemeral node can
-# all leave the node technically "joined" but unreachable. The lockdown that
-# runs right after this role closes public 22 behind this address; if the route
-# is not live yet, its proof fails with a misleading connection error. Probe
-# now so the failure (if any) surfaces here with a clear message.
+# all leave the node technically "joined" but unreachable. Every invocation
+# after the install reaches the host at this address, and the panel's Lockdown
+# closes public 22 behind it; a route that is not live would surface there as a
+# misleading connection error. Probe now so the failure (if any) surfaces here
+# with a clear message.
 #
 # 120s: a fresh DERP-relayed path, ACL/route propagation, or a session
 # momentarily superseded (another node briefly presenting the same key, as

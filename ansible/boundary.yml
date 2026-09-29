@@ -28,8 +28,9 @@
 bootstrap_roles:
   - name: common
     why: >-
-      The OS baseline and the ufw lockdown. Sets up the account and the packages
-      every later role assumes, and closes public SSH at the end of an install.
+      The OS baseline and the ufw lockdown. Sets up the accounts and the
+      packages every later role assumes, and holds the task file that closes
+      public SSH when the panel's Lockdown asks.
   - name: host_hardening
     why: >-
       Kernel and module hardening, applied before dockerd's first start so its
