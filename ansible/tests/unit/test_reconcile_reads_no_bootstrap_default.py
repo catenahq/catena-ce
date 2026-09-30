@@ -1,4 +1,5 @@
-"""The reconcile tree reads no variable that only a bootstrap role defines.
+"""The reconcile tree reads no variable that only a bootstrap role defines, and
+none that only the operator's inventory supplies.
 
 A host converges itself with playbooks/reconcile.yml alone (catena-admin
 catena-converge), which runs no bootstrap role, so a bootstrap default is
@@ -7,6 +8,12 @@ the same read resolves, which is how a gap here stays invisible until a host
 converges on its own and stops at the first task that reads it.
 
 A value both halves need belongs in playbooks/group_vars/all/main.yml.
+
+The inventory is the same trap with a quieter failure. The host's own converge
+has no hosts.yml and no .env, so a value read from either resolves to something
+else there, and the two paths render different files for one machine: each
+converge then undoes the other's, and the panel rolls on the first converge
+after a switch of path.
 
 The scan is textual: names inside {{ }} / {% %} and in when/until/that
 expressions, against top-level keys of defaults, vars and group_vars and the
@@ -18,6 +25,8 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+
+import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
 
@@ -109,6 +118,64 @@ def test_the_scan_sees_the_shared_values():
     reads = _read_by_reconcile(_reconcile_files())
     for name in ("catena_admin_service_name", "catena_admin_image", "swarm_stack_dir"):
         assert name in reads, f"the scan no longer sees {name} being read"
+
+
+_GROUP_VARS = ANSIBLE / "playbooks" / "group_vars" / "all" / "main.yml"
+
+# Inventory values the host keeps a record of, so its own converge reads the
+# same answer. Each carries where the record is written.
+_RECORDED_ON_THE_HOST = {
+    "public_ip": "bootstrap/roles/common writes catena_host_facts_path",
+}
+
+
+def _operator_supplied() -> set[str]:
+    """Every host var the inventory skeleton sets, and every shared value
+    group_vars reads from the inventory's .env."""
+    skel = yaml.safe_load((ANSIBLE / "skel" / "hosts.yml.example").read_text())
+    names: set[str] = set()
+    for host in skel["all"]["children"]["vps"]["hosts"].values():
+        names |= set(host)
+    shared = yaml.safe_load(_GROUP_VARS.read_text())
+    names |= {k for k, v in shared.items() if "lookup('dotenv'" in str(v)}
+    return names
+
+
+def test_the_reconcile_reads_nothing_only_the_operator_supplies():
+    reads = _read_by_reconcile(_reconcile_files())
+    offenders = {
+        name: sorted(reads[name])
+        for name in _operator_supplied() - set(_RECORDED_ON_THE_HOST)
+        if name in reads
+    }
+    assert not offenders, (
+        "the reconcile tree reads values only the operator's inventory "
+        "supplies; a host converging itself resolves them differently, so the "
+        "two converge paths render different files for one machine:\n"
+        + "\n".join(f"  {n} <- {', '.join(f)}" for n, f in sorted(offenders.items()))
+        + "\nRead a stable on-host value instead (inventory_hostname, the "
+          "store), or record the inventory's value on the host and list it in "
+          "_RECORDED_ON_THE_HOST."
+    )
+
+
+def test_the_operator_supplied_scan_sees_the_inventory():
+    """A scan that found no operator-only names would pass anything."""
+    names = _operator_supplied()
+    for name in ("ansible_host", "public_ip", "ops_user"):
+        assert name in names, f"the scan no longer sees {name} as operator-supplied"
+
+
+def test_a_recorded_value_is_read_back_from_the_record():
+    """public_ip is read by the reconcile only because the host carries the
+    operator's value: common writes it where fact gathering reads it, and the
+    shared definition prefers it over the default route."""
+    shared = yaml.safe_load(_GROUP_VARS.read_text())
+    assert "ansible_local.catena.public_ip" in shared["public_ip"]
+    assert shared["catena_host_facts_path"].endswith("/catena.fact")
+    common = (ANSIBLE / "bootstrap/roles/common/tasks/main.yml").read_text()
+    assert "dest: \"{{ catena_host_facts_path }}\"" in common
+    assert "'public_ip': public_ip" in common
 
 
 def test_the_scan_follows_a_roles_import_of_a_shared_task_file():

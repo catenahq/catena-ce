@@ -624,3 +624,24 @@
     owner: root
     group: root
     mode: "0755"
+
+# ─── The public address, for the converge the host runs itself ──────────
+# Only the operator's inventory knows it. Recorded where fact gathering reads
+# it, so playbooks/group_vars/all/main.yml resolves public_ip to this value on
+# the host's own converge too.
+- name: "common: facts directory exists"
+  ansible.builtin.file:
+    path: "{{ catena_host_facts_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "common: record the public address the operator gave this host"
+  ansible.builtin.copy:
+    dest: "{{ catena_host_facts_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: "{{ {'public_ip': public_ip} | to_nice_json }}\n"
+  when: public_ip | default('') | length > 0

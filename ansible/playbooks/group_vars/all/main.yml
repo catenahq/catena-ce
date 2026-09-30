@@ -11,13 +11,21 @@
 # --- Global ---
 ansible_managed: "Managed by catena -- do not edit directly; regenerate via the installer / converge.yml."
 
-# This machine's public address: coturn advertises it in its ICE candidates and
-# the mail and TURN A records point at it. A controller's inventory states it
-# (hosts.yml, from HOST_PUBLIC_IP), and a host var outranks this file. A host
-# converging itself has no inventory to ask and reads the address of its own
-# default route, which is the public address on a provider that puts it on the
-# interface; behind a provider's NAT that address is private.
-public_ip: "{{ ansible_default_ipv4.address | default('') }}"
+# This machine's public address: coturn advertises it in its ICE candidates, the
+# mail and TURN A records point at it, and the panel's catalog renders it. A
+# controller's inventory states it (hosts.yml, from HOST_PUBLIC_IP), and a host
+# var outranks this file. bootstrap/roles/common records that value on the host
+# as a local fact, which every converge gathers, so a host converging itself
+# renders the same address the operator's converge did. The default route's
+# address is the fallback for a host with no record; behind a provider's NAT it
+# is private.
+public_ip: >-
+  {{ ansible_local.catena.public_ip
+     | default(ansible_default_ipv4.address) | default('') }}
+# The record. /etc belongs to the machine and a data restore skips it, so a
+# rebuilt host keeps the address its own install recorded. The file's basename
+# is the `ansible_local` key public_ip reads.
+catena_host_facts_path: /etc/ansible/facts.d/catena.fact
 
 # --- Identity ---
 ops_user: "{{ lookup('dotenv', 'OPS_USER', default='ops') }}"

@@ -155,6 +155,7 @@ bootstrap_owned_paths:
   - /usr/local/sbin/catena-admin-runner
   - /etc/sysctl.d/
   - /etc/modprobe.d/
+  - /etc/ansible/facts.d/
 
 # Paths a bootstrap-side TASK may never write.
 #

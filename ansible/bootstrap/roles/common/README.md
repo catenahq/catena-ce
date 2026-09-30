@@ -26,6 +26,9 @@ in `converge.yml`'s converge order.
   `playbooks/lockdown.yml` runs: it allows SSH over the tailnet, and closes
   public 22 only when the panel's Lockdown asks.
 - Create `/etc/catena` and `/var/lib/catena`.
+- Record the inventory's `public_ip` on the host (`catena_host_facts_path`, a
+  local fact), which `playbooks/group_vars/all/main.yml` reads back on the
+  host's own converge.
 
 ## Idempotency
 

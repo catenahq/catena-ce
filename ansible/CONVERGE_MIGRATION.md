@@ -580,9 +580,13 @@ deliberately switched off.
 - **What reconcile.yml reads resolves without an operator.** A value both
   halves need lives in `playbooks/group_vars/all/main.yml`, never in a
   bootstrap role's defaults, and `test_reconcile_reads_no_bootstrap_default.py`
-  fails on a read that only a bootstrap role defines. `public_ip` falls back to
-  the default route's address (private behind a provider's NAT), and the SSH
-  key lookup applies only to a non-local connection.
+  fails on a read that only a bootstrap role defines, or that only the
+  operator's inventory supplies. `public_ip` is the one inventory value the
+  reconcile reads: `bootstrap/roles/common` records it on the host as a local
+  fact and group_vars reads the record, so both paths render the same address;
+  a host with no record falls back to the default route's address (private
+  behind a provider's NAT). The SSH key lookup applies only to a non-local
+  connection.
 - **The image the tree came from is the image it configures.**
   `catena-converge` passes `CATENA_ADMIN_IMAGE` set to the image the panel is
   running, so the converge never moves the panel; the panel self-update does.
