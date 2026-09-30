@@ -206,9 +206,10 @@ def harvest_label_entries() -> list[pp.PortEntry]:
 def rule_sig(rule: dict) -> tuple:
     """Identity of a firewall effect, ignoring the descriptive owner. Two
     rules with the same signature have the same firewall effect, so an
-    owner-only change does not churn iptables/ufw."""
+    owner-only change does not churn iptables/ufw. The conntrack state is
+    part of it, so a guard recorded without one is pruned by its own match."""
     return (rule["engine"], rule.get("action"), rule["proto"], rule["port"],
-            rule.get("iface"), rule.get("from"))
+            rule.get("iface"), rule.get("from"), rule.get("ctstate"))
 
 
 def load_applied() -> list[dict]:
@@ -306,14 +307,18 @@ def _docker_user_match(rule: dict) -> list[str]:
 
     --ctorigdstport matches the port the client actually dialled, which is
     what the declaration is about, and is unaffected by the rewrite.
+    --ctstate DNAT keeps the guard on that path: a container's own outbound
+    connection to the same port number is not DNAT'd and passes.
     """
     argv: list[str] = []
     if rule.get("iface"):
         argv += ["-i", rule["iface"]]
     if rule.get("from"):
         argv += ["-s", rule["from"]]
-    argv += ["-p", rule["proto"],
-             "-m", "conntrack", "--ctorigdstport", rule["port"]]
+    argv += ["-p", rule["proto"], "-m", "conntrack"]
+    if rule.get("ctstate"):
+        argv += ["--ctstate", rule["ctstate"]]
+    argv += ["--ctorigdstport", rule["port"]]
     return argv
 
 

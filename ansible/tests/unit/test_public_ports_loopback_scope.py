@@ -163,6 +163,37 @@ def test_dnat_guard_matches_the_dialled_port_not_the_container_port():
     assert match[match.index("--ctorigdstport") + 1] == "9021"
 
 
+@pytest.mark.parametrize("scope", ["loopback", "tailnet", "rfc1918"])
+def test_the_dnat_guard_leaves_a_containers_own_egress_alone(scope):
+    """DOCKER-USER also carries every connection a container opens to the
+    outside. Matched on the port alone, the loopback DROP for the Portainer
+    UI on 9000 also drops Nextcloud's connections to an S3 endpoint on 9000.
+    Every guard is for the DNAT path, so every one matches state DNAT."""
+    mod = _reconciler()
+    entries = pp.normalize_infra([
+        {"proto": "tcp", "port": 9000, "scope": scope, "bind": "docker",
+         "owner": "portainer"},
+    ])
+    guards = [r for r in pp.rule_plan(entries, tailnet_available=True)
+              if r["engine"] == "docker-user"]
+    assert guards
+    for rule in guards:
+        match = mod._docker_user_match(rule)
+        assert match[match.index("--ctstate") + 1] == "DNAT", match
+
+
+def test_a_guard_recorded_without_the_state_is_pruned_by_its_own_match():
+    """A host that applied the port-only guard records it in its applied
+    state. Its signature has to differ from the new guard's, or the reconciler
+    never prunes it and the old DROP keeps cutting off container egress."""
+    mod = _reconciler()
+    new = next(r for r in pp.rule_plan([_entry(bind="docker")], tailnet_available=True)
+               if r["engine"] == "docker-user")
+    old = {k: v for k, v in new.items() if k != "ctstate"}
+    assert mod.rule_sig(old) != mod.rule_sig(new)
+    assert "--ctstate" not in mod._docker_user_match(old)
+
+
 def test_a_guarded_docker_range_is_refused_rather_than_half_covered():
     """--ctorigdstport takes a single port. Emitting a guard that covers one
     port of a declared range would install cleanly, report every rule

@@ -450,7 +450,12 @@ def _ufw_layer(e: PortEntry) -> list[dict]:
 def _docker_user_layer(e: PortEntry) -> list[dict]:
     """DOCKER-USER (DNAT path) guard for a RESTRICTED docker-bound entry.
     RETURN allowed sources first, DROP last. Empty for scope=any (DNAT path
-    is open by Docker default) or host bind (no DNAT)."""
+    is open by Docker default) or host bind (no DNAT).
+
+    Every rule matches conntrack state DNAT. DOCKER-USER also carries every
+    connection a container opens to the outside, and matched on the port
+    alone a guard drops those too: a loopback DROP on 9000 cuts every
+    container off from an S3 endpoint listening on 9000."""
     if e.bind != "docker" or e.scope == "any":
         return []
     if e.lo != e.hi:
@@ -471,16 +476,18 @@ def _docker_user_layer(e: PortEntry) -> list[dict]:
         # so every packet that reaches this chain for the port arrived from
         # off-box and there is no allowed source to spare.
         return [{"engine": "docker-user", "action": "DROP", "proto": e.proto,
-                 "port": e.port_spec, "owner": e.owner}]
+                 "port": e.port_spec, "ctstate": "DNAT", "owner": e.owner}]
     rules: list[dict] = []
     if e.scope == "tailnet":
         rules.append({"engine": "docker-user", "action": "RETURN", "proto": e.proto,
-                      "port": e.port_spec, "iface": "tailscale0", "owner": e.owner})
+                      "port": e.port_spec, "iface": "tailscale0", "ctstate": "DNAT",
+                      "owner": e.owner})
     for net in _RFC1918:
         rules.append({"engine": "docker-user", "action": "RETURN", "proto": e.proto,
-                      "port": e.port_spec, "from": net, "owner": e.owner})
+                      "port": e.port_spec, "from": net, "ctstate": "DNAT",
+                      "owner": e.owner})
     rules.append({"engine": "docker-user", "action": "DROP", "proto": e.proto,
-                  "port": e.port_spec, "owner": e.owner})
+                  "port": e.port_spec, "ctstate": "DNAT", "owner": e.owner})
     return rules
 
 
