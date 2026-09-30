@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 156 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 154 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -19,10 +19,8 @@ The 156 scenarios the maintainers' test bench carries, and the behaviour each on
 | `ce_admin_smoke` | A Community host carries the host-side state its administration panel needs, and the panel answers. |
 | `ce_backup_deferred` | A host with no scheduled backup can still take one on demand, because whether a host backs up is answered by its storage credentials rather than by a switch. |
 | `ce_converge` | Applying the Community installer a second time to an already converged host changes nothing. |
-| `ce_install_cloudflare_first` | A server installs with a public domain and no private network, then joins a private network from its panel and closes public SSH behind it. |
 | `ce_install_headscale` | A host joins a self-hosted private network control server instead of the hosted one, and reaches the rest of the network through it. |
-| `ce_install_suite` | A Community install brings up the full application suite rather than the base host alone. |
-| `ce_install_tailnet_first` | A server installs on its private network with no domain, then publishes its panel on a public domain from the panel itself. |
+| `ce_install_suite` | A Community install, configured in its panel, brings up the full application suite rather than the base host alone. |
 | `ce_restore` | A Community host restores from its encrypted backup and comes back with the content the snapshot held. |
 | `ce_uninstall` | Uninstalling hands the host back to the operating system, including the package-update timers the install had taken over. |
 | `ce_validate` | A converged Community host validates itself end to end using only the shipped installer. |
@@ -80,7 +78,7 @@ The 156 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_d7_restic_corrupt_pack` | Corruption introduced into the backup repository is detected by the deep verification pass. |
 | `fi_n10_multidomain_cap` | A Community host asked to serve more than one domain degrades to the one it supports rather than refusing to converge. |
 | `fi_n11_lockdown_refuses_shields_up` | A lockdown applied from the panel refuses to close public SSH while the private network reports the server as refusing incoming connections. |
-| `fi_n1_tailnet_partition_mid_converge` | A private network partition while a host joins it fails the reachability probe instead of proceeding blind. |
+| `fi_n1_tailnet_partition_mid_converge` | A private network partition fails the lockdown's reachability proof instead of proceeding blind. |
 | `fi_n2_cf_tunnel_down` | Blocked access to the edge provider at validation time is reported as a warning rather than stopping the converge. |
 | `fi_n3_dns_propagation_lag` | Slow public name propagation is absorbed by the certificate retry budget, and issuance still completes. |
 | `fi_n4_cf_zone_misconfigured` | A wrong edge-provider credential or zone aborts the converge immediately with a clear failure. |
@@ -94,7 +92,7 @@ The 156 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_o5_deadman_off_by_default` | The external dead-man watchdog installs nothing at all when no endpoint is configured. |
 | `fi_s2_input_truncated` | A truncated installation input file is rejected before anything is provisioned. |
 | `fi_s3_placeholder_inert` | An unreplaced placeholder left in a lower-precedence configuration file has no effect on a converged host. |
-| `fi_s4_tailscale_oauth_revoked` | A revoked private network credential is detected up front by minting a throwaway key, rather than at converge time. |
+| `fi_s4_tailscale_oauth_revoked` | A revoked private network credential entered in the panel is refused by the check its save runs on the host, and never stored. |
 | `fi_s6_ovh_token_invalid` | An invalid hosting-provider credential aborts snapshot creation instead of reporting success. |
 | `fi_s7_smtp_creds_invalid` | Invalid outbound mail credentials surface as an authentication failure from a live probe at the moment they are saved. |
 | `fi_s8_s3_hot_revoked` | A revoked object-store key aborts the backup converge cleanly rather than failing halfway through. |
