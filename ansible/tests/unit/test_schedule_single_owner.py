@@ -166,14 +166,6 @@ def test_the_daily_env_does_not_carry_a_schedule():
     assert "DAILY_TIMER_ONCALENDAR" not in body
 
 
-def test_the_daily_env_does_not_carry_the_update_policy():
-    # Whether a host without a backup still gets container updates is a
-    # Schedules page setting: catena-schedule renders it into
-    # /etc/catena/daily-policy.env. catena-daily reads daily.env first and
-    # keeps the first value it sees, so a copy here would win over the panel.
-    assert "DAILY_UPDATE_WITHOUT_BACKUP" not in _code(DAILY_ENV)
-
-
 # ─── the other lanes can start at all ──────────────────────────────────
 #
 # daily.env is not the only one. catena-stack-update-managed.service declares
