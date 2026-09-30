@@ -56,7 +56,7 @@ uv run catena-cli install --inventory prod
 
 3. The installer completes the installation on your server. Public SSH stays open until you choose `Lockdown` in the panel.
 
-4. Save the **admin password**, the **console password for `ops`** and the **journal verification key** shown at the end of the installation to your password manager. You need the console password to log in from your provider's console if SSH is unavailable. `uv run catena-cli show-keyset --inventory <name>` shows the passwords again; the journal key is shown once.
+4. Save the **admin password**, the **console password for `ops`** and the **journal verification key** shown at the end of the installation to your password manager. You need the console password to log in from your provider's console if SSH is unavailable. Running `uv run catena-cli install --inventory <name>` again shows the passwords again; the journal key is shown once.
 
 5. Log in to the Catena-Admin interface with the admin email and password at `http://localhost:9010`, through an SSH forward as the `panel` account, which can do nothing but forward:
 ```sh

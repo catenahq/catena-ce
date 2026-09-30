@@ -7,7 +7,7 @@ the tunnel, the tailnet, the passwords -- runs from catena-admin on the host.
 Subcommands:
 
   install    seed config (reuses seed.py), then run
-             preflight -> bootstrap -> converge -> validate, and show the
+             bootstrap -> converge -> validate, and show the
              passwords the server minted. Run again, it shows them again.
   converge   re-run converge.yml: it applies the operator-run roles the
              panel's own converge cannot, and is the way in when the panel
@@ -66,14 +66,14 @@ def _collections_dir() -> str:
 
 COLLECTIONS_DIR = _collections_dir()
 
-# The ordered converge chain a fresh install runs. preflight is a SEPARATE
-# invocation BEFORE bootstrap so a stray --limit can never skip it.
+# The ordered converge chain a fresh install runs, each leg its own
+# ansible-playbook invocation.
 #
 # Every leg reaches the host over the public SSH address the install started
 # on. The install configures nothing beyond reaching and installing the server:
 # the domain, the private network and the backups are entered in the panel
 # once it runs, and the panel joins the tailnet itself.
-INSTALL_CHAIN = ("preflight", "bootstrap", "converge", "validate")
+INSTALL_CHAIN = ("bootstrap", "converge", "validate")
 
 # Stages that emit the host's administrative address into
 # .bootstrap-output.yml: bootstrap records the install address.
@@ -194,7 +194,7 @@ def _prompt_provider_password(inv_dir: Path, initial_user: str) -> str:
     Many providers install the public key given when the server is ordered, and
     then there is no password to type. Otherwise bootstrap.yml needs it to add
     the key, and declares it as a play-scoped vars_prompt that, left to itself,
-    stops the deploy chain to ask -- after preflight has already run and the
+    stops the deploy chain to ask -- after the collections install and the
     operator has walked away. Asking here, before the first playbook, is the
     whole point; ansible-playbook skips a vars_prompt whose name is already an
     extra-var, so the mid-run question never appears."""

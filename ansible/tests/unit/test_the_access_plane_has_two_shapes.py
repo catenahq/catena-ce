@@ -148,9 +148,10 @@ def test_the_lockdown_joins_before_it_closes():
 
 
 def test_the_tailnet_is_asked_before_anything_closes():
-    """The control server's record of the host, and on the host a peer, are
-    the proof the panel's lockdown has. It runs between the join and the ufw
-    change, so a refusal leaves public 22 open."""
+    """The control server's record of the host, and a peer answering through
+    the tunnel, are the proof the panel's lockdown has. It runs between the
+    join and the ufw change, so a refusal leaves public 22 open; a run that
+    only joins closes nothing and proves nothing."""
     tasks = _flatten((_load(LOCKDOWN_PLAY) or [])[0].get("tasks") or [])
     join = _index(tasks, "Join the tailnet")
     prove = _index(tasks, "Prove the tailnet reaches this host")
@@ -158,27 +159,21 @@ def test_the_tailnet_is_asked_before_anything_closes():
     assert join < prove < close, f"join={join} prove={prove} close={close}"
     inc = tasks[prove].get("ansible.builtin.include_role") or {}
     assert (inc.get("name"), inc.get("tasks_from")) == ("tailscale", "reachable.yml")
+    assert "catena_lockdown_close_public_ssh" in _conditions(tasks[prove])
 
 
-def test_on_the_host_no_probe_dials_its_own_address():
-    """The panel runs lockdown.yml over a local connection, where `localhost`
-    is the host: a handshake with its own tailnet address passes whatever the
-    tailnet thinks. Those probes run from the installer's controller only, and
-    on the host the reachability check requires a peer instead."""
-    tasks = _flatten(_load(LOCKDOWN_TASKS))
-    for name in ("Verify tailnet SSH reachability", "Re-verify tailnet SSH"):
-        probe = tasks[_index(tasks, name)]
-        assert "ansible_connection" in _conditions(probe) \
-            and "!= 'local'" in _conditions(probe), (
-                f"{name!r} runs on the host, where it dials itself")
+def test_no_probe_dials_the_host_from_itself():
+    """The panel runs lockdown.yml on the host, where `localhost` is the host:
+    a handshake with its own tailnet address passes whatever the tailnet
+    thinks. So nothing in the lockdown or the join dials the tailnet address,
+    and the reachability check requires a peer."""
     role = ANSIBLE / "bootstrap" / "roles" / "tailscale"
-    main = _flatten(_load(role / "tasks" / "main.yml"))
-    probe = main[_index(main, "Verify controller can reach node")]
-    assert "tailscale_on_host" in _conditions(probe)
-    defaults = _load(role / "defaults" / "main.yml") or {}
-    assert "== 'local'" in str(defaults.get("tailscale_on_host", ""))
+    for path in (LOCKDOWN_TASKS, role / "tasks" / "main.yml"):
+        for task in _flatten(_load(path)):
+            assert "ansible.builtin.wait_for" not in task, (
+                f"{path.name}: {task.get('name')!r} dials an address")
     reachable = (role / "tasks" / "reachable.yml").read_text(encoding="utf-8")
-    assert "TAILNET_REQUIRE_PEER" in reachable and "tailscale_on_host" in reachable
+    assert 'TAILNET_REQUIRE_PEER: "1"' in reachable
 
 
 def test_the_lockdown_writes_nothing_on_a_controller():
@@ -269,34 +264,29 @@ def test_the_tailnet_rules_and_address_do_not_wait_for_the_close():
 
 # --- shape three: tailnet, 22 closed after proof ----------------------------
 
-def test_the_close_is_still_gated_on_a_proof_from_the_controller():
-    """The sequence that keeps this from being a lockout, unchanged by the
-    method split: add -> PROVE from the machine about to lose the old path ->
-    remove. Detection is not proof: an interface can be up while the route
+def test_the_close_is_gated_on_the_proof():
+    """The sequence that keeps this from being a lockout: add -> PROVE ->
+    remove. The proof is reachable.yml, which the play runs before the ufw
+    file, and the ufw file only removes the public rule when the play asked to
+    close. Detection is not proof: an interface can be up while the route
     through it is dead."""
     tasks = _flatten(_load(LOCKDOWN_TASKS))
     add = _index(tasks, "Allow SSH on tailscale0")
-    proof = _index(tasks, "Verify tailnet SSH reachability")
     remove = _index(tasks, "Remove the public SSH allow rule")
-    assert add < proof < remove, (
-        f"the order is add={add} proof={proof} remove={remove}; the proof has "
-        "to sit between them or it reports the outcome instead of gating it")
-    verify = tasks[proof]
-    assert verify.get("delegate_to") == "localhost", (
-        "the proof runs on the host, which proves the connection Ansible "
-        "already has rather than the one the operator needs next")
+    assert add < remove, f"add={add} remove={remove}"
+    assert "catena_lockdown_close_public_ssh" in _conditions(_close_block())
 
 
-def test_the_registry_declaration_narrows_only_after_the_proof():
+def test_the_registry_declaration_narrows_only_after_the_rule_is_removed():
     """The port is a registry entry and the registry's reconciler runs on a
     timer, so the declaration decides the firewall long after this play ends.
-    Narrowing it before the proof would close 22 on the next timer fire,
-    whatever this play then decided."""
+    It narrows inside the close block, after the proof and the removal."""
     tasks = _flatten(_load(LOCKDOWN_TASKS))
-    proof = _index(tasks, "Verify tailnet SSH reachability")
+    remove = _index(tasks, "Remove the public SSH allow rule")
     declare = _index(tasks, "declare port 22 private")
-    assert proof < declare, (
-        "the declaration narrows before the tailnet path is proven")
+    assert remove < declare
+    names = [t.get("name", "") for t in _close_block().get("block") or []]
+    assert any("declare port 22 private" in n for n in names)
     body = LOCKDOWN_TASKS.read_text(encoding="utf-8")
     assert '"scope": "private"' in body, (
         "the lockdown declares a scope other than private, so the client's "

@@ -82,10 +82,8 @@
 # Fork on tailnet_provider: Tailscale SaaS (OAuth mint) OR self-hosted
 # Headscale (pre-auth key + --login-server). Both converge on `tailscale up`.
 #
-# The fork reads the DECLARED provider rather than re-deriving it from whether
-# a control URL is filled in. defaults/main.yml still falls back to that
-# derivation for a host that has never stored a choice, so this is one rule in
-# one place instead of the same guess repeated on eight tasks.
+# The fork reads the DECLARED provider (the store's TAILNET_PROVIDER) rather
+# than re-deriving it from whether a control URL is filled in.
 - name: Authenticate the node
   when: ts_backend_state != 'Running' or tailscale_force_reauth | bool
   block:
@@ -252,34 +250,9 @@
   ansible.builtin.set_fact:
     tailscale_ipv4: "{{ ts_ipv4_result.stdout | trim }}"
 
-# Atomicity: Tailscale's `Running` state + an assigned IPv4 are necessary
-# but not sufficient -- the controller also needs to actually reach the
-# node at that IP. ACL mismatch, DERP-only routes, MagicDNS resolver
-# timing, or a stale tailnet route from a previous ephemeral node can
-# all leave the node technically "joined" but unreachable. Every invocation
-# after the install reaches the host at this address, and the panel's Lockdown
-# closes public 22 behind it; a route that is not live would surface there as a
-# misleading connection error. Probe now so the failure (if any) surfaces here
-# with a clear message.
-#
-# 120s: a fresh DERP-relayed path, ACL/route propagation, or a session
-# momentarily superseded (another node briefly presenting the same key, as
-# the bench's snapshot clones do) can take well over 30s to settle into a
-# reachable route. wait_for polls the port for the whole window, so a node
-# that never becomes reachable still fails.
-#
-# From the controller only: on the host itself (the panel's lockdown) this
-# would dial the host's own address. There, tasks/reachable.yml asks the
-# control server and a peer instead.
-- name: "Verify controller can reach node via tailnet IPv4"
-  ansible.builtin.wait_for:
-    host: "{{ tailscale_ipv4 }}"
-    port: 22
-    timeout: 120
-  delegate_to: localhost
-  become: false
-  when: not (tailscale_on_host | bool)
-
+# Running with an address is joined, not reachable: whether anyone reaches the
+# node over it is tasks/reachable.yml's question, which the panel's Lockdown
+# asks before it closes public 22.
 - name: Report tailnet identity
   ansible.builtin.debug:
     msg: "{{ inventory_hostname }} joined tailnet at {{ tailscale_ipv4 }}"

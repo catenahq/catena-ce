@@ -74,9 +74,8 @@
       nothing to authenticate the delete with.
 
 # The zone comes from the store this role already slurped, not from the
-# inventory. This play has no load_onbox_config pre_task by design -- it is
-# dispatched from the panel with the token on the command line -- so it reads
-# the same source the loader would have published, one file, one answer.
+# inventory: the same source the loader would have published, one file, one
+# answer.
 - name: "CF regen: take the zone from the store"
   ansible.builtin.set_fact:
     cloudflare_zone: >-
@@ -110,8 +109,8 @@
     that:
       - cloudflare_zone | length > 0
     fail_msg: >-
-      No Cloudflare zone in the on-box store. The zone is seeded there on the
-      first converge; a host without one has never finished an install.
+      No Cloudflare zone in the on-box store. Enter the domain with the
+      Cloudflare token in catena-admin > Settings first.
   run_once: true
   delegate_to: localhost
   become: false

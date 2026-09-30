@@ -5,12 +5,6 @@
 # TAILSCALE_TAGS with no default, so a missing value fails the join.
 tailscale_force_reauth: false
 
-# True when the play runs on the host itself (the panel's lockdown, through
-# catena-converge's local-connection inventory). A probe of the tailnet address
-# from "where the play is driven from" then dials the host's own address, so
-# tasks/reachable.yml requires a peer instead.
-tailscale_on_host: "{{ (ansible_connection | default('ssh')) == 'local' }}"
-
 # Ephemeral nodes auto-evict from the tailnet shortly after `tailscale logout`
 # (or when the daemon stops). False keeps the node identity across reboots.
 tailscale_ephemeral: false

@@ -2,13 +2,12 @@
 # Validation orchestrator: check a converged host from three vantage points,
 # so a service that only answers on the box is not mistaken for a working one.
 #   1. On-host  -- per-role Ansible validate tasks (roles/<role>/tasks/validate.yml), executed on the target
-#   2. Tailnet  -- from the controller, hitting tailnet addresses
+#   2. Access   -- SSH from the controller, the two UIs on the host's loopback,
+#                  the public hostnames once a domain is set
 #   3. External -- from the controller, hitting public IP / CF hostnames
 #
-# Runs standalone OR as the post-converge leg composed by the installer.
-#
-# Usage (cwd = ansible/):
-#   ansible-playbook -i inventory/<name> playbooks/validate.yml --limit host1
+# The installer's last leg. With no domain, tailnet or backup in the store yet,
+# the checks that need one skip and say so.
 
 - name: "Vantage 1 -- on-host checks via per-role validate.yml"
   # Each role under test ships its own roles/<role>/tasks/validate.yml.

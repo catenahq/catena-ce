@@ -291,9 +291,8 @@ def test_read_existing_env_parses_a_hand_filled_file(seed, tmp_path):
 
 # --- emit_hosts_yml ---------------------------------------------------------
 def test_emit_hosts_yml_copies_the_skeleton(seed, tmp_path):
-    """hosts.yml is now static -- every field reads from .env at ansible
-    runtime via the dotenv lookup, so seed just copies the skeleton once,
-    same as emit_localhost_yml."""
+    """hosts.yml is static -- every field reads from .env at ansible runtime
+    via the dotenv lookup, so seed just copies the skeleton once."""
     target = tmp_path / "hosts.yml"
     seed.emit_hosts_yml(target)
     assert target.read_text() == seed.HOSTS_YML_SKEL.read_text()

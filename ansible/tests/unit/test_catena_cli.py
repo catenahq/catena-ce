@@ -24,9 +24,9 @@ def cli():
 
 
 def test_install_chain_order(cli):
-    """Fresh install runs preflight before bootstrap, then site, then validate.
-    No leg joins a tailnet: the install configures none."""
-    assert cli.INSTALL_CHAIN == ("preflight", "bootstrap", "converge", "validate")
+    """Fresh install runs bootstrap, then the converge, then validate. No leg
+    joins a tailnet or checks a tailnet credential: the install takes none."""
+    assert cli.INSTALL_CHAIN == ("bootstrap", "converge", "validate")
 
 
 def _stage_of(cmd):
@@ -46,7 +46,7 @@ def test_run_deploy_chain_threads_global_extra_on_every_stage(cli, monkeypatch, 
     monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
     monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
     cli._run_deploy_chain(
-        tmp_path, ("preflight", "bootstrap", "converge"),
+        tmp_path, ("bootstrap", "converge", "validate"),
         bootstrap_extra=["-e", "@boot"], global_extra=["-e", "@secrets"],
     )
     pb = [c for c in calls if c and c[0] == "ansible-playbook"]
@@ -69,7 +69,7 @@ def test_the_chain_applies_the_install_address_after_bootstrap(cli, monkeypatch,
                         lambda p: events.append("apply") or [])
     cli._run_deploy_chain(tmp_path, cli.INSTALL_CHAIN, bootstrap_extra=None)
     order = [e.split()[1] if e.startswith("run ") else e for e in events]
-    assert order == ["preflight", "bootstrap", "apply", "converge", "validate"], order
+    assert order == ["bootstrap", "apply", "converge", "validate"], order
     assert not any("catena_lockdown" in e for e in events)
 
 
@@ -297,7 +297,7 @@ def test_bootstrap_extra_vars_install_yaml_initial_user_overrides_env(cli, tmp_p
 def test_bootstrap_extra_vars_answers_the_password_prompt_even_when_blank(cli, tmp_path):
     """No inventory, no -i, nothing to prompt with: the password name is still
     emitted. Leaving it out is exactly what lets bootstrap.yml's vars_prompt
-    stop the deploy chain to ask for it after preflight has already run."""
+    stop the deploy chain to ask for it once the operator has walked away."""
     inv_dir = tmp_path / "inv"
     inv_dir.mkdir()
     extra, tmp = cli._bootstrap_extra_vars(inv_dir, None)

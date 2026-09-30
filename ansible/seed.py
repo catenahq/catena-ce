@@ -7,11 +7,10 @@ reads env/host/vault values from the file, prompts for anything missing.
 Without one, inventory/<name>/.env must already exist -- copied from
 inventory/example/.env.example and filled in, same as any other config
 file -- and seed reads it directly instead of prompting field by field.
-hosts.yml/localhost.yml auto-scaffold from skel/ regardless of which path
-ran; an existing file's values always win (reconcile-not-overwrite):
+hosts.yml auto-scaffolds from skel/ regardless of which path ran; an
+existing file's values always win (reconcile-not-overwrite):
   - inventory/<name>/.env                            (non-secret config)
   - inventory/<name>/hosts.yml                        (bootstrap + vps entries)
-  - inventory/<name>/localhost.yml                    (preflight anchor)
 
 The group_vars structure (playbooks/group_vars/all/main.yml) is shared: it
 is pure `lookup('dotenv', ...)` boilerplate, identical for every inventory,
@@ -60,12 +59,11 @@ import yaml
 # REPO_ROOT is the self-contained ansible/ tree (seed.py sits at its root).
 REPO_ROOT = Path(__file__).resolve().parent
 # inventory/example/ carries ONLY .env.example -- the one file a self-hoster
-# copies. hosts.yml/localhost.yml auto-scaffold from skel/ (below) and are
-# never meant to be opened, let alone copied, so they don't sit in the same
-# directory implying otherwise.
+# copies. hosts.yml auto-scaffolds from skel/ (below) and is never meant to be
+# opened, let alone copied, so it does not sit in the same directory implying
+# otherwise.
 ENV_TEMPLATE = REPO_ROOT / "inventory" / "example" / ".env.example"
 SKEL = REPO_ROOT / "skel"
-LOCALHOST_YML_SKEL = SKEL / "localhost.yml"
 HOSTS_YML_SKEL = SKEL / "hosts.yml.example"
 
 # Make `from helpers import ...` resolve whether seed.py is run as a script
@@ -529,13 +527,6 @@ def emit_env(template_text: str, values: dict[str, str], target: Path, *,
     target.write_text("\n".join(out) + "\n")
 
 
-def emit_localhost_yml(target: Path) -> None:
-    if target.exists():
-        return
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(LOCALHOST_YML_SKEL, target)
-
-
 def emit_hosts_yml(target: Path) -> None:
     if target.exists():
         return
@@ -694,8 +685,6 @@ def _write_inventory_files(
     banner(f"Writing inventory/{inventory}/ (non-secret files only)")
     emit_env(env_template, env_values, env_target)
     ok(f"wrote {env_target}")
-    emit_localhost_yml(inv_dir / "localhost.yml")
-    ok(f"wrote {inv_dir / 'localhost.yml'}")
     # No vault.yml: secrets never persist on the laptop. An admin override goes
     # to the transient --secrets-out file; everything else is minted on-box.
     hosts_target = inv_dir / "hosts.yml"

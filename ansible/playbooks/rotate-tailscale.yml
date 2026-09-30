@@ -1,9 +1,8 @@
 ---
 # Re-authenticate this node to the tailnet (force re-auth). Manual
 # maintenance action (Community): use when the node lost tailnet
-# reachability or you are rotating tags. With OAuth-minted keys a fresh key
-# is minted automatically on every install/recover, so this exists for
-# explicit re-auth only.
+# reachability or you are rotating tags. Every join mints a fresh key, so this
+# exists for explicit re-auth only.
 #
 # Usage (cwd = ansible/):
 #   ansible-playbook -i inventory/prod playbooks/rotate-tailscale.yml
@@ -13,16 +12,10 @@
   become: true
   gather_facts: false
 
-  # WHICH tailnet is a store value, so this play has to read the store.
-  #
-  # tailnet_provider, tailnet_control_url and tailnet_headscale_user resolve
-  # from cfg_* facts with no inventory fallback, and this play had no loader --
-  # so every one of them was empty here and the provider inference answered
-  # "tailscale" unconditionally. On a Headscale host this rotated against the
-  # wrong control server, which is the one thing a re-auth action must not do:
-  # it is reached precisely when the node has lost tailnet reachability, and it
-  # would have taken the operator further from the tailnet rather than back to
-  # it. Found by tests/unit/test_store_readers_load_the_store.py.
+  # WHICH tailnet is a store value: tailnet_provider, tailnet_control_url and
+  # tailnet_headscale_user resolve from cfg_* facts with no inventory fallback,
+  # so this play loads the store. A re-auth against the wrong control server
+  # takes the host further from the tailnet it has lost.
   pre_tasks:
     - name: "Load the on-box config store"
       ansible.builtin.include_tasks:

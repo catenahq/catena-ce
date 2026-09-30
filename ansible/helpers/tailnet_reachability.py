@@ -2,17 +2,15 @@
 """Ask the tailnet whether this host is reachable on it, before public 22 closes.
 
 Runs ON the host, shipped by bootstrap/roles/tailscale/tasks/reachable.yml,
-which playbooks/lockdown.yml runs right after the join. Each question is
+which playbooks/lockdown.yml runs before it closes public 22. Each question is
 answered by something other than the host's own view of itself:
 
   1. The control server's record of this node. Tailscale: the device API's
      `connectedToControl` and `blocksIncomingConnections`. Headscale: the node
      API's `online`. A node the control server does not see connected, or one
      that refuses incoming connections, is reachable by nobody.
-  2. With TAILNET_REQUIRE_PEER=1 (the panel's lockdown, which runs on the host
-     itself): an online peer that carries none of this host's tags answers a
-     TSMP ping through the tunnel. From the installer, the controller's own
-     TCP probe in ufw_lockdown.yml is that proof, and the peer is not asked.
+  2. With TAILNET_REQUIRE_PEER=1 (what reachable.yml sets): an online peer that
+     carries none of this host's tags answers a TSMP ping through the tunnel.
 
 Input is the environment, so no credential reaches argv or the process table:
 TAILNET_PROVIDER (tailscale | headscale), TAILSCALE_API_BASE,

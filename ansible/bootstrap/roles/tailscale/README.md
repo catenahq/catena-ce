@@ -31,29 +31,20 @@ itself leaks, rotation is the runbook: there are no auth keys to revoke.
 The Headscale fork accepts a static `headscale_preauth_key` when no API key
 is stored. That one IS long-lived, which is why the API key is preferred.
 
-[../../../playbooks/preflight.yml](../../../playbooks/preflight.yml) proves
-a Tailscale OAuth client in scope before any VPS is touched: token exchange, a
-60-second throwaway mint carrying the first configured tag, and a read of the
-device list (the `Devices -> Core -> Read` scope `tasks/reachable.yml`
-needs). Any failure prints the admin-console clicks inline (ACL `tagOwners`
-entry, client scopes, client tag authorization) rather than carrying on with a
-broken client.
-
 ## Reachability before the lockdown
 
 [tasks/reachable.yml](tasks/reachable.yml), which `playbooks/lockdown.yml`
-runs right after the join and before public 22 can close (only the panel's
-Lockdown closes it), asks the tailnet rather than the host whether the host
-is reachable
+runs right after the join when the panel's Lockdown closes public 22, asks the
+tailnet rather than the host whether the host is reachable
 ([../../../helpers/tailnet_reachability.py](../../../helpers/tailnet_reachability.py),
 run on the host):
 
 - the control server's record of the node: Tailscale's device API
-  (`connectedToControl`, `blocksIncomingConnections`), or Headscale's node API
-  (`online`, which needs `headscale_api_key`);
-- on the host itself (`tailscale_on_host`, the panel's lockdown), an online
-  peer carrying none of `tailscale_tags` answering a TSMP ping through the
-  tunnel. From a controller, its TCP probe is that proof.
+  (`connectedToControl`, `blocksIncomingConnections`, which needs the
+  `Devices -> Core -> Read` scope), or Headscale's node API (`online`, which
+  needs `headscale_api_key`);
+- an online peer carrying none of `tailscale_tags` answering a TSMP ping
+  through the tunnel.
 
 A refusal ends the lockdown with public 22 still open and the reason in its
 log.
@@ -74,8 +65,8 @@ Settings.
   fails the join. The tag must be in the control server's `tagOwners` and the
   credential must be authorized for it.
 - `tailscale_hostname` (the inventory hostname), `tailscale_accept_dns`
-  (false: the host keeps its own resolver), `tailscale_ephemeral`, `tailscale_force_reauth`, `tailscale_on_host` (true
-  under catena-converge's local-connection inventory).
+  (false: the host keeps its own resolver), `tailscale_ephemeral`,
+  `tailscale_force_reauth`.
 
 ## Side effects
 
@@ -86,10 +77,6 @@ Settings.
 - Exposes the joined node's tailnet IPv4 as the `tailscale_ipv4` fact.
   `playbooks/lockdown.yml` runs this role first; from the panel's Lockdown it
   then closes public 22 behind it.
-- From the controller, probes port 22 at that address (120s budget), so a
-  node that is `Running` but unroutable fails here instead of as a misleading
-  error in the lockdown. On the host itself that probe would dial its own
-  address, so it is skipped there and `tasks/reachable.yml` answers instead.
 
 ## Idempotency
 

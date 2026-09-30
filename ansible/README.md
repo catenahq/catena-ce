@@ -7,7 +7,7 @@ installer that drives it. For the install walkthrough itself see
 ## The flows
 
 ```
-install:  preflight  ->  bootstrap  ->  converge  ->  validate
+install:  bootstrap  ->  converge  ->  validate
 panel:    lockdown, restore
 ```
 
@@ -17,8 +17,6 @@ the install. The panel and Portainer answer the host's loopback only and are
 reached through an SSH forward as the `panel` account, which can do nothing but
 forward. The domain, the tailnet and the backups are entered in the panel.
 
-- **preflight** -- controller-side check of a Tailscale OAuth client in
-  scope, before any VPS work.
 - **bootstrap** -- first-contact hardening of a fresh VPS (user, SSH,
   ufw) and the on-box config store.
 - **converge** -- the converge: networking (Cloudflare Tunnel / coturn),
@@ -67,7 +65,7 @@ the same `install`.
 
 | Command | Playbook | What it does |
 | --- | --- | --- |
-| `install` | chain | Seed the configuration, run preflight, bootstrap, converge, validate, then show the passwords (`show-keyset.yml`) |
+| `install` | chain | Seed the configuration, run bootstrap, converge, validate, then show the passwords (`show-keyset.yml`) |
 | `converge` | `converge.yml` | Re-apply from this machine; `--address` reaches the host at its tailnet address once the panel's Lockdown has closed public SSH |
 | `uninstall` | `uninstall.yml` | Unmask the native apt timers on a host an older release masked |
 
@@ -82,9 +80,9 @@ refused with the correct shape rather than an argparse choice error.
 `install` first runs `seed.py`: with no `-i`, `.env` must already exist
 (written by the graphical installer, or copied from
 `inventory/example/.env.example` and filled in), and seed reads its
-config from there instead of prompting field by field. `hosts.yml`/
-`localhost.yml` auto-scaffold from `skel/` on that same first run; nothing
-else to copy or edit. `-i install.yaml --no-confirm` generates a fresh
+config from there instead of prompting field by field. `hosts.yml`
+auto-scaffolds from `skel/` on that same first run; nothing else to copy or
+edit. `-i install.yaml --no-confirm` generates a fresh
 inventory from an answers file instead (the bench / power-user path),
 unattended; an answers file naming a value the server holds (the domain, the
 tailnet, backups, a vendor credential) is refused. The CLI then asks for the
