@@ -16,7 +16,7 @@ Baseline host setup. First role in `converge.yml`'s converge order.
   the host's loopback.
 - Provide the `ufw_lockdown.yml` task file `playbooks/lockdown.yml` runs: it
   allows SSH over the tailnet, and closes public 22 only when the panel's
-  Lockdown asks.
+  Lockdown asks. On a host with no tailnet it opens public 22.
 
 ## Inputs
 

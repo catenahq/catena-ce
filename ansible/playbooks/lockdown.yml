@@ -1,6 +1,7 @@
 ---
 # Join the tailnet, and -- only when the panel's Lockdown asks -- close public
-# port 22 behind it.
+# port 22 behind it. On a host with no tailnet, open public port 22, which a
+# Lockdown taken while the host had one closed.
 #
 # THE PANEL'S LOCKDOWN ACTION, run on the host. The install never runs it:
 # public 22 stays open after an install, because the host's security rests on
@@ -28,8 +29,8 @@
 # reachability check.
 #
 # The firewall half is bootstrap/roles/common's tasks/ufw_lockdown.yml, which
-# reads the access method this host declared and either proves the alternative
-# path before closing, or refuses and says so.
+# reads the access method this host declared and either closes the port behind
+# the proven alternative path, or, with no alternative, opens it and says so.
 
 - name: Join the tailnet, and close public SSH when the panel asks
   hosts: "{{ stage_hosts | default('vps') }}"

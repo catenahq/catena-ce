@@ -1,5 +1,6 @@
 ---
-# Close public port 22 when the panel's Lockdown asks, or say why it stays open.
+# Close public port 22 behind a proven tailnet when the panel's Lockdown asks,
+# or, on a host with no tailnet, open it.
 #
 # THE ONE TASK FILE THAT CAN LOCK EVERYBODY OUT. It is built to fail CLOSED --
 # you stay reachable -- rather than fail OPEN, and the shape that guarantees
@@ -24,13 +25,16 @@
 # public 22 stays open, because the host's security rests on key-only SSH and
 # the tailnet is a convenience whose one security feature is closing the port.
 #
-# THREE REACHABLE COMBINATIONS. `no tailnet + 22 open` is what a host with no
-# alternative gets, and it is a posture rather than a failure. `tailnet + 22
-# open` is where a host joined to a tailnet stays until the panel's Lockdown.
-# `tailnet + 22 closed` is the panel's Lockdown, below; the port reconciler
-# reopens 22 while the tailnet is down and closes it again when it is back.
-# `no tailnet + 22 closed` is unreachable by construction: there is nothing to
-# prove, so there is nothing that may close the port.
+# FOUR COMBINATIONS. `no tailnet + 22 open` is what a host with no alternative
+# gets, and it is a posture rather than a failure. `tailnet + 22 open` is where
+# a host joined to a tailnet stays until the panel's Lockdown. `tailnet + 22
+# closed` is the panel's Lockdown, below; the port reconciler reopens 22 while
+# the tailnet is down and closes it again when it is back. `no tailnet + 22
+# closed` is what that Lockdown leaves once the provider goes back to none:
+# SSH still reaches the host over the tailnet it is still on, the reconciler
+# reopens 22 if that tailnet goes down, and applying the chosen access opens 22
+# for good. Nothing closes 22 on a host with no tailnet: there is nothing to
+# prove.
 #
 # Detection is not proof. `ip link show tailscale0` says an interface exists,
 # which is a different question from whether anyone can reach this host over
@@ -45,24 +49,60 @@
            if catena_lockdown_close_public_ssh | default(false) | bool
            else "public 22 stays open; the panel's Lockdown closes it")
           if catena_access_method == 'tailnet'
-          else 'public 22 stays open -- this host has no other path' }})
+          else 'public 22 opens -- this host has no other path' }})
 
-# ─── No alternative path: 22 stays open, and the host says so ────────────
-- name: "Lockdown: refuse to close port 22 with no alternative proven"
-  ansible.builtin.debug:
-    msg: |
-      Public port 22 stays OPEN on this host.
-
-      Its access method is {{ catena_access_method }}, so SSH on the public
-      address is how it is reached for maintenance. Closing 22 would leave no
-      administrative path at all -- the provider's console, which is not a
-      path this playbook can reach.
-
-      To close it, choose a private network and enter its credentials in
-      catena-admin > Settings, then apply the lockdown again. It joins the
-      tailnet first, and closes the port only once the tailnet confirms this
-      server is reachable on it.
+# ─── No alternative path: 22 opens, and the host says so ─────────────────
+# The rule bootstrap/roles/common adds, and the declaration it first writes, so
+# the reconciler keeps the port open on every later timer fire. Both are no-ops
+# on a host whose port is open.
+- name: "Lockdown: open public 22 on a host with no alternative path"
   when: catena_access_method != 'tailnet'
+  block:
+    - name: Allow public SSH
+      ansible.builtin.command:
+        argv: [ufw, allow, from, any, to, any, port, "22", proto, tcp,
+               comment, "public ssh; lockdown.yml closes this on a tailnet host"]
+      register: _ufw_public_ssh
+      changed_when: >-
+        'Rule added' in _ufw_public_ssh.stdout
+        or 'Rule updated' in _ufw_public_ssh.stdout
+
+    - name: "Lockdown: declare port 22 open"
+      ansible.builtin.copy:
+        dest: "{{ public_ports_fragment_dir }}/{{ catena_ssh_fragment_name }}"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          {{
+            [
+              {"proto": "tcp", "port": 22, "scope": "any", "bind": "host",
+               "owner": "ssh", "comment": "administrative SSH"}
+            ] | to_nice_json
+          }}
+      register: _ssh_fragment_open
+
+    - name: "Lockdown: reconcile public ports now (port 22 declared open)"
+      ansible.builtin.systemd_service:
+        name: catena-public-ports.service
+        state: started
+      changed_when: false
+      when: _ssh_fragment_open.changed
+
+    - name: "Lockdown: public 22 is open with no alternative path"
+      ansible.builtin.debug:
+        msg: |
+          Public port 22 is OPEN on this host.
+
+          Its access method is {{ catena_access_method }}, so SSH on the public
+          address is how it is reached for maintenance. Closing 22 would leave
+          no administrative path at all -- the provider's console, which is not
+          a path this playbook can reach.
+
+          To close it, choose a private network and enter its credentials in
+          catena-admin > Settings, then apply the chosen access again. It joins
+          the tailnet first, and closes the port only once the tailnet confirms
+          this server is reachable on it.
 
 # ─── The tailnet path ────────────────────────────────────────────────────
 - name: "Lockdown: allow SSH over the tailnet"
@@ -164,11 +204,13 @@
       changed_when: true
       when: _public_ssh_removal is changed
 
-    # The declaration follows the firewall, and only ever in this direction.
-    # bootstrap/roles/common writes this fragment open and refuses to rewrite
-    # it; narrowing it is this file's alone, because narrowing it is what makes
-    # the reconciler keep 22 closed on every later timer fire -- and doing that
-    # without the proof would be the lockout this sequence exists to prevent. `private` rather than `tailnet`: the reconciler resolves it from
+    # The declaration follows the firewall. bootstrap/roles/common writes this
+    # fragment open and refuses to rewrite it; narrowing it is this block's
+    # alone, because narrowing it is what makes the reconciler keep 22 closed
+    # on every later timer fire -- and doing that without the proof would be
+    # the lockout this sequence exists to prevent. The block above widens it
+    # again on a host with no tailnet.
+    # `private` rather than `tailnet`: the reconciler resolves it from
     # the same declared method, so the client's port document names the path
     # this host actually has. The same reconciler reopens 22 while the tailnet
     # is down, so this declaration never strands a host whose tailnet broke.

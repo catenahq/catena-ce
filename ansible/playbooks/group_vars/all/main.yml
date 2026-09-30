@@ -52,7 +52,8 @@ catena_panel_user: panel
 #               reopens 22 while the tailnet is down.
 # `public_ssh`  `none`: no private network; port 22 stays open on the public IP,
 #               because a host with no alternative path has nothing to prove and
-#               closing it would be a lockout. The tailscale role is skipped.
+#               closing it would be a lockout. The tailscale role is skipped, and
+#               the panel's apply opens 22 after a Lockdown taken on a tailnet.
 catena_access_method: >-
   {{ 'tailnet'
      if (cfg_tailnet_provider | default('none', true) | trim | lower)

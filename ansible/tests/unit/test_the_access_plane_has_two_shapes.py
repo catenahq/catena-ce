@@ -1,12 +1,13 @@
 """A host installs with a tailnet or without one, and 22 closes only on the
 panel's Lockdown, after proof.
 
-THE INVARIANT, stated once so it is not filed later as a coverage gap. Three
-combinations are reachable:
+THE INVARIANT, stated once so it is not filed later as a coverage gap:
 
     no tailnet + 22 open     every install ends here
     tailnet + 22 open        the host joined the tailnet entered in the panel
     tailnet + 22 closed      the panel's Lockdown joined, proved, and closed
+    no tailnet + 22 closed   that Lockdown, after the provider went back to
+                             none; applying the chosen access opens 22
 
 ONE INSTALL PATH. Every leg reaches the host over the public SSH address the
 install started on, and the install configures no tailnet. Joining one is the
@@ -14,18 +15,18 @@ lockdown playbook's first step, which the panel runs on the host. Only the
 panel's Lockdown closes the port: key-only SSH is the host's security, and the
 tailnet is a convenience whose one security feature is closing 22.
 
-`no tailnet + 22 closed` is unreachable BY CONSTRUCTION. There is nothing to
-prove, so nothing may close the port, and a lockdown that could reach that state
-would be a lockout with a green checkmark. These tests are what makes "by
-construction" true rather than aspirational.
+NOTHING CLOSES 22 ON A HOST WITH NO TAILNET. There is nothing to prove, and a
+lockdown that closed it would be a lockout with a green checkmark. On such a
+host the lockdown opens it instead. These tests are what makes that true
+rather than aspirational.
 
 THE SECOND FAILURE MODE is the inverse and just as quiet: a host whose lockdown
 already closed 22 must not have it re-opened by a converge. The port is a
 public-port registry entry, and the registry's reconciler runs on a timer -- so
-the fragment that declares the port has exactly one widening writer
-(bootstrap/roles/common, which refuses to overwrite) and exactly one narrowing
-writer (the lockdown, after its proof). The reconciler itself serves the
-narrowed declaration as open while the tailnet is down
+the fragment that declares the port is widened only by bootstrap/roles/common's
+first write (which refuses to overwrite) and by the lockdown on a host with no
+tailnet, and narrowed only by the lockdown after its proof. The reconciler
+itself serves the narrowed declaration as open while the tailnet is down
 (tests/unit/test_public_ports_ssh_fallback.py), without rewriting it.
 
 Run: uv run pytest tests/unit/test_the_access_plane_has_two_shapes.py
@@ -209,23 +210,48 @@ def test_a_tailnet_free_host_keeps_its_public_ssh_rule():
         "is answered by something else")
 
 
-def test_the_lockdown_refuses_rather_than_closing_the_only_way_in():
-    """The unreachable third combination. The refusal is a task with a message,
+def test_the_lockdown_opens_the_only_way_in_rather_than_closing_it():
+    """With no tailnet the lockdown opens 22 and says so. The message is a task,
     not an absence: a lockdown that silently did nothing on this method would
     be indistinguishable from one that ran and failed."""
     tasks = _flatten(_load(LOCKDOWN_TASKS))
-    refusal = tasks[_index(tasks, "refuse to close port 22")]
-    assert "catena_access_method != 'tailnet'" in _conditions(refusal)
-    msg = str(refusal.get("ansible.builtin.debug", {}).get("msg", ""))
-    assert "stays OPEN" in msg, (
-        "the refusal does not state the outcome, so it reads as a step that "
+    block = tasks[_index(tasks, "open public 22 on a host with no alternative")]
+    assert "catena_access_method != 'tailnet'" in _conditions(block)
+    assert "catena_lockdown_close_public_ssh" not in _conditions(block)
+    said = tasks[_index(tasks, "public 22 is open with no alternative path")]
+    msg = str(said.get("ansible.builtin.debug", {}).get("msg", ""))
+    assert "is OPEN" in msg, (
+        "the message does not state the outcome, so it reads as a step that "
         "was skipped rather than a decision that was taken")
     assert "console" in msg, (
-        "the refusal does not say what the remaining path would be, which is "
-        "the whole reason it refuses")
-    assert "lockdown again" in msg, (
-        "the refusal does not say how to reach the other shape, so a client "
+        "the message does not say what the remaining path would be, which is "
+        "the whole reason the port stays open")
+    assert "chosen access again" in msg, (
+        "the message does not say how to reach the other shape, so a client "
         "who wants the port closed is told only that it is not")
+
+
+def test_a_host_with_no_tailnet_gets_its_public_ssh_back():
+    """A Lockdown taken on a tailnet leaves 22 closed and declared private once
+    the provider goes back to none. The apply adds the public rule back and
+    widens the declaration to `any`, or the reconciler closes the port again on
+    its next timer fire."""
+    tasks = _flatten(_load(LOCKDOWN_TASKS))
+    block = tasks[_index(tasks, "open public 22 on a host with no alternative")]
+    inner = block.get("block") or []
+    allow = inner[_index(inner, "Allow public SSH")]
+    argv = allow.get("ansible.builtin.command", {}).get("argv", [])
+    assert argv[:10] == ["ufw", "allow", "from", "any", "to", "any", "port", "22",
+                         "proto", "tcp"], argv
+    declare = inner[_index(inner, "declare port 22 open")]
+    content = str(declare.get("ansible.builtin.copy", {}).get("content", ""))
+    assert '"scope": "any"' in content, content
+    assert "catena_ssh_fragment_name" in str(
+        declare.get("ansible.builtin.copy", {}).get("dest", ""))
+    reconcile = inner[_index(inner, "reconcile public ports now")]
+    assert reconcile.get("ansible.builtin.systemd_service", {}).get("name") == (
+        "catena-public-ports.service")
+    assert _index(inner, "Allow public SSH") < _index(inner, "declare port 22 open")
 
 
 # --- shape two: tailnet, 22 open after the install --------------------------
