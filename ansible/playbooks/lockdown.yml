@@ -9,7 +9,8 @@
 #
 # CLOSING IS THE PANEL'S DECISION ALONE. catena_lockdown_close_public_ssh is
 # false unless the panel's Lockdown action sets CATENA_LOCKDOWN_CLOSE_PUBLIC_SSH
-# on the unit it starts; any other run joins and proves, and leaves 22 open.
+# on the unit it starts; any other run, such as the join a Settings save of the
+# tailnet starts, joins and leaves 22 open.
 # Once closed, the port reconciler (catena-public-ports) reopens 22 whenever
 # this host's tailnet is down, and closes it again when the tailnet is back.
 #
