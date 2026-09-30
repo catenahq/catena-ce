@@ -101,6 +101,26 @@
         path: "{{ catena_payload_dir }}"
       register: _payload_dir_before
 
+    # A digest names the same bytes wherever they come from, so an image
+    # addressed by one and already on this host needs no registry. The image
+    # the panel service runs always is, which keeps the host's own converge
+    # running while the registry does not answer. A tag can move, so a
+    # reference without a digest is always pulled.
+    - name: "Payload: is the digest-pinned image already on this host"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - image
+          - inspect
+          - "--format={{ '{{ .Id }}' }}"
+          - "{{ catena_payload_image }}"
+      register: _payload_present
+      changed_when: false
+      failed_when: false
+      when:
+        - catena_payload_pull | bool
+        - "'@sha256:' in catena_payload_image"
+
     - name: "Payload: pull {{ catena_payload_image }}"
       ansible.builtin.command:
         argv:
@@ -109,7 +129,9 @@
           - "{{ catena_payload_image }}"
       register: _payload_pull
       changed_when: "'Downloaded newer image' in _payload_pull.stdout"
-      when: catena_payload_pull | bool
+      when:
+        - catena_payload_pull | bool
+        - (_payload_present.rc | default(1)) != 0
 
     - name: "Payload: resolve the image ID"
       ansible.builtin.command:

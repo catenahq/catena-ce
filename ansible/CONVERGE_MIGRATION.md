@@ -652,19 +652,13 @@ than in the code.
   laptop passes: 1034 catena-ce tests, both ops suites, the audit's check-all.
   None of them can say the split produces the same host, which is an install
   from zero. It is the single largest untested change in this migration.
-- **The settle assertion turns an invisible defect into a loud one.**
-  `reconcile/roles/catena-admin` now re-inspects after a `docker service update` and fails
-  if the same drift is still reported. If `swarm_service_drift` reads a field
-  docker omits at its own default -- `StopGracePeriod` and the healthcheck
-  fields are the candidates -- the first bench run FAILS the converge instead of
-  quietly reporting changed for ever. That is the intended trade while nothing
-  is in production, and it is the thing to expect if a bench run reds here.
-- **The panel's release resolution runs on every converge, and FAILS the play
-  when the registry does not answer.** Fine for a converge an operator started.
-  Under phase 4's timer it becomes a scheduled dependency on GHCR being up. The
-  fix is not caching: with `minimum=''` the store's pin already wins whenever
-  there is one, so the answer is usually discarded anyway. Fail only when there
-  is no usable pin.
+- **An operator's converge FAILS when the registry does not answer.** The
+  panel's release resolution runs on every converge that names no
+  `CATENA_ADMIN_IMAGE`. The host's own converge names the image the panel runs,
+  so it asks no registry, and the payload role pulls a digest-pinned image only
+  when the host lacks it. The operator's converge still asks: with
+  `minimum=''` the store's pin already wins whenever there is one, so the
+  answer is usually discarded anyway. Fail only when there is no usable pin.
 - **The ACME seed is fill-only on a long-lived bench VM.** See the decision
   above. Fresh installs and rewinds re-seed; a re-converge after the bench
   host's bridge IP moved does not.
@@ -680,6 +674,13 @@ than in the code.
 
 ## Traps
 
+- **The settle assertion turns an invisible defect into a loud one.**
+  `reconcile/roles/catena-admin` re-inspects after a `docker service update`
+  and fails if the same drift is still reported. The fields
+  `swarm_service_drift` compares settle on a live service. A field added to it
+  that docker omits at its own default -- `StopGracePeriod` and the healthcheck
+  fields are the likely ones -- fails the converge instead of reporting changed
+  for ever, so that is the first thing to check if a converge reds here.
 - **`vendor/` is unusable as a directory name in catena-admin.** Go reads a
   top-level `vendor/` as module vendoring and a `vendor/` with no
   `modules.txt` fails every `go build` in the repo. The staging directory is
