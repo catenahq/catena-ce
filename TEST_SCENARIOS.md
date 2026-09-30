@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 156 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 157 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -14,7 +14,7 @@ The 156 scenarios the maintainers' test bench carries, and the behaviour each on
 | `audit_chain_tamper_evident` | An exported administrative audit trail verifies away from the host it came from, and stops verifying as soon as any row is altered. |
 | `backup_rollback` | A file changed after a backup is returned to its snapshot content by a rollback, and the applications come back with it. |
 | `backup_schedule_applied` | The scheduled maintenance a host actually runs matches what its configuration store asks for, and a freshly converged host schedules nothing at all. |
-| `catena_admin_self_update` | The administration panel updates both halves of itself, the container and the engines it installs on the host, and rolls both back together when the new version is bad. |
+| `catena_admin_self_update` | The administration panel updates itself as one unit -- the container, the engines it installs on the host and the host configuration the new version carries -- and restores all three if the new version is bad. |
 | `ce_admin_actions` | Pressing a maintenance button in the Community administration panel dispatches the action and streams its result back. |
 | `ce_admin_smoke` | A Community host carries the host-side state its administration panel needs, and the panel answers. |
 | `ce_backup_deferred` | A host with no scheduled backup can still take one on demand, because whether a host backs up is answered by its storage credentials rather than by a switch. |
@@ -35,6 +35,7 @@ The 156 scenarios the maintainers' test bench carries, and the behaviour each on
 | `daily_chain_full_pass` | The daily maintenance chain runs every stage end to end on a real host and reports itself idle when it finishes. |
 | `daily_chain_preflight_aborts_low_disk` | The daily maintenance chain refuses to start when free disk at the staging area is below the configured floor. |
 | `daily_chain_quiesce_invoked` | The daily maintenance chain quiesces applications before taking a backup and always releases them afterwards, including when the backup aborts the chain. |
+| `daily_chain_reboot_round_trip` | The nightly maintenance restarts a host whose installed updates wait for a restart, and checks that everything running before it came back. |
 | `daily_chain_resumes_after_reboot` | A daily maintenance chain cut short by a reboot resumes when the host comes back, on a licensed host whose daily schedule is on. |
 | `daily_chain_updates_without_backup` | Container updates still run on a server with no backup configured, behind the same health gate, and the maintenance log says no backup stands behind them. |
 | `daily_chain_verify_cold_blocks_mirror` | A failed cold-storage verification stops the offsite copy from pushing, so a bad archive is never propagated. |
