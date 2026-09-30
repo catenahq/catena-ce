@@ -48,10 +48,27 @@ docker_apt_key_url: "https://download.docker.com/linux/debian/gpg"
 docker_apt_repo: "deb [arch={{ 'amd64' if ansible_facts['architecture'] == 'x86_64' else ansible_facts['architecture'] }} signed-by=/etc/apt/keyrings/docker.asc]
   https://download.docker.com/linux/debian {{ docker_apt_codename }} stable"
 
-docker_packages:
-  - docker-ce
-  - docker-ce-cli
-  - containerd.io
+# The container engine this release installs, and the containerd.io it runs
+# on, as upstream versions in Docker's apt repository. A first install gets
+# exactly these and holds them, so neither an operator converge's dist-upgrade
+# nor unattended-upgrades moves them. An installed engine moves only through
+# catena-admin's catena-engine-upgrade, which reads these two keys from the
+# reconcile tree the panel image carries. Renovate (renovate.json) proposes a
+# bump 14 days after a release.
+docker_version: "29.8.1"
+docker_containerd_version: "2.3.5"
+
+# How Docker's repository names those versions for this host's Debian release.
+# catena-admin's catena-engine-upgrade builds the same strings.
+docker_apt_version_suffix: "-1~debian.{{ ansible_facts['distribution_major_version'] }}~{{ docker_apt_codename }}"
+docker_engine_packages:
+  - "docker-ce=5:{{ docker_version }}{{ docker_apt_version_suffix }}"
+  - "docker-ce-cli=5:{{ docker_version }}{{ docker_apt_version_suffix }}"
+  - "containerd.io={{ docker_containerd_version }}{{ docker_apt_version_suffix }}"
+
+# The CLI plugins, at whatever version the repository offers: they do not run
+# the containers.
+docker_plugin_packages:
   - docker-buildx-plugin
   - docker-compose-plugin
 

@@ -313,6 +313,14 @@ catena_apt_proxy_url: "{{ cfg_apt_proxy_url | default('') }}"
 catena_apt_origins_path: /etc/apt/apt.conf.d/51catena-origins
 catena_needrestart_conf_path: /etc/needrestart/conf.d/catena.conf
 
+# The container engine packages apt holds: bootstrap/roles/docker holds them
+# after installing the pinned engine, and playbooks/uninstall.yml releases
+# them.
+catena_held_engine_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+
 # Tailscale's apt repository, per Debian codename: installed by
 # bootstrap/roles/tailscale, refreshed by reconcile/roles/host_maintenance.
 tailscale_apt_codename: "{{ ansible_facts['distribution_release'] }}"

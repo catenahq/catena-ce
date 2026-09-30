@@ -96,9 +96,27 @@
   notify: restart docker
 
 # ─── install packages ────────────────────────────────────────────────────
-- name: Install Docker CE + compose plugin
+# The engine at the pinned versions, on a host that has none. An installed
+# engine stays where it is: catena-admin's catena-engine-upgrade moves it,
+# checks the host came back, and puts the previous pair back if not.
+- name: "Is the container engine installed"
+  ansible.builtin.command:
+    argv: [dpkg-query, --show, --showformat, "${Status}", docker-ce]
+  register: _docker_ce_status
+  changed_when: false
+  failed_when: false
+
+- name: Install the pinned container engine
   ansible.builtin.apt:
-    name: "{{ docker_packages }}"
+    name: "{{ docker_engine_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  when: "'install ok installed' not in (_docker_ce_status.stdout | default(''))"
+
+- name: Install the Docker CLI plugins
+  ansible.builtin.apt:
+    name: "{{ docker_plugin_packages }}"
     state: present
     update_cache: true
     cache_valid_time: 3600
@@ -149,10 +167,18 @@
 
 - name: "Reinstall docker packages cleanly after purge"
   ansible.builtin.apt:
-    name: "{{ docker_packages }}"
+    name: "{{ docker_engine_packages + docker_plugin_packages }}"
     state: present
     update_cache: true
   when: not _docker_bin.stat.exists
+
+# Held, so an operator converge's dist-upgrade and unattended-upgrades leave
+# the engine to catena-engine-upgrade.
+- name: Hold the container engine packages
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: "{{ catena_held_engine_packages }}"
 
 - name: Ensure docker.service is enabled and running
   ansible.builtin.command:

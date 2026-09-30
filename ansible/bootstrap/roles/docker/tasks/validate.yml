@@ -13,6 +13,21 @@
       - "'docker-compose-plugin' in ansible_facts.packages"
     fail_msg: "one of docker-ce/docker-ce-cli/containerd.io/docker-compose-plugin missing"
 
+- name: "validate/docker: read apt's held packages"
+  ansible.builtin.command:
+    argv: [apt-mark, showhold]
+  register: _docker_held
+  changed_when: false
+
+- name: "validate/docker: the container engine packages are held"
+  ansible.builtin.assert:
+    that:
+      - item in _docker_held.stdout_lines
+    fail_msg: >-
+      {{ item }} is not held, so an operator converge's dist-upgrade moves the
+      container engine with no health check behind it
+  loop: "{{ catena_held_engine_packages }}"
+
 - name: "validate/docker: service_facts"
   ansible.builtin.service_facts:
 

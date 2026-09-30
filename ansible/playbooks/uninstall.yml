@@ -3,8 +3,9 @@
 #
 # unattended-upgrades keeps applying OS security patches on every edition. This
 # unmasks and re-enables the native apt timers (idempotent on an unmasked
-# host), and removes the unattended-upgrades origins and the needrestart policy
-# reconcile/roles/host_maintenance added, so both run on Debian's defaults.
+# host), removes the unattended-upgrades origins and the needrestart policy
+# reconcile/roles/host_maintenance added, so both run on Debian's defaults, and
+# releases apt's hold on the container engine bootstrap/roles/docker pinned.
 #
 # The apps, the data, Portainer and the VPS's Tailscale and Cloudflare
 # registrations stay in place. Those are the client's to tear down
@@ -37,6 +38,14 @@
       loop:
         - "{{ catena_apt_origins_path }}"
         - "{{ catena_needrestart_conf_path }}"
+
+    # apt-mark rather than dpkg selections: on a host without the package,
+    # setting a selection would mark it for install.
+    - name: Release apt's hold on the container engine packages
+      ansible.builtin.command:
+        argv: "{{ ['apt-mark', 'unhold'] + catena_held_engine_packages }}"
+      register: _uninstall_unhold
+      changed_when: "'Canceled hold' in _uninstall_unhold.stdout"
 
     - name: Teardown guidance (Catena left your apps and data in place)
       ansible.builtin.debug:
