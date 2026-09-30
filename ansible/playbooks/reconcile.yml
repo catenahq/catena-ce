@@ -101,12 +101,14 @@
   post_tasks:
     # The declarative public-port registry, reconciled after every role has
     # dropped its fragment. The firewall's default-deny policy is bootstrap's;
-    # this only opens what the deployed apps declare.
+    # this only opens what the deployed apps declare. Not a change of its own:
+    # a converge that alters what is declared reports it on the fragment it
+    # writes, and a start joins a run the timer already has in flight.
     - name: "Public ports: reconcile firewall from registry"
       ansible.builtin.systemd_service:
         name: catena-public-ports.service
-        state: restarted
-      changed_when: true
+        state: started
+      changed_when: false
       tags: [public_ports]
 
     # Report -- never repair -- changes to the files boundary.yml puts on the

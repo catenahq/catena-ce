@@ -563,18 +563,16 @@ deliberately switched off.
   running, so the converge never moves the panel; the panel self-update does.
 
 **Proven on a host.** On a restored bench VM, `reconcile.yml` run alone the way
-`catena-converge` runs it completed (rc 0), and a second run changed one task:
-`Public ports: reconcile firewall from registry`, which is `changed_when: true`
-and restarts `catena-public-ports.service` on every converge.
+`catena-converge` runs it completed (rc 0).
 
 **The timer ships DISABLED, and that is the gate.** The unit pair
 (`catena-converge-scheduled.service` / `.timer`) is installed by the payload
 installer, which enables nothing -- that is what keeps install and activate two
 observable steps. Enabling it needs a reconcile against an unchanged store that
-reports zero changed tasks and restarts nothing. The firewall task above is
-what stands between the proven run and that bar: it needs a changed signal from
-the reconciler. Until then a timer is a scheduled outage rather than a
-scheduled converge.
+reports zero changed tasks and restarts nothing, which is what the bench
+scenario `reconcile_is_a_noop` asserts. The port reconcile at the end of both
+converges starts the reconciler without reporting a change: a converge that
+alters what is declared reports it on the fragment it writes.
 
 Note the unit is not called `catena-converge.service`: the panel dispatches an
 ad-hoc converge through `systemd-run --unit catena-converge`, and a persistent
