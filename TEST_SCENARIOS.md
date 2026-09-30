@@ -139,7 +139,7 @@ The 156 scenarios the maintainers' test bench carries, and the behaviour each on
 | `rclone_copy_preserves_pruned_packs` | The offsite copy keeps snapshots that have already been pruned from the primary repository. |
 | `reboot_required_notified` | A host that needs a reboot reports it and waits for a person rather than restarting itself. |
 | `rebuild_backs_up_after_restore` | A server rebuilt from its backup keeps backing up: after the restore it holds the repository's password, not the one the new machine made for itself. |
-| `reconcile_is_a_noop` | A host that converges itself a second time in a row changes nothing and restarts nothing. |
+| `reconcile_is_a_noop` | The operator's converge and the host's own converge produce the same host: after either one, the other changes nothing, and a second converge in a row restarts nothing. |
 | `reconcile_repairs_host_upkeep` | A host that converges itself puts back the upkeep it owns: unattended upgrades, the journal's storage, the mail-agent mask, the swarm's settings and the configuration its scheduled lanes read. |
 | `recover_secrets_from_running_host` | A client whose installation inputs are lost rebuilds a usable credential set by reading the configuration store off the running host. |
 | `recovery_landing_page_bilingual_parity` | The recovery page a client lands on presents the same content in both supported languages. |
