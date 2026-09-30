@@ -24,11 +24,13 @@ not implement.
 
 ## Community vs Catena Pro
 
-Catena-CE is complete and functional on its own. Catena Pro adds licensed
-automation on top of the same host-native operations: scheduled backups at any
-frequency, managed updates with rollback, daily maintenance, offsite immutable
-copies, attestation, central audit shipping, multiple sign-on domains, and
-server-to-server moves.
+Catena-CE is complete and functional on its own. Every host keeps its
+operating system current through Debian's unattended-upgrades and notifies when a reboot is pending. Every other update is a button.
+Catena Pro adds automation on top of the same host-native operations:
+scheduled backups at any frequency, managed updates with rollback, including
+the container engine and the restart a kernel update needs, daily maintenance,
+offsite immutable secondary backups, attestation, central audit shipping, multiple
+sign-on domains, and server-to-server migration.
 
 ## How this repository is layered
 
@@ -84,7 +86,7 @@ mints nothing, and refuses any value the dashboard owns.
 | `show-keyset.yml` | The end of an install: shows the admin password, the console recovery password and the journal verification key once |
 | `rotate-tunnel.yml` | Replaces the host's Cloudflare tunnel without a converge, run on the host by the dashboard. Takes no secret: it authenticates as the Cloudflare token already in the store |
 | `rotate-tailscale.yml` | Forces re-authentication to the private network, run on the host by the dashboard |
-| `uninstall.yml` | Hands the OS update lane back to Debian and prints teardown guidance |
+| `uninstall.yml` | Hands the OS update lane back to Debian, releases the container engine's version hold, and prints teardown guidance |
 
 `converge.yml` and `reconcile.yml` apply the same roles in the same order.
 `reconcile.yml` is `converge.yml` minus the roles a human must run and minus
@@ -124,11 +126,11 @@ assertion grows.
 
 | Role | Why it cannot self-repair |
 | --- | --- |
-| `common` | The OS baseline and the ufw lockdown. Sets up the accounts and the packages every later role assumes, opens public SSH, and holds the tasks the dashboard's Lockdown runs to close or open it |
+| `common` | The accounts, SSH, the ufw lockdown, and the packages the other bootstrap roles assume. Opens public SSH, and holds the tasks the dashboard's Lockdown runs to close or open it |
 | `host_hardening` | Kernel and module hardening, applied before dockerd's first start so its runtime writes do not win until the next reboot. Re-applying it under a live workload is not a thing to do unattended |
 | `tailscale` | The private network the host is reached over, when one is configured. Joined only by `lockdown.yml`. Getting it wrong is the definition of question one |
 | `storage` | The data prefix every service keeps its data under, on the disk the host already has, and the optional remote bulk mount. A failure here costs data rather than access, and it cannot be safely re-applied to a live host by a timer |
-| `docker` | The engine and the swarm. Nothing else runs without it, and that includes whatever would have repaired it |
+| `docker` | The engine, at the version pinned here and held on the host, and the swarm. Nothing else runs without it, and that includes whatever would have repaired it |
 | `catena_admin_host` | The trust path the dashboard's dispatch arrives over: the runner account, the sudoers drop-in, the forced command and its `authorized_keys`. A reconcile that could rewrite the way in could rewrite what a reconcile is |
 | `ansible_runtime` | The pinned ansible-core the host reconciles itself with. Also performed by the reconcile lane, deliberately: a root process with python3 can repair a broken runtime, so a host whose runtime broke does not need a human |
 
@@ -140,6 +142,8 @@ Order is the converge order, which is dependency order.
 | --- | --- |
 | `public_ports` | The declarative public-port registry and its applier |
 | `payload` | Installs the host engine binaries, the lane scripts and their units, restic and rclone, by extracting them from the running dashboard image. Deploys no container |
+| `host_maintenance` | The OS update configuration: unattended-upgrades and its origins (Debian security, stable updates and point releases, and the private-network client's own repository), the restart policy for services left on replaced libraries, and apt's settings. Also the baseline packages, the journal's storage, the host resolving its own name, the host mail transfer agent kept off port 25, the time zone and locale set in the dashboard, and the reboot-required probe's configuration. The probe and its hourly timer ship in the payload |
+| `swarm` | The swarm's own settings (task history, the data-node label), which a restore does not bring back, and the self-heal that restarts containers which lost the race to the overlay at daemon start |
 | `traefik` | The reverse proxy and the `catena-network` overlay |
 | `postgres` | The infrastructure Postgres swarm service, hosting the sign-on database |
 | `portainer` | The container control plane |
@@ -147,8 +151,7 @@ Order is the converge order, which is dependency order.
 | `keycloak` | The sign-on identity provider and its realm |
 | `oauth2_proxy` | One auth proxy per gated upstream |
 | `infrastructure` | Gatus, Healthchecks, Beszel and its agent, the antivirus watch, the mail canary, the application wiring scripts, and the configuration of the dashboard and Gatus sync lanes, whose scripts and timers ship in the payload |
-| `host_maintenance` | The time zone and locale set in the dashboard, and the reboot-required probe's configuration. The probe and its hourly timer ship in the payload |
-| `catena-admin` | The action catalogue, the bind-mount targets and the dashboard container, created directly against the local swarm. It holds the key that drives Portainer, so it cannot depend on Portainer to run |
+| `catena-admin` | The action catalogue, the bind-mount targets, the update lanes' per-host configuration and the list of services they may update, the dashboard's port declarations, and the dashboard container, created directly against the local swarm. It holds the key that drives Portainer, so it cannot depend on Portainer to run |
 | `coturn` | The shared TURN and STUN relay for the audio and video media plane |
 | `backup` | The backup lane's per-host configuration (repository, credentials, paths, excludes) and the first snapshot. restic, rclone, the backup wrapper and its units ship in the payload |
 
@@ -196,8 +199,8 @@ not reach it. None is declared.
 
 ## State the tasks produce
 
-Five things outlive the run that wrote them. Each belongs to the role that
-produces it.
+Six things outlive the run that wrote them. Each belongs to the role or task
+that produces it.
 
 ### The on-box store -- `common`, read by every role
 
@@ -287,15 +290,33 @@ enables three the payload ships (the dashboard and Gatus syncs, the hourly
 reboot-required probe). None spends object storage.
 
 Every lane (backup, the bit-rot check, the offsite copy, the daily update
-chain, dashboard updates) ships in the payload with its timer off.
-`catena-schedule apply` turns a lane on only on a licensed host, at the
-cadence set in the dashboard. The backup and update services stay runnable by
-hand on every host. Debian's unattended-upgrades applies OS security patches.
+chain, dashboard updates, the scheduled converge) ships in the payload with its
+timer off. `catena-schedule apply` turns a lane on only on a licensed host, at
+the cadence set in the dashboard. The backup, the updates, the converge, the
+container engine upgrade and the restart stay runnable by hand on every host.
+
+The daily chain applies updates whether or not a backup is configured, and the
+dashboard warns on every page for as long as none is. A configured backup that
+fails, or fails its verification, stops the chain before any update. After the
+container updates, the chain upgrades the container engine to the version
+pinned in this repository, within the major version it runs, and restores the
+previous version when the host does not come back healthy. Its last step
+restarts the host when an update needs it, and checks afterwards that every
+service came back.
+
+Debian's unattended-upgrades is the one thing that applies OS packages, on
+every host, licensed or not: the security suite, stable updates and point
+releases, and the private-network client from its own repository. A service
+left running on a replaced library restarts after the update; the container
+engine waits for a restart of the host. The dashboard shows a pending restart
+on every page until it is taken.
 
 | Invariant | Enforced by |
 | --- | --- |
 | Scheduled work is default-deny: this repository ships only enumerated local-maintenance timers, and every lane ships in the payload | `audit:check-port`, `threat:CV8` |
 | An unlicensed host schedules no lane at all | `bench:unlicensed_schedules_nothing` |
+| A host that needs a restart reports it, and without a licence waits for a person | `bench:reboot_required_notified` |
+| A failed backup verification stops the daily chain before any update | `bench:daily_chain_verify_hot_fail_aborts_updates` |
 
 ### The release manifest -- written last, by both converge paths
 
@@ -309,6 +330,20 @@ one no longer ships, provided the file is unchanged and the payload manifest
 | Every converge records what it delivered | `bench:converge_suite#stage-7a-the-action-is-back` |
 | Withdrawn files are removed, and Community files are not pruned as though they were licensed | `bench:payload_prune_respects_ce` |
 | A converge never prunes a file the payload claims | `workflow:ci.yml#installer` |
+
+### The version stamp -- written first, by both converge paths
+
+`/etc/catena/version.txt` names the version of this repository a converge
+applied, as `git describe`: from the checkout on a converge started from a
+controller, and from the provenance the dashboard image records on a converge
+the host runs itself. It is the first thing either path writes, and it rides
+the backup, so every snapshot names the version that produced its data.
+
+A restore compares the snapshot's stamp with the host's: a newer snapshot is
+refused, because a newer database directory does not open under an older
+database; an older one needs an explicit upgrade; two stamps that cannot be
+ordered are refused. A move between two servers is refused unless both run
+the same version.
 
 ## Applications
 
@@ -345,7 +380,9 @@ engine-bump workflow (seven-day soak, CVE gate, upgrade stops), one pull
 request per defaults file. Every other dependency follows
 [renovate](https://github.com/catenahq/renovate) and
 [renovate-config](https://github.com/catenahq/renovate-config) under a
-seven-day cooldown, with GitHub Actions pinned by digest.
+seven-day cooldown, with GitHub Actions pinned by digest. The container
+engine's version pin follows the same path under a fourteen-day cooldown; a
+new major version is merged by hand, after a rehearsal proves it.
 [scanctl](https://github.com/catenahq/scanctl) scans each update before it
 merges.
 
@@ -375,7 +412,27 @@ a retired invariant, fails the build.
 This file leads the code. Anything it declares that the tree does not
 implement is listed here, so the gap is a finding rather than a silence.
 
-Nothing outstanding.
+- **The version stamp from both converge paths.** Only a converge started from
+  a controller writes it today, so a host that updated itself keeps the stamp
+  of its install, and its snapshots name that version rather than the one it
+  runs.
+- **A dashboard update applies its own converge,** and rolls the dashboard back
+  when that converge fails. The scheduled converge lane does not exist yet.
+- **Updates without a backup.** Today the daily chain pauses them unless the
+  dashboard allows it; the warning shown on every page does not exist yet.
+- **The pending-restart notice on every page.** Today it is shown on the
+  System page only.
+- **The container engine pin, its hold, and its upgrade** by hand and from the
+  daily chain, with rollback, and its release on uninstall. Today the engine
+  installs unpinned and moves on every converge started from a controller.
+- **The daily chain's restart step.**
+- **The unattended-upgrades origins beyond the security suite,** and the
+  restart policy for services left on replaced libraries.
+- **The role moves.** The `swarm` role; `host_maintenance` taking the OS update
+  configuration, the baseline packages, the journal's storage, name resolution
+  and the mail transfer agent from `common`, and running after `payload`;
+  `catena-admin` taking the update lanes' configuration and the dashboard's
+  port declarations from `catena_admin_host`.
 
 ## Installation
 
