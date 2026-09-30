@@ -65,42 +65,26 @@ on a proven no-op reconcile.
 
 So the next thing this work needs is a bench run, not another unit test.
 
-### Open against phase 4: validate.yml cannot judge a self-converged host
-
-`bootstrap/roles/common/tasks/validate.yml` asserts that the release manifest's
-`catena_ce_version` equals the first line of `/etc/catena/version.txt`, on the
-reasoning that one converge writes both at opposite ends of itself -- so
-equality means the converge reached its end.
-
-That reasoning is converge.yml's. version.txt is stamped by `common`, which is a
-BOOTSTRAP role, so `reconcile.yml` does not run it and does not write that
-file. On a host that converged itself the manifest advances and the stamp does
-not, and the assertion reads a correct state as a failed converge.
-
-Nothing hits it today: validate.yml runs as its own playbook composed by the
-CLI after converge.yml, and catena-converge runs reconcile.yml alone. It becomes
-live the moment anything validates a self-converged host -- which the bench
-will, as soon as phase 4's gate is exercised.
-
-The manifest now records `converged_by` (`site` or `reconcile`), which is what
-lets any reader tell a real disagreement from drift. What is NOT decided is
-which way the coupling should go:
-
-- have the reconcile path stamp version.txt too, so both records advance
-  together -- but version.txt means "a converge STARTED here", and writing it
-  at the end makes it mean something else on one path only;
-- or make the assertion conditional on `converged_by == 'site'`, and find
-  another way to prove an on-host converge finished -- `converged_at` already
-  says so, since the manifest is the last task.
-
-Deliberately left to the bench run rather than settled here: the second option
-is cheap and probably right, and picking it from a laptop would be choosing
-without the one piece of evidence that matters, which is what a self-converged
-host actually looks like.
-
 ---
 
 ## Decisions taken
+
+### validate.yml judges a self-converged host by its own manifest (2026-09-30) -- BUILT
+
+**Decided: the manifest-equals-version.txt assertion applies to a
+`converged_by: converge` manifest only.**
+
+version.txt is stamped by `common`, a BOOTSTRAP role, so `reconcile.yml` never
+writes it. On a host that converged itself the manifest advances (it records
+the vendored catena-ce commit) and the stamp keeps the install's
+`git describe`, and the assertion read a correct state as a failed converge.
+The bench showed exactly that: a panel converge, then validate.yml from the
+controller.
+
+Stamping version.txt from the reconcile path was rejected: version.txt means
+"a converge STARTED here", and writing it at the end would make it mean
+something else on one path only. A reconcile manifest is written by its last
+task like any other, so its `converged_at` is what says it finished.
 
 ### The store is born at BOOTSTRAP (2026-09-09) -- BUILT, catena-ce `d4b74f4`
 

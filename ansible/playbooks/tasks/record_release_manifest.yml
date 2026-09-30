@@ -29,10 +29,8 @@
 # that the two are written by the same converge at opposite ends of it. That
 # holds for converge.yml, whose FIRST role stamps version.txt. It cannot hold for
 # reconcile.yml, which does not run that role at all -- so on a host that
-# converged itself the two records describe different runs, and a reader with
-# no way to tell which path wrote this would read a real disagreement as drift.
-# The coupling is carried in CONVERGE_MIGRATION.md under phase 4; this field is
-# what lets anything answer the question at all.
+# converged itself the two records describe different runs. validate.yml reads
+# this field and holds only a converge.yml manifest to the stamp.
 
 - name: "Release: read the marker for the installed host engines"
   ansible.builtin.slurp:

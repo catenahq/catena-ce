@@ -87,10 +87,11 @@
       - { path: /etc/catena/version.txt, type: file, owner: root, group: root, mode: "0644" }
       - { path: "{{ catena_release_manifest_path }}", type: file, owner: root, group: root, mode: "0644" }
 
-# The release manifest is written by the LAST task of converge.yml, so its
-# presence is the only on-host evidence that the converge reached the end
-# rather than dying in a role. version.txt cannot say that: bootstrap/roles/common
-# stamps it first, so it is there after a converge that failed at role 9.
+# The release manifest is written by the LAST task of converge.yml and of
+# reconcile.yml, so its presence is the only on-host evidence that the converge
+# reached the end rather than dying in a role. version.txt cannot say that:
+# bootstrap/roles/common stamps it first, so it is there after a converge that
+# failed at role 9.
 #
 # The action list is what the panel reads to decide whether to offer a
 # button at all, so an empty one is a panel that greys every feature.
@@ -104,18 +105,23 @@
     src: /etc/catena/version.txt
   register: _release_version_stamp
 
-# The two are written by the SAME converge at opposite ends of it, so equality
-# is the assertion: a manifest naming an older version is one the last converge
-# never got far enough to rewrite. Comparing against the controller's git
-# describe would not work here -- validate.yml is its own playbook run and
-# never sets that fact -- and comparing on-host is the better check anyway,
-# because it is the host's own two records agreeing.
+# After converge.yml the two are written by the SAME converge at opposite ends
+# of it, so equality is the assertion: a manifest naming an older version is
+# one the last converge never got far enough to rewrite. Comparing against the
+# controller's git describe would not work here -- validate.yml is its own
+# playbook run and never sets that fact -- and comparing on-host is the better
+# check anyway, because it is the host's own two records agreeing.
+#
+# reconcile.yml, the converge the host runs on itself, does not run
+# bootstrap/roles/common: version.txt keeps the last converge.yml stamp and the
+# manifest records the vendored catena-ce commit. That manifest is written by
+# its last task all the same, so its `converged_at` is what says it finished.
 - name: "validate/common: the manifest describes THIS converge"
   ansible.builtin.assert:
     that:
       - _manifest.converged_at | default('') | length > 0
       - _manifest.catena_ce_version | default('') | length > 0
-      - _manifest.catena_ce_version == _stamped
+      - (_manifest.converged_by | default('')) == 'reconcile' or _manifest.catena_ce_version == _stamped
       - _manifest.actions | default([]) | length > 0
     fail_msg: >-
       {{ catena_release_manifest_path }} does not describe the converge that

@@ -184,6 +184,17 @@ def test_validate_asserts_the_manifest_against_the_version_stamp():
     assert "hostvars['localhost']['catena_version']" not in body
 
 
+def test_a_self_converged_host_is_not_held_to_the_install_stamp():
+    """reconcile.yml does not run bootstrap/roles/common, so on a host that
+    converged itself version.txt keeps the last converge.yml stamp while the
+    manifest records the vendored commit. Only a converge.yml manifest is held
+    to the stamp; a reconcile one is judged by its converged_at."""
+    body = (ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "validate.yml").read_text()
+    assert ("(_manifest.converged_by | default('')) == 'reconcile' "
+            "or _manifest.catena_ce_version == _stamped") in body
+    assert "_manifest.converged_at | default('') | length > 0" in body
+
+
 def test_version_txt_is_untouched():
     """It is a client-facing artifact the sovereign-exit path reads straight out
     of a snapshot with `restic dump`, and the recovery README points at it. The
