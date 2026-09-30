@@ -84,8 +84,8 @@ def _roles_the_converge_runs() -> set[str]:
 
     Read from the plays rather than from the roles directory: a role that
     exists but no converge runs -- cloudflare_tunnel_regenerate, driven by
-    rotate-tunnel.yml -- may assert whatever it likes, because an operator
-    asking to rotate a tunnel has already told it there is a domain.
+    rotate-tunnel.yml -- may assert whatever it likes, because a client
+    asking to regenerate a tunnel has already told it there is a domain.
     """
     names: set[str] = set()
     for path in PLAYBOOKS:

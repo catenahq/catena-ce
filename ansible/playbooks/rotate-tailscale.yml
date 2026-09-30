@@ -1,11 +1,9 @@
 ---
-# Re-authenticate this node to the tailnet (force re-auth). Manual
-# maintenance action (Community): use when the node lost tailnet
-# reachability or you are rotating tags. Every join mints a fresh key, so this
-# exists for explicit re-auth only.
+# Re-authenticate this node to the tailnet (force re-auth). Maintenance action
+# (Community): for a node that lost tailnet reachability or whose tags change.
+# Every join mints a fresh key, so this exists for explicit re-auth only.
 #
-# Usage (cwd = ansible/):
-#   ansible-playbook -i inventory/prod playbooks/rotate-tailscale.yml
+# Run on the host by the panel's re-join action (catena-tailnet-reauth).
 
 - name: Rotate Tailscale auth on VPS nodes
   hosts: "{{ stage_hosts | default('vps') }}"

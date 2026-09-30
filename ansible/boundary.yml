@@ -104,8 +104,9 @@ own_playbook_roles:
     why: >-
       Deletes this host's Cloudflare tunnel before handing off to
       cloudflare_tunnel to mint a new one. A converge able to do that would
-      drop the public edge on every run. The delete is an intent somebody
-      declares by running playbooks/rotate-tunnel.yml.
+      drop the public edge on every run. The delete is an intent a client
+      declares with the panel's tunnel regenerate, which runs
+      playbooks/rotate-tunnel.yml.
 
 # NOTHING STRADDLES ANY MORE, which is what phase 1b was for.
 #
