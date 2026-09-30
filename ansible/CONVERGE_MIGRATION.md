@@ -69,22 +69,21 @@ So the next thing this work needs is a bench run, not another unit test.
 
 ## Decisions taken
 
-### validate.yml judges a self-converged host by its own manifest (2026-09-30) -- BUILT
+### Both converge paths stamp version.txt (2026-09-30) -- BUILT
 
-**Decided: the manifest-equals-version.txt assertion applies to a
-`converged_by: converge` manifest only.**
+**Decided: `playbooks/tasks/stamp_version.yml` stamps `/etc/catena/version.txt`
+before the first role of `converge.yml` and of `reconcile.yml`, in one format:
+`git describe --always --dirty --tags` of catena-ce.**
 
-version.txt is stamped by `common`, a BOOTSTRAP role, so `reconcile.yml` never
-writes it. On a host that converged itself the manifest advances (it records
-the vendored catena-ce commit) and the stamp keeps the install's
-`git describe`, and the assertion read a correct state as a failed converge.
-The bench showed exactly that: a panel converge, then validate.yml from the
-controller.
-
-Stamping version.txt from the reconcile path was rejected: version.txt means
-"a converge STARTED here", and writing it at the end would make it mean
-something else on one path only. A reconcile manifest is written by its last
-task like any other, so its `converged_at` is what says it finished.
+version.txt rides the backup, and catena-admin's restore and move checks order
+two stamps by it, so it has to name the version the host runs. A host that
+updates itself converges with the tree inside its panel image, so a stamp only
+the operator path wrote kept the install's version while the infrastructure
+moved on. The controller path describes its checkout; the on-host path reads
+the describe catena-admin's vendor step records in `VENDOR.json`. The stamp is
+still written first, so it keeps meaning "a converge started here", and
+validate.yml holds the release manifest, written last from the same fact,
+equal to it on both paths.
 
 ### The store is born at BOOTSTRAP (2026-09-09) -- BUILT, catena-ce `d4b74f4`
 

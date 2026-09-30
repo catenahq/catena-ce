@@ -2,45 +2,6 @@
 # Baseline host setup. Runs over the initial connection (root+password during
 # bootstrap; ops+key on all subsequent runs). Idempotent.
 
-# ─── Version capture ────────────────────────────────────────────────────
-# Delegated to localhost so it reads the CONTROLLER's git state, not the
-# VPS's (VPS doesn't have the repo). run_once because the value is the
-# same for every host in a run; the fact lands on the current host
-# (dev1) which is where later tasks + template renders resolve the bare
-# `catena_version` var. We don't write to hostvars['localhost']
-# because delegate_to alone doesn't pin facts there (would need
-# delegate_facts=true) AND because --limit can exclude localhost,
-# leaving that hostvar empty for subsequent plays.
-- name: "Version: capture git describe from controller repo"
-  ansible.builtin.command:
-    cmd: git describe --always --dirty --tags
-    chdir: "{{ playbook_dir }}/../.."
-  register: _catena_git_describe
-  changed_when: false
-  failed_when: false
-  delegate_to: localhost
-  run_once: true
-  become: false
-  tags: [always]
-
-- name: "Version: capture git commit date (UTC)"
-  ansible.builtin.command:
-    cmd: git log -1 --format=%cI
-    chdir: "{{ playbook_dir }}/../.."
-  register: _catena_git_commit_date
-  changed_when: false
-  failed_when: false
-  delegate_to: localhost
-  run_once: true
-  become: false
-  tags: [always]
-
-- name: "Version: export catena_version fact"
-  ansible.builtin.set_fact:
-    catena_version: "{{ _catena_git_describe.stdout | default('unknown') or 'unknown' }}"
-    catena_version_date: "{{ _catena_git_commit_date.stdout | default('') }}"
-  tags: [always]
-
 - name: Wait for cloud-init to finish (if present)
   ansible.builtin.command: cloud-init status --wait
   changed_when: false
@@ -875,17 +836,7 @@
         ] | to_nice_json
       }}
 
-# ─── Version stamp ──────────────────────────────────────────────────────
-# /etc/catena/version.txt records the catena commit that produced
-# the last converge. Operator can diff this against the controller's
-# `git describe` to spot drift across a fleet.
-#
-# The value is the bare `catena_version` fact this role sets ~770 lines
-# above, NOT hostvars['localhost']. The capture is delegated to localhost
-# so it reads the controller's git state, but delegate_to alone does not
-# pin the fact there, which the capture's own comment says -- so the
-# hostvars form resolved to nothing and every host on every install
-# stamped the literal string "unknown".
+# ─── State directories ──────────────────────────────────────────────────
 - name: "/etc/catena exists"
   ansible.builtin.file:
     path: /etc/catena
@@ -910,19 +861,3 @@
     owner: root
     group: root
     mode: "0755"
-
-- name: "/etc/catena/version.txt stamped with current converge"
-  ansible.builtin.copy:
-    dest: /etc/catena/version.txt
-    owner: root
-    group: root
-    mode: "0644"
-    content: |
-      {{ catena_version | default('unknown') }}
-      {{ catena_version_date | default('') }}
-      converged-at: {{ ansible_date_time.iso8601 | default('') }}
-  # The `converged-at` timestamp would force `changed` on every converge,
-  # which is noise: a fresh timestamp is the POINT of this file, not a
-  # configuration drift signal. Suppress the change report so real drift
-  # (version bumps, unexpected diffs elsewhere) stays visible in summary.
-  changed_when: false

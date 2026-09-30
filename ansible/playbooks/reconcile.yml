@@ -73,6 +73,15 @@
           tags: [always, onbox]
       tags: [always, onbox]
 
+    # The version this converge applies, from the image's vendor record, before
+    # any role writes. The same file converge.yml includes.
+    - name: "Version: stamp the version this converge applies"
+      ansible.builtin.include_tasks:
+        file: tasks/stamp_version.yml
+        apply:
+          tags: [stamp_version]
+      tags: [stamp_version]
+
   roles:
     # First, as in converge.yml: every role below drops a fragment into the
     # registry this installs.

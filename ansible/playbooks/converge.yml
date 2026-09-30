@@ -161,6 +161,17 @@
         - (cfg_smtp_host | default('') | length) > 0
       tags: [always, external_preflight]
 
+    # The version this converge applies, stamped before any role writes. The
+    # same file reconcile.yml includes, so both paths stamp the same format.
+    # Not `always`: a --tags run applies part of a version, and claiming the
+    # whole of it would move the stamp past what the host received.
+    - name: "Version: stamp the version this converge applies"
+      ansible.builtin.include_tasks:
+        file: tasks/stamp_version.yml
+        apply:
+          tags: [stamp_version]
+      tags: [stamp_version]
+
   # Tags allow iterating on a single role:
   #   ansible-playbook -i inventory/<name> playbooks/converge.yml --limit host1 --tags storage
   # Preflight runs as its own ansible-playbook invocation (the installer

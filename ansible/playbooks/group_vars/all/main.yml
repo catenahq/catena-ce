@@ -214,8 +214,8 @@ public_ports_fragment_dir: /etc/catena/public-ports.d
 # Written by catena-admin scripts/vendor-catena-ce.sh and shipped beside the
 # ansible/ directory inside the panel image, so it sits one level above
 # playbook_dir's parent on the on-host path and does not exist at all on a
-# controller. tasks/record_release_manifest.yml reads the commit out of it to
-# answer "which catena-ce did this host apply".
+# controller. tasks/stamp_version.yml reads its describe to answer "which
+# catena-ce does this host apply" on a converge the host runs itself.
 #
 # A variable rather than the literal expression at the point of use, because
 # playbook_dir is a magic variable nothing can override -- so a path written

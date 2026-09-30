@@ -28,7 +28,9 @@ SITE = ANSIBLE / "playbooks" / "converge.yml"
 RECONCILE = ANSIBLE / "playbooks" / "reconcile.yml"
 # The tasks themselves, shared by both converge paths.
 SHARED = ANSIBLE / "playbooks" / "tasks" / "record_release_manifest.yml"
+STAMP = ANSIBLE / "playbooks" / "tasks" / "stamp_version.yml"
 GROUP_VARS = ANSIBLE / "playbooks" / "group_vars" / "all" / "main.yml"
+VALIDATE = ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "validate.yml"
 
 # Both playbooks that converge a host. An assertion about "the converge" has to
 # hold for whichever one ran, which is the whole reason the tasks were lifted
@@ -86,12 +88,9 @@ def test_both_converge_paths_include_the_same_file(playbook):
 
 @pytest.mark.parametrize("playbook", CONVERGE_PLAYBOOKS, ids=lambda p: p.name)
 def test_each_path_names_itself_in_the_manifest(playbook):
-    """validate.yml asserts this manifest's version against
-    /etc/catena/version.txt, on the reasoning that one converge writes both at
-    opposite ends of itself. converge.yml's first role stamps version.txt;
-    reconcile.yml never runs that role, so on a self-converged host the two
-    describe different runs. Recording which path wrote the manifest is what
-    lets a reader tell a real disagreement from drift."""
+    """A host converges from a controller and from its own panel image, and the
+    two runs are applied from different trees. Recording which path wrote the
+    manifest is what lets a reader tell which tree the host last received."""
     play = yaml.safe_load(playbook.read_text())[0]
     include = next(t for t in play["post_tasks"]
                    if t.get("ansible.builtin.include_tasks", {}).get("file")
@@ -172,89 +171,93 @@ def test_the_manifest_path_is_under_var_lib_not_etc():
     assert path == "/var/lib/catena/release.json", path
 
 
-def test_validate_asserts_the_manifest_against_the_version_stamp():
-    """The two are written by the same converge at opposite ends of it, so
-    equality is what says the converge reached the end. Comparing against the
-    controller's git describe would not work: validate.yml is its own playbook
-    run and never sets that fact, so the comparison would be against
-    'unknown' on every host."""
-    body = (ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "validate.yml").read_text()
+def test_validate_holds_the_manifest_equal_to_the_stamp_on_both_paths():
+    """The two are written from one fact at opposite ends of the same converge,
+    on either path, so equality is what says the converge reached the end.
+    Comparing against the controller's git describe would not work: validate.yml
+    is its own playbook run and never sets that fact."""
+    body = VALIDATE.read_text()
     assert "catena_release_manifest_path" in body
     assert "_manifest.catena_ce_version == _stamped" in body
+    assert "_manifest.converged_at | default('') | length > 0" in body
+    assert "'reconcile' or" not in body, (
+        "a self-converged host is exempted from the stamp again, so a stamp "
+        "left at the install version passes validation")
     assert "hostvars['localhost']['catena_version']" not in body
 
 
-def test_a_self_converged_host_is_not_held_to_the_install_stamp():
-    """reconcile.yml does not run bootstrap/roles/common, so on a host that
-    converged itself version.txt keeps the last converge.yml stamp while the
-    manifest records the vendored commit. Only a converge.yml manifest is held
-    to the stamp; a reconcile one is judged by its converged_at."""
-    body = (ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "validate.yml").read_text()
-    assert ("(_manifest.converged_by | default('')) == 'reconcile' "
-            "or _manifest.catena_ce_version == _stamped") in body
-    assert "_manifest.converged_at | default('') | length > 0" in body
+@pytest.mark.parametrize("playbook", CONVERGE_PLAYBOOKS, ids=lambda p: p.name)
+def test_both_paths_stamp_the_version_before_any_role(playbook):
+    """version.txt rides the backup and the restore and move checks order it,
+    so it has to name the version the host RUNS. A host that updated itself
+    converges with reconcile.yml; a stamp only converge.yml wrote would keep
+    the install's version while the infrastructure moved on. In pre_tasks,
+    after the store load, so it says "a converge started here"."""
+    play = yaml.safe_load(playbook.read_text())[0]
+    files = [t.get("ansible.builtin.include_tasks", {}).get("file")
+             for t in play["pre_tasks"]]
+    assert f"tasks/{STAMP.name}" in files, (
+        f"{playbook.name} does not stamp the version before its roles")
+    assert files.index(f"tasks/{STAMP.name}") > files.index(
+        "tasks/load_onbox_config.yml"), "the stamp runs before the store load"
 
 
-def test_version_txt_is_untouched():
+def test_version_txt_has_one_writer():
     """It is a client-facing artifact the sovereign-exit path reads straight out
-    of a snapshot with `restic dump`, and the recovery README points at it. The
-    manifest is additional, not a replacement."""
-    body = (ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "main.yml").read_text()
-    assert "dest: /etc/catena/version.txt" in body
+    of a snapshot with `restic dump`, and the recovery README points at it. One
+    writer, shared by both paths, so the two cannot stamp different formats."""
+    assert "dest: /etc/catena/version.txt" in STAMP.read_text()
+    common = (ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "main.yml").read_text()
+    assert "/etc/catena/version.txt" not in common, (
+        "bootstrap/roles/common writes version.txt again, beside the shared "
+        "stamp")
 
 
 def test_both_version_fields_read_the_fact_this_run_actually_sets():
-    """The capture is `delegate_to: localhost`, which reads the controller's git
-    state but does NOT pin the fact on localhost -- the capture's own comment
-    says so. Both writers used the hostvars['localhost'] form anyway, so both
-    resolved to nothing and every host stamped the literal string "unknown":
-    version.txt, the client-facing artifact, and the manifest's
-    catena_ce_version.
-
-    The restore version gate reads exactly this. Two "unknown" stamps compare
-    Same by raw equality, so the gate passed for the wrong reason and no skew
-    in either direction could ever be detected on a real install.
-
-    They have to move together: validate.yml asserts the manifest against the
-    stamp, so fixing one alone would fail every converge."""
-    stamp = (ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "main.yml").read_text()
+    """The describe is `delegate_to: localhost`, which reads the controller's git
+    state but does NOT pin the fact on localhost. The hostvars['localhost'] form
+    resolves to nothing, and a stamp built from it is the literal "unknown" on
+    every host -- which two stamps compare Same by raw equality, so the restore
+    gate would pass for the wrong reason."""
+    stamp = STAMP.read_text()
     shared = SHARED.read_text()
-    for name, body in (("bootstrap/roles/common/tasks/main.yml", stamp),
-                       (SHARED.name, shared)):
+    for name, body in ((STAMP.name, stamp), (SHARED.name, shared)):
         assert "hostvars['localhost']['catena_version']" not in body, (
-            f"{name} is back on the hostvars form, which resolves to nothing "
-            "and stamps 'unknown'"
+            f"{name} is on the hostvars form, which resolves to nothing"
         )
-    assert "{{ catena_version | default('unknown') }}" in stamp
+    assert "{{ catena_version }}" in stamp
     assert "'catena_ce_version': _ce" in shared
+    assert "catena_version | default('', true)" in shared
 
 
-def test_the_ce_version_falls_back_to_the_image_provenance():
-    """An on-host converge has no git checkout and does not run the role that
-    reads one, so `catena_version` is undefined there. The tree it is running
-    came out of the panel image, and the vendor step records which catena-ce
-    commit that is, in VENDOR.json -- which names bytes rather than a ref, so it
-    is the better answer on the path that has both."""
-    shared = SHARED.read_text()
-    assert "VENDOR.json" in shared, (
-        "the on-host path has no other way to know which catena-ce it is "
-        "applying, so this field would be blank on every host that converges "
-        "itself")
-    assert ".commit" in shared
+def test_the_on_host_version_is_the_images_describe():
+    """An on-host converge has no git checkout. The tree it runs came out of the
+    panel image, and catena-admin's vendor step records that tree's describe in
+    VENDOR.json. The describe, not the commit: versionstamp cannot order a bare
+    commit, so a stamp carrying one would make every restore check refuse."""
+    stamp = STAMP.read_text()
+    assert "catena_vendor_manifest_path" in stamp
+    assert "_vendor.describe" in stamp
+    assert "_vendor.commit |" not in stamp
+    assert "describe --always --dirty --tags" in stamp
 
 
 def test_an_unknown_version_never_overwrites_a_known_one():
-    """The field is written by whichever path ran last. A path that could not
-    resolve a version must leave the previous value alone: a host converged
-    from a laptop last month has a true answer in the file, and replacing it
-    with a word meaning "I did not look" destroys the only record in order to
-    keep the field populated."""
+    """Written by whichever path ran last. A path that could not resolve a
+    version must leave the previous value alone: a true answer from an earlier
+    converge is the only record, and replacing it with a word meaning "I did not
+    look" destroys it in order to keep the field populated."""
     shared = SHARED.read_text()
     assert "_prev.catena_ce_version" in shared, (
         "nothing carries the previous version forward, so a converge that "
         "could not resolve one blanks it")
     assert "'catena_ce_version': catena_version | default('unknown')" not in shared, (
         "'unknown' is being written over whatever the file held")
+    write = next(t for t in yaml.safe_load(STAMP.read_text())
+                 if "ansible.builtin.copy" in t)
+    assert write.get("when") == "catena_version | length > 0", (
+        "the stamp is written even when no version resolved")
+    assert "unknown" not in write["ansible.builtin.copy"]["content"]
 
 
 def test_the_converge_carries_the_payloads_half_forward(post_tasks, write_task):
