@@ -139,6 +139,24 @@ def test_the_report_never_writes_a_bootstrap_owned_path():
     assert drift_record, "the report records nothing, so there is no baseline"
 
 
+def _record_task() -> dict:
+    tasks = yaml.safe_load(_TASKS.read_text(encoding="utf-8"))
+    return next(t for t in tasks if "record what this converge saw" in t["name"])
+
+
+def test_the_panel_can_read_the_record():
+    """catena-admin's System page reads it through a read-only mount as a
+    non-root uid, so a root-only mode hides every drift from the panel."""
+    assert _record_task()["ansible.builtin.copy"]["mode"] == "0644"
+
+
+def test_a_first_look_records_no_drift():
+    """Against no baseline every file reads as added, and the panel renders
+    whatever `drift` holds."""
+    content = _record_task()["ansible.builtin.copy"]["content"]
+    assert "'digests' in _drift_previous" in content
+
+
 def test_both_converge_paths_report():
     """A report that ran on only one path would leave the host that converges
     itself -- the unattended one, where nobody is watching -- as the one with

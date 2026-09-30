@@ -7,10 +7,11 @@
 # nothing here writes, chmods or repairs. Repair is bootstrap's, which is
 # question one of the boundary.
 #
-# What it removes is the silence. Those six paths had no reader anywhere on the
-# host, so a change to the forced command, the sudoers drop-in or the SSH trust
-# path was invisible until an operator went looking -- and the thing that makes
-# an operator go looking is already suspecting something.
+# What it removes is the silence. Without a reader, a change to the forced
+# command, the sudoers drop-in or the SSH trust path is invisible until an
+# operator goes looking, and the thing that makes an operator go looking is
+# already suspecting something. The converge log and catena-admin's System page
+# both show what this records.
 #
 # The baseline is what the last converge saw. filter_plugins/bootstrap_drift.py
 # carries what that can and cannot tell you.
@@ -139,20 +140,23 @@
     - "'digests' in _drift_previous"
     - (_drift.added | length + _drift.removed | length + _drift.changed | length) > 0
 
+# The panel renders `drift` on its System page, so a first look records none:
+# against no baseline every file would read as added.
 - name: "Bootstrap drift: record what this converge saw"
   ansible.builtin.copy:
     dest: "{{ catena_bootstrap_drift_path }}"
     owner: root
     group: root
-    # 0600: it lists the files that decide root access on this host, with their
-    # digests. Nothing secret, but nothing that needs a wider reader either.
-    mode: "0600"
+    # 0644: the panel reads it through its read-only mount of /var/lib/catena
+    # as a non-root uid. Paths and digests only, nothing secret.
+    mode: "0644"
     content: |
       {{ {
            'schema': 1,
            'observed_at': ansible_date_time.iso8601 | default(''),
            'converged_by': catena_converge_path,
-           'drift': _drift,
+           'drift': _drift if ('digests' in _drift_previous)
+                    else {'added': [], 'removed': [], 'changed': []},
            'digests': _drift_current,
          } | to_nice_json }}
   changed_when: false
