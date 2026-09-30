@@ -1,6 +1,6 @@
 # SPEC.md
 
-Catena-ce is an Ansible-based installer for Catena. It prepares a new Debian 13 server to host dockerized applications by providing a secure, ready-to-deploy platform. The main dashboard, `catena-admin`, is built from a closed-source repository and its image is available [on Github](https://github.com/catenahq/catena-admin/pkgs/container/catena-admin)
+Catena-CE is an Ansible-based installer for Catena. It prepares a new Debian 13 server to host dockerized applications by providing a secure, ready-to-deploy platform. The main dashboard, `catena-admin`, is built from a closed-source repository and its image is available [on Github](https://github.com/catenahq/catena-admin/pkgs/container/catena-admin)
 
 This file is the contract, and it leads the code: the tree implements this
 file, not the other way round. Items declared here that the tree does not
@@ -24,16 +24,11 @@ not implement.
 
 ## Community vs Catena Pro
 
-This repository is complete and functional on its own, including a proven
-on-demand backup and restore. Catena Pro adds licensed automation on top of the
-same host-native operations: scheduled backups, daily and sub-daily, managed
+Catena-CE is complete and functional on its own. Catena Pro adds licensed
+automation on top of the same host-native operations: scheduled backups at any frequency,  managed
 updates with rollback, daily maintenance, offsite immutable copies,
 attestation, central audit shipping, multiple sign-on domains, and
 server-to-server moves.
-
-Every operation the dashboard drives runs on the host without it: install,
-converge, validate and backup from this repository, and restore through the
-`catena-recovery` binary the payload installs.
 
 ## How this repository is layered
 
@@ -41,7 +36,7 @@ A desired state is reached in four layers, widest to narrowest.
 
 | Layer | What it is |
 | --- | --- |
-| **CLI** | `uv run catena <verb> --inventory <inventory>`. Selects a playbook, or chains several. Prompts for what it needs, and never asks Ansible anything the product cannot answer for itself |
+| **CLI** | `uv run catena-cli <verb> --inventory <inventory>`. Selects a playbook, or chains several. Prompts for what it needs, and never asks Ansible anything the product cannot answer for itself |
 | **Playbook** | Names the hosts and the ordered list of roles to apply to them. One playbook is one atomic operation |
 | **Role** | A unit of related tasks plus its defaults, templates, handlers and its own `validate.yml`. The reuse boundary: several playbooks apply the same role |
 | **Task** | One step. Task files are shared between roles and between playbooks where the step is the same step |
@@ -49,67 +44,77 @@ A desired state is reached in four layers, widest to narrowest.
 Reuse happens downward only. A role never calls a playbook, and a task never
 decides which role it belongs to.
 
-## CLI
+## CLI and GUI
 
-The entry point is the `catena` console script declared in
-`ansible/pyproject.toml`, implemented in `ansible/catena_cli.py`, and run from
-`ansible/`:
+The entry point is the `catena-cli` console script declared in
+`ansible/pyproject.toml`, implemented in `ansible/catena_cli.py`, and run from the root:
 
 ```sh
-uv run catena <verb> --inventory <inventory>
+uv run catena-cli <verb> --inventory <inventory>
 ```
 
 A verb that runs one playbook carries that playbook's name. A verb that chains
 several does not, because there is no single playbook to name it after.
 
+The installer reaches and installs a server, and nothing else. Initial access
+is SSH, so it asks for what reaching the server needs -- its address, its
+initial user, the SSH key (the public half is the private key's path plus
+`.pub`), the operator account -- the admin email, and the site settings the
+first converge needs. Everything else is entered in the Catena-Admin Settings tab once the server runs: the domain and
+its Cloudflare token, the private network (tailnet), backups, mail. The CLI's other verbs
+are the break-glass for a server whose dashboard is down.
+
+The GUI provides a user-friendly interface to facilitate installation. Launch it with:
+
+```sh
+uv run catena-gui
+```
+
 ### Verbs that run one playbook
 
 | Verb | Playbook |
 | --- | --- |
-| `converge` | `converge.yml` |
-| `validate` | `validate.yml` |
-| `backup` | `backup.yml` |
-| `rotate-tunnel` | `rotate-tunnel.yml` |
-| `rotate-tailscale` | `rotate-tailscale.yml` |
-| `show-keyset` | `show-keyset.yml` |
+| `converge` | `converge.yml`. `--address` reaches the host at another address for one run, such as its tailnet address once the dashboard's Lockdown has closed public SSH |
 | `uninstall` | `uninstall.yml` |
 
 ### Verbs that chain playbooks
 
 | Verb | Chain | For |
 | --- | --- | --- |
-| `install` | seed, then `preflight`, `bootstrap`, `converge`, `lockdown`, `validate` | A fresh server |
+| `install` | seed, then `bootstrap`, `converge`, `validate`, `show-keyset` | A fresh server |
 
-`preflight` runs as its own invocation ahead of the chain, so a stray
-`--limit` cannot skip it.
+The install runs over the public SSH connection it started on, from start to
+finish. It joins no private network, brings up no tunnel, configures no backup
+and never closes public SSH.
 
 ### seed
 
 `ansible/seed.py` is not a playbook. It is a Python step the CLI runs before
-Ansible starts, on `install` only: it writes the inventory and mints the
-initial secret set. It has no verb of its own because seeding a server that is
-already seeded is not an operation.
+Ansible starts, on `install` only: it writes the inventory, and hands the
+admin password to the first converge when the install input carries one. It
+mints nothing: every secret is minted on the host. An install input that
+names a value the dashboard owns is refused, with the Settings page named. It
+has no verb of its own because seeding a server that is already seeded is not
+an operation.
 
 | Invariant | Enforced by |
 | --- | --- |
-| The bundled CLI is the only supported entry point; `ansible-playbook` is not one | `bench:ce_install_suite`, `bench:ce_converge`, `bench:ce_validate` |
+| Installing, converging and uninstalling go through the bundled CLI | `bench:ce_install_suite`, `bench:ce_converge`, `bench:ce_uninstall` |
 | A verb that runs one playbook is named after it | `audit:check-grid` |
-| Every chain runs preflight before it touches a server | `bench:ce_install_suite` |
+| The installer takes only what reaches and installs a server, and refuses a value the dashboard owns | `workflow:ci.yml#installer`, `bench:ce_install_suite` |
 
 ## Playbooks
 
 | Playbook | What it is |
 | --- | --- |
-| `preflight.yml` | Controller-side. Proves the supplied Tailscale OAuth client works before any server is touched |
 | `bootstrap.yml` | The half that cannot self-repair. Run by hand, over SSH, from outside |
 | `converge.yml` | The full converge. Safe to re-run |
-| `lockdown.yml` | Closes public SSH behind the access method the host declared, or reports why it stays open. The install chain runs it after the converge, and the dashboard's SSH toggle runs the same playbook |
+| `lockdown.yml` | The access posture, run on the host by the dashboard alone. Saving a private network in Settings runs it to join that network, closing nothing. Applying the chosen access closes public SSH once the private network proves it reaches the host, and on a host with no private network opens it |
 | `reconcile.yml` | The half a host runs against itself, from the dashboard image, with no controller inventory. Has no verb: nothing on a controller dispatches it |
-| `validate.yml` | Three vantages: on-host per-role checks, tailnet from the controller, external from the controller |
-| `backup.yml` | On-demand snapshot |
-| `show-keyset.yml` | Re-display the disaster-recovery keyset |
-| `rotate-tunnel.yml` | Replace the host's Cloudflare tunnel without a converge. Takes no secret: both halves of the rotation authenticate as the Cloudflare token already in the store |
-| `rotate-tailscale.yml` | Force re-authentication to the mesh |
+| `validate.yml` | Three vantages: on-host per-role checks, access from the controller, external from the controller. The install's last leg, and runnable on its own |
+| `show-keyset.yml` | The end of an install: shows the admin password, the console recovery password and the journal verification key once |
+| `rotate-tunnel.yml` | Replace the host's Cloudflare tunnel without a converge, run on the host by the dashboard. Takes no secret: both halves of the rotation authenticate as the Cloudflare token already in the store |
+| `rotate-tailscale.yml` | Force re-authentication to the private network, run on the host by the dashboard |
 | `uninstall.yml` | Hand the OS update lane back to Debian and print teardown guidance |
 
 `converge.yml` and `reconcile.yml` apply the same roles in the same order.
@@ -150,10 +155,10 @@ assertion grows.
 
 | Role | Why it cannot self-repair |
 | --- | --- |
-| `common` | The OS baseline and the ufw lockdown. Sets up the account and the packages every later role assumes, and closes public SSH at the end of an install |
+| `common` | The OS baseline and the ufw lockdown. Sets up the accounts and the packages every later role assumes, opens public SSH, and holds the tasks the dashboard's lockdown runs to close or open it |
 | `host_hardening` | Kernel and module hardening, applied before dockerd's first start so its runtime writes do not win until the next reboot. Re-applying it under a live workload is not a thing to do unattended |
-| `tailscale` | The mesh the host is reached over. Getting it wrong is the definition of question one |
-| `storage` | Mounts the block volume every service keeps its data on. A failure here costs data rather than access, and it cannot be safely re-applied to a live host by a timer |
+| `tailscale` | The private network the host is reached over, once the client chooses one. Joined only by `lockdown.yml`. Getting it wrong is the definition of question one |
+| `storage` | The data prefix every service keeps its data under, on the disk the host already has, and the optional remote bulk mount. A failure here costs data rather than access, and it cannot be safely re-applied to a live host by a timer |
 | `docker` | The engine and the swarm. Nothing else runs without it, and that includes whatever would have repaired it |
 | `catena_admin_host` | The trust path the dashboard's dispatch arrives over: the runner account, the sudoers drop-in, the forced command and its `authorized_keys`. A reconcile that could rewrite the way in could rewrite what a reconcile is |
 | `ansible_runtime` | The pinned ansible-core the host reconciles itself with. Also performed by the reconcile lane, deliberately: a root process with python3 can repair a broken runtime, so a host whose runtime broke does not need a human |
@@ -173,7 +178,7 @@ Order is the converge order, which is dependency order.
 | `keycloak` | The sign-on identity provider and its realm |
 | `oauth2_proxy` | One auth proxy per gated upstream |
 | `infrastructure` | Gatus, Healthchecks, Beszel and its agent, the antivirus watch, the mail canary, the application wiring scripts, and the configuration of the dashboard and Gatus sync lanes, whose scripts and timers ship in the payload |
-| `host_maintenance` | The reboot-required probe's configuration. The probe and its hourly timer ship in the payload |
+| `host_maintenance` | The time zone and locale set in the dashboard, and the reboot-required probe's configuration. The probe and its hourly timer ship in the payload |
 | `catena-admin` | The action catalogue, the bind-mount targets and the dashboard container, created directly against the local swarm. It holds the key that drives Portainer, so it cannot depend on Portainer to run |
 | `coturn` | The shared TURN and STUN relay for the audio and video media plane |
 | `backup` | The backup lane's per-host configuration (repository, credentials, paths, excludes) and the first snapshot. restic, rclone, the backup wrapper and its units ship in the payload |
@@ -188,7 +193,7 @@ converge's `roles:` list is classified rather than exempted.
 | --- | --- | --- |
 | A converge role | The two tables above | Applied by `converge.yml`, and by `reconcile.yml` for the reconcile half |
 | A post-task role | `tier1_stack` | A fold over the converge rather than a step in it: the control-plane roles each append their service spec to an accumulator, and this renders the accumulated set and type-checks it against the docker installed. It applies nothing, and runs from `post_tasks` once every contributor has |
-| An own-playbook role | `cloudflare_tunnel_regenerate` | Deletes this host's tunnel before handing back to `cloudflare_tunnel` to mint a new one. A converge able to do that would drop the public edge every run, so the delete is an intent somebody declares by running `rotate-tunnel.yml` |
+| An own-playbook role | `cloudflare_tunnel_regenerate` | Deletes this host's tunnel before handing back to `cloudflare_tunnel` to mint a new one. A converge able to do that would drop the public edge every run, so the delete is an intent somebody declares with the dashboard's Regenerate the tunnel, which runs `rotate-tunnel.yml` |
 
 ### Paths a reconcile task may never write
 
@@ -228,8 +233,9 @@ produces it.
 ### The on-box store -- `common`, read by every role
 
 `/etc/catena/config.json` is the runtime source of truth. Mode 0600 root. It
-adopts the seeded external credentials, mints every internal service secret on
-the host itself, and rides the restic backup. The inventory under
+adopts the admin password an install supplies, holds every credential entered
+in the dashboard's Settings, mints every internal service secret on the host
+itself, and rides the restic backup. The inventory under
 `ansible/inventory/<name>/` is plaintext bootstrap input, not the source of
 truth. `ansible/helpers/onbox_config.py` declares which names are secrets.
 
@@ -250,32 +256,43 @@ theirs through `vps.expose.*` compose labels, harvested live.
 The merged effective set is what validation and the external scan check
 against.
 
-ufw is default-deny. After lockdown, ingress is tailnet-only and SSH is
-key-only with no root login. Web traffic reaches the server through the
-encrypted tunnel; no web port is bound on the host. The TURN relay is the one
-deliberate exception: a UDP media plane bound direct on the public IP,
-deployed only when a consumer is running.
+ufw is default-deny. SSH is key-only with no root login and no password login, and public port 22
+is open after an install. The dashboard's Lockdown function closes it once the private
+network proves it reaches the host; the port reconciler reopens it while that
+network is down and closes it again when it is back, and applying the chosen
+access with no private network opens it. Nothing closes it on a host with no
+private network. Until a domain is entered, the dashboard is reached through a
+forward-only SSH account (`panel`) to the host's loopback. Web traffic reaches
+the server through the encrypted tunnel; no web port is bound on the host. The
+TURN relay is the one deliberate exception: a UDP media plane bound direct on
+the public IP, deployed only when a consumer is running.
 
-The tunnel is **deferred, not required, at install**. A server stands up with
-no Cloudflare credential, is administered over the private mesh, and brings
-its public edge up later without a reinstall.
+The tunnel is **never set up at install**. Every server stands up with no
+Cloudflare credential and no private network, and brings its public edge up
+when the domain and its token are saved in the dashboard, without a
+reinstall. The dashboard checks the token, and a private network's
+credentials, on the host before it stores them; a refused save stores
+nothing.
 
 | Invariant | Enforced by |
 | --- | --- |
 | No web port is open on the server itself; an external scan proves it | `bench:security_scan`, `bench:fi_v2_external_scan_blocked`, `threat:CV1` |
 | Every open port is declared before it is opened | `bench:security_scan`, `bench:ce_validate` |
-| SSH is key-only and tailnet-only after lockdown; no root login | `bench:security_scan`, `bench:fi_n8_ufw_concurrent_ssh`, `threat:CV6` |
-| A server installs with no tunnel credential and brings its public edge up later without a reinstall | `bench:ce_install_suite`, `bench:ce_install_tailnet_first` |
+| SSH is key-only with no root login; public 22 closes only behind a proven private network, reopens while that network is down, and opens again when no private network is applied | `bench:security_scan`, `bench:fi_n8_ufw_concurrent_ssh`, `bench:ce_install_suite`, `threat:CV6` |
+| A server installs with no tunnel credential and brings its public edge up later without a reinstall | `bench:ce_install_suite` |
+| A credential entered in the dashboard is checked on the host before it is stored, and a refused one is never stored | `bench:ce_install_suite`, `bench:fi_s4_tailscale_oauth_revoked` |
 | The tunnel can be replaced on a live host without a converge | `bench:cf_tunnel_regenerate_round_trip` |
 | Each domain token grants exactly one domain; Community caps at one | `bench:fi_n10_multidomain_cap` |
 | The private-network control server is pluggable | `bench:ce_install_headscale` |
 
 ### The restic repository -- `backup`
 
-Backups go to object storage the client owns, encrypted on the host before
-upload. The restic password is never minted on-box: it must not ride inside
-the backup it decrypts. A whole server rebuilds from only its backup endpoint
-and its keyset.
+Backups go to object storage, encrypted on the host before
+upload. The repository and its keys are entered in the dashboard; the restic
+password is generated on the host when the client asks the dashboard for it,
+and shown once for the client to keep. The client's copy is what opens the
+repository once the host is gone. A whole server rebuilds from only its
+backup endpoint and its keyset.
 
 restic and rclone ship in the payload, pinned by digest. The backup wrapper
 creates the repository the first time it finds none, and stops rather than
@@ -292,7 +309,7 @@ set of applications, and only a finished run clears it.
 | Invariant | Enforced by |
 | --- | --- |
 | A server rebuilds from only the backup endpoint and key | `bench:dr_suite#stage-19-onbox-store`, `bench:ce_restore`, `bench:recover_secrets_from_running_host`, `threat:CV9` |
-| Backups are encrypted on the host before upload, and the key is never minted on-box | `bench:dr_suite#stage-13-disaster-recovery`, `bench:ce_restore`, `threat:CV4` |
+| Backups are encrypted on the host before upload, under a password the client holds | `bench:dr_suite#stage-13-disaster-recovery`, `bench:ce_restore`, `threat:CV4` |
 | Backups restore -- rehearsed, not assumed | `bench:backup_rollback`, `bench:ce_restore` |
 | An interrupted restore resumes with the same snapshot and scope, and is never reported as finished | `bench:fi_n5_provider_outage_mid_restore`, `bench:inplace_restore_suite#app-restore-stage-6-halted-scope-refuses-to-widen` |
 | Snapshots export without a restore | `bench:snapshot_export_round_trip` |
