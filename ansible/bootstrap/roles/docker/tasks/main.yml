@@ -168,8 +168,8 @@
 # on a fresh install daemon.json changes above (the "Drop
 # /etc/docker/daemon.json" task) and the deferred restart would then fire
 # AFTER traefik/postgres/portainer/keycloak/oauth2-proxy/infrastructure are
-# already up. live-restore keeps most containers alive across the restart,
-# but a docker restart re-materializes the catena-network swarm overlay
+# already up. A docker restart restarts every container (live-restore is
+# off under swarm) and re-materializes the catena-network swarm overlay
 # with a NEW id; swarm SERVICES (catena-postgres, catena-portainer)
 # reconnect on their own, while the PLAIN containers the Portainer stacks
 # deploy (keycloak-server-1, oauth2-proxy, gatus, ...) come back with

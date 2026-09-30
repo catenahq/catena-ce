@@ -38,16 +38,19 @@ def _top_keys(paths) -> set[str]:
     return out
 
 
+# `file: tasks/x.yml` under an include, or a one-line
+# `import_tasks: "{{ playbook_dir }}/tasks/x.yml"` from a role.
 _INCLUDED_FILE = re.compile(
-    r"""^\s*file:\s*["']?(?:\{\{\s*playbook_dir\s*\}\}/)?(tasks/[^"'\s]+\.yml)["']?\s*$""",
+    r"""^\s*(?:-\s*)?(?:file|(?:ansible\.builtin\.)?import_tasks):\s*["']?"""
+    r"""(?:\{\{\s*playbook_dir\s*\}\}/)?(tasks/[^"'\s]+\.yml)["']?\s*$""",
     re.M)
 
 
 def _reconcile_files() -> list[Path]:
-    """The reconcile roles, reconcile.yml, and every playbooks/tasks file it
-    includes, followed through their own includes."""
+    """The reconcile roles, reconcile.yml, and every playbooks/tasks file
+    either includes, followed through their own includes."""
     files = [p for p in (ANSIBLE / "reconcile").rglob("*") if p.is_file()]
-    queue = [ANSIBLE / "playbooks" / "reconcile.yml"]
+    queue = [ANSIBLE / "playbooks" / "reconcile.yml", *files]
     seen: set[Path] = set()
     while queue:
         p = queue.pop()
@@ -56,7 +59,7 @@ def _reconcile_files() -> list[Path]:
         seen.add(p)
         queue += [ANSIBLE / "playbooks" / rel
                   for rel in _INCLUDED_FILE.findall(p.read_text(errors="replace"))]
-    return files + sorted(seen)
+    return sorted(seen | set(files))
 
 
 def _defined_for_reconcile(files) -> set[str]:
@@ -106,3 +109,11 @@ def test_the_scan_sees_the_shared_values():
     reads = _read_by_reconcile(_reconcile_files())
     for name in ("catena_admin_service_name", "catena_admin_image", "swarm_stack_dir"):
         assert name in reads, f"the scan no longer sees {name} being read"
+
+
+def test_the_scan_follows_a_roles_import_of_a_shared_task_file():
+    """reconcile/roles/host_maintenance imports playbooks/tasks/apt_settings.yml,
+    whose reads resolve on the host only if the scan reaches them."""
+    files = {str(p.relative_to(ANSIBLE)) for p in _reconcile_files()}
+    assert "playbooks/tasks/apt_settings.yml" in files
+    assert "catena_apt_proxy_url" in _read_by_reconcile(_reconcile_files())

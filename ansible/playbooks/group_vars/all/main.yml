@@ -271,9 +271,9 @@ catena_baseline_packages:
   - sudo
   - ufw
   - unattended-upgrades
-  # needrestart tells reconcile/roles/host_maintenance which services are
-  # running on libraries that have been replaced under them. Debian's own
-  # /var/run/reboot-required only covers the kernel half.
+  # needrestart restarts the services left running on a library an upgrade
+  # replaced, and reports the ones it leaves for a restart of the host.
+  # Debian's own /var/run/reboot-required only covers the kernel half.
   - needrestart
   - curl
   - ca-certificates
@@ -287,6 +287,29 @@ catena_baseline_packages:
   # scripts gate their report write on `command -v jq`, so a host without it
   # silently produces NO report.
   - jq
+
+# --- apt and the OS update configuration ---
+# Written by playbooks/tasks/apt_settings.yml and reconcile/roles/
+# host_maintenance on every converge, and at bootstrap by
+# bootstrap/roles/common and bootstrap/roles/tailscale, so a value two
+# roles either side of the boundary read lives here.
+
+# Optional apt HTTP proxy (e.g. apt-cacher-ng), from the store. Empty = apt
+# pulls direct. HTTPS sources (docker-ce, tailscale) stay DIRECT:
+# apt-cacher-ng's CONNECT passthrough has no cache benefit and proxying HTTPS
+# risks TLS middleboxing issues.
+catena_apt_proxy_url: "{{ cfg_apt_proxy_url | default('') }}"
+
+# The unattended-upgrades origins and the needrestart policy
+# reconcile/roles/host_maintenance writes and playbooks/uninstall.yml removes.
+catena_apt_origins_path: /etc/apt/apt.conf.d/51catena-origins
+catena_needrestart_conf_path: /etc/needrestart/conf.d/catena.conf
+
+# Tailscale's apt repository, per Debian codename: installed by
+# bootstrap/roles/tailscale, refreshed by reconcile/roles/host_maintenance.
+tailscale_apt_codename: "{{ ansible_facts['distribution_release'] }}"
+tailscale_apt_keyring_url: "https://pkgs.tailscale.com/stable/debian/{{ tailscale_apt_codename }}.noarmor.gpg"
+tailscale_apt_source_url: "https://pkgs.tailscale.com/stable/debian/{{ tailscale_apt_codename }}.tailscale-keyring.list"
 
 # --- Storage ---
 # The product's data prefix. FHS: "data for services provided by this system".

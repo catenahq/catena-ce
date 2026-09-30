@@ -244,6 +244,19 @@ def test_no_bootstrap_task_writes_a_reconcile_owned_path():
     )
 
 
+def test_the_shared_host_task_files_run_on_both_sides():
+    """apt's settings and the host's own name resolution are needed before the
+    first bootstrap apt install and sudo call, and kept current by the host's
+    own converge. One file each, imported by both roles, so the two sides
+    cannot drift apart."""
+    for shared in ("tasks/apt_settings.yml", "tasks/host_name_resolution.yml"):
+        assert (_ANSIBLE / "playbooks" / shared).is_file(), shared
+        for role in ("bootstrap/roles/common", "reconcile/roles/host_maintenance"):
+            text = (_ANSIBLE / role / "tasks" / "main.yml").read_text(encoding="utf-8")
+            assert f'import_tasks: "{{{{ playbook_dir }}}}/{shared}"' in text, (
+                f"{role} does not import playbooks/{shared}")
+
+
 def _inventory_vars() -> dict[str, str]:
     """Every variable defined from the operator's .env, wherever it is defined."""
     out: dict[str, str] = {}

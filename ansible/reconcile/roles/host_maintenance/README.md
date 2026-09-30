@@ -1,18 +1,31 @@
 # reconcile/roles/host_maintenance
 
 The host's own upkeep, applied on every converge from either path, so a
-change here reaches a host that converges itself: the baseline packages,
-Debian's unattended-upgrades, the journal's storage, the host mail agent kept
-off port 25, the settings the client changes in catena-admin > Settings, and
-whether this host needs a reboot. It runs right after `payload`.
+change here reaches a host that converges itself: apt's settings, the host
+resolving its own name, the baseline packages, Debian's unattended-upgrades
+and its origins, needrestart's restart policy, the journal's storage, the host
+mail agent kept off port 25, the settings the client changes in catena-admin >
+Settings, and whether this host needs a reboot. It runs right after `payload`.
 
 ## Packages, updates, journal, mail agent
 
+- `playbooks/tasks/apt_settings.yml` (the optional HTTP proxy, the dpkg lock
+  timeout) and `playbooks/tasks/host_name_resolution.yml` (the hostname on
+  `127.0.1.1`, cloud-init kept off `/etc/hosts`), shared with
+  `bootstrap/roles/common`, which applies both before its first apt operation.
 - `catena_baseline_packages` (in `playbooks/group_vars/all/main.yml`, shared
   with `bootstrap/roles/common`, which installs them at bootstrap).
 - `/etc/apt/apt.conf.d/20auto-upgrades` enables unattended-upgrades; its
   service and `apt-daily-upgrade.timer` are enabled. Nothing else on the host
   applies OS packages.
+- `/etc/apt/apt.conf.d/51catena-origins` adds the stable point releases, the
+  stable-updates suite and Tailscale's repository to Debian's security suite.
+  Tailscale's signing key and source list are fetched again on every converge
+  where `bootstrap/roles/tailscale` added them.
+- `/etc/needrestart/conf.d/catena.conf` sets needrestart to restart the host
+  services left on a replaced library after every apt run, and to leave
+  `docker` and `containerd` for a restart of the host: under swarm, restarting
+  either restarts every container.
 - `/etc/systemd/journald.conf.d/10-catena.conf`: persistent, sealed journal.
   The sealing key is minted once by `bootstrap/roles/common`.
 - `exim4` is masked, and stopped if running, so port 25 stays free for the
@@ -54,8 +67,9 @@ Healthchecks notifies on the transition and escalates through ntfy, so a person
 is told once when the host starts needing a reboot and once when it stops. No
 second alert path exists to configure, or to forget to configure.
 
-Services on replaced libraries are reported and do not page: the next deploy of
-that service restarts it, while a kernel is only replaced by a boot.
+Services on replaced libraries are reported and do not page: needrestart has
+already restarted the ones it may, and the ones left (the container engine
+among them) wait for the same restart the kernel does.
 
 ## What it will never do
 

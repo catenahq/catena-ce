@@ -91,7 +91,8 @@ equal to it on both paths.
 a reconcile role, so a host that converges itself keeps it current.**
 
 - `reconcile/roles/host_maintenance`: the baseline packages kept installed,
-  unattended-upgrades, the journald drop-in, the exim4 mask.
+  unattended-upgrades and its origins, needrestart's restart policy, the
+  journald drop-in, the exim4 mask.
 - `reconcile/roles/swarm`: the task-history bound, the data-node label, the
   overlay-race nudge. `bootstrap/roles/docker` keeps the engine and the swarm
   init.
@@ -99,10 +100,13 @@ a reconcile role, so a host that converges itself keeps it current.**
   `stack-update.env`, `managed-services.json` and the panel's public-port
   fragment.
 
-Two things stay in `bootstrap/roles/common` because a later bootstrap role
-needs them first: the `/etc/hosts` mapping and its cloud-init drop-in (sudo
-resolves the new hostname through it), and the apt proxy and dpkg lock timeout
-(every bootstrap role's apt install uses them).
+Two things run on both sides, from one task file each, because a later
+bootstrap role needs them first: `playbooks/tasks/host_name_resolution.yml`
+(sudo resolves the new hostname through it) and `playbooks/tasks/apt_settings.yml`
+(every bootstrap role's apt install uses the proxy and the lock timeout).
+`bootstrap/roles/common` imports both at bootstrap and
+`reconcile/roles/host_maintenance` on every converge, the shape the baseline
+package list already has.
 
 `boundary.yml` declares the moved paths as `reconcile_owned_paths`, and
 `test_converge_boundary.py` fails when a bootstrap task writes one.

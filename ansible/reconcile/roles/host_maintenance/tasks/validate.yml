@@ -18,6 +18,42 @@
       20auto-upgrades does not enable Unattended-Upgrade, and this host relies
       on Debian's unattended-upgrades for its OS updates.
 
+# What unattended-upgrades applies, as apt resolves it across every file under
+# /etc/apt/apt.conf.d rather than as one file spells it.
+- name: "validate/host_maintenance: read the effective apt configuration"
+  ansible.builtin.command:
+    argv: [apt-config, dump]
+  register: _hm_apt_config
+  changed_when: false
+
+# Each pattern with its closing quote: label=Debian is a prefix of
+# label=Debian-Security.
+- name: "validate/host_maintenance: unattended-upgrades applies every origin"
+  ansible.builtin.assert:
+    that:
+      - item in _hm_apt_config.stdout
+    fail_msg: "unattended-upgrades does not apply {{ item }}"
+  loop:
+    - '"origin=Debian,codename=${distro_codename},label=Debian-Security";'
+    - '"origin=Debian,codename=${distro_codename},label=Debian";'
+    - '"origin=Debian,codename=${distro_codename}-updates";'
+    - '"origin=Tailscale,codename=${distro_codename}";'
+
+- name: "validate/host_maintenance: read the needrestart policy"
+  ansible.builtin.slurp:
+    src: "{{ catena_needrestart_conf_path }}"
+  register: _hm_needrestart
+
+- name: "validate/host_maintenance: needrestart restarts services and leaves the engine"
+  ansible.builtin.assert:
+    that:
+      - "\"$nrconf{restart} = 'a';\" in (_hm_needrestart.content | b64decode)"
+      - "'qr(^docker)} = 0' in (_hm_needrestart.content | b64decode)"
+      - "'qr(^containerd)} = 0' in (_hm_needrestart.content | b64decode)"
+    fail_msg: >-
+      needrestart does not restart services left on replaced libraries, or
+      would restart the container engine, which restarts every container.
+
 - name: "validate/host_maintenance: package and unit state"
   ansible.builtin.package_facts:
     manager: apt

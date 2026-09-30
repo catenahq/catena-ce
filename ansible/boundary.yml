@@ -163,6 +163,8 @@ bootstrap_owned_paths:
 # when an operator does, and whichever ran last wins until the other runs again.
 reconcile_owned_paths:
   - /etc/apt/apt.conf.d/20auto-upgrades
+  - /etc/apt/apt.conf.d/51catena-origins
+  - /etc/needrestart/conf.d/
   - /etc/systemd/journald.conf.d/
   - daily.env
   - stack-update.env

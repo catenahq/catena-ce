@@ -1,0 +1,42 @@
+---
+# apt's settings, applied by bootstrap/roles/common before its first apt
+# operation and by reconcile/roles/host_maintenance on every converge, so a
+# change here reaches a host that converges itself.
+
+# The optional HTTP proxy (APT_PROXY_URL). apt reads everything under
+# /etc/apt/apt.conf.d on each invocation, so no daemon restart is needed.
+# HTTPS stays DIRECT (see catena_apt_proxy_url).
+- name: "apt: HTTP proxy (when APT_PROXY_URL is set)"
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/01proxy
+    content: |
+      Acquire::http::Proxy "{{ catena_apt_proxy_url }}";
+      Acquire::https::Proxy "DIRECT";
+    owner: root
+    group: root
+    mode: "0644"
+  when: catena_apt_proxy_url | length > 0
+
+- name: "apt: no HTTP proxy (when APT_PROXY_URL is unset)"
+  ansible.builtin.file:
+    path: /etc/apt/apt.conf.d/01proxy
+    state: absent
+  when: catena_apt_proxy_url | length == 0
+
+# Wait for the dpkg lock instead of failing fast when apt-daily,
+# unattended-upgrades or cloud-init's package_update holds it. Applies to every
+# apt invocation on the host, including install scripts that do not go through
+# Ansible. Five minutes is the longest plausible legitimate hold; longer means
+# something is wedged and the failure should be loud.
+- name: "apt: dpkg lock timeout"
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/05catena-lock-timeout
+    content: |
+      # Managed by catena (playbooks/tasks/apt_settings.yml). Makes apt wait
+      # for the dpkg lock (held by apt-daily / unattended-upgrades / concurrent
+      # apt callers) instead of failing immediately.
+      DPkg::Lock::Timeout "300";
+      Acquire::Retries "3";
+    owner: root
+    group: root
+    mode: "0644"

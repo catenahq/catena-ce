@@ -1,11 +1,20 @@
 ---
-# The host's own upkeep, applied on every converge from either path: the
-# baseline packages, Debian's unattended-upgrades, the journal's storage, the
-# host mail agent kept off port 25, the time zone and locale set in
-# catena-admin > Settings, and the reboot-required probe. The probe's script
-# (catena-reboot-check) and catena-reboot-check.service/.timer ship in the
-# catena-admin payload, installed by reconcile/roles/payload earlier in the
-# play.
+# The host's own upkeep, applied on every converge from either path: apt's
+# settings, the host resolving its own name, the baseline packages, Debian's
+# unattended-upgrades and its origins, needrestart's restart policy, the
+# journal's storage, the host mail agent kept off port 25, the time zone and
+# locale set in catena-admin > Settings, and the reboot-required probe. The
+# probe's script (catena-reboot-check) and catena-reboot-check.service/.timer
+# ship in the catena-admin payload, installed by reconcile/roles/payload
+# earlier in the play.
+
+# Shared with bootstrap/roles/common, which applies both before anything else
+# on a fresh host.
+- name: "Host: apt settings"
+  ansible.builtin.import_tasks: "{{ playbook_dir }}/tasks/apt_settings.yml"
+
+- name: "Host: the host resolves its own name"
+  ansible.builtin.import_tasks: "{{ playbook_dir }}/tasks/host_name_resolution.yml"
 
 - name: "Host: baseline packages"
   ansible.builtin.apt:
@@ -25,6 +34,7 @@
 # failure for work the other did.
 #
 #   /etc/apt/apt.conf.d/50unattended-upgrades -- Debian's default filter.
+#   /etc/apt/apt.conf.d/51catena-origins      -- the origins added to it.
 #   /etc/apt/apt.conf.d/20auto-upgrades       -- enables the apply lane.
 #   apt-daily.timer (apt-get update only)     -- left on.
 #   apt-daily-upgrade.timer (the apply lane)  -- unmasked + enabled.
@@ -54,6 +64,78 @@
     systemctl enable --now apt-daily-upgrade.timer || true
   changed_when: false
   failed_when: false # unit may not exist on minimal images
+
+# The origins unattended-upgrades applies, added to the ones Debian's own
+# 50unattended-upgrades lists: the stable point releases (restated, so a
+# locally edited 50unattended-upgrades cannot drop them), the stable-updates
+# suite, and Tailscale's repository on a host bootstrap/roles/tailscale added
+# it to. apt merges the list across files.
+- name: "Host: unattended-upgrades origins"
+  ansible.builtin.copy:
+    dest: "{{ catena_apt_origins_path }}"
+    content: |
+      // Managed by catena host_maintenance.
+      Unattended-Upgrade::Origins-Pattern {
+          "origin=Debian,codename=${distro_codename},label=Debian";
+          "origin=Debian,codename=${distro_codename}-updates";
+          "origin=Tailscale,codename=${distro_codename}";
+      };
+    owner: root
+    group: root
+    mode: "0644"
+
+# Tailscale's signing key and source list, fetched again on every converge so
+# a key Tailscale rotates reaches the host before apt stops trusting the
+# repository. A fetch that fails leaves the host's copy in place and is
+# reported: a converge does not stop on Tailscale's package server.
+- name: "Host: is Tailscale's repository configured"
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list.d/tailscale.list
+  register: _host_tailscale_list
+
+- name: "Host: refresh Tailscale's repository"
+  when: _host_tailscale_list.stat.exists
+  block:
+    - name: "Host: refresh Tailscale's signing key and source list"
+      ansible.builtin.get_url:
+        url: "{{ item.url }}"
+        dest: "{{ item.dest }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - { url: "{{ tailscale_apt_keyring_url }}", dest: /usr/share/keyrings/tailscale-archive-keyring.gpg }
+        - { url: "{{ tailscale_apt_source_url }}", dest: /etc/apt/sources.list.d/tailscale.list }
+      register: _host_tailscale_refresh
+      until: _host_tailscale_refresh is succeeded
+      retries: 3
+      delay: 10
+  rescue:
+    - name: "Host: Tailscale's repository could not be refreshed"
+      ansible.builtin.debug:
+        msg: >-
+          Tailscale's package server did not answer, so this host keeps the
+          signing key and source list it has. unattended-upgrades keeps
+          applying Tailscale updates until Tailscale rotates its key; the next
+          converge fetches again.
+
+# needrestart runs after every apt operation, unattended-upgrades' included.
+# Automatic mode restarts the host services left running on a library the
+# upgrade replaced; its default lists them and restarts nothing when nobody is
+# at a terminal. The container engine waits for a restart of the host:
+# live-restore is off under swarm, so restarting dockerd or containerd
+# restarts every container.
+- name: "Host: needrestart restarts services left on replaced libraries"
+  ansible.builtin.copy:
+    dest: "{{ catena_needrestart_conf_path }}"
+    content: |
+      # Managed by catena host_maintenance.
+      $nrconf{restart} = 'a';
+      $nrconf{override_rc}{qr(^docker)} = 0;
+      $nrconf{override_rc}{qr(^containerd)} = 0;
+    owner: root
+    group: root
+    mode: "0644"
 
 # ─── journald: persistent and sealed ────────────────────────────────────
 # The on-box audit trail of catena-admin actions lives in the journal, so it
