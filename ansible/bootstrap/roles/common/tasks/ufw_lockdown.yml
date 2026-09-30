@@ -82,10 +82,12 @@
           }}
       register: _ssh_fragment_open
 
+    # `restarted`: the unit is a oneshot, and a start joins a timer-fired run
+    # already in flight, which read the declaration before this change.
     - name: "Lockdown: reconcile public ports now (port 22 declared open)"
       ansible.builtin.systemd_service:
         name: catena-public-ports.service
-        state: started
+        state: restarted
       changed_when: false
       when: _ssh_fragment_open.changed
 
@@ -229,10 +231,12 @@
           }}
       register: _ssh_fragment
 
+    # `restarted`, for the reason the open block gives: a joined in-flight run
+    # would add back the public rule the delete above removed.
     - name: "Lockdown: reconcile public ports now (declaration changed)"
       ansible.builtin.systemd_service:
         name: catena-public-ports.service
-        state: started
+        state: restarted
       changed_when: false
       when: _ssh_fragment.changed
 
