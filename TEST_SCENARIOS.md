@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 154 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 155 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -139,6 +139,7 @@ The 154 scenarios the maintainers' test bench carries, and the behaviour each on
 | `rclone_copy_preserves_pruned_packs` | The offsite copy keeps snapshots that have already been pruned from the primary repository. |
 | `reboot_required_notified` | A host that needs a reboot reports it and waits for a person rather than restarting itself. |
 | `rebuild_backs_up_after_restore` | A server rebuilt from its backup keeps backing up: after the restore it holds the repository's password, not the one the new machine made for itself. |
+| `reconcile_is_a_noop` | A host that converges itself a second time in a row changes nothing and restarts nothing. |
 | `recover_secrets_from_running_host` | A client whose installation inputs are lost rebuilds a usable credential set by reading the configuration store off the running host. |
 | `recovery_landing_page_bilingual_parity` | The recovery page a client lands on presents the same content in both supported languages. |
 | `recovery_readme_manual_restore` | A client rebuilds their data from a snapshot using only ordinary tools and the instructions shipped beside it. |
