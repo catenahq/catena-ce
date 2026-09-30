@@ -83,7 +83,6 @@
       - { path: /home/ops/.ssh/authorized_keys, type: file, owner: ops, group: ops, mode: "0600" }
       - { path: /etc/ssh/sshd_config.d/10-catena.conf, type: file }
       - { path: /etc/sudoers.d/010-ops, type: file, mode: "0440" }
-      - { path: /etc/apt/apt.conf.d/20auto-upgrades, type: file }
       - { path: /etc/catena/version.txt, type: file, owner: root, group: root, mode: "0644" }
       - { path: "{{ catena_release_manifest_path }}", type: file, owner: root, group: root, mode: "0644" }
 
@@ -182,47 +181,30 @@
       - "'ops ALL=(ALL) NOPASSWD: ALL' in (_sudoers_conf.content | b64decode)"
     fail_msg: "/etc/sudoers.d/010-ops missing the expected NOPASSWD line"
 
-# Debian's native unattended-upgrades is the only thing that applies OS
-# packages on a Catena host, whatever its edition. reconcile/roles/
-# host_maintenance reports when what it applied needs a reboot.
-- name: "validate/common: unattended-upgrades enabled (Debian owns OS patching)"
-  ansible.builtin.slurp:
-    src: /etc/apt/apt.conf.d/20auto-upgrades
-  register: _auto_upgrades_conf
-
-- name: "validate/common: 20auto-upgrades enables Unattended-Upgrade"
-  ansible.builtin.assert:
-    that:
-      - "'Unattended-Upgrade \"1\"' in (_auto_upgrades_conf.content | b64decode)"
-    fail_msg: "20auto-upgrades did NOT enable Unattended-Upgrade -- this host relies on Debian's native unattended-upgrades for security patching"
-
 - name: "validate/common: required packages installed"
   ansible.builtin.package_facts:
     manager: apt
 
-- name: "validate/common: sudo + ufw + unattended-upgrades installed"
+- name: "validate/common: sudo + ufw installed"
   ansible.builtin.assert:
     that:
       - "'sudo' in ansible_facts.packages"
       - "'ufw' in ansible_facts.packages"
-      - "'unattended-upgrades' in ansible_facts.packages"
-    fail_msg: "one of {sudo, ufw, unattended-upgrades} is missing from the apt package list"
+    fail_msg: "one of {sudo, ufw} is missing from the apt package list"
 
 - name: "validate/common: systemd unit states"
   ansible.builtin.service_facts:
 
-- name: "validate/common: ssh + unattended-upgrades + ufw enabled"
+- name: "validate/common: ssh + ufw enabled"
   ansible.builtin.assert:
     that:
       # ssh listens AND is running
       - "ansible_facts.services['ssh.service'].state == 'running'"
       - "ansible_facts.services['ssh.service'].status == 'enabled'"
-      # unattended-upgrades: enabled only (it's a oneshot that runs on timer)
-      - "ansible_facts.services['unattended-upgrades.service'].status == 'enabled'"
       # ufw: enabled only (it's a oneshot loading iptables rules; no live
       # daemon process, so `running` is misleading -- see spec notes)
       - "ansible_facts.services['ufw.service'].status == 'enabled'"
-    fail_msg: "one of ssh/unattended-upgrades/ufw has the wrong enable/run state"
+    fail_msg: "one of ssh/ufw has the wrong enable/run state"
 
 - name: "validate/common: sshd listens on 22/tcp"
   ansible.builtin.wait_for:

@@ -1,6 +1,6 @@
 ---
 # The host-side half of the catena-admin role: the SSH trust path the
-# panel's dispatch arrives over, and the env files the host lanes read.
+# panel's dispatch arrives over.
 #
 # Everything here is read by tasks/main.yml or by one of its templates and
 # by nothing else. The handful of values BOTH halves need -- the panel's
@@ -19,7 +19,7 @@ catena_admin_runner_home: "/home/catena-admin-runner"
 
 # Env vars the container may push into a root-run host action, for values
 # that must not appear in argv or the process table. Consumed TWICE by
-# tasks/host.yml -- sshd's AcceptEnv and the sudoers env_keep -- because the
+# tasks/main.yml -- sshd's AcceptEnv and the sudoers env_keep -- because the
 # dispatch crosses both, and a name missing from either arrives as an empty
 # string rather than an error. Names must match what the panel sends
 # (catena-admin shell/web/cloudflared.go + shell/web/backupendpoint.go).
@@ -44,56 +44,3 @@ catena_admin_container_gid: "{{ catena_container_gid }}"
 # Host path -- the bind-mount target the admin compose expects. Keep it in
 # sync with the compose file when you rename it.
 catena_admin_host_ssh_dir: "/etc/catena/admin-ssh"
-
-# Per-host configuration for the daily orchestrator chain.
-#
-# catena-daily.service and catena-daily-resume.service both declare
-# EnvironmentFile=/etc/catena/daily.env with no leading dash, so systemd
-# fails the unit outright when the file is missing -- and until now NOTHING
-# wrote it. Not this repo, not catena-admin, not ops. The scheduled Business
-# chain could not start on any real host; only the test bench had one, because
-# the bench writes its own copy.
-#
-# It belongs to this role for the same reason the payload install does: it is
-# per-host configuration, and the converge is what knows the host. The values
-# are paths and toggles, not secrets -- the chain reads its credentials from
-# the config store like everything else.
-catena_daily_env_path: /etc/catena/daily.env
-
-# Per-host configuration for the container-bump lane, and the spec list it
-# bumps from. Same story as daily.env above: catena-stack-update-managed.service
-# declares its EnvironmentFile with no leading dash, nothing rendered it, and
-# the engine's --specs-file default pointed at a path nothing wrote. The lane
-# was unstartable on a real host and did not show it, because the bench ships
-# its own copies.
-#
-# Same owner as daily.env for the same reason: this role installs the payload,
-# so it is the role that knows the host these files describe.
-catena_stack_update_env_path: /etc/catena/stack-update.env
-catena_managed_services_path: /etc/catena/managed-services.json
-
-# Container-bump gates. Seven days of tag age because a withdrawn upstream
-# release is usually withdrawn within days and this lane runs unattended; two
-# minutes of stabilisation before the next service is bumped.
-catena_stack_update_min_tag_age_days: 7
-catena_stack_update_stabilize_seconds: 120
-catena_stack_update_cve_severity: "HIGH,CRITICAL"
-# ON-BOX base: the update lane is a unit running on the host, and the Portainer
-# UI port answers this host only.
-catena_stack_update_portainer_api_base: "{{ portainer_api_base_onbox | default('') }}"
-
-# Health gate for the pre-update state. Blank on a host without Gatus, which
-# is a skip rather than a failure: the chain cannot ask whether the host is
-# healthy, so it does not pretend to have asked.
-catena_daily_gatus_api_url: "{{ gatus_api_url | default('') }}"
-
-# The migration lane's PORT. A host process, not a container, because a
-# migration stops docker on this server and the endpoint that puts it back has
-# to still be answering afterwards -- so it listens on this host's tailnet
-# address only, and it answers nothing until someone on this server arms it.
-#
-# The port is declared tailnet-only in the public-port registry below: defence
-# in depth behind the bind rather than instead of it. The binary and its two
-# state files belong to the payload, which installs them with the actions that
-# name them.
-catena_migrate_lane_port: 9040

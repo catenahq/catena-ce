@@ -40,7 +40,7 @@ _ANSIBLE = Path(__file__).resolve().parents[2]
 # Templates rendered into files that a unit ON THE HOST reads.
 _ONBOX_ENV_TEMPLATES = (
     "reconcile/roles/infrastructure/templates/dashboard-sync.env.j2",
-    "bootstrap/roles/catena_admin_host/templates/stack-update.env.j2",
+    "reconcile/roles/catena-admin/templates/stack-update.env.j2",
 )
 
 
@@ -100,22 +100,16 @@ def test_the_managed_env_url_is_one_the_host_can_resolve():
 
 
 def test_no_role_template_renders_the_controller_address():
-    """The rule, rather than the two files that broke first.
+    """The rule, rather than a list of known offenders.
 
-    d60d017 fixed dashboard-sync.env.j2 and stack-update.env.j2 and gated those
-    two by name. 279fff2 then found admin-ssh-config.j2 doing the same thing and
-    named three more places still to check. Every one of those was found from
-    the outside, by a bench run, days apart, one at a time -- which is what a
-    gate scoped to the known offenders buys.
-
-    Templates under roles/*/templates/ are rendered onto the host, so unless a
+    Templates under */roles/*/templates/ are rendered onto the host, so unless a
     template is listed above as controller-facing, an ansible_host in it is the
     same defect: a file on the box holding the controller's view of where the
     box is, which flips public-IP <-> tailnet-IP across converges and differs
     again after a restore onto other infrastructure.
     """
     offenders = []
-    for path in sorted((_ANSIBLE / "roles").rglob("templates/**/*.j2")):
+    for path in sorted(_ANSIBLE.glob("*/roles/*/templates/**/*.j2")):
         rel = str(path.relative_to(_ANSIBLE))
         if rel in _CONTROLLER_FACING_TEMPLATES:
             continue

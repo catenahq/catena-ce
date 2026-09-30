@@ -72,6 +72,8 @@ bootstrap_roles:
 reconcile_roles:
   - public_ports
   - payload
+  - host_maintenance
+  - swarm
   - traefik
   - postgres
   - portainer
@@ -79,7 +81,6 @@ reconcile_roles:
   - keycloak
   - oauth2_proxy
   - infrastructure
-  - host_maintenance
   - catena-admin
   - coturn
   - backup
@@ -154,3 +155,17 @@ bootstrap_owned_paths:
   - /usr/local/sbin/catena-admin-runner
   - /etc/sysctl.d/
   - /etc/modprobe.d/
+
+# Paths a bootstrap-side TASK may never write.
+#
+# The reconcile side owns them, so a host that converges itself keeps them
+# current. A bootstrap task writing one too is a second writer that runs only
+# when an operator does, and whichever ran last wins until the other runs again.
+reconcile_owned_paths:
+  - /etc/apt/apt.conf.d/20auto-upgrades
+  - /etc/systemd/journald.conf.d/
+  - daily.env
+  - stack-update.env
+  - managed-services.json
+  - catena-admin.json
+  - catena-network-nudge

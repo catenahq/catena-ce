@@ -26,9 +26,10 @@ ANSIBLE = Path(__file__).resolve().parents[2]
 BACKUP_INSTALL = ANSIBLE / "reconcile" / "roles" / "backup" / "tasks" / "install.yml"
 BACKUP_ENV = ANSIBLE / "reconcile" / "roles" / "backup" / "templates" / "backup.env.j2"
 BACKUP_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "backup" / "defaults" / "main.yml"
-ADMIN_HOST = ANSIBLE / "bootstrap" / "roles" / "catena_admin_host" / "tasks" / "main.yml"
-ADMIN_DEPLOY = ANSIBLE / "reconcile" / "roles" / "catena-admin" / "tasks" / "deploy.yml"
-DAILY_ENV = ANSIBLE / "bootstrap" / "roles" / "catena_admin_host" / "templates" / "daily.env.j2"
+ADMIN_ROLE = ANSIBLE / "reconcile" / "roles" / "catena-admin"
+ADMIN_LANES = ADMIN_ROLE / "tasks" / "lanes.yml"
+ADMIN_DEPLOY = ADMIN_ROLE / "tasks" / "deploy.yml"
+DAILY_ENV = ADMIN_ROLE / "templates" / "daily.env.j2"
 GROUP_VARS = ANSIBLE / "playbooks" / "group_vars" / "all" / "main.yml"
 ONBOX_CONFIG = ANSIBLE / "helpers" / "onbox_config.py"
 
@@ -138,7 +139,7 @@ def test_the_daily_env_file_is_rendered_every_converge():
     # catena-daily.service declares EnvironmentFile for this path with no
     # leading dash. A missing file fails the unit outright, which is how the
     # scheduled chain came to be unable to start on any real host.
-    tasks = yaml.safe_load(ADMIN_HOST.read_text())
+    tasks = yaml.safe_load(ADMIN_LANES.read_text())
     renders = [
         t for t in tasks
         if str(t.get("ansible.builtin.template", {}).get("src", "")) == "daily.env.j2"
@@ -181,7 +182,7 @@ LANE_CONFIG_TEMPLATES = (
 
 
 def test_every_lane_config_file_is_rendered_exactly_once():
-    tasks = yaml.safe_load(ADMIN_HOST.read_text())
+    tasks = yaml.safe_load(ADMIN_LANES.read_text())
     for src in LANE_CONFIG_TEMPLATES:
         renders = [
             t for t in tasks
@@ -196,7 +197,7 @@ def test_every_lane_config_file_is_rendered_exactly_once():
 
 def test_the_secret_bearing_lane_config_is_not_world_readable():
     # stack-update.env carries the Portainer API key.
-    tasks = yaml.safe_load(ADMIN_HOST.read_text())
+    tasks = yaml.safe_load(ADMIN_LANES.read_text())
     for src in ("stack-update.env.j2",):
         tpl = next(
             t["ansible.builtin.template"] for t in tasks
@@ -249,10 +250,7 @@ def test_the_managed_lane_needs_no_copy_of_how_traefik_was_built():
     # in the spec file would be a second definition of the role's launch
     # spec, free to drift from it -- and a lane running a drifted copy
     # relaunches traefik with the wrong mounts.
-    specs = _code(
-        ANSIBLE / "bootstrap" / "roles" / "catena_admin_host" / "templates"
-        / "managed-services.json.j2"
-    )
+    specs = _code(ADMIN_ROLE / "templates" / "managed-services.json.j2")
     # Assert on the JSON keys, not bare words: the Jinja {# #} header names
     # both terms in prose, and _code only strips `#` comment LINES, so a bare
     # substring check would match the explanation instead of the data.

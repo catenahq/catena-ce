@@ -51,10 +51,9 @@ as a DIRECTORY, which Traefik cannot open.
 
 ## Boundaries
 
-- `catena-network-nudge` belongs to `bootstrap/roles/docker`, which owns both
-  ends of the overlay race it heals. `catena-traefik` is a swarm service, so
-  the task manager re-dispatches it and the nudge skips it by label; what the
-  nudge protects is the Portainer compose containers.
+- `catena-traefik` is a swarm service: after a daemon restart the task
+  manager re-dispatches it, and `catena-network-nudge`
+  (`reconcile/roles/swarm`) skips it by label.
 - Validation (`tasks_from: validate.yml`) asserts the service is at N/N
   replicas, publishes no ports, carries RFC1918 in `forwardedHeaders`, and
   that `catena-network` is an overlay.

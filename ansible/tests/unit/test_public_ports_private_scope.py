@@ -157,7 +157,7 @@ def test_the_two_ui_ports_are_host_only_and_the_lane_declares_tailnet():
                  / "main.yml").read_text(encoding="utf-8")
     assert '"scope": "loopback", "bind": "docker", "owner": "portainer"' in portainer
 
-    admin = (ANSIBLE_DIR / "bootstrap" / "roles" / "catena_admin_host" / "tasks"
-             / "main.yml").read_text(encoding="utf-8")
+    admin = (ANSIBLE_DIR / "reconcile" / "roles" / "catena-admin" / "tasks"
+             / "lanes.yml").read_text(encoding="utf-8")
     assert '"port": catena_admin_ui_port | int,\n           "scope": "loopback"' in admin
     assert '"port": catena_migrate_lane_port | int,\n           "scope": "tailnet"' in admin

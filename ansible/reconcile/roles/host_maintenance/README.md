@@ -1,7 +1,22 @@
 # reconcile/roles/host_maintenance
 
-Host-level settings the client changes in catena-admin > Settings, and
-maintenance reporting: whether this host needs a reboot.
+The host's own upkeep, applied on every converge from either path, so a
+change here reaches a host that converges itself: the baseline packages,
+Debian's unattended-upgrades, the journal's storage, the host mail agent kept
+off port 25, the settings the client changes in catena-admin > Settings, and
+whether this host needs a reboot. It runs right after `payload`.
+
+## Packages, updates, journal, mail agent
+
+- `catena_baseline_packages` (in `playbooks/group_vars/all/main.yml`, shared
+  with `bootstrap/roles/common`, which installs them at bootstrap).
+- `/etc/apt/apt.conf.d/20auto-upgrades` enables unattended-upgrades; its
+  service and `apt-daily-upgrade.timer` are enabled. Nothing else on the host
+  applies OS packages.
+- `/etc/systemd/journald.conf.d/10-catena.conf`: persistent, sealed journal.
+  The sealing key is minted once by `bootstrap/roles/common`.
+- `exim4` is masked, and stopped if running, so port 25 stays free for the
+  mail server.
 
 ## Time zone and locale
 
@@ -14,8 +29,8 @@ value typed in the panel never fails a converge.
 
 ## Why the reboot probe exists
 
-Debian's `unattended-upgrades` applies the OS security patches on a Catena host
-(`bootstrap/roles/common` installs and configures it), and it does not reboot:
+Debian's `unattended-upgrades` applies the OS updates on a Catena host (this
+role configures it), and it does not reboot:
 `Unattended-Upgrade::Automatic-Reboot` is off, because a reboot is downtime for
 every application on the box and choosing when belongs to whoever answers for
 that.

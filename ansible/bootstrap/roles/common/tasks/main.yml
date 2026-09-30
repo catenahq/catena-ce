@@ -253,61 +253,6 @@
         - _apt_update_diag.rc != 0
         - common_apt_proxy_url | length > 0
 
-# ── Keep host port 25 free for the mail server (MX) ──────────────────────
-# Debian's default-mta (exim4-daemon-light) binds 127.0.0.1:25 + [::1]:25
-# the moment it starts. That collides with the mailserver template's dms
-# container publishing 0.0.0.0:25 ("failed to bind host port 0.0.0.0:25/tcp:
-# address already in use"), leaving dms stuck in `Created` and failing the
-# deploy. exim4 is NOT in the base image or the baseline; it is pulled as an
-# apt Recommends by packages dragged in across the converge (cron Recommends
-# default-mta, and a bench probe proved cron is NOT the only path -- the full
-# common sequence pulls none, yet a later role does). Chasing every puller
-# with --no-install-recommends is whack-a-mole AND would strip recommends
-# that cron itself may legitimately want, so we do NOT suppress them.
-#
-# Catena drives every periodic job off systemd timers and routes mail
-# through the mailserver template (alerts go via ntfy / Healthchecks) -- a
-# host MTA is never wanted and is a spam-relay liability besides. So MASK
-# exim4 here, EARLY: masking shadows the unit even before the package
-# exists, so whichever later role drags exim4 in (with its full recommends
-# intact), its postinst start is a no-op (deb-systemd-invoke skips masked
-# units) and :25 stays free for the MX. Ordering-proof, no dependency
-# breakage (the package may still install, it just can never run); cron
-# still works, only its unused local-mail output is disabled. Worst case is
-# the loss of local system mail, which Catena does not consume.
-# Pinned by tests/unit/test_no_host_mta.py.
-- name: "Mask exim4 so it can never bind port 25 (reserved for the mail server MX)"
-  # `systemctl mask` works on a not-yet-installed unit (creates the
-  # /etc/systemd/system/exim4.service -> /dev/null shadow), so this holds
-  # even though exim4 is usually installed by a LATER role. Plain command
-  # (not the systemd_service module) because the module needs the unit to
-  # exist to manage state; mask must work before it does.
-  ansible.builtin.command:
-    argv: [systemctl, mask, exim4]
-  register: _mask_exim4
-  changed_when: "'Created symlink' in (_mask_exim4.stdout + _mask_exim4.stderr)"
-
-# Self-heal an existing host that already booted exim4 BEFORE the mask was
-# added (masking does not stop a running instance). Must be idempotent:
-# `systemctl stop` returns rc=0 even when nothing was running, so gating the
-# stop -- and the changed flag -- on `is-active` is the only way to avoid
-# reporting changed on every converge (which would fail the idempotency
-# rerun). On a fresh host exim4 is masked before it can ever start, so this
-# is a skip.
-- name: "Probe whether exim4 is currently active (for self-heal stop)"
-  ansible.builtin.command:
-    argv: [systemctl, is-active, exim4]
-  register: _exim4_active
-  changed_when: false
-  # is-active returns rc 3 for inactive/masked units; not a failure here.
-  failed_when: false
-
-- name: "Stop exim4 if a prior boot started it before the mask (self-heal)"
-  ansible.builtin.command:
-    argv: [systemctl, stop, exim4]
-  changed_when: true
-  when: (_exim4_active.stdout | default('') | trim) == 'active'
-
 - name: Full system upgrade (fresh VPS images ship stale)
   ansible.builtin.apt:
     upgrade: dist
@@ -323,7 +268,7 @@
 
 - name: Install baseline packages
   ansible.builtin.apt:
-    name: "{{ common_baseline_packages }}"
+    name: "{{ catena_baseline_packages }}"
     state: present
     cache_valid_time: 3600
     lock_timeout: 300
@@ -584,54 +529,6 @@
     mode: "0644"
   notify: reload sshd
 
-# ─── unattended-upgrades (Debian-native security patching) ──────────────
-# OS security patches are Debian's job on every Catena host, whatever its
-# edition. This is the operating system's mechanism, NOT a Catena scheduler:
-# the default 50unattended-upgrades filter applies only the Debian-Security
-# suite, so most days it is a no-op, and it never auto-reboots
-# (Automatic-Reboot defaults off -- a new kernel waits for a reboot somebody
-# chooses). reconcile/roles/host_maintenance is the half that says when one is
-# pending, since a patch nobody has rebooted into is not in effect.
-#
-# NOTHING ELSE ON THIS HOST APPLIES OS PACKAGES. One applier is the whole
-# point: two of them race for the dpkg lock, and the one that loses reports a
-# failure for work the other did.
-#
-# Config state we want:
-#   /etc/apt/apt.conf.d/50unattended-upgrades -- Debian-default filter,
-#       already shipped; leave alone.
-#   /etc/apt/apt.conf.d/20auto-upgrades       -- enable the apply lane.
-#   apt-daily.timer (apt-get update only)     -- leave ON.
-#   apt-daily-upgrade.timer (the APPLY lane)  -- unmasked + enabled.
-#   unattended-upgrades.service               -- enabled.
-- name: "Configure unattended-upgrades (Debian-native security patching ON)"
-  ansible.builtin.copy:
-    dest: /etc/apt/apt.conf.d/20auto-upgrades
-    content: |
-      # Managed by catena common role. OS security patches are Debian's
-      # own unattended-upgrades (security suite only), on every edition.
-      APT::Periodic::Update-Package-Lists "1";
-      APT::Periodic::Unattended-Upgrade "1";
-      APT::Periodic::AutocleanInterval "7";
-    owner: root
-    group: root
-    mode: "0644"
-
-- name: Ensure unattended-upgrades service is enabled
-  ansible.builtin.command:
-    cmd: systemctl enable --now unattended-upgrades
-  changed_when: false
-
-# Unmask as well as enable: a host converged before the apply lane became
-# Debian's on every edition may still carry the mask a licensed chain left
-# behind, and a masked timer enables silently and never fires.
-- name: "Ensure apt-daily-upgrade.timer is unmasked + enabled (Debian-native apply lane)"
-  ansible.builtin.shell: |
-    systemctl unmask apt-daily-upgrade.timer || true
-    systemctl enable --now apt-daily-upgrade.timer || true
-  changed_when: false
-  failed_when: false # unit may not exist on minimal images
-
 # ─── journald: persistent + sealed audit log ─────────────────────────────
 # Community keeps an on-box audit trail of catena-admin actions in journald
 # (the Go shell emits structured entries under SYSLOG_IDENTIFIER=catena-admin
@@ -641,32 +538,14 @@
 # is printed ONCE below -- save it off-box; it is what proves the seal.
 # Shipping this journal to a central collector is a Business feature handled
 # elsewhere; CE keeps it local and the EE audit panel reads it back.
-- name: "journald: ensure drop-in directory exists"
-  # Debian's genericcloud image does not ship /etc/systemd/journald.conf.d/,
-  # and ansible.builtin.copy does not create the dest parent -- create it
-  # first so the drop-in below lands cleanly on a fresh host.
-  ansible.builtin.file:
-    path: /etc/systemd/journald.conf.d
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
-
-- name: "journald: drop-in for persistent storage + sealing"
-  ansible.builtin.copy:
-    dest: /etc/systemd/journald.conf.d/10-catena.conf
-    content: |
-      # Managed by catena common role.
-      [Journal]
-      Storage=persistent
-      Seal=yes
-    owner: root
-    group: root
-    mode: "0644"
-  notify: restart journald
-
-# Sealing keys live under the persistent journal dir, so it must exist (and
-# journald must be running persistent) before setup-keys can write them.
+#
+# The sealing KEY is minted here, once, because the install hands its
+# verification half to the client (show-keyset.yml). The journald drop-in that
+# keeps storage persistent and sealing on is reconcile/roles/host_maintenance's.
+#
+# Sealing keys live under the persistent journal dir, so it must exist before
+# setup-keys can write them. With the directory present, journald's default
+# Storage=auto keeps the journal there once the runtime one is flushed.
 - name: "journald: ensure persistent journal directory"
   ansible.builtin.file:
     path: /var/log/journal
@@ -675,22 +554,17 @@
     group: systemd-journal
     mode: "2755"
 
-# Apply the storage/seal change NOW (not at end-of-play) so the persistent
-# journal + machine-id dir exist before the FSS setup below.
-- name: "journald: apply storage/seal config before FSS setup"
-  ansible.builtin.meta: flush_handlers
-
 - name: "journald: read machine-id (FSS key path component)"
   ansible.builtin.slurp:
     src: /etc/machine-id
   register: _journal_machine_id_raw
 
-# On a restored/DR host journald may still be running volatile: the conf was
-# restored before journald started, so the conditional restart above is a
-# no-op and journald never created the per-machine-id journal dir. --setup-keys
-# below writes its sealing key INTO that dir, so it must exist first. Create it
-# explicitly (deterministic) and flush the runtime journal so journald actually
-# adopts persistent storage. Both idempotent.
+# journald may still be running volatile here -- on a fresh host nothing has
+# restarted it since the directory appeared, and on a restored host the
+# directory came back before journald started -- so the per-machine-id journal
+# dir may not exist. --setup-keys below writes its sealing key INTO that dir, so
+# it must exist first. Create it explicitly (deterministic) and flush the
+# runtime journal so journald adopts persistent storage. Both idempotent.
 - name: "journald: ensure machine-id journal dir exists (DR target may still be volatile)"
   ansible.builtin.file:
     path: "/var/log/journal/{{ (_journal_machine_id_raw.content | b64decode | trim) }}"

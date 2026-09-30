@@ -1,0 +1,37 @@
+---
+# Validation tasks for reconcile/roles/swarm, run by playbooks/validate.yml via
+# include_role: tasks_from: validate.
+
+- name: "validate/swarm: read the node label and history limit"
+  ansible.builtin.shell: |
+    set -o pipefail
+    id="$(docker info --format '{% raw %}{{.Swarm.NodeID}}{% endraw %}')"
+    docker node inspect "$id" --format '{% raw %}{{index .Spec.Labels "catena.role"}}{% endraw %}'
+    docker info --format '{% raw %}{{.Swarm.Cluster.Spec.Orchestration.TaskHistoryRetentionLimit}}{% endraw %}'
+  args:
+    executable: /bin/bash
+  register: _swarm_settings
+  changed_when: false
+  failed_when: false
+
+- name: "validate/swarm: the data-node label and task-history bound are in force"
+  ansible.builtin.assert:
+    that:
+      - _swarm_settings.rc == 0
+      - (_swarm_settings.stdout_lines | default([]))[0] | default('') | trim == swarm_node_role_label
+      - (_swarm_settings.stdout_lines | default([]))[1] | default('') | trim == (swarm_task_history_limit | string)
+    fail_msg: >-
+      Expected catena.role={{ swarm_node_role_label }} and a task-history limit
+      of {{ swarm_task_history_limit }}; docker reports
+      {{ _swarm_settings.stdout_lines | default([]) }}. Every stateful service
+      constrains itself to that label, so without it they stay pending.
+
+- name: "validate/swarm: the network nudge is installed and wired to docker.service"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _assert_path_perms
+  vars:
+    _assert_paths:
+      - { path: /usr/local/bin/catena-network-nudge, type: file, owner: root, group: root, mode: "0755" }
+      - { path: /etc/systemd/system/catena-network-nudge.service, type: file }
+      - { path: /etc/systemd/system/docker.service.d/10-catena-network-nudge.conf, type: file }

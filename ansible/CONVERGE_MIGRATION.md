@@ -14,7 +14,7 @@ The design write-up this implements:
 Two questions, asked in order, decide who owns any given value.
 
 1. **If this is wrong, is anything left that can fix it?** If no, it is
-   BOOTSTRAP: an operator runs it, over SSH, from outside. Five roles, and the
+   BOOTSTRAP: an operator runs it, over SSH, from outside. Seven roles, and the
    set is meant to stay small. The second admissible reason is "cannot be
    safely re-applied to a live host unattended", which is why `storage` is
    there.
@@ -84,6 +84,28 @@ the describe catena-admin's vendor step records in `VENDOR.json`. The stamp is
 still written first, so it keeps meaning "a converge started here", and
 validate.yml holds the release manifest, written last from the same fact,
 equal to it on both paths.
+
+### Host upkeep and the swarm's settings are reconcile-side (2026-09-30) -- BUILT
+
+**Decided: what a host can re-apply to itself without losing the way in lives in
+a reconcile role, so a host that converges itself keeps it current.**
+
+- `reconcile/roles/host_maintenance`: the baseline packages kept installed,
+  unattended-upgrades, the journald drop-in, the exim4 mask.
+- `reconcile/roles/swarm`: the task-history bound, the data-node label, the
+  overlay-race nudge. `bootstrap/roles/docker` keeps the engine and the swarm
+  init.
+- `reconcile/roles/catena-admin/tasks/lanes.yml`: `daily.env`,
+  `stack-update.env`, `managed-services.json` and the panel's public-port
+  fragment.
+
+Two things stay in `bootstrap/roles/common` because a later bootstrap role
+needs them first: the `/etc/hosts` mapping and its cloud-init drop-in (sudo
+resolves the new hostname through it), and the apt proxy and dpkg lock timeout
+(every bootstrap role's apt install uses them).
+
+`boundary.yml` declares the moved paths as `reconcile_owned_paths`, and
+`test_converge_boundary.py` fails when a bootstrap task writes one.
 
 ### The store is born at BOOTSTRAP (2026-09-09) -- BUILT, catena-ce `d4b74f4`
 

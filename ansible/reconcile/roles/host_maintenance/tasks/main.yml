@@ -1,9 +1,122 @@
 ---
-# The server's time zone and locale, set in catena-admin > Settings, and the
-# reboot-required probe: its env file, and enabling its timer. The script
+# The host's own upkeep, applied on every converge from either path: the
+# baseline packages, Debian's unattended-upgrades, the journal's storage, the
+# host mail agent kept off port 25, the time zone and locale set in
+# catena-admin > Settings, and the reboot-required probe. The probe's script
 # (catena-reboot-check) and catena-reboot-check.service/.timer ship in the
 # catena-admin payload, installed by reconcile/roles/payload earlier in the
 # play.
+
+- name: "Host: baseline packages"
+  ansible.builtin.apt:
+    name: "{{ catena_baseline_packages }}"
+    state: present
+    cache_valid_time: 3600
+    lock_timeout: 300
+
+# ─── unattended-upgrades (Debian-native patching) ───────────────────────
+# OS packages are Debian's job on every Catena host, whatever its edition. This
+# is the operating system's mechanism, not a Catena scheduler, and it never
+# reboots (Automatic-Reboot stays off): the reboot-required probe below is the
+# half that says a patch is waiting for one.
+#
+# NOTHING ELSE ON THIS HOST APPLIES OS PACKAGES. One applier is the whole
+# point: two of them race for the dpkg lock, and the one that loses reports a
+# failure for work the other did.
+#
+#   /etc/apt/apt.conf.d/50unattended-upgrades -- Debian's default filter.
+#   /etc/apt/apt.conf.d/20auto-upgrades       -- enables the apply lane.
+#   apt-daily.timer (apt-get update only)     -- left on.
+#   apt-daily-upgrade.timer (the apply lane)  -- unmasked + enabled.
+#   unattended-upgrades.service               -- enabled.
+- name: "Host: enable unattended-upgrades"
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      # Managed by catena host_maintenance. OS packages are applied by Debian's
+      # own unattended-upgrades, on every edition.
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: "Host: unattended-upgrades service is enabled"
+  ansible.builtin.command:
+    cmd: systemctl enable --now unattended-upgrades
+  changed_when: false
+
+# Unmask as well as enable: a masked timer enables silently and never fires.
+- name: "Host: apt-daily-upgrade.timer is unmasked and enabled"
+  ansible.builtin.shell: |
+    systemctl unmask apt-daily-upgrade.timer || true
+    systemctl enable --now apt-daily-upgrade.timer || true
+  changed_when: false
+  failed_when: false # unit may not exist on minimal images
+
+# ─── journald: persistent and sealed ────────────────────────────────────
+# The on-box audit trail of catena-admin actions lives in the journal, so it
+# must survive a reboot, and sealing makes after-the-fact tampering detectable
+# (`journalctl --verify`). The sealing key itself is minted once by
+# bootstrap/roles/common, which hands its verification half to the client.
+- name: "Host: journald drop-in directory"
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "Host: journald keeps a persistent, sealed journal"
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/10-catena.conf
+    content: |
+      # Managed by catena host_maintenance.
+      [Journal]
+      Storage=persistent
+      Seal=yes
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart journald
+
+# ─── Keep host port 25 free for the mail server (MX) ──────────────────────
+# Debian's default-mta (exim4-daemon-light) binds 127.0.0.1:25 and [::1]:25 the
+# moment it starts, which collides with the mailserver template publishing
+# 0.0.0.0:25 and leaves its container stuck in Created. exim4 is not in the base
+# image or the baseline; it arrives as an apt Recommends of packages other roles
+# install (cron is one path, not the only one), and stripping recommends from
+# every installer would also strip what those packages legitimately want.
+#
+# Catena drives periodic work off systemd timers and routes mail through the
+# mailserver template, so a host MTA is never wanted, and is a spam-relay
+# liability besides. Masking shadows the unit even before the package exists,
+# so a later install's postinst start is a no-op (deb-systemd-invoke skips
+# masked units). Plain command rather than the systemd_service module, which
+# needs the unit to exist first.
+- name: "Host: mask exim4 so it can never bind port 25"
+  ansible.builtin.command:
+    argv: [systemctl, mask, exim4]
+  register: _host_mask_exim4
+  changed_when: "'Created symlink' in (_host_mask_exim4.stdout + _host_mask_exim4.stderr)"
+
+# Masking does not stop a running instance: an exim4 an earlier role's install
+# started is stopped here. Gated on is-active, because `systemctl stop` exits 0
+# with nothing running and an ungated task would report changed every converge.
+- name: "Host: is exim4 running"
+  ansible.builtin.command:
+    argv: [systemctl, is-active, exim4]
+  register: _host_exim4_active
+  changed_when: false
+  # is-active returns rc 3 for inactive or masked units.
+  failed_when: false
+
+- name: "Host: stop a running exim4"
+  ansible.builtin.command:
+    argv: [systemctl, stop, exim4]
+  changed_when: true
+  when: (_host_exim4_active.stdout | default('') | trim) == 'active'
 
 # A zone this host does not know is reported and left unapplied: a converge
 # the panel starts must not fail on a name typed in the panel.

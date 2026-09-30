@@ -1,0 +1,78 @@
+---
+# The host lanes' per-host configuration, and the panel's port declarations.
+# Rendered on every converge from either path, so a change to any of them
+# reaches a host that converges itself.
+
+# The daily chain's paths and toggles. No secrets, so no rotated value for a
+# re-render to clobber, and harmless on a host with no chain: the ordering is
+# one less thing to get wrong on a first converge.
+- name: "Catena-admin: daily orchestrator configuration ({{ catena_daily_env_path }})"
+  ansible.builtin.template:
+    src: daily.env.j2
+    dest: "{{ catena_daily_env_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: "Catena-admin: container update lane configuration ({{ catena_stack_update_env_path }})"
+  ansible.builtin.template:
+    src: stack-update.env.j2
+    dest: "{{ catena_stack_update_env_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+# Which infra services the container lane may bump, and how.
+- name: "Catena-admin: managed infra spec list ({{ catena_managed_services_path }})"
+  ansible.builtin.template:
+    src: managed-services.json.j2
+    dest: "{{ catena_managed_services_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+# --- host-only firewall for the native-login UI port (registry fragment) ---
+# The panel's host-published port (mode=host -> :8001) answers this host only,
+# the same posture as Portainer's UI port. Its login is the recovery admin
+# password over plain HTTP, so the transport has to be something else's: an
+# administrator opens it through an SSH local forward
+# (`ssh -N -L 9010:127.0.0.1:9010 panel@<host>`). The public-ports reconciler
+# applies the DOCKER-USER DROP from this fragment.
+#
+# The migration lane binds this host's tailnet address directly (a host
+# process, bind=host) and refuses to start with no tailnet address rather than
+# binding every interface. Its declaration is belt-and-braces behind that bind,
+# and it is what makes the port appear in the effective set validation reads.
+- name: "Catena-admin: public-port fragment dir exists"
+  ansible.builtin.file:
+    path: "{{ public_ports_fragment_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "Catena-admin: declare UI + migration-lane ports (registry fragment)"
+  ansible.builtin.copy:
+    dest: "{{ public_ports_fragment_dir }}/catena-admin.json"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {{
+        [
+          {"proto": "tcp", "port": catena_admin_ui_port | int,
+           "scope": "loopback", "bind": "docker", "owner": "catena-admin",
+           "comment": "catena-admin native-login panel -- this host only, SSH forward"},
+          {"proto": "tcp", "port": catena_migrate_lane_port | int,
+           "scope": "tailnet", "bind": "host", "owner": "catena-admin",
+           "comment": "migration lane (source side) -- tailnet only"}
+        ] | to_nice_json
+      }}
+  register: _catena_admin_ports_fragment
+
+- name: "Catena-admin: reconcile public ports now (fragment changed)"
+  ansible.builtin.systemd_service:
+    name: catena-public-ports.service
+    state: started
+  changed_when: false
+  when: _catena_admin_ports_fragment.changed

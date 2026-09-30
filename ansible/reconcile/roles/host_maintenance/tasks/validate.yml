@@ -1,0 +1,60 @@
+---
+# Validation tasks for reconcile/roles/host_maintenance, run by
+# playbooks/validate.yml via include_role: tasks_from: validate.
+
+# Debian's unattended-upgrades is the only thing that applies OS packages on a
+# Catena host, whatever its edition; the reboot-required probe says when what it
+# applied needs a restart.
+- name: "validate/host_maintenance: read 20auto-upgrades"
+  ansible.builtin.slurp:
+    src: /etc/apt/apt.conf.d/20auto-upgrades
+  register: _hm_auto_upgrades
+
+- name: "validate/host_maintenance: 20auto-upgrades enables Unattended-Upgrade"
+  ansible.builtin.assert:
+    that:
+      - "'Unattended-Upgrade \"1\"' in (_hm_auto_upgrades.content | b64decode)"
+    fail_msg: >-
+      20auto-upgrades does not enable Unattended-Upgrade, and this host relies
+      on Debian's unattended-upgrades for its OS updates.
+
+- name: "validate/host_maintenance: package and unit state"
+  ansible.builtin.package_facts:
+    manager: apt
+
+- name: "validate/host_maintenance: every baseline package is installed"
+  ansible.builtin.assert:
+    that:
+      - catena_baseline_packages | reject('in', ansible_facts.packages) | list | length == 0
+    fail_msg: >-
+      Missing baseline packages:
+      {{ catena_baseline_packages | reject('in', ansible_facts.packages) | list }}
+
+- name: "validate/host_maintenance: unit states"
+  ansible.builtin.service_facts:
+
+- name: "validate/host_maintenance: unattended-upgrades enabled, exim4 masked"
+  ansible.builtin.assert:
+    that:
+      # A oneshot that runs from its timer: enabled, not running.
+      - ansible_facts.services['unattended-upgrades.service'].status == 'enabled'
+      # Absent is as good as masked: the mask exists so a later install cannot
+      # start it.
+      - >-
+        'exim4.service' not in ansible_facts.services
+        or ansible_facts.services['exim4.service'].status == 'masked'
+    fail_msg: >-
+      unattended-upgrades is not enabled, or exim4 is installed and not masked,
+      in which case it binds port 25 ahead of the mail server.
+
+- name: "validate/host_maintenance: journald keeps a persistent, sealed journal"
+  ansible.builtin.slurp:
+    src: /etc/systemd/journald.conf.d/10-catena.conf
+  register: _hm_journald
+
+- name: "validate/host_maintenance: journald drop-in content"
+  ansible.builtin.assert:
+    that:
+      - "'Storage=persistent' in (_hm_journald.content | b64decode)"
+      - "'Seal=yes' in (_hm_journald.content | b64decode)"
+    fail_msg: "journald's catena drop-in no longer keeps the journal persistent and sealed"

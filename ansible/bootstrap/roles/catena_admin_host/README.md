@@ -1,28 +1,24 @@
 # bootstrap/roles/catena_admin_host
 
-The host-side half of the admin panel: the trust path its dispatch arrives over,
-and the env files the host lanes read.
+The host-side half of the admin panel: the trust path its dispatch arrives over.
 
 - the runner account and its home
 - the sudoers drop-in and the sshd `AcceptEnv` allow-list
 - the forced command and the runner's `authorized_keys`
 - the SSH client config the panel's container uses
-- `daily.env`, `stack-update.env`, `managed-services.json`
+- the bind-mount sources the panel's service needs before it can start
+
+The host lanes' configuration (`daily.env`, `stack-update.env`,
+`managed-services.json`) and the panel's port declarations are
+`reconcile/roles/catena-admin/tasks/lanes.yml`, so a host that converges itself
+keeps them current.
 
 ## Why it is a role rather than a file in reconcile/roles/catena-admin
 
-Because the boundary it sits on has to be enforceable.
-
-`boundary.yml` declared `host.yml` bootstrap-side from phase 1a, and that
-declaration could not act on anything: `reconcile/roles/catena-admin/tasks/main.yml`
-imported the file unconditionally, and `playbooks/reconcile.yml` runs that role.
-So for as long as the two halves shared a role, a reconcile could rewrite the
-forced command -- the one thing the split exists to prevent -- while every
-assertion about the FILES passed.
-
-Holding the line without splitting meant a conditional import plus a play that
-remembered to disable it. That works and it is one edit away from not working.
-Two roles is the shape where the property is a fact about the tree.
+A reconcile that could rewrite the forced command could rewrite what a
+reconcile is. `playbooks/reconcile.yml` runs `reconcile/roles/catena-admin`, so
+the trust path lives in a role that playbook does not name, and the boundary is
+a fact about the tree rather than a conditional import.
 
 ## Where its variables live
 
@@ -37,6 +33,5 @@ belongs to the product.
 
 ## Ordering
 
-Immediately before `reconcile/roles/catena-admin` in `converge.yml`, which is where these
-tasks ran when they were a file inside it. It is deliberately absent from
-`playbooks/reconcile.yml`.
+Immediately before `reconcile/roles/catena-admin` in `converge.yml`. It is
+absent from `playbooks/reconcile.yml`.

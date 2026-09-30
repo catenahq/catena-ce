@@ -1,7 +1,7 @@
 ---
 # reconcile/roles/catena-admin -- per-VPS admin panel (the catena-admin Go shell).
 #
-# The role manages the container's HOST-SIDE state (host.yml + catalog.yml)
+# The role manages the container's HOST-SIDE state (lanes.yml + catalog.yml)
 # AND deploys the container itself as a swarm service (deploy.yml, pulling
 # catena_admin_image). See README.md.
 
@@ -134,7 +134,7 @@ catena_admin_desired:
 # Native-login listener inside the container, published on the host (tailnet-
 # only) so the panel is reachable at http://<tailnet-ip>:<catena_admin_ui_port>
 # without the Cloudflare/oauth2-proxy edge -- the same pattern as Portainer's
-# UI port. Firewalled by the public-ports registry (host.yml fragment).
+# UI port. Firewalled by the public-ports registry (lanes.yml fragment).
 catena_admin_direct_port: 8001
 
 # How long the converge waits for a newly-created service to report a Running
@@ -191,6 +191,42 @@ catena_schedule_bin: /usr/local/bin/catena-schedule
 # The container-bump engine, which also carries the `self-update` verb that
 # moves the panel itself.
 catena_admin_stack_update_bin: /usr/local/bin/catena-stack-update-managed
+
+# --- the host lanes' configuration (lanes.yml) -------------------------
+# Per-host configuration for the daily chain. catena-daily.service and
+# catena-daily-resume.service declare EnvironmentFile for it with no leading
+# dash, so systemd fails the unit when it is missing. Paths and toggles only:
+# the chain reads its credentials from the config store.
+catena_daily_env_path: /etc/catena/daily.env
+
+# The container-bump lane's configuration and the spec list it bumps from.
+# catena-stack-update-managed.service declares its EnvironmentFile with no
+# leading dash too, and the engine's --specs-file names the list.
+catena_stack_update_env_path: /etc/catena/stack-update.env
+catena_managed_services_path: /etc/catena/managed-services.json
+
+# Container-bump gates. Seven days of tag age because a withdrawn upstream
+# release is usually withdrawn within days and this lane runs unattended; two
+# minutes of stabilisation before the next service is bumped.
+catena_stack_update_min_tag_age_days: 7
+catena_stack_update_stabilize_seconds: 120
+catena_stack_update_cve_severity: "HIGH,CRITICAL"
+# ON-BOX base: the update lane is a unit running on the host, and the Portainer
+# UI port answers this host only.
+catena_stack_update_portainer_api_base: "{{ portainer_api_base_onbox | default('') }}"
+
+# Health gate for the pre-update state. Blank on a host without Gatus, which
+# is a skip rather than a failure: the chain cannot ask whether the host is
+# healthy, so it does not pretend to have asked.
+catena_daily_gatus_api_url: "{{ gatus_api_url | default('') }}"
+
+# The migration lane's PORT. A host process, not a container, because a
+# migration stops docker on this server and the endpoint that puts it back has
+# to still be answering afterwards -- so it listens on this host's tailnet
+# address only, and it answers nothing until someone on this server arms it.
+# Declared tailnet-only in the public-port registry (lanes.yml): defence in
+# depth behind the bind rather than instead of it.
+catena_migrate_lane_port: 9040
 
 # EE-reserved HOST dispatch entries. The Go shell renders Business action
 # BUTTONS at runtime from its compiled-in panels (audit, daily, ...) only

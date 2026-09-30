@@ -206,6 +206,14 @@
     # a first converge with no tunnel, and oauth2_proxy then waits on an edge
     # nobody has brought up. See reconcile/roles/payload/README.md.
     - { role: payload, tags: [payload] } # host engine binaries + units
+    # The OS update configuration, the host packages and journal, and the
+    # reboot-required probe (its script and timer ship in the payload above).
+    # Early, so the mail-agent mask lands before any later role's apt install
+    # can pull one in.
+    - { role: host_maintenance, tags: [host_maintenance] }
+    # The swarm's own settings and the overlay self-heal, before the first
+    # swarm service: stateful services constrain to the node label it sets.
+    - { role: swarm, tags: [swarm] }
     # catena-owned reverse proxy (catena-traefik on the catena-network
     # overlay). Runs AFTER docker (which inits the swarm) and BEFORE
     # cloudflare_tunnel, which points cloudflared's ingress at catena-traefik
@@ -238,17 +246,13 @@
     - { role: keycloak, tags: [keycloak, auth] } # SSO IdP
     - { role: oauth2_proxy, tags: [oauth2_proxy, auth] } # one auth proxy per gated upstream
     - { role: infrastructure, tags: [infrastructure] } # gated apps (Gatus, Healthchecks, ...), dashboard-sync, gatus-sync
-    # The reboot-required probe. After infrastructure because it reports
-    # through the Healthchecks plane that role deploys.
-    - { role: host_maintenance, tags: [host_maintenance] }
     # The panel's trust path: the runner account, the sudoers drop-in, the
-    # forced command and its authorized_keys, plus the env files the host lanes
-    # read. BOOTSTRAP-side -- a reconcile that could rewrite the way in could
-    # rewrite what a reconcile is -- and immediately before the role it
-    # prepares for.
+    # forced command and its authorized_keys. BOOTSTRAP-side -- a reconcile
+    # that could rewrite the way in could rewrite what a reconcile is -- and
+    # immediately before the role it prepares for.
     - { role: catena_admin_host, tags: [catena_admin, catena_admin_host] }
-    # catena-admin: the action catalog, the bind-mount targets, AND the Go shell
-    # container, created directly against the local swarm. It holds the API key
+    # catena-admin: the host lanes' configuration, the action catalog, AND the
+    # Go shell container, created directly against the local swarm. It holds the API key
     # that drives Portainer, so it cannot depend on Portainer to run: the one
     # tool that can repair a Portainer that will not start must not be deployed
     # by it.

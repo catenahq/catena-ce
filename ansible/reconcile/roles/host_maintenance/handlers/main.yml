@@ -1,0 +1,8 @@
+---
+# journald: a restart (not a reload) picks up Storage=persistent and Seal=yes
+# and starts sealing the persistent journal.
+- name: Restart systemd-journald
+  listen: restart journald
+  ansible.builtin.systemd_service:
+    name: systemd-journald
+    state: restarted

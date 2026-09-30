@@ -18,30 +18,6 @@ ssh_allowed_users:
   - "{{ catena_panel_user }}"
   - "{{ catena_admin_runner_user | default('catena-admin-runner') }}"
 
-common_baseline_packages:
-  - sudo
-  - ufw
-  - unattended-upgrades
-  # needrestart tells reconcile/roles/host_maintenance which services are
-  # running on libraries that have been replaced under them. Debian's own
-  # /var/run/reboot-required only covers the kernel half.
-  - needrestart
-  - curl
-  - ca-certificates
-  - gnupg
-  - python3-apt
-  - rsync
-  - systemd-timesyncd
-  # jq is the JSON writer for every on-host report the daily lane + backup
-  # machinery emit (catena-restic-check.json, cve-findings.json,
-  # verify-hot/cold status, the maintenance log) and that catena-admin reads
-  # back. Those scripts gate their report write on `command -v jq`, so a host
-  # without it silently produces NO report (the catena-admin freshness badges
-  # go blank; the bench's restic_check_subset_weekly / verify_hot_bootprobe /
-  # cve_residual scenarios saw "report missing"). Baseline-install it so the
-  # report writers always have it, CE and EE alike.
-  - jq
-
 # Optional apt HTTP proxy (e.g. apt-cacher-ng). Empty = apt pulls
 # direct. When set, the common role drops /etc/apt/apt.conf.d/01proxy
 # BEFORE the first dist-upgrade so the cache is active for every apt

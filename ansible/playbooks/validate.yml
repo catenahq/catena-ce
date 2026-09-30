@@ -38,6 +38,8 @@
       - tailscale
       - storage
       - docker
+      - host_maintenance
+      - swarm
       - traefik
       - postgres
       - backup
