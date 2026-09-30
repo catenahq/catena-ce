@@ -832,7 +832,7 @@
     rule: allow
     port: "22"
     proto: tcp
-    comment: "public ssh; lockdown.yml closes this on a tailnet host"
+    comment: "{{ catena_ssh_ufw_comment }}"
   when: >-
     _ufw_tailscale_iface.rc != 0
     or catena_access_method != 'tailnet'

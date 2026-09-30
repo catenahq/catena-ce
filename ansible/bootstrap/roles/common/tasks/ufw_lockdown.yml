@@ -61,7 +61,7 @@
     - name: Allow public SSH
       ansible.builtin.command:
         argv: [ufw, allow, from, any, to, any, port, "22", proto, tcp,
-               comment, "public ssh; lockdown.yml closes this on a tailnet host"]
+               comment, "{{ catena_ssh_ufw_comment }}"]
       register: _ufw_public_ssh
       changed_when: >-
         'Rule added' in _ufw_public_ssh.stdout
@@ -146,7 +146,7 @@
       ansible.builtin.command:
         # "on" quoted: YAML 1.1 reads a bare on as the boolean true.
         argv: [ufw, allow, in, "on", tailscale0, from, any, to, any, port, "22",
-               proto, tcp, comment, "ssh via tailnet only"]
+               proto, tcp, comment, "{{ catena_ssh_ufw_comment }}"]
       register: _ufw_tailnet_ssh
       changed_when: >-
         'Rule added' in _ufw_tailnet_ssh.stdout
@@ -163,7 +163,7 @@
     - name: Allow SSH from Docker bridge networks (catena-admin dispatcher path)
       ansible.builtin.command:
         argv: [ufw, allow, from, "{{ item }}", to, any, port, "22", proto, tcp,
-               comment, "ssh from docker containers (catena-admin dispatcher)"]
+               comment, "{{ catena_ssh_ufw_comment }}"]
       loop:
         - 172.16.0.0/12
         - 10.0.0.0/8

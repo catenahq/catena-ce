@@ -66,6 +66,13 @@ catena_access_method: >-
 # once it has proven the alternative path.
 catena_ssh_fragment_name: ssh.json
 
+# The ufw comment on every port-22 rule. scripts/catena-public-ports.py writes
+# the same rules for the ssh fragment as `<UFW_COMMENT_PREFIX>:<owner>`, and ufw
+# rewrites a rule whose comment differs, so any other comment here would have
+# the reconciler and the converge rewrite each other's rule on every run.
+# tests/unit/test_ssh_ufw_rules_share_one_comment.py holds the two together.
+catena_ssh_ufw_comment: "catena-ports:ssh"
+
 # --- Tailscale ---
 tailscale_hostname: "{{ inventory_hostname }}"
 # From the store, which the panel writes. No fallback tag: a missing value
