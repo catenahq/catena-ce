@@ -6,11 +6,10 @@ inventory/*
 !inventory/README.md
 
 # Defense-in-depth. `vault.yml` is NOT part of the product -- nothing writes
-# one and nothing reads one; a file by that name is either a pre-0b leftover
-# or a hand-made one, and both would inject group vars silently (ansible.cfg
+# one and nothing reads one; a file by that name is either a leftover or a
+# hand-made one, and both would inject group vars silently (ansible.cfg
 # host_group_vars auto-loads group_vars/all/*.yml). Ignored so neither can be
-# committed. Same for a .env someone copies in place from the example.
-inventory/example/.env
+# committed.
 inventory/example/.bootstrap-output.yml
 inventory/example/**/vault.yml
 
