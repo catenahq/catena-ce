@@ -84,7 +84,7 @@ infrastructure_deploy_max_attempts: 5
 # {{ gatus_host_config_dir }}/; Gatus loads every *.yaml alphabetically.
 # 00-base.yaml (Ansible-managed) + 50-catena-apps.yaml (gatus-sync) +
 # 99-*.yaml (operator-added, left alone by both).
-gatus_image_tag: "v5.36.0"
+gatus_image_tag: "v5.37.0"
 # The tag above is the FLOOR the converge ships. The image the host runs is
 # that or whatever the on-host update lane last recorded in
 # /etc/catena/config.json, whichever is higher -- see
@@ -184,11 +184,11 @@ ntfy_topic: "{{ cfg_ntfy_topic | default('') }}"
 # BESZEL_ENABLED off-switch was removed 2026-07-29. Pinned tags
 # (Renovate-managed); the agent reads docker.sock so it carries the same
 # blast radius cAdvisor did on a single-tenant VPS.
-beszel_image_tag: "0.19.0"
+beszel_image_tag: "0.20.0"
 beszel_image: >-
   {{ ('henrygd/beszel:' ~ beszel_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
-beszel_agent_image_tag: "0.19.0"
+beszel_agent_image_tag: "0.20.0"
 beszel_agent_image: >-
   {{ ('henrygd/beszel-agent:' ~ beszel_agent_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
@@ -224,7 +224,7 @@ beszel_hostname: "{{ beszel_subdomain }}.{{ cloudflare_zone }}"
 beszel_hc_shim_compose_name: "beszel-hc-shim"
 beszel_hc_shim_network_alias: "beszel-hc-shim"
 beszel_hc_shim_internal_port: 8099
-beszel_hc_shim_image_tag: "3.14-alpine"
+beszel_hc_shim_image_tag: "3.14.7-alpine"
 beszel_hc_shim_image: >-
   {{ ('python:' ~ beszel_hc_shim_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
