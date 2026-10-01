@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 157 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 158 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -47,6 +47,7 @@ The 157 scenarios the maintainers' test bench carries, and the behaviour each on
 | `decommission` | Decommissioning tears a host down cleanly, releasing every external resource it held. |
 | `decommission_recovery` | A decommissioned host is rebuilt from the archival snapshot its decommission left behind. |
 | `dev_to_prod_cutover_round_trip` | A staging deployment is promoted to its production hostname on the same machine, with every application reconciled to the new address. |
+| `docker_engine_upgrade_round_trip` | The container engine moves to the version the panel image pins, and goes back to the one it ran when the new one does not come up. |
 | `dr_suite` | A lost server is rebuilt on a new machine from one backup, with every service, the stored mail and the synced files back at the state that backup captured, including a file deleted after the backup. |
 | `ee_attest` | A signed monthly compliance attestation is produced from a host's own evidence and verifies against the published key. |
 | `ee_audit_ship` | Administrative audit events shipped from a host arrive intact at the central collector. |
