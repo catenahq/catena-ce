@@ -1,6 +1,0 @@
-# Time-boxed Trivy suppressions, each with an expiredAt; trivy.yml's
-# trivyignore-expiry job fails on a lapsed entry. scanctl gates on a CVE in a
-# pinned image only when a change introduces it, so an upstream CVE needs no
-# entry here to keep the gate green.
-
-vulnerabilities: []
