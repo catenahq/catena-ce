@@ -4,16 +4,9 @@ name: Trivy
 #
 # The image CVE scan itself lives in security.yml, as scanctl's `image_pins`.
 # scanctl resolves each ref from the role default that declares it, applies
-# this repo's .trivyignore.yaml, and on a PR grades the DELTA against the
-# merge base -- so a bump is judged on what it introduces rather than on
-# everything the image already carried. The pins it reads are asserted to
-# resolve by ansible/tests/unit/test_renovate_managers_resolve.py.
-#
-# That replaced a matrix here which resolved each pin itself and graded
-# absolutely. Two failure modes it had are worth not rebuilding: a pre-existing
-# CVE in any image sharing a touched file blocked an unrelated bump, and a pin
-# whose file moved resolved to an empty matrix, which trivy-gate counted as
-# success while nothing was scanned.
+# this repo's .trivyignore.yaml, and grades the DELTA against the commit before
+# the change -- so a bump is judged on what it introduces. The pins it reads
+# are asserted to resolve by ansible/tests/unit/test_renovate_managers_resolve.py.
 #
 # cloudflared, traefik, postgres and portainer are scanned in catena-admin,
 # which is where the host reads their pins.
@@ -23,8 +16,10 @@ name: Trivy
 
 on:
   pull_request:
+  # Every pushed branch. Renovate and engine-bump branches always carry a pull
+  # request, which tests each push to them.
   push:
-    branches: [main]
+    branches-ignore: ['renovate/**', 'engine-bump/**', 'scanctl/**']
   schedule:
     - cron: '43 6 * * 1'
 
