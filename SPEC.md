@@ -369,10 +369,11 @@ integration, the antivirus watch and delivery canaries.
 
 | Workflow | Jobs | Gates |
 | --- | --- | --- |
-| `ci.yml` | `installer`, `syntax`, `duplication`, `prose` | the Python package and its unit tests, Ansible syntax, copy-paste against a ratchet threshold, and comment prose |
-| `security.yml` | `scanctl` | secrets, dependency vulnerabilities and static analysis |
-| `trivy.yml` | `trivyignore-expiry`, `trivy-gate` | the container images pinned in role defaults. A pin that stops matching fails the scan |
-| `seed-baseline.yml` | `seed` | the seeded configuration against its recorded baseline |
+| `ci.yml` | `installer`, `entry-points`, `syntax`, `duplication`, `prose` | the Python package and its unit tests, the two entry points a client runs (`catena-cli`, `catena-gui`) with their locks and the graphical installer's tests, Ansible syntax, copy-paste against a ratchet threshold, and comment prose |
+| `security.yml` | `scanctl` | secrets, dependency vulnerabilities, static analysis, and the container images pinned in role defaults. A finding in this tree fails every run; a CVE in a pinned image fails the change that introduces it. A pin that stops matching fails the scan |
+
+Every workflow runs on each pull request and on each push, except pushes to
+the Renovate and engine-bump branches, whose pull requests test every push.
 
 Images pinned in role defaults move through the catena-admin update engine,
 run from the [renovate](https://github.com/catenahq/renovate) repository's
@@ -390,11 +391,10 @@ merges.
 | --- | --- |
 | No secret is in the tree or its history | `scanctl:gitleaks`, `workflow:security.yml#scanctl`, `threat:CP1` |
 | No licensed source and no Go in this tree | `audit:check-port`, `audit:check-grid`, `threat:CP3` |
-| Dependencies and pinned images are vulnerability-gated | `scanctl:osv-scanner`, `scanctl:govulncheck`, `workflow:trivy.yml#trivy-gate`, `workflow:trivy.yml#trivyignore-expiry` |
+| Dependencies and pinned images are vulnerability-gated | `scanctl:osv-scanner`, `scanctl:govulncheck`, `scanctl:trivy`, `workflow:security.yml#scanctl` |
 | Static analysis runs on every change | `scanctl:semgrep`, `scanctl:zizmor` |
-| The installer builds, lints and tests green | `workflow:ci.yml#installer`, `workflow:ci.yml#syntax`, `workflow:ci.yml#duplication` |
+| The installer builds, lints and tests green | `workflow:ci.yml#installer`, `workflow:ci.yml#entry-points`, `workflow:ci.yml#syntax`, `workflow:ci.yml#duplication` |
 | Code comments describe the tree as it stands, not its history | `workflow:ci.yml#prose` |
-| The seeded configuration matches its baseline | `workflow:seed-baseline.yml#seed` |
 | Public prose names no system Catena does not ship | `audit:check-banned-words` |
 | Every file and scenario is classified against the feature manifest; nothing untracked | `audit:check-grid`, `audit:check-all` |
 | This file cannot drift from reality | `audit:check-public-specs`, `threat:CP7` |
