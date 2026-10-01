@@ -8,7 +8,9 @@
 - name: Rotate Tailscale auth on VPS nodes
   hosts: "{{ stage_hosts | default('vps') }}"
   become: true
-  gather_facts: false
+  # The tailscale role's install picks its apt suite from the distribution
+  # release fact.
+  gather_facts: true
 
   # WHICH tailnet is a store value: tailnet_provider, tailnet_control_url and
   # tailnet_headscale_user resolve from cfg_* facts with no inventory fallback,

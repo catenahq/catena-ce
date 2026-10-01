@@ -179,9 +179,10 @@
   # Each role's tag matches its name.
   #
   # Joining the tailnet and closing public 22 are playbooks/lockdown.yml, which
-  # the install chain runs last to join and the panel's Lockdown runs to close: a
-  # converge is something a host runs on itself, and the step that can make it
-  # unreachable is a decision taken once rather than re-taken every run.
+  # a Settings save of the tailnet and a whole-server restore run to join and
+  # the panel's Lockdown runs to close: a converge is something a host runs on
+  # itself, and the step that can make it unreachable is a decision taken once
+  # rather than re-taken every run.
   roles:
     - { role: common, tags: [common] }
     # The declarative public-port registry. It sits right after common and
