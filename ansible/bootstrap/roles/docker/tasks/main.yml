@@ -252,7 +252,7 @@
   register: _docker_swarm_state
   changed_when: false
 
-- name: "swarm: init single-node swarm (advertise on the tailnet)"
+- name: "swarm: init single-node swarm"
   ansible.builtin.command:
     argv:
       - docker

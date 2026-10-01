@@ -21,7 +21,8 @@ configures it.
   rotation knobs (json-file driver).
 - `docker_live_restore` -- must stay `false`; incompatible with swarm
   mode, which the control plane requires.
-- `docker_swarm_advertise_addr` -- defaults to the tailnet IP.
+- `docker_swarm_advertise_addr` -- defaults to `ansible_host`, the address
+  the installer reaches the host at.
 - `docker_daemon_control_timeout` -- bound on a `systemctl` call
   against a wedged daemon; defaults to 120.
 - `docker_registry_mirror_url` -- optional pull-through mirror; adds
@@ -40,7 +41,7 @@ configures it.
   `playbooks/uninstall.yml` releases the hold.
 - Detects and recovers a phantom-installed dpkg state (purge + clean
   reinstall) -- seen after a DR restore.
-- Initializes a single-node swarm advertising on the tailnet IP.
+- Initializes a single-node swarm advertising on `docker_swarm_advertise_addr`.
 - Sets `DEFAULT_FORWARD_POLICY=ACCEPT` in ufw for container egress.
 - Adds the `ops` user to the `docker` group (no sudo for compose).
 

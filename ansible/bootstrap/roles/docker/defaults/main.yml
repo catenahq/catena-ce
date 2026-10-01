@@ -18,10 +18,10 @@ docker_log_max_files: 5
 # orchestrator handles container lifecycle across daemon restarts instead.
 docker_live_restore: false
 
-# Docker Swarm advertise address. The tailnet IP so any future multi-node
-# expansion uses the private tailnet path. This role inits a single-node
-# swarm that the reverse-proxy + control-plane roles deploy their services
-# onto, and reconcile/roles/swarm configures.
+# Docker Swarm advertise address: the address the installer reaches the host
+# at, recorded in the swarm raft at init. This role inits a single-node swarm
+# that the reverse-proxy + control-plane roles deploy their services onto, and
+# reconcile/roles/swarm configures.
 docker_swarm_advertise_addr: "{{ ansible_host }}"
 
 # Seconds a single systemctl call against docker.service may take before the
