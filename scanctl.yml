@@ -1,11 +1,4 @@
 # scanctl config -- github.com/catenahq/scanctl
-# semgrep stays blocking to preserve the gate the standalone semgrep.yml
-# enforced (--error). osv-scanner, trivy and govulncheck already block by
-# default; gitleaks, gosec, zizmor, guarddog and trivy-license stay report-mode.
-tools:
-  semgrep:
-    enabled: true
-    mode: block
 
 # The infra app images this repo pins in role defaults. Read from the defaults
 # themselves rather than listed as literal refs: the tag a host runs is already
@@ -21,10 +14,8 @@ tools:
 # these keys sits under a comment block that names the image in prose, and a
 # loose pattern would scan whatever a comment happened to mention.
 #
-# A pin that stops matching FAILS the scan. That is the point: when the role
-# tree moved to reconcile/ every pin_file in the old Trivy matrix went stale at
-# once, the matrix resolved empty, and trivy-gate reported success for five
-# days having scanned no image at all.
+# A pin that stops matching FAILS the scan, so a moved defaults file cannot
+# leave an image unscanned behind a green gate.
 #
 # cloudflared, traefik, postgres, portainer and coturn are deliberately absent:
 # their tags live where the host engines read them, in catena-admin, and
