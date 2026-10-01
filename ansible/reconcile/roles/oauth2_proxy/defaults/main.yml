@@ -20,7 +20,7 @@
 # --- Image pin ---
 # Track upstream releases at https://github.com/oauth2-proxy/oauth2-proxy/releases
 # before bumping. Architecture-tagged images (alpine variant) keep size down.
-oauth2_proxy_image_tag: "v7.15.2-alpine"
+oauth2_proxy_image_tag: "v7.15.4-alpine"
 oauth2_proxy_image: >-
   {{ ('quay.io/oauth2-proxy/oauth2-proxy:' ~ oauth2_proxy_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
