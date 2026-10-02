@@ -2,7 +2,7 @@
 """Seed inventory/<name>/ for Community Catena.
 
 With `-i install.yaml` (bench / power user), generates a fresh inventory:
-reads env/host/vault values from the file, prompts for anything missing.
+reads host, env and secrets values from the file, prompts for anything missing.
 
 Without one, inventory/<name>/.env must already exist -- copied from
 inventory/example/.env.example and filled in, same as any other config
@@ -17,8 +17,8 @@ is pure `lookup('dotenv', ...)` boilerplate, identical for every inventory,
 so it is not written per-inventory here -- only the .env VALUES it reads
 differ between inventories.
 
-No secret file is written into the inventory (no persisted laptop vault), and
-no vendor credential is collected at all. The installer reaches and installs
+The inventory holds non-secret files only, and no vendor credential is
+collected at all. The installer reaches and installs
 the server and nothing else: the domain and its Cloudflare token, the private
 network and its credentials, and the backups are entered in catena-admin >
 Settings once the server runs, reached through an SSH forward as the panel
@@ -131,9 +131,9 @@ def _declared_secret_names() -> frozenset[str]:
     on a minimal target host) and seed.py should not pull it in at import time
     just to answer a question about names.
 
-    Declared by name rather than inferred from a `vault_` prefix: a prefix
-    makes spelling load-bearing, silently filing an unprefixed credential as
-    non-secret .env config."""
+    The registry declares each secret by its full name, so how a key is
+    spelled never decides whether it is filed as a secret or as .env
+    config."""
     from helpers import onbox_config
 
     return frozenset(onbox_config.secret_names())
@@ -168,7 +168,7 @@ def not_install_inputs(inp: dict) -> list[str]:
     """The install.yaml keys the installer does not take, sorted. Naming one
     is an install that expects it to take effect, so it is refused rather
     than dropped."""
-    return server_held(set((inp.get("env") or {})) | set((inp.get("vault") or {})))
+    return server_held(set((inp.get("env") or {})) | set((inp.get("secrets") or {})))
 
 
 def warn_server_held_lines(env_path: Path) -> None:
@@ -304,44 +304,37 @@ HOST_PREFIX = "host_"
 
 def split_install_dict(raw: dict) -> dict:
     """Split a parsed install.yaml top-level dict into the
-    {inventory, host, env, vault} shape main() consumes.
+    {inventory, host, env, secrets} shape main() consumes.
 
-    Accepts both the nested layout (top-level `host:`, `env:`, `vault:`
+    Accepts both the nested layout (top-level `host:`, `env:`, `secrets:`
     mappings) and the flat layout (every key at the top, `host_`-prefixed for
     host fields, otherwise a secret if the store declares it and a .env value
-    if not). A legacy `vault_password:` field is silently ignored.
-
-    onbox_config declares which names are secrets, so ask it rather than
-    reading a prefix: a `vault_` convention makes a spelling load-bearing, and
-    an operator who writes the key without it gets their credential silently
-    filed as non-secret .env config."""
-    if any(isinstance(raw.get(k), dict) for k in ("host", "env", "vault")):
+    if not). onbox_config's registry decides which names are secrets."""
+    if any(isinstance(raw.get(k), dict) for k in ("host", "env", "secrets")):
         return {
             "inventory": raw.get("inventory"),
             "host": raw.get("host") or {},
             "env": raw.get("env") or {},
-            "vault": raw.get("vault") or {},
+            "secrets": raw.get("secrets") or {},
         }
 
     host: dict = {}
     env: dict = {}
-    vault: dict = {}
+    secrets: dict = {}
     for key, value in raw.items():
         if key == "inventory":
-            continue
-        if key == "vault_password":
             continue
         if key.startswith(HOST_PREFIX):
             host[key[len(HOST_PREFIX):]] = value
         elif key in _declared_secret_names():
-            vault[key] = value
+            secrets[key] = value
         else:
             env[key] = value
     return {
         "inventory": raw.get("inventory"),
         "host": host,
         "env": env,
-        "vault": vault,
+        "secrets": secrets,
     }
 
 
@@ -349,7 +342,7 @@ def load_input(path: Path | None) -> dict:
     """Read install.yaml from disk and split it via split_install_dict.
     Pass None for an empty skeleton (used by interactive flows)."""
     if path is None:
-        return {"inventory": None, "host": {}, "env": {}, "vault": {}}
+        return {"inventory": None, "host": {}, "env": {}, "secrets": {}}
     if not path.is_file():
         die(f"input file not found: {path}")
     raw = yaml.safe_load(path.read_text()) or {}
@@ -597,13 +590,13 @@ def ensure_ssh_key(privkey_path: str) -> None:
 
 
 # --- secret-resolution helpers ----------------------------------------------
-def _resolve_admin_override(vault_values: dict[str, str], vault_provided: dict) -> None:
+def _resolve_admin_override(secret_values: dict[str, str], secrets_provided: dict) -> None:
     """Honor an OPTIONAL install.yaml admin-password pin. With no override the
     admin password is minted ON-BOX by the converge loader and surfaced once by
     the installer (seed never mints it). A too-short pin is a hard error."""
-    if ADMIN_PASSWORD_KEY in vault_values:
+    if ADMIN_PASSWORD_KEY in secret_values:
         return
-    provided = str(vault_provided.get(ADMIN_PASSWORD_KEY, "")).strip()
+    provided = str(secrets_provided.get(ADMIN_PASSWORD_KEY, "")).strip()
     if not provided or provided in PLACEHOLDER_VALUES:
         return
     if len(provided) < ADMIN_PASSWORD_MIN_LEN:
@@ -612,7 +605,7 @@ def _resolve_admin_override(vault_values: dict[str, str], vault_provided: dict) 
             f"chars; need at least {ADMIN_PASSWORD_MIN_LEN}. Leave it out to "
             "have the box mint one and show it once."
         )
-    vault_values[ADMIN_PASSWORD_KEY] = provided
+    secret_values[ADMIN_PASSWORD_KEY] = provided
     ok("Admin password pinned from install.yaml.")
 
 
@@ -685,8 +678,8 @@ def _write_inventory_files(
     banner(f"Writing inventory/{inventory}/ (non-secret files only)")
     emit_env(env_template, env_values, env_target)
     ok(f"wrote {env_target}")
-    # No vault.yml: secrets never persist on the laptop. An admin override goes
-    # to the transient --secrets-out file; everything else is minted on-box.
+    # An admin override goes to the transient --secrets-out file; everything
+    # else is minted on-box.
     hosts_target = inv_dir / "hosts.yml"
     if host_name is not None:
         # -i install.yaml: a caller-chosen host name, merged into the file.
@@ -704,7 +697,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument(
         "-i", "--input",
-        help="install.yaml with inventory/host/env/vault values. Missing "
+        help="install.yaml with inventory, host, env and secrets values. Missing "
              "values are prompted for interactively.",
     )
     ap.add_argument(
@@ -791,14 +784,13 @@ def main(argv: list[str] | None = None) -> int:
     # Optional install.yaml admin-password pin; otherwise the box mints it,
     # with every other secret (helpers/onbox_config.py).
     secret_values: dict[str, str] = {}
-    _resolve_admin_override(secret_values, inp.get("vault", {}))
+    _resolve_admin_override(secret_values, inp.get("secrets", {}))
 
     # Validate before any destructive action.
     validation_inp = {
         "inventory": inventory,
         "host": {"initial_password": host_data.get("initial_password") or ""},
         "env": env_values,
-        "vault": secret_values,
     }
     problems = validate_install(validation_inp, env_keys)
     if problems:

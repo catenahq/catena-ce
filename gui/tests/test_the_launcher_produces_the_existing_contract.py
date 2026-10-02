@@ -37,7 +37,7 @@ def test_the_file_is_flat_the_way_seed_splits_it():
     assert doc["inventory"] == "clientco"
     assert doc["ADMIN_EMAIL"] == "admin@client.test"
     assert doc["host_initial_password"] == "pw"
-    assert "env" not in doc and "vault" not in doc
+    assert "env" not in doc and "secrets" not in doc
 
 
 def test_seed_files_the_provider_password_under_the_host():
@@ -53,7 +53,7 @@ def test_seed_files_the_provider_password_under_the_host():
     split = seed.split_install_dict(_rendered(
         inventory="c", answers={}, secrets={"host_initial_password": "pw"}))
     assert split["host"] == {"initial_password": "pw"}
-    assert split["env"] == {} and split["vault"] == {}
+    assert split["env"] == {} and split["secrets"] == {}
 
 
 def test_the_launchers_own_bookkeeping_does_not_reach_the_installer():

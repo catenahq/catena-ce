@@ -1,6 +1,6 @@
 """Unit tests for the Community installer's seed.py.
 
-Covers what seed owns under 0b: it holds no vault and mints nothing, it
+Covers what seed owns: it mints nothing, it
 collects no vendor credential and refuses the settings the server holds, it
 reads its question list from the knob registry, and it writes the inventory
 files plus one transient adopt map (the admin override).
@@ -47,7 +47,7 @@ def test_load_input_flat_layout(seed, tmp_path):
     assert got["host"]["name"] == "prod1"
     assert got["host"]["public_ip"] == "203.0.113.10"
     assert got["env"]["ADMIN_EMAIL"] == "admin@client.test"
-    assert got["vault"]["admin_password"] == "pinned-admin-password"
+    assert got["secrets"]["admin_password"] == "pinned-admin-password"
 
 
 def test_load_input_nested_layout(seed, tmp_path):
@@ -58,32 +58,19 @@ def test_load_input_nested_layout(seed, tmp_path):
         "  name: prod1\n"
         "env:\n"
         "  ADMIN_EMAIL: admin@client.test\n"
-        "vault:\n"
+        "secrets:\n"
         "  admin_password: pinned-admin-password\n"
     )
     got = seed.load_input(src)
     assert got["host"] == {"name": "prod1"}
     assert got["env"]["ADMIN_EMAIL"] == "admin@client.test"
-    assert got["vault"]["admin_password"] == "pinned-admin-password"
+    assert got["secrets"]["admin_password"] == "pinned-admin-password"
 
 
 def test_load_input_none_returns_empty(seed):
     assert seed.load_input(None) == {
-        "inventory": None, "host": {}, "env": {}, "vault": {},
+        "inventory": None, "host": {}, "env": {}, "secrets": {},
     }
-
-
-def test_load_input_drops_legacy_vault_password(seed, tmp_path):
-    src = tmp_path / "install.yaml"
-    src.write_text(
-        "inventory: prod\n"
-        "vault_password: legacy\n"
-        "admin_password: pinned-admin-password\n"
-    )
-    got = seed.load_input(src)
-    assert "vault_password" not in got
-    assert "vault_password" not in got["vault"]
-    assert got["vault"]["admin_password"] == "pinned-admin-password"
 
 
 def test_load_input_missing_path_dies(seed, tmp_path):
@@ -98,8 +85,8 @@ def test_no_client_age_pubkey_field(seed):
 
 
 # --- what the installer does not take ---------------------------------------
-def _inp(env=None, vault=None):
-    return {"inventory": "prod", "host": {}, "env": env or {}, "vault": vault or {}}
+def _inp(env=None, secrets=None):
+    return {"inventory": "prod", "host": {}, "env": env or {}, "secrets": secrets or {}}
 
 
 def test_the_server_s_settings_are_not_install_inputs(seed):
@@ -109,7 +96,7 @@ def test_the_server_s_settings_are_not_install_inputs(seed):
         env={"CLOUDFLARE_ZONE": "client.test", "TAILNET_PROVIDER": "tailscale",
              "TAILSCALE_TAGS": "tag:vps", "BACKUP_RESTIC_REPO": "s3:x/y",
              "PORTAINER_SUBDOMAIN": "admin"},
-        vault={"cloudflare_api_token": "t", "tailscale_oauth_client_id": "i",
+        secrets={"cloudflare_api_token": "t", "tailscale_oauth_client_id": "i",
                "tailscale_oauth_client_secret": "s", "headscale_api_key": "h",
                "backup_s3_access_key": "a", "backup_s3_secret_key": "b",
                "backup_restic_password": "r"}))
@@ -124,7 +111,7 @@ def test_the_server_s_settings_are_not_install_inputs(seed):
 def test_the_installer_s_own_keys_and_the_admin_override_are_taken(seed):
     env = {key: "x" for key, _ in seed.ENV_KEYS}
     assert seed.not_install_inputs(_inp(
-        env=env, vault={"admin_password": "x" * 20})) == []
+        env=env, secrets={"admin_password": "x" * 20})) == []
 
 
 def test_a_key_nothing_declares_is_not_refused(seed):
@@ -167,14 +154,6 @@ def test_the_seed_time_account_fetch_is_gone(seed):
     token, so a second resolver here would be a second answer."""
     for gone in ("fetch_cloudflare_account_id", "_resolve_cloudflare_account",
                  "_install_secret_keys"):
-        assert not hasattr(seed, gone), f"{gone} should be removed"
-
-
-def test_vault_template_machinery_is_gone(seed):
-    """No persisted laptop vault: the vault template + skip-set + emit are
-    removed."""
-    for gone in ("VAULT_SKIP_KEYS", "VAULT_TEMPLATE", "parse_vault_template",
-                 "emit_vault", "_collect_vault_values"):
         assert not hasattr(seed, gone), f"{gone} should be removed"
 
 
@@ -350,7 +329,7 @@ def test_emit_hosts_yml_entry_defaults_when_env_values_sparse(seed, tmp_path):
     assert boot["ansible_port"] == "22"
 
 
-# --- write_secrets_out (transient adopt map, no persisted vault) ------------
+# --- write_secrets_out (transient adopt map) --------------------------------
 def test_write_secrets_out_0600_and_drops_blanks(seed, tmp_path):
     out = tmp_path / "s.yml"
     seed.write_secrets_out(out, {
@@ -388,16 +367,9 @@ def test_admin_override_noop_when_absent(seed):
     assert values == {}
 
 
-def test_seed_has_no_sops_age_helpers(seed):
-    """No self-recipient / age-key machinery remains: emit_self_sops_yaml and
-    _resolve_self_age_key do not exist."""
-    for gone in ("emit_self_sops_yaml", "_resolve_self_age_key"):
-        assert not hasattr(seed, gone), f"{gone} should be removed"
-
-
 # --- validate_install_structural --------------------------------------------
 def _good_inp():
-    return {"inventory": "prod", "host": {}, "env": {}, "vault": {}}
+    return {"inventory": "prod", "host": {}, "env": {}, "secrets": {}}
 
 
 _ENV_KEYS = [("APT_PROXY_URL", "")]  # optional: blank default
@@ -412,7 +384,7 @@ _FAIL_MARK = "\033[1;31m"  # the red x _check() prints for a failed check
 
 def _prereq_lines(seed, capsys, env):
     seed.validate_install(
-        {"inventory": "prod", "host": {}, "env": env, "vault": {}}, [])
+        {"inventory": "prod", "host": {}, "env": env, "secrets": {}}, [])
     out = capsys.readouterr().err
     body = out.split("Local prerequisites")[1]
     return [line for line in body.splitlines() if "SSH" in line]
@@ -483,7 +455,7 @@ def test_access_mode_is_gone(seed):
 
 # --- true on-box minting: seed mints NOTHING --------------------------------
 def test_seed_mints_no_secrets(seed):
-    """0b no-laptop-vault: seed mints nothing. Internal service secrets AND the
+    """Seed mints nothing. Internal service secrets AND the
     user-held passwords are all minted ON-BOX (helpers/onbox_config.py)."""
     for gone in ("_resolve_service_secrets", "_mint_strong_password",
                  "_resolve_restic_password", "_resolve_admin_password",
