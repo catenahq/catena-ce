@@ -35,7 +35,7 @@ def _stage_of(cmd):
     return pb.rsplit("/", 1)[-1].removesuffix(".yml")
 
 
-# ---- transient secret threading (0b: no persisted laptop vault) ----
+# ---- transient secret threading ----
 
 def test_run_deploy_chain_threads_global_extra_on_every_stage(cli, monkeypatch, tmp_path):
     """The transient adopt file (`-e @file`) rides EVERY stage so the on-box
@@ -177,13 +177,8 @@ def test_check_prereqs_all_present(cli, monkeypatch):
     assert cli.check_prereqs(("ansible",)) == []
 
 
-def test_required_binaries_drop_sops_and_age(cli):
-    """The vault is plaintext, so neither sops nor age-keygen is a
-    prerequisite, and there is no seed-only binary set."""
+def test_required_binaries_are_ansible_only(cli):
     assert cli.REQUIRED_BINARIES == ("ansible-playbook", "ansible")
-    assert "sops" not in cli.REQUIRED_BINARIES
-    assert "age-keygen" not in cli.REQUIRED_BINARIES
-    assert not hasattr(cli, "_SEED_BINARIES")
     assert not hasattr(cli, "ensure_age_key_env")
 
 

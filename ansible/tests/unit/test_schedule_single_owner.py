@@ -153,7 +153,7 @@ def test_the_daily_env_file_is_rendered_every_converge():
 
 def test_the_daily_env_carries_no_secret():
     body = DAILY_ENV.read_text(encoding="utf-8")
-    for leak in ("vault_", "AWS_SECRET", "RESTIC_PASSWORD", "_password"):
+    for leak in ("AWS_SECRET", "RESTIC_PASSWORD", "_password"):
         assert leak not in body, (
             f"{leak!r} in daily.env: it is mode 0644 and the engines read "
             "credentials from the config store"

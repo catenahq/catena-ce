@@ -34,9 +34,8 @@ brings it back with the data. The operator holds nothing.
 
 ## Four categories
 
-Every `vault_*` name referenced anywhere under `ansible/` belongs to exactly
-one of them. "Belongs to none" is not a state -- it is what let the Portainer
-API key sit in a comment for a release instead of in a registry.
+Every secret name referenced anywhere under `ansible/` belongs to exactly one
+of them, declared in its registry.
 
 ### 1. Client-supplied external (catena-admin Settings)
 

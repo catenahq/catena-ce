@@ -97,7 +97,7 @@ services:
       # Keycloak 26 reads these envs ONLY when no admin user exists in
       # the DB yet. On a DR converge the restored Postgres already has
       # the admin row, so these envs are ignored. Same identity as
-      # the Portainer admin per the shared-vault contract.
+      # the Portainer admin: the one admin credential (admin_password).
       KC_BOOTSTRAP_ADMIN_USERNAME: "{{ admin_email }}"
       KC_BOOTSTRAP_ADMIN_PASSWORD: "{{ admin_password }}"
     networks:

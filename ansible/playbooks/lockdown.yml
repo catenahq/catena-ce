@@ -47,7 +47,7 @@
     # The tailnet provider is a STORE key, so the store has to be loaded before
     # anything reads it. Without this the access method resolves to its default
     # on every run rather than to this host's own answer.
-    - name: "0b: load on-box config store"
+    - name: "Load on-box config store"
       ansible.builtin.include_tasks:
         file: tasks/load_onbox_config.yml
         apply:

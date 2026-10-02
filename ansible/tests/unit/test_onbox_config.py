@@ -186,10 +186,9 @@ def test_every_registry_is_non_empty(oc):
 # --- secret_names: the converge loader's discriminator ----------------------
 def test_secret_names_is_the_union_of_the_four_registries(oc):
     """playbooks/tasks/load_onbox_config.yml reads this list to decide which
-    in-scope Ansible variables to capture into the store. Deciding that with a
-    regex such as ^vault_.+$ would make a name PREFIX load-bearing, capturing a
-    variable for how it is spelled rather than because someone declared it a
-    secret. The union of the four registries is the declaration."""
+    in-scope Ansible variables to capture into the store. The union of the
+    four registries is the declaration, so a variable is captured because
+    someone declared it a secret, whatever its name looks like."""
     expected = set().union(*_registries(oc).values())
     assert set(oc.secret_names()) == expected
 
@@ -340,12 +339,12 @@ def test_adopt_fills_only_and_captures_any_key(oc):
         "admin_password": "IGNORED-existing-wins",
         "portainer_api_key": "ptr",       # out-of-registry, still captured
         "cloudflare_api_token": "cf",
-        "vault_blank": "   ",                    # blank skipped
+        "blank_secret": "   ",                   # blank skipped
     })
     assert set(adopted) == {"portainer_api_key", "cloudflare_api_token"}
     assert store["secrets"]["admin_password"] == "keep"
     assert store["secrets"]["portainer_api_key"] == "ptr"
-    assert "vault_blank" not in store["secrets"]
+    assert "blank_secret" not in store["secrets"]
 
 
 def test_adopt_overwrite_replaces_a_dead_value(oc):

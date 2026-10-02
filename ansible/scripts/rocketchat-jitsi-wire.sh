@@ -9,8 +9,8 @@
 #
 # Reads the bootstrap admin credentials from the rocketchat container
 # environment (ROOT_URL + the OVERWRITE_SETTING_* values shipped in
-# the compose). The admin password lives in the vault and is injected
-# into the container at deploy time as ROCKETCHAT_ADMIN_PASSWORD.
+# the compose). The admin password is the host's admin_password, which
+# the catalog sets in the stack environment as ADMIN_PASS at deploy time.
 
 set -euo pipefail
 

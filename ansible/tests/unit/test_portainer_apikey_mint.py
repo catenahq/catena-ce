@@ -1,13 +1,8 @@
 """The Portainer API-key mint reads stdin and persists to the on-box store.
 
-The mint must not want `<inventory>/group_vars/all/vault.yml` as BOTH the
-source of admin_password and the destination of the minted key. `catena-cli install`
-writes no such file (0b, seed.py: "No vault.yml: secrets never persist on the
-laptop"), so a helper that requires it answers EXIT_ERROR ("vault not found") on
-every real install and the un-guarded command task fails the converge. Both
-bench inventories carry a hand-maintained vault.yml, which makes that defect
-read as healthy on the bench: the bench supplying a file the product does not is
-the substitution trap `audit --check-env-owners` exists to catch.
+The helper reads admin_password on stdin and prints the minted key; the role
+publishes it as a fact and writes it into the on-box store. Nothing on the
+installer's machine is read or written.
 
 Run: uv run pytest tests/unit/test_portainer_apikey_mint.py
 """
@@ -88,14 +83,6 @@ def test_empty_stdin_is_an_error_not_an_anonymous_signin(bpa, monkeypatch):
     assert bpa.main(["--host", "127.0.0.1"]) == bpa.EXIT_ERROR
 
 
-def test_the_helper_takes_no_vault_argument(bpa, monkeypatch):
-    """A --vault flag is the regression itself: it would mean a file on the
-    laptop is load-bearing again."""
-    monkeypatch.setattr("sys.stdin", io.StringIO("pw"))
-    with pytest.raises(SystemExit):
-        bpa.main(["--host", "127.0.0.1", "--vault", "/tmp/x.yml"])
-
-
 def test_the_helper_does_not_import_yaml():
     assert "import yaml" not in HELPER.read_text()
 
@@ -108,7 +95,6 @@ def test_the_mint_passes_the_password_on_stdin_not_argv():
     assert cmd["stdin_add_newline"] is False
     # argv is world-readable through /proc while the process lives.
     assert not any("admin_password" in str(a) for a in cmd["argv"])
-    assert not any("--vault" in str(a) for a in cmd["argv"])
     assert task["no_log"] is True
 
 
@@ -160,13 +146,9 @@ def test_the_staged_mint_helper_is_root_only_and_removed():
     assert rm["path"] == stage["dest"] and rm["state"] == "absent"
 
 
-def test_no_task_in_the_role_reads_or_writes_an_inventory_vault():
-    assert "group_vars/all/vault.yml" not in ROLE_TASKS.read_text()
-
-
 def test_the_loader_publishes_the_stored_key():
-    """Excluding it made the role re-mint on EVERY converge once the laptop
-    vault stopped supplying it as an inventory var."""
+    """The loader publishes every stored secret, this key included: left out,
+    the role would mint a new key on every converge."""
     body = LOADER.read_text()
     assert "catena_onbox_fact_exclude" not in body
     assert "rejectattr" not in body

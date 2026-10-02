@@ -79,8 +79,7 @@ INSTALL_CHAIN = ("bootstrap", "converge", "validate")
 # .bootstrap-output.yml: bootstrap records the install address.
 _ADDRESS_STAGES = ("bootstrap",)
 
-# Host binaries the wrapper shells out to. ansible-playbook/ansible run the
-# base; the plaintext vault needs no separate secret-tooling binary.
+# Host binaries the wrapper shells out to.
 REQUIRED_BINARIES = ("ansible-playbook", "ansible")
 
 
@@ -336,7 +335,7 @@ def _run_deploy_chain(
     creds onto the bootstrap stage and `global_extra` onto EVERY stage.
     `global_extra` is the transient secret-adopt file (`-e @file`) that
     carries an admin password override, when install.yaml pins one, into each
-    play so the on-box loader adopts it -- no persisted laptop vault. Plus the
+    play so the on-box loader adopts it. Plus the
     one inter-stage bridge a deploy needs:
 
       - after `bootstrap`: fold the install address it emitted into
@@ -346,8 +345,8 @@ def _run_deploy_chain(
 
     The Portainer API key that the auth stack (Keycloak, oauth2-proxy) is
     gated on is minted in-band by roles/portainer during the converge (it
-    mints from the initial admin, reloads the vault into play scope via
-    include_vars, and self-heals a missing/rejected key on every converge),
+    mints from the initial admin, sets the key as a fact and writes it to the
+    on-box store, and self-heals a missing/rejected key on every converge),
     so a single converge pass deploys everything."""
     for stage in chain:
         banner(f"Stage: {stage}")
@@ -389,9 +388,9 @@ def _show_dr_keyset(inv_dir: Path) -> None:
 def cmd_install(args: argparse.Namespace) -> int:
     _preflight_checks()
 
-    # The transient adopt file seed writes an admin override into (never a
-    # persisted inventory vault). Threaded onto every deploy stage as `-e @file`
-    # so the on-box loader adopts it, then deleted.
+    # The transient adopt file seed writes an admin override into. Threaded
+    # onto every deploy stage as `-e @file` so the on-box loader adopts it,
+    # then deleted.
     secrets_tmp = _mktemp_secrets("catena-install-secrets-")
 
     banner("Step 1/2 -- collect config (seed)")

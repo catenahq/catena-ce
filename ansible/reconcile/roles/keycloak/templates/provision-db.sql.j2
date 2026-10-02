@@ -14,7 +14,7 @@ END
 $$;
 
 -- Always rotate-align: ALTER USER ... PASSWORD is idempotent; pg_authid
--- records the same hash if unchanged. Drift between vault + DB surfaces
+-- records the same hash if unchanged. Drift between the store and the DB surfaces
 -- as auth failure on the next compose deploy, so this is the canonical
 -- writer of the live password.
 ALTER USER {{ keycloak_db_user }} WITH PASSWORD '{{ keycloak_db_password | regex_replace("'", "''") }}';
