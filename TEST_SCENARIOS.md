@@ -72,7 +72,7 @@ The 159 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_c3_portainer_crash_mid_deploy` | A crash of the deployment control plane during a deploy is covered by the orchestrator restarting it, and the deployment completes. |
 | `fi_c4_registry_pull_timeout` | Heavy packet loss on the host outbound network makes the converge fail fast at its first external step. |
 | `fi_c6_cloudflared_flapping` | Re-converging the public tunnel updates its configuration without restarting a healthy connector. |
-| `fi_c7_coturn_cert_expired` | An expired media-relay certificate is renewed automatically by the scheduled renewal timer and its deploy hook. |
+| `fi_c7_coturn_cert_expired` | A media-relay certificate that is due is renewed by the scheduled renewal job, and the relay reloads it. |
 | `fi_c8_nextcloud_init_loop` | An application whose environment has been corrupted fails visibly with captured diagnostics rather than looping in silence. |
 | `fi_d2_pg_dumpall_replay_constraint` | Replaying a database dump recreates a database role the cluster has lost. |
 | `fi_d3_postgres_oom_mid_restore` | A restore that would exhaust the host disk is refused before it starts, rather than leaving a half-loaded database. |
@@ -103,10 +103,10 @@ The 159 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_t1_incus_daemon_hang` | A hung virtualisation daemon is bounded by a timeout so the maintainers test bench cannot wedge indefinitely. |
 | `fi_t3_start_sweep_failure` | A failure during the maintainers test bench start-up sweep is reported with enough context to act on rather than swallowed. |
 | `fi_t4_resend_quota_zero` | An exhausted mail-provider quota makes the maintainers test bench refuse to start rather than run scenarios that cannot assert delivery. |
-| `fi_u1_compose_lint_reject` | The deployment linter accepts every shipped application template and rejects a malformed one. |
+| `fi_u1_compose_lint_reject` | The template linter accepts every shipped application template and rejects a malformed one. |
 | `fi_u3_gatus_baseline_down` | A service already unhealthy when an update cycle begins aborts the update rather than being read as a regression the update caused. |
 | `fi_u4_ovh_rate_limited` | A rate-limited provider snapshot declines the pre-update snapshot tier without disturbing the tier below it. |
-| `fi_u5_persistent_quarantine` | A version that keeps regressing stays quarantined across update cycles instead of being retried every night. |
+| `fi_u5_persistent_quarantine` | A version that regressed stays quarantined across update cycles and is recorded once. |
 | `fi_u6_full_rollback_state` | A rolled-back version bump is recorded in the host managed-version state, so the rollback is a fact rather than an absence. |
 | `fi_v2_external_scan_blocked` | An external exposure scan blocked by the provider is downgraded to an inconclusive result rather than reported as a failure. |
 | `fi_v3_tailscale_acl_misconfig` | A misconfigured private network access policy is detected up front, from both the controller and the host side. |
