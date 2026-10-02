@@ -60,7 +60,7 @@ whose dashboard is down. A verb that runs one playbook is named after it.
 
 | Verb | Runs | For |
 | --- | --- | --- |
-| `install` | seed, then `bootstrap`, `converge`, `validate`, `show-keyset` | A fresh server. Runs over the public SSH connection it started on, and leaves public SSH open |
+| `install` | seed, then `bootstrap`, `show-keyset`, `converge`, `validate`, and the keyset again | A fresh server. Runs over the public SSH connection it started on, and leaves public SSH open |
 | `converge` | `converge.yml` | A running server. `--address` reaches it at another address for one run, such as its tailnet address after a Lockdown |
 | `uninstall` | `uninstall.yml` | Handing the server back to Debian |
 
@@ -83,7 +83,7 @@ mints nothing, and refuses any value the dashboard owns.
 | `lockdown.yml` | The access posture, run on the host by the dashboard only. Joins the private network when one is saved. Closes public SSH behind it once the network proves it reaches the host, and opens public SSH when no private network is chosen |
 | `reconcile.yml` | The half a host runs against itself, from the dashboard image, with no controller inventory. Has no verb: nothing on a controller dispatches it |
 | `validate.yml` | Three vantages: on-host per-role checks, access from the controller, external from the controller. The install's last leg, and runnable on its own |
-| `show-keyset.yml` | The end of an install: shows the admin password, the console recovery password and the journal verification key once |
+| `show-keyset.yml` | Right after bootstrap: mints the admin and console passwords if absent and shows them once, with the journal verification key. The installer repeats the block when the install ends |
 | `rotate-tunnel.yml` | Replaces the host's Cloudflare tunnel without a converge, run on the host by the dashboard. Takes no secret: it authenticates as the Cloudflare token already in the store |
 | `rotate-tailscale.yml` | Forces re-authentication to the private network, run on the host by the dashboard |
 | `uninstall.yml` | Hands the OS update lane back to Debian, releases the container engine's version hold, and prints teardown guidance |
