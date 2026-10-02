@@ -155,3 +155,20 @@ def test_a_late_commit_after_a_deadline_is_transient() -> None:
     seen = ("failed to update service keycloak_server: Error response from "
             "daemon: rpc error: code = Unknown desc = update out of sequence")
     assert re.search(pattern, seen), pattern
+
+
+def test_a_grpc_deadline_is_transient() -> None:
+    """The manager's own deadline in its gRPC form. Bench run
+    2026-10-02T03-52-31-d433 failed a repoint converge on it, one attempt in,
+    on a host whose swarm was still replacing the tasks a restore brought
+    back."""
+    classifier = next(
+        t for t in _tasks(ATTEMPT)
+        if "_swarm_deploy_transient" in str(t.get("ansible.builtin.set_fact", ""))
+    )
+    expr = str(classifier["ansible.builtin.set_fact"]["_swarm_deploy_transient"])
+    pattern = re.search(r"regex\(\s*'([^']+)'", expr).group(1)
+    seen = ("failed to update service gatus_app: Error response from daemon: "
+            "rpc error: code = DeadlineExceeded desc = stream terminated by "
+            "RST_STREAM with error code: CANCEL")
+    assert re.search(pattern, seen), pattern

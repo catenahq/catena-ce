@@ -1,9 +1,8 @@
 ---
 # Orchestrator for reconcile/roles/catena-admin.
 #
-# Three task files:
-#   host.yml    -- runner user, dispatcher script, SSH keypair, dirs.
-#                  Runs on every converge.
+#   lanes.yml   -- the host lanes' configuration (daily.env, stack-update.env,
+#                  managed-services.json) and the panel's port declarations.
 #   catalog.yml -- merges the source-of-truth action catalog with
 #                  per-inventory extras, renders the allow-list +
 #                  dispatch table on the host.
@@ -11,15 +10,14 @@
 #                  swarm service (pulls the published GHCR image). Runs
 #                  after the host-side state its container binds to exists.
 #
-# catalog.yml prepares the host-side state the container binds to; deploy.yml
-# then deploys the container itself. The audit.db quiesce hooks that ride this
-# role in the Business edition (audit is a license-gated module) are NOT part
-# of Community.
-#
-# THE TRUST PATH IS NOT HERE. The runner account, the sudoers drop-in, the
-# forced command and its authorized_keys are bootstrap/roles/catena_admin_host, which is
-# bootstrap-side: a reconcile that could rewrite the way in could rewrite what a
-# reconcile is. That role runs immediately before this one in converge.yml.
+# The runner account, the sudoers drop-in, the forced command and its
+# authorized_keys are bootstrap/roles/catena_admin_host: a reconcile that could
+# rewrite the way in could rewrite what a reconcile is. That role runs
+# immediately before this one in converge.yml.
+
+- name: Catena-admin host lanes' configuration + port declarations
+  ansible.builtin.import_tasks: lanes.yml
+  tags: [catena_admin, catena_admin_lanes]
 
 - name: Catena-admin action catalog + allow-list
   ansible.builtin.import_tasks: catalog.yml

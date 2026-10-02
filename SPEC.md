@@ -1,6 +1,6 @@
 # SPEC.md
 
-Catena-ce is an Ansible-based installer for Catena. It prepares a new Debian 13 server to host dockerized applications by providing a secure, ready-to-deploy platform. The main dashboard, `catena-admin`, is built from a closed-source repository and its image is available [on Github](https://github.com/catenahq/catena-admin/pkgs/container/catena-admin)
+Catena-CE is an Ansible-based installer for Catena. It prepares a new Debian 13 server to host dockerized applications by providing a secure, ready-to-deploy platform. The main dashboard, `catena-admin`, is built from a closed-source repository and its image is available [on Github](https://github.com/catenahq/catena-admin/pkgs/container/catena-admin)
 
 This file is the contract, and it leads the code: the tree implements this
 file, not the other way round. Items declared here that the tree does not
@@ -24,16 +24,13 @@ not implement.
 
 ## Community vs Catena Pro
 
-This repository is complete and functional on its own, including a proven
-on-demand backup and restore. Catena Pro adds licensed automation on top of the
-same host-native operations: scheduled backups, daily and sub-daily, managed
-updates with rollback, daily maintenance, offsite immutable copies,
-attestation, central audit shipping, multiple sign-on domains, and
-server-to-server moves.
-
-Every operation the dashboard drives runs on the host without it: install,
-converge, validate and backup from this repository, and restore through the
-`catena-recovery` binary the payload installs.
+Catena-CE is complete and functional on its own. Every host keeps its
+operating system current through Debian's unattended-upgrades and notifies when a reboot is pending. Every other update is a button.
+Catena Pro adds automation on top of the same host-native operations:
+scheduled backups at any frequency, managed updates with rollback, including
+the container engine and the restart a kernel update needs, daily maintenance,
+offsite immutable secondary backups, attestation, central audit shipping, multiple
+sign-on domains, and server-to-server migration.
 
 ## How this repository is layered
 
@@ -41,7 +38,7 @@ A desired state is reached in four layers, widest to narrowest.
 
 | Layer | What it is |
 | --- | --- |
-| **CLI** | `uv run catena <verb> --inventory <inventory>`. Selects a playbook, or chains several. Prompts for what it needs, and never asks Ansible anything the product cannot answer for itself |
+| **CLI** | `uv run catena-cli <verb> --inventory <inventory>`. Selects a playbook, or chains several. Prompts for what it needs, and never asks Ansible anything the product cannot answer for itself |
 | **Playbook** | Names the hosts and the ordered list of roles to apply to them. One playbook is one atomic operation |
 | **Role** | A unit of related tasks plus its defaults, templates, handlers and its own `validate.yml`. The reuse boundary: several playbooks apply the same role |
 | **Task** | One step. Task files are shared between roles and between playbooks where the step is the same step |
@@ -49,68 +46,47 @@ A desired state is reached in four layers, widest to narrowest.
 Reuse happens downward only. A role never calls a playbook, and a task never
 decides which role it belongs to.
 
-## CLI
+## CLI and GUI
 
-The entry point is the `catena` console script declared in
-`ansible/pyproject.toml`, implemented in `ansible/catena_cli.py`, and run from
-`ansible/`:
+Both run from the repository root: `uv run catena-cli <verb> --inventory
+<inventory>` (`ansible/catena_cli.py`), and `uv run catena-gui`, a local web
+front end that produces the same install input.
 
-```sh
-uv run catena <verb> --inventory <inventory>
-```
+The installer only reaches and installs a server: SSH access (address, initial
+user, key, operator account), the admin email, and the settings the first
+converge needs. A value the dashboard can change later is set in the
+dashboard, never at install. The other verbs are the break-glass for a server
+whose dashboard is down. A verb that runs one playbook is named after it.
 
-A verb that runs one playbook carries that playbook's name. A verb that chains
-several does not, because there is no single playbook to name it after.
-
-### Verbs that run one playbook
-
-| Verb | Playbook |
-| --- | --- |
-| `converge` | `converge.yml` |
-| `validate` | `validate.yml` |
-| `backup` | `backup.yml` |
-| `rotate-tunnel` | `rotate-tunnel.yml` |
-| `rotate-tailscale` | `rotate-tailscale.yml` |
-| `show-keyset` | `show-keyset.yml` |
-| `uninstall` | `uninstall.yml` |
-
-### Verbs that chain playbooks
-
-| Verb | Chain | For |
+| Verb | Runs | For |
 | --- | --- | --- |
-| `install` | seed, then `preflight`, `bootstrap`, `converge`, `lockdown`, `validate` | A fresh server |
+| `install` | seed, then `bootstrap`, `converge`, `validate`, `show-keyset` | A fresh server. Runs over the public SSH connection it started on, and leaves public SSH open |
+| `converge` | `converge.yml` | A running server. `--address` reaches it at another address for one run, such as its tailnet address after a Lockdown |
+| `uninstall` | `uninstall.yml` | Handing the server back to Debian |
 
-`preflight` runs as its own invocation ahead of the chain, so a stray
-`--limit` cannot skip it.
-
-### seed
-
-`ansible/seed.py` is not a playbook. It is a Python step the CLI runs before
-Ansible starts, on `install` only: it writes the inventory and mints the
-initial secret set. It has no verb of its own because seeding a server that is
-already seeded is not an operation.
+`ansible/seed.py` runs before Ansible, on `install` only. It writes the
+inventory and passes an optional admin password to the first converge. It
+mints nothing, and refuses any value the dashboard owns.
 
 | Invariant | Enforced by |
 | --- | --- |
-| The bundled CLI is the only supported entry point; `ansible-playbook` is not one | `bench:ce_install_suite`, `bench:ce_converge`, `bench:ce_validate` |
+| Installing, converging and uninstalling go through the bundled CLI | `bench:ce_install_suite`, `bench:ce_converge`, `bench:ce_uninstall` |
 | A verb that runs one playbook is named after it | `audit:check-grid` |
-| Every chain runs preflight before it touches a server | `bench:ce_install_suite` |
+| The installer takes only what reaches and installs a server, and refuses a value the dashboard owns | `workflow:ci.yml#installer`, `bench:ce_install_suite` |
 
 ## Playbooks
 
 | Playbook | What it is |
 | --- | --- |
-| `preflight.yml` | Controller-side. Proves the supplied Tailscale OAuth client works before any server is touched |
 | `bootstrap.yml` | The half that cannot self-repair. Run by hand, over SSH, from outside |
 | `converge.yml` | The full converge. Safe to re-run |
-| `lockdown.yml` | Closes public SSH behind the access method the host declared, or reports why it stays open. The install chain runs it after the converge, and the dashboard's SSH toggle runs the same playbook |
+| `lockdown.yml` | The access posture, run on the host by the dashboard only. Joins the private network when one is saved. Closes public SSH behind it once the network proves it reaches the host, and opens public SSH when no private network is chosen |
 | `reconcile.yml` | The half a host runs against itself, from the dashboard image, with no controller inventory. Has no verb: nothing on a controller dispatches it |
-| `validate.yml` | Three vantages: on-host per-role checks, tailnet from the controller, external from the controller |
-| `backup.yml` | On-demand snapshot |
-| `show-keyset.yml` | Re-display the disaster-recovery keyset |
-| `rotate-tunnel.yml` | Replace the host's Cloudflare tunnel without a converge. Takes no secret: both halves of the rotation authenticate as the Cloudflare token already in the store |
-| `rotate-tailscale.yml` | Force re-authentication to the mesh |
-| `uninstall.yml` | Hand the OS update lane back to Debian and print teardown guidance |
+| `validate.yml` | Three vantages: on-host per-role checks, access from the controller, external from the controller. The install's last leg, and runnable on its own |
+| `show-keyset.yml` | The end of an install: shows the admin password, the console recovery password and the journal verification key once |
+| `rotate-tunnel.yml` | Replaces the host's Cloudflare tunnel without a converge, run on the host by the dashboard. Takes no secret: it authenticates as the Cloudflare token already in the store |
+| `rotate-tailscale.yml` | Forces re-authentication to the private network, run on the host by the dashboard |
+| `uninstall.yml` | Hands the OS update lane back to Debian, releases the container engine's version hold, and prints teardown guidance |
 
 `converge.yml` and `reconcile.yml` apply the same roles in the same order.
 `reconcile.yml` is `converge.yml` minus the roles a human must run and minus
@@ -150,11 +126,11 @@ assertion grows.
 
 | Role | Why it cannot self-repair |
 | --- | --- |
-| `common` | The OS baseline and the ufw lockdown. Sets up the account and the packages every later role assumes, and closes public SSH at the end of an install |
+| `common` | The accounts, SSH, the ufw lockdown, and the packages the other bootstrap roles assume. Opens public SSH, and holds the tasks the dashboard's Lockdown runs to close or open it |
 | `host_hardening` | Kernel and module hardening, applied before dockerd's first start so its runtime writes do not win until the next reboot. Re-applying it under a live workload is not a thing to do unattended |
-| `tailscale` | The mesh the host is reached over. Getting it wrong is the definition of question one |
-| `storage` | Mounts the block volume every service keeps its data on. A failure here costs data rather than access, and it cannot be safely re-applied to a live host by a timer |
-| `docker` | The engine and the swarm. Nothing else runs without it, and that includes whatever would have repaired it |
+| `tailscale` | The private network the host is reached over, when one is configured. Joined only by `lockdown.yml`. Getting it wrong is the definition of question one |
+| `storage` | The data prefix every service keeps its data under, on the disk the host already has, and the optional remote bulk mount. A failure here costs data rather than access, and it cannot be safely re-applied to a live host by a timer |
+| `docker` | The engine, at the version pinned here and held on the host, and the swarm. Nothing else runs without it, and that includes whatever would have repaired it |
 | `catena_admin_host` | The trust path the dashboard's dispatch arrives over: the runner account, the sudoers drop-in, the forced command and its `authorized_keys`. A reconcile that could rewrite the way in could rewrite what a reconcile is |
 | `ansible_runtime` | The pinned ansible-core the host reconciles itself with. Also performed by the reconcile lane, deliberately: a root process with python3 can repair a broken runtime, so a host whose runtime broke does not need a human |
 
@@ -166,6 +142,8 @@ Order is the converge order, which is dependency order.
 | --- | --- |
 | `public_ports` | The declarative public-port registry and its applier |
 | `payload` | Installs the host engine binaries, the lane scripts and their units, restic and rclone, by extracting them from the running dashboard image. Deploys no container |
+| `host_maintenance` | The OS update configuration: unattended-upgrades and its origins (Debian security, stable updates and point releases, and the private-network client's own repository), the restart policy for services left on replaced libraries, and apt's settings. Also the baseline packages, the journal's storage, the host resolving its own name, the host mail transfer agent kept off port 25, the time zone and locale set in the dashboard, and the reboot-required probe's configuration. The probe and its hourly timer ship in the payload |
+| `swarm` | The swarm's own settings (task history, the data-node label), which a restore does not bring back, and the self-heal that restarts containers which lost the race to the overlay at daemon start |
 | `traefik` | The reverse proxy and the `catena-network` overlay |
 | `postgres` | The infrastructure Postgres swarm service, hosting the sign-on database |
 | `portainer` | The container control plane |
@@ -173,8 +151,7 @@ Order is the converge order, which is dependency order.
 | `keycloak` | The sign-on identity provider and its realm |
 | `oauth2_proxy` | One auth proxy per gated upstream |
 | `infrastructure` | Gatus, Healthchecks, Beszel and its agent, the antivirus watch, the mail canary, the application wiring scripts, and the configuration of the dashboard and Gatus sync lanes, whose scripts and timers ship in the payload |
-| `host_maintenance` | The reboot-required probe's configuration. The probe and its hourly timer ship in the payload |
-| `catena-admin` | The action catalogue, the bind-mount targets and the dashboard container, created directly against the local swarm. It holds the key that drives Portainer, so it cannot depend on Portainer to run |
+| `catena-admin` | The action catalogue, the bind-mount targets, the update lanes' per-host configuration and the list of services they may update, the dashboard's port declarations, and the dashboard container, created directly against the local swarm. It holds the key that drives Portainer, so it cannot depend on Portainer to run |
 | `coturn` | The shared TURN and STUN relay for the audio and video media plane |
 | `backup` | The backup lane's per-host configuration (repository, credentials, paths, excludes) and the first snapshot. restic, rclone, the backup wrapper and its units ship in the payload |
 
@@ -188,7 +165,7 @@ converge's `roles:` list is classified rather than exempted.
 | --- | --- | --- |
 | A converge role | The two tables above | Applied by `converge.yml`, and by `reconcile.yml` for the reconcile half |
 | A post-task role | `tier1_stack` | A fold over the converge rather than a step in it: the control-plane roles each append their service spec to an accumulator, and this renders the accumulated set and type-checks it against the docker installed. It applies nothing, and runs from `post_tasks` once every contributor has |
-| An own-playbook role | `cloudflare_tunnel_regenerate` | Deletes this host's tunnel before handing back to `cloudflare_tunnel` to mint a new one. A converge able to do that would drop the public edge every run, so the delete is an intent somebody declares by running `rotate-tunnel.yml` |
+| An own-playbook role | `cloudflare_tunnel_regenerate` | Deletes this host's tunnel before handing back to `cloudflare_tunnel` to mint a new one. A converge able to do that would drop the public edge every run, so the delete is only ever an explicit request: the dashboard's Regenerate the tunnel, which runs `rotate-tunnel.yml` |
 
 ### Paths a reconcile task may never write
 
@@ -217,24 +194,22 @@ not reach it. None is declared.
 | --- | --- |
 | Every role is on exactly one side, with a stated reason if it is bootstrap | `audit:check-grid` |
 | No reconcile task writes a bootstrap-owned path, and no reconcile play reaches a bootstrap task file | `bench:ce_install_suite` |
-| A restore is neither a CLI verb nor a converge step: it runs only when somebody starts one on the host | `workflow:ci.yml#installer`, `bench:ce_restore`, `bench:backup_rollback` |
+| A restore is neither a CLI verb nor a converge step: it runs only when started on the host | `workflow:ci.yml#installer`, `bench:ce_restore`, `bench:backup_rollback` |
 | The reconcile half reads nothing from a controller inventory | `bench:payload_action_dispatches_without_converge` |
 
 ## State the tasks produce
 
-Five things outlive the run that wrote them. Each belongs to the role that
-produces it.
+Six things outlive the run that wrote them. Each belongs to the role or task
+that produces it.
 
 ### The on-box store -- `common`, read by every role
 
-`/etc/catena/config.json` is the runtime source of truth. Mode 0600 root. It
-adopts the seeded external credentials, mints every internal service secret on
-the host itself, and rides the restic backup. The inventory under
-`ansible/inventory/<name>/` is plaintext bootstrap input, not the source of
-truth. `ansible/helpers/onbox_config.py` declares which names are secrets.
-
-Loaded first in every converge, so a tag-filtered run reads the same values a
-full one does.
+`/etc/catena/config.json`, 0600 root, is the runtime source of truth: the
+admin password an install supplies, every setting and credential saved in the
+dashboard, and every internal secret, minted on the host. It rides the backup.
+The inventory is bootstrap input only. `ansible/helpers/onbox_config.py`
+declares which names are secrets. Every converge loads the store first, so a
+tag-filtered run reads the same values as a full one.
 
 | Invariant | Enforced by |
 | --- | --- |
@@ -243,56 +218,64 @@ full one does.
 
 ### The public-port registry -- `public_ports`
 
-Anything that opens a port declares it first. Infrastructure roles drop a JSON
-fragment into `/etc/catena/public-ports.d/`; application templates declare
-theirs through `vps.expose.*` compose labels, harvested live.
-`catena-public-ports.py` merges both and applies ufw and DOCKER-USER rules.
-The merged effective set is what validation and the external scan check
-against.
+A port is declared before it opens: infrastructure roles drop a JSON fragment
+into `/etc/catena/public-ports.d/`, application templates carry
+`vps.expose.*` compose labels. `catena-public-ports.py` merges both into ufw
+and DOCKER-USER rules, and validation and the external scan check against the
+merged set.
 
-ufw is default-deny. After lockdown, ingress is tailnet-only and SSH is
-key-only with no root login. Web traffic reaches the server through the
-encrypted tunnel; no web port is bound on the host. The TURN relay is the one
-deliberate exception: a UDP media plane bound direct on the public IP,
-deployed only when a consumer is running.
+ufw is default-deny. No web port is bound on the host: web traffic enters
+through the Cloudflare tunnel. The one exception is the TURN relay's UDP media
+plane on the public IP, present only while a consumer runs.
 
-The tunnel is **deferred, not required, at install**. A server stands up with
-no Cloudflare credential, is administered over the private mesh, and brings
-its public edge up later without a reinstall.
+SSH is key-only, with no root and no password login. Public port 22 follows
+the private network:
+
+| Private network | Public 22 |
+| --- | --- |
+| None | Open. Nothing closes it |
+| Joined | Open until the Lockdown is applied |
+| Joined, Lockdown applied | Closed once the network proves it reaches the host; reopened by the port reconciler while the network is down |
+| Set back to none after a Lockdown | Closed, and reopened while the old network is down, until the access is applied again, which opens it |
+
+No domain, tunnel or private network is configured at install. Each is saved
+in the dashboard, which checks the credential on the host first and stores
+nothing it refuses. Until a domain exists, the dashboard is reached through a
+forward-only SSH account (`panel`) to the host's loopback.
 
 | Invariant | Enforced by |
 | --- | --- |
 | No web port is open on the server itself; an external scan proves it | `bench:security_scan`, `bench:fi_v2_external_scan_blocked`, `threat:CV1` |
 | Every open port is declared before it is opened | `bench:security_scan`, `bench:ce_validate` |
-| SSH is key-only and tailnet-only after lockdown; no root login | `bench:security_scan`, `bench:fi_n8_ufw_concurrent_ssh`, `threat:CV6` |
-| A server installs with no tunnel credential and brings its public edge up later without a reinstall | `bench:ce_install_suite`, `bench:ce_install_tailnet_first` |
+| SSH is key-only with no root login; public 22 closes only behind a proven private network, reopens while that network is down, and opens again when no private network is applied | `bench:security_scan`, `bench:fi_n8_ufw_concurrent_ssh`, `bench:ce_install_suite`, `threat:CV6` |
+| A server installs with no tunnel credential and brings its public edge up later without a reinstall | `bench:ce_install_suite` |
+| A credential entered in the dashboard is checked on the host before it is stored, and a refused one is never stored | `bench:ce_install_suite`, `bench:fi_s4_tailscale_oauth_revoked` |
 | The tunnel can be replaced on a live host without a converge | `bench:cf_tunnel_regenerate_round_trip` |
 | Each domain token grants exactly one domain; Community caps at one | `bench:fi_n10_multidomain_cap` |
 | The private-network control server is pluggable | `bench:ce_install_headscale` |
 
 ### The restic repository -- `backup`
 
-Backups go to object storage the client owns, encrypted on the host before
-upload. The restic password is never minted on-box: it must not ride inside
-the backup it decrypts. A whole server rebuilds from only its backup endpoint
-and its keyset.
+Backups are encrypted on the host and go to an S3 repository set in the
+dashboard. The restic password is generated on the host once the repository
+and its keys are saved, and shown once: the host keeps it to run backups, and
+the copy kept off the host opens the repository once the host is gone. A
+server rebuilds from the endpoint and that keyset alone.
 
 restic and rclone ship in the payload, pinned by digest. The backup wrapper
-creates the repository the first time it finds none, and stops rather than
-creating one when the password is wrong.
+creates the repository when it finds none, and stops when the password is
+wrong. Snapshots list, browse and export without a restore.
 
-Snapshots can be listed, browsed and exported without a restore.
-
-A restore runs on the host, from the dashboard's restore page or
-`catena-recovery restore`, and needs no converge afterwards. It records its
-progress in `/var/lib/catena/recovery.state`: a restore that stops part-way
-stays on record, the next run resumes it and refuses a different snapshot or
-set of applications, and only a finished run clears it.
+Restores run on the host through `catena-recovery`, the payload's restore
+engine, which the dashboard's restore page drives. They need no converge
+afterwards. Progress is recorded in `/var/lib/catena/recovery.state`: an
+interrupted restore resumes with the same snapshot and scope, refuses a
+different one, and only a finished run clears the record.
 
 | Invariant | Enforced by |
 | --- | --- |
 | A server rebuilds from only the backup endpoint and key | `bench:dr_suite#stage-19-onbox-store`, `bench:ce_restore`, `bench:recover_secrets_from_running_host`, `threat:CV9` |
-| Backups are encrypted on the host before upload, and the key is never minted on-box | `bench:dr_suite#stage-13-disaster-recovery`, `bench:ce_restore`, `threat:CV4` |
+| Backups are encrypted on the host before upload, under a password also kept off the host | `bench:dr_suite#stage-13-disaster-recovery`, `bench:ce_restore`, `threat:CV4` |
 | Backups restore -- rehearsed, not assumed | `bench:backup_rollback`, `bench:ce_restore` |
 | An interrupted restore resumes with the same snapshot and scope, and is never reported as finished | `bench:fi_n5_provider_outage_mid_restore`, `bench:inplace_restore_suite#app-restore-stage-6-halted-scope-refuses-to-widen` |
 | Snapshots export without a restore | `bench:snapshot_export_round_trip` |
@@ -301,36 +284,46 @@ set of applications, and only a finished run clears it.
 
 ### The timers -- `public_ports`, `infrastructure`, `host_maintenance`
 
-Scheduled work is default-deny: an enumerated set, machine-enforced rather
-than conventional. This repository ships three local-maintenance timers: the
-public-port reconcile, the antivirus watch and the mail canary. It enables
-three more that the payload ships and that run on every host: the dashboard
-and Gatus syncs and the hourly reboot-required probe. None of them spends
-object storage.
+Scheduled work is default-deny. This repository ships three local-maintenance
+timers (the public-port reconcile, the antivirus watch, the mail canary) and
+enables three the payload ships (the dashboard and Gatus syncs, the hourly
+reboot-required probe). None spends object storage.
 
-Every lane -- backup, the bit-rot check, the offsite copy, the daily chain
-that runs container updates, and dashboard updates -- ships in the payload
-with its timer off.
-`catena-schedule apply` turns a lane on only on a licensed host, at the
-cadence set on the dashboard's Schedules page. The backup, container-update
-and dashboard-update services stay runnable by hand on every host.
+Every lane (backup, the bit-rot check, the offsite copy, the daily update
+chain, dashboard updates, the scheduled converge) ships in the payload with its
+timer off. `catena-schedule apply` turns a lane on only on a licensed host, at
+the cadence set in the dashboard. The backup, the updates, the converge, the
+container engine upgrade and the restart stay runnable by hand on every host.
 
-Debian's own unattended-upgrades applies OS security patches.
+The daily chain applies updates whether or not a backup is configured, and the
+dashboard warns on every page for as long as none is. A configured backup that
+fails, or fails its verification, stops the chain before any update. After the
+container updates, the chain upgrades the container engine to the version
+pinned in this repository, within the major version it runs, and restores the
+previous version when the host does not come back healthy. Its last step
+restarts the host when an update needs it, and checks afterwards that every
+service came back.
+
+Debian's unattended-upgrades is the one thing that applies OS packages, on
+every host, licensed or not: the security suite, stable updates and point
+releases, and the private-network client from its own repository. A service
+left running on a replaced library restarts after the update; the container
+engine waits for a restart of the host. The dashboard shows a pending restart
+on every page until it is taken.
 
 | Invariant | Enforced by |
 | --- | --- |
 | Scheduled work is default-deny: this repository ships only enumerated local-maintenance timers, and every lane ships in the payload | `audit:check-port`, `threat:CV8` |
 | An unlicensed host schedules no lane at all | `bench:unlicensed_schedules_nothing` |
+| A host that needs a restart reports it, and without a licence waits for a person | `bench:reboot_required_notified` |
+| A failed backup verification stops the daily chain before any update | `bench:daily_chain_verify_hot_fail_aborts_updates` |
 
 ### The release manifest -- written last, by both converge paths
 
-Every converge records what it delivered, from `converge.yml` and from
-`reconcile.yml` alike, so an on-host converge does not leave the fields
-describing the last one a human ran. Before that, a prune removes files a
-previous converge installed that this one no longer ships, provided the file
-is still byte-for-byte what the converge wrote and the payload manifest
-(`/var/lib/catena/payload-manifest.json`) does not claim it. A file that moves
-from a role into the payload stays installed.
+Every converge, from `converge.yml` or `reconcile.yml`, records what it
+delivered. Before that, it prunes files an earlier converge installed and this
+one no longer ships, provided the file is unchanged and the payload manifest
+(`/var/lib/catena/payload-manifest.json`) does not claim it.
 
 | Invariant | Enforced by |
 | --- | --- |
@@ -338,14 +331,27 @@ from a role into the payload stays installed.
 | Withdrawn files are removed, and Community files are not pruned as though they were licensed | `bench:payload_prune_respects_ce` |
 | A converge never prunes a file the payload claims | `workflow:ci.yml#installer` |
 
+### The version stamp -- written first, by both converge paths
+
+`/etc/catena/version.txt` names the version of this repository a converge
+applied, as `git describe`: from the checkout on a converge started from a
+controller, and from the provenance the dashboard image records on a converge
+the host runs itself. It is the first thing either path writes, and it rides
+the backup, so every snapshot names the version that produced its data.
+
+A restore compares the snapshot's stamp with the host's: a newer snapshot is
+refused, because a newer database directory does not open under an older
+database; an older one needs an explicit upgrade; two stamps that cannot be
+ordered are refused. A move between two servers is refused unless both run
+the same version.
+
 ## Applications
 
-The dashboard deploys applications from a catalogue resolved per host: its
-domain names, its sign-on, and a fresh password for each application,
-generated on the server itself. Per-app compose lives in `catena-templates`;
-what this repository owns is the wiring that makes the suite behave as one
-product -- mail, chat and video calling, file and office integration,
-antivirus watch and delivery canaries.
+The dashboard deploys applications from a catalogue resolved per host: domain
+names, sign-on, and a password per application generated on the host. Per-app
+compose lives in `catena-templates`; this repository owns the wiring that makes
+the suite one product: mail, chat and video calling, file and office
+integration, the antivirus watch and delivery canaries.
 
 | Invariant | Enforced by |
 | --- | --- |
@@ -363,20 +369,21 @@ antivirus watch and delivery canaries.
 
 | Workflow | Jobs | Gates |
 | --- | --- | --- |
-| `ci.yml` | `installer`, `syntax`, `duplication`, `prose` | the Python package and its unit tests, Ansible syntax, copy-paste against a ratchet threshold, and comment prose |
-| `security.yml` | `scanctl` | secrets, dependency vulnerabilities and static analysis |
-| `trivy.yml` | `trivyignore-expiry`, `trivy-gate` | the container images pinned in role defaults. A pin that stops matching fails the scan |
-| `seed-baseline.yml` | `seed` | the seeded configuration against its recorded baseline |
+| `ci.yml` | `installer`, `entry-points`, `syntax`, `duplication`, `prose` | the Python package and its unit tests, the two entry points a client runs (`catena-cli`, `catena-gui`) with their locks and the graphical installer's tests, Ansible syntax, copy-paste against a ratchet threshold, and comment prose |
+| `security.yml` | `scanctl` | secrets, dependency vulnerabilities, static analysis, and the container images pinned in role defaults. A finding in this tree fails every run; a CVE in a pinned image fails the change that introduces it. A pin that stops matching fails the scan |
 
-The container images pinned in role defaults move with the catena-admin update
-engine, run from the [renovate](https://github.com/catenahq/renovate)
-repository's engine-bump workflow: the decision a host makes for a running
-service (a seven-day soak, a CVE gate, upgrade stops), one pull request per
-defaults file, merged when this repository's required checks pass. Every other
-dependency is kept current by
+Every workflow runs on each pull request and on each push, except pushes to
+the Renovate and engine-bump branches, whose pull requests test every push.
+
+Images pinned in role defaults move through the catena-admin update engine,
+run from the [renovate](https://github.com/catenahq/renovate) repository's
+engine-bump workflow (seven-day soak, CVE gate, upgrade stops), one pull
+request per defaults file. Every other dependency follows
 [renovate](https://github.com/catenahq/renovate) and
-[renovate-config](https://github.com/catenahq/renovate-config), under a
-seven-day cooldown, with GitHub Actions pinned by digest.
+[renovate-config](https://github.com/catenahq/renovate-config) under a
+seven-day cooldown, with GitHub Actions pinned by digest. The container
+engine's version pin follows the same path under a fourteen-day cooldown; a
+new major version is merged by hand, after a rehearsal proves it.
 [scanctl](https://github.com/catenahq/scanctl) scans each update before it
 merges.
 
@@ -384,31 +391,48 @@ merges.
 | --- | --- |
 | No secret is in the tree or its history | `scanctl:gitleaks`, `workflow:security.yml#scanctl`, `threat:CP1` |
 | No licensed source and no Go in this tree | `audit:check-port`, `audit:check-grid`, `threat:CP3` |
-| Dependencies and pinned images are vulnerability-gated | `scanctl:osv-scanner`, `scanctl:govulncheck`, `workflow:trivy.yml#trivy-gate`, `workflow:trivy.yml#trivyignore-expiry` |
+| Dependencies and pinned images are vulnerability-gated | `scanctl:osv-scanner`, `scanctl:govulncheck`, `scanctl:trivy`, `workflow:security.yml#scanctl` |
 | Static analysis runs on every change | `scanctl:semgrep`, `scanctl:zizmor` |
-| The installer builds, lints and tests green | `workflow:ci.yml#installer`, `workflow:ci.yml#syntax`, `workflow:ci.yml#duplication` |
+| The installer builds, lints and tests green | `workflow:ci.yml#installer`, `workflow:ci.yml#entry-points`, `workflow:ci.yml#syntax`, `workflow:ci.yml#duplication` |
 | Code comments describe the tree as it stands, not its history | `workflow:ci.yml#prose` |
-| The seeded configuration matches its baseline | `workflow:seed-baseline.yml#seed` |
 | Public prose names no system Catena does not ship | `audit:check-banned-words` |
 | Every file and scenario is classified against the feature manifest; nothing untracked | `audit:check-grid`, `audit:check-all` |
 | This file cannot drift from reality | `audit:check-public-specs`, `threat:CP7` |
 
-Gate pointer grammar: `bench:<scenario>` is a rehearsal scenario that
-provisions disposable virtual machines and drives the real product;
-`audit:<gate>` is a static gate of the maintainers' audit graph, run in CI and
-before every rehearsal; `workflow:<file>#<job>` is a CI job in this
-repository; `scanctl:<tool>` is a scanner run by the bundled security
-workflow; `threat:<ID>` is a numbered invariant in the maintainers'
-threat-model register, resolved by the same CI gate. A pointer that does not
-resolve, or one that names a retired invariant, fails the build -- so no claim
-here can outlive the guarantee behind it.
+Gate pointers: `bench:<scenario>` is a rehearsal scenario on disposable
+virtual machines driving the real product; `audit:<gate>` is a static gate of
+the maintainers' audit graph, run in CI and before every rehearsal;
+`workflow:<file>#<job>` is a CI job in this repository; `scanctl:<tool>` is a
+scanner of the bundled security workflow; `threat:<ID>` is an invariant in the
+maintainers' threat-model register. A pointer that does not resolve, or names
+a retired invariant, fails the build.
 
 ## Declared, not yet built
 
 This file leads the code. Anything it declares that the tree does not
 implement is listed here, so the gap is a finding rather than a silence.
 
-Nothing outstanding.
+- **The version stamp from both converge paths.** Only a converge started from
+  a controller writes it today, so a host that updated itself keeps the stamp
+  of its install, and its snapshots name that version rather than the one it
+  runs.
+- **A dashboard update applies its own converge,** and rolls the dashboard back
+  when that converge fails. The scheduled converge lane does not exist yet.
+- **Updates without a backup.** Today the daily chain pauses them unless the
+  dashboard allows it; the warning shown on every page does not exist yet.
+- **The pending-restart notice on every page.** Today it is shown on the
+  System page only.
+- **The container engine pin, its hold, and its upgrade** by hand and from the
+  daily chain, with rollback, and its release on uninstall. Today the engine
+  installs unpinned and moves on every converge started from a controller.
+- **The daily chain's restart step.**
+- **The unattended-upgrades origins beyond the security suite,** and the
+  restart policy for services left on replaced libraries.
+- **The role moves.** The `swarm` role; `host_maintenance` taking the OS update
+  configuration, the baseline packages, the journal's storage, name resolution
+  and the mail transfer agent from `common`, and running after `payload`;
+  `catena-admin` taking the update lanes' configuration and the dashboard's
+  port declarations from `catena_admin_host`.
 
 ## Installation
 

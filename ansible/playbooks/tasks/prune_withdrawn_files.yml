@@ -27,7 +27,8 @@
       {{ (backup_managed_paths | default([]))
          + (host_maintenance_managed_paths | default([]))
          + (infrastructure_managed_paths | default([]))
-         + (public_ports_managed_paths | default([])) }}
+         + (public_ports_managed_paths | default([]))
+         + (swarm_managed_paths | default([])) }}
 
 - name: "Prune: read the manifest the last converge left"
   ansible.builtin.slurp:

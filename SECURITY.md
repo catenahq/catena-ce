@@ -37,5 +37,5 @@ and ship the fixed versions through the managed-update pipeline.
 
 ## Supported versions
 
-Pre-1.0: only the latest `main` (and the most recent tagged release,
-once tags are cut) receives fixes.
+Only the latest `main` and the most recent tagged release receive
+fixes.

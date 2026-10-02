@@ -20,12 +20,12 @@ from pathlib import Path
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
-DOCKER_TASKS = ANSIBLE / "bootstrap" / "roles" / "docker" / "tasks" / "main.yml"
-DOCKER_DEFAULTS = ANSIBLE / "bootstrap" / "roles" / "docker" / "defaults" / "main.yml"
+SWARM_TASKS = ANSIBLE / "reconcile" / "roles" / "swarm" / "tasks" / "main.yml"
+SWARM_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "swarm" / "defaults" / "main.yml"
 
 
 def _tasks() -> list[dict]:
-    return [t for t in yaml.safe_load(DOCKER_TASKS.read_text()) if isinstance(t, dict)]
+    return [t for t in yaml.safe_load(SWARM_TASKS.read_text()) if isinstance(t, dict)]
 
 
 def _by_name(fragment: str) -> dict:
@@ -33,8 +33,8 @@ def _by_name(fragment: str) -> dict:
 
 
 def test_the_limit_is_set_and_is_not_dockers_default():
-    defaults = yaml.safe_load(DOCKER_DEFAULTS.read_text())
-    limit = defaults.get("docker_swarm_task_history_limit")
+    defaults = yaml.safe_load(SWARM_DEFAULTS.read_text())
+    limit = defaults.get("swarm_task_history_limit")
     assert limit is not None, (
         "nothing sets the task-history limit; Docker's default of 5 is what "
         "left five containers per service on the host")
@@ -46,8 +46,8 @@ def test_the_limit_still_keeps_the_previous_task():
     service that just recovered has no record of what it recovered from, and a
     crash loop reads the same as a healthy first boot. The history exists to
     answer that question."""
-    defaults = yaml.safe_load(DOCKER_DEFAULTS.read_text())
-    assert defaults["docker_swarm_task_history_limit"] >= 2
+    defaults = yaml.safe_load(SWARM_DEFAULTS.read_text())
+    assert defaults["swarm_task_history_limit"] >= 2
 
 
 def test_the_update_is_gated_on_a_read_not_run_every_converge():
@@ -57,9 +57,9 @@ def test_the_update_is_gated_on_a_read_not_run_every_converge():
     trains the reader to ignore a changed line."""
     task = _by_name("bound task history")
     when = str(task.get("when"))
-    assert "_docker_task_history" in when, (
+    assert "_swarm_task_history" in when, (
         "the update does not compare against the limit currently in force")
-    assert "docker_swarm_task_history_limit" in when
+    assert "swarm_task_history_limit" in when
 
 
 def test_the_read_cannot_fail_the_play():
@@ -70,10 +70,10 @@ def test_the_read_cannot_fail_the_play():
     assert read.get("changed_when") is False
 
 
-def test_the_limit_is_set_after_the_swarm_exists():
-    """`docker swarm update` exits non-zero unless the node is a manager, and
-    the init above is what makes it one."""
+def test_the_limit_is_set_after_the_swarm_is_asserted():
+    """`docker swarm update` exits non-zero unless the node is a manager, so
+    the role asserts an active swarm before it sets anything."""
     names = [str(t.get("name", "")) for t in _tasks()]
-    init = next(i for i, n in enumerate(names) if "init single-node swarm" in n)
+    active = next(i for i, n in enumerate(names) if "active swarm member" in n)
     bound = next(i for i, n in enumerate(names) if "bound task history" in n)
-    assert init < bound, names[init:bound + 1]
+    assert active < bound, names[active:bound + 1]

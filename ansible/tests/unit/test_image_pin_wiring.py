@@ -334,7 +334,7 @@ def test_the_loader_resolves_the_catena_admin_release_before_any_role():
     """reconcile/roles/payload reads the resolved release at role 5.5, so it has to be
     published in pre_tasks. The loader is included with apply: tags [always],
     which is what keeps a tag-scoped converge from running with no image at
-    all -- the failure mode the vault_* facts already had."""
+    all."""
     tasks = Path(__file__).resolve().parents[2] / "playbooks" / "tasks"
     loader = (tasks / "load_onbox_config.yml").read_text()
     assert "catena_admin_release.py" in loader, (

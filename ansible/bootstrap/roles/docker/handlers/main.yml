@@ -1,7 +1,7 @@
 ---
-# daemon.json changes require a dockerd reload. With live-restore=true this
-# does NOT kill running containers -- dockerd exits, systemd restarts it, and
-# the containerd shims keep the containers alive across the gap.
+# daemon.json changes require a dockerd restart. live-restore is off (swarm
+# mode requires it), so every container restarts with the daemon and swarm
+# re-dispatches its services.
 #
 # The `timeout` wrapper is load-bearing for the same reason the API probe's is:
 # docker.service is Type=notify with TimeoutStartSec=0, so systemd waits for

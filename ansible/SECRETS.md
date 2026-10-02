@@ -1,8 +1,8 @@
-# Catena secret + config classification (0b reference)
+# Catena secret + config classification
 
 Source of truth for **where every secret and config value comes from, who
-holds it, and where it must end up** under the client-owned-config model
-(0b). Derived from:
+holds it, and where it must end up** under the client-owned-config model.
+Derived from:
 
 - `helpers/knobs.yml`, the registry: every value a client supplies, with
   its residence, its `.env` default and its panel shape. `EXTERNAL_SECRETS`
@@ -11,8 +11,9 @@ holds it, and where it must end up** under the client-owned-config model
 - `helpers/onbox_config.py` for the three categories no client supplies:
   `INTERNAL_SECRETS` + `USER_HELD_SECRETS` minted on-box, and
   `ROLE_MINTED_SECRETS` minted by the service and captured by its role.
-- `seed.py` (`INSTALL_EXTERNAL_KEYS` -- the only creds prompted at install,
-  written to the transient `--secrets-out` adopt file and nowhere else).
+- `seed.py`, which collects no secret: an install.yaml may pin the admin
+  password, written to the transient `--secrets-out` adopt file and nowhere
+  else, and names no other.
 - `reconcile/roles/backup/defaults/main.yml` (`backup_paths`).
 
 **Nothing secret is persisted on the controller** -- `catena-cli install`
@@ -33,29 +34,29 @@ brings it back with the data. The operator holds nothing.
 
 ## Four categories
 
-Every `vault_*` name referenced anywhere under `ansible/` belongs to exactly
-one of them. "Belongs to none" is not a state -- it is what let the Portainer
-API key sit in a comment for a release instead of in a registry.
+Every secret name referenced anywhere under `ansible/` belongs to exactly one
+of them, declared in its registry.
 
-### 1. Client-supplied external (settings page / minimal bootstrap input)
+### 1. Client-supplied external (catena-admin Settings)
 
 Issued by a third party; catena can never generate these. The client enters
-them once, they persist on-box, and they ride the backup thereafter. The
+them in catena-admin > Settings once the server runs, they persist on-box,
+and they ride the backup thereafter. The
 DR-critical subset (restic repo + S3 + restic password) is ALSO what the
 client keeps in their password manager -- it is the only thing that cannot
 ride the backup, because it is what unlocks the backup.
 
 | Key | Purpose | Phase where entered | DR-critical (client-kept) |
 | --- | --- | --- | --- |
-| `tailscale_oauth_client_id` | Join the client's own tailnet | install when a tailnet is declared, else catena-admin Settings | no |
-| `tailscale_oauth_client_secret` | ^ | ^ | no |
-| `headscale_api_key` | ^, on the self-hosted backend | ^ | no |
-| `headscale_preauth_key` | ^, static fallback | ^ | no |
-| `cloudflare_api_token` | Tunnel + DNS | install when a domain is known, else catena-admin Settings | no |
-| `BACKUP_RESTIC_REPO` (.env) | restic repo URL | settings page | **yes** |
+| `tailscale_oauth_client_id` | Join the client's own tailnet | settings page | no |
+| `tailscale_oauth_client_secret` | ^ | settings page | no |
+| `headscale_api_key` | ^, on the self-hosted backend | settings page | no |
+| `headscale_preauth_key` | ^, static fallback | settings page | no |
+| `cloudflare_api_token` | Tunnel + DNS | settings page | no |
+| `BACKUP_RESTIC_REPO` (config) | restic repo URL | settings page | **yes** |
 | `backup_s3_access_key` | reach the restic bucket | settings page | **yes** |
 | `backup_s3_secret_key` | ^ | settings page | **yes** |
-| `backup_restic_password` | decrypt the restic repo | on-box mint, **shown once** | **yes** |
+| `backup_restic_password` | decrypt the restic repo | generated in the settings page, **shown once** | **yes** |
 | `admin_password` | first login (Portainer + Keycloak + Beszel + this panel) | on-box mint, **shown once** | no |
 | `console_recovery_password` | break-glass login for `ops` at the provider KVM / serial console | on-box mint, **shown once** | **yes** |
 | `smtp_password` | outbound mail (opt) | settings page | no |
@@ -66,16 +67,21 @@ ride the backup, because it is what unlocks the backup.
 
 `backup_restic_password`, `admin_password` and
 `console_recovery_password` are special: `USER_HELD_SECRETS` in
-`onbox_config.py`. They are minted **on-box if absent**
-(like the internal secrets) but the installer reads them back and **shows them
-once** at the end of `catena-cli install` (`playbooks/show-keyset.yml`) so the
-client keeps a copy in their password manager. They are NOT settable through
-the settings config-write API (a restic re-key is a deliberate action). To
-recover a lost server the client installs Catena on a new one and enters the
-old repository with the saved restic password in the panel's restore; the
-restore brings the old store back with it. Minting the restic password on-box
-is safe precisely because it is surfaced once off-box: without that copy a
-lost box is unrecoverable, which is the client's responsibility.
+`onbox_config.py`. They are generated **on-box** and **shown once** so the
+client keeps a copy in their password manager, and they are NOT settable
+through the settings config-write API (a restic re-key is a deliberate action).
+The converge mints the admin and console passwords if absent, and the installer
+shows them at the end of `catena-cli install` (`playbooks/show-keyset.yml`).
+The restic password is `MINTED_ON_REQUEST`: the client generates it in the
+panel beside the backup repository (`scripts/catena-restic-key.py generate`,
+which refuses when a password exists or the repository already holds backups
+under another one), and saves it there. To recover a lost server the client
+installs Catena on a new one and enters the old repository with the saved
+restic password in the panel's restore; the restore brings the old store back
+with it, and the password that opened the repository stays. Generating the
+restic password on-box is safe precisely because it is surfaced once off-box:
+without that copy a lost box is unrecoverable, which is the client's
+responsibility.
 
 The console password is the same shape one layer down: SSH is key-only, so it
 is rejected there and works ONLY at a local console (provider KVM/serial or a
@@ -137,41 +143,36 @@ with `--overwrite` when the live Portainer rejects the stored key (a `/data`
 restore replaces the BoltDB the token lived in), which is why fill-only adopt
 is not sufficient here.
 
-### 4. Non-secret config (.env today; rides backup once on-box)
+### 4. Non-secret config
 
-Split by the two-phase install boundary:
+One place to edit each value. A value catena-admin can change without
+consequence lives in the on-box store only; the inventory `.env` keeps what
+the installer needs to reach and install the server, and what is hard to
+change afterwards.
 
-**Minimal bootstrap (needed to bring the stack + auth up):** `HOST_PUBLIC_IP`,
-`HOST_INITIAL_USER`, `HOST_SSH_PORT`, `ACCESS_METHOD`, `TAILSCALE_TAGS`,
-`OPS_USER`, `COMMON_TIMEZONE`, `COMMON_LOCALE`. Plus at least one way into
-the panel: the tailnet join credential, or `CLOUDFLARE_ZONE` with its token,
-or both. Bootstrap reads neither: the converge brings the tunnel up and the
-lockdown joins the tailnet. The one left out is entered later in the panel --
-see category 1 above.
+**Inventory `.env` (the installer's):** `HOST_PUBLIC_IP`, `HOST_INITIAL_USER`,
+`HOST_SSH_PORT`, `SSH_PRIVATE_KEY` (its `.pub` beside it), `OPS_USER`,
+`STORAGE_BULK_*` (the bulk mount is applied by an operator-run role, so the
+panel could not change it).
 
-Every public subdomain except one is compiled in: the shipped starter, the
-operator skeleton and the one real inventory all gave the same answer, and a
-value nobody varies belongs to the product rather than to the operator.
-`PORTAINER_SUBDOMAIN` is the exception -- three sources, three answers -- so it
-is a settings key.
+**Store, seeded from the `.env`:** `ADMIN_EMAIL`, `APT_PROXY_URL`,
+`DOCKER_REGISTRY_MIRROR_URL` and the development-only ACME and staging keys.
+The first converge needs them before the panel exists, so the `.env` seeds
+them fill-only on that converge and is never read for them again.
 
-**Settings page (post-install):** `CLOUDFLARE_ZONE`, `ADMIN_EMAIL`,
-`PORTAINER_SUBDOMAIN`, `BACKUP_RESTIC_REPO`, backup retention + tier, WORM/cold
-repo, SMTP host/port/from, `NTFY_*`, `NEXTCLOUD_*` (S3 + retention), mailserver
-toggles, docker/apt proxy.
+**Store, catena-admin Settings only:** the domain (`CLOUDFLARE_ZONE`), the
+subdomains, the tailnet (`TAILNET_PROVIDER`, `TAILNET_CONTROL_URL`,
+`HEADSCALE_USER`, `TAILSCALE_TAGS`), backups (`BACKUP_*`), mail (`SMTP_*`),
+notifications (`NTFY_*`), `IDENTITY_ENFORCE_MFA`, and the server's time zone
+and locale (`COMMON_TIMEZONE`, `COMMON_LOCALE`). They have no `.env`
+line; `catena-cli` names a filled one it finds, because nothing reads it.
 
-Both halves are DECLARED, in `helpers/onbox_config.py`: `BOOTSTRAP_CONFIG` is
-the `.env`-owned set, `SETTINGS_CONFIG` maps each store-owned key to the
-Ansible variable the converge publishes it as. A key in neither is a test
-failure, so "belongs to no owner" is not a state a new key can occupy.
-
-The settings half has ONE live reader: the store. The inventory `.env` is its
-first-install **seed** -- `load_onbox_config.yml` adopts those values
-fill-only on the first converge, exactly as it adopts an external secret, and
-never reads them again. Both being live at once is what made `run-backup.sh`
-reconcile two sources in shell at runtime, left retention with two copies and
-the converge's silently dead, and let a tag-scoped converge fall back to a
-stale `.env` with no signal.
+The owners are DECLARED, in `helpers/knobs.yml` (a knob has an `env` entry, a
+`panel` entry, or neither, never both), and projected by
+`helpers/onbox_config.py`: `BOOTSTRAP_CONFIG` is the `.env`-owned set,
+`SETTINGS_CONFIG` maps each store-owned key to the Ansible variable the
+converge publishes it as, and `ENV_SEEDED_CONFIG` is the store keys the `.env`
+seeds.
 
 The published facts are prefixed `cfg_` rather than named after the consuming
 variable. `reconcile/roles/keycloak` derives `smtp_host` from the Resend/Brevo autofill,

@@ -3,8 +3,8 @@
 
   catena-stack-update-managed reads this as its --specs-file. Without it the
   lane runs, finds no specs, and bumps nothing -- which is indistinguishable
-  from "nothing needed bumping", and was the state of every real host until
-  this template existed.
+  from "nothing needed bumping". Rendered on every converge from either path,
+  so a service added here reaches a host that converges itself.
 
   Every entry is `infra-swarm`, which needs only the service name: the lane
   bumps with `docker service update --image`, so it never has to reproduce how

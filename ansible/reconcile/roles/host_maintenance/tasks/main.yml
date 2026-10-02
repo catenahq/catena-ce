@@ -1,8 +1,252 @@
 ---
-# The reboot-required probe: its env file, and enabling its timer. The script
-# (catena-reboot-check) and catena-reboot-check.service/.timer ship in the
-# catena-admin payload, installed by reconcile/roles/payload earlier in the
-# play.
+# The host's own upkeep, applied on every converge from either path: apt's
+# settings, the host resolving its own name, the baseline packages, Debian's
+# unattended-upgrades and its origins, needrestart's restart policy, the
+# journal's storage, the host mail agent kept off port 25, the time zone and
+# locale set in catena-admin > Settings, and the reboot-required probe. The
+# probe's script (catena-reboot-check) and catena-reboot-check.service/.timer
+# ship in the catena-admin payload, installed by reconcile/roles/payload
+# earlier in the play.
+
+# Shared with bootstrap/roles/common, which applies both before anything else
+# on a fresh host.
+- name: "Host: apt settings"
+  ansible.builtin.import_tasks: "{{ playbook_dir }}/tasks/apt_settings.yml"
+
+- name: "Host: the host resolves its own name"
+  ansible.builtin.import_tasks: "{{ playbook_dir }}/tasks/host_name_resolution.yml"
+
+- name: "Host: baseline packages"
+  ansible.builtin.apt:
+    name: "{{ catena_baseline_packages }}"
+    state: present
+    cache_valid_time: 3600
+    lock_timeout: 300
+
+# ─── unattended-upgrades (Debian-native patching) ───────────────────────
+# OS packages are Debian's job on every Catena host, whatever its edition. This
+# is the operating system's mechanism, not a Catena scheduler, and it never
+# reboots (Automatic-Reboot stays off): the reboot-required probe below is the
+# half that says a patch is waiting for one.
+#
+# NOTHING ELSE ON THIS HOST APPLIES OS PACKAGES. One applier is the whole
+# point: two of them race for the dpkg lock, and the one that loses reports a
+# failure for work the other did.
+#
+#   /etc/apt/apt.conf.d/50unattended-upgrades -- Debian's default filter.
+#   /etc/apt/apt.conf.d/51catena-origins      -- the origins added to it.
+#   /etc/apt/apt.conf.d/20auto-upgrades       -- enables the apply lane.
+#   apt-daily.timer (apt-get update only)     -- left on.
+#   apt-daily-upgrade.timer (the apply lane)  -- unmasked + enabled.
+#   unattended-upgrades.service               -- enabled.
+- name: "Host: enable unattended-upgrades"
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      # Managed by catena host_maintenance. OS packages are applied by Debian's
+      # own unattended-upgrades, on every edition.
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: "Host: unattended-upgrades service is enabled"
+  ansible.builtin.command:
+    cmd: systemctl enable --now unattended-upgrades
+  changed_when: false
+
+# Unmask as well as enable: a masked timer enables silently and never fires.
+- name: "Host: apt-daily-upgrade.timer is unmasked and enabled"
+  ansible.builtin.shell: |
+    systemctl unmask apt-daily-upgrade.timer || true
+    systemctl enable --now apt-daily-upgrade.timer || true
+  changed_when: false
+  failed_when: false # unit may not exist on minimal images
+
+# The origins unattended-upgrades applies, added to the ones Debian's own
+# 50unattended-upgrades lists: the stable point releases (restated, so a
+# locally edited 50unattended-upgrades cannot drop them), the stable-updates
+# suite, and Tailscale's repository on a host bootstrap/roles/tailscale added
+# it to. apt merges the list across files.
+- name: "Host: unattended-upgrades origins"
+  ansible.builtin.copy:
+    dest: "{{ catena_apt_origins_path }}"
+    content: |
+      // Managed by catena host_maintenance.
+      Unattended-Upgrade::Origins-Pattern {
+          "origin=Debian,codename=${distro_codename},label=Debian";
+          "origin=Debian,codename=${distro_codename}-updates";
+          "origin=Tailscale,codename=${distro_codename}";
+      };
+    owner: root
+    group: root
+    mode: "0644"
+
+# Tailscale's signing key and source list, fetched again on every converge so
+# a key Tailscale rotates reaches the host before apt stops trusting the
+# repository. A fetch that fails leaves the host's copy in place and is
+# reported: a converge does not stop on Tailscale's package server.
+- name: "Host: is Tailscale's repository configured"
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list.d/tailscale.list
+  register: _host_tailscale_list
+
+- name: "Host: refresh Tailscale's repository"
+  when: _host_tailscale_list.stat.exists
+  block:
+    - name: "Host: refresh Tailscale's signing key and source list"
+      ansible.builtin.get_url:
+        url: "{{ item.url }}"
+        dest: "{{ item.dest }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - { url: "{{ tailscale_apt_keyring_url }}", dest: /usr/share/keyrings/tailscale-archive-keyring.gpg }
+        - { url: "{{ tailscale_apt_source_url }}", dest: /etc/apt/sources.list.d/tailscale.list }
+      register: _host_tailscale_refresh
+      until: _host_tailscale_refresh is succeeded
+      retries: 3
+      delay: 10
+  rescue:
+    - name: "Host: Tailscale's repository could not be refreshed"
+      ansible.builtin.debug:
+        msg: >-
+          Tailscale's package server did not answer, so this host keeps the
+          signing key and source list it has. unattended-upgrades keeps
+          applying Tailscale updates until Tailscale rotates its key; the next
+          converge fetches again.
+
+# needrestart runs after every apt operation, unattended-upgrades' included.
+# Automatic mode restarts the host services left running on a library the
+# upgrade replaced; its default lists them and restarts nothing when nobody is
+# at a terminal. The container engine waits for a restart of the host:
+# live-restore is off under swarm, so restarting dockerd or containerd
+# restarts every container.
+- name: "Host: needrestart restarts services left on replaced libraries"
+  ansible.builtin.copy:
+    dest: "{{ catena_needrestart_conf_path }}"
+    content: |
+      # Managed by catena host_maintenance.
+      $nrconf{restart} = 'a';
+      $nrconf{override_rc}{qr(^docker)} = 0;
+      $nrconf{override_rc}{qr(^containerd)} = 0;
+    owner: root
+    group: root
+    mode: "0644"
+
+# ─── journald: persistent and sealed ────────────────────────────────────
+# The on-box audit trail of catena-admin actions lives in the journal, so it
+# must survive a reboot, and sealing makes after-the-fact tampering detectable
+# (`journalctl --verify`). The sealing key itself is minted once by
+# bootstrap/roles/common, which hands its verification half to the client.
+- name: "Host: journald drop-in directory"
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "Host: journald keeps a persistent, sealed journal"
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/10-catena.conf
+    content: |
+      # Managed by catena host_maintenance.
+      [Journal]
+      Storage=persistent
+      Seal=yes
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart journald
+
+# ─── Keep host port 25 free for the mail server (MX) ──────────────────────
+# Debian's default-mta (exim4-daemon-light) binds 127.0.0.1:25 and [::1]:25 the
+# moment it starts, which collides with the mailserver template publishing
+# 0.0.0.0:25 and leaves its container stuck in Created. exim4 is not in the base
+# image or the baseline; it arrives as an apt Recommends of packages other roles
+# install (cron is one path, not the only one), and stripping recommends from
+# every installer would also strip what those packages legitimately want.
+#
+# Catena drives periodic work off systemd timers and routes mail through the
+# mailserver template, so a host MTA is never wanted, and is a spam-relay
+# liability besides. Masking shadows the unit even before the package exists,
+# so a later install's postinst start is a no-op (deb-systemd-invoke skips
+# masked units). Plain command rather than the systemd_service module, which
+# needs the unit to exist first.
+- name: "Host: mask exim4 so it can never bind port 25"
+  ansible.builtin.command:
+    argv: [systemctl, mask, exim4]
+  register: _host_mask_exim4
+  changed_when: "'Created symlink' in (_host_mask_exim4.stdout + _host_mask_exim4.stderr)"
+
+# Masking does not stop a running instance: an exim4 an earlier role's install
+# started is stopped here. Gated on is-active, because `systemctl stop` exits 0
+# with nothing running and an ungated task would report changed every converge.
+- name: "Host: is exim4 running"
+  ansible.builtin.command:
+    argv: [systemctl, is-active, exim4]
+  register: _host_exim4_active
+  changed_when: false
+  # is-active returns rc 3 for inactive or masked units.
+  failed_when: false
+
+- name: "Host: stop a running exim4"
+  ansible.builtin.command:
+    argv: [systemctl, stop, exim4]
+  changed_when: true
+  when: (_host_exim4_active.stdout | default('') | trim) == 'active'
+
+# A zone this host does not know is reported and left unapplied: a converge
+# the panel starts must not fail on a name typed in the panel.
+- name: "Host: is the time zone one this host knows"
+  ansible.builtin.stat:
+    path: "/usr/share/zoneinfo/{{ host_maintenance_timezone }}"
+    follow: true
+  register: _host_tz_file
+
+- name: "Host: read the time zone"
+  ansible.builtin.command:
+    argv: [timedatectl, show, --property=Timezone, --value]
+  register: _host_tz
+  changed_when: false
+  check_mode: false
+  when: _host_tz_file.stat.isreg | default(false)
+
+- name: "Host: set the time zone"
+  ansible.builtin.command:
+    argv: [timedatectl, set-timezone, "{{ host_maintenance_timezone }}"]
+  changed_when: true
+  when:
+    - _host_tz_file.stat.isreg | default(false)
+    - (_host_tz.stdout | default('') | trim) != host_maintenance_timezone
+
+- name: "Host: the time zone is not one this host knows"
+  ansible.builtin.debug:
+    msg: >-
+      COMMON_TIMEZONE is {{ host_maintenance_timezone }}, which this host does
+      not know, so its clock zone is unchanged. Enter an IANA name such as
+      America/Toronto in catena-admin > Settings.
+  when: not (_host_tz_file.stat.isreg | default(false))
+
+# Uncomments the locale in Debian's list; a name the list does not carry
+# changes nothing.
+- name: "Host: enable the locale"
+  ansible.builtin.lineinfile:
+    path: /etc/locale.gen
+    regexp: '^#\s*({{ host_maintenance_locale | regex_escape }}\s.*)$'
+    line: '\1'
+    backrefs: true
+  register: _host_locale_line
+
+- name: "Host: generate the locale"
+  ansible.builtin.command:
+    argv: [locale-gen]
+  changed_when: true
+  when: _host_locale_line.changed
 
 - name: "Reboot check: env file"
   ansible.builtin.template:

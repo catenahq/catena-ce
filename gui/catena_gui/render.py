@@ -10,12 +10,12 @@ That is what makes the acceptance test possible: a host the launcher built has
 to be indistinguishable from one `catena-cli install -i install.yaml` built,
 because it IS one.
 
-THE SECRETS RIDE THE FILE AND THE FILE IS TRANSIENT. seed reads them, writes
-the ones the converge adopts into its own 0600 map, and the CLI deletes that.
-This writer creates the install.yaml 0600 in a fresh 0700 directory outside the
-inventory and removes both when the install ends, so the window in which a
-client's cloud credentials exist on their disk is the length of one install,
-and never inside the inventory a client keeps.
+THE PASSWORD RIDES THE FILE AND THE FILE IS TRANSIENT. The provider's
+password, when the server needs it, is read by seed and handed to the key
+install. This writer creates the install.yaml 0600 in a fresh 0700 directory
+outside the inventory and removes both when the install ends, so the window in
+which it exists on a client's disk is the length of one install, and never
+inside the inventory a client keeps.
 """
 
 from __future__ import annotations
@@ -42,10 +42,11 @@ def install_yaml(*, inventory: str, answers: dict[str, str],
                  secrets: dict[str, str], host_name: str = "") -> str:
     """The flat install.yaml shape seed accepts.
 
-    FLAT, not nested. seed splits a flat file by asking the registry which
-    names are secrets rather than by reading a `vault_` prefix, which is the
-    same question this launcher asked to decide what not to write to disk. One
-    classification, so a credential cannot be filed as config by either.
+    FLAT, not nested. seed files a `host_`-prefixed key under the host -- the
+    provider's password is `host_initial_password` -- and splits the rest by
+    asking the registry which names are secrets, the same question this
+    launcher asked to decide what not to write to disk. One classification, so
+    a credential cannot be filed as config by either.
     """
     doc: dict[str, object] = {"inventory": inventory}
     if host_name:
@@ -65,9 +66,9 @@ def install_yaml(*, inventory: str, answers: dict[str, str],
 def write_install_yaml(path: Path, body: str) -> None:
     """0600 from creation, never afterwards.
 
-    A chmod after the write leaves a window in which the file holding a
-    client's Cloudflare token and their S3 keys is world-readable, and on a
-    shared machine that window is the whole exposure.
+    A chmod after the write leaves a window in which the file holding the
+    provider's password is world-readable, and on a shared machine that window
+    is the whole exposure.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)

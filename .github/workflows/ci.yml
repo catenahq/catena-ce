@@ -4,8 +4,10 @@ name: CI
 # tooling comes from uv.
 
 on:
+  # Every pushed branch. Renovate and engine-bump branches always carry a pull
+  # request, which tests each push to them.
   push:
-    branches: [main]
+    branches-ignore: ['renovate/**', 'engine-bump/**', 'scanctl/**']
   pull_request:
 
 permissions:
@@ -20,7 +22,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install uv
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       # The installer tests import only seed.py + helpers (no ansible-core), so
       # run them in a lightweight ephemeral env instead of syncing the project
       # (which would pull ansible-core for nothing here).
@@ -41,7 +43,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install uv
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       - name: Locks match their pyprojects
         run: |
           set -eu
@@ -78,7 +80,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install uv
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       - name: Vendor the pinned collections
         working-directory: ansible
         run: uv run ansible-galaxy collection install -r requirements.yml -p .collections
@@ -124,14 +126,16 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Check out sibling contracts
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: catenahq/contracts/.github/actions/checkout-sibling@main
         with:
           repository: catenahq/contracts
           path: contracts
-          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "24"
+      - name: Repo rules (no tracked env file; .gitignore carries the env rule)
+        working-directory: ./catena-ce
+        run: node ../contracts/scripts/check-repo-rules.mjs
       # Pinned in contracts/.vale-version, which check-prose.mjs also
       # reads and enforces: the grammars decide which comments are
       # visible, so a different version is a different gate.

@@ -119,7 +119,16 @@ def _store(tmp_path: Path, config: dict | None) -> str:
     return str(path)
 
 
-def test_the_reconciler_reads_the_declared_access_method(tmp_path):
+def test_the_reconciler_reads_the_declared_provider(tmp_path):
+    mod = _reconciler()
+    for provider in ("tailscale", "headscale"):
+        assert mod.tailnet_available(_store(tmp_path, {"TAILNET_PROVIDER": provider}))
+    assert not mod.tailnet_available(_store(tmp_path, {"TAILNET_PROVIDER": "none"}))
+
+
+def test_a_store_no_converge_has_settled_yet_keeps_its_posture(tmp_path):
+    """The reconciler runs on a timer, so it can read a store still saying it
+    with ACCESS_METHOD before the next converge settles it."""
     mod = _reconciler()
     assert mod.tailnet_available(_store(tmp_path, {"ACCESS_METHOD": "tailnet"}))
     assert not mod.tailnet_available(
@@ -138,15 +147,17 @@ def test_an_unreadable_store_reads_as_a_tailnet_host(tmp_path):
     assert mod.tailnet_available(str(broken))
 
 
-def test_the_two_ui_ports_declare_private_and_the_lane_declares_tailnet():
-    """The declarations themselves, because the distinction only pays off if
-    the callers make it. A UI port that went back to `tailnet` would start
-    overstating its restriction again on a tailnet-free host."""
+def test_the_two_ui_ports_are_host_only_and_the_lane_declares_tailnet():
+    """The declarations themselves. The panel and Portainer answer this host
+    only: an administrator reaches them through an SSH forward that lands on
+    the loopback, and the panel's direct login is a password over plain HTTP,
+    so no network path may carry it. The migration lane binds the tailnet
+    address and means `tailnet` literally."""
     portainer = (ANSIBLE_DIR / "reconcile" / "roles" / "portainer" / "tasks"
                  / "main.yml").read_text(encoding="utf-8")
-    assert '"scope": "private", "bind": "docker", "owner": "portainer"' in portainer
+    assert '"scope": "loopback", "bind": "docker", "owner": "portainer"' in portainer
 
-    admin = (ANSIBLE_DIR / "bootstrap" / "roles" / "catena_admin_host" / "tasks"
-             / "main.yml").read_text(encoding="utf-8")
-    assert '"port": catena_admin_ui_port | int,\n           "scope": "private"' in admin
+    admin = (ANSIBLE_DIR / "reconcile" / "roles" / "catena-admin" / "tasks"
+             / "lanes.yml").read_text(encoding="utf-8")
+    assert '"port": catena_admin_ui_port | int,\n           "scope": "loopback"' in admin
     assert '"port": catena_migrate_lane_port | int,\n           "scope": "tailnet"' in admin

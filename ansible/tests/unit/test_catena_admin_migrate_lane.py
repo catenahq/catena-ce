@@ -35,6 +35,7 @@ _ROLE = (
     / "ansible" / "reconcile" / "roles" / "catena-admin"
 )
 DEFAULTS = _ROLE / "defaults" / "main.yml"
+LANES_TASKS = _ROLE / "tasks" / "lanes.yml"
 # The bootstrap-side half of the same panel: the runner account, the
 # sudoers drop-in, the forced command. A role of its own, so the
 # bootstrap/reconcile boundary it sits on is one the layout can hold.
@@ -44,7 +45,6 @@ _HOST_DEFAULTS = _HOST_ROLE / "defaults" / "main.yml"
 # And the values both halves read, which belong to neither role.
 _GROUP_VARS = (
     _ROLE.parents[2] / "playbooks" / "group_vars" / "all" / "main.yml")
-HOST_TASKS = _HOST_ROLE / "tasks" / "main.yml"
 
 MIGRATE_ACTIONS = {
     "catena-migrate-arm",
@@ -60,14 +60,14 @@ MIGRATE_ACTIONS = {
 
 
 def _defaults() -> dict:
-    """Every variable the panel's converge reads, from all three places it now
+    """Every variable the panel's converge reads, from all three places it
     lives.
 
-    Phase 1b split the role: the trust path is bootstrap/roles/catena_admin_host, the
-    container is reconcile/roles/catena-admin, and the values BOTH halves need are in
-    group_vars because a role default is only dependable once that role has run.
-    Merged here so an assertion is about the panel's configuration rather than
-    about which file happens to hold a line today.
+    The trust path is bootstrap/roles/catena_admin_host, the container and the
+    lanes' configuration are reconcile/roles/catena-admin, and the values BOTH
+    halves need are in group_vars because a role default is only dependable
+    once that role has run. Merged here so an assertion is about the panel's
+    configuration rather than about which file holds a line.
     """
     merged: dict = {}
     for path in (_GROUP_VARS, DEFAULTS, _HOST_DEFAULTS):
@@ -103,7 +103,7 @@ def test_the_migration_actions_left_this_repo():
 
 
 def test_lane_port_is_declared_tailnet_only():
-    body = HOST_TASKS.read_text()
+    body = LANES_TASKS.read_text()
     assert "catena_migrate_lane_port" in body, (
         "the lane's port is not declared in the public-port registry, so "
         "validation would read it as an unexpected open port"
@@ -119,10 +119,9 @@ def test_lane_port_is_declared_tailnet_only():
 
 
 def test_lane_port_does_not_collide_with_the_panel_port():
-    # Both are product constants now -- the panel's port stopped being a dotenv
-    # lookup when phase 3 recognised that no inventory had ever varied it. Read
-    # rather than retyped, so a bump of either side is caught here instead of on
-    # a host where two things then fight over one port.
+    # Both are product constants. Read rather than retyped, so a bump of either
+    # side is caught here instead of on a host where two things then fight over
+    # one port.
     d = _defaults()
     panel = str(d["catena_admin_ui_port"])
     assert panel.isdigit(), (

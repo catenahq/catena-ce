@@ -2,23 +2,18 @@
 """catena-cli -- Community Catena installer / CLI.
 
 A thin wrapper over the Ansible base so self-hosters never touch raw
-ansible-playbook. Subcommands:
+ansible-playbook. It reaches the server over SSH; everything else -- backups,
+the tunnel, the tailnet, the passwords -- runs from catena-admin on the host.
+Subcommands:
 
-  install    seed config + secrets (reuses seed.py), then run
-             preflight -> bootstrap -> converge -> lockdown -> validate
-  converge   re-run converge.yml (apply config changes / new app tags)
-  validate   run validate.yml (on-host + tailnet + external checks)
-  backup     trigger an on-demand snapshot (the manual CE backup)
-  rotate-tunnel
-             regenerate the host's Cloudflare tunnel without a full
-             converge (manual maintenance); authenticates as the
-             Cloudflare API token already in the host's store
-  rotate-tailscale
-             re-authenticate the node to the tailnet (force re-auth;
-             manual maintenance)
-  show-keyset
-             re-display the admin / restic / console passwords and the
-             first-login URLs (install shows them once; this asks again)
+  install    seed config (reuses seed.py), then run
+             bootstrap -> converge -> validate, and show the
+             passwords the server minted. Run again, it shows them again.
+  converge   re-run converge.yml: it applies the operator-run roles the
+             panel's own converge cannot, and is the way in when the panel
+             is down. --address reaches the host somewhere other than
+             hosts.yml's address: its tailnet address once the panel's
+             Lockdown has closed public SSH.
   uninstall  hand control back to the OS: unmask + re-enable Debian's
              apt-daily-upgrade.timer (the unattended-upgrades handback)
              and print teardown guidance
@@ -41,6 +36,7 @@ import argparse
 import configparser
 import getpass
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -70,26 +66,20 @@ def _collections_dir() -> str:
 
 COLLECTIONS_DIR = _collections_dir()
 
-# The ordered converge chain a fresh install runs. preflight is a SEPARATE
-# invocation BEFORE bootstrap so a stray --limit can never skip it.
+# The ordered converge chain a fresh install runs, each leg its own
+# ansible-playbook invocation.
 #
-# Every leg up to the lockdown reaches the host over the public SSH address the
-# install started on, so there is one install path whatever access method the
-# client chose. `lockdown` is its own leg, after the converge and before
-# validate: it joins the tailnet on that method and closes public 22 behind it.
-# It is the one step that can make a host unreachable, so it runs alone and
-# last, where a failure is a failure of lockdown rather than of a converge that
-# did fifteen other things correctly -- and validate then measures the posture
-# it produced.
-INSTALL_CHAIN = ("preflight", "bootstrap", "converge", "lockdown", "validate")
+# Every leg reaches the host over the public SSH address the install started
+# on. The install configures nothing beyond reaching and installing the server:
+# the domain, the private network and the backups are entered in the panel
+# once it runs, and the panel joins the tailnet itself.
+INSTALL_CHAIN = ("bootstrap", "converge", "validate")
 
-# Stages after which the host's administrative address may have changed, and
-# which emit it into .bootstrap-output.yml: bootstrap records the install
-# address, lockdown the tailnet address it moved the host onto.
-_ADDRESS_STAGES = ("bootstrap", "lockdown")
+# Stages that emit the host's administrative address into
+# .bootstrap-output.yml: bootstrap records the install address.
+_ADDRESS_STAGES = ("bootstrap",)
 
-# Host binaries the wrapper shells out to. ansible-playbook/ansible run the
-# base; the plaintext vault needs no separate secret-tooling binary.
+# Host binaries the wrapper shells out to.
 REQUIRED_BINARIES = ("ansible-playbook", "ansible")
 
 
@@ -156,34 +146,74 @@ def _add_inventory_args(parser: argparse.ArgumentParser, *, required: bool) -> N
 
 def _tags_extra(args: argparse.Namespace) -> list[str] | None:
     """Turn a `--tags a,b` CLI value into the ansible-playbook passthrough,
-    or None when unset. Lets `converge`/`validate` run a tag-scoped subset
-    (e.g. `catena-cli converge --tags keycloak,oauth2_proxy` to re-apply only
-    the auth roles after rotating a secret), Pure -- unit-testable."""
+    or None when unset. Lets `converge` run a tag-scoped subset (e.g.
+    `catena-cli converge --tags keycloak,oauth2_proxy` to re-apply only the
+    auth roles after rotating a secret). Pure -- unit-testable."""
     tags = (getattr(args, "tags", "") or "").strip()
     return ["--tags", tags] if tags else None
 
 
+def _address(value: str) -> str:
+    """An IP address or host name, as argparse's type for --address."""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.:-]*", value):
+        raise argparse.ArgumentTypeError(f"{value!r} is not an address")
+    return value
+
+
+def _converge_extra(args: argparse.Namespace) -> list[str] | None:
+    """The converge's passthrough: its tags, and the address to reach the host
+    at when --address names one. hosts.yml keeps the address the install
+    recorded; this one is for this run only."""
+    extra = list(_tags_extra(args) or [])
+    if getattr(args, "address", None):
+        extra += ["-e", f"ansible_host={args.address}"]
+    return extra or None
+
+
+def _key_already_opens(env: dict[str, str], initial_user: str) -> str:
+    """The account the operator key already logs in to -- the provider's
+    initial login, or ops on a server a previous run hardened -- or ""."""
+    host = (env.get("HOST_PUBLIC_IP") or "").strip()
+    if not host:
+        return ""
+    from helpers import install_key
+
+    key = os.path.expanduser(env.get("SSH_PRIVATE_KEY") or "")
+    port = int((env.get("HOST_SSH_PORT") or "22").strip() or "22")
+    for user in dict.fromkeys((initial_user or "root", env.get("OPS_USER") or "ops")):
+        if install_key._key_already_works(host, user, key, port):
+            return user
+    return ""
+
+
 def _prompt_provider_password(inv_dir: Path, initial_user: str) -> str:
-    """Ask for the VPS provider's password for the initial login, up front.
+    """Ask for the VPS provider's password for the initial login, up front --
+    only when the key does not open the server already.
 
-    bootstrap.yml declares this as a play-scoped vars_prompt, so left to
-    itself it stops the deploy chain to ask -- after preflight has already
-    run and the operator has walked away. Asking here, before the first
-    playbook, is the whole point; ansible-playbook skips a vars_prompt whose
-    name is already an extra-var, so the mid-run question never appears.
-
-    Blank is a real answer: bootstrap then skips the key install and assumes
-    the box is already keyed, which is what the vars_prompt default means."""
+    Many providers install the public key given when the server is ordered, and
+    then there is no password to type. Otherwise bootstrap.yml needs it to add
+    the key, and declares it as a play-scoped vars_prompt that, left to itself,
+    stops the deploy chain to ask -- after the collections install and the
+    operator has walked away. Asking here, before the first playbook, is the
+    whole point; ansible-playbook skips a vars_prompt whose name is already an
+    extra-var, so the mid-run question never appears."""
     env_path = inv_dir / ".env"
-    target = ""
+    env: dict[str, str] = {}
     if env_path.is_file():
         import seed
 
-        target = seed.read_existing_env(env_path).get("HOST_PUBLIC_IP", "").strip()
+        env = seed.read_existing_env(env_path)
+    target = (env.get("HOST_PUBLIC_IP") or "").strip()
     where = f"{initial_user}@{target}" if target else (initial_user or "the initial user")
+    opened = _key_already_opens(env, initial_user)
+    if opened:
+        print(_c("1;32", f"\n+ the SSH key already opens {opened}@{target}: no "
+                 "provider password needed"), file=sys.stderr)
+        return ""
     print(_c("1;34", f"\n== Provider password for {where}"), file=sys.stderr)
-    print("The password the VPS provider issued for that login, used once to "
-          "install\nyour SSH key. Leave blank if the key is already installed.",
+    print("The SSH key does not open that login yet. The password the VPS "
+          "provider\nissued for it is used once, to install the key. Leave it "
+          "blank if the\nserver is not up yet and the key will be there.",
           file=sys.stderr)
     return getpass.getpass("Provider password (blank to skip): ")
 
@@ -304,31 +334,23 @@ def _run_deploy_chain(
     """Run an ordered deploy chain stage by stage, threading the bootstrap
     creds onto the bootstrap stage and `global_extra` onto EVERY stage.
     `global_extra` is the transient secret-adopt file (`-e @file`) that
-    carries the install-critical vendor creds into each play so the on-box
-    loader adopts them -- no persisted laptop vault. Plus the one inter-stage
-    bridge a deploy needs:
+    carries an admin password override, when install.yaml pins one, into each
+    play so the on-box loader adopts it. Plus the
+    one inter-stage bridge a deploy needs:
 
-      - after `bootstrap` and after `lockdown`: fold the address the stage
-        emitted into .bootstrap-output.yml back into hosts.yml, so the later
-        stages (each a separate ansible invocation) reach the host: the
-        install address after bootstrap instead of the 0.0.0.0 placeholder,
-        the tailnet address after a lockdown that closed public 22. The
-        lockdown leg is asked to emit it; the panel runs the same playbook on
-        the host, where there is no controller inventory to write.
+      - after `bootstrap`: fold the install address it emitted into
+        .bootstrap-output.yml back into hosts.yml, so the later stages (each a
+        separate ansible invocation) reach the host instead of the 0.0.0.0
+        placeholder.
 
     The Portainer API key that the auth stack (Keycloak, oauth2-proxy) is
     gated on is minted in-band by roles/portainer during the converge (it
-    mints from the initial admin, reloads the vault into play scope via
-    include_vars, and self-heals a missing/rejected key on every converge),
+    mints from the initial admin, sets the key as a fact and writes it to the
+    on-box store, and self-heals a missing/rejected key on every converge),
     so a single converge pass deploys everything."""
     for stage in chain:
         banner(f"Stage: {stage}")
-        if stage == "bootstrap":
-            extra = list(bootstrap_extra or [])
-        elif stage == "lockdown":
-            extra = ["-e", "catena_lockdown_emit_address=true"]
-        else:
-            extra = []
+        extra = list(bootstrap_extra or []) if stage == "bootstrap" else []
         if global_extra:
             extra = extra + global_extra
         _run(playbook_cmd(inv_dir, stage, extra or None))
@@ -350,28 +372,28 @@ def _mktemp_secrets(prefix: str) -> Path:
 
 
 def _show_dr_keyset(inv_dir: Path) -> None:
-    """After a fresh install, surface the on-box-minted DR keyset (admin +
-    restic passwords) ONCE for the user's password manager. Non-fatal: a
-    failure here must never fail an otherwise-successful install (the keyset
-    is always retrievable later from catena-admin > Recovery)."""
+    """After a fresh install, surface the on-box-minted passwords (admin +
+    console) ONCE for the user's password manager. Non-fatal: a failure here
+    must never fail an otherwise-successful install. The passwords stay on the
+    server, and running the install again shows them again."""
     banner("Your disaster-recovery keyset -- shown once, save it now")
     cmd = playbook_cmd(inv_dir, "show-keyset")
     print(_c("1;30", "  $ " + " ".join(cmd)), file=sys.stderr)
     if subprocess.run(cmd).returncode != 0:
-        print(_c("1;33", "! could not display the DR keyset automatically; "
-                 "retrieve it later from catena-admin > Recovery."),
+        print(_c("1;33", "! could not display the passwords; run "
+                 "`catena-cli install` again to show them."),
               file=sys.stderr)
 
 
 def cmd_install(args: argparse.Namespace) -> int:
     _preflight_checks()
 
-    # The transient adopt file seed writes the vendor creds into (never a
-    # persisted inventory vault). Threaded onto every deploy stage as `-e @file`
-    # so the on-box loader adopts them, then deleted.
+    # The transient adopt file seed writes an admin override into. Threaded
+    # onto every deploy stage as `-e @file` so the on-box loader adopts it,
+    # then deleted.
     secrets_tmp = _mktemp_secrets("catena-install-secrets-")
 
-    banner("Step 1/2 -- collect config + vendor creds (seed)")
+    banner("Step 1/2 -- collect config (seed)")
     seed_cmd = [sys.executable, str(ANSIBLE_DIR / "seed.py"),
                 "--secrets-out", str(secrets_tmp)]
     if args.inventory_path:
@@ -418,85 +440,12 @@ def cmd_converge(args: argparse.Namespace) -> int:
     _preflight_checks()
     inv_dir = resolve_inventory(args)
     _require_inventory(inv_dir)
+    if (inv_dir / ".env").is_file():
+        import seed
+
+        seed.warn_server_held_lines(inv_dir / ".env")
     ensure_collections()
-    _run(playbook_cmd(inv_dir, "converge", _tags_extra(args)))
-    return 0
-
-
-def cmd_validate(args: argparse.Namespace) -> int:
-    _preflight_checks()
-    inv_dir = resolve_inventory(args)
-    _require_inventory(inv_dir)
-    ensure_collections()
-    _run(playbook_cmd(inv_dir, "validate", _tags_extra(args)))
-    return 0
-
-
-def cmd_backup(args: argparse.Namespace) -> int:
-    """Trigger an on-demand backup snapshot: run catena-backup.service
-    synchronously via the backup role's trigger_now (the same mechanism the
-    admin shell "Backup now" button drives). CE ships a single, manual
-    backup -- this is its CLI entry point. No preflight (mints no keys)."""
-    _preflight_checks()
-    inv_dir = resolve_inventory(args)
-    _require_inventory(inv_dir)
-    ensure_collections()
-    banner("Backup -- trigger an on-demand snapshot")
-    _run(playbook_cmd(inv_dir, "backup"))
-    return 0
-
-
-def cmd_rotate_tunnel(args: argparse.Namespace) -> int:
-    """Regenerate this host's Cloudflare tunnel without a full converge
-    (manual maintenance).
-
-    Takes no token. The playbook authenticates as the cloudflare_api_token
-    already in the host's store, because the half that mints the replacement
-    tunnel is a host engine that reads that store directly -- a token handed in
-    here would reach the delete and not the re-create. Rotating the API token
-    is a separate act, done in catena-admin > Settings, and it has to land
-    before this runs."""
-    _preflight_checks()
-    inv_dir = resolve_inventory(args)
-    _require_inventory(inv_dir)
-    ensure_collections()
-    banner("Rotate -- regenerate the Cloudflare tunnel")
-    _run(playbook_cmd(inv_dir, "rotate-tunnel"))
-    return 0
-
-
-def cmd_rotate_tailscale(args: argparse.Namespace) -> int:
-    """Re-authenticate the node to the tailnet, forcing a fresh OAuth key
-    (manual maintenance: node lost tailnet reachability or you are rotating
-    tags). The tailscale role's tailscale_force_reauth is set by the
-    playbook itself, so this just runs it."""
-    _preflight_checks()
-    inv_dir = resolve_inventory(args)
-    _require_inventory(inv_dir)
-    ensure_collections()
-    banner("Rotate -- re-authenticate Tailscale")
-    _run(playbook_cmd(inv_dir, "rotate-tailscale"))
-    return 0
-
-
-def cmd_show_keyset(args: argparse.Namespace) -> int:
-    """Re-display the DR keyset and the first-login URLs.
-
-    The install shows these once, at the very end. An install that fails
-    anywhere before that point -- or a closed terminal -- leaves a working
-    server nobody can sign in to, which is a worse state than a failed
-    install. The values are all still on the box, so asking for them again
-    costs nothing and re-runs nothing.
-
-    The journal verification key is the one exception: it is deleted from the
-    server the first time it is shown, by design, so a later call has nothing
-    to print for it.
-    """
-    _preflight_checks()
-    inv_dir = resolve_inventory(args)
-    _require_inventory(inv_dir)
-    ensure_collections()
-    _show_dr_keyset(inv_dir)
+    _run(playbook_cmd(inv_dir, "converge", _converge_extra(args)))
     return 0
 
 
@@ -515,12 +464,7 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
 # an inventory name".
 MENU_COMMANDS = (
     ("install", "Set up a new host (seed + deploy)"),
-    ("converge", "Re-apply configuration or app changes"),
-    ("validate", "On-host + tailnet + external health checks"),
-    ("backup", "Take an on-demand backup snapshot"),
-    ("rotate-tunnel", "Regenerate the Cloudflare tunnel"),
-    ("rotate-tailscale", "Re-authenticate the node to the tailnet"),
-    ("show-keyset", "Show the passwords and first-login URLs again"),
+    ("converge", "Re-apply the configuration from this machine"),
     ("uninstall", "Hand unattended-upgrades back to the OS"),
 )
 KNOWN_COMMANDS = tuple(name for name, _ in MENU_COMMANDS)
@@ -585,41 +529,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_conv.add_argument("--tags", default="",
                         help="comma-separated ansible tags to scope the "
                              "converge (e.g. keycloak,oauth2_proxy)")
+    p_conv.add_argument("--address", type=_address,
+                        help="reach the host at this address for this run, "
+                             "such as its tailnet address once the panel's "
+                             "Lockdown has closed public SSH")
     p_conv.set_defaults(func=cmd_converge)
-
-    p_val = sub.add_parser("validate", help="run validate.yml")
-    _add_inventory_args(p_val, required=True)
-    p_val.add_argument("--tags", default="",
-                       help="comma-separated ansible tags to scope validation")
-    p_val.set_defaults(func=cmd_validate)
-
-    p_bak = sub.add_parser(
-        "backup", help="trigger an on-demand snapshot (manual CE backup)",
-    )
-    _add_inventory_args(p_bak, required=True)
-    p_bak.set_defaults(func=cmd_backup)
-
-    p_rtun = sub.add_parser(
-        "rotate-tunnel",
-        help="regenerate the Cloudflare tunnel (manual; uses the stored token)",
-    )
-    _add_inventory_args(p_rtun, required=True)
-    p_rtun.set_defaults(func=cmd_rotate_tunnel)
-
-    p_rts = sub.add_parser(
-        "rotate-tailscale",
-        help="re-authenticate the node to the tailnet (manual force re-auth)",
-    )
-    _add_inventory_args(p_rts, required=True)
-    p_rts.set_defaults(func=cmd_rotate_tailscale)
-
-    p_keys = sub.add_parser(
-        "show-keyset",
-        help="re-display the DR keyset + first-login URLs (reads the box; "
-             "runs no converge)",
-    )
-    _add_inventory_args(p_keys, required=True)
-    p_keys.set_defaults(func=cmd_show_keyset)
 
     p_uni = sub.add_parser(
         "uninstall",

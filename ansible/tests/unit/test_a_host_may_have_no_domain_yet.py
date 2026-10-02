@@ -84,8 +84,8 @@ def _roles_the_converge_runs() -> set[str]:
 
     Read from the plays rather than from the roles directory: a role that
     exists but no converge runs -- cloudflare_tunnel_regenerate, driven by
-    rotate-tunnel.yml -- may assert whatever it likes, because an operator
-    asking to rotate a tunnel has already told it there is a domain.
+    rotate-tunnel.yml -- may assert whatever it likes, because a client
+    asking to regenerate a tunnel has already told it there is a domain.
     """
     names: set[str] = set()
     for path in PLAYBOOKS:
@@ -156,17 +156,12 @@ def test_no_role_the_converge_runs_asserts_the_zone_unconditionally() -> None:
     )
 
 
-def test_the_installer_treats_a_blank_domain_as_a_real_answer() -> None:
-    """Optionality is inferred from an EMPTY template default (seed.py:
-    `is_optional = not default`), so the template is where a key becomes
-    optional. A non-empty default here makes the domain mandatory again AND
-    re-arms the placeholder problem: `example.com` is a value that converges a
-    host believing it serves a domain nobody owns."""
-    for line in ENV_EXAMPLE.read_text(encoding="utf-8").splitlines():
-        if line.startswith("CLOUDFLARE_ZONE="):
-            assert line.strip() == "CLOUDFLARE_ZONE=", (
-                f"the domain is mandatory again, or carries a placeholder: "
-                f"{line!r}"
-            )
-            return
-    raise AssertionError("CLOUDFLARE_ZONE is not in the env template at all")
+def test_the_installer_never_asks_for_the_domain() -> None:
+    """Every server is installed without one: the domain and its token are
+    entered in the panel's Settings. A template line for it would be a second
+    place to set it -- and the one the host never reads again."""
+    keys = [line.split("=", 1)[0]
+            for line in ENV_EXAMPLE.read_text(encoding="utf-8").splitlines()
+            if line and not line.startswith("#") and "=" in line]
+    assert keys, "the env template parsed to nothing"
+    assert "CLOUDFLARE_ZONE" not in keys

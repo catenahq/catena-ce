@@ -11,13 +11,21 @@
 # --- Global ---
 ansible_managed: "Managed by catena -- do not edit directly; regenerate via the installer / converge.yml."
 
-# This machine's public address: coturn advertises it in its ICE candidates and
-# the mail and TURN A records point at it. A controller's inventory states it
-# (hosts.yml, from HOST_PUBLIC_IP), and a host var outranks this file. A host
-# converging itself has no inventory to ask and reads the address of its own
-# default route, which is the public address on a provider that puts it on the
-# interface; behind a provider's NAT that address is private.
-public_ip: "{{ ansible_default_ipv4.address | default('') }}"
+# This machine's public address: coturn advertises it in its ICE candidates, the
+# mail and TURN A records point at it, and the panel's catalog renders it. A
+# controller's inventory states it (hosts.yml, from HOST_PUBLIC_IP), and a host
+# var outranks this file. bootstrap/roles/common records that value on the host
+# as a local fact, which every converge gathers, so a host converging itself
+# renders the same address the operator's converge did. The default route's
+# address is the fallback for a host with no record; behind a provider's NAT it
+# is private.
+public_ip: >-
+  {{ ansible_local.catena.public_ip
+     | default(ansible_default_ipv4.address) | default('') }}
+# The record. /etc belongs to the machine and a data restore skips it, so a
+# rebuilt host keeps the address its own install recorded. The file's basename
+# is the `ansible_local` key public_ip reads.
+catena_host_facts_path: /etc/ansible/facts.d/catena.fact
 
 # --- Identity ---
 ops_user: "{{ lookup('dotenv', 'OPS_USER', default='ops') }}"
@@ -31,25 +39,34 @@ ansible_ssh_private_key_file: >-
   {{ lookup('dotenv', 'SSH_PRIVATE_KEY')
      if (hostvars[inventory_hostname].ansible_connection | default('ssh')) != 'local'
      else '' }}
+# The public half sits beside the private key, as ssh-keygen writes it.
 ops_ssh_public_keys:
-  - "{{ lookup('file', lookup('dotenv', 'SSH_PUBLIC_KEY_FILE')) }}"
+  - "{{ lookup('file', lookup('dotenv', 'SSH_PRIVATE_KEY') ~ '.pub') }}"
+# The forward-only account an administrator opens the panel and Portainer
+# through (`ssh -N -L 9010:127.0.0.1:9010 panel@<host>`). A product constant:
+# the installer's access page and the keyset banner print it.
+catena_panel_user: panel
 
 # --- The access plane ---
 # How this host is reached for administration, and therefore whether public
-# port 22 may be closed at all. Store-owned so it rides /etc into the snapshot:
-# a rebuilt host has to come back with the firewall posture it had, not the one
-# a default would pick for it.
+# port 22 may be closed at all. Derived from the store's TAILNET_PROVIDER, the
+# one answer the panel's Settings gives (helpers/onbox_config.py settles it on
+# every load), so it rides /etc into the snapshot and a rebuilt host comes back
+# with the firewall posture it had.
 #
-# `tailnet`     a private network carries administration, and the install closes
-#               public 22 once it has PROVEN that path from the machine about to
-#               lose it. bootstrap/roles/tailscale runs.
-# `public_ssh`  no private network; port 22 stays open on the public IP, because
-#               a host with no alternative path has nothing to prove and closing
-#               it would be a lockout. The tailscale role is skipped.
-#
-# Defaults to `tailnet`, which is the posture of every host installed before the
-# choice existed -- so a host with nothing stored keeps the firewall it has.
-catena_access_method: "{{ cfg_access_method | default('tailnet', true) }}"
+# `tailnet`     a provider is chosen: the host joins that private network.
+#               Public 22 stays open until the panel's Lockdown closes it, which
+#               it does only once it has PROVEN that path; the port reconciler
+#               reopens 22 while the tailnet is down.
+# `public_ssh`  `none`: no private network; port 22 stays open on the public IP,
+#               because a host with no alternative path has nothing to prove and
+#               closing it would be a lockout. The tailscale role is skipped, and
+#               the panel's apply opens 22 after a Lockdown taken on a tailnet.
+catena_access_method: >-
+  {{ 'tailnet'
+     if (cfg_tailnet_provider | default('none', true) | trim | lower)
+        in ['tailscale', 'headscale']
+     else 'public_ssh' }}
 
 # Port 22's declaration in the public-port registry. Shared because two tasks
 # write it and they must agree on the name: bootstrap/roles/common creates it
@@ -57,24 +74,27 @@ catena_access_method: "{{ cfg_access_method | default('tailnet', true) }}"
 # once it has proven the alternative path.
 catena_ssh_fragment_name: ssh.json
 
+# The ufw comment on every port-22 rule. scripts/catena-public-ports.py writes
+# the same rules for the ssh fragment as `<UFW_COMMENT_PREFIX>:<owner>`, and ufw
+# rewrites a rule whose comment differs, so any other comment here would have
+# the reconciler and the converge rewrite each other's rule on every run.
+# tests/unit/test_ssh_ufw_rules_share_one_comment.py holds the two together.
+catena_ssh_ufw_comment: "catena-ports:ssh"
+
 # --- Tailscale ---
 tailscale_hostname: "{{ inventory_hostname }}"
-# From the store, which the inventory `.env` seeds and the panel may change --
-# the only copy the panel's on-host lockdown has. No fallback tag: a missing
-# value fails here rather than advertising a tag the credential is not scoped
-# for. The controller-side preflight reads the `.env` itself, before any store
-# exists.
+# From the store, which the panel writes. No fallback tag: a missing value
+# fails here rather than advertising a tag the credential is not scoped for.
 tailscale_tags: >-
   {{ cfg_tailscale_tags.split(',') | map('trim') | list }}
-tailscale_accept_dns: >-
-  {{ lookup('dotenv', 'TAILSCALE_ACCEPT_DNS', default='false') | bool }}
+# Tailscale leaves systemd-resolved alone: the host resolves through its own
+# resolvers whether or not the tailnet is up.
+tailscale_accept_dns: false
 
 # --- Cloudflare Tunnel ---
 cloudflare_api_base: "https://api.cloudflare.com/client/v4"
-# Store-owned, seeded from .env on the first converge and read from the store
-# ever after. Empty until a domain is entered: a server is installed before its
-# domain is decided, and the domain arrives with the Cloudflare token in the
-# dashboard's Settings, afterwards.
+# Store-owned, entered in the panel's Settings with the Cloudflare token. Empty
+# until then: every server is installed without a domain.
 cloudflare_zone: "{{ cfg_cloudflare_zone | default('', true) }}"
 # An empty zone builds every hostname as `dash.`, `auth.`, `monitor.` -- names
 # that resolve nowhere and certificates no authority will issue. So nothing
@@ -105,16 +125,8 @@ cloudflared_ingress_service: "http://catena-traefik:80"
 # Public-facing hostnames. Each is routed to its own oauth2-proxy instance,
 # which authenticates against Keycloak and proxies to the app behind it. SSO
 # works across them via a session cookie scoped to .<zone>.
-# The product's hostname scheme. Constants, not inventory values: the shipped
-# starter inventory, the operator skeleton and the one real inventory all set
-# these to exactly the strings below, and two of them are not in any .env at
-# all -- so the knob has never been turned and the reconcile could not read it
-# without an operator's file anyway.
-#
-# A client who wants a different name gets a store key, decided at install and
-# read from /etc/catena/config.json like every other host fact. That is a
-# one-line move from here; what it must not be is a value the host can only
-# learn from a laptop.
+# Store keys, set in catena-admin > Settings; the literal is the name a host
+# with nothing stored uses.
 infrastructure_gatus_subdomain: "{{ cfg_gatus_subdomain | default('monitor', true) }}"
 infrastructure_gatus_hostname: "{{ infrastructure_gatus_subdomain }}.{{ cloudflare_zone }}"
 # catena-admin is served at dash.<zone>, and `catena_admin_hostname` below
@@ -127,11 +139,12 @@ healthchecks_subdomain: "{{ cfg_healthchecks_subdomain | default('heartbeat', tr
 healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
 
 # The SSO host (auth.<zone>) is the only subdomain with no oauth2-proxy in
-# front of it (it IS the auth layer). keycloak_hostname / keycloak_subdomain are defined
-# in reconcile/roles/keycloak/defaults (reading the same AUTH_SUBDOMAIN env key).
-# Store-owned, same seed-once path as the zone. Empty is a real state -- it is
-# what a host has before anyone has said who to contact -- and the roles that
-# use it (ACME registration, the Keycloak admin account) already handle blank.
+# front of it (it IS the auth layer). keycloak_hostname / keycloak_subdomain are
+# defined in reconcile/roles/keycloak/defaults, from the store's
+# KEYCLOAK_SUBDOMAIN.
+# Store-owned, seeded once from the .env. Empty is a real state -- it is what a
+# host has before anyone has said who to contact -- and the roles that use it
+# (ACME registration, the Keycloak admin account) already handle blank.
 admin_email: "{{ cfg_admin_email | default('') }}"
 
 # SMTP -- resolved by reconcile/roles/keycloak from the store. SMTP_PROVIDER
@@ -142,7 +155,7 @@ admin_email: "{{ cfg_admin_email | default('') }}"
 # defeats the resolution.
 
 # ntfy + backup repo are NOT set here. They are store-owned (catena-admin >
-# Settings); the converge seeds them from .env once and reads the store after.
+# Settings), and the roles and lanes read the store.
 
 # Auth is handled entirely by self-hosted SSO at auth.<zone> plus a per-app
 # oauth2-proxy in front of each gated host. User membership in the access
@@ -150,21 +163,21 @@ admin_email: "{{ cfg_admin_email | default('') }}"
 
 # --- Portainer API (container control plane) ---
 # Global so any role (infrastructure stack seam, dashboard-sync env) can
-# reference it. reconcile/roles/portainer consumes the same names. Reached from the
-# controller over the tailnet.
+# reference it. reconcile/roles/portainer consumes the same names.
 # The port, like the hostname scheme, is the product's. It is published
-# host-mode and firewalled to the tailnet, so no client picks it to avoid a
-# collision -- nothing else on the box may bind it either way.
+# host-mode and confined to this host by the public-ports registry, so no client
+# picks it to avoid a collision -- nothing else on the box may bind it either
+# way. An administrator opens the UI through an SSH local forward.
 portainer_ui_port: "9000"
-portainer_api_base: "http://{{ ansible_host }}:{{ portainer_ui_port }}/api"
 
-# The SAME API, addressed from ON the host. Anything that runs on the box --
-# catena-dashboard-sync, the container-update lane -- must use this and never
-# portainer_api_base.
+# The API, addressed from ON the host, which is the only place it answers. The
+# converge's own API calls run on the host against it, and so does everything
+# that runs on the box -- catena-dashboard-sync, the container-update lane.
 #
-# ansible_host is where the CONTROLLER reaches the box, and it is not stable:
-# it flips between the public and tailnet address across converges and differs
-# again after a restore onto other infrastructure. Baking it into a file a
+# Never ansible_host. It is where the CONTROLLER reaches the box, the UI port
+# refuses it, and it is not stable: it flips between the public and tailnet
+# address across converges and differs again after a restore onto other
+# infrastructure. Baking it into a file a
 # host-local service reads gives that service an address for a machine it is
 # already running on, which stops working the moment the address changes:
 #
@@ -185,17 +198,10 @@ portainer_api_base_onbox: "http://127.0.0.1:{{ portainer_ui_port }}/api"
 # Public, oauth2-gated hostname for the Portainer UI over the Cloudflare
 # tunnel (admin-only; wired by reconcile/roles/oauth2_proxy oauth2_proxy_apps). This is
 # the client admin's self-serve deploy surface. Distinct from
-# portainer_api_base above, which is the tailnet-only operator control
-# path -- both reach the same catena-portainer service.
-# NOT a constant, unlike its neighbours above. This is the one public subdomain
-# the two inventories disagree about: the starter here says `portainer` and the
-# operator skeleton says `apps`, with a note to use `admin` for established
-# clients. A value three sources give three answers for is a host fact, so it
-# is a store key -- PORTAINER_SUBDOMAIN in SETTINGS_CONFIG, seeded from the
-# `.env` on the first converge and answered by the store from then on.
-#
-# The literal here is the fallback for a host whose store has no answer, which
-# is the same string the starter inventory ships.
+# portainer_api_base_onbox above, which only this host reaches -- both reach
+# the same catena-portainer service.
+# A store key (PORTAINER_SUBDOMAIN), set in catena-admin > Settings like the
+# subdomains above; the literal is the name a host with nothing stored uses.
 portainer_admin_subdomain: "{{ cfg_portainer_admin_subdomain | default('portainer', true) }}"
 portainer_admin_hostname: "{{ portainer_admin_subdomain }}.{{ cloudflare_zone }}"
 
@@ -216,8 +222,8 @@ public_ports_fragment_dir: /etc/catena/public-ports.d
 # Written by catena-admin scripts/vendor-catena-ce.sh and shipped beside the
 # ansible/ directory inside the panel image, so it sits one level above
 # playbook_dir's parent on the on-host path and does not exist at all on a
-# controller. tasks/record_release_manifest.yml reads the commit out of it to
-# answer "which catena-ce did this host apply".
+# controller. tasks/stamp_version.yml reads its describe to answer "which
+# catena-ce does this host apply" on a converge the host runs itself.
 #
 # A variable rather than the literal expression at the point of use, because
 # playbook_dir is a magic variable nothing can override -- so a path written
@@ -264,6 +270,63 @@ catena_bootstrap_drift_path: /var/lib/catena/bootstrap-drift.json
 # overridden, so a path built from it inline is a path no test can redirect.
 catena_boundary_path: "{{ playbook_dir }}/../boundary.yml"
 
+# --- Host packages ---
+# The packages every Catena host carries. Here rather than in a role because
+# both sides install them: bootstrap/roles/common at install, before the roles
+# that need sudo and ufw, and reconcile/roles/host_maintenance on every
+# converge, so a package added here reaches a host that converges itself.
+catena_baseline_packages:
+  - sudo
+  - ufw
+  - unattended-upgrades
+  # needrestart restarts the services left running on a library an upgrade
+  # replaced, and reports the ones it leaves for a restart of the host.
+  # Debian's own /var/run/reboot-required only covers the kernel half.
+  - needrestart
+  - curl
+  - ca-certificates
+  - gnupg
+  - python3-apt
+  - rsync
+  - systemd-timesyncd
+  # jq is the JSON writer for every on-host report the daily lane and backup
+  # machinery emit (catena-restic-check.json, cve-findings.json, verify-hot/
+  # cold status, the maintenance log) and that catena-admin reads back. Those
+  # scripts gate their report write on `command -v jq`, so a host without it
+  # silently produces NO report.
+  - jq
+
+# --- apt and the OS update configuration ---
+# Written by playbooks/tasks/apt_settings.yml and reconcile/roles/
+# host_maintenance on every converge, and at bootstrap by
+# bootstrap/roles/common and bootstrap/roles/tailscale, so a value two
+# roles either side of the boundary read lives here.
+
+# Optional apt HTTP proxy (e.g. apt-cacher-ng), from the store. Empty = apt
+# pulls direct. HTTPS sources (docker-ce, tailscale) stay DIRECT:
+# apt-cacher-ng's CONNECT passthrough has no cache benefit and proxying HTTPS
+# risks TLS middleboxing issues.
+catena_apt_proxy_url: "{{ cfg_apt_proxy_url | default('') }}"
+
+# The unattended-upgrades origins and the needrestart policy
+# reconcile/roles/host_maintenance writes and playbooks/uninstall.yml removes.
+catena_apt_origins_path: /etc/apt/apt.conf.d/51catena-origins
+catena_needrestart_conf_path: /etc/needrestart/conf.d/catena.conf
+
+# The container engine packages apt holds: bootstrap/roles/docker holds them
+# after installing the pinned engine, and playbooks/uninstall.yml releases
+# them.
+catena_held_engine_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+
+# Tailscale's apt repository, per Debian codename: installed by
+# bootstrap/roles/tailscale, refreshed by reconcile/roles/host_maintenance.
+tailscale_apt_codename: "{{ ansible_facts['distribution_release'] }}"
+tailscale_apt_keyring_url: "https://pkgs.tailscale.com/stable/debian/{{ tailscale_apt_codename }}.noarmor.gpg"
+tailscale_apt_source_url: "https://pkgs.tailscale.com/stable/debian/{{ tailscale_apt_codename }}.tailscale-keyring.list"
+
 # --- Storage ---
 # The product's data prefix. FHS: "data for services provided by this system".
 # Named literally in the backup path set, the docker data-root, the volume
@@ -284,27 +347,12 @@ storage_bulk_enabled: >-
 storage_bulk_mount_point: "{{ lookup('dotenv', 'STORAGE_BULK_MOUNT_POINT', default='/mnt/bulk') }}"
 
 # --- Backup ---
-# Deferred (0b): backup creds + repo + schedule are configured POST-INSTALL in
-# catena-admin (Settings > Backup), written to the on-box store, and read by
-# run-backup.sh at runtime. This .env value is only a converge-time fallback
-# for the repo URL; default '' so a deferred-backup install converges cleanly.
-# backup_healthcheck_url is NOT set here. reconcile/roles/backup/defaults owns it, and
-# an inventory copy overrides that default while drifting from it: this one
-# still built the single-lane "catena-backup" slug the two-lane succeeded /
-# attempted split replaced, so any inventory carrying it silently opted out of
-# the immediate-page lane. Override with BACKUP_HEALTHCHECK_URL in .env if you
-# want an off-host endpoint.
-# Retention is NOT an inventory value. It is the `backup_retention` object in
-# /etc/catena/config.json, set on the panel's Schedules page and rendered to
-# /etc/catena/backup-retention.env by catena-schedule -- the only file
-# run-backup.sh sources it from. A backup_retention_policy dict lived here
-# reading BACKUP_KEEP_* out of .env, and no role, template or playbook ever
-# consumed it: an operator could set BACKUP_KEEP_DAILY=30 in .env, converge
-# cleanly, and keep 7.
-
-# --- Locale ---
-common_timezone: "{{ lookup('dotenv', 'COMMON_TIMEZONE', default='America/Toronto') }}"
-common_locale: "{{ lookup('dotenv', 'COMMON_LOCALE', default='en_CA.UTF-8') }}"
+# Backup creds, repo and schedule are configured post-install in catena-admin
+# (Settings > Backup), written to the on-box store, and read by run-backup.sh
+# at runtime. backup_healthcheck_url is owned by reconcile/roles/backup/defaults.
+# Retention is the `backup_retention` object in /etc/catena/config.json, set on
+# the panel's Schedules page and rendered to /etc/catena/backup-retention.env by
+# catena-schedule, the only file run-backup.sh sources it from.
 
 # --- Per-inventory / per-host customization -------------------------------
 # Universal defaults ship in roles/*/vars/ and roles/*/defaults/ -- a specific
@@ -413,9 +461,8 @@ catena_admin_image: >-
 
 # --- Hostname ---------------------------------------------------------
 # The admin panel is served at dash.<zone>. The subdomain is a product
-# constant, like the hostname scheme above: every inventory in this repo, in
-# the operator skeleton and on every host uses it, and nothing looks up an
-# override.
+# constant, like the hostname scheme above: every inventory in this repo and
+# on every host uses it, and nothing looks up an override.
 catena_admin_subdomain: "{{ cfg_catena_admin_subdomain | default('dash', true) }}"
 catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
 catena_admin_ui_port: "9010"

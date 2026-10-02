@@ -1,13 +1,8 @@
 """The Portainer API-key mint reads stdin and persists to the on-box store.
 
-The mint must not want `<inventory>/group_vars/all/vault.yml` as BOTH the
-source of admin_password and the destination of the minted key. `catena-cli install`
-writes no such file (0b, seed.py: "No vault.yml: secrets never persist on the
-laptop"), so a helper that requires it answers EXIT_ERROR ("vault not found") on
-every real install and the un-guarded command task fails the converge. Both
-bench inventories carry a hand-maintained vault.yml, which makes that defect
-read as healthy on the bench: the bench supplying a file the product does not is
-the substitution trap `audit --check-env-owners` exists to catch.
+The helper reads admin_password on stdin and prints the minted key; the role
+publishes it as a fact and writes it into the on-box store. Nothing on the
+installer's machine is read or written.
 
 Run: uv run pytest tests/unit/test_portainer_apikey_mint.py
 """
@@ -63,10 +58,10 @@ def test_the_password_comes_from_stdin(bpa, monkeypatch, capsys):
 
     monkeypatch.setattr(bpa, "bootstrap", _fake_bootstrap)
     monkeypatch.setattr("sys.stdin", io.StringIO("hunter2\n"))
-    rc = bpa.main(["--tailnet-ip", "100.1.2.3", "--port", "9000"])
+    rc = bpa.main(["--host", "127.0.0.1", "--port", "9000"])
     assert rc == bpa.EXIT_OK
     assert seen["password"] == "hunter2"
-    assert seen["base_url"] == "http://100.1.2.3:9000"
+    assert seen["base_url"] == "http://127.0.0.1:9000"
     # stdout carries ONLY the key -- the role registers it into a set_fact.
     assert capsys.readouterr().out.strip() == "MINTED-KEY"
 
@@ -79,21 +74,13 @@ def test_a_trailing_space_in_the_password_survives(bpa, monkeypatch):
     monkeypatch.setattr(bpa, "bootstrap",
                         lambda *a, **k: seen.update(password=a[2]) or "K")
     monkeypatch.setattr("sys.stdin", io.StringIO("pw with space \n"))
-    assert bpa.main(["--tailnet-ip", "1.2.3.4"]) == bpa.EXIT_OK
+    assert bpa.main(["--host", "127.0.0.1"]) == bpa.EXIT_OK
     assert seen["password"] == "pw with space "
 
 
 def test_empty_stdin_is_an_error_not_an_anonymous_signin(bpa, monkeypatch):
     monkeypatch.setattr("sys.stdin", io.StringIO(""))
-    assert bpa.main(["--tailnet-ip", "1.2.3.4"]) == bpa.EXIT_ERROR
-
-
-def test_the_helper_takes_no_vault_argument(bpa, monkeypatch):
-    """A --vault flag is the regression itself: it would mean a file on the
-    laptop is load-bearing again."""
-    monkeypatch.setattr("sys.stdin", io.StringIO("pw"))
-    with pytest.raises(SystemExit):
-        bpa.main(["--tailnet-ip", "1.2.3.4", "--vault", "/tmp/x.yml"])
+    assert bpa.main(["--host", "127.0.0.1"]) == bpa.EXIT_ERROR
 
 
 def test_the_helper_does_not_import_yaml():
@@ -108,7 +95,6 @@ def test_the_mint_passes_the_password_on_stdin_not_argv():
     assert cmd["stdin_add_newline"] is False
     # argv is world-readable through /proc while the process lives.
     assert not any("admin_password" in str(a) for a in cmd["argv"])
-    assert not any("--vault" in str(a) for a in cmd["argv"])
     assert task["no_log"] is True
 
 
@@ -133,13 +119,36 @@ def test_the_staged_key_file_is_0600_and_removed():
     assert rm["path"] == stage["dest"] and rm["state"] == "absent"
 
 
-def test_no_task_in_the_role_reads_or_writes_an_inventory_vault():
-    assert "group_vars/all/vault.yml" not in ROLE_TASKS.read_text()
+def test_every_portainer_api_call_runs_on_the_host():
+    """The UI port is loopback-only: nothing off the host reaches it, the
+    installer's machine included. A task delegated to the controller, or one
+    aimed at ansible_host, is refused on every install, whichever way in the
+    client chose."""
+    tasks = _tasks() + _mint_block()
+    calls = [t for t in tasks if "ansible.builtin.uri" in t]
+    assert calls, "the role makes no API call at all"
+    for task in calls:
+        assert task.get("delegate_to") is None, task["name"]
+        url = task["ansible.builtin.uri"]["url"]
+        assert "portainer_api_base_onbox" in url or "localhost" in url, (
+            f"{task['name']}: {url}")
+    mint = _named(_mint_block(), "invoke bootstrap_portainer_admin.py")
+    assert mint.get("delegate_to") is None
+    argv = mint["ansible.builtin.command"]["argv"]
+    assert argv[argv.index("--host") + 1] == "127.0.0.1"
+
+
+def test_the_staged_mint_helper_is_root_only_and_removed():
+    block = _mint_block()
+    stage = _named(block, "stage the API-key mint helper")["ansible.builtin.copy"]
+    assert stage["mode"] == "0700"
+    rm = _named(block, "remove the staged mint helper")["ansible.builtin.file"]
+    assert rm["path"] == stage["dest"] and rm["state"] == "absent"
 
 
 def test_the_loader_publishes_the_stored_key():
-    """Excluding it made the role re-mint on EVERY converge once the laptop
-    vault stopped supplying it as an inventory var."""
+    """The loader publishes every stored secret, this key included: left out,
+    the role would mint a new key on every converge."""
     body = LOADER.read_text()
     assert "catena_onbox_fact_exclude" not in body
     assert "rejectattr" not in body

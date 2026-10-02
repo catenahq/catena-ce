@@ -14,8 +14,8 @@ could repeat through the UI.
 
 CLOSING THE BROWSER CHANGES NOTHING. This process owns the job. Closing IT
 abandons the run, and the inventory keeps what was answered -- which matters
-because an install contains two waits nobody can time: a server being
-delivered, and a domain being activated by its registrar.
+because an install can start with a wait nobody can time: a server being
+delivered.
 """
 
 from __future__ import annotations
@@ -35,10 +35,11 @@ def _load_answers_file(path: Path, run: run_mod.Run, doc: dict) -> None:
     """Fill a run from a YAML answers file.
 
     Each value goes to the side of the line the REGISTRY puts it on, not the
-    side this file guesses. That is the same classification seed applies when
-    it splits a flat install.yaml, so a credential cannot be filed as config by
-    one and as a secret by the other. The inventory is the run's directory, so
-    an `inventory:` key in the file is not an answer.
+    side this file guesses, and the provider's password to the secret side.
+    That is the same classification seed applies when it splits a flat
+    install.yaml, so a credential cannot be filed as config by one and as a
+    secret by the other. The inventory is the run's directory, so an
+    `inventory:` key in the file is not an answer.
     """
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     if not isinstance(raw, dict):
@@ -47,7 +48,8 @@ def _load_answers_file(path: Path, run: run_mod.Run, doc: dict) -> None:
         if key == "inventory":
             continue
         run.answer(str(key), "" if value is None else str(value),
-                   secret=registry.is_secret(doc, str(key)))
+                   secret=(registry.is_secret(doc, str(key))
+                           or str(key) == steps_mod.PROVIDER_PASSWORD))
 
 
 def _report(checks: list[steps_mod.Check]) -> None:
@@ -66,9 +68,12 @@ def walk(run: run_mod.Run, doc: dict) -> int:
     sittings saying what it could have said in one.
     """
     problems = 0
-    for step in steps_mod.build(doc):
+    built = steps_mod.build(doc)
+    values = {f.key: (run.value(f.key) or f.default) for s in built for f in s.fields}
+    for step in built:
         print(f"\n== {step.title}", file=sys.stderr)
-        checks = steps_mod.validate(step.name, run.answers, run.secrets)
+        missing = steps_mod.missing_required(step, values)
+        checks = missing or steps_mod.validate(step.name, run.answers, run.secrets)
         _report(checks)
         problems += sum(1 for check in checks if check.blocks)
     return problems
@@ -77,8 +82,8 @@ def walk(run: run_mod.Run, doc: dict) -> int:
 def install(run: run_mod.Run, ansible_dir: Path) -> int:
     """Write the contract, run it, and record where it got to.
 
-    The install.yaml is removed whatever happens. It carries the client's cloud
-    credentials, and a file that outlives the install is one nothing ever comes
+    The install.yaml is removed whatever happens. It can carry the provider's
+    password, and a file that outlives the install is one nothing ever comes
     back to delete.
     """
     run.state = run_mod.STATE_INSTALLING

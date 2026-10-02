@@ -99,7 +99,8 @@ a backup by itself.
 - `backup_restic_repo` -- S3 URL (e.g. `s3:s3.example.com/bucket`).
 
 All four come from the on-box store, where catena-admin > Settings > Backup
-writes them after the install.
+writes them after the install; the password is generated there. The role
+writes the restic configuration only once all four are set.
 Cadence and retention are NOT inputs to this role. Both are set per host
 in the catena-admin panel, stored in `/etc/catena/config.json`, and
 applied by `catena-schedule` -- which is the only thing that enables a

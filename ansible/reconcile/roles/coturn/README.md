@@ -75,7 +75,7 @@ hardening guide and the EnableSecurity/coturn-secure-config
 | Control | Threat addressed |
 |---------|------------------|
 | `denied-peer-ip` for every IPv4 + IPv6 special-purpose range | SSRF / pivot from an authenticated TURN client into RFC1918, loopback, cloud metadata, link-local. Without this, any chat app holding the shared secret can ask coturn to relay UDP to `127.0.0.1:5432`. |
-| `denied-peer-ip=::ffff:0.0.0.0-::ffff:255.255.255.255` | CVE-2026-27624 defense in depth -- IPv4-mapped IPv6 bypass of the IPv4 denies. Image is on 4.10.0 (patched); guard protects against a future downgrade. |
+| `denied-peer-ip=::ffff:0.0.0.0-::ffff:255.255.255.255` | CVE-2026-27624 defense in depth -- IPv4-mapped IPv6 bypass of the IPv4 denies. The pinned image carries the upstream fix; the guard protects against a downgrade to one without it. |
 | `no-loopback-peers` + `no-multicast-peers` | Belt-and-braces redundant with the above. coturn evaluates them first. |
 | `use-auth-secret` + `static-auth-secret` (>= 32 chars) | Brute-force resistance. HMAC-SHA1 over a 32+ char secret is computationally infeasible. |
 | `user-quota=12` / `total-quota=1200` | Caps the relay allocations a single (leaked) credential or the whole server can hold. |

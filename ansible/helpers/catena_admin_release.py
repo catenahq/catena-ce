@@ -44,8 +44,8 @@ Emits one JSON object on stdout:
 
 Runs on the VPS, from playbooks/tasks/load_onbox_config.yml -- the machine that
 resolves the tag is then the machine that pulls it. Self-contained on purpose:
-ansible.builtin.script copies ONE file to the host, so it may not import
-net_retry. The caller retries instead (`until` on the task).
+ansible.builtin.script copies ONE file to the host, so it imports nothing from
+beside it. The caller retries a network failure instead (`until` on the task).
 
 Unit tests: ../tests/unit/test_catena_admin_release.py
 """

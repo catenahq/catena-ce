@@ -7,11 +7,9 @@ and a variable somewhere reads that fact. The hop is invisible at the call site
 -- roles say `cloudflare_zone`, not `cfg_cloudflare_zone` -- so moving a key
 silently changes which plays can still resolve it.
 
-That is not hypothetical. Moving CLOUDFLARE_ZONE broke exactly one play,
-`rotate-tunnel.yml`, which has no loader by design: it is dispatched from
-the panel with the token on the command line. It read the zone from the
-inventory and would have started resolving it to nothing -- and the failure
-would have been a tunnel regenerated against an empty domain, not an error.
+A play that reads the zone without loading the store resolves it to nothing,
+and the failure is a tunnel regenerated against an empty domain, not an
+error.
 
 So the rule is checked rather than remembered: if a play's roles read a
 store-backed variable, the play loads the store, or it is declared below with
@@ -50,11 +48,9 @@ _GROUP_VARS = _PLAYBOOKS / "group_vars" / "all" / "main.yml"
 # Each one has to read the store itself; "it happens to work" is not a reason.
 LOADER_EXEMPT = {
     "rotate-tunnel.yml": (
-        "dispatched from the panel with the Cloudflare token on the command "
-        "line, so it runs without the loader on purpose. It slurps "
-        "/etc/catena/config.json itself -- for the token it rotates and for "
-        "the zone it rotates it in -- which is the same file the loader would "
-        "have published from"
+        "its role slurps /etc/catena/config.json itself -- for the token it "
+        "rotates with and for the zone it rotates in -- which is the same file "
+        "the loader would have published from, and sets the zone as a fact"
     ),
 }
 
@@ -190,7 +186,7 @@ def test_the_seed_is_the_loaders_own_config_block():
     # whatever happens to mention it, and the fan-out is the behaviour. It is
     # what publishes EVERY cfg_* fact, so it cannot go without taking the whole
     # hop with it.
-    for marker in ("settings-config-names", "--set-config", "config-vars",
+    for marker in ("env-seed-names", "--set-config", "config-vars",
                    "_onbox_cfg_emit"):
         assert marker in seed, f"the seed no longer {marker!r}s"
     for forbidden in ("--emit secrets", "catena_admin_release.py", "image-pins"):

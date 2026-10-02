@@ -126,7 +126,7 @@ echo "Detected: OnlyOffice at $OFFICE_URL (internal alias documentserver:80)"
 # --- 4. Read JWT_SECRET from the running documentserver container -------
 # The catalog mints JWT_SECRET via lookup('password', ...) at deploy
 # time; The stack env injects it into the container. Read it back here
-# so the script stays stateless (no vault dependency, no host file).
+# so the script stays stateless.
 ds=$(docker ps \
     --filter 'label=vps.app=catena-onlyoffice' \
     --filter 'label=vps.component=documentserver' \

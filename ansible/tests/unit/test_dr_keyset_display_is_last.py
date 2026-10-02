@@ -1,9 +1,8 @@
 """The end-of-install display is ONE task, and it is the LAST task.
 
-Everything in it is shown once and never again: the admin password, the restic
-password that is the whole disaster-recovery story, the console break-glass
-password, the journal verification key whose server-side copy is deleted, and
-the URLs to reach the panel. Split across two tasks -- or with anything printed
+Everything in it is shown once and never again: the admin password, the console
+break-glass password, the journal verification key whose server-side copy is
+deleted, and the URLs to reach the panel. Split across two tasks -- or with anything printed
 after them -- the first block scrolls off and the user copies down half of it.
 
 Locked here because the failure is silent: a play that prints the secrets third
@@ -64,16 +63,17 @@ def test_the_fss_key_is_deleted_before_it_is_shown():
 def test_the_one_block_carries_both_the_secrets_and_the_urls():
     task_vars = _debug_tasks()[0]["vars"]
     banner = task_vars["_banner"]
-    for needed in ("admin_password", "backup_restic_password",
-                   "console_recovery_password"):
+    for needed in ("admin_password", "console_recovery_password"):
         assert needed in banner, needed
     assert "catena_admin_hostname" in banner, "panel URL missing"
     assert "portainer_admin_hostname" in banner, "Portainer URL missing"
-    # The tailnet address is the way in when Cloudflare or SSO is not working,
-    # so it is the half that has to survive an edit. Its port comes through
+    # The SSH forward is the way in when Cloudflare or SSO is not working, so
+    # it is the half that has to survive an edit. Its port comes through
     # _admin_port, which is where the role default is read.
-    assert "_admin_port" in banner, "tailnet panel port missing"
+    assert "_admin_port" in banner, "forwarded panel port missing"
     assert "catena_admin_ui_port" in task_vars["_admin_port"]
+    assert "ssh -N -L" in banner and "catena_panel_user" in banner, (
+        "the banner does not say how to open the forward, as which account")
 
 
 def test_the_banner_names_portainers_username_and_it_is_not_the_email():
@@ -104,6 +104,26 @@ def test_the_banner_names_portainers_username_and_it_is_not_the_email():
         "the Portainer entry does not name `admin` as its username")
     assert "admin_email" in username_after(panel_at), (
         "the panel entry no longer names admin_email")
+
+
+def test_the_backup_password_is_generated_in_the_panel_not_shown_here():
+    """No converge mints it, so the install has none to show; the banner says
+    where it comes from instead."""
+    banner = _debug_tasks()[0]["vars"]["_banner"]
+    assert "backup_restic_password" not in banner
+    assert "Settings > Backup" in banner
+
+
+def test_the_public_urls_wait_for_a_domain():
+    """With no domain the hostnames render as `https://dash.`, a name that
+    resolves nowhere; the SSH forward is the way in until there is one. The
+    names come from store facts, so the play publishes them first."""
+    banner = _debug_tasks()[0]["vars"]["_banner"]
+    for name in ("catena_admin_hostname", "portainer_admin_hostname"):
+        line = next(i for i, ln in enumerate(banner.splitlines()) if name in ln)
+        assert "catena_public_surface_deferred" in banner.splitlines()[line - 1], name
+    pre = " ".join(str(t) for t in yaml.safe_load(PLAYBOOK.read_text())[0]["pre_tasks"])
+    assert "seed_onbox_config" in pre
 
 
 def test_the_secrets_are_not_suppressed():

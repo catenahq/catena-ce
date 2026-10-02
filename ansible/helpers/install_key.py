@@ -14,7 +14,9 @@ How it stays provider-agnostic:
   the first test fast and the script exits cleanly ("key already works").
 
 Usage (the installer / bootstrap.yml invoke this for you):
-    python3 helpers/install_key.py <host> [--user=<user>] [--pubkey=<path>] [--env-file=<path>]
+    python3 helpers/install_key.py <host> [--user=<user>] [--port=<port>]
+                                   [--pubkey=<path>] [--env-file=<path>]
+    python3 helpers/install_key.py <host> --user=<user> [--port=<port>] --check-password
 
     <host>      Public IP or resolvable hostname of the fresh VPS
     --user      Initial SSH user the provider supplied. If not given, the
@@ -23,11 +25,18 @@ Usage (the installer / bootstrap.yml invoke this for you):
                   debian    OVH (some Debian images)
                   ubuntu    AWS, Vultr Ubuntu, some others
                   ec2-user  Amazon Linux
-    --pubkey    Public key to install (default: $SSH_PUBLIC_KEY_FILE from .env,
-                then ~/.ssh/catena_ed25519.pub as a last resort)
-    --env-file  Path to the .env file to read SSH_PUBLIC_KEY_FILE / SSH_PRIVATE_KEY
-                from (default: inventory/example/.env, then ansible-root .env).
+    --port      The SSH port (default 22)
+    --pubkey    Public key to install (default: $SSH_PRIVATE_KEY from .env plus
+                .pub, then ~/.ssh/catena_ed25519.pub as a last resort)
+    --env-file  Path to the .env file to read SSH_PRIVATE_KEY from (default:
+                inventory/dev/.env, then ansible/.env).
                 Use this when running against a non-default inventory.
+    --check-password
+                Only log in with the password and say whether it opens the
+                account; install nothing and change nothing. The graphical
+                installer asks this before an install. A password the server
+                wants changed at first login counts as opening it: the install
+                changes it.
 
 Only third-party dep is pexpect. The password is read from stdin (no echo).
 If the server forces a password
@@ -60,11 +69,29 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 _VERIFY_ATTEMPTS = 5
 _VERIFY_DELAY_S = 3.0
 
+# What a server says after the password, by provider shape. Early warnings
+# fire BEFORE the actual "Current password:" prompt -- OVH's Debian image prints
+# them at login, streams a ~10s MOTD, then asks.
+_CHANGE_WARNINGS = [
+    r"required to change your password",
+    r"[Pp]assword has expired",
+    r"must change your password",
+    r"Changing password for",
+]
+_CURRENT_PW_PROMPTS = [
+    r"[Cc]urrent.*password:",
+    r"UNIX password:",
+    r"\(current\)\s*UNIX password:",
+]
+_NEW_PASSWORD_PROMPTS = [r"[Nn]ew password:", r"[Nn]ew UNIX password:"]
+_RETYPE_PROMPTS = [r"[Rr]etype new password:", r"[Rr]e-?enter new password:"]
+_AUTH_FAILED = [r"Permission denied", r"Authentication failed"]
+
 # Search order for the .env when --env-file isn't passed. Mirrors the priority
 # in playbooks/lookup_plugins/dotenv.py: per-inventory first, repo-root
 # fallback for a single-inventory checkout.
 DEFAULT_DOTENV_CANDIDATES = (
-    REPO_ROOT / "ansible" / "inventory" / "dev" / ".env",
+    REPO_ROOT / "inventory" / "dev" / ".env",
     REPO_ROOT / ".env",
 )
 
@@ -96,8 +123,7 @@ def _read_dotenv(path: Path | None) -> dict[str, str]:
 
 
 def _default_pubkey_path(env: dict[str, str]) -> str:
-    candidate = env.get("SSH_PUBLIC_KEY_FILE") or "~/.ssh/catena_ed25519.pub"
-    return os.path.expanduser(candidate)
+    return _default_privkey_path(env) + ".pub"
 
 
 def _default_privkey_path(env: dict[str, str]) -> str:
@@ -110,7 +136,7 @@ def _random_password() -> str:
     return "".join(secrets.choice(alphabet) for _ in range(24))
 
 
-def _key_already_works(host: str, user: str, privkey: str) -> bool:
+def _key_already_works(host: str, user: str, privkey: str, port: int = 22) -> bool:
     """Return True if we can already ssh in with just the key.
 
     When `privkey` points at a file the caller can read, ssh pins to it
@@ -135,6 +161,7 @@ def _key_already_works(host: str, user: str, privkey: str) -> bool:
         # the bench migrate target (testvm-b relaunched on a reused IP).
         "-o", "UserKnownHostsFile=/dev/null",
         "-o", "ConnectTimeout=5",
+        "-p", str(port),
     ]
     if privkey and os.access(privkey, os.R_OK):
         args.extend(["-i", privkey, "-o", "IdentitiesOnly=yes"])
@@ -182,21 +209,9 @@ def _dump_session_tail(session_log, password: str | None = None) -> None:
     print("── end session tail ──", file=sys.stderr)
 
 
-def _install_via_interactive_ssh(
-    host: str,
-    user: str,
-    password: str,
-    pubkey_line: str,
-) -> None:
-    """Drive an interactive SSH session to install the key, handling password
-    change if the server demands one."""
-    # Capture the full session in-memory so we can dump a diagnostic tail
-    # on TIMEOUT / EOF. The buffer never hits disk -- we redact anything
-    # near a "password:" token before printing. Safe-ish for an initial
-    # provider password that's about to be replaced anyway.
-    import io
-    session_log = io.StringIO()
-    child = pexpect.spawn(
+def _spawn_password_ssh(host: str, user: str, port: int):
+    """An interactive ssh that authenticates by password only."""
+    return pexpect.spawn(
         "ssh",
         [
             "-o", "StrictHostKeyChecking=accept-new",
@@ -207,21 +222,69 @@ def _install_via_interactive_ssh(
             "-o", "PreferredAuthentications=password",
             "-o", "PubkeyAuthentication=no",
             "-o", "NumberOfPasswordPrompts=1",
+            "-p", str(port),
             f"{user}@{host}",
         ],
         timeout=30,
         encoding="utf-8",
     )
+
+
+def _password_opens(host: str, user: str, password: str, port: int = 22) -> tuple[bool, str]:
+    """Whether `password` logs `user` in. Installs nothing and changes nothing:
+    a server that asks for a new password at first login is left asking, and
+    counts as opened, because the install answers that prompt itself."""
+    child = _spawn_password_ssh(host, user, port)
+    try:
+        if child.expect([r"[Pp]assword:"] + _AUTH_FAILED + [pexpect.EOF]) != 0:
+            return False, f"{user}@{host} takes no password"
+        child.sendline(password)
+        prompts = (_CHANGE_WARNINGS + _CURRENT_PW_PROMPTS + _NEW_PASSWORD_PROMPTS)
+        i = child.expect(prompts + _AUTH_FAILED + [pexpect.EOF, pexpect.TIMEOUT],
+                         timeout=10)
+        if i < len(prompts):
+            return True, (f"the password opens {user}@{host}; the server asks for "
+                          "a new one at first login, which the install sets")
+        if i < len(prompts) + len(_AUTH_FAILED):
+            return False, f"{user}@{host} refused the password"
+        if i == len(prompts) + len(_AUTH_FAILED):
+            return False, f"{user}@{host} closed the connection after the password"
+        marker = "__CATENA_CHECK_" + secrets.token_hex(6) + "__"
+        child.sendline(f"echo {marker}")
+        child.expect_exact(marker, timeout=30)
+        return True, f"the password opens {user}@{host}"
+    except (pexpect.EOF, pexpect.TIMEOUT) as exc:
+        return False, f"no answer from {user}@{host}: {type(exc).__name__}"
+    finally:
+        child.close(force=True)
+
+
+def _install_via_interactive_ssh(
+    host: str,
+    user: str,
+    password: str,
+    pubkey_line: str,
+    port: int = 22,
+) -> None:
+    """Drive an interactive SSH session to install the key, handling password
+    change if the server demands one."""
+    # Capture the full session in-memory so we can dump a diagnostic tail
+    # on TIMEOUT / EOF. The buffer never hits disk -- we redact anything
+    # near a "password:" token before printing. Safe-ish for an initial
+    # provider password that's about to be replaced anyway.
+    import io
+    session_log = io.StringIO()
+    child = _spawn_password_ssh(host, user, port)
     child.logfile_read = session_log
 
     try:
-        _drive_ssh_session(child, password, pubkey_line, host, user)
+        _drive_ssh_session(child, password, pubkey_line, host, user, port)
     except (pexpect.EOF, pexpect.TIMEOUT):
         _dump_session_tail(session_log, password=password)
         raise
 
 
-def _drive_ssh_session(child, password, pubkey_line, host, user):
+def _drive_ssh_session(child, password, pubkey_line, host, user, port):
     """Body of the ssh session drive -- extracted so we can wrap it in
     a try/except that prints the diagnostic session tail on failure."""
     # 1. answer the initial password prompt
@@ -238,25 +301,14 @@ def _drive_ssh_session(child, password, pubkey_line, host, user):
     # marker-command probe instead: wait long enough for any password-change
     # prompt or auth failure to surface, then actively synchronise by echoing
     # a unique marker and expecting it back. That avoids guessing prompt shape
-    # entirely and handles arbitrarily long banners.
-    # Early-warning patterns that fire BEFORE the actual "Current password:"
-    # prompt -- OVH's Debian image prints these at login-time, then streams a
-    # ~10s MOTD, then shows "Current password:". Matching the early warnings
-    # lets us wait for the real prompt without timing out mid-banner.
-    change_warnings = [
-        r"required to change your password",
-        r"[Pp]assword has expired",
-        r"must change your password",
-        r"Changing password for",
-    ]
-    current_pw_prompts = [
-        r"[Cc]urrent.*password:",
-        r"UNIX password:",
-        r"\(current\)\s*UNIX password:",
-    ]
-    new_password_prompts = [r"[Nn]ew password:", r"[Nn]ew UNIX password:"]
-    retype_prompts = [r"[Rr]etype new password:", r"[Rr]e-?enter new password:"]
-    auth_failed = [r"Permission denied", r"Authentication failed"]
+    # entirely and handles arbitrarily long banners. Matching the early
+    # warnings (_CHANGE_WARNINGS) lets us wait for the real prompt without
+    # timing out mid-banner.
+    change_warnings = _CHANGE_WARNINGS
+    current_pw_prompts = _CURRENT_PW_PROMPTS
+    new_password_prompts = _NEW_PASSWORD_PROMPTS
+    retype_prompts = _RETYPE_PROMPTS
+    auth_failed = _AUTH_FAILED
 
     def _wait_for_shell(c):
         """Synchronise on a unique marker we echo. Returns when the marker has
@@ -317,7 +369,7 @@ def _drive_ssh_session(child, password, pubkey_line, host, user):
             try:
                 child.expect([pexpect.EOF], timeout=10)
                 child.close()
-                _install_via_interactive_ssh(host, user, new_pw, pubkey_line)
+                _install_via_interactive_ssh(host, user, new_pw, pubkey_line, port)
                 return
             except pexpect.TIMEOUT:
                 _wait_for_shell(child)
@@ -329,7 +381,7 @@ def _drive_ssh_session(child, password, pubkey_line, host, user):
             try:
                 child.expect([pexpect.EOF], timeout=10)
                 child.close()
-                _install_via_interactive_ssh(host, user, new_pw, pubkey_line)
+                _install_via_interactive_ssh(host, user, new_pw, pubkey_line, port)
                 return
             except pexpect.TIMEOUT:
                 _wait_for_shell(child)
@@ -399,20 +451,36 @@ def main() -> int:
         "--env-file",
         dest="env_file",
         default=None,
-        help="Path to the .env file to read SSH_PUBLIC_KEY_FILE / SSH_PRIVATE_KEY from "
-             "(default: inventory/dev/.env, then repo-root .env).",
+        help="Path to the .env file to read SSH_PRIVATE_KEY from "
+             "(default: inventory/dev/.env, then ansible/.env).",
     )
     ap.add_argument(
         "--pubkey",
         default=None,
-        help="Public key file to install (default: from .env or ~/.ssh/catena_ed25519.pub)",
+        help="Public key file to install (default: the private key's .pub)",
     )
     ap.add_argument(
         "--privkey",
         default=None,
         help="Private key for the final verification (default: from .env)",
     )
+    ap.add_argument("--port", type=int, default=22, help="SSH port (default 22)")
+    ap.add_argument(
+        "--check-password",
+        action="store_true",
+        help="Only say whether the password opens --user; install nothing.",
+    )
     args = ap.parse_args()
+
+    if args.check_password:
+        if not args.user:
+            print("--check-password needs --user", file=sys.stderr)
+            return 2
+        password = os.environ.get("INSTALL_KEY_PASSWORD") or getpass.getpass(
+            f"Initial password for {args.user}@{args.host}: ")
+        opened, why = _password_opens(args.host, args.user, password, args.port)
+        print(why)
+        return 0 if opened else 4
 
     env = _read_dotenv(_resolve_dotenv(args.env_file))
     pubkey_arg = args.pubkey or _default_pubkey_path(env)
@@ -462,7 +530,7 @@ def main() -> int:
     privkey_expanded = os.path.expanduser(privkey_arg)
     ops_user = env.get("OPS_USER", "ops")
     for check_user in dict.fromkeys([user, ops_user]):  # dedupe
-        if _key_already_works(args.host, check_user, privkey_expanded):
+        if _key_already_works(args.host, check_user, privkey_expanded, args.port):
             print(f"✓ Key auth already works for {check_user}@{args.host}. Nothing to install.")
             return 0
 
@@ -481,6 +549,7 @@ def main() -> int:
             user,
             password,
             pubkey_line,
+            args.port,
         )
     except (pexpect.EOF, pexpect.TIMEOUT) as exc:
         # Session tail was already printed by _install_via_interactive_ssh.
@@ -489,7 +558,7 @@ def main() -> int:
             "If the tail above doesn't reveal what happened, fall back to manual SSH:",
             file=sys.stderr,
         )
-        print(f"  ssh {user}@{args.host}", file=sys.stderr)
+        print(f"  ssh -p {args.port} {user}@{args.host}", file=sys.stderr)
         return 3
     except RuntimeError as exc:
         print(f"Install failed: {exc}", file=sys.stderr)
@@ -501,7 +570,7 @@ def main() -> int:
     # probe would race that window and fail an otherwise-good install.
     privkey_expanded = os.path.expanduser(privkey_arg)
     for attempt in range(_VERIFY_ATTEMPTS):
-        if _key_already_works(args.host, user, privkey_expanded):
+        if _key_already_works(args.host, user, privkey_expanded, args.port):
             print(f"✓ Key installed and verified for {user}@{args.host}. You can now run:")
             print("    ansible-playbook playbooks/bootstrap.yml --limit <inventory_host_name>")
             return 0

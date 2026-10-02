@@ -28,7 +28,6 @@ def test_apply_folds_tailnet_ip_into_hosts_yml(tmp_path):
     _write(inv / ".bootstrap-output.yml", {
         "inventory_dir": str(inv),
         "hosts": {"testvm-a": {"ansible_host": "100.122.177.79"}},
-        "vault": {},
     })
     _write(inv / "hosts.yml", {
         "all": {"children": {"vps": {"hosts": {

@@ -17,7 +17,7 @@ Ungated, the rescue aborts the play anyway, printing
 which reports success as the reason for failing. Observed on bench run
 2026-08-06T21-55-42-fcd1 at stage-1 bootstrap. It is client-facing:
 APT_PROXY_URL is empty on any install without an apt cacher -- and empty
-during EVERY bootstrap regardless, since common_apt_proxy_url resolves from
+during EVERY bootstrap regardless, since catena_apt_proxy_url resolves from
 the on-box config store which does not exist yet at that point.
 
 Run: uv run pytest tests/unit/test_apt_rescue_respects_diagnostic.py
@@ -70,7 +70,7 @@ def test_failure_branch_requires_a_real_nonzero_rc():
         "the fail branch does not check the diagnostic's rc, so a successful "
         f"retry still aborts the play. Conditions: {conds}"
     )
-    assert any("common_apt_proxy_url" in c for c in conds), (
+    assert any("catena_apt_proxy_url" in c for c in conds), (
         "the fail branch no longer checks for a proxy to bypass"
     )
 
@@ -87,10 +87,10 @@ def test_every_workaround_step_is_gated_on_a_real_failure():
 
 
 def test_proxy_conf_is_not_rewritten_when_no_proxy_is_configured():
-    """With common_apt_proxy_url empty this wrote `Acquire::http::Proxy "";`
+    """With catena_apt_proxy_url empty this wrote `Acquire::http::Proxy "";`
     -- re-creating the file the main path's "Remove apt HTTP proxy" task
     deletes, so a converge that entered the rescue stopped being idempotent."""
     conds = _conditions(_named("restore proxy conf"))
     assert any(
-        "common_apt_proxy_url" in c and "length > 0" in c for c in conds
+        "catena_apt_proxy_url" in c and "length > 0" in c for c in conds
     ), f"the restore writes a proxy conf with no proxy configured: {conds}"

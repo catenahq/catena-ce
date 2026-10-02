@@ -1,13 +1,12 @@
 ---
 # Main converge: bring a bootstrapped host to the desired state and keep it
 # there. Safe to re-run. Runs over the host's administrative address: the public
-# SSH address during the install, the tailnet address once playbooks/lockdown.yml
-# has joined the tailnet and closed public 22.
+# SSH address the install recorded, or the one `catena-cli converge --address`
+# names (the tailnet address once the panel's Lockdown has closed public SSH).
 #
 # This file is a single atomic unit (one converge), with no cross-playbook
-# imports. Composition (preflight + site + validate) lives in the
-# installer/CLI, which runs preflight as its own invocation before this.
-# Direct invocation runs site alone.
+# imports. Composition (bootstrap + converge + validate) lives in the
+# installer/CLI. Direct invocation runs the converge alone.
 #
 # Usage (cwd = ansible/):
 #   ansible-playbook -i inventory/<name> playbooks/converge.yml --limit host1
@@ -44,13 +43,12 @@
     # truth: it adopts the seed's plaintext externals, MINTS every internal
     # service secret on-box, and set_facts them. See
     # tasks/load_onbox_config.yml.
-    - name: "0b: load on-box config store"
+    - name: "Load on-box config store"
       # apply: propagate [always] to every task INSIDE the include. Without
       # it, include_tasks fires the include (it is `always`) but the inner
       # set_fact tasks are filtered out under any `converge --tags X` -- the
-      # vault_* facts never publish and every role falls back to the raw
-      # inventory (placeholder / stale) values. fi_s3 caught this as a
-      # poisoned postgres password surviving a `--tags postgres` converge.
+      # store's facts never publish and every role falls back to the raw
+      # inventory (placeholder / stale) values.
       # apply must nest under include_tasks (with file:), not sit as a
       # sibling task key -- a top-level apply conflicts with the action.
       ansible.builtin.include_tasks:
@@ -162,6 +160,17 @@
         - (cfg_smtp_host | default('') | length) > 0
       tags: [always, external_preflight]
 
+    # The version this converge applies, stamped before any role writes. The
+    # same file reconcile.yml includes, so both paths stamp the same format.
+    # Not `always`: a --tags run applies part of a version, and claiming the
+    # whole of it would move the stamp past what the host received.
+    - name: "Version: stamp the version this converge applies"
+      ansible.builtin.include_tasks:
+        file: tasks/stamp_version.yml
+        apply:
+          tags: [stamp_version]
+      tags: [stamp_version]
+
   # Tags allow iterating on a single role:
   #   ansible-playbook -i inventory/<name> playbooks/converge.yml --limit host1 --tags storage
   # Preflight runs as its own ansible-playbook invocation (the installer
@@ -169,9 +178,10 @@
   # Each role's tag matches its name.
   #
   # Joining the tailnet and closing public 22 are playbooks/lockdown.yml, which
-  # the install chain runs last and the panel's lockdown action drives: a
-  # converge is something a host runs on itself, and the step that can make it
-  # unreachable is a decision taken once rather than re-taken every run.
+  # a Settings save of the tailnet and a whole-server restore run to join and
+  # the panel's Lockdown runs to close: a converge is something a host runs on
+  # itself, and the step that can make it unreachable is a decision taken once
+  # rather than re-taken every run.
   roles:
     - { role: common, tags: [common] }
     # The declarative public-port registry. It sits right after common and
@@ -196,6 +206,14 @@
     # a first converge with no tunnel, and oauth2_proxy then waits on an edge
     # nobody has brought up. See reconcile/roles/payload/README.md.
     - { role: payload, tags: [payload] } # host engine binaries + units
+    # The OS update configuration, the host packages and journal, and the
+    # reboot-required probe (its script and timer ship in the payload above).
+    # Early, so the mail-agent mask lands before any later role's apt install
+    # can pull one in.
+    - { role: host_maintenance, tags: [host_maintenance] }
+    # The swarm's own settings and the overlay self-heal, before the first
+    # swarm service: stateful services constrain to the node label it sets.
+    - { role: swarm, tags: [swarm] }
     # catena-owned reverse proxy (catena-traefik on the catena-network
     # overlay). Runs AFTER docker (which inits the swarm) and BEFORE
     # cloudflare_tunnel, which points cloudflared's ingress at catena-traefik
@@ -228,17 +246,13 @@
     - { role: keycloak, tags: [keycloak, auth] } # SSO IdP
     - { role: oauth2_proxy, tags: [oauth2_proxy, auth] } # one auth proxy per gated upstream
     - { role: infrastructure, tags: [infrastructure] } # gated apps (Gatus, Healthchecks, ...), dashboard-sync, gatus-sync
-    # The reboot-required probe. After infrastructure because it reports
-    # through the Healthchecks plane that role deploys.
-    - { role: host_maintenance, tags: [host_maintenance] }
     # The panel's trust path: the runner account, the sudoers drop-in, the
-    # forced command and its authorized_keys, plus the env files the host lanes
-    # read. BOOTSTRAP-side -- a reconcile that could rewrite the way in could
-    # rewrite what a reconcile is -- and immediately before the role it
-    # prepares for.
+    # forced command and its authorized_keys. BOOTSTRAP-side -- a reconcile
+    # that could rewrite the way in could rewrite what a reconcile is -- and
+    # immediately before the role it prepares for.
     - { role: catena_admin_host, tags: [catena_admin, catena_admin_host] }
-    # catena-admin: the action catalog, the bind-mount targets, AND the Go shell
-    # container, created directly against the local swarm. It holds the API key
+    # catena-admin: the host lanes' configuration, the action catalog, AND the
+    # Go shell container, created directly against the local swarm. It holds the API key
     # that drives Portainer, so it cannot depend on Portainer to run: the one
     # tool that can repair a Portainer that will not start must not be deployed
     # by it.

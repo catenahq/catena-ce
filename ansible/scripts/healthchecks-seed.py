@@ -22,7 +22,7 @@ reconciles drift without wiping operator-added checks."""
 #      starts with an empty auth_user table. Without this bootstrap the
 #      oauth2-proxy hop (X-Forwarded-Email header) has no
 #      User row to map onto and the UI 403s for every request.
-#   1. Project.api_key_readonly + ping_key + name (pinned to vault).
+#   1. Project.api_key_readonly + ping_key + name (pinned to the on-box store).
 #   2. Removes Healthchecks's tutorial check + default email channel if
 #      present (neither is wanted here).
 #   3. ntfy Channel for the operator's topic (update-in-place) -- ONLY when

@@ -4,7 +4,7 @@ Two things run against a Catena host: an operator with a laptop, and the host
 itself. Until now the line between them was wherever a task happened to have
 been written, which is how app config ended up needing an SSH session.
 
-boundary.yml draws the line. This asserts three properties of it.
+boundary.yml draws the line. This asserts these properties of it.
 
   1. Every role is on exactly one side, or is declared as straddling with its
      task files enumerated. A role nobody classified is a role whose side gets
@@ -13,6 +13,9 @@ boundary.yml draws the line. This asserts three properties of it.
   2. No reconcile-side task writes a bootstrap-owned path. A reconcile that can
      rewrite the forced command is a reconcile that can rewrite what a
      reconcile is, and that is the whole reason the two sides exist.
+
+  2b. No bootstrap-side task writes a reconcile-owned path, so what a host
+     keeps current by converging itself has one writer.
 
   3. NO reconcile role reads a value from the operator's inventory. A ratchet,
      counted down from 18 one value at a time and standing at zero: every one
@@ -218,6 +221,42 @@ def test_no_reconcile_task_writes_a_bootstrap_owned_path():
     )
 
 
+def test_no_bootstrap_task_writes_a_reconcile_owned_path():
+    """The other direction. A path the reconcile side owns, written by a
+    bootstrap task as well, is refreshed only when an operator converges, so a
+    host that converges itself carries whichever copy ran last."""
+    b = _boundary()
+    offenders: dict[str, list[str]] = {}
+    for path in _files_on("bootstrap", b):
+        if "tasks" not in path.parts:
+            continue
+        text = "\n".join(
+            line for line in
+            path.read_text(encoding="utf-8", errors="ignore").splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        hit = [p for p in b["reconcile_owned_paths"] if p in text]
+        if hit:
+            offenders[str(path.relative_to(_ANSIBLE))] = hit
+    assert not offenders, (
+        "bootstrap-side task files write paths the reconcile side owns, so a "
+        f"host that converges itself cannot keep them current: {offenders}"
+    )
+
+
+def test_the_shared_host_task_files_run_on_both_sides():
+    """apt's settings and the host's own name resolution are needed before the
+    first bootstrap apt install and sudo call, and kept current by the host's
+    own converge. One file each, imported by both roles, so the two sides
+    cannot drift apart."""
+    for shared in ("tasks/apt_settings.yml", "tasks/host_name_resolution.yml"):
+        assert (_ANSIBLE / "playbooks" / shared).is_file(), shared
+        for role in ("bootstrap/roles/common", "reconcile/roles/host_maintenance"):
+            text = (_ANSIBLE / role / "tasks" / "main.yml").read_text(encoding="utf-8")
+            assert f'import_tasks: "{{{{ playbook_dir }}}}/{shared}"' in text, (
+                f"{role} does not import playbooks/{shared}")
+
+
 def _inventory_vars() -> dict[str, str]:
     """Every variable defined from the operator's .env, wherever it is defined."""
     out: dict[str, str] = {}
@@ -276,10 +315,8 @@ def _bootstrap_files_in_reconcile_roles(b: dict) -> dict[str, list[str]]:
     """role -> its bootstrap-side task files, for roles that otherwise reconcile.
 
     ONE DIRECTION ONLY, which is the invariant: a reconcile may not do
-    bootstrap work. The reverse is fine and `common` does it -- a bootstrap
-    role installing the public-port reconciler is an operator doing reconcile
-    work, which is what an operator is allowed to do. Flagging that too would
-    make the gate an argument rather than a rule.
+    bootstrap work. A reconcile-side task file in a bootstrap role is an
+    operator doing reconcile work, which is what an operator is allowed to do.
     """
     out: dict[str, list[str]] = {}
     for role, spec in (b["straddling_roles"] or {}).items():

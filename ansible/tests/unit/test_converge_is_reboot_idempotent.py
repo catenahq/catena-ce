@@ -12,16 +12,12 @@ nobody can read for the work it actually did.
     keeps regenerating. What the template writes --
     `127.0.1.1 <fqdn> <hostname>` -- resolves the name correctly but is not
     byte-identical to the converge's line, so the converge rewrote it every
-    run and reported `changed` forever. Fixed by enforcing the property (the
+    run and reported `changed` forever. The check enforces the property (the
     hostname is mapped) rather than one spelling of the line.
   - apt cache. `update_cache` reports `changed` whenever it actually reaches
     the mirrors, so whether the converge was idempotent depended on how long
     ago the previous one ran. cache_valid_time hid it for reruns minutes
     apart and not for reruns hours apart.
-
-Caught by ce_converge (PLAY RECAP changed=2) on bench
-2026-07-28T13-18-43-7606, the first run after its idempotency assertion was
-made strict.
 
 Run: uv run pytest tests/unit/test_converge_is_reboot_idempotent.py
 """
@@ -34,15 +30,20 @@ import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
 COMMON_TASKS = ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "main.yml"
+HOSTS_TASKS = ANSIBLE / "playbooks" / "tasks" / "host_name_resolution.yml"
 
-_CLOUD_INIT_DROPIN = "Stop cloud-init regenerating /etc/hosts on every boot"
-_CLOUD_INIT_STAT = "Check for a cloud-init config directory"
-_HOSTS_CHECK = "Check whether /etc/hosts already maps the hostname to 127.0.1.1"
-_HOSTS_LINE = "Ensure /etc/hosts maps the hostname to 127.0.1.1"
+_CLOUD_INIT_DROPIN = "hosts: stop cloud-init regenerating /etc/hosts on every boot"
+_CLOUD_INIT_STAT = "hosts: cloud-init config directory"
+_HOSTS_CHECK = "hosts: does /etc/hosts map the hostname to 127.0.1.1"
+_HOSTS_LINE = "hosts: map the hostname to 127.0.1.1"
 _APT_BLOCK = "Refresh apt cache (with proxy-bypass fallback)"
 
 
 def _tasks() -> list[dict]:
+    return yaml.safe_load(HOSTS_TASKS.read_text(encoding="utf-8"))
+
+
+def _common_tasks() -> list[dict]:
     return yaml.safe_load(COMMON_TASKS.read_text(encoding="utf-8"))
 
 
@@ -96,7 +97,7 @@ def test_the_hosts_line_is_only_written_when_the_name_is_unmapped():
 def test_refreshing_the_apt_index_is_not_a_change():
     """Reading the mirrors is not a change to this host's configuration, and
     reporting it as one makes idempotency a function of wall-clock time."""
-    block = next(t for t in _tasks() if t.get("name") == _APT_BLOCK)
+    block = next(t for t in _common_tasks() if t.get("name") == _APT_BLOCK)
     update = block["block"][0]
     assert update["ansible.builtin.apt"]["update_cache"] is True
     assert update.get("changed_when") is False, (
@@ -112,12 +113,6 @@ def test_refreshing_the_apt_index_is_not_a_change():
 # real line, lineinfile concludes there is nothing to replace, and APPENDS.
 # The result is a fresh duplicate line every converge: permanent changed=1,
 # and nothing in the module's output says why.
-#
-# Both Pebble host-mapping tasks shipped that way. They are gated on the
-# bench's local ACME server being reachable, which never happened on this
-# bench until the bridge-detection fix (ops d0e55ed7), so the tasks first ran
-# for real on run 2026-08-04T05-25-31-68a4 and failed ce_converge on their
-# first contact with a second converge.
 
 _POSIX_CLASS = re.compile(r"\[\[:(?:alpha|digit|alnum|space|blank|upper|lower|punct):\]\]")
 
@@ -139,7 +134,10 @@ def _walk_tasks(node):
 
 
 def _role_task_files() -> list[Path]:
-    return sorted((ANSIBLE / "roles").rglob("tasks/*.yml"))
+    files = sorted(ANSIBLE.glob("*/roles/*/tasks/*.yml"))
+    files += sorted((ANSIBLE / "playbooks" / "tasks").glob("*.yml"))
+    assert files, "no task files found; the scan would pass over nothing"
+    return files
 
 
 def test_no_lineinfile_regexp_uses_a_posix_bracket_expression():

@@ -1,9 +1,8 @@
 """A file a host-local service reads must not carry the controller's address.
 
-`portainer_api_base` is `http://{{ ansible_host }}:.../api` -- where the
-CONTROLLER reaches the box. It is not stable: it flips between the public and
-tailnet address across converges and differs again after a restore onto other
-infrastructure. Rendering it into an env file that a unit on the host reads
+`ansible_host` is where the CONTROLLER reaches the box. It is not stable: it
+flips between the public and tailnet address across converges and differs
+again after a restore onto other infrastructure. Rendering it into an env file that a unit on the host reads
 gives that unit an address for the machine it is already running on, and the
 value goes stale the moment the address moves:
 
@@ -41,7 +40,7 @@ _ANSIBLE = Path(__file__).resolve().parents[2]
 # Templates rendered into files that a unit ON THE HOST reads.
 _ONBOX_ENV_TEMPLATES = (
     "reconcile/roles/infrastructure/templates/dashboard-sync.env.j2",
-    "bootstrap/roles/catena_admin_host/templates/stack-update.env.j2",
+    "reconcile/roles/catena-admin/templates/stack-update.env.j2",
 )
 
 
@@ -49,9 +48,9 @@ def test_the_onbox_base_is_loopback():
     main = yaml.safe_load(
         (_ANSIBLE / "playbooks/group_vars/all/main.yml").read_text())
     assert "127.0.0.1" in main["portainer_api_base_onbox"]
-    # And the controller-facing one still resolves through ansible_host --
-    # the uri tasks run from the controller and need a reachable address.
-    assert "ansible_host" in main["portainer_api_base"]
+    # No controller-facing base exists: the UI port answers this host only, so
+    # an address the controller would dial is one the firewall refuses.
+    assert "portainer_api_base" not in main
 
 
 @pytest.mark.parametrize("rel", _ONBOX_ENV_TEMPLATES)
@@ -71,23 +70,6 @@ def test_onbox_env_does_not_reference_the_controller_base(rel):
         )
 
 
-# A template whose OUTPUT is read by the controller, or shown to a person, may
-# legitimately name the address the controller uses. Each entry carries the
-# reason, so adding one is a decision rather than a quiet edit to the gate.
-_CONTROLLER_FACING_TEMPLATES: dict[str, str] = {
-    "reconcile/roles/backup/templates/backup.env.j2": (
-        "BACKUP_SCP_HINT_HOST is printed in the export script's scp hint and "
-        "nothing dials it. The operator needs an address reachable FROM "
-        "OUTSIDE, which is the one thing an on-box name cannot give: a "
-        "tunnel-fronted host publishes no address of its own, so the "
-        "controller's view is the only candidate that exists at render time. "
-        "Residual, accepted: the hint prints the address the last converge "
-        "used, so it can name one the box no longer answers on. It misleads a "
-        "human for one command; it does not break a machine path."
-    ),
-}
-
-
 def test_the_managed_env_url_is_one_the_host_can_resolve():
     """dashboard-sync runs as a host unit, and a swarm service name resolves
     only inside the overlay. Pointed at catena-admin:8000 the fetch failed on
@@ -101,25 +83,17 @@ def test_the_managed_env_url_is_one_the_host_can_resolve():
 
 
 def test_no_role_template_renders_the_controller_address():
-    """The rule, rather than the two files that broke first.
+    """The rule, rather than a list of known offenders.
 
-    d60d017 fixed dashboard-sync.env.j2 and stack-update.env.j2 and gated those
-    two by name. 279fff2 then found admin-ssh-config.j2 doing the same thing and
-    named three more places still to check. Every one of those was found from
-    the outside, by a bench run, days apart, one at a time -- which is what a
-    gate scoped to the known offenders buys.
-
-    Templates under roles/*/templates/ are rendered onto the host, so unless a
-    template is listed above as controller-facing, an ansible_host in it is the
-    same defect: a file on the box holding the controller's view of where the
-    box is, which flips public-IP <-> tailnet-IP across converges and differs
-    again after a restore onto other infrastructure.
+    Templates under */roles/*/templates/ are rendered onto the host, so an
+    ansible_host in one is the same defect: a file on the box holding the
+    controller's view of where the box is, which flips public-IP <-> tailnet-IP
+    across converges and differs again after a restore onto other
+    infrastructure.
     """
     offenders = []
-    for path in sorted((_ANSIBLE / "roles").rglob("templates/**/*.j2")):
+    for path in sorted(_ANSIBLE.glob("*/roles/*/templates/**/*.j2")):
         rel = str(path.relative_to(_ANSIBLE))
-        if rel in _CONTROLLER_FACING_TEMPLATES:
-            continue
         for number, line in enumerate(path.read_text().splitlines(), start=1):
             stripped = line.strip()
             if stripped.startswith("#"):
@@ -130,8 +104,7 @@ def test_no_role_template_renders_the_controller_address():
         "these render the controller's address into a file on the host:\n  "
         + "\n  ".join(offenders)
         + "\nUse a stable on-box name (127.0.0.1, host.docker.internal, "
-          "portainer_api_base_onbox), or add the template to "
-          "_CONTROLLER_FACING_TEMPLATES with the reason it is an exception."
+          "portainer_api_base_onbox, inventory_hostname)."
     )
 
 

@@ -186,10 +186,9 @@ def test_every_registry_is_non_empty(oc):
 # --- secret_names: the converge loader's discriminator ----------------------
 def test_secret_names_is_the_union_of_the_four_registries(oc):
     """playbooks/tasks/load_onbox_config.yml reads this list to decide which
-    in-scope Ansible variables to capture into the store. Deciding that with a
-    regex such as ^vault_.+$ would make a name PREFIX load-bearing, capturing a
-    variable for how it is spelled rather than because someone declared it a
-    secret. The union of the four registries is the declaration."""
+    in-scope Ansible variables to capture into the store. The union of the
+    four registries is the declaration, so a variable is captured because
+    someone declared it a secret, whatever its name looks like."""
     expected = set().union(*_registries(oc).values())
     assert set(oc.secret_names()) == expected
 
@@ -231,24 +230,11 @@ def test_role_minted_secrets_are_not_settable_through_the_api(oc):
         oc.apply_inputs(store, secrets_in={"portainer_api_key": "x"})
 
 
-def test_install_external_keys_are_a_subset_of_external_secrets(oc):
-    """seed.py prompts for these at install and writes them to the transient
-    adopt file; the loader hands them to apply_inputs, which RAISES on any key
-    outside EXTERNAL_SECRETS. A prompt for a key not in the set is an install
-    that aborts on its own input."""
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location("seed", ANSIBLE_DIR / "seed.py")
-    seed = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(seed)
-    assert set(seed.INSTALL_EXTERNAL_KEYS) <= set(oc.EXTERNAL_SECRETS)
-
-
 def test_dr_keyset_is_user_held_not_external(oc):
     """The admin password (first-login), restic backup password (DR keyset)
-    and console break-glass password are USER_HELD: minted on-box if absent,
-    shown once at install, but NOT EXTERNAL -- so the config-write API cannot
-    set them, and ensure_internal does not mint them."""
+    and console break-glass password are USER_HELD: generated on-box and shown
+    once, but NOT EXTERNAL -- so the config-write API cannot set them, and
+    ensure_internal does not mint them."""
     for key in ("admin_password", "backup_restic_password",
                 "console_recovery_password"):
         assert key in oc.USER_HELD_SECRETS
@@ -258,14 +244,15 @@ def test_dr_keyset_is_user_held_not_external(oc):
     assert "admin_password" not in oc.ensure_internal_secrets(store)
 
 
-def test_ensure_user_held_mints_the_whole_dr_keyset(oc):
+def test_a_converge_mints_the_admin_and_console_passwords_only(oc):
+    """The backup encryption password is generated when the client asks, in
+    the panel, beside the repository it encrypts."""
     store = {"secrets": {}, "config": {}}
     minted = oc.ensure_user_held_secrets(store)
-    assert set(minted) == {"admin_password", "backup_restic_password",
-                           "console_recovery_password"}
-    # format contracts: admin 20 url-safe chars, restic 64 base64 chars.
+    assert set(minted) == {"admin_password", "console_recovery_password"}
+    assert set(minted) == set(oc.USER_HELD_SECRETS) - oc.MINTED_ON_REQUEST
+    assert "backup_restic_password" not in store["secrets"]
     assert len(store["secrets"]["admin_password"]) == 20
-    assert len(store["secrets"]["backup_restic_password"]) == 64
 
 
 def test_console_recovery_password_is_console_typeable(oc):
@@ -290,12 +277,12 @@ def test_cifs_bulk_credentials_are_external(oc):
 
 
 def test_ensure_user_held_does_not_overwrite_adopted(oc):
-    """A restic password handed to the loader (adopted first) is preserved;
+    """An admin password handed to the loader (adopted first) is preserved;
     only a store with none mints fresh."""
-    store = {"secrets": {"backup_restic_password": "user-saved"}, "config": {}}
+    store = {"secrets": {"admin_password": "user-saved"}, "config": {}}
     minted = oc.ensure_user_held_secrets(store)
-    assert "backup_restic_password" not in minted
-    assert store["secrets"]["backup_restic_password"] == "user-saved"
+    assert "admin_password" not in minted
+    assert store["secrets"]["admin_password"] == "user-saved"
 
 
 def test_admin_password_is_20_chars(oc):
@@ -352,12 +339,12 @@ def test_adopt_fills_only_and_captures_any_key(oc):
         "admin_password": "IGNORED-existing-wins",
         "portainer_api_key": "ptr",       # out-of-registry, still captured
         "cloudflare_api_token": "cf",
-        "vault_blank": "   ",                    # blank skipped
+        "blank_secret": "   ",                   # blank skipped
     })
     assert set(adopted) == {"portainer_api_key", "cloudflare_api_token"}
     assert store["secrets"]["admin_password"] == "keep"
     assert store["secrets"]["portainer_api_key"] == "ptr"
-    assert "vault_blank" not in store["secrets"]
+    assert "blank_secret" not in store["secrets"]
 
 
 def test_adopt_overwrite_replaces_a_dead_value(oc):
@@ -622,13 +609,14 @@ def test_client_app_secrets_absent_store_is_empty(oc, tmp_path):
 
 
 def test_cli_mints_user_held_on_first_install(oc, tmp_path, capsys):
-    """A fresh converge (no adopt) mints the admin + restic DR keyset on-box."""
+    """A fresh converge (no adopt) mints the admin and console passwords
+    on-box, and not the backup one."""
     p = tmp_path / "config.json"
     rc = oc.main(["--path", str(p), "--set-config", "CLOUDFLARE_ZONE=x.com"])
     assert rc == 0
     store = oc.load(p)
     assert len(store["secrets"]["admin_password"]) == 20
-    assert len(store["secrets"]["backup_restic_password"]) == 64
+    assert "backup_restic_password" not in store["secrets"]
 
 
 def test_cli_no_mint_seeds_only(oc, tmp_path, capsys):
@@ -698,16 +686,8 @@ def test_no_settings_key_is_read_from_dotenv_outside_the_seed(oc):
             continue
         if ".collections" in s or "/tests/" in s or "/inventory/" in s:
             continue
-        if path.name == "load_onbox_config.yml":
+        if path.name == "seed_onbox_config.yml":
             continue  # the seeding task, by construction
-        if path.name == "preflight.yml":
-            # Runs on the CONTROLLER, before there is a host, and therefore
-            # before there is a store to read. Its one .env read is the tailnet
-            # control URL, which it hands to an advisory check that answers
-            # "is this laptop on the tailnet it is about to converge" -- a
-            # question asked of the inventory, about a machine that does not
-            # exist yet. It is seed surface, not a second live reader.
-            continue
         for key in pattern.findall(path.read_text()):
             if key in oc.SETTINGS_CONFIG:
                 offenders.setdefault(key, s)
@@ -761,13 +741,16 @@ def test_a_settings_write_overwrites(oc, tmp_path):
     assert store["config"]["NTFY_SERVER"] == "https://new.example"
 
 
-def test_cli_emits_the_settings_key_names_without_touching_the_store(oc, tmp_path, capsys):
-    """The loader asks for this before the store exists on a fresh box."""
+def test_cli_emits_the_env_seeded_names_without_touching_the_store(oc, tmp_path, capsys):
+    """The loader asks for this before the store exists on a fresh box. Only
+    the keys the `.env` declares are seeded from it; the panel holds the rest."""
     p = tmp_path / "config.json"
-    rc = oc.main(["--path", str(p), "--emit", "settings-config-names"])
+    rc = oc.main(["--path", str(p), "--emit", "env-seed-names"])
     assert rc == 0
     assert not p.exists(), "a pure query must not create the store"
-    assert "BACKUP_RESTIC_REPO" in json.loads(capsys.readouterr().out)
+    names = json.loads(capsys.readouterr().out)
+    assert "ADMIN_EMAIL" in names
+    assert not {"BACKUP_RESTIC_REPO", "CLOUDFLARE_ZONE", "PORTAINER_SUBDOMAIN"} & set(names)
 
 
 def test_cli_emits_config_vars(oc, tmp_path, capsys):
@@ -775,7 +758,9 @@ def test_cli_emits_config_vars(oc, tmp_path, capsys):
     oc.dump({"secrets": {}, "config": {"SMTP_HOST": "mail.example"}}, p)
     rc = oc.main(["--path", str(p), "--no-mint", "--emit", "config-vars"])
     assert rc == 0
-    assert json.loads(capsys.readouterr().out) == {"cfg_smtp_host": "mail.example"}
+    # The settled provider rides with every projection.
+    assert json.loads(capsys.readouterr().out) == {
+        "cfg_smtp_host": "mail.example", "cfg_tailnet_provider": "none"}
 
 
 # --- other writers' keys ----------------------------------------------------
@@ -919,3 +904,39 @@ def test_a_host_with_no_token_has_nothing_to_preserve(oc):
         store, config_in={"CLOUDFLARE_ZONE": "new.example"}, overwrite=True
     )
     assert "cloudflare_api_tokens" not in store["secrets"]
+
+
+# --- the tailnet provider is always stated ------------------------------------
+@pytest.mark.parametrize("config,secrets_map,want", [
+    # Installed over SSH alone: nothing stored, no tailnet.
+    ({}, {}, "none"),
+    # A choice already stored stays, in every direction.
+    ({"TAILNET_PROVIDER": "headscale"}, {}, "headscale"),
+    ({"TAILNET_PROVIDER": "none", "TAILNET_CONTROL_URL": "https://hs.test"}, {},
+     "none"),
+    # A store written before the provider was always stored keeps the posture
+    # it describes.
+    ({"ACCESS_METHOD": "public_ssh", "TAILNET_PROVIDER": "tailscale"}, {}, "none"),
+    ({"ACCESS_METHOD": "tailnet"}, {}, "tailscale"),
+    ({"ACCESS_METHOD": "tailnet", "TAILNET_CONTROL_URL": "https://hs.test"}, {},
+     "headscale"),
+    ({"TAILNET_CONTROL_URL": "https://hs.test"}, {}, "headscale"),
+    ({}, {"tailscale_oauth_client_id": "id"}, "tailscale"),
+])
+def test_the_provider_is_settled_on_every_store(oc, config, secrets_map, want):
+    store = {"config": dict(config), "secrets": dict(secrets_map)}
+    oc.settle_tailnet_provider(store)
+    assert store["config"]["TAILNET_PROVIDER"] == want
+    assert "ACCESS_METHOD" not in store["config"]
+
+
+def test_a_settled_store_is_left_alone(oc):
+    store = {"config": {"TAILNET_PROVIDER": "tailscale"}, "secrets": {}}
+    assert oc.settle_tailnet_provider(store) is False
+
+
+def test_the_loader_settles_the_store_it_writes(oc, tmp_path):
+    path = tmp_path / "config.json"
+    oc.dump({"config": {"ACCESS_METHOD": "public_ssh"}, "secrets": {}}, path)
+    oc.main(["--path", str(path), "--no-mint", "--emit", "none"])
+    assert oc.load(path)["config"] == {"TAILNET_PROVIDER": "none"}

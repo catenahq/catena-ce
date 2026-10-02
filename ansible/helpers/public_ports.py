@@ -223,6 +223,34 @@ def resolve_scopes(
     ]
 
 
+# The owner both writers of the administrative SSH declaration use
+# (bootstrap/roles/common and its ufw_lockdown.yml).
+SSH_OWNER = "ssh"
+
+
+def ssh_fallback(entries: list[PortEntry], *, tailnet_up: bool) -> list[PortEntry]:
+    """Reopen administrative SSH to the internet while the tailnet is down.
+
+    A panel Lockdown narrows port 22 to the private path once the tailnet is
+    proven. The tailnet is a convenience rather than the host's security
+    boundary -- key-only SSH with no root and no password login is -- so a host
+    whose tailnet stops answering must not be left with no way in at all. While
+    `tailnet_up` is false every restricted SSH declaration is served as `any`;
+    the declaration on disk is untouched, so the port closes again on the first
+    reconcile after the tailnet is back.
+
+    `tailnet_up` is a PARAMETER, for the reason resolve_scopes gives.
+    """
+    if tailnet_up:
+        return entries
+    return [
+        PortEntry(proto=e.proto, lo=e.lo, hi=e.hi, scope="any", bind=e.bind,
+                  owner=e.owner, comment=f"{e.comment} (reopened: tailnet down)")
+        if e.owner == SSH_OWNER and e.scope in ("private", "tailnet") else e
+        for e in entries
+    ]
+
+
 def merge(*entry_lists: list[PortEntry]) -> list[PortEntry]:
     """Dedup (by identity = proto/lo/hi/scope/bind) and sort. When the same
     port is declared twice, the first occurrence's owner/comment wins (infra
@@ -422,7 +450,12 @@ def _ufw_layer(e: PortEntry) -> list[dict]:
 def _docker_user_layer(e: PortEntry) -> list[dict]:
     """DOCKER-USER (DNAT path) guard for a RESTRICTED docker-bound entry.
     RETURN allowed sources first, DROP last. Empty for scope=any (DNAT path
-    is open by Docker default) or host bind (no DNAT)."""
+    is open by Docker default) or host bind (no DNAT).
+
+    Every rule matches conntrack state DNAT. DOCKER-USER also carries every
+    connection a container opens to the outside, and matched on the port
+    alone a guard drops those too: a loopback DROP on 9000 cuts every
+    container off from an S3 endpoint listening on 9000."""
     if e.bind != "docker" or e.scope == "any":
         return []
     if e.lo != e.hi:
@@ -443,16 +476,18 @@ def _docker_user_layer(e: PortEntry) -> list[dict]:
         # so every packet that reaches this chain for the port arrived from
         # off-box and there is no allowed source to spare.
         return [{"engine": "docker-user", "action": "DROP", "proto": e.proto,
-                 "port": e.port_spec, "owner": e.owner}]
+                 "port": e.port_spec, "ctstate": "DNAT", "owner": e.owner}]
     rules: list[dict] = []
     if e.scope == "tailnet":
         rules.append({"engine": "docker-user", "action": "RETURN", "proto": e.proto,
-                      "port": e.port_spec, "iface": "tailscale0", "owner": e.owner})
+                      "port": e.port_spec, "iface": "tailscale0", "ctstate": "DNAT",
+                      "owner": e.owner})
     for net in _RFC1918:
         rules.append({"engine": "docker-user", "action": "RETURN", "proto": e.proto,
-                      "port": e.port_spec, "from": net, "owner": e.owner})
+                      "port": e.port_spec, "from": net, "ctstate": "DNAT",
+                      "owner": e.owner})
     rules.append({"engine": "docker-user", "action": "DROP", "proto": e.proto,
-                  "port": e.port_spec, "owner": e.owner})
+                  "port": e.port_spec, "ctstate": "DNAT", "owner": e.owner})
     return rules
 
 

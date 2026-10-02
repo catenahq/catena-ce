@@ -1,0 +1,59 @@
+---
+# The host resolves its own name on 127.0.1.1. Applied by
+# bootstrap/roles/common right after it sets the hostname, since sudo resolves
+# the new name from the next task on, and by reconcile/roles/host_maintenance
+# on every converge.
+
+# Provider images (OVH, and the bench's own) ship cloud-init with
+# `manage_etc_hosts: True`, which regenerates /etc/hosts from a template on
+# every boot and drops the mapping below. A drop-in states the one key Catena
+# owns without taking over cloud.cfg: cloud-init merges
+# /etc/cloud/cloud.cfg.d/*.cfg over the base config.
+- name: "hosts: cloud-init config directory"
+  ansible.builtin.stat:
+    path: /etc/cloud/cloud.cfg.d
+  register: _catena_cloud_cfg_d
+
+- name: "hosts: stop cloud-init regenerating /etc/hosts on every boot"
+  ansible.builtin.copy:
+    dest: /etc/cloud/cloud.cfg.d/99-catena-etc-hosts.cfg
+    content: |
+      # Managed by Catena (playbooks/tasks/host_name_resolution.yml).
+      # /etc/hosts is Ansible-owned: cloud-init rewriting it from a template on
+      # each boot drops the 127.0.1.1 <hostname> mapping the converge maintains.
+      manage_etc_hosts: false
+    owner: root
+    group: root
+    mode: "0644"
+  when: _catena_cloud_cfg_d.stat.isdir | default(false)
+
+# cloud-init merges user-data OVER cloud.cfg.d, so a provider that sets
+# manage_etc_hosts in user-data still regenerates the file, as
+# `127.0.1.1 <fqdn> <hostname>`. That resolves the name and is not
+# byte-identical to the line below, so the check enforces the property -- the
+# name resolves on 127.0.1.1 -- and leaves any line that satisfies it.
+- name: "hosts: does /etc/hosts map the hostname to 127.0.1.1"
+  ansible.builtin.command:
+    argv:
+      - awk
+      - -v
+      - "want={{ inventory_hostname }}"
+      - >-
+        $1 == "127.0.1.1" { for (i = 2; i <= NF; i++) if ($i == want) found = 1 }
+        END { exit found ? 0 : 1 }
+      - /etc/hosts
+  register: _catena_hosts_mapped
+  changed_when: false
+  failed_when: false
+
+# lineinfile rather than a template: a template would clobber entries others
+# added further down /etc/hosts.
+- name: "hosts: map the hostname to 127.0.1.1"
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: "^127\\.0\\.1\\.1\\s"
+    line: "127.0.1.1\t{{ inventory_hostname }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: _catena_hosts_mapped.rc != 0

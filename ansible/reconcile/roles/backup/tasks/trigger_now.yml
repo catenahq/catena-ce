@@ -2,13 +2,9 @@
 # Trigger an on-demand snapshot run by starting catena-backup.service
 # synchronously, then polling until the Type=oneshot unit exits.
 #
-# Callers:
-#   - ansible/playbooks/backup.yml -- entry point used by
-#     flows.migrate's snapshot_source leg (and any operator escape
-#     hatch for "snapshot now").
-#   - ansible/playbooks/decommission.yml -- wrapped in a systemd
-#     drop-in lifecycle that adds BACKUP_RESTIC_TAG=decommission to
-#     the env, so the snapshot lands tagged.
+# Caller: ops/automation/ansible/playbooks/decommission.yml, wrapped in a
+# systemd drop-in lifecycle that adds BACKUP_RESTIC_TAG=decommission to the
+# env, so the snapshot lands tagged.
 #
 # This file does NOT install the unit. The unit is installed by
 # install.yml (backup_mode=install) and is expected to exist by the
@@ -21,8 +17,7 @@
 # only "control process exited with error code" on failure -- it does NOT
 # surface the ExecStartPre/ExecStart stderr. Wrap in a rescue that slurps
 # the journal so a failure is self-diagnosing (the offending VM is often
-# torn down before an operator can `journalctl` it -- e.g. bench scenarios
-# like flows.migrate's snapshot_source leg).
+# torn down before an operator can `journalctl` it).
 - name: "Start catena-backup.service (capture journal on failure)"
   block:
     - name: "Start catena-backup.service"

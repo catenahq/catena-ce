@@ -53,9 +53,7 @@ def client(tmp_path, monkeypatch):
     httpd.shutdown()
 
 
-def _plain_field(step: str) -> steps_mod.Field:
-    built = next(s for s in STEPS if s.name == step)
-    return next(f for f in built.fields if not f.secret and not f.options)
+_REQUIRED = {"HOST_PUBLIC_IP": "203.0.113.10", "ADMIN_EMAIL": "admin@client.test"}
 
 
 def _section(page: str, name: str) -> str:
@@ -144,21 +142,22 @@ def test_an_example_is_shown_and_never_filled_in(client):
     assert f'name="{field.key}" value=""' in page
 
 
-def test_checking_one_section_saves_every_section(client):
-    """One form: a check further up keeps what was typed further down."""
+def test_checking_one_section_saves_the_whole_form(client):
+    """One form: a check keeps everything typed, the acknowledgement further
+    down included, and reopening the inventory shows all of it again."""
     request, root = client
     request("POST", "/inventory", {"create": "newco"})
-    first, other = _plain_field(STEPS[0].name), _plain_field("locale")
     status, where, _ = request("POST", "/", {
-        first.key: "first-value", other.key: "other-value",
-        "check": STEPS[0].name})
+        **_REQUIRED, "ack": "yes", "check": STEPS[0].name})
     assert (status, where) == (303, f"/#{STEPS[0].name}")
     saved = run_mod._seed().read_existing_env(root / "newco" / ".env")
-    assert (saved[first.key], saved[other.key]) == ("first-value", "other-value")
+    assert saved["ADMIN_EMAIL"] == "admin@client.test"
 
     request("POST", "/inventory", {"create": "other"})
     request("POST", "/inventory", {"open": "newco"})
-    assert 'value="other-value"' in request("GET", "/")[2]
+    page = request("GET", "/")[2]
+    assert 'value="admin@client.test"' in page
+    assert "name=ack value=yes checked" in page
 
 
 def test_a_check_shows_under_its_own_button(client, monkeypatch):
@@ -166,11 +165,11 @@ def test_a_check_shows_under_its_own_button(client, monkeypatch):
     request("POST", "/inventory", {"create": "newco"})
     monkeypatch.setattr(steps_mod, "validate", lambda step, a, s: [
         steps_mod.Check(f"probe of {step}", True)])
-    request("POST", "/", {"check": "domain"})
+    request("POST", "/", {**_REQUIRED, "check": "target"})
     page = request("GET", "/")[2]
-    domain = _section(page, "domain")
-    assert domain.index("probe of domain") > domain.index(">Check</button>")
-    assert "probe of" not in _section(page, STEPS[0].name)
+    target = _section(page, "target")
+    assert target.index("probe of target") > target.index(">Check</button>")
+    assert "probe of" not in _section(page, "keyset")
 
 
 def test_install_checks_every_section_and_stops_on_the_first_that_fails(
@@ -183,11 +182,12 @@ def test_install_checks_every_section_and_stops_on_the_first_that_fails(
 
     def validate(step, answers, secrets):
         seen.append(step)
-        return [steps_mod.Check("reachable", step != "access")]
+        return [steps_mod.Check("reachable", step != "target")]
 
     monkeypatch.setattr(steps_mod, "validate", validate)
-    status, where, _ = request("POST", "/", {"install": "yes", "ack": "yes"})
-    assert (status, where) == (303, "/#access")
+    status, where, _ = request("POST", "/", {"install": "yes", "ack": "yes",
+                                             **_REQUIRED})
+    assert (status, where) == (303, "/#target")
     assert seen == [s.name for s in STEPS]
     assert started == []
 
@@ -197,9 +197,46 @@ def test_install_starts_when_every_section_passes(client, monkeypatch):
     request("POST", "/inventory", {"create": "newco"})
     started = []
     monkeypatch.setattr(server, "start_install", lambda *a: started.append(a))
-    status, where, _ = request("POST", "/", {"install": "yes", "ack": "yes"})
+    status, where, _ = request("POST", "/", {"install": "yes", "ack": "yes",
+                                             **_REQUIRED})
     assert (status, where) == (303, "/#install")
     assert len(started) == 1
+
+
+def test_a_required_field_left_empty_stops_the_install_on_its_section(
+        client, monkeypatch):
+    """No probe runs on a section whose required answers are missing, and
+    Install does not start."""
+    request, _ = client
+    request("POST", "/inventory", {"create": "newco"})
+    started = []
+    monkeypatch.setattr(server, "start_install", lambda *a: started.append(a))
+    status, where, _ = request("POST", "/", {"install": "yes", "ack": "yes"})
+    assert (status, where) == (303, f"/#{STEPS[0].name}")
+    assert started == []
+    section = _section(request("GET", "/")[2], STEPS[0].name)
+    assert "is required" in section
+
+
+def test_the_page_asks_for_the_server_and_nothing_the_panel_holds(client):
+    """The domain, the private network and the backups are entered in the
+    panel once the server runs; the installer has no field for any of them."""
+    request, _ = client
+    request("POST", "/inventory", {"create": "newco"})
+    page = request("GET", "/")[2]
+    asked = set(re.findall(r'<div class=field data-key="(\w+)"', page))
+    held = {e["key"] for e in [*DOC["secrets"], *DOC["config"]] if e.get("panel")}
+    assert asked and not (asked & held), asked & held
+
+
+def test_the_access_page_names_the_ssh_forward(client):
+    request, _ = client
+    request("POST", "/inventory", {"create": "newco"})
+    request("POST", "/", {"HOST_PUBLIC_IP": "203.0.113.10", "check": "target"})
+    page = request("GET", "/access")[2]
+    assert "Reaching the panel" in page
+    assert "panel@203.0.113.10" in page
+    assert "Settings" in page
 
 
 def test_the_acknowledgement_box_comes_before_its_text(client):
@@ -211,34 +248,17 @@ def test_the_acknowledgement_box_comes_before_its_text(client):
     assert "name=install" in last
 
 
-def test_a_governing_choice_comes_before_the_fields_it_governs(client):
-    request, _ = client
-    request("POST", "/inventory", {"create": "newco"})
-    page = request("GET", "/")[2]
-    for step in STEPS:
-        body = _section(page, step.name)
-        for field in step.fields:
-            if field.governor in {f.key for f in step.fields}:
-                assert (body.index(f'data-key="{field.governor}"')
-                        < body.index(f'data-key="{field.key}"')), field.key
-
-
-def test_a_field_under_a_hidden_choice_is_hidden_too(client):
-    """With no private network the provider choice is hidden, and so is every
-    field that choice governs, whatever the hidden select still holds."""
-    request, _ = client
-    request("POST", "/inventory", {"create": "newco"})
-
-    def hidden(page):
-        return set(re.findall(r'<div class=field data-key="(\w+)"[^>]* hidden>', page))
-
-    tailnet = hidden(request("GET", "/")[2])
-    assert "TAILNET_PROVIDER" not in tailnet
-    assert "tailscale_oauth_client_id" not in tailnet
-    request("POST", "/", {"ACCESS_METHOD": "public_ssh", "check": "access"})
-    public = hidden(request("GET", "/")[2])
-    assert {"TAILNET_PROVIDER", "tailscale_oauth_client_id",
-            "headscale_api_key"} <= public
+def test_suggestions_are_offered_beside_a_free_text_field():
+    """The key the provider installed is usually one of the pairs already on
+    this machine, and sometimes it is not: a list to pick from, and a field
+    that takes any path."""
+    field = steps_mod.Field(key="SSH_PRIVATE_KEY", secret=False, optional=False,
+                            options=[], default="", doc="",
+                            suggestions=["~/.ssh/id_ed25519"])
+    html = server._field_html(field, "~/.ssh/catena_ed25519")
+    assert 'list="s-SSH_PRIVATE_KEY"' in html
+    assert '<datalist id="s-SSH_PRIVATE_KEY"><option value="~/.ssh/id_ed25519">' in html
+    assert 'value="~/.ssh/catena_ed25519"' in html
 
 
 def test_the_install_output_reaches_no_file(tmp_path, monkeypatch):

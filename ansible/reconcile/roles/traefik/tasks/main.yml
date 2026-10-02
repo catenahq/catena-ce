@@ -212,10 +212,3 @@
     - "'changed=0' in (_t1_apply.stdout | default('changed=0'))"
   register: _traefik_force_roll
   changed_when: _traefik_force_roll.rc == 0
-
-# catena-network-nudge lives in bootstrap/roles/docker: it heals containers the overlay
-# race strands on a docker.service start, and bootstrap/roles/docker owns both ends of
-# that race. catena-traefik is a swarm service, so the task manager
-# re-dispatches it and the nudge skips it outright (swarm task containers are
-# excluded by label); what the nudge protects is the Portainer compose
-# containers (keycloak-server-1, oauth2-proxy, gatus, nextcloud-talk-hpb-1).

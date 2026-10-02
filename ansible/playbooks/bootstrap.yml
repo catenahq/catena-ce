@@ -17,8 +17,9 @@
 # host on, whatever access method the client chose: the steady-state host entry
 # (under the `vps:` inventory group) gets that address from the post_tasks
 # below. Run converge.yml next (it targets the `vps:` group), then
-# playbooks/lockdown.yml, which joins the tailnet on that method and closes
-# public 22 via bootstrap/roles/common/tasks/ufw_lockdown.yml.
+# playbooks/lockdown.yml, which joins the tailnet on that method; public 22
+# stays open until the panel's Lockdown closes it through
+# bootstrap/roles/common/tasks/ufw_lockdown.yml.
 #
 # Moving to a different server (hardware upgrade, provider migration):
 #   1. Update ansible_host in inventory/<env>/hosts.yml for the *-bootstrap
@@ -30,11 +31,6 @@
 # Usage (cwd = ansible/):
 #   ansible-playbook -i inventory/<name> playbooks/bootstrap.yml
 #   ansible-playbook -i inventory/<name> playbooks/bootstrap.yml --limit host1-bootstrap
-#
-# Preflight must run as a SEPARATE invocation BEFORE this playbook (so that
-# --limit does not accidentally skip it). The installer chains it
-# automatically; standalone invocation needs:
-#   ansible-playbook -i inventory/<name> playbooks/preflight.yml
 
 # ssh-keyscan the host first, TOFU style. Any stale entry for the same IP
 # (from a previous re-provisioning) is cleared first so the new host's key
@@ -137,7 +133,7 @@
     # evidence about the key. `catena-cli install` ALWAYS emits
     # bootstrap_root_password, blank when install.yaml carries no
     # host_initial_password (cli _bootstrap_extra_vars) -- deliberately, so a
-    # vars_prompt cannot stop the deploy chain to ask after preflight has run.
+    # vars_prompt cannot stop the deploy chain to ask partway through.
     # Extra-vars outrank vars_prompt, so on a fresh VPS driven by the CLI with
     # no host_initial_password the prompt never appears and the password is
     # blank on exactly the hosts that still need the key. Read there as "the
@@ -204,10 +200,9 @@
           This is the normal state of a FRESH VPS. The key install needs the
           password the provider issued for {{ bootstrap_initial_user }}:
 
-            - via the installer: add `host_initial_password: <password>` to
-              install.yaml. The CLI always passes this variable through, blank
-              when install.yaml omits it, and an extra-var outranks the
-              prompt -- so an omitted password does not fall back to asking.
+            - via the installer: `catena-cli install` asks for it when the key
+              does not open the server; an install.yaml gives it as
+              `host_initial_password: <password>`.
 
             - running this playbook directly: answer the password prompt
               instead of leaving it blank.
@@ -226,7 +221,8 @@
           - helpers/install_key.py
           - "{{ ansible_host }}"
           - "--user={{ bootstrap_initial_user }}"
-          - "--pubkey={{ lookup('dotenv', 'SSH_PUBLIC_KEY_FILE') }}"
+          - "--port={{ ansible_port | default(22) }}"
+          - "--pubkey={{ ansible_ssh_private_key_file }}.pub"
           - "--privkey={{ ansible_ssh_private_key_file }}"
         chdir: "{{ playbook_dir }}/.."
       environment:
@@ -441,9 +437,8 @@
               {{ inventory_dir }}/.env is {{ ansible_host }}; confirm the
               rebuilt VPS still has it.
 
-            - Phase 1 already ran and this host's access method is the tailnet,
-              so {{ ops_user }} is only reachable there: playbooks/lockdown.yml
-              closes public 22 on that method. Note that
+            - Phase 1 already ran and the panel's Lockdown closed public 22,
+              so {{ ops_user }} is only reachable over the tailnet. Note that
               {{ inventory_dir }}/.bootstrap-output.yml is NOT invalidated by a
               rebuild, so a tailnet IP recorded there may belong to the previous
               machine. Try:
@@ -562,6 +557,6 @@
             ansible-playbook playbooks/converge.yml --limit {{ _steady_state_host }}
             ansible-playbook playbooks/lockdown.yml --limit {{ _steady_state_host }}
 
-          lockdown.yml joins the tailnet and closes public port 22, and only
-          on a host whose access method is the tailnet -- after proving that
-          path from here.
+          lockdown.yml joins the tailnet on a host whose access method is the
+          tailnet, and leaves public port 22 open: the panel's Lockdown closes
+          it, after proving the tailnet path.

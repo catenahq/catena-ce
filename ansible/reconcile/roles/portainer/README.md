@@ -6,17 +6,19 @@ provides the compose/stack + env + logs + lifecycle API. Routing stays with
 `catena-traefik` (Portainer does no reverse proxy).
 
 This role deploys `catena-portainer` (swarm service on catena-network, docker
-socket, `/data` BoltDB volume, admin via `--admin-password-file`, tailnet-only
-UI). See `defaults/main.yml` + `tasks/main.yml`.
+socket, `/data` BoltDB volume, admin via `--admin-password-file`, UI on this
+host's loopback only, reached through the `panel` account's SSH forward). See
+`defaults/main.yml` + `tasks/main.yml`.
 
 ## Verified Portainer API endpoint map
 
-Target pin: **Portainer CE LTS 2.39.4** (`portainer/portainer-ce`). Verified
-against `portainer/portainer-skills` + docs.portainer.io (2026-07), NOT guessed.
+Target pin: the **Portainer CE** image (`portainer/portainer-ce`) in
+catena-admin `payload/engines/tier1/catalog.go`. Verified against
+`portainer/portainer-skills` + docs.portainer.io, NOT guessed.
 
-**Breaking-change gate:** Portainer **2.27.0 removed** the old
-`POST /api/stacks?type=&method=&endpointId=` form. On 2.39.4 use the typed
-create paths below. Most blog/gist snippets predate this and are wrong.
+**Breaking-change gate:** Portainer has no
+`POST /api/stacks?type=&method=&endpointId=` form. Use the typed create paths
+below. Most blog/gist snippets use that form and are wrong.
 
 ### Auth
 - Fresh-install admin: `--admin-password-file <file>` at container launch (file
@@ -37,10 +39,10 @@ create paths below. Most blog/gist snippets predate this and are wrong.
   -> `.Swarm.Cluster.ID`.
 
 ### Stack lifecycle (body fields PascalCase; Env is `[{name,value}]`)
-| Verb | 2.39.4 |
+| Verb | Endpoint |
 | --- | --- |
-| Create compose-stack (v1 default) | `POST /api/stacks/create/standalone/string?endpointId={id}` `{Name, StackFileContent, Env}` |
-| Create swarm-stack (later) | `POST /api/stacks/create/swarm/string?endpointId={id}` `{Name, StackFileContent, Env, SwarmID}` |
+| Create compose-stack | `POST /api/stacks/create/standalone/string?endpointId={id}` `{Name, StackFileContent, Env}` |
+| Create swarm-stack | `POST /api/stacks/create/swarm/string?endpointId={id}` `{Name, StackFileContent, Env, SwarmID}` |
 | Create from git (App Templates) | `POST /api/stacks/create/{standalone|swarm}/repository?endpointId={id}` `{Name, RepositoryURL, ComposeFilePathInRepository, Env}` |
 | Update + redeploy | `PUT /api/stacks/{id}?endpointId={id}` `{StackFileContent, Env, PullImage:true, Prune:false}` |
 | Start / Stop stack | `POST /api/stacks/{id}/{start|stop}?endpointId={id}` |
@@ -73,4 +75,5 @@ Entry for a catalog app (`render.py` re-target target):
 
 Sources: docs.portainer.io/api/access, /advanced/app-templates/format,
 github.com/portainer/portainer-skills (portainer-api/references/stacks.md),
-portainer discussions #12670 (2.27.0 removal), hub.docker.com/r/portainer/portainer-ce.
+portainer discussions #12670 (the untyped create form's removal),
+hub.docker.com/r/portainer/portainer-ce.

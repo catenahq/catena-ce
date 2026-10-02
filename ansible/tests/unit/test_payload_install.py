@@ -164,6 +164,20 @@ def test_install_and_pull_are_env_overridable():
     assert "default='true'" in d["catena_payload_pull"]
 
 
+def test_a_digest_pinned_image_already_here_is_not_pulled_again():
+    """The host's own converge names the image the panel runs, which is on the
+    host by definition. Pulling it anyway made every on-host converge fail
+    while the registry did not answer."""
+    flat = _flatten(_tasks())
+    present = flat[_index_of(flat, "digest-pinned image already on this host")]
+    conds = " ".join(str(c) for c in _as_list(present.get("when")))
+    assert "'@sha256:' in catena_payload_image" in conds
+    assert present.get("failed_when") is False
+    pull = flat[_index_of(flat, "Payload: pull")]
+    assert "(_payload_present.rc | default(1)) != 0" in _as_list(pull.get("when"))
+    assert _index_of(flat, "already on this host") < _index_of(flat, "Payload: pull")
+
+
 # --- marker semantics -------------------------------------------------------
 def test_marker_holds_the_image_id_not_a_flag():
     """Keyed on the image ID so an upgrade reinstalls and a re-converge does not.

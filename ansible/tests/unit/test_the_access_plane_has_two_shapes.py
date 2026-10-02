@@ -1,27 +1,33 @@
-"""A host installs with a tailnet or without one, and 22 closes only on proof.
+"""A host installs with a tailnet or without one, and 22 closes only on the
+panel's Lockdown, after proof.
 
-THE INVARIANT, stated once so it is not filed later as a coverage gap. Two
-combinations are reachable and only two:
+THE INVARIANT, stated once so it is not filed later as a coverage gap:
 
-    tailnet + 22 closed      the lockdown joined the tailnet and proved it
-    no tailnet + 22 open     a host with no alternative keeps the one it has
+    no tailnet + 22 open     every install ends here
+    tailnet + 22 open        the host joined the tailnet entered in the panel
+    tailnet + 22 closed      the panel's Lockdown joined, proved, and closed
+    no tailnet + 22 closed   that Lockdown, after the provider went back to
+                             none; applying the chosen access opens 22
 
-ONE INSTALL PATH. Every leg up to the lockdown reaches the host over the public
-SSH address the install started on. Joining the tailnet is the lockdown's first
-step, in one playbook the installer runs last and the panel runs on the host, so
-a tailnet added after the install gets the same join and the same proof.
+ONE INSTALL PATH. Every leg reaches the host over the public SSH address the
+install started on, and the install configures no tailnet. Joining one is the
+lockdown playbook's first step, which the panel runs on the host. Only the
+panel's Lockdown closes the port: key-only SSH is the host's security, and the
+tailnet is a convenience whose one security feature is closing 22.
 
-`no tailnet + 22 closed` is unreachable BY CONSTRUCTION. There is nothing to
-prove, so nothing may close the port, and a lockdown that could reach that state
-would be a lockout with a green checkmark. These tests are what makes "by
-construction" true rather than aspirational.
+NOTHING CLOSES 22 ON A HOST WITH NO TAILNET. There is nothing to prove, and a
+lockdown that closed it would be a lockout with a green checkmark. On such a
+host the lockdown opens it instead. These tests are what makes that true
+rather than aspirational.
 
 THE SECOND FAILURE MODE is the inverse and just as quiet: a host whose lockdown
-already closed 22 must not have it re-opened. The port is a public-port registry
-entry, and the registry's reconciler runs on a timer -- so the fragment that
-declares the port has exactly one widening writer (bootstrap/roles/common, which
-refuses to overwrite) and exactly one narrowing writer (the lockdown, after its
-proof).
+already closed 22 must not have it re-opened by a converge. The port is a
+public-port registry entry, and the registry's reconciler runs on a timer -- so
+the fragment that declares the port is widened only by bootstrap/roles/common's
+first write (which refuses to overwrite) and by the lockdown on a host with no
+tailnet, and narrowed only by the lockdown after its proof. The reconciler
+itself serves the narrowed declaration as open while the tailnet is down
+(tests/unit/test_public_ports_ssh_fallback.py), without rewriting it.
 
 Run: uv run pytest tests/unit/test_the_access_plane_has_two_shapes.py
 """
@@ -29,6 +35,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
@@ -77,18 +84,22 @@ def _conditions(task: dict) -> str:
 
 # --- the method is declared, and it is what everything reads ----------------
 
-def test_the_method_is_one_variable_read_from_the_store():
+@pytest.mark.parametrize("provider,method", [
+    ("tailscale", "tailnet"), ("headscale", "tailnet"), (" Headscale ", "tailnet"),
+    ("none", "public_ssh"), ("", "public_ssh"), (None, "public_ssh"),
+])
+def test_the_method_follows_from_the_stored_provider(provider, method):
     """A second derivation of "is this host on a tailnet" is a second answer.
-    The store's key is the one, because it rides /etc into the snapshot and a
-    rebuilt host has to come back with the posture it had."""
+    The store's TAILNET_PROVIDER is the one, because it rides /etc into the
+    snapshot and a rebuilt host has to come back with the posture it had. A
+    host with nothing stored was installed over SSH alone, and joins nothing."""
+    from jinja2 import Environment
+
     gv = _load(GROUP_VARS) or {}
     expr = str(gv.get("catena_access_method", ""))
-    assert "cfg_access_method" in expr, (
-        "the access method is not read from the store projection; a host's "
-        f"declared posture would not survive a rebuild: {expr!r}")
-    assert "tailnet" in expr, (
-        "the fallback is not the tailnet, so a host that stored nothing would "
-        "have its firewall decided by the wrong default")
+    assert "cfg_tailnet_provider" in expr, expr
+    context = {} if provider is None else {"cfg_tailnet_provider": provider}
+    assert Environment().from_string(expr).render(**context).strip() == method
 
 
 # --- shape one: no tailnet, 22 open ----------------------------------------
@@ -138,9 +149,10 @@ def test_the_lockdown_joins_before_it_closes():
 
 
 def test_the_tailnet_is_asked_before_anything_closes():
-    """The control server's record of the host, and on the host a peer, are
-    the proof the panel's lockdown has. It runs between the join and the ufw
-    change, so a refusal leaves public 22 open."""
+    """The control server's record of the host, and a peer answering through
+    the tunnel, are the proof the panel's lockdown has. It runs between the
+    join and the ufw change, so a refusal leaves public 22 open; a run that
+    only joins closes nothing and proves nothing."""
     tasks = _flatten((_load(LOCKDOWN_PLAY) or [])[0].get("tasks") or [])
     join = _index(tasks, "Join the tailnet")
     prove = _index(tasks, "Prove the tailnet reaches this host")
@@ -148,39 +160,30 @@ def test_the_tailnet_is_asked_before_anything_closes():
     assert join < prove < close, f"join={join} prove={prove} close={close}"
     inc = tasks[prove].get("ansible.builtin.include_role") or {}
     assert (inc.get("name"), inc.get("tasks_from")) == ("tailscale", "reachable.yml")
+    assert "catena_lockdown_close_public_ssh" in _conditions(tasks[prove])
 
 
-def test_on_the_host_no_probe_dials_its_own_address():
-    """The panel runs lockdown.yml over a local connection, where `localhost`
-    is the host: a handshake with its own tailnet address passes whatever the
-    tailnet thinks. Those probes run from the installer's controller only, and
-    on the host the reachability check requires a peer instead."""
-    tasks = _flatten(_load(LOCKDOWN_TASKS))
-    for name in ("Verify tailnet SSH reachability", "Re-verify tailnet SSH"):
-        probe = tasks[_index(tasks, name)]
-        assert "ansible_connection" in _conditions(probe) \
-            and "!= 'local'" in _conditions(probe), (
-                f"{name!r} runs on the host, where it dials itself")
+def test_no_probe_dials_the_host_from_itself():
+    """The panel runs lockdown.yml on the host, where `localhost` is the host:
+    a handshake with its own tailnet address passes whatever the tailnet
+    thinks. So nothing in the lockdown or the join dials the tailnet address,
+    and the reachability check requires a peer."""
     role = ANSIBLE / "bootstrap" / "roles" / "tailscale"
-    main = _flatten(_load(role / "tasks" / "main.yml"))
-    probe = main[_index(main, "Verify controller can reach node")]
-    assert "tailscale_on_host" in _conditions(probe)
-    defaults = _load(role / "defaults" / "main.yml") or {}
-    assert "== 'local'" in str(defaults.get("tailscale_on_host", ""))
+    for path in (LOCKDOWN_TASKS, role / "tasks" / "main.yml"):
+        for task in _flatten(_load(path)):
+            assert "ansible.builtin.wait_for" not in task, (
+                f"{path.name}: {task.get('name')!r} dials an address")
     reachable = (role / "tasks" / "reachable.yml").read_text(encoding="utf-8")
-    assert "TAILNET_REQUIRE_PEER" in reachable and "tailscale_on_host" in reachable
+    assert 'TAILNET_REQUIRE_PEER: "1"' in reachable
 
 
-def test_only_the_installer_emits_the_tailnet_address():
-    """The next install leg reaches the host at its tailnet address once 22 is
-    closed, and learns it from .bootstrap-output.yml. The panel runs the same
-    play on the host, where there is no controller inventory to write."""
+def test_the_lockdown_writes_nothing_on_a_controller():
+    """The panel runs the play on the host, where there is no controller
+    inventory to write, and the install does not run it."""
     tasks = _flatten((_load(LOCKDOWN_PLAY) or [])[0].get("tasks") or [])
-    emit = tasks[_index(tasks, "Emit the tailnet address")]
-    cond = _conditions(emit)
-    assert "catena_lockdown_emit_address" in cond
-    assert "catena_access_method == 'tailnet'" in cond
-    assert emit.get("delegate_to") == "localhost"
+    assert not [t.get("name") for t in tasks if t.get("delegate_to") == "localhost"]
+    cli = (ANSIBLE / "catena_cli.py").read_text(encoding="utf-8")
+    assert '"lockdown"' not in cli, "the install runs the lockdown"
 
 
 def test_validate_gates_inside_the_role_not_by_filtering_the_role_list():
@@ -207,55 +210,109 @@ def test_a_tailnet_free_host_keeps_its_public_ssh_rule():
         "is answered by something else")
 
 
-def test_the_lockdown_refuses_rather_than_closing_the_only_way_in():
-    """The unreachable third combination. The refusal is a task with a message,
+def test_the_lockdown_opens_the_only_way_in_rather_than_closing_it():
+    """With no tailnet the lockdown opens 22 and says so. The message is a task,
     not an absence: a lockdown that silently did nothing on this method would
     be indistinguishable from one that ran and failed."""
     tasks = _flatten(_load(LOCKDOWN_TASKS))
-    refusal = tasks[_index(tasks, "refuse to close port 22")]
-    assert "catena_access_method != 'tailnet'" in _conditions(refusal)
-    msg = str(refusal.get("ansible.builtin.debug", {}).get("msg", ""))
-    assert "stays OPEN" in msg, (
-        "the refusal does not state the outcome, so it reads as a step that "
+    block = tasks[_index(tasks, "open public 22 on a host with no alternative")]
+    assert "catena_access_method != 'tailnet'" in _conditions(block)
+    assert "catena_lockdown_close_public_ssh" not in _conditions(block)
+    said = tasks[_index(tasks, "public 22 is open with no alternative path")]
+    msg = str(said.get("ansible.builtin.debug", {}).get("msg", ""))
+    assert "is OPEN" in msg, (
+        "the message does not state the outcome, so it reads as a step that "
         "was skipped rather than a decision that was taken")
     assert "console" in msg, (
-        "the refusal does not say what the remaining path would be, which is "
-        "the whole reason it refuses")
-    assert "lockdown again" in msg, (
-        "the refusal does not say how to reach the other shape, so a client "
+        "the message does not say what the remaining path would be, which is "
+        "the whole reason the port stays open")
+    assert "chosen access again" in msg, (
+        "the message does not say how to reach the other shape, so a client "
         "who wants the port closed is told only that it is not")
 
 
-# --- shape two: tailnet, 22 closed after proof ------------------------------
+def test_a_host_with_no_tailnet_gets_its_public_ssh_back():
+    """A Lockdown taken on a tailnet leaves 22 closed and declared private once
+    the provider goes back to none. The apply adds the public rule back and
+    widens the declaration to `any`, or the reconciler closes the port again on
+    its next timer fire."""
+    tasks = _flatten(_load(LOCKDOWN_TASKS))
+    block = tasks[_index(tasks, "open public 22 on a host with no alternative")]
+    inner = block.get("block") or []
+    allow = inner[_index(inner, "Allow public SSH")]
+    argv = allow.get("ansible.builtin.command", {}).get("argv", [])
+    assert argv[:10] == ["ufw", "allow", "from", "any", "to", "any", "port", "22",
+                         "proto", "tcp"], argv
+    declare = inner[_index(inner, "declare port 22 open")]
+    content = str(declare.get("ansible.builtin.copy", {}).get("content", ""))
+    assert '"scope": "any"' in content, content
+    assert "catena_ssh_fragment_name" in str(
+        declare.get("ansible.builtin.copy", {}).get("dest", ""))
+    reconcile = inner[_index(inner, "reconcile public ports now")]
+    assert reconcile.get("ansible.builtin.systemd_service", {}).get("name") == (
+        "catena-public-ports.service")
+    assert _index(inner, "Allow public SSH") < _index(inner, "declare port 22 open")
 
-def test_the_close_is_still_gated_on_a_proof_from_the_controller():
-    """The sequence that keeps this from being a lockout, unchanged by the
-    method split: add -> PROVE from the machine about to lose the old path ->
-    remove. Detection is not proof: an interface can be up while the route
+
+# --- shape two: tailnet, 22 open after the install --------------------------
+
+def _close_block() -> dict:
+    tasks = _flatten(_load(LOCKDOWN_TASKS))
+    return tasks[_index(tasks, "close public 22 behind the tailnet")]
+
+
+def test_only_the_panels_lockdown_closes_the_port():
+    """The close block runs on catena_lockdown_close_public_ssh alone, which
+    lockdown.yml reads from the environment the panel's Lockdown unit carries
+    and defaults to false. Nothing else sets it."""
+    assert "catena_lockdown_close_public_ssh" in _conditions(_close_block())
+    play = (_load(LOCKDOWN_PLAY) or [])[0]
+    flag = str((play.get("vars") or {}).get("catena_lockdown_close_public_ssh", ""))
+    assert "CATENA_LOCKDOWN_CLOSE_PUBLIC_SSH" in flag, flag
+    assert "default('false'" in flag, (
+        "the flag must default to false: a caller that forgets it joins and "
+        "leaves 22 open, which is the safe side")
+    cli = (ANSIBLE / "catena_cli.py").read_text(encoding="utf-8")
+    assert "catena_lockdown_close_public_ssh" not in cli, (
+        "the installer asks for the close; installs never close public 22")
+
+
+def test_the_tailnet_rules_and_address_do_not_wait_for_the_close():
+    """A run that does not close still joins, adds the tailnet SSH rule and
+    learns the tailnet address, with 22 left open."""
+    tasks = _flatten(_load(LOCKDOWN_TASKS))
+    allow = tasks[_index(tasks, "allow SSH over the tailnet")]
+    assert "catena_lockdown_close_public_ssh" not in _conditions(allow)
+    names = [t.get("name", "") for t in allow.get("block") or []]
+    assert any("Extract tailnet IPv4" in n for n in names)
+    assert any("Allow SSH on tailscale0" in n for n in names)
+
+
+# --- shape three: tailnet, 22 closed after proof ----------------------------
+
+def test_the_close_is_gated_on_the_proof():
+    """The sequence that keeps this from being a lockout: add -> PROVE ->
+    remove. The proof is reachable.yml, which the play runs before the ufw
+    file, and the ufw file only removes the public rule when the play asked to
+    close. Detection is not proof: an interface can be up while the route
     through it is dead."""
     tasks = _flatten(_load(LOCKDOWN_TASKS))
     add = _index(tasks, "Allow SSH on tailscale0")
-    proof = _index(tasks, "Verify tailnet SSH reachability")
     remove = _index(tasks, "Remove the public SSH allow rule")
-    assert add < proof < remove, (
-        f"the order is add={add} proof={proof} remove={remove}; the proof has "
-        "to sit between them or it reports the outcome instead of gating it")
-    verify = tasks[proof]
-    assert verify.get("delegate_to") == "localhost", (
-        "the proof runs on the host, which proves the connection Ansible "
-        "already has rather than the one the operator needs next")
+    assert add < remove, f"add={add} remove={remove}"
+    assert "catena_lockdown_close_public_ssh" in _conditions(_close_block())
 
 
-def test_the_registry_declaration_narrows_only_after_the_proof():
+def test_the_registry_declaration_narrows_only_after_the_rule_is_removed():
     """The port is a registry entry and the registry's reconciler runs on a
     timer, so the declaration decides the firewall long after this play ends.
-    Narrowing it before the proof would close 22 on the next timer fire,
-    whatever this play then decided."""
+    It narrows inside the close block, after the proof and the removal."""
     tasks = _flatten(_load(LOCKDOWN_TASKS))
-    proof = _index(tasks, "Verify tailnet SSH reachability")
+    remove = _index(tasks, "Remove the public SSH allow rule")
     declare = _index(tasks, "declare port 22 private")
-    assert proof < declare, (
-        "the declaration narrows before the tailnet path is proven")
+    assert remove < declare
+    names = [t.get("name", "") for t in _close_block().get("block") or []]
+    assert any("declare port 22 private" in n for n in names)
     body = LOCKDOWN_TASKS.read_text(encoding="utf-8")
     assert '"scope": "private"' in body, (
         "the lockdown declares a scope other than private, so the client's "

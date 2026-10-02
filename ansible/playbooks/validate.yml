@@ -2,13 +2,12 @@
 # Validation orchestrator: check a converged host from three vantage points,
 # so a service that only answers on the box is not mistaken for a working one.
 #   1. On-host  -- per-role Ansible validate tasks (roles/<role>/tasks/validate.yml), executed on the target
-#   2. Tailnet  -- from the controller, hitting tailnet addresses
+#   2. Access   -- SSH from the controller, the two UIs on the host's loopback,
+#                  the public hostnames once a domain is set
 #   3. External -- from the controller, hitting public IP / CF hostnames
 #
-# Runs standalone OR as the post-converge leg composed by the installer.
-#
-# Usage (cwd = ansible/):
-#   ansible-playbook -i inventory/<name> playbooks/validate.yml --limit host1
+# The installer's last leg. With no domain, tailnet or backup in the store yet,
+# the checks that need one skip and say so.
 
 - name: "Vantage 1 -- on-host checks via per-role validate.yml"
   # Each role under test ships its own roles/<role>/tasks/validate.yml.
@@ -39,6 +38,8 @@
       - tailscale
       - storage
       - docker
+      - host_maintenance
+      - swarm
       - traefik
       - postgres
       - backup
@@ -51,10 +52,10 @@
     # reconcile/roles/infrastructure/tasks/validate.yml's cloudflared-swarm check.
 
   pre_tasks:
-    # 0b: load on-box config store so on-host validate checks that read
-    # vault_* (e.g. the Keycloak admin login smoke test) see the on-box
-    # source of truth. See tasks/load_onbox_config.yml.
-    - name: "0b: load on-box config store"
+    # Load the on-box config store so the validate checks that read its
+    # secrets (the Keycloak admin login smoke test) see them. See
+    # tasks/load_onbox_config.yml.
+    - name: "Load on-box config store"
       ansible.builtin.include_tasks: tasks/load_onbox_config.yml
       tags: [always, onbox]
 
@@ -310,33 +311,33 @@
         - _smtp_enabled | bool
         - _kc_send_verify is succeeded
 
-- name: "Vantage 2 -- tailnet checks from operator"
+- name: "Vantage 2 -- access checks from operator"
   hosts: "{{ stage_hosts | default('vps') }}"
   gather_facts: false
   become: false
   tags: [tailnet, vantage2]
   tasks:
-    - name: Probe SSH over tailnet
+    - name: Probe SSH where the controller reaches the host
       ansible.builtin.wait_for:
         host: "{{ ansible_host }}"
         port: 22
         timeout: 10
       delegate_to: localhost
 
-    - name: "Probe Portainer UI on tailnet"
+    # The two UIs answer this host's loopback only, and an administrator reaches
+    # them through an SSH local forward that lands there. So the probe runs ON
+    # the host, against 127.0.0.1 -- the address the forward delivers to.
+    - name: "Probe Portainer UI on the host's loopback"
       ansible.builtin.uri:
-        url: "http://{{ ansible_host }}:{{ portainer_ui_port | default(9000) }}/"
+        url: "http://127.0.0.1:{{ portainer_ui_port | default(9000) }}/"
         status_code: [200, 301, 302, 307, 308]
         timeout: 10
-      delegate_to: localhost
-      # Asserts the Portainer control-plane UI IS reachable over tailnet.
 
-    - name: "Probe catena-admin native-login page on tailnet"
+    - name: "Probe catena-admin native-login page on the host's loopback"
       ansible.builtin.uri:
-        url: "http://{{ ansible_host }}:{{ catena_admin_ui_port | default(9010) }}/login"
+        url: "http://127.0.0.1:{{ catena_admin_ui_port | default(9010) }}/login"
         status_code: [200]
         timeout: 10
-      delegate_to: localhost
       # The panel's host-published native-login listener serves /login without a
       # session (200). It is the way in before a Cloudflare token has been saved,
       # which is why it is unconditional rather than a mode.
@@ -568,7 +569,7 @@
           }}
         # Allowlist = always-present infra ports + the registry's bound TCP
         # ports (Portainer 9000, coturn 5349, mailserver 25/465/587/993, ...).
-        #   22  - SSH (UFW limits ingress to tailnet)
+        #   22  - SSH (public until the panel's Lockdown narrows it)
         #   80  - Traefik HTTP (CF Tunnel only; UFW blocks public)
         #   443 - Traefik HTTPS (CF Tunnel only; UFW blocks public)
         # The rest come from /etc/catena/public-ports.summary.json

@@ -22,7 +22,7 @@
       - healthchecks_api_key_readonly is defined
       - healthchecks_api_key_readwrite is defined
     fail_msg: >-
-      Missing Healthchecks secrets. Every vault_healthchecks_* value is
+      Missing Healthchecks secrets. Every healthchecks_* secret is
       minted on the box by the converge loader, so a gap here means the
       on-box store at /etc/catena/config.json was not loaded.
 

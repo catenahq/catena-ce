@@ -10,7 +10,7 @@ RESOLVED, NOT PACKAGED. The registry lives in the sibling `ansible/` tree
 rather than inside this package, because `vendor-catena-ce.sh` copies
 `git ls-files -- ansible` into the public panel image and the launcher must not
 ship there. So it is found by path, and a missing one RAISES: a launcher that
-fell back to an empty registry would render six blank sections and then produce an
+fell back to an empty registry would render blank sections and then produce an
 install.yaml that answered nothing.
 """
 
@@ -108,28 +108,39 @@ def cli_script() -> str:
 CLI_ENTRY = "catena_cli:_entry"
 
 
-def options_for(entry: dict) -> list[str]:
-    """The values a field accepts, or an empty list for free text.
+def is_required(entry: dict) -> bool:
+    """Whether the installer refuses to install without a value. Everything
+    else is labelled optional."""
+    return bool(entry.get("required"))
 
-    Read from the panel's declaration first and the template's second. They
-    agree today; the panel is preferred because it is the one a client has
-    already used, and an installer offering a choice the panel does not is an
-    install that cannot be edited afterwards.
-    """
-    panel = entry.get("panel") or {}
-    if panel.get("kind") == "choice" and panel.get("options"):
-        return list(panel["options"])
+
+def options_for(entry: dict) -> list[str]:
+    """The values a field is limited to, from the template's declaration, or
+    an empty list for free text."""
     return list((entry.get("env") or {}).get("options") or [])
 
 
-def governed_by(entry: dict) -> tuple[str, list[str]]:
-    """The choice field and values that make this field relevant, or ("", []).
+def _ssh_keys(ssh_dir: Path) -> list[str]:
+    """The private keys in `ssh_dir` that have their public half beside them,
+    written with `~` the way a client types them."""
+    if not ssh_dir.is_dir():
+        return []
+    home = Path.home()
+    out = []
+    for pub in sorted(ssh_dir.glob("*.pub")):
+        private = pub.with_suffix("")
+        if private.is_file():
+            try:
+                out.append("~/" + str(private.relative_to(home)))
+            except ValueError:
+                out.append(str(private))
+    return out
 
-    The same `depends` the settings page hides fields on, which is the same
-    fact the converge acts on. Asking a client for a Headscale server address
-    after they chose the hosted network is asking for a value nothing will read.
-    """
-    depends = entry.get("depends") or {}
-    if not depends:
-        return "", []
-    return str(depends.get("choice") or ""), list(depends.get("values") or [])
+
+def suggestions_for(entry: dict, ssh_dir: Path | None = None) -> list[str]:
+    """Values the launcher suggests beside a free-text field, from the named
+    source in `gui_suggestions_from`. `ssh_keys` is the pairs already in
+    ~/.ssh: the one whose public half the provider installed is among them."""
+    if entry.get("gui_suggestions_from") == "ssh_keys":
+        return _ssh_keys(ssh_dir or Path.home() / ".ssh")
+    return []

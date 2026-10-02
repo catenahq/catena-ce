@@ -2,5 +2,41 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "github>catenahq/renovate-config"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The container engine every install pins and catena-admin's catena-engine-upgrade moves hosts to. moby/moby tags engine releases docker-vX.Y.Z.",
+      "managerFilePatterns": ["/^ansible/bootstrap/roles/docker/defaults/main\\.yml$/"],
+      "matchStrings": ["docker_version: \"(?<currentValue>[0-9.]+)\""],
+      "depNameTemplate": "docker-engine",
+      "packageNameTemplate": "moby/moby",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^docker-v(?<version>[0-9.]+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "The containerd.io the pinned engine runs on, from Docker's apt repository.",
+      "managerFilePatterns": ["/^ansible/bootstrap/roles/docker/defaults/main\\.yml$/"],
+      "matchStrings": ["docker_containerd_version: \"(?<currentValue>[0-9.]+)\""],
+      "depNameTemplate": "containerd",
+      "packageNameTemplate": "containerd/containerd",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>[0-9.]+)$"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "The engine pins move every host that converges, so they wait 14 days after a release and are reviewed by hand; a major also needs a bench run first.",
+      "matchDepNames": ["docker-engine", "containerd"],
+      "minimumReleaseAge": "14 days",
+      "automerge": false
+    },
+    {
+      "description": "containerd minors reach Docker's apt repository after upstream releases them, and follow docker-ce's own dependency; only patches are proposed.",
+      "matchDepNames": ["containerd"],
+      "matchUpdateTypes": ["minor", "major"],
+      "enabled": false
+    }
   ]
 }

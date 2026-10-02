@@ -4,13 +4,12 @@
 # or a non-default host name.
 #
 # Two groups:
-#   vps:       steady-state -- targeted by every playbook except bootstrap.
-#              Uses the Tailscale network. ansible_host starts as a
-#              placeholder; bootstrap.yml overwrites it with the real
-#              tailnet IPv4 after the VPS joins (helpers/bootstrap_output.py).
-#   bootstrap: public-IP entries used ONLY by playbooks/bootstrap.yml to bring
-#              up a fresh VPS. After site.yml closes public port 22, these
-#              become unreachable -- which is the point.
+#   vps:       steady-state -- targeted by every playbook except bootstrap, as
+#              the ops account. ansible_host starts as a placeholder;
+#              catena-cli overwrites it with the address bootstrap.yml
+#              installed on (helpers/bootstrap_output.py).
+#   bootstrap: the provider's initial login at the public IP, used ONLY by
+#              playbooks/bootstrap.yml to bring up a fresh VPS.
 
 all:
   children:
@@ -20,9 +19,9 @@ all:
           ansible_host: 0.0.0.0
           ansible_user: "{{ lookup('dotenv', 'OPS_USER', default='ops') }}"
           ansible_port: "{{ lookup('dotenv', 'HOST_SSH_PORT', default='22') }}"
-          # Routable public IP, for roles that can't use the tailnet address
-          # (coturn TURN URI / ICE candidates). validate.yml derives this from
-          # host egress when absent, but the provider already told us.
+          # Routable public IP, for roles that need it whatever address
+          # ansible_host holds (coturn TURN URI / ICE candidates).
+          # validate.yml derives this from host egress when absent.
           public_ip: "{{ lookup('dotenv', 'HOST_PUBLIC_IP') }}"
 
     bootstrap:

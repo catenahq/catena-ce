@@ -1,0 +1,43 @@
+---
+# The swarm's own settings and the overlay self-heal. bootstrap/roles/docker
+# creates the swarm; this role configures it, on every converge, so a change
+# here reaches a host that converges itself.
+
+# How many task records swarm keeps per service, and therefore how many EXITED
+# containers accumulate on the host: one per retained task, for every roll of
+# every service. Docker's default is 5, which shows five containers per service
+# with one running.
+#
+# 2 keeps the running task plus the one before it, which is the smallest number
+# that still lets `docker service ps <svc>` say what a service recovered FROM.
+# Below that a crash loop and a healthy first boot look the same.
+swarm_task_history_limit: 2
+
+# The `catena.role` label put on this node, and the value every stateful swarm
+# service constrains itself to (node.labels.catena.role==data). One value
+# because there is one node; a variable so a second node can join as something
+# else without editing every role.
+#
+# The constraint is what makes adding a worker safe. Without it swarm can
+# reschedule a service with a node-local named volume onto the new node and
+# silently create an empty volume there -- the container starts and the data is
+# gone. `audit --check-swarm` in ops fails the build when the label this role
+# SETS and the label the constraints REFERENCE disagree.
+#
+# The label lives in the swarm raft, which no snapshot carries, so every
+# converge puts it back rather than only the install.
+swarm_node_role_label: "data"
+
+# catena-network-nudge: seconds to wait for the overlay to re-materialize after
+# a docker.service start before giving up. Reaches the script as
+# CATENA_NETWORK_NUDGE_TIMEOUT, via the docker.service drop-in (--setenv) and
+# the unit file (Environment=).
+swarm_network_nudge_timeout: 60
+
+# Files this role puts in the prefixes where a withdrawal keeps EXECUTING.
+# playbooks/tasks/prune_withdrawn_files.yml removes what a later release stops
+# declaring; tests/unit/test_converge_prune.py fails on an omission.
+swarm_managed_paths:
+  - /usr/local/bin/catena-network-nudge
+  - /etc/systemd/system/catena-network-nudge.service
+  - /etc/systemd/system/docker.service.d/10-catena-network-nudge.conf

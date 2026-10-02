@@ -30,7 +30,9 @@ needs -- removes the window. Every role from 6 onward can assume
    engines from that. Falls back to `catena_payload_image` only when there is
    no service to follow -- a first converge, or an explicit
    `CATENA_PAYLOAD_IMAGE`.
-2. Pulls that image.
+2. Pulls that image, unless it is addressed by digest and already on the host:
+   the image the panel runs always is, so the host's own converge does not
+   depend on the registry answering.
 3. Resolves the image ID and compares it with `/etc/catena/.payload-image`.
    Equal means the installed engines already came from this image and the role
    stops there -- so a re-converge changes nothing.

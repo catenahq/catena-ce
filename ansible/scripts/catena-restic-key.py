@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
-"""catena-restic-key -- validate or rotate the restic repository password.
+"""catena-restic-key -- generate, validate or rotate the restic repository
+password.
 
 Driven by catena-admin over the host dispatcher (as root): the admin container
 base64-decodes a request into $PAYLOAD, the reserved action pipes it here on
-stdin. The restic password is USER_HELD (never a settable settings field): this
-is the ONLY on-box path that touches it after install, so a re-key is a
-deliberate action with a scary confirm in the UI, not a passive settings save.
+stdin. The restic password is USER_HELD (never a settable settings field) and
+no converge mints it: this is the ONLY on-box path that writes it, so a
+generation or a re-key is a deliberate action in the UI, not a passive
+settings save.
 
 Request (JSON on stdin):
+  {"op": "generate"}
   {"op": "validate", "password": "<candidate>"}
   {"op": "rotate",   "new_password": "<new>"}
 
 Reads the repo + S3 creds (and, for rotate, the CURRENT password) from the
 on-box store /etc/catena/config.json. Prints a JSON result on stdout:
+  generate -> {"ok": true, "password": "<new>"} once, for the client to save
   validate -> {"ok": true|false}
   rotate   -> {"ok": true} on success (store + /etc/catena/restic.pass updated)
 
@@ -20,6 +24,7 @@ stdlib only (runs on the minimal host python); no PyYAML.
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import subprocess
@@ -56,17 +61,72 @@ def _write_secret_file(value: str) -> str:
     return name
 
 
-def _opens(env: dict, password: str) -> bool:
-    """Does `password` open the repo? `restic cat config` exits 0 iff yes."""
+# `restic cat config` exit codes: the repository does not exist, or the
+# password does not open it.
+_NO_REPOSITORY = 10
+_WRONG_PASSWORD = 12
+
+
+def _cat_config(env: dict, password: str) -> int:
+    """`restic cat config` with `password`; its exit code."""
     pf = _write_secret_file(password)
     try:
         e = dict(env)
         e["RESTIC_PASSWORD_FILE"] = pf
-        r = subprocess.run(["restic", "cat", "config"], env=e,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return r.returncode == 0
+        return subprocess.run(["restic", "cat", "config"], env=e,
+                              stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL).returncode
     finally:
         os.unlink(pf)
+
+
+def _opens(env: dict, password: str) -> bool:
+    """Does `password` open the repo? `restic cat config` exits 0 iff yes."""
+    return _cat_config(env, password) == 0
+
+
+def _save_store(store: dict, store_path: str) -> None:
+    """Write the two sections back, keeping every other top-level key the
+    file holds (schedules, image pins, offsite copies): other writers own
+    those."""
+    p = Path(store_path)
+    doc = json.loads(p.read_text()) if p.exists() else {}
+    doc["secrets"] = store["secrets"]
+    doc["config"] = store["config"]
+    tmp = store_path + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, json.dumps(doc, indent=2, sort_keys=True).encode())
+    finally:
+        os.close(fd)
+    os.replace(tmp, store_path)
+    os.chmod(store_path, 0o600)
+
+
+def cmd_generate(store: dict, store_path: str) -> dict:
+    """Mint the password when the store has none, and keep it.
+
+    A repository that already holds backups under another password stays
+    theirs: a new password would make every backup to it fail, and a server
+    continuing on an earlier server's repository is a restore of it."""
+    if store["secrets"].get("backup_restic_password"):
+        return {"ok": False, "error": "a backup encryption password already "
+                "exists; validate or rotate it instead"}
+    password = base64.b64encode(os.urandom(48)).decode("ascii")
+    env = _restic_env(store)
+    if env["RESTIC_REPOSITORY"]:
+        rc = _cat_config(env, password)
+        if rc == _WRONG_PASSWORD:
+            return {"ok": False, "error": "the repository already holds backups "
+                    "encrypted under another password. Restore this server "
+                    "from it on the Restore page, or point Settings at an "
+                    "empty repository"}
+        if rc != _NO_REPOSITORY:
+            return {"ok": False, "error": f"could not read the repository "
+                    f"(restic exit {rc}); check its address and keys"}
+    store["secrets"]["backup_restic_password"] = password
+    _save_store(store, store_path)
+    return {"ok": True, "password": password}
 
 
 def cmd_validate(store: dict, req: dict) -> dict:
@@ -109,14 +169,7 @@ def cmd_rotate(store: dict, req: dict, store_path: str, pass_file: str) -> dict:
     # Persist the new password: the on-box store (rides the backup) + the
     # runtime pass file the backup service reads.
     store["secrets"]["backup_restic_password"] = new_password
-    tmp = store_path + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    try:
-        os.write(fd, json.dumps(store, indent=2, sort_keys=True).encode())
-    finally:
-        os.close(fd)
-    os.replace(tmp, store_path)
-    os.chmod(store_path, 0o600)
+    _save_store(store, store_path)
     Path(pass_file).write_text(new_password + "\n")
     os.chmod(pass_file, 0o600)
     return {"ok": True}
@@ -130,7 +183,9 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("expected a JSON object on stdin")
     store = _load_store(store_path)
     op = req.get("op")
-    if op == "validate":
+    if op == "generate":
+        result = cmd_generate(store, store_path)
+    elif op == "validate":
         result = cmd_validate(store, req)
     elif op == "rotate":
         result = cmd_rotate(store, req, store_path, pass_file)

@@ -11,13 +11,9 @@
 #      live in /etc/catena/config.json. Either way the role is RECONCILE: it can
 #      run on the host, unattended, from the image, on a timer.
 #
-# The old line was drawn along "is this a file on the host", which is a storage
-# location rather than an owner. It put the Gatus endpoint list -- a list of
-# things the product decided to probe, containing nothing about the host -- on
-# the slow path, so fixing a group name meant an operator with a laptop.
-#
-# Migration state, findings and what remains: CONVERGE_MIGRATION.md, beside
-# this file. Read it before moving anything across the line.
+# Ownership draws the line, whatever the storage location: the Gatus endpoint
+# list sits in a file on the host, yet it lists what the product decided to
+# probe and nothing about the host, so it is reconcile-side.
 #
 # This file is the declaration. tests/unit/test_converge_boundary.py is the
 # enforcement, and playbooks/reconcile.yml is the half that will eventually run
@@ -28,8 +24,9 @@
 bootstrap_roles:
   - name: common
     why: >-
-      The OS baseline and the ufw lockdown. Sets up the account and the packages
-      every later role assumes, and closes public SSH at the end of an install.
+      The OS baseline and the ufw lockdown. Sets up the accounts and the
+      packages every later role assumes, and holds the task file that closes
+      public SSH when the panel's Lockdown asks.
   - name: host_hardening
     why: >-
       Kernel and module hardening, applied before dockerd's first start so its
@@ -71,6 +68,8 @@ bootstrap_roles:
 reconcile_roles:
   - public_ports
   - payload
+  - host_maintenance
+  - swarm
   - traefik
   - postgres
   - portainer
@@ -78,7 +77,6 @@ reconcile_roles:
   - keycloak
   - oauth2_proxy
   - infrastructure
-  - host_maintenance
   - catena-admin
   - coturn
   - backup
@@ -103,8 +101,9 @@ own_playbook_roles:
     why: >-
       Deletes this host's Cloudflare tunnel before handing off to
       cloudflare_tunnel to mint a new one. A converge able to do that would
-      drop the public edge on every run. The delete is an intent somebody
-      declares by running playbooks/rotate-tunnel.yml.
+      drop the public edge on every run. The delete is an intent a client
+      declares with the panel's tunnel regenerate, which runs
+      playbooks/rotate-tunnel.yml.
 
 # NOTHING STRADDLES ANY MORE, which is what phase 1b was for.
 #
@@ -152,3 +151,20 @@ bootstrap_owned_paths:
   - /usr/local/sbin/catena-admin-runner
   - /etc/sysctl.d/
   - /etc/modprobe.d/
+  - /etc/ansible/facts.d/
+
+# Paths a bootstrap-side TASK may never write.
+#
+# The reconcile side owns them, so a host that converges itself keeps them
+# current. A bootstrap task writing one too is a second writer that runs only
+# when an operator does, and whichever ran last wins until the other runs again.
+reconcile_owned_paths:
+  - /etc/apt/apt.conf.d/20auto-upgrades
+  - /etc/apt/apt.conf.d/51catena-origins
+  - /etc/needrestart/conf.d/
+  - /etc/systemd/journald.conf.d/
+  - daily.env
+  - stack-update.env
+  - managed-services.json
+  - catena-admin.json
+  - catena-network-nudge

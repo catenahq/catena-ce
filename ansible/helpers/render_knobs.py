@@ -49,7 +49,9 @@ SECTIONS = ("secrets", "config")
 # this repo cannot import Go -- so the panel's own schema test is what holds
 # the two lists together.
 GROUPS = ("tunnel", "backup", "mail", "alerts", "share", "access", "license",
-          "hostnames")
+          "hostnames", "server")
+# The named sources the graphical installer suggests values from.
+GUI_SUGGESTION_SOURCES = ("ssh_keys",)
 
 # The rendered template's comment width, and the characters a `.env` value
 # cannot carry unquoted. A default holding one of them would render a line that
@@ -160,10 +162,14 @@ def load(source: Path = SOURCE) -> dict:
         name = step.get("name")
         _require(isinstance(name, str) and name, f"gui_steps: {step!r} has no name")
         _require(name not in step_names, f"gui_steps {name}: declared twice")
-        for field in ("title", "doc", "validates"):
+        for field in ("title", "doc"):
             value = step.get(field)
             _require(isinstance(value, str) and value.strip(),
                      f"gui_steps {name}: no {field}")
+        # Absent means the section has nothing to prove and gets no check.
+        if "validates" in step:
+            _require(isinstance(step["validates"], str) and step["validates"].strip(),
+                     f"gui_steps {name}: validates is empty; leave it out instead")
         step_names.append(name)
 
     seen: set[str] = set()
@@ -175,10 +181,31 @@ def load(source: Path = SOURCE) -> dict:
         seen.add(key)
         if "panel" in entry:
             _check_panel(key, entry["panel"])
+        # One place to edit each value: the `.env` the installer writes, or the
+        # panel. A knob in both is a value the client changes in one and finds
+        # the other still holding the old one.
+        _require(not ("env" in entry and entry.get("panel")),
+                 f"{key}: has an env home and a panel field; a value lives in "
+                 "one place")
         if "step" in entry:
             _require(entry["step"] in step_names,
                      f"{key}: step {entry['step']!r} is not a declared gui step, "
                      f"so the launcher would have nowhere to ask for it")
+            _require("env" in entry,
+                     f"{key}: the installer asks only for what its .env keeps, "
+                     "and this knob has no env home")
+        for field in ("required", "gui_suggestions_from"):
+            if field in entry:
+                _require("step" in entry,
+                         f"{key}: {field} is read by the launcher, and this knob "
+                         "has no step")
+        if "required" in entry:
+            _require(isinstance(entry["required"], bool),
+                     f"{key}: required is not a boolean")
+        if "gui_suggestions_from" in entry:
+            _require(entry["gui_suggestions_from"] in GUI_SUGGESTION_SOURCES,
+                     f"{key}: gui_suggestions_from is not one of "
+                     f"{GUI_SUGGESTION_SOURCES}")
 
     for entry in secrets:
         key = entry["key"]

@@ -190,6 +190,66 @@ def test_a_section_with_no_key_is_refused(tmp_path):
         render_knobs.load(source)
 
 
+def _refused(tmp_path, doc: dict, match: str) -> None:
+    source = tmp_path / "knobs.yml"
+    source.write_text(yaml.safe_dump(doc, sort_keys=False))
+    with pytest.raises(render_knobs.KnobError, match=match):
+        render_knobs.load(source)
+
+
+def _entry(doc: dict, key: str) -> dict:
+    return next(e for e in [*doc["secrets"], *doc["config"]] if e["key"] == key)
+
+
+def test_launcher_fields_need_a_step_and_a_sound_shape(tmp_path):
+    """`required` and the suggestion source are read by the launcher alone, so
+    on a knob it never asks for they are read by nothing, and a malformed one
+    would reach the page as a broken control."""
+    doc = render_knobs.load()
+    _entry(doc, "OPS_USER")["required"] = True
+    _refused(tmp_path, doc, "has no step")
+
+    doc = render_knobs.load()
+    _entry(doc, "HOST_PUBLIC_IP")["required"] = "yes"
+    _refused(tmp_path, doc, "not a boolean")
+
+    doc = render_knobs.load()
+    _entry(doc, "SSH_PRIVATE_KEY")["gui_suggestions_from"] = "planets"
+    _refused(tmp_path, doc, "gui_suggestions_from")
+
+
+def test_a_value_has_one_place_to_be_edited(tmp_path):
+    """The `.env` or the panel, never both: a client who changes it in one
+    finds the other still holding the old value."""
+    doc = render_knobs.load()
+    _entry(doc, "CLOUDFLARE_ZONE")["env"] = {"section": "admin", "default": ""}
+    _refused(tmp_path, doc, "one place")
+
+
+def test_the_installer_asks_only_for_what_its_env_keeps(tmp_path):
+    """A step on a knob with no `.env` home is a question whose answer the
+    installer has nowhere to write."""
+    doc = render_knobs.load()
+    _entry(doc, "CLOUDFLARE_ZONE")["step"] = "target"
+    _refused(tmp_path, doc, "no env home")
+
+
+def test_nothing_the_panel_edits_is_asked_at_install(registry):
+    for entry in [*registry["secrets"], *registry["config"]]:
+        assert not (entry.get("panel") and entry.get("step")), entry["key"]
+
+
+def test_the_installers_required_fields_are_the_ones_it_cannot_install_without(
+        registry):
+    """The server's address, its initial login and SSH port, the keypair that
+    reaches it, and the administrator's email. Nothing else blocks an install:
+    the domain, the tailnet and the backup can all be entered in the panel."""
+    required = {e["key"] for e in [*registry["secrets"], *registry["config"]]
+                if e.get("required")}
+    assert required == {"HOST_PUBLIC_IP", "HOST_INITIAL_USER", "HOST_SSH_PORT",
+                        "SSH_PRIVATE_KEY", "ADMIN_EMAIL"}
+
+
 def test_a_default_that_needs_quoting_is_refused():
     """A template default is an illustration, and one that renders a line
     parsing back as something else is the wrong illustration."""

@@ -10,19 +10,18 @@ nextcloud-talk-hpb-1, ...) have nothing to heal them, so a plain VPS reboot
 can strand Keycloak until the next converge. Observed live: an overlay that
 appeared 2.5s after "Loading containers: done".
 
-Those compose containers are what the nudge protects, which is why it lives
-in bootstrap/roles/docker -- the race is between dockerd's container restore and the
-swarm init, both owned by that role.
+Those compose containers are what the nudge protects. It lives in
+reconcile/roles/swarm, with the rest of the swarm's settings, so a host that
+converges itself keeps it current.
 
 What must hold:
   - the heal is gated on the EXACT overlay-not-found error, so a container
-    the operator stopped on purpose is never started behind their back
-    (the blanket-reap mistake, twice reverted);
+    the operator stopped on purpose is never started behind their back;
   - swarm task containers are skipped -- swarm owns their lifecycle;
   - NO container gets an unconditional start-if-not-running: every start is
     downstream of the error gate;
-  - the traefik-named artifacts stay removed, else a stale drop-in fires a
-    second script alongside this one.
+  - reconcile/roles/traefik ships no nudge artifact, else a second drop-in
+    fires a second script alongside this one.
 
 Run: uv run pytest tests/unit/test_network_nudge_heals_stranded.py
 """
@@ -34,9 +33,10 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3] / "ansible"
 SCRIPT = ROOT / "scripts" / "catena-network-nudge.sh"
-TASKS = ROOT / "bootstrap" / "roles" / "docker" / "tasks" / "main.yml"
-UNIT = ROOT / "bootstrap" / "roles" / "docker" / "templates" / "catena-network-nudge.service.j2"
-DROPIN = ROOT / "bootstrap" / "roles" / "docker" / "templates" / "docker-service-nudge-dropin.conf.j2"
+SWARM = ROOT / "reconcile" / "roles" / "swarm"
+TASKS = SWARM / "tasks" / "main.yml"
+UNIT = SWARM / "templates" / "catena-network-nudge.service.j2"
+DROPIN = SWARM / "templates" / "docker-service-nudge-dropin.conf.j2"
 
 
 def _find(name_fragment: str) -> dict:
@@ -80,8 +80,7 @@ def test_no_container_gets_an_unconditional_start():
     catena-traefik is a swarm service, the task manager re-dispatches it, and
     the swarm-task skip above excludes it from this loop anyway.
     """
-    # Comment lines stripped: the header explains why the special case went,
-    # and naming it there must not read as the thing still being there.
+    # Comment lines stripped: a comment naming catena-traefik is not a start.
     body = "\n".join(
         line for line in SCRIPT.read_text().splitlines()
         if not line.lstrip().startswith("#")
@@ -90,7 +89,7 @@ def test_no_container_gets_an_unconditional_start():
     assert "catena-traefik" not in body
     assert "$CTR" not in body
     assert "not running; starting" not in body
-    # Every start is now downstream of the error gate.
+    # Every start is downstream of the error gate.
     assert body.index(".State.Error") < body.index("docker start")
 
 
@@ -104,9 +103,9 @@ def test_role_installs_the_artifacts():
     assert tmpl["dest"] == "/etc/systemd/system/catena-network-nudge.service"
 
 
-def test_the_nudge_is_owned_by_roles_docker_not_roles_traefik():
-    """The race is between dockerd's container restore and the swarm init.
-    reconcile/roles/traefik has no plain container left and no relationship to it."""
+def test_the_traefik_role_ships_no_nudge():
+    """reconcile/roles/swarm owns the nudge; reconcile/roles/traefik has no
+    plain container and no relationship to the race."""
     traefik_tasks = (ROOT / "reconcile" / "roles" / "traefik" / "tasks" / "main.yml").read_text()
     assert "catena-network-nudge.service.j2" not in traefik_tasks
     assert not (ROOT / "reconcile" / "roles" / "traefik" / "templates"
@@ -117,10 +116,10 @@ def test_timeout_reaches_the_script_on_both_paths():
     # The drop-in dispatches the SCRIPT (not the unit), so it needs its own
     # env; the unit carries the same values for the manual diagnostic path.
     dropin = DROPIN.read_text()
-    assert ("--setenv=CATENA_NETWORK_NUDGE_TIMEOUT={{ docker_network_nudge_timeout }}"
+    assert ("--setenv=CATENA_NETWORK_NUDGE_TIMEOUT={{ swarm_network_nudge_timeout }}"
             in dropin)
     assert "--setenv=CATENA_NETWORK={{ catena_network_name }}" in dropin
     unit = UNIT.read_text()
-    assert ("Environment=CATENA_NETWORK_NUDGE_TIMEOUT={{ docker_network_nudge_timeout }}"
+    assert ("Environment=CATENA_NETWORK_NUDGE_TIMEOUT={{ swarm_network_nudge_timeout }}"
             in unit)
     assert "CATENA_NETWORK_NUDGE_TIMEOUT" in SCRIPT.read_text()

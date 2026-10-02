@@ -18,8 +18,8 @@ requiring a manager, and postgres deliberately not requiring one.
 Restating them here would mean reading dicts this repo does not feed to anything
 -- the stale-oracle failure this suite exists to catch in other people's code.
 
-What this repo still owns is the OTHER half of the string: bootstrap/roles/docker sets
-the label the engine's constraints select on. If the two disagree, every
+What this repo still owns is the OTHER half of the string: reconcile/roles/swarm
+sets the label the engine's constraints select on. If the two disagree, every
 constrained service becomes unschedulable and the failure is a pending task
 with no explanation. The cross-repo version of this check is
 `audit --check-swarm` in ops, which walks the workspace; this is the local
@@ -40,10 +40,8 @@ _ROLE_ROOTS = (ANSIBLE / "bootstrap" / "roles",
 def _role_dir(name: str) -> Path:
     """Where a role lives, whichever side it is on.
 
-    Phase 1b split roles/ into bootstrap/roles/ and reconcile/roles/. Resolved
-    by search rather than by a hard-coded side so a role moving across the line
-    -- which is a thing this migration does -- does not need this file edited
-    too.
+    Resolved by search rather than by a hard-coded side, so a role moving
+    across the line does not need this file edited too.
     """
     for root in _ROLE_ROOTS:
         if (root / name).is_dir():
@@ -64,10 +62,10 @@ def _defaults(role: str) -> dict:
         (_role_dir(role) / "defaults" / "main.yml").read_text())
 
 
-def test_the_node_label_roles_docker_sets_is_the_one_the_engine_constrains_to():
-    label_value = _defaults("docker")["docker_node_role_label"]
+def test_the_node_label_the_swarm_role_sets_is_the_one_the_engine_constrains_to():
+    label_value = _defaults("swarm")["swarm_node_role_label"]
     assert label_value == ENGINE_CONSTRAINT_LABEL_VALUE, (
-        f"bootstrap/roles/docker labels the data node {label_value!r}, but the tier-1 "
+        f"reconcile/roles/swarm labels the data node {label_value!r}, but the tier-1 "
         f"engine constrains to node.labels.catena.role=={ENGINE_CONSTRAINT_LABEL_VALUE}. "
         "Every constrained service would be unschedulable, showing up as a "
         "pending task with no explanation"
@@ -77,7 +75,7 @@ def test_the_node_label_roles_docker_sets_is_the_one_the_engine_constrains_to():
 def test_the_label_is_applied_to_the_node_this_repo_converges():
     """A label the engine selects on and nothing ever sets is the same failure
     as a mismatched one, and reads as a converge that simply did nothing."""
-    text = (_role_dir("docker") / "tasks" / "main.yml").read_text()
-    assert "docker_node_role_label" in text, (
-        "bootstrap/roles/docker declares the label but never applies it to the node"
+    text = (_role_dir("swarm") / "tasks" / "main.yml").read_text()
+    assert "swarm_node_role_label" in text, (
+        "reconcile/roles/swarm declares the label but never applies it to the node"
     )

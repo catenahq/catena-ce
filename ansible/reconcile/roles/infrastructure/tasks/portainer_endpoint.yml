@@ -16,15 +16,13 @@
 
 - name: "Portainer: list environments (endpoints)"
   ansible.builtin.uri:
-    url: "{{ portainer_api_base }}/endpoints"
+    url: "{{ portainer_api_base_onbox }}/endpoints"
     method: GET
     headers:
       X-API-Key: "{{ portainer_api_key }}"
     status_code: 200
     return_content: true
   register: _portainer_endpoints
-  delegate_to: localhost
-  become: false
   # Portainer can be momentarily unreachable when this role runs right after
   # a heavy converge / swarm reschedule. Wait for the API instead of failing.
   retries: 30

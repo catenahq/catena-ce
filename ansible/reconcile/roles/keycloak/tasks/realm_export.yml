@@ -62,7 +62,7 @@
     fail_msg: >-
       Master-realm credentials missing before kcadm login
       (admin_email_len={{ admin_email | default('') | length }},
-       vault_admin_password_len={{ admin_password | default('') | length }}).
+       admin_password_len={{ admin_password | default('') | length }}).
       Likely cause: these keys are absent from the on-box config store.
       Inspect /etc/catena/config.json.
   when: (_kc_export_server_ct.stdout | default('') | length) > 0

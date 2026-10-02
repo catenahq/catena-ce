@@ -116,7 +116,8 @@ catena_payload_image_path: "/usr/local/share/catena-ee"
 # protected from a silent overwrite by an unstamped build on the next converge.
 catena_payload_marker: "/etc/catena/.payload-image"
 
-# Pull the image before extracting. Production pulls the published GHCR tag.
+# Pull the image before extracting, unless a digest-pinned reference is already
+# on the host (tasks/main.yml). Production pulls the published GHCR tag.
 # The test bench builds local/catena-admin:bench ON the VPS and has no
 # published tag to pull -- and must never exercise the last published image in
 # place of the working tree -- so it sets CATENA_PAYLOAD_PULL=false.

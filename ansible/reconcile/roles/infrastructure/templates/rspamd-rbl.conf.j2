@@ -1,7 +1,8 @@
 # {{ ansible_managed }}
 # Spamhaus Data Query Service (DQS) RBL rules for rspamd. Vendored
 # VERBATIM from spamhaus/rspamd-dqs (3.x/rbl.conf), with the upstream
-# `your_DQS_key` placeholder substituted by the vault DQS key. Source:
+# `your_DQS_key` placeholder substituted by the store's DQS key
+# (mailserver_spamhaus_dqs_key). Source:
 #   https://github.com/spamhaus/rspamd-dqs/blob/master/3.x/rbl.conf
 # Re-vendor (re-run the fetch) when upstream changes; do not hand-edit
 # the rule bodies. Dropped into the dms container's rspamd/local.d/ by

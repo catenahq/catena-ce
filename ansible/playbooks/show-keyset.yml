@@ -1,10 +1,11 @@
 ---
-# Surface the user-held DR keyset (admin + restic + console passwords) ONCE,
-# plus the first-login URLs, at the end of a fresh `catena-cli install`. The
-# passwords are minted ON-BOX (helpers/onbox_config.py USER_HELD_SECRETS) and
-# never touch the laptop, so the installer reads them back from the store here
-# and prints them for the user's password manager. Deliberately NOT no_log on
-# the debug: showing them once is the point.
+# Surface the passwords the converge minted (admin + console) ONCE, plus the
+# first-login URLs, at the end of a fresh `catena-cli install`. They are minted
+# ON-BOX (helpers/onbox_config.py USER_HELD_SECRETS) and never touch the laptop,
+# so the installer reads them back from the store here and prints them for the
+# user's password manager. Deliberately NOT no_log on the debug: showing them
+# once is the point. The backup encryption password is not among them: the
+# client generates it in the panel, beside the repository it encrypts.
 #
 # Everything the user must write down is in the FINAL task, as one block. The
 # reads and the FSS delete run ahead of it so nothing prints after the thing
@@ -17,6 +18,13 @@
   hosts: "{{ stage_hosts | default('vps') }}"
   become: true
   gather_facts: false
+
+  # The admin email, the domain and the subdomains the URLs are built from are
+  # store keys, published as cfg_* facts by the seed half of the loader.
+  pre_tasks:
+    - name: "onbox: publish the store-owned config"
+      ansible.builtin.include_tasks:
+        file: tasks/seed_onbox_config.yml
 
   tasks:
     # The journal's tamper-evidence key (bootstrap/roles/common stages it at mint time).
@@ -85,12 +93,13 @@
           SAVE THESE TO YOUR PASSWORD MANAGER NOW -- shown once.
 
             Admin password (Portainer + Keycloak): {{ _secrets.admin_password }}
-            Restic backup password (DR keyset):    {{ _secrets.backup_restic_password }}
             Console password for `{{ ops_user | default('ops') }}` (break-glass): {{ _secrets.console_recovery_password }}
 
-          The restic password is the ONE secret you must hold off-box: with it
-          plus your S3 keys and repo URL you can rebuild a wiped VPS from
-          backup. Without it your backups cannot be restored, by anyone.
+          The backup encryption password is generated in the panel, under
+          Settings > Backup, with the repository it encrypts: save it then.
+          With it plus your S3 keys and repository address a wiped server is
+          rebuilt from backup; without it the backups cannot be restored, by
+          anyone.
 
           The console password is your way back in when the network path is
           gone. SSH refuses it (key-only); it works at the provider web
@@ -111,22 +120,33 @@
           First login. Same password everywhere; the USERNAME differs per
           service, so it is spelled out per service below.
 
-            catena-admin panel  https://{{ catena_admin_hostname }}
-                                http://{{ ansible_host }}:{{ _admin_port }}  (tailnet, no Cloudflare)
+            catena-admin panel  http://localhost:{{ _admin_port }}  (over the SSH forward below)
+          {% if not (catena_public_surface_deferred | bool) %}
+                                https://{{ catena_admin_hostname }}
+          {% endif %}
                                 username: {{ admin_email }}
 
-            Portainer           https://{{ portainer_admin_hostname }}
-                                http://{{ ansible_host }}:{{ portainer_ui_port }}  (tailnet, no Cloudflare)
+            Portainer           http://localhost:{{ portainer_ui_port }}  (over the SSH forward below)
+          {% if not (catena_public_surface_deferred | bool) %}
+                                https://{{ portainer_admin_hostname }}
+          {% endif %}
                                 username: admin
                                 (the literal word `admin`, NOT an email address --
                                  Portainer's first-boot admin has no email field)
 
-          The public hostnames are SSO-gated and go through the Cloudflare
-          tunnel; the tailnet addresses stay reachable when the tunnel or
-          Cloudflare is not, and are the way in if SSO itself is broken.
+          The localhost addresses work whenever SSH does, through a forward
+          as the `{{ catena_panel_user }}` account, which can only forward:
 
-          On a public hostname the SSO gate asks first, and it wants
-          {{ admin_email }}. The service's own login form comes after it, and
-          asks for the username listed above -- so reaching Portainer through
-          the tunnel means the email once, then `admin`.
+            ssh -N -L {{ _admin_port }}:127.0.0.1:{{ _admin_port }} -L {{ portainer_ui_port }}:127.0.0.1:{{ portainer_ui_port }} {{ catena_panel_user }}@{{ ansible_host }}
+
+          Enter the domain, backups and the private network in the panel's
+          Settings.
+          {% if not (catena_public_surface_deferred | bool) %}
+
+          The public hostnames are SSO-gated and go through the Cloudflare
+          tunnel. There the SSO gate asks first, and it wants {{ admin_email }}.
+          The service's own login form comes after it, and asks for the
+          username listed above -- so reaching Portainer through the tunnel
+          means the email once, then `admin`.
+          {% endif %}
           ==================================================================

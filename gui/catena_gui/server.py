@@ -1,17 +1,18 @@
 """The browser UI, on loopback, serving the run this process owns.
 
 LOOPBACK ONLY, and bound explicitly to 127.0.0.1 rather than left to a default.
-The pages carry a client's cloud credentials in form fields; a server that
-bound every interface would put them on whatever network the machine happens to
-be on, including a cafe's.
+The pages can carry the provider's password for a client's server; a server
+that bound every interface would put it on whatever network the machine happens
+to be on, including a cafe's.
 
 THE BROWSER IS A VIEW. Every answer goes straight into the Run this process
 holds, and the state that matters is in the inventory. Closing the tab loses
 nothing checked; reopening it shows the same page.
 
-TWO PAGES. The inventory picker, then one install page holding every section
-in a single form: checking one section saves what was typed in all of them, so
-nothing entered further down is lost to a check further up.
+THREE PAGES. The inventory picker; one install page holding every section in a
+single form, where checking one section saves what was typed in all of them, so
+nothing entered further down is lost to a check further up; and the access
+page, which says how the panel is reached once the install ends.
 
 STDLIB, DELIBERATELY. An installer on loopback needs routing, forms and HTML
 and nothing a framework adds beyond that -- and every dependency here is one a
@@ -74,6 +75,8 @@ button { padding: .5rem 1.1rem; font: inherit;
 ul.inv { list-style: none; padding: 0; margin: .75rem 0; }
 ul.inv li { margin: 0 0 .4rem; }
 ul.inv button { display: block; width: 100%; text-align: left; }
+ul.links { padding-left: 1.2rem; margin: .5rem 0; }
+code { font-family: ui-monospace, monospace; font-size: .9rem; }
 ul.checks { list-style: none; padding: 0; margin: .75rem 0 0; }
 ul.checks li { padding: .2rem 0; }
 .bad { color: var(--bad); } .warn { color: var(--warn); } .ok { color: var(--ok); }
@@ -91,12 +94,15 @@ def _page(title: str, body: str) -> bytes:
     ).encode("utf-8")
 
 
-def _nav(inventory: str, *, on_inventory: bool) -> str:
-    out = ["<nav>", f'<a href="/inventory"{" class=on" if on_inventory else ""}>'
-                    "Inventory</a>"]
+def _nav(inventory: str, *, on: str) -> str:
+    """`on` is the page shown: "inventory", "install" or "access"."""
+    def link(href: str, name: str, text: str) -> str:
+        return f'<a href="{href}"{" class=on" if on == name else ""}>{text}</a>'
+
+    out = ["<nav>", link("/inventory", "inventory", "Inventory")]
     if inventory:
-        out.append(f'<a href="/"{"" if on_inventory else " class=on"}>'
-                   f"Install {html.escape(inventory)}</a>")
+        out.append(link("/", "install", f"Install {html.escape(inventory)}"))
+        out.append(link("/access", "access", "Reaching the panel"))
     out.append("</nav>")
     return "".join(out)
 
@@ -107,97 +113,47 @@ def _tip(text: str, about: str) -> str:
             f'<span class=tt role=tooltip>{html.escape(text)}</span></span>')
 
 
-def _field_html(field: steps_mod.Field, value: str, *, shown: bool,
-                governed: bool) -> str:
+def _field_html(field: steps_mod.Field, value: str) -> str:
     """One field: its name, `(optional)` and a `(?)` holding the explanation,
     above the control.
 
-    Every field is rendered and a governed one is hidden rather than left out,
-    so the page shows or hides it the moment its governing choice changes
-    (`governed`: the governing field is on this page too). `shown` is the
-    server's answer from what is saved, for a browser without scripts."""
+    A field limited to a list is a select, and a saved value missing from the
+    list stays selected as an extra option, so opening the page never changes
+    it. A field with suggestions is free text with the suggestions offered
+    beside it: the key the provider installed is usually one of the pairs
+    already on this machine, and sometimes it is not."""
     key = html.escape(field.key)
     fid = f"f-{key}"
-    if field.options:
+    choices = list(field.options)
+    if value and choices and value not in choices:
+        choices.append(value)
+    if choices:
         opts = "".join(
             f'<option value="{html.escape(o)}"'
-            f'{" selected" if o == value else ""}>{html.escape(o)}</option>'
-            for o in field.options)
+            f'{" selected" if o == value else ""}>{html.escape(o) or "(none)"}</option>'
+            for o in choices)
         control = f'<select id="{fid}" name="{key}">{opts}</select>'
     else:
         kind = "password" if field.secret else "text"
         placeholder = (f' placeholder="{html.escape(field.example)}"'
                        if field.example else "")
+        listed = f' list="s-{key}"' if field.suggestions else ""
         control = (f'<input type="{kind}" id="{fid}" name="{key}" '
-                   f'value="{html.escape(value)}"{placeholder} autocomplete="off">')
+                   f'value="{html.escape(value)}"{placeholder}{listed} '
+                   'autocomplete="off">')
+        if field.suggestions:
+            control += (f'<datalist id="s-{key}">'
+                        + "".join(f'<option value="{html.escape(s)}">'
+                                  for s in field.suggestions)
+                        + "</datalist>")
     notes = [field.doc] if field.doc else []
     if field.secret:
         notes.append("Not saved: entered again each time the installer is opened.")
     tip = _tip("\n\n".join(notes), f"About {field.key}") if notes else ""
     optional = " <span class=d>(optional)</span>" if field.optional else ""
-    gov = (f' data-gov="{html.escape(field.governor)}"'
-           f' data-vals="{html.escape(" ".join(field.governor_values))}"'
-           if governed else "")
-    return (f'<div class=field data-key="{key}"{gov}{"" if shown else " hidden"}>'
+    return (f'<div class=field data-key="{key}">'
             f'<div class=head><label class=k for="{fid}">{key}</label>'
             f"{optional}{tip}</div>{control}</div>")
-
-
-def _governors_first(fields: list[steps_mod.Field]) -> list[steps_mod.Field]:
-    """The section's fields with each choice placed before the fields it
-    governs, so changing a choice shows or hides fields below it rather than
-    above it. Otherwise in registry order."""
-    by_key = {f.key: f for f in fields}
-    out: list[steps_mod.Field] = []
-
-    def place(field: steps_mod.Field) -> None:
-        if any(f.key == field.key for f in out):
-            return
-        governor = by_key.get(field.governor)
-        if governor is not None:
-            place(governor)
-        out.append(field)
-
-    for field in fields:
-        place(field)
-    return out
-
-
-def _visible(field: steps_mod.Field, by_key: dict[str, steps_mod.Field],
-             values: dict[str, str]) -> bool:
-    """Whether a field shows, given what every field shows: its governor's
-    value is one it applies to, and its governor shows too."""
-    if not field.governor:
-        return True
-    governor = by_key.get(field.governor)
-    if governor is not None and not _visible(governor, by_key, values):
-        return False
-    return values.get(field.governor, "") in field.governor_values
-
-
-# The same rule as _visible, in the browser: shows or hides each governed field
-# as its governing choice changes, and once on load.
-_SCRIPT = """
-(function () {
-  function value(key) {
-    var el = document.querySelector('[name="' + key + '"]');
-    return el ? el.value : "";
-  }
-  function shown(box) {
-    var gov = box.getAttribute("data-gov");
-    var govBox = document.querySelector('.field[data-key="' + gov + '"]');
-    if (govBox && govBox.hasAttribute("data-gov") && !shown(govBox)) return false;
-    return box.getAttribute("data-vals").split(" ").indexOf(value(gov)) >= 0;
-  }
-  function apply() {
-    document.querySelectorAll(".field[data-gov]").forEach(function (box) {
-      box.hidden = !shown(box);
-    });
-  }
-  document.addEventListener("change", apply);
-  apply();
-})();
-"""
 
 
 def _inventory_html(names: list[str], current: str, problem: str) -> str:
@@ -214,8 +170,8 @@ def _inventory_html(names: list[str], current: str, problem: str) -> str:
     return (
         "<h1>Inventory</h1><p class=doc>Each server has an inventory, a "
         "directory under ansible/inventory/ holding its settings. Answers are "
-        "saved there each time a section is checked. Credentials never are: "
-        "they are asked for again each time the installer is opened.</p>"
+        "saved there each time a section is checked. A password never is: it "
+        "is asked for again each time the installer is opened.</p>"
         f"{existing}{error}"
         "<form method=post action=/inventory><div class=field><div class=head>"
         "<label class=k for=f-create>new inventory</label>"
@@ -237,6 +193,22 @@ def _checks_html(checks: list[steps_mod.Check]) -> str:
     return f'<ul class=checks>{"".join(rows)}</ul>'
 
 
+def _access_html(way: steps_mod.WayIn) -> str:
+    """The third page: the SSH forward into the panel, and what to do there."""
+    urls = "".join(f"<li><code>{html.escape(u)}</code></li>" for u in way.urls)
+    return (
+        "<h1>Reaching the panel</h1><p class=doc>The panel and Portainer answer "
+        "the server itself only. An SSH forward as the panel account, which "
+        "can do nothing but forward, reaches them:</p>"
+        f"<pre>{html.escape(way.command)}</pre>"
+        f"<p class=doc>Then open:</p><ul class=links>{urls}</ul>"
+        f"<p class=doc>{html.escape(way.login)}</p>"
+        "<section><h2>Then, in the panel</h2><p class=doc>Settings is where the "
+        "rest is entered: the domain and its Cloudflare token, which publish "
+        "the panel at dash.&lt;domain&gt;; the private network, behind which "
+        "Lockdown closes public SSH; and the backups.</p></section>")
+
+
 def start_install(current: run_mod.Run, ansible_dir: Path) -> threading.Thread:
     """Run `catena-cli install` in the background, streaming what it prints to
     the console window and to the run's in-memory tail.
@@ -248,7 +220,7 @@ def start_install(current: run_mod.Run, ansible_dir: Path) -> threading.Thread:
 
     Nothing it prints is written to a file: it ends with the passwords the
     install shows once. The install.yaml is removed whatever happens, for the
-    same reason: it carries the client's cloud credentials.
+    same reason: it can carry the provider's password.
     """
     body_yaml = render.install_yaml(inventory=current.inventory,
                                     answers=current.answers,
@@ -301,8 +273,10 @@ def _install_html(current: run_mod.Run) -> str:
     }
     refresh = ('<meta http-equiv=refresh content="5;url=/#install">'
                if current.state == run_mod.STATE_INSTALLING else "")
+    after = ('<p><a href="/access">How to reach the panel now</a></p>'
+             if current.state == run_mod.STATE_DONE else "")
     return (f"<section id=install>{refresh}<h2>Install output</h2>"
-            f"<p class=doc>{html.escape(words[current.state])}</p>"
+            f"<p class=doc>{html.escape(words[current.state])}</p>{after}"
             f"<pre>{html.escape(chr(10).join(lines))}</pre></section>")
 
 
@@ -348,6 +322,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if path == "/inventory":
             self._render_inventory()
             return
+        if path == "/access":
+            if self.run is None:
+                self._redirect("/inventory")
+                return
+            self._render_access()
+            return
         self._send(_page("Not found", "<main><h1>Not found</h1></main>"), 404)
 
     def _form(self) -> dict[str, list[str]]:
@@ -357,7 +337,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
     def _render_inventory(self) -> None:
         current = self.run.inventory if self.run else ""
-        body = (f"{_nav(current, on_inventory=True)}<main>"
+        body = (f"{_nav(current, on='inventory')}<main>"
                 f"{_inventory_html(run_mod.inventories(self.inventory_root), current, _Handler.inventory_problem)}"
                 "</main>")
         _Handler.inventory_problem = ""
@@ -425,9 +405,13 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         checked = (form.get("check") or [""])[0]
         names = ([s.name for s in self.all_steps] if installing
                  else [checked] if self._step(checked) else [])
+        values = self._shown_values()
         for name in names:
-            _Handler.last_checks[name] = steps_mod.validate(
-                name, self.run.answers, self.run.secrets)
+            step = self._step(name)
+            missing = steps_mod.missing_required(step, values) if step else []
+            _Handler.last_checks[name] = missing + (
+                [] if missing else steps_mod.validate(
+                    name, self.run.answers, self.run.secrets))
         blocked = next((n for n in names
                         if steps_mod.blocked(_Handler.last_checks[n])), "")
         self.run.step = blocked or checked or self.run.step
@@ -449,13 +433,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     def _section_html(self, step: steps_mod.Step, started: bool) -> str:
         """One section: its fields, then its button with the results of its
         last check directly under it. The last section's button is Install."""
-        by_key = {f.key: f for s in self.all_steps for f in s.fields}
         values = self._shown_values()
-        rows = []
-        for field in _governors_first(step.fields):
-            rows.append(_field_html(field, values[field.key],
-                                    shown=_visible(field, by_key, values),
-                                    governed=field.governor in by_key))
+        rows = [_field_html(field, values[field.key]) for field in step.fields]
         last = step.name == self.all_steps[-1].name
         if last:
             acked = self.run.value("_keyset_acknowledged") == "yes"
@@ -464,7 +443,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 f'{" checked" if acked else ""}>'
                 "<span>I have somewhere to save the three passwords and the "
                 "journal key the installer shows once.</span></label>")
-        if started:
+        if started or not (last or step.validates):
+            # A section with nothing to prove has no Check: its answers are
+            # saved with the next check or with Install.
             action = ""
         elif last:
             action = ("<div class=act><button type=submit name=install value=yes>"
@@ -489,16 +470,20 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         started = self.run.state != run_mod.STATE_ANSWERING
         sections = "".join(self._section_html(s, started) for s in self.all_steps)
         body = (
-            f"{_nav(self.run.inventory, on_inventory=False)}<main>"
+            f"{_nav(self.run.inventory, on='install')}<main>"
             f"<h1>Install {html.escape(self.run.inventory)}</h1>"
             "<p class=doc>Answers are saved to ansible/inventory/"
             f"{html.escape(self.run.inventory)}/.env each time a section is "
-            "checked. Credentials are not.</p>"
+            "checked. The password is not.</p>"
             f'<form method=post action="/"><fieldset{" disabled" if started else ""}>'
             f"{sections}</fieldset></form>"
-            f"{_install_html(self.run)}"
-            f"<script>{_SCRIPT}</script></main>")
+            f"{_install_html(self.run)}</main>")
         self._send(_page(f"Install {self.run.inventory}", body))
+
+    def _render_access(self) -> None:
+        body = (f"{_nav(self.run.inventory, on='access')}<main>"
+                f"{_access_html(steps_mod.way_in(self.run.answers))}</main>")
+        self._send(_page("Reaching the panel", body))
 
 
 def serve(current: run_mod.Run | None, doc: dict, *, port: int,
@@ -506,8 +491,9 @@ def serve(current: run_mod.Run | None, doc: dict, *, port: int,
     """Serve until the console process is stopped. With no `current` run the
     first page is the inventory picker.
 
-    ThreadingHTTPServer so a probe that takes ten seconds -- and one of them
-    reaches Cloudflare -- does not make the rest of the UI look hung.
+    ThreadingHTTPServer so a probe that takes ten seconds -- an SSH login
+    waiting on a server still booting -- does not make the rest of the UI look
+    hung.
     """
     _Handler.run = current
     _Handler.doc = doc

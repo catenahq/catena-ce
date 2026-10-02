@@ -12,6 +12,8 @@ via helpers/public_ports.py, and idempotently applies the firewall rule plan:
      containers, so deploying a template opens its ports without a converge.
 
 Then it:
+  - reopens administrative SSH to the internet while this host's tailnet is
+    down, on a host whose panel Lockdown narrowed it (public_ports.ssh_fallback),
   - applies ufw allow rules for host-bound ports (ufw INPUT sees them),
   - applies DOCKER-USER RETURN/DROP guards for docker-bound RESTRICTED ports
     (Docker DNAT bypasses ufw INPUT). docker-bound scope=any ports need no
@@ -90,10 +92,13 @@ def tailnet_available(store_path: str = STORE_PATH) -> bool:
     still reads tailnet. The declaration is the posture; whether it is achieved
     is what the lockdown proof and rules_unapplied are for.
 
-    An unreadable or absent store reads as `tailnet`, which is the posture of
-    every host installed before the key existed and the safer of the two: it
-    keeps the tailscale0 rule, which on a host without the interface matches
-    nothing rather than opening anything.
+    The declaration is TAILNET_PROVIDER: `none` is no tailnet. This runs on a
+    timer, possibly before a converge has settled the store
+    (onbox_config.settle_tailnet_provider), so a store that still says it with
+    ACCESS_METHOD is read the same way. Anything unreadable, absent or blank
+    reads as a tailnet, the safer of the two: it keeps the tailscale0 rule,
+    which on a host without the interface matches nothing rather than opening
+    anything.
     """
     try:
         with open(store_path, encoding="utf-8") as fh:
@@ -105,7 +110,39 @@ def tailnet_available(store_path: str = STORE_PATH) -> bool:
     config = store.get("config")
     if not isinstance(config, dict):
         return True
-    return str(config.get("ACCESS_METHOD") or "tailnet").strip() != "public_ssh"
+    provider = str(config.get("TAILNET_PROVIDER") or "").strip().lower()
+    if provider:
+        return provider != "none"
+    return str(config.get("ACCESS_METHOD") or "").strip() != "public_ssh"
+
+
+def tailnet_up() -> bool:
+    """Whether this host's tailnet is working RIGHT NOW, from tailscaled.
+
+    Detected rather than declared, the inverse of tailnet_available: the
+    question here is whether the path a Lockdown closed public SSH behind still
+    exists. Anything short of a running backend that holds a tailnet address
+    and reaches its control server reads as down, including a tailscaled that
+    is absent, hung, or answering garbage -- a false "down" reopens a port that
+    key-only SSH already guards, a false "up" can leave the host unreachable.
+    """
+    try:
+        out = subprocess.run(["tailscale", "status", "--json"],
+                             capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if out.returncode != 0:
+        return False
+    try:
+        status = json.loads(out.stdout or "null")
+    except ValueError:
+        return False
+    if not isinstance(status, dict) or status.get("BackendState") != "Running":
+        return False
+    me = status.get("Self")
+    if not isinstance(me, dict) or me.get("Online") is False:
+        return False
+    return any(str(ip).startswith("100.") for ip in me.get("TailscaleIPs") or [])
 
 
 def _run(argv: list[str], check_only: bool = False) -> int:
@@ -169,9 +206,10 @@ def harvest_label_entries() -> list[pp.PortEntry]:
 def rule_sig(rule: dict) -> tuple:
     """Identity of a firewall effect, ignoring the descriptive owner. Two
     rules with the same signature have the same firewall effect, so an
-    owner-only change does not churn iptables/ufw."""
+    owner-only change does not churn iptables/ufw. The conntrack state is
+    part of it, so a guard recorded without one is pruned by its own match."""
     return (rule["engine"], rule.get("action"), rule["proto"], rule["port"],
-            rule.get("iface"), rule.get("from"))
+            rule.get("iface"), rule.get("from"), rule.get("ctstate"))
 
 
 def load_applied() -> list[dict]:
@@ -269,14 +307,18 @@ def _docker_user_match(rule: dict) -> list[str]:
 
     --ctorigdstport matches the port the client actually dialled, which is
     what the declaration is about, and is unaffected by the rewrite.
+    --ctstate DNAT keeps the guard on that path: a container's own outbound
+    connection to the same port number is not DNAT'd and passes.
     """
     argv: list[str] = []
     if rule.get("iface"):
         argv += ["-i", rule["iface"]]
     if rule.get("from"):
         argv += ["-s", rule["from"]]
-    argv += ["-p", rule["proto"],
-             "-m", "conntrack", "--ctorigdstport", rule["port"]]
+    argv += ["-p", rule["proto"], "-m", "conntrack"]
+    if rule.get("ctstate"):
+        argv += ["--ctstate", rule["ctstate"]]
+    argv += ["--ctorigdstport", rule["port"]]
     return argv
 
 
@@ -367,6 +409,13 @@ def reconcile() -> tuple[list[pp.PortEntry], int]:
     labels = harvest_label_entries()
     entries = pp.merge(infra, labels)  # infra wins ties
     on_tailnet = tailnet_available()
+    # Asked only when a Lockdown has narrowed SSH: an open declaration has
+    # nothing to reopen, and tailscaled need not exist on such a host.
+    if any(e.owner == pp.SSH_OWNER and e.scope != "any" for e in entries):
+        up = tailnet_up()
+        entries = pp.ssh_fallback(entries, tailnet_up=up)
+        if not up:
+            log("the tailnet is down: public SSH is reopened until it is back")
     plan = pp.rule_plan(entries, tailnet_available=on_tailnet)
 
     # Auto-heal: delete rules whose declaration disappeared since last run

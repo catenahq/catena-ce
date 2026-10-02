@@ -39,6 +39,40 @@
       - "'sudo' in _ops_groups.stdout.split()"
     fail_msg: "ops user is not in sudo group (got: {{ _ops_groups.stdout }})"
 
+# The panel account is how an administrator reaches the two host-only UIs, and
+# it must be able to do NOTHING else: no shell, no sudo, every key restricted to
+# forwarding to the panel and Portainer ports.
+- name: "validate/common: panel forwarding account"
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ catena_panel_user }}"
+  register: _panel_passwd
+  failed_when: false
+  changed_when: false
+
+- name: "validate/common: panel account keys"
+  ansible.builtin.slurp:
+    src: "/home/{{ catena_panel_user }}/.ssh/authorized_keys"
+  register: _panel_keys
+  failed_when: false
+
+- name: "validate/common: panel account has no shell and forward-only keys"
+  ansible.builtin.assert:
+    that:
+      - catena_panel_user in _panel_passwd.ansible_facts.getent_passwd | default({})
+      - _panel_passwd.ansible_facts.getent_passwd[catena_panel_user][5] == '/usr/sbin/nologin'
+      - _keys | length > 0
+      - _keys | reject('match', '^restrict,port-forwarding,permitopen=') | list | length == 0
+      - _keys | select('search', 'permitopen="127.0.0.1:' ~ catena_admin_ui_port ~ '"') | list | length == _keys | length
+    fail_msg: >-
+      The {{ catena_panel_user }} account must have /usr/sbin/nologin and only
+      keys restricted to forwarding to 127.0.0.1:{{ catena_admin_ui_port }} and
+      :{{ portainer_ui_port }}. A key without `restrict` is a shell on this host.
+  vars:
+    _keys: >-
+      {{ ((_panel_keys.content | default('')) | b64decode).splitlines()
+         | map('trim') | reject('equalto', '') | reject('match', '^#') | list }}
+
 - name: "validate/common: fixture files exist + correct type/owner/perms"
   ansible.builtin.include_role:
     name: common
@@ -49,14 +83,14 @@
       - { path: /home/ops/.ssh/authorized_keys, type: file, owner: ops, group: ops, mode: "0600" }
       - { path: /etc/ssh/sshd_config.d/10-catena.conf, type: file }
       - { path: /etc/sudoers.d/010-ops, type: file, mode: "0440" }
-      - { path: /etc/apt/apt.conf.d/20auto-upgrades, type: file }
       - { path: /etc/catena/version.txt, type: file, owner: root, group: root, mode: "0644" }
       - { path: "{{ catena_release_manifest_path }}", type: file, owner: root, group: root, mode: "0644" }
 
-# The release manifest is written by the LAST task of converge.yml, so its
-# presence is the only on-host evidence that the converge reached the end
-# rather than dying in a role. version.txt cannot say that: bootstrap/roles/common
-# stamps it first, so it is there after a converge that failed at role 9.
+# The release manifest is written by the LAST task of converge.yml and of
+# reconcile.yml, so its presence is the only on-host evidence that the converge
+# reached the end rather than dying in a role. version.txt cannot say that:
+# playbooks/tasks/stamp_version.yml writes it before the first role, so it is
+# there after a converge that failed at role 9.
 #
 # The action list is what the panel reads to decide whether to offer a
 # button at all, so an empty one is a panel that greys every feature.
@@ -70,12 +104,12 @@
     src: /etc/catena/version.txt
   register: _release_version_stamp
 
-# The two are written by the SAME converge at opposite ends of it, so equality
-# is the assertion: a manifest naming an older version is one the last converge
-# never got far enough to rewrite. Comparing against the controller's git
-# describe would not work here -- validate.yml is its own playbook run and
-# never sets that fact -- and comparing on-host is the better check anyway,
-# because it is the host's own two records agreeing.
+# Both converge paths write the two from one fact at opposite ends of the same
+# converge, so equality is the assertion: a manifest naming an older version is
+# one the last converge never got far enough to rewrite. Comparing against the
+# controller's git describe would not work here -- validate.yml is its own
+# playbook run and never sets that fact -- and comparing on-host is the better
+# check anyway, because it is the host's own two records agreeing.
 - name: "validate/common: the manifest describes THIS converge"
   ansible.builtin.assert:
     that:
@@ -86,8 +120,8 @@
     fail_msg: >-
       {{ catena_release_manifest_path }} does not describe the converge that
       just ran. /etc/catena/version.txt says {{ _stamped }}; the manifest says
-      {{ _manifest }}. version.txt is stamped by the FIRST role and the manifest
-      by the LAST task, so a disagreement means the converge did not reach the
+      {{ _manifest }}. version.txt is stamped before the first role and the
+      manifest by the LAST task, so a disagreement means the converge did not reach the
       end. The panel reads the manifest to tell a feature that is off from one
       whose plumbing never reached this host, so a stale or empty one greys
       features that work, or offers buttons the host will refuse.
@@ -107,7 +141,8 @@
       - "'PasswordAuthentication no' in (_sshd_conf.content | b64decode)"
       - "'PubkeyAuthentication yes' in (_sshd_conf.content | b64decode)"
       - "'AllowUsers ops' in (_sshd_conf.content | b64decode)"
-    fail_msg: "sshd drop-in missing one of the four required hardening directives"
+      - "(' ' ~ catena_panel_user ~ ' ') in ((_sshd_conf.content | b64decode) | regex_search('^AllowUsers .*', multiline=True) ~ ' ')"
+    fail_msg: "sshd drop-in missing a required hardening directive, or AllowUsers omits {{ catena_panel_user }}"
 
 # The check above reads the file we WROTE. sshd only reads that file if the
 # main config includes the drop-in directory, so on an image whose
@@ -146,47 +181,30 @@
       - "'ops ALL=(ALL) NOPASSWD: ALL' in (_sudoers_conf.content | b64decode)"
     fail_msg: "/etc/sudoers.d/010-ops missing the expected NOPASSWD line"
 
-# Debian's native unattended-upgrades is the only thing that applies OS
-# packages on a Catena host, whatever its edition. reconcile/roles/
-# host_maintenance reports when what it applied needs a reboot.
-- name: "validate/common: unattended-upgrades enabled (Debian owns OS patching)"
-  ansible.builtin.slurp:
-    src: /etc/apt/apt.conf.d/20auto-upgrades
-  register: _auto_upgrades_conf
-
-- name: "validate/common: 20auto-upgrades enables Unattended-Upgrade"
-  ansible.builtin.assert:
-    that:
-      - "'Unattended-Upgrade \"1\"' in (_auto_upgrades_conf.content | b64decode)"
-    fail_msg: "20auto-upgrades did NOT enable Unattended-Upgrade -- this host relies on Debian's native unattended-upgrades for security patching"
-
 - name: "validate/common: required packages installed"
   ansible.builtin.package_facts:
     manager: apt
 
-- name: "validate/common: sudo + ufw + unattended-upgrades installed"
+- name: "validate/common: sudo + ufw installed"
   ansible.builtin.assert:
     that:
       - "'sudo' in ansible_facts.packages"
       - "'ufw' in ansible_facts.packages"
-      - "'unattended-upgrades' in ansible_facts.packages"
-    fail_msg: "one of {sudo, ufw, unattended-upgrades} is missing from the apt package list"
+    fail_msg: "one of {sudo, ufw} is missing from the apt package list"
 
 - name: "validate/common: systemd unit states"
   ansible.builtin.service_facts:
 
-- name: "validate/common: ssh + unattended-upgrades + ufw enabled"
+- name: "validate/common: ssh + ufw enabled"
   ansible.builtin.assert:
     that:
       # ssh listens AND is running
       - "ansible_facts.services['ssh.service'].state == 'running'"
       - "ansible_facts.services['ssh.service'].status == 'enabled'"
-      # unattended-upgrades: enabled only (it's a oneshot that runs on timer)
-      - "ansible_facts.services['unattended-upgrades.service'].status == 'enabled'"
       # ufw: enabled only (it's a oneshot loading iptables rules; no live
       # daemon process, so `running` is misleading -- see spec notes)
       - "ansible_facts.services['ufw.service'].status == 'enabled'"
-    fail_msg: "one of ssh/unattended-upgrades/ufw has the wrong enable/run state"
+    fail_msg: "one of ssh/ufw has the wrong enable/run state"
 
 - name: "validate/common: sshd listens on 22/tcp"
   ansible.builtin.wait_for:

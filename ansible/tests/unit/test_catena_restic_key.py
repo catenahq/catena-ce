@@ -1,7 +1,7 @@
 """Unit tests for scripts/catena-restic-key.py -- the backup-password
-validate/rotate helper. restic is stubbed (a fake on PATH) so no real repo is
-touched; we assert the request routing, the store read, and the persistence on
-rotate."""
+generate/validate/rotate helper. restic is stubbed (a fake on PATH) so no real
+repo is touched; we assert the request routing, the store read, and the
+persistence on generate and rotate."""
 from __future__ import annotations
 
 import importlib.util
@@ -88,6 +88,70 @@ def test_rotate_persists_new_password(rk, tmp_path, monkeypatch, capsys):
     assert stat.S_IMODE(store.stat().st_mode) == 0o600
     assert stat.S_IMODE(passfile.stat().st_mode) == 0o600
     assert "key passwd" in log.read_text()
+
+
+def _run(rk, monkeypatch, capsys, store, request, rc=0, tmp_path=None):
+    binp, log = _fake_restic(tmp_path, rc=rc)
+    monkeypatch.setenv("PATH", f"{binp}:{os.environ['PATH']}")
+    monkeypatch.setenv("CATENA_CONFIG_STORE", str(store))
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(request)))
+    code = rk.main()
+    return code, json.loads(capsys.readouterr().out), log
+
+
+def test_generate_keeps_the_password_when_the_repository_is_empty(
+        rk, tmp_path, monkeypatch, capsys):
+    """No converge mints it: the panel's button asks, once, and the client
+    saves what it shows."""
+    store = _store(tmp_path)
+    code, out, log = _run(rk, monkeypatch, capsys, store, {"op": "generate"},
+                          rc=10, tmp_path=tmp_path)
+    assert code == 0 and out["ok"] and len(out["password"]) == 64
+    saved = json.loads(store.read_text())["secrets"]["backup_restic_password"]
+    assert saved == out["password"]
+    assert stat.S_IMODE(store.stat().st_mode) == 0o600
+    assert "cat config" in log.read_text()
+
+
+def test_generate_refuses_a_repository_encrypted_under_another_password(
+        rk, tmp_path, monkeypatch, capsys):
+    store = _store(tmp_path)
+    code, out, _ = _run(rk, monkeypatch, capsys, store, {"op": "generate"},
+                        rc=12, tmp_path=tmp_path)
+    assert code == 1 and "Restore" in out["error"]
+    assert "backup_restic_password" not in json.loads(store.read_text())["secrets"]
+
+
+def test_generate_refuses_once_a_password_exists(rk, tmp_path, monkeypatch, capsys):
+    store = _store(tmp_path, backup_restic_password="kept")
+    code, out, _ = _run(rk, monkeypatch, capsys, store, {"op": "generate"},
+                        tmp_path=tmp_path)
+    assert code == 1 and "rotate" in out["error"]
+    assert json.loads(store.read_text())["secrets"]["backup_restic_password"] == "kept"
+
+
+def test_generate_needs_no_repository_yet(rk, tmp_path, monkeypatch, capsys):
+    store = tmp_path / "config.json"
+    store.write_text(json.dumps({"secrets": {}, "config": {}}))
+    code, out, log = _run(rk, monkeypatch, capsys, store, {"op": "generate"},
+                          rc=1, tmp_path=tmp_path)
+    assert code == 0 and out["ok"]
+    assert not log.exists(), "restic ran with no repository to ask"
+
+
+def test_a_write_keeps_the_keys_other_writers_own(rk, tmp_path, monkeypatch, capsys):
+    store = _store(tmp_path, backup_restic_password="old-pw")
+    doc = json.loads(store.read_text())
+    doc["schedules"] = {"backup": "weekly"}
+    doc["image_pins"] = {"repo": "ref"}
+    store.write_text(json.dumps(doc))
+    monkeypatch.setenv("CATENA_RESTIC_PASS_FILE", str(tmp_path / "restic.pass"))
+    code, _, _ = _run(rk, monkeypatch, capsys, store,
+                      {"op": "rotate", "new_password": "new-pw"}, tmp_path=tmp_path)
+    assert code == 0
+    after = json.loads(store.read_text())
+    assert after["schedules"] == {"backup": "weekly"}
+    assert after["image_pins"] == {"repo": "ref"}
 
 
 def test_rotate_refuses_without_current_password(rk, tmp_path, monkeypatch, capsys):

@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 156 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 159 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -14,15 +14,13 @@ The 156 scenarios the maintainers' test bench carries, and the behaviour each on
 | `audit_chain_tamper_evident` | An exported administrative audit trail verifies away from the host it came from, and stops verifying as soon as any row is altered. |
 | `backup_rollback` | A file changed after a backup is returned to its snapshot content by a rollback, and the applications come back with it. |
 | `backup_schedule_applied` | The scheduled maintenance a host actually runs matches what its configuration store asks for, and a freshly converged host schedules nothing at all. |
-| `catena_admin_self_update` | The administration panel updates both halves of itself, the container and the engines it installs on the host, and rolls both back together when the new version is bad. |
+| `catena_admin_self_update` | The administration panel updates itself as one unit -- the container, the engines it installs on the host and the host configuration the new version carries -- and restores all three if the new version is bad. |
 | `ce_admin_actions` | Pressing a maintenance button in the Community administration panel dispatches the action and streams its result back. |
 | `ce_admin_smoke` | A Community host carries the host-side state its administration panel needs, and the panel answers. |
 | `ce_backup_deferred` | A host with no scheduled backup can still take one on demand, because whether a host backs up is answered by its storage credentials rather than by a switch. |
 | `ce_converge` | Applying the Community installer a second time to an already converged host changes nothing. |
-| `ce_install_cloudflare_first` | A server installs with a public domain and no private network, then joins a private network from its panel and closes public SSH behind it. |
 | `ce_install_headscale` | A host joins a self-hosted private network control server instead of the hosted one, and reaches the rest of the network through it. |
-| `ce_install_suite` | A Community install brings up the full application suite rather than the base host alone. |
-| `ce_install_tailnet_first` | A server installs on its private network with no domain, then publishes its panel on a public domain from the panel itself. |
+| `ce_install_suite` | A Community install, configured in its panel, brings up the full application suite rather than the base host alone. |
 | `ce_restore` | A Community host restores from its encrypted backup and comes back with the content the snapshot held. |
 | `ce_uninstall` | Uninstalling hands the host back to the operating system, including the package-update timers the install had taken over. |
 | `ce_validate` | A converged Community host validates itself end to end using only the shipped installer. |
@@ -37,8 +35,9 @@ The 156 scenarios the maintainers' test bench carries, and the behaviour each on
 | `daily_chain_full_pass` | The daily maintenance chain runs every stage end to end on a real host and reports itself idle when it finishes. |
 | `daily_chain_preflight_aborts_low_disk` | The daily maintenance chain refuses to start when free disk at the staging area is below the configured floor. |
 | `daily_chain_quiesce_invoked` | The daily maintenance chain quiesces applications before taking a backup and always releases them afterwards, including when the backup aborts the chain. |
+| `daily_chain_reboot_round_trip` | The nightly maintenance restarts a host whose installed updates wait for a restart, and checks that everything running before it came back. |
 | `daily_chain_resumes_after_reboot` | A daily maintenance chain cut short by a reboot resumes when the host comes back, on a licensed host whose daily schedule is on. |
-| `daily_chain_updates_without_backup` | Container updates pause on a server with no backup configured, and run there only when the Schedules page allows updates without a backup. |
+| `daily_chain_updates_without_backup` | Container updates still run on a server with no backup configured, behind the same health gate, and the maintenance log says no backup stands behind them. |
 | `daily_chain_verify_cold_blocks_mirror` | A failed cold-storage verification stops the offsite copy from pushing, so a bad archive is never propagated. |
 | `daily_chain_verify_cold_fail_configurable` | Whether a failed cold-storage verification blocks the update tail of the daily chain follows the host configuration rather than being hard- wired. |
 | `daily_chain_verify_hot_fail_aborts_updates` | A failed backup verification aborts the update tail of the daily chain, preserving a known-good rollback target. |
@@ -48,6 +47,7 @@ The 156 scenarios the maintainers' test bench carries, and the behaviour each on
 | `decommission` | Decommissioning tears a host down cleanly, releasing every external resource it held. |
 | `decommission_recovery` | A decommissioned host is rebuilt from the archival snapshot its decommission left behind. |
 | `dev_to_prod_cutover_round_trip` | A staging deployment is promoted to its production hostname on the same machine, with every application reconciled to the new address. |
+| `docker_engine_upgrade_round_trip` | The container engine moves to the version the panel image pins, and goes back to the one it ran when the new one does not come up. |
 | `dr_suite` | A lost server is rebuilt on a new machine from one backup, with every service, the stored mail and the synced files back at the state that backup captured, including a file deleted after the backup. |
 | `ee_attest` | A signed monthly compliance attestation is produced from a host's own evidence and verifies against the published key. |
 | `ee_audit_ship` | Administrative audit events shipped from a host arrive intact at the central collector. |
@@ -58,6 +58,8 @@ The 156 scenarios the maintainers' test bench carries, and the behaviour each on
 | `ee_lapse` | A host whose licence lapses freezes its licensed features while everything Community keeps working. |
 | `ee_multidomain` | A second, unrelated domain is attached to a licensed host and both domains are served through the one tunnel. |
 | `ee_named_buttons` | Each licensed maintenance button dispatches its own distinct action rather than sharing one. |
+| `erpnext_failed_migrate_rolls_back` | When an ERPNext update's database migration fails, the previous version and its database are put back and the site keeps serving. |
+| `erpnext_update_migrates` | An ERPNext update moves every ERPNext service to the new version in one step and migrates the database, and the site comes back serving. |
 | `fi_a2_oidc_secret_rotation` | Rotating the single sign-on client secret propagates to both the identity provider and the proxy in one converge. |
 | `fi_a3_keycloak_unreachable` | An unreachable identity provider is reported as a failed readiness gate rather than passing silently. |
 | `fi_a5_wrong_group_assignment` | A user outside the administrator group is refused at the authenticating proxy, before any request reaches the application behind it. |
@@ -70,7 +72,7 @@ The 156 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_c3_portainer_crash_mid_deploy` | A crash of the deployment control plane during a deploy is covered by the orchestrator restarting it, and the deployment completes. |
 | `fi_c4_registry_pull_timeout` | Heavy packet loss on the host outbound network makes the converge fail fast at its first external step. |
 | `fi_c6_cloudflared_flapping` | Re-converging the public tunnel updates its configuration without restarting a healthy connector. |
-| `fi_c7_coturn_cert_expired` | An expired media-relay certificate is renewed automatically by the scheduled renewal timer and its deploy hook. |
+| `fi_c7_coturn_cert_expired` | A media-relay certificate that is due is renewed by the scheduled renewal job, and the relay reloads it. |
 | `fi_c8_nextcloud_init_loop` | An application whose environment has been corrupted fails visibly with captured diagnostics rather than looping in silence. |
 | `fi_d2_pg_dumpall_replay_constraint` | Replaying a database dump recreates a database role the cluster has lost. |
 | `fi_d3_postgres_oom_mid_restore` | A restore that would exhaust the host disk is refused before it starts, rather than leaving a half-loaded database. |
@@ -80,7 +82,7 @@ The 156 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_d7_restic_corrupt_pack` | Corruption introduced into the backup repository is detected by the deep verification pass. |
 | `fi_n10_multidomain_cap` | A Community host asked to serve more than one domain degrades to the one it supports rather than refusing to converge. |
 | `fi_n11_lockdown_refuses_shields_up` | A lockdown applied from the panel refuses to close public SSH while the private network reports the server as refusing incoming connections. |
-| `fi_n1_tailnet_partition_mid_converge` | A private network partition while a host joins it fails the reachability probe instead of proceeding blind. |
+| `fi_n1_tailnet_partition_mid_converge` | A private network partition fails the lockdown's reachability proof instead of proceeding blind. |
 | `fi_n2_cf_tunnel_down` | Blocked access to the edge provider at validation time is reported as a warning rather than stopping the converge. |
 | `fi_n3_dns_propagation_lag` | Slow public name propagation is absorbed by the certificate retry budget, and issuance still completes. |
 | `fi_n4_cf_zone_misconfigured` | A wrong edge-provider credential or zone aborts the converge immediately with a clear failure. |
@@ -94,18 +96,17 @@ The 156 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_o5_deadman_off_by_default` | The external dead-man watchdog installs nothing at all when no endpoint is configured. |
 | `fi_s2_input_truncated` | A truncated installation input file is rejected before anything is provisioned. |
 | `fi_s3_placeholder_inert` | An unreplaced placeholder left in a lower-precedence configuration file has no effect on a converged host. |
-| `fi_s4_tailscale_oauth_revoked` | A revoked private network credential is detected up front by minting a throwaway key, rather than at converge time. |
-| `fi_s6_ovh_token_invalid` | An invalid hosting-provider credential aborts snapshot creation instead of reporting success. |
+| `fi_s4_tailscale_oauth_revoked` | A revoked private network credential entered in the panel is refused by the check its save runs on the host, and never stored. |
 | `fi_s7_smtp_creds_invalid` | Invalid outbound mail credentials surface as an authentication failure from a live probe at the moment they are saved. |
 | `fi_s8_s3_hot_revoked` | A revoked object-store key aborts the backup converge cleanly rather than failing halfway through. |
 | `fi_s9_resend_rate_limit` | A rate-limited transactional mail provider degrades the maintainers test bench cleanup gracefully rather than aborting it. |
 | `fi_t1_incus_daemon_hang` | A hung virtualisation daemon is bounded by a timeout so the maintainers test bench cannot wedge indefinitely. |
 | `fi_t3_start_sweep_failure` | A failure during the maintainers test bench start-up sweep is reported with enough context to act on rather than swallowed. |
 | `fi_t4_resend_quota_zero` | An exhausted mail-provider quota makes the maintainers test bench refuse to start rather than run scenarios that cannot assert delivery. |
-| `fi_u1_compose_lint_reject` | The deployment linter accepts every shipped application template and rejects a malformed one. |
+| `fi_u1_compose_lint_reject` | The template linter accepts every shipped application template and rejects a malformed one. |
 | `fi_u3_gatus_baseline_down` | A service already unhealthy when an update cycle begins aborts the update rather than being read as a regression the update caused. |
 | `fi_u4_ovh_rate_limited` | A rate-limited provider snapshot declines the pre-update snapshot tier without disturbing the tier below it. |
-| `fi_u5_persistent_quarantine` | A version that keeps regressing stays quarantined across update cycles instead of being retried every night. |
+| `fi_u5_persistent_quarantine` | A version that regressed stays quarantined across update cycles and is recorded once. |
 | `fi_u6_full_rollback_state` | A rolled-back version bump is recorded in the host managed-version state, so the rollback is a fact rather than an absence. |
 | `fi_v2_external_scan_blocked` | An external exposure scan blocked by the provider is downgraded to an inconclusive result rather than reported as a failure. |
 | `fi_v3_tailscale_acl_misconfig` | A misconfigured private network access policy is detected up front, from both the controller and the host side. |
@@ -130,7 +131,7 @@ The 156 scenarios the maintainers' test bench carries, and the behaviour each on
 | `nextcloud_versions_retention_applied` | The file-version retention configured for the file-sync application reaches the running container instead of stopping at the catalogue. |
 | `oauth2_proxy_cookie_rotation_round_trip` | Rotating the session-cookie secret invalidates existing sessions cleanly while a fresh sign-in keeps working. |
 | `offsite_copy_unreachable_target` | One offsite destination being unreachable costs exactly that copy, visibly, and leaves the others alone. |
-| `panel_renames_itself` | The dashboard is renamed from the dashboard, and it says where it is going before it goes. |
+| `panel_renames_itself` | The dashboard renames itself from its own Settings page, and it says where it is going before it goes. |
 | `payload_action_dispatches_without_converge` | An administrative action can arrive with a new image and dispatch immediately, without waiting for a converge to render it. |
 | `payload_prune_respects_ce` | Installing the licensed payload deletes what it withdraws and leaves everything owned by the public installer in place. |
 | `pg_major_version_cross_restore` | A snapshot captured on one major database version replays cleanly onto a host running a newer one. |
@@ -141,6 +142,8 @@ The 156 scenarios the maintainers' test bench carries, and the behaviour each on
 | `rclone_copy_preserves_pruned_packs` | The offsite copy keeps snapshots that have already been pruned from the primary repository. |
 | `reboot_required_notified` | A host that needs a reboot reports it and waits for a person rather than restarting itself. |
 | `rebuild_backs_up_after_restore` | A server rebuilt from its backup keeps backing up: after the restore it holds the repository's password, not the one the new machine made for itself. |
+| `reconcile_is_a_noop` | The operator's converge and the host's own converge produce the same host: after either one, the other changes nothing, and a second converge in a row restarts nothing. |
+| `reconcile_repairs_host_upkeep` | A host that converges itself puts back the upkeep it owns: unattended upgrades, the journal's storage, the mail-agent mask, the swarm's settings and the configuration its scheduled lanes read. |
 | `recover_secrets_from_running_host` | A client whose installation inputs are lost rebuilds a usable credential set by reading the configuration store off the running host. |
 | `recovery_landing_page_bilingual_parity` | The recovery page a client lands on presents the same content in both supported languages. |
 | `recovery_readme_manual_restore` | A client rebuilds their data from a snapshot using only ordinary tools and the instructions shipped beside it. |
