@@ -43,7 +43,12 @@ run on the host):
   `Devices -> Core -> Read` scope), or Headscale's node API (`online`, which
   needs `headscale_api_key`);
 - an online peer carrying none of `tailscale_tags` answering a TSMP ping
-  through the tunnel.
+  through the tunnel;
+- the host's own firewall letting SSH in on `tailscale0`: a new TCP
+  connection to port 22, addressed to the host's tailnet address, walked
+  through its iptables and ip6tables rulesets in kernel order. The ping above
+  is answered inside tailscaled and never crosses that interface, so only
+  this check sees a rule that drops tailnet traffic there.
 
 A refusal ends the lockdown with public 22 still open and the reason in its
 log.

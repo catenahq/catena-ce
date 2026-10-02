@@ -11,6 +11,12 @@ answered by something other than the host's own view of itself:
      that refuses incoming connections, is reachable by nobody.
   2. With TAILNET_REQUIRE_PEER=1 (what reachable.yml sets): an online peer that
      carries none of this host's tags answers a TSMP ping through the tunnel.
+  3. With TAILNET_REQUIRE_PEER=1: this host's own firewall lets SSH in over
+     tailscale0. The ping in 2 is answered inside tailscaled and never crosses
+     that interface, so it cannot see a rule that drops the traffic there.
+     firewall_reasons walks a new TCP connection to port 22, arriving on
+     tailscale0 and addressed to this host's tailnet address, through the
+     iptables and ip6tables rulesets in the order the kernel does.
 
 Input is the environment, so no credential reaches argv or the process table:
 TAILNET_PROVIDER (tailscale | headscale), TAILSCALE_API_BASE,
@@ -24,8 +30,10 @@ credential.
 from __future__ import annotations
 
 import base64
+import ipaddress
 import json
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -162,6 +170,177 @@ def ping_a_peer(peers: list[tuple[str, str]], run: Run) -> str:
     return ""
 
 
+TAILNET_IFACE = "tailscale0"
+SSH_PORT = 22
+# Where a packet addressed to this host goes, table by table, in kernel order.
+_INBOUND = (("raw", "PREROUTING"), ("mangle", "PREROUTING"), ("nat", "PREROUTING"),
+            ("mangle", "INPUT"), ("filter", "INPUT"))
+# Targets that act on the packet and let it carry on through the chain.
+_CONTINUE = {"LOG", "NFLOG", "MARK", "CONNMARK", "CT", "TRACE", "AUDIT", "DNAT",
+             "SNAT", "MASQUERADE", "REDIRECT"}
+
+
+def parse_ruleset(text: str) -> dict[str, dict]:
+    """`iptables-save` output as {table: {"policy": {chain: policy},
+    "rules": {chain: [rule line]}}}."""
+    tables: dict[str, dict] = {}
+    cur = None
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("*"):
+            cur = tables.setdefault(line[1:], {"policy": {}, "rules": {}})
+        elif cur is None or not line or line.startswith("#"):
+            continue
+        elif line.startswith(":"):
+            chain, policy = line[1:].split()[:2]
+            cur["policy"][chain] = policy
+            cur["rules"].setdefault(chain, [])
+        elif line.startswith("-A "):
+            cur["rules"].setdefault(line.split()[1], []).append(line)
+    return tables
+
+
+def _ports(spec: str) -> list[tuple[int, int]]:
+    out = []
+    for part in spec.split(","):
+        lo, _, hi = part.partition(":")
+        out.append((int(lo or 0), int(hi or lo or 65535)))
+    return out
+
+
+def rule_matches(tokens: list[str], own: list) -> bool | None:
+    """Whether the rule matches the SSH packet: True, False, or None when a
+    condition it carries cannot be decided here (a source address, a rate
+    limit, a mark...)."""
+    result: bool | None = True
+    negate = False
+
+    def fold(value: bool | None) -> None:
+        nonlocal result, negate
+        if value is not None and negate:
+            value = not value
+        negate = False
+        if value is False:
+            result = False
+        elif value is None and result is True:
+            result = None
+
+    i = 0
+    while i < len(tokens):
+        opt = tokens[i]
+        arg = tokens[i + 1] if i + 1 < len(tokens) else ""
+        if opt in ("-j", "-g"):
+            break  # the target and its own options come last
+        if opt == "!":
+            negate = True
+            i += 1
+            continue
+        if opt in ("-A", "-m", "--comment"):
+            i += 2
+            continue
+        if opt in ("-i", "--in-interface"):
+            fold(TAILNET_IFACE.startswith(arg[:-1]) if arg.endswith("+")
+                 else arg == TAILNET_IFACE)
+        elif opt in ("-p", "--protocol"):
+            fold(arg in ("tcp", "6", "all", "0"))
+        elif opt in ("-d", "--destination"):
+            nets = [ipaddress.ip_network(n, strict=False) for n in arg.split(",")]
+            fold(any(a in n for a in own for n in nets if a.version == n.version))
+        elif opt in ("--dport", "--destination-port", "--dports", "--destination-ports"):
+            fold(any(lo <= SSH_PORT <= hi for lo, hi in _ports(arg)))
+        elif opt in ("--ctstate", "--state"):
+            fold("NEW" in arg.split(","))
+        elif opt == "--dst-type":
+            fold(True if arg == "LOCAL" else None)
+        else:
+            # An option this walk does not model, with every argument it took.
+            fold(None)
+            i += 1
+            while i < len(tokens) and not tokens[i].startswith("-") and tokens[i] != "!":
+                i += 1
+            continue
+        i += 2
+    return result
+
+
+def walk_inbound(tables: dict, own: list) -> list[str]:
+    """Why the SSH packet would not reach sshd; [] when the ruleset accepts it.
+
+    A condition the walk cannot decide never counts as accepting the packet:
+    an undecidable ACCEPT is passed over, and an undecidable DROP or REJECT is
+    reported."""
+    reasons: list[str] = []
+
+    def chain(table: str, name: str, depth: int) -> str:
+        """'ACCEPT', 'DROP', or 'RETURN' when the chain ends without a verdict."""
+        for line in tables[table]["rules"].get(name, []):
+            tokens = shlex.split(line)
+            flag = "-g" if "-g" in tokens else "-j"
+            if flag not in tokens:
+                continue
+            target = tokens[tokens.index(flag) + 1]
+            m = rule_matches(tokens, own)
+            if m is False:
+                continue
+            if target in ("DROP", "REJECT"):
+                reasons.append(f"{table}: {line}")
+                if m:
+                    return "DROP"
+            elif target in ("ACCEPT", "RETURN"):
+                if m:
+                    return target
+            elif target not in _CONTINUE and target in tables[table]["rules"]:
+                if depth > 30:
+                    reasons.append(f"{table}: {name} jumps deeper than 30 chains")
+                    return "DROP"
+                verdict = chain(table, target, depth + 1)
+                if m and (verdict in ("ACCEPT", "DROP") or flag == "-g"):
+                    return verdict
+        return "RETURN"
+
+    for table, name in _INBOUND:
+        if name not in tables.get(table, {}).get("rules", {}):
+            continue
+        verdict = chain(table, name, 0)
+        if verdict == "DROP":
+            break
+        if verdict == "RETURN" and tables[table]["policy"].get(name) == "DROP":
+            reasons.append(f"{table}: nothing in {name} accepts it and its "
+                           f"policy is DROP")
+            break
+        if verdict == "ACCEPT" and table == "filter":
+            break
+    return list(dict.fromkeys(reasons))
+
+
+def firewall_reasons(status: dict, run: Run) -> list[str]:
+    """Reasons this host's firewall keeps SSH over the tailnet out, [] when
+    both rulesets let it in."""
+    own = [ipaddress.ip_address(a)
+           for a in (status.get("Self") or {}).get("TailscaleIPs") or []]
+    if not own:
+        return ["`tailscale status` names no tailnet address for this server, so "
+                "its firewall cannot be checked"]
+    reasons = []
+    for tool, version in (("iptables-save", 4), ("ip6tables-save", 6)):
+        addrs = [a for a in own if a.version == version]
+        if not addrs:
+            continue
+        try:
+            r = run([tool])
+        except OSError as e:
+            reasons.append(f"could not read this server's firewall ({tool}: {e})")
+            continue
+        if r.returncode != 0:
+            reasons.append(f"could not read this server's firewall ({tool} "
+                           f"exited {r.returncode})")
+            continue
+        for why in walk_inbound(parse_ruleset(r.stdout), addrs):
+            reasons.append(f"this server's firewall drops SSH arriving over "
+                           f"the tailnet ({tool}, {why})")
+    return reasons
+
+
 def check(env: dict, run: Run = _run, http: Http = _http,
           sleep: Callable[[float], None] = time.sleep) -> dict:
     provider = (env.get("TAILNET_PROVIDER") or "tailscale").strip().lower()
@@ -216,6 +395,11 @@ def check(env: dict, run: Run = _run, http: Http = _http,
                         f"answered a ping through the tunnel")
         if not reasons:
             break
+
+    # Once, after the tailnet answered: a firewall rule is not something a
+    # wait clears.
+    if require_peer and not reasons:
+        reasons += firewall_reasons(status, run)
 
     ok = not reasons
     summary = ("the tailnet confirms this server is reachable"

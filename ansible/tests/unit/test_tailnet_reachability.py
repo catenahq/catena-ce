@@ -4,7 +4,9 @@ On the host itself -- the panel's lockdown -- a TCP probe of the tailnet
 address dials the host's own address and passes whatever the tailnet thinks.
 So the host asks the control server (connected, not refusing incoming) and,
 there, an online peer that is not another server like it (a TSMP ping through
-the tunnel). These tests pin each refusal and what it tells the client.
+the tunnel). The ping is answered inside tailscaled, so the host also walks
+its own firewall for SSH arriving on tailscale0. These tests pin each refusal
+and what it tells the client.
 
 Run: uv run pytest tests/unit/test_tailnet_reachability.py
 """
@@ -27,8 +29,40 @@ NODE_KEY = "nodekey:abc"
 
 def _status(*, backend="Running", peers=None):
     return {"BackendState": backend,
-            "Self": {"ID": "nSELF", "PublicKey": NODE_KEY},
+            "Self": {"ID": "nSELF", "PublicKey": NODE_KEY,
+                     "TailscaleIPs": ["100.64.0.2", "fd7a:115c:a1e0::2"]},
             "Peer": {f"k{i}": p for i, p in enumerate(peers or [])}}
+
+
+# The shape a converged host carries: Docker's raw anti-spoofing rules,
+# Tailscale's ts-input jumped first, ufw's tailnet SSH allow, policy DROP.
+ACCEPTING = """\
+*raw
+:PREROUTING ACCEPT [0:0]
+-A PREROUTING -d 172.18.0.2/32 ! -i docker_gwbridge -j DROP
+COMMIT
+*filter
+:INPUT DROP [0:0]
+:ts-input - [0:0]
+:ufw-before-input - [0:0]
+:ufw-user-input - [0:0]
+{first}-A INPUT -j ts-input
+-A INPUT -j ufw-before-input
+-A ts-input -i tailscale0 -j ACCEPT
+-A ts-input -s 100.64.0.0/10 ! -i tailscale0 -j DROP
+-A ufw-before-input -m conntrack --ctstate INVALID -j DROP
+-A ufw-before-input -j ufw-user-input
+-A ufw-user-input -i tailscale0 -p tcp -m tcp --dport 22 -j ACCEPT
+COMMIT
+"""
+# The bench's tailnet partition, jumped ahead of everything.
+PARTITION = ("-A INPUT -j CATENA_BENCH_FI\n"
+             "-A CATENA_BENCH_FI -i tailscale0 -m comment --comment "
+             "fi-partition -j DROP\n")
+
+
+def _ruleset(first=""):
+    return ACCEPTING.replace("{first}", first)
 
 
 def _peer(name, *, online=True, tags=None, ip="100.64.0.9"):
@@ -40,13 +74,15 @@ class _World:
     """A host's `tailscale` CLI and the control server's API, faked."""
 
     def __init__(self, status, *, device=None, device_code=200, nodes=None,
-                 answering=()):
+                 answering=(), rulesets=None):
         self.status = status
         self.device = device if device is not None else {
             "connectedToControl": True, "blocksIncomingConnections": False}
         self.device_code = device_code
         self.nodes = nodes
         self.answering = set(answering)
+        self.rulesets = rulesets if rulesets is not None else {
+            "iptables-save": _ruleset(), "ip6tables-save": _ruleset()}
         self.argvs: list[list[str]] = []
         self.urls: list[str] = []
 
@@ -57,6 +93,10 @@ class _World:
         if argv[:2] == ["tailscale", "ping"]:
             rc = 0 if argv[-1] in self.answering else 1
             return subprocess.CompletedProcess(argv, rc, "", "no reply")
+        if argv[0] in self.rulesets:
+            return subprocess.CompletedProcess(argv, 0, self.rulesets[argv[0]], "")
+        if argv[0].endswith("tables-save"):
+            raise FileNotFoundError(argv[0])
         raise AssertionError(argv)
 
     def http(self, method, url, *, headers=None, data=None):
@@ -183,3 +223,90 @@ def test_a_transient_miss_is_waited_out() -> None:
         return world.http(method, url, **kw)
     verdict = tr.check(_env(), run=world.run, http=http, sleep=lambda s: None)
     assert verdict["ok"] and calls["n"] == 3
+
+
+# --- the host's own firewall ------------------------------------------------
+
+def _on_host(rulesets):
+    world = _World(_status(peers=[_peer("laptop", ip="100.64.0.7")]),
+                   answering={"100.64.0.7"}, rulesets=rulesets)
+    return _check(world, TAILNET_REQUIRE_PEER="1"), world
+
+
+def test_a_host_whose_firewall_lets_tailnet_ssh_in_passes() -> None:
+    verdict, world = _on_host({"iptables-save": _ruleset(),
+                               "ip6tables-save": _ruleset()})
+    assert verdict["ok"], verdict
+    assert ["iptables-save"] in world.argvs and ["ip6tables-save"] in world.argvs
+
+
+def test_a_drop_ahead_of_tailscale_is_refused_and_named() -> None:
+    """The bench's partition: the TSMP ping still answers, because tailscaled
+    handles it without crossing tailscale0, and SSH would not get in."""
+    verdict, _ = _on_host({"iptables-save": _ruleset(first=PARTITION),
+                           "ip6tables-save": _ruleset()})
+    assert not verdict["ok"]
+    assert "firewall drops SSH arriving over the tailnet" in verdict["summary"]
+    assert "fi-partition" in verdict["summary"]
+
+
+def test_a_drop_behind_tailscales_own_accept_changes_nothing() -> None:
+    late = _ruleset().replace(
+        "-A INPUT -j ufw-before-input\n",
+        "-A INPUT -j ufw-before-input\n" + PARTITION.replace(
+            "-A INPUT -j CATENA_BENCH_FI\n", "") + "-A INPUT -j CATENA_BENCH_FI\n")
+    verdict, _ = _on_host({"iptables-save": late, "ip6tables-save": _ruleset()})
+    assert verdict["ok"], verdict
+
+
+def test_without_tailscales_rules_ufw_decides() -> None:
+    no_ts = _ruleset().replace("-A INPUT -j ts-input\n", "")
+    allowed, _ = _on_host({"iptables-save": no_ts, "ip6tables-save": _ruleset()})
+    assert allowed["ok"], allowed
+    no_allow = no_ts.replace(
+        "-A ufw-user-input -i tailscale0 -p tcp -m tcp --dport 22 -j ACCEPT\n", "")
+    refused, _ = _on_host({"iptables-save": no_allow, "ip6tables-save": _ruleset()})
+    assert not refused["ok"]
+    assert "policy is DROP" in refused["summary"]
+
+
+def test_a_drop_for_another_port_or_protocol_is_not_ssh() -> None:
+    other = ("-A INPUT -j CATENA_BENCH_FI\n"
+             "-A CATENA_BENCH_FI -i tailscale0 -p tcp -m tcp --dport 3306 -j DROP\n"
+             "-A CATENA_BENCH_FI -i tailscale0 -p udp -j DROP\n")
+    verdict, _ = _on_host({"iptables-save": _ruleset(first=other),
+                           "ip6tables-save": _ruleset()})
+    assert verdict["ok"], verdict
+
+
+def test_a_drop_the_walk_cannot_decide_is_refused() -> None:
+    """An undecidable condition never counts as letting SSH in."""
+    limited = ("-A INPUT -j CATENA_BENCH_FI\n"
+               "-A CATENA_BENCH_FI -i tailscale0 -m recent --update --seconds 30 "
+               "--hitcount 6 -j REJECT --reject-with tcp-reset\n")
+    verdict, _ = _on_host({"iptables-save": _ruleset(first=limited),
+                           "ip6tables-save": _ruleset()})
+    assert not verdict["ok"]
+    assert "--hitcount 6" in verdict["summary"]
+
+
+def test_the_ipv6_ruleset_is_walked_too() -> None:
+    verdict, _ = _on_host({"iptables-save": _ruleset(),
+                           "ip6tables-save": _ruleset(first=PARTITION)})
+    assert not verdict["ok"]
+    assert "ip6tables-save" in verdict["summary"]
+
+
+def test_a_firewall_that_cannot_be_read_is_refused() -> None:
+    verdict, _ = _on_host({"ip6tables-save": _ruleset()})
+    assert not verdict["ok"]
+    assert "could not read this server's firewall (iptables-save" in verdict["summary"]
+
+
+def test_the_firewall_is_read_only_on_the_host_and_after_the_tailnet() -> None:
+    from_installer = _World(_status())
+    assert _check(from_installer)["ok"]
+    refused = _World(_status(), device={"connectedToControl": False})
+    _check(refused, TAILNET_REQUIRE_PEER="1")
+    for world in (from_installer, refused):
+        assert not any(a[0].endswith("tables-save") for a in world.argvs)

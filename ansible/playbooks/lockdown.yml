@@ -67,9 +67,10 @@
       tags: [lockdown, tailscale]
 
     # Before anything is closed: the control server has to see this host
-    # connected and accepting, and a peer has to answer through the tunnel. A
-    # failure ends the play here, with public 22 still open. A run that only
-    # joins has nothing to prove: it closes nothing.
+    # connected and accepting, a peer has to answer through the tunnel, and
+    # this host's firewall has to let SSH in on tailscale0. A failure ends the
+    # play here, with public 22 still open. A run that only joins has nothing
+    # to prove: it closes nothing.
     - name: Prove the tailnet reaches this host
       ansible.builtin.include_role:
         name: tailscale
