@@ -23,6 +23,8 @@ from catena_gui import registry, run as run_mod, server, steps as steps_mod
 
 DOC = registry.load()
 STEPS = steps_mod.build(DOC)
+# The real probe dispatcher, kept before the fixture stubs it.
+VALIDATE = steps_mod.validate
 
 
 @pytest.fixture
@@ -197,6 +199,24 @@ def test_install_starts_when_every_section_passes(client, monkeypatch):
     request("POST", "/inventory", {"create": "newco"})
     started = []
     monkeypatch.setattr(server, "start_install", lambda *a: started.append(a))
+    status, where, _ = request("POST", "/", {"install": "yes", "ack": "yes",
+                                             **_REQUIRED})
+    assert (status, where) == (303, "/#install")
+    assert len(started) == 1
+
+
+def test_the_ticked_box_is_the_acknowledgement_install_reads(client, monkeypatch):
+    """The real keyset probe, through the handler: Install stops on the keyset
+    without the box, and starts with it."""
+    request, _ = client
+    request("POST", "/inventory", {"create": "newco"})
+    started = []
+    monkeypatch.setattr(server, "start_install", lambda *a: started.append(a))
+    monkeypatch.setattr(steps_mod, "validate", VALIDATE)
+    monkeypatch.setitem(steps_mod.PROBES, "target", lambda a, s: [])
+    status, where, _ = request("POST", "/", {"install": "yes", **_REQUIRED})
+    assert (status, where) == (303, "/#keyset")
+    assert started == []
     status, where, _ = request("POST", "/", {"install": "yes", "ack": "yes",
                                              **_REQUIRED})
     assert (status, where) == (303, "/#install")

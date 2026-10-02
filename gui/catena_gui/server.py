@@ -406,12 +406,15 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         names = ([s.name for s in self.all_steps] if installing
                  else [checked] if self._step(checked) else [])
         values = self._shown_values()
+        # The acknowledgement is launcher bookkeeping, filed apart from the
+        # answers, and the keyset probe reads it.
+        answers = {**self.run.answers, **self.run.launcher}
         for name in names:
             step = self._step(name)
             missing = steps_mod.missing_required(step, values) if step else []
             _Handler.last_checks[name] = missing + (
                 [] if missing else steps_mod.validate(
-                    name, self.run.answers, self.run.secrets))
+                    name, answers, self.run.secrets))
         blocked = next((n for n in names
                         if steps_mod.blocked(_Handler.last_checks[n])), "")
         self.run.step = blocked or checked or self.run.step

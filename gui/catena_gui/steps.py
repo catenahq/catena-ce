@@ -236,9 +236,10 @@ def check_keyset(answers: dict[str, str]) -> list[Check]:
     acknowledgement here the launcher ships installs nobody can recover.
     """
     acked = (answers.get("_keyset_acknowledged") or "").strip() == "yes"
-    return [Check("the recovery passwords are saved", acked,
-                  "the installer shows them once and nothing else holds a "
-                  "copy, so this cannot be skipped")]
+    return [Check("somewhere to save the recovery passwords is ready", acked,
+                  "tick the box above Install: the installer shows them once, "
+                  "when it ends, and nothing else holds a copy, so this cannot "
+                  "be skipped")]
 
 
 # The probe for each step that has one, by name.
