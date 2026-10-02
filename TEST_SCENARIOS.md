@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 160 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 159 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -97,7 +97,6 @@ The 160 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_s2_input_truncated` | A truncated installation input file is rejected before anything is provisioned. |
 | `fi_s3_placeholder_inert` | An unreplaced placeholder left in a lower-precedence configuration file has no effect on a converged host. |
 | `fi_s4_tailscale_oauth_revoked` | A revoked private network credential entered in the panel is refused by the check its save runs on the host, and never stored. |
-| `fi_s6_ovh_token_invalid` | An invalid hosting-provider credential aborts snapshot creation instead of reporting success. |
 | `fi_s7_smtp_creds_invalid` | Invalid outbound mail credentials surface as an authentication failure from a live probe at the moment they are saved. |
 | `fi_s8_s3_hot_revoked` | A revoked object-store key aborts the backup converge cleanly rather than failing halfway through. |
 | `fi_s9_resend_rate_limit` | A rate-limited transactional mail provider degrades the maintainers test bench cleanup gracefully rather than aborting it. |
