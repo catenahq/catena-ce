@@ -323,7 +323,8 @@ def _install_html(current: run_mod.Run) -> str:
                                   "this tab; closing the console window stops "
                                   "it.",
         run_mod.STATE_DONE: "Finished.",
-        run_mod.STATE_FAILED: "The install stopped. The last lines say where.",
+        run_mod.STATE_FAILED: "The install stopped. The last lines say where, "
+                              "and Install above runs it again.",
     }
     after = ('<p><a href="/access">How to reach the panel now</a></p>'
              if current.state == run_mod.STATE_DONE else "")
@@ -451,9 +452,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if self.run is None:
             self._redirect("/inventory")
             return
-        if self.run.state != run_mod.STATE_ANSWERING:
-            # The answers went to an install that already started; an edit now
-            # would describe a host nobody is building.
+        if self.run.state not in run_mod.EDITABLE_STATES:
+            # The answers went to an install that is running or finished; an
+            # edit now would describe a host nobody is building.
             self._redirect("/#install")
             return
         form = self._form()
@@ -533,7 +534,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 "</section>")
 
     def _render_install(self) -> None:
-        started = self.run.state != run_mod.STATE_ANSWERING
+        started = self.run.state not in run_mod.EDITABLE_STATES
         sections = "".join(self._section_html(s, started) for s in self.all_steps)
         body = (
             f"{_nav(self.run.inventory, on='install')}<main>"

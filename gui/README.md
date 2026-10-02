@@ -15,8 +15,8 @@ loopback. Whoever runs Ansible holds the SSH private key, so a hosted installer
 would make the operator custodian of every client's server.
 
 The **console owns the job; the browser is a view**. Closing the browser changes
-nothing. Closing the console abandons the run, and reopening its inventory
-resumes it. That is structural rather than cosmetic: an install can start with
+nothing. Closing the console stops the install with it; reopening its inventory
+keeps every answer and offers Install again, as after a failed install. That is structural rather than cosmetic: an install can start with
 a wait nobody can time -- a server being delivered -- and it does not fit inside
 a page load.
 

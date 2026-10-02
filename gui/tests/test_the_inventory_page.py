@@ -225,6 +225,30 @@ def test_the_ticked_box_is_the_acknowledgement_install_reads(client, monkeypatch
     assert len(started) == 1
 
 
+def test_a_failed_install_can_be_run_again(client, monkeypatch):
+    """After a failure the form takes answers and Install again; while an
+    install runs it takes neither."""
+    request, _ = client
+    request("POST", "/inventory", {"create": "newco"})
+    started = []
+    monkeypatch.setattr(server, "start_install", lambda *a: started.append(a))
+    current = server._Handler.run
+
+    current.state = run_mod.STATE_INSTALLING
+    assert "<fieldset disabled>" in request("GET", "/")[2]
+    assert request("POST", "/", {"install": "yes", "ack": "yes",
+                                 **_REQUIRED})[1] == "/#install"
+    assert started == []
+
+    current.state = run_mod.STATE_FAILED
+    page = request("GET", "/")[2]
+    assert "<fieldset>" in page and "name=install" in page
+    status, where, _ = request("POST", "/", {"install": "yes", "ack": "yes",
+                                             **_REQUIRED})
+    assert (status, where) == (303, "/#install")
+    assert len(started) == 1
+
+
 def test_a_required_field_left_empty_stops_the_install_on_its_section(
         client, monkeypatch):
     """No probe runs on a section whose required answers are missing, and

@@ -139,6 +139,21 @@ def test_the_state_says_whether_the_install_already_started(tmp_path):
     assert resumed.step == "keyset"
 
 
+def test_a_run_whose_launcher_is_gone_reads_as_failed(tmp_path):
+    """The install is a child of the launcher that started it and went with
+    it, so the run can be installed again rather than staying stuck."""
+    import subprocess
+    import sys
+
+    gone = subprocess.Popen([sys.executable, "-c", "pass"])
+    gone.wait()
+    path = tmp_path / "clientco"
+    path.mkdir()
+    for doc in ({"state": "installing", "pid": gone.pid}, {"state": "installing"}):
+        (path / run_mod.STATE_FILENAME).write_text(json.dumps(doc), encoding="utf-8")
+        assert run_mod.load(path, SECRETS).state == run_mod.STATE_FAILED, doc
+
+
 def test_a_malformed_state_file_is_an_error(tmp_path):
     path = tmp_path / "clientco"
     path.mkdir()

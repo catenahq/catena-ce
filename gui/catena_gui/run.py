@@ -45,11 +45,16 @@ from . import registry
 # The states a run can be in. `installing` is the one that matters on resume: a
 # launcher that reopened the form for a run whose `catena-cli install` is still
 # going would let a client answer the same questions twice into a host that is
-# already being built.
+# already being built. The install is a child of the launcher that started it,
+# whose pid the state file records, so a run whose launcher is gone reads as
+# failed: its install went with it, and the client can install again.
 STATE_ANSWERING = "answering"
 STATE_INSTALLING = "installing"
 STATE_DONE = "done"
 STATE_FAILED = "failed"
+# The states whose form takes answers and an Install: before the first
+# install, and after one that failed.
+EDITABLE_STATES = (STATE_ANSWERING, STATE_FAILED)
 
 ENV_FILENAME = ".env"
 STATE_FILENAME = ".catena-gui.json"
@@ -187,6 +192,7 @@ class Run:
             "state": self.state,
             "step": self.step,
             "started": self.started or time.time(),
+            "pid": os.getpid(),
             "launcher": {k: v for k, v in self.launcher.items()
                          if k not in self.secret_keys},
         }
@@ -221,6 +227,8 @@ def load(path: Path, secret_keys: frozenset[str] = frozenset()) -> Run:
     if not isinstance(doc, dict):
         raise ValueError(f"{run.state_path}: expected an object")
     run.state = str(doc.get("state") or STATE_ANSWERING)
+    if run.state == STATE_INSTALLING and not _running(doc.get("pid")):
+        run.state = STATE_FAILED
     run.step = str(doc.get("step") or "")
     run.started = float(doc.get("started") or 0.0)
     launcher = doc.get("launcher")
@@ -228,6 +236,19 @@ def load(path: Path, secret_keys: frozenset[str] = frozenset()) -> Run:
         run.launcher = {str(k): str(v) for k, v in launcher.items()
                         if str(k) not in secret_keys}
     return run
+
+
+def _running(pid: object) -> bool:
+    """Whether the launcher process `pid` is still alive."""
+    if not isinstance(pid, int):
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def secret_keys_from(doc: dict) -> frozenset[str]:
