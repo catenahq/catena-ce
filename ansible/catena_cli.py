@@ -6,9 +6,9 @@ ansible-playbook. It reaches the server over SSH; everything else -- backups,
 the tunnel, the tailnet, the passwords -- runs from catena-admin on the host.
 Subcommands:
 
-  install    seed config (reuses seed.py), then run
-             bootstrap -> converge -> validate, and show the
-             passwords the server minted. Run again, it shows them again.
+  install    seed config (reuses seed.py), then run bootstrap, show the
+             passwords the server minted, run converge -> validate, and
+             show the passwords again. Run again, it shows them again.
   converge   re-run converge.yml: it applies the operator-run roles the
              panel's own converge cannot, and is the way in when the panel
              is down. --address reaches the host somewhere other than
@@ -78,6 +78,11 @@ INSTALL_CHAIN = ("bootstrap", "converge", "validate")
 # Stages that emit the host's administrative address into
 # .bootstrap-output.yml: bootstrap records the install address.
 _ADDRESS_STAGES = ("bootstrap",)
+
+# The two lines `install` frames the passwords block with. Nothing else prints
+# them, so the graphical installer finds the block in the output by them.
+KEYSET_BEGIN = "-----BEGIN CATENA PASSWORDS-----"
+KEYSET_END = "-----END CATENA PASSWORDS-----"
 
 # Host binaries the wrapper shells out to.
 REQUIRED_BINARIES = ("ansible-playbook", "ansible")
@@ -371,18 +376,41 @@ def _mktemp_secrets(prefix: str) -> Path:
     return tmp
 
 
-def _show_dr_keyset(inv_dir: Path) -> None:
-    """After a fresh install, surface the on-box-minted passwords (admin +
-    console) ONCE for the user's password manager. Non-fatal: a failure here
-    must never fail an otherwise-successful install. The passwords stay on the
-    server, and running the install again shows them again."""
-    banner("Your disaster-recovery keyset -- shown once, save it now")
-    cmd = playbook_cmd(inv_dir, "show-keyset")
-    print(_c("1;30", "  $ " + " ".join(cmd)), file=sys.stderr)
-    if subprocess.run(cmd).returncode != 0:
-        print(_c("1;33", "! could not display the passwords; run "
-                 "`catena-cli install` again to show them."),
+def _print_keyset(keyset: str) -> None:
+    print("\n".join((KEYSET_BEGIN, keyset, KEYSET_END)), file=sys.stderr,
+          flush=True)
+
+
+def _show_dr_keyset(inv_dir: Path, extra: list[str] | None = None) -> str:
+    """Mint the passwords the install shows (admin + console) if the server
+    has none, print them ONCE between KEYSET_BEGIN and KEYSET_END, and return
+    the block so the install can print it again when it ends.
+
+    Runs right after bootstrap, so the passwords are on screen for the whole
+    converge. `extra` is the install's adopt file, which carries an admin
+    password install.yaml pins. The block arrives as one 0600 file per host in
+    a 0700 directory, deleted before this returns.
+
+    Non-fatal: the converge mints the same passwords when this could not, and
+    running the install again shows them."""
+    banner("Your passwords -- shown once, save them now")
+    out_dir = Path(tempfile.mkdtemp(prefix="catena-keyset-"))
+    try:
+        cmd = playbook_cmd(inv_dir, "show-keyset",
+                           ["-e", f"keyset_out={out_dir}", *(extra or [])])
+        print(_c("1;30", "  $ " + " ".join(cmd)), file=sys.stderr)
+        shown = subprocess.run(cmd).returncode == 0
+        keyset = "\n".join(p.read_text().rstrip("\n")
+                           for p in sorted(out_dir.iterdir())) if shown else ""
+    finally:
+        shutil.rmtree(out_dir, ignore_errors=True)
+    if not keyset:
+        print(_c("1;33", "! could not show the passwords; the install carries "
+                 "on, and `catena-cli install` run again shows them."),
               file=sys.stderr)
+        return ""
+    _print_keyset(keyset)
+    return keyset
 
 
 def cmd_install(args: argparse.Namespace) -> int:
@@ -425,9 +453,16 @@ def cmd_install(args: argparse.Namespace) -> int:
         ensure_collections()
 
         banner("Step 2/2 -- deploy (" + " -> ".join(INSTALL_CHAIN) + ")")
-        _run_deploy_chain(inv_dir, INSTALL_CHAIN,
+        # The passwords come right after bootstrap, the first leg: the server
+        # holds its store by then, and the converge after it is the long part.
+        _run_deploy_chain(inv_dir, INSTALL_CHAIN[:1],
                           bootstrap_extra=bootstrap_extra, global_extra=adopt_extra)
-        _show_dr_keyset(inv_dir)
+        keyset = _show_dr_keyset(inv_dir, adopt_extra)
+        _run_deploy_chain(inv_dir, INSTALL_CHAIN[1:],
+                          bootstrap_extra=bootstrap_extra, global_extra=adopt_extra)
+        if keyset:
+            banner("Your passwords, as shown after bootstrap")
+            _print_keyset(keyset)
     finally:
         if bootstrap_vars_tmp is not None:
             bootstrap_vars_tmp.unlink(missing_ok=True)

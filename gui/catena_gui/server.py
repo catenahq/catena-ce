@@ -23,13 +23,18 @@ from __future__ import annotations
 
 import html
 import http.server
+import json
+import re
 import subprocess
 import sys
 import threading
 import urllib.parse
 from pathlib import Path
 
-from . import render, run as run_mod, steps as steps_mod
+from . import registry, render, run as run_mod, steps as steps_mod
+
+# The terminal colour codes the installer prints, which a page shows as noise.
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 _STYLE = """
 :root { color-scheme: light dark; --fg: #1a1a1a; --bg: #fdfdfc; --muted: #666;
@@ -82,7 +87,36 @@ ul.checks li { padding: .2rem 0; }
 .bad { color: var(--bad); } .warn { color: var(--warn); } .ok { color: var(--ok); }
 pre { white-space: pre-wrap; border: 1px solid var(--line); border-radius: 4px;
       padding: .75rem; overflow-x: auto; }
+pre.log { max-height: 60vh; overflow-y: auto; }
 """
+
+# While the install runs, the page polls /progress and updates in place, which
+# keeps the scroll position and a selection in the passwords being copied. It
+# reloads once when the install ends, for the page that says how it ended. The
+# box follows new lines while it is scrolled to the bottom, and stays put while
+# someone reads further up.
+_POLL = """<script>
+(function () {
+  var log = document.getElementById("log");
+  var box = document.getElementById("keyset");
+  var keyset = document.getElementById("keyset-text");
+  log.scrollTop = log.scrollHeight;
+  if (log.dataset.state !== "installing") return;
+  function poll() {
+    fetch("/progress").then(function (r) { return r.json(); }).then(function (p) {
+      if (p.state !== "installing") { location.reload(); return; }
+      var atEnd = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+      log.textContent = p.log;
+      if (atEnd) log.scrollTop = log.scrollHeight;
+      if (p.keyset && keyset.textContent !== p.keyset) {
+        keyset.textContent = p.keyset;
+        box.hidden = false;
+      }
+    }).catch(function () {}).then(function () { setTimeout(poll, 3000); });
+  }
+  setTimeout(poll, 3000);
+})();
+</script>"""
 
 
 def _page(title: str, body: str) -> bytes:
@@ -218,10 +252,16 @@ def start_install(current: run_mod.Run, ansible_dir: Path) -> threading.Thread:
     the job either way. The page polls the tail; closing the tab does not stop
     the install, and neither does losing the network the browser is on.
 
-    Nothing it prints is written to a file: it ends with the passwords the
-    install shows once. The install.yaml is removed whatever happens, for the
-    same reason: it can carry the provider's password.
+    Nothing it prints is written to a file: it carries the passwords the
+    install shows once. The block the CLI frames them in goes to the run's
+    keyset, which the page shows on its own; every other line goes to the
+    log. The install.yaml is removed whatever happens, for the same reason: it
+    can carry the provider's password.
+
+    NO STDIN. Nothing on the page can answer a question, so the install runs
+    with no input, and anything it would have asked takes its default.
     """
+    cli = registry.ansible_module("catena_cli")
     body_yaml = render.install_yaml(inventory=current.inventory,
                                     answers=current.answers,
                                     secrets=current.secrets)
@@ -233,13 +273,24 @@ def start_install(current: run_mod.Run, ansible_dir: Path) -> threading.Thread:
         rc = 1
         with render.transient_install_yaml(body_yaml) as target:
             argv = render.install_command(ansible_dir, target, current.inventory)
-            proc = subprocess.Popen(argv, stdout=subprocess.PIPE,
+            proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL,
+                                    stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, text=True,
                                     errors="replace")
             assert proc.stdout is not None
+            keyset: list[str] | None = None
             for line in proc.stdout:
                 sys.stderr.write(line)
-                current.log.append(line.rstrip("\n"))
+                text = _ANSI.sub("", line.rstrip("\n"))
+                if text == cli.KEYSET_BEGIN:
+                    keyset = []
+                elif keyset is None:
+                    current.log.append(text)
+                elif text == cli.KEYSET_END:
+                    current.keyset = "\n".join(keyset)
+                    keyset = None
+                else:
+                    keyset.append(text)
             rc = proc.wait()
         current.state = (run_mod.STATE_DONE if rc == 0
                          else run_mod.STATE_FAILED)
@@ -251,7 +302,12 @@ def start_install(current: run_mod.Run, ansible_dir: Path) -> threading.Thread:
 
 
 def _install_html(current: run_mod.Run) -> str:
-    """The section below the form once the install is under way.
+    """The sections below the form once the install is under way: the
+    passwords, then the output.
+
+    The passwords on their own, from the moment the install prints them --
+    right after bootstrap -- so they are not a stretch of the output to find
+    and copy while it scrolls. Hidden until then.
 
     The log TAIL rather than a spinner. "Installing" answers nothing a client
     can act on, and the thing they want when it stops is which task failed --
@@ -266,18 +322,20 @@ def _install_html(current: run_mod.Run) -> str:
         run_mod.STATE_INSTALLING: "Installing. This continues if you close "
                                   "this tab; closing the console window stops "
                                   "it.",
-        run_mod.STATE_DONE: "Finished. The passwords the installer shows once "
-                            "are in the last lines below and in the console "
-                            "window. Nothing kept a copy: save them now.",
+        run_mod.STATE_DONE: "Finished.",
         run_mod.STATE_FAILED: "The install stopped. The last lines say where.",
     }
-    refresh = ('<meta http-equiv=refresh content="5;url=/#install">'
-               if current.state == run_mod.STATE_INSTALLING else "")
     after = ('<p><a href="/access">How to reach the panel now</a></p>'
              if current.state == run_mod.STATE_DONE else "")
-    return (f"<section id=install>{refresh}<h2>Install output</h2>"
+    return (f'<section id=keyset{"" if current.keyset else " hidden"}>'
+            "<h2>Your passwords</h2><p class=doc>Save them to your password "
+            "manager now. The journal verification key is not shown again, "
+            "and nothing on this machine keeps a copy.</p>"
+            f"<pre id=keyset-text>{html.escape(current.keyset)}</pre></section>"
+            "<section id=install><h2>Install output</h2>"
             f"<p class=doc>{html.escape(words[current.state])}</p>{after}"
-            f"<pre>{html.escape(chr(10).join(lines))}</pre></section>")
+            f'<pre id=log class=log data-state="{html.escape(current.state)}">'
+            f"{html.escape(chr(10).join(lines))}</pre></section>{_POLL}")
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
@@ -296,9 +354,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         """Quiet. The console prints what the install is doing; a request log
         would bury it under one line per form field."""
 
-    def _send(self, body: bytes, status: int = 200) -> None:
+    def _send(self, body: bytes, status: int = 200,
+              content_type: str = "text/html; charset=utf-8") -> None:
         self.send_response(status)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -327,6 +386,13 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 self._redirect("/inventory")
                 return
             self._render_access()
+            return
+        if path == "/progress" and self.run is not None:
+            # What the install page's poll reads while the install runs.
+            self._send(json.dumps({"state": self.run.state,
+                                   "log": "\n".join(self.run.log),
+                                   "keyset": self.run.keyset}).encode("utf-8"),
+                       content_type="application/json")
             return
         self._send(_page("Not found", "<main><h1>Not found</h1></main>"), 404)
 
@@ -406,15 +472,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         names = ([s.name for s in self.all_steps] if installing
                  else [checked] if self._step(checked) else [])
         values = self._shown_values()
-        # The acknowledgement is launcher bookkeeping, filed apart from the
-        # answers, and the keyset probe reads it.
-        answers = {**self.run.answers, **self.run.launcher}
         for name in names:
             step = self._step(name)
             missing = steps_mod.missing_required(step, values) if step else []
             _Handler.last_checks[name] = missing + (
                 [] if missing else steps_mod.validate(
-                    name, answers, self.run.secrets))
+                    name, self.run.probed(), self.run.secrets))
         blocked = next((n for n in names
                         if steps_mod.blocked(_Handler.last_checks[n])), "")
         self.run.step = blocked or checked or self.run.step

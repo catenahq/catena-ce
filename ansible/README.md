@@ -65,7 +65,7 @@ the same `install`.
 
 | Command | Playbook | What it does |
 | --- | --- | --- |
-| `install` | chain | Seed the configuration, run bootstrap, converge, validate, then show the passwords (`show-keyset.yml`) |
+| `install` | chain | Seed the configuration, run bootstrap, show the passwords (`show-keyset.yml`), run converge and validate, then show the passwords again |
 | `converge` | `converge.yml` | Re-apply from this machine; `--address` reaches the host at its tailnet address once the panel's Lockdown has closed public SSH |
 | `uninstall` | `uninstall.yml` | Unmask the native apt timers on a host an older release masked |
 
@@ -100,8 +100,8 @@ inventory.
   store.
 - Every other secret is minted **on the server**
   (`helpers/onbox_config.py`). The installer shows the admin and console
-  passwords **once** at the end of install
-  (`playbooks/show-keyset.yml`); the restic password is generated in
+  passwords **once**, right after bootstrap, and repeats them when the
+  install ends (`playbooks/show-keyset.yml`); the restic password is generated in
   catena-admin > Settings > Backup and shown there once
   (`scripts/catena-restic-key.py`). An install.yaml may pin the admin
   password; it reaches the converge through a **transient 0600 file**

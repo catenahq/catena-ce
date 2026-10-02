@@ -70,8 +70,9 @@ ride the backup, because it is what unlocks the backup.
 `onbox_config.py`. They are generated **on-box** and **shown once** so the
 client keeps a copy in their password manager, and they are NOT settable
 through the settings config-write API (a restic re-key is a deliberate action).
-The converge mints the admin and console passwords if absent, and the installer
-shows them at the end of `catena-cli install` (`playbooks/show-keyset.yml`).
+`catena-cli install` mints the admin and console passwords right after
+bootstrap and shows them then (`playbooks/show-keyset.yml`), and again when the
+install ends; a converge mints either one it finds absent.
 The restic password is `MINTED_ON_REQUEST`: the client generates it in the
 panel beside the backup repository (`scripts/catena-restic-key.py generate`,
 which refuses when a password exists or the repository already holds backups

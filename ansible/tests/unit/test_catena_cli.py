@@ -381,15 +381,73 @@ def test_install_password_prompt_precedes_the_deploy_chain(cli, tmp_path, monkey
         return [], None
 
     def fake_chain(inv, chain, **kw):
-        order.append(("chain",))
+        order.append(("chain", *chain))
 
     monkeypatch.setattr(cli, "_bootstrap_extra_vars", fake_bootstrap_extra)
     monkeypatch.setattr(cli, "_run_deploy_chain", fake_chain)
-    monkeypatch.setattr(cli, "_show_dr_keyset", lambda inv: order.append(("keyset",)))
+    monkeypatch.setattr(cli, "_show_dr_keyset",
+                        lambda inv, extra: order.append(("keyset",)) or "")
 
     ns = cli.build_parser().parse_args(["install", "--inventory", "prod"])
     assert cli.cmd_install(ns) == 0
-    assert order == [("prompt", True), ("chain",), ("keyset",)]
+    assert order == [("prompt", True), ("chain", "bootstrap"), ("keyset",),
+                     ("chain", "converge", "validate")]
+
+
+def _install_with_keyset(cli, tmp_path, monkeypatch, keyset):
+    inv_dir = tmp_path / "inv"
+    inv_dir.mkdir()
+    monkeypatch.setattr(cli, "_preflight_checks", lambda *a, **k: None)
+    monkeypatch.setattr(cli, "inventory_path", lambda name: inv_dir)
+    monkeypatch.setattr(cli, "ensure_collections", lambda: None)
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=0))
+    monkeypatch.setattr(cli, "_bootstrap_extra_vars", lambda *a, **k: ([], None))
+    monkeypatch.setattr(cli, "_run_deploy_chain", lambda *a, **k: None)
+    monkeypatch.setattr(cli, "_show_dr_keyset", lambda inv, extra: keyset)
+    ns = cli.build_parser().parse_args(["install", "--inventory", "prod"])
+    assert cli.cmd_install(ns) == 0
+
+
+def test_the_passwords_are_printed_again_when_the_install_ends(cli, tmp_path, monkeypatch, capsys):
+    """Shown after bootstrap, they scroll away under the converge in a
+    terminal, so the install ends on the same block."""
+    _install_with_keyset(cli, tmp_path, monkeypatch, "Admin password: pw")
+    err = capsys.readouterr().err
+    tail = err[err.rindex(cli.KEYSET_BEGIN):]
+    assert tail.startswith(f"{cli.KEYSET_BEGIN}\nAdmin password: pw\n{cli.KEYSET_END}")
+
+
+def test_no_block_is_printed_at_the_end_when_none_was_shown(cli, tmp_path, monkeypatch, capsys):
+    _install_with_keyset(cli, tmp_path, monkeypatch, "")
+    assert cli.KEYSET_BEGIN not in capsys.readouterr().err
+
+
+def test_show_dr_keyset_prints_the_handed_over_block_and_deletes_it(cli, tmp_path, monkeypatch, capsys):
+    """The play writes one file per host into the directory it is given; the
+    CLI prints them framed, returns the block, and leaves no file behind."""
+    seen = {}
+
+    def fake_run(cmd, *a, **k):
+        out = Path(next(a for a in cmd if a.startswith("keyset_out=")).split("=", 1)[1])
+        seen["dir"], seen["cmd"] = out, cmd
+        (out / "host1").write_text("Admin password: pw\n")
+        return types.SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+    keyset = cli._show_dr_keyset(tmp_path, ["-e", "@adopt"])
+    assert keyset == "Admin password: pw"
+    assert f"{cli.KEYSET_BEGIN}\nAdmin password: pw\n{cli.KEYSET_END}" in capsys.readouterr().err
+    assert _stage_of(seen["cmd"]) == "show-keyset"
+    assert "@adopt" in seen["cmd"]
+    assert not seen["dir"].exists()
+
+
+def test_show_dr_keyset_failing_does_not_stop_the_install(cli, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli.subprocess, "run",
+                        lambda *a, **k: types.SimpleNamespace(returncode=2))
+    assert cli._show_dr_keyset(tmp_path) == ""
+    err = capsys.readouterr().err
+    assert cli.KEYSET_BEGIN not in err and "could not show the passwords" in err
 
 
 def test_the_verbs_are_install_converge_and_uninstall(cli):

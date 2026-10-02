@@ -634,7 +634,8 @@ def _collect_env_values(
     """Walk the .env template keys, prompting for each. A key with an empty
     template default takes a blank as an answer rather than asking again."""
     banner("Configuration (.env)")
-    print("(press Enter to accept the template default)\n", file=sys.stderr)
+    if sys.stdin.isatty():
+        print("(press Enter to accept the template default)\n", file=sys.stderr)
     env_values: dict[str, str] = {}
     for key, default in env_keys:
         allow_empty = not default

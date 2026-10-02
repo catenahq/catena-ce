@@ -11,9 +11,9 @@ ansible/inventory/ or creates one, and everything it keeps lives there:
     .catena-gui.json   where the launcher got to: the last section checked,
                        the install's state, the keyset acknowledgement. 0600.
 
-What `catena-cli install` prints is NOT kept: it ends with the passwords the
-install shows once. It goes to the console window and, for the page, to the
-last lines held in memory.
+What `catena-cli install` prints is NOT kept: it carries the passwords the
+install shows once. It goes to the console window and, for the page, to memory:
+the passwords block on its own, and the last lines of the rest.
 
 An install can start with an unbounded wait -- a server being delivered by a
 provider -- so the answers are on disk from the first check, and a launcher
@@ -35,7 +35,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import sys
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -54,8 +53,8 @@ STATE_FAILED = "failed"
 
 ENV_FILENAME = ".env"
 STATE_FILENAME = ".catena-gui.json"
-# How much of the install's output the page shows.
-LOG_LINES = 60
+# How much of the install's output the page keeps, in a box that scrolls.
+LOG_LINES = 2000
 
 # The inventory the repository ships as a template, which is never a client's.
 TEMPLATE_INVENTORY = "example"
@@ -74,12 +73,7 @@ def _seed():
     Imported from the sibling tree rather than reimplemented: one writer, so a
     file the launcher saved is byte-for-byte what `catena-cli install` would
     have written from the same answers."""
-    ansible = str(registry.ANSIBLE_DIR)
-    if ansible not in sys.path:
-        sys.path.insert(0, ansible)
-    import seed
-
-    return seed
+    return registry.ansible_module("seed")
 
 
 def inventories(root: Path | None = None) -> list[str]:
@@ -113,7 +107,8 @@ class Run:
     `answers` is what a client typed and the `.env` keeps. `secrets` is what
     they typed that nothing keeps, held for the life of the process only.
     `launcher` is the launcher's own bookkeeping (an acknowledgement), which
-    belongs to the run and never reaches the installer.
+    belongs to the run and never reaches the installer. `keyset` is the
+    passwords block the install printed, held for the life of the process.
 
     `secret_keys` is the REGISTRY's answer to which is which, carried so the
     writer can enforce it rather than trusting every caller to have filtered.
@@ -127,8 +122,10 @@ class Run:
     state: str = STATE_ANSWERING
     step: str = ""
     started: float = 0.0
-    # The install's last lines, in memory only (see the module docstring).
+    # The install's last lines and its passwords block, in memory only (see the
+    # module docstring).
     log: deque[str] = field(default_factory=lambda: deque(maxlen=LOG_LINES))
+    keyset: str = ""
 
     @property
     def inventory(self) -> str:
@@ -157,6 +154,11 @@ class Run:
             if key in half:
                 return half[key]
         return ""
+
+    def probed(self) -> dict[str, str]:
+        """What the probes read: the answers, and the launcher's
+        acknowledgement the keyset probe checks."""
+        return {**self.answers, **self.launcher}
 
     def missing_secrets(self, required: list[str]) -> list[str]:
         """Which credentials this run still has to be given. Non-empty on every

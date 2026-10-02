@@ -422,6 +422,30 @@ def test_cli_adopt_file_then_mint(oc, tmp_path, capsys):
     assert emitted["catena_postgres_password"]  # minted
 
 
+def test_cli_mint_user_held_mints_only_the_shown_passwords(oc, tmp_path, capsys):
+    """show-keyset.yml mints after bootstrap, before the converge: the shown
+    passwords only, the install's pin adopted first. The internal secrets stay
+    the converge loader's to mint, after it adopts what is in its scope."""
+    p = tmp_path / "config.json"
+    adopt = tmp_path / "adopt.json"
+    adopt.write_text('{"admin_password": "pinned-admin-password"}')
+    rc = oc.main(["--path", str(p), "--adopt-file", str(adopt),
+                  "--mint-user-held", "--emit", "all"])
+    assert rc == 0
+    secrets_map = json.loads(capsys.readouterr().out)["secrets"]
+    assert secrets_map["admin_password"] == "pinned-admin-password"
+    assert secrets_map["console_recovery_password"]
+    assert "backup_restic_password" not in secrets_map
+    assert not set(secrets_map) & set(oc.INTERNAL_SECRETS)
+    assert oc.load(p)["secrets"] == secrets_map
+
+
+def test_cli_mint_user_held_and_no_mint_exclude_each_other(oc, tmp_path):
+    with pytest.raises(SystemExit):
+        oc.main(["--path", str(tmp_path / "config.json"),
+                 "--no-mint", "--mint-user-held"])
+
+
 # --- CLI --------------------------------------------------------------------
 def test_cli_seeds_external_mints_internal_and_emits(oc, tmp_path, capsys):
     p = tmp_path / "config.json"

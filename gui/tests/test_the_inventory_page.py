@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import http.client
 import http.server
+import json
 import re
+import sys
 import threading
 import urllib.parse
 
@@ -281,12 +283,62 @@ def test_suggestions_are_offered_beside_a_free_text_field():
     assert 'value="~/.ssh/catena_ed25519"' in html
 
 
-def test_the_install_output_reaches_no_file(tmp_path, monkeypatch):
-    """`catena-cli install` ends by printing the passwords it shows once. The
-    page shows them from memory; no file in the inventory, or anywhere the
-    launcher writes, keeps them."""
-    import sys
+def test_the_passwords_block_is_held_apart_from_the_log(tmp_path, monkeypatch):
+    """The block the CLI frames goes to the run's keyset, which the page shows
+    on its own; every other line, its colour codes stripped, to the log."""
+    cli = registry.ansible_module("catena_cli")
+    script = "\n".join((
+        "print('\\x1b[1;34m== Stage: bootstrap\\x1b[0m')",
+        f"print({cli.KEYSET_BEGIN!r})",
+        "print('Admin password: pw')",
+        f"print({cli.KEYSET_END!r})",
+        "print('converge')"))
+    monkeypatch.setattr(server.render, "install_command",
+                        lambda *a: [sys.executable, "-c", script])
+    current = run_mod.load(tmp_path / "clientco", run_mod.secret_keys_from(DOC))
+    server.start_install(current, tmp_path).join(timeout=30)
+    assert current.keyset == "Admin password: pw"
+    assert list(current.log) == ["== Stage: bootstrap", "converge"]
 
+
+def test_the_install_reads_no_input(tmp_path, monkeypatch):
+    """Nothing on the page can answer a question: the install's stdin is empty
+    and no terminal, so a prompt takes its default instead of waiting."""
+    monkeypatch.setattr(server.render, "install_command", lambda *a: [
+        sys.executable, "-c",
+        "import sys; print(sys.stdin.isatty(), repr(sys.stdin.read()))"])
+    current = run_mod.load(tmp_path / "clientco", run_mod.secret_keys_from(DOC))
+    server.start_install(current, tmp_path).join(timeout=30)
+    assert list(current.log) == ["False ''"]
+
+
+def test_the_passwords_show_on_their_own_and_the_output_scrolls(client):
+    """The passwords section waits hidden until the install prints them. The
+    output is a scrolling box the page polls, not a page that reloads."""
+    request, _ = client
+    request("POST", "/inventory", {"create": "newco"})
+    current = server._Handler.run
+    current.state = run_mod.STATE_INSTALLING
+    page = request("GET", "/")[2]
+    assert "<section id=keyset hidden>" in page
+    assert '<pre id=log class=log data-state="installing">' in page
+    assert "http-equiv=refresh" not in page
+
+    current.keyset = "Admin password: pw"
+    current.log.append("converge")
+    page = request("GET", "/")[2]
+    keyset = re.search(r"<section id=keyset>(.*?)</section>", page, re.S)
+    assert keyset and "Admin password: pw" in keyset.group(1)
+    status, _, body = request("GET", "/progress")
+    assert status == 200
+    assert json.loads(body) == {"state": "installing", "log": "converge",
+                                "keyset": "Admin password: pw"}
+
+
+def test_the_install_output_reaches_no_file(tmp_path, monkeypatch):
+    """`catena-cli install` prints the passwords it shows once. The page shows
+    them from memory; no file in the inventory, or anywhere the launcher
+    writes, keeps them."""
     monkeypatch.setattr(server.render, "install_command", lambda *a: [
         sys.executable, "-c", "print('restic-password-SHOWN-ONCE')"])
     current = run_mod.load(tmp_path / "clientco", run_mod.secret_keys_from(DOC))

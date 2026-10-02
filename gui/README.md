@@ -88,7 +88,10 @@ alternative is a file that outlives the install and that nothing ever comes
 back to remove.
 
 What the install prints goes to the console and to the page from memory, never
-to a file: it ends with the passwords the server shows once.
+to a file: it carries the passwords the server shows once. The page keeps the
+block the CLI frames them in, printed right after bootstrap, in its own box
+above the output, which scrolls and follows new lines. The install runs with
+no stdin: nothing on the page can answer a question, so none is waited on.
 
 ## Running it without a UI
 

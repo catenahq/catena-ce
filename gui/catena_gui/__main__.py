@@ -73,7 +73,7 @@ def walk(run: run_mod.Run, doc: dict) -> int:
     for step in built:
         print(f"\n== {step.title}", file=sys.stderr)
         missing = steps_mod.missing_required(step, values)
-        checks = missing or steps_mod.validate(step.name, run.answers, run.secrets)
+        checks = missing or steps_mod.validate(step.name, run.probed(), run.secrets)
         _report(checks)
         problems += sum(1 for check in checks if check.blocks)
     return problems
@@ -85,6 +85,9 @@ def install(run: run_mod.Run, ansible_dir: Path) -> int:
     The install.yaml is removed whatever happens. It can carry the provider's
     password, and a file that outlives the install is one nothing ever comes
     back to delete.
+
+    No stdin, as on the page: the answers are the whole input, and a question
+    the install would have asked takes its default.
     """
     run.state = run_mod.STATE_INSTALLING
     run.save()
@@ -93,7 +96,7 @@ def install(run: run_mod.Run, ansible_dir: Path) -> int:
     with render.transient_install_yaml(body) as target:
         argv = render.install_command(ansible_dir, target, run.inventory)
         print(f"\n== install: {' '.join(argv)}", file=sys.stderr)
-        rc = subprocess.run(argv, check=False).returncode
+        rc = subprocess.run(argv, stdin=subprocess.DEVNULL, check=False).returncode
     run.state = run_mod.STATE_DONE if rc == 0 else run_mod.STATE_FAILED
     run.save()
     return rc

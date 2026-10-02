@@ -343,7 +343,8 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
 # ONCE so the user keeps an off-box copy in their password manager. NOT in
 # EXTERNAL_SECRETS, so the config-write API (settings save) cannot set them:
 #   - admin_password    -- first-login credential (Portainer + Keycloak).
-#     Minted by the converge if absent, shown at the end of the install.
+#     Minted right after bootstrap by playbooks/show-keyset.yml, which shows
+#     it then, or by any converge that finds it absent.
 #   - console_recovery_password -- the ops account's break-glass password
 #     for the provider KVM / serial console (bootstrap/roles/common sets it;
 #     key-only SSH keeps it console-only). Minted and shown like the admin
@@ -700,7 +701,7 @@ def ensure_app_secrets(store: dict, wanted: object) -> dict:
 
 
 def ensure_user_held_secrets(store: dict) -> list[str]:
-    """Mint every USER_HELD secret the converge owns (admin + console
+    """Mint every USER_HELD secret the install owns (admin + console
     passwords) missing or blank from the store, reconcile-not-overwrite. Runs
     AFTER adopt/apply_inputs so a value handed to the loader is preserved and
     only a store with none mints fresh. MINTED_ON_REQUEST keys are skipped.
@@ -890,8 +891,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--overwrite", action="store_true",
                     help="replace existing values instead of filling only "
                          "blanks (applies to --adopt-* as well as --set-*)")
-    ap.add_argument("--no-mint", action="store_true",
-                    help="do not mint missing internal secrets (seed-only)")
+    mint = ap.add_mutually_exclusive_group()
+    mint.add_argument("--no-mint", action="store_true",
+                      help="do not mint missing internal secrets (seed-only)")
+    mint.add_argument("--mint-user-held", action="store_true",
+                      help="mint only the missing user-held passwords the "
+                           "installer shows, after bootstrap and before the "
+                           "converge mints the internal secrets")
     ap.add_argument("--adopt-stdin", action="store_true",
                     help="read a JSON object of {key: value} secrets from "
                          "stdin and adopt them before minting (fill-only "
@@ -996,7 +1002,9 @@ def main(argv: list[str] | None = None) -> int:
         overwrite=args.overwrite,
     )
     settle_tailnet_provider(store)
-    if not args.no_mint:
+    if args.mint_user_held:
+        ensure_user_held_secrets(store)
+    elif not args.no_mint:
         ensure_internal_secrets(store)
         ensure_user_held_secrets(store)
     dump(store, args.path)

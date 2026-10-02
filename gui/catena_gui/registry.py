@@ -16,8 +16,10 @@ install.yaml that answered nothing.
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
+import sys
 from pathlib import Path
 
 REGISTRY_FILENAME = "knobs.json"
@@ -42,6 +44,15 @@ def registry_path() -> Path:
         "ansible/helpers/knobs.yml by render_knobs.py, and without it the "
         "launcher has no questions to ask."
     )
+
+
+def ansible_module(name: str):
+    """A module of the sibling ansible/ tree (seed, catena_cli), imported from
+    there."""
+    ansible = str(ANSIBLE_DIR)
+    if ansible not in sys.path:
+        sys.path.insert(0, ansible)
+    return importlib.import_module(name)
 
 
 def load() -> dict:

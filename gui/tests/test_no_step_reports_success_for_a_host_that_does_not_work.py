@@ -165,6 +165,21 @@ def test_the_keyset_acknowledgement_cannot_be_skipped():
     assert not _blocking(steps_mod.check_keyset({"_keyset_acknowledged": "yes"}))
 
 
+def test_the_run_with_no_ui_reads_the_acknowledgement(monkeypatch, tmp_path):
+    """`--answers` files the acknowledgement where the page does, beside the
+    answers, and its walk hands the probes both halves."""
+    from catena_gui import __main__ as main_mod, run as run_mod
+
+    doc = registry.load()
+    run = run_mod.load(tmp_path / "clientco", run_mod.secret_keys_from(doc))
+    run.answer("HOST_PUBLIC_IP", "203.0.113.10", secret=False)
+    run.answer("ADMIN_EMAIL", "admin@client.test", secret=False)
+    monkeypatch.setitem(steps_mod.PROBES, "target", lambda a, s: [])
+    assert main_mod.walk(run, doc) == 1
+    run.answer("_keyset_acknowledged", "yes", secret=False)
+    assert main_mod.walk(run, doc) == 0
+
+
 def test_the_keyset_is_the_last_step():
     """Terminal as well as mandatory. A step after it would be one a client
     could still be on when the install started."""
