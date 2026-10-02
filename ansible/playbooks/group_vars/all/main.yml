@@ -461,9 +461,8 @@ catena_admin_image: >-
 
 # --- Hostname ---------------------------------------------------------
 # The admin panel is served at dash.<zone>. The subdomain is a product
-# constant, like the hostname scheme above: every inventory in this repo, in
-# the operator skeleton and on every host uses it, and nothing looks up an
-# override.
+# constant, like the hostname scheme above: every inventory in this repo and
+# on every host uses it, and nothing looks up an override.
 catena_admin_subdomain: "{{ cfg_catena_admin_subdomain | default('dash', true) }}"
 catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
 catena_admin_ui_port: "9010"

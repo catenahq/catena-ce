@@ -377,9 +377,9 @@ portainer_ui_port              catena-admin, infrastructure, portainer
 storage_mount_point            backup, catena-admin, keycloak
 ```
 
-The eleven that left are gone from `BOOTSTRAP_CONFIG`, from the starter
-inventory and from the operator skeleton, because a knob that no longer turns
-anything is worse in the documentation than absent.
+The eleven that left are gone from `BOOTSTRAP_CONFIG` and from the starter
+inventory, because a knob that no longer turns anything is worse in the
+documentation than absent.
 
 `cloudflare_zone` and `admin_email` moved next, into `SETTINGS_CONFIG` where the
 existing seed-once path picks them up with no new machinery: the `.env` fills
@@ -662,13 +662,6 @@ than in the code.
 - **The ACME seed is fill-only on a long-lived bench VM.** See the decision
   above. Fresh installs and rewinds re-seed; a re-converge after the bench
   host's bridge IP moved does not.
-- **Twelve keys in the ops operator skeleton turn nothing.** The three
-  `STACK_UPDATE_*`, six of the ten `AUTO_UPDATE_*`, `DEADMAN_TIMER`,
-  `CATENA_APPS_SOURCE_VERSION`, `CATENA_WEBSITE_ENABLED`. Held in a declared
-  table in ops `test_bench_writes_only_keys_catena_ce_reads.py` so the gate can
-  refuse NEW ones while these are retired deliberately -- retiring them touches
-  the bench config schema, so it wants a bench run behind it. The partially-wired
-  auto-update lane is the one worth actually reading before deleting.
 
 ---
 
