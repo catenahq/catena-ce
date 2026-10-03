@@ -20,24 +20,7 @@
 
 set -euo pipefail
 
-# Locate the running Nextcloud app container. Two labels the catalog puts
-# on every service: vps.app names the application, vps.component names the
-# service inside it, and docker ANDs filters on different keys -- so this
-# pins the app container and not its cron, db or redis peers. Neither label
-# changes when a client renames the stack, which the container NAME does.
-ct=$(docker ps \
-    --filter 'label=vps.app=catena-nextcloud' \
-    --filter 'label=vps.component=app' \
-    --format '{{.Names}}' | head -n1)
-
-if [ -z "$ct" ]; then
-    echo "Nextcloud is not running on this host."
-    echo
-    echo "Deploy first: Portainer -> App Templates -> nextcloud-s3 -> Deploy."
-    echo "Wait for the container to come up, then click this button again."
-    exit 1
-fi
-
+ct=$(/usr/local/bin/catena-nextcloud-container --required)
 echo "Found Nextcloud container: $ct"
 
 # OIDC env was minted at deploy time from the catalog's

@@ -38,6 +38,7 @@ search `/usr/local/lib/catena` -- where the payload installs its modules
 | `catena-tailnet-check.py` | catena-tailnet-check -- check tailnet credentials before the panel stores them. |
 | `healthchecks-seed.py` | Bootstrap/reconcile self-hosted Healthchecks: seed the operator superuser, the catena project, API keys, the ntfy notification channel, and the daily backup check. |
 | `mailserver-cert-reload.sh` | Inject the renewed mail TLS cert into the dms container and reload Postfix + Dovecot so it takes effect without dropping established connections. |
+| `nextcloud-container.sh` | /usr/local/bin/catena-nextcloud-container -- print the name of the running Nextcloud app container, for the catena-wire-nextcloud-* scripts. |
 | `nextcloud-talk-hpb-wire.sh` | /usr/local/bin/catena-wire-nextcloud-talk-hpb -- post-deploy wiring for Nextcloud Talk's High-Performance Backend (HPB). |
 | `rocketchat-jitsi-wire.sh` | /usr/local/bin/catena-wire-rocketchat-jitsi -- post-deploy wiring for Rocket.Chat's bundled on-server Jitsi. |
 | `run-clamav-watch.sh` | Page when the shared clamd is down, but only while something depends on it -- the mail server's dms container or Nextcloud. |

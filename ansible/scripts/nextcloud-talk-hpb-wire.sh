@@ -19,23 +19,7 @@
 
 set -euo pipefail
 
-# Two labels the catalog puts on every service: vps.app names the
-# application, vps.component names the service inside it, and docker ANDs
-# filters on different keys -- so this pins the app container and not its
-# cron, db or redis peers. Neither label changes when a client renames the
-# stack, which the container NAME does.
-ct=$(docker ps \
-    --filter 'label=vps.app=catena-nextcloud' \
-    --filter 'label=vps.component=app' \
-    --format '{{.Names}}' | head -n1)
-
-if [ -z "$ct" ]; then
-    echo "Nextcloud is not running on this host."
-    echo
-    echo "Deploy first: Portainer > App Templates > nextcloud-s3 > Deploy."
-    exit 1
-fi
-
+ct=$(/usr/local/bin/catena-nextcloud-container --required)
 echo "Found Nextcloud container: $ct"
 
 # Read env from inside the container so secrets do not travel the

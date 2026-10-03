@@ -23,37 +23,14 @@ if [ -z "$WEBMAIL_URL" ]; then
     exit 2
 fi
 
-# Two labels the catalog puts on every service: vps.app names the
-# application, vps.component names the service inside it, and docker ANDs
-# filters on different keys -- so this pins the app container and not its
-# cron, db or redis peers. Neither label changes when a client renames the
-# stack, which the container NAME does.
-#
 # A SWARM TASK NAME IS TRUE FOR AN INSTANT. Any service update replaces the
 # task, and the converge running this script is often the thing updating it:
 # a name resolved at the top belongs to a container swarm may kill halfway
-# down, and `docker exec` then exits 137. Run 2026-08-27T03-01-27-cee0 died
-# that way partway through the config:system:set sequence, with the task
-# history showing the app task replaced under it ("Address already in use"
-# while the outgoing task still held its endpoint). So the lookup lives with
-# the commands that use it rather than in front of them.
+# down, and `docker exec` then exits 137. So the lookup lives with the
+# commands that use it rather than in front of them.
 #
-# Empty output means "not deployed" and is a legitimate skip. A `docker ps`
-# that FAILED means "could not look", which is not the same answer, so it is
-# reported rather than folded into the skip.
-nc_container() {
-    local out
-    if ! out=$(docker ps \
-            --filter 'label=vps.app=catena-nextcloud' \
-            --filter 'label=vps.component=app' \
-            --format '{{.Names}}'); then
-        echo "docker ps failed while resolving the Nextcloud container" >&2
-        return 2
-    fi
-    printf '%s\n' "$out" | head -n1
-}
-
-ct=$(nc_container)
+# Not deployed is a legitimate skip here, so the lookup is not --required.
+ct=$(/usr/local/bin/catena-nextcloud-container)
 
 if [ -z "$ct" ]; then
     echo "Nextcloud is not running on this host; skipping webmail link."
@@ -66,7 +43,7 @@ echo "Found Nextcloud container: $ct"
 # up right now, which the retry loops read as "the task is mid-roll, wait".
 occ() {
     local now
-    now=$(nc_container) || return 2
+    now=$(/usr/local/bin/catena-nextcloud-container) || return 2
     [ -n "$now" ] || return 125
     docker exec --user 33 "$now" php /var/www/html/occ "$@"
 }
@@ -79,8 +56,7 @@ occ() {
 # when the app is already installed (re-converge: the converged state) AND
 # when the download failed, so app:enable -- which only succeeds once the
 # app is on disk -- is what tells the two apart and is the load-bearing
-# convergence step. (Same reason the earlier app:list grep-guard was
-# removed: it aborted under set -e.)
+# convergence step.
 echo "Ensuring the External Sites app is installed + enabled..."
 enabled=""
 for attempt in 1 2 3 4 5; do

@@ -22,10 +22,9 @@
 # on the host, which is the input a delete leg must never be given -- and these
 # directories are shared with the panel payload.
 #
-# catena-dashboard-sync and gatus-sync (with catena-version-check) are
-# deliberately ABSENT: their scripts and units ship in the panel image
-# (tests/unit/test_no_lane_is_half_owned.py is why), so this role does not own
-# those paths and must not delete them.
+# catena-dashboard-sync and gatus-sync (with catena-version-check) ship in the
+# panel image, whose payload owns their paths
+# (tests/unit/test_no_lane_is_half_owned.py).
 infrastructure_managed_paths:
   - "{{ clamav_watch_script_path }}"
   - "{{ mail_canary_script_path }}"
@@ -34,6 +33,7 @@ infrastructure_managed_paths:
   - "/etc/systemd/system/{{ mail_canary_systemd_unit_name }}.service"
   - "/etc/systemd/system/{{ mail_canary_systemd_unit_name }}.timer"
   - /usr/local/bin/catena-dms-exec
+  - /usr/local/bin/catena-nextcloud-container
   - /usr/local/bin/catena-wire-nextcloud-antivirus
   - /usr/local/bin/catena-wire-nextcloud-mail
   - /usr/local/bin/catena-wire-nextcloud-webmail-link
@@ -51,31 +51,22 @@ infrastructure_managed_paths:
 # opened by reconcile/roles/coturn (3478, 5349, 50000-50100).
 
 # --- Cloudflare tunnel ---------------------------------------------------
-# Tunnel + DNS + cloudflared swarm service moved to reconcile/roles/cloudflare_tunnel
-# on 2026-05-08 so converge.yml can deploy them BEFORE keycloak/oauth2_proxy
-# in a single pass. oauth2_proxy's wait-for-public-Keycloak task otherwise
-# can't succeed on a fresh DR/migrate target. Tunnel-specific vars
-# (cloudflared_tunnel_name, cloudflared_image, cloudflared_ingress_service)
-# live in reconcile/roles/cloudflare_tunnel/defaults
-# and are visible here at converge time -- both roles run in the same
-# play, defaults from each are merged into the play's var scope.
+# Tunnel-specific vars (cloudflared_tunnel_name, cloudflared_image,
+# cloudflared_ingress_service) live in reconcile/roles/cloudflare_tunnel/defaults
+# and are visible here at converge time: both roles run in the same play, and
+# defaults from each are merged into the play's var scope.
 
 # --- Swarm stack-deploy helper --------------------------------------------
 # Poll window for stack-deploy completion. Keycloak with the phasetwo
 # distribution re-runs its `start` build step on every container boot
 # (the image is NOT pre-built with `kc.db=postgres`), which routinely
-# exceeds 5 minutes on a redeploy under load. Bumped to 120 (was 80)
-# after run 2026-05-30T15-17-03-46aa where converge_modify's keycloak
-# redeploy used all 80x5=400s without reaching a terminal state.
-# 120x5=600s = 10 minutes leaves comfortable headroom for both.
+# exceeds 5 minutes on a redeploy under load. 120x5=600s = 10 minutes
+# leaves headroom for it.
 infrastructure_deploy_poll_retries: 120
 infrastructure_deploy_poll_delay: 5
-# Each stack deploy pulls images from upstream registries on every run. A single 502 from
-# quay.io taints the whole deploy; retry up to N times when the diag
-# matches a registry-transient pattern. Bumped to 5 (was 3) after run
-# 2026-05-30T10-07-04-af8c where all 3 attempts hit the same
-# docker-daemon-zombie state and exhausted the budget on the
-# OAuth2-proxy redeploy in backup_rollback stage-3-rollback. See
+# Each stack deploy pulls images from upstream registries on every run. A
+# single 502 from quay.io taints the whole deploy; retry up to N times when the
+# diag matches a registry-transient pattern. See
 # reconcile/roles/infrastructure/tasks/_swarm_stack_deploy_attempt.yml.
 infrastructure_deploy_max_attempts: 5
 
@@ -116,8 +107,7 @@ gatus_sync_script_path: "/usr/local/bin/catena-gatus-sync"
 gatus_sync_env_path: "/etc/catena/gatus-sync.env"
 
 # gatus-sync also writes a small summary here on every run.
-# catena-admin reads it via the backup_stats_dir read-only bind-mount
-# (Phase 4a fold).
+# catena-admin reads it via the backup_stats_dir read-only bind-mount.
 gatus_summary_dir: "{{ backup_stats_dir | default('/var/lib/catena') }}"
 gatus_summary_file: "{{ gatus_summary_dir }}/gatus-summary.json"
 
@@ -133,7 +123,7 @@ healthchecks_compose_name: "healthchecks"
 healthchecks_network_alias: "healthchecks"
 healthchecks_internal_port: 8000
 # Where gatus-sync writes the Healthchecks summary JSON. catena-admin
-# reads it via the backup_stats_dir read-only bind-mount (Phase 4a fold).
+# reads it via the backup_stats_dir read-only bind-mount.
 healthchecks_summary_file: "{{ backup_stats_dir | default('/var/lib/catena') }}/healthchecks-summary.json"
 # Host-side loopback port gatus-sync reads to reach /api/v3/checks/.
 # Gatus-sync runs as a systemd service on the host, outside catena-
@@ -163,7 +153,6 @@ ntfy_server: "{{ cfg_ntfy_server | default('') }}"
 ntfy_topic: "{{ cfg_ntfy_topic | default('') }}"
 
 # --- Beszel (hub + agent resource monitor) ------------------------------
-# Replaces the cAdvisor + catena-resource-sampler lane (deleted 2026-05-31).
 # Two managed compose stacks:
 #
 #   beszel-hub   -- web UI + SQLite history store. Public surface at
@@ -180,10 +169,9 @@ ntfy_topic: "{{ cfg_ntfy_topic | default('') }}"
 # /fail + success pings so Beszel alerts ride the same notification plane
 # as Gatus (clients keep self-service channels). See notifications.md.
 #
-# Always deployed -- Beszel is part of the base plane, not an opt-in. The
-# BESZEL_ENABLED off-switch was removed 2026-07-29. Pinned tags
-# (Renovate-managed); the agent reads docker.sock so it carries the same
-# blast radius cAdvisor did on a single-tenant VPS.
+# Always deployed: Beszel is part of the base plane. Pinned tags
+# (Renovate-managed); the agent reads docker.sock, so it has the docker
+# daemon's blast radius on a single-tenant VPS.
 beszel_image_tag: "0.20.0"
 beszel_image: >-
   {{ ('henrygd/beszel:' ~ beszel_image_tag)
@@ -279,9 +267,8 @@ dashboard_sync_required_paths:
   - "{{ dashboard_sync_lib_dir }}/keycloak_client.py"
   - "{{ dashboard_sync_lib_dir }}/portainer_api.py"
 dashboard_sync_env_path: "/etc/catena/dashboard-sync.env"
-# The cadence is NOT here any more. Both halves of this lane ship in the payload
-# (catena-admin payload/lanes/systemd/), so the interval is in the timer file
-# beside the service it starts rather than in a role default that rendered one.
+# The cadence is in the payload's timer file (catena-admin
+# payload/lanes/systemd/), beside the service it starts.
 
 # The external dead-man watchdog (hourly off-host liveness probe of the
 # watchers) is a Business-edition lane and lives in the private repo;

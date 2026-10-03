@@ -30,25 +30,7 @@ set -euo pipefail
 
 NC_ROOT=/var/www/html
 
-# --- 1. Locate the running Nextcloud app container ----------------------
-# Two labels the catalog puts on every service: vps.app names the
-# application, vps.component names the service inside it, and docker ANDs
-# filters on different keys -- so this pins the app container and not its
-# cron, db or redis peers. Neither label changes when a client renames the
-# stack, which the container NAME does.
-ct=$(docker ps \
-    --filter 'label=vps.app=catena-nextcloud' \
-    --filter 'label=vps.component=app' \
-    --format '{{.Names}}' | head -n1)
-
-if [ -z "$ct" ]; then
-    echo "Nextcloud is not running on this host."
-    echo
-    echo "Deploy first: Portainer > App Templates > nextcloud-s3 > Deploy."
-    echo "Wait for the container to come up, then click this button again."
-    exit 1
-fi
-
+ct=$(/usr/local/bin/catena-nextcloud-container --required)
 echo "Found Nextcloud container: $ct"
 
 # Read env from inside the container so secrets do not travel through
@@ -57,7 +39,7 @@ get_env() {
     docker exec "$ct" /bin/sh -c "printenv \"$1\"" 2>/dev/null || true
 }
 
-# --- 2. Resolve OFFICE_URL from NEXTCLOUD_HOSTNAME ----------------------
+# --- 1. Resolve OFFICE_URL from NEXTCLOUD_HOSTNAME ----------------------
 NC_HOSTNAME=$(get_env NEXTCLOUD_HOSTNAME)
 if [ -z "$NC_HOSTNAME" ]; then
     echo "error: NEXTCLOUD_HOSTNAME is not set in the Nextcloud container env." >&2
@@ -65,15 +47,14 @@ if [ -z "$NC_HOSTNAME" ]; then
     exit 2
 fi
 
-# Drop the leading nextcloud. label to derive the base zone, mirroring
-# nextcloud-talk-hpb-wire.sh (lines 47-54).
+# Drop the leading nextcloud. label to derive the base zone.
 BASE=$(echo "$NC_HOSTNAME" | sed -e 's/^nextcloud\.//')
 if [ -z "$BASE" ] || [ "$BASE" = "$NC_HOSTNAME" ]; then
     BASE="$NC_HOSTNAME"
 fi
 OFFICE_URL="https://office.$BASE"
 
-# --- 3. Probe office.<base> to detect which editor is deployed ----------
+# --- 2. Probe office.<base> to detect which editor is deployed ----------
 # Internal aliases on catena-network:
 #   - Collabora:  collabora:9980     /hosting/discovery -> XML <wopi-discovery>
 #   - OnlyOffice: documentserver:80  /healthcheck       -> "true"
@@ -127,7 +108,7 @@ fi
 
 echo "Detected: Collabora at $OFFICE_URL (internal alias collabora:9980)"
 
-# --- 4. Reverse OnlyOffice's NC-side state (idempotent) -----------------
+# --- 3. Reverse OnlyOffice's NC-side state (idempotent) -----------------
 # Gate on app presence to keep first-run output clean. `app:list
 # --output=json` returns both enabled + disabled buckets in a single
 # JSON document; a literal "\"onlyoffice\":" matches either bucket.
@@ -151,7 +132,7 @@ if docker exec --user 33 "$ct" \
     echo "  OnlyOffice Nextcloud app removed; residual config cleared."
 fi
 
-# --- 5. Install + enable richdocuments (Collabora's NC app) -------------
+# --- 4. Install + enable richdocuments (Collabora's NC app) -------------
 if docker exec --user 33 "$ct" \
         php "$NC_ROOT/occ" app:list --output=json \
         | grep -q '"richdocuments":'; then
@@ -164,7 +145,7 @@ else
         php "$NC_ROOT/occ" app:install richdocuments
 fi
 
-# --- 6. Configure richdocuments to point at $OFFICE_URL -----------------
+# --- 5. Configure richdocuments to point at $OFFICE_URL -----------------
 echo "Configuring richdocuments WOPI URL: $OFFICE_URL"
 docker exec --user 33 "$ct" \
     php "$NC_ROOT/occ" config:app:set richdocuments wopi_url \
@@ -179,7 +160,7 @@ docker exec --user 33 "$ct" \
     php "$NC_ROOT/occ" config:app:set richdocuments disable_certificate_verification \
         --value="no" >/dev/null
 
-# --- 7. Trigger Collabora's discovery refresh ---------------------------
+# --- 6. Trigger Collabora's discovery refresh ---------------------------
 # `richdocuments:activate-config` (NC 28+) re-fetches /hosting/discovery
 # from coolwsd and caches the WOPI handshake. On older NC the next
 # file-open does the same lazily; either path converges.

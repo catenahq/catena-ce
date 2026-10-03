@@ -32,32 +32,14 @@ set -euo pipefail
 
 NC_ROOT=/var/www/html
 
-# --- 1. Locate the running Nextcloud app container ----------------------
-# Two labels the catalog puts on every service: vps.app names the
-# application, vps.component names the service inside it, and docker ANDs
-# filters on different keys -- so this pins the app container and not its
-# cron, db or redis peers. Neither label changes when a client renames the
-# stack, which the container NAME does.
-ct=$(docker ps \
-    --filter 'label=vps.app=catena-nextcloud' \
-    --filter 'label=vps.component=app' \
-    --format '{{.Names}}' | head -n1)
-
-if [ -z "$ct" ]; then
-    echo "Nextcloud is not running on this host."
-    echo
-    echo "Deploy first: Portainer > App Templates > nextcloud-s3 > Deploy."
-    echo "Wait for the container to come up, then click this button again."
-    exit 1
-fi
-
+ct=$(/usr/local/bin/catena-nextcloud-container --required)
 echo "Found Nextcloud container: $ct"
 
 get_env() {
     docker exec "$1" /bin/sh -c "printenv \"$2\"" 2>/dev/null || true
 }
 
-# --- 2. Resolve OFFICE_URL from NEXTCLOUD_HOSTNAME ----------------------
+# --- 1. Resolve OFFICE_URL from NEXTCLOUD_HOSTNAME ----------------------
 NC_HOSTNAME=$(get_env "$ct" NEXTCLOUD_HOSTNAME)
 if [ -z "$NC_HOSTNAME" ]; then
     echo "error: NEXTCLOUD_HOSTNAME is not set in the Nextcloud container env." >&2
@@ -71,7 +53,7 @@ if [ -z "$BASE" ] || [ "$BASE" = "$NC_HOSTNAME" ]; then
 fi
 OFFICE_URL="https://office.$BASE"
 
-# --- 3. Probe office.<base> to detect which editor is deployed ----------
+# --- 2. Probe office.<base> to detect which editor is deployed ----------
 # Internal aliases on catena-network:
 #   - OnlyOffice: documentserver:80  /healthcheck       -> "true"
 #   - Collabora:  collabora:9980     /hosting/discovery -> XML <wopi-discovery>
@@ -123,7 +105,7 @@ fi
 
 echo "Detected: OnlyOffice at $OFFICE_URL (internal alias documentserver:80)"
 
-# --- 4. Read JWT_SECRET from the running documentserver container -------
+# --- 3. Read JWT_SECRET from the running documentserver container -------
 # The catalog mints JWT_SECRET via lookup('password', ...) at deploy
 # time; The stack env injects it into the container. Read it back here
 # so the script stays stateless.
@@ -146,7 +128,7 @@ if [ -z "$JWT_SECRET" ]; then
     exit 6
 fi
 
-# --- 5. Reverse Collabora's NC-side state (idempotent) ------------------
+# --- 4. Reverse Collabora's NC-side state (idempotent) ------------------
 if docker exec --user 33 "$ct" \
         php "$NC_ROOT/occ" app:list --output=json \
         | grep -q '"richdocuments":'; then
@@ -168,7 +150,7 @@ if docker exec --user 33 "$ct" \
     echo "  Collabora Nextcloud app removed; residual config cleared."
 fi
 
-# --- 6. Install + enable onlyoffice (NC app) ----------------------------
+# --- 5. Install + enable onlyoffice (NC app) ----------------------------
 if docker exec --user 33 "$ct" \
         php "$NC_ROOT/occ" app:list --output=json \
         | grep -q '"onlyoffice":'; then
@@ -181,7 +163,7 @@ else
         php "$NC_ROOT/occ" app:install onlyoffice
 fi
 
-# --- 7. Configure onlyoffice to point at $OFFICE_URL --------------------
+# --- 6. Configure onlyoffice to point at $OFFICE_URL --------------------
 # DocumentServerUrl is the URL the user's BROWSER hits for the editor
 # iframe; DocumentServerInternalUrl is the URL the NC server-side
 # WOPI client hits for callbacks. They are identical for catena
@@ -200,13 +182,13 @@ docker exec --user 33 "$ct" \
     php "$NC_ROOT/occ" config:app:set onlyoffice StorageUrl \
         --value="" >/dev/null
 # JWT pass-through. Read from the running documentserver container's
-# env (step 4) so the secret never appears in this script's argv on
+# env (step 3) so the secret never appears in this script's argv on
 # the host.
 docker exec --user 33 -e JWT_SECRET="$JWT_SECRET" "$ct" \
     sh -c "php $NC_ROOT/occ config:app:set onlyoffice jwt_secret --value=\"\$JWT_SECRET\"" \
     >/dev/null
 
-# --- 8. Verify the round-trip --------------------------------------------
+# --- 7. Verify the round-trip --------------------------------------------
 # OnlyOffice has no per-app verify command analogous to Collabora's
 # `richdocuments:activate-config`; the next file-open performs the
 # JWT-signed handshake. Re-probe /healthcheck as a sanity check so the
