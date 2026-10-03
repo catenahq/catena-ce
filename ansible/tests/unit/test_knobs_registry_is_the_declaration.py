@@ -217,6 +217,21 @@ def test_launcher_fields_need_a_step_and_a_sound_shape(tmp_path):
     _entry(doc, "SSH_PRIVATE_KEY")["gui_suggestions_from"] = "planets"
     _refused(tmp_path, doc, "gui_suggestions_from")
 
+    doc = render_knobs.load()
+    _entry(doc, "OPS_USER")["label"] = "Ops user"
+    _refused(tmp_path, doc, "has no step")
+
+    doc = render_knobs.load()
+    del _entry(doc, "HOST_PUBLIC_IP")["label"]
+    _refused(tmp_path, doc, "needs a label")
+
+
+def test_every_installer_section_asks_for_something(tmp_path):
+    """A section with no field is a heading nobody fills in."""
+    doc = render_knobs.load()
+    doc["gui_steps"].append({"name": "empty", "title": "Empty", "doc": "Nothing."})
+    _refused(tmp_path, doc, "ask for nothing")
+
 
 def test_a_value_has_one_place_to_be_edited(tmp_path):
     """The `.env` or the panel, never both: a client who changes it in one

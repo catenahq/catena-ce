@@ -13,7 +13,7 @@ non-interactive path that skipped the validation would prove an install nobody
 could repeat through the UI.
 
 CLOSING THE BROWSER CHANGES NOTHING. This process owns the job. Closing IT
-abandons the run, and the inventory keeps what was answered -- which matters
+stops the install, and the inventory keeps what was answered -- which matters
 because an install can start with a wait nobody can time: a server being
 delivered.
 """
@@ -73,7 +73,7 @@ def walk(run: run_mod.Run, doc: dict) -> int:
     for step in built:
         print(f"\n== {step.title}", file=sys.stderr)
         missing = steps_mod.missing_required(step, values)
-        checks = missing or steps_mod.validate(step.name, run.probed(), run.secrets)
+        checks = missing or steps_mod.validate(step.name, run.answers, run.secrets)
         _report(checks)
         problems += sum(1 for check in checks if check.blocks)
     return problems
@@ -149,7 +149,7 @@ def main(argv: list[str] | None = None) -> int:
         url = f"http://127.0.0.1:{args.port}/"
         print(f"catena-gui: serving {url}", file=sys.stderr)
         print("catena-gui: closing the browser changes nothing; closing THIS "
-              "window abandons the run.", file=sys.stderr)
+              "window stops the install.", file=sys.stderr)
         webbrowser.open(url)
         return serve(current, doc, port=args.port, ansible_dir=registry.ANSIBLE_DIR)
 

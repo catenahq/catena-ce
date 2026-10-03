@@ -386,7 +386,7 @@ def test_install_password_prompt_precedes_the_deploy_chain(cli, tmp_path, monkey
     monkeypatch.setattr(cli, "_bootstrap_extra_vars", fake_bootstrap_extra)
     monkeypatch.setattr(cli, "_run_deploy_chain", fake_chain)
     monkeypatch.setattr(cli, "_show_dr_keyset",
-                        lambda inv, extra: order.append(("keyset",)) or "")
+                        lambda inv, extra, as_json: order.append(("keyset",)) or [])
 
     ns = cli.build_parser().parse_args(["install", "--inventory", "prod"])
     assert cli.cmd_install(ns) == 0
@@ -394,7 +394,12 @@ def test_install_password_prompt_precedes_the_deploy_chain(cli, tmp_path, monkey
                      ("chain", "converge", "validate")]
 
 
-def _install_with_keyset(cli, tmp_path, monkeypatch, keyset):
+_HANDED_OVER = {"banner": "Admin password: pw\n", "admin_password": "pw",
+                "console_recovery_password": "cpw",
+                "journal_verification_key": "fss-key"}
+
+
+def _install_with_keyset(cli, tmp_path, monkeypatch, keysets, *flags):
     inv_dir = tmp_path / "inv"
     inv_dir.mkdir()
     monkeypatch.setattr(cli, "_preflight_checks", lambda *a, **k: None)
@@ -403,39 +408,54 @@ def _install_with_keyset(cli, tmp_path, monkeypatch, keyset):
     monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=0))
     monkeypatch.setattr(cli, "_bootstrap_extra_vars", lambda *a, **k: ([], None))
     monkeypatch.setattr(cli, "_run_deploy_chain", lambda *a, **k: None)
-    monkeypatch.setattr(cli, "_show_dr_keyset", lambda inv, extra: keyset)
-    ns = cli.build_parser().parse_args(["install", "--inventory", "prod"])
+    monkeypatch.setattr(cli, "_show_dr_keyset", lambda inv, extra, as_json: keysets)
+    ns = cli.build_parser().parse_args(["install", "--inventory", "prod", *flags])
     assert cli.cmd_install(ns) == 0
 
 
 def test_the_passwords_are_printed_again_when_the_install_ends(cli, tmp_path, monkeypatch, capsys):
     """Shown after bootstrap, they scroll away under the converge in a
     terminal, so the install ends on the same block."""
-    _install_with_keyset(cli, tmp_path, monkeypatch, "Admin password: pw")
+    _install_with_keyset(cli, tmp_path, monkeypatch, [_HANDED_OVER])
     err = capsys.readouterr().err
     tail = err[err.rindex(cli.KEYSET_BEGIN):]
     assert tail.startswith(f"{cli.KEYSET_BEGIN}\nAdmin password: pw\n{cli.KEYSET_END}")
 
 
+def test_the_graphical_installer_gets_the_values_as_json(cli, tmp_path, monkeypatch, capsys):
+    """--keyset-json frames each host's values, without the block, so the page
+    can show each one on its own."""
+    import json
+
+    _install_with_keyset(cli, tmp_path, monkeypatch, [_HANDED_OVER], "--keyset-json")
+    err = capsys.readouterr().err
+    framed = err[err.rindex(cli.KEYSET_BEGIN):].splitlines()
+    assert framed[2] == cli.KEYSET_END
+    assert json.loads(framed[1]) == {k: v for k, v in _HANDED_OVER.items()
+                                     if k != "banner"}
+
+
 def test_no_block_is_printed_at_the_end_when_none_was_shown(cli, tmp_path, monkeypatch, capsys):
-    _install_with_keyset(cli, tmp_path, monkeypatch, "")
+    _install_with_keyset(cli, tmp_path, monkeypatch, [])
     assert cli.KEYSET_BEGIN not in capsys.readouterr().err
 
 
 def test_show_dr_keyset_prints_the_handed_over_block_and_deletes_it(cli, tmp_path, monkeypatch, capsys):
-    """The play writes one file per host into the directory it is given; the
-    CLI prints them framed, returns the block, and leaves no file behind."""
+    """The play writes one JSON file per host into the directory it is given;
+    the CLI prints the blocks framed, returns what it read, and leaves no file
+    behind."""
+    import json
+
     seen = {}
 
     def fake_run(cmd, *a, **k):
         out = Path(next(a for a in cmd if a.startswith("keyset_out=")).split("=", 1)[1])
         seen["dir"], seen["cmd"] = out, cmd
-        (out / "host1").write_text("Admin password: pw\n")
+        (out / "host1").write_text(json.dumps(_HANDED_OVER))
         return types.SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(cli.subprocess, "run", fake_run)
-    keyset = cli._show_dr_keyset(tmp_path, ["-e", "@adopt"])
-    assert keyset == "Admin password: pw"
+    assert cli._show_dr_keyset(tmp_path, ["-e", "@adopt"]) == [_HANDED_OVER]
     assert f"{cli.KEYSET_BEGIN}\nAdmin password: pw\n{cli.KEYSET_END}" in capsys.readouterr().err
     assert _stage_of(seen["cmd"]) == "show-keyset"
     assert "@adopt" in seen["cmd"]
@@ -445,7 +465,7 @@ def test_show_dr_keyset_prints_the_handed_over_block_and_deletes_it(cli, tmp_pat
 def test_show_dr_keyset_failing_does_not_stop_the_install(cli, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cli.subprocess, "run",
                         lambda *a, **k: types.SimpleNamespace(returncode=2))
-    assert cli._show_dr_keyset(tmp_path) == ""
+    assert cli._show_dr_keyset(tmp_path) == []
     err = capsys.readouterr().err
     assert cli.KEYSET_BEGIN not in err and "could not show the passwords" in err
 

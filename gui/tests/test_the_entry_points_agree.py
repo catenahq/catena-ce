@@ -92,11 +92,12 @@ def test_the_cli_accepts_what_the_launcher_passes():
         sys.path.insert(0, str(ANSIBLE))
     import catena_cli
 
-    argv = render.install_command(ANSIBLE, Path("/tmp/install.yaml"), "clientco")
+    argv = render.install_command(ANSIBLE, Path("/tmp/install.yaml"), "clientco",
+                                  keyset_json=True)
     args = catena_cli.build_parser().parse_args(argv[5:])
     assert args.func is catena_cli.cmd_install
-    assert (args.inventory, args.input, args.no_confirm) == (
-        "clientco", "/tmp/install.yaml", True)
+    assert (args.inventory, args.input, args.no_confirm, args.keyset_json) == (
+        "clientco", "/tmp/install.yaml", True, True)
 
 
 @pytest.mark.parametrize("doc", DOCS, ids=lambda p: str(p.relative_to(REPO)))

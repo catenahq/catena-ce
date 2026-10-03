@@ -4,15 +4,15 @@
   "gui_steps": [
     {
       "name": "target",
-      "title": "The server",
-      "doc": "Where Catena is going, the key that reaches it, and the administrator's\nemail, which is the panel's login. A machine that already exists: the\nlauncher does not order one, because ordering means holding a client's\ncloud credentials. Most providers install a public key given when the\nserver is ordered; a server that does not accept this key yet takes the\nprovider's password for its initial login instead, once, to add it.\n\nEverything else -- the domain, the private network, the backups -- is\nentered in the panel once the server runs.",
-      "validates": "An SSH server answers at the address and port, and either this key\nalready opens the initial login (or the ops account on a server already\ninstalled), or the provider's password does and the install adds the\nkey with it."
+      "title": "Target information",
+      "doc": "This information is needed to initially reach the machine on which Catena will be installed.",
+      "note": "Note that the initial user can no longer sign in over SSH once Catena is installed. A new user, \"ops\", is created to administer the server.",
+      "validates": "An SSH server answers at the address and port, and either the SSH key\nalready opens the initial login (or the ops account on a server already\ninstalled), or the initial user's password does and the install adds the\nkey with it."
     },
     {
-      "name": "keyset",
-      "title": "Save these",
-      "doc": "The passwords the server mints for itself and shows ONCE: the first-login\npassword and the console break-glass password, with the journal\nverification key. Nothing off the server holds a copy. The backup\nencryption password comes later, generated in the panel with the backup\nrepository, and is saved then.",
-      "validates": "An explicit acknowledgement that they are saved. This step is the last\none and it cannot be skipped: without it the launcher ships installs\nnobody can recover."
+      "name": "configuration",
+      "title": "Configuration",
+      "doc": "This information is required to configure access to the machine after Catena is installed."
     }
   ],
   "env_sections": [
@@ -208,6 +208,7 @@
     {
       "key": "HOST_PUBLIC_IP",
       "step": "target",
+      "label": "Host public IP",
       "required": true,
       "residence": "host",
       "doc": "The provider's public IPv4, which the installer reaches the server on.",
@@ -218,19 +219,9 @@
       }
     },
     {
-      "key": "HOST_INITIAL_USER",
-      "step": "target",
-      "required": true,
-      "residence": "host",
-      "doc": "The provider's default login for that same phase (root, ubuntu, debian, ec2-user). Not OPS_USER -- that account does not exist yet.",
-      "env": {
-        "section": "host",
-        "default": "root"
-      }
-    },
-    {
       "key": "HOST_SSH_PORT",
       "step": "target",
+      "label": "Host SSH port",
       "required": true,
       "residence": "host",
       "doc": "The port the controller CONNECTS on, written into hosts.yml as ansible_port. The firewall rules name 22 literally, so a value here moves what the controller dials and not what the host opens.",
@@ -240,8 +231,35 @@
       }
     },
     {
-      "key": "SSH_PRIVATE_KEY",
+      "key": "HOST_INITIAL_USER",
       "step": "target",
+      "label": "Host initial user",
+      "required": true,
+      "residence": "host",
+      "doc": "The provider's default login for that same phase (root, ubuntu, debian, ec2-user). Not OPS_USER -- that account does not exist yet.",
+      "env": {
+        "section": "host",
+        "default": "root"
+      }
+    },
+    {
+      "key": "ADMIN_EMAIL",
+      "step": "configuration",
+      "label": "Admin email",
+      "required": true,
+      "residence": "store",
+      "var": "cfg_admin_email",
+      "doc": "One address for the Portainer admin and the initial realm admin. The matching password is minted on the box and shown once during the install, with the first-login URLs. A host fact by any reading, which is why the `.env` only seeds it.",
+      "env": {
+        "section": "admin",
+        "default": "",
+        "example": "you@example.com"
+      }
+    },
+    {
+      "key": "SSH_PRIVATE_KEY",
+      "step": "configuration",
+      "label": "SSH key file",
       "required": true,
       "residence": "controller",
       "gui_suggestions_from": "ssh_keys",
@@ -330,19 +348,6 @@
         "section": "config",
         "kind": "text",
         "optional": true
-      }
-    },
-    {
-      "key": "ADMIN_EMAIL",
-      "step": "target",
-      "required": true,
-      "residence": "store",
-      "var": "cfg_admin_email",
-      "doc": "One address for the Portainer admin and the initial realm admin. The matching password is minted on the box and shown once at the end of the install, with the first-login URLs. A host fact by any reading, which is why the `.env` only seeds it.",
-      "env": {
-        "section": "admin",
-        "default": "",
-        "example": "you@example.com"
       }
     },
     {

@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import configparser
 import getpass
+import json
 import os
 import re
 import shutil
@@ -376,20 +377,26 @@ def _mktemp_secrets(prefix: str) -> Path:
     return tmp
 
 
-def _print_keyset(keyset: str) -> None:
-    print("\n".join((KEYSET_BEGIN, keyset, KEYSET_END)), file=sys.stderr,
+def _print_keyset(keysets: list[dict], as_json: bool) -> None:
+    """Print each host's passwords between KEYSET_BEGIN and KEYSET_END: its
+    block as text, or with `as_json` its values as one JSON object per line,
+    which the graphical installer reads."""
+    body = [json.dumps({k: v for k, v in keyset.items() if k != "banner"})
+            if as_json else keyset["banner"].rstrip("\n") for keyset in keysets]
+    print("\n".join((KEYSET_BEGIN, *body, KEYSET_END)), file=sys.stderr,
           flush=True)
 
 
-def _show_dr_keyset(inv_dir: Path, extra: list[str] | None = None) -> str:
+def _show_dr_keyset(inv_dir: Path, extra: list[str] | None = None, *,
+                    as_json: bool = False) -> list[dict]:
     """Mint the passwords the install shows (admin + console) if the server
     has none, print them ONCE between KEYSET_BEGIN and KEYSET_END, and return
-    the block so the install can print it again when it ends.
+    them so the install can print them again when it ends.
 
     Runs right after bootstrap, so the passwords are on screen for the whole
     converge. `extra` is the install's adopt file, which carries an admin
-    password install.yaml pins. The block arrives as one 0600 file per host in
-    a 0700 directory, deleted before this returns.
+    password install.yaml pins. Each host's block and values arrive as one 0600
+    JSON file in a 0700 directory, deleted before this returns.
 
     Non-fatal: the converge mints the same passwords when this could not, and
     running the install again shows them."""
@@ -400,17 +407,17 @@ def _show_dr_keyset(inv_dir: Path, extra: list[str] | None = None) -> str:
                            ["-e", f"keyset_out={out_dir}", *(extra or [])])
         print(_c("1;30", "  $ " + " ".join(cmd)), file=sys.stderr)
         shown = subprocess.run(cmd).returncode == 0
-        keyset = "\n".join(p.read_text().rstrip("\n")
-                           for p in sorted(out_dir.iterdir())) if shown else ""
+        keysets = [json.loads(p.read_text())
+                   for p in sorted(out_dir.iterdir())] if shown else []
     finally:
         shutil.rmtree(out_dir, ignore_errors=True)
-    if not keyset:
+    if not keysets:
         print(_c("1;33", "! could not show the passwords; the install carries "
                  "on, and `catena-cli install` run again shows them."),
               file=sys.stderr)
-        return ""
-    _print_keyset(keyset)
-    return keyset
+        return []
+    _print_keyset(keysets, as_json)
+    return keysets
 
 
 def cmd_install(args: argparse.Namespace) -> int:
@@ -457,12 +464,12 @@ def cmd_install(args: argparse.Namespace) -> int:
         # holds its store by then, and the converge after it is the long part.
         _run_deploy_chain(inv_dir, INSTALL_CHAIN[:1],
                           bootstrap_extra=bootstrap_extra, global_extra=adopt_extra)
-        keyset = _show_dr_keyset(inv_dir, adopt_extra)
+        keysets = _show_dr_keyset(inv_dir, adopt_extra, as_json=args.keyset_json)
         _run_deploy_chain(inv_dir, INSTALL_CHAIN[1:],
                           bootstrap_extra=bootstrap_extra, global_extra=adopt_extra)
-        if keyset:
+        if keysets:
             banner("Your passwords, as shown after bootstrap")
-            _print_keyset(keyset)
+            _print_keyset(keysets, args.keyset_json)
     finally:
         if bootstrap_vars_tmp is not None:
             bootstrap_vars_tmp.unlink(missing_ok=True)
@@ -557,6 +564,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_install.add_argument("-i", "--input", help="install.yaml for non-interactive values")
     p_install.add_argument("--no-confirm", action="store_true",
                            help="skip seed confirmation + one-shot secret prompts")
+    p_install.add_argument("--keyset-json", action="store_true",
+                           help="print the passwords as one JSON object per "
+                                "host, for the graphical installer")
     p_install.set_defaults(func=cmd_install)
 
     p_conv = sub.add_parser("converge", help="re-run converge.yml")

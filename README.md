@@ -44,7 +44,7 @@ cd catena-ce
 ```sh
 uv run catena-gui
 ```
-It opens a browser page on this machine. The first page lists the inventories in `ansible/inventory/` and creates new ones. The second asks for the server, the SSH key and the admin email, each field with its explanation behind a `(?)`. `Check` tests them against the server (its SSH banner, then whether the key opens the initial login, else whether the provider's password does) and saves the page to `ansible/inventory/<name>/.env`, so a closed installer resumes where it stopped. **The provider's password is never saved**: it stays in memory until the install ends. `Install`, at the bottom, checks every section and starts the install, whose output shows in the console and on the page. The third page, `Reaching the panel`, gives the commands to open the panel once the install ends.
+It opens a browser page on this machine. The `Inventory` tab lists the inventories in `ansible/inventory/` and creates new ones. The `Installation` tab asks for the target (its address, SSH port, initial user and that user's password) and the configuration (the admin email and the SSH key file), each field with its explanation behind a `(?)`. `Verify configuration and start installation` saves the page to `ansible/inventory/<name>/.env`, so a closed installer resumes where it stopped, tests it against the server (its SSH banner, then whether the key opens the initial login, else whether the initial user's password does) and starts the install, whose output shows on the page. **The initial user's password is never saved**: it stays in memory until the install ends. The `Catena server access` section below the output shows the passwords as soon as the server has generated them, and the command that opens the panel.
 
    The command-line installer is the alternative. Copy the template, fill in the `.env`, then run the install:
 ```sh
@@ -56,7 +56,7 @@ uv run catena-cli install --inventory prod
 
 3. The installer completes the installation on your server. Public SSH stays open until you choose `Lockdown` in the panel.
 
-4. Save the **admin password**, the **console password for `ops`** and the **journal verification key** to your password manager. The installer shows them once the server is bootstrapped, a few minutes in, while the rest of the install runs, and again when it ends; the graphical installer keeps them in their own box above the output. You need the console password to log in from your provider's console if SSH is unavailable. Running `uv run catena-cli install --inventory <name>` again shows the passwords again; the journal key is shown once.
+4. Save the **admin password**, the **console password for `ops`** and the **journal verification key** to your password manager. The installer shows them once the server is bootstrapped, a few minutes in, while the rest of the install runs, and again when it ends; the graphical installer shows them in its `Catena server access` section. You need the console password to log in from your provider's console if SSH is unavailable. Running `uv run catena-cli install --inventory <name>` again shows the passwords again; the journal key is shown once.
 
 5. Log in to the Catena-Admin interface with the admin email and password at `http://localhost:9010`, through an SSH forward as the `panel` account, which can do nothing but forward:
 ```sh

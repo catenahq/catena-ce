@@ -74,7 +74,9 @@
 #               `gui_steps`. Only a knob with an `env` home has one. Absent
 #               means the launcher never asks: the value is either the
 #               product's, or a setting the client makes afterwards in the
-#               panel.
+#               panel. Fields appear in a section in the order they are
+#               declared here.
+#   label       the field's name on the graphical installer's page.
 #   depends     the choice field and values that govern whether the panel shows
 #               this one. The same fact the converge acts on, which is why it
 #               is declared and not left to a template. The field is `choice`
@@ -109,46 +111,37 @@ env_header: |-
   catena-admin > Settings. See catena-ce/SECRETS.md.
 
 # The graphical installer's sections, in order, all on one page. Each knob that
-# names one appears in it; a knob that names none is never asked for.
+# names one appears in it; a knob that names none is never asked for. `doc` is
+# shown above the section's fields and `note`, when present, below them.
 #
-# A section with a `validates` line has a check, and says what it proves; Install
-# runs every section's check first. An installer that collects every answer and
-# discovers at the end that the first one was wrong has spent the client's
-# whole sitting to tell them something it knew at the start.
+# A section with a `validates` line has a check, and says what it proves; the
+# install runs every section's check before it starts. An installer that
+# collects every answer and discovers at the end that the first one was wrong
+# has spent the client's whole sitting to tell them something it knew at the
+# start.
 #
 # The launcher holds no knob knowledge of its own: it renders these sections
 # from this file. Adding a knob with a `step` puts it in that section.
 gui_steps:
   - name: target
-    title: The server
-    doc: |-
-      Where Catena is going, the key that reaches it, and the administrator's
-      email, which is the panel's login. A machine that already exists: the
-      launcher does not order one, because ordering means holding a client's
-      cloud credentials. Most providers install a public key given when the
-      server is ordered; a server that does not accept this key yet takes the
-      provider's password for its initial login instead, once, to add it.
-
-      Everything else -- the domain, the private network, the backups -- is
-      entered in the panel once the server runs.
+    title: Target information
+    doc: >-
+      This information is needed to initially reach the machine on which
+      Catena will be installed.
+    note: >-
+      Note that the initial user can no longer sign in over SSH once Catena is
+      installed. A new user, "ops", is created to administer the server.
     validates: |-
-      An SSH server answers at the address and port, and either this key
+      An SSH server answers at the address and port, and either the SSH key
       already opens the initial login (or the ops account on a server already
-      installed), or the provider's password does and the install adds the
+      installed), or the initial user's password does and the install adds the
       key with it.
 
-  - name: keyset
-    title: Save these
-    doc: |-
-      The passwords the server mints for itself and shows ONCE: the first-login
-      password and the console break-glass password, with the journal
-      verification key. Nothing off the server holds a copy. The backup
-      encryption password comes later, generated in the panel with the backup
-      repository, and is saved then.
-    validates: |-
-      An explicit acknowledgement that they are saved. This step is the last
-      one and it cannot be skipped: without it the launcher ships installs
-      nobody can recover.
+  - name: configuration
+    title: Configuration
+    doc: >-
+      This information is required to configure access to the machine after
+      Catena is installed.
 
 env_sections:
   - name: host
@@ -294,23 +287,16 @@ config:
   # ---- the target's identity (hosts.yml, neither store nor .env) ----
   - key: HOST_PUBLIC_IP
     step: target
+    label: Host public IP
     required: true
     residence: host
     doc: >-
       The provider's public IPv4, which the installer reaches the server on.
     env: {section: host, default: "", example: "203.0.113.10"}
 
-  - key: HOST_INITIAL_USER
-    step: target
-    required: true
-    residence: host
-    doc: >-
-      The provider's default login for that same phase (root, ubuntu, debian,
-      ec2-user). Not OPS_USER -- that account does not exist yet.
-    env: {section: host, default: "root"}
-
   - key: HOST_SSH_PORT
     step: target
+    label: Host SSH port
     required: true
     residence: host
     doc: >-
@@ -319,9 +305,34 @@ config:
       what the controller dials and not what the host opens.
     env: {section: host, default: "22"}
 
+  - key: HOST_INITIAL_USER
+    step: target
+    label: Host initial user
+    required: true
+    residence: host
+    doc: >-
+      The provider's default login for that same phase (root, ubuntu, debian,
+      ec2-user). Not OPS_USER -- that account does not exist yet.
+    env: {section: host, default: "root"}
+
+  # ---- the administrator, whose email is the panel's login ----
+  - key: ADMIN_EMAIL
+    step: configuration
+    label: Admin email
+    required: true
+    residence: store
+    var: cfg_admin_email
+    doc: >-
+      One address for the Portainer admin and the initial realm admin. The
+      matching password is minted on the box and shown once during the
+      install, with the first-login URLs. A host fact by any reading, which is
+      why the `.env` only seeds it.
+    env: {section: admin, default: "", example: "you@example.com"}
+
   # ---- the installer needs these before there is a box to ask ----
   - key: SSH_PRIVATE_KEY
-    step: target
+    step: configuration
+    label: SSH key file
     required: true
     residence: controller
     gui_suggestions_from: ssh_keys
@@ -393,18 +404,6 @@ config:
       this is the value the rest of the page renders against. Every server is
       installed without one; the public surface defers until one arrives.
     panel: {group: hostnames, section: config, kind: text, optional: true}
-
-  - key: ADMIN_EMAIL
-    step: target
-    required: true
-    residence: store
-    var: cfg_admin_email
-    doc: >-
-      One address for the Portainer admin and the initial realm admin. The
-      matching password is minted on the box and shown once at the end of the
-      install, with the first-login URLs. A host fact by any reading, which is
-      why the `.env` only seeds it.
-    env: {section: admin, default: "", example: "you@example.com"}
 
   # ---- public hostnames ----
   #

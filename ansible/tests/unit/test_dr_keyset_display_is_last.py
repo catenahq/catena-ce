@@ -62,6 +62,16 @@ def test_the_handoff_reaches_the_controller_and_no_log():
     assert task["no_log"] is True
 
 
+def test_the_handoff_carries_the_block_and_each_value():
+    """The CLI prints the block; the graphical installer shows each value on
+    its own, read from the same file."""
+    content = _handoff_tasks()[0]["ansible.builtin.copy"]["content"]
+    assert "to_json" in content
+    for name in ("'banner': _banner", "'admin_password'",
+                 "'console_recovery_password'", "'journal_verification_key': _fss"):
+        assert name in content, name
+
+
 def test_the_shown_passwords_are_minted_before_the_handoff():
     """Right after bootstrap no converge has minted them yet, so this play
     mints them -- only them, adopting the install's pin first."""

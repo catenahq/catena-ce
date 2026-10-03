@@ -32,7 +32,7 @@ from pathlib import Path
 from . import registry
 
 # The host-only UIs and the account that forwards to them. Product constants
-# (catena-ce playbooks/group_vars/all/main.yml), printed on the access page.
+# (catena-ce playbooks/group_vars/all/main.yml), printed in the access section.
 PANEL_PORT = 9010
 PORTAINER_PORT = 9000
 PANEL_USER = "panel"
@@ -68,6 +68,7 @@ class Field:
     """One question in a section, resolved from the registry."""
 
     key: str
+    label: str
     secret: bool
     optional: bool
     options: list[str]
@@ -82,6 +83,7 @@ class Step:
     name: str
     title: str
     doc: str
+    note: str
     validates: str
     fields: list[Field]
 
@@ -89,6 +91,7 @@ class Step:
 def _field(doc: dict, entry: dict) -> Field:
     return Field(
         key=entry["key"],
+        label=str(entry["label"]),
         secret=registry.is_secret(doc, entry["key"]),
         optional=not registry.is_required(entry),
         options=registry.options_for(entry),
@@ -101,15 +104,16 @@ def _field(doc: dict, entry: dict) -> Field:
 
 def _provider_password() -> Field:
     return Field(
-        key=PROVIDER_PASSWORD, secret=True, optional=True, options=[], default="",
+        key=PROVIDER_PASSWORD, label="Host initial user's password", secret=True,
+        optional=True, options=[], default="",
         doc=("The password the provider gave for the initial login. Needed only "
-             "when the server does not accept the key yet: the install uses it "
-             "once, to add the key, and nothing keeps it."))
+             "when the server does not accept the SSH key yet: the install uses "
+             "it once, to add the key, and nothing keeps it."))
 
 
 def build(doc: dict) -> list[Step]:
-    """The whole wizard, from the registry, with the provider's password in
-    the section that reaches the server."""
+    """The whole page, from the registry, with the provider's password in the
+    section that reaches the server."""
     out = []
     for step in registry.steps(doc):
         fields = [_field(doc, entry)
@@ -117,6 +121,7 @@ def build(doc: dict) -> list[Step]:
         if step["name"] == "target":
             fields.append(_provider_password())
         out.append(Step(name=step["name"], title=step["title"], doc=step["doc"],
+                        note=str(step.get("note") or ""),
                         validates=str(step.get("validates") or ""), fields=fields))
     return out
 
@@ -124,7 +129,7 @@ def build(doc: dict) -> list[Step]:
 def missing_required(step: Step, values: dict[str, str]) -> list[Check]:
     """A blocking line for each required field left empty. Shown before the
     step's own probes, which have nothing to observe without it."""
-    return [Check(f"{f.key} is required", False, "fill it in")
+    return [Check(f"{f.label} is required", False, "fill it in")
             for f in step.fields
             if not f.optional and not (values.get(f.key) or "").strip()]
 
@@ -227,25 +232,9 @@ def check_target(answers: dict[str, str], secrets: dict[str, str]) -> list[Check
     return checks
 
 
-def check_keyset(answers: dict[str, str]) -> list[Check]:
-    """The acknowledgement, and it is the one check that cannot be waived.
-
-    `catena-cli install` ends by showing two passwords once: the first-login
-    password and the console break-glass password, with the journal
-    verification key. Nothing off the server holds a copy. Without an explicit
-    acknowledgement here the launcher ships installs nobody can recover.
-    """
-    acked = (answers.get("_keyset_acknowledged") or "").strip() == "yes"
-    return [Check("somewhere to save the recovery passwords is ready", acked,
-                  "tick the box above Install: the installer shows them once, "
-                  "when it ends, and nothing else holds a copy, so this cannot "
-                  "be skipped")]
-
-
 # The probe for each step that has one, by name.
 PROBES = {
     "target": check_target,
-    "keyset": lambda a, s: check_keyset(a),
 }
 
 
@@ -260,36 +249,23 @@ def blocked(checks: list[Check]) -> bool:
     return any(check.blocks for check in checks)
 
 
-# --- the access page --------------------------------------------------------
+# --- the way in -------------------------------------------------------------
 
 
-@dataclass
-class WayIn:
-    """The path to the panel: the command to type, what to open, how to log in."""
+def forward_command(answers: dict[str, str]) -> str:
+    """The SSH command that reaches the panel and Portainer once the install
+    ends.
 
-    command: str
-    urls: list[str]
-    login: str
-
-
-def way_in(answers: dict[str, str]) -> WayIn:
-    """How the panel is reached once the install ends.
-
-    The panel and Portainer answer the server's loopback only, and a forward as
-    the panel account -- which can do nothing but forward -- lands there. The
-    domain and the private network, entered in the panel afterwards, add their
-    own ways in; this one stays.
+    Both answer the server's loopback only, and a forward as the panel account
+    -- which can do nothing but forward -- lands there. The domain and the
+    private network, entered in the panel afterwards, add their own ways in;
+    this one stays.
     """
     host = (answers.get("HOST_PUBLIC_IP") or "").strip() or "<server-address>"
     port = (answers.get("HOST_SSH_PORT") or "22").strip() or "22"
     key = (answers.get("SSH_PRIVATE_KEY") or "").strip()
-    email = (answers.get("ADMIN_EMAIL") or "").strip() or "the admin email"
     opts = f" -i {key}" if key else ""
     opts += f" -p {port}" if port != "22" else ""
-    return WayIn(
-        command=(f"ssh -N -L {PANEL_PORT}:127.0.0.1:{PANEL_PORT} "
-                 f"-L {PORTAINER_PORT}:127.0.0.1:{PORTAINER_PORT}{opts} "
-                 f"{PANEL_USER}@{host}"),
-        urls=[f"http://localhost:{PANEL_PORT}", f"http://localhost:{PORTAINER_PORT}"],
-        login=(f"Panel: {email} and the admin password the install shows once. "
-               "Portainer: admin and the same password."))
+    return (f"ssh -N -L {PANEL_PORT}:127.0.0.1:{PANEL_PORT} "
+            f"-L {PORTAINER_PORT}:127.0.0.1:{PORTAINER_PORT}{opts} "
+            f"{PANEL_USER}@{host}")

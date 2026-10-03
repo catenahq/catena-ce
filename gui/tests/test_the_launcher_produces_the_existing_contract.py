@@ -56,20 +56,6 @@ def test_seed_files_the_provider_password_under_the_host():
     assert split["env"] == {} and split["secrets"] == {}
 
 
-def test_the_launchers_own_bookkeeping_does_not_reach_the_installer():
-    """An acknowledgement and a page position describe the RUN, not the
-    install. seed files an unknown key as .env config, which is how a wizard's
-    bookkeeping ends up in a client's inventory."""
-    doc = _rendered(
-        inventory="clientco",
-        answers={"_keyset_acknowledged": "yes", "_step": "keyset",
-                 "HOST_INITIAL_USER": "debian"},
-        secrets={})
-    assert "_keyset_acknowledged" not in doc
-    assert "_step" not in doc
-    assert doc["HOST_INITIAL_USER"] == "debian"
-
-
 def test_a_blank_answer_is_left_out_rather_than_written_empty():
     """A blank is an answer for an optional knob, and writing the key with an
     empty value makes seed's structural check treat it as supplied."""
@@ -105,6 +91,9 @@ def test_the_command_is_the_cli_the_bench_already_drives(tmp_path: Path):
     assert "--no-confirm" in argv
     assert argv[argv.index("--inventory") + 1] == "clientco"
     assert argv[argv.index("-i") + 1] == str(tmp_path / "install.yaml")
+    assert "--keyset-json" not in argv
+    assert "--keyset-json" in render.install_command(
+        tmp_path / "ansible", tmp_path / "install.yaml", "clientco", keyset_json=True)
 
 
 def test_the_credentials_file_lives_outside_the_inventory_and_is_removed():

@@ -106,19 +106,15 @@ def test_the_writer_refuses_a_credential_a_caller_misfiled(tmp_path):
     the writer enforcing the same answer."""
     r = run_mod.load(tmp_path / "clientco", SECRETS)
     r.answers["backup_s3_secret_key"] = "leaked"
-    r.launcher["backup_s3_secret_key"] = "leaked-too"
     r.save()
     assert "leaked" not in _files_text(tmp_path / "clientco")
 
 
-def test_the_launchers_bookkeeping_stays_out_of_the_env(tmp_path):
-    """An acknowledgement describes the run, not the server."""
+def test_the_passwords_the_install_printed_reach_no_file(tmp_path):
     r = run_mod.load(tmp_path / "clientco", SECRETS)
-    r.answer("_keyset_acknowledged", "yes", secret=False)
+    r.keyset = {"admin_password": "shown-once"}
     r.save()
-    assert "_keyset_acknowledged" not in r.env_path.read_text(encoding="utf-8")
-    assert run_mod.load(tmp_path / "clientco", SECRETS).value(
-        "_keyset_acknowledged") == "yes"
+    assert "shown-once" not in _files_text(tmp_path / "clientco")
 
 
 def test_both_files_are_0600(tmp_path):
@@ -132,11 +128,8 @@ def test_both_files_are_0600(tmp_path):
 def test_the_state_says_whether_the_install_already_started(tmp_path):
     r = run_mod.load(tmp_path / "clientco", SECRETS)
     r.state = run_mod.STATE_INSTALLING
-    r.step = "keyset"
     r.save()
-    resumed = run_mod.load(tmp_path / "clientco", SECRETS)
-    assert resumed.state == run_mod.STATE_INSTALLING
-    assert resumed.step == "keyset"
+    assert run_mod.load(tmp_path / "clientco", SECRETS).state == run_mod.STATE_INSTALLING
 
 
 def test_a_run_whose_launcher_is_gone_reads_as_failed(tmp_path):

@@ -8,16 +8,15 @@ ansible/inventory/ or creates one, and everything it keeps lives there:
                        the file `catena-cli install` reads -- so an inventory
                        the launcher saved and one a client edited by hand are
                        the same file
-    .catena-gui.json   where the launcher got to: the last section checked,
-                       the install's state, the keyset acknowledgement. 0600.
+    .catena-gui.json   the install's state and the launcher that runs it. 0600.
 
 What `catena-cli install` prints is NOT kept: it carries the passwords the
 install shows once. It goes to the console window and, for the page, to memory:
-the passwords block on its own, and the last lines of the rest.
+the passwords on their own, and the last lines of the rest.
 
 An install can start with an unbounded wait -- a server being delivered by a
-provider -- so the answers are on disk from the first check, and a launcher
-started again picks up where the last one stopped.
+provider -- so the answers are on disk from the first attempt to install, and
+a launcher started again picks up where the last one stopped.
 
 A PASSWORD IS NEVER ON DISK. The provider's password, the one the launcher can
 be given, is held in memory for the life of the process and handed to
@@ -26,8 +25,8 @@ deleted when the install ends. A reopened inventory asks for it again: the
 alternative is a file that outlives the install and that nothing ever comes
 back to remove.
 
-THE STATE IS A WORD AND A STEP, not a percentage. What a resumed run needs to
-know is which section to show and whether the install already started.
+THE STATE IS A WORD, not a percentage. What a resumed run needs to know is
+whether an install is running.
 """
 
 from __future__ import annotations
@@ -45,16 +44,14 @@ from . import registry
 # The states a run can be in. `installing` is the one that matters on resume: a
 # launcher that reopened the form for a run whose `catena-cli install` is still
 # going would let a client answer the same questions twice into a host that is
-# already being built. The install is a child of the launcher that started it,
-# whose pid the state file records, so a run whose launcher is gone reads as
-# failed: its install went with it, and the client can install again.
+# already being built. Every other state takes answers and an install, which on
+# an installed server converges and repairs it. The install is a child of the
+# launcher that started it, whose pid the state file records, so a run whose
+# launcher is gone reads as failed: its install went with it.
 STATE_ANSWERING = "answering"
 STATE_INSTALLING = "installing"
 STATE_DONE = "done"
 STATE_FAILED = "failed"
-# The states whose form takes answers and an Install: before the first
-# install, and after one that failed.
-EDITABLE_STATES = (STATE_ANSWERING, STATE_FAILED)
 
 ENV_FILENAME = ".env"
 STATE_FILENAME = ".catena-gui.json"
@@ -111,9 +108,8 @@ class Run:
 
     `answers` is what a client typed and the `.env` keeps. `secrets` is what
     they typed that nothing keeps, held for the life of the process only.
-    `launcher` is the launcher's own bookkeeping (an acknowledgement), which
-    belongs to the run and never reaches the installer. `keyset` is the
-    passwords block the install printed, held for the life of the process.
+    `keyset` is the passwords the install printed, by name, held for the life
+    of the process too.
 
     `secret_keys` is the REGISTRY's answer to which is which, carried so the
     writer can enforce it rather than trusting every caller to have filtered.
@@ -122,15 +118,13 @@ class Run:
     path: Path
     answers: dict[str, str] = field(default_factory=dict)
     secrets: dict[str, str] = field(default_factory=dict)
-    launcher: dict[str, str] = field(default_factory=dict)
     secret_keys: frozenset[str] = frozenset()
     state: str = STATE_ANSWERING
-    step: str = ""
     started: float = 0.0
-    # The install's last lines and its passwords block, in memory only (see the
+    # The install's last lines and its passwords, in memory only (see the
     # module docstring).
     log: deque[str] = field(default_factory=lambda: deque(maxlen=LOG_LINES))
-    keyset: str = ""
+    keyset: dict[str, str] = field(default_factory=dict)
 
     @property
     def inventory(self) -> str:
@@ -148,22 +142,15 @@ class Run:
         """Record one answer, on the side of the line the REGISTRY puts it on."""
         if secret or key in self.secret_keys:
             self.secrets[key] = value
-        elif key.startswith("_"):
-            self.launcher[key] = value
         else:
             self.answers[key] = value
 
     def value(self, key: str) -> str:
         """What is currently answered for a key, from whichever half holds it."""
-        for half in (self.secrets, self.launcher, self.answers):
+        for half in (self.secrets, self.answers):
             if key in half:
                 return half[key]
         return ""
-
-    def probed(self) -> dict[str, str]:
-        """What the probes read: the answers, and the launcher's
-        acknowledgement the keyset probe checks."""
-        return {**self.answers, **self.launcher}
 
     def missing_secrets(self, required: list[str]) -> list[str]:
         """Which credentials this run still has to be given. Non-empty on every
@@ -183,18 +170,15 @@ class Run:
         seed = _seed()
         values = {key: default for key, default in seed.ENV_KEYS}
         values.update({k: v for k, v in self.answers.items()
-                       if k not in self.secret_keys and not k.startswith("_")})
+                       if k not in self.secret_keys})
         seed.emit_env(seed.ENV_TEMPLATE.read_text(encoding="utf-8"), values,
                       self.env_path, keep_existing=False)
         os.chmod(str(self.env_path), 0o600)
 
         payload = {
             "state": self.state,
-            "step": self.step,
             "started": self.started or time.time(),
             "pid": os.getpid(),
-            "launcher": {k: v for k, v in self.launcher.items()
-                         if k not in self.secret_keys},
         }
         tmp = self.state_path.with_suffix(".json.tmp")
         fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -229,12 +213,7 @@ def load(path: Path, secret_keys: frozenset[str] = frozenset()) -> Run:
     run.state = str(doc.get("state") or STATE_ANSWERING)
     if run.state == STATE_INSTALLING and not _running(doc.get("pid")):
         run.state = STATE_FAILED
-    run.step = str(doc.get("step") or "")
     run.started = float(doc.get("started") or 0.0)
-    launcher = doc.get("launcher")
-    if isinstance(launcher, dict):
-        run.launcher = {str(k): str(v) for k, v in launcher.items()
-                        if str(k) not in secret_keys}
     return run
 
 

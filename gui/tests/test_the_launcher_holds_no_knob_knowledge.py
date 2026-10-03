@@ -36,14 +36,13 @@ def test_the_registry_is_found_and_current(doc):
     assert doc["gui_steps"], "the registry declares no installer pages"
 
 
-def test_every_page_asks_for_something_except_the_last(doc):
-    """The last page is an acknowledgement rather than a form, which is why it
-    is the one exception. Any other empty page is a heading nobody filled in."""
-    built = steps_mod.build(doc)
-    for step in built[:-1]:
+def test_every_section_asks_for_something_and_names_it(doc):
+    """An empty section is a heading nobody fills in, and a field is named on
+    the page by the label the registry gives it."""
+    for step in steps_mod.build(doc):
         assert step.fields, f"{step.name} asks for nothing"
-    assert built[-1].name == "keyset"
-    assert not built[-1].fields
+        for field in step.fields:
+            assert field.label.strip(), f"{field.key} has no label"
 
 
 def test_a_page_shows_exactly_what_the_registry_gives_it(doc):

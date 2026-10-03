@@ -6,10 +6,10 @@
 # `catena-cli install` runs it right after bootstrap, before the converge, so
 # the block is on screen while the long part of the install runs; the installer
 # prints it then and again when the install ends. The passwords are minted
-# ON-BOX (helpers/onbox_config.py USER_HELD_SECRETS), and the block reaches the
-# controller only as a transient 0600 file the installer reads and deletes. The
-# backup encryption password is not among them: the client generates it in the
-# panel, beside the repository it encrypts.
+# ON-BOX (helpers/onbox_config.py USER_HELD_SECRETS), and the block and its
+# values reach the controller only as a transient 0600 JSON file the installer
+# reads and deletes. The backup encryption password is not among them: the
+# client generates it in the panel, beside the repository it encrypts.
 #
 # Everything the user must write down is in the FINAL task, as one block. The
 # mint, the reads and the FSS delete run ahead of it.
@@ -102,15 +102,20 @@
 
     # ONE task, and the LAST one. Everything the user has to write down is in
     # this single block on purpose: the installer prints it as one piece, and
-    # these values are shown once. One file per host in the installer's 0700
-    # directory, and no_log because the installer is what shows it. The URLs
-    # live here rather than in the inventory template because the ports are
-    # defaults nobody customizes and the hostnames only resolve once the tunnel
-    # is up.
+    # these values are shown once. One JSON file per host in the installer's
+    # 0700 directory, carrying the block and the three values it shows, which
+    # the graphical installer displays on their own; no_log because the
+    # installer is what shows them. The URLs live here rather than in the
+    # inventory template because the ports are defaults nobody customizes and
+    # the hostnames only resolve once the tunnel is up.
     - name: "SAVE THIS -- passwords and first-login URLs, shown once"
       ansible.builtin.copy:
         dest: "{{ keyset_out }}/{{ inventory_hostname }}"
-        content: "{{ _banner }}"
+        content: >-
+          {{ {'banner': _banner,
+              'admin_password': _secrets.admin_password,
+              'console_recovery_password': _secrets.console_recovery_password,
+              'journal_verification_key': _fss} | to_json }}
         mode: "0600"
       delegate_to: localhost
       become: false

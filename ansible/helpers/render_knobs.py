@@ -166,10 +166,12 @@ def load(source: Path = SOURCE) -> dict:
             value = step.get(field)
             _require(isinstance(value, str) and value.strip(),
                      f"gui_steps {name}: no {field}")
-        # Absent means the section has nothing to prove and gets no check.
-        if "validates" in step:
-            _require(isinstance(step["validates"], str) and step["validates"].strip(),
-                     f"gui_steps {name}: validates is empty; leave it out instead")
+        # Absent means the section has nothing to prove and gets no check, or
+        # nothing to add below its fields.
+        for field in ("validates", "note"):
+            if field in step:
+                _require(isinstance(step[field], str) and step[field].strip(),
+                         f"gui_steps {name}: {field} is empty; leave it out instead")
         step_names.append(name)
 
     seen: set[str] = set()
@@ -194,7 +196,10 @@ def load(source: Path = SOURCE) -> dict:
             _require("env" in entry,
                      f"{key}: the installer asks only for what its .env keeps, "
                      "and this knob has no env home")
-        for field in ("required", "gui_suggestions_from"):
+            _require(isinstance(entry.get("label"), str) and entry["label"].strip(),
+                     f"{key}: a field the launcher asks for needs a label to "
+                     "name it on the page")
+        for field in ("required", "gui_suggestions_from", "label"):
             if field in entry:
                 _require("step" in entry,
                          f"{key}: {field} is read by the launcher, and this knob "
@@ -243,13 +248,10 @@ def load(source: Path = SOURCE) -> dict:
     empty = [n for n in section_names if n not in used]
     _require(not empty, f"env_sections: {empty} carry no key")
 
-    # A step with no field is not the same mistake. `keyset` deliberately has
-    # none -- it is an acknowledgement, not a form -- so only a step that is
-    # neither used nor LAST is a heading nobody filled in.
+    # The same mistake on the installer's page: a section with no field.
     asked = {e["step"] for e in [*secrets, *config] if "step" in e}
-    orphan = [n for n in step_names[:-1] if n not in asked]
-    _require(not orphan,
-             f"gui_steps: {orphan} ask for nothing and are not the final step")
+    orphan = [n for n in step_names if n not in asked]
+    _require(not orphan, f"gui_steps: {orphan} ask for nothing")
 
     # `depends` is checked last, against the whole registry: it names another
     # knob and values of it, and both halves have to resolve or the page hides
