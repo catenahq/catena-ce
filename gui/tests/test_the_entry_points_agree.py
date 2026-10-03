@@ -53,8 +53,8 @@ def test_each_project_declares_its_one_entry_point():
 
 
 def test_each_entry_point_resolves_to_a_function_in_the_code():
-    """A script whose target moved or was renamed installs cleanly and fails
-    the first time a client runs it."""
+    """A script whose target does not resolve installs cleanly and fails the
+    first time a client runs it."""
     module, function = CLI[1].split(":")
     assert module in _pyproject(ANSIBLE)["tool"]["setuptools"]["py-modules"]
     assert _defines(ANSIBLE / f"{module}.py", function), CLI[1]

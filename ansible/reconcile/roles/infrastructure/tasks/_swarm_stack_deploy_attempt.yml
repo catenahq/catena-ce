@@ -7,14 +7,13 @@
 #
 # Self-reconciling by construction: `docker stack deploy` is a converge, not
 # a create. A retry after a partial deploy updates the services that exist
-# and creates the ones that do not -- there is no 409-on-second-create to
-# work around the way the Portainer API needed.
+# and creates the ones that do not, so there is no 409-on-second-create to
+# work around.
 #
-# `--prune` removes services carrying this stack's label that the file no
-# longer declares, so deleting a service from the compose actually deletes
-# it from the host. `--detach=false` blocks until every task converges, so
-# a non-zero rc here means the stack did NOT come up -- the Portainer path's
-# 2xx only meant the API accepted the request.
+# `--prune` removes services carrying this stack's label that the file does
+# not declare, so deleting a service from the compose actually deletes it
+# from the host. `--detach=false` blocks until every task converges, so a
+# non-zero rc here means the stack did NOT come up.
 #
 # It blocks until every task converges, and a task that CANNOT converge never
 # lets it return, so the attempt is bounded by `timeout`. Without a bound the
@@ -89,12 +88,11 @@
     #
     # -- a task ID, not a reason. The reason lives in that task's Error field
     # and nowhere else. Classifying on the deploy's own output alone therefore
-    # cannot see it, which is how a textbook transient
+    # cannot see it, and a textbook transient
     # ("failed to set up container networking: Address already in use", already
-    # in the pattern list below AND with a reclaim step written for it) failed
-    # the play instead of retrying: fi_a2_oidc_secret_rotation on bench run
-    # 2026-08-04T05-25-31-68a4, where the very next task on the same service
-    # came up Running.
+    # in the pattern list below AND with a reclaim step written for it) would
+    # fail the play instead of retrying, while the very next task on the same
+    # service comes up Running.
     #
     # Three views separate image-pull from placement from a crash loop, and on
     # the bench the VM is torn down before anyone can shell in, so this is also
@@ -117,15 +115,14 @@
     # swarm's update-failure-action is `pause`, so one task dying pauses the
     # rolling update even when the replacement scheduled in its place comes up
     # healthy seconds later. The deploy still exits non-zero, and its stderr
-    # carries a task id rather than a reason. The comment above records that
-    # sequence on run 68a4; run 2026-09-17T09-06-07-cc20 hit it again on
-    # keycloak, where the per-task dump read
+    # carries a task id rather than a reason. The per-task dump then reads,
+    # for example,
     #
     #   g4oil...  Ready 1 second ago
     #   v0ws2...  Failed 1 second ago   "task: non-zero exit (1)"
     #
-    # and the replacement was serving by the time anyone looked. That string
-    # cannot go in the pattern list: a genuine crash loop reports the same one.
+    # while the replacement is already serving. That string cannot go in the
+    # pattern list: a genuine crash loop reports the same one.
     #
     # So this asks the daemon for the END STATE -- every service in the stack
     # running its desired replicas -- which is evidence no pattern can fake.

@@ -195,8 +195,8 @@ def test_defaults_no_longer_duplicate_the_engine_s_own_pins():
     """The image, ingress service, stop grace and probe counts are product
     constants the engine defaults to. Their VALUES are asserted in catena-admin
     (payload/cmd/catena-cloudflared-sync); keeping a copy here would make this
-    repo a second writer of a value it does not pass any more, which is the
-    worst of both -- editable, and read by nothing."""
+    repo a second writer of a value it does not pass, which is the worst of
+    both -- editable, and read by nothing."""
     d = _defaults()
     for gone in ("cloudflared_image", "cloudflared_image_tag",
                  "cloudflared_ingress_service", "cloudflared_stop_grace",

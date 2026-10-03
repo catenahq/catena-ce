@@ -2,11 +2,10 @@
 direct public port the VPS exposes outside the Cloudflare Tunnel.
 
 Cloudflare Tunnel carries HTTP/S only. Protocols it cannot carry (SMTP,
-IMAPS, TURN media, ...) bind directly to the VPS public IP. Before this
-module each such port was hand-wired in four places (ufw, a DOCKER-USER
-guard, the validate allowlist, the external nmap expectation) plus prose
-docs -- a drift surface. This module collapses that to ONE declaration per
-port, consumed everywhere.
+IMAPS, TURN media, ...) bind directly to the VPS public IP. Each such port
+has ONE declaration here, consumed by ufw, the DOCKER-USER guard, the
+validate allowlist, the external nmap expectation and the operator
+inventory doc, so none of them can drift from the others.
 
 Two feeders, one merged effective set:
 
@@ -19,18 +18,16 @@ Two feeders, one merged effective set:
     swarm `mode: host` publish -- is redirected in PREROUTING and bypasses
     INPUT entirely: bind=docker, enforced in DOCKER-USER.
 
-    That distinction was written the wrong way here once, on the assumption
-    that a swarm host-mode publish behaves like host networking. It does
-    not. The gatus / healthchecks / beszel loopback ports were declared
-    bind=host, ufw installed their deny rules, and bench 050b then scanned
-    the bridge IP and found all three wide open.
+    A swarm host-mode publish is DNAT'd like any published port, so it is
+    bind=docker. Declared bind=host, it gets ufw deny rules that its
+    traffic never meets, and the port stays open on the bridge IP.
   - catena templates declare `vps.expose.tcp/udp` compose labels. Those
     apps publish ports via Docker, whose DNAT bypasses the ufw INPUT chain,
     so enforcement (when the scope is restricted) happens in DOCKER-USER.
     App ports default to scope `any` (that is the only reason to expose
     them publicly).
 
-The host reconciler (vps-scripts/catena-public-ports.py) reads the infra
+The host reconciler (scripts/catena-public-ports.py) reads the infra
 JSON rendered by reconcile/roles/public_ports/tasks/main.yml PLUS the live
 `vps.expose.*` labels off running containers, merges them here, applies the
 rule plan idempotently, and re-renders the effective-set JSON + the operator

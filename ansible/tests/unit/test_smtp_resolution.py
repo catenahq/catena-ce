@@ -95,9 +95,11 @@ def test_the_sender_falls_back_to_the_admin_address():
 
 
 def test_switching_provider_cannot_leave_the_old_one_in_use():
-    """The defect the choice replaces. Under the old rule, filling the Brevo
-    address while a Resend address was still stored kept sending through
-    Resend -- the client had to know to clear a field to change a setting."""
+    """The provider is an explicit choice, so a stale value from an earlier
+    configuration changes nothing. Inferred from which address is filled, a
+    stored Resend address would keep mail on Resend after the client fills
+    the Brevo one -- the client would have to know to clear a field to change
+    a setting."""
     got = _resolve()("brevo", sender="no-reply@acme.test",
                      user="8a1b2c@smtp-brevo.com",
                      # Stale values from an earlier configuration.
@@ -111,10 +113,10 @@ def test_switching_provider_cannot_leave_the_old_one_in_use():
 
 @pytest.mark.parametrize("path", [KEYCLOAK_DEFAULTS, WORDPRESS, BESZEL])
 def test_every_consumer_calls_the_filter_rather_than_rewriting_it(path):
-    """The ladder was written out twice and was about to be a third time. Each
-    copy is free to drift, and the symptom is a host that sends password-reset
-    mail through one relay and a contact form through another, from the same
-    stored config, with nothing reporting it."""
+    """A hand-written copy of the ladder is free to drift, and the symptom is
+    a host that sends password-reset mail through one relay and a contact
+    form through another, from the same stored config, with nothing
+    reporting it."""
     body = path.read_text()
     assert "catena_smtp_resolve" in body, (
         f"{path.name} does not use the shared resolution")
@@ -127,10 +129,10 @@ def test_every_consumer_calls_the_filter_rather_than_rewriting_it(path):
 
 
 def test_implicit_tls_is_not_offered_and_not_stored():
-    """SMTP_USE_TLS was collected, validated and stored, and read by nothing:
-    realm-vps.yaml.j2 renders starttls true and ssl false as literals. A key
-    that accepts a value and changes nothing answers "is TLS configured" with a
-    yes."""
+    """realm-vps.yaml.j2 renders starttls true and ssl false as literals, so an
+    SMTP_USE_TLS key would be collected, validated, stored and read by nothing.
+    A key that accepts a value and changes nothing answers "is TLS configured"
+    with a yes."""
     assert "SMTP_USE_TLS" not in ONBOX_CONFIG.read_text(), (
         "SMTP_USE_TLS is back in the store registry")
     realm = (ANSIBLE / "reconcile" / "roles" / "keycloak" / "templates"
@@ -145,8 +147,8 @@ def test_implicit_tls_is_not_offered_and_not_stored():
     "cfg_smtp_from", "cfg_smtp_use_tls",
 ])
 def test_no_consumer_still_reads_a_retired_key(gone):
-    """A reader left behind reads a key nothing writes any more, which resolves
-    to empty and takes its branch of the ladder with it."""
+    """A reader of a key nothing writes resolves it to empty and takes its
+    branch of the ladder with it."""
     for path in (KEYCLOAK_DEFAULTS, WORDPRESS, BESZEL, ONBOX_CONFIG):
         body = "\n".join(
             line for line in path.read_text().splitlines()

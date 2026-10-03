@@ -53,16 +53,13 @@
 # any `converge --tags X`, so a tag-scoped run does NOTHING while reporting
 # ok/changed=0 as though the role were already converged.
 #
-# `converge --tags keycloak_realm` was exactly that: the realm-render tasks
-# never ran, keycloak-config-cli imported the realm files left by an earlier
-# converge, and a Settings change the store had already recorded could not
-# reach the realm. Read on bench run 2026-08-30T19-22-52-155e as
-# "expected mfa_enforced=true after enforce, got False" beside a realm
-# converge of ok=28 changed=0 -- the setting was in the store, and nothing
-# rendered it.
+# Under `converge --tags keycloak_realm` that means the realm-render tasks
+# never run, keycloak-config-cli imports the realm files left by an earlier
+# converge, and a Settings change the store has already recorded cannot
+# reach the realm: the setting is in the store, and nothing renders it.
 #
 # playbooks/converge.yml carries the same apply: on the on-box config loader, for
-# the same reason (fi_s3 caught a poisoned password surviving `--tags
+# the same reason (without it, a poisoned password survives `--tags
 # postgres` there).
 - name: "Keycloak: provision DB + user inside catena-postgres"
   ansible.builtin.include_tasks:

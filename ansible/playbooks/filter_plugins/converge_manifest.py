@@ -5,15 +5,15 @@ one does not ship.
     converge_withdrawn(previous, declared) -> [{path, sha256}, ...]
     converge_unclaimed(withdrawn, payload_manifest) -> [{path, sha256}, ...]
 
-WHAT THIS IS FOR. The converge was copy-only. A unit, script or helper module
-withdrawn from a later release was simply not copied, and the old one kept
-running: a timer nobody ships any more, firing at a binary nobody builds any
-more. It has happened at least once already -- `reconcile/roles/backup` still
-carries a hand-written `state: absent` for catena-acquire-lock.sh, a lock
-helper whose replacement made it spin to its full timeout on every unit that
-still found it.
+WHAT THIS IS FOR. Copying alone never removes anything. A unit, script or
+helper module withdrawn from a release is simply not copied, and the installed
+one keeps running: a timer the product does not ship, firing at a binary it
+does not build. `reconcile/roles/backup` carries a hand-written `state: absent`
+for catena-acquire-lock.sh for that reason: a leftover copy of that lock helper
+finds no pid in the flock-managed lock file and spins to its full timeout on
+every unit that still calls it.
 
-The payload installer solved the same problem for the files it writes
+The payload installer solves the same problem for the files it writes
 (catena-admin payload/installer/install-ee-payload.sh), and this is deliberately
 the same shape, because the two share directories: /usr/local/bin/catena-* and
 /etc/systemd/system/catena-* are written by both. Two manifests, each pruning
@@ -22,13 +22,13 @@ A glob would not: either side would reap the other's files.
 
 THREE RULES, and the safety of the whole thing rests on them.
 
-1. DELETE ONLY WHAT IS NOT DECLARED ANYMORE. The previous manifest records what
-   was installed; the current converge declares what the product ships. The
-   difference is "withdrawn from the product" -- never "not installed on this
-   host", which is what a feature being switched off looks like and is not a
-   reason to delete anything. Those two are indistinguishable from the
-   installed sets alone, which is why `declared` is recorded separately from
-   `installed` and why the diff is taken against it.
+1. DELETE ONLY WHAT THE PREVIOUS CONVERGE DECLARED AND THIS ONE DOES NOT. The
+   previous manifest records what was installed; the current converge declares
+   what the product ships. The difference is "withdrawn from the product" --
+   never "not installed on this host", which is what a feature being switched
+   off looks like and is not a reason to delete anything. Those two are
+   indistinguishable from the installed sets alone, which is why `declared` is
+   recorded separately from `installed` and why the diff is taken against it.
 
 2. DELETE ONLY WHAT IS STILL OURS. Every candidate carries the digest the
    previous install recorded, and the caller re-checks it against the file on
@@ -38,8 +38,8 @@ THREE RULES, and the safety of the whole thing rests on them.
    is decidable on this host, from this host.
 
 3. LEAVE WHAT THE PAYLOAD CLAIMS. A path this converge stops declaring can be
-   one the panel payload installs from then on -- /usr/local/bin/restic moved
-   that way. The same upstream release can be the same bytes on both sides, so
+   one the panel payload installs from then on -- /usr/local/bin/restic is
+   one. The same upstream release can be the same bytes on both sides, so
    rule 2 alone would delete the payload's copy. A withdrawn path that the
    payload's current manifest lists is the payload's, whatever its content.
 

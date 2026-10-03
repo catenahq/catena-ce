@@ -1,24 +1,13 @@
 """The shared staging dir is created for EITHER mailserver consumer.
 
-THE DEFECT. `/var/lib/catena/mailserver` is staging for two different
-containers: dovecot-oauth2.conf.ext for dms, oauth.inc.php for roundcube. It
-was created gated on the dms container alone, while the Roundcube render that
-writes into it is gated on the roundcube container.
-
-Those lifecycles are independent, and one of them is deliberately unstable.
-docker-mailserver polls 120s for a mailbox and shuts down without one, so
-until a converge gives it a cert and a first mailbox it restarts forever and
-`docker ps` returns nothing for it between attempts. Roundcube, meanwhile,
-comes up healthy in seconds.
-
-So "roundcube present, dms absent" is not an edge case -- it is the normal
-state during the first tokenful converge, the one that exists to wire the
-deferred mailserver chain. The Roundcube step then failed with
-
-    Destination directory /var/lib/catena/mailserver does not exist
-
-aborting the whole converge that is about to fix dms. Observed on bench run
-2026-08-25T18-01-29-b726, first tokenful converge.
+`/var/lib/catena/mailserver` is staging for two different containers:
+dovecot-oauth2.conf.ext for dms, oauth.inc.php for roundcube, and the two
+lifecycles are independent. docker-mailserver polls 120s for a mailbox and
+shuts down without one, so until a converge gives it a cert and a first
+mailbox `docker ps` returns nothing for it between restarts, while Roundcube
+comes up healthy in seconds. "roundcube present, dms absent" is the normal
+state during the first tokenful converge, and a Roundcube render into a
+missing directory would abort the converge that is about to fix dms.
 
 Run: uv run pytest tests/unit/test_mailserver_oidc_staging_dir.py
 """

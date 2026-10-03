@@ -108,10 +108,9 @@ def test_the_gate_names_a_role_that_exists() -> None:
     retries above.
 
     Not about auth: pg_isready exits 0 whenever the server responds at all,
-    error included, which is exactly why this survived unnoticed until the
-    bench's stage-3f control-plane log gate read the log on run
-    2026-08-06T20-24-17-5ccd. It is about what postgres WRITES, because a
-    real auth failure is indistinguishable inside that noise.
+    error included, so only the log shows it. It is about what postgres
+    WRITES, because a real auth failure is indistinguishable inside that
+    noise.
     """
     gate = next(t for t in _tasks() if "pg_isready" in _module_body(t))
     # Read the command TEXT, not an argv list: the gate re-resolves its

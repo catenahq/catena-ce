@@ -34,9 +34,9 @@ import yaml
 
 _ANSIBLE = Path(__file__).resolve().parents[2]
 _BOUNDARY = _ANSIBLE / "boundary.yml"
-# Two role roots since phase 1b. A role's side is now WHERE IT LIVES, so most of
-# what follows reads the tree rather than cross-referencing a declaration --
-# but boundary.yml stays the declaration, because a directory cannot carry the
+# Two role roots. A role's side is WHERE IT LIVES, so most of what follows
+# reads the tree rather than cross-referencing a declaration -- but
+# boundary.yml is still the declaration, because a directory cannot carry the
 # reason a role is on the side it is on.
 _ROOTS = {
     "bootstrap": _ANSIBLE / "bootstrap" / "roles",

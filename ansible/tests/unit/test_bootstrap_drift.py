@@ -94,7 +94,7 @@ def test_a_file_that_is_not_there_is_not_recorded():
 def test_the_path_list_is_read_from_the_boundary_not_restated():
     """boundary.yml is the declaration. A copy here would be a second thing to
     keep true, and the failure mode is the copy going stale while the report
-    quietly stops covering whatever was added to the real list."""
+    quietly misses every path the real list gains."""
     body = _TASKS.read_text(encoding="utf-8")
     assert "boundary.yml" in body and "bootstrap_owned_paths" in body
     # Comments and task names stripped: both are prose, and prose naming a

@@ -49,11 +49,10 @@ loader saw no token on a host that had one.
 
 ## Why a separate role (not part of `infrastructure`)
 
-Still runs BEFORE the SSO roles in converge.yml. `oauth2_proxy` waits for
-`https://auth.<zone>/.well-known/openid-configuration` to answer before
-it deploys its compose; that URL is only reachable once the tunnel is
-up. `infrastructure` runs AFTER `oauth2_proxy` (its gated apps need their
-auth proxies and routes rendered first), so the tunnel dispatch can't ship
+It runs BEFORE the SSO roles in converge.yml: the validation probes of
+`keycloak` and `oauth2_proxy` reach `https://auth.<zone>/` through the
+tunnel. `infrastructure` runs AFTER `oauth2_proxy` (its gated apps need their
+auth proxies and routes rendered first), so the tunnel dispatch cannot ship
 there.
 
 ## Site.yml position

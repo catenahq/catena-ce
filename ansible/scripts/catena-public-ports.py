@@ -298,12 +298,12 @@ def _docker_user_match(rule: dict) -> list[str]:
     container port. `--dport 18080` therefore matches nothing once Docker
     has turned it into `172.18.0.12:8080`.
 
-    That is not theoretical: bench 050b found Gatus (18080 -> 8080),
-    Healthchecks (18000 -> 8000) and the Beszel hub (18190 -> 8090) all
-    answering from off-box with their DROP rules installed and sitting at zero
-    packets. A `--dport` guard reads as correct on exactly one restricted
-    docker-bound port, the Portainer UI, which publishes 9000 -> 9000 and so is
-    unchanged by the DNAT.
+    Gatus (18080 -> 8080), Healthchecks (18000 -> 8000) and the Beszel hub
+    (18190 -> 8090) all publish to a different container port, so under a
+    `--dport` guard each one answers from off-box with its DROP rule
+    installed and sitting at zero packets. A `--dport` guard reads as
+    correct on exactly one restricted docker-bound port, the Portainer UI,
+    which publishes 9000 -> 9000 and so is unchanged by the DNAT.
 
     --ctorigdstport matches the port the client actually dialled, which is
     what the declaration is about, and is unaffected by the rewrite.

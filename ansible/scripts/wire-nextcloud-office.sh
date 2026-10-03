@@ -16,8 +16,8 @@
 # state cleanly removed.
 #
 # Probe-before-mutate: refuses to run if office.<base> is serving the OTHER
-# editor (the templates were not swapped in Portainer), says how to fix it,
-# and exits non-zero without changing state. The wrong action on the wrong
+# editor (the templates need swapping in Portainer), says how to fix it, and
+# exits non-zero without changing state. The wrong action on the wrong
 # template never corrupts Nextcloud config.
 #
 # OnlyOffice's JWT secret is read from the running documentserver container's

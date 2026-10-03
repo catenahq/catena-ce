@@ -91,12 +91,12 @@ coturn_container_key_path: "{{ coturn_container_cert_dir }}/privkey.pem"
 coturn_host_config_dir: "/etc/coturn"
 coturn_host_config_path: "{{ coturn_host_config_dir }}/turnserver.conf"
 
-# The tier-1 SPEC for coturn is not assembled here any more -- not the mounts,
-# the constraint, the network or the command. It lives in the host engine,
-# catena-admin payload/engines/tier1/catalog.go, and reconcile/roles/coturn reads it with
+# The tier-1 SPEC for coturn -- the mounts, the constraint, the network and the
+# command -- lives in the host engine, catena-admin
+# payload/engines/tier1/catalog.go, and reconcile/roles/coturn reads it with
 # `catena-tier1 spec coturn`.
 #
-# Two things deliberately did NOT move, because the engine cannot own them:
+# Two things stay here, because the engine cannot own them:
 #
 #   the consumer gate  -- whether coturn belongs on this host at all depends on
 #                         which client apps are deployed, which is exactly the

@@ -68,11 +68,9 @@
     # same directory for the app stack files. Two roles declaring different
     # modes for one path is not a style disagreement: each converge resets what
     # the other set, both report changed, and the idempotency gate can never go
-    # green. Observed as changed=2 forever on run 3642.
+    # green.
     #
-    # 0750 rather than 0755 because that is what the directory's first owner
-    # chose, and its reason applies here too -- a compose body can carry a
-    # credential.
+    # 0750 rather than 0755 because a compose body can carry a credential.
     - name: "tier1_stack: ensure the stack dir exists"
       ansible.builtin.file:
         path: "{{ tier1_stack_dir }}"

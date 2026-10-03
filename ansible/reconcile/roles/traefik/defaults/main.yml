@@ -2,10 +2,10 @@
 # reconcile/roles/traefik -- catena-owned reverse proxy. We deploy and own the
 # `catena-traefik` container directly.
 
-# The Traefik IMAGE is not pinned here any more. It lives in the host engine's
-# built-in catalog (catena-admin payload/engines/tier1/catalog.go), with
-# Renovate and Trivy following it there -- the version has to be tracked where
-# the host actually reads it, or a bump lands in a file nothing runs.
+# The Traefik IMAGE is pinned in the host engine's built-in catalog
+# (catena-admin payload/engines/tier1/catalog.go), with Renovate and Trivy
+# following it there -- the version has to be tracked where the host actually
+# reads it, or a bump lands in a file nothing runs.
 
 # The catena-owned reverse-proxy container. cloudflared points its ingress at
 # this name.

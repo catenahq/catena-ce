@@ -156,18 +156,15 @@
         loop_var: _app
         label: "{{ _app.slug }} (cleanup)"
 
-    # NOTE: there is deliberately no pre-deploy "wait for public OIDC
-    # discovery" gate here anymore. oauth2-proxy now boots with
-    # --skip-oidc-discovery + intra-cluster --oidc-jwks-url/--redeem-url
-    # (see reconcile/roles/oauth2_proxy/defaults/main.yml), so a container start
-    # makes ZERO calls to the public auth.<zone> endpoint and cannot
-    # crashloop on a Cloudflare 530/1033 while cloudflared re-registers
-    # during a same-converge Keycloak/cloudflared redeploy. The old gate
-    # (delegate_to localhost -> public URL) hard-failed the converge in
-    # exactly that reconnect window, coupling a restore to the public
-    # edge being up at that instant -- the fragility this decoupling
-    # removes. End-to-end public login reachability is still asserted in
-    # validate.yml.
+    # Deployed without waiting on the public OIDC discovery URL. oauth2-proxy
+    # boots with --skip-oidc-discovery + intra-cluster
+    # --oidc-jwks-url/--redeem-url (defaults/main.yml says why), so a
+    # container start makes ZERO calls to the public auth.<zone> endpoint. A
+    # gate on the public URL (delegate_to localhost) would hard-fail the
+    # converge in the window where cloudflared re-registers during a
+    # same-converge Keycloak/cloudflared redeploy, coupling a restore to the
+    # public edge being up at that instant. End-to-end public login
+    # reachability is asserted in validate.yml.
     - name: "oauth2-proxy: deploy compose via Portainer API"
       ansible.builtin.include_tasks:
         file: deploy.yml
@@ -175,11 +172,9 @@
           tags: [oauth2_proxy_compose]
       tags: [oauth2_proxy_compose]
 
-    # NOTE: no post-deploy "re-confirm public OIDC discovery" gate either.
-    # With --skip-oidc-discovery the container's /ping does not depend on
-    # the public auth endpoint, so a cloudflared re-register window can no
-    # longer crashloop it. validate.yml still gates its per-app /ping on
-    # the public issuer + JWKS being reachable (end-to-end validation).
+    # With --skip-oidc-discovery the container's /ping is independent of the
+    # public auth endpoint; validate.yml gates its per-app /ping on the
+    # public issuer + JWKS being reachable (end-to-end validation).
     - name: "oauth2-proxy: post-deploy /ping probe"
       ansible.builtin.include_tasks:
         file: validate.yml

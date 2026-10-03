@@ -12,9 +12,9 @@
 # The action list is the field that earns the file. Every panel button
 # dispatches a FIXED action name through the SSH forced command, and the table
 # is rendered by reconcile/roles/catena-admin from the same merged list. A panel
-# built after an action was added would otherwise show a working button on a
-# host whose converge predates it, and the user would meet a refusal at the far
-# end where the honest answer is "this host needs a converge".
+# newer than the host's converge would otherwise show a working button for an
+# action the host's table does not carry, and the user would meet a refusal at
+# the far end where the honest answer is "this host needs a converge".
 #
 # SHARED BY BOTH CONVERGE PATHS. converge.yml and playbooks/reconcile.yml both
 # include this file, and each passes `catena_converge_path` naming itself, so

@@ -5,7 +5,7 @@ server. The infra Postgres volume is restored RAW -- deliberately, because
 the store-derived superuser password makes a byte-for-byte restore correct
 -- so anything sitting in that data dir comes back with it.
 
-Two distinct failures, and the second is the observed one:
+Two distinct failures:
 
   a restored lock file is a STARTUP HAZARD. Postgres refuses to start when
   the PID in the lock file is live and belongs to another process, and a
@@ -20,8 +20,6 @@ Two distinct failures, and the second is the observed one:
       ignoring error for .../pgdata/postmaster.pid:
         lchown ...: no such file or directory
       Fatal: There were 1 errors
-
-  Bench 2026-07-30T09-22-58-eff2, restore_version_skew_abort stage-4.
 
 Run: uv run pytest tests/unit/test_backup_excludes_pg_lock_files.py
 """

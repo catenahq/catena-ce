@@ -15,8 +15,8 @@
 #
 # CF tunnel + DNS + cloudflared swarm service belong to
 # reconcile/roles/cloudflare_tunnel, which converge.yml runs BEFORE
-# keycloak/oauth2_proxy: oauth2_proxy's wait-for-public-Keycloak task cannot
-# succeed on a fresh DR/migrate target otherwise.
+# keycloak/oauth2_proxy, whose validation probes reach auth.<zone> through the
+# tunnel.
 #
 # The per-app oauth2-proxy instances and their `<app>-oauth2-proxy.yml`
 # Traefik route files are rendered by reconcile/roles/oauth2_proxy (which runs before

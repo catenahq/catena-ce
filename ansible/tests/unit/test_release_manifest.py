@@ -3,11 +3,10 @@
 It is the panel's only way to tell "this feature is off" from "this feature's
 plumbing never reached this host". Every button dispatches a FIXED action name
 through the SSH forced command, and that table is rendered by the converge, so
-a panel built after an action was added shows a working-looking button on a host
-whose converge predates it.
+a panel newer than the host's converge shows a working-looking button for an
+action the host's table does not carry.
 
-Three properties are worth pinning, and each of them has already been the bug
-somewhere else in this repo:
+Three properties are worth pinning:
 
   - it is written LAST, so a converge that died at role 9 leaves the previous
     manifest standing instead of claiming plumbing it never delivered;
@@ -148,7 +147,7 @@ def test_the_payload_id_is_read_from_the_marker_not_guessed(post_tasks, write_ta
     assert slurp.get("failed_when") is False
     # The register name is read off the slurp rather than restated here, so a
     # rename either moves both halves or fails -- instead of passing against a
-    # variable nothing sets any more.
+    # variable nothing sets.
     registered = slurp.get("register")
     assert registered, "the marker slurp registers nothing, so nothing reads it"
     assert registered in write_task["ansible.builtin.copy"]["content"]

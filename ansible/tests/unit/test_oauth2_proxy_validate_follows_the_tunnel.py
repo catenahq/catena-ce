@@ -4,7 +4,7 @@ The per-app probes wait on https://auth.<zone>, which only answers once
 reconcile/roles/cloudflare_tunnel has brought the edge up. That role defers
 for two reasons -- no token in the store, or its engine not on the host yet --
 and pins the second as _cf_sync_present. Gating the validation on the token
-alone probed an edge the same converge had just declined to build.
+alone would probe an edge the same converge has just declined to build.
 
 Run: uv run pytest tests/unit/test_oauth2_proxy_validate_follows_the_tunnel.py
 """
@@ -44,10 +44,10 @@ def test_the_edge_needs_the_token_and_the_engine():
 
 
 def test_the_validate_play_reads_the_infrastructure_verdict():
-    """Run 2026-09-24T15-57-36-753a: the tunnel role is not in the validate
-    play, so _cf_sync_present was undefined, defaulted to present, and the
-    probe waited on an edge the converge had deferred. infrastructure's
-    validate runs first there and has already decided."""
+    """The tunnel role is not in the validate play, so _cf_sync_present is
+    undefined there and would default to present, making the probe wait on
+    an edge the converge deferred. infrastructure's validate runs first in
+    that play and has already decided."""
     assert "default(_infra_edge_up" in _edge()
 
 
@@ -71,8 +71,7 @@ INFRA_MAIN = (
 def test_the_infrastructure_edge_gate_also_follows_the_tunnel():
     """Same deferral, one role later: the gated-services public-URL probe and
     the mailserver chain both need the edge, and gating them on the token
-    alone failed the no-tailnet install at a 530 (run
-    2026-09-24T03-24-43-1c7c)."""
+    alone fails a no-tailnet install at a 530."""
     text = INFRA_MAIN.read_text()
     gate = next(t for t in yaml.safe_load(text)
                 if t.get("name") == "Resolve the tunnel-deferred gate")
@@ -88,8 +87,8 @@ PLAYBOOK_VALIDATE = Path(__file__).resolve().parents[2] / "playbooks" / "validat
 
 
 def test_the_standalone_validate_asks_whether_the_engine_is_here():
-    """Run 2026-09-24T15-24-09-c565: the converge now deferred cleanly, and the
-    install's validate then asserted cloudflared 1/1 because a token existed."""
+    """A converge that defers the edge is followed by the install's validate,
+    which must not assert cloudflared 1/1 just because a token exists."""
     tasks = yaml.safe_load(INFRA_VALIDATE.read_text())
     edge = next(t for t in tasks
                 if "resolve whether the edge should be up" in (t.get("name") or ""))

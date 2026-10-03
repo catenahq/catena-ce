@@ -229,8 +229,8 @@ def test_an_explicit_pin_beats_the_registry_answer():
 
 def test_a_newer_on_host_pin_still_wins_over_the_resolved_release():
     """The lane cannot bump past what is published, so in practice this ties.
-    The wiring still has to be live: a converge that asserted its own answer
-    here is what reverted every managed bump before the filter existed."""
+    The wiring still has to be live: a converge that asserts its own answer
+    here reverts every managed bump."""
     rel = _release("ghcr.io/catenahq/catena-admin:v0.5.1", "sha256:" + "20" * 32)
     pins = {"ghcr.io/catenahq/catena-admin": "ghcr.io/catenahq/catena-admin:v0.6.0"}
     assert _render_image(release=rel, pins=pins) == (
@@ -239,10 +239,10 @@ def test_a_newer_on_host_pin_still_wins_over_the_resolved_release():
 
 def test_a_rollback_recorded_on_this_host_survives_the_converge():
     """The panel's default is the NEWEST published release, re-resolved every
-    converge, so max(default, pin) was always the default and the pin here could
-    never win. A client who rolled their panel back to the version that worked
-    was moved forward again by the next converge, silently, onto the build they
-    had just rejected -- and a rollback that does not survive is not a rollback.
+    converge, so max(default, pin) is always the default and the pin here can
+    never win. A client who rolls their panel back to the version that works
+    would be moved forward again by the next converge, silently, onto the build
+    they just rejected -- and a rollback that does not survive is not a rollback.
 
     The caller declares no minimum for exactly this reason. Everywhere else the
     converge ships the version, so the same literal is both the default and the

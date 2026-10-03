@@ -8,24 +8,22 @@ first and cannot.
 
 Two independent reasons it cannot:
 
-  bench f140 backup_rollback -- the deploy gate reported "No TURN consumer
-  running" and skipped, and validate then failed the converge demanding coturn,
-  because in between the restored Talk HPB entered a crash loop
-  (`You need to provide the TURN_SECRET.`) and bare `docker ps` lists RESTARTING
-  containers. Fixed by `--filter status=running` in both probes.
+  a consumer in a crash loop -- a restored Talk HPB without its secret
+  (`You need to provide the TURN_SECRET.`) restarts forever, and bare
+  `docker ps` lists RESTARTING containers, so one probe can skip the deploy
+  while a later one demands coturn. The deploy probe filters on
+  `--filter status=running`: a container that cannot start is no consumer.
 
-  run 2026-09-09T20-56-47-03d8 -- nc_s3_hot_recovery and mailserver_round_trip,
-  both at their DR stage, "coturn swarm service not running after waiting 150s".
-  No crash loop this time: the DR restore brings Nextcloud and its Talk HPB up
-  LATER IN THE SAME CONVERGE, after roles/coturn has already run and correctly
-  skipped. main.yml documents that lag as intended -- coturn "lands on the
-  converge after the consumer is first deployed" -- so the two probes were both
-  right and still disagreed.
+  a consumer that arrives mid-converge -- a DR restore brings Nextcloud and its
+  Talk HPB up LATER IN THE SAME CONVERGE, after roles/coturn has already run and
+  correctly skipped. main.yml documents that lag as intended -- coturn "lands on
+  the converge after the consumer is first deployed" -- so two probes are both
+  right and still disagree.
 
 The second one cannot be fixed by making the probes match, because the
-disagreement is about WHEN, not about what counts as a consumer. So validate no
-longer asks: it asserts what the host HAS, which is what its own comment always
-said (`Assert-if-present, not assert-if-wanted`).
+disagreement is about WHEN, not about what counts as a consumer. So validate
+does not ask: it asserts what the host HAS, which is what its own comment says
+(`Assert-if-present, not assert-if-wanted`).
 
 Run: uv run pytest tests/unit/test_coturn_consumer_gate.py
 """
@@ -65,11 +63,11 @@ def test_the_deploy_probe_ignores_restarting_containers():
 
 
 def test_validate_does_not_probe_for_a_consumer_at_all():
-    """The property that replaced "the two probes are identical".
+    """Validate leaves the consumer question to main.yml.
 
-    Identical spellings could not have saved run 03d8: both probes were correct
-    and they still disagreed, because the consumer appeared between them. The
-    only fix is for validate not to ask.
+    Identical probe spellings cannot help: both probes are correct and still
+    disagree when the consumer appears between them. The only fix is for
+    validate not to ask.
     """
     src = (COTURN / "validate.yml").read_text(encoding="utf-8")
     assert "vps.component=talk-hpb" not in src and "vps.component=jvb" not in src, (
@@ -81,7 +79,7 @@ def test_validate_does_not_probe_for_a_consumer_at_all():
 
 
 def test_the_validate_gate_is_presence_only():
-    """assert-if-present, which is what the file's own comment has always said."""
+    """assert-if-present, which is what the file's own comment says."""
     gate = next(t for t in _tasks("validate.yml")
                 if t.get("name") == "validate coturn: resolve the assertion gate")
     expr = str(gate["ansible.builtin.set_fact"]["_v_coturn_expected"])

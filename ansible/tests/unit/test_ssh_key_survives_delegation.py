@@ -3,9 +3,9 @@
 bootstrap.yml's key install and key checks run `delegate_to: localhost` and
 hand {{ ansible_ssh_private_key_file }} to ssh. Under delegation Ansible
 templates `ansible_connection` as localhost's `local`, so a definition that
-reads it bare yields an empty key there: install_key.py then verified with no
-identity and failed a fresh install ("key auth verification failed after 5
-attempts", bench run 2026-09-26T23-13-35-33b6). The host's own connection is
+reads it bare yields an empty key there: install_key.py then verifies with no
+identity and fails a fresh install ("key auth verification failed after 5
+attempts"). The host's own connection is
 `hostvars[inventory_hostname].ansible_connection`, which reads `local` only on
 the inventory catena-converge writes.
 

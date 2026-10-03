@@ -148,13 +148,13 @@ ROLLED_BACK = PANEL + ":v0.6.1@sha256:" + "a" * 64
 
 
 def test_a_rollback_survives_the_next_converge():
-    """The defect this argument exists for.
+    """The case this argument exists for.
 
     The panel's own update lane records what it applied, rollbacks included. The
     first argument here is the newest PUBLISHED release, re-resolved from the
-    registry on every converge, so max(default, pin) was always the default: a
-    client who rolled back to the version that worked was moved forward again by
-    the next converge, silently, onto the build they had just rejected.
+    registry on every converge, so max(default, pin) is always the default: a
+    client who rolls back to the version that works would be moved forward
+    again by the next converge, silently, onto the build they just rejected.
     """
     assert catena_image_pin(NEWEST, {PANEL: ROLLED_BACK}, "") == ROLLED_BACK
 
@@ -162,8 +162,8 @@ def test_a_rollback_survives_the_next_converge():
 def test_the_same_call_with_the_default_minimum_is_the_old_behaviour():
     """The one line that separates the two callers, shown as one line.
 
-    Every shipped-version caller omits the minimum and keeps max(floor, pin)
-    exactly as before; this is what they would have got."""
+    Every shipped-version caller omits the minimum and gets max(floor, pin);
+    this is that result."""
     assert catena_image_pin(NEWEST, {PANEL: ROLLED_BACK}) == NEWEST
 
 

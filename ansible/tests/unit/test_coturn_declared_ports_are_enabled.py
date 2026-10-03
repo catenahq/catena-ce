@@ -2,16 +2,16 @@
 
 The public-port fragment in reconcile/roles/coturn/tasks/deploy.yml declares udp on
 coturn_tls_port ("TLS-TURN (UDP)"), the reconciler opens it in ufw, and
-reconcile/roles/coturn/tasks/validate.yml asserts the listener is there. Nothing tied
-any of that to the config that has to ask for it.
+reconcile/roles/coturn/tasks/validate.yml asserts the listener is there. This test
+ties all of that to the config that has to ask for it.
 
-On bench 1216 backup_rollback the converge failed on that assertion after the
-image pin moved to 4.17.2 (catena-admin payload/engines/tier1/catalog.go,
-5aa2c79): DTLS client listeners are opt-in there, so tls-listening-port bound
-TCP only and the declared UDP port had nothing behind it. The same bump made
-`no-loopback-peers` a "Bad configuration format" line and `no-cli` a
-deprecation error. A pin can move in a sibling repo without this repo's config
-being read again, so the pairing is asserted here instead.
+In the pinned coturn (catena-admin payload/engines/tier1/catalog.go) DTLS client
+listeners are opt-in, so a config that does not ask for them gets a
+tls-listening-port bound on TCP only and a declared UDP port with nothing behind
+it. The same build reports `no-loopback-peers` as a "Bad configuration format"
+line and `no-cli` as a deprecation error. The pin lives in a sibling repo and
+can move without this repo's config being read again, so the pairing is
+asserted here.
 
 Run: uv run pytest tests/unit/test_coturn_declared_ports_are_enabled.py
 """

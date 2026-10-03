@@ -1,11 +1,9 @@
 """Lock down the gated-host probe set in playbooks/validate.yml.
 
-The dynamic control-plane compose enumeration (project.all + compose.one +
-composeFile `vps.auth.mode=public` classification) was removed in the
-Portainer migration: client-app gating is now label-based via
-dashboard-sync (route_synth / labels_schema), verified by
-verify_gated_services.yml, not re-walked in validate. This test guards
-the one remaining invariant in the static build-set step.
+Client-app gating is label-based via dashboard-sync (route_synth /
+labels_schema) and verified by verify_gated_services.yml, so validate
+builds its gated-host probe set statically. This test guards the one
+invariant of that build-set step.
 
 Run: `uv run pytest tests/unit/test_r3_gated_filter.py`
 """

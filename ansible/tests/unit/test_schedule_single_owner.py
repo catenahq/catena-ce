@@ -63,11 +63,10 @@ def test_retention_is_not_templated_into_backup_env():
 
 
 def test_this_repo_sets_no_retention_default():
-    # Both files, not just the role default. The dict was removed from
-    # reconcile/roles/backup/defaults and reappeared in group_vars/all/main.yml, where
-    # this assertion could not see it -- and it stayed there, read by no role,
-    # template or playbook, so an operator could set BACKUP_KEEP_DAILY=30 in
-    # .env, converge clean, and keep 7.
+    # Both files, not just the role default. A retention dict in
+    # group_vars/all/main.yml is read by no role, template or playbook, so an
+    # operator could set BACKUP_KEEP_DAILY=30 in .env, converge clean, and
+    # keep 7.
     for path in (BACKUP_DEFAULTS, GROUP_VARS):
         body = _code(path)
         for gone in ("backup_retention_policy", "backup_retention_defaults"):
@@ -79,11 +78,10 @@ def test_this_repo_sets_no_retention_default():
 
 
 def test_no_retention_key_is_seeded_into_the_store():
-    # BOOTSTRAP_CONFIG is what the inventory may put in the store. Three of the
-    # keep keys were in it, described as seeding the store -- into flat config
-    # keys the wrapper stopped reading when retention got its single owner. A
-    # value stored and never read is indistinguishable, from the operator's
-    # side, from one that took effect.
+    # BOOTSTRAP_CONFIG is what the inventory may put in the store. A keep key
+    # in it would seed a flat config key the wrapper does not read, because
+    # retention has a single owner. A value stored and never read is
+    # indistinguishable, from the operator's side, from one that took effect.
     body = _code(ONBOX_CONFIG)
     for key in KEEP_KEYS:
         assert f'"{key}"' not in body, (
@@ -123,9 +121,9 @@ def test_the_converge_applies_the_stored_schedule():
     assert len(applies) == 1, "exactly one task should apply the schedule"
     assert "apply" in str(applies[0]["ansible.builtin.command"]["argv"])
     # Gated on the binary being installed, NOT on this converge having
-    # deployed the shell. It carried that gate by copy-paste once, and a host
-    # whose payload arrived any other way (bench, restore, migrate) converged
-    # with no backup-retention.env for run-backup.sh to source.
+    # deployed the shell: with that gate, a host whose payload arrives any
+    # other way (bench, restore, migrate) converges with no
+    # backup-retention.env for run-backup.sh to source.
     gate = str(applies[0].get("when", ""))
     assert "catena_admin_deploy_from_converge" not in gate
     assert "portainer_api_key" not in gate
@@ -137,8 +135,8 @@ def test_the_converge_applies_the_stored_schedule():
 
 def test_the_daily_env_file_is_rendered_every_converge():
     # catena-daily.service declares EnvironmentFile for this path with no
-    # leading dash. A missing file fails the unit outright, which is how the
-    # scheduled chain came to be unable to start on any real host.
+    # leading dash. A missing file fails the unit outright, and the whole
+    # scheduled chain with it.
     tasks = yaml.safe_load(ADMIN_LANES.read_text())
     renders = [
         t for t in tasks
@@ -210,7 +208,8 @@ def test_the_offsite_env_is_rendered_every_converge_not_only_if_absent():
     # backup.env next door is only-if-absent so a converge never clobbers a
     # rotated credential. The lane's dead-man endpoints have to be able to
     # change -- an operator pointing them off-host on an existing host would
-    # otherwise write into a file nothing rewrites, the retention bug again.
+    # otherwise write into a file nothing rewrites, the same trap as retention
+    # in backup.env.
     tasks = yaml.safe_load(BACKUP_INSTALL.read_text())
     renders = [
         t for t in tasks
@@ -225,12 +224,11 @@ def test_the_offsite_env_is_rendered_every_converge_not_only_if_absent():
 
 
 def test_which_buckets_get_copied_is_not_a_converge_input():
-    # Nine converge keys across backup-worm.env and the settings schema can
-    # describe exactly two copies, named after the buckets they happen to point
-    # at. The list lives in /etc/catena/config.json instead, which catena-admin
-    # writes and the lane reads straight off disk -- so a client adding a copy
-    # does not need a converge, and no key here can go
-    # stale against it.
+    # Converge keys can describe only a fixed set of copies, named after the
+    # buckets they happen to point at. The list lives in
+    # /etc/catena/config.json, which catena-admin writes and the lane reads
+    # straight off disk -- so a client adding a copy does not need a converge,
+    # and no key here can go stale against it.
     offsite_env = ANSIBLE / "reconcile" / "roles" / "backup" / "templates" / "offsite.env.j2"
     body = _code(offsite_env)
     for key in ("OFFSITE_HEALTHCHECK_URL", "OFFSITE_HEALTHCHECK_ATTEMPTED_URL"):

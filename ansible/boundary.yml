@@ -105,14 +105,13 @@ own_playbook_roles:
       declares with the panel's tunnel regenerate, which runs
       playbooks/rotate-tunnel.yml.
 
-# NOTHING STRADDLES ANY MORE, which is what phase 1b was for.
+# NOTHING STRADDLES: straddling_roles is empty.
 #
-# The public-port reconciler lives in reconcile/roles/public_ports, not in
-# common; the SSH trust path lives in bootstrap/roles/catena_admin_host, not
-# in catena-admin. Both are real roles on one side of the line, which is
-# what a straddle is supposed to become.
+# The public-port reconciler lives in reconcile/roles/public_ports and the SSH
+# trust path lives in bootstrap/roles/catena_admin_host. Both are real roles on
+# one side of the line, which is what a straddle is supposed to become.
 #
-# The mechanism stays because the shape can come back. A role listed here
+# The mechanism exists for a role that has to straddle. A role listed here
 # declares, per file, which of its task files belong to the other side, and
 # default_side is what an unlisted file belongs to -- so adding a task file to a
 # straddling role does not silently land it on the permissive side. Templates
@@ -122,10 +121,9 @@ own_playbook_roles:
 # WHAT A STRADDLE COSTS, so the next one is a deliberate choice rather than a
 # convenience. A declaration alone stops nothing: a role that imports its
 # other-side task file unconditionally runs it in every play that runs the role,
-# and `catena-admin` did exactly that -- so for as long as it straddled, a
-# reconcile could rewrite the forced command while every assertion about the
-# files passed. Holding the line meant a conditional import plus a play that
-# remembered to disable it. test_converge_boundary.py's
+# so a reconcile can rewrite the forced command while every assertion about the
+# files passes. Holding the line takes a conditional import plus a play that
+# remembers to disable it. test_converge_boundary.py's
 # test_no_reconcile_play_reaches_a_bootstrap_task_file is what enforces that,
 # and it applies to whatever is listed here.
 straddling_roles: {}

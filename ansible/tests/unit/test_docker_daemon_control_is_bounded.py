@@ -1,9 +1,9 @@
 """Every systemctl call that brings docker.service up is time-bounded.
 
-WHY THIS IS NOT COVERED BY THE API PROBE. The docker role already bounds its
-first API call: `timeout 10 docker info` with retries, so a daemon whose socket
-accepts but never answers makes the converge abort in about three minutes
-instead of blocking on one task. That guard is correct and it never fired.
+WHY THE API PROBE DOES NOT COVER THIS. The docker role bounds its first API
+call: `timeout 10 docker info` with retries, so a daemon whose socket accepts
+but never answers makes the converge abort in about three minutes instead of
+blocking on one task. That guard is correct, and the calls below run before it.
 
 docker.service is Type=notify with TimeoutStartSec=0, so systemd waits for
 dockerd's READY=1 with no bound of its own. `systemctl restart docker` and
@@ -12,10 +12,9 @@ run BEFORE the probe -- the restart via the role's `meta: flush_handlers`,
 which fires whenever daemon.json changed. Against an unresponsive daemon the
 converge hangs at the systemctl call and the probe's bound is unreachable.
 
-Observed on bench run 2026-08-25T18-01-29-b726: fi_c1 froze dockerd, confirmed
-state T, and the converge still returned rc=0 with ok=553 failed=0. The restart
-handler SIGKILLed the frozen daemon and started a healthy one before the probe
-asked it anything, so the run repaired the fault it existed to measure.
+When the restart handler fires against a frozen dockerd, it SIGKILLs the
+daemon and starts a healthy one before the probe asks it anything, so the
+probe never sees the fault at all.
 
 The rule this pins: a systemctl call against docker.service in this role is
 wrapped in `timeout`. `timeout` kills the systemctl CLIENT and leaves the

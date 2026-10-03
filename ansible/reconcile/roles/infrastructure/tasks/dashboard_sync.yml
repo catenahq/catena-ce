@@ -1,23 +1,23 @@
 ---
 # Per-host wiring for the route + SSO reconciler.
 #
-# The SCRIPT and its modules are not here any more. They ship in the
-# catena-admin payload (payload/lanes/catena-dashboard-sync.py plus
-# payload/lib/), which reconcile/roles/payload extracts five roles before this one runs.
+# The SCRIPT and its modules ship in the catena-admin payload
+# (payload/lanes/catena-dashboard-sync.py plus payload/lib/), which
+# reconcile/roles/payload extracts five roles before this one runs.
 #
-# Why they moved: what this reconciler does is read every Portainer stack's
-# `vps.*` labels and decide what the route and the oauth2-proxy for that app
-# should be. That is the MEANING of a label, and its correct value changes when
-# the product changes, not when the host changes -- so it belongs to the image,
-# and changing how app access is resolved ships as an image update instead of a
-# converge against every host.
+# Why the image owns them: what this reconciler does is read every Portainer
+# stack's `vps.*` labels and decide what the route and the oauth2-proxy for
+# that app should be. That is the MEANING of a label, and its correct value
+# changes when the product changes, not when the host changes -- so it belongs
+# to the image, and changing how app access is resolved ships as an image
+# update instead of a converge against every host.
 #
-# What stays here is everything whose correct value changes when the HOST
+# This file holds everything whose correct value changes when the HOST
 # changes:
-#   - the env file, which carries the Portainic API key, the oauth2-proxy
+#   - the env file, which carries the Portainer API key, the oauth2-proxy
 #     client secret and the per-zone cookie secrets;
-#   - the timer, whose interval is a per-host setting;
-#   - enabling and starting it, which is the converge installing capability.
+#   - enabling and starting the timer, which is the converge installing
+#     capability.
 #
 # That is the same split reconcile/roles/payload's README states: the converge installs
 # capability, the image owns content.
@@ -37,8 +37,8 @@
 # is this role's -- a deferral that does not name what is deferred and when it
 # converges reads exactly like a silent skip.
 # dashboard_sync_required_paths, not the script alone: deciding "the engines are
-# here" from the binary is what turned a half-restored host into a converge that
-# died inside systemd on ModuleNotFoundError with an empty journal.
+# here" from the binary lets a half-restored host converge into a unit that dies
+# inside systemd on ModuleNotFoundError with an empty journal.
 - name: "dashboard-sync: is the reconciler expected on this host"
   ansible.builtin.include_role:
     name: common
@@ -82,15 +82,14 @@
 # not exist -- turning the deferral above into the converge failure it exists to
 # avoid.
 # The timer is NOT rendered here. Both halves of this lane ship in the payload
-# now -- catena-admin payload/lanes/systemd/ -- because nothing in the timer was
-# ever host-shaped: its interval and its unit name were compiled-in constants in
-# this role's defaults, so the template interpolated values that never varied.
+# -- catena-admin payload/lanes/systemd/ -- because nothing in the timer is
+# host-shaped: its interval and its unit name are product constants.
 #
-# One lane with two owners meant two release cadences, so a change to the pair
-# was half-applied until both a new image and a converge had landed, in that
-# order, with nothing saying which half a host was on.
+# One lane with two owners would mean two release cadences, so a change to the
+# pair would stay half-applied until both a new image and a converge had
+# landed, in that order, with nothing saying which half a host was on.
 #
-# Enabling stays here. Installing a unit and activating it are two steps on
+# Enabling lives here. Installing a unit and activating it are two steps on
 # purpose (the payload installer enables nothing), and this is the side that
 # knows whether the host runs the reconciler at all.
 
@@ -137,7 +136,7 @@
       failed_when: false
 
     # journald is not the only place the answer lives, and on a restored host
-    # it has come back empty. systemd holds the exit status itself, and the
+    # it can come back empty. systemd holds the exit status itself, and the
     # reconciler is a reconciler -- running it again is what it is built for --
     # so ask both rather than report that there is nothing to read.
     - name: "dashboard-sync: capture the unit's exit status (diag)"

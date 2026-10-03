@@ -326,8 +326,8 @@
   # on final exhaustion failed_when=false keeps the play alive so the debug
   # + abort pair below still surface the real error. The import is
   # idempotent (import-update-merge, NO_DELETE), so re-running is safe.
-  # Bench 2026-07-05T01-35-42-fbb4 fi_a2: a single attempt died with
-  # `UnknownHostException: keycloak-server` for the full availability wait.
+  # A single attempt can die with `UnknownHostException: keycloak-server`
+  # for the full availability wait.
   retries: 6
   delay: 8
   until: _keycloak_realm_import.rc == 0
@@ -440,16 +440,14 @@
 # server its task, and swarm replaces it with a new id. The eight docker execs
 # below would then address a container that is gone.
 #
-# Bench run 2026-09-17T04-03-01-fe03 is what that looks like: `docker service
-# ps keycloak_server` recorded
+# In `docker service ps keycloak_server` that reads as
 #
 #   keycloak_server.1  Failed  "No such container: keycloak_server.1.6h4k73..."
 #
-# and the converge died on the next task, with no_log hiding the reason.
+# and the converge dies on the next task, with no_log hiding the reason.
 #
-# The /health/ready gate above this file's import already re-resolves per
-# attempt, for exactly this reason. This is the same rule applied to the half
-# that did not have it.
+# The /health/ready gate above this file's import re-resolves per attempt, for
+# exactly this reason. This applies the same rule to the cleanup half.
 - name: "Keycloak realm: re-resolve the server container before cleanup"
   ansible.builtin.shell: |
     set -o pipefail

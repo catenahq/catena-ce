@@ -681,8 +681,8 @@ def _collect_env_values(
 def _ipv4_endpoint(values: dict[str, str]) -> str:
     """The bootstrap target as one line: the provider IPv4 that the first SSH
     lands on, with the port and login that go with it. Echoed back so a stale
-    HOST_PUBLIC_IP -- the template's own example address, or the box this
-    inventory used to point at -- is caught before bootstrap touches it."""
+    HOST_PUBLIC_IP -- the template's own example address, or a box this
+    inventory pointed at earlier -- is caught before bootstrap touches it."""
     ip = (values.get("HOST_PUBLIC_IP") or "").strip() or "HOST_PUBLIC_IP NOT SET"
     port = (values.get("HOST_SSH_PORT") or "").strip() or "22"
     user = (values.get("HOST_INITIAL_USER") or "").strip() or "root"

@@ -1,10 +1,9 @@
 """A restore must not hand back a lane script without the modules it imports.
 
 `backup_paths` carries /usr/local/bin, so every payload lane script rides the
-snapshot. Their modules live in a second directory and, until run 1216, did
-not. `nc_s3_hot_recovery` stage-4 restored a host that had
-/usr/local/bin/catena-dashboard-sync and no /usr/local/lib/catena, which is
-worse than having neither: the converge's payload gate reads the binary and
+snapshot. Their modules live in a second directory. A restored host with
+/usr/local/bin/catena-dashboard-sync and no /usr/local/lib/catena is worse
+than one with neither: the converge's payload gate reads the binary and
 concludes the engines are present, wires the timer, starts the unit, and the
 unit dies on `ModuleNotFoundError: No module named 'clients_provisioner'`.
 

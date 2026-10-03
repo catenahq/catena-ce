@@ -740,8 +740,8 @@
       when: _pp3_summary_stat.stat.exists | default(false)
 
     - name: "Derive public_ip from host egress when inventory is silent"
-      # `ip route get 1.1.1.1` returns the source IPv4 used to reach
-      # 1.1.1.1; on a routable VPS (no carrier-grade NAT) that's the
+      # `ip route get 1.1.1.1` returns the source IPv4 the host reaches
+      # 1.1.1.1 from; on a routable VPS (no carrier-grade NAT) that's the
       # public IP. Falls back gracefully on hosts behind 1:1 NAT (rare
       # in the supported provider set: OVH, Hetzner, DO, Linode, Vultr,
       # AWS Lightsail) -- the egress src is then a private IP and the

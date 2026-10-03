@@ -107,9 +107,8 @@
   # locate step above. A swarm task name is only true for an instant: dms is
   # still restarting its way out of the state this chain is repairing, and
   # every restart mints a new task id. Resolving once and using it a few tasks
-  # later gets "Error response from daemon: No such container" -- which failed
-  # the whole converge on run 2026-08-25T18-01-29-b726 seconds after the same
-  # converge had successfully created the mailbox.
+  # later gets "Error response from daemon: No such container" and fails the
+  # whole converge seconds after the same converge has created the mailbox.
   #
   # Retried for the same reason: landing between restarts is normal here, and
   # the next attempt gets the next container.

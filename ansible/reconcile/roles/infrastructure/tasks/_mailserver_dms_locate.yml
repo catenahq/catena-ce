@@ -16,10 +16,9 @@
 # mailbox, and the task that creates the mailbox skips BECAUSE it is
 # missing.
 #
-# Bench run 2026-08-25T18-01-29-b726 at its first tokenful converge showed
-# shape: the cert step located the container and, seconds later, the accounts
-# step did not. Whether an install completes comes down to which phase of a
-# restart cycle each lookup samples.
+# With one lookup per step, the cert step can locate the container and,
+# seconds later, the accounts step not. Whether an install completes then
+# comes down to which phase of a restart cycle each lookup samples.
 #
 # THE DISCRIMINATOR is the swarm SERVICE, which exists continuously from deploy
 # to teardown. "No service" is a genuine not-deployed and must stay instant --

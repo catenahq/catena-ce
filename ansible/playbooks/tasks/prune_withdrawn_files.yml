@@ -1,15 +1,15 @@
 ---
 # Remove the files a PREVIOUS converge installed and this one does not ship.
 #
-# The converge is copy-only, so a unit or script a later release withdraws is
-# not copied and the old one keeps running: a timer nobody ships, firing at a
-# binary nobody builds.
+# Copying alone never removes anything: a unit or script a release withdraws is
+# not copied, and the installed one keeps running -- a timer nobody ships,
+# firing at a binary nobody builds.
 #
 # filter_plugins/converge_manifest.py holds the three rules and the reasoning:
-# delete only what is not declared anymore (never merely "not installed here",
-# which is a feature switched off), delete only what is still byte-for-byte
-# what this converge's predecessor wrote, and never a path the panel payload
-# claims now.
+# delete only what the previous converge declared and this one does not (never
+# merely "not installed here", which is a feature switched off), delete only
+# what is still byte-for-byte what the previous converge wrote, and never a
+# path the panel payload claims.
 #
 # SCOPE: the prefixes where a withdrawn file keeps EXECUTING. Units, host
 # scripts, and the helper modules the reconciler imports by bare name. A

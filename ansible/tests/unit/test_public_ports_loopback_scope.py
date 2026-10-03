@@ -1,12 +1,11 @@
 """A loopback-scoped port must be DENIED off-box, and must never be allowed.
 
 Swarm cannot publish to 127.0.0.1: its PortConfig carries no host IP, so the
-loopback binds that compose gave Gatus, Healthchecks and the Beszel hub become
-host-wide binds once those services move to `docker stack deploy`. The ports
-cannot simply be dropped -- gatus-sync, the clamav watchdog, the mail canary,
-beszel-seed and the host-network Beszel agent are all HOST processes that dial
-them. `scope: loopback` is what keeps the old posture: the box reaches the
-port, nothing else does.
+ports Gatus, Healthchecks and the Beszel hub publish under `docker stack
+deploy` are host-wide binds. The ports cannot simply be dropped -- gatus-sync,
+the clamav watchdog, the mail canary, beszel-seed and the host-network Beszel
+agent are all HOST processes that dial them. `scope: loopback` keeps them
+box-only: the box reaches the port, nothing else does.
 
 The failure this pins is specific and silent. `_ufw_spec` has to READ the
 action from the rule: with "allow" hardcoded as the first word of the spec, a
@@ -75,10 +74,10 @@ def test_docker_bind_adds_a_dnat_drop_with_no_allowed_source():
     # only rule that actually closes them. A swarm `mode: host` publish is
     # still DNAT'd, so it bypasses ufw INPUT exactly like an ordinary
     # published port: declared bind=host, the ufw deny installs cleanly and
-    # the port stays reachable off-box (bench 050b found 18000, 18080 and
-    # 18190 open on the bridge IP). Unlike tailnet/rfc1918 there is no source
-    # to RETURN first: anything reaching that chain came from off-box, because
-    # 127.0.0.1 is delivered on loopback and never traverses FORWARD.
+    # the port stays reachable off-box on the bridge IP. Unlike tailnet/rfc1918
+    # there is no source to RETURN first: anything reaching that chain came
+    # from off-box, because 127.0.0.1 is delivered on loopback and never
+    # traverses FORWARD.
     plan = pp.rule_plan([_entry(bind="docker")], tailnet_available=True)
     assert [(r["engine"], r["action"]) for r in plan] == [
         ("ufw", "deny"),
@@ -119,10 +118,10 @@ def test_ufw_spec_renders_deny_not_allow():
 
 
 def test_the_three_real_loopback_ports_declare_the_dnat_bind():
-    """The regression this pins is silent in the worst way: declared
+    """The failure this pins is silent in the worst way: declared
     bind=host, ufw installs a deny, `rules_unapplied` is 0, every artifact
     validation reads says the port is guarded -- and the port answers from
-    off-box. Only an external scan sees it, which is what caught it."""
+    off-box. Only an external scan sees it."""
     tasks_dir = ANSIBLE_DIR / "reconcile" / "roles" / "infrastructure" / "tasks"
     for name in ("gatus.yml", "healthchecks.yml", "beszel.yml"):
         body = (tasks_dir / name).read_text(encoding="utf-8")
@@ -142,11 +141,11 @@ def test_dnat_guard_matches_the_dialled_port_not_the_container_port():
     differs from the container port -- 18080 -> 8080 for Gatus -- a
     `--dport 18080` rule matches nothing.
 
-    Bench 050b: all three loopback ports answered from off-box with their
-    DROP rules installed and sitting at zero packets. The guard looked
-    correct for as long as it existed only because the Portainer UI, the
-    one restricted docker-bound port that predated them, publishes
-    9000 -> 9000 and is unchanged by the rewrite."""
+    Under such a rule all three loopback ports answer from off-box with
+    their DROP rules installed and sitting at zero packets. Only the
+    Portainer UI, the other restricted docker-bound port, publishes
+    9000 -> 9000 and is unchanged by the rewrite, so a `--dport` guard
+    looks correct there and nowhere else."""
     mod = _reconciler()
     rule = next(
         r for r in pp.rule_plan([_entry(bind="docker")], tailnet_available=True)

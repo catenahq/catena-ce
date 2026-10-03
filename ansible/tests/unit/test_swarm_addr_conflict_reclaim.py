@@ -3,19 +3,16 @@
 fi_o2 (operator Ctrl-C mid-converge) leaves a dangling overlay endpoint on
 catena-network; the next deploy collides with "Address already in use". That
 string is a retryable transient, but a BARE retry can never clear it -- the
-leaked IP is still held. The keycloak deploy exhausted all attempts, each
-failing identically.
+leaked IP is still held, so every attempt fails identically.
 
-These tests pin the fix in _swarm_stack_deploy_attempt.yml: on an address
+These tests pin the reclaim in _swarm_stack_deploy_attempt.yml: on an address
 conflict, reclaim leaked endpoints (container entirely gone) before the loop
-retries. Timing-safe -- fires ONLY post-collision (never the every-converge
-blanket sweep that raced swarm churn) and never touches an endpoint with a
-live container, so no running service loses routing.
+retries. Timing-safe -- fires ONLY post-collision (an every-converge blanket
+sweep races swarm churn) and never touches an endpoint with a live container,
+so no running service loses routing.
 
-The leak survived the move off the Portainer stack API: it is a property of
-overlay networking and an ungraceful interrupt, not of whatever asked for the
-containers, so the reclaim moved with the retry loop rather than being retired
-with it.
+The leak is a property of overlay networking and an ungraceful interrupt,
+whatever asked for the containers, so the reclaim lives with the retry loop.
 
 Run: uv run pytest tests/unit/test_swarm_addr_conflict_reclaim.py
 """
@@ -79,9 +76,7 @@ def test_classifiers_read_both_streams_and_the_per_task_errors():
     task's Error field, so the classifiers must read `docker service ps` too.
     Without it, "failed to set up container networking: Address already in
     use" -- listed as transient right here, with a reclaim step written for it
-    -- failed the play (fi_a2_oidc_secret_rotation, bench
-    2026-08-04T05-25-31-68a4) while the next task on that service came up
-    Running.
+    -- fails the play while the next task on that service comes up Running.
     """
     for fragment, fact in (
         ("detect transient in deploy output", "_swarm_deploy_transient"),
@@ -147,8 +142,8 @@ def test_addr_conflict_fact_initialized():
 def test_the_deploy_itself_never_reports_changed():
     """`docker stack deploy` is a reconcile: it sends the same spec every
     converge and swarm restarts nothing when the spec is unchanged, so a
-    successful run is the steady state. `changed_when: rc == 0` made every
-    re-converge report changed and broke fi_a4_master_realm_idempotent,
+    successful run is the steady state. `changed_when: rc == 0` would make
+    every re-converge report changed and break fi_a4_master_realm_idempotent,
     which asserts `--tags keycloak` on a converged host changes nothing.
 
     The change signal belongs to the stack-file write, which is the

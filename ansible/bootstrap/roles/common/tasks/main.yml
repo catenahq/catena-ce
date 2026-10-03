@@ -94,12 +94,10 @@
     #
     # Without that gate the rescue aborts the bootstrap while printing its own
     # proof that apt worked -- "Real apt-get error: rc=0, stderr=" -- which is a
-    # contradiction on its face. Bench run 2026-08-06T21-55-42-fcd1 stage-1
-    # caught exactly that shape: the apt module exhausts its 10 retries against
-    # a cold mirror, the raw retry seconds later returns 0, and the play fails
-    # anyway. It is a client-facing defect, not a bench one: any install with no
-    # APT_PROXY_URL (the default) meets a transient flake that has already
-    # healed.
+    # contradiction on its face. The shape is common: the apt module exhausts
+    # its 10 retries against a cold mirror and the raw retry seconds later
+    # returns 0. Any client install with no APT_PROXY_URL (the default) can
+    # meet such a transient flake, already healed by the time the rescue runs.
     - name: "No proxy to bypass; fail with the real error"
       ansible.builtin.fail:
         msg: |
