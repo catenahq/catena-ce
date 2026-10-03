@@ -154,8 +154,6 @@ def test_the_prompts_are_the_registrys_env_knobs(seed):
 
 
 def test_the_prompt_order_is_the_env_order(seed):
-    """A client answering prompts and a client editing the file walk the same
-    sequence, or the two surfaces describe the install in different orders."""
     in_env = [key for key, _ in seed.parse_env_pairs(seed.env_template())]
     assert [key for key, _ in seed.ENV_KEYS] == in_env
 

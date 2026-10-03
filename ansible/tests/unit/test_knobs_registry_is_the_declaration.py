@@ -40,12 +40,7 @@ def test_the_store_accepts_every_declared_credential(registry):
 
 
 def test_only_projected_store_knobs_reach_the_converge(registry):
-    """A stored knob with no declared `var` stays out of SETTINGS_CONFIG.
-
-    Those are read straight off the store by a runtime lane with no converge in
-    between, so there is no fact to publish. Publishing one anyway would create
-    an Ansible variable no role reads.
-    """
+    """A stored knob with no declared `var` stays out of SETTINGS_CONFIG."""
     unprojected = {
         k["key"] for k in registry["config"]
         if k["residence"] == "store" and "var" not in k
@@ -70,13 +65,6 @@ def test_residences_do_not_overlap(registry):
 
 
 def test_a_missing_registry_raises_rather_than_emptying(monkeypatch, tmp_path):
-    """An install that lost the file is broken, and this is the only place that
-    can say so.
-
-    Falling back to empty sets would leave apply_inputs refusing every
-    credential the client supplies and the converge publishing no config facts,
-    both silent and both indistinguishable from a host nobody configured yet.
-    """
     monkeypatch.setenv("CATENA_KNOBS", str(tmp_path / "absent.json"))
     monkeypatch.setenv("CATENA_PAYLOAD_LIB", str(tmp_path))
     monkeypatch.setattr(onbox_config, "__file__", str(tmp_path / "onbox_config.py"))
@@ -153,9 +141,6 @@ def test_the_env_carries_every_key_that_declares_one(registry):
 
 
 def test_a_section_with_no_key_is_refused(tmp_path):
-    """A heading renders as a section break followed by the next section, so an
-    empty one reads as a key having gone missing rather than as a heading nobody
-    filled in."""
     doc = render_knobs.load()
     doc["env_sections"].append({"name": "orphan", "title": "Orphan"})
     source = tmp_path / "knobs.yml"
@@ -281,8 +266,6 @@ def test_the_installers_required_fields_are_the_ones_it_cannot_install_without(
 
 
 def test_a_default_that_needs_quoting_is_refused():
-    """A template default is an illustration, and one that renders a line
-    parsing back as something else is the wrong illustration."""
     with pytest.raises(render_knobs.KnobError, match="unquoted"):
         render_knobs._check_env(
             "SOME_KEY", {"section": "host", "default": "two words"}, {"host"})

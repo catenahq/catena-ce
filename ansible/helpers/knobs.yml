@@ -180,10 +180,8 @@ env_sections:
 
 # --- vendor credentials the client HOLDS ------------------------------------
 #
-# Stored, never minted here. They arrive through the settings API, and this
-# list is the allowlist that write enforces: a credential a role tells the
-# client to enter, that is not declared here, has a documented path that
-# raises.
+# Stored, never minted. They arrive through the settings API, which accepts
+# only these (onbox_config.EXTERNAL_SECRETS).
 secrets:
   # The one credential the public surface needs. The account id is not an
   # input: the host engine resolves it from the token.
@@ -333,7 +331,7 @@ config:
     var: cfg_admin_email
     env: {section: admin, default: "", example: "you@example.com"}
 
-  # ---- the installer needs these before there is a box to ask ----
+  # ---- controller-resident ----
   #
   # A dedicated pair per project makes revocation one file delete. catena-cli
   # install offers to generate a missing pair; the graphical installer suggests

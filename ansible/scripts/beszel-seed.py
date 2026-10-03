@@ -424,16 +424,9 @@ def configure_smtp(base: str, su_token: str, cfg: dict) -> str:
 
 
 # ─── OIDC provider on the users collection ─────────────────────────────────
-# Beszel sits behind oauth2-proxy already, so a client reaching its login form
-# has authenticated to Keycloak and proved `admin` group membership -- and was
-# then asked for a password a second time, by PocketBase, for access already
-# granted. This configures Keycloak as an OIDC provider so that prompt becomes
-# a button.
-#
-# PASSWORD LOGIN IS LEFT ON. Nothing here sets DISABLE_PASSWORD_AUTH, and
-# tests/unit/test_beszel_oidc.py asserts the string never appears in the role.
-# Beszel is base-plane infrastructure: a monitoring tool reachable only through
-# the SSO tool cannot be used to diagnose the SSO tool.
+# What it is for, and why password login stays on: the module docstring, item
+# 2. tests/unit/test_beszel_oidc.py asserts DISABLE_PASSWORD_AUTH never
+# appears in the role.
 #
 # `oidc` is PocketBase's generic OpenID Connect provider key (tools/auth/
 # oidc.go registers oidc, oidc2, oidc3 against one factory). Field names are

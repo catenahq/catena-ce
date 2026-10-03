@@ -11,9 +11,9 @@
 #                  after the host-side state its container binds to exists.
 #
 # The runner account, the sudoers drop-in, the forced command and its
-# authorized_keys are bootstrap/roles/catena_admin_host: a reconcile that could
-# rewrite the way in could rewrite what a reconcile is. That role runs
-# immediately before this one in converge.yml.
+# authorized_keys are bootstrap/roles/catena_admin_host (bootstrap-side, as
+# boundary.yml says why), which runs immediately before this role in
+# converge.yml.
 
 - name: Catena-admin host lanes' configuration + port declarations
   ansible.builtin.import_tasks: lanes.yml

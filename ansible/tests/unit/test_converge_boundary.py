@@ -215,9 +215,8 @@ def test_no_reconcile_task_writes_a_bootstrap_owned_path():
         if hit:
             offenders[rel] = hit
     assert not offenders, (
-        "reconcile-side files reference paths only an operator may write. A "
-        "reconcile that can rewrite the way in can rewrite what a reconcile is: "
-        f"{offenders}"
+        "reconcile-side files reference paths only an operator may write "
+        f"(boundary.yml says why): {offenders}"
     )
 
 

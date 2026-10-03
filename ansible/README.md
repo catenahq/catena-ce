@@ -13,9 +13,7 @@ panel:    lockdown, restore
 
 The install reaches the host over its public SSH address and configures
 nothing beyond reaching and installing it; public port 22 stays open after
-the install. The panel and Portainer answer the host's loopback only and are
-reached through an SSH forward as the `panel` account, which can do nothing but
-forward. The domain, the tailnet and the backups are entered in the panel.
+the install.
 
 - **bootstrap** -- first-contact hardening of a fresh VPS (user, SSH,
   ufw) and the on-box config store.

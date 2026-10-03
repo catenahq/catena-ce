@@ -48,9 +48,9 @@ Design constraints:
     API (a restic-password change is a deliberate re-key action, not a passive
     settings save), and they remain ADOPTABLE: a value handed to the loader
     is kept rather than replaced by a fresh mint.
-  - Format contracts for the minted values match the historical seed.py
-    (oauth2 cookie length-after-decode, Healthchecks 32-char API keys,
-    url-safe ping key, 20-char admin password, 64-char base64 restic password).
+  - Format contracts for the minted values: oauth2 cookie length-after-decode,
+    Healthchecks 32-char API keys, url-safe ping key, 20-char admin password,
+    64-char base64 restic password.
 """
 from __future__ import annotations
 
@@ -129,7 +129,7 @@ def _load_knobs() -> dict:
 _KNOBS = _load_knobs()
 
 
-# --- minters (format contracts mirror seed.py) ------------------------------
+# --- minters ----------------------------------------------------------------
 def mint_strong_password() -> str:
     """48 random bytes -> 64 base64 chars. Matches ``openssl rand -base64 48``."""
     return base64.b64encode(os.urandom(48)).decode("ascii")
@@ -154,7 +154,7 @@ def mint_oauth2_proxy_cookie_secret() -> str:
 
 def mint_admin_password() -> str:
     """token_urlsafe(15) -> 20 url-safe chars. Portainer + Keycloak both
-    accept it; matches the historical seed auto-mint length."""
+    accept it."""
     return _secrets.token_urlsafe(15)
 
 
@@ -325,12 +325,8 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     # minted in this table would be one the operator is never shown, for a hub
     # the panel links to as a tab.
     "beszel_universal_token": mint_url_safe,
-    # Beszel's OIDC client secret, so the hub can offer "Sign in with Catena"
-    # against Keycloak instead of a second password prompt behind the
-    # oauth2-proxy the client has already passed. Password login stays ON
-    # (DISABLE_PASSWORD_AUTH is deliberately never set): Beszel is base-plane
-    # infrastructure, and a monitoring tool that can only be reached through
-    # the SSO tool cannot be used to diagnose the SSO tool.
+    # Beszel's OIDC client secret: "Sign in with Catena" on the hub
+    # (scripts/beszel-seed.py).
     "beszel_oidc_client_secret": mint_strong_password,
     # The auth header on the ZAP daemon's REST API while a pen-test scan is
     # running. Minted regardless of bench mode so a one-off scan against any
@@ -415,10 +411,8 @@ ROLE_MINTED_SECRETS: dict[str, str] = {
 # panel exists: the `.env` is their first-install SEED, adopted fill-only and
 # never read again. The rest have no `.env` line at all.
 #
-# Value is the Ansible variable the loader publishes the stored value as, which
-# the registry declares per knob rather than deriving by lowercasing: four keys
-# do not follow that rule, and a derived mapping fails silently by publishing a
-# fact nothing reads.
+# Value is the Ansible variable the loader publishes the stored value as: the
+# registry's `var`.
 #
 # A stored knob with NO declared variable is deliberately absent from this map:
 # a runtime lane reads it straight off the store with no converge in between,

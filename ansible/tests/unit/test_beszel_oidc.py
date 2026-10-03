@@ -1,21 +1,8 @@
-"""Beszel's own login gets SSO, and keeps its password path.
-
-Beszel already sits behind oauth2-proxy (vps.auth.mode=admin-only), so whoever
-reaches its login form has authenticated to Keycloak and proved `admin` group
-membership -- and was then asked for a password a second time by PocketBase,
-for access already granted. The OIDC provider turns that prompt into a button.
-
-TWO PROPERTIES, and the second is the one that needs a test more than the
-first:
+"""Beszel's own login gets SSO, and keeps its password path
+(scripts/beszel-seed.py says why).
 
 1. the provider is configured with the field names PocketBase actually reads
 2. password login is NOT disabled
-
-(2) matters because Beszel is base-plane infrastructure rather than a client
-app. A monitoring tool reachable only through the SSO tool cannot be used to
-diagnose the SSO tool -- the same circular dependency that moved catena-admin
-off a Portainer stack deploy. It is also load-bearing for beszel-seed.py
-itself, which authenticates against `_superusers`.
 
 Run: uv run pytest tests/unit/test_beszel_oidc.py
 """

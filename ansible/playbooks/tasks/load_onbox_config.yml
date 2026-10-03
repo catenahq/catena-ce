@@ -62,10 +62,8 @@
 # module has no stdin passthrough, so onbox_config.py reads --adopt-file.
 # changed_when: false on the stage + remove pair: they are loader
 # scaffolding (a temp file created and deleted within the same play,
-# zero net host delta), and reporting them changed made every converge
-# recap carry changed>=2 -- which turned the bench's strict changed=0
-# idempotency gates (assert_ce_idempotent_rerun) into guaranteed
-# failures post-0b.
+# zero net host delta), and a converge that changes nothing reports
+# changed=0.
 - name: "onbox: stage the capture map on the host (0600)"
   ansible.builtin.copy:
     dest: /root/.catena-onbox-adopt.json
@@ -127,12 +125,9 @@
 # ─── image pins: what the on-host update lane last applied ─────────────────
 #
 # The converge owns TOPOLOGY -- which services exist and how they wire. The
-# on-host lane owns IMAGE VERSIONS, and it bumps them between converges. Before
-# this, a converge asked the catalog for a service's image, got the shipped
-# floor, and emitted `--image` to put the old version back: every managed bump
-# was silently reverted by the next converge.
-#
-# So the converge ASKS. Roles resolve their image through the catena_image_pin
+# on-host lane owns IMAGE VERSIONS, and it bumps them between converges. A
+# converge that deployed the shipped floor would put every managed bump back,
+# so it ASKS. Roles resolve their image through the catena_image_pin
 # filter, which takes max(floor, pin) -- see filter_plugins/image_pin.py for why
 # neither side can simply win.
 #

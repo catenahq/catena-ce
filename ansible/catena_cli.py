@@ -52,11 +52,9 @@ sys.path.insert(0, str(ANSIBLE_DIR))
 
 
 def _collections_dir() -> str:
-    """Where ansible loads collections from, read out of ansible.cfg.
-
-    Derived rather than duplicated: a hardcoded copy drifted from the config
-    once already and left the galaxy install writing to a directory ansible
-    never read. Falls back to ansible's own default if the key is absent.
+    """Where ansible loads collections from, read out of ansible.cfg so the
+    galaxy install writes where ansible reads. Falls back to ansible's own
+    default if the key is absent.
     """
     cfg = configparser.ConfigParser()
     try:
@@ -70,12 +68,8 @@ def _collections_dir() -> str:
 COLLECTIONS_DIR = _collections_dir()
 
 # The ordered converge chain a fresh install runs, each leg its own
-# ansible-playbook invocation.
-#
-# Every leg reaches the host over the public SSH address the install started
-# on. The install configures nothing beyond reaching and installing the server:
-# the domain, the private network and the backups are entered in the panel
-# once it runs, and the panel joins the tailnet itself.
+# ansible-playbook invocation. Every leg reaches the host over the public SSH
+# address the install started on.
 INSTALL_CHAIN = ("bootstrap", "converge", "validate")
 
 # Stages that emit the host's administrative address into
@@ -293,12 +287,8 @@ def ensure_collections() -> None:
     ANSIBLE_COLLECTIONS_PATH: when set (first path wins), install there instead
     of the in-tree dir -- so the CLI can run from a READ-ONLY checkout (e.g.
     driven from a CI runner against a :ro catena-ce mount) by pointing
-    at a writable location, which ansible then also reads.
-
-    The in-tree default MUST match ansible.cfg's collections_path. It did not
-    for a release: the install landed in collections/ while ansible read
-    .collections/, so a fresh checkout installed a tree nothing loaded and fell
-    through to whatever collections the controller happened to have."""
+    at a writable location, which ansible then also reads. The in-tree default
+    is ansible.cfg's collections_path (COLLECTIONS_DIR)."""
     req = ANSIBLE_DIR / "requirements.yml"
     if not req.is_file():
         return

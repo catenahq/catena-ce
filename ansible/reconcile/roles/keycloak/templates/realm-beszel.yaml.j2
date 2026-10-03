@@ -1,23 +1,9 @@
 # {{ ansible_managed }}
-# Static Keycloak client for the Beszel resource monitor's own OIDC login.
-#
-# WHY A SECOND LOGIN EXISTED. Beszel sits behind oauth2-proxy already
-# (vps.auth.mode=admin-only in the hub compose), so a client reaching its
-# login form has authenticated to Keycloak and proved `admin` group
-# membership. But Beszel is PocketBase underneath and keeps its OWN user
-# table, bootstrapped from USER_EMAIL/USER_PASSWORD -- so the client was
-# prompted for the admin password a second time, by a different system, for
-# access they had already been granted. This client removes that prompt.
-#
-# It buys UX, not access control: the gate is still oauth2-proxy.
-#
-# PASSWORD LOGIN STAYS ON. scripts/beszel-seed.py does NOT set
-# DISABLE_PASSWORD_AUTH, and a test asserts it never appears. Beszel is
-# base-plane infrastructure, not a client app -- unlike element/nextcloud/
-# roundcube, whose OIDC clients this file is modelled on. A monitoring tool
-# reachable ONLY through the SSO tool cannot be used to diagnose the SSO
-# tool, which is the same circular dependency that moved catena-admin off
-# a Portainer stack deploy.
+# Static Keycloak client for the Beszel resource monitor's own OIDC login:
+# Beszel is PocketBase underneath and keeps its own user table, so behind
+# oauth2-proxy it would ask for a password a second time; this client makes
+# that prompt a button. It buys UX, not access control: the gate is still
+# oauth2-proxy. Password login stays on; scripts/beszel-seed.py says why.
 #
 # This file lives in the same /config dir as realm-vps.yaml so
 # keycloak-config-cli's IMPORT_FILES_LOCATIONS=/config/*.yaml glob picks it

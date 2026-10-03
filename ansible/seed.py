@@ -18,12 +18,9 @@ so it is not written per-inventory here -- only the .env VALUES it reads
 differ between inventories.
 
 The inventory holds non-secret files only, and no vendor credential is
-collected at all. The installer reaches and installs
-the server and nothing else: the domain and its Cloudflare token, the private
-network and its credentials, and the backups are entered in catena-admin >
-Settings once the server runs, reached through an SSH forward as the panel
-account. An install.yaml that names one of them is refused, with the panel
-named, rather than having the value dropped in silence.
+collected at all. An install.yaml that names a value the server holds is
+refused, with the panel named, rather than having the value dropped in
+silence.
 
 The one secret an install.yaml may carry is an admin password override, which
 the first converge creates the panel and Portainer admins with. seed writes it
@@ -74,8 +71,7 @@ from helpers import render_knobs  # noqa: E402
 # Declared in helpers/knobs.yml, which also renders the inventory `.env`
 # (env_template). So the prompts, the `.env` and the on-box store cannot
 # disagree about which keys exist, what they default to, or which values a key
-# accepts. Order is the `.env`'s, so a client answering prompts and a client
-# editing the file walk the same sequence.
+# accepts. Order is the `.env`'s (render_knobs.env_knobs).
 _KNOBS = render_knobs.load()
 ENV_KEYS: list[tuple[str, str]] = [
     (knob["key"], knob["env"]["default"]) for knob in render_knobs.env_knobs(_KNOBS)
@@ -174,8 +170,7 @@ def warn_server_held_lines(env_path: Path) -> None:
 
 
 # Minimum admin password length when a user PINS one via install.yaml (Portainer
-# and the SSO provider both accept it). With no override the admin password is
-# minted on-box and shown once -- seed never mints it.
+# and the SSO provider both accept it).
 ADMIN_PASSWORD_MIN_LEN = 16
 
 

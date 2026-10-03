@@ -247,9 +247,8 @@
     - { role: oauth2_proxy, tags: [oauth2_proxy, auth] } # one auth proxy per gated upstream
     - { role: infrastructure, tags: [infrastructure] } # gated apps (Gatus, Healthchecks, ...), dashboard-sync, gatus-sync
     # The panel's trust path: the runner account, the sudoers drop-in, the
-    # forced command and its authorized_keys. BOOTSTRAP-side -- a reconcile
-    # that could rewrite the way in could rewrite what a reconcile is -- and
-    # immediately before the role it prepares for.
+    # forced command and its authorized_keys. Bootstrap-side (boundary.yml says
+    # why), and immediately before the role it prepares for.
     - { role: catena_admin_host, tags: [catena_admin, catena_admin_host] }
     # catena-admin: the host lanes' configuration, the action catalog, AND the
     # Go shell container, created directly against the local swarm. It holds the API key
