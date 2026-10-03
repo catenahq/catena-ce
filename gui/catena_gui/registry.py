@@ -35,9 +35,7 @@ def steps(doc: dict) -> list[dict]:
 
 def step_fields(doc: dict, step: str) -> list[dict]:
     """What one section asks for: secrets first, then the values they
-    configure. That order is the settings page's too; the launcher only moves
-    a choice ahead of the fields it governs.
-    """
+    configure, the order the settings page uses too."""
     entries = [*(doc.get("secrets") or []), *(doc.get("config") or [])]
     return [entry for entry in entries if entry.get("step") == step]
 
@@ -50,16 +48,15 @@ def default_for(entry: dict) -> str:
     """What a field starts filled with.
 
     From the `.env` default when the knob has one, because that is the same
-    value a client editing the template by hand would see. A knob with none
-    starts blank, which for every one of them is a real answer.
+    value `catena-cli init` writes. A knob with none starts blank, which for
+    every one of them is a real answer.
     """
     return str((entry.get("env") or {}).get("default") or "")
 
 
 def example_for(entry: dict) -> str:
-    """What a blank field shows greyed out: an illustration of a value with no
-    sensible default, such as a server's address. Never filled in, because a
-    pre-filled example is an answer nobody gave."""
+    """What a blank field shows greyed out, never as its value: the registry's
+    `env.example`."""
     return str((entry.get("env") or {}).get("example") or "")
 
 
@@ -89,8 +86,8 @@ def is_required(entry: dict) -> bool:
 
 
 def options_for(entry: dict) -> list[str]:
-    """The values a field is limited to, from the template's declaration, or
-    an empty list for free text."""
+    """The values a field is limited to, from its `env.options`, or an empty
+    list for free text."""
     return list((entry.get("env") or {}).get("options") or [])
 
 

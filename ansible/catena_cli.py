@@ -431,7 +431,8 @@ def cmd_init(args: argparse.Namespace) -> int:
         flag = f"--inventory-path {inv_dir}"
     else:
         inv_dir = inventory_path(args.inventory)
-        problem = seed.inventory_name_problem(args.inventory, inv_dir.parent)
+        code = seed.inventory_name_problem(args.inventory, inv_dir.parent)
+        problem = seed.INVENTORY_NAME_PROBLEMS[code] if code else ""
         flag = f"--inventory {args.inventory}"
     if problem:
         die(f"cannot create the inventory {inv_dir}: {problem}")

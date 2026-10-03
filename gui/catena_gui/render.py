@@ -1,21 +1,9 @@
-"""Turn a run's answers into the contract the installer already takes.
+"""Turn a run's answers into the install.yaml `catena-cli install -i` takes,
+and the command that runs it.
 
-NO NEW MIDDLE LAYER. `install.yaml` plus `catena-cli install -i ... --no-confirm`
-is the declarative, non-interactive contract, and seed.py already live-probes
-what it is given. The launcher is a THIRD producer of that file, beside a
-person writing it and the test bench rendering it -- not a second way to
-install.
-
-That is what makes the acceptance test possible: a host the launcher built has
-to be indistinguishable from one `catena-cli install -i install.yaml` built,
-because it IS one.
-
-THE PASSWORD RIDES THE FILE AND THE FILE IS TRANSIENT. The provider's
-password, when the server needs it, is read by seed and handed to the key
-install. This writer creates the install.yaml 0600 in a fresh 0700 directory
-outside the inventory and removes both when the install ends, so the window in
-which it exists on a client's disk is the length of one install, and never
-inside the inventory a client keeps.
+The file can carry the provider's password, so it is created 0600 in a fresh
+0700 directory outside the inventory, and both are removed when the install
+ends.
 """
 
 from __future__ import annotations

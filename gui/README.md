@@ -42,14 +42,14 @@ install followed by a restore from the panel, so it needs nothing else here.
 The sections, their explanations and the questions each asks come from
 [`../ansible/helpers/knobs.yml`](../ansible/helpers/knobs.yml), the registry
 the on-box store, the installer and the settings page all read. A knob that
-declares a `step` appears in that section under its `label`, with its
-explanation behind a `(?)` tooltip; one that does not is never asked. There is
-no list of fields in this package, and a test refuses one.
+declares a `step` appears in that section under its `label`, with its `help`
+behind a `(?)` tooltip; one that does not is never asked. There is no list of
+fields in this package, and a test refuses one.
 
 Adding a question is therefore a registry edit. Adding a *proof* is a function
-in `catena_gui/steps.py`: a section that says what it `validates` has a check
-that observes it. The one button verifies every section and starts the install
-only when none of them blocks, with what the checks found under it.
+in `catena_gui/steps.py`, registered in its `PROBES` under the section it
+checks. The one button verifies every section and starts the install only when
+none of them blocks, with what the checks found under it.
 
 The server's check is the one that matters: an SSH server has to answer, and
 the install has to be able to log in. Either the key already opens the initial
@@ -61,6 +61,15 @@ field the section has beside the registry's: the install contract's
 
 Fields the registry marks `required` block until filled; everything else is
 labelled optional.
+
+## English and French
+
+Every page is in English or French. The switcher at the end of the tab bar
+stores the choice in a cookie; without one, the browser's preferred language
+decides, then English. A registry field carries its `label` and `help` in both
+languages. The page's own words are in `catena_gui/translations/`, one file per
+language with the same keys, which a test holds together. The run with no UI
+reports in English.
 
 ## An inventory is the run
 

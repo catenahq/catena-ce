@@ -1,14 +1,9 @@
 """Every question the launcher asks comes from the registry.
 
-THE PROPERTY THIS PINS. The knob registry exists because the same names lived
-in four places and eight of them drifted across two sessions. The launcher is
-the fifth reader, and it is the one a client meets first: a question it holds
-its own copy of is a question that can ask for a value the server does not
-accept, on the page where a client has no way of knowing.
-
-So there is no list of fields in this package. Adding a knob with a `step`
-puts it on that page; removing one takes it off. These tests are what makes
-that true rather than a convention.
+A question the launcher held its own copy of could ask for a value the
+server does not accept, on the page where a client has no way of knowing. So
+there is no list of fields in this package: adding a knob with a `step` puts it
+on that page, and removing one takes it off.
 
 Run: uv run pytest tests/test_the_launcher_holds_no_knob_knowledge.py
 """
@@ -19,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from catena_gui import registry, steps as steps_mod
+from catena_gui import i18n, registry, steps as steps_mod
 
 PACKAGE = Path(__file__).resolve().parents[1] / "catena_gui"
 
@@ -42,7 +37,8 @@ def test_every_section_asks_for_something_and_names_it(doc):
     for step in steps_mod.build(doc):
         assert step.fields, f"{step.name} asks for nothing"
         for field in step.fields:
-            assert field.label.strip(), f"{field.key} has no label"
+            for lang in i18n.LANGS:
+                assert field.label[lang].strip(), f"{field.key} has no {lang} label"
 
 
 def test_a_page_shows_exactly_what_the_registry_gives_it(doc):
@@ -68,7 +64,7 @@ def test_no_field_name_is_written_down_in_this_package():
     which ones it probes rather than banned outright. What is banned is a key
     appearing in the code that RENDERS pages.
     """
-    rendering = ("server.py", "render.py", "run.py", "registry.py")
+    rendering = ("server.py", "render.py", "run.py", "registry.py", "i18n.py")
     declared = set()
     for entry in [*registry.load()["secrets"], *registry.load()["config"]]:
         declared.add(entry["key"])
@@ -108,17 +104,11 @@ def test_the_probes_name_only_keys_the_registry_declares():
                 f"steps.py probes {value}, which the registry does not declare")
 
 
-def test_every_step_that_says_what_it_proves_has_a_probe(doc):
-    """A step whose `validates` line promises a proof and has no probe would
-    advance on anything typed into it. A step with no `validates` has nothing
-    to observe, and no probe either, rather than one that passes on anything."""
-    for step in registry.steps(doc):
-        if step.get("validates"):
-            assert step["name"] in steps_mod.PROBES, (
-                f"{step['name']} has no check, so it would advance on any answer")
-        else:
-            assert step["name"] not in steps_mod.PROBES, (
-                f"{step['name']} declares nothing to prove and still has a probe")
+def test_every_probe_checks_a_declared_section(doc):
+    """A probe under a name no section has would never run."""
+    declared = {step["name"] for step in registry.steps(doc)}
+    assert set(steps_mod.PROBES) <= declared
+    assert "target" in steps_mod.PROBES
 
 
 def test_the_suggested_keys_are_the_pairs_on_this_machine(tmp_path):

@@ -1,16 +1,6 @@
 """The launcher stays out of the public panel image, and beside the CLI.
 
-TWO PLACEMENT RULES, both of which a later edit could quietly break.
-
-`scripts/vendor-catena-ce.sh` in catena-admin copies `git ls-files -- ansible`
-into the image the panel ships as. Anything under `ansible/` therefore travels
-into a public image. The launcher holds a client's cloud credentials in memory
-and writes an install.yaml; it has no business there, and it is at the repo
-root with its own pyproject for exactly that reason.
-
-And it is a PEER of the CLI rather than a replacement. The bench drives
-`catena-cli install -i ... --no-confirm`, and converge is an operator verb
-that should not need a browser.
+Why both rules hold is in gui/README.md.
 
 Run: uv run pytest tests/test_the_launcher_ships_where_it_belongs.py
 """

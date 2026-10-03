@@ -30,3 +30,6 @@ testpaths = ["tests"]
 
 [tool.setuptools]
 packages = ["catena_gui"]
+
+[tool.setuptools.package-data]
+catena_gui = ["translations/*.yml"]

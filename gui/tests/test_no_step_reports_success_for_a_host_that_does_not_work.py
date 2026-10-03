@@ -1,11 +1,7 @@
 """An install that reports finished and does not work is the worst outcome.
 
 Worse than one that stops and explains why: a client who is told their server
-is ready acts on it. So each step passes only when the thing it is about has
-been OBSERVED working, and a step that cannot observe says so rather than
-assuming.
-
-The server is where that is concrete: an address that answers is not an SSH
+is ready acts on it. The server is where that is concrete: an address that answers is not an SSH
 server, and an SSH server is not one this install can log in to. The install
 logs in with the key the provider installed, or with the provider's password,
 once, to add it -- and the check says which, having tried it.
@@ -125,7 +121,7 @@ def test_a_required_field_left_empty_blocks_before_any_probe():
     for step in steps_mod.build(doc):
         missing = steps_mod.missing_required(step, {})
         assert missing and all(c.blocks for c in missing)
-        labels = {f.label for f in step.fields if not f.optional}
+        labels = {f.label["en"] for f in step.fields if not f.optional}
         assert {c.label.removesuffix(" is required") for c in missing} == labels
 
 
@@ -165,7 +161,7 @@ def test_the_run_with_no_ui_checks_every_section(monkeypatch, tmp_path):
 
     doc = registry.load()
     run = run_mod.load(tmp_path / "clientco", run_mod.secret_keys_from(doc))
-    monkeypatch.setitem(steps_mod.PROBES, "target", lambda a, s: [])
+    monkeypatch.setitem(steps_mod.PROBES, "target", lambda a, s, lang: [])
     assert main_mod.walk(run, doc) == 2
     run.answer("HOST_PUBLIC_IP", "203.0.113.10", secret=False)
     run.answer("ADMIN_EMAIL", "admin@client.test", secret=False)

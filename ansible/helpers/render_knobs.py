@@ -25,6 +25,14 @@ GROUPS = ("tunnel", "backup", "mail", "alerts", "share", "access", "license",
           "hostnames", "server")
 # The named sources the graphical installer suggests values from.
 GUI_SUGGESTION_SOURCES = ("ssh_keys",)
+# The languages a client-facing text comes in: the installer's page speaks
+# both, an inventory `.env` reads `en`.
+LANGS = ("en", "fr")
+
+KNOB_FIELDS = frozenset({"key", "residence", "var", "env", "panel", "step",
+                         "label", "help", "depends", "required",
+                         "gui_suggestions_from"})
+GUI_STEP_FIELDS = frozenset({"name", "title", "doc", "note"})
 
 # The rendered template's comment width, and the characters a `.env` value
 # cannot carry unquoted. A default holding one of them would render a line that
@@ -42,6 +50,20 @@ class KnobError(ValueError):
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise KnobError(message)
+
+
+def _check_text(where: str, field: str, value, required: tuple[str, ...]) -> None:
+    """A client-facing text: language to string, every `required` language
+    present and non-empty, and no language a reader does not know."""
+    _require(isinstance(value, dict),
+             f"{where}: {field} is not a mapping of language to text")
+    unknown = set(value) - set(LANGS)
+    _require(not unknown, f"{where}: {field} has languages {sorted(unknown)}; "
+                          f"the readers know {LANGS}")
+    for lang in required:
+        text = value.get(lang)
+        _require(isinstance(text, str) and bool(text.strip()),
+                 f"{where}: {field} has no {lang} text")
 
 
 def _check_panel(key: str, panel: dict) -> None:
@@ -134,16 +156,14 @@ def load(source: Path = SOURCE) -> dict:
         name = step.get("name")
         _require(isinstance(name, str) and name, f"gui_steps: {step!r} has no name")
         _require(name not in step_names, f"gui_steps {name}: declared twice")
+        unknown = set(step) - GUI_STEP_FIELDS
+        _require(not unknown, f"gui_steps {name}: {sorted(unknown)} are not step fields")
         for field in ("title", "doc"):
-            value = step.get(field)
-            _require(isinstance(value, str) and value.strip(),
-                     f"gui_steps {name}: no {field}")
-        # Absent means the section has nothing to prove and gets no check, or
-        # nothing to add below its fields.
-        for field in ("validates", "note"):
-            if field in step:
-                _require(isinstance(step[field], str) and step[field].strip(),
-                         f"gui_steps {name}: {field} is empty; leave it out instead")
+            _require(field in step, f"gui_steps {name}: no {field}")
+            _check_text(f"gui_steps {name}", field, step[field], LANGS)
+        # Absent means nothing to add below the section's fields.
+        if "note" in step:
+            _check_text(f"gui_steps {name}", "note", step["note"], LANGS)
         step_names.append(name)
 
     seen: set[str] = set()
@@ -153,6 +173,9 @@ def load(source: Path = SOURCE) -> dict:
         _require(isinstance(key, str) and key, f"knobs.yml: entry with no key: {entry!r}")
         _require(key not in seen, f"{key}: declared twice")
         seen.add(key)
+        unknown = set(entry) - KNOB_FIELDS
+        _require(not unknown, f"{key}: {sorted(unknown)} are not registry fields; "
+                              "a maintainer's note is a # comment")
         if "panel" in entry:
             _check_panel(key, entry["panel"])
         # One place to edit each value: the `.env` the installer writes, or the
@@ -168,9 +191,21 @@ def load(source: Path = SOURCE) -> dict:
             _require("env" in entry,
                      f"{key}: the installer asks only for what its .env keeps, "
                      "and this knob has no env home")
-            _require(isinstance(entry.get("label"), str) and entry["label"].strip(),
+            _require("label" in entry,
                      f"{key}: a field the launcher asks for needs a label to "
                      "name it on the page")
+            _check_text(key, "label", entry["label"], LANGS)
+            _require("help" in entry,
+                     f"{key}: a field the launcher asks for needs help to explain it")
+            _check_text(key, "help", entry["help"], LANGS)
+        elif "env" in entry:
+            _require("help" in entry,
+                     f"{key}: a key the .env carries needs help above it")
+            _check_text(key, "help", entry["help"], ("en",))
+        else:
+            _require("help" not in entry,
+                     f"{key}: help is read by the launcher and the .env, and this "
+                     "knob is in neither")
         for field in ("required", "gui_suggestions_from", "label"):
             if field in entry:
                 _require("step" in entry,
@@ -319,8 +354,7 @@ def render_env(doc: dict) -> str:
             lines.extend(_comment(section["doc"]))
         for entry in by_section.get(section["name"], []):
             lines.append("")
-            if entry.get("doc"):
-                lines.extend(_comment(entry["doc"]))
+            lines.extend(_comment(entry["help"]["en"]))
             options = entry["env"].get("options")
             if options:
                 lines.extend(_comment(f"One of: {', '.join(options)}."))

@@ -5,23 +5,14 @@ The pages can carry the provider's password for a client's server; a server
 that bound every interface would put it on whatever network the machine happens
 to be on, including a cafe's.
 
-THE BROWSER IS A VIEW. Every answer goes straight into the Run this process
-holds, and the state that matters is in the inventory. Closing the tab loses
-nothing; reopening it shows the same page.
-
-TWO TABS. Inventory opens an inventory or creates one. Installation is one
-page: the target and the configuration, one button that verifies them and
-starts the install, the install's output, and then the passwords the server
-generated and the way into its panel.
-
-STDLIB, DELIBERATELY. An installer on loopback needs routing, forms and HTML
-and nothing a framework adds beyond that -- and every dependency here is one a
-client installs before they can install anything else.
+EVERY PAGE IN ENGLISH OR FRENCH. The switcher's `?lang=` sets a cookie; without
+one the browser's Accept-Language decides (i18n.resolve).
 """
 
 from __future__ import annotations
 
 import html
+import http.cookies
 import http.server
 import json
 import re
@@ -31,7 +22,7 @@ import threading
 import urllib.parse
 from pathlib import Path
 
-from . import registry, render, run as run_mod, steps as steps_mod
+from . import i18n, registry, render, run as run_mod, steps as steps_mod
 
 # The terminal colour codes the installer prints, which a page shows as noise.
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -39,21 +30,14 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # Where a client reports an install that failed.
 ISSUES_URL = "https://github.com/catenahq/catena-ce"
 
+# The cookie the language switcher sets.
+LANG_COOKIE = "catena_lang"
+
 # The values `catena-cli install --keyset-json` prints, in the order the access
-# section shows them, with what each is called there and, when the name alone
-# misleads, what it is for.
-KEYSET_FIELDS = (
-    ("admin_password", "Admin password", ""),
-    ("console_recovery_password", "'ops' user password",
-     "For the provider's web console or a physical keyboard only: SSH accepts "
-     "keys, never this password."),
-    ("journal_verification_key", "Journal verification key",
-     "Proves the server's own log of administrative actions was not altered. "
-     "The server keeps no copy."),
-)
-KEYSET_PENDING = "Shown here during the installation."
-# A re-run on an installed server: the journal key exists only at the first.
-KEYSET_NOT_AGAIN = "Shown at the first installation only."
+# section shows them. Each is named by `keyset.<name>` in the translations, and
+# explained by `keyset.<name>.about` when the name alone misleads.
+KEYSET_FIELDS = ("admin_password", "console_recovery_password",
+                 "journal_verification_key")
 
 _STYLE = """
 :root { color-scheme: light dark; --fg: #1a1a1a; --bg: #fdfdfc; --muted: #666;
@@ -71,6 +55,7 @@ nav { display: flex; gap: .5rem; flex-wrap: wrap; border-bottom: 1px solid var(-
 nav a { padding: .25rem .6rem; border-radius: 4px; text-decoration: none;
         color: var(--muted); }
 nav a.on { color: var(--fg); font-weight: 600; background: rgba(128,128,128,.14); }
+nav .langs { margin-left: auto; display: flex; gap: .25rem; }
 h1 { font-size: 1.4rem; margin: 1.5rem 0 .25rem; }
 h2 { font-size: 1.15rem; margin: 0 0 .25rem; }
 section { border-top: 1px solid var(--line); margin-top: 2rem; padding-top: 1.25rem; }
@@ -137,24 +122,36 @@ _POLL = """<script>
 </script>"""
 
 
-def _page(title: str, body: str) -> bytes:
+def _h(lang: str, key: str, **markup: str) -> str:
+    """A translation as HTML: its text escaped, then `markup` (already HTML)
+    filled into its placeholders."""
+    return html.escape(i18n.TEXT[lang][key]).format(**markup)
+
+
+def _page(lang: str, title: str, body: str) -> bytes:
     return (
-        "<!doctype html><html lang=en><head><meta charset=utf-8>"
+        f"<!doctype html><html lang={lang}><head><meta charset=utf-8>"
         "<meta name=viewport content='width=device-width,initial-scale=1'>"
-        f"<title>{html.escape(title)} -- Catena installer</title>"
+        f"<title>{_h(lang, 'page.title', title=html.escape(title))}</title>"
         f"<style>{_STYLE}</style></head><body>{body}</body></html>"
     ).encode("utf-8")
 
 
-def _nav(inventory: str, *, on: str) -> str:
-    """`on` is the tab shown: "inventory" or "install"."""
-    def link(href: str, name: str, text: str) -> str:
-        return f'<a href="{href}"{" class=on" if on == name else ""}>{text}</a>'
+def _nav(lang: str, inventory: str, *, on: str) -> str:
+    """`on` is the tab shown: "inventory" or "install". The language switcher
+    sits at the end, each language named in itself."""
+    def link(href: str, name: str, text: str, current: str) -> str:
+        return f'<a href="{href}"{" class=on" if current == name else ""}>{text}</a>'
 
-    out = ["<nav>", link("/inventory", "inventory", "Inventory")]
+    out = ["<nav>", link("/inventory", "inventory", _h(lang, "nav.inventory"), on)]
     if inventory:
-        out.append(link("/", "install", "Installation"))
-    out.append("</nav>")
+        out.append(link("/", "install", _h(lang, "nav.install"), on))
+    out.append(f'<span class=langs aria-label="{_h(lang, "nav.language")}">')
+    for code in i18n.LANGS:
+        current = " class=on" if code == lang else ""
+        out.append(f'<a href="?lang={code}" hreflang={code} lang={code}{current}>'
+                   f"{html.escape(i18n.NAMES[code])}</a>")
+    out.append("</span></nav>")
     return "".join(out)
 
 
@@ -164,9 +161,9 @@ def _tip(text: str, about: str) -> str:
             f'<span class=tt role=tooltip>{html.escape(text)}</span></span>')
 
 
-def _field_html(field: steps_mod.Field, value: str) -> str:
-    """One field: its label, `(optional)` and a `(?)` holding the explanation,
-    above the control.
+def _field_html(field: steps_mod.Field, value: str, lang: str) -> str:
+    """One field: its label, `(optional)` and a `(?)` holding the help, above
+    the control.
 
     A field limited to a list is a select, and a saved value missing from the
     list stays selected as an extra option, so opening the page never changes
@@ -175,13 +172,15 @@ def _field_html(field: steps_mod.Field, value: str) -> str:
     already on this machine, and sometimes it is not."""
     key = html.escape(field.key)
     fid = f"f-{key}"
+    label = field.label[lang]
     choices = list(field.options)
     if value and choices and value not in choices:
         choices.append(value)
     if choices:
         opts = "".join(
             f'<option value="{html.escape(o)}"'
-            f'{" selected" if o == value else ""}>{html.escape(o) or "(none)"}</option>'
+            f'{" selected" if o == value else ""}>'
+            f'{html.escape(o) or _h(lang, "field.none")}</option>'
             for o in choices)
         control = f'<select id="{fid}" name="{key}">{opts}</select>'
     else:
@@ -197,41 +196,42 @@ def _field_html(field: steps_mod.Field, value: str) -> str:
                         + "".join(f'<option value="{html.escape(s)}">'
                                   for s in field.suggestions)
                         + "</datalist>")
-    notes = [field.doc] if field.doc else []
+    notes = [field.help[lang]]
     if field.secret:
-        notes.append("Not saved: entered again each time the installer is opened.")
-    tip = _tip("\n\n".join(notes), f"About {field.label}") if notes else ""
-    optional = " <span class=d>(optional)</span>" if field.optional else ""
+        notes.append(i18n.text(lang, "field.not_saved"))
+    tip = _tip("\n\n".join(notes), i18n.text(lang, "field.about", label=label))
+    optional = f' <span class=d>{_h(lang, "field.optional")}</span>' if field.optional else ""
     return (f'<div class=field data-key="{key}">'
-            f'<div class=head><label for="{fid}">{html.escape(field.label)}</label>'
+            f'<div class=head><label for="{fid}">{html.escape(label)}</label>'
             f"{optional}{tip}</div>{control}</div>")
 
 
-def _inventory_html(names: list[str], current: str, problem: str) -> str:
+def _inventory_html(lang: str, names: list[str], current: str,
+                    problem: tuple[str, str] | None) -> str:
     """The Inventory tab: open an inventory under ansible/inventory/, one per
-    line, or name a new one."""
+    line, or name a new one. `problem` is a translation key and the name it is
+    about."""
     rows = "".join(
         f'<li><button type=submit name=open value="{html.escape(n)}">'
-        f'{html.escape(n)}{" (open now)" if n == current else ""}</button></li>'
+        f'{html.escape(n)}{" " + _h(lang, "inventory.open_now") if n == current else ""}'
+        "</button></li>"
         for n in names)
     existing = (f"<form method=post action=/inventory><ul class=inv>{rows}</ul></form>"
-                if names else "<p class=doc>No inventory yet.</p>")
-    error = f"<p class=bad>{html.escape(problem)}</p>" if problem else ""
+                if names else f"<p class=doc>{_h(lang, 'inventory.none')}</p>")
+    error = (f"<p class=bad>{_h(lang, problem[0], name=html.escape(repr(problem[1])))}</p>"
+             if problem else "")
     return (
-        "<h1>Inventory</h1>"
-        "<p>Each server is defined by an \"inventory\": a folder that holds its "
-        "identity. Catena's inventory system saves non-secret information "
-        "only. Secrets, such as passwords and API tokens, must be saved to a "
-        "password manager.</p>"
-        "<p>Choose an existing inventory to install or converge / repair, or "
-        "create one for a new installation.</p>"
+        f"<h1>{_h(lang, 'inventory.title')}</h1>"
+        f"<p>{_h(lang, 'inventory.intro')}</p>"
+        f"<p>{_h(lang, 'inventory.choose')}</p>"
         f"{existing}{error}"
         "<form method=post action=/inventory><div class=field><div class=head>"
-        "<label for=f-create>New inventory name</label>"
-        + _tip("Lower-case letters, digits, dashes and underscores, starting "
-               "with a letter or digit.", "About the inventory name")
+        f"<label for=f-create>{_h(lang, 'inventory.new_name')}</label>"
+        + _tip(i18n.text(lang, "inventory.name_tip"),
+               i18n.text(lang, "inventory.name_tip_about"))
         + "</div><input type=text id=f-create name=create autocomplete=off></div>"
-        "<div class=act><button type=submit>Create</button></div></form>")
+        f"<div class=act><button type=submit>{_h(lang, 'inventory.create')}</button>"
+        "</div></form>")
 
 
 def _checks_html(checks: list[steps_mod.Check]) -> str:
@@ -246,16 +246,18 @@ def _checks_html(checks: list[steps_mod.Check]) -> str:
     return f'<ul class=checks>{"".join(rows)}</ul>'
 
 
-def _step_html(step: steps_mod.Step, values: dict[str, str]) -> str:
+def _step_html(step: steps_mod.Step, values: dict[str, str], lang: str) -> str:
     """One section of the form: its explanation, its fields, and its note."""
-    rows = "".join(_field_html(field, values[field.key]) for field in step.fields)
-    note = f"<p class=doc>{html.escape(step.note)}</p>" if step.note else ""
+    rows = "".join(_field_html(field, values[field.key], lang) for field in step.fields)
+    note = (f"<p class=doc>{html.escape(step.note[lang])}</p>"
+            if step.note else "")
     return (f'<section id="{html.escape(step.name)}">'
-            f"<h2>{html.escape(step.title)}</h2>"
-            f"<p class=doc>{html.escape(step.doc)}</p>{rows}{note}</section>")
+            f"<h2>{html.escape(step.title[lang])}</h2>"
+            f"<p class=doc>{html.escape(step.doc[lang])}</p>{rows}{note}</section>")
 
 
-def _process_html(current: run_mod.Run, checks: list[steps_mod.Check]) -> str:
+def _process_html(current: run_mod.Run, checks: list[steps_mod.Check],
+                  lang: str) -> str:
     """The button that verifies every section and starts the install, what the
     verification found, and the install's output.
 
@@ -265,69 +267,62 @@ def _process_html(current: run_mod.Run, checks: list[steps_mod.Check]) -> str:
     """
     status = {
         run_mod.STATE_ANSWERING: "",
-        run_mod.STATE_INSTALLING: "Installing. Closing this tab does not stop "
-                                  "it; closing the console window does.",
-        run_mod.STATE_DONE: "Finished.",
-        run_mod.STATE_FAILED: "The installation stopped. The output says where.",
+        run_mod.STATE_INSTALLING: _h(lang, "process.installing"),
+        run_mod.STATE_DONE: _h(lang, "process.done"),
+        run_mod.STATE_FAILED: _h(lang, "process.failed"),
     }[current.state]
     if current.log:
-        lines = "\n".join(current.log)
+        lines = html.escape("\n".join(current.log))
     elif current.state == run_mod.STATE_ANSWERING:
-        lines = "The installation output appears here."
+        lines = _h(lang, "process.empty")
     else:
-        lines = ("(this installer was opened again after the install ran: its "
-                 "output went to the console window it ran in, and was not kept)")
+        lines = _h(lang, "process.reopened")
+    issues = f'<a href="{ISSUES_URL}">{ISSUES_URL}</a>'
     return (
-        "<section id=install><h2>Installation process</h2>"
-        "<p class=doc>The installation will run for several minutes and its "
-        "output will be shown below. Several secrets will be displayed in the "
-        "next section as soon as the server has generated them, a few minutes "
-        "in. In case of error during installation, please create an issue at "
-        f'<a href="{ISSUES_URL}">{ISSUES_URL}</a> and copy the errors there.</p>'
-        "<div class=act><button type=submit name=install value=yes>Verify "
-        "configuration and start installation</button></div>"
+        f"<section id=install><h2>{_h(lang, 'process.title')}</h2>"
+        f"<p class=doc>{_h(lang, 'process.intro', issues=issues)}</p>"
+        "<div class=act><button type=submit name=install value=yes>"
+        f"{_h(lang, 'process.button')}</button></div>"
         f"{_checks_html(checks)}"
-        f'{f"<p class=doc>{html.escape(status)}</p>" if status else ""}'
+        f'{f"<p class=doc>{status}</p>" if status else ""}'
         f'<pre id=log class=log data-state="{html.escape(current.state)}">'
-        f"{html.escape(lines)}</pre></section>")
+        f"{lines}</pre></section>")
 
 
-def keyset_shown(current: run_mod.Run) -> dict[str, str]:
+def keyset_shown(current: run_mod.Run, lang: str) -> dict[str, str]:
     """What the access section shows for each password: the value, or why there
     is none to show."""
     if not current.keyset:
-        return {name: KEYSET_PENDING for name, _, _ in KEYSET_FIELDS}
-    return {name: current.keyset.get(name) or KEYSET_NOT_AGAIN
-            for name, _, _ in KEYSET_FIELDS}
+        return {name: i18n.text(lang, "keyset.pending") for name in KEYSET_FIELDS}
+    return {name: current.keyset.get(name) or i18n.text(lang, "keyset.not_again")
+            for name in KEYSET_FIELDS}
 
 
-def _access_html(current: run_mod.Run, values: dict[str, str]) -> str:
+def _access_html(current: run_mod.Run, values: dict[str, str], lang: str) -> str:
     """The passwords the install printed, and the way into the panel through
     the server and key the form shows."""
-    shown = keyset_shown(current)
-    keys = "".join(
-        f"<dt>{html.escape(label)}{' ' + _tip(about, f'About {label}') if about else ''}"
-        f'</dt><dd><code id="k-{name}">{html.escape(shown[name])}</code></dd>'
-        for name, label, about in KEYSET_FIELDS)
+    shown = keyset_shown(current, lang)
+    rows = []
+    for name in KEYSET_FIELDS:
+        label = i18n.text(lang, f"keyset.{name}")
+        about = i18n.TEXT[lang].get(f"keyset.{name}.about")
+        tip = (" " + _tip(about, i18n.text(lang, "field.about", label=label))
+               if about else "")
+        rows.append(f"<dt>{html.escape(label)}{tip}</dt>"
+                    f'<dd><code id="k-{name}">{html.escape(shown[name])}</code></dd>')
     panel = f"http://localhost:{steps_mod.PANEL_PORT}"
     portainer = f"http://localhost:{steps_mod.PORTAINER_PORT}"
+    panel_link = f'<a href="{panel}">{panel}</a>'
+    portainer_link = f'<a href="{portainer}">{portainer}</a>'
     return (
-        "<section id=access><h2>Catena server access</h2>"
-        "<p>Copy these keys to your password manager and use them to access "
-        "your new installation.</p>"
-        f"<dl class=keys>{keys}</dl>"
-        "<p>Run the following command in your console/terminal to establish a "
-        "connection to your new Catena server:</p>"
+        f"<section id=access><h2>{_h(lang, 'access.title')}</h2>"
+        f"<p>{_h(lang, 'access.save')}</p>"
+        f"<dl class=keys>{''.join(rows)}</dl>"
+        f"<p>{_h(lang, 'access.forward')}</p>"
         f"<pre>{html.escape(steps_mod.forward_command(values))}</pre>"
-        "<p>You can reach the Catena administration panel in your browser at "
-        f'<a href="{panel}">{panel}</a>. Log in using the admin email and '
-        "password.</p>"
-        "<p>You can reach the Portainer (applications management) panel in your "
-        f'browser at <a href="{portainer}">{portainer}</a>. Log in using user '
-        "'admin' and the admin password.</p>"
-        "<p>Visit the Settings tab in the admin panel to configure Domain and "
-        "DNS access (Cloudflare), Administrator tunnel (Tailnet), outgoing "
-        "emails, backups, and more.</p></section>")
+        f"<p>{_h(lang, 'access.panel', url=panel_link)}</p>"
+        f"<p>{_h(lang, 'access.portainer', url=portainer_link)}</p>"
+        f"<p>{_h(lang, 'access.settings')}</p></section>")
 
 
 def start_install(current: run_mod.Run, ansible_dir: Path) -> threading.Thread:
@@ -403,11 +398,18 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     inventory_root: Path
     all_steps: list[steps_mod.Step]
     last_checks: list[steps_mod.Check] = []
-    inventory_problem: str = ""
+    # A translation key and the name it is about, shown once on the Inventory tab.
+    inventory_problem: tuple[str, str] | None = None
 
     def log_message(self, *_args) -> None:
         """Quiet. The console prints what the install is doing; a request log
         would bury it under one line per form field."""
+
+    def _lang(self) -> str:
+        cookie = http.cookies.SimpleCookie(self.headers.get("Cookie") or "")
+        chosen = cookie[LANG_COOKIE].value if LANG_COOKIE in cookie else ""
+        return i18n.resolve(cookie=chosen,
+                            accept_language=self.headers.get("Accept-Language") or "")
 
     def _send(self, body: bytes, status: int = 200,
               content_type: str = "text/html; charset=utf-8") -> None:
@@ -417,43 +419,58 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _redirect(self, where: str) -> None:
+    def _redirect(self, where: str, cookie: str = "") -> None:
         self.send_response(303)
         self.send_header("Location", where)
+        if cookie:
+            self.send_header("Set-Cookie", cookie)
         self.end_headers()
 
+    def _not_found(self, lang: str) -> None:
+        title = i18n.text(lang, "page.not_found")
+        self._send(_page(lang, title, f"<main><h1>{html.escape(title)}</h1></main>"), 404)
+
     def do_GET(self) -> None:  # noqa: N802 -- the stdlib's spelling
-        path = urllib.parse.urlparse(self.path).path
+        url = urllib.parse.urlparse(self.path)
+        path = url.path
+        chosen = (urllib.parse.parse_qs(url.query).get("lang") or [""])[0]
+        if chosen in i18n.LANGS:
+            # The switcher: remember the choice, and show the same page in it.
+            self._redirect(path, f"{LANG_COOKIE}={chosen}; Path=/; "
+                                 "SameSite=Strict; Max-Age=31536000")
+            return
+        lang = self._lang()
         if path == "/":
             if self.run is None:
                 self._redirect("/inventory")
                 return
-            self._render_install()
+            self._render_install(lang)
             return
         if path == "/inventory":
-            self._render_inventory()
+            self._render_inventory(lang)
             return
         if path == "/progress" and self.run is not None:
             # What the installation page's poll reads while the install runs.
             self._send(json.dumps({"state": self.run.state,
                                    "log": "\n".join(self.run.log),
-                                   "keyset": keyset_shown(self.run)}).encode("utf-8"),
+                                   "keyset": keyset_shown(self.run, lang)}).encode("utf-8"),
                        content_type="application/json")
             return
-        self._send(_page("Not found", "<main><h1>Not found</h1></main>"), 404)
+        self._not_found(lang)
 
     def _form(self) -> dict[str, list[str]]:
         length = int(self.headers.get("Content-Length") or 0)
         return urllib.parse.parse_qs(self.rfile.read(length).decode("utf-8"),
                                      keep_blank_values=True)
 
-    def _render_inventory(self) -> None:
+    def _render_inventory(self, lang: str) -> None:
         current = self.run.inventory if self.run else ""
-        body = (f"{_nav(current, on='inventory')}<main>"
-                f"{_inventory_html(run_mod.seed().inventories(self.inventory_root), current, _Handler.inventory_problem)}"
+        names = run_mod.seed().inventories(self.inventory_root)
+        body = (f"{_nav(lang, current, on='inventory')}<main>"
+                f"{_inventory_html(lang, names, current, _Handler.inventory_problem)}"
                 "</main>")
-        _Handler.inventory_problem = ""
-        self._send(_page("Inventory", body))
+        _Handler.inventory_problem = None
+        self._send(_page(lang, i18n.text(lang, "inventory.title"), body))
 
     def _open(self, name: str) -> None:
         """Make `name` the run: its `.env` read back, its credentials asked for
@@ -470,18 +487,19 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
     def _post_inventory(self) -> None:
         form = self._form()
+        seed = run_mod.seed()
         name = (form.get("open") or [""])[0].strip()
         if name:
-            if name not in run_mod.seed().inventories(self.inventory_root):
-                _Handler.inventory_problem = f"there is no inventory {name!r}"
+            if name not in seed.inventories(self.inventory_root):
+                _Handler.inventory_problem = ("inventory.problem.unknown", name)
                 self._redirect("/inventory")
                 return
             self._open(name)
             return
         name = (form.get("create") or [""])[0].strip()
-        problem = run_mod.seed().inventory_name_problem(name, self.inventory_root)
+        problem = seed.inventory_name_problem(name, self.inventory_root)
         if problem:
-            _Handler.inventory_problem = f"{name!r}: {problem}"
+            _Handler.inventory_problem = (f"inventory.problem.{problem}", name)
             self._redirect("/inventory")
             return
         self._open(name)
@@ -490,12 +508,13 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         """Save the form, verify every section, and start the install when none
         of them blocks. The answers are saved whatever the verification finds,
         so a closed installer reopens on them."""
+        lang = self._lang()
         path = urllib.parse.urlparse(self.path).path
         if path == "/inventory":
             self._post_inventory()
             return
         if path != "/":
-            self._send(_page("Not found", "<main><h1>Not found</h1></main>"), 404)
+            self._not_found(lang)
             return
         if self.run is None:
             self._redirect("/inventory")
@@ -513,9 +532,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         values = self._shown_values()
         checks: list[steps_mod.Check] = []
         for step in self.all_steps:
-            missing = steps_mod.missing_required(step, values)
+            missing = steps_mod.missing_required(step, values, lang)
             checks += missing or steps_mod.validate(
-                step.name, self.run.answers, self.run.secrets)
+                step.name, self.run.answers, self.run.secrets, lang)
         _Handler.last_checks = checks
         self.run.save()
         if not steps_mod.blocked(checks):
@@ -529,20 +548,21 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                         or (f.options[0] if f.options else ""))
                 for s in self.all_steps for f in s.fields}
 
-    def _render_install(self) -> None:
+    def _render_install(self, lang: str) -> None:
         installing = self.run.state == run_mod.STATE_INSTALLING
         values = self._shown_values()
-        sections = "".join(_step_html(s, values) for s in self.all_steps)
+        sections = "".join(_step_html(s, values, lang) for s in self.all_steps)
+        title = i18n.text(lang, "install.title", name=self.run.inventory)
+        saved_to = f"<code>{html.escape(str(self.run.path))}</code>"
         body = (
-            f"{_nav(self.run.inventory, on='install')}<main>"
-            f"<h1>Install: {html.escape(self.run.inventory)}</h1>"
-            f"<p class=doc>Settings are saved to <code>{html.escape(str(self.run.path))}"
-            "</code>, excluding secrets and passwords.</p>"
+            f"{_nav(lang, self.run.inventory, on='install')}<main>"
+            f"<h1>{html.escape(title)}</h1>"
+            f"<p class=doc>{_h(lang, 'install.saved_to', path=saved_to)}</p>"
             f'<form method=post action="/"><fieldset{" disabled" if installing else ""}>'
-            f"{sections}{_process_html(self.run, _Handler.last_checks)}"
+            f"{sections}{_process_html(self.run, _Handler.last_checks, lang)}"
             "</fieldset></form>"
-            f"{_access_html(self.run, values)}</main>{_POLL}")
-        self._send(_page(f"Install: {self.run.inventory}", body))
+            f"{_access_html(self.run, values, lang)}</main>{_POLL}")
+        self._send(_page(lang, title, body))
 
 
 def serve(current: run_mod.Run | None, doc: dict, *, port: int,

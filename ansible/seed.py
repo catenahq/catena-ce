@@ -466,6 +466,13 @@ def fill(provided: dict, key: str, default: str, label: str | None = None,
 # --- inventories --------------------------------------------------------------
 # An inventory name is its directory and the label `--inventory` takes.
 _INVENTORY_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
+# Why a name cannot be a new inventory, by the code inventory_name_problem
+# returns; the graphical installer has its own words for each code.
+INVENTORY_NAME_PROBLEMS = {
+    "invalid": ("use lower-case letters, digits, dashes and underscores, "
+                "starting with a letter or digit"),
+    "exists": "an inventory with that name already exists",
+}
 
 
 def inventories(root: Path = INVENTORY_ROOT) -> list[str]:
@@ -477,12 +484,12 @@ def inventories(root: Path = INVENTORY_ROOT) -> list[str]:
 
 
 def inventory_name_problem(name: str, root: Path = INVENTORY_ROOT) -> str:
-    """Why `name` cannot be a new inventory under `root`, or "" when it can."""
+    """The INVENTORY_NAME_PROBLEMS code for why `name` cannot be a new
+    inventory under `root`, or "" when it can."""
     if not _INVENTORY_NAME.match(name):
-        return ("use lower-case letters, digits, dashes and underscores, "
-                "starting with a letter or digit")
+        return "invalid"
     if (root / name).exists():
-        return "an inventory with that name already exists"
+        return "exists"
     return ""
 
 

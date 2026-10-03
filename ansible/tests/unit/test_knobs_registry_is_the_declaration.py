@@ -203,8 +203,49 @@ def test_launcher_fields_need_a_step_and_a_sound_shape(tmp_path):
 def test_every_installer_section_asks_for_something(tmp_path):
     """A section with no field is a heading nobody fills in."""
     doc = render_knobs.load()
-    doc["gui_steps"].append({"name": "empty", "title": "Empty", "doc": "Nothing."})
+    doc["gui_steps"].append({"name": "empty", "title": {"en": "Empty", "fr": "Vide"},
+                             "doc": {"en": "Nothing.", "fr": "Rien."}})
     _refused(tmp_path, doc, "ask for nothing")
+
+
+def test_a_maintainer_note_is_a_comment_not_a_field(tmp_path):
+    """A field nothing reads is prose that reaches a reader it was not written
+    for, or no one: the registry refuses any field it does not know."""
+    doc = render_knobs.load()
+    _entry(doc, "COMMON_TIMEZONE")["doc"] = "why it is declared this way"
+    _refused(tmp_path, doc, "not registry fields")
+
+    doc = render_knobs.load()
+    doc["gui_steps"][0]["validates"] = "what it proves"
+    _refused(tmp_path, doc, "not step fields")
+
+
+def test_client_copy_is_where_a_client_reads_it(tmp_path):
+    """`help` on every installer field in both languages and on every `.env`
+    key in English, and nowhere else."""
+    doc = render_knobs.load()
+    del _entry(doc, "HOST_SSH_PORT")["help"]["fr"]
+    _refused(tmp_path, doc, "no fr text")
+
+    doc = render_knobs.load()
+    del _entry(doc, "OPS_USER")["help"]
+    _refused(tmp_path, doc, "needs help")
+
+    doc = render_knobs.load()
+    _entry(doc, "COMMON_TIMEZONE")["help"] = {"en": "The time zone."}
+    _refused(tmp_path, doc, "in neither")
+
+    doc = render_knobs.load()
+    _entry(doc, "HOST_PUBLIC_IP")["label"] = {"en": "IP", "fr": "IP", "de": "IP"}
+    _refused(tmp_path, doc, "languages")
+
+
+def test_every_installer_field_speaks_both_languages(registry):
+    for entry in [*registry["secrets"], *registry["config"]]:
+        if "step" in entry:
+            for lang in render_knobs.LANGS:
+                assert entry["label"][lang].strip(), (entry["key"], lang)
+                assert entry["help"][lang].strip(), (entry["key"], lang)
 
 
 def test_a_value_has_one_place_to_be_edited(tmp_path):

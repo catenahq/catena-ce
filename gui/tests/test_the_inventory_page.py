@@ -1,12 +1,7 @@
 """The installer has two tabs: the inventory, then one installation page.
 
-The Inventory tab lists the inventories under ansible/inventory/, one per line,
-and creates new ones. The Installation tab asks for the target and the
-configuration, and its one button saves the form into that inventory's `.env`,
-verifies every section and starts the install; the output follows, then the
-passwords the server generated and the way into its panel. These drive the
-real HTTP handler on loopback, with the probes stubbed so nothing leaves the
-machine.
+These drive the real HTTP handler on loopback, with the probes stubbed so
+nothing leaves the machine.
 
 Run: uv run pytest tests/test_the_inventory_page.py
 """
@@ -23,7 +18,7 @@ from html import escape
 
 import pytest
 
-from catena_gui import registry, run as run_mod, server, steps as steps_mod
+from catena_gui import i18n, registry, run as run_mod, server, steps as steps_mod
 
 DOC = registry.load()
 STEPS = steps_mod.build(DOC)
@@ -45,12 +40,14 @@ def client(tmp_path, monkeypatch):
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
 
-    def request(method, path, form=None):
+    def request(method, path, form=None, headers=None):
         conn = http.client.HTTPConnection("127.0.0.1", httpd.server_address[1])
         body = urllib.parse.urlencode(form or {}, doseq=True)
         conn.request(method, path, body=body if form is not None else None,
-                     headers={"Content-Type": "application/x-www-form-urlencoded"})
+                     headers={"Content-Type": "application/x-www-form-urlencoded",
+                              **(headers or {})})
         resp = conn.getresponse()
+        request.cookie = resp.getheader("Set-Cookie")
         return resp.status, resp.getheader("Location"), resp.read().decode()
 
     yield request, ansible / "inventory"
@@ -86,7 +83,8 @@ def test_the_tabs_are_inventory_and_installation(client):
     assert "Installation" not in request("GET", "/inventory")[2]
     request("POST", "/inventory", {"create": "newco"})
     nav = re.search(r"<nav>(.*?)</nav>", request("GET", "/")[2]).group(1)
-    assert re.findall(r">([^<]+)</a>", nav) == ["Inventory", "Installation"]
+    assert re.findall(r">([^<]+)</a>", nav) == [
+        "Inventory", "Installation", "English", "Français"]
 
 
 def test_creating_an_inventory_saves_it_and_opens_the_installation_page(client):
@@ -142,17 +140,42 @@ def test_a_bad_name_is_refused_on_the_page(client):
 
 
 def test_a_field_is_named_by_its_label_and_explains_itself_in_a_tooltip(client):
-    """The label, `(optional)` and a `(?)`; the explanation is in the tooltip,
-    not on the page."""
+    """The label, `(optional)` and a `(?)`; the help is in the tooltip, not on
+    the page."""
     request, _ = client
     request("POST", "/inventory", {"create": "newco"})
-    field = next(f for s in STEPS for f in s.fields if f.doc and f.optional)
+    field = next(f for s in STEPS for f in s.fields if f.optional)
     page = request("GET", "/")[2]
     head = re.search(rf'<div class=field data-key="{field.key}"[^>]*>'
                      r"<div class=head>(.*?)</div>", page, re.S).group(1)
-    assert f">{escape(field.label)}</label>" in head
+    assert f">{escape(field.label['en'])}</label>" in head
     assert "(optional)" in head
-    assert "(?)<span class=tt role=tooltip>" in head
+    assert f"(?)<span class=tt role=tooltip>{escape(field.help['en'])}" in head
+
+
+def test_the_switcher_shows_every_page_in_french(client):
+    """`?lang=fr` remembers the choice in a cookie and shows the same page;
+    the fields read their French label and help, the page its own words."""
+    request, _ = client
+    request("POST", "/inventory", {"create": "newco"})
+    status, where, _ = request("GET", "/?lang=fr")
+    assert (status, where) == (303, "/")
+    assert request.cookie.startswith(f"{server.LANG_COOKIE}=fr;")
+    page = request("GET", "/", headers={"Cookie": f"{server.LANG_COOKIE}=fr"})[2]
+    assert "<html lang=fr>" in page
+    field = next(f for s in STEPS for f in s.fields if f.key == "HOST_PUBLIC_IP")
+    assert f">{escape(field.label['fr'])}</label>" in page
+    assert escape(i18n.text("fr", "process.button")) in page
+
+
+def test_the_browser_language_decides_until_a_choice_is_made(client):
+    request, _ = client
+    fr = request("GET", "/inventory",
+                 headers={"Accept-Language": "fr-CA,fr;q=0.9,en;q=0.8"})[2]
+    assert escape(i18n.text("fr", "inventory.create")) in fr
+    en = request("GET", "/inventory", headers={
+        "Accept-Language": "fr-CA", "Cookie": f"{server.LANG_COOKIE}=en"})[2]
+    assert escape(i18n.text("en", "inventory.create")) in en
 
 
 def test_the_target_section_ends_on_its_note(client):
@@ -160,7 +183,8 @@ def test_the_target_section_ends_on_its_note(client):
     request("POST", "/inventory", {"create": "newco"})
     target = next(s for s in STEPS if s.name == "target")
     section = _section(request("GET", "/")[2], "target")
-    assert target.note and section.endswith(f"<p class=doc>{escape(target.note)}</p>")
+    assert target.note and section.endswith(
+        f"<p class=doc>{escape(target.note['en'])}</p>")
 
 
 def test_an_example_is_shown_and_never_filled_in(client):
@@ -178,7 +202,7 @@ def test_the_form_is_saved_even_when_verification_fails(client, started, monkeyp
     inventory shows them again."""
     request, root = client
     request("POST", "/inventory", {"create": "newco"})
-    monkeypatch.setattr(steps_mod, "validate", lambda step, a, s: [
+    monkeypatch.setattr(steps_mod, "validate", lambda step, a, s, lang: [
         steps_mod.Check("reachable", False)])
     request("POST", "/", {**_REQUIRED, **_INSTALL})
     assert started == []
@@ -196,7 +220,7 @@ def test_one_button_verifies_every_section_and_shows_why_it_stopped(
     request("POST", "/inventory", {"create": "newco"})
     seen = []
 
-    def validate(step, answers, secrets):
+    def validate(step, answers, secrets, lang):
         seen.append(step)
         return [steps_mod.Check(f"probe of {step}", step != "target")]
 
@@ -252,8 +276,6 @@ def test_the_form_waits_while_an_install_runs_and_takes_any_other_state(
 
 
 def test_the_page_asks_for_the_server_and_nothing_the_panel_holds(client):
-    """The domain, the private network and the backups are entered in the
-    panel once the server runs; the installer has no field for any of them."""
     request, _ = client
     request("POST", "/inventory", {"create": "newco"})
     page = request("GET", "/")[2]
@@ -270,18 +292,18 @@ def test_the_access_section_names_the_forward_and_both_panels(client, started):
     assert "panel@203.0.113.10" in access
     assert "http://localhost:9010" in access and "http://localhost:9000" in access
     assert "Settings tab" in access
-    for _, label, _ in server.KEYSET_FIELDS:
-        assert escape(label) in access
+    for name in server.KEYSET_FIELDS:
+        assert escape(i18n.text("en", f"keyset.{name}")) in access
 
 
 def test_suggestions_are_offered_beside_a_free_text_field():
     """The key the provider installed is usually one of the pairs already on
     this machine, and sometimes it is not: a list to pick from, and a field
     that takes any path."""
-    field = steps_mod.Field(key="SSH_PRIVATE_KEY", label="SSH key file",
+    field = steps_mod.Field(key="SSH_PRIVATE_KEY", label={"en": "SSH key file"},
                             secret=False, optional=False, options=[], default="",
-                            doc="", suggestions=["~/.ssh/id_ed25519"])
-    html = server._field_html(field, "~/.ssh/catena_ed25519")
+                            help={"en": ""}, suggestions=["~/.ssh/id_ed25519"])
+    html = server._field_html(field, "~/.ssh/catena_ed25519", "en")
     assert 'list="s-SSH_PRIVATE_KEY"' in html
     assert '<datalist id="s-SSH_PRIVATE_KEY"><option value="~/.ssh/id_ed25519">' in html
     assert 'value="~/.ssh/catena_ed25519"' in html
@@ -346,7 +368,8 @@ def test_the_passwords_appear_in_the_access_section_and_the_output_scrolls(clien
     current = server._Handler.run
     current.state = run_mod.STATE_INSTALLING
     page = request("GET", "/")[2]
-    assert f'<code id="k-admin_password">{server.KEYSET_PENDING}</code>' in page
+    pending = i18n.text("en", "keyset.pending")
+    assert f'<code id="k-admin_password">{pending}</code>' in page
     assert '<pre id=log class=log data-state="installing">' in page
     assert "http-equiv=refresh" not in page
 
@@ -356,14 +379,14 @@ def test_the_passwords_appear_in_the_access_section_and_the_output_scrolls(clien
     access = _section(request("GET", "/")[2], "access")
     assert '<code id="k-admin_password">pw</code>' in access
     assert '<code id="k-console_recovery_password">cpw</code>' in access
-    assert (f'<code id="k-journal_verification_key">{server.KEYSET_NOT_AGAIN}'
-            "</code>") in access
+    not_again = i18n.text("en", "keyset.not_again")
+    assert f'<code id="k-journal_verification_key">{not_again}</code>' in access
     status, _, body = request("GET", "/progress")
     assert status == 200
     assert json.loads(body) == {
         "state": "installing", "log": "converge",
         "keyset": {"admin_password": "pw", "console_recovery_password": "cpw",
-                   "journal_verification_key": server.KEYSET_NOT_AGAIN}}
+                   "journal_verification_key": not_again}}
 
 
 def test_the_install_output_reaches_no_file(tmp_path, monkeypatch):

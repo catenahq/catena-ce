@@ -1,14 +1,5 @@
 """An inventory is the run: the answers outlive the process, a password does not.
 
-An install can start with a wait nobody can time -- a server being delivered by
-a provider -- so what a client answered is saved into their inventory under
-ansible/inventory/ as they go, through seed's own writer, and a launcher opened
-again picks it up.
-
-WHAT IS ON DISK AND WHAT IS NOT is the other half. The answers are; a PASSWORD
-is not, anywhere in the inventory. A reopened inventory asks for it again,
-which is the honest cost of refusing to write it to a client's disk.
-
 Run: uv run pytest tests/test_a_run_survives_the_process_that_started_it.py
 """
 from __future__ import annotations
@@ -133,8 +124,6 @@ def test_the_state_says_whether_the_install_already_started(tmp_path):
 
 
 def test_a_run_whose_launcher_is_gone_reads_as_failed(tmp_path):
-    """The install is a child of the launcher that started it and went with
-    it, so the run can be installed again rather than staying stuck."""
     import subprocess
     import sys
 

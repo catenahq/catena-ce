@@ -1,29 +1,5 @@
 """The run: one inventory, what a client answered for it, and where the install
-got to.
-
-AN INVENTORY IS THE RUN. The launcher opens a directory under
-ansible/inventory/ or creates one, and everything it keeps lives there:
-
-    .env               the non-secret answers, written by seed's own writer --
-                       the file `catena-cli install` reads -- so an inventory
-                       the launcher saved and one a client edited by hand are
-                       the same file
-    .catena-gui.json   the install's state and the launcher that runs it. 0600.
-
-What `catena-cli install` prints is NOT kept: it carries the passwords the
-install shows once. It goes to the console window and, for the page, to memory:
-the passwords on their own, and the last lines of the rest.
-
-An install can start with an unbounded wait -- a server being delivered by a
-provider -- so the answers are on disk from the first attempt to install, and
-a launcher started again picks up where the last one stopped.
-
-A PASSWORD IS NEVER ON DISK. The provider's password, the one the launcher can
-be given, is held in memory for the life of the process and handed to
-`catena-cli install` in a transient 0600 file outside the inventory, which is
-deleted when the install ends. A reopened inventory asks for it again: the
-alternative is a file that outlives the install and that nothing ever comes
-back to remove.
+got to. What it keeps on disk, and what it never does, is in gui/README.md.
 
 THE STATE IS A WORD, not a percentage. What a resumed run needs to know is
 whether an install is running.
@@ -84,8 +60,7 @@ class Run:
     secret_keys: frozenset[str] = frozenset()
     state: str = STATE_ANSWERING
     started: float = 0.0
-    # The install's last lines and its passwords, in memory only (see the
-    # module docstring).
+    # The install's last lines and its passwords, in memory only.
     log: deque[str] = field(default_factory=lambda: deque(maxlen=LOG_LINES))
     keyset: dict[str, str] = field(default_factory=dict)
 
