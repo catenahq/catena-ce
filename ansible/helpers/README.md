@@ -16,12 +16,9 @@ writer of the on-box config store), plus `labels_schema.py` and
 `public_ports.py`, which ship flat beside the scripts in `../scripts/`
 that import them by bare name.
 
-`onbox_config.py` is not installed by the converge any more. The panel
-image's dispatch drop-in runs it, and an image must not authorise a
-command it does not ship, so the image build copies it out of the
-vendored tree into the payload's own bin and the payload installs it.
-The file is still catena-ce's; who delivers it changed. Same for
-`../scripts/catena-restic-key.py`.
+The catena-admin payload installs `onbox_config.py` and
+`../scripts/catena-restic-key.py`: the panel image's dispatch drop-in
+runs them, and an image ships every command it authorises.
 
 Unit tests for these live in `../tests/unit/`.
 

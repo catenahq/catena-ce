@@ -13,14 +13,13 @@ helpers are imported, scripts are installed.
 A file in this directory is part of the deployed system, so changing one
 changes what a server does on its next converge.
 
-The route + SSO cluster that used to live here -- the reconciler and the
-modules it imported by bare name -- ships in the catena-admin payload
-now (`payload/lanes/catena-dashboard-sync.py` and `payload/lib/`). What
-it does is decide what a `vps.*` label MEANS, and the correct value of
-that changes when the product changes rather than when the host does, so
-it travels with the image. What stays here is what changes with the
-host: the reconciler's env file, its timer interval, and the public-port
-reconciler, whose answer depends on the ports this server declares.
+The route + SSO reconciler ships in the catena-admin payload
+(`payload/lanes/catena-dashboard-sync.py` and `payload/lib/`): it
+decides what a `vps.*` label MEANS, which changes when the product
+changes rather than when the host does, so it travels with the image.
+What changes with the host is here: the reconciler's env file, its timer
+interval, and the public-port reconciler, whose answer depends on the
+ports this server declares.
 
 Scripts here that import a neighbour still do it by bare name, and they
 search `/usr/local/lib/catena` -- where the payload installs its modules
