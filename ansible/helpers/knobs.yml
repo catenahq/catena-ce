@@ -62,7 +62,10 @@
 #               placeholder and never filled in.
 #   panel       how catena-admin renders it. Absent means the settings page
 #               does not show it; the page's own labels and help are its
-#               translations, keyed by the knob.
+#               translations, keyed by the knob. `default` is the value a field
+#               shows while nothing is stored, the same literal the converge
+#               falls back to; `options_from` names a list the host supplies
+#               when the page renders (`timezones`).
 #   step        which section of the graphical installer asks for it, named in
 #               `gui_steps`. Only a knob with an `env` home has one. Absent
 #               means the launcher never asks: the value is either the
@@ -184,9 +187,10 @@ env_sections:
 # only these (onbox_config.EXTERNAL_SECRETS).
 secrets:
   # The one credential the public surface needs. The account id is not an
-  # input: the host engine resolves it from the token.
+  # input: the host engine resolves it from the token. Beside the domain on
+  # the page, because the domains offered are the ones this token reaches.
   - key: cloudflare_api_token
-    panel: {group: tunnel, section: secrets, kind: secret, optional: false}
+    panel: {group: hostnames, section: secrets, kind: secret, optional: false}
 
   # Multi-domain (Business): a JSON map of zone to API token, each token scoped
   # to its one zone. The panel's domains page owns it, so it is not a field on
@@ -367,19 +371,33 @@ config:
     env: {section: ssh, default: "ops"}
 
   # The server's clock zone, an IANA name such as America/Toronto, which
-  # schedules and logs follow. Applied by the next converge; America/Toronto
-  # while unset.
+  # schedules and logs follow. Applied by the next converge. A list the host
+  # supplies rather than one declared here: the zones a host can set are the
+  # ones its own tzdata carries.
   - key: COMMON_TIMEZONE
     residence: store
     var: cfg_common_timezone
-    panel: {group: server, section: config, kind: text, optional: true}
+    panel:
+      group: server
+      section: config
+      kind: text
+      optional: true
+      default: America/Toronto
+      options_from: timezones
 
-  # A locale the server generates for its shells, such as en_CA.UTF-8. Applied
-  # by the next converge; en_CA.UTF-8 while unset.
+  # A locale the server generates for its shells. Applied by the next converge.
   - key: COMMON_LOCALE
     residence: store
     var: cfg_common_locale
-    panel: {group: server, section: config, kind: text, optional: true}
+    panel:
+      group: server
+      section: config
+      kind: choice
+      optional: true
+      default: en_CA.UTF-8
+      options: [en_CA.UTF-8, fr_CA.UTF-8, en_US.UTF-8, en_GB.UTF-8, fr_FR.UTF-8,
+                de_DE.UTF-8, es_ES.UTF-8, it_IT.UTF-8, nl_NL.UTF-8, pt_BR.UTF-8,
+                C.UTF-8]
 
   # Comma-separated tags advertised by each node. Every tag must be authorized
   # on the control server first, or key minting rejects with a 400. Read with
@@ -420,36 +438,42 @@ config:
   #
   # Each is a single DNS label, never an FQDN: the zone is appended by the
   # converge, so "auth.example.com" here would render auth.example.com.example.com.
-  # Blank means the product's own default (playbooks/group_vars/all/main.yml).
+  # Blank means the product's own default, which `panel.default` names.
   - key: PORTAINER_SUBDOMAIN
     residence: store
     var: cfg_portainer_admin_subdomain
-    panel: {group: hostnames, section: config, kind: text, optional: true}
+    panel: {group: subdomains, section: config, kind: text, optional: true,
+            default: portainer}
 
   - key: KEYCLOAK_SUBDOMAIN
     residence: store
     var: cfg_keycloak_subdomain
-    panel: {group: hostnames, section: config, kind: text, optional: true}
+    panel: {group: subdomains, section: config, kind: text, optional: true,
+            default: auth}
 
   - key: CATENA_ADMIN_SUBDOMAIN
     residence: store
     var: cfg_catena_admin_subdomain
-    panel: {group: hostnames, section: config, kind: text, optional: true}
+    panel: {group: subdomains, section: config, kind: text, optional: true,
+            default: dash}
 
   - key: GATUS_SUBDOMAIN
     residence: store
     var: cfg_gatus_subdomain
-    panel: {group: hostnames, section: config, kind: text, optional: true}
+    panel: {group: subdomains, section: config, kind: text, optional: true,
+            default: monitor}
 
   - key: HEALTHCHECKS_SUBDOMAIN
     residence: store
     var: cfg_healthchecks_subdomain
-    panel: {group: hostnames, section: config, kind: text, optional: true}
+    panel: {group: subdomains, section: config, kind: text, optional: true,
+            default: heartbeat}
 
   - key: BESZEL_SUBDOMAIN
     residence: store
     var: cfg_beszel_subdomain
-    panel: {group: hostnames, section: config, kind: text, optional: true}
+    panel: {group: subdomains, section: config, kind: text, optional: true,
+            default: hub}
 
   # Prefixes the name of the tunnel a host creates. Blank leaves each host
   # owning one tunnel named after its inventory hostname; a prefix of "corp-"
@@ -518,15 +542,6 @@ config:
   - key: BACKUP_EXTRA_PATHS
     residence: store
     var: cfg_backup_extra_paths
-    panel: {group: backup, section: config, kind: text, optional: true}
-
-  # Lengthens the effective cadence beyond the base timer. No Ansible
-  # projection: the backup wrapper reads it off the store at runtime, with no
-  # converge in between. Whether a host backs up at all is answered by whether
-  # the endpoint is usable and whether the lane is scheduled, so there is no
-  # enable switch beside it.
-  - key: BACKUP_MIN_INTERVAL_HOURS
-    residence: store
     panel: {group: backup, section: config, kind: text, optional: true}
 
   # Dead-man endpoints. The first pair overrides the locally provisioned pings;

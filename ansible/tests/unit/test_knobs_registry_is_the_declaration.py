@@ -40,13 +40,13 @@ def test_the_store_accepts_every_declared_credential(registry):
 
 
 def test_only_projected_store_knobs_reach_the_converge(registry):
-    """A stored knob with no declared `var` stays out of SETTINGS_CONFIG."""
-    unprojected = {
-        k["key"] for k in registry["config"]
-        if k["residence"] == "store" and "var" not in k
+    """SETTINGS_CONFIG is exactly the stored knobs that declare a `var`, each
+    mapped to it: a stored knob with none is published as no fact."""
+    projected = {
+        k["key"]: k["var"] for k in registry["config"]
+        if k["residence"] == "store" and "var" in k
     }
-    assert unprojected, "the fixture is meaningless if every store knob projects"
-    assert not (unprojected & set(onbox_config.SETTINGS_CONFIG))
+    assert onbox_config.SETTINGS_CONFIG == projected
 
 
 def test_residences_do_not_overlap(registry):

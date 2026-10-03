@@ -22,7 +22,11 @@ SECTIONS = ("secrets", "config")
 # this repo cannot import Go -- so the panel's own schema test is what holds
 # the two lists together.
 GROUPS = ("tunnel", "backup", "mail", "alerts", "share", "access", "license",
-          "hostnames", "server")
+          "hostnames", "subdomains", "server")
+# The named sources the panel fills a field's choices from at render time,
+# because the list belongs to the host: `timezones` is what the host's own
+# timedatectl accepts.
+PANEL_OPTION_SOURCES = ("timezones",)
 # The named sources the graphical installer suggests values from.
 GUI_SUGGESTION_SOURCES = ("ssh_keys",)
 # The languages a client-facing text comes in: the installer's page speaks
@@ -89,6 +93,25 @@ def _check_panel(key: str, panel: dict) -> None:
     else:
         _require(options is None,
                  f"{key}: options on a {panel['kind']} field are read by nothing")
+    # The value a stored-nothing field shows and stands for: the literal the
+    # converge falls back to, which tests/unit/test_panel_defaults_match_the_converge.py
+    # holds equal. A secret has no default to show.
+    default = panel.get("default")
+    if default is not None:
+        _require(panel["kind"] != "secret",
+                 f"{key}: a secret field shows no default")
+        _require(isinstance(default, str) and bool(default),
+                 f"{key}: panel default must be a non-empty string")
+        if options is not None:
+            _require(default in options,
+                     f"{key}: the default {default!r} is not one of {options}")
+    source = panel.get("options_from")
+    if source is not None:
+        _require(source in PANEL_OPTION_SOURCES,
+                 f"{key}: options_from {source!r} is not one of {PANEL_OPTION_SOURCES}")
+        _require(panel["kind"] == "text",
+                 f"{key}: options_from fills a text field's list; a choice "
+                 "declares its own options")
 
 
 def _check_env(key: str, env: dict, sections: set[str]) -> None:
