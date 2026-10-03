@@ -121,6 +121,21 @@ catena_public_surface_deferred: >-
 # the catena-traefik container, reachable by service name inside the network.
 cloudflared_ingress_service: "http://catena-traefik:80"
 
+# --- Local ACME server (the test bench's Pebble) ---
+# Blank on a client install, so certbot issues against Let's Encrypt. The test
+# bench points them at its host-side Pebble. The minica is ADDED to the system
+# trust store (update-ca-certificates) rather than used as a standalone
+# REQUESTS_CA_BUNDLE: certbot's Cloudflare DNS plugin must still verify
+# api.cloudflare.com's public-CA certificate in the same process. So it goes
+# where update-ca-certificates picks it up (.crt required), and certbot is
+# pointed at the combined bundle. tasks/acme_local_ca.yml installs it; the
+# coturn and mailserver cert flows include that file.
+acme_local_directory_url: "{{ cfg_acme_directory_url | default('') }}"
+acme_local_host_ip: "{{ cfg_acme_host_ip | default('') }}"
+acme_local_ca_bundle_b64: "{{ cfg_acme_ca_bundle_b64 | default('') }}"
+acme_local_ca_bundle_path: "/usr/local/share/ca-certificates/catena-pebble-acme.crt"
+acme_system_ca_bundle: "/etc/ssl/certs/ca-certificates.crt"
+
 # --- Infrastructure subdomains ---
 # Public-facing hostnames. Each is routed to its own oauth2-proxy instance,
 # which authenticates against Keycloak and proxies to the app behind it. SSO

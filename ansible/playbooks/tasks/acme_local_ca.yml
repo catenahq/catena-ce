@@ -1,0 +1,34 @@
+---
+# Trust the test bench's local ACME server (Pebble) for certbot: its `pebble`
+# hostname resolves, and its minica joins the system trust store. Nothing to do
+# on a client install, where the acme_local_* values are blank
+# (playbooks/group_vars/all/main.yml). The coturn and mailserver cert flows
+# include it before they issue.
+- name: "Local ACME: map Pebble ACME host"
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    # Python regex, NOT POSIX. `[[:space:]]` parses as a character class of the
+    # literal chars [ : s p a c e followed by a stray `]`, so it never matches a
+    # hosts line, and lineinfile would append a duplicate on every converge.
+    regexp: '^\S+\s+pebble$'
+    line: "{{ acme_local_host_ip }} pebble"
+    state: present
+  when:
+    - (acme_local_directory_url | length) > 0
+    - (acme_local_host_ip | length) > 0
+
+- name: "Local ACME: install the Pebble CA bundle into system trust"
+  ansible.builtin.copy:
+    content: "{{ acme_local_ca_bundle_b64 | b64decode }}"
+    dest: "{{ acme_local_ca_bundle_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+  register: _acme_local_ca
+  when: (acme_local_ca_bundle_b64 | length) > 0
+
+- name: "Local ACME: refresh the system trust store"
+  ansible.builtin.command:
+    cmd: update-ca-certificates
+  changed_when: _acme_local_ca is changed
+  when: (acme_local_ca_bundle_b64 | length) > 0

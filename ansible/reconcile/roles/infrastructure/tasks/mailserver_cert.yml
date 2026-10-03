@@ -101,45 +101,8 @@
         path: "{{ mailserver_cert_live_dir }}/fullchain.pem"
       register: _ms_cert_stat
 
-    # Bench local-CA (Pebble) wiring. No-op in production (the
-    # CATENA_ACME_* knobs are blank), so certbot issues against Let's
-    # Encrypt exactly as before. When the bench points at its host-side
-    # Pebble ACME server, certbot must (a) resolve the `pebble` hostname
-    # baked into Pebble's endpoint cert SAN to the Pebble host IP, and
-    # (b) trust the extracted minica via REQUESTS_CA_BUNDLE. See
-    # test_bench/orchestrator/pebble.py.
-    - name: "Mailserver cert: map Pebble ACME host (bench local CA)"
-      ansible.builtin.lineinfile:
-        path: /etc/hosts
-        # Python regex, NOT POSIX -- see the note on the identical task in
-        # reconcile/roles/coturn/tasks/cert.yml. `[[:space:]]` never matches a hosts
-        # line, so lineinfile appends a duplicate on every converge.
-        regexp: '^\S+\s+pebble$'
-        line: "{{ mailserver_acme_host_ip }} pebble"
-        state: present
-      when:
-        - (mailserver_acme_directory_url | length) > 0
-        - (mailserver_acme_host_ip | length) > 0
-
-    - name: "Mailserver cert: install Pebble CA bundle into system trust (bench local CA)"
-      ansible.builtin.copy:
-        content: "{{ mailserver_acme_ca_bundle_b64 | b64decode }}"
-        dest: "{{ mailserver_acme_ca_bundle_path }}"
-        owner: root
-        group: root
-        mode: "0644"
-      register: _ms_pebble_ca
-      when: (mailserver_acme_ca_bundle_b64 | length) > 0
-
-    # Fold the minica into the system bundle so the SAME process trusts
-    # both Pebble (ACME endpoint) AND api.cloudflare.com (DNS plugin,
-    # public CA). Pointing REQUESTS_CA_BUNDLE at the minica alone broke
-    # the Cloudflare call with CERTIFICATE_VERIFY_FAILED.
-    - name: "Mailserver cert: refresh system trust store (bench local CA)"
-      ansible.builtin.command:
-        cmd: update-ca-certificates
-      changed_when: _ms_pebble_ca is changed
-      when: (mailserver_acme_ca_bundle_b64 | length) > 0
+    - name: "Mailserver cert: trust the bench's local ACME server"
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/acme_local_ca.yml"
 
     # First-issuance path. Idempotent: certbot's own state in
     # /etc/letsencrypt/renewal/<host>.conf prevents duplicate orders;
@@ -159,12 +122,10 @@
                if (mailserver_acme_server | length) > 0 else [])
             + ['-d', mailserver_hostname]
           }}
-      # Point certbot at the COMBINED system bundle (now carrying the
-      # Pebble minica via update-ca-certificates) so it trusts both the
-      # Pebble ACME endpoint and api.cloudflare.com. Empty dict in
-      # production = system trust against Let's Encrypt, unchanged.
-      environment: "{{ {'REQUESTS_CA_BUNDLE': mailserver_acme_system_ca_bundle}
-                       if (mailserver_acme_ca_bundle_b64 | length) > 0 else {} }}"
+      # The combined system bundle, which carries the local ACME CA when one
+      # is set. Empty on a client install.
+      environment: "{{ {'REQUESTS_CA_BUNDLE': acme_system_ca_bundle}
+                       if (acme_local_ca_bundle_b64 | length) > 0 else {} }}"
       register: _ms_cert_issue
       when: not _ms_cert_stat.stat.exists
       changed_when: _ms_cert_issue.rc == 0

@@ -133,24 +133,10 @@ coturn_certbot_email: "{{ admin_email | default('hostmaster@' ~ cloudflare_zone)
 coturn_certbot_use_staging: "{{ cfg_coturn_certbot_staging | default('false') | bool }}"
 coturn_certbot_staging_server: "https://acme-staging-v02.api.letsencrypt.org/directory"
 
-# Local-ACME override (bench Pebble). All blank in production -> certbot
-# issues against Let's Encrypt. The test bench points these at its
-# host-side Pebble ACME server so issuance does not depend on LE staging.
-# CA bundle is base64 (a raw PEM cannot survive the line-based .env).
-coturn_acme_directory_url: "{{ cfg_acme_directory_url | default('') }}"
-coturn_acme_host_ip: "{{ cfg_acme_host_ip | default('') }}"
-coturn_acme_ca_bundle_b64: "{{ cfg_acme_ca_bundle_b64 | default('') }}"
-# The Pebble minica is ADDED to the system trust store (update-ca-
-# certificates), not used as a standalone REQUESTS_CA_BUNDLE -- certbot's
-# Cloudflare DNS plugin must still verify api.cloudflare.com's public-CA
-# cert in the same process. So drop it where update-ca-certificates picks
-# it up (.crt extension required) and point certbot at the COMBINED bundle.
-coturn_acme_ca_bundle_path: "/usr/local/share/ca-certificates/catena-pebble-acme.crt"
-coturn_acme_system_ca_bundle: "/etc/ssl/certs/ca-certificates.crt"
-# Effective --server: explicit local-CA override wins; else LE staging
-# when requested; else '' (certbot's default = LE production).
+# Effective --server: the local ACME server (group_vars/all/main.yml) wins;
+# else LE staging when requested; else '' (certbot's default = LE production).
 coturn_acme_server: >-
-  {{ coturn_acme_directory_url
-     if (coturn_acme_directory_url | length) > 0
+  {{ acme_local_directory_url
+     if (acme_local_directory_url | length) > 0
      else (coturn_certbot_staging_server
            if coturn_certbot_use_staging | bool else '') }}
