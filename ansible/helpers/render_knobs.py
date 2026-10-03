@@ -25,8 +25,9 @@ GROUPS = ("tunnel", "backup", "mail", "alerts", "share", "access", "license",
           "hostnames", "subdomains", "server")
 # The named sources the panel fills a field's choices from at render time,
 # because the list belongs to the host: `timezones` is what the host's own
-# timedatectl accepts.
-PANEL_OPTION_SOURCES = ("timezones",)
+# timedatectl accepts, `cloudflare_zones` the domains the stored Cloudflare
+# token reaches.
+PANEL_OPTION_SOURCES = ("timezones", "cloudflare_zones")
 # The named sources the graphical installer suggests values from.
 GUI_SUGGESTION_SOURCES = ("ssh_keys",)
 # The languages a client-facing text comes in: the installer's page speaks

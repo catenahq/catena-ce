@@ -65,7 +65,7 @@
 #               translations, keyed by the knob. `default` is the value a field
 #               shows while nothing is stored, the same literal the converge
 #               falls back to; `options_from` names a list the host supplies
-#               when the page renders (`timezones`).
+#               when the page renders (`timezones`, `cloudflare_zones`).
 #   step        which section of the graphical installer asks for it, named in
 #               `gui_steps`. Only a knob with an `env` home has one. Absent
 #               means the launcher never asks: the value is either the
@@ -428,11 +428,14 @@ config:
   #
   # THE identity of the install: every public hostname is <sub>.<zone>, so this
   # is the value the rest of the page renders against. Every server is
-  # installed without one; the public surface defers until one arrives.
+  # installed without one; the public surface defers until one arrives. The
+  # page offers the domains the Cloudflare token reaches, since a domain it
+  # cannot reach is one the tunnel cannot serve.
   - key: CLOUDFLARE_ZONE
     residence: store
     var: cfg_cloudflare_zone
-    panel: {group: hostnames, section: config, kind: text, optional: true}
+    panel: {group: hostnames, section: config, kind: text, optional: true,
+            options_from: cloudflare_zones}
 
   # ---- public hostnames ----
   #
