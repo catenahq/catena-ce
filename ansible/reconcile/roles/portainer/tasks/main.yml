@@ -267,8 +267,8 @@
           --adopt-file /root/.catena-portainer-key.json
           --overwrite --no-mint --emit none
         executable: python3
-      # Staged by playbooks/tasks/load_onbox_config.yml, which every converge
-      # runs before any role.
+      # Staged by playbooks/tasks/stage_knob_registry.yml, which the store
+      # loader runs before any role.
       environment:
         CATENA_KNOBS: /root/.catena-knobs.json
       changed_when: true

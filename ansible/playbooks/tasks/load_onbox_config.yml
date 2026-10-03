@@ -16,25 +16,19 @@
 # before any role). A rebuild needs only the {restic endpoint, S3 creds,
 # restic password} keyset: the store returns with the data, internals and all.
 
+- name: "onbox: stage the knob registry"
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/stage_knob_registry.yml"
+    apply:
+      tags: [always, onbox]
+  tags: [always, onbox]
+
 # Which variables count as secrets is DECLARED, in the four category tables
 # in helpers/onbox_config.py, and read back here -- captured by declared
 # name rather than by a spelling convention, so a variable is captured
 # because someone said it is a secret, not because of how it is spelled.
 # Asking the module keeps one declaration.
 #
-# The script module ships onbox_config.py alone, and it reads the knob registry
-# from a file. A fresh host has no payload to provide one yet, so the registry
-# from this same checkout is staged beside the adopt map and named through
-# CATENA_KNOBS on every call. seed_onbox_config.yml stages the same file for
-# bootstrap, which does not run this loader.
-- name: "onbox: stage the knob registry for the store helper"
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../helpers/knobs.json"
-    dest: /root/.catena-knobs.json
-    owner: root
-    group: root
-    mode: "0644"
-
 # Pure query, no store I/O -- it answers before the store exists on a fresh box.
 - name: "onbox: read the declared secret names"
   ansible.builtin.script:

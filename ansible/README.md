@@ -65,6 +65,7 @@ the same `install`.
 
 | Command | Playbook | What it does |
 | --- | --- | --- |
+| `init` | none | Create `inventory/<name>/.env`, every key at its default and explained, to fill in |
 | `install` | chain | Seed the configuration, run bootstrap, show the passwords (`show-keyset.yml`), run converge and validate, then show the passwords again |
 | `converge` | `converge.yml` | Re-apply from this machine; `--address` reaches the host at its tailnet address once the panel's Lockdown has closed public SSH |
 | `uninstall` | `uninstall.yml` | Unmask the native apt timers on a host an older release masked |
@@ -78,9 +79,8 @@ arguments the CLI opens an interactive menu and prompts for both; `catena-cli
 refused with the correct shape rather than an argparse choice error.
 
 `install` first runs `seed.py`: with no `-i`, `.env` must already exist
-(written by the graphical installer, or copied from
-`inventory/example/.env.example` and filled in), and seed reads its
-config from there instead of prompting field by field. `hosts.yml`
+(written by `init` or the graphical installer, and filled in), and seed
+reads its config from there instead of prompting field by field. `hosts.yml`
 auto-scaffolds from `skel/` on that same first run; nothing else to copy or
 edit. `-i install.yaml --no-confirm` generates a fresh
 inventory from an answers file instead (the bench / power-user path),
@@ -121,7 +121,7 @@ keyset. Full classification: [SECRETS.md](SECRETS.md).
 | [reconcile/roles/](reconcile/roles/) | Roles a server runs against itself |
 | [helpers/](helpers/) | Python shared by the installer, the roles, and three host-side reconcilers |
 | [scripts/](scripts/) | Executables installed on the server and run there |
-| [inventory/](inventory/) | Per-deployment configuration; only `example/` is tracked |
+| [inventory/](inventory/) | Per-deployment configuration, untracked |
 | [tests/](tests/) | Unit tests, plus the external probes `validate.yml` runs |
 
 Each has its own `README.md`. The `helpers/`, `scripts/`, `playbooks/`,

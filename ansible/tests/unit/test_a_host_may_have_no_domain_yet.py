@@ -22,7 +22,7 @@ import yaml
 ANSIBLE_DIR = Path(__file__).resolve().parents[2]
 GROUP_VARS = ANSIBLE_DIR / "playbooks" / "group_vars" / "all" / "main.yml"
 SEED = ANSIBLE_DIR / "playbooks" / "tasks" / "seed_onbox_config.yml"
-ENV_EXAMPLE = ANSIBLE_DIR / "inventory" / "example" / ".env.example"
+KNOBS = ANSIBLE_DIR / "helpers" / "knobs.yml"
 PLAYBOOKS = (
     ANSIBLE_DIR / "playbooks" / "converge.yml",
     ANSIBLE_DIR / "playbooks" / "reconcile.yml",
@@ -31,10 +31,10 @@ RECONCILE_ROLES_DIR = ANSIBLE_DIR / "reconcile" / "roles"
 DEFERRED_FLAG = "catena_public_surface_deferred"
 
 
-def test_the_converge_no_longer_refuses_a_host_with_no_domain() -> None:
+def test_the_store_seed_does_not_refuse_a_host_with_no_domain() -> None:
     seed = SEED.read_text(encoding="utf-8")
     assert "ansible.builtin.assert" not in seed or "cloudflare_zone" not in seed, (
-        "the seed asserts on the zone again. A host cannot acquire a domain "
+        "the seed asserts on the zone. A host cannot acquire a domain "
         "until its panel is up, and its panel does not come up until the "
         "converge finishes, so asserting here makes the supported install "
         "order impossible"
@@ -122,9 +122,7 @@ def test_no_role_the_converge_runs_asserts_the_zone_unconditionally() -> None:
     An assert on the zone inside a role the converge runs turns "no domain
     yet" into a converge that cannot finish -- and the failure lands wherever
     that role sits in the play, several roles after the one line that could
-    have said the host is waiting. oauth2-proxy did exactly that: every name
-    it publishes is built from the domain, so its preflight asserted one, and
-    a zone-less host died at the auth layer with a message about secrets.
+    have said the host is waiting.
 
     Such a role has to DEFER -- announce it and do nothing -- so the gate here
     is the deferral flag in the task's own condition, not the absence of the
@@ -158,10 +156,8 @@ def test_no_role_the_converge_runs_asserts_the_zone_unconditionally() -> None:
 
 def test_the_installer_never_asks_for_the_domain() -> None:
     """Every server is installed without one: the domain and its token are
-    entered in the panel's Settings. A template line for it would be a second
+    entered in the panel's Settings. An `.env` line for it would be a second
     place to set it -- and the one the host never reads again."""
-    keys = [line.split("=", 1)[0]
-            for line in ENV_EXAMPLE.read_text(encoding="utf-8").splitlines()
-            if line and not line.startswith("#") and "=" in line]
-    assert keys, "the env template parsed to nothing"
-    assert "CLOUDFLARE_ZONE" not in keys
+    config = yaml.safe_load(KNOBS.read_text(encoding="utf-8"))["config"]
+    zone = next(k for k in config if k["key"] == "CLOUDFLARE_ZONE")
+    assert "env" not in zone and "step" not in zone

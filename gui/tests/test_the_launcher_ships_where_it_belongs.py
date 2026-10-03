@@ -18,8 +18,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from catena_gui import registry
 
 REPO = Path(__file__).resolve().parents[2]
@@ -53,14 +51,8 @@ def test_the_cli_is_untouched():
 
 
 def test_the_registry_is_read_from_the_sibling_tree_not_copied_here():
-    """A copy under gui/ would be a second registry, and the one that drifted
-    would be the one a client meets first."""
-    assert not (GUI / "catena_gui" / "knobs.json").exists()
-    assert registry.registry_path().is_relative_to(REPO / "ansible")
-
-
-def test_a_missing_registry_raises_rather_than_rendering_blank_pages(monkeypatch,
-                                                                     tmp_path):
-    monkeypatch.setenv("CATENA_KNOBS", str(tmp_path / "absent.json"))
-    with pytest.raises(FileNotFoundError):
-        registry.registry_path()
+    """A copy under gui/ would be a second registry, and the one a client meets
+    first."""
+    assert not list((GUI / "catena_gui").glob("knobs.*"))
+    source = registry.ansible_module("helpers.render_knobs").SOURCE
+    assert source.is_relative_to(REPO / "ansible")

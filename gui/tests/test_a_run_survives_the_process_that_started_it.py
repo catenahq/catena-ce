@@ -55,7 +55,7 @@ def test_the_env_is_the_one_the_cli_reads(tmp_path):
     r = run_mod.load(tmp_path / "clientco", SECRETS)
     r.answer("HOST_PUBLIC_IP", "198.51.100.7", secret=False)
     r.save()
-    seed = run_mod._seed()
+    seed = run_mod.seed()
     env = seed.read_existing_env(r.env_path)
     assert env["HOST_PUBLIC_IP"] == "198.51.100.7"
     # Every key the template declares is written, the unanswered ones with the
@@ -153,20 +153,6 @@ def test_a_malformed_state_file_is_an_error(tmp_path):
     (path / run_mod.STATE_FILENAME).write_text("[]", encoding="utf-8")
     with pytest.raises(ValueError):
         run_mod.load(path, SECRETS)
-
-
-def test_the_inventories_listed_are_the_clients_not_the_template(tmp_path):
-    for name in ("example", "clientco", "beta", ".hidden"):
-        (tmp_path / name).mkdir()
-    (tmp_path / "stray.txt").write_text("x", encoding="utf-8")
-    assert run_mod.inventories(tmp_path) == ["beta", "clientco"]
-
-
-def test_a_new_inventory_name_is_checked(tmp_path):
-    (tmp_path / "clientco").mkdir()
-    assert run_mod.new_name_problem("newco", tmp_path) == ""
-    for bad in ("", "Upper", "../up", "has space", "example", "clientco"):
-        assert run_mod.new_name_problem(bad, tmp_path), bad
 
 
 def test_a_value_is_found_whichever_half_holds_it(tmp_path):

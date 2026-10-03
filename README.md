@@ -46,10 +46,9 @@ uv run catena-gui
 ```
 It opens a browser page on this machine. The `Inventory` tab lists the inventories in `ansible/inventory/` and creates new ones. The `Installation` tab asks for the target (its address, SSH port, initial user and that user's password) and the configuration (the admin email and the SSH key file), each field with its explanation behind a `(?)`. `Verify configuration and start installation` saves the page to `ansible/inventory/<name>/.env`, so a closed installer resumes where it stopped, tests it against the server (its SSH banner, then whether the key opens the initial login, else whether the initial user's password does) and starts the install, whose output shows on the page. **The initial user's password is never saved**: it stays in memory until the install ends. The `Catena server access` section below the output shows the passwords as soon as the server has generated them, and the command that opens the panel.
 
-   The command-line installer is the alternative. Copy the template, fill in the `.env`, then run the install:
+   The command-line installer is the alternative. `init` creates the inventory and its `ansible/inventory/prod/.env`, every key at its default and explained; fill it in, then run the install:
 ```sh
-mkdir ansible/inventory/prod
-cp ansible/inventory/example/.env.example ansible/inventory/prod/.env
+uv run catena-cli init --inventory prod
 uv run catena-cli install --inventory prod
 ```
    It asks for the provider's password for the initial login only when your key does not open it already. **The password is not persisted anywhere after the install**.
@@ -83,7 +82,7 @@ Alternatives to Tailscale include Headscale and Netbird. Cloudflare alternatives
 
 Day 2 operations run from the Catena-Admin panel on the server: settings, backups, the tunnel, the private network, the lockdown, updates and restores. A rollback restores an earlier snapshot on the same server, and a lost server is recovered by installing Catena on a new one and restoring from the old server's backup repository.
 
-The `catena-cli` CLI keeps two verbs besides `install`. Run them from the repository root, verb first:
+Besides `init` and `install`, the `catena-cli` CLI has two verbs. Run them from the repository root, verb first:
 
 ```sh
 uv run catena-cli converge  --inventory prod  # re-apply the configuration from this machine

@@ -42,16 +42,7 @@
       failed_when: false
       no_log: true
 
-    # The script module ships onbox_config.py alone; the knob registry it reads
-    # is staged from this same checkout (see tasks/load_onbox_config.yml).
-    - name: Stage the knob registry for the store helper
-      ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../helpers/knobs.json"
-        dest: /root/.catena-knobs.json
-        owner: root
-        group: root
-        mode: "0644"
-
+    # The knob registry onbox_config.py reads was staged by the pre_tasks.
     # Only the passwords shown here are minted; the internal secrets stay the
     # converge loader's. An admin password the install pins (install.yaml,
     # threaded in as `-e @file`) is adopted first, fill-only like the loader's

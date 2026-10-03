@@ -1,46 +1,19 @@
-#!/usr/bin/env python3
-"""Render helpers/knobs.yml to its two artifacts, and check they are current.
+"""Load and validate helpers/knobs.yml, the knob registry, and render an
+inventory `.env` from it.
 
-THE ARTIFACTS ARE WHAT EVERY CONSUMER READS. The YAML is what a human edits: it
-carries the rationale, and the rationale is the half that decides whether the
-next knob is declared in the right place.
-
-    helpers/knobs.json                  the registry, for the store, the panel
-                                        and the installer
-    inventory/example/.env.example      the template a client fills in
-
-Why a rendered copy rather than one file. `onbox_config.py` runs as root on a
-minimal target host whose system python has no PyYAML -- it says so about
-itself, and being stdlib-only is the reason it can run there at all. So the
-registry has to reach that host as JSON. catena-admin reads the same JSON
-rather than regex-parsing python out of a sibling repo, which is what it did
-before this file existed. The `.env` template is rendered for a different
-reason: it was a fourth place the same keys, defaults and prose were written
-down by hand.
-
-    render_knobs.py --write     regenerate both artifacts
-    render_knobs.py --check     exit 1 when either is stale
-
-`tests/unit/test_knobs_registry_is_the_declaration.py` runs the check, so CI
-fails on a stale artifact. A knob added to the YAML without re-rendering would
-be a knob the panel and the store never learn about, which is exactly the drift
-the registry exists to stop -- so it has to fail loudly rather than take effect
-on whoever next happens to run --write.
+Every reader with PyYAML calls load(). A host's python has none, so the
+converge stages the registry there as JSON
+(playbooks/tasks/stage_knob_registry.yml) and the catena-admin image build
+does the same for its payload.
 """
 from __future__ import annotations
 
-import argparse
-import json
-import sys
 import textwrap
 from pathlib import Path
 
 import yaml
 
-HERE = Path(__file__).resolve().parent
-SOURCE = HERE / "knobs.yml"
-RENDERED = HERE / "knobs.json"
-ENV_TEMPLATE = HERE.parent / "inventory" / "example" / ".env.example"
+SOURCE = Path(__file__).resolve().parent / "knobs.yml"
 
 RESIDENCES = ("store", "controller", "host")
 KINDS = ("secret", "text", "choice")
@@ -128,8 +101,7 @@ def _check_env(key: str, env: dict, sections: set[str]) -> None:
 
 
 def load(source: Path = SOURCE) -> dict:
-    """Parse and VALIDATE the registry. Every consumer reads a rendered
-    artifact, so this is the only place the shape is enforced."""
+    """Parse and validate the registry: the one place its shape is enforced."""
     doc = yaml.safe_load(source.read_text())
     _require(isinstance(doc, dict), "knobs.yml: top level is not a mapping")
     _require(doc.get("version") == 1, "knobs.yml: expected version 1")
@@ -281,44 +253,22 @@ def load(source: Path = SOURCE) -> dict:
     return doc
 
 
-def rendered(path: Path = RENDERED) -> dict:
-    """The registry as the consumers read it. Every reader that has PyYAML
-    still reads the JSON, so a stale render makes them all stale together
-    rather than making one of them disagree with the rest."""
-    return json.loads(path.read_text())
-
-
-def render(doc: dict) -> str:
-    """The registry artifact. Declaration order is preserved -- it is the order
-    the settings page renders fields within a group -- and the trailing newline
-    keeps the file diffable."""
-    return json.dumps(doc, indent=2) + "\n"
-
-
-def step_knobs(doc: dict, step: str) -> list[dict]:
-    """What one installer page asks for, secrets first.
-
-    Secrets first because that is the order a page reads in: the credential
-    that proves a thing, then the values it configures. It is also the order
-    the settings page uses, so a client who has seen one recognises the other.
-    """
-    return [entry for entry in [*doc["secrets"], *doc["config"]]
-            if entry.get("step") == step]
-
-
-def env_knobs(doc: dict) -> list[dict]:
-    """The config knobs the `.env` carries, in the order the template prints
-    them. seed prompts in this order too, so a client answering the prompts and
-    a client editing the file walk the same sequence."""
+def _env_by_section(doc: dict) -> dict[str, list[dict]]:
     by_section: dict[str, list[dict]] = {}
     for entry in doc["config"]:
         env = entry.get("env")
         if env:
             by_section.setdefault(env["section"], []).append(entry)
-    out: list[dict] = []
-    for section in doc["env_sections"]:
-        out.extend(by_section.get(section["name"], []))
-    return out
+    return by_section
+
+
+def env_knobs(doc: dict) -> list[dict]:
+    """The config knobs the `.env` carries, in the order it prints them. seed
+    prompts in this order too, so a client answering the prompts and a client
+    editing the file walk the same sequence."""
+    by_section = _env_by_section(doc)
+    return [entry for section in doc["env_sections"]
+            for entry in by_section.get(section["name"], [])]
 
 
 def _comment(text: str) -> list[str]:
@@ -356,14 +306,10 @@ def _comment(text: str) -> list[str]:
 
 
 def render_env(doc: dict) -> str:
-    """The `.env` template: the preamble, then one block per section, then one
+    """An inventory `.env`: the preamble, then one block per section, then one
     commented, defaulted key per knob that declares an env home."""
     lines = _comment(doc["env_header"])
-    by_section: dict[str, list[dict]] = {}
-    for entry in doc["config"]:
-        env = entry.get("env")
-        if env:
-            by_section.setdefault(env["section"], []).append(entry)
+    by_section = _env_by_section(doc)
 
     for section in doc["env_sections"]:
         lines.append("")
@@ -384,43 +330,3 @@ def render_env(doc: dict) -> str:
             lines.append(f"{entry['key']}={entry['env']['default']}")
     return "\n".join(lines) + "\n"
 
-
-# Each artifact: where it lives, and what rendering the source produces for it.
-_ARTIFACTS = ((RENDERED, render), (ENV_TEMPLATE, render_env))
-
-
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    mode = ap.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--write", action="store_true", help="regenerate both artifacts")
-    mode.add_argument("--check", action="store_true",
-                      help="exit 1 when either artifact is stale")
-    args = ap.parse_args(argv)
-
-    try:
-        doc = load()
-        payloads = [(path, renderer(doc)) for path, renderer in _ARTIFACTS]
-    except KnobError as exc:
-        print(f"knobs.yml: {exc}", file=sys.stderr)
-        return 1
-
-    if args.write:
-        for path, payload in payloads:
-            path.write_text(payload)
-            print(f"wrote {path}")
-        return 0
-
-    stale = [path for path, payload in payloads
-             if (path.read_text() if path.exists() else "") != payload]
-    if not stale:
-        print(f"{', '.join(p.name for p in (RENDERED, ENV_TEMPLATE))} are current")
-        return 0
-    print(f"STALE: {', '.join(str(p) for p in stale)} -- run "
-          "`python3 helpers/render_knobs.py --write` and commit the result",
-          file=sys.stderr)
-    return 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

@@ -40,7 +40,7 @@ install followed by a restore from the panel, so it needs nothing else here.
 ## It holds no knob knowledge
 
 The sections, their explanations and the questions each asks come from
-[`../ansible/helpers/knobs.json`](../ansible/helpers/knobs.json), the registry
+[`../ansible/helpers/knobs.yml`](../ansible/helpers/knobs.yml), the registry
 the on-box store, the installer and the settings page all read. A knob that
 declares a `step` appears in that section under its `label`, with its
 explanation behind a `(?)` tooltip; one that does not is never asked. There is
@@ -64,8 +64,8 @@ labelled optional.
 
 ## An inventory is the run
 
-Two tabs. Inventory lists the directories under `../ansible/inventory/` (the
-shipped `example` excluded), one per line, and creates new ones. Installation
+Two tabs. Inventory lists the directories under `../ansible/inventory/`, one
+per line, and creates new ones. Installation
 is one page: the target and the configuration in one form, the button that
 verifies and installs, the install's output, and then the server access
 section with the passwords and the way into the panel. Every field starts from

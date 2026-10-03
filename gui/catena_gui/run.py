@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -58,48 +57,12 @@ STATE_FILENAME = ".catena-gui.json"
 # How much of the install's output the page keeps, in a box that scrolls.
 LOG_LINES = 2000
 
-# The inventory the repository ships as a template, which is never a client's.
-TEMPLATE_INVENTORY = "example"
-# A directory name that is also a safe hostname-ish label: it becomes the
-# inventory `catena-cli --inventory` names.
-_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
 
-
-def inventory_root() -> Path:
-    return registry.ANSIBLE_DIR / "inventory"
-
-
-def _seed():
-    """seed.py, the installer's own reader and writer of an inventory `.env`.
-
-    Imported from the sibling tree rather than reimplemented: one writer, so a
-    file the launcher saved is byte-for-byte what `catena-cli install` would
-    have written from the same answers."""
+def seed():
+    """seed.py, the installer's own reader and writer of an inventory and its
+    `.env`: one writer, so a file the launcher saved is byte-for-byte what
+    `catena-cli` would have written from the same answers."""
     return registry.ansible_module("seed")
-
-
-def inventories(root: Path | None = None) -> list[str]:
-    """The inventories a client can open: every directory under
-    ansible/inventory/ except the shipped template."""
-    root = root or inventory_root()
-    if not root.is_dir():
-        return []
-    return sorted(p.name for p in root.iterdir()
-                  if p.is_dir() and p.name != TEMPLATE_INVENTORY
-                  and not p.name.startswith("."))
-
-
-def new_name_problem(name: str, root: Path | None = None) -> str:
-    """Why `name` cannot be a new inventory, or "" when it can."""
-    root = root or inventory_root()
-    if not _NAME.match(name):
-        return ("use lower-case letters, digits, dashes and underscores, "
-                "starting with a letter or digit")
-    if name == TEMPLATE_INVENTORY:
-        return "that name is the template every inventory starts from"
-    if (root / name).exists():
-        return "an inventory with that name already exists; open it instead"
-    return ""
 
 
 @dataclass
@@ -160,20 +123,11 @@ class Run:
 
     def save(self) -> None:
         """Write the `.env` through seed's writer and the launcher's state, both
-        0600, the state atomically.
-
-        The `.env` starts from the template's defaults, so a new inventory
-        carries every key the installer reads, filled the way a client copying
-        the template by hand would see it; the answers are laid over them. A
-        credential never reaches it, whichever half a caller filed it in."""
+        0600, the state atomically. A credential never reaches the `.env`,
+        whichever half a caller filed it in."""
         self.path.mkdir(parents=True, exist_ok=True)
-        seed = _seed()
-        values = {key: default for key, default in seed.ENV_KEYS}
-        values.update({k: v for k, v in self.answers.items()
-                       if k not in self.secret_keys})
-        seed.emit_env(seed.ENV_TEMPLATE.read_text(encoding="utf-8"), values,
-                      self.env_path, keep_existing=False)
-        os.chmod(str(self.env_path), 0o600)
+        seed().write_env(self.path, {k: v for k, v in self.answers.items()
+                                     if k not in self.secret_keys})
 
         payload = {
             "state": self.state,
@@ -203,7 +157,7 @@ def load(path: Path, secret_keys: frozenset[str] = frozenset()) -> Run:
     """
     run = Run(path=path, secret_keys=secret_keys)
     if run.env_path.is_file():
-        run.answers = {k: v for k, v in _seed().read_existing_env(run.env_path).items()
+        run.answers = {k: v for k, v in seed().read_existing_env(run.env_path).items()
                        if k not in secret_keys}
     if not run.state_path.is_file():
         return run

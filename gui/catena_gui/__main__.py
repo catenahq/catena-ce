@@ -105,12 +105,12 @@ def install(run: run_mod.Run, ansible_dir: Path) -> int:
 def _open(name: str, doc: dict) -> run_mod.Run:
     """The inventory `name` as a run: opened when it exists, created when the
     name is a valid new one."""
-    if name not in run_mod.inventories():
-        problem = run_mod.new_name_problem(name)
+    seed = run_mod.seed()
+    if name not in seed.inventories():
+        problem = seed.inventory_name_problem(name)
         if problem:
             raise SystemExit(f"--inventory {name!r}: {problem}")
-    return run_mod.load(run_mod.inventory_root() / name,
-                        run_mod.secret_keys_from(doc))
+    return run_mod.load(seed.INVENTORY_ROOT / name, run_mod.secret_keys_from(doc))
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -1,21 +1,15 @@
 # Inventory
 
-One subdirectory per deployment: `inventory/<name>/`. The graphical
-installer (`uv run catena-gui`) creates one and writes its `.env` from its
-form; by hand, copy `example/.env.example` here as `.env` and fill it in.
-`catena-cli install --inventory <name>` then reads it rather than writing
-it, and creates `hosts.yml` itself from `../skel/` on that same first
-run. `bootstrap.yml` records the address it installed on,
-and `catena-cli` folds it into `hosts.yml`. `-i install.yaml` generates
-everything from scratch instead (the bench / power-user path).
-
-Real inventories are gitignored. Only `example/.env.example` is tracked,
-and it is GENERATED from
-[../helpers/knobs.yml](../helpers/knobs.yml) by
-`python3 helpers/render_knobs.py --write`: a key, its default and its
-explanation are declared there once, for this template and for the store
-and panel that read the same value later. `hosts.yml` has no
-per-deployment variation to document -- `../skel/` carries it.
+One subdirectory per deployment: `inventory/<name>/`, gitignored.
+`catena-cli init --inventory <name>` creates one with its `.env`, every key at
+its default and explained; the graphical installer (`uv run catena-gui`)
+creates one and writes the `.env` from its form. Both render it from
+[../helpers/knobs.yml](../helpers/knobs.yml), where a key, its default and its
+explanation are declared once. `catena-cli install --inventory <name>` then
+reads it rather than writing it, and creates `hosts.yml` itself from
+`../skel/` on that same first run. `bootstrap.yml` records the address it
+installed on, and `catena-cli` folds it into `hosts.yml`. `-i install.yaml`
+generates everything from scratch instead (the bench / power-user path).
 
 | File | What it holds |
 | --- | --- |

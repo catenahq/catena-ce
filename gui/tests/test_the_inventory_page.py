@@ -34,7 +34,7 @@ def client(tmp_path, monkeypatch):
     """A running handler over an empty ansible/inventory/ in tmp_path."""
     monkeypatch.setattr(steps_mod, "validate", lambda *a, **k: [])
     ansible = tmp_path / "ansible"
-    (ansible / "inventory" / "example").mkdir(parents=True)
+    (ansible / "inventory").mkdir(parents=True)
     server._Handler.run = None
     server._Handler.doc = DOC
     server._Handler.ansible_dir = ansible
@@ -129,7 +129,7 @@ def test_saving_keeps_a_key_the_template_does_not_carry(client, started):
     env.write_text("HOST_PUBLIC_IP=198.51.100.7\nCLIENT_OWN_KEY=kept\n")
     request("POST", "/inventory", {"open": "handmade"})
     request("POST", "/", _INSTALL)
-    saved = run_mod._seed().read_existing_env(env)
+    saved = run_mod.seed().read_existing_env(env)
     assert (saved["CLIENT_OWN_KEY"], saved["HOST_PUBLIC_IP"]) == ("kept", "198.51.100.7")
 
 
@@ -138,7 +138,7 @@ def test_a_bad_name_is_refused_on_the_page(client):
     status, where, _ = request("POST", "/inventory", {"create": "Bad Name"})
     assert (status, where) == (303, "/inventory")
     assert "lower-case" in request("GET", "/inventory")[2]
-    assert run_mod.inventories(root) == []
+    assert run_mod.seed().inventories(root) == []
 
 
 def test_a_field_is_named_by_its_label_and_explains_itself_in_a_tooltip(client):
@@ -182,7 +182,7 @@ def test_the_form_is_saved_even_when_verification_fails(client, started, monkeyp
         steps_mod.Check("reachable", False)])
     request("POST", "/", {**_REQUIRED, **_INSTALL})
     assert started == []
-    saved = run_mod._seed().read_existing_env(root / "newco" / ".env")
+    saved = run_mod.seed().read_existing_env(root / "newco" / ".env")
     assert saved["ADMIN_EMAIL"] == "admin@client.test"
 
     request("POST", "/inventory", {"create": "other"})

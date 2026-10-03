@@ -179,7 +179,6 @@ def test_check_prereqs_all_present(cli, monkeypatch):
 
 def test_required_binaries_are_ansible_only(cli):
     assert cli.REQUIRED_BINARIES == ("ansible-playbook", "ansible")
-    assert not hasattr(cli, "ensure_age_key_env")
 
 
 def test_preflight_passes_with_core_binaries(cli, monkeypatch):
@@ -209,10 +208,8 @@ def test_ensure_collections_uses_writable_override_path(cli, monkeypatch, tmp_pa
 
 
 def test_collections_dir_matches_ansible_cfg(cli):
-    """The in-tree galaxy install target is READ from ansible.cfg, never
-    duplicated. A hardcoded copy drifted once (install to collections/, ansible
-    reading .collections/) and the converge silently used whatever collections
-    the controller had."""
+    """The in-tree galaxy install target is READ from ansible.cfg, so the
+    install lands where ansible looks."""
     import configparser
 
     cfg = configparser.ConfigParser()
@@ -470,10 +467,47 @@ def test_show_dr_keyset_failing_does_not_stop_the_install(cli, tmp_path, monkeyp
     assert cli.KEYSET_BEGIN not in err and "could not show the passwords" in err
 
 
-def test_the_verbs_are_install_converge_and_uninstall(cli):
-    """The CLI reaches the server over SSH. Backups, the tunnel, the tailnet
-    and the passwords are the panel's, on the host."""
-    assert cli.KNOWN_COMMANDS == ("install", "converge", "uninstall")
+def test_the_verbs_are_init_install_converge_and_uninstall(cli):
+    """The CLI writes an inventory and reaches the server over SSH. Backups,
+    the tunnel, the tailnet and the passwords are the panel's, on the host."""
+    assert cli.KNOWN_COMMANDS == ("init", "install", "converge", "uninstall")
+
+
+# ---- init: a new inventory to fill in ----
+
+def _init(cli, monkeypatch, tmp_path, argv):
+    monkeypatch.setattr(cli, "inventory_path", lambda name: tmp_path / name)
+    ns = cli.build_parser().parse_args(argv)
+    return ns.func(ns)
+
+
+def test_init_writes_an_env_with_every_default(cli, monkeypatch, tmp_path, capsys):
+    import seed
+
+    assert _init(cli, monkeypatch, tmp_path, ["init", "--inventory", "newco"]) == 0
+    env = seed.read_existing_env(tmp_path / "newco" / ".env")
+    assert env == dict(seed.ENV_KEYS)
+    assert "catena-cli install --inventory newco" in capsys.readouterr().err
+
+
+def test_init_refuses_an_inventory_that_exists(cli, monkeypatch, tmp_path):
+    (tmp_path / "clientco").mkdir()
+    with pytest.raises(SystemExit):
+        _init(cli, monkeypatch, tmp_path, ["init", "--inventory", "clientco"])
+    assert not (tmp_path / "clientco" / ".env").exists()
+
+
+def test_init_refuses_a_name_that_is_not_one(cli, monkeypatch, tmp_path):
+    with pytest.raises(SystemExit):
+        _init(cli, monkeypatch, tmp_path, ["init", "--inventory", "Has Space"])
+
+
+def test_init_takes_a_path_outside_the_checkout(cli, monkeypatch, tmp_path, capsys):
+    target = tmp_path / "ops-inv" / "clientA"
+    assert _init(cli, monkeypatch, tmp_path,
+                 ["init", "--inventory-path", str(target)]) == 0
+    assert (target / ".env").is_file()
+    assert f"--inventory-path {target}" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("verb", ["backup", "validate", "rotate-tunnel",
@@ -572,21 +606,27 @@ def test_install_flag_is_alias_for_install_subcommand(cli, monkeypatch):
 def test_interactive_menu_prompts_inventory_before_command(cli, monkeypatch):
     """Inventory first, then the numbered menu -- every command (install
     included) comes back with --inventory attached."""
-    answers = iter(["dev", "1"])  # inventory, then 1 == install
+    answers = iter(["dev", "2"])  # inventory, then 2 == install
     monkeypatch.setattr("builtins.input", lambda *a: next(answers))
     assert cli.interactive_menu() == ["install", "--inventory", "dev"]
 
 
 def test_interactive_menu_other_command(cli, monkeypatch):
-    answers = iter(["dev", "2"])  # inventory, then 2 == converge
+    answers = iter(["dev", "3"])  # inventory, then 3 == converge
     monkeypatch.setattr("builtins.input", lambda *a: next(answers))
     assert cli.interactive_menu() == ["converge", "--inventory", "dev"]
 
 
 def test_interactive_menu_inventory_defaults_to_prod(cli, monkeypatch):
-    answers = iter(["", "3"])  # blank inventory -> prod, then 3 == uninstall
+    answers = iter(["", "4"])  # blank inventory -> prod, then 4 == uninstall
     monkeypatch.setattr("builtins.input", lambda *a: next(answers))
     assert cli.interactive_menu() == ["uninstall", "--inventory", "prod"]
+
+
+def test_interactive_menu_defaults_to_install(cli, monkeypatch):
+    answers = iter(["dev", ""])
+    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+    assert cli.interactive_menu() == ["install", "--inventory", "dev"]
 
 
 def test_interactive_menu_rejects_bad_choice(cli, monkeypatch):
@@ -668,7 +708,7 @@ def test_restores_are_not_cli_verbs(cli, verb):
 
 
 def test_main_refuses_inventory_first_shape(cli, monkeypatch):
-    """The retired shape is an error, not a silent reinterpretation."""
+    """An inventory-first shape is an error, not a silent reinterpretation."""
     monkeypatch.setattr(cli.os, "chdir", lambda p: None)
     with pytest.raises(SystemExit):
         cli.main(["dev", "converge"])

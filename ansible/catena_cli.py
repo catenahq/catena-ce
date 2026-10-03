@@ -6,6 +6,8 @@ ansible-playbook. It reaches the server over SSH; everything else -- backups,
 the tunnel, the tailnet, the passwords -- runs from catena-admin on the host.
 Subcommands:
 
+  init       create an inventory: its .env, every key at its default and
+             explained, to fill in before `install`
   install    seed config (reuses seed.py), then run bootstrap, show the
              passwords the server minted, run converge -> validate, and
              show the passwords again. Run again, it shows them again.
@@ -324,9 +326,9 @@ def _preflight_checks(binaries: tuple[str, ...] = REQUIRED_BINARIES) -> None:
 def _require_inventory(inv_dir: Path) -> None:
     if not inv_dir.is_dir():
         die(
-            f"inventory not found at {inv_dir}. Copy inventory/example/ "
-            f"there, fill in .env and hosts.yml, then run "
-            f"`catena-cli install --inventory {inv_dir.name}` first."
+            f"inventory not found at {inv_dir}. Create it with "
+            f"`catena-cli init --inventory {inv_dir.name}`, fill in its .env, "
+            f"then run `catena-cli install --inventory {inv_dir.name}` first."
         )
 
 
@@ -420,6 +422,25 @@ def _show_dr_keyset(inv_dir: Path, extra: list[str] | None = None, *,
     return keysets
 
 
+def cmd_init(args: argparse.Namespace) -> int:
+    import seed
+
+    if args.inventory_path:
+        inv_dir = Path(args.inventory_path).expanduser()
+        problem = "it already exists" if inv_dir.exists() else ""
+        flag = f"--inventory-path {inv_dir}"
+    else:
+        inv_dir = inventory_path(args.inventory)
+        problem = seed.inventory_name_problem(args.inventory, inv_dir.parent)
+        flag = f"--inventory {args.inventory}"
+    if problem:
+        die(f"cannot create the inventory {inv_dir}: {problem}")
+    env = seed.write_env(inv_dir, {})
+    print(_c("1;32", f"+ wrote {env}"), file=sys.stderr)
+    print(f"Fill it in, then run: catena-cli install {flag}", file=sys.stderr)
+    return 0
+
+
 def cmd_install(args: argparse.Namespace) -> int:
     _preflight_checks()
 
@@ -505,6 +526,7 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
 # argv[0] tokens `_normalize_argv` recognizes as "this is a subcommand, not
 # an inventory name".
 MENU_COMMANDS = (
+    ("init", "Create an inventory to fill in"),
     ("install", "Set up a new host (seed + deploy)"),
     ("converge", "Re-apply the configuration from this machine"),
     ("uninstall", "Hand unattended-upgrades back to the OS"),
@@ -517,7 +539,8 @@ def _choose_command() -> str:
     print(_c("1;34", "catena-cli -- choose an operation:"), file=sys.stderr)
     for i, (name, desc) in enumerate(MENU_COMMANDS, 1):
         print(f"  {i:>2}) {name:<18} {desc}", file=sys.stderr)
-    choice = input("\nNumber [1=install]: ").strip() or "1"
+    default = str(KNOWN_COMMANDS.index("install") + 1)
+    choice = input(f"\nNumber [{default}=install]: ").strip() or default
     try:
         return MENU_COMMANDS[int(choice) - 1][0]
     except (ValueError, IndexError):
@@ -556,6 +579,11 @@ def build_parser() -> argparse.ArgumentParser:
     # Not required: bare `catena-cli` drops into interactive_menu() instead of
     # erroring, so a self-hoster can discover the subcommands.
     sub = ap.add_subparsers(dest="command", required=False)
+
+    p_init = sub.add_parser(
+        "init", help="create an inventory's .env, every key at its default")
+    _add_inventory_args(p_init, required=True)
+    p_init.set_defaults(func=cmd_init)
 
     p_install = sub.add_parser(
         "install",

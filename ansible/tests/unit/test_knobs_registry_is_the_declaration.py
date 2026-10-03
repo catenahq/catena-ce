@@ -1,21 +1,13 @@
-"""helpers/knobs.yml is the registry, and its two artifacts say the same thing.
+"""helpers/knobs.yml is the registry: it validates, and what onbox_config
+derives from it holds.
 
-Three properties, and the third is the one with teeth.
-
-The first two are about the artifacts: the YAML parses and validates, and
-knobs.json plus inventory/example/.env.example are what rendering it produces.
-A stale artifact is a knob the store, the panel or the installer never learns
-about, so `render_knobs.py --check` failing here is the same signal CI gives.
-
-The third holds what onbox_config DERIVES from the registry: which credentials
-the store accepts, which knobs reach the converge as facts, and that the three
-residences partition rather than overlap. Plus the two failure modes of reading
-a file instead of holding a literal -- an absent registry has to raise rather
-than empty, and an explicit path has to win.
+The derived part: which credentials the store accepts, which knobs reach the
+converge as facts, and that the three residences partition rather than overlap.
+Plus the two failure modes of reading a file instead of holding a literal -- an
+absent registry has to raise rather than empty, and an explicit path has to win.
 """
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -31,18 +23,12 @@ from helpers import onbox_config, render_knobs  # noqa: E402
 
 @pytest.fixture(scope="module")
 def registry() -> dict:
-    return json.loads(render_knobs.RENDERED.read_text())
-
-
-def test_source_validates():
     """Every shape rule in render_knobs.load() holds on the shipped file."""
-    render_knobs.load()
+    return render_knobs.load()
 
 
-def test_both_artifacts_are_current():
-    assert render_knobs.main(["--check"]) == 0, (
-        "an artifact is stale -- run `python3 helpers/render_knobs.py --write`"
-    )
+def test_onbox_config_reads_the_same_registry(registry):
+    assert onbox_config._KNOBS == registry
 
 
 def test_the_store_accepts_every_declared_credential(registry):
@@ -58,8 +44,7 @@ def test_only_projected_store_knobs_reach_the_converge(registry):
 
     Those are read straight off the store by a runtime lane with no converge in
     between, so there is no fact to publish. Publishing one anyway would create
-    an Ansible variable no role reads, which is the silent half of the drift
-    this registry exists to stop.
+    an Ansible variable no role reads.
     """
     unprojected = {
         k["key"] for k in registry["config"]
@@ -144,28 +129,17 @@ def test_every_remote_store_call_names_the_staged_registry():
 
 
 def test_every_knob_has_exactly_one_owner(registry):
-    """No key belongs to two residences, and none belongs to none.
-
-    onbox_config states this property about its own two sets ("a key that is in
-    NEITHER set is a gate failure rather than an unnoticed third owner"), but
-    the host identity keys were in neither: they are written into hosts.yml by
-    seed, which is a third owner that nothing named. `residence: host` names it.
-    """
+    """No key belongs to two residences, and none belongs to none: `host` is
+    the target identity seed writes into hosts.yml."""
     for knob in registry["config"]:
         assert knob["residence"] in render_knobs.RESIDENCES, knob["key"]
 
 
-def test_the_env_template_carries_every_key_that_declares_one(registry):
-    """The generated template is the registry's env knobs and nothing else.
-
-    `test_both_artifacts_are_current` already compares the file byte for byte
-    with what rendering produces, so what is left to state is the property that
-    comparison cannot: that the RENDERER emits one line per declared key. A
-    renderer that dropped a section would still be self-consistent, and the
-    missing key would read as a knob nobody ever added.
-    """
+def test_the_env_carries_every_key_that_declares_one(registry):
+    """A rendered `.env` is the registry's env knobs and nothing else: a
+    renderer that dropped a section would leave a key nobody can set."""
     declared = {k["key"]: k["env"]["default"] for k in registry["config"] if "env" in k}
-    assert declared, "no knob declares an env home, so the template is empty"
+    assert declared, "no knob declares an env home, so the .env is empty"
 
     in_template: dict[str, str] = {}
     for raw in render_knobs.render_env(registry).splitlines():

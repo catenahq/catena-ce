@@ -35,5 +35,5 @@ Unit tests for these live in `../tests/unit/`.
 | `labels_schema.py` | Compose-label parsing + image-tag classification for the vps.* vocabulary. |
 | `onbox_config.py` | On-box config store for Catena (0b client-owned config). |
 | `public_ports.py` | Declarative public-port registry: single source of truth for every direct public port the VPS exposes outside the Cloudflare Tunnel. |
-| `render_knobs.py` | Render helpers/knobs.yml to its two artifacts, and check they are current. |
+| `render_knobs.py` | Load and validate helpers/knobs.yml, the knob registry, and render an inventory `.env` from it. |
 | `tailnet_reachability.py` | Ask the tailnet whether this host is reachable on it, before public 22 closes. |

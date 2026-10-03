@@ -32,9 +32,8 @@ laptop, and ``/etc`` is in ``reconcile/roles/backup`` ``backup_paths`` so the st
 rides every restic snapshot -- a restore returns every secret with the data.
 
 Design constraints:
-  - stdlib only. Runs on a minimal target host whose system python has no
-    PyYAML. JSON is stdlib and round-trips base64 / url-safe secret values
-    exactly.
+  - stdlib only on a host, whose system python has no PyYAML. JSON is stdlib
+    and round-trips base64 / url-safe secret values exactly.
   - INTERNAL secrets are minted here; EXTERNAL secrets (vendor creds the
     client supplies) are only ever *stored*, never generated -- they arrive
     via the two-phase bootstrap or the catena-admin settings API.
@@ -71,22 +70,17 @@ DEFAULT_STORE_PATH = "/etc/catena/config.json"
 # --- the knob registry ------------------------------------------------------
 #
 # Which vendor credentials the store accepts, which config keys it owns, and
-# which the inventory keeps, are DECLARED in helpers/knobs.yml and read here
-# from the JSON rendered beside it. One declaration, four consumers: this
-# module, seed.py, the panel's settings schema and the launcher.
+# which the inventory keeps, are DECLARED in helpers/knobs.yml.
 #
-# JSON rather than the YAML itself for the reason this module is stdlib-only in
-# the first place: it runs as root on a minimal target host, where PyYAML is
-# not installed and cannot be assumed.
+# On a host the registry is JSON, because this module runs there on a python
+# with no PyYAML: the converge stages it (playbooks/tasks/stage_knob_registry.yml)
+# and the payload installs it. A checkout reads knobs.yml itself, on a
+# controller that has PyYAML. Resolution order:
 #
-# Resolution order mirrors the payload's own lane scripts, which resolve their
-# modules the same way and for the same reason -- the payload ships the file,
-# and a checkout runs from the tree:
-#
-#   CATENA_KNOBS          an explicit path (tests, and a host with an odd layout)
-#   CATENA_PAYLOAD_LIB    the payload's lib dir, when it is set
-#   /usr/local/lib/catena where the payload installs it
-#   this script's directory   the catena-ce checkout
+#   CATENA_KNOBS              an explicit JSON path (the converge, tests)
+#   CATENA_PAYLOAD_LIB        the payload's lib dir, when it is set
+#   /usr/local/lib/catena     where the payload installs it
+#   this script's directory   knobs.yml, in the catena-ce checkout
 #
 # A MISSING REGISTRY RAISES. Falling back to empty sets would leave
 # apply_inputs refusing every credential the client supplies and the converge
@@ -105,23 +99,28 @@ def _knobs_path() -> Path:
     if payload_lib:
         candidates.append(Path(payload_lib) / _KNOBS_FILENAME)
     candidates.append(Path("/usr/local/lib/catena") / _KNOBS_FILENAME)
-    candidates.append(Path(__file__).resolve().parent / _KNOBS_FILENAME)
+    candidates.append(Path(__file__).resolve().parent / "knobs.yml")
     for candidate in candidates:
         if candidate.is_file():
             return candidate
     raise FileNotFoundError(
-        f"the knob registry ({_KNOBS_FILENAME}) is not at any of "
-        f"{[str(c) for c in candidates]}. It is rendered from "
-        "helpers/knobs.yml and installed by the payload; without it this host "
-        "would refuse every credential and publish no config."
+        f"the knob registry is not at any of {[str(c) for c in candidates]}. "
+        "The converge stages it and the payload installs it; without it this "
+        "host would refuse every credential and publish no config."
     )
 
 
 def _load_knobs() -> dict:
-    doc = json.loads(_knobs_path().read_text())
+    path = _knobs_path()
+    if path.suffix == ".yml":
+        import yaml
+
+        doc = yaml.safe_load(path.read_text())
+    else:
+        doc = json.loads(path.read_text())
     if doc.get("version") != 1:
         raise ValueError(
-            f"{_KNOBS_FILENAME} declares version {doc.get('version')!r}; "
+            f"{path.name} declares version {doc.get('version')!r}; "
             "this reader knows version 1"
         )
     return doc

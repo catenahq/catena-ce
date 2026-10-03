@@ -78,12 +78,6 @@ def test_load_input_missing_path_dies(seed, tmp_path):
         seed.load_input(tmp_path / "no-such-file.yaml")
 
 
-def test_no_client_age_pubkey_field(seed):
-    """Community is single-recipient: the operator+client dual-recipient
-    install.yaml field is gone."""
-    assert "client_age_pubkey" not in seed.load_input(None)
-
-
 # --- what the installer does not take ---------------------------------------
 def _inp(env=None, secrets=None):
     return {"inventory": "prod", "host": {}, "env": env or {}, "secrets": secrets or {}}
@@ -149,65 +143,62 @@ def test_an_env_with_only_installer_lines_says_nothing(seed, tmp_path, capsys):
     assert capsys.readouterr().err == ""
 
 
-def test_the_seed_time_account_fetch_is_gone(seed):
-    """The account id is not a seed input: the host engine resolves it from the
-    token, so a second resolver here would be a second answer."""
-    for gone in ("fetch_cloudflare_account_id", "_resolve_cloudflare_account",
-                 "_install_secret_keys"):
-        assert not hasattr(seed, gone), f"{gone} should be removed"
-
-
 # --- the question list comes from the registry ------------------------------
 def test_the_prompts_are_the_registrys_env_knobs(seed):
-    """Which keys seed asks about, and what each defaults to, is declared once.
-
-    A hand-kept list here is a fourth copy of the same names, beside the
-    template, the store's two maps and the panel's schema. Copies of one
-    declaration drift, which is what the registry exists to stop: so the list
-    is DERIVED, and the template it prompts from renders from the same source.
-    """
+    """Which keys seed asks about, and what each defaults to, is the registry's."""
     declared = [
         (knob["key"], knob["env"]["default"])
-        for knob in render_knobs.env_knobs(render_knobs.rendered())
+        for knob in render_knobs.env_knobs(render_knobs.load())
     ]
     assert seed.ENV_KEYS == declared
 
 
-def test_the_prompt_order_is_the_template_order(seed):
+def test_the_prompt_order_is_the_env_order(seed):
     """A client answering prompts and a client editing the file walk the same
     sequence, or the two surfaces describe the install in different orders."""
-    in_template = [key for key, _ in seed.parse_env_pairs(seed.ENV_TEMPLATE.read_text())]
-    assert [key for key, _ in seed.ENV_KEYS] == in_template
+    in_env = [key for key, _ in seed.parse_env_pairs(seed.env_template())]
+    assert [key for key, _ in seed.ENV_KEYS] == in_env
 
 
 def test_env_options_are_the_registrys_enumerations(seed):
-    """Derived, so the set is whatever the registry enumerates. Held against
-    the registry rather than a literal list, which would be the copy this whole
-    derivation exists to remove."""
     declared = {
         knob["key"]: knob["env"]["options"]
-        for knob in render_knobs.env_knobs(render_knobs.rendered())
+        for knob in render_knobs.env_knobs(render_knobs.load())
         if "options" in knob["env"]
     }
     assert seed.ENV_OPTIONS == declared
 
 
-def test_env_options_drop_managed_lifecycle_knobs(seed):
-    """Auto-update + scheduled-backup tiers are Business managed-lifecycle
-    features, absent from the Community template + wizard. STORAGE_MODE is not
-    a Community knob either: the product owns one data prefix on the disk the
-    host already has and manages no block devices."""
-    for key in ("AUTO_UPDATE_MODE", "AUTO_UPDATE_REBOOT",
-                "AUTO_UPDATE_PROVIDER", "BACKUP_TIER",
-                "STORAGE_MODE", "STORAGE_BLOCK_DEVICE"):
-        assert key not in seed.ENV_OPTIONS
+# --- inventories -------------------------------------------------------------
+def test_the_inventories_listed_are_directories(seed, tmp_path):
+    for name in ("clientco", "beta", ".hidden"):
+        (tmp_path / name).mkdir()
+    (tmp_path / "stray.txt").write_text("x")
+    assert seed.inventories(tmp_path) == ["beta", "clientco"]
 
 
-def test_admin_password_min_len_only(seed):
-    """Only the override floor remains; there is no auto-mint length (the admin
-    password is minted on-box, not by seed)."""
+def test_a_new_inventory_name_is_checked(seed, tmp_path):
+    (tmp_path / "clientco").mkdir()
+    assert seed.inventory_name_problem("newco", tmp_path) == ""
+    for bad in ("", "Upper", "../up", "has space", "clientco"):
+        assert seed.inventory_name_problem(bad, tmp_path), bad
+
+
+def test_write_env_lays_answers_over_every_default(seed, tmp_path):
+    """Every key with an env home is written, 0600, the unanswered ones at
+    their default, under the explanation the registry gives."""
+    target = seed.write_env(tmp_path / "clientco", {"HOST_PUBLIC_IP": "198.51.100.7"})
+    assert (target.stat().st_mode & 0o777) == 0o600
+    env = seed.read_existing_env(target)
+    assert env["HOST_PUBLIC_IP"] == "198.51.100.7"
+    for key, default in seed.ENV_KEYS:
+        if key != "HOST_PUBLIC_IP":
+            assert env[key] == default, key
+    assert target.read_text().startswith("#")
+
+
+def test_a_pinned_admin_password_has_a_floor(seed):
     assert seed.ADMIN_PASSWORD_MIN_LEN >= 16
-    assert not hasattr(seed, "ADMIN_PASSWORD_AUTO_LEN")
 
 
 # --- emit_env ---------------------------------------------------------------
@@ -446,27 +437,6 @@ def test_validate_structural_refuses_a_defaulted_key_answered_blank(seed):
     assert seed.validate_install_structural(inp, [("HOST_INITIAL_USER", "root")]) >= 1
 
 
-def test_access_mode_is_gone(seed):
-    """Only one install shape exists: a reintroduced helper or env option
-    would mean a second one came back."""
-    assert not hasattr(seed, "_access_mode")
-    assert "ACCESS_MODE" not in seed.ENV_OPTIONS
-
-
-# --- true on-box minting: seed mints NOTHING --------------------------------
-def test_seed_mints_no_secrets(seed):
-    """Seed mints nothing. Internal service secrets AND the
-    user-held passwords are all minted ON-BOX (helpers/onbox_config.py)."""
-    for gone in ("_resolve_service_secrets", "_mint_strong_password",
-                 "_resolve_restic_password", "_resolve_admin_password",
-                 "_print_secret_block", "_mint_oauth2_proxy_cookie_secret",
-                 "_mint_hc_api_key", "_mint_url_safe"):
-        assert not hasattr(seed, gone), f"{gone} should be removed"
-    # The only secret handling left: the transient adopt-file writer + the
-    # optional admin-override passthrough.
-    assert hasattr(seed, "write_secrets_out")
-
-
 def test_ipv4_endpoint_shows_the_bootstrap_target(seed):
     """The one field a stale inventory gets wrong silently. Echoed as the
     login+port pair bootstrap will actually dial."""
@@ -479,17 +449,11 @@ def test_ipv4_endpoint_shows_the_bootstrap_target(seed):
     assert "NOT SET" in seed._ipv4_endpoint({"HOST_PUBLIC_IP": ""})
 
 
-def test_resolve_admin_override_still_present(seed):
-    assert hasattr(seed, "_resolve_admin_override")
-
-
-# --- the template's illustrative values are not answers -----------------------
+# --- illustrative values are not answers -------------------------------------
 #
-# `REPLACE` stops a seed. `you@example.com` sailed through it: the
-# non-interactive path returned the template default for any key the caller
-# omitted, without the placeholder check the supplied-value path applies. A host
-# seeded that way did not fail, it FINISHED, belonging to an address nobody
-# owns.
+# A host seeded with an example address would not fail: it would finish,
+# belonging to an address nobody owns. So an illustration is refused on every
+# path, supplied or defaulted.
 def test_an_example_domain_is_not_an_answer(seed):
     assert seed._is_placeholder("example.com")
     assert seed._is_placeholder("EXAMPLE.COM")

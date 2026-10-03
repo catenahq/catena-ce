@@ -1,30 +1,19 @@
 # The knob registry: every value a client supplies, declared once.
 #
-# THIS FILE IS THE SOURCE. `knobs.json` beside it is RENDERED from it by
-# `render_knobs.py` and committed; nothing hand-edits the JSON. Four consumers
-# read the JSON rather than this file, because one of them cannot read YAML:
-# `onbox_config.py` runs as root on a minimal target host whose system python
-# has no PyYAML, which is a constraint that file states about itself and this
-# one has to respect.
+# Its readers, each of which sees a knob declared here or none at all:
 #
 #   helpers/onbox_config.py   which keys the store accepts, and how the
-#                             converge sees them
-#   seed.py                   what the installer asks for, and the `.env`
-#                             template it generates
+#                             converge sees them; on a host it reads the JSON
+#                             playbooks/tasks/stage_knob_registry.yml stages
+#   seed.py                   what the installer asks for, and the inventory
+#                             `.env` it writes (render_knobs.render_env)
 #   catena-admin settings     which fields the panel renders
 #   gui/                      which fields each installer step shows
 #
-# A knob declared here appears in all of them or in none. That is the property
-# this file exists for: the same names lived in four places, and eight of them
-# drifted across two sessions before a test was written to hold two of the four
-# together.
-#
-# `inventory/example/.env.example` is the SECOND rendered artifact, produced by
-# the same `render_knobs.py --write`. `env_header` is its preamble,
-# `env_sections` is the ordered list of headings it groups keys under, and each
-# knob's `env.section` names the one it belongs to. Its order comes from
-# `env_sections`, so this file can group by residence while the file a client
-# edits groups by subject.
+# An inventory `.env` is rendered from this file: `env_header` is its preamble,
+# `env_sections` the ordered headings it groups keys under, and each knob's
+# `env.section` the heading it prints under. So this file groups by residence
+# while the file a client edits groups by subject.
 #
 # WHAT IS NOT HERE. Secrets the client never supplies: the internal service
 # secrets and the user-held DR keyset are minted on-box, and the role-minted
@@ -61,10 +50,10 @@
 #               not follow that rule, and a derived mapping fails silently by
 #               publishing a fact nothing reads. Absent means no projection --
 #               a runtime lane reads the value straight off the store.
-#   env         the key's place in the generated `.env.example`: which
+#   env         the key's place in an inventory `.env`: which
 #               `section` it prints under, the `default` it carries, and the
 #               `options` it is limited to. Absent means the key never appears
-#               in the template. An EMPTY default is also what marks a key
+#               in the `.env`. An EMPTY default is also what marks a key
 #               optional to seed's structural checks, unless the key has an
 #               `example`: a value with no sensible default that is still
 #               needed, shown as a placeholder and never filled in.
@@ -93,22 +82,15 @@
 version: 1
 
 env_header: |-
-  catena: client-editable, non-secret configuration.
+  catena: client-editable, non-secret configuration of one server.
 
-  GENERATED from catena-ce/ansible/helpers/knobs.yml. To change a key or its
-  explanation, edit that file and run `python3 helpers/render_knobs.py
-  --write`; an edit made here is replaced by the next render, and fails the
-  CI check until then.
-
-  Copy it to `.env` inside a host directory (gitignored), one per inventory
-  so several hosts coexist in one checkout: inventory/example/.env,
-  inventory/clientco/.env. Ansible resolves <inventory_dir>/.env through the
-  `dotenv` lookup plugin at playbooks/lookup_plugins/, and group_vars reads a
-  value with "{{ lookup('dotenv', 'KEY') }}".
+  Written by `catena-cli init` or the graphical installer, every key at its
+  default. Edit the values here; `catena-cli install` reads them. One
+  inventory directory per server, so several coexist in one checkout.
 
   No secret belongs in here, or anywhere else in an inventory. Every secret
-  lives on the target at /etc/catena/config.json, minted there or entered in
-  catena-admin > Settings. See catena-ce/SECRETS.md.
+  lives on the server at /etc/catena/config.json, minted there or entered in
+  catena-admin > Settings. See catena-ce/ansible/SECRETS.md.
 
 # The graphical installer's sections, in order, all on one page. Each knob that
 # names one appears in it; a knob that names none is never asked for. `doc` is

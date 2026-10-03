@@ -6,8 +6,8 @@ Derived from:
 
 - `helpers/knobs.yml`, the registry: every value a client supplies, with
   its residence, its `.env` default and its panel shape. `EXTERNAL_SECRETS`
-  and the non-secret config maps are read from it, and
-  `inventory/example/.env.example` is rendered from it.
+  and the non-secret config maps are read from it, and an inventory `.env`
+  is rendered from it.
 - `helpers/onbox_config.py` for the three categories no client supplies:
   `INTERNAL_SECRETS` + `USER_HELD_SECRETS` minted on-box, and
   `ROLE_MINTED_SECRETS` minted by the service and captured by its role.

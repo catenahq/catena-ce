@@ -450,7 +450,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     def _render_inventory(self) -> None:
         current = self.run.inventory if self.run else ""
         body = (f"{_nav(current, on='inventory')}<main>"
-                f"{_inventory_html(run_mod.inventories(self.inventory_root), current, _Handler.inventory_problem)}"
+                f"{_inventory_html(run_mod.seed().inventories(self.inventory_root), current, _Handler.inventory_problem)}"
                 "</main>")
         _Handler.inventory_problem = ""
         self._send(_page("Inventory", body))
@@ -472,14 +472,14 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         form = self._form()
         name = (form.get("open") or [""])[0].strip()
         if name:
-            if name not in run_mod.inventories(self.inventory_root):
+            if name not in run_mod.seed().inventories(self.inventory_root):
                 _Handler.inventory_problem = f"there is no inventory {name!r}"
                 self._redirect("/inventory")
                 return
             self._open(name)
             return
         name = (form.get("create") or [""])[0].strip()
-        problem = run_mod.new_name_problem(name, self.inventory_root)
+        problem = run_mod.seed().inventory_name_problem(name, self.inventory_root)
         if problem:
             _Handler.inventory_problem = f"{name!r}: {problem}"
             self._redirect("/inventory")
