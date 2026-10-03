@@ -92,7 +92,7 @@
           - (tailnet_control_url | default('') | length) > 0
         fail_msg: >-
           Headscale is selected but no control server address is set. Enter it
-          in catena-admin > Settings > Access and tunnels (Headscale server
+          in catena-admin > Settings > Admin access tunnel (Headscale server
           address), or switch that setting back to Tailscale.
       when: tailnet_provider == 'headscale'
 
