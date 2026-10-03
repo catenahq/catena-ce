@@ -166,7 +166,7 @@ def test_both_converge_paths_report():
     for name in ("converge.yml", "reconcile.yml"):
         files = [str(t.get("ansible.builtin.include_tasks", {}).get("file"))
                  for t in post_tasks(_ANSIBLE / "playbooks" / name)]
-        assert any(f.endswith("tasks/report_bootstrap_drift.yml") for f in files), name
+        assert "report_bootstrap_drift.yml" in {f.rsplit("/", 1)[-1] for f in files}, name
 
 
 def test_the_record_is_not_in_etc():

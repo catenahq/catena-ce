@@ -20,7 +20,7 @@
 # key has no `.env` line; catena_cli warns about one it finds.
 - name: "onbox: stage the knob registry"
   ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/tasks/stage_knob_registry.yml"
+    file: stage_knob_registry.yml
     apply:
       tags: [always, onbox]
   tags: [always, onbox]

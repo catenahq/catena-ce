@@ -23,7 +23,7 @@
 # that rule from also meaning blindness to them.
 - name: "Bootstrap drift: report changes to operator-owned files"
   ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/tasks/report_bootstrap_drift.yml"
+    file: report_bootstrap_drift.yml
     apply:
       tags: [bootstrap_drift]
   tags: [bootstrap_drift]
@@ -33,7 +33,7 @@
 # itself as finished.
 - name: "Prune: remove files withdrawn from the product"
   ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/tasks/prune_withdrawn_files.yml"
+    file: prune_withdrawn_files.yml
     apply:
       tags: [prune]
   tags: [prune]
@@ -42,7 +42,7 @@
 # tell "this feature is off" from "this host's converge predates it".
 - name: "Release: record what this converge delivered"
   ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/tasks/record_release_manifest.yml"
+    file: record_release_manifest.yml
     apply:
       tags: [release_manifest]
   tags: [release_manifest]

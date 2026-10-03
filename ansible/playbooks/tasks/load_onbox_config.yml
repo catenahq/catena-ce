@@ -18,7 +18,7 @@
 
 - name: "onbox: stage the knob registry"
   ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/tasks/stage_knob_registry.yml"
+    file: stage_knob_registry.yml
     apply:
       tags: [always, onbox]
   tags: [always, onbox]
@@ -115,9 +115,7 @@
 # the container registry on a machine with no Docker.
 - name: "onbox: seed and publish the store-owned config"
   ansible.builtin.include_tasks:
-    # Absolute: a relative include inside an included file resolves against the
-    # including file's own directory first, which is this same tasks/ folder.
-    file: "{{ playbook_dir }}/tasks/seed_onbox_config.yml"
+    file: seed_onbox_config.yml
     apply:
       tags: [always, onbox]
   tags: [always, onbox]

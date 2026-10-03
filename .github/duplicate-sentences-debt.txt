@@ -7,7 +7,7 @@
 "Load the on-box config store ansible.builtin.include_tasks: file: tasks/load_onbox_config.yml apply: tags:
 "Portainer: list environments (endpoints) ansible.builtin.uri: url:
 "Version: stamp the version this converge applies ansible.builtin.include_tasks: file: tasks/stamp_version.yml apply: tags:
-"onbox: stage the knob registry ansible.builtin.include_tasks: file:
+"onbox: stage the knob registry ansible.builtin.include_tasks: file: stage_knob_registry.yml apply: tags:
 "tier1: stat the reconcile engine ansible.builtin.stat: path:
 "{{ item }} state: directory owner: root group: root mode:
 "{{ public_ports_fragment_dir }} state: directory owner: root group: root mode:

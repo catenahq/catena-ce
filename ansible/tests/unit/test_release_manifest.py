@@ -77,7 +77,7 @@ def test_both_converge_paths_include_the_same_file(playbook):
     files = [str(t["ansible.builtin.include_tasks"].get("file"))
              for t in converge_post_tasks(playbook)
              if "ansible.builtin.include_tasks" in t]
-    assert any(f.endswith(f"tasks/{SHARED.name}") for f in files), (
+    assert SHARED.name in {f.rsplit("/", 1)[-1] for f in files}, (
         f"{playbook.name} does not include tasks/{SHARED.name}; it is either "
         "not stamping the manifest or keeping a second copy of these tasks")
 
@@ -89,7 +89,7 @@ def test_each_path_names_itself_in_the_manifest(playbook):
     manifest is what lets a reader tell which tree the host last received."""
     include = next(t for t in converge_post_tasks(playbook)
                    if str(t.get("ansible.builtin.include_tasks", {}).get("file"))
-                   .endswith(f"tasks/{SHARED.name}"))
+                   .rsplit("/", 1)[-1] == SHARED.name)
     named = include.get("vars", {}).get("catena_converge_path")
     assert named, f"{playbook.name} does not name itself as the converge path"
     assert named == playbook.stem, (
