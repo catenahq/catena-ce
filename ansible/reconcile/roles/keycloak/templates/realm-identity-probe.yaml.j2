@@ -48,11 +48,7 @@ clients:
       # outlives its own invocation by much.
       access.token.lifespan: "600"
 
-# Same kc-config-cli pattern as the other two service-account clients: the
-# schema does not recognise serviceAccountClientRoles on ClientRepresentation,
-# so the service-account user is declared explicitly and its clientRoles pinned
-# via serviceAccountClientId. Keycloak auto-creates the user when
-# serviceAccountsEnabled flips true above; this entry decorates it.
+# The service-account user, declared as realm-dashboard-sync.yaml.j2 explains.
 users:
   - username: "service-account-{{ catena_identity_probe_client_id }}"
     enabled: true

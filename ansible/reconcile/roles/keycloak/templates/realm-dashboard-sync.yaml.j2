@@ -34,16 +34,13 @@ clients:
       access.token.lifespan: "600"
 
 # Least-privilege role grant for the dashboard-sync service account.
-# kc-config-cli's `latest-26.5.4` schema does NOT recognise
-# `serviceAccountClientRoles` as a field on ClientRepresentation
-# (Jackson fails the import with "Unrecognized field" -- bench run
-# 2026-05-31T07-28-41-b870). The canonical kc-config-cli pattern is
-# to declare the service-account user explicitly and pin its
-# clientRoles via `serviceAccountClientId`. The user is auto-created
-# by Keycloak when serviceAccountsEnabled flips true on the client
-# above; this entry just decorates the existing user with the
-# manage-clients role on realm-management. NO_DELETE merge semantics
-# (set in realm_bootstrap.yml) preserve other users.
+# kc-config-cli's schema does not recognise `serviceAccountClientRoles` on
+# ClientRepresentation (Jackson fails the import with "Unrecognized field"),
+# so the service-account user is declared explicitly and its clientRoles
+# pinned via `serviceAccountClientId`. Keycloak auto-creates the user when
+# serviceAccountsEnabled flips true on the client above; this entry decorates
+# it. Every service-account client's realm file follows this pattern.
+# NO_DELETE merge semantics (set in realm_bootstrap.yml) preserve other users.
 users:
   - username: "service-account-dashboard-sync"
     enabled: true

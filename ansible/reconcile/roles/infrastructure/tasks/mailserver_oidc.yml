@@ -141,20 +141,14 @@
 # exec` also fails fast if the container itself is not running, so this
 # covers both. supervisorctl status exits non-zero unless dovecot is
 # RUNNING, so until+retries waits out the boot and FAILS LOUD if Dovecot
-# never comes up within the budget (a broken mailserver surfaces here,
-# not three scenarios downstream).
-# EVERY `docker exec` below re-resolves the container itself. The name from
-# the locate step is true for an instant: dms restarts its way out of the
-# state this chain repairs, and each restart mints a new swarm task id. A
-# name captured a few tasks earlier gets "No such container", which is what
-# failed the converge on run 2026-08-25T18-01-29-b726 -- seconds after the
-# same converge had successfully created the mailbox that lets dms boot.
+# never comes up within the budget.
+# EVERY `docker exec` below re-resolves the container itself: dms restarts
+# its way out of the state this chain repairs, and each restart mints a new
+# swarm task id, so a name captured a few tasks earlier gets "No such
+# container".
 - name: "Mailserver OIDC: wait for Dovecot to be RUNNING in dms"
-  # Container presence is not readiness: docker-mailserver's first boot can
-  # leave Dovecot down for minutes after the container appears (a bare reload
-  # then exits 75, "Dovecot is not running"). Gate on the ACTUAL service state
-  # via supervisor. Re-resolving each attempt means a restart mid-wait costs
-  # one retry rather than the whole task.
+  # Re-resolving each attempt means a restart mid-wait costs one retry rather
+  # than the whole task.
   ansible.builtin.shell: |
     set -o pipefail
     ct=$(docker ps --filter label=vps.component=dms \

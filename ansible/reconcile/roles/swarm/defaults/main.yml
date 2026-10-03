@@ -34,9 +34,8 @@ swarm_node_role_label: "data"
 # the unit file (Environment=).
 swarm_network_nudge_timeout: 60
 
-# Files this role puts in the prefixes where a withdrawal keeps EXECUTING.
-# playbooks/tasks/prune_withdrawn_files.yml removes what a later release stops
-# declaring; tests/unit/test_converge_prune.py fails on an omission.
+# Executing-prefix paths this role writes, for
+# playbooks/tasks/prune_withdrawn_files.yml.
 swarm_managed_paths:
   - /usr/local/bin/catena-network-nudge
   - /etc/systemd/system/catena-network-nudge.service

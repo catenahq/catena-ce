@@ -472,12 +472,9 @@ offsite_env_file: /etc/catena/offsite.env
 backup_password_file: /etc/catena/restic.pass
 backup_systemd_unit_name: catena-backup
 
-# Files this role puts in the prefixes where a withdrawal keeps EXECUTING --
-# units and host binaries. playbooks/tasks/prune_withdrawn_files.yml records
-# these and removes what a later release stops declaring, provided the file on
-# disk is still byte-for-byte what a converge wrote and the payload does not
-# claim it. Empty: the backup lane's units and scripts ship in the payload.
-# tests/unit/test_converge_prune.py fails on a write this list misses.
+# Executing-prefix paths this role writes, for
+# playbooks/tasks/prune_withdrawn_files.yml. Empty: the backup lane's units and
+# scripts ship in the payload.
 backup_managed_paths: []
 
 # Stats file written by the wrapper after each successful run. This dir is

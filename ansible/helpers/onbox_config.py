@@ -213,8 +213,7 @@ def client_app_secrets(path: str | Path = DEFAULT_STORE_PATH) -> dict:
 
     Read-only and total, the same posture as ``image_pins``: an absent store,
     an absent key and a key holding something else all read as "nothing minted
-    yet", which on a host that has deployed no app is the truth. A malformed
-    store is still a hard error."""
+    yet", which on a host that has deployed no app is the truth."""
     p = Path(path)
     if not p.exists():
         return {}

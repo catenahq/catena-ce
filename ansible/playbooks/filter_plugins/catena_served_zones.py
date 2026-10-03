@@ -22,11 +22,11 @@ domain only.
                             that resolves nowhere.
 
 The staleness bound is what makes this safe to trust at all: an unstamped list
-(the shape this replaced) was indistinguishable fresh from months old.
+would read the same fresh as months old.
 
-This repo deliberately knows nothing about subscriptions. The projection holds
-only what the engine was entitled to converge, so a lapse degrades the routing
-to primary-only on its own.
+Subscriptions are the engine's concern. The projection holds only what the
+engine was entitled to converge, so a lapse degrades the routing to
+primary-only on its own.
 
 End-to-end coverage:
     ansible/tests/unit/test_catena_served_zones.py

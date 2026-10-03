@@ -169,12 +169,8 @@ oauth2_proxy_apps:
     upstream_port: 9000
     allowed_groups: ["admin"]
 
-# Native-OIDC apps (vps.auth.mode=public + vps.auth.oidc=true): the
-# app runs the OIDC dance itself, so Traefik writes only a force-https
-# route + backend. No oauth2-proxy in front, no /oauth2/* callback router.
-# These apps register their own Keycloak confidential clients (see
-# reconcile/roles/keycloak/templates/realm-<app>.yaml.j2).
-#
-# Empty for now. The list shape is kept so client-deployed native-OIDC
-# apps can opt in without touching the template.
+# Native-OIDC apps (vps.auth.mode=public + vps.auth.oidc=true), routed by
+# templates/app-public-oidc.yml.j2. These apps register their own Keycloak
+# confidential clients (see reconcile/roles/keycloak/templates/realm-<app>.yaml.j2).
+# Empty; a native-OIDC app opts in by adding an entry.
 oauth2_proxy_public_oidc_apps: []

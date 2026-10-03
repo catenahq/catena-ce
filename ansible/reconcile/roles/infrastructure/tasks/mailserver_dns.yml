@@ -22,10 +22,9 @@
 #   - DMARC  -- operator policy.
 #   - rDNS   -- set at the VPS provider.
 #
-# Opt-in template: gated on the dms container existing. The Cloudflare
-# calls run from localhost (delegate_to), but we still gate on the
-# mailserver actually being deployed so we never publish mail DNS for a
-# tenant without it.
+# Gated on the mailserver being deployed (_mailserver_dms_locate.yml): the
+# Cloudflare calls run from localhost (delegate_to), and mail DNS is never
+# published for a tenant without it.
 
 - name: "Mailserver DNS: resolve the dms container (shared, waits out its restart cycle)"
   ansible.builtin.include_tasks: _mailserver_dms_locate.yml

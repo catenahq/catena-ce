@@ -130,10 +130,7 @@
   register: _traefik_plain_rm
   changed_when: _traefik_plain_rm.rc == 0
 
-# ─── the service spec ────────────────────────────────────────────────────
-# Asked of the host engine (reconcile/roles/tier1_stack/tasks/spec_one.yml says
-# why), and fed to the reconcile below and the stack-file oracle.
-#
+# ─── the service spec, from the host engine (tier1_stack/tasks/spec_one.yml) ───
 # No `ports`. The no-host-port invariant is structural in both renderers --
 # cloudflared over the overlay is the only ingress, and neither the argv nor
 # the compose service has a publish for a drift check to find.

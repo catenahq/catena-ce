@@ -1,15 +1,13 @@
 name: security
 
-# Bundled FOSS security scan via catenahq/scanctl. Replaces the former per-tool
-# workflows (gitleaks, osv-scanner, trivy fs, semgrep, zizmor, licenses-sbom,
-# go-analysis's govulncheck, socket). One run detects the repo's ecosystems,
-# runs the matching scanners, merges SARIF (uploaded to code scanning), and
-# emits a CycloneDX SBOM artifact. profile=full enables semgrep's registry packs.
+# Bundled FOSS security scan via catenahq/scanctl. One run detects the repo's
+# ecosystems, runs the matching scanners, merges SARIF (uploaded to code
+# scanning), and emits a CycloneDX SBOM artifact. profile=full enables
+# semgrep's registry packs.
 
 on:
   pull_request:
-  # Every pushed branch. Renovate and engine-bump branches always carry a pull
-  # request, which tests each push to them.
+  # The same branches as ci.yml.
   push:
     branches-ignore: ['renovate/**', 'engine-bump/**', 'scanctl/**']
   schedule:

@@ -45,10 +45,7 @@
         path: /root/.catena-portainer-admin
         state: absent
 
-# ─── the service spec ────────────────────────────────────────────────────
-# Asked of the host engine (reconcile/roles/tier1_stack/tasks/spec_one.yml says
-# why), and fed to the reconcile below and the stack-file oracle.
-#
+# ─── the service spec, from the host engine (tier1_stack/tasks/spec_one.yml) ───
 # Host-mode publish so the port lands on the node (the registry fragment below
 # confines it to this host; an administrator reaches it through an SSH local
 # forward) -- never ingress, which would put it on the routing mesh where that

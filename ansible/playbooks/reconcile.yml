@@ -100,15 +100,14 @@
     - { role: oauth2_proxy, tags: [oauth2_proxy, auth] }
     - { role: infrastructure, tags: [infrastructure] }
     # The panel's container and its action catalog. Its trust path -- the runner
-    # account, the sudoers drop-in, the forced command -- is roles/
-    # catena_admin_host, which is bootstrap-side and deliberately absent here.
+    # account, the sudoers drop-in, the forced command -- is the bootstrap-side
+    # bootstrap/roles/catena_admin_host.
     - { role: catena-admin, tags: [catena_admin] }
     - { role: coturn, tags: [coturn] }
     - { role: backup, tags: [backup] }
 
   post_tasks:
-    # The tail converge.yml ends on too. No `apply`: each task inside keeps its
-    # own tag.
+    # The tail converge.yml ends on too.
     - name: "Converge tail: ports, drift, prune, release"
       ansible.builtin.include_tasks:
         file: tasks/converge_tail.yml

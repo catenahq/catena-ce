@@ -68,9 +68,9 @@
   when: (_kc_export_server_ct.stdout | default('') | length) > 0
 
 - name: "Keycloak realm export: kcadm.sh login as master-realm admin"
-  # Re-resolved per attempt: a swarm task id changes on every reschedule, and
-  # this loop exists to span exactly that window. Still no_log -- the password
-  # is in the command either way, and `| quote` keeps it a single shell word.
+  # Re-resolved per attempt (playbooks/filter_plugins/swarm_naming.py). Still
+  # no_log -- the password is in the command either way, and `| quote` keeps
+  # it a single shell word.
   ansible.builtin.shell: |
     set -o pipefail
     ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ keycloak_compose_name | swarm_container_regex(keycloak_server_service) }}' | head -n1)
@@ -85,11 +85,9 @@
   register: _kc_export_login
   changed_when: false
   # no_log: true is correct for the kcadm invocation itself (the
-  # argv carries the password) but the upstream Keycloak failure mode
-  # we hit on converge_modify run 2026-05-21T10-06-18-09f6 was
-  # "credentials valid pre-rotation, rejected post-rotation"; surface
-  # rc + stderr in the failure path so we can distinguish auth-reject
-  # from network/container errors without keeping the secret in the log.
+  # argv carries the password). The failure path surfaces rc + stderr, so a
+  # credential rejected after a rotation is told apart from a network or
+  # container error without keeping the secret in the log.
   no_log: true
   failed_when: false
   # Keycloak intermittently returns [unknown_error] on the master-realm

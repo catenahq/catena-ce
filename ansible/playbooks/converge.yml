@@ -193,8 +193,8 @@
     # python3-apt) and BEFORE docker (so /etc/sysctl.d/ files are in place
     # before dockerd's first start; otherwise dockerd's runtime /proc/sys
     # writes win until next boot, leaving Day-1 vs reboot-recovery state
-    # divergent). See bootstrap/roles/host_hardening/README.md for the full var-set
-    # rationale.
+    # divergent). bootstrap/roles/host_hardening/defaults/main.yml holds the
+    # values and their reasons.
     - { role: host_hardening, tags: [host_hardening, hardening] }
     - { role: storage, tags: [storage] } # mount block volume at /srv/catena (+ optional bulk)
     - { role: docker, tags: [docker] } # Docker CE + single-node swarm init
@@ -280,7 +280,7 @@
       tags: [tier1_stack]
 
     # Ports, drift report, prune and release manifest: the tail both converge
-    # playbooks share. No `apply`: each task inside keeps its own tag.
+    # playbooks share (its header says how its tags work).
     - name: "Converge tail: ports, drift, prune, release"
       ansible.builtin.include_tasks:
         file: tasks/converge_tail.yml

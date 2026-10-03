@@ -29,8 +29,8 @@ the `catena-cli` console script, run from the repository root or `ansible/`:
 
     uv run catena-cli install --inventory prod
 
-Verb first, inventory as a flag. A verb that runs a single playbook carries
-that playbook's name. Bare `catena-cli` prompts for both.
+Verb first, inventory as a flag; ansible/README.md says how verbs are named.
+Bare `catena-cli` prompts for both.
 """
 from __future__ import annotations
 

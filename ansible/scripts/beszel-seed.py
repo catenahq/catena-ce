@@ -154,7 +154,7 @@ def main() -> int:
         )
         token_state = "updated universal token"
 
-    # 4. Find-or-update the OIDC provider on the users collection.
+    # 4. The OIDC provider (configure_oidc).
     #
     # Runs regardless of what the token step did: the two answer different
     # questions (can an agent auto-register / can a person sign in with

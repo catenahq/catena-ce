@@ -168,7 +168,7 @@ def sentences(text: str):
             sentence = sentence.strip()
             tokens = sentence.split()
             words = [t for t in tokens if _WORD.fullmatch(t.strip(".,;:()`\"'"))]
-            if len(_WORD.findall(sentence)) >= MIN_WORDS and len(words) >= 0.7 * len(tokens):
+            if len(words) >= MIN_WORDS and len(words) >= 0.7 * len(tokens):
                 yield start, sentence
 
     for number, raw in enumerate(text.splitlines(), 1):

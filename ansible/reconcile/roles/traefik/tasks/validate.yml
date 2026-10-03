@@ -25,8 +25,8 @@
       0/N means the task is not running or is failing its healthcheck; an
       empty value means the service does not exist.
 
-# No host port publishing: cloudflared over the overlay is the only ingress.
-# The service spec is the thing to assert -- an empty Ports list proves
+# The ingress invariant from tasks/main.yml. The service spec is the thing to
+# assert -- an empty Ports list proves
 # nothing was published, whereas a per-container PortBindings read would only
 # ever see whichever task happened to be up.
 - name: "validate/traefik: published ports (hardening)"

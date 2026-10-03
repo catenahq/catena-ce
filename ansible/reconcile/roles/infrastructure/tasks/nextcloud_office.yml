@@ -22,17 +22,9 @@
 # other button reverses the prior wiring -- there is no scenario
 # where both NC apps end up installed simultaneously.
 #
-# No converge-time component (unlike nextcloud_oidc.yml). Office
-# editors have no Keycloak realm client; they are server-to-server
+# Office editors have no Keycloak realm client; they are server-to-server
 # WOPI integrations gated by JWT (OnlyOffice) or WOPI-host regex
-# (Collabora) inside the editor's own compose. All state lives on
-# the host filesystem (/usr/local/bin) + inside the Nextcloud
-# container at wire time.
-#
-# Idempotency: ansible.builtin.copy is no-op when the source has not
-# changed (mode + content checksum). Each run of the catena-admin
-# action is itself idempotent; this task just keeps the script
-# binaries up-to-date with the repo.
+# (Collabora) inside the editor's own compose.
 
 - name: "Nextcloud office: install Collabora wiring script (/usr/local/bin/catena-wire-nextcloud-collabora)"
   ansible.builtin.copy:

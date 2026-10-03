@@ -1,6 +1,6 @@
 ---
 # Beszel resource monitor -- hub + agent (+ Healthchecks alert shim,
-# appended below). Replaces the cAdvisor + catena-resource-sampler lane.
+# appended below).
 #
 # Deterministic, one-pass, no manual UI step (mechanism verified against
 # henrygd/beszel @ main):
@@ -15,11 +15,9 @@
 #      (createNewSystemForUniversalToken) -- no "add system" UI click.
 #   4. Deploy the agent (network_mode: host) with KEY + TOKEN + HUB_URL.
 #
-# Always runs: the include in main.yml carries no gate at all (the
-# BESZEL_ENABLED off-switch was removed 2026-07-29, the access-mode gate with
-# ACCESS_MODE itself). The universal token is an INTERNAL_SECRET minted on the
-# box by helpers/onbox_config.py; this role only ASSERTS it (healthchecks
-# preflight pattern).
+# Always runs: the include in main.yml carries no gate. The universal token is
+# an INTERNAL_SECRET minted on the box by helpers/onbox_config.py; this role
+# only ASSERTS it (healthchecks preflight pattern).
 #
 # The hub login is the SHARED admin_password, the same one that opens
 # Portainer, Keycloak and this panel. It is deliberately not a per-service
@@ -46,8 +44,7 @@
 # host bind. scope=loopback denies it everywhere but lo -- the only readers
 # are beszel-seed on the host and the host-network agent below.
 #
-# bind=docker because a swarm host-mode publish is DNAT'd and bypasses ufw
-# INPUT -- see the note in gatus.yml; the enforcing chain is DOCKER-USER.
+# bind=docker: a swarm host-mode publish is DNAT'd (helpers/public_ports.py).
 - name: "Beszel: declare the hub loopback port (registry fragment, loopback-only)"
   ansible.builtin.copy:
     dest: "{{ public_ports_fragment_dir }}/beszel.json"

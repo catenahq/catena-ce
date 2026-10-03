@@ -21,10 +21,6 @@
 # Portainer). Tells the operator how to fix it and exits non-zero
 # without changing state. Net result: clicking the wrong button on
 # top of the wrong template never corrupts NC config.
-#
-# Why a button (not a converge task): per project policy, converge
-# runs only at initial install or full VPS repair. App-deploy
-# lifecycle hooks belong in the catena-admin action layer.
 
 set -euo pipefail
 
