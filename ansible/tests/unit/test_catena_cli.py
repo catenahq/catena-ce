@@ -230,12 +230,34 @@ def test_ensure_collections_installs_where_ansible_reads(cli, monkeypatch, tmp_p
     assert cmd[cmd.index("-p") + 1] == str(tmp_path / cli.COLLECTIONS_DIR)
 
 
-def test_ensure_collections_skips_when_override_dir_exists(cli, monkeypatch, tmp_path):
+def test_ensure_collections_skips_a_tree_that_holds_the_pins(cli, monkeypatch, tmp_path):
+    import hashlib
+
     existing = tmp_path / "colls"
     existing.mkdir()
+    req = (cli.ANSIBLE_DIR / "requirements.yml").read_bytes()
+    (existing / ".requirements.sha256").write_text(hashlib.sha256(req).hexdigest())
     monkeypatch.setenv("ANSIBLE_COLLECTIONS_PATH", str(existing))
     calls: list[list[str]] = []
     monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
+    cli.ensure_collections()
+    assert calls == []
+
+
+def test_a_tree_installed_from_other_pins_is_rebuilt(cli, monkeypatch, tmp_path):
+    """A collection the pins no longer name, or one at another version, does
+    not outlive the requirements.yml that dropped or moved it."""
+    monkeypatch.delenv("ANSIBLE_COLLECTIONS_PATH", raising=False)
+    monkeypatch.setattr(cli, "ANSIBLE_DIR", tmp_path)
+    (tmp_path / "requirements.yml").write_text("collections: []\n")
+    stale = tmp_path / cli.COLLECTIONS_DIR / "ansible_collections" / "community" / "sops"
+    stale.mkdir(parents=True)
+    calls: list[list[str]] = []
+    monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
+    cli.ensure_collections()
+    assert len(calls) == 1 and "--force" in calls[0]
+    assert not stale.exists()
+    calls.clear()
     cli.ensure_collections()
     assert calls == []
 

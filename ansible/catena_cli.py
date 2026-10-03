@@ -37,6 +37,7 @@ from __future__ import annotations
 import argparse
 import configparser
 import getpass
+import hashlib
 import json
 import os
 import re
@@ -282,25 +283,35 @@ def _run(cmd: list[str]) -> None:
 
 
 def ensure_collections() -> None:
-    """Install the Galaxy collections (community.general, community.docker, ...)
-    on first run if they are not already present. Honors
-    ANSIBLE_COLLECTIONS_PATH: when set (first path wins), install there instead
-    of the in-tree dir -- so the CLI can run from a READ-ONLY checkout (e.g.
-    driven from a CI runner against a :ro catena-ce mount) by pointing
-    at a writable location, which ansible then also reads. The in-tree default
-    is ansible.cfg's collections_path (COLLECTIONS_DIR)."""
+    """Install exactly the Galaxy collections requirements.yml pins.
+
+    A stamp beside them records the requirements.yml they were installed
+    from; a tree with no stamp or another one is brought to the pins. The
+    in-tree dir (ansible.cfg's collections_path, COLLECTIONS_DIR) is this
+    checkout's own, so it is rebuilt, which also drops a collection the pins
+    no longer name. ANSIBLE_COLLECTIONS_PATH, when set (first path wins), is
+    installed into instead -- so the CLI can run from a READ-ONLY checkout
+    (e.g. a CI runner against a :ro catena-ce mount) -- and, unless it is the
+    in-tree dir, is the caller's: reinstalled over rather than removed."""
     req = ANSIBLE_DIR / "requirements.yml"
     if not req.is_file():
         return
     override = os.environ.get("ANSIBLE_COLLECTIONS_PATH", "").strip()
-    coll = Path(override.split(os.pathsep)[0]).expanduser() if override else ANSIBLE_DIR / COLLECTIONS_DIR
-    if coll.is_dir():
+    in_tree = ANSIBLE_DIR / COLLECTIONS_DIR
+    coll = Path(override.split(os.pathsep)[0]).expanduser() if override else in_tree
+    stamp = coll / ".requirements.sha256"
+    wanted = hashlib.sha256(req.read_bytes()).hexdigest()
+    if stamp.is_file() and stamp.read_text().strip() == wanted:
         return
-    banner("Installing Ansible collections (first run)")
+    banner("Installing the Ansible collections requirements.yml pins")
+    if coll.resolve() == in_tree.resolve():
+        shutil.rmtree(coll, ignore_errors=True)
+    coll.mkdir(parents=True, exist_ok=True)
     _run([
         "ansible-galaxy", "collection", "install",
-        "-r", str(req), "-p", str(coll),
+        "-r", str(req), "-p", str(coll), "--force",
     ])
+    stamp.write_text(wanted + "\n")
 
 
 def _preflight_checks(binaries: tuple[str, ...] = REQUIRED_BINARIES) -> None:
