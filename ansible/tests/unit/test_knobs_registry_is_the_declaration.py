@@ -194,7 +194,7 @@ def test_every_installer_section_asks_for_something(tmp_path):
 
 
 def test_a_maintainer_note_is_a_comment_not_a_field(tmp_path):
-    """A field nothing reads is prose that reaches a reader it was not written
+    """A field nothing reads is prose that reaches a reader it is not written
     for, or no one: the registry refuses any field it does not know."""
     doc = render_knobs.load()
     _entry(doc, "COMMON_TIMEZONE")["doc"] = "why it is declared this way"

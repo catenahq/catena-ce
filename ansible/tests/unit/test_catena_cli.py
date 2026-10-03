@@ -245,8 +245,8 @@ def test_ensure_collections_skips_a_tree_that_holds_the_pins(cli, monkeypatch, t
 
 
 def test_a_tree_installed_from_other_pins_is_rebuilt(cli, monkeypatch, tmp_path):
-    """A collection the pins no longer name, or one at another version, does
-    not outlive the requirements.yml that dropped or moved it."""
+    """A tree holding a collection the pins do not name, or one at another
+    version than they pin, is rebuilt to exactly the pinned set."""
     monkeypatch.delenv("ANSIBLE_COLLECTIONS_PATH", raising=False)
     monkeypatch.setattr(cli, "ANSIBLE_DIR", tmp_path)
     (tmp_path / "requirements.yml").write_text("collections: []\n")

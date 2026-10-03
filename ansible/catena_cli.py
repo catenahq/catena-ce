@@ -289,7 +289,7 @@ def ensure_collections() -> None:
     from; a tree with no stamp or another one is brought to the pins. The
     in-tree dir (ansible.cfg's collections_path, COLLECTIONS_DIR) is this
     checkout's own, so it is rebuilt, which also drops a collection the pins
-    no longer name. ANSIBLE_COLLECTIONS_PATH, when set (first path wins), is
+    do not name. ANSIBLE_COLLECTIONS_PATH, when set (first path wins), is
     installed into instead -- so the CLI can run from a READ-ONLY checkout
     (e.g. a CI runner against a :ro catena-ce mount) -- and, unless it is the
     in-tree dir, is the caller's: reinstalled over rather than removed."""

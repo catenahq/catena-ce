@@ -193,8 +193,7 @@ secrets:
     panel: {group: hostnames, section: secrets, kind: secret, optional: false}
 
   # Multi-domain (Business): a JSON map of zone to API token, each token scoped
-  # to its one zone. The panel's domains page owns it, so it is not a field on
-  # the settings form.
+  # to its one zone. The panel's domains page edits it.
   - key: cloudflare_api_tokens
 
   # Tailscale SaaS mints a tagged auth key from this client each time the
@@ -493,7 +492,7 @@ config:
   # ---- the access plane ----
   #
   # A blank submission on the settings page means "leave this alone", so a
-  # choice whose off position were the empty string could be turned on and
+  # choice with the empty string as its off position could be turned on and
   # never off. TAILNET_PROVIDER and SMTP_PROVIDER therefore store `none`.
   #
   # Whether this host joins a private network, and which control plane runs it.
