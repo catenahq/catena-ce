@@ -11,19 +11,23 @@
 #   tier1_spec_name   the service name (catena-postgres, catena-traefik, ...)
 #   tier1_spec_args   OPTIONAL extra argv for the engine, for the few values
 #                     that are genuinely per-deployment rather than product
-#                     constants (today: reconcile/roles/portainer passes
+#                     constants (reconcile/roles/portainer passes
 #                     --portainer-ui-port). Kept as opaque argv so this shared
 #                     file needs no per-service knowledge, and so every such
 #                     value is visible at ITS call site rather than buried here.
 # Sets:
 #   tier1_builtin_spec  the spec dict, in the shape reconcile_one.yml takes
 #
+# One dict, two consumers: the engine creates and reconciles the service from
+# it, and tier1_stack_render puts it in the file `docker stack config`
+# type-checks, so the running service and the rendered plane cannot describe
+# different things. The engine's own test pins the declaration against
+# byte-identical create argv.
+#
 # WHY THE ENGINE OWNS IT. The desired state then travels with the IMAGE: bump
-# the catena-admin tag, reconcile/roles/payload re-extracts the engines, and what the
-# host reconciles toward moves with it. A spec assembled here instead means
-# every change to the control plane needs a laptop and an inventory that is up
-# to date -- which is the property reconcile/roles/tier1_stack's own header complains
-# about ("a control plane that drifted at 3am waited for a laptop").
+# the catena-admin tag, reconcile/roles/payload re-extracts the engines, and
+# what the host reconciles toward moves with it, with no laptop and no
+# inventory edit.
 
 - name: "tier1: stat the reconcile engine"
   ansible.builtin.stat:

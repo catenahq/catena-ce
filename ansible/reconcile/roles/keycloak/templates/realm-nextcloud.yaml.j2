@@ -1,5 +1,5 @@
 # {{ ansible_managed }}
-# Static Keycloak client for Nextcloud's NATIVE OIDC flow (EP3).
+# Static Keycloak client for Nextcloud's NATIVE OIDC flow.
 #
 # Nextcloud's user_oidc app handles the authorization-code dance
 # itself. Operator's converge wires it via `occ user_oidc:provider`
@@ -7,11 +7,6 @@
 # Nextcloud container; this realm template just registers the
 # confidential client so the discovery URL works the moment the
 # operator clicks Deploy in the Portainer UI.
-#
-# This file lives in the same /config dir as realm-vps.yaml so
-# keycloak-config-cli's IMPORT_FILES_LOCATIONS=/config/*.yaml glob
-# picks it up. Default merge semantics preserve the base realm and
-# add this client.
 #
 # Multivalued groups claim is fine here -- Nextcloud's user_oidc
 # parses the standard `groups` JSON-array claim correctly, so no

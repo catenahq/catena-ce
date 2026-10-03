@@ -28,10 +28,6 @@
 # denied because it exposes the realm's whole configuration to a credential
 # that only needs to add people. Sharing one client would hand each side the
 # other's reach.
-#
-# Lives in the same /config dir as realm-vps.yaml so keycloak-config-cli's
-# IMPORT_FILES_LOCATIONS=/config/*.yaml glob picks it up. NO_DELETE merge
-# (set in realm_bootstrap.yml) preserves the base realm + other clients.
 
 realm: {{ keycloak_realm }}
 

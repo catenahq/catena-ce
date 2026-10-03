@@ -11,10 +11,6 @@
 #      authenticate; there is no anonymous introspection). ops drops
 #      these creds into dovecot-oauth2.conf.ext.
 #
-# Lives in the same /config dir as realm-vps.yaml so keycloak-config-cli's
-# IMPORT_FILES_LOCATIONS=/config/*.yaml glob picks it up. NO_DELETE merge
-# semantics (realm_bootstrap.yml) preserve the base realm and add these.
-#
 # Gotcha (roundcube #8178): Roundcube fails OAuth login when the token
 # exceeds 1024 chars. A fat `groups` claim is the usual cause, and
 # Roundcube does NOT need groups (it only needs the user identity to

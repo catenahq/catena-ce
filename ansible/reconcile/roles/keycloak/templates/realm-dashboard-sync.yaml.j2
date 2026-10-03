@@ -14,11 +14,8 @@
 # removes) the discovered client-app callback URIs into the oauth2-proxy
 # client. A converge re-import of realm-oauth2-proxy.yaml.j2 resets that
 # list to the infra hosts only; the next dashboard-sync run (<= 5 min)
-# re-adds the client-app URIs. See automation/vps-scripts/dashboard-sync.py.
-#
-# Lives in the same /config dir as realm-vps.yaml so keycloak-config-cli's
-# IMPORT_FILES_LOCATIONS=/config/*.yaml glob picks it up. NO_DELETE merge
-# (set in realm_bootstrap.yml) preserves the base realm + other clients.
+# re-adds the client-app URIs (catena-admin
+# payload/lanes/catena-dashboard-sync.py).
 
 realm: {{ keycloak_realm }}
 
