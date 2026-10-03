@@ -1,5 +1,4 @@
-# The installer page's own words in French. Keys match en.yml one for one;
-# `{name}` is a placeholder the page fills in.
+# The installer page's own words in French, key for key with en.yml.
 
 page.title: "{title} -- Installateur Catena"
 page.not_found: "Introuvable"

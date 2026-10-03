@@ -1,0 +1,89 @@
+# Duplicate sentences the tree carries, checked by
+# .github/scripts/duplicate_sentences.py: a duplicate not listed here fails,
+# and so does an entry that is no longer duplicated. One sentence per line,
+# matched case- and punctuation-insensitively. Meant to shrink: an
+# explanation belongs in one place, which the others point to.
+
+"Load the on-box config store ansible.builtin.include_tasks: file: tasks/load_onbox_config.yml apply: tags:
+"Portainer: list environments (endpoints) ansible.builtin.uri: url:
+"Version: stamp the version this converge applies ansible.builtin.include_tasks: file: tasks/stamp_version.yml apply: tags:
+"onbox: stage the knob registry ansible.builtin.include_tasks: file:
+"tier1: stat the reconcile engine ansible.builtin.stat: path:
+"{{ item }} state: directory owner: root group: root mode:
+"{{ public_ports_fragment_dir }} state: directory owner: root group: root mode:
+A PROBE THAT COULD NOT LEAVE THE MACHINE IS NOT A SERVICE VERDICT.
+A rule that starts one by name, with no recorded error, is a start-anything-named-X path with no evidence gate
+A verb that runs a single playbook carries that playbook's name;
+Acquire::https::Proxy "DIRECT"; owner: root group: root mode:
+All state lives on the host filesystem (/usr/local/bin) + inside the Nextcloud container at wire time.
+App-deploy lifecycle hooks belong in the catena-admin action layer.
+Container presence is real state that every one of those flows reproduces (a restore/migrate brings the consumer containers back up), so reading `docker ps` is automatically correct everywhere.
+Debian 12 and Ubuntu ship the Include, but a provider image or a cloud-init variant can replace sshd_config with something minimal that does not
+Deliberately NO `| head -n1`: piping a grouped command into head closes the pipe after one line, the upstream `docker ps` then takes SIGPIPE (rc 141), and `set -o pipefail` would promote that into a task failure even though detection succeeded.
+Either way the role is **Reconcile**: it can run on the host, unattended, from the image, on a timer.
+Error response from daemon: container 48f7969363cc is not running
+Files this role puts in the prefixes where a withdrawal keeps EXECUTING
+Find-or-update the OIDC provider on the users collection.
+Gate on the ACTUAL service state via supervisor
+Idempotency: ansible.builtin.copy is no-op when the source has not changed (mode + content checksum).
+If this is wrong, is anything left that can fix it?
+It means "never chosen", and it is a DIFFERENT value from "", which is what the view stores when somebody picks Light deliberately.
+It ships in the catena-admin host payload; check that reconcile/roles/payload extracted it, or that the out-of-band payload install ran. loop:
+Keycloak auto-creates the user when serviceAccountsEnabled flips true above; this entry decorates it. users: - username:
+Locate the running Nextcloud app container ---------------------- Two labels the catalog puts on every service: vps.app names the application, vps.component names the service inside it, and docker ANDs filters on different keys
+NEXTCLOUD_HOSTNAME is not set in the Nextcloud container env." >&2 echo "       Check the stack environment for nextcloud-s3 in Portainer." >&2 exit 2 fi
+NOT WRITING IS NOT THE SAME AS NOT NOTICING.
+Neither NTFY_SERVER nor NTFY_TOPIC defaults to a value: a default of https://ntfy.sh would be public and unauthenticated, where the topic is the only access control, so a host nobody configured would push its alerts to a server the operator does not run
+No `apply`: each task inside keeps its own tag. - name:
+No host-port publishing: cloudflared over the overlay is the only ingress.
+No oauth2-proxy in front, no /oauth2/* callback router.
+No such container: catena-mailserver_dms.1.rg3u7p8hjh2vom6052uoz4322
+None) monkeypatch.setattr(cli.sys.stdin, "isatty", lambda:
+Opt-in template: gated on the dms container existing.
+Otherwise, is the correct value a function of the product VERSION or of THIS HOST?
+Pinned before the next _payload_expected include overwrites the decision. - name:
+Portainer -> App Templates -> nextcloud-s3 -> Deploy. echo "Wait for the container to come up, then click this button again. exit 1 fi
+Probe-before-mutate: refuses to run if office.<base> is currently serving the OTHER editor (operator forgot to swap templates in Portainer).
+Re-run the log "converge to re-render the env file from the on-box config store. exit 1 fi
+Reconcile-side roles the converge does not list under `roles:`.
+Renovate and engine-bump branches always carry a pull request, which tests each push to them. push: branches-ignore:
+Restores run in the `catena-recovery` host binary, driven from the panel.
+Safe to dismiss + retry once the office template is the one you want.
+Tells the operator how to fix it and exits non-zero without changing state.
+The API token needs Zone:DNS:Edit scope on this zone.
+The converge mints it on the box; a missing one means the on-box store at /etc/catena/config.json was not loaded or was truncated.
+The converge owns everything about the converge; the payload owns the actions ITS dispatch drop-in adds.
+The engine ships in the catena-admin host payload and reconcile/roles/payload installs it right after bootstrap/roles/docker
+The line is declared in boundary.yml and enforced by tests/unit/test_converge_boundary.py.
+The route is synthesised from the vps.auth.* labels below into the FILE provider;
+The table below is the one-line map, generated from the leading comment of each role's `tasks/main.yml`.
+Traefik may echo "         pick either route for office.$BASE.
+Two labels the catalog puts on every service: vps.app names the application, vps.component names the service inside it, and docker ANDs filters on different keys
+Undeclared means unmanaged, never deleted; tests/unit/test_converge_prune.py fails on an omission.
+Why a button (not a converge task): per project policy, converge runs only at initial install or full VPS repair.
+`catena-schedule apply` owns enable/disable for every lane
+`retries`/`until` only bound the wait when each attempt RETURNS.
+a drop-in may read that name and can never add to it.
+add a top-level "Webmail" link to the Nextcloud nav that opens the standalone Roundcube webmail (mailserver template) in a NEW TAB. |
+backup_mode picks which subfile to run. install (default, converge.yml path)
+bind=docker because a swarm host-mode publish is DNAT'd and bypasses ufw INPUT
+changes are clobbered on the next `catena-cli converge` run.
+clamd has no auth, so network isolation is the only control.
+configuration and the initial snapshot; the units and scripts ship in the catena-admin payload verify (verify-backup.yml)
+docker no-ops an update to a spec it already holds
+if [ -z "$ct" ]; then echo "Nextcloud is not running on this host. echo echo "Deploy first:
+import importlib.util import json import sys from pathlib import Path
+import importlib.util import re from pathlib import Path
+import importlib.util import sys from pathlib import Path
+import json import re from pathlib import Path
+import json import sys from pathlib import Path
+import re import sys from pathlib import Path
+it polls 120s for a mailbox and shuts down without one
+key-only SSH with no root and no password login is
+matching the established "deploy app, then converge catches up" rhythm.
+psql: error: connection to server on socket /var/run/postgresql/.s.PGSQL.5432" failed:
+see the note in gatus.compose.yml.j2.
+see the note in gatus.yml; the enforcing chain is DOCKER-USER. - name:
+so this pins the app container and not its cron, db or redis peers.
+the quiet divergence `rules_unapplied` exists to prevent, one layer up.
+─── the service spec ──────────────────────────────────────────────────── Asked of the host engine (reconcile/roles/tier1_stack/tasks/spec_one.yml says why), and fed to the reconcile below and the stack-file oracle.
