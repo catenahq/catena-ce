@@ -33,8 +33,7 @@ infrastructure_managed_paths:
   - /usr/local/bin/catena-wire-nextcloud-antivirus
   - /usr/local/bin/catena-wire-nextcloud-mail
   - /usr/local/bin/catena-wire-nextcloud-webmail-link
-  - /usr/local/bin/catena-wire-nextcloud-collabora
-  - /usr/local/bin/catena-wire-nextcloud-onlyoffice
+  - /usr/local/bin/catena-wire-nextcloud-office
   - /usr/local/bin/catena-wire-nextcloud-oidc
   - /usr/local/bin/catena-wire-nextcloud-talk-hpb
   - /usr/local/bin/catena-wire-rocketchat-jitsi

@@ -126,19 +126,15 @@ actions:
     timeout: 60
     shell: "/usr/local/bin/catena-wire-nextcloud-talk-hpb"
 
-  # Office editors (Collabora / OnlyOffice). Mutually exclusive per
-  # client: operator deploys ONE of the two templates and runs the
-  # matching Wire button. The buttons are mutually reversing -- running
-  # one removes the OTHER editor's Nextcloud app + its residual
-  # oc_appconfig keys before installing its own. Probe-before-mutate
-  # refuses to run when the deployed editor does not match the button.
+  # Office editors (Collabora / OnlyOffice): one script, one button per
+  # editor, mutually reversing (scripts/wire-nextcloud-office.sh).
   - name: wire-nextcloud-collabora
     title: "Wire Nextcloud Collabora (LibreOffice editor)"
     title_fr: "Câbler Collabora pour Nextcloud (éditeur LibreOffice)"
     category: "Initial apps setup"
     icon: "&#128221;" # 📝
     timeout: 60
-    shell: "/usr/local/bin/catena-wire-nextcloud-collabora"
+    shell: "/usr/local/bin/catena-wire-nextcloud-office collabora"
 
   - name: wire-nextcloud-onlyoffice
     title: "Wire Nextcloud OnlyOffice (MS Office editor)"
@@ -146,7 +142,7 @@ actions:
     category: "Initial apps setup"
     icon: "&#128196;" # 📄
     timeout: 60
-    shell: "/usr/local/bin/catena-wire-nextcloud-onlyoffice"
+    shell: "/usr/local/bin/catena-wire-nextcloud-office onlyoffice"
 
   # Nextcloud Mail app -- users configure their own IMAP/SMTP/CalDAV/
   # CardDAV credentials in the Mail UI. Idempotent: re-running is a no-op.

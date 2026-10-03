@@ -44,8 +44,7 @@ search `/usr/local/lib/catena` -- where the payload installs its modules
 | `run-clamav-watch.sh` | Page when the shared clamd is down, but only while something depends on it -- the mail server's dms container or Nextcloud. |
 | `run-mail-canary.sh` | Prove the mail server is up AND actually filtering, via host-side docker-exec into the dms container -- no external SMTP/IMAP and no auth (the server is OAuth2-only, so there is no password to log in with). |
 | `wire-nextcloud-antivirus.sh` | /usr/local/bin/catena-wire-nextcloud-antivirus -- point Nextcloud's files_antivirus app at the shared clamd (catena-clamav network). |
-| `wire-nextcloud-collabora.sh` | /usr/local/bin/catena-wire-nextcloud-collabora -- wire Collabora CODE as the office editor inside a deployed Nextcloud instance. |
 | `wire-nextcloud-mail.sh` | /usr/local/bin/catena-wire-nextcloud-mail -- install + enable the Nextcloud Mail app inside a deployed Nextcloud container. |
+| `wire-nextcloud-office.sh` | /usr/local/bin/catena-wire-nextcloud-office <collabora\|onlyoffice> -- wire one office editor into a deployed Nextcloud instance. |
 | `wire-nextcloud-oidc.sh` | /usr/local/bin/catena-wire-nextcloud-oidc -- wire Keycloak as an OIDC provider in a deployed Nextcloud instance. |
-| `wire-nextcloud-onlyoffice.sh` | /usr/local/bin/catena-wire-nextcloud-onlyoffice -- wire OnlyOffice DocumentServer as the office editor inside a deployed Nextcloud instance. |
 | `wire-nextcloud-webmail-link.sh` | /usr/local/bin/catena-wire-nextcloud-webmail-link -- add a top-level "Webmail" link to the Nextcloud nav that opens the standalone Roundcube webmail (mailserver template) in a NEW TAB. |

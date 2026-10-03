@@ -11,12 +11,8 @@ Either way the role is **Reconcile**: it can run on the host, unattended, from t
 If this is wrong, is anything left that can fix it?
 It deploys automatically on the converge after a consumer first comes up.
 It is normally minted by reconcile/roles/portainer earlier in this same converge; if you see this, portainer did not run or failed to mint the key.
-NEXTCLOUD_HOSTNAME is not set in the Nextcloud container env.
 Otherwise, is the correct value a function of the product VERSION or of THIS HOST?
-Probe-before-mutate: refuses to run if office.<base> is currently serving the OTHER editor (operator forgot to swap templates in Portainer).
-Safe to dismiss + retry once the office template is the one you want.
 Set the repo + S3 keys in catena-admin > Settings > Backup; catena-backup-run self-gates until then.
-Tells the operator how to fix it and exits non-zero without changing state.
 The API token needs Zone:DNS:Edit scope on this zone.
 The converge mints it on the box; a missing one means the on-box store at /etc/catena/config.json was not loaded or was truncated.
 The engine ships in the catena-admin host payload and reconcile/roles/payload installs it right after bootstrap/roles/docker

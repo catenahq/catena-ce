@@ -51,7 +51,7 @@ def test_a_failed_docker_ps_is_not_an_absent_stack(tmp_path: Path, args) -> None
 
 
 def test_there_are_wire_scripts_to_check() -> None:
-    assert len(WIRE_SCRIPTS) == 7, WIRE_SCRIPTS
+    assert len(WIRE_SCRIPTS) == 6, WIRE_SCRIPTS
 
 
 @pytest.mark.parametrize("script", WIRE_SCRIPTS, ids=lambda p: p.name)
