@@ -1,20 +1,6 @@
-"""reconcile/roles/keycloak must wait for postgres to ACCEPT CONNECTIONS, not exist.
-
-`fi_a2_oidc_secret_rotation` failed its converge in run
-2026-08-02T01-47-33-2e7d:
-
-    psql: error: connection to server on socket
-    "/var/run/postgresql/.s.PGSQL.5432" failed:
-    FATAL:  the database system is starting up
-
-provision_db.yml retried finding the catena-postgres swarm TASK properly and
-then ran three `docker exec ... psql` calls with no readiness gate at all. A
-container that exists is not a server that answers, and after a rewind the gap
-between the two is seconds wide.
-
-This is a product defect, not a bench one: it fails a client converge. The
-test pins the property rather than the wording, so the next `docker exec`
-added to this file cannot quietly skip the gate.
+"""Every `docker exec ... psql` in reconcile/roles/keycloak/tasks/provision_db.yml
+runs after a gate that waits for postgres to accept connections (that file
+says why).
 
 Run: uv run pytest tests/unit/test_keycloak_db_readiness.py
 """

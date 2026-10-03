@@ -1,14 +1,6 @@
-"""Lock the docker-daemon probe timeout.
-
-The "Probe docker daemon is serving API requests" task gates every
-downstream role on `docker info` returning 0. `retries`/`until` only
-bound the wait when each attempt RETURNS -- a HUNG daemon (socket accepts
-but the API never answers: disk-wedged dockerd, a SIGSTOP'd daemon, the
-fi_c1 fault-injection) makes a bare `docker info` block on the socket
-forever, so ansible never re-enters the retry loop and the whole converge
-hangs on this one task unbounded (a fi_c1 run wedged >30 min here). The
-`timeout` wrapper forces each attempt to return, so the retries fire and
-the converge aborts cleanly on a stuck daemon.
+"""Each attempt of the "Probe docker daemon is serving API requests" task is
+bounded by `timeout`, so its retries end on a hung daemon
+(bootstrap/roles/docker/tasks/main.yml says why).
 
 Run: uv run pytest tests/unit/test_docker_info_probe_timeout.py
 """

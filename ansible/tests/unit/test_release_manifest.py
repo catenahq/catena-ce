@@ -256,14 +256,9 @@ def test_an_unknown_version_never_overwrites_a_known_one():
 
 
 def test_the_converge_carries_the_payloads_half_forward(post_tasks, write_task):
-    """Two writers own disjoint halves. The converge owns everything about the
-    converge; the payload owns the actions ITS dispatch drop-in adds.
-
-    `copy` writes full content, so the payload's half has to be read back and
-    carried, exactly as the engine marker is. Without this, every converge would
-    erase the record of actions the host does in fact accept, and the panel would
-    raise a converge-required banner for them -- a banner that lies, on the one
-    surface whose whole job is to be believed."""
+    """The converge reads the previous manifest back and carries the payload's
+    half into the one it writes (playbooks/tasks/record_release_manifest.yml
+    says why)."""
     names = [t.get("name", "") for t in post_tasks]
     assert any(n.startswith("Release: read the payload") for n in names), (
         "nothing reads the previous manifest, so the converge clobbers the "

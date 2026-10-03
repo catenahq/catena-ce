@@ -1,32 +1,20 @@
-"""Lock down the catena-admin wiring for the Cloudflare tunnel engine.
-
-The two Cloudflare dispatch actions are NOT here. They live in the image, as
-catena-admin payload/actions.d/20-catena.sh, because neither body interpolates
-a fact about the host: the engine reads the token, the zones and the tunnel-name
-prefix out of the on-box store and names the tunnel after the box's own
-hostname. What this repo still owns for them is the sshd AcceptEnv entry that
-carries the candidate token -- a drop-in may read that name and can never add to
-it -- so that is what is asserted here, together with the converge's silence.
-
-Also covers the hand-off of the host payload install to reconcile/roles/payload and the
-un-gated ee-install-engines wording.
+"""The catena-admin wiring for the Cloudflare tunnel engine on the converge
+side: the sshd AcceptEnv entry carrying the candidate token, a converge that
+declares no Cloudflare action (catena-admin payload/actions.d/20-catena.sh
+holds them), the host payload install in reconcile/roles/payload, and the
+ee-install-engines wording.
 
 Run: uv run pytest tests/unit/test_catena_admin_cloudflared_actions.py
 """
 from __future__ import annotations
 
-from ansible_tree import GROUP_VARS, panel_vars, role_dir
+from ansible_tree import GROUP_VARS, PANEL_HOST_TASKS as HOST, panel_vars, role_dir
 
 _ROLE = role_dir("catena-admin")
 DEFAULTS = _ROLE / "defaults" / "main.yml"
-# The bootstrap-side half of the panel: the runner account, the sudoers
-# drop-in, the forced command.
-HOST = role_dir("catena_admin_host") / "tasks" / "main.yml"
 CATALOG = _ROLE / "tasks" / "catalog.yml"
 DEPLOY = _ROLE / "tasks" / "deploy.yml"
 PAYLOAD_ROLE = _ROLE.parent / "payload"
-
-
 
 
 def _by_name(actions: list[dict]) -> dict[str, str]:

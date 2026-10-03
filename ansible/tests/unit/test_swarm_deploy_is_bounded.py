@@ -42,7 +42,8 @@ def _deploy_tasks() -> list[dict]:
 
 
 def test_there_is_a_deploy_task_to_check() -> None:
-    """Guard the guard: a rename would make this vacuous."""
+    """The attempt file still holds a `docker stack deploy` for the checks
+    below to read."""
     assert ATTEMPT.is_file(), ATTEMPT
     assert _deploy_tasks(), (
         "no `docker stack deploy` task found in the attempt file, so this test "

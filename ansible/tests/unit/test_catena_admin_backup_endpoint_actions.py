@@ -18,19 +18,13 @@ Run: uv run pytest tests/unit/test_catena_admin_backup_endpoint_actions.py
 """
 from __future__ import annotations
 
-from ansible_tree import panel_vars, role_dir
-
-# The bootstrap-side half of the panel: the runner account, the sudoers
-# drop-in, the forced command.
-HOST = role_dir("catena_admin_host") / "tasks" / "main.yml"
+from ansible_tree import PANEL_HOST_TASKS as HOST, panel_vars
 
 CANDIDATE_ENV_VARS = (
     "CATENA_BACKUP_CANDIDATE_REPO",
     "CATENA_BACKUP_CANDIDATE_ACCESS_KEY",
     "CATENA_BACKUP_CANDIDATE_SECRET_KEY",
 )
-
-
 
 
 def test_sshd_acceptenv_lists_the_backup_candidate_env_vars():

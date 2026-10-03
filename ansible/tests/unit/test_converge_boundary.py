@@ -65,9 +65,8 @@ def _bootstrap_names(b: dict) -> set[str]:
     return {r["name"] for r in b["bootstrap_roles"]}
 
 
-# Reconcile-side roles the converge does not list under `roles:`. They are
-# classified by declaration like everything else, so the set cannot grow by an
-# edit to this file.
+# boundary.yml's declarations of the roles outside the converge's `roles:`.
+# Read from there, so the set cannot grow by an edit to this file.
 _NON_PLAY_KEYS = ("post_task_roles", "own_playbook_roles")
 
 

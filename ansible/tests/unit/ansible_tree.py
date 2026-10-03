@@ -25,6 +25,11 @@ def role_dir(name: str) -> Path:
     raise AssertionError(f"no role named {name} under {[str(r) for r in ROLE_ROOTS]}")
 
 
+# The bootstrap-side half of the panel: the runner account, the sudoers
+# drop-in, the forced command.
+PANEL_HOST_TASKS = role_dir("catena_admin_host") / "tasks" / "main.yml"
+
+
 def panel_vars() -> dict:
     """Every variable the panel's converge reads, merged: group_vars (the
     values both of its halves need), then reconcile/roles/catena-admin and

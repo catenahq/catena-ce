@@ -1,12 +1,7 @@
-"""A host whose Lockdown closed public SSH reopens it while the tailnet is down.
-
-The panel's Lockdown narrows port 22 to the private path after proving the
-tailnet. The tailnet is a convenience, not the host's security boundary --
-key-only SSH with no root and no password login is -- so a tailnet that stops
-answering must not leave the host with no way in. The reconciler asks
-tailscaled on every run and serves the narrowed declaration as `any` until the
-tailnet is back; the declaration on disk never changes, so the port closes
-again by itself.
+"""A host whose Lockdown narrowed public SSH serves port 22 as `any` while
+tailscaled reports the tailnet down, without changing the declaration on disk,
+so the port closes again when the tailnet is back (helpers/public_ports.py
+says why).
 
 Run: uv run pytest tests/unit/test_public_ports_ssh_fallback.py
 """

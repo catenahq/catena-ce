@@ -1,18 +1,6 @@
-"""The sshd hardening must be APPLIED, not merely written.
-
-Every directive bootstrap/roles/common sets ships as a drop-in under
-/etc/ssh/sshd_config.d/. sshd reads that directory only when the main
-config includes it. Debian 12 and Ubuntu ship the Include, but a provider
-image or a cloud-init variant can replace sshd_config with something
-minimal that does not -- and the resulting failure is silent, fails OPEN
-(password auth and root login stay enabled, AllowUsers never applies), and
-passes any file-content validation that reads the file we wrote rather than
-what sshd resolved.
-
-Observed on a live bench host: /etc/ssh/sshd_config held a single line,
-`PasswordAuthentication yes`, and `sshd -T` reported
-`passwordauthentication yes` / `permitrootlogin without-password` / no
-`allowusers` while both drop-ins sat on disk saying the opposite.
+"""bootstrap/roles/common makes sshd include its drop-in directory and
+validates what sshd resolved (`sshd -T`), so the hardening is applied and
+not only written (the role's tasks/main.yml says why).
 
 Run: uv run pytest tests/unit/test_sshd_dropin_is_effective.py
 """

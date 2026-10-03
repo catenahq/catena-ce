@@ -22,12 +22,9 @@ from pathlib import Path
 
 import yaml
 
-from ansible_tree import panel_vars, role_dir
+from ansible_tree import PANEL_HOST_TASKS as HOST_TASKS, panel_vars
 
 _ANSIBLE = Path(__file__).resolve().parents[2]
-# The bootstrap-side half of the panel: the runner account, the sudoers
-# drop-in, the forced command.
-HOST_TASKS = role_dir("catena_admin_host") / "tasks" / "main.yml"
 PLUGIN = _ANSIBLE / "playbooks" / "filter_plugins" / "catena_admin_service.py"
 
 # Under /var/lib/catena, not beside it: one directory for the host's runtime

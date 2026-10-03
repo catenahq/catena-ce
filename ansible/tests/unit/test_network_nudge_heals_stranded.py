@@ -73,13 +73,8 @@ def test_waits_for_overlay_before_deciding():
 
 
 def test_no_container_gets_an_unconditional_start():
-    """No container is started on not-running alone.
-
-    A rule that starts one by name, with no recorded error, is a
-    start-anything-named-X path with no evidence gate. It also has no subject:
-    catena-traefik is a swarm service, the task manager re-dispatches it, and
-    the swarm-task skip above excludes it from this loop anyway.
-    """
+    """No container is started on not-running alone, catena-traefik included
+    (scripts/catena-network-nudge.sh says why)."""
     # Comment lines stripped: a comment naming catena-traefik is not a start.
     body = "\n".join(
         line for line in SCRIPT.read_text().splitlines()

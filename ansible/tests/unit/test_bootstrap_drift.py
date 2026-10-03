@@ -1,22 +1,11 @@
-"""The converge reports changes to the files it may never write.
+"""The converge reports changes to the files boundary.yml's
+`bootstrap_owned_paths` keeps out of its reach
+(playbooks/filter_plugins/bootstrap_drift.py says why):
 
-boundary.yml's `bootstrap_owned_paths` is the invariant "a reconcile may not
-modify anything that would remove your ability to run a reconcile", as a list
-of literals. Without a reader, a change to the forced command, the sudoers
-drop-in or the SSH trust path would be invisible on the host until an operator
-went looking, and what makes an operator go looking is already suspecting
-something.
-
-Not writing is not the same as not noticing. This is the noticing half, and
-these are the properties that keep it honest:
-
-  - it reads the path list from boundary.yml rather than restating it, so a
-    path added there is covered without a second edit;
-  - it reports and never repairs, because repair is bootstrap's;
-  - it distinguishes added/removed/changed, because a removed sudoers drop-in
-    and an added one are not the same event;
-  - a first converge records a baseline and claims no drift, because the
-    baseline is what the host has, not what it should have.
+  - it reads the path list from boundary.yml rather than restating it;
+  - it reports and never repairs;
+  - it distinguishes added, removed and changed;
+  - a first converge records a baseline and claims no drift.
 
 Run: uv run pytest tests/unit/test_bootstrap_drift.py
 """
