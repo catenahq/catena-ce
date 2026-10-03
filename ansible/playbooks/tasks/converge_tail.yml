@@ -1,0 +1,48 @@
+---
+# The end of every converge, after its roles: converge.yml and reconcile.yml
+# both include it, naming themselves in `catena_converge_path`. Each task keeps
+# its own tag, so a --tags run still selects one of them.
+
+# Reconcile the declarative public-port registry, after every role has dropped
+# its /etc/catena/public-ports.d/ fragment and deployed its containers
+# (vps.expose.* labels), so the merged effective set is complete. Applies ufw +
+# DOCKER-USER rules and writes the effective set validate.yml reads. The
+# firewall's default-deny policy is bootstrap's; this only opens what is
+# declared. Not a change of its own: a converge that alters what is declared
+# reports it on the fragment it writes, and a start joins a run the timer
+# already has in flight.
+- name: "Public ports: reconcile firewall from registry"
+  ansible.builtin.systemd_service:
+    name: catena-public-ports.service
+    state: started
+  changed_when: false
+  tags: [public_ports]
+
+# Report -- never repair -- changes to the files boundary.yml puts on the
+# operator's side. A converge does not write them; this task is what keeps
+# that rule from also meaning blindness to them.
+- name: "Bootstrap drift: report changes to operator-owned files"
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/report_bootstrap_drift.yml"
+    apply:
+      tags: [bootstrap_drift]
+  tags: [bootstrap_drift]
+
+# Remove what a previous converge installed and this one does not ship.
+# Before the release manifest, so a converge that fails here does not record
+# itself as finished.
+- name: "Prune: remove files withdrawn from the product"
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/prune_withdrawn_files.yml"
+    apply:
+      tags: [prune]
+  tags: [prune]
+
+# Record what this converge delivered, last: the panel reads this manifest to
+# tell "this feature is off" from "this host's converge predates it".
+- name: "Release: record what this converge delivered"
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/tasks/record_release_manifest.yml"
+    apply:
+      tags: [release_manifest]
+  tags: [release_manifest]

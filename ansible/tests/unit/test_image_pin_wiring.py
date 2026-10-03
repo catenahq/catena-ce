@@ -17,25 +17,12 @@ from pathlib import Path
 import jinja2
 import yaml
 
+from ansible_tree import ROLE_ROOTS as _ROLE_ROOTS, role_dir as _role_dir
+
 ANSIBLE = Path(__file__).resolve().parents[2]
-_ROLE_ROOTS = (ANSIBLE / "bootstrap" / "roles",
-               ANSIBLE / "reconcile" / "roles")
 # The values both sides share: a host converging itself runs no bootstrap role,
 # so a constant the reconcile roles need cannot live in one.
 SHARED_VARS = ANSIBLE / "playbooks" / "group_vars" / "all" / "main.yml"
-
-def _role_dir(name: str) -> Path:
-    """Where a role lives, whichever side it is on.
-
-    Phase 1b split roles/ into bootstrap/roles/ and reconcile/roles/. Resolved
-    by search rather than by a hard-coded side so a role moving across the line
-    -- which is a thing this migration does -- does not need this file edited
-    too.
-    """
-    for root in _ROLE_ROOTS:
-        if (root / name).is_dir():
-            return root / name
-    raise AssertionError(f"no role named {name} under {[str(r) for r in _ROLE_ROOTS]}")
 
 
 _IMAGE_VAR = re.compile(r"^[a-z][a-z0-9_]*_image$")

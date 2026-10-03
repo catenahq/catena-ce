@@ -38,6 +38,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from ansible_tree import task_index as _index
+
 ANSIBLE = Path(__file__).resolve().parents[2]
 COMMON = ANSIBLE / "bootstrap" / "roles" / "common" / "tasks"
 LOCKDOWN_TASKS = COMMON / "ufw_lockdown.yml"
@@ -65,14 +67,6 @@ def _flatten(node) -> list[dict]:
             if key in node:
                 out += _flatten(node[key])
     return out
-
-
-def _index(tasks: list[dict], needle: str) -> int:
-    for i, task in enumerate(tasks):
-        if needle.lower() in str(task.get("name", "")).lower():
-            return i
-    raise AssertionError(
-        f"no task matching {needle!r}; the ordering it anchors cannot be checked")
 
 
 def _conditions(task: dict) -> str:

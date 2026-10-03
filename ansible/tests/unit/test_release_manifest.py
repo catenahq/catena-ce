@@ -23,6 +23,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from ansible_tree import post_tasks as converge_post_tasks
+
 ANSIBLE = Path(__file__).resolve().parents[2]
 SITE = ANSIBLE / "playbooks" / "converge.yml"
 RECONCILE = ANSIBLE / "playbooks" / "reconcile.yml"
@@ -33,8 +35,7 @@ GROUP_VARS = ANSIBLE / "playbooks" / "group_vars" / "all" / "main.yml"
 VALIDATE = ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "validate.yml"
 
 # Both playbooks that converge a host. An assertion about "the converge" has to
-# hold for whichever one ran, which is the whole reason the tasks were lifted
-# out of converge.yml.
+# hold for whichever one ran.
 CONVERGE_PLAYBOOKS = (SITE, RECONCILE)
 
 
@@ -57,11 +58,8 @@ def test_the_manifest_is_the_last_thing_the_converge_writes(playbook):
     version.txt already covers "a converge started here"; this file exists to
     say "a converge finished here", and it can only say that from the end.
 
-    Asserted for BOTH playbooks. An on-host converge that stamped the manifest
-    before its last role would be making the same claim converge.yml was careful
-    not to."""
-    play = yaml.safe_load(playbook.read_text())[0]
-    names = [t.get("name", "") for t in play["post_tasks"]]
+    Asserted for BOTH playbooks."""
+    names = [t.get("name", "") for t in converge_post_tasks(playbook)]
     writes = [i for i, n in enumerate(names) if n.startswith("Release: record")]
     assert writes, f"{playbook.name} no longer records the release manifest"
     assert writes[-1] == len(names) - 1, (
@@ -73,15 +71,13 @@ def test_the_manifest_is_the_last_thing_the_converge_writes(playbook):
 
 @pytest.mark.parametrize("playbook", CONVERGE_PLAYBOOKS, ids=lambda p: p.name)
 def test_both_converge_paths_include_the_same_file(playbook):
-    """The gap this closes. These tasks lived in converge.yml, so an on-host
-    converge left every field describing the last converge an OPERATOR ran --
-    including `actions`, which is what the panel checks before deciding a host
-    needs a converge. The banner then survived the converge that cleared it."""
-    play = yaml.safe_load(playbook.read_text())[0]
-    includes = [t for t in play["post_tasks"]
-                if "ansible.builtin.include_tasks" in t]
-    files = [t["ansible.builtin.include_tasks"].get("file") for t in includes]
-    assert f"tasks/{SHARED.name}" in files, (
+    """An on-host converge that skipped it would leave every field describing
+    the last converge an OPERATOR ran -- including `actions`, which the panel
+    checks before deciding a host needs a converge."""
+    files = [str(t["ansible.builtin.include_tasks"].get("file"))
+             for t in converge_post_tasks(playbook)
+             if "ansible.builtin.include_tasks" in t]
+    assert any(f.endswith(f"tasks/{SHARED.name}") for f in files), (
         f"{playbook.name} does not include tasks/{SHARED.name}; it is either "
         "not stamping the manifest or keeping a second copy of these tasks")
 
@@ -91,10 +87,9 @@ def test_each_path_names_itself_in_the_manifest(playbook):
     """A host converges from a controller and from its own panel image, and the
     two runs are applied from different trees. Recording which path wrote the
     manifest is what lets a reader tell which tree the host last received."""
-    play = yaml.safe_load(playbook.read_text())[0]
-    include = next(t for t in play["post_tasks"]
-                   if t.get("ansible.builtin.include_tasks", {}).get("file")
-                   == f"tasks/{SHARED.name}")
+    include = next(t for t in converge_post_tasks(playbook)
+                   if str(t.get("ansible.builtin.include_tasks", {}).get("file"))
+                   .endswith(f"tasks/{SHARED.name}"))
     named = include.get("vars", {}).get("catena_converge_path")
     assert named, f"{playbook.name} does not name itself as the converge path"
     assert named == playbook.stem, (

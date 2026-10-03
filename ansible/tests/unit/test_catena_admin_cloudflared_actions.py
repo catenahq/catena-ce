@@ -15,44 +15,18 @@ Run: uv run pytest tests/unit/test_catena_admin_cloudflared_actions.py
 """
 from __future__ import annotations
 
-from pathlib import Path
+from ansible_tree import GROUP_VARS, panel_vars, role_dir
 
-import yaml
-
-_ROLE = (
-    Path(__file__).resolve().parents[3]
-    / "ansible" / "reconcile" / "roles" / "catena-admin"
-)
+_ROLE = role_dir("catena-admin")
 DEFAULTS = _ROLE / "defaults" / "main.yml"
-# The bootstrap-side half of the same panel: the runner account, the
-# sudoers drop-in, the forced command. A role of its own, so the
-# bootstrap/reconcile boundary it sits on is one the layout can hold.
-_HOST_ROLE = (_ROLE.parents[2] / "bootstrap" / "roles"
-              / "catena_admin_host")
-_HOST_DEFAULTS = _HOST_ROLE / "defaults" / "main.yml"
-# And the values both halves read, which belong to neither role.
-_GROUP_VARS = (
-    _ROLE.parents[2] / "playbooks" / "group_vars" / "all" / "main.yml")
-HOST = _HOST_ROLE / "tasks" / "main.yml"
+# The bootstrap-side half of the panel: the runner account, the sudoers
+# drop-in, the forced command.
+HOST = role_dir("catena_admin_host") / "tasks" / "main.yml"
 CATALOG = _ROLE / "tasks" / "catalog.yml"
 DEPLOY = _ROLE / "tasks" / "deploy.yml"
 PAYLOAD_ROLE = _ROLE.parent / "payload"
 
 
-def _defaults() -> dict:
-    """Every variable the panel's converge reads, from all three places it now
-    lives.
-
-    Phase 1b split the role: the trust path is bootstrap/roles/catena_admin_host, the
-    container is reconcile/roles/catena-admin, and the values BOTH halves need are in
-    group_vars because a role default is only dependable once that role has run.
-    Merged here so an assertion is about the panel's configuration rather than
-    about which file happens to hold a line today.
-    """
-    merged: dict = {}
-    for path in (_GROUP_VARS, DEFAULTS, _HOST_DEFAULTS):
-        merged.update(yaml.safe_load(path.read_text()) or {})
-    return merged
 
 
 def _by_name(actions: list[dict]) -> dict[str, str]:
@@ -67,7 +41,7 @@ def test_the_converge_declares_no_cloudflared_action():
 
     An empty list left behind is a place for one to come back to, so there is no
     list."""
-    d = _defaults()
+    d = panel_vars()
     assert "catena_admin_cloudflared_reserved_actions" not in d, (
         "the cloudflared reserved list is back. Base-first precedence means "
         "anything in it shadows catena-admin payload/actions.d/20-catena.sh, "
@@ -102,8 +76,7 @@ def test_the_converge_hands_the_engine_no_tunnel_name():
     for path in (tunnel_role / "tasks" / "main.yml",
                  tunnel_role / "defaults" / "main.yml",
                  DEFAULTS,
-                 Path(__file__).resolve().parents[2]
-                 / "playbooks" / "group_vars" / "all" / "main.yml"):
+                 GROUP_VARS):
         text = path.read_text()
         assert "CLOUDFLARED_TUNNEL_NAME:" not in text, (
             f"{path.name} exports CLOUDFLARED_TUNNEL_NAME to the engine")
@@ -125,7 +98,7 @@ def test_sshd_acceptenv_lists_the_dispatch_env_vars():
 
 
 def test_the_passthrough_list_still_carries_the_candidate_token():
-    d = _defaults()
+    d = panel_vars()
     assert "CATENA_CF_CANDIDATE_TOKEN" in d["catena_admin_dispatch_env_passthrough"], (
         "the image's cloudflared-check arm reads this variable and cannot "
         "authorise it for itself"
@@ -134,7 +107,7 @@ def test_the_passthrough_list_still_carries_the_candidate_token():
 
 # --- unconditional host payload install -------------------------------------
 def test_ee_install_engines_dispatches_the_host_verb():
-    d = _defaults()
+    d = panel_vars()
     ee = _by_name(d["catena_admin_ee_reserved_actions"])
     assert "ee-install-engines" in ee
     assert "catena_admin_stack_update_bin" in ee["ee-install-engines"]
@@ -150,7 +123,7 @@ def test_no_root_dispatch_runs_out_of_the_container_writable_mirror():
     The same property on the drop-in side is asserted by catena-admin
     payload/actions.d/actions_test.go, against the files that carry those
     commands now."""
-    d = _defaults()
+    d = panel_vars()
     mirror = d["catena_admin_ee_payload_dir"]
     for name, shell in _by_name(d["catena_admin_ee_reserved_actions"]).items():
         assert "catena_admin_ee_payload_installer" not in shell, (
@@ -178,6 +151,6 @@ def test_payload_role_owns_the_install():
 
 
 def test_defaults_expose_payload_paths():
-    d = _defaults()
+    d = panel_vars()
     assert d["catena_admin_ee_payload_dir"].endswith("/ee-payload")
     assert d["catena_admin_ee_payload_installer"].endswith("install-ee-payload.sh")

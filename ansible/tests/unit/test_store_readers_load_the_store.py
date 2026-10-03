@@ -1,7 +1,6 @@
 """A play whose roles read a store-owned value has to load the store.
 
-Phase 3 moves values out of the operator's `.env` and into
-/etc/catena/config.json, and the mechanism is one hop: a key declared in
+A value in /etc/catena/config.json reaches a role in one hop: a key declared in
 SETTINGS_CONFIG is published by `tasks/load_onbox_config.yml` as a `cfg_*` fact,
 and a variable somewhere reads that fact. The hop is invisible at the call site
 -- roles say `cloudflare_zone`, not `cfg_cloudflare_zone` -- so moving a key
@@ -24,22 +23,9 @@ from pathlib import Path
 
 import yaml
 
+from ansible_tree import ROLE_ROOTS as _ROLE_ROOTS, role_dir as _role_dir
+
 _ANSIBLE = Path(__file__).resolve().parents[2]
-_ROLE_ROOTS = (_ANSIBLE / "bootstrap" / "roles",
-               _ANSIBLE / "reconcile" / "roles")
-
-def _role_dir(name: str) -> Path:
-    """Where a role lives, whichever side it is on.
-
-    Phase 1b split roles/ into bootstrap/roles/ and reconcile/roles/. Resolved
-    by search rather than by a hard-coded side so a role moving across the line
-    -- which is a thing this migration does -- does not need this file edited
-    too.
-    """
-    for root in _ROLE_ROOTS:
-        if (root / name).is_dir():
-            return root / name
-    raise AssertionError(f"no role named {name} under {[str(r) for r in _ROLE_ROOTS]}")
 
 _PLAYBOOKS = _ANSIBLE / "playbooks"
 _GROUP_VARS = _PLAYBOOKS / "group_vars" / "all" / "main.yml"

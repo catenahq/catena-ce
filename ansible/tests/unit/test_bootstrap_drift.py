@@ -2,10 +2,10 @@
 
 boundary.yml's `bootstrap_owned_paths` is the invariant "a reconcile may not
 modify anything that would remove your ability to run a reconcile", as a list
-of literals. Right rule, and it left those six paths with no reader at all: a
-change to the forced command, the sudoers drop-in or the SSH trust path was
-invisible on the host until an operator went looking, and what makes an
-operator go looking is already suspecting something.
+of literals. Without a reader, a change to the forced command, the sudoers
+drop-in or the SSH trust path would be invisible on the host until an operator
+went looking, and what makes an operator go looking is already suspecting
+something.
 
 Not writing is not the same as not noticing. This is the noticing half, and
 these are the properties that keep it honest:
@@ -26,6 +26,8 @@ import sys
 from pathlib import Path
 
 import yaml
+
+from ansible_tree import post_tasks
 
 _ANSIBLE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ANSIBLE / "playbooks" / "filter_plugins"))
@@ -162,10 +164,9 @@ def test_both_converge_paths_report():
     itself -- the unattended one, where nobody is watching -- as the one with
     no reader."""
     for name in ("converge.yml", "reconcile.yml"):
-        play = yaml.safe_load((_ANSIBLE / "playbooks" / name).read_text())[0]
-        files = [t.get("ansible.builtin.include_tasks", {}).get("file")
-                 for t in play["post_tasks"]]
-        assert "tasks/report_bootstrap_drift.yml" in files, name
+        files = [str(t.get("ansible.builtin.include_tasks", {}).get("file"))
+                 for t in post_tasks(_ANSIBLE / "playbooks" / name)]
+        assert any(f.endswith("tasks/report_bootstrap_drift.yml") for f in files), name
 
 
 def test_the_record_is_not_in_etc():
