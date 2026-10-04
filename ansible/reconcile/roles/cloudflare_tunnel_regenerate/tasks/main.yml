@@ -1,7 +1,7 @@
 ---
 # Regenerate the Cloudflare tunnel for this host. Two scenarios: rotation of
-# the tunnel credential when compromise is suspected, and recovery after the
-# tunnel was deleted out of band in the Cloudflare dashboard.
+# the tunnel credential when compromise is suspected, and recovery from a
+# tunnel someone deleted out of band in the Cloudflare dashboard.
 #
 # WHAT IS ROTATED is the tunnel's own credential -- the TUNNEL_TOKEN carried in
 # the cloudflared swarm service spec. The Cloudflare API token is what

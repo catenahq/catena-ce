@@ -14,9 +14,8 @@ not inert, systemd refuses to start it, so an ungated enable would turn the
 deferral into the failure it exists to avoid.
 
 The validate half is here too, because it is the SAME property on a second
-surface and the first fix missed it: validate.yml asserted the reconciler and
-its timer with no gate at all, so a host mid-assembly failed validation for
-being mid-assembly.
+surface: an ungated validate.yml assertion on the reconciler and its timer
+fails a host mid-assembly for being mid-assembly.
 
 Run: uv run pytest tests/unit/test_dashboard_sync_payload_gate.py
 """
@@ -43,10 +42,9 @@ _SHARED = "_payload_expected"
 _RECONCILER_PATHS = "{{ dashboard_sync_required_paths }}"
 
 # The modules catena-dashboard-sync imports at module scope. They have to be
-# checked separately from the binary: run 1216 nc_s3_hot_recovery restored
-# /usr/local/bin, which is in backup_paths, without the module directory, which
-# is not -- so a binary-only gate read present, and the converge died inside
-# systemd on ModuleNotFoundError with an empty journal.
+# checked separately from the binary: a host can hold /usr/local/bin without the
+# module directory, and a binary-only gate then reads present while the unit
+# dies inside systemd on ModuleNotFoundError with an empty journal.
 _REQUIRED_MODULES = (
     "clients_provisioner.py",
     "gate_routes.py",
@@ -110,8 +108,8 @@ def _cond(task: dict) -> str:
 
 
 def test_the_decision_comes_from_the_shared_predicate():
-    """Five sites asked this and two answered it differently. One include, one
-    answer -- bootstrap/roles/common/tasks/_payload_expected.yml."""
+    """Every site that asks this reads one include, so no two can answer it
+    differently -- bootstrap/roles/common/tasks/_payload_expected.yml."""
     task = _find("is the reconciler expected on this host")
     assert task["ansible.builtin.include_role"]["tasks_from"] == _SHARED
     assert task["vars"]["_payload_paths"] == _RECONCILER_PATHS
@@ -120,8 +118,8 @@ def test_the_decision_comes_from_the_shared_predicate():
 def test_the_gate_names_the_modules_not_the_directory():
     """bootstrap/roles/common creates the lib dir at role position 1 for its own
     public-ports modules, so it exists on hosts the payload has never touched.
-    Stat-ing the directory answers yes for another owner's files, which is how
-    a half-restored host passed the gate on the run that added it."""
+    Stat-ing the directory answers yes for another owner's files, so a
+    half-restored host would pass the gate."""
     defaults = yaml.safe_load(
         (_ROLE / "defaults" / "main.yml").read_text()
     )
@@ -162,7 +160,7 @@ def test_a_host_with_out_of_band_engines_defers_instead():
 
 def test_the_two_legs_cannot_both_fire_or_both_stay_silent():
     """They partition the missing-reconciler case. Two conditions that could
-    both be false would restore the silent skip this pair replaced."""
+    both be false would skip a missing reconciler silently."""
     fail_cond = _cond(_find("missing from a converge that installs it"))
     defer_cond = _cond(_find("staged out of band"))
     assert (_EXPECTED in fail_cond) and (f"not ({_EXPECTED}" not in fail_cond)
@@ -192,8 +190,8 @@ def test_everything_that_runs_the_reconciler_is_gated_on_it_existing():
 
 def test_a_failed_reconciler_reports_its_own_log_and_still_fails():
     """systemd returns an exit code and a pointer to a journal that, on a DR
-    host, is destroyed with the machine -- run 1216 nc_s3_hot_recovery failed
-    here and left nothing readable anywhere. The rescue exists to capture the
+    host, is destroyed with the machine, so a failure here leaves nothing
+    readable anywhere. The rescue exists to capture the
     output, so it has to re-raise: a rescue that only logs turns a failed
     reconciler into a passing converge, which is worse than the silence."""
     names = [t.get("name") or "" for t, _ in _flatten(_tasks())]
@@ -227,13 +225,12 @@ def test_the_env_file_is_written_unconditionally():
 def test_the_converge_renders_no_timer_for_this_lane():
     """Both halves of the lane ship in the payload.
 
-    Its service was always the payload's; its timer was rendered here from a
-    template whose only variables were compiled-in constants -- so one lane had
-    two owners and two release cadences, and a change to the pair was
-    half-applied until an image AND a converge had landed, in that order.
+    A timer rendered here would give the lane two owners and two release
+    cadences, and a change to the pair would stay half-applied until an image
+    AND a converge had landed, in that order.
 
-    The general form is tests/unit/test_no_lane_is_half_owned.py. This is the
-    specific one, because this lane is the reason that gate exists.
+    The general form is tests/unit/test_no_lane_is_half_owned.py. This pins
+    the same property for this lane by name.
     """
     body = TASKS.read_text()
     assert "catena-dashboard-sync.timer.j2" not in body, (
@@ -250,7 +247,7 @@ def test_the_converge_renders_no_timer_for_this_lane():
     )
 
 
-# --- validate.yml: the same property, the surface the first fix missed ------
+# --- validate.yml: the same property on the second surface ------------------
 
 def test_validate_uses_the_same_shared_predicate():
     """A standalone play cannot see reconcile/roles/payload's set_fact, and the shared

@@ -46,12 +46,7 @@
         path: /root/.catena-postgres-secret
         state: absent
 
-# ─── the service spec ────────────────────────────────────────────────────
-# One dict, two consumers: the catena-tier1 host engine creates and reconciles
-# the service from it, and tier1_stack_render puts it in the file
-# `docker stack config` type-checks, so the running service and the rendered
-# plane cannot describe different things.
-#
+# ─── the service spec, from the host engine (tier1_stack/tasks/spec_one.yml) ───
 # Single-node swarm service on catena-network. POSTGRES_PASSWORD_FILE points at
 # the mounted secret; the named volume persists the cluster across task
 # reschedules + service updates. No published host port -- reachable only on
@@ -61,19 +56,6 @@
 # detach: do not block create on convergence. A crashlooping task would
 # otherwise hang `docker service create` indefinitely; the pg_isready gate
 # below is the real readiness barrier and fails fast (120s) instead.
-# ASKED FOR, not assembled here. The engine on the host owns what the control
-# plane IS (catena-admin payload/engines/tier1/catalog.go); this reads its
-# answer and feeds both consumers, the reconcile below and the stack-file
-# oracle.
-#
-# The point of asking rather than keeping a copy: one service has one
-# description. A copy that agrees on the day it is written says nothing about
-# the next field added to one side, and the engine's own test pins the
-# declaration against byte-identical create argv.
-#
-# It also means the desired state travels with the IMAGE. Bump the catena-admin
-# tag, reconcile/roles/payload re-extracts the engines, and the control plane the host
-# reconciles toward moves with it -- no laptop, no inventory edit.
 - name: "postgres: read the built-in tier-1 spec from the host engine"
   ansible.builtin.include_role:
     name: tier1_stack

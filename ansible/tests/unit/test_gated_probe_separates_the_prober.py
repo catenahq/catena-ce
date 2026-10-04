@@ -1,25 +1,6 @@
-"""A probe that could not leave the machine is not a service verdict.
-
-verify_gated_services probes the public URLs from the CONTROLLER. Its
-failures come in two kinds and only one is about the gate:
-
-  refused / reset / timeout / wrong status  -> the packet reached the edge
-  ENETUNREACH / EHOSTUNREACH / no resolve   -> this machine has no route
-
-The second failed a whole converge on bench run 2026-09-01T13-21-30-2bef:
-
-    Status code was -1 and not [200, 301, 302, 307]: Request failed:
-    <urlopen error [Errno 101] Network is unreachable>
-
-The controller had cached an AAAA-only answer for the heartbeat hostname and
-has no IPv6 egress, while the same wildcard served both families to an
-uncached name and a cache flush made it resolve identically to its siblings.
-Retries could not help: a cached answer does not change inside the window.
-The repoint that converge belonged to was then recorded as a dead host, and
-every scenario on that slot failed after it.
-
-cli.py already draws this line for the bench's own tunnel probe. This holds
-the same line in the role.
+"""verify_gated_services fails on a probe that reached the edge and reports,
+without failing, one that could not leave the controller
+(reconcile/roles/infrastructure/tasks/verify_gated_services.yml says why).
 
 Run: uv run pytest tests/unit/test_gated_probe_separates_the_prober.py
 """

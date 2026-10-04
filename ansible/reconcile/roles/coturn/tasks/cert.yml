@@ -96,44 +96,8 @@
     path: "{{ coturn_cert_path }}"
   register: _coturn_cert_stat
 
-# Bench local-CA (Pebble) wiring. No-op in production (CATENA_ACME_* are
-# blank). When the bench points at its host-side Pebble ACME server,
-# certbot must resolve the `pebble` hostname (in Pebble's endpoint cert
-# SAN) to the Pebble host IP and trust the minica via REQUESTS_CA_BUNDLE.
-- name: "coturn cert: map Pebble ACME host (bench local CA)"
-  ansible.builtin.lineinfile:
-    path: /etc/hosts
-    # Python regex, NOT POSIX. `[[:space:]]` parses as a character class of
-    # the literal chars [ : s p a c e followed by a stray `]`, so it never
-    # matches a hosts line, lineinfile finds nothing to replace and APPENDS
-    # -- a fresh duplicate on every converge, which is a permanent changed=1.
-    # The same trap is called out in reconcile/roles/infrastructure/tasks/validate.yml.
-    regexp: '^\S+\s+pebble$'
-    line: "{{ coturn_acme_host_ip }} pebble"
-    state: present
-  when:
-    - (coturn_acme_directory_url | length) > 0
-    - (coturn_acme_host_ip | length) > 0
-
-- name: "coturn cert: install Pebble CA bundle into system trust (bench local CA)"
-  ansible.builtin.copy:
-    content: "{{ coturn_acme_ca_bundle_b64 | b64decode }}"
-    dest: "{{ coturn_acme_ca_bundle_path }}"
-    owner: root
-    group: root
-    mode: "0644"
-  register: _coturn_pebble_ca
-  when: (coturn_acme_ca_bundle_b64 | length) > 0
-
-# Fold the minica into the system bundle so the SAME process trusts both
-# Pebble (ACME endpoint) AND api.cloudflare.com (DNS plugin, public CA).
-# Pointing REQUESTS_CA_BUNDLE at the minica alone broke the Cloudflare
-# call with CERTIFICATE_VERIFY_FAILED.
-- name: "coturn cert: refresh system trust store (bench local CA)"
-  ansible.builtin.command:
-    cmd: update-ca-certificates
-  changed_when: _coturn_pebble_ca is changed
-  when: (coturn_acme_ca_bundle_b64 | length) > 0
+- name: "coturn cert: trust the bench's local ACME server"
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/acme_local_ca.yml"
 
 # First-issuance path. Idempotent: certbot's own state in
 # /etc/letsencrypt/renewal/<host>.conf prevents duplicate orders.
@@ -156,12 +120,10 @@
            if (coturn_acme_server | length) > 0 else [])
         + ['-d', coturn_hostname]
       }}
-  # Point certbot at the COMBINED system bundle (now carrying the Pebble
-  # minica via update-ca-certificates) so it trusts both the Pebble ACME
-  # endpoint and api.cloudflare.com. Empty dict in production = system
-  # trust against LE, unchanged.
-  environment: "{{ {'REQUESTS_CA_BUNDLE': coturn_acme_system_ca_bundle}
-                   if (coturn_acme_ca_bundle_b64 | length) > 0 else {} }}"
+  # The combined system bundle, which carries the local ACME CA when one is
+  # set (group_vars/all/main.yml says why). Empty on a client install.
+  environment: "{{ {'REQUESTS_CA_BUNDLE': acme_system_ca_bundle}
+                   if (acme_local_ca_bundle_b64 | length) > 0 else {} }}"
   register: _coturn_cert_issue
   when:
     - _coturn_cf_token_present

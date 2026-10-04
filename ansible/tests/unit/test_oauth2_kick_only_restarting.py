@@ -1,14 +1,13 @@
 """The oauth2-proxy kick must not resurrect swarm's replaced tasks.
 
 The task is named "kick oauth2-proxy containers stuck in restart-backoff",
-and it selected on `not Up`. `docker ps -a` also lists the task containers
-swarm has ALREADY REPLACED -- Exited, Created -- so `docker restart` brought
-those back to life. Swarm does not track them, so nothing takes them down
-again, and two containers then sit on the overlay under one service alias.
-Requests round-robin, and the resurrected one runs the configuration it died
-with.
-
-Measured on bench run 2026-09-01T15-47-41-5ea0, on a materialised host:
+and it selects Restarting containers only. `docker ps -a` also lists the task
+containers swarm has ALREADY REPLACED -- Exited, Created -- and a `not Up`
+selector would have `docker restart` bring those back to life. Swarm does not
+track them, so nothing takes them down again, and two containers then sit on
+the overlay under one service alias. Requests round-robin, and the
+resurrected one runs the configuration it died with. On a materialised host
+that reads as:
 
     docker service ls  -> 4 oauth2-proxy services, each 1/1
     docker ps          -> 8 Up oauth2-proxy containers
@@ -16,10 +15,9 @@ Measured on bench run 2026-09-01T15-47-41-5ea0, on a materialised host:
                        -> one task: ...uptm6r604rjb
     docker ps          -> ...uptm6r604rjb AND ...btfqe0dzn41p, both Up
 
-It also made the converge permanently non-idempotent on such a host: a
-corpse restarted is a corpse again by the next pass, and changed_when is
-unconditional. ce_converge's settle guard is what surfaced it, by refusing
-to accept a first-converge change it had not been told to expect.
+A `not Up` kick also makes the converge permanently non-idempotent on such a
+host: a corpse restarted is a corpse again by the next pass, and changed_when
+is unconditional, so every pass reports a change.
 
 Run: uv run pytest tests/unit/test_oauth2_kick_only_restarting.py
 """
@@ -60,8 +58,8 @@ def test_only_restarting_containers_are_kicked():
 
 
 def test_the_not_up_selector_is_gone():
-    """`not Up` is what swept in Exited and Created -- swarm's business, not
-    this task's."""
+    """`not Up` sweeps in Exited and Created -- swarm's business, not this
+    task's."""
     assert not any("not (" in c and "startswith('Up')" in c
                    for c in _statuses()), _statuses()
 

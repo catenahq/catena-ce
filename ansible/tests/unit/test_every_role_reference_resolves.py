@@ -180,12 +180,11 @@ def test_every_role_path_exists():
 
 
 def test_a_prefixless_role_path_is_not_accepted():
-    """`roles/<name>/` with no side in front of it resolved before phase 1b and
-    resolves to nothing now.
+    """`roles/<name>/` with no side in front of it resolves to nothing: every
+    role lives under bootstrap/roles or reconcile/roles.
 
-    It is the one kind of stale reference the split creates, it is invisible
-    until the line runs, and a gate that only checked the paths it recognises
-    would pass a file full of them.
+    Such a reference is invisible until the line runs, and a gate that only
+    checked the paths it recognises would pass a file full of them.
     """
     stale: dict[str, set[str]] = {}
     for path in _yaml_files():

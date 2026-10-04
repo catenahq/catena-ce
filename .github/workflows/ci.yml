@@ -111,6 +111,18 @@ jobs:
       - name: jscpd (threshold in .jscpd.json)
         run: npx --yes jscpd@4 --silent
 
+  sentences:
+    # The same ratchet for prose: a sentence written in two places fails,
+    # unless .github/duplicate-sentences-debt.txt carries it.
+    name: Duplicate sentences
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - name: Duplicate sentences (debt in .github/duplicate-sentences-debt.txt)
+        run: python3 .github/scripts/duplicate_sentences.py
+
   prose:
     # Comments describe the code as it stands. Its history belongs in
     # the commit message. The rules and the runner both live in

@@ -51,10 +51,8 @@ def test_the_limit_still_keeps_the_previous_task():
 
 
 def test_the_update_is_gated_on_a_read_not_run_every_converge():
-    """`docker swarm update` exits 0 and prints "Swarm updated." whether or not
-    anything changed, so an ungated task reports changed on every converge --
-    which fails the bench's strict changed=0 idempotency rerun and, worse,
-    trains the reader to ignore a changed line."""
+    """The update runs only when the limit in force differs from the
+    declared one."""
     task = _by_name("bound task history")
     when = str(task.get("when"))
     assert "_swarm_task_history" in when, (

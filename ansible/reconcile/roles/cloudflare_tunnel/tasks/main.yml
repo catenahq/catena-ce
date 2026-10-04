@@ -7,8 +7,8 @@
 # catena-cloudflared-sync. That binary ships in the catena-admin host payload
 # and is installed to /usr/local/bin by reconcile/roles/payload, four roles ahead of
 # this one (it is NOT license-gated -- the Cloudflare tunnel is a Community
-# feature). See catena-admin cmd/catena-cloudflared-sync/SYNC.md for the
-# contract.
+# feature). See catena-admin payload/cmd/catena-cloudflared-sync/SYNC.md for
+# the contract.
 #
 # This role does ONE thing: dispatch the engine's `sync` on the host and
 # print what it says. Idempotent -- a re-converge after the panel saved a token,
@@ -39,7 +39,7 @@
 # The token gate lives in the ENGINE, not here. It reads
 # /etc/catena/config.json itself and no-ops exit 0 with
 # "cloudflared-sync: skipped (no token)" when the store holds none
-# (cmd/catena-cloudflared-sync/SYNC.md). Asking the engine is asking the thing
+# (SYNC.md, above). Asking the engine is asking the thing
 # that will act on the answer. A gate on the Ansible side is a second
 # implementation of "is there a token", and it can only read a fact
 # load_onbox_config.yml publishes -- so any play that skips the loader sees no
@@ -47,9 +47,9 @@
 #
 # reconcile/roles/payload installs the engine right after bootstrap/roles/docker, four roles ahead
 # of this one, so on a converge that owns the payload the binary is there. It
-# has to be: keycloak and oauth2_proxy run next and wait on
-# https://auth.<zone>/.well-known/openid-configuration, which only answers once
-# this role has brought the edge up. So a missing engine is a hard stop here,
+# has to be: keycloak and oauth2_proxy run next and their validation probes
+# reach https://auth.<zone>/ through the edge, which only answers once this
+# role has brought it up. So a missing engine is a hard stop here,
 # with the reason attached: deferring reports success and spends the failure two
 # roles later, against an edge nobody has configured.
 #
@@ -90,7 +90,7 @@
     - catena_payload_missing | length > 0
     - not (catena_payload_expected | bool)
 
-# Pinned before the next _payload_expected include overwrites the decision.
+# Pinned now (_payload_expected.yml: a later include overwrites its facts).
 - name: "CF: pin whether the tunnel engine is here"
   ansible.builtin.set_fact:
     _cf_sync_present: "{{ catena_payload_missing | length == 0 }}"
@@ -143,11 +143,9 @@
   # STDERR TOO, on success. The engine writes its per-step decisions there --
   # which zone it resolved, whether the wildcard DNS and the tunnel ingress
   # are a noop or an update. The summary line alone cannot distinguish
-  # "converged the right zone and the ingress was already correct" from
-  # "converged the wrong zone and so it is", and bench run
-  # 2026-09-02T01-47-44-372a has needed exactly that distinction: a host whose
-  # tunnel ingress served an anchor's zone logged "ok tunnel=... zones=1" and
-  # nothing else, leaving no way to recover which zone the engine converged.
+  # "converged the right zone and the ingress already matched" from
+  # "converged the wrong zone and so it matches": a host whose tunnel ingress
+  # serves another host's zone logs "ok tunnel=... zones=1" either way.
   ansible.builtin.debug:
     msg: |
       {{ _cf_sync.stdout | default('(no summary line)') | trim }}

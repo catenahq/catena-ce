@@ -11,7 +11,9 @@
 # CLOSING IS THE PANEL'S DECISION ALONE. catena_lockdown_close_public_ssh is
 # false unless the panel's Lockdown action sets CATENA_LOCKDOWN_CLOSE_PUBLIC_SSH
 # on the unit it starts; any other run, such as the join a Settings save of the
-# tailnet starts, joins and leaves 22 open.
+# tailnet starts, joins and leaves 22 as it is. CATENA_LOCKDOWN_OPEN_PUBLIC_SSH
+# is the panel taking that decision back: it opens 22 again on a host that
+# keeps its tailnet.
 # Once closed, the port reconciler (catena-public-ports) reopens 22 whenever
 # this host's tailnet is down, and closes it again when the tailnet is back.
 #
@@ -42,6 +44,8 @@
     # environment variable instead, because catena-converge takes no extra vars.
     catena_lockdown_close_public_ssh: >-
       {{ lookup('env', 'CATENA_LOCKDOWN_CLOSE_PUBLIC_SSH') | default('false', true) | bool }}
+    catena_lockdown_open_public_ssh: >-
+      {{ lookup('env', 'CATENA_LOCKDOWN_OPEN_PUBLIC_SSH') | default('false', true) | bool }}
 
   pre_tasks:
     # The tailnet provider is a STORE key, so the store has to be loaded before
@@ -55,6 +59,14 @@
       tags: [always, onbox]
 
   tasks:
+    - name: A run closes public SSH or opens it, never both
+      ansible.builtin.assert:
+        that: not (catena_lockdown_close_public_ssh | bool and catena_lockdown_open_public_ssh | bool)
+        fail_msg: >-
+          CATENA_LOCKDOWN_CLOSE_PUBLIC_SSH and CATENA_LOCKDOWN_OPEN_PUBLIC_SSH
+          are both set; one run takes one decision.
+      tags: [lockdown]
+
     # Skipped on a host whose access method is public SSH: there is no tailnet
     # to join, and installing the daemon anyway would leave a node this host
     # never authenticates and a tailscale0 that never appears.

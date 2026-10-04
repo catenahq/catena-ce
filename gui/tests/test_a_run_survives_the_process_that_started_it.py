@@ -1,14 +1,5 @@
 """An inventory is the run: the answers outlive the process, a password does not.
 
-An install can start with a wait nobody can time -- a server being delivered by
-a provider -- so what a client answered is saved into their inventory under
-ansible/inventory/ as they go, through seed's own writer, and a launcher opened
-again picks it up.
-
-WHAT IS ON DISK AND WHAT IS NOT is the other half. The answers are; a PASSWORD
-is not, anywhere in the inventory. A reopened inventory asks for it again,
-which is the honest cost of refusing to write it to a client's disk.
-
 Run: uv run pytest tests/test_a_run_survives_the_process_that_started_it.py
 """
 from __future__ import annotations
@@ -55,7 +46,7 @@ def test_the_env_is_the_one_the_cli_reads(tmp_path):
     r = run_mod.load(tmp_path / "clientco", SECRETS)
     r.answer("HOST_PUBLIC_IP", "198.51.100.7", secret=False)
     r.save()
-    seed = run_mod._seed()
+    seed = run_mod.seed()
     env = seed.read_existing_env(r.env_path)
     assert env["HOST_PUBLIC_IP"] == "198.51.100.7"
     # Every key the template declares is written, the unanswered ones with the
@@ -106,19 +97,15 @@ def test_the_writer_refuses_a_credential_a_caller_misfiled(tmp_path):
     the writer enforcing the same answer."""
     r = run_mod.load(tmp_path / "clientco", SECRETS)
     r.answers["backup_s3_secret_key"] = "leaked"
-    r.launcher["backup_s3_secret_key"] = "leaked-too"
     r.save()
     assert "leaked" not in _files_text(tmp_path / "clientco")
 
 
-def test_the_launchers_bookkeeping_stays_out_of_the_env(tmp_path):
-    """An acknowledgement describes the run, not the server."""
+def test_the_passwords_the_install_printed_reach_no_file(tmp_path):
     r = run_mod.load(tmp_path / "clientco", SECRETS)
-    r.answer("_keyset_acknowledged", "yes", secret=False)
+    r.keyset = {"admin_password": "shown-once"}
     r.save()
-    assert "_keyset_acknowledged" not in r.env_path.read_text(encoding="utf-8")
-    assert run_mod.load(tmp_path / "clientco", SECRETS).value(
-        "_keyset_acknowledged") == "yes"
+    assert "shown-once" not in _files_text(tmp_path / "clientco")
 
 
 def test_both_files_are_0600(tmp_path):
@@ -132,11 +119,21 @@ def test_both_files_are_0600(tmp_path):
 def test_the_state_says_whether_the_install_already_started(tmp_path):
     r = run_mod.load(tmp_path / "clientco", SECRETS)
     r.state = run_mod.STATE_INSTALLING
-    r.step = "keyset"
     r.save()
-    resumed = run_mod.load(tmp_path / "clientco", SECRETS)
-    assert resumed.state == run_mod.STATE_INSTALLING
-    assert resumed.step == "keyset"
+    assert run_mod.load(tmp_path / "clientco", SECRETS).state == run_mod.STATE_INSTALLING
+
+
+def test_a_run_whose_launcher_is_gone_reads_as_failed(tmp_path):
+    import subprocess
+    import sys
+
+    gone = subprocess.Popen([sys.executable, "-c", "pass"])
+    gone.wait()
+    path = tmp_path / "clientco"
+    path.mkdir()
+    for doc in ({"state": "installing", "pid": gone.pid}, {"state": "installing"}):
+        (path / run_mod.STATE_FILENAME).write_text(json.dumps(doc), encoding="utf-8")
+        assert run_mod.load(path, SECRETS).state == run_mod.STATE_FAILED, doc
 
 
 def test_a_malformed_state_file_is_an_error(tmp_path):
@@ -145,20 +142,6 @@ def test_a_malformed_state_file_is_an_error(tmp_path):
     (path / run_mod.STATE_FILENAME).write_text("[]", encoding="utf-8")
     with pytest.raises(ValueError):
         run_mod.load(path, SECRETS)
-
-
-def test_the_inventories_listed_are_the_clients_not_the_template(tmp_path):
-    for name in ("example", "clientco", "beta", ".hidden"):
-        (tmp_path / name).mkdir()
-    (tmp_path / "stray.txt").write_text("x", encoding="utf-8")
-    assert run_mod.inventories(tmp_path) == ["beta", "clientco"]
-
-
-def test_a_new_inventory_name_is_checked(tmp_path):
-    (tmp_path / "clientco").mkdir()
-    assert run_mod.new_name_problem("newco", tmp_path) == ""
-    for bad in ("", "Upper", "../up", "has space", "example", "clientco"):
-        assert run_mod.new_name_problem(bad, tmp_path), bad
 
 
 def test_a_value_is_found_whichever_half_holds_it(tmp_path):

@@ -234,11 +234,11 @@ backup_product_paths:
   # host where /usr/local/bin/catena-dashboard-sync exists -- so the converge's
   # payload gate reads the engines as present -- and dies on
   # `ModuleNotFoundError: No module named 'clients_provisioner'` the moment the
-  # timer fires. That is bench 1216 nc_s3_hot_recovery stage-4.
+  # timer fires.
   - /usr/local/lib/catena
-  # Catena's own runtime state. It was outside the snapshot entirely, which
-  # made it bump-safe but not host-loss-safe -- the one failure mode the whole
-  # product is built around.
+  # Catena's own runtime state. Outside the snapshot it would be bump-safe but
+  # not host-loss-safe -- the one failure mode the whole product is built
+  # around.
   #
   # It holds the chain, recovery and migration state, the verify-hot report,
   # the backup stats, and the hash-chained audit trail the panel writes.
@@ -341,7 +341,7 @@ backup_exclude_patterns:
   # every app that ships its own postgres. They are process state, not
   # data: postmaster.pid holds the PID, port and shared-memory key of a
   # server that does not exist by the time anything reads it back, and
-  # postmaster.opts the command line it was started with.
+  # postmaster.opts the command line that started it.
   #
   # Two reasons, and the second is why this is not cosmetic:
   #
@@ -356,7 +356,7 @@ backup_exclude_patterns:
   #   lock in between makes lchown fail on a path that does not exist.
   #   restic counts that as an error and exits 1, so the WHOLE restore is
   #   reported failed over a file that should never have been in the
-  #   snapshot (bench eff2, restore_version_skew_abort stage-4).
+  #   snapshot.
   #
   # `**` because the path differs per image: /_data/pgdata/postmaster.pid
   # for the infra volume, /_data/postmaster.pid for others.
@@ -472,12 +472,9 @@ offsite_env_file: /etc/catena/offsite.env
 backup_password_file: /etc/catena/restic.pass
 backup_systemd_unit_name: catena-backup
 
-# Files this role puts in the prefixes where a withdrawal keeps EXECUTING --
-# units and host binaries. playbooks/tasks/prune_withdrawn_files.yml records
-# these and removes what a later release stops declaring, provided the file on
-# disk is still byte-for-byte what a converge wrote and the payload does not
-# claim it. Empty: the backup lane's units and scripts ship in the payload.
-# tests/unit/test_converge_prune.py fails on a write this list misses.
+# Executing-prefix paths this role writes, for
+# playbooks/tasks/prune_withdrawn_files.yml. Empty: the backup lane's units and
+# scripts ship in the payload.
 backup_managed_paths: []
 
 # Stats file written by the wrapper after each successful run. This dir is

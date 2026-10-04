@@ -1,22 +1,11 @@
-"""The converge reports changes to the files it may never write.
+"""The converge reports changes to the files boundary.yml's
+`bootstrap_owned_paths` keeps out of its reach
+(playbooks/filter_plugins/bootstrap_drift.py says why):
 
-boundary.yml's `bootstrap_owned_paths` is the invariant "a reconcile may not
-modify anything that would remove your ability to run a reconcile", as a list
-of literals. Right rule, and it left those six paths with no reader at all: a
-change to the forced command, the sudoers drop-in or the SSH trust path was
-invisible on the host until an operator went looking, and what makes an
-operator go looking is already suspecting something.
-
-Not writing is not the same as not noticing. This is the noticing half, and
-these are the properties that keep it honest:
-
-  - it reads the path list from boundary.yml rather than restating it, so a
-    path added there is covered without a second edit;
-  - it reports and never repairs, because repair is bootstrap's;
-  - it distinguishes added/removed/changed, because a removed sudoers drop-in
-    and an added one are not the same event;
-  - a first converge records a baseline and claims no drift, because the
-    baseline is what the host has, not what it should have.
+  - it reads the path list from boundary.yml rather than restating it;
+  - it reports and never repairs;
+  - it distinguishes added, removed and changed;
+  - a first converge records a baseline and claims no drift.
 
 Run: uv run pytest tests/unit/test_bootstrap_drift.py
 """
@@ -26,6 +15,8 @@ import sys
 from pathlib import Path
 
 import yaml
+
+from ansible_tree import post_tasks
 
 _ANSIBLE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ANSIBLE / "playbooks" / "filter_plugins"))
@@ -103,7 +94,7 @@ def test_a_file_that_is_not_there_is_not_recorded():
 def test_the_path_list_is_read_from_the_boundary_not_restated():
     """boundary.yml is the declaration. A copy here would be a second thing to
     keep true, and the failure mode is the copy going stale while the report
-    quietly stops covering whatever was added to the real list."""
+    quietly misses every path the real list gains."""
     body = _TASKS.read_text(encoding="utf-8")
     assert "boundary.yml" in body and "bootstrap_owned_paths" in body
     # Comments and task names stripped: both are prose, and prose naming a
@@ -162,10 +153,9 @@ def test_both_converge_paths_report():
     itself -- the unattended one, where nobody is watching -- as the one with
     no reader."""
     for name in ("converge.yml", "reconcile.yml"):
-        play = yaml.safe_load((_ANSIBLE / "playbooks" / name).read_text())[0]
-        files = [t.get("ansible.builtin.include_tasks", {}).get("file")
-                 for t in play["post_tasks"]]
-        assert "tasks/report_bootstrap_drift.yml" in files, name
+        files = [str(t.get("ansible.builtin.include_tasks", {}).get("file"))
+                 for t in post_tasks(_ANSIBLE / "playbooks" / name)]
+        assert "report_bootstrap_drift.yml" in {f.rsplit("/", 1)[-1] for f in files}, name
 
 
 def test_the_record_is_not_in_etc():

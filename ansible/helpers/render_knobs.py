@@ -1,46 +1,19 @@
-#!/usr/bin/env python3
-"""Render helpers/knobs.yml to its two artifacts, and check they are current.
+"""Load and validate helpers/knobs.yml, the knob registry, and render an
+inventory `.env` from it.
 
-THE ARTIFACTS ARE WHAT EVERY CONSUMER READS. The YAML is what a human edits: it
-carries the rationale, and the rationale is the half that decides whether the
-next knob is declared in the right place.
-
-    helpers/knobs.json                  the registry, for the store, the panel
-                                        and the installer
-    inventory/example/.env.example      the template a client fills in
-
-Why a rendered copy rather than one file. `onbox_config.py` runs as root on a
-minimal target host whose system python has no PyYAML -- it says so about
-itself, and being stdlib-only is the reason it can run there at all. So the
-registry has to reach that host as JSON. catena-admin reads the same JSON
-rather than regex-parsing python out of a sibling repo, which is what it did
-before this file existed. The `.env` template is rendered for a different
-reason: it was a fourth place the same keys, defaults and prose were written
-down by hand.
-
-    render_knobs.py --write     regenerate both artifacts
-    render_knobs.py --check     exit 1 when either is stale
-
-`tests/unit/test_knobs_registry_is_the_declaration.py` runs the check, so CI
-fails on a stale artifact. A knob added to the YAML without re-rendering would
-be a knob the panel and the store never learn about, which is exactly the drift
-the registry exists to stop -- so it has to fail loudly rather than take effect
-on whoever next happens to run --write.
+Every reader with PyYAML calls load(). A host's python has none, so the
+converge stages the registry there as JSON
+(playbooks/tasks/stage_knob_registry.yml) and the catena-admin image build
+does the same for its payload.
 """
 from __future__ import annotations
 
-import argparse
-import json
-import sys
 import textwrap
 from pathlib import Path
 
 import yaml
 
-HERE = Path(__file__).resolve().parent
-SOURCE = HERE / "knobs.yml"
-RENDERED = HERE / "knobs.json"
-ENV_TEMPLATE = HERE.parent / "inventory" / "example" / ".env.example"
+SOURCE = Path(__file__).resolve().parent / "knobs.yml"
 
 RESIDENCES = ("store", "controller", "host")
 KINDS = ("secret", "text", "choice")
@@ -49,9 +22,22 @@ SECTIONS = ("secrets", "config")
 # this repo cannot import Go -- so the panel's own schema test is what holds
 # the two lists together.
 GROUPS = ("tunnel", "backup", "mail", "alerts", "share", "access", "license",
-          "hostnames", "server")
+          "hostnames", "subdomains", "server")
+# The named sources the panel fills a field's choices from at render time,
+# because the list belongs to the host: `timezones` is what the host's own
+# timedatectl accepts, `cloudflare_zones` the domains the stored Cloudflare
+# token reaches.
+PANEL_OPTION_SOURCES = ("timezones", "cloudflare_zones")
 # The named sources the graphical installer suggests values from.
 GUI_SUGGESTION_SOURCES = ("ssh_keys",)
+# The languages a client-facing text comes in: the installer's page speaks
+# both, an inventory `.env` reads `en`.
+LANGS = ("en", "fr")
+
+KNOB_FIELDS = frozenset({"key", "residence", "var", "env", "panel", "step",
+                         "label", "help", "depends", "required",
+                         "gui_suggestions_from"})
+GUI_STEP_FIELDS = frozenset({"name", "title", "doc", "note"})
 
 # The rendered template's comment width, and the characters a `.env` value
 # cannot carry unquoted. A default holding one of them would render a line that
@@ -69,6 +55,20 @@ class KnobError(ValueError):
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise KnobError(message)
+
+
+def _check_text(where: str, field: str, value, required: tuple[str, ...]) -> None:
+    """A client-facing text: language to string, every `required` language
+    present and non-empty, and no language a reader does not know."""
+    _require(isinstance(value, dict),
+             f"{where}: {field} is not a mapping of language to text")
+    unknown = set(value) - set(LANGS)
+    _require(not unknown, f"{where}: {field} has languages {sorted(unknown)}; "
+                          f"the readers know {LANGS}")
+    for lang in required:
+        text = value.get(lang)
+        _require(isinstance(text, str) and bool(text.strip()),
+                 f"{where}: {field} has no {lang} text")
 
 
 def _check_panel(key: str, panel: dict) -> None:
@@ -94,6 +94,25 @@ def _check_panel(key: str, panel: dict) -> None:
     else:
         _require(options is None,
                  f"{key}: options on a {panel['kind']} field are read by nothing")
+    # The value a stored-nothing field shows and stands for: the literal the
+    # converge falls back to, which tests/unit/test_panel_defaults_match_the_converge.py
+    # holds equal. A secret has no default to show.
+    default = panel.get("default")
+    if default is not None:
+        _require(panel["kind"] != "secret",
+                 f"{key}: a secret field shows no default")
+        _require(isinstance(default, str) and bool(default),
+                 f"{key}: panel default must be a non-empty string")
+        if options is not None:
+            _require(default in options,
+                     f"{key}: the default {default!r} is not one of {options}")
+    source = panel.get("options_from")
+    if source is not None:
+        _require(source in PANEL_OPTION_SOURCES,
+                 f"{key}: options_from {source!r} is not one of {PANEL_OPTION_SOURCES}")
+        _require(panel["kind"] == "text",
+                 f"{key}: options_from fills a text field's list; a choice "
+                 "declares its own options")
 
 
 def _check_env(key: str, env: dict, sections: set[str]) -> None:
@@ -128,8 +147,7 @@ def _check_env(key: str, env: dict, sections: set[str]) -> None:
 
 
 def load(source: Path = SOURCE) -> dict:
-    """Parse and VALIDATE the registry. Every consumer reads a rendered
-    artifact, so this is the only place the shape is enforced."""
+    """Parse and validate the registry: the one place its shape is enforced."""
     doc = yaml.safe_load(source.read_text())
     _require(isinstance(doc, dict), "knobs.yml: top level is not a mapping")
     _require(doc.get("version") == 1, "knobs.yml: expected version 1")
@@ -162,14 +180,14 @@ def load(source: Path = SOURCE) -> dict:
         name = step.get("name")
         _require(isinstance(name, str) and name, f"gui_steps: {step!r} has no name")
         _require(name not in step_names, f"gui_steps {name}: declared twice")
+        unknown = set(step) - GUI_STEP_FIELDS
+        _require(not unknown, f"gui_steps {name}: {sorted(unknown)} are not step fields")
         for field in ("title", "doc"):
-            value = step.get(field)
-            _require(isinstance(value, str) and value.strip(),
-                     f"gui_steps {name}: no {field}")
-        # Absent means the section has nothing to prove and gets no check.
-        if "validates" in step:
-            _require(isinstance(step["validates"], str) and step["validates"].strip(),
-                     f"gui_steps {name}: validates is empty; leave it out instead")
+            _require(field in step, f"gui_steps {name}: no {field}")
+            _check_text(f"gui_steps {name}", field, step[field], LANGS)
+        # Absent means nothing to add below the section's fields.
+        if "note" in step:
+            _check_text(f"gui_steps {name}", "note", step["note"], LANGS)
         step_names.append(name)
 
     seen: set[str] = set()
@@ -179,6 +197,9 @@ def load(source: Path = SOURCE) -> dict:
         _require(isinstance(key, str) and key, f"knobs.yml: entry with no key: {entry!r}")
         _require(key not in seen, f"{key}: declared twice")
         seen.add(key)
+        unknown = set(entry) - KNOB_FIELDS
+        _require(not unknown, f"{key}: {sorted(unknown)} are not registry fields; "
+                              "a maintainer's note is a # comment")
         if "panel" in entry:
             _check_panel(key, entry["panel"])
         # One place to edit each value: the `.env` the installer writes, or the
@@ -194,7 +215,22 @@ def load(source: Path = SOURCE) -> dict:
             _require("env" in entry,
                      f"{key}: the installer asks only for what its .env keeps, "
                      "and this knob has no env home")
-        for field in ("required", "gui_suggestions_from"):
+            _require("label" in entry,
+                     f"{key}: a field the launcher asks for needs a label to "
+                     "name it on the page")
+            _check_text(key, "label", entry["label"], LANGS)
+            _require("help" in entry,
+                     f"{key}: a field the launcher asks for needs help to explain it")
+            _check_text(key, "help", entry["help"], LANGS)
+        elif "env" in entry:
+            _require("help" in entry,
+                     f"{key}: a key the .env carries needs help above it")
+            _check_text(key, "help", entry["help"], ("en",))
+        else:
+            _require("help" not in entry,
+                     f"{key}: help is read by the launcher and the .env, and this "
+                     "knob is in neither")
+        for field in ("required", "gui_suggestions_from", "label"):
             if field in entry:
                 _require("step" in entry,
                          f"{key}: {field} is read by the launcher, and this knob "
@@ -243,13 +279,10 @@ def load(source: Path = SOURCE) -> dict:
     empty = [n for n in section_names if n not in used]
     _require(not empty, f"env_sections: {empty} carry no key")
 
-    # A step with no field is not the same mistake. `keyset` deliberately has
-    # none -- it is an acknowledgement, not a form -- so only a step that is
-    # neither used nor LAST is a heading nobody filled in.
+    # The same mistake on the installer's page: a section with no field.
     asked = {e["step"] for e in [*secrets, *config] if "step" in e}
-    orphan = [n for n in step_names[:-1] if n not in asked]
-    _require(not orphan,
-             f"gui_steps: {orphan} ask for nothing and are not the final step")
+    orphan = [n for n in step_names if n not in asked]
+    _require(not orphan, f"gui_steps: {orphan} ask for nothing")
 
     # `depends` is checked last, against the whole registry: it names another
     # knob and values of it, and both halves have to resolve or the page hides
@@ -279,44 +312,22 @@ def load(source: Path = SOURCE) -> dict:
     return doc
 
 
-def rendered(path: Path = RENDERED) -> dict:
-    """The registry as the consumers read it. Every reader that has PyYAML
-    still reads the JSON, so a stale render makes them all stale together
-    rather than making one of them disagree with the rest."""
-    return json.loads(path.read_text())
-
-
-def render(doc: dict) -> str:
-    """The registry artifact. Declaration order is preserved -- it is the order
-    the settings page renders fields within a group -- and the trailing newline
-    keeps the file diffable."""
-    return json.dumps(doc, indent=2) + "\n"
-
-
-def step_knobs(doc: dict, step: str) -> list[dict]:
-    """What one installer page asks for, secrets first.
-
-    Secrets first because that is the order a page reads in: the credential
-    that proves a thing, then the values it configures. It is also the order
-    the settings page uses, so a client who has seen one recognises the other.
-    """
-    return [entry for entry in [*doc["secrets"], *doc["config"]]
-            if entry.get("step") == step]
-
-
-def env_knobs(doc: dict) -> list[dict]:
-    """The config knobs the `.env` carries, in the order the template prints
-    them. seed prompts in this order too, so a client answering the prompts and
-    a client editing the file walk the same sequence."""
+def _env_by_section(doc: dict) -> dict[str, list[dict]]:
     by_section: dict[str, list[dict]] = {}
     for entry in doc["config"]:
         env = entry.get("env")
         if env:
             by_section.setdefault(env["section"], []).append(entry)
-    out: list[dict] = []
-    for section in doc["env_sections"]:
-        out.extend(by_section.get(section["name"], []))
-    return out
+    return by_section
+
+
+def env_knobs(doc: dict) -> list[dict]:
+    """The config knobs the `.env` carries, in the order it prints them. seed
+    prompts in this order too, so a client answering the prompts and a client
+    editing the file walk the same sequence."""
+    by_section = _env_by_section(doc)
+    return [entry for section in doc["env_sections"]
+            for entry in by_section.get(section["name"], [])]
 
 
 def _comment(text: str) -> list[str]:
@@ -354,14 +365,10 @@ def _comment(text: str) -> list[str]:
 
 
 def render_env(doc: dict) -> str:
-    """The `.env` template: the preamble, then one block per section, then one
+    """An inventory `.env`: the preamble, then one block per section, then one
     commented, defaulted key per knob that declares an env home."""
     lines = _comment(doc["env_header"])
-    by_section: dict[str, list[dict]] = {}
-    for entry in doc["config"]:
-        env = entry.get("env")
-        if env:
-            by_section.setdefault(env["section"], []).append(entry)
+    by_section = _env_by_section(doc)
 
     for section in doc["env_sections"]:
         lines.append("")
@@ -371,8 +378,7 @@ def render_env(doc: dict) -> str:
             lines.extend(_comment(section["doc"]))
         for entry in by_section.get(section["name"], []):
             lines.append("")
-            if entry.get("doc"):
-                lines.extend(_comment(entry["doc"]))
+            lines.extend(_comment(entry["help"]["en"]))
             options = entry["env"].get("options")
             if options:
                 lines.extend(_comment(f"One of: {', '.join(options)}."))
@@ -382,43 +388,3 @@ def render_env(doc: dict) -> str:
             lines.append(f"{entry['key']}={entry['env']['default']}")
     return "\n".join(lines) + "\n"
 
-
-# Each artifact: where it lives, and what rendering the source produces for it.
-_ARTIFACTS = ((RENDERED, render), (ENV_TEMPLATE, render_env))
-
-
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    mode = ap.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--write", action="store_true", help="regenerate both artifacts")
-    mode.add_argument("--check", action="store_true",
-                      help="exit 1 when either artifact is stale")
-    args = ap.parse_args(argv)
-
-    try:
-        doc = load()
-        payloads = [(path, renderer(doc)) for path, renderer in _ARTIFACTS]
-    except KnobError as exc:
-        print(f"knobs.yml: {exc}", file=sys.stderr)
-        return 1
-
-    if args.write:
-        for path, payload in payloads:
-            path.write_text(payload)
-            print(f"wrote {path}")
-        return 0
-
-    stale = [path for path, payload in payloads
-             if (path.read_text() if path.exists() else "") != payload]
-    if not stale:
-        print(f"{', '.join(p.name for p in (RENDERED, ENV_TEMPLATE))} are current")
-        return 0
-    print(f"STALE: {', '.join(str(p) for p in stale)} -- run "
-          "`python3 helpers/render_knobs.py --write` and commit the result",
-          file=sys.stderr)
-    return 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

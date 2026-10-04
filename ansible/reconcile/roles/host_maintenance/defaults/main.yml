@@ -21,8 +21,7 @@ reboot_check_systemd_unit_name: catena-reboot-check
 # matching the clamd watch and the mail canary.
 reboot_check_slug: catena-reboot-required
 
-# Files this role puts in the prefixes where a withdrawal keeps EXECUTING.
-# playbooks/tasks/prune_withdrawn_files.yml removes what a later release stops
-# declaring; tests/unit/test_converge_prune.py fails on an omission. Empty: the
-# probe and its units ship in the catena-admin payload.
+# Executing-prefix paths this role writes, for
+# playbooks/tasks/prune_withdrawn_files.yml. Empty: the probe and its units
+# ship in the catena-admin payload.
 host_maintenance_managed_paths: []

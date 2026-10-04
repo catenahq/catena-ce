@@ -169,21 +169,21 @@ def test_the_pebble_host_mapping_regexp_matches_the_line_it_writes():
     """The regexp has to recognise the task's OWN previous output, or the
     task cannot be idempotent no matter what the pattern is made of."""
     written = "10.139.244.91 pebble"
-    for rel in (
-        "reconcile/roles/coturn/tasks/cert.yml",
-        "reconcile/roles/infrastructure/tasks/mailserver_cert.yml",
-    ):
-        doc = yaml.safe_load((ANSIBLE / rel).read_text(encoding="utf-8"))
-        task = next(
-            t for t in _walk_tasks(doc)
-            if "map Pebble ACME host" in str(t.get("name", ""))
-        )
-        pattern = task["ansible.builtin.lineinfile"]["regexp"]
-        assert re.search(pattern, written), (
-            f"{rel}: {pattern!r} does not match {written!r}, so the task "
-            f"appends instead of replacing"
-        )
-        # And it must not swallow an unrelated hosts entry.
-        assert not re.search(pattern, "10.0.0.1 pebble.example.test"), (
-            f"{rel}: {pattern!r} is too loose"
-        )
+    rel = "playbooks/tasks/acme_local_ca.yml"
+    doc = yaml.safe_load((ANSIBLE / rel).read_text(encoding="utf-8"))
+    task = next(
+        t for t in _walk_tasks(doc)
+        if "map Pebble ACME host" in str(t.get("name", ""))
+    )
+    pattern = task["ansible.builtin.lineinfile"]["regexp"]
+    assert re.search(pattern, written), (
+        f"{rel}: {pattern!r} does not match {written!r}, so the task "
+        f"appends instead of replacing"
+    )
+    # And it must not swallow an unrelated hosts entry.
+    assert not re.search(pattern, "10.0.0.1 pebble.example.test"), (
+        f"{rel}: {pattern!r} is too loose"
+    )
+    for cert in ("reconcile/roles/coturn/tasks/cert.yml",
+                 "reconcile/roles/infrastructure/tasks/mailserver_cert.yml"):
+        assert "tasks/acme_local_ca.yml" in (ANSIBLE / cert).read_text(encoding="utf-8"), cert

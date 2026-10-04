@@ -1,0 +1,12 @@
+---
+# Stage the knob registry for helpers/onbox_config.py on the host: the script
+# module ships that file alone, and the host's python has no PyYAML, so
+# helpers/knobs.yml goes over as JSON. Every store call names this path
+# through CATENA_KNOBS.
+- name: "onbox: stage the knob registry for the store helper"
+  ansible.builtin.copy:
+    content: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../helpers/knobs.yml') | from_yaml | to_json }}"
+    dest: /root/.catena-knobs.json
+    owner: root
+    group: root
+    mode: "0644"

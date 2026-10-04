@@ -6,10 +6,9 @@ through and then dies on the one task that renders that template:
 
     Syntax error in template: No filter named 'portainer_container_regex'.
 
-Which is how bench 050b found one: 384 tasks in, on gatus-sync.env.j2. A code
-search for the filter name missed that call site because the search index
-covers .py and .yml and not .j2, so all twelve call sites in task files carried
-the rename and the template did not.
+A filter rename is the usual cause: a code search that covers .py and .yml
+misses the call sites in .j2 templates, so the task files carry the new name
+and a template keeps the old one.
 
 The check is name-resolution only. Registered names come from actually
 importing each filter_plugins module and reading FilterModule().filters(),

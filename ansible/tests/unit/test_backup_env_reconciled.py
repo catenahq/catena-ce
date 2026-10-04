@@ -2,8 +2,8 @@
 
 The file is written during the FIRST converge, when a deferred-backup install
 has no repo and no S3 keys yet. The client then enters them in Settings, which
-writes /etc/catena/config.json and re-renders nothing. Only-if-absent therefore
-left this file blank forever on the ordinary install path.
+writes /etc/catena/config.json and re-renders nothing. Written only-if-absent,
+this file would stay blank forever on the ordinary install path.
 
 Every lane script survives that -- catena-restic-env resolves the store -- so
 nothing looks broken: backups run, the panel reports configured. The path that
@@ -12,9 +12,8 @@ documents:
 
     set -a; . /etc/catena/backup.env; set +a; restic snapshots
 
-Caught by the bench (sovereign_exit stage-3, run 3642), which reads snapshots
-through exactly that command and gets nothing on a host that is backing up
-fine.
+The bench's sovereign_exit scenario reads snapshots through exactly that
+command, so a blank file shows it nothing on a host that is backing up fine.
 """
 from __future__ import annotations
 

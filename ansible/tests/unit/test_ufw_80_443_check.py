@@ -2,20 +2,15 @@
 
 The architecture invariant is that 80 and 443 reach Traefik through the
 Cloudflare tunnel and are never open on the host. validate.yml enforces it by
-grepping `ufw status`, and the pattern it used was wrong in two directions at
-once:
+matching `ufw status`, and the pattern has to be right in two directions:
 
-  it matched too much   `(80|443)/tcp` is a substring match against the whole
-                        row, so ANY port ending in 80 or 443 tripped it. Bench
-                        050b failed on `18080/tcp DENY` -- gatus' loopback
-                        port, denied off-box by the scope=loopback registry
-                        declaration. A correctly-guarded port failed the
-                        guard.
+  only ports 80/443     `(80|443)/tcp` as a substring would also match any
+                        port ending in 80 or 443, such as `18080/tcp DENY`,
+                        gatus' loopback port, denied off-box by the
+                        scope=loopback registry declaration.
 
-  it matched the wrong  the assertion is "nothing OPENS these", but it fired
-  thing                 on any matching row regardless of action, so an
-                        explicit DENY on 80 -- exactly what you would want to
-                        find -- would have failed the validate too.
+  only rules that OPEN  the assertion is "nothing OPENS these", so an explicit
+                        DENY on 80 must pass.
 
 The pattern is read out of the task file rather than restated here, so the
 test cannot pass against a pattern the converge does not use.

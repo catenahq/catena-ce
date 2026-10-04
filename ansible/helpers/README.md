@@ -16,12 +16,9 @@ writer of the on-box config store), plus `labels_schema.py` and
 `public_ports.py`, which ship flat beside the scripts in `../scripts/`
 that import them by bare name.
 
-`onbox_config.py` is not installed by the converge any more. The panel
-image's dispatch drop-in runs it, and an image must not authorise a
-command it does not ship, so the image build copies it out of the
-vendored tree into the payload's own bin and the payload installs it.
-The file is still catena-ce's; who delivers it changed. Same for
-`../scripts/catena-restic-key.py`.
+The catena-admin payload installs `onbox_config.py` and
+`../scripts/catena-restic-key.py`: the panel image's dispatch drop-in
+runs them, and an image ships every command it authorises.
 
 Unit tests for these live in `../tests/unit/`.
 
@@ -35,5 +32,5 @@ Unit tests for these live in `../tests/unit/`.
 | `labels_schema.py` | Compose-label parsing + image-tag classification for the vps.* vocabulary. |
 | `onbox_config.py` | On-box config store for Catena (0b client-owned config). |
 | `public_ports.py` | Declarative public-port registry: single source of truth for every direct public port the VPS exposes outside the Cloudflare Tunnel. |
-| `render_knobs.py` | Render helpers/knobs.yml to its two artifacts, and check they are current. |
+| `render_knobs.py` | Load and validate helpers/knobs.yml, the knob registry, and render an inventory `.env` from it. |
 | `tailnet_reachability.py` | Ask the tailnet whether this host is reachable on it, before public 22 closes. |

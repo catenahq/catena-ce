@@ -351,8 +351,8 @@
     # Neither account answering is a THIRD state, and it is the one worth
     # naming. Phase 1 needs the provider account: it is how the common role
     # gets on the box. Letting the play discover that on its own produces a
-    # connection failure attributed to whatever task ran first, which is how
-    # the defect above stayed unread.
+    # connection failure attributed to whatever task ran first -- the same
+    # misattribution described above.
     # RETRIED, unlike the two probes above, and the asymmetry is deliberate.
     #
     # A "no" from those two is the EXPECTED answer on a fresh host -- it means
@@ -375,9 +375,9 @@
     # agree; a CHANGED key is still refused.
     #
     # And the reason SSH gives goes into the failure, rather than to
-    # /dev/null. Bench run 2026-08-25T05-11-45-7133 died here reading exactly
-    # like a timeout, and the abort listed five candidate causes with the real
-    # one discarded one line earlier.
+    # /dev/null. Discarded, it leaves a failure here reading exactly like a
+    # timeout, and the abort listing five candidate causes without the real
+    # one.
     #
     # Both accounts are re-probed, because either answering means the install
     # can continue: ops answering means Phase 1 already ran, and the provider

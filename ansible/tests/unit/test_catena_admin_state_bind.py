@@ -22,19 +22,9 @@ from pathlib import Path
 
 import yaml
 
+from ansible_tree import PANEL_HOST_TASKS as HOST_TASKS, panel_vars
+
 _ANSIBLE = Path(__file__).resolve().parents[2]
-_ROLE = _ANSIBLE / "reconcile" / "roles" / "catena-admin"
-DEFAULTS = _ROLE / "defaults" / "main.yml"
-# The bootstrap-side half of the same panel: the runner account, the
-# sudoers drop-in, the forced command. A role of its own, so the
-# bootstrap/reconcile boundary it sits on is one the layout can hold.
-_HOST_ROLE = (_ROLE.parents[2] / "bootstrap" / "roles"
-              / "catena_admin_host")
-_HOST_DEFAULTS = _HOST_ROLE / "defaults" / "main.yml"
-# And the values both halves read, which belong to neither role.
-_GROUP_VARS = (
-    _ROLE.parents[2] / "playbooks" / "group_vars" / "all" / "main.yml")
-HOST_TASKS = _HOST_ROLE / "tasks" / "main.yml"
 PLUGIN = _ANSIBLE / "playbooks" / "filter_plugins" / "catena_admin_service.py"
 
 # Under /var/lib/catena, not beside it: one directory for the host's runtime
@@ -51,20 +41,6 @@ def _plugin():
     return mod
 
 
-def _defaults() -> dict:
-    """Every variable the panel's converge reads, from all three places it now
-    lives.
-
-    Phase 1b split the role: the trust path is bootstrap/roles/catena_admin_host, the
-    container is reconcile/roles/catena-admin, and the values BOTH halves need are in
-    group_vars because a role default is only dependable once that role has run.
-    Merged here so an assertion is about the panel's configuration rather than
-    about which file happens to hold a line today.
-    """
-    merged: dict = {}
-    for path in (_GROUP_VARS, DEFAULTS, _HOST_DEFAULTS):
-        merged.update(yaml.safe_load(path.read_text()) or {})
-    return merged
 
 
 def _argv() -> list[str]:
@@ -79,7 +55,7 @@ def _argv() -> list[str]:
 
 
 def test_state_dir_default_matches_the_mount():
-    assert _defaults()["catena_admin_state_dir"] == STATE_DIR
+    assert panel_vars()["catena_admin_state_dir"] == STATE_DIR
     argv = _argv()
     assert f"--mount=type=bind,source={STATE_DIR},destination={STATE_DIR}" \
         in argv, argv

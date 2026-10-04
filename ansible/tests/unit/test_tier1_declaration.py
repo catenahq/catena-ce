@@ -173,10 +173,9 @@ def test_coturn_contributes_to_the_companion_roster_not_the_control_plane():
 #
 # reconcile/roles/infrastructure (swarm_stack.yml) creates /etc/catena/stacks for the
 # app stack files; reconcile/roles/tier1_stack creates it for the control-plane render.
-# They declared different modes -- 0750 and 0755 -- so every converge reset
-# what the previous one set and BOTH reported changed. The idempotency gate
-# could never go green: observed as a permanent changed=2 on bench run 3642,
-# on a host where nothing else had drifted.
+# Two different modes make each role reset what the other set, so BOTH
+# report changed on every converge: a permanent changed=2 that keeps the
+# idempotency gate from ever going green.
 
 INFRA_SWARM_STACK = (
     ANSIBLE / "reconcile" / "roles" / "infrastructure" / "tasks" / "swarm_stack.yml"
@@ -203,8 +202,7 @@ def test_both_owners_of_the_stack_dir_agree_on_its_mode():
 
 
 def test_the_agreed_mode_is_the_tighter_one():
-    """A compose body can carry a credential -- the reason the directory's
-    first owner picked 0750."""
+    """A compose body can carry a credential, so the directory is 0750."""
     assert _dir_task_mode(TASKS, "ensure the stack dir exists") == "0750"
 
 

@@ -1,24 +1,12 @@
 """The launcher stays out of the public panel image, and beside the CLI.
 
-TWO PLACEMENT RULES, both of which a later edit could quietly break.
-
-`scripts/vendor-catena-ce.sh` in catena-admin copies `git ls-files -- ansible`
-into the image the panel ships as. Anything under `ansible/` therefore travels
-into a public image. The launcher holds a client's cloud credentials in memory
-and writes an install.yaml; it has no business there, and it is at the repo
-root with its own pyproject for exactly that reason.
-
-And it is a PEER of the CLI rather than a replacement. The bench drives
-`catena-cli install -i ... --no-confirm`, and converge is an operator verb
-that should not need a browser.
+Why both rules hold is in gui/README.md.
 
 Run: uv run pytest tests/test_the_launcher_ships_where_it_belongs.py
 """
 from __future__ import annotations
 
 from pathlib import Path
-
-import pytest
 
 from catena_gui import registry
 
@@ -53,14 +41,8 @@ def test_the_cli_is_untouched():
 
 
 def test_the_registry_is_read_from_the_sibling_tree_not_copied_here():
-    """A copy under gui/ would be a second registry, and the one that drifted
-    would be the one a client meets first."""
-    assert not (GUI / "catena_gui" / "knobs.json").exists()
-    assert registry.registry_path().is_relative_to(REPO / "ansible")
-
-
-def test_a_missing_registry_raises_rather_than_rendering_blank_pages(monkeypatch,
-                                                                     tmp_path):
-    monkeypatch.setenv("CATENA_KNOBS", str(tmp_path / "absent.json"))
-    with pytest.raises(FileNotFoundError):
-        registry.registry_path()
+    """A copy under gui/ would be a second registry, and the one a client meets
+    first."""
+    assert not list((GUI / "catena_gui").glob("knobs.*"))
+    source = registry.ansible_module("helpers.render_knobs").SOURCE
+    assert source.is_relative_to(REPO / "ansible")

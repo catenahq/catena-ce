@@ -250,18 +250,8 @@ def _deploy_tasks() -> list[dict]:
 
 
 def test_the_reconcile_checks_that_it_settled():
-    """Docker no-ops an update to a spec it already holds.
-
-    So a comparison that reads converged state as drift exits 0, restarts
-    nothing, and reports the service changed on every converge for ever --
-    silently, because there is nothing to see. The image reference asymmetry was
-    one instance of it. Rather than audit each field and hope the list is
-    complete, the role applies, re-inspects and diffs again: a field that
-    reports drift against state it just wrote reports it twice.
-
-    This is what stops that class of defect being invisible, so it is what a
-    future edit must not quietly drop.
-    """
+    """After applying, the role re-inspects the service and asserts no drift
+    is left (reconcile/roles/catena-admin/tasks/deploy.yml says why)."""
     tasks = _deploy_tasks()
     names = [t.get("name", "") for t in tasks]
     settle = next(

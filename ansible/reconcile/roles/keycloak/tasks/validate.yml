@@ -121,13 +121,9 @@
   # task is named <stack>_<service>.<slot>.<taskid> and the task id changes on
   # every reschedule, so a name resolved once is dead the moment swarm replaces
   # the task -- and this loop's whole purpose is to span the window where that
-  # is most likely. Reusing the captured name made all 120 attempts fail
-  # identically with
-  #     Error response from daemon: No such container: keycloak_server.1.7dwol...
-  # while the replacement task was serving /health/ready within seconds. Run
-  # 2026-08-26T01-55-17-dc01: the first task exited 255, swarm rescheduled it,
-  # keycloak completed bootstrap in 4s, and validate still failed the full
-  # ~480s budget reporting a restart loop that had already ended.
+  # is most likely. A captured name would fail every attempt with
+  #     Error response from daemon: No such container: keycloak_server.1.<id>
+  # while the replacement task serves /health/ready within seconds.
   ansible.builtin.shell: |
     set -o pipefail
     ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' \

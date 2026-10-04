@@ -100,58 +100,17 @@
     - { role: oauth2_proxy, tags: [oauth2_proxy, auth] }
     - { role: infrastructure, tags: [infrastructure] }
     # The panel's container and its action catalog. Its trust path -- the runner
-    # account, the sudoers drop-in, the forced command -- is roles/
-    # catena_admin_host, which is bootstrap-side and deliberately absent here.
+    # account, the sudoers drop-in, the forced command -- is the bootstrap-side
+    # bootstrap/roles/catena_admin_host.
     - { role: catena-admin, tags: [catena_admin] }
     - { role: coturn, tags: [coturn] }
     - { role: backup, tags: [backup] }
 
   post_tasks:
-    # The declarative public-port registry, reconciled after every role has
-    # dropped its fragment. The firewall's default-deny policy is bootstrap's;
-    # this only opens what the deployed apps declare. Not a change of its own:
-    # a converge that alters what is declared reports it on the fragment it
-    # writes, and a start joins a run the timer already has in flight.
-    - name: "Public ports: reconcile firewall from registry"
-      ansible.builtin.systemd_service:
-        name: catena-public-ports.service
-        state: started
-      changed_when: false
-      tags: [public_ports]
-
-    # Report -- never repair -- changes to the files boundary.yml puts on the
-    # operator's side. A converge does not write them; this task is what keeps
-    # that rule from also meaning blindness to them.
-    - name: "Bootstrap drift: report changes to operator-owned files"
+    # The tail converge.yml ends on too.
+    - name: "Converge tail: ports, drift, prune, release"
       ansible.builtin.include_tasks:
-        file: tasks/report_bootstrap_drift.yml
-        apply:
-          tags: [bootstrap_drift]
+        file: tasks/converge_tail.yml
       vars:
         catena_converge_path: reconcile
-      tags: [bootstrap_drift]
-
-    # Remove what a previous converge installed and this one does not ship.
-    # Before the release manifest, so a converge that fails here does not
-    # record itself as finished.
-    - name: "Prune: remove files withdrawn from the product"
-      ansible.builtin.include_tasks:
-        file: tasks/prune_withdrawn_files.yml
-        apply:
-          tags: [prune]
-      vars:
-        catena_converge_path: reconcile
-      tags: [prune]
-
-    # Record what this converge delivered. The same file converge.yml includes:
-    # the panel reads this manifest to tell "this feature is off" from "this
-    # host's converge predates it", and an on-host converge that left it
-    # describing an operator's last run made that answer a lie.
-    - name: "Release: record what this converge delivered"
-      ansible.builtin.include_tasks:
-        file: tasks/record_release_manifest.yml
-        apply:
-          tags: [release_manifest]
-      vars:
-        catena_converge_path: reconcile
-      tags: [release_manifest]
+      tags: [public_ports, bootstrap_drift, prune, release_manifest]

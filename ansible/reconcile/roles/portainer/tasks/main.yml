@@ -45,12 +45,7 @@
         path: /root/.catena-portainer-admin
         state: absent
 
-# ─── the service spec ────────────────────────────────────────────────────
-# One dict, two consumers: the catena-tier1 host engine creates and reconciles
-# the service from it, and tier1_stack_render puts it in the file
-# `docker stack config` type-checks, so the running service and the rendered
-# plane cannot describe different things.
-#
+# ─── the service spec, from the host engine (tier1_stack/tasks/spec_one.yml) ───
 # Host-mode publish so the port lands on the node (the registry fragment below
 # confines it to this host; an administrator reaches it through an SSH local
 # forward) -- never ingress, which would put it on the routing mesh where that
@@ -61,10 +56,6 @@
 #
 # No `detach`: the create BLOCKS until the service converges, which is the
 # first half of the readiness the UI probe below completes.
-# ASKED FOR, not assembled here -- same move reconcile/roles/postgres and reconcile/roles/traefik
-# made. The engine on the host owns what the control plane IS (catena-admin
-# payload/engines/tier1/catalog.go), so the desired state travels with the IMAGE
-# rather than with this repo.
 #
 # portainer_ui_port is threaded in because it is the one genuinely per-host
 # value in the whole control plane: the public-ports registry fragment below
@@ -267,8 +258,8 @@
           --adopt-file /root/.catena-portainer-key.json
           --overwrite --no-mint --emit none
         executable: python3
-      # Staged by playbooks/tasks/load_onbox_config.yml, which every converge
-      # runs before any role.
+      # Staged by playbooks/tasks/stage_knob_registry.yml, which the store
+      # loader runs before any role.
       environment:
         CATENA_KNOBS: /root/.catena-knobs.json
       changed_when: true

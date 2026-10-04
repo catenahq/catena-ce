@@ -1,12 +1,8 @@
 """The converge removes what it stops shipping, and nothing else.
 
-The converge was copy-only. A unit or script withdrawn from a later release was
-not copied, and the old one kept running -- a timer nobody ships any more,
-firing at a binary nobody builds any more. reconcile/roles/backup still carries
-a hand-written `state: absent` for catena-acquire-lock.sh, which is this
-problem solved once, by hand, for the one instance somebody noticed; the
-comment there records that the stale helper made every unit that found it spin
-to its full timeout.
+A unit or script a release withdraws is not copied by the converge, so without
+a prune the old one keeps running: a timer nobody ships, firing at a binary
+nobody builds.
 
 Three rules carry the whole thing, and this file exists because all of them are
 about DELETING files on a client host:
@@ -34,6 +30,8 @@ from pathlib import Path
 
 import pytest
 import yaml
+
+from ansible_tree import post_tasks
 
 _ANSIBLE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ANSIBLE / "playbooks" / "filter_plugins"))
@@ -289,14 +287,16 @@ def test_every_declared_path_is_absolute_once_resolved():
         "\n  ".join(bad)
 
 
+def _included_files(name: str) -> list[str]:
+    return [str(t.get("ansible.builtin.include_tasks", {}).get("file")).rsplit("/", 1)[-1]
+            for t in post_tasks(_ANSIBLE / "playbooks" / name)]
+
+
 def test_both_converge_paths_prune():
     """A prune that ran on only one path would leave a self-converged host
     accumulating exactly what this exists to remove."""
     for name in ("converge.yml", "reconcile.yml"):
-        play = yaml.safe_load((_ANSIBLE / "playbooks" / name).read_text())[0]
-        files = [t.get("ansible.builtin.include_tasks", {}).get("file")
-                 for t in play["post_tasks"]]
-        assert "tasks/prune_withdrawn_files.yml" in files, (
+        assert "prune_withdrawn_files.yml" in _included_files(name), (
             f"{name} does not prune withdrawn files")
 
 
@@ -304,11 +304,9 @@ def test_the_prune_runs_before_the_release_manifest():
     """The manifest says a converge finished. A prune that ran after it would
     be work the manifest already claimed as done."""
     for name in ("converge.yml", "reconcile.yml"):
-        play = yaml.safe_load((_ANSIBLE / "playbooks" / name).read_text())[0]
-        files = [t.get("ansible.builtin.include_tasks", {}).get("file")
-                 for t in play["post_tasks"]]
-        assert files.index("tasks/prune_withdrawn_files.yml") < \
-            files.index("tasks/record_release_manifest.yml"), name
+        files = _included_files(name)
+        assert files.index("prune_withdrawn_files.yml") < \
+            files.index("record_release_manifest.yml"), name
 
 
 def test_the_manifest_is_not_in_etc():

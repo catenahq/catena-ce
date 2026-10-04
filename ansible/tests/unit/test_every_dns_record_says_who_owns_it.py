@@ -1,21 +1,20 @@
 """Every DNS record the converge writes carries the catena ownership marker.
 
-Cleanup -- the bench's zone teardown, and the engine that takes a retired
+Cleanup -- the bench's zone teardown, and the engine that takes an old
 domain's records down when a client changes their domain -- tells catena's
 records from the client's by one thing: a comment starting with "Managed by
 catena". A record without it is indistinguishable from one the client added by
 hand, and the only safe thing to do with those is leave them, forever, on a
-domain nobody serves any more.
+domain nobody serves.
 
-Both halves are gated, because they failed differently:
+Both halves are gated, because they fail differently:
 
-  - A CREATE with no comment. The two mail TXT records were written that way
-    from the start.
+  - A CREATE with no comment: the record is unrecognisable from its first
+    write.
   - An UPDATE that drops it. A Cloudflare PUT REPLACES the record, so a body
-    without the comment silently strips it. The coturn and mailserver A
-    records both did this, which means a record only stayed recognisable for
-    as long as it never drifted. The tunnel engine's own wildcard write
-    carries the same note for the same reason.
+    without the comment silently strips it, and the record stays
+    recognisable only for as long as it never drifts. The tunnel engine's
+    own wildcard write carries the same note for the same reason.
 
 Run: uv run pytest tests/unit/test_every_dns_record_says_who_owns_it.py
 """

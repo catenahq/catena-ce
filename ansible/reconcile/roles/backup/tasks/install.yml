@@ -256,7 +256,8 @@
     - catena_payload_missing | length > 0
     - not (catena_payload_expected | bool)
 
-# Pinned before the next _payload_expected include overwrites the decision.
+# Pinned for the first snapshot below; a later _payload_expected include
+# overwrites the helper's facts.
 - name: "Backup: pin whether the wrapper is here"
   ansible.builtin.set_fact:
     _backup_wrapper_present: "{{ catena_payload_missing | length == 0 }}"

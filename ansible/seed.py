@@ -4,9 +4,9 @@
 With `-i install.yaml` (bench / power user), generates a fresh inventory:
 reads host, env and secrets values from the file, prompts for anything missing.
 
-Without one, inventory/<name>/.env must already exist -- copied from
-inventory/example/.env.example and filled in, same as any other config
-file -- and seed reads it directly instead of prompting field by field.
+Without one, inventory/<name>/.env must already exist -- written by
+`catena-cli init` or the graphical installer, and filled in -- and seed reads
+it directly instead of prompting field by field.
 hosts.yml auto-scaffolds from skel/ regardless of which path ran; an
 existing file's values always win (reconcile-not-overwrite):
   - inventory/<name>/.env                            (non-secret config)
@@ -18,12 +18,9 @@ so it is not written per-inventory here -- only the .env VALUES it reads
 differ between inventories.
 
 The inventory holds non-secret files only, and no vendor credential is
-collected at all. The installer reaches and installs
-the server and nothing else: the domain and its Cloudflare token, the private
-network and its credentials, and the backups are entered in catena-admin >
-Settings once the server runs, reached through an SSH forward as the panel
-account. An install.yaml that names one of them is refused, with the panel
-named, rather than having the value dropped in silence.
+collected at all. An install.yaml that names a value the server holds is
+refused, with the panel named, rather than having the value dropped in
+silence.
 
 The one secret an install.yaml may carry is an admin password override, which
 the first converge creates the panel and Portainer admins with. seed writes it
@@ -47,6 +44,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -58,11 +56,7 @@ import yaml
 # --- paths ------------------------------------------------------------------
 # REPO_ROOT is the self-contained ansible/ tree (seed.py sits at its root).
 REPO_ROOT = Path(__file__).resolve().parent
-# inventory/example/ carries ONLY .env.example -- the one file a self-hoster
-# copies. hosts.yml auto-scaffolds from skel/ (below) and is never meant to be
-# opened, let alone copied, so it does not sit in the same directory implying
-# otherwise.
-ENV_TEMPLATE = REPO_ROOT / "inventory" / "example" / ".env.example"
+INVENTORY_ROOT = REPO_ROOT / "inventory"
 SKEL = REPO_ROOT / "skel"
 HOSTS_YML_SKEL = SKEL / "hosts.yml.example"
 
@@ -74,18 +68,11 @@ from helpers import render_knobs  # noqa: E402
 
 # --- the knobs the installer asks about -------------------------------------
 #
-# Declared in helpers/knobs.yml, read here from the rendered registry, and
-# rendered into ENV_TEMPLATE by the same renderer. So the prompts, the template
-# and the on-box store cannot disagree about which keys exist, what they
-# default to, or which values a key accepts.
-#
-# The template is still read as TEXT, for emit_env: an inventory `.env` keeps
-# the explanation beside the value, and what a client reads in their own file
-# has to be what they read in the one they copied.
-#
-# Order is the template's, not the registry's, so a client answering prompts
-# and a client editing the file walk the same sequence.
-_KNOBS = render_knobs.rendered()
+# Declared in helpers/knobs.yml, which also renders the inventory `.env`
+# (env_template). So the prompts, the `.env` and the on-box store cannot
+# disagree about which keys exist, what they default to, or which values a key
+# accepts. Order is the `.env`'s (render_knobs.env_knobs).
+_KNOBS = render_knobs.load()
 ENV_KEYS: list[tuple[str, str]] = [
     (knob["key"], knob["env"]["default"]) for knob in render_knobs.env_knobs(_KNOBS)
 ]
@@ -183,8 +170,7 @@ def warn_server_held_lines(env_path: Path) -> None:
 
 
 # Minimum admin password length when a user PINS one via install.yaml (Portainer
-# and the SSO provider both accept it). With no override the admin password is
-# minted on-box and shown once -- seed never mints it.
+# and the SSO provider both accept it).
 ADMIN_PASSWORD_MIN_LEN = 16
 
 
@@ -472,7 +458,52 @@ def fill(provided: dict, key: str, default: str, label: str | None = None,
                   allow_empty=allow_empty, options=options)
 
 
+# --- inventories --------------------------------------------------------------
+# An inventory name is its directory and the label `--inventory` takes.
+_INVENTORY_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
+# Why a name cannot be a new inventory, by the code inventory_name_problem
+# returns; the graphical installer has its own words for each code.
+INVENTORY_NAME_PROBLEMS = {
+    "invalid": ("use lower-case letters, digits, dashes and underscores, "
+                "starting with a letter or digit"),
+    "exists": "an inventory with that name already exists",
+}
+
+
+def inventories(root: Path = INVENTORY_ROOT) -> list[str]:
+    """The inventories under `root`, by name."""
+    if not root.is_dir():
+        return []
+    return sorted(p.name for p in root.iterdir()
+                  if p.is_dir() and not p.name.startswith("."))
+
+
+def inventory_name_problem(name: str, root: Path = INVENTORY_ROOT) -> str:
+    """The INVENTORY_NAME_PROBLEMS code for why `name` cannot be a new
+    inventory under `root`, or "" when it can."""
+    if not _INVENTORY_NAME.match(name):
+        return "invalid"
+    if (root / name).exists():
+        return "exists"
+    return ""
+
+
 # --- file emission ----------------------------------------------------------
+def env_template() -> str:
+    """An inventory `.env` with every key at its default, each explained."""
+    return render_knobs.render_env(_KNOBS)
+
+
+def write_env(inv_dir: Path, answers: dict[str, str]) -> Path:
+    """Write inv_dir/.env, 0600: every key at its default unless answered.
+    `catena-cli init` and the graphical installer both write through this."""
+    target = inv_dir / ".env"
+    emit_env(env_template(), {**dict(ENV_KEYS), **answers}, target,
+             keep_existing=False)
+    os.chmod(target, 0o600)
+    return target
+
+
 def emit_env(template_text: str, values: dict[str, str], target: Path, *,
              keep_existing: bool = True) -> None:
     """Write an inventory `.env` from the template, the explanation beside each
@@ -634,7 +665,8 @@ def _collect_env_values(
     """Walk the .env template keys, prompting for each. A key with an empty
     template default takes a blank as an answer rather than asking again."""
     banner("Configuration (.env)")
-    print("(press Enter to accept the template default)\n", file=sys.stderr)
+    if sys.stdin.isatty():
+        print("(press Enter to accept the template default)\n", file=sys.stderr)
     env_values: dict[str, str] = {}
     for key, default in env_keys:
         allow_empty = not default
@@ -649,8 +681,8 @@ def _collect_env_values(
 def _ipv4_endpoint(values: dict[str, str]) -> str:
     """The bootstrap target as one line: the provider IPv4 that the first SSH
     lands on, with the port and login that go with it. Echoed back so a stale
-    HOST_PUBLIC_IP -- the template's own example address, or the box this
-    inventory used to point at -- is caught before bootstrap touches it."""
+    HOST_PUBLIC_IP -- the template's own example address, or a box this
+    inventory pointed at earlier -- is caught before bootstrap touches it."""
     ip = (values.get("HOST_PUBLIC_IP") or "").strip() or "HOST_PUBLIC_IP NOT SET"
     port = (values.get("HOST_SSH_PORT") or "").strip() or "22"
     user = (values.get("HOST_INITIAL_USER") or "").strip() or "root"
@@ -742,13 +774,13 @@ def main(argv: list[str] | None = None) -> int:
             or inp.get("inventory")
             or fill({}, "inventory", "prod", "Inventory name (directory under inventory/)")
         )
-        inv_dir = REPO_ROOT / "inventory" / inventory
+        inv_dir = INVENTORY_ROOT / inventory
 
-    env_keys, env_template = ENV_KEYS, ENV_TEMPLATE.read_text()
+    env_keys = ENV_KEYS
     # install.yaml (bench / power user) supplies env values directly and
     # generates the inventory from scratch. Without one, .env must already
-    # exist -- copied from inventory/example/.env.example and filled in --
-    # so it answers every field instead of prompting for it one at a time.
+    # exist and be filled in, so it answers every field instead of prompting
+    # for it one at a time.
     if args.input:
         if inv_dir.exists():
             warn(f"inventory '{inventory}' exists -- host will be merged into existing files.")
@@ -758,8 +790,8 @@ def main(argv: list[str] | None = None) -> int:
         env_path = inv_dir / ".env"
         if not env_path.is_file():
             die(
-                f"{env_path} not found. Copy inventory/example/.env.example "
-                f"to {env_path}, fill it in, then re-run."
+                f"{env_path} not found. `catena-cli init` writes it with every "
+                "default: fill it in, then re-run."
             )
         env_provided = read_existing_env(env_path)
         ok(f"loaded {env_path} -- {len(env_provided)} config value(s)")
@@ -807,7 +839,7 @@ def main(argv: list[str] | None = None) -> int:
 
     _write_inventory_files(
         inv_dir=inv_dir, inventory=inventory,
-        env_template=env_template, env_values=env_values,
+        env_template=env_template(), env_values=env_values,
         host_name=host_name,
     )
 

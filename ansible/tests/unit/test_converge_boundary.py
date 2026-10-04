@@ -34,9 +34,9 @@ import yaml
 
 _ANSIBLE = Path(__file__).resolve().parents[2]
 _BOUNDARY = _ANSIBLE / "boundary.yml"
-# Two role roots since phase 1b. A role's side is now WHERE IT LIVES, so most of
-# what follows reads the tree rather than cross-referencing a declaration --
-# but boundary.yml stays the declaration, because a directory cannot carry the
+# Two role roots. A role's side is WHERE IT LIVES, so most of what follows
+# reads the tree rather than cross-referencing a declaration -- but
+# boundary.yml is still the declaration, because a directory cannot carry the
 # reason a role is on the side it is on.
 _ROOTS = {
     "bootstrap": _ANSIBLE / "bootstrap" / "roles",
@@ -65,9 +65,8 @@ def _bootstrap_names(b: dict) -> set[str]:
     return {r["name"] for r in b["bootstrap_roles"]}
 
 
-# Reconcile-side roles the converge does not list under `roles:`. They are
-# classified by declaration like everything else, so the set cannot grow by an
-# edit to this file.
+# boundary.yml's declarations of the roles outside the converge's `roles:`.
+# Read from there, so the set cannot grow by an edit to this file.
 _NON_PLAY_KEYS = ("post_task_roles", "own_playbook_roles")
 
 
@@ -215,9 +214,8 @@ def test_no_reconcile_task_writes_a_bootstrap_owned_path():
         if hit:
             offenders[rel] = hit
     assert not offenders, (
-        "reconcile-side files reference paths only an operator may write. A "
-        "reconcile that can rewrite the way in can rewrite what a reconcile is: "
-        f"{offenders}"
+        "reconcile-side files reference paths only an operator may write "
+        f"(boundary.yml says why): {offenders}"
     )
 
 

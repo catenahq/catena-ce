@@ -17,16 +17,16 @@ domain only.
   - the file is malformed   never guess at a partial write
   - an unknown schema       a newer writer; refuse rather than mis-parse
   - the stamp is too old    the engine has not converged in a long time, so the
-                            list may name a domain the edge no longer serves.
-                            Routing to one of those sends users to a hostname
-                            that resolves nowhere.
+                            list may name a domain the edge has stopped
+                            serving. Routing to one of those sends users to a
+                            hostname that resolves nowhere.
 
 The staleness bound is what makes this safe to trust at all: an unstamped list
-(the shape this replaced) was indistinguishable fresh from months old.
+would read the same fresh as months old.
 
-This repo deliberately knows nothing about subscriptions. The projection holds
-only what the engine was entitled to converge, so a lapse degrades the routing
-to primary-only on its own.
+Subscriptions are the engine's concern. The projection holds only what the
+engine was entitled to converge, so a lapse degrades the routing to
+primary-only on its own.
 
 End-to-end coverage:
     ansible/tests/unit/test_catena_served_zones.py

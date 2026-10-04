@@ -1,11 +1,7 @@
 """An install that reports finished and does not work is the worst outcome.
 
 Worse than one that stops and explains why: a client who is told their server
-is ready acts on it. So each step passes only when the thing it is about has
-been OBSERVED working, and a step that cannot observe says so rather than
-assuming.
-
-The server is where that is concrete: an address that answers is not an SSH
+is ready acts on it. The server is where that is concrete: an address that answers is not an SSH
 server, and an SSH server is not one this install can log in to. The install
 logs in with the key the provider installed, or with the provider's password,
 once, to add it -- and the check says which, having tried it.
@@ -120,12 +116,13 @@ def test_the_provider_password_is_tried_not_taken_on_trust(monkeypatch, tmp_path
 
 
 def test_a_required_field_left_empty_blocks_before_any_probe():
+    """Named by its label, the name the client sees on the page."""
     doc = registry.load()
-    target = next(s for s in steps_mod.build(doc) if s.name == "target")
-    missing = steps_mod.missing_required(target, {})
-    assert missing and all(c.blocks for c in missing)
-    names = {f.key for f in target.fields if not f.optional}
-    assert {c.label.split()[0] for c in missing} == names
+    for step in steps_mod.build(doc):
+        missing = steps_mod.missing_required(step, {})
+        assert missing and all(c.blocks for c in missing)
+        labels = {f.label["en"] for f in step.fields if not f.optional}
+        assert {c.label.removesuffix(" is required") for c in missing} == labels
 
 
 def test_the_provider_password_is_optional_and_never_a_knob():
@@ -139,34 +136,33 @@ def test_the_provider_password_is_optional_and_never_a_knob():
                    for e in [*doc["secrets"], *doc["config"]])
 
 
-# --- the access page ---------------------------------------------------------
+# --- the way in --------------------------------------------------------------
 
 def test_the_panel_is_reached_through_the_panel_accounts_forward():
-    way = steps_mod.way_in({"HOST_PUBLIC_IP": "203.0.113.10",
-                            "SSH_PRIVATE_KEY": "~/.ssh/k"})
-    assert way.command == (
+    command = steps_mod.forward_command({"HOST_PUBLIC_IP": "203.0.113.10",
+                                         "SSH_PRIVATE_KEY": "~/.ssh/k"})
+    assert command == (
         "ssh -N -L 9010:127.0.0.1:9010 -L 9000:127.0.0.1:9000 -i ~/.ssh/k "
         "panel@203.0.113.10")
-    assert way.urls == ["http://localhost:9010", "http://localhost:9000"]
 
 
 def test_a_non_default_port_rides_the_forward():
-    way = steps_mod.way_in({"HOST_PUBLIC_IP": "203.0.113.10", "HOST_SSH_PORT": "2222"})
-    assert " -p 2222 panel@203.0.113.10" in way.command
+    command = steps_mod.forward_command({"HOST_PUBLIC_IP": "203.0.113.10",
+                                         "HOST_SSH_PORT": "2222"})
+    assert " -p 2222 panel@203.0.113.10" in command
 
 
-# --- the keyset --------------------------------------------------------------
+# --- the run with no UI ------------------------------------------------------
 
-def test_the_keyset_acknowledgement_cannot_be_skipped():
-    """`catena-cli install` shows three passwords once and nothing off the server
-    holds a copy. Without this the launcher ships installs nobody can
-    recover."""
-    assert _blocking(steps_mod.check_keyset({}))
-    assert not _blocking(steps_mod.check_keyset({"_keyset_acknowledged": "yes"}))
+def test_the_run_with_no_ui_checks_every_section(monkeypatch, tmp_path):
+    """`--answers` walks the same sections as the page, and passes once every
+    required field is answered and the server's probe passes."""
+    from catena_gui import __main__ as main_mod, run as run_mod
 
-
-def test_the_keyset_is_the_last_step():
-    """Terminal as well as mandatory. A step after it would be one a client
-    could still be on when the install started."""
     doc = registry.load()
-    assert registry.steps(doc)[-1]["name"] == "keyset"
+    run = run_mod.load(tmp_path / "clientco", run_mod.secret_keys_from(doc))
+    monkeypatch.setitem(steps_mod.PROBES, "target", lambda a, s, lang: [])
+    assert main_mod.walk(run, doc) == 2
+    run.answer("HOST_PUBLIC_IP", "203.0.113.10", secret=False)
+    run.answer("ADMIN_EMAIL", "admin@client.test", secret=False)
+    assert main_mod.walk(run, doc) == 0

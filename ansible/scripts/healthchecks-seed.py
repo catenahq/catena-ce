@@ -145,8 +145,8 @@ Channel.objects.filter(project=project, kind="email").delete()
 # Both blank is a supported end state, not a half-finished install: the checks
 # still record every ping and the client attaches their own channel through
 # the Healthchecks integrations UI. The delete keeps that reconcilable in both
-# directions -- clearing the values on a converge removes a channel that was
-# seeded earlier, rather than leaving a stale one nobody can see is dead.
+# directions -- clearing the values on a converge removes a channel an earlier
+# converge seeded, rather than leaving a stale one nobody can see is dead.
 if _hc_ntfy_topic and _hc_ntfy_server:
     ntfy_value = json.dumps({
         "topic": _hc_ntfy_topic,

@@ -15,13 +15,11 @@ import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
 ROLE = ANSIBLE / "reconcile" / "roles" / "host_maintenance"
-KNOBS = ANSIBLE / "helpers" / "knobs.json"
+KNOBS = ANSIBLE / "helpers" / "knobs.yml"
 
 
 def _knob(key: str) -> dict:
-    import json
-
-    doc = json.loads(KNOBS.read_text(encoding="utf-8"))
+    doc = yaml.safe_load(KNOBS.read_text(encoding="utf-8"))
     return next(e for e in doc["config"] if e["key"] == key)
 
 

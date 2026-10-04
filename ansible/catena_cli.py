@@ -6,9 +6,11 @@ ansible-playbook. It reaches the server over SSH; everything else -- backups,
 the tunnel, the tailnet, the passwords -- runs from catena-admin on the host.
 Subcommands:
 
-  install    seed config (reuses seed.py), then run
-             bootstrap -> converge -> validate, and show the
-             passwords the server minted. Run again, it shows them again.
+  init       create an inventory: its .env, every key at its default and
+             explained, to fill in before `install`
+  install    seed config (reuses seed.py), then run bootstrap, show the
+             passwords the server minted, run converge -> validate, and
+             show the passwords again. Run again, it shows them again.
   converge   re-run converge.yml: it applies the operator-run roles the
              panel's own converge cannot, and is the way in when the panel
              is down. --address reaches the host somewhere other than
@@ -27,14 +29,16 @@ the `catena-cli` console script, run from the repository root or `ansible/`:
 
     uv run catena-cli install --inventory prod
 
-Verb first, inventory as a flag. A verb that runs a single playbook carries
-that playbook's name. Bare `catena-cli` prompts for both.
+Verb first, inventory as a flag; ansible/README.md says how verbs are named.
+Bare `catena-cli` prompts for both.
 """
 from __future__ import annotations
 
 import argparse
 import configparser
 import getpass
+import hashlib
+import json
 import os
 import re
 import shutil
@@ -49,11 +53,9 @@ sys.path.insert(0, str(ANSIBLE_DIR))
 
 
 def _collections_dir() -> str:
-    """Where ansible loads collections from, read out of ansible.cfg.
-
-    Derived rather than duplicated: a hardcoded copy drifted from the config
-    once already and left the galaxy install writing to a directory ansible
-    never read. Falls back to ansible's own default if the key is absent.
+    """Where ansible loads collections from, read out of ansible.cfg so the
+    galaxy install writes where ansible reads. Falls back to ansible's own
+    default if the key is absent.
     """
     cfg = configparser.ConfigParser()
     try:
@@ -67,17 +69,18 @@ def _collections_dir() -> str:
 COLLECTIONS_DIR = _collections_dir()
 
 # The ordered converge chain a fresh install runs, each leg its own
-# ansible-playbook invocation.
-#
-# Every leg reaches the host over the public SSH address the install started
-# on. The install configures nothing beyond reaching and installing the server:
-# the domain, the private network and the backups are entered in the panel
-# once it runs, and the panel joins the tailnet itself.
+# ansible-playbook invocation. Every leg reaches the host over the public SSH
+# address the install started on.
 INSTALL_CHAIN = ("bootstrap", "converge", "validate")
 
 # Stages that emit the host's administrative address into
 # .bootstrap-output.yml: bootstrap records the install address.
 _ADDRESS_STAGES = ("bootstrap",)
+
+# The two lines `install` frames the passwords block with. Nothing else prints
+# them, so the graphical installer finds the block in the output by them.
+KEYSET_BEGIN = "-----BEGIN CATENA PASSWORDS-----"
+KEYSET_END = "-----END CATENA PASSWORDS-----"
 
 # Host binaries the wrapper shells out to.
 REQUIRED_BINARIES = ("ansible-playbook", "ansible")
@@ -280,29 +283,35 @@ def _run(cmd: list[str]) -> None:
 
 
 def ensure_collections() -> None:
-    """Install the Galaxy collections (community.general, community.docker, ...)
-    on first run if they are not already present. Honors
-    ANSIBLE_COLLECTIONS_PATH: when set (first path wins), install there instead
-    of the in-tree dir -- so the CLI can run from a READ-ONLY checkout (e.g.
-    driven from a CI runner against a :ro catena-ce mount) by pointing
-    at a writable location, which ansible then also reads.
+    """Install exactly the Galaxy collections requirements.yml pins.
 
-    The in-tree default MUST match ansible.cfg's collections_path. It did not
-    for a release: the install landed in collections/ while ansible read
-    .collections/, so a fresh checkout installed a tree nothing loaded and fell
-    through to whatever collections the controller happened to have."""
+    A stamp beside them records the requirements.yml they were installed
+    from; a tree with no stamp or another one is brought to the pins. The
+    in-tree dir (ansible.cfg's collections_path, COLLECTIONS_DIR) is this
+    checkout's own, so it is rebuilt, which also drops a collection the pins
+    do not name. ANSIBLE_COLLECTIONS_PATH, when set (first path wins), is
+    installed into instead -- so the CLI can run from a READ-ONLY checkout
+    (e.g. a CI runner against a :ro catena-ce mount) -- and, unless it is the
+    in-tree dir, is the caller's: reinstalled over rather than removed."""
     req = ANSIBLE_DIR / "requirements.yml"
     if not req.is_file():
         return
     override = os.environ.get("ANSIBLE_COLLECTIONS_PATH", "").strip()
-    coll = Path(override.split(os.pathsep)[0]).expanduser() if override else ANSIBLE_DIR / COLLECTIONS_DIR
-    if coll.is_dir():
+    in_tree = ANSIBLE_DIR / COLLECTIONS_DIR
+    coll = Path(override.split(os.pathsep)[0]).expanduser() if override else in_tree
+    stamp = coll / ".requirements.sha256"
+    wanted = hashlib.sha256(req.read_bytes()).hexdigest()
+    if stamp.is_file() and stamp.read_text().strip() == wanted:
         return
-    banner("Installing Ansible collections (first run)")
+    banner("Installing the Ansible collections requirements.yml pins")
+    if coll.resolve() == in_tree.resolve():
+        shutil.rmtree(coll, ignore_errors=True)
+    coll.mkdir(parents=True, exist_ok=True)
     _run([
         "ansible-galaxy", "collection", "install",
-        "-r", str(req), "-p", str(coll),
+        "-r", str(req), "-p", str(coll), "--force",
     ])
+    stamp.write_text(wanted + "\n")
 
 
 def _preflight_checks(binaries: tuple[str, ...] = REQUIRED_BINARIES) -> None:
@@ -318,9 +327,9 @@ def _preflight_checks(binaries: tuple[str, ...] = REQUIRED_BINARIES) -> None:
 def _require_inventory(inv_dir: Path) -> None:
     if not inv_dir.is_dir():
         die(
-            f"inventory not found at {inv_dir}. Copy inventory/example/ "
-            f"there, fill in .env and hosts.yml, then run "
-            f"`catena-cli install --inventory {inv_dir.name}` first."
+            f"inventory not found at {inv_dir}. Create it with "
+            f"`catena-cli init --inventory {inv_dir.name}`, fill in its .env, "
+            f"then run `catena-cli install --inventory {inv_dir.name}` first."
         )
 
 
@@ -371,18 +380,67 @@ def _mktemp_secrets(prefix: str) -> Path:
     return tmp
 
 
-def _show_dr_keyset(inv_dir: Path) -> None:
-    """After a fresh install, surface the on-box-minted passwords (admin +
-    console) ONCE for the user's password manager. Non-fatal: a failure here
-    must never fail an otherwise-successful install. The passwords stay on the
-    server, and running the install again shows them again."""
-    banner("Your disaster-recovery keyset -- shown once, save it now")
-    cmd = playbook_cmd(inv_dir, "show-keyset")
-    print(_c("1;30", "  $ " + " ".join(cmd)), file=sys.stderr)
-    if subprocess.run(cmd).returncode != 0:
-        print(_c("1;33", "! could not display the passwords; run "
-                 "`catena-cli install` again to show them."),
+def _print_keyset(keysets: list[dict], as_json: bool) -> None:
+    """Print each host's passwords between KEYSET_BEGIN and KEYSET_END: its
+    block as text, or with `as_json` its values as one JSON object per line,
+    which the graphical installer reads."""
+    body = [json.dumps({k: v for k, v in keyset.items() if k != "banner"})
+            if as_json else keyset["banner"].rstrip("\n") for keyset in keysets]
+    print("\n".join((KEYSET_BEGIN, *body, KEYSET_END)), file=sys.stderr,
+          flush=True)
+
+
+def _show_dr_keyset(inv_dir: Path, extra: list[str] | None = None, *,
+                    as_json: bool = False) -> list[dict]:
+    """Mint the passwords the install shows (admin + console) if the server
+    has none, print them ONCE between KEYSET_BEGIN and KEYSET_END, and return
+    them so the install can print them again when it ends.
+
+    Runs right after bootstrap, so the passwords are on screen for the whole
+    converge. `extra` is the install's adopt file, which carries an admin
+    password install.yaml pins. Each host's block and values arrive as one 0600
+    JSON file in a 0700 directory, deleted before this returns.
+
+    Non-fatal: the converge mints the same passwords when this could not, and
+    running the install again shows them."""
+    banner("Your passwords -- shown once, save them now")
+    out_dir = Path(tempfile.mkdtemp(prefix="catena-keyset-"))
+    try:
+        cmd = playbook_cmd(inv_dir, "show-keyset",
+                           ["-e", f"keyset_out={out_dir}", *(extra or [])])
+        print(_c("1;30", "  $ " + " ".join(cmd)), file=sys.stderr)
+        shown = subprocess.run(cmd).returncode == 0
+        keysets = [json.loads(p.read_text())
+                   for p in sorted(out_dir.iterdir())] if shown else []
+    finally:
+        shutil.rmtree(out_dir, ignore_errors=True)
+    if not keysets:
+        print(_c("1;33", "! could not show the passwords; the install carries "
+                 "on, and `catena-cli install` run again shows them."),
               file=sys.stderr)
+        return []
+    _print_keyset(keysets, as_json)
+    return keysets
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    import seed
+
+    if args.inventory_path:
+        inv_dir = Path(args.inventory_path).expanduser()
+        problem = "it already exists" if inv_dir.exists() else ""
+        flag = f"--inventory-path {inv_dir}"
+    else:
+        inv_dir = inventory_path(args.inventory)
+        code = seed.inventory_name_problem(args.inventory, inv_dir.parent)
+        problem = seed.INVENTORY_NAME_PROBLEMS[code] if code else ""
+        flag = f"--inventory {args.inventory}"
+    if problem:
+        die(f"cannot create the inventory {inv_dir}: {problem}")
+    env = seed.write_env(inv_dir, {})
+    print(_c("1;32", f"+ wrote {env}"), file=sys.stderr)
+    print(f"Fill it in, then run: catena-cli install {flag}", file=sys.stderr)
+    return 0
 
 
 def cmd_install(args: argparse.Namespace) -> int:
@@ -425,9 +483,16 @@ def cmd_install(args: argparse.Namespace) -> int:
         ensure_collections()
 
         banner("Step 2/2 -- deploy (" + " -> ".join(INSTALL_CHAIN) + ")")
-        _run_deploy_chain(inv_dir, INSTALL_CHAIN,
+        # The passwords come right after bootstrap, the first leg: the server
+        # holds its store by then, and the converge after it is the long part.
+        _run_deploy_chain(inv_dir, INSTALL_CHAIN[:1],
                           bootstrap_extra=bootstrap_extra, global_extra=adopt_extra)
-        _show_dr_keyset(inv_dir)
+        keysets = _show_dr_keyset(inv_dir, adopt_extra, as_json=args.keyset_json)
+        _run_deploy_chain(inv_dir, INSTALL_CHAIN[1:],
+                          bootstrap_extra=bootstrap_extra, global_extra=adopt_extra)
+        if keysets:
+            banner("Your passwords, as shown after bootstrap")
+            _print_keyset(keysets, args.keyset_json)
     finally:
         if bootstrap_vars_tmp is not None:
             bootstrap_vars_tmp.unlink(missing_ok=True)
@@ -463,6 +528,7 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
 # argv[0] tokens `_normalize_argv` recognizes as "this is a subcommand, not
 # an inventory name".
 MENU_COMMANDS = (
+    ("init", "Create an inventory to fill in"),
     ("install", "Set up a new host (seed + deploy)"),
     ("converge", "Re-apply the configuration from this machine"),
     ("uninstall", "Hand unattended-upgrades back to the OS"),
@@ -475,7 +541,8 @@ def _choose_command() -> str:
     print(_c("1;34", "catena-cli -- choose an operation:"), file=sys.stderr)
     for i, (name, desc) in enumerate(MENU_COMMANDS, 1):
         print(f"  {i:>2}) {name:<18} {desc}", file=sys.stderr)
-    choice = input("\nNumber [1=install]: ").strip() or "1"
+    default = str(KNOWN_COMMANDS.index("install") + 1)
+    choice = input(f"\nNumber [{default}=install]: ").strip() or default
     try:
         return MENU_COMMANDS[int(choice) - 1][0]
     except (ValueError, IndexError):
@@ -515,6 +582,11 @@ def build_parser() -> argparse.ArgumentParser:
     # erroring, so a self-hoster can discover the subcommands.
     sub = ap.add_subparsers(dest="command", required=False)
 
+    p_init = sub.add_parser(
+        "init", help="create an inventory's .env, every key at its default")
+    _add_inventory_args(p_init, required=True)
+    p_init.set_defaults(func=cmd_init)
+
     p_install = sub.add_parser(
         "install",
         help="seed, then " + ", ".join(INSTALL_CHAIN))
@@ -522,6 +594,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_install.add_argument("-i", "--input", help="install.yaml for non-interactive values")
     p_install.add_argument("--no-confirm", action="store_true",
                            help="skip seed confirmation + one-shot secret prompts")
+    p_install.add_argument("--keyset-json", action="store_true",
+                           help="print the passwords as one JSON object per "
+                                "host, for the graphical installer")
     p_install.set_defaults(func=cmd_install)
 
     p_conv = sub.add_parser("converge", help="re-run converge.yml")

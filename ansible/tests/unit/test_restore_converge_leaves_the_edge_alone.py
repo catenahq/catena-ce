@@ -4,8 +4,8 @@ catena-admin payload/cmd/catena-recovery runs reconcile.yml with
 --skip-tags edge. The public edge (the tunnel and the mail and TURN A records)
 moves at a migration's CUTOVER or a later converge, and until then it may point
 at another host: a migration target's auth.<zone> answers Cloudflare 530/1033
-while the source is stopped (bench run 2026-09-26T23-34-26-4d99, migrate), so a
-check through it fails a restore that is working.
+while the source is stopped, so a check through it fails a restore that is
+working.
 
 So `edge` must reach everything that MOVES the edge (a Cloudflare API caller,
 cloudflare_api_base) and everything that ASSERTS it (an HTTPS probe of a

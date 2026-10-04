@@ -15,8 +15,7 @@
 # Also ensures the RFC 2142 role aliases (postmaster@ / abuse@) point at
 # the operator address.
 #
-# Opt-in template: gated on the dms container existing -- no-op on a
-# tenant without the mailserver.
+# A no-op on a tenant without the mailserver (_mailserver_dms_locate.yml).
 
 - name: "Mailserver filtering: resolve the dms container (shared, waits out its restart cycle)"
   ansible.builtin.include_tasks: _mailserver_dms_locate.yml

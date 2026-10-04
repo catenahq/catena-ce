@@ -15,15 +15,12 @@ where:
 The task id is the reason this is a regex and not a format string: it
 changes whenever swarm recreates the task, so nothing can hold a container
 name across a restart. Every caller re-resolves by `(stack, service)` at
-use time.
+use time, and a retry loop re-resolves on every attempt: the window it waits
+out is the one in which the task is rescheduled.
 
-This replaced the Portainer form `<stack>-<service>-<index>` when the
-catena-declared apps moved off the Portainer stack API. The two are not
-compatible -- Portainer's compose project used hyphens throughout, swarm
-uses an underscore before the service and dots around the task id -- so a
-host converged by an older build has containers this pattern will not
-match. That is correct: those containers are the Portainer-deployed ones,
-and matching them would let a task operate on the stack it just replaced.
+A Portainer-form name (`<stack>-<service>-<index>`, hyphens throughout) does
+not match, and must not: such a container belongs to a Portainer-deployed
+stack, which no task here operates on.
 
 Usage in shell-pipe form:
 

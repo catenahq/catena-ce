@@ -1,17 +1,13 @@
 """The sshd handoff proves the new path before it closes the old ones.
 
-THE DEFECT. bootstrap/roles/common performs the second of the two irreversible access
-handoffs in the product, and only the first one had a gate:
+bootstrap/roles/common performs the second of the two irreversible access
+handoffs in the product, and both carry a gate:
 
-    ufw_lockdown.yml:  add tailnet rule -> VERIFY -> remove public 22
-    bootstrap/roles/common:      install ops key  ->   ?    -> deny everything else
+    ufw_lockdown.yml:        add tailnet rule -> VERIFY -> remove public 22
+    bootstrap/roles/common:  install ops key  -> VERIFY -> deny everything else
 
-What sat in that gap was `ops_ssh_public_keys | length > 0` -- an assert on a
-controller-side STRING. It proves a variable is not empty. It does not prove
-sshd accepts that key for ops. The next task then disabled password auth and
-root login and restricted AllowUsers to ops in one write.
-
-The correct order, which these tests pin:
+An assert that the key variable is non-empty proves nothing about whether
+sshd accepts that key for ops. The order these tests pin:
 
     provider account + password
       -> ops + ssh key TESTED
@@ -29,6 +25,8 @@ from pathlib import Path
 
 import yaml
 
+from ansible_tree import task_index as _index
+
 ANSIBLE = Path(__file__).resolve().parents[2]
 COMMON_TASKS = ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "main.yml"
 BOOTSTRAP = ANSIBLE / "playbooks" / "bootstrap.yml"
@@ -36,14 +34,6 @@ BOOTSTRAP = ANSIBLE / "playbooks" / "bootstrap.yml"
 
 def _tasks(path: Path) -> list[dict]:
     return [t for t in (yaml.safe_load(path.read_text()) or []) if isinstance(t, dict)]
-
-
-def _index(tasks: list[dict], needle: str) -> int:
-    for i, task in enumerate(tasks):
-        if needle.lower() in str(task.get("name", "")).lower():
-            return i
-    raise AssertionError(
-        f"no task matching {needle!r}; the ordering it anchors cannot be checked")
 
 
 # ─── bootstrap/roles/common: the handoff ──────────────────────────────────────────────

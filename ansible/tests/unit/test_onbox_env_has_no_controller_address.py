@@ -2,19 +2,18 @@
 
 `ansible_host` is where the CONTROLLER reaches the box. It is not stable: it
 flips between the public and tailnet address across converges and differs
-again after a restore onto other infrastructure. Rendering it into an env file that a unit on the host reads
-gives that unit an address for the machine it is already running on, and the
-value goes stale the moment the address moves:
+again after a restore onto other infrastructure. Rendering it into an env file
+that a unit on the host reads gives that unit an address for the machine it is
+already running on, and the value goes stale the moment the address moves:
 
     catena-dashboard-sync.service: FAILED
     request failed on GET /stacks: <urlopen error [Errno 113] No route to
-    host>          (the env said 10.139.244.121; the host was .110)
+    host>          (the env says 10.139.244.121; the host is at .110)
 
 dashboard-sync renders the Traefik route files for client apps, so a stale
-base means every app deployed afterwards gets no route and answers 404. Bench
-run 2026-08-31T14-59-08-adca reported that as "traefik did not route
-'book.11003300.xyz'", with the app healthy at 1/1 and its vps.route.host
-label correct -- three layers from the cause.
+base means every app deployed afterwards gets no route and answers 404, while
+the app reads healthy at 1/1 with a correct vps.route.host label -- three
+layers from the cause.
 
 It is the same reason these files are not idempotent: an address that changes
 between converges rewrites the file every time.

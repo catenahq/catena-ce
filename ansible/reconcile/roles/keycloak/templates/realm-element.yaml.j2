@@ -9,11 +9,6 @@
 # here -- with the same secret -- lets the discovery URL work the
 # moment the operator clicks Deploy in the Portainer UI.
 #
-# This file lives in the same /config dir as realm-vps.yaml so
-# keycloak-config-cli's IMPORT_FILES_LOCATIONS=/config/*.yaml glob
-# picks it up. NO_DELETE merge semantics (set in realm_bootstrap.yml)
-# preserve the base realm and add this client.
-#
 # Per-call REST credentials for TURN are HMAC-SHA1 over the shared
 # turn_static_auth_secret -- not Keycloak's business. This file
 # governs only browser-to-homeserver login.

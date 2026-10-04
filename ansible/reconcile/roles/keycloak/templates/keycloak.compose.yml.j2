@@ -128,10 +128,9 @@ services:
       timeout: 5s
       retries: 30
       start_period: 60s
-    # `restart:` is ignored by `docker stack deploy`; swarm reads
-    # deploy.restart_policy. The delay is not decoration: `start` re-runs
-    # the augmentation/build step on every boot, so a hot restart loop
-    # against a Postgres still doing WAL recovery burns CPU for minutes.
+    # The delay is not decoration: `start` re-runs the augmentation/build step
+    # on every boot, so a hot restart loop against a Postgres still doing WAL
+    # recovery burns CPU for minutes.
     deploy:
       restart_policy:
         condition: any

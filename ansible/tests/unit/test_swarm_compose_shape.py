@@ -7,7 +7,7 @@ Swarm reads a SUBSET of the compose spec, and the two ways it disagrees with
   REJECTED, loudly -- `host_ip` in a port's long syntax. Swarm's PortConfig
       carries no host IP, and the CLI refuses the key outright:
       "services.app.ports.0 Additional property host_ip is not allowed".
-      Caught on bench 050b, which is cheap: the converge stops.
+      That failure is cheap: the converge stops.
 
   IGNORED, silently -- `restart:`, `network_mode:`. The stack deploys, the
       warning scrolls past, and the service runs with swarm's defaults
@@ -17,9 +17,8 @@ Swarm reads a SUBSET of the compose spec, and the two ways it disagrees with
       not there -- a monitoring agent that looks healthy and measures the
       wrong machine.
 
-The loopback publishes are the reason `host_ip` was reached for at all. They
-stay 0.0.0.0 binds and are held loopback-only by a `scope: loopback`
-declaration in the public-port registry instead -- see
+The loopback publishes are 0.0.0.0 binds, held loopback-only by a
+`scope: loopback` declaration in the public-port registry -- see
 test_public_ports_loopback_scope.py.
 
 Run: uv run pytest tests/unit/test_swarm_compose_shape.py
@@ -90,21 +89,20 @@ def test_every_service_declares_a_restart_policy(path: Path):
 
 
 def test_clamav_is_a_swarm_stack_on_an_overlay():
-    """The two halves have to stay consistent, and which way they point
-    changed with the catalog.
+    """The two halves have to stay consistent.
 
     A swarm service cannot attach to a bridge, and `docker stack deploy`
     refuses a stack whose external network is local-scope at all -- so a
     bridge here would stop the mailserver and Nextcloud templates from
     deploying, not merely keep clamd off swarm.
 
-    The deadlock a bridge avoids: an attachable overlay is materialized on a
+    The overlay's deadlock risk: an attachable overlay is materialized on a
     node only once a swarm task there uses it, and a STANDALONE container asking
-    for an unmaterialized one stays Created ("network catena-clamav not found",
-    bench 050b). With standalone consumers the only swarm task that could
-    materialize the network is clamd, which does not deploy until a consumer
-    runs. Both consumers are swarm services, so the first of them materializes
-    it and the deadlock has no hold.
+    for an unmaterialized one stays Created ("network catena-clamav not
+    found"). With standalone consumers the only swarm task that could
+    materialize the network would be clamd, which does not deploy until a
+    consumer runs. Both consumers are swarm services, so the first of them
+    materializes it and the deadlock has no hold.
     """
     tasks = (ANSIBLE / "reconcile/roles/infrastructure/tasks/clamav.yml").read_text(
         encoding="utf-8")

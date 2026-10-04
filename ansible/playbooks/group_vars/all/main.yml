@@ -121,6 +121,21 @@ catena_public_surface_deferred: >-
 # the catena-traefik container, reachable by service name inside the network.
 cloudflared_ingress_service: "http://catena-traefik:80"
 
+# --- Local ACME server (the test bench's Pebble) ---
+# Blank on a client install, so certbot issues against Let's Encrypt. The test
+# bench points them at its host-side Pebble. The minica is ADDED to the system
+# trust store (update-ca-certificates) rather than used as a standalone
+# REQUESTS_CA_BUNDLE: certbot's Cloudflare DNS plugin must still verify
+# api.cloudflare.com's public-CA certificate in the same process. So it goes
+# where update-ca-certificates picks it up (.crt required), and certbot is
+# pointed at the combined bundle. tasks/acme_local_ca.yml installs it; the
+# coturn and mailserver cert flows include that file.
+acme_local_directory_url: "{{ cfg_acme_directory_url | default('') }}"
+acme_local_host_ip: "{{ cfg_acme_host_ip | default('') }}"
+acme_local_ca_bundle_b64: "{{ cfg_acme_ca_bundle_b64 | default('') }}"
+acme_local_ca_bundle_path: "/usr/local/share/ca-certificates/catena-pebble-acme.crt"
+acme_system_ca_bundle: "/etc/ssl/certs/ca-certificates.crt"
+
 # --- Infrastructure subdomains ---
 # Public-facing hostnames. Each is routed to its own oauth2-proxy instance,
 # which authenticates against Keycloak and proxies to the app behind it. SSO
@@ -177,22 +192,21 @@ portainer_ui_port: "9000"
 # Never ansible_host. It is where the CONTROLLER reaches the box, the UI port
 # refuses it, and it is not stable: it flips between the public and tailnet
 # address across converges and differs again after a restore onto other
-# infrastructure. Baking it into a file a
-# host-local service reads gives that service an address for a machine it is
-# already running on, which stops working the moment the address changes:
+# infrastructure. Baking it into a file a host-local service reads gives that
+# service an address for a machine it is already running on, which stops
+# working the moment the address changes:
 #
 #   catena-dashboard-sync.service: FAILED
 #   request failed on GET /stacks: <urlopen error [Errno 113] No route to
-#   host>            (env said 10.139.244.121, the host was 10.139.244.110)
+#   host>            (env says 10.139.244.121, the host is at 10.139.244.110)
 #
 # dashboard-sync is what renders the Traefik route files for client apps, so
-# a stale base means every app deployed after the address moved gets NO route
-# and answers 404. Read on bench run 2026-08-31T14-59-08-adca as
-# "traefik did not route 'book.11003300.xyz'" with the app healthy at 1/1 and
-# its vps.route.host label correct.
+# a stale base means every app deployed after the address moves gets NO route
+# and answers 404, while the app reads healthy at 1/1 with a correct
+# vps.route.host label.
 #
-# It is also why these env files are not idempotent: a rendered address
-# that changes between converges rewrites the file every time.
+# It would also make these env files non-idempotent: a rendered address that
+# changes between converges rewrites the file every time.
 portainer_api_base_onbox: "http://127.0.0.1:{{ portainer_ui_port }}/api"
 
 # Public, oauth2-gated hostname for the Portainer UI over the Cloudflare
@@ -248,8 +262,8 @@ catena_payload_manifest_path: /var/lib/catena/payload-manifest.json
 # reconcile.yml so it describes a converge that finished. The panel reads it to
 # tell "this feature is off" from "this feature's plumbing never reached this
 # host": every button dispatches a FIXED action name through the SSH forced
-# command, and that table is rendered by the converge, so a panel built after
-# an action was added shows a button a host converged before it will refuse.
+# command, and that table is rendered by the converge, so a panel newer than
+# the host's converge shows a button for an action the host will refuse.
 #
 # It lives under /var/lib/catena: it is rebuildable state, that directory is
 # already bind-mounted read-only into the panel, and it stays out of restic

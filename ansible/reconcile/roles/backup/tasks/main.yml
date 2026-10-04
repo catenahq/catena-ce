@@ -3,8 +3,6 @@
 #   install   (default, converge.yml path) -- configuration and the initial
 #             snapshot; the units and scripts ship in the catena-admin payload
 #   verify    (verify-backup.yml)      -- dry-restore + assert
-#
-# Restores run in the catena-recovery host binary, driven from the panel.
 
 - name: Assert backup_mode is valid
   ansible.builtin.assert:

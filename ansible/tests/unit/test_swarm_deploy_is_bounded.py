@@ -1,27 +1,10 @@
 """A swarm stack deploy is bounded, and hitting the bound retries.
 
-THE DEFECT. `docker stack deploy --detach=false` blocks until every task
-converges. A task that CANNOT converge -- an image the daemon is unable to
-pull -- never lets it return, so the attempt waits forever.
-
-That disarms the recovery written for exactly this failure. The attempt sits
-inside a five-iteration retry envelope whose classifier already lists
-`i/o timeout` and `temporary failure in name resolution` as transient, and none
-of it can run: the loop cannot reach attempt 2 while attempt 1 is still waiting
-on the pull that is failing. Without a bound on the attempt itself, the outermost
-one belongs to the bench runner, and it kills the whole converge:
-
-    TASK [oauth2_proxy : Swarm: deploy attempt 1 (oauth2-proxy)]
-    [runner] TIMEOUT after 4800s
-
-Run 2026-08-26T05-43-28-338d, ce_install_suite stage-4g, on a DNS flake inside
-the VM:
-
-    failed to resolve reference "quay.io/oauth2-proxy/oauth2-proxy:v7.15.2-alpine":
-    dial tcp: lookup quay.io on 127.0.0.53:53: i/o timeout
-
-The resolver answered again minutes later, so a second attempt would have
-succeeded. ce_install_suite is the DAG root, so the failure cost the whole run.
+`docker stack deploy --detach=false` blocks until every task converges. A task
+that CANNOT converge -- an image the daemon is unable to pull -- never lets it
+return, so without a bound the attempt waits forever, and the retry envelope
+around it, whose classifier lists pull failures as transient, never reaches
+attempt 2.
 
 Two rules, because one without the other is still broken: the attempt carries a
 `timeout`, and rc=124 counts as transient. A bound that fails hard would turn
@@ -36,6 +19,8 @@ from pathlib import Path
 
 import yaml
 
+from ansible_tree import command_text as _command_text, walk_tasks
+
 ANSIBLE = Path(__file__).resolve().parents[2]
 ROLE = ANSIBLE / "reconcile" / "roles" / "infrastructure"
 ATTEMPT = ROLE / "tasks" / "_swarm_stack_deploy_attempt.yml"
@@ -46,39 +31,9 @@ _BOUNDED = re.compile(r"\btimeout\s+(?:\{\{[^}]*\}\}|\S+)\s+docker\b")
 
 
 def _tasks(path: Path) -> list[dict]:
-    """Every task in the file, descending into block/rescue/always -- the
-    classifier lives inside the failure-handling block."""
-    out: list[dict] = []
-
-    def _walk(items) -> None:
-        if not isinstance(items, list):
-            return
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            out.append(item)
-            for key in ("block", "rescue", "always"):
-                _walk(item.get(key))
-
-    _walk(yaml.safe_load(path.read_text()))
-    return out
-
-
-def _command_text(task: dict) -> str:
-    out: list[str] = []
-    for key in ("ansible.builtin.command", "ansible.builtin.shell",
-                "command", "shell"):
-        mod = task.get(key)
-        if isinstance(mod, str):
-            out.append(mod)
-        elif isinstance(mod, dict):
-            argv = mod.get("argv")
-            if isinstance(argv, list):
-                out.append(" ".join(str(a) for a in argv))
-            for f in ("cmd", "_raw_params"):
-                if mod.get(f):
-                    out.append(str(mod[f]))
-    return "\n".join(out)
+    """Every task in the file, block/rescue/always included: the classifier
+    lives inside the failure-handling block."""
+    return walk_tasks(yaml.safe_load(path.read_text()))
 
 
 def _deploy_tasks() -> list[dict]:
@@ -87,7 +42,8 @@ def _deploy_tasks() -> list[dict]:
 
 
 def test_there_is_a_deploy_task_to_check() -> None:
-    """Guard the guard: a rename would make this vacuous."""
+    """The attempt file still holds a `docker stack deploy` for the checks
+    below to read."""
     assert ATTEMPT.is_file(), ATTEMPT
     assert _deploy_tasks(), (
         "no `docker stack deploy` task found in the attempt file, so this test "
@@ -143,9 +99,8 @@ def test_hitting_the_bound_is_treated_as_transient() -> None:
 
 def test_a_late_commit_after_a_deadline_is_transient() -> None:
     """A DeadlineExceeded update still commits once the swarm manager catches
-    up, so the retry after it carries a stale version and is refused. Bench run
-    2026-09-25T14-12-35-d518 failed the whole converge on exactly that, on the
-    third attempt, where a fourth would have re-read the version."""
+    up, so the retry after it carries a stale version and is refused; the next
+    attempt re-reads the version."""
     classifier = next(
         t for t in _tasks(ATTEMPT)
         if "_swarm_deploy_transient" in str(t.get("ansible.builtin.set_fact", ""))
@@ -158,10 +113,8 @@ def test_a_late_commit_after_a_deadline_is_transient() -> None:
 
 
 def test_a_grpc_deadline_is_transient() -> None:
-    """The manager's own deadline in its gRPC form. Bench run
-    2026-10-02T03-52-31-d433 failed a repoint converge on it, one attempt in,
-    on a host whose swarm was still replacing the tasks a restore brought
-    back."""
+    """The manager's own deadline in its gRPC form, as a swarm still replacing
+    the tasks a restore brought back reports it."""
     classifier = next(
         t for t in _tasks(ATTEMPT)
         if "_swarm_deploy_transient" in str(t.get("ansible.builtin.set_fact", ""))

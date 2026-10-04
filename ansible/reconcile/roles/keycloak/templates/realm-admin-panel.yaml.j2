@@ -31,10 +31,6 @@
 # So a leaked host token can add and remove PEOPLE, which is the panel's job
 # and is fully visible in the audit trail, and cannot change what an
 # application trusts.
-#
-# Lives in the same /config dir as realm-vps.yaml so keycloak-config-cli's
-# IMPORT_FILES_LOCATIONS=/config/*.yaml glob picks it up. NO_DELETE merge
-# (set in realm_bootstrap.yml) preserves the base realm + other clients.
 
 realm: {{ keycloak_realm }}
 
@@ -56,11 +52,7 @@ clients:
       # in the middle of a group change.
       access.token.lifespan: "600"
 
-# Same kc-config-cli pattern as realm-dashboard-sync.yaml.j2: the schema does
-# not recognise serviceAccountClientRoles on ClientRepresentation, so the
-# service-account user is declared explicitly and its clientRoles pinned via
-# serviceAccountClientId. Keycloak auto-creates the user when
-# serviceAccountsEnabled flips true above; this entry decorates it.
+# The service-account user, declared as realm-dashboard-sync.yaml.j2 explains.
 users:
   - username: "service-account-{{ catena_admin_panel_client_id }}"
     enabled: true

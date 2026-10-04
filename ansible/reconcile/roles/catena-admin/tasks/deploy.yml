@@ -135,11 +135,11 @@
         # catena network, and routing realm administration through the public
         # edge would put it behind the SSO it is administering.
         #
-        # keycloak_server_alias, not a literal. This read `keycloak`, which
-        # nothing on the catena network answers to -- the alias reconcile/roles/keycloak
+        # keycloak_server_alias, not a literal: the alias reconcile/roles/keycloak
         # declares is `keycloak-server`, and swarm adds the stack-scoped
-        # `keycloak_server`. Every People-panel write answered 502 "Keycloak
-        # was not reachable" on hosts whose Keycloak was up one hop away.
+        # `keycloak_server`. A name nothing on the catena network answers to
+        # makes every People-panel write answer 502 "Keycloak was not
+        # reachable" on a host whose Keycloak is up one hop away.
         KEYCLOAK_ADMIN_BASE: >-
           http://{{ keycloak_server_alias }}:{{ keycloak_internal_port }}
         # Passed for the same reason: without it, the image's default
@@ -382,10 +382,10 @@
 
 # A panel whose env moved answers a different managed env: a new domain moves
 # every managed DOMAIN_HOST with it. dashboard-sync already ran in this converge
-# (reconcile/roles/infrastructure), against the panel as it was, so run it again
-# now and the client stacks and their routes follow in this converge rather
-# than on the next timer tick. restarted, not started: a start joins a run that
-# is already in flight and reports work done before the panel moved.
+# (reconcile/roles/infrastructure), against the pre-reconcile panel, so run it
+# again now and the client stacks and their routes follow in this converge
+# rather than on the next timer tick. restarted, not started: a start joins a
+# run that is already in flight and reports work done before the panel moved.
 - name: "Catena-admin: re-run dashboard-sync against the reconciled panel"
   ansible.builtin.systemd:
     name: catena-dashboard-sync.service
@@ -395,14 +395,6 @@
     - catena_admin_deploy_from_converge | bool
     - _ca_reconcile is changed
     - _dashboard_sync_present | default(false) | bool
-
-# --- host engine payload install --------------------------------------------
-# Not here any more. reconcile/roles/payload extracts the engines straight out of the
-# image and installs them right after bootstrap/roles/docker, so they are on the host
-# eight roles before this one -- which is what reconcile/roles/cloudflare_tunnel needs.
-# The container still mirrors its embedded payload into the ee-payload bind
-# mount at startup; that copy is now a mirror of what is already installed
-# rather than the only source of it.
 
 # Make the host match what the config store says about scheduling.
 #

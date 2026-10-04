@@ -67,8 +67,6 @@ services:
       catena-network:
         aliases:
           - "oauth2-proxy-{{ _app.slug }}"
-    # `restart:` is ignored by `docker stack deploy`; swarm reads
-    # deploy.restart_policy.
     deploy:
       restart_policy:
         condition: any

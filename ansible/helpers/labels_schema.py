@@ -290,8 +290,8 @@ def extract_vps_expose_labels(compose_text: str) -> dict:
     """Return {'tcp': [(lo, hi), ...], 'udp': [(lo, hi), ...]} from
     vps.expose.* compose labels. Each entry is a normalized (lo, hi) port
     range (a single port is (n, n)). Malformed tokens are dropped. Keys are
-    present only when the corresponding label appears with >=1 valid token.
-    Empty dict if no recognized labels are present."""
+    present only when the corresponding label appears with >=1 valid token,
+    so a compose with neither label gives {}."""
     if not compose_text:
         return {}
     out: dict = {}

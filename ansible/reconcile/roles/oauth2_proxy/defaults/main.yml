@@ -49,29 +49,25 @@ oauth2_proxy_client_id: "oauth2-proxy"
 # (auth.<zone>) -- Keycloak 26's KC_HOSTNAME is public, so every token's
 # iss carries the public URL.
 #
-# BUT oauth2-proxy's BACKCHANNEL calls (OIDC discovery + JWKS fetch at
-# boot, token redemption at login) go to the intra-cluster Keycloak,
-# NOT out through Cloudflare. Rationale (root-caused on bench run
-# 2026-07-04T05-51-10-8947): with discovery pointed at the public
-# issuer, oauth2-proxy fetches .well-known/openid-configuration through
-# the CF Tunnel at every boot. During a restore/reconverge the
-# cloudflared connector re-registers for a few seconds; any oauth2-proxy
-# that (re)starts in that window gets a CF-synthesized 530/1033, crash-
-# exits ("Failed to initialise OAuth2 Proxy"), and Docker's exponential
-# restart-backoff can outlive the validate /ping budget. That coupled
-# internal auth boot to the public edge being up at that instant.
+# BUT oauth2-proxy's BACKCHANNEL calls (JWKS fetch at boot, token
+# redemption at login) go to the intra-cluster Keycloak, and discovery is
+# skipped, so a boot makes ZERO Cloudflare round-trips. With discovery
+# pointed at the public issuer, every boot would fetch
+# .well-known/openid-configuration through the CF Tunnel; during a
+# restore/reconverge the cloudflared connector re-registers for a few
+# seconds, and an oauth2-proxy that (re)starts in that window gets a
+# CF-synthesized 530/1033, crash-exits ("Failed to initialise OAuth2
+# Proxy"), and Docker's exponential restart-backoff can outlive the validate
+# /ping budget.
 #
-# Fix: --skip-oidc-discovery=true + explicit endpoints. The browser-
-# facing authorization endpoint (--login-url) stays PUBLIC; the server-
-# to-server token + JWKS endpoints (--redeem-url, --oidc-jwks-url) point
-# at keycloak-server:8080 on catena-network. Keycloak already sets
-# KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true, so it answers backchannel
-# requests on the internal host while keeping the public issuer in the
-# iss claim. Overriding redeem+jwks alone is NOT enough -- with
-# discovery still enabled oauth2-proxy STILL fetches .well-known from
-# the public issuer at boot; --skip-oidc-discovery removes that GET.
-# Net: oauth2-proxy boot makes ZERO Cloudflare round-trips, so a tunnel
-# re-register during a restore cannot crashloop internal auth.
+# So: --skip-oidc-discovery=true + explicit endpoints. The browser-facing
+# authorization endpoint (--login-url) stays PUBLIC; the server-to-server
+# token + JWKS endpoints (--redeem-url, --oidc-jwks-url) point at
+# keycloak-server:8080 on catena-network. Keycloak sets
+# KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true, so it answers backchannel requests
+# on the internal host while keeping the public issuer in the iss claim.
+# Overriding redeem+jwks alone is NOT enough: with discovery enabled
+# oauth2-proxy fetches .well-known from the public issuer at boot.
 oauth2_proxy_oidc_issuer: "https://{{ keycloak_hostname }}/realms/{{ keycloak_realm }}"
 
 # Public (browser-facing) authorization endpoint -- the user's browser
@@ -169,12 +165,8 @@ oauth2_proxy_apps:
     upstream_port: 9000
     allowed_groups: ["admin"]
 
-# Native-OIDC apps (vps.auth.mode=public + vps.auth.oidc=true): the
-# app runs the OIDC dance itself, so Traefik writes only a force-https
-# route + backend. No oauth2-proxy in front, no /oauth2/* callback router.
-# These apps register their own Keycloak confidential clients (see
-# reconcile/roles/keycloak/templates/realm-<app>.yaml.j2).
-#
-# Empty for now. The list shape is kept so client-deployed native-OIDC
-# apps can opt in without touching the template.
+# Native-OIDC apps (vps.auth.mode=public + vps.auth.oidc=true), routed by
+# templates/app-public-oidc.yml.j2. These apps register their own Keycloak
+# confidential clients (see reconcile/roles/keycloak/templates/realm-<app>.yaml.j2).
+# Empty; a native-OIDC app opts in by adding an entry.
 oauth2_proxy_public_oidc_apps: []

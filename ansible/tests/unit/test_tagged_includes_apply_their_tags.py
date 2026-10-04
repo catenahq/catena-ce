@@ -3,22 +3,11 @@
 `include_tasks` with `tags:` fires the include when the tag is selected, but
 the tasks INSIDE it are filtered out unless `apply:` re-tags them. The result
 is a tag-scoped converge that does nothing while reporting ok/changed=0 --
-indistinguishable from a role with nothing left to do.
-
-Twice now:
-
-  * playbooks/converge.yml's on-box config loader. `--tags postgres` published
-    none of the store's facts, every role fell back to the inventory placeholder, and
-    fi_s3 caught it as a poisoned postgres password surviving the converge.
-  * reconcile/roles/keycloak's realm bootstrap. `--tags keycloak_realm` never ran the
-    realm-render tasks, so keycloak-config-cli imported the realm files an
-    earlier converge had left. A Settings change already recorded in the
-    on-box store could not reach the realm, which bench run
-    2026-08-30T19-22-52-155e reported as "expected mfa_enforced=true after
-    enforce, got False" beside a realm converge of ok=28 changed=0.
-
-Both were found from the outside, by a scenario, long after the fact. The
-shape is checkable directly.
+indistinguishable from a role with nothing left to do. For the on-box config
+loader that means every role falls back to the inventory placeholder; for the
+keycloak realm bootstrap, a Settings change recorded in the store never
+reaches the realm. A scenario sees either only from the outside; the shape is
+checkable directly.
 
 Run: uv run pytest tests/unit/test_tagged_includes_apply_their_tags.py
 """

@@ -193,8 +193,8 @@
     # python3-apt) and BEFORE docker (so /etc/sysctl.d/ files are in place
     # before dockerd's first start; otherwise dockerd's runtime /proc/sys
     # writes win until next boot, leaving Day-1 vs reboot-recovery state
-    # divergent). See bootstrap/roles/host_hardening/README.md for the full var-set
-    # rationale.
+    # divergent). bootstrap/roles/host_hardening/defaults/main.yml holds the
+    # values and their reasons.
     - { role: host_hardening, tags: [host_hardening, hardening] }
     - { role: storage, tags: [storage] } # mount block volume at /srv/catena (+ optional bulk)
     - { role: docker, tags: [docker] } # Docker CE + single-node swarm init
@@ -247,9 +247,8 @@
     - { role: oauth2_proxy, tags: [oauth2_proxy, auth] } # one auth proxy per gated upstream
     - { role: infrastructure, tags: [infrastructure] } # gated apps (Gatus, Healthchecks, ...), dashboard-sync, gatus-sync
     # The panel's trust path: the runner account, the sudoers drop-in, the
-    # forced command and its authorized_keys. BOOTSTRAP-side -- a reconcile
-    # that could rewrite the way in could rewrite what a reconcile is -- and
-    # immediately before the role it prepares for.
+    # forced command and its authorized_keys. Bootstrap-side (boundary.yml says
+    # why), and immediately before the role it prepares for.
     - { role: catena_admin_host, tags: [catena_admin, catena_admin_host] }
     # catena-admin: the host lanes' configuration, the action catalog, AND the
     # Go shell container, created directly against the local swarm. It holds the API key
@@ -261,19 +260,6 @@
     - { role: backup, tags: [backup] } # backup configuration + the first snapshot
 
   post_tasks:
-    # Reconcile the declarative public-port registry. Runs AFTER every role
-    # has dropped its /etc/catena/public-ports.d/ fragment + deployed its
-    # containers (vps.expose.* labels), so the merged effective set is
-    # complete. Applies ufw + DOCKER-USER rules and writes the effective set
-    # read by validate.yml. The timer + docker drop-in keep it current at
-    # runtime; this is the converge-time anchor.
-    - name: "Public ports: reconcile firewall from registry"
-      ansible.builtin.systemd_service:
-        name: catena-public-ports.service
-        state: started
-      changed_when: false
-      tags: [public_ports]
-
     # Render the control plane and the app companions as compose files and
     # prove they load. Applies nothing: the services were already created and
     # reconciled by the catena-tier1 engine, role by role, as each contributed
@@ -293,42 +279,14 @@
           tags: [tier1_stack]
       tags: [tier1_stack]
 
-    # Report -- never repair -- changes to the files boundary.yml puts on the
-    # operator's side. A converge does not write them; this task is what keeps
-    # that rule from also meaning blindness to them.
-    - name: "Bootstrap drift: report changes to operator-owned files"
+    # Ports, drift report, prune and release manifest: the tail both converge
+    # playbooks share (its header says how its tags work).
+    - name: "Converge tail: ports, drift, prune, release"
       ansible.builtin.include_tasks:
-        file: tasks/report_bootstrap_drift.yml
-        apply:
-          tags: [bootstrap_drift]
+        file: tasks/converge_tail.yml
       vars:
         catena_converge_path: converge
-      tags: [bootstrap_drift]
-
-    # Remove what a previous converge installed and this one does not ship.
-    # Before the release manifest, so a converge that fails here does not
-    # record itself as finished.
-    - name: "Prune: remove files withdrawn from the product"
-      ansible.builtin.include_tasks:
-        file: tasks/prune_withdrawn_files.yml
-        apply:
-          tags: [prune]
-      vars:
-        catena_converge_path: converge
-      tags: [prune]
-
-    # Record what this converge delivered. The tasks live in
-    # tasks/record_release_manifest.yml, shared with playbooks/reconcile.yml so
-    # an on-host converge stamps the same fields rather than leaving them
-    # describing the last converge an operator ran.
-    - name: "Release: record what this converge delivered"
-      ansible.builtin.include_tasks:
-        file: tasks/record_release_manifest.yml
-        apply:
-          tags: [release_manifest]
-      vars:
-        catena_converge_path: converge
-      tags: [release_manifest]
+      tags: [public_ports, bootstrap_drift, prune, release_manifest]
 
 # Post-converge validation runs as its own ansible-playbook invocation
 # (playbooks/validate.yml), composed by the installer/CLI after this

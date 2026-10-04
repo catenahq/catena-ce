@@ -1,18 +1,21 @@
 ---
-# Surface the passwords the converge minted (admin + console) ONCE, plus the
-# first-login URLs, at the end of a fresh `catena-cli install`. They are minted
-# ON-BOX (helpers/onbox_config.py USER_HELD_SECRETS) and never touch the laptop,
-# so the installer reads them back from the store here and prints them for the
-# user's password manager. Deliberately NOT no_log on the debug: showing them
-# once is the point. The backup encryption password is not among them: the
+# Mint the passwords the install shows (admin + console) when the store has
+# none, and hand them to the installer ONCE with the journal verification key
+# and the first-login URLs.
+#
+# `catena-cli install` runs it right after bootstrap, before the converge, so
+# the block is on screen while the long part of the install runs; the installer
+# prints it then and again when the install ends. The passwords are minted
+# ON-BOX (helpers/onbox_config.py USER_HELD_SECRETS), and the block and its
+# values reach the controller only as a transient 0600 JSON file the installer
+# reads and deletes. The backup encryption password is not among them: the
 # client generates it in the panel, beside the repository it encrypts.
 #
 # Everything the user must write down is in the FINAL task, as one block. The
-# reads and the FSS delete run ahead of it so nothing prints after the thing
-# the user is supposed to be copying down.
+# mint, the reads and the FSS delete run ahead of it.
 #
 # Usage (driven by `catena-cli install`; cwd = ansible/):
-#   ansible-playbook -i inventory/<name> playbooks/show-keyset.yml
+#   ansible-playbook -i inventory/<name> playbooks/show-keyset.yml -e keyset_out=<dir>
 
 - name: Surface the DR keyset once
   hosts: "{{ stage_hosts | default('vps') }}"
@@ -39,49 +42,75 @@
       failed_when: false
       no_log: true
 
-    # The script module ships onbox_config.py alone; the knob registry it reads
-    # is staged from this same checkout (see tasks/load_onbox_config.yml).
-    - name: Stage the knob registry for the store helper
-      ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../helpers/knobs.json"
-        dest: /root/.catena-knobs.json
-        owner: root
-        group: root
-        mode: "0644"
+    # The knob registry onbox_config.py reads was staged by the pre_tasks.
+    # Only the passwords shown here are minted; the internal secrets stay the
+    # converge loader's. An admin password the install pins (install.yaml,
+    # threaded in as `-e @file`) is adopted first, fill-only like the loader's
+    # adopt, so the pin is the password shown and the one the converge creates
+    # the admins with. It reaches the helper through a 0600 file, off the
+    # host's command line.
+    - name: "Store: the shown passwords, adopting a pin"
+      block:
+        - name: Stage the install's admin password pin (0600)
+          ansible.builtin.copy:
+            dest: /root/.catena-onbox-adopt.json
+            content: "{{ {'admin_password': admin_password} | to_json }}"
+            owner: root
+            group: root
+            mode: "0600"
+          when: admin_password is defined
+          no_log: true
 
-    - name: Read the on-box config store
-      ansible.builtin.script:
-        cmd: >-
-          {{ playbook_dir }}/../helpers/onbox_config.py
-          --path {{ catena_onbox_config_path | default('/etc/catena/config.json') }}
-          --emit all --no-mint
-        executable: python3
-      environment:
-        CATENA_KNOBS: /root/.catena-knobs.json
-      register: _dr_store
-      changed_when: false
-      no_log: true
+        - name: Mint the shown passwords if absent, and read the store
+          ansible.builtin.script:
+            cmd: >-
+              {{ playbook_dir }}/../helpers/onbox_config.py
+              --path {{ catena_onbox_config_path | default('/etc/catena/config.json') }}
+              --mint-user-held --emit all
+              {{ '--adopt-file /root/.catena-onbox-adopt.json' if admin_password is defined else '' }}
+            executable: python3
+          environment:
+            CATENA_KNOBS: /root/.catena-knobs.json
+          register: _dr_store
+          changed_when: false
+          no_log: true
+      always:
+        - name: Remove the staged admin password pin
+          ansible.builtin.file:
+            path: /root/.catena-onbox-adopt.json
+            state: absent
+          no_log: true
 
-    # Removed BEFORE the display, not after. Its content is already in
-    # _fss_pending above, so the banner still prints it; deleting first is what
+    # Removed BEFORE the hand-off, not after. Its content is already in
+    # _fss_pending above, so the block still carries it; deleting first is what
     # makes the removal unconditional. A key left behind silently voids the
     # seal it proves, which is worse than a key never shown -- so the delete
-    # must not be reachable only through a display task that rendered.
+    # must not be reachable only through a hand-off that rendered.
     - name: Remove the staged FSS verification key from the server
       ansible.builtin.file:
         path: /etc/catena/fss-verification-key.pending
         state: absent
 
     # ONE task, and the LAST one. Everything the user has to write down is in
-    # this single block on purpose: split across two tasks, with other output
-    # after them, the first block scrolls off and gets missed -- and these
-    # values are shown once. The URLs live here rather than in the inventory
-    # template because the ports are defaults nobody customizes and the
-    # hostnames only resolve once the tunnel is up, so this is the first moment
-    # they are both known and true.
+    # this single block on purpose: the installer prints it as one piece, and
+    # these values are shown once. One JSON file per host in the installer's
+    # 0700 directory, carrying the block and the three values it shows, which
+    # the graphical installer displays on their own; no_log because the
+    # installer is what shows them. The URLs live here rather than in the
+    # inventory template because the ports are defaults nobody customizes and
+    # the hostnames only resolve once the tunnel is up.
     - name: "SAVE THIS -- passwords and first-login URLs, shown once"
-      ansible.builtin.debug:
-        msg: "{{ _banner.split('\n') }}"
+      ansible.builtin.copy:
+        dest: "{{ keyset_out }}/{{ inventory_hostname }}"
+        content: >-
+          {{ {'banner': _banner,
+              'admin_password': _secrets.admin_password,
+              'console_recovery_password': _secrets.console_recovery_password,
+              'journal_verification_key': _fss} | to_json }}
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+      no_log: true
       vars:
         _secrets: "{{ (_dr_store.stdout | from_json).secrets }}"
         _fss: >-
@@ -117,8 +146,9 @@
           printed above is the only one left.
           {% endif %}
           ------------------------------------------------------------------
-          First login. Same password everywhere; the USERNAME differs per
-          service, so it is spelled out per service below.
+          First login, once the install has finished. Same password
+          everywhere; the USERNAME differs per service, so it is spelled out
+          per service below.
 
             catena-admin panel  http://localhost:{{ _admin_port }}  (over the SSH forward below)
           {% if not (catena_public_surface_deferred | bool) %}

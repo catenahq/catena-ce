@@ -40,9 +40,10 @@ from image_pin import catena_image_pin  # noqa: E402
 
 _CFG = re.compile(r"\bcfg_[a-z0-9_]+")
 
-# tests/ is excluded on purpose. Several tests name RETIRED projections
-# (cfg_smtp_from, cfg_resend_sender_email) precisely to assert they are gone,
-# so scanning them would report the absence of a key as the presence of one.
+# tests/ is excluded on purpose. Several tests name projections that must NOT
+# exist (cfg_smtp_from, cfg_resend_sender_email) precisely to assert they are
+# absent, so scanning them would report the absence of a key as the presence
+# of one.
 _SKIP_DIRS = {".git", "__pycache__", "collections", "tests", "node_modules"}
 _SKIP_SUFFIXES = {".pyc", ".tar.gz", ".png", ".jpg"}
 _MAX_BYTES = 300_000

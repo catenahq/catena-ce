@@ -1,19 +1,9 @@
-"""No ntfy configuration means no channel -- and a converge that says so.
+"""healthchecks-seed.py seeds an ntfy channel only when both NTFY_SERVER and
+NTFY_TOPIC are set, says so when it seeds none, and sets a fresh profile's
+theme once (scripts/healthchecks-seed.py says why).
 
-Neither NTFY_SERVER nor NTFY_TOPIC defaults to a value: a default of
-https://ntfy.sh would be public and unauthenticated, where the topic is the
-only access control, so a host nobody configured would push its alerts to a
-server the operator does not run. Worse, with only the server set the seed
-would still create a channel carrying an empty topic -- a route that
-delivers nowhere and reads in the UI as configured.
-
-Both blank is a supported end state: checks still record every ping, the
-client attaches their own channel through the Healthchecks integrations UI,
-and the converge prints a notice so the silence is deliberate rather than
-undiscovered.
-
-The real seed script runs here against a stand-in for the two Django models it
-touches, so the branch is exercised rather than pattern-matched.
+The real seed script runs here against a stand-in for the Django models it
+touches, so the branches are exercised rather than pattern-matched.
 
 Run: uv run pytest tests/unit/test_healthchecks_seed_ntfy_optional.py
 """
@@ -246,15 +236,8 @@ def test_clearing_the_config_removes_a_previously_seeded_channel(
 # ─── theme default ─────────────────────────────────────────────────────────
 
 def test_the_theme_default_is_set_once_and_never_argued_with():
-    """Healthchecks stores the theme per profile: nullable CharField, no global
-    default, no env var, and the accounts view accepts exactly "", "dark" and
-    "system". A fresh profile is NULL and renders light whatever the reader's
-    machine is set to.
-
-    NULL is what makes seeding it safe -- it means "never chosen", and it is a
-    DIFFERENT value from "", which is what the view stores when somebody picks
-    Light deliberately. Reconciling on every converge would overwrite that
-    choice nightly."""
+    """The seed sets "system" only on a profile whose theme is still NULL, and
+    writes a value the accounts view accepts."""
     body = SEED.read_text()
     assert 'Profile.objects.for_user(operator)' in body, (
         "the profile is not resolved through the manager, which get-or-creates")
@@ -274,9 +257,7 @@ def test_the_theme_write_touches_only_the_theme():
 
 
 def test_a_fresh_profile_follows_the_browser_preference(monkeypatch, capsys):
-    """A never-touched profile is NULL, which Healthchecks renders as light
-    whatever the reader's machine is set to -- so a panel in dark mode linked
-    out to a monitoring page in light mode."""
+    """A never-touched profile ends up on the "system" theme."""
     managers, _ = _run_seed(monkeypatch, capsys, server="", topic="")
     profiles = managers["profile"].rows
     assert len(profiles) == 1, f"expected one profile, got {profiles}"
@@ -284,10 +265,7 @@ def test_a_fresh_profile_follows_the_browser_preference(monkeypatch, capsys):
 
 
 def test_a_client_who_chose_light_keeps_it(monkeypatch, capsys):
-    """"" is what the accounts view stores when somebody picks Light
-    deliberately, and it is a DIFFERENT value from NULL. Overwriting it would
-    argue with a choice on every converge -- the same rule the Beszel alert
-    thresholds follow."""
+    """A profile set to Light ("") keeps it across a converge."""
     managers = _install_fake_django(monkeypatch)
     for key, value in BASE_ENV.items():
         monkeypatch.setenv(key, value)

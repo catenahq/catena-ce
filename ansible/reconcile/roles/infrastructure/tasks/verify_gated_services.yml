@@ -56,18 +56,16 @@
 #     route to the address family it picked, or could not resolve at all.
 #     That is the prober.
 #
-# The second failed a whole converge on bench run 2026-09-01T13-21-30-2bef:
-# the controller had cached an AAAA-only answer for the heartbeat hostname,
-# picked the v6 address, and has no v6 egress --
+# The second is typically a controller that cached an AAAA-only answer for
+# one hostname, picks the v6 address, and has no v6 egress --
 #
 #     Status code was -1 and not [200, 301, 302, 307]: Request failed:
 #     <urlopen error [Errno 101] Network is unreachable>
 #
-# while the very same wildcard served both families to an uncached name, and
-# a cache flush made it resolve identically to its siblings. Retries cannot
-# clear it: a cached answer does not change inside the retry window. The
-# repoint that converge belonged to was recorded as a dead host, and every
-# scenario on that slot then failed.
+# while the very same wildcard serves both families to an uncached name, and
+# a cache flush makes it resolve identically to its siblings. Retries cannot
+# clear it: a cached answer does not change inside the retry window, and
+# failing the converge on it reports a working host as dead.
 #
 # Warned, not ignored: the operator still sees which host could not be
 # reached and why, and a genuinely broken gate still fails, because refused /
@@ -135,13 +133,13 @@
             curl -I https://{{ infrastructure_gatus_hostname }}/
   when: _infra_gated_failures | length > 0
 
-# ── dynamic client-app auth-gate probe (intent-driven, 1ad) ───────────────
+# ── dynamic client-app auth-gate probe (intent-driven) ────────────────────
 # The static list above only covers the fixed infra hostnames. Client-app
 # gating is verified by verify_gated_intent.py ON THE HOST: it derives the
 # expected route set from the SAME Portainer stack labels the route writer
 # (dashboard-sync / gate_routes) consumes, so an app whose *-auto-gate.yml
-# was removed or renamed still gets asserted (the old file-enumeration
-# probe went green on exactly that regression). Per routed app it asserts
+# is missing or renamed still gets asserted (a probe that enumerates route
+# files goes green on exactly that case). Per routed app it asserts
 # the route file exists, every GATED host denies an anonymous request
 # (200 = bypass), unreachable hosts FAIL CLOSED (matching the static
 # probe), and stale route files are flagged. Probes fan out concurrently

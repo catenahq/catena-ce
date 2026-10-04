@@ -32,9 +32,8 @@ laptop, and ``/etc`` is in ``reconcile/roles/backup`` ``backup_paths`` so the st
 rides every restic snapshot -- a restore returns every secret with the data.
 
 Design constraints:
-  - stdlib only. Runs on a minimal target host whose system python has no
-    PyYAML. JSON is stdlib and round-trips base64 / url-safe secret values
-    exactly.
+  - stdlib only on a host, whose system python has no PyYAML. JSON is stdlib
+    and round-trips base64 / url-safe secret values exactly.
   - INTERNAL secrets are minted here; EXTERNAL secrets (vendor creds the
     client supplies) are only ever *stored*, never generated -- they arrive
     via the two-phase bootstrap or the catena-admin settings API.
@@ -49,9 +48,9 @@ Design constraints:
     API (a restic-password change is a deliberate re-key action, not a passive
     settings save), and they remain ADOPTABLE: a value handed to the loader
     is kept rather than replaced by a fresh mint.
-  - Format contracts for the minted values match the historical seed.py
-    (oauth2 cookie length-after-decode, Healthchecks 32-char API keys,
-    url-safe ping key, 20-char admin password, 64-char base64 restic password).
+  - Format contracts for the minted values: oauth2 cookie length-after-decode,
+    Healthchecks 32-char API keys, url-safe ping key, 20-char admin password,
+    64-char base64 restic password.
 """
 from __future__ import annotations
 
@@ -71,22 +70,17 @@ DEFAULT_STORE_PATH = "/etc/catena/config.json"
 # --- the knob registry ------------------------------------------------------
 #
 # Which vendor credentials the store accepts, which config keys it owns, and
-# which the inventory keeps, are DECLARED in helpers/knobs.yml and read here
-# from the JSON rendered beside it. One declaration, four consumers: this
-# module, seed.py, the panel's settings schema and the launcher.
+# which the inventory keeps, are DECLARED in helpers/knobs.yml.
 #
-# JSON rather than the YAML itself for the reason this module is stdlib-only in
-# the first place: it runs as root on a minimal target host, where PyYAML is
-# not installed and cannot be assumed.
+# On a host the registry is JSON, because this module runs there on a python
+# with no PyYAML: the converge stages it (playbooks/tasks/stage_knob_registry.yml)
+# and the payload installs it. A checkout reads knobs.yml itself, on a
+# controller that has PyYAML. Resolution order:
 #
-# Resolution order mirrors the payload's own lane scripts, which resolve their
-# modules the same way and for the same reason -- the payload ships the file,
-# and a checkout runs from the tree:
-#
-#   CATENA_KNOBS          an explicit path (tests, and a host with an odd layout)
-#   CATENA_PAYLOAD_LIB    the payload's lib dir, when it is set
-#   /usr/local/lib/catena where the payload installs it
-#   this script's directory   the catena-ce checkout
+#   CATENA_KNOBS              an explicit JSON path (the converge, tests)
+#   CATENA_PAYLOAD_LIB        the payload's lib dir, when it is set
+#   /usr/local/lib/catena     where the payload installs it
+#   this script's directory   knobs.yml, in the catena-ce checkout
 #
 # A MISSING REGISTRY RAISES. Falling back to empty sets would leave
 # apply_inputs refusing every credential the client supplies and the converge
@@ -105,23 +99,28 @@ def _knobs_path() -> Path:
     if payload_lib:
         candidates.append(Path(payload_lib) / _KNOBS_FILENAME)
     candidates.append(Path("/usr/local/lib/catena") / _KNOBS_FILENAME)
-    candidates.append(Path(__file__).resolve().parent / _KNOBS_FILENAME)
+    candidates.append(Path(__file__).resolve().parent / "knobs.yml")
     for candidate in candidates:
         if candidate.is_file():
             return candidate
     raise FileNotFoundError(
-        f"the knob registry ({_KNOBS_FILENAME}) is not at any of "
-        f"{[str(c) for c in candidates]}. It is rendered from "
-        "helpers/knobs.yml and installed by the payload; without it this host "
-        "would refuse every credential and publish no config."
+        f"the knob registry is not at any of {[str(c) for c in candidates]}. "
+        "The converge stages it and the payload installs it; without it this "
+        "host would refuse every credential and publish no config."
     )
 
 
 def _load_knobs() -> dict:
-    doc = json.loads(_knobs_path().read_text())
+    path = _knobs_path()
+    if path.suffix == ".yml":
+        import yaml
+
+        doc = yaml.safe_load(path.read_text())
+    else:
+        doc = json.loads(path.read_text())
     if doc.get("version") != 1:
         raise ValueError(
-            f"{_KNOBS_FILENAME} declares version {doc.get('version')!r}; "
+            f"{path.name} declares version {doc.get('version')!r}; "
             "this reader knows version 1"
         )
     return doc
@@ -130,7 +129,7 @@ def _load_knobs() -> dict:
 _KNOBS = _load_knobs()
 
 
-# --- minters (format contracts mirror seed.py) ------------------------------
+# --- minters ----------------------------------------------------------------
 def mint_strong_password() -> str:
     """48 random bytes -> 64 base64 chars. Matches ``openssl rand -base64 48``."""
     return base64.b64encode(os.urandom(48)).decode("ascii")
@@ -155,7 +154,7 @@ def mint_oauth2_proxy_cookie_secret() -> str:
 
 def mint_admin_password() -> str:
     """token_urlsafe(15) -> 20 url-safe chars. Portainer + Keycloak both
-    accept it; matches the historical seed auto-mint length."""
+    accept it."""
     return _secrets.token_urlsafe(15)
 
 
@@ -214,8 +213,7 @@ def client_app_secrets(path: str | Path = DEFAULT_STORE_PATH) -> dict:
 
     Read-only and total, the same posture as ``image_pins``: an absent store,
     an absent key and a key holding something else all read as "nothing minted
-    yet", which on a host that has deployed no app is the truth. A malformed
-    store is still a hard error."""
+    yet", which on a host that has deployed no app is the truth."""
     p = Path(path)
     if not p.exists():
         return {}
@@ -326,12 +324,8 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     # minted in this table would be one the operator is never shown, for a hub
     # the panel links to as a tab.
     "beszel_universal_token": mint_url_safe,
-    # Beszel's OIDC client secret, so the hub can offer "Sign in with Catena"
-    # against Keycloak instead of a second password prompt behind the
-    # oauth2-proxy the client has already passed. Password login stays ON
-    # (DISABLE_PASSWORD_AUTH is deliberately never set): Beszel is base-plane
-    # infrastructure, and a monitoring tool that can only be reached through
-    # the SSO tool cannot be used to diagnose the SSO tool.
+    # Beszel's OIDC client secret: "Sign in with Catena" on the hub
+    # (scripts/beszel-seed.py).
     "beszel_oidc_client_secret": mint_strong_password,
     # The auth header on the ZAP daemon's REST API while a pen-test scan is
     # running. Minted regardless of bench mode so a one-off scan against any
@@ -343,7 +337,8 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
 # ONCE so the user keeps an off-box copy in their password manager. NOT in
 # EXTERNAL_SECRETS, so the config-write API (settings save) cannot set them:
 #   - admin_password    -- first-login credential (Portainer + Keycloak).
-#     Minted by the converge if absent, shown at the end of the install.
+#     Minted right after bootstrap by playbooks/show-keyset.yml, which shows
+#     it then, or by any converge that finds it absent.
 #   - console_recovery_password -- the ops account's break-glass password
 #     for the provider KVM / serial console (bootstrap/roles/common sets it;
 #     key-only SSH keeps it console-only). Minted and shown like the admin
@@ -415,10 +410,8 @@ ROLE_MINTED_SECRETS: dict[str, str] = {
 # panel exists: the `.env` is their first-install SEED, adopted fill-only and
 # never read again. The rest have no `.env` line at all.
 #
-# Value is the Ansible variable the loader publishes the stored value as, which
-# the registry declares per knob rather than deriving by lowercasing: four keys
-# do not follow that rule, and a derived mapping fails silently by publishing a
-# fact nothing reads.
+# Value is the Ansible variable the loader publishes the stored value as: the
+# registry's `var`.
 #
 # A stored knob with NO declared variable is deliberately absent from this map:
 # a runtime lane reads it straight off the store with no converge in between,
@@ -700,7 +693,7 @@ def ensure_app_secrets(store: dict, wanted: object) -> dict:
 
 
 def ensure_user_held_secrets(store: dict) -> list[str]:
-    """Mint every USER_HELD secret the converge owns (admin + console
+    """Mint every USER_HELD secret the install owns (admin + console
     passwords) missing or blank from the store, reconcile-not-overwrite. Runs
     AFTER adopt/apply_inputs so a value handed to the loader is preserved and
     only a store with none mints fresh. MINTED_ON_REQUEST keys are skipped.
@@ -890,8 +883,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--overwrite", action="store_true",
                     help="replace existing values instead of filling only "
                          "blanks (applies to --adopt-* as well as --set-*)")
-    ap.add_argument("--no-mint", action="store_true",
-                    help="do not mint missing internal secrets (seed-only)")
+    mint = ap.add_mutually_exclusive_group()
+    mint.add_argument("--no-mint", action="store_true",
+                      help="do not mint missing internal secrets (seed-only)")
+    mint.add_argument("--mint-user-held", action="store_true",
+                      help="mint only the missing user-held passwords the "
+                           "installer shows, after bootstrap and before the "
+                           "converge mints the internal secrets")
     ap.add_argument("--adopt-stdin", action="store_true",
                     help="read a JSON object of {key: value} secrets from "
                          "stdin and adopt them before minting (fill-only "
@@ -996,7 +994,9 @@ def main(argv: list[str] | None = None) -> int:
         overwrite=args.overwrite,
     )
     settle_tailnet_provider(store)
-    if not args.no_mint:
+    if args.mint_user_held:
+        ensure_user_held_secrets(store)
+    elif not args.no_mint:
         ensure_internal_secrets(store)
         ensure_user_held_secrets(store)
     dump(store, args.path)

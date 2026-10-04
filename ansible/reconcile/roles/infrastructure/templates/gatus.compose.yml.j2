@@ -5,7 +5,8 @@ services:
     image: {{ gatus_image }}
     # `restart:` is IGNORED by `docker stack deploy` -- swarm restarts from
     # deploy.restart_policy, and a compose file that only carries the former
-    # gets a warning and swarm's defaults.
+    # gets a warning and swarm's defaults. The same holds for every compose
+    # deployed as a swarm stack.
     deploy:
       restart_policy:
         condition: any
@@ -35,8 +36,7 @@ services:
     # rather than ignoring it. So the bind is 0.0.0.0 and the port is
     # DECLARED scope=loopback in the public-port registry
     # (reconcile/roles/infrastructure/tasks/gatus.yml), which denies it on every
-    # interface but lo. That declaration is what holds the posture the old
-    # 127.0.0.1 bind gave for free.
+    # interface but lo. That declaration is what keeps the port host-local.
     ports:
       - target: {{ gatus_internal_port }}
         published: {{ gatus_host_localhost_port }}
@@ -49,28 +49,25 @@ services:
     # No Docker HEALTHCHECK block. twinproduction/gatus v5+ ships a
     # distroless-ish image with no wget/curl/nc, so a CMD healthcheck
     # fails with "executable not found" and the container gets marked
-    # unhealthy regardless of whether Gatus itself is serving. That
-    # false-unhealthy signal paged the operator (also seen mid-Apr 2026).
+    # unhealthy regardless of whether Gatus itself is serving.
     # Gatus self-probes /health via its own endpoint
     # config (see gatus-base.yaml.j2 "Gatus (self-check)"), which is the
     # authoritative signal -- a second Docker-level check added nothing
     # except a failure mode.
     labels:
-      # FALSE on purpose. This service IS served, but its route is synthesised
-      # by dashboard-sync from the vps.auth.* labels below into Traefik's FILE
-      # provider, with the real hostname. Nothing reads traefik.enable --
-      # not dashboard-sync, not gate_routes, not labels_schema -- so `true`
-      # bought no routing and cost a bogus one: the docker provider saw an
-      # enabled container with no rule, applied Traefik's built-in
-      # `Host(<container name>)` default, and produced a DOTLESS router like
-      # `gatus-app-1-<taskid>`. Every websecure router inherits
-      # entryPoints.websecure.http.tls.certResolver, so Traefik then asked a
-      # public CA for a certificate for a name that cannot have one, forever.
+      # FALSE on purpose, here and in every infra compose. The service IS
+      # served, but its route is synthesised by dashboard-sync from the
+      # vps.auth.* labels below into Traefik's FILE provider, with the real
+      # hostname, and nothing reads traefik.enable. `true` would buy no routing
+      # and cost a bogus one: the docker provider would see an enabled container
+      # with no rule, apply Traefik's built-in `Host(<container name>)` default,
+      # and produce a DOTLESS router like `gatus-app-1-<taskid>`. Every
+      # websecure router inherits entryPoints.websecure.http.tls.certResolver,
+      # so Traefik would then ask a public CA for a certificate for a name that
+      # cannot have one, on every converge.
       - traefik.enable=false
-      # Auth posture (vps.auth.* convention, see
-      # docs/operator/client-app-templates/README.md). Pinned to
-      # oauth2_proxy_staff_apps in defaults/main.yml by the unit test
-      # test_infra_compose_auth_labels.
+      # Auth posture (vps.auth.* convention). Pinned to oauth2_proxy_staff_apps
+      # in defaults/main.yml by the unit test test_infra_compose_auth_labels.
       - vps.auth.mode=private
       - vps.auth.groups=staff
 

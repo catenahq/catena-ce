@@ -1,26 +1,12 @@
-"""The knob registry, as the launcher reads it.
-
-ONE DECLARATION, READ NOT COPIED. `helpers/knobs.json` is the same artifact the
-on-box store, the installer and the settings page read. The launcher renders
-its sections from it and holds no list of its own, so a knob added there appears
-here and a knob removed there disappears -- which is the only version of "the
-installer and the server agree" that survives a year of edits.
-
-RESOLVED, NOT PACKAGED. The registry lives in the sibling `ansible/` tree
-rather than inside this package, because `vendor-catena-ce.sh` copies
-`git ls-files -- ansible` into the public panel image and the launcher must not
-ship there. So it is found by path, and a missing one RAISES: a launcher that
-fell back to an empty registry would render blank sections and then produce an
-install.yaml that answered nothing.
+"""The knob registry, as the launcher reads it: ansible/helpers/knobs.yml,
+loaded and validated by the sibling tree's render_knobs.
 """
 
 from __future__ import annotations
 
-import json
-import os
+import importlib
+import sys
 from pathlib import Path
-
-REGISTRY_FILENAME = "knobs.json"
 
 # Where the ansible tree sits relative to this file: gui/catena_gui/ -> gui/ ->
 # the repo root. A checkout is the only layout this runs in, because the thing
@@ -29,29 +15,17 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 ANSIBLE_DIR = _REPO_ROOT / "ansible"
 
 
-def registry_path() -> Path:
-    """Where the registry is, with an explicit override for a test or an odd
-    checkout. The same environment variable the on-box reader honours, so one
-    name answers the question wherever it is asked."""
-    explicit = os.environ.get("CATENA_KNOBS", "").strip()
-    candidate = Path(explicit) if explicit else ANSIBLE_DIR / "helpers" / REGISTRY_FILENAME
-    if candidate.is_file():
-        return candidate
-    raise FileNotFoundError(
-        f"the knob registry is not at {candidate}. It is rendered from "
-        "ansible/helpers/knobs.yml by render_knobs.py, and without it the "
-        "launcher has no questions to ask."
-    )
+def ansible_module(name: str):
+    """A module of the sibling ansible/ tree (seed, catena_cli), imported from
+    there."""
+    ansible = str(ANSIBLE_DIR)
+    if ansible not in sys.path:
+        sys.path.insert(0, ansible)
+    return importlib.import_module(name)
 
 
 def load() -> dict:
-    doc = json.loads(registry_path().read_text(encoding="utf-8"))
-    if doc.get("version") != 1:
-        raise ValueError(
-            f"{REGISTRY_FILENAME} declares version {doc.get('version')!r}; "
-            "this reader knows version 1"
-        )
-    return doc
+    return ansible_module("helpers.render_knobs").load()
 
 
 def steps(doc: dict) -> list[dict]:
@@ -61,9 +35,7 @@ def steps(doc: dict) -> list[dict]:
 
 def step_fields(doc: dict, step: str) -> list[dict]:
     """What one section asks for: secrets first, then the values they
-    configure. That order is the settings page's too; the launcher only moves
-    a choice ahead of the fields it governs.
-    """
+    configure, the order the settings page uses too."""
     entries = [*(doc.get("secrets") or []), *(doc.get("config") or [])]
     return [entry for entry in entries if entry.get("step") == step]
 
@@ -76,16 +48,15 @@ def default_for(entry: dict) -> str:
     """What a field starts filled with.
 
     From the `.env` default when the knob has one, because that is the same
-    value a client editing the template by hand would see. A knob with none
-    starts blank, which for every one of them is a real answer.
+    value `catena-cli init` writes. A knob with none starts blank, which for
+    every one of them is a real answer.
     """
     return str((entry.get("env") or {}).get("default") or "")
 
 
 def example_for(entry: dict) -> str:
-    """What a blank field shows greyed out: an illustration of a value with no
-    sensible default, such as a server's address. Never filled in, because a
-    pre-filled example is an answer nobody gave."""
+    """What a blank field shows greyed out, never as its value: the registry's
+    `env.example`."""
     return str((entry.get("env") or {}).get("example") or "")
 
 
@@ -115,8 +86,8 @@ def is_required(entry: dict) -> bool:
 
 
 def options_for(entry: dict) -> list[str]:
-    """The values a field is limited to, from the template's declaration, or
-    an empty list for free text."""
+    """The values a field is limited to, from its `env.options`, or an empty
+    list for free text."""
     return list((entry.get("env") or {}).get("options") or [])
 
 

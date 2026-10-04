@@ -10,15 +10,13 @@
 #    port. All gated on portainer_api_key.
 # 3. dashboard_sync.yml + gatus_sync.yml -- sync scripts + systemd timers.
 #                              Gated on the API key. dashboard-sync owns
-#                              auto-gated Traefik routes (Phase 4b
-#                              retired its services.yaml writer);
-#                              gatus-sync owns {{ gatus_host_config_dir }}/
-#                              50-catena-apps.yaml.
+#                              auto-gated Traefik routes; gatus-sync owns
+#                              {{ gatus_host_config_dir }}/50-catena-apps.yaml.
 #
-# CF tunnel + DNS + cloudflared swarm service moved to reconcile/roles/cloudflare_tunnel
-# on 2026-05-08 so converge.yml can deploy them BEFORE keycloak/oauth2_proxy --
-# oauth2_proxy's wait-for-public-Keycloak task otherwise can't succeed on a
-# fresh DR/migrate target in a single converge.
+# CF tunnel + DNS + cloudflared swarm service belong to
+# reconcile/roles/cloudflare_tunnel, which converge.yml runs BEFORE
+# keycloak/oauth2_proxy, whose validation probes reach auth.<zone> through the
+# tunnel.
 #
 # The per-app oauth2-proxy instances and their `<app>-oauth2-proxy.yml`
 # Traefik route files are rendered by reconcile/roles/oauth2_proxy (which runs before
@@ -37,10 +35,9 @@
 #     rejected key on every converge), so the block runs on a normal
 #     converge; it skips cleanly only in the rare window before the key
 #     exists. ------------------------------------------------------------
-# The per-service stack deploys go through swarm_stack.yml. Nothing catena
-# declares is deployed by the control plane any more: Portainer's database
-# stays the record of CLIENT choices, which is the one state that cannot be
-# recomputed, and nothing else. gatus_sync reads docker labels.
+# The per-service stack deploys go through swarm_stack.yml. Portainer's
+# database is the record of CLIENT choices only, the one state that cannot be
+# recomputed. gatus_sync reads docker labels.
 # There is no ACCESS_MODE toggle. An install with no Cloudflare token is the
 # tunnel-deferred gate below -- the default path and the bench standard -- and
 # it defers these services rather than dropping them: a mode that skipped them
@@ -68,9 +65,9 @@
 # Portainer that will not start takes Gatus, Healthchecks and Beszel with it, at
 # exactly the moment someone needs them to find out why.
 #
-# clamd did NOT come with them and is still gated below: a swarm service
-# cannot attach to a bridge, and the attachable overlay it would need
-# deadlocks against its own consumer gate. clamav.yml documents it.
+# clamd is gated below instead: a swarm service cannot attach to a bridge,
+# and the attachable overlay it would need deadlocks against its own consumer
+# gate. clamav.yml documents it.
 #
 # Portainer's DB stays the record of CLIENT choices, which is the one piece
 # of state that cannot be recomputed. The app-wiring block below is still
@@ -101,8 +98,8 @@
 # agent collects per-container + per-host metrics over docker.sock;
 # the hub stores history and serves hub.<zone> (admin-gated via
 # oauth2-proxy). A small shim forwards Beszel threshold alerts into
-# the Healthchecks plane. Part of the base plane, not opt-in -- the
-# No BESZEL_ENABLED off-switch: this task is unconditional.
+# the Healthchecks plane. Part of the base plane: this task is
+# unconditional.
 - name: Beszel (hub + agent + Healthchecks alert shim)
   ansible.builtin.include_tasks:
     file: beszel.yml
@@ -145,7 +142,20 @@
           tags: [clamav]
       tags: [clamav]
 
-    # EP3: Nextcloud native OIDC. Realm client is registered eagerly
+    # The Nextcloud container lookup every catena-wire-nextcloud-* script
+    # calls, mailserver_oidc.yml's webmail link included, so it lands before
+    # the first of them.
+    - name: "Nextcloud: install the container lookup the wire scripts share"
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../scripts/nextcloud-container.sh"
+        dest: /usr/local/bin/catena-nextcloud-container
+        owner: root
+        group: root
+        mode: "0755"
+      tags: [nextcloud_oidc, nextcloud_talk_hpb, nextcloud_office,
+             nextcloud_antivirus, nextcloud_apps, mailserver_oidc]
+
+    # Nextcloud native OIDC. Realm client is registered eagerly
     # so the discovery URL works the moment the operator clicks Deploy
     # in the Portainer marketplace. The occ-based provider registration
     # runs only if the Nextcloud container is currently up (no-op on first
@@ -263,15 +273,11 @@
         - _infra_edge_up
       tags: [mailserver_canary]
 
-    # The five includes above all defer on a tokenless host, and all five
-    # skipped with NO OUTPUT. The reasoning is sound -- adding the postmaster
-    # account before the cert exists strands Dovecot at gate 2 -- but the
-    # silence is not part of it: the converge printed a clean run on a host
-    # with no mail TLS, no postmaster mailbox, no rspamd antivirus and no
-    # canary, and nothing distinguished that from a host where all five had
-    # succeeded. One notice rather than five: they share one condition, and
-    # five copies of the same line trains the reader to skip it. Same shape
-    # as the verify_gated_services notice further down.
+    # The five includes above all defer on a tokenless host. Without this
+    # notice the converge would print a clean run on a host with no mail TLS,
+    # no postmaster mailbox, no rspamd antivirus and no canary. One notice
+    # rather than five: they share one condition. Same shape as the
+    # verify_gated_services notice further down.
     - name: "Mailserver chain: tunnel deferred -- five wiring steps skipped (no Cloudflare edge yet)"
       ansible.builtin.debug:
         msg: >-
@@ -323,7 +329,7 @@
           tags: [nextcloud_antivirus]
       tags: [nextcloud_antivirus]
 
-    # Nextcloud first-party apps (Mail today; more later). Pure host-side
+    # Nextcloud first-party apps (Mail, Webmail link). Pure host-side
     # wire-script install. Mail is the prerequisite for the Email Archive
     # feature (sidecar reads oc_mail_accounts). Idempotent on every
     # converge; Actions-tab button does the in-container occ work on demand.

@@ -7,15 +7,14 @@ raw to recover the real error.
 
 When that raw retry returns rc=0 there IS no real error: the index refreshed,
 and the module failure is the retry-loop artifact this block exists to absorb.
-Ungated, the rescue aborts the play anyway, printing
+Ungated, the rescue would abort the play anyway, printing
 
     apt update failed and no APT_PROXY_URL is configured, so
     there is nothing to bypass. Real apt-get error:
       rc=0
       stderr=
 
-which reports success as the reason for failing. Observed on bench run
-2026-08-06T21-55-42-fcd1 at stage-1 bootstrap. It is client-facing:
+which reports success as the reason for failing. It is client-facing:
 APT_PROXY_URL is empty on any install without an apt cacher -- and empty
 during EVERY bootstrap regardless, since catena_apt_proxy_url resolves from
 the on-box config store which does not exist yet at that point.

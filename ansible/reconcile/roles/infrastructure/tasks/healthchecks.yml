@@ -33,8 +33,7 @@
 # host bind. scope=loopback denies it everywhere but lo, which is what the
 # ALLOWED_HOSTS 127.0.0.1 entry above assumes about who can reach it.
 #
-# bind=docker because a swarm host-mode publish is DNAT'd and bypasses ufw
-# INPUT -- see the note in gatus.yml; the enforcing chain is DOCKER-USER.
+# bind=docker, as for beszel.yml's hub port.
 - name: "Healthchecks: declare the host-side API port (registry fragment, loopback-only)"
   ansible.builtin.copy:
     dest: "{{ public_ports_fragment_dir }}/healthchecks.json"
@@ -204,8 +203,7 @@
 # KeyError, missing the optional CATENA_HC_API_KEY_READWRITE silently
 # leaves the existing project.api_key in place (migration path).
 - name: "Healthchecks: run the Django seed script"
-  # Re-resolved per attempt: a swarm task id changes on every reschedule, and
-  # this loop exists to span exactly that window.
+  # Re-resolved per attempt (playbooks/filter_plugins/swarm_naming.py).
   ansible.builtin.shell: |
     set -o pipefail
     ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ healthchecks_compose_name | swarm_container_regex("app") }}' | head -n1)

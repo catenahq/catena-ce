@@ -7,15 +7,8 @@
     catena-gui --inventory clientco --answers answers.yaml --no-browser
                                         validate and install with no UI
 
-THE THIRD MODE checks the same sections, runs the same probes and produces the same
-install.yaml, so a green there is a shape a client can reach -- a
-non-interactive path that skipped the validation would prove an install nobody
-could repeat through the UI.
-
-CLOSING THE BROWSER CHANGES NOTHING. This process owns the job. Closing IT
-abandons the run, and the inventory keeps what was answered -- which matters
-because an install can start with a wait nobody can time: a server being
-delivered.
+The run with no UI checks the same sections with the same probes and produces
+the same install.yaml as the page.
 """
 
 from __future__ import annotations
@@ -28,7 +21,7 @@ from pathlib import Path
 
 import yaml
 
-from . import registry, render, run as run_mod, steps as steps_mod
+from . import i18n, registry, render, run as run_mod, steps as steps_mod
 
 
 def _load_answers_file(path: Path, run: run_mod.Run, doc: dict) -> None:
@@ -36,10 +29,8 @@ def _load_answers_file(path: Path, run: run_mod.Run, doc: dict) -> None:
 
     Each value goes to the side of the line the REGISTRY puts it on, not the
     side this file guesses, and the provider's password to the secret side.
-    That is the same classification seed applies when it splits a flat
-    install.yaml, so a credential cannot be filed as config by one and as a
-    secret by the other. The inventory is the run's directory, so an
-    `inventory:` key in the file is not an answer.
+    The inventory is the run's directory, so an `inventory:` key in the file
+    is not an answer.
     """
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     if not isinstance(raw, dict):
@@ -71,7 +62,7 @@ def walk(run: run_mod.Run, doc: dict) -> int:
     built = steps_mod.build(doc)
     values = {f.key: (run.value(f.key) or f.default) for s in built for f in s.fields}
     for step in built:
-        print(f"\n== {step.title}", file=sys.stderr)
+        print(f"\n== {step.title[i18n.DEFAULT]}", file=sys.stderr)
         missing = steps_mod.missing_required(step, values)
         checks = missing or steps_mod.validate(step.name, run.answers, run.secrets)
         _report(checks)
@@ -82,9 +73,8 @@ def walk(run: run_mod.Run, doc: dict) -> int:
 def install(run: run_mod.Run, ansible_dir: Path) -> int:
     """Write the contract, run it, and record where it got to.
 
-    The install.yaml is removed whatever happens. It can carry the provider's
-    password, and a file that outlives the install is one nothing ever comes
-    back to delete.
+    No stdin, as on the page: the answers are the whole input, and a question
+    the install would have asked takes its default.
     """
     run.state = run_mod.STATE_INSTALLING
     run.save()
@@ -93,7 +83,7 @@ def install(run: run_mod.Run, ansible_dir: Path) -> int:
     with render.transient_install_yaml(body) as target:
         argv = render.install_command(ansible_dir, target, run.inventory)
         print(f"\n== install: {' '.join(argv)}", file=sys.stderr)
-        rc = subprocess.run(argv, check=False).returncode
+        rc = subprocess.run(argv, stdin=subprocess.DEVNULL, check=False).returncode
     run.state = run_mod.STATE_DONE if rc == 0 else run_mod.STATE_FAILED
     run.save()
     return rc
@@ -102,12 +92,13 @@ def install(run: run_mod.Run, ansible_dir: Path) -> int:
 def _open(name: str, doc: dict) -> run_mod.Run:
     """The inventory `name` as a run: opened when it exists, created when the
     name is a valid new one."""
-    if name not in run_mod.inventories():
-        problem = run_mod.new_name_problem(name)
+    seed = run_mod.seed()
+    if name not in seed.inventories():
+        problem = seed.inventory_name_problem(name)
         if problem:
-            raise SystemExit(f"--inventory {name!r}: {problem}")
-    return run_mod.load(run_mod.inventory_root() / name,
-                        run_mod.secret_keys_from(doc))
+            raise SystemExit(
+                f"--inventory {name!r}: {seed.INVENTORY_NAME_PROBLEMS[problem]}")
+    return run_mod.load(seed.INVENTORY_ROOT / name, run_mod.secret_keys_from(doc))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -146,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
         url = f"http://127.0.0.1:{args.port}/"
         print(f"catena-gui: serving {url}", file=sys.stderr)
         print("catena-gui: closing the browser changes nothing; closing THIS "
-              "window abandons the run.", file=sys.stderr)
+              "window stops the install.", file=sys.stderr)
         webbrowser.open(url)
         return serve(current, doc, port=args.port, ansible_dir=registry.ANSIBLE_DIR)
 

@@ -16,25 +16,19 @@
 # before any role). A rebuild needs only the {restic endpoint, S3 creds,
 # restic password} keyset: the store returns with the data, internals and all.
 
+- name: "onbox: stage the knob registry"
+  ansible.builtin.include_tasks:
+    file: stage_knob_registry.yml
+    apply:
+      tags: [always, onbox]
+  tags: [always, onbox]
+
 # Which variables count as secrets is DECLARED, in the four category tables
 # in helpers/onbox_config.py, and read back here -- captured by declared
 # name rather than by a spelling convention, so a variable is captured
 # because someone said it is a secret, not because of how it is spelled.
 # Asking the module keeps one declaration.
 #
-# The script module ships onbox_config.py alone, and it reads the knob registry
-# from a file. A fresh host has no payload to provide one yet, so the registry
-# from this same checkout is staged beside the adopt map and named through
-# CATENA_KNOBS on every call. seed_onbox_config.yml stages the same file for
-# bootstrap, which does not run this loader.
-- name: "onbox: stage the knob registry for the store helper"
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../helpers/knobs.json"
-    dest: /root/.catena-knobs.json
-    owner: root
-    group: root
-    mode: "0644"
-
 # Pure query, no store I/O -- it answers before the store exists on a fresh box.
 - name: "onbox: read the declared secret names"
   ansible.builtin.script:
@@ -68,10 +62,8 @@
 # module has no stdin passthrough, so onbox_config.py reads --adopt-file.
 # changed_when: false on the stage + remove pair: they are loader
 # scaffolding (a temp file created and deleted within the same play,
-# zero net host delta), and reporting them changed made every converge
-# recap carry changed>=2 -- which turned the bench's strict changed=0
-# idempotency gates (assert_ce_idempotent_rerun) into guaranteed
-# failures post-0b.
+# zero net host delta), and a converge that changes nothing reports
+# changed=0.
 - name: "onbox: stage the capture map on the host (0600)"
   ansible.builtin.copy:
     dest: /root/.catena-onbox-adopt.json
@@ -123,9 +115,7 @@
 # the container registry on a machine with no Docker.
 - name: "onbox: seed and publish the store-owned config"
   ansible.builtin.include_tasks:
-    # Absolute: a relative include inside an included file resolves against the
-    # including file's own directory first, which is this same tasks/ folder.
-    file: "{{ playbook_dir }}/tasks/seed_onbox_config.yml"
+    file: seed_onbox_config.yml
     apply:
       tags: [always, onbox]
   tags: [always, onbox]
@@ -133,12 +123,9 @@
 # ─── image pins: what the on-host update lane last applied ─────────────────
 #
 # The converge owns TOPOLOGY -- which services exist and how they wire. The
-# on-host lane owns IMAGE VERSIONS, and it bumps them between converges. Before
-# this, a converge asked the catalog for a service's image, got the shipped
-# floor, and emitted `--image` to put the old version back: every managed bump
-# was silently reverted by the next converge.
-#
-# So the converge ASKS. Roles resolve their image through the catena_image_pin
+# on-host lane owns IMAGE VERSIONS, and it bumps them between converges. A
+# converge that deployed the shipped floor would put every managed bump back,
+# so it ASKS. Roles resolve their image through the catena_image_pin
 # filter, which takes max(floor, pin) -- see filter_plugins/image_pin.py for why
 # neither side can simply win.
 #

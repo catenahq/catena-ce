@@ -94,12 +94,10 @@
     #
     # Without that gate the rescue aborts the bootstrap while printing its own
     # proof that apt worked -- "Real apt-get error: rc=0, stderr=" -- which is a
-    # contradiction on its face. Bench run 2026-08-06T21-55-42-fcd1 stage-1
-    # caught exactly that shape: the apt module exhausts its 10 retries against
-    # a cold mirror, the raw retry seconds later returns 0, and the play fails
-    # anyway. It is a client-facing defect, not a bench one: any install with no
-    # APT_PROXY_URL (the default) meets a transient flake that has already
-    # healed.
+    # contradiction on its face. The shape is common: the apt module exhausts
+    # its 10 retries against a cold mirror and the raw retry seconds later
+    # returns 0. Any client install with no APT_PROXY_URL (the default) can
+    # meet such a transient flake, already healed by the time the rescue runs.
     - name: "No proxy to bypass; fail with the real error"
       ansible.builtin.fail:
         msg: |
@@ -251,12 +249,12 @@
 # or on-prem physical) and does not depend on the provider default user,
 # which root-disable + AllowUsers already lock out of SSH.
 #
-# The password is USER_HELD (helpers/onbox_config.py): minted on-box if absent
-# on every converge and surfaced once by playbooks/show-keyset.yml, because
-# a break-glass credential the user does not hold a copy of is not one. The
-# converge is the only place that can mint it for every host: a self-hoster runs
-# no ops operator tool, and a host whose password nothing mints reaches this
-# task with nothing to set and skips in silence.
+# The password is USER_HELD (helpers/onbox_config.py): minted on-box if absent,
+# by the install right after bootstrap (playbooks/show-keyset.yml, which shows
+# it once) or by any converge, because a break-glass credential the user does
+# not hold a copy of is not one. Only an on-box mint reaches every host: a
+# self-hoster runs no ops operator tool, and a host whose password nothing
+# mints reaches this task with nothing to set and skips in silence.
 #
 # Deterministic salt (derived from the secret itself) keeps the sha512 hash
 # stable across converges so /etc/shadow does not churn -- update_password:
@@ -493,10 +491,11 @@
             '  journalctl --verify'] }}
   when: _journal_setup_keys is not skipped
 
-# Hand the key to the end-of-install keyset display, then have that display
-# DELETE it. Printing it here alone loses it: it scrolls past mid-converge and
-# a fresh install is hundreds of tasks long, so in practice nobody saved it and
-# the seal was unverifiable -- a guarantee nobody can check is not one.
+# Hand the key to the keyset display the install runs right after bootstrap,
+# then have that display DELETE it. Printing it here alone loses it: it scrolls
+# past among hundreds of install tasks and nothing shows it again, so in
+# practice nobody saved it and the seal was unverifiable -- a guarantee nobody
+# can check is not one.
 #
 # It is deliberately NOT written to the on-box config store like the other
 # user-held secrets. The verification key is the FSPRG seed: whoever holds it

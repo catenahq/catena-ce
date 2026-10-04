@@ -1,20 +1,6 @@
-"""reconcile/roles/keycloak must wait for postgres to ACCEPT CONNECTIONS, not exist.
-
-`fi_a2_oidc_secret_rotation` failed its converge in run
-2026-08-02T01-47-33-2e7d:
-
-    psql: error: connection to server on socket
-    "/var/run/postgresql/.s.PGSQL.5432" failed:
-    FATAL:  the database system is starting up
-
-provision_db.yml retried finding the catena-postgres swarm TASK properly and
-then ran three `docker exec ... psql` calls with no readiness gate at all. A
-container that exists is not a server that answers, and after a rewind the gap
-between the two is seconds wide.
-
-This is a product defect, not a bench one: it fails a client converge. The
-test pins the property rather than the wording, so the next `docker exec`
-added to this file cannot quietly skip the gate.
+"""Every `docker exec ... psql` in reconcile/roles/keycloak/tasks/provision_db.yml
+runs after a gate that waits for postgres to accept connections (that file
+says why).
 
 Run: uv run pytest tests/unit/test_keycloak_db_readiness.py
 """
@@ -122,10 +108,9 @@ def test_the_gate_names_a_role_that_exists() -> None:
     retries above.
 
     Not about auth: pg_isready exits 0 whenever the server responds at all,
-    error included, which is exactly why this survived unnoticed until the
-    bench's stage-3f control-plane log gate read the log on run
-    2026-08-06T20-24-17-5ccd. It is about what postgres WRITES, because a
-    real auth failure is indistinguishable inside that noise.
+    error included, so only the log shows it. It is about what postgres
+    WRITES, because a real auth failure is indistinguishable inside that
+    noise.
     """
     gate = next(t for t in _tasks() if "pg_isready" in _module_body(t))
     # Read the command TEXT, not an argv list: the gate re-resolves its

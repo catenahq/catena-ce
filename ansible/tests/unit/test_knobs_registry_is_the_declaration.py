@@ -1,21 +1,13 @@
-"""helpers/knobs.yml is the registry, and its two artifacts say the same thing.
+"""helpers/knobs.yml is the registry: it validates, and what onbox_config
+derives from it holds.
 
-Three properties, and the third is the one with teeth.
-
-The first two are about the artifacts: the YAML parses and validates, and
-knobs.json plus inventory/example/.env.example are what rendering it produces.
-A stale artifact is a knob the store, the panel or the installer never learns
-about, so `render_knobs.py --check` failing here is the same signal CI gives.
-
-The third holds what onbox_config DERIVES from the registry: which credentials
-the store accepts, which knobs reach the converge as facts, and that the three
-residences partition rather than overlap. Plus the two failure modes of reading
-a file instead of holding a literal -- an absent registry has to raise rather
-than empty, and an explicit path has to win.
+The derived part: which credentials the store accepts, which knobs reach the
+converge as facts, and that the three residences partition rather than overlap.
+Plus the two failure modes of reading a file instead of holding a literal -- an
+absent registry has to raise rather than empty, and an explicit path has to win.
 """
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -31,18 +23,12 @@ from helpers import onbox_config, render_knobs  # noqa: E402
 
 @pytest.fixture(scope="module")
 def registry() -> dict:
-    return json.loads(render_knobs.RENDERED.read_text())
-
-
-def test_source_validates():
     """Every shape rule in render_knobs.load() holds on the shipped file."""
-    render_knobs.load()
+    return render_knobs.load()
 
 
-def test_both_artifacts_are_current():
-    assert render_knobs.main(["--check"]) == 0, (
-        "an artifact is stale -- run `python3 helpers/render_knobs.py --write`"
-    )
+def test_onbox_config_reads_the_same_registry(registry):
+    assert onbox_config._KNOBS == registry
 
 
 def test_the_store_accepts_every_declared_credential(registry):
@@ -54,19 +40,13 @@ def test_the_store_accepts_every_declared_credential(registry):
 
 
 def test_only_projected_store_knobs_reach_the_converge(registry):
-    """A stored knob with no declared `var` stays out of SETTINGS_CONFIG.
-
-    Those are read straight off the store by a runtime lane with no converge in
-    between, so there is no fact to publish. Publishing one anyway would create
-    an Ansible variable no role reads, which is the silent half of the drift
-    this registry exists to stop.
-    """
-    unprojected = {
-        k["key"] for k in registry["config"]
-        if k["residence"] == "store" and "var" not in k
+    """SETTINGS_CONFIG is exactly the stored knobs that declare a `var`, each
+    mapped to it: a stored knob with none is published as no fact."""
+    projected = {
+        k["key"]: k["var"] for k in registry["config"]
+        if k["residence"] == "store" and "var" in k
     }
-    assert unprojected, "the fixture is meaningless if every store knob projects"
-    assert not (unprojected & set(onbox_config.SETTINGS_CONFIG))
+    assert onbox_config.SETTINGS_CONFIG == projected
 
 
 def test_residences_do_not_overlap(registry):
@@ -85,13 +65,6 @@ def test_residences_do_not_overlap(registry):
 
 
 def test_a_missing_registry_raises_rather_than_emptying(monkeypatch, tmp_path):
-    """An install that lost the file is broken, and this is the only place that
-    can say so.
-
-    Falling back to empty sets would leave apply_inputs refusing every
-    credential the client supplies and the converge publishing no config facts,
-    both silent and both indistinguishable from a host nobody configured yet.
-    """
     monkeypatch.setenv("CATENA_KNOBS", str(tmp_path / "absent.json"))
     monkeypatch.setenv("CATENA_PAYLOAD_LIB", str(tmp_path))
     monkeypatch.setattr(onbox_config, "__file__", str(tmp_path / "onbox_config.py"))
@@ -144,28 +117,17 @@ def test_every_remote_store_call_names_the_staged_registry():
 
 
 def test_every_knob_has_exactly_one_owner(registry):
-    """No key belongs to two residences, and none belongs to none.
-
-    onbox_config states this property about its own two sets ("a key that is in
-    NEITHER set is a gate failure rather than an unnoticed third owner"), but
-    the host identity keys were in neither: they are written into hosts.yml by
-    seed, which is a third owner that nothing named. `residence: host` names it.
-    """
+    """No key belongs to two residences, and none belongs to none: `host` is
+    the target identity seed writes into hosts.yml."""
     for knob in registry["config"]:
         assert knob["residence"] in render_knobs.RESIDENCES, knob["key"]
 
 
-def test_the_env_template_carries_every_key_that_declares_one(registry):
-    """The generated template is the registry's env knobs and nothing else.
-
-    `test_both_artifacts_are_current` already compares the file byte for byte
-    with what rendering produces, so what is left to state is the property that
-    comparison cannot: that the RENDERER emits one line per declared key. A
-    renderer that dropped a section would still be self-consistent, and the
-    missing key would read as a knob nobody ever added.
-    """
+def test_the_env_carries_every_key_that_declares_one(registry):
+    """A rendered `.env` is the registry's env knobs and nothing else: a
+    renderer that dropped a section would leave a key nobody can set."""
     declared = {k["key"]: k["env"]["default"] for k in registry["config"] if "env" in k}
-    assert declared, "no knob declares an env home, so the template is empty"
+    assert declared, "no knob declares an env home, so the .env is empty"
 
     in_template: dict[str, str] = {}
     for raw in render_knobs.render_env(registry).splitlines():
@@ -179,9 +141,6 @@ def test_the_env_template_carries_every_key_that_declares_one(registry):
 
 
 def test_a_section_with_no_key_is_refused(tmp_path):
-    """A heading renders as a section break followed by the next section, so an
-    empty one reads as a key having gone missing rather than as a heading nobody
-    filled in."""
     doc = render_knobs.load()
     doc["env_sections"].append({"name": "orphan", "title": "Orphan"})
     source = tmp_path / "knobs.yml"
@@ -217,6 +176,62 @@ def test_launcher_fields_need_a_step_and_a_sound_shape(tmp_path):
     _entry(doc, "SSH_PRIVATE_KEY")["gui_suggestions_from"] = "planets"
     _refused(tmp_path, doc, "gui_suggestions_from")
 
+    doc = render_knobs.load()
+    _entry(doc, "OPS_USER")["label"] = "Ops user"
+    _refused(tmp_path, doc, "has no step")
+
+    doc = render_knobs.load()
+    del _entry(doc, "HOST_PUBLIC_IP")["label"]
+    _refused(tmp_path, doc, "needs a label")
+
+
+def test_every_installer_section_asks_for_something(tmp_path):
+    """A section with no field is a heading nobody fills in."""
+    doc = render_knobs.load()
+    doc["gui_steps"].append({"name": "empty", "title": {"en": "Empty", "fr": "Vide"},
+                             "doc": {"en": "Nothing.", "fr": "Rien."}})
+    _refused(tmp_path, doc, "ask for nothing")
+
+
+def test_a_maintainer_note_is_a_comment_not_a_field(tmp_path):
+    """A field nothing reads is prose that reaches a reader it is not written
+    for, or no one: the registry refuses any field it does not know."""
+    doc = render_knobs.load()
+    _entry(doc, "COMMON_TIMEZONE")["doc"] = "why it is declared this way"
+    _refused(tmp_path, doc, "not registry fields")
+
+    doc = render_knobs.load()
+    doc["gui_steps"][0]["validates"] = "what it proves"
+    _refused(tmp_path, doc, "not step fields")
+
+
+def test_client_copy_is_where_a_client_reads_it(tmp_path):
+    """`help` on every installer field in both languages and on every `.env`
+    key in English, and nowhere else."""
+    doc = render_knobs.load()
+    del _entry(doc, "HOST_SSH_PORT")["help"]["fr"]
+    _refused(tmp_path, doc, "no fr text")
+
+    doc = render_knobs.load()
+    del _entry(doc, "OPS_USER")["help"]
+    _refused(tmp_path, doc, "needs help")
+
+    doc = render_knobs.load()
+    _entry(doc, "COMMON_TIMEZONE")["help"] = {"en": "The time zone."}
+    _refused(tmp_path, doc, "in neither")
+
+    doc = render_knobs.load()
+    _entry(doc, "HOST_PUBLIC_IP")["label"] = {"en": "IP", "fr": "IP", "de": "IP"}
+    _refused(tmp_path, doc, "languages")
+
+
+def test_every_installer_field_speaks_both_languages(registry):
+    for entry in [*registry["secrets"], *registry["config"]]:
+        if "step" in entry:
+            for lang in render_knobs.LANGS:
+                assert entry["label"][lang].strip(), (entry["key"], lang)
+                assert entry["help"][lang].strip(), (entry["key"], lang)
+
 
 def test_a_value_has_one_place_to_be_edited(tmp_path):
     """The `.env` or the panel, never both: a client who changes it in one
@@ -251,8 +266,6 @@ def test_the_installers_required_fields_are_the_ones_it_cannot_install_without(
 
 
 def test_a_default_that_needs_quoting_is_refused():
-    """A template default is an illustration, and one that renders a line
-    parsing back as something else is the wrong illustration."""
     with pytest.raises(render_knobs.KnobError, match="unquoted"):
         render_knobs._check_env(
             "SOME_KEY", {"section": "host", "default": "two words"}, {"host"})

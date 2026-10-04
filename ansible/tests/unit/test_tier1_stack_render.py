@@ -145,9 +145,8 @@ def test_update_failure_action_pause_passes_through() -> None:
 
 
 def test_networks_volumes_and_secrets_are_declared_external() -> None:
-    """Named volumes carry data that predates the render and secrets are
-    content-hashed by the rotation path. A stack that CREATED them would
-    take ownership of state it cannot safely recreate."""
+    """Networks, volumes and secrets are referenced as external, never created
+    by the stack (playbooks/filter_plugins/tier1_stack.py says why)."""
     out = render([_pg()])
     assert out["networks"] == {"catena-network": {"external": True}}
     assert out["volumes"] == {"catena-postgres-data": {"external": True}}
@@ -265,9 +264,7 @@ def test_detach_does_not_leak_into_the_compose_service() -> None:
 
 
 def test_upsert_replaces_a_same_named_spec_rather_than_appending() -> None:
-    """A role that contributes its spec twice in one converge (a re-run, a
-    tag-scoped include) must replace the first. Appending would hand the
-    renderer a duplicate name and fail the converge."""
+    """A spec contributed twice under one name replaces the first."""
     first = {"name": "coturn", "image": "coturn/coturn:4.10.0-alpine"}
     second = {"name": "coturn", "image": "coturn/coturn:4.11.0-alpine"}
     out = upsert(upsert([_pg()], first), second)

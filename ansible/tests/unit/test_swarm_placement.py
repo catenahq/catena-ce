@@ -29,24 +29,9 @@ Run: uv run pytest tests/unit/test_swarm_placement.py
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 import yaml
 
-ANSIBLE = Path(__file__).resolve().parents[2]
-_ROLE_ROOTS = (ANSIBLE / "bootstrap" / "roles",
-               ANSIBLE / "reconcile" / "roles")
-
-def _role_dir(name: str) -> Path:
-    """Where a role lives, whichever side it is on.
-
-    Resolved by search rather than by a hard-coded side, so a role moving
-    across the line does not need this file edited too.
-    """
-    for root in _ROLE_ROOTS:
-        if (root / name).is_dir():
-            return root / name
-    raise AssertionError(f"no role named {name} under {[str(r) for r in _ROLE_ROOTS]}")
+from ansible_tree import role_dir as _role_dir
 
 
 # The value the engine's constraints spell as

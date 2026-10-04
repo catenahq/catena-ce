@@ -21,7 +21,7 @@
     # Read from boundary.yml rather than restated. That file is the
     # declaration, and a second copy here is a second thing to keep true --
     # with the failure mode that the copy goes stale and the report quietly
-    # stops covering whatever was added to the real list.
+    # misses every path the real list gains.
     _drift_owned: >-
       {{ (lookup('file', catena_boundary_path) | from_yaml)
          .bootstrap_owned_paths | default([]) }}

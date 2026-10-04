@@ -4,25 +4,24 @@ Installs the catena host engine payload -- the Go binaries every later role
 dispatches -- onto the VPS, by extracting them from the public catena-admin
 image. No container is deployed here and Portainer is not involved.
 
-## Why it runs at position 5.5
+## Why it runs right after docker
 
-The payload used to arrive from `reconcile/roles/catena-admin`, role 13 in `converge.yml`.
-Three roles that run BEFORE it already depend on the engines:
+Roles later in `converge.yml` depend on the engines:
 
-- `reconcile/roles/cloudflare_tunnel` (11) dispatches `catena-cloudflared-sync`,
-- `reconcile/roles/keycloak` (12) and `reconcile/roles/oauth2_proxy` (13) need the edge that
-  engine brings up -- oauth2-proxy waits on
-  `https://auth.<zone>/.well-known/openid-configuration`.
+- `reconcile/roles/cloudflare_tunnel` dispatches `catena-cloudflared-sync`;
+- `reconcile/roles/keycloak` and `reconcile/roles/oauth2_proxy` validate
+  against the edge that engine brings up, probing `https://auth.<zone>/`
+  through it.
 
-So a first converge on a host that already held a Cloudflare API token
-deferred the tunnel ("engine not installed yet"), and oauth2-proxy then failed
-against an edge nobody had configured. The tokenless install shape hid it: the
-tunnel is deferred there for a legitimate reason, the client enters the token
-in catena-admin later, and the panel fires `cloudflared-sync` itself.
+Without the engine, a first converge on a host that already holds a
+Cloudflare API token would defer the tunnel and then fail those probes
+against an edge nobody configured. A tokenless install defers the tunnel for
+a legitimate reason instead: the client enters the token in catena-admin
+later, and the panel fires `cloudflared-sync` itself.
 
-Running the payload install straight after `bootstrap/roles/docker` -- the only thing it
-needs -- removes the window. Every role from 6 onward can assume
-`/usr/local/bin/catena-*` exists.
+So the payload install runs straight after `bootstrap/roles/docker`, the only
+thing it needs, and every role after it can assume `/usr/local/bin/catena-*`
+exists.
 
 ## What it does
 
@@ -98,11 +97,9 @@ instead of the working tree, which is the one thing a bench must never do.
 ## Which digest this asserts
 
 `catena_admin_release` is resolved from the registry once per converge by
-`playbooks/tasks/load_onbox_config.yml`, version and digest together. It
-replaced two literals in `bootstrap/roles/common/defaults` that had to be bumped in
-lockstep and were not: a version published as one digest with another digest
-recorded beside it fails this gate on a correct host holding a correctly
-published image, which is what it did.
+`playbooks/tasks/load_onbox_config.yml`, version and digest together, so the
+two cannot disagree: a version recorded beside another version's digest would
+fail this gate on a correct host holding a correctly published image.
 
 The check is therefore a same-converge consistency check -- the image about to
 be extracted is the one this converge resolved -- not provenance. It catches a

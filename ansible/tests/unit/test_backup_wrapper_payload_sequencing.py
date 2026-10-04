@@ -1,28 +1,8 @@
-"""The backup wrapper arrives with the payload, which is not always first.
-
-catena-backup-run is a lane script in the catena-admin image payload.
-reconcile/roles/backup writes the units that call it but does not ship it, so
-the role cannot assume the file is on disk by the time it writes them.
-
-Two hosts, two truths:
-
-  converge owns the payload   reconcile/roles/payload extracted the engines four roles
-                              earlier. A missing wrapper means the extract
-                              FAILED, and writing a timer that points at nothing
-                              would turn that into a silent unit-level failure
-                              at 03:00. Stop the converge.
-
-  payload staged out of band  CATENA_PAYLOAD_INSTALL=false. The bench builds
-                              local/catena-admin:bench on the VPS and installs
-                              the payload at a later stage, so at THIS point the
-                              wrapper legitimately does not exist yet.
-
-Deferring is safe because this role enables NOTHING -- `catena-schedule apply`
-owns enable/disable for every lane -- and the backup units arrive with the same
-payload as the wrapper.
-
-The inline first snapshot has to respect the same fact: it starts the unit
-synchronously, so with no wrapper it fails the converge for the same reason.
+"""reconcile/roles/backup and the payload it does not ship: a converge that
+installs the payload fails on a missing backup wrapper, one whose payload is
+staged out of band (CATENA_PAYLOAD_INSTALL=false) defers with a notice, and
+the first snapshot and validate's payload checks wait for the scripts (its
+tasks/install.yml says why).
 
 Run: uv run pytest tests/unit/test_backup_wrapper_payload_sequencing.py
 """
@@ -35,7 +15,7 @@ import yaml
 ANSIBLE = Path(__file__).resolve().parents[2]
 INSTALL = ANSIBLE / "reconcile" / "roles" / "backup" / "tasks" / "install.yml"
 VALIDATE = ANSIBLE / "reconcile" / "roles" / "backup" / "tasks" / "validate.yml"
-# The "is the payload expected here" decision all five callers now share.
+# The "is the payload expected here" decision all five callers share.
 SHARED = ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "_payload_expected.yml"
 
 EXPECTED = "catena_payload_expected"

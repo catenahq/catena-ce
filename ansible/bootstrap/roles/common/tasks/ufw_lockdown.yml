@@ -27,14 +27,15 @@
 #
 # FOUR COMBINATIONS. `no tailnet + 22 open` is what a host with no alternative
 # gets, and it is a posture rather than a failure. `tailnet + 22 open` is where
-# a host joined to a tailnet stays until the panel's Lockdown. `tailnet + 22
-# closed` is the panel's Lockdown, below; the port reconciler reopens 22 while
-# the tailnet is down and closes it again when it is back. `no tailnet + 22
-# closed` is what that Lockdown leaves once the provider goes back to none:
-# SSH still reaches the host over the tailnet it is still on, the reconciler
-# reopens 22 if that tailnet goes down, and applying the chosen access opens 22
-# for good. Nothing closes 22 on a host with no tailnet: there is nothing to
-# prove.
+# a host joined to a tailnet stays until the panel's Lockdown, and where it
+# returns when the panel opens 22 again (catena_lockdown_open_public_ssh).
+# `tailnet + 22 closed` is the panel's Lockdown, below; the port reconciler
+# reopens 22 while the tailnet is down and closes it again when it is back.
+# `no tailnet + 22 closed` is what that Lockdown leaves once the provider goes
+# back to none: SSH still reaches the host over the tailnet it is still on,
+# the reconciler reopens 22 if that tailnet goes down, and applying the chosen
+# access opens 22 for good. Nothing closes 22 on a host with no tailnet: there
+# is nothing to prove.
 #
 # Detection is not proof. `ip link show tailscale0` says an interface exists,
 # which is a different question from whether anyone can reach this host over
@@ -47,16 +48,20 @@
       access method: {{ catena_access_method }}
       ({{ ('public 22 closes once the tailnet path is proven'
            if catena_lockdown_close_public_ssh | default(false) | bool
-           else "public 22 stays open; the panel's Lockdown closes it")
+           else ('public 22 opens; the tailnet stays'
+                 if catena_lockdown_open_public_ssh | default(false) | bool
+                 else "public 22 stays as it is; the panel's Lockdown closes it"))
           if catena_access_method == 'tailnet'
           else 'public 22 opens -- this host has no other path' }})
 
-# ─── No alternative path: 22 opens, and the host says so ─────────────────
+# ─── 22 opens: no alternative path, or the panel asked ───────────────────
 # The rule bootstrap/roles/common adds, and the declaration it first writes, so
 # the reconciler keeps the port open on every later timer fire. Both are no-ops
-# on a host whose port is open.
-- name: "Lockdown: open public 22 on a host with no alternative path"
-  when: catena_access_method != 'tailnet'
+# on a host whose port is open. Opening needs no proof: it removes no way in.
+- name: "Lockdown: open public 22"
+  when: >-
+    catena_access_method != 'tailnet'
+    or (catena_lockdown_open_public_ssh | default(false) | bool)
   block:
     - name: Allow public SSH
       ansible.builtin.command:
@@ -91,7 +96,17 @@
       changed_when: false
       when: _ssh_fragment_open.changed
 
+    - name: "Lockdown: public 22 is open alongside the tailnet"
+      ansible.builtin.debug:
+        msg: >-
+          Public port 22 is OPEN on this host, as the panel asked. The host
+          stays on its tailnet, so SSH reaches it on both paths. Ticking the
+          option to close public SSH in catena-admin > Settings closes it again
+          once the tailnet path is proven.
+      when: catena_access_method == 'tailnet'
+
     - name: "Lockdown: public 22 is open with no alternative path"
+      when: catena_access_method != 'tailnet'
       ansible.builtin.debug:
         msg: |
           Public port 22 is OPEN on this host.

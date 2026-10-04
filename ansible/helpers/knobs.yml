@@ -1,30 +1,19 @@
 # The knob registry: every value a client supplies, declared once.
 #
-# THIS FILE IS THE SOURCE. `knobs.json` beside it is RENDERED from it by
-# `render_knobs.py` and committed; nothing hand-edits the JSON. Four consumers
-# read the JSON rather than this file, because one of them cannot read YAML:
-# `onbox_config.py` runs as root on a minimal target host whose system python
-# has no PyYAML, which is a constraint that file states about itself and this
-# one has to respect.
+# Its readers, each of which sees a knob declared here or none at all:
 #
 #   helpers/onbox_config.py   which keys the store accepts, and how the
-#                             converge sees them
-#   seed.py                   what the installer asks for, and the `.env`
-#                             template it generates
+#                             converge sees them; on a host it reads the JSON
+#                             playbooks/tasks/stage_knob_registry.yml stages
+#   seed.py                   what the installer asks for, and the inventory
+#                             `.env` it writes (render_knobs.render_env)
 #   catena-admin settings     which fields the panel renders
 #   gui/                      which fields each installer step shows
 #
-# A knob declared here appears in all of them or in none. That is the property
-# this file exists for: the same names lived in four places, and eight of them
-# drifted across two sessions before a test was written to hold two of the four
-# together.
-#
-# `inventory/example/.env.example` is the SECOND rendered artifact, produced by
-# the same `render_knobs.py --write`. `env_header` is its preamble,
-# `env_sections` is the ordered list of headings it groups keys under, and each
-# knob's `env.section` names the one it belongs to. Its order comes from
-# `env_sections`, so this file can group by residence while the file a client
-# edits groups by subject.
+# An inventory `.env` is rendered from this file: `env_header` is its preamble,
+# `env_sections` the ordered headings it groups keys under, and each knob's
+# `env.section` the heading it prints under. So this file groups by residence
+# while the file a client edits groups by subject.
 #
 # WHAT IS NOT HERE. Secrets the client never supplies: the internal service
 # secrets and the user-held DR keyset are minted on-box, and the role-minted
@@ -33,10 +22,13 @@
 # the box reads them, and none of them is ever rendered on a form. They stay in
 # `onbox_config.py`.
 #
-# PROSE IS RENDERED, so write it for a client reading the template as well as
-# for whoever edits this file. A `doc` is one folded paragraph and is re-wrapped
-# on the way out; a line indented further than its neighbours is held verbatim,
-# which is how a command or a JSON fragment keeps its shape.
+# CLIENT COPY. `label` and `help` are what a client reads: on the graphical
+# installer's page, in the page's language, and `help.en` as the comment above
+# the key in an inventory `.env`. They say what to enter, in the client's
+# terms. Why a knob is declared the way it is goes in a `#` comment above it,
+# which nothing renders. A `help` is one folded paragraph, re-wrapped on the
+# way out; a line indented further than its neighbours is held verbatim, which
+# is how a command keeps its shape.
 #
 # FIELD MEANINGS
 #
@@ -61,26 +53,34 @@
 #               not follow that rule, and a derived mapping fails silently by
 #               publishing a fact nothing reads. Absent means no projection --
 #               a runtime lane reads the value straight off the store.
-#   env         the key's place in the generated `.env.example`: which
-#               `section` it prints under, the `default` it carries, and the
-#               `options` it is limited to. Absent means the key never appears
-#               in the template. An EMPTY default is also what marks a key
-#               optional to seed's structural checks, unless the key has an
-#               `example`: a value with no sensible default that is still
-#               needed, shown as a placeholder and never filled in.
+#   env         the key's place in an inventory `.env`: which `section` it
+#               prints under, the `default` it carries, and the `options` it
+#               is limited to. Absent means the key never appears in the
+#               `.env`. An EMPTY default is also what marks a key optional to
+#               seed's structural checks, unless the key has an `example`: a
+#               value with no sensible default that is still needed, shown as a
+#               placeholder and never filled in.
 #   panel       how catena-admin renders it. Absent means the settings page
-#               does not show it.
+#               does not show it; the page's own labels and help are its
+#               translations, keyed by the knob. `default` is the value a field
+#               shows while nothing is stored, the same literal the converge
+#               falls back to; `options_from` names a list the host supplies
+#               when the page renders (`timezones`, `cloudflare_zones`).
 #   step        which section of the graphical installer asks for it, named in
 #               `gui_steps`. Only a knob with an `env` home has one. Absent
 #               means the launcher never asks: the value is either the
 #               product's, or a setting the client makes afterwards in the
-#               panel.
+#               panel. Fields appear in a section in the order they are
+#               declared here.
+#   label       {en, fr}: the field's name on the graphical installer's page.
+#               Only on a knob with a `step`.
+#   help        {en, fr}: what to enter. Required on a knob with a `step` (both
+#               languages) or an `env` home (`en`), and on no other.
 #   depends     the choice field and values that govern whether the panel shows
 #               this one. The same fact the converge acts on, which is why it
 #               is declared and not left to a template. The field is `choice`
 #               rather than the `on` it reads as in English, because YAML 1.1
-#               parses a bare `on` as the boolean true. The launcher applies it
-#               only when the governing field is on its page too.
+#               parses a bare `on` as the boolean true.
 #   required    true when the graphical installer refuses to install without a
 #               value. Everything else is labelled optional there.
 #   gui_suggestions_from
@@ -91,71 +91,60 @@
 version: 1
 
 env_header: |-
-  catena: client-editable, non-secret configuration.
+  catena: client-editable, non-secret configuration of one server.
 
-  GENERATED from catena-ce/ansible/helpers/knobs.yml. To change a key or its
-  explanation, edit that file and run `python3 helpers/render_knobs.py
-  --write`; an edit made here is replaced by the next render, and fails the
-  CI check until then.
-
-  Copy it to `.env` inside a host directory (gitignored), one per inventory
-  so several hosts coexist in one checkout: inventory/example/.env,
-  inventory/clientco/.env. Ansible resolves <inventory_dir>/.env through the
-  `dotenv` lookup plugin at playbooks/lookup_plugins/, and group_vars reads a
-  value with "{{ lookup('dotenv', 'KEY') }}".
+  Written by `catena-cli init` or the graphical installer, every key at its
+  default. Edit the values here; `catena-cli install` reads them. One
+  inventory directory per server, so several coexist in one checkout.
 
   No secret belongs in here, or anywhere else in an inventory. Every secret
-  lives on the target at /etc/catena/config.json, minted there or entered in
-  catena-admin > Settings. See catena-ce/SECRETS.md.
+  lives on the server at /etc/catena/config.json, minted there or entered in
+  catena-admin > Settings. See catena-ce/ansible/SECRETS.md.
 
 # The graphical installer's sections, in order, all on one page. Each knob that
-# names one appears in it; a knob that names none is never asked for.
-#
-# A section with a `validates` line has a check, and says what it proves; Install
-# runs every section's check first. An installer that collects every answer and
-# discovers at the end that the first one was wrong has spent the client's
-# whole sitting to tell them something it knew at the start.
-#
-# The launcher holds no knob knowledge of its own: it renders these sections
-# from this file. Adding a knob with a `step` puts it in that section.
+# names one appears in it; a knob that names none is never asked for. `doc` is
+# shown above the section's fields and `note`, when present, below them. A
+# section with a probe in gui/catena_gui/steps.py is verified before the
+# install starts.
 gui_steps:
   - name: target
-    title: The server
-    doc: |-
-      Where Catena is going, the key that reaches it, and the administrator's
-      email, which is the panel's login. A machine that already exists: the
-      launcher does not order one, because ordering means holding a client's
-      cloud credentials. Most providers install a public key given when the
-      server is ordered; a server that does not accept this key yet takes the
-      provider's password for its initial login instead, once, to add it.
+    title:
+      en: Target information
+      fr: Informations sur la cible
+    doc:
+      en: >-
+        This information is needed to initially reach the machine on which
+        Catena will be installed.
+      fr: >-
+        Ces informations permettent de joindre une première fois la machine sur
+        laquelle Catena sera installé.
+    note:
+      en: >-
+        Note that the initial user can no longer sign in over SSH once Catena
+        is installed. A new user, "ops", is created to administer the server.
+      fr: >-
+        L'utilisateur initial ne peut plus se connecter en SSH une fois Catena
+        installé. Un nouvel utilisateur, "ops", est créé pour administrer le
+        serveur.
 
-      Everything else -- the domain, the private network, the backups -- is
-      entered in the panel once the server runs.
-    validates: |-
-      An SSH server answers at the address and port, and either this key
-      already opens the initial login (or the ops account on a server already
-      installed), or the provider's password does and the install adds the
-      key with it.
-
-  - name: keyset
-    title: Save these
-    doc: |-
-      The passwords the server mints for itself and shows ONCE: the first-login
-      password and the console break-glass password, with the journal
-      verification key. Nothing off the server holds a copy. The backup
-      encryption password comes later, generated in the panel with the backup
-      repository, and is saved then.
-    validates: |-
-      An explicit acknowledgement that they are saved. This step is the last
-      one and it cannot be skipped: without it the launcher ships installs
-      nobody can recover.
+  - name: configuration
+    title:
+      en: Configuration
+      fr: Configuration
+    doc:
+      en: >-
+        This information is required to configure access to the machine after
+        Catena is installed.
+      fr: >-
+        Ces informations servent à configurer l'accès à la machine une fois
+        Catena installé.
 
 env_sections:
   - name: host
     title: Host
     doc: |-
-      Where the box is and how the first SSH lands on it, before the ops
-      account exists.
+      Where the server is and how the first SSH connection reaches it, before
+      the ops account exists.
 
       That is all this file configures about the server's reach. The domain,
       the private network and the backups are entered in catena-admin >
@@ -176,10 +165,10 @@ env_sections:
     title: Storage
     doc: |-
       App data and the Docker data-root live under one prefix on the disk this
-      host already has: /srv/catena, which the backup set, the volume layout
-      and the restore machine all name. Catena does not manage block devices.
-      More space is a disk the client mounts themselves, bind-mounts into the
-      app, and declares in backup_extra_paths so the backup set knows about it.
+      server already has: /srv/catena, which the backup set, the volume layout
+      and the restore all name. Catena does not manage block devices. More
+      space is a disk mounted by hand, bind-mounted into the app, and declared
+      in backup_extra_paths so the backup set knows about it.
 
   - name: site
     title: Site policy
@@ -194,31 +183,26 @@ env_sections:
 
 # --- vendor credentials the client HOLDS ------------------------------------
 #
-# Stored, never minted here. They arrive through the settings API, and this
-# list is the allowlist that write enforces:
-# a credential a role tells the client to enter, that is not declared here, has
-# a documented path that raises.
+# Stored, never minted. They arrive through the settings API, which accepts
+# only these (onbox_config.EXTERNAL_SECRETS).
 secrets:
+  # The one credential the public surface needs. The account id is not an
+  # input: the host engine resolves it from the token. Beside the domain on
+  # the page, because the domains offered are the ones this token reaches.
   - key: cloudflare_api_token
-    doc: >-
-      The one credential the public surface needs. The account id is not an
-      input: the host engine resolves it from the token.
-    panel: {group: tunnel, section: secrets, kind: secret, optional: false}
+    panel: {group: hostnames, section: secrets, kind: secret, optional: false}
 
+  # Multi-domain (Business): a JSON map of zone to API token, each token scoped
+  # to its one zone. The panel's domains page edits it.
   - key: cloudflare_api_tokens
-    doc: >-
-      Multi-domain (Business): a JSON map of zone to API token, each token
-      scoped to its one zone. The panel's domains page owns it, so it is not a
-      field on the settings form.
 
+  # Tailscale SaaS mints a tagged auth key from this client each time the
+  # lockdown joins the host, so nothing long-lived lands on the VPS, and the
+  # lockdown reads the device list to confirm the host is connected before it
+  # closes public SSH: the client needs the Auth Keys (write) and Devices >
+  # Core (read) scopes. Required on that path, hidden on the Headscale one, so
+  # the badge is only read where it is true.
   - key: tailscale_oauth_client_id
-    doc: >-
-      Tailscale SaaS mints a tagged auth key from this client each time the
-      lockdown joins the host, so nothing long-lived lands on the VPS, and the
-      lockdown reads the device list to confirm the host is connected before
-      it closes public SSH: the client needs the Auth Keys (write) and Devices
-      > Core (read) scopes. Required on that path, hidden on the Headscale
-      one, so the badge is only read where it is true.
     panel: {group: tunnel, section: secrets, kind: secret, optional: false}
     depends: {choice: TAILNET_PROVIDER, values: [tailscale]}
 
@@ -226,19 +210,17 @@ secrets:
     panel: {group: tunnel, section: secrets, kind: secret, optional: false}
     depends: {choice: TAILNET_PROVIDER, values: [tailscale]}
 
+  # Headscale has no OAuth API. The node joins with a pre-auth key, minted from
+  # this one at each join (nothing long-lived on the VPS). Either this or the
+  # static key satisfies the join, so neither is required on its own. A
+  # lockdown applied from the panel also uses this key to ask Headscale whether
+  # the host is online, and refuses without it.
   - key: headscale_api_key
-    doc: >-
-      Headscale has no OAuth API. The node joins with a pre-auth key, minted
-      from this one at each join (preferred, nothing long-lived on the VPS).
-      Either this or the static key satisfies the join, so neither is
-      required on its own. A lockdown applied from the panel also uses this
-      key to ask Headscale whether the host is online, and refuses without
-      it.
     panel: {group: tunnel, section: secrets, kind: secret, optional: true}
     depends: {choice: TAILNET_PROVIDER, values: [headscale]}
 
+  # The static fallback when no API key is stored. Long-lived, hence second.
   - key: headscale_preauth_key
-    doc: The static fallback when no API key is stored. Long-lived, hence second.
     panel: {group: tunnel, section: secrets, kind: secret, optional: true}
     depends: {choice: TAILNET_PROVIDER, values: [headscale]}
 
@@ -248,44 +230,38 @@ secrets:
   - key: backup_s3_secret_key
     panel: {group: backup, section: secrets, kind: secret, optional: false}
 
+  # The one mail credential, whichever provider is chosen: the Resend API key,
+  # the Brevo SMTP key, or the relay's password.
   - key: smtp_password
-    doc: >-
-      The one mail credential, whichever provider is chosen: the Resend API
-      key, the Brevo SMTP key, or the relay's password.
     panel: {group: mail, section: secrets, kind: secret, optional: true}
     depends: {choice: SMTP_PROVIDER, values: [resend, brevo, server]}
 
+  # The mailserver APPLICATION's relay credential and Spamhaus subscription.
+  # They configure that template, not the host's shared outbound path, so they
+  # are not in the mail group on the settings page.
   - key: mailserver_relay_password
-    doc: >-
-      Configures the mailserver APPLICATION, not the host's shared outbound
-      path, so it belongs to that template's own configuration rather than the
-      mail group on the settings page.
 
   - key: mailserver_spamhaus_dqs_key
-    doc: The mailserver template's Spamhaus subscription. Same reasoning.
 
+  # CIFS credentials for the optional bulk mount. Client-held: the share is
+  # the client's NAS. NFS authenticates by source IP and supplies neither. The
+  # storage role's bulk.yml names both on the settings page when it asks for
+  # them, so the page has to offer them under exactly these names.
   - key: storage_bulk_username
-    doc: >-
-      CIFS credentials for the optional bulk mount. Client-held: the share is
-      the client's NAS. NFS authenticates by source IP and supplies neither. The
-      storage role's bulk.yml names both on the settings page when it asks for
-      them, so the page has to offer them under exactly these names.
     panel: {group: share, section: secrets, kind: secret, optional: true}
 
   - key: storage_bulk_password
     panel: {group: share, section: secrets, kind: secret, optional: true}
 
+  # A signed claim rather than a shared secret: this repo neither mints nor
+  # verifies it, it only stores it. Optional -- Community is the default and an
+  # empty field must stay empty rather than reading as "not set yet".
   - key: catena_license
-    doc: >-
-      A signed claim rather than a shared secret: this repo neither mints nor
-      verifies it, it only stores it. Optional -- Community is the default and
-      an empty field must stay empty rather than reading as "not set yet".
     panel: {group: license, section: secrets, kind: secret, optional: true}
 
+  # The optional client portal's billing keys. Never minted; billing routes
+  # degrade gracefully while they are blank.
   - key: portal_stripe_secret_key
-    doc: >-
-      The optional client portal's billing keys. Never minted; billing routes
-      degrade gracefully while they are blank.
 
   - key: portal_stripe_webhook_secret
 
@@ -294,180 +270,240 @@ config:
   # ---- the target's identity (hosts.yml, neither store nor .env) ----
   - key: HOST_PUBLIC_IP
     step: target
+    label:
+      en: Host public IP
+      fr: Adresse IP publique du serveur
+    help:
+      en: The server's public IPv4 address, as given by the provider.
+      fr: L'adresse IPv4 publique du serveur, telle que fournie par l'hébergeur.
     required: true
     residence: host
-    doc: >-
-      The provider's public IPv4, which the installer reaches the server on.
     env: {section: host, default: "", example: "203.0.113.10"}
 
-  - key: HOST_INITIAL_USER
-    step: target
-    required: true
-    residence: host
-    doc: >-
-      The provider's default login for that same phase (root, ubuntu, debian,
-      ec2-user). Not OPS_USER -- that account does not exist yet.
-    env: {section: host, default: "root"}
-
+  # Written into hosts.yml as ansible_port: the port the controller connects
+  # on. The firewall rules name 22 literally, so this moves what the controller
+  # dials and not what the host opens.
   - key: HOST_SSH_PORT
     step: target
+    label:
+      en: Host SSH port
+      fr: Port SSH du serveur
+    help:
+      en: The port SSH answers on, on the server as delivered. Usually 22.
+      fr: Le port sur lequel SSH répond, sur le serveur tel que livré. Habituellement 22.
     required: true
     residence: host
-    doc: >-
-      The port the controller CONNECTS on, written into hosts.yml as
-      ansible_port. The firewall rules name 22 literally, so a value here moves
-      what the controller dials and not what the host opens.
     env: {section: host, default: "22"}
 
-  # ---- the installer needs these before there is a box to ask ----
-  - key: SSH_PRIVATE_KEY
+  # The provider's login, used until bootstrap creates OPS_USER.
+  - key: HOST_INITIAL_USER
     step: target
+    label:
+      en: Host initial user
+      fr: Utilisateur initial du serveur
+    help:
+      en: >-
+        The login the provider gave for the new server, such as root, debian
+        or ubuntu.
+      fr: >-
+        L'identifiant fourni par l'hébergeur pour le nouveau serveur, par
+        exemple root, debian ou ubuntu.
+    required: true
+    residence: host
+    env: {section: host, default: "root"}
+
+  # ---- the administrator, whose email is the panel's login ----
+  #
+  # One address for the Portainer admin and the initial realm admin. A host
+  # fact by any reading: the `.env` only seeds the store with it.
+  - key: ADMIN_EMAIL
+    step: configuration
+    label:
+      en: Admin email
+      fr: Courriel de l'administrateur
+    help:
+      en: >-
+        The administrator's email address. It is the login of the Catena panel;
+        the matching password is shown during the install.
+      fr: >-
+        L'adresse courriel de l'administrateur. C'est l'identifiant de
+        connexion du panneau Catena. Le mot de passe correspondant est affiché
+        pendant l'installation.
+    required: true
+    residence: store
+    var: cfg_admin_email
+    env: {section: admin, default: "", example: "you@example.com"}
+
+  # ---- controller-resident ----
+  #
+  # A dedicated pair per project makes revocation one file delete. catena-cli
+  # install offers to generate a missing pair; the graphical installer suggests
+  # the pairs already in ~/.ssh.
+  - key: SSH_PRIVATE_KEY
+    step: configuration
+    label:
+      en: SSH key file
+      fr: Fichier de clé SSH
+    help:
+      en: >-
+        Private key used to log in to the server. Its public key (same path
+        ending in .pub) is already on the server, or is added with the initial
+        user's password.
+      fr: >-
+        Clé privée utilisée pour se connecter au serveur. Sa clé publique (même
+        chemin, terminé par .pub) est déjà sur le serveur, ou y est ajoutée
+        avec le mot de passe de l'utilisateur initial.
     required: true
     residence: controller
     gui_suggestions_from: ssh_keys
-    doc: >-
-      The key that reaches the server: the one whose public half the provider
-      installed when the server was ordered, or a dedicated pair for this
-      project, so revoking it at engagement end is throwing away one file.
-      Its public half is the same path with .pub appended, as ssh-keygen
-      writes it. `catena-cli install` offers to generate that pair when it is
-      absent; the graphical installer lists the pairs already in ~/.ssh.
     env: {section: ssh, default: "~/.ssh/catena_ed25519"}
 
+  # Not asked: sshd's AllowUsers, the sudoers drop-in, the home paths and the
+  # bootstrap probes all name it, so an operator who needs another sets it in
+  # the inventory.
   - key: OPS_USER
     residence: controller
-    doc: >-
-      The non-root account created on every VPS, authorized for the key above.
-      A variable and not a question: it defaults to `ops`, every host uses that,
-      and it is named in sshd's AllowUsers, the sudoers drop-in, the home paths
-      and the bootstrap probes -- so the launcher does not ask, and an operator
-      who needs a different one sets it in the inventory.
+    help:
+      en: >-
+        The administration account created on the server, which the SSH key
+        above logs in to.
     env: {section: ssh, default: "ops"}
 
+  # The server's clock zone, an IANA name such as America/Toronto, which
+  # schedules and logs follow. Applied by the next converge. A list the host
+  # supplies rather than one declared here: the zones a host can set are the
+  # ones its own tzdata carries.
   - key: COMMON_TIMEZONE
     residence: store
     var: cfg_common_timezone
-    doc: >-
-      The server's clock zone, an IANA name such as America/Toronto, which
-      schedules and logs follow. Applied by the next converge; America/Toronto
-      while unset.
-    panel: {group: server, section: config, kind: text, optional: true}
+    panel:
+      group: server
+      section: config
+      kind: text
+      optional: true
+      default: America/Toronto
+      options_from: timezones
 
+  # A locale the server generates for its shells. Applied by the next converge.
   - key: COMMON_LOCALE
     residence: store
     var: cfg_common_locale
-    doc: >-
-      A locale the server generates for its shells, such as en_CA.UTF-8.
-      Applied by the next converge; en_CA.UTF-8 while unset.
-    panel: {group: server, section: config, kind: text, optional: true}
+    panel:
+      group: server
+      section: config
+      kind: choice
+      optional: true
+      default: en_CA.UTF-8
+      options: [en_CA.UTF-8, fr_CA.UTF-8, en_US.UTF-8, en_GB.UTF-8, fr_FR.UTF-8,
+                de_DE.UTF-8, es_ES.UTF-8, it_IT.UTF-8, nl_NL.UTF-8, pt_BR.UTF-8,
+                C.UTF-8]
 
+  # Comma-separated tags advertised by each node. Every tag must be authorized
+  # on the control server first, or key minting rejects with a 400. Read with
+  # NO fallback tag, so a missing value fails the join rather than advertising
+  # a tag the credential is not scoped for.
   - key: TAILSCALE_TAGS
     residence: store
     var: cfg_tailscale_tags
-    doc: >-
-      Comma-separated tags advertised by each node. Every tag must be
-      authorized on the control server first, or key minting rejects with a
-      400. Read with NO fallback tag, so a missing value fails the join
-      rather than advertising a tag the credential is not scoped for.
     panel: {group: tunnel, section: config, kind: text, optional: true}
     depends: {choice: TAILNET_PROVIDER, values: [tailscale, headscale]}
 
+  # A separate optional tier, independent of the primary disk.
   - key: STORAGE_BULK_ENABLED
     residence: controller
-    doc: >-
-      A separate optional tier over CIFS or NFS, independent of the primary
-      disk. Append-only data only: never database storage, never the Docker
-      data-root.
+    help:
+      en: >-
+        Mount an optional bulk storage share over CIFS or NFS, for append-only
+        data. Never database storage, never the Docker data-root.
     env: {section: storage, default: "false"}
 
   - key: STORAGE_BULK_MOUNT_POINT
     residence: controller
+    help:
+      en: Where the bulk storage share is mounted on the server.
     env: {section: storage, default: "/mnt/bulk"}
 
   # ---- the install's identity ----
+  #
+  # THE identity of the install: every public hostname is <sub>.<zone>, so this
+  # is the value the rest of the page renders against. Every server is
+  # installed without one; the public surface defers until one arrives. The
+  # page offers the domains the Cloudflare token reaches, since a domain it
+  # cannot reach is one the tunnel cannot serve.
   - key: CLOUDFLARE_ZONE
     residence: store
     var: cfg_cloudflare_zone
-    doc: >-
-      THE identity of the install: every public hostname is <sub>.<zone>, so
-      this is the value the rest of the page renders against. Every server is
-      installed without one; the public surface defers until one arrives.
-    panel: {group: hostnames, section: config, kind: text, optional: true}
-
-  - key: ADMIN_EMAIL
-    step: target
-    required: true
-    residence: store
-    var: cfg_admin_email
-    doc: >-
-      One address for the Portainer admin and the initial realm admin. The
-      matching password is minted on the box and shown once at the end of the
-      install, with the first-login URLs. A host fact by any reading, which is
-      why the `.env` only seeds it.
-    env: {section: admin, default: "", example: "you@example.com"}
+    panel: {group: hostnames, section: config, kind: text, optional: true,
+            options_from: cloudflare_zones}
 
   # ---- public hostnames ----
   #
   # Each is a single DNS label, never an FQDN: the zone is appended by the
   # converge, so "auth.example.com" here would render auth.example.com.example.com.
-  # Blank means the product's own default (playbooks/group_vars/all/main.yml).
+  # Blank means the product's own default, which `panel.default` names.
   - key: PORTAINER_SUBDOMAIN
     residence: store
     var: cfg_portainer_admin_subdomain
-    panel: {group: hostnames, section: config, kind: text, optional: true}
+    panel: {group: subdomains, section: config, kind: text, optional: true,
+            default: portainer}
 
   - key: KEYCLOAK_SUBDOMAIN
     residence: store
     var: cfg_keycloak_subdomain
-    panel: {group: hostnames, section: config, kind: text, optional: true}
+    panel: {group: subdomains, section: config, kind: text, optional: true,
+            default: auth}
 
   - key: CATENA_ADMIN_SUBDOMAIN
     residence: store
     var: cfg_catena_admin_subdomain
-    panel: {group: hostnames, section: config, kind: text, optional: true}
+    panel: {group: subdomains, section: config, kind: text, optional: true,
+            default: dash}
 
   - key: GATUS_SUBDOMAIN
     residence: store
     var: cfg_gatus_subdomain
-    panel: {group: hostnames, section: config, kind: text, optional: true}
+    panel: {group: subdomains, section: config, kind: text, optional: true,
+            default: monitor}
 
   - key: HEALTHCHECKS_SUBDOMAIN
     residence: store
     var: cfg_healthchecks_subdomain
-    panel: {group: hostnames, section: config, kind: text, optional: true}
+    panel: {group: subdomains, section: config, kind: text, optional: true,
+            default: heartbeat}
 
   - key: BESZEL_SUBDOMAIN
     residence: store
     var: cfg_beszel_subdomain
-    panel: {group: hostnames, section: config, kind: text, optional: true}
+    panel: {group: subdomains, section: config, kind: text, optional: true,
+            default: hub}
 
+  # Prefixes the name of the tunnel a host creates. Blank leaves each host
+  # owning one tunnel named after its inventory hostname; a prefix of "corp-"
+  # on a host named "vps1" names the tunnel "corp-vps1". A store key because the
+  # host composes its own tunnel name and reads the prefix straight off the
+  # store, which is what lets the cloudflared actions ship in the image instead
+  # of being rendered by a converge. Not a field on any form: it is written to
+  # the store (catena-onbox-config) before the domain's token is saved, and
+  # names the tunnel created next.
   - key: CLOUDFLARED_TUNNEL_NAME_PREFIX
     residence: store
     var: cfg_cloudflared_tunnel_prefix
-    doc: >-
-      Prefixes the name of the tunnel a host creates. Blank leaves each host
-      owning one tunnel named after its inventory hostname; a prefix of
-      "corp-" on a host named "vps1" names the tunnel "corp-vps1". A store key
-      because the host composes its own tunnel name and reads the prefix
-      straight off the store, which is what lets the cloudflared actions ship
-      in the image instead of being rendered by a converge. Not a field on any
-      form: it is written to the store (catena-onbox-config) before the
-      domain's token is saved, and names the tunnel created next.
 
   # ---- the access plane ----
+  #
+  # A blank submission on the settings page means "leave this alone", so a
+  # choice with the empty string as its off position could be turned on and
+  # never off. TAILNET_PROVIDER and SMTP_PROVIDER therefore store `none`.
+  #
+  # Whether this host joins a private network, and which control plane runs it.
+  # `none` keeps key-only SSH on the public address as the only way in, and port
+  # 22 open, because a host with no alternative path has nothing to prove and
+  # closing it would be a lockout. With a provider, the host joins the tailnet,
+  # and the panel's Lockdown can close public 22 once it has proven that path;
+  # the host reopens 22 while its tailnet is down.
   - key: TAILNET_PROVIDER
     residence: store
     var: cfg_tailnet_provider
-    doc: >-
-      Whether this host joins a private network, and which control plane runs
-      it. `none` keeps key-only SSH on the public address as the only way in,
-      and port 22 open, because a host with no alternative path has nothing to
-      prove and closing it would be a lockout. With a provider, the host joins
-      the tailnet, and the panel's Lockdown can close public 22 once it has
-      proven that path; the host reopens 22 while its tailnet is down. Always
-      stored, `none` included: a blank submission on the settings page means
-      "leave this alone", so an off position spelled as the empty string could
-      be turned on and never off.
     panel:
       group: tunnel
       section: config
@@ -479,50 +515,35 @@ config:
   - key: TAILNET_CONTROL_URL
     residence: store
     var: cfg_tailnet_control_url
-    doc: The Headscale server's base URL.
     panel: {group: tunnel, section: config, kind: text, optional: true}
     depends: {choice: TAILNET_PROVIDER, values: [headscale]}
 
+  # The Headscale user the minted pre-auth keys belong to; Headscale keys are
+  # per-user, and the advertised tag must be in THAT user's tagOwners.
   - key: HEADSCALE_USER
     residence: store
     var: cfg_headscale_user
-    doc: >-
-      The Headscale user the minted pre-auth keys belong to; Headscale keys are
-      per-user, and the advertised tag must be in THAT user's tagOwners.
     panel: {group: tunnel, section: config, kind: text, optional: true}
     depends: {choice: TAILNET_PROVIDER, values: [headscale]}
 
   # ---- backup ----
+  #
+  # ONE address that carries the endpoint and the bucket:
+  # s3:https://<endpoint>/<bucket>. Blank schedules no backup.
   - key: BACKUP_RESTIC_REPO
     residence: store
     var: cfg_backup_restic_repo
-    doc: >-
-      The restic repository, as ONE address that carries the endpoint and the
-      bucket: s3:https://<endpoint>/<bucket>. Blank schedules no backup.
     panel: {group: backup, section: config, kind: text, optional: false}
 
+  # Absolute paths outside /srv/catena to include in the backup, separated by
+  # commas: what a client who mounted their own disk declares, since the
+  # product does not manage block devices and a bind mount from elsewhere is
+  # invisible to the backup set until it is named here. The nightly coverage
+  # lane reads the same value, so one declaration both captures the path and
+  # stops it reading as an uncovered bind-mount source.
   - key: BACKUP_EXTRA_PATHS
     residence: store
     var: cfg_backup_extra_paths
-    doc: >-
-      Absolute paths outside /srv/catena to include in the backup, separated by
-      commas. This is what a client who mounted their own disk declares: the
-      product carves its prefix out of the disk the host already has and does
-      not manage block devices, so a bind mount from somewhere else is
-      invisible to the backup set until it is named here. The nightly coverage
-      lane reads the same value, so one declaration both captures the path and
-      stops it reading as an uncovered bind-mount source.
-    panel: {group: backup, section: config, kind: text, optional: true}
-
-  - key: BACKUP_MIN_INTERVAL_HOURS
-    residence: store
-    doc: >-
-      Lengthens the effective cadence beyond the base timer. No Ansible
-      projection: the backup wrapper reads it off the store at runtime, with no
-      converge in between. There is deliberately no enable switch beside it --
-      whether a host backs up is answered by whether the endpoint is usable and
-      whether the lane is scheduled, and a third answer could disagree with
-      both.
     panel: {group: backup, section: config, kind: text, optional: true}
 
   # Dead-man endpoints. The first pair overrides the locally provisioned pings;
@@ -548,13 +569,12 @@ config:
     var: cfg_backup_healthcheck_url_operator
     panel: {group: alerts, section: config, kind: text, optional: true}
 
+  # The offsite-copy lane's dead-man endpoints. WHICH buckets it copies is not
+  # a knob: that is the store's offsite_copies list, read straight off disk so
+  # adding a copy takes effect with no converge in between.
   - key: OFFSITE_HEALTHCHECK_URL
     residence: store
     var: cfg_offsite_healthcheck_url
-    doc: >-
-      The offsite-copy lane's dead-man endpoints. WHICH buckets it copies is
-      not a knob: that is the store's offsite_copies list, read straight off
-      disk so adding a copy takes effect with no converge in between.
 
   - key: OFFSITE_HEALTHCHECK_ATTEMPTED_URL
     residence: store
@@ -564,14 +584,11 @@ config:
   #
   # One choice, one address, one credential. The provider routes it and the
   # converge fills in the host, the port and (for Resend, whose SMTP username
-  # is the literal string "resend" for every account) the username.
+  # is the literal string "resend" for every account) the username. `none` is
+  # stored, as for TAILNET_PROVIDER above.
   - key: SMTP_PROVIDER
     residence: store
     var: cfg_smtp_provider
-    doc: >-
-      `none` is a real stored value, not a blank: a blank submission means
-      "leave this alone", so an off position spelled as the empty string would
-      be a control that could turn mail on and never off.
     panel:
       group: mail
       section: config
@@ -579,23 +596,19 @@ config:
       optional: true
       options: [none, resend, brevo, server]
 
+  # ONE address, whichever provider routes it. A field per provider, one
+  # non-empty at a time, would make the converge infer which is active, and
+  # switching provider would mean knowing to CLEAR the old field rather than
+  # filling the new one.
   - key: SMTP_SENDER
     residence: store
     var: cfg_smtp_sender
-    doc: >-
-      ONE address, whichever provider routes it. A field per provider
-      (RESEND_SENDER_EMAIL, BREVO_SENDER_EMAIL, SMTP_FROM, one non-empty at a
-      time) would make the converge infer which is active, and switching
-      provider would mean knowing to CLEAR the old field rather than filling
-      the new one -- leaving it filled would keep sending through the provider
-      the client just left.
     panel: {group: mail, section: config, kind: text, optional: true}
     depends: {choice: SMTP_PROVIDER, values: [resend, brevo, server]}
 
   - key: SMTP_HOST
     residence: store
     var: cfg_smtp_host
-    doc: Applies to the `server` choice only.
     panel: {group: mail, section: config, kind: text, optional: true}
     depends: {choice: SMTP_PROVIDER, values: [server]}
 
@@ -605,12 +618,11 @@ config:
     panel: {group: mail, section: config, kind: text, optional: true}
     depends: {choice: SMTP_PROVIDER, values: [server]}
 
+  # The `server` relay's login, and also the Brevo one, which is
+  # account-specific unlike Resend's.
   - key: SMTP_USER
     residence: store
     var: cfg_smtp_user
-    doc: >-
-      The `server` relay's login, and also the Brevo one, which is
-      account-specific unlike Resend's.
     panel: {group: mail, section: config, kind: text, optional: true}
     depends: {choice: SMTP_PROVIDER, values: [brevo, server]}
 
@@ -620,23 +632,22 @@ config:
     var: cfg_ntfy_server
     panel: {group: alerts, section: config, kind: text, optional: true}
 
+  # Must be hard to guess: anyone who knows it can post to it.
   - key: NTFY_TOPIC
     residence: store
     var: cfg_ntfy_topic
-    doc: Must be hard to guess -- anyone who knows it can post to it.
     panel: {group: alerts, section: config, kind: text, optional: true}
 
   # ---- who may sign in ----
+  #
+  # Whether every account must enrol a second factor. A choice rather than free
+  # text because the converge renders it straight into the realm's
+  # required-action config, where a value it cannot read as a boolean would
+  # either fail the import or silently mean off. The identity probe reads the
+  # resulting posture back and reports drift.
   - key: IDENTITY_ENFORCE_MFA
     residence: store
     var: cfg_identity_enforce_mfa
-    doc: >-
-      Whether every account must enrol a second factor. A choice rather than
-      free text because the converge renders it straight into the realm's
-      required-action config, where a value it cannot read as a boolean would
-      either fail the import or silently mean off. The identity probe reads the
-      resulting posture back and reports drift, which is the pair this
-      completes.
     panel:
       group: access
       section: config
@@ -645,59 +656,68 @@ config:
       options: ["false", "true"]
 
   # ---- site policy ----
+  #
+  # A site policy rather than an install input.
   - key: APT_PROXY_URL
     residence: store
     var: cfg_apt_proxy_url
-    doc: >-
-      Optional apt HTTP proxy, typically an apt-cacher-ng. Blank pulls direct.
-      HTTPS sources stay direct either way. A site policy rather than an
-      install input.
+    help:
+      en: >-
+        Optional apt HTTP proxy, such as an apt-cacher-ng. Blank pulls packages
+        directly; HTTPS sources always do.
     env: {section: site, default: ""}
 
   - key: DOCKER_REGISTRY_MIRROR_URL
     residence: store
     var: cfg_docker_registry_mirror_url
-    doc: >-
-      Optional pull-through mirror, as a base URL with scheme, host and port.
-      Blank pulls from docker.io directly.
+    help:
+      en: >-
+        Optional pull-through registry mirror, as a base URL with scheme, host
+        and port. Blank pulls from docker.io directly.
     env: {section: site, default: ""}
 
   # ---- certificate issuance, development only ----
   #
   # Store keys rather than `.env` ones because the roles that read them are
   # reconcile-side: a host that converges itself cannot ask an operator's
-  # laptop which CA to trust. They point issuance at a local Pebble or at Let's
-  # Encrypt staging, and are empty and false on every client install.
+  # laptop which CA to trust. Empty and false on every client install.
+
+  # Staging has no rate limit, and coturn only validates presence and expiry.
   - key: COTURN_CERTBOT_STAGING
     residence: store
     var: cfg_coturn_certbot_staging
-    doc: >-
-      Issue the coturn TLS-TURN certificate from Let's Encrypt's staging CA.
-      Staging has no rate limit and coturn only validates presence and expiry.
+    help:
+      en: Issue the TURN server's certificate from Let's Encrypt's staging CA.
     env: {section: development, default: "false"}
 
   - key: MAILSERVER_CERTBOT_STAGING
     residence: store
     var: cfg_mailserver_certbot_staging
-    doc: The same, for the self-hosted mailserver's mail.<zone> certificate.
+    help:
+      en: >-
+        Issue the self-hosted mailserver's mail.<zone> certificate from Let's
+        Encrypt's staging CA.
     env: {section: development, default: "false"}
 
   - key: CATENA_ACME_DIRECTORY_URL
     residence: store
     var: cfg_acme_directory_url
-    doc: >-
-      A local ACME server's directory endpoint. Blank issues against Let's
-      Encrypt as normal.
+    help:
+      en: A local ACME server's directory URL. Blank issues from Let's Encrypt.
     env: {section: development, default: ""}
 
+  # Mapped to the hostname `pebble` in /etc/hosts: Pebble's endpoint-cert SAN.
   - key: CATENA_ACME_HOST_IP
     residence: store
     var: cfg_acme_host_ip
-    doc: Mapped to the hostname `pebble` in /etc/hosts, Pebble's endpoint-cert SAN.
+    help:
+      en: The local ACME server's address on the network the server reaches.
     env: {section: development, default: ""}
 
+  # Base64 because a raw multi-line PEM cannot live in a `.env`.
   - key: CATENA_ACME_CA_BUNDLE_PEM_B64
     residence: store
     var: cfg_acme_ca_bundle_b64
-    doc: Base64 because a raw multi-line PEM cannot live in a `.env`.
+    help:
+      en: The local ACME server's CA bundle, base64-encoded.
     env: {section: development, default: ""}

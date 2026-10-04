@@ -13,14 +13,13 @@ helpers are imported, scripts are installed.
 A file in this directory is part of the deployed system, so changing one
 changes what a server does on its next converge.
 
-The route + SSO cluster that used to live here -- the reconciler and the
-modules it imported by bare name -- ships in the catena-admin payload
-now (`payload/lanes/catena-dashboard-sync.py` and `payload/lib/`). What
-it does is decide what a `vps.*` label MEANS, and the correct value of
-that changes when the product changes rather than when the host does, so
-it travels with the image. What stays here is what changes with the
-host: the reconciler's env file, its timer interval, and the public-port
-reconciler, whose answer depends on the ports this server declares.
+The route + SSO reconciler ships in the catena-admin payload
+(`payload/lanes/catena-dashboard-sync.py` and `payload/lib/`): it
+decides what a `vps.*` label MEANS, which changes when the product
+changes rather than when the host does, so it travels with the image.
+What changes with the host is here: the reconciler's env file, its timer
+interval, and the public-port reconciler, whose answer depends on the
+ports this server declares.
 
 Scripts here that import a neighbour still do it by bare name, and they
 search `/usr/local/lib/catena` -- where the payload installs its modules
@@ -39,13 +38,13 @@ search `/usr/local/lib/catena` -- where the payload installs its modules
 | `catena-tailnet-check.py` | catena-tailnet-check -- check tailnet credentials before the panel stores them. |
 | `healthchecks-seed.py` | Bootstrap/reconcile self-hosted Healthchecks: seed the operator superuser, the catena project, API keys, the ntfy notification channel, and the daily backup check. |
 | `mailserver-cert-reload.sh` | Inject the renewed mail TLS cert into the dms container and reload Postfix + Dovecot so it takes effect without dropping established connections. |
+| `nextcloud-container.sh` | /usr/local/bin/catena-nextcloud-container -- print the name of the running Nextcloud app container, for the catena-wire-nextcloud-* scripts. |
 | `nextcloud-talk-hpb-wire.sh` | /usr/local/bin/catena-wire-nextcloud-talk-hpb -- post-deploy wiring for Nextcloud Talk's High-Performance Backend (HPB). |
 | `rocketchat-jitsi-wire.sh` | /usr/local/bin/catena-wire-rocketchat-jitsi -- post-deploy wiring for Rocket.Chat's bundled on-server Jitsi. |
 | `run-clamav-watch.sh` | Page when the shared clamd is down, but only while something depends on it -- the mail server's dms container or Nextcloud. |
 | `run-mail-canary.sh` | Prove the mail server is up AND actually filtering, via host-side docker-exec into the dms container -- no external SMTP/IMAP and no auth (the server is OAuth2-only, so there is no password to log in with). |
 | `wire-nextcloud-antivirus.sh` | /usr/local/bin/catena-wire-nextcloud-antivirus -- point Nextcloud's files_antivirus app at the shared clamd (catena-clamav network). |
-| `wire-nextcloud-collabora.sh` | /usr/local/bin/catena-wire-nextcloud-collabora -- wire Collabora CODE as the office editor inside a deployed Nextcloud instance. |
 | `wire-nextcloud-mail.sh` | /usr/local/bin/catena-wire-nextcloud-mail -- install + enable the Nextcloud Mail app inside a deployed Nextcloud container. |
+| `wire-nextcloud-office.sh` | /usr/local/bin/catena-wire-nextcloud-office <collabora\|onlyoffice> -- wire one office editor into a deployed Nextcloud instance. |
 | `wire-nextcloud-oidc.sh` | /usr/local/bin/catena-wire-nextcloud-oidc -- wire Keycloak as an OIDC provider in a deployed Nextcloud instance. |
-| `wire-nextcloud-onlyoffice.sh` | /usr/local/bin/catena-wire-nextcloud-onlyoffice -- wire OnlyOffice DocumentServer as the office editor inside a deployed Nextcloud instance. |
 | `wire-nextcloud-webmail-link.sh` | /usr/local/bin/catena-wire-nextcloud-webmail-link -- add a top-level "Webmail" link to the Nextcloud nav that opens the standalone Roundcube webmail (mailserver template) in a NEW TAB. |

@@ -3,11 +3,10 @@
 It is the panel's only way to tell "this feature is off" from "this feature's
 plumbing never reached this host". Every button dispatches a FIXED action name
 through the SSH forced command, and that table is rendered by the converge, so
-a panel built after an action was added shows a working-looking button on a host
-whose converge predates it.
+a panel newer than the host's converge shows a working-looking button for an
+action the host's table does not carry.
 
-Three properties are worth pinning, and each of them has already been the bug
-somewhere else in this repo:
+Three properties are worth pinning:
 
   - it is written LAST, so a converge that died at role 9 leaves the previous
     manifest standing instead of claiming plumbing it never delivered;
@@ -23,6 +22,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from ansible_tree import post_tasks as converge_post_tasks
+
 ANSIBLE = Path(__file__).resolve().parents[2]
 SITE = ANSIBLE / "playbooks" / "converge.yml"
 RECONCILE = ANSIBLE / "playbooks" / "reconcile.yml"
@@ -33,8 +34,7 @@ GROUP_VARS = ANSIBLE / "playbooks" / "group_vars" / "all" / "main.yml"
 VALIDATE = ANSIBLE / "bootstrap" / "roles" / "common" / "tasks" / "validate.yml"
 
 # Both playbooks that converge a host. An assertion about "the converge" has to
-# hold for whichever one ran, which is the whole reason the tasks were lifted
-# out of converge.yml.
+# hold for whichever one ran.
 CONVERGE_PLAYBOOKS = (SITE, RECONCILE)
 
 
@@ -57,11 +57,8 @@ def test_the_manifest_is_the_last_thing_the_converge_writes(playbook):
     version.txt already covers "a converge started here"; this file exists to
     say "a converge finished here", and it can only say that from the end.
 
-    Asserted for BOTH playbooks. An on-host converge that stamped the manifest
-    before its last role would be making the same claim converge.yml was careful
-    not to."""
-    play = yaml.safe_load(playbook.read_text())[0]
-    names = [t.get("name", "") for t in play["post_tasks"]]
+    Asserted for BOTH playbooks."""
+    names = [t.get("name", "") for t in converge_post_tasks(playbook)]
     writes = [i for i, n in enumerate(names) if n.startswith("Release: record")]
     assert writes, f"{playbook.name} no longer records the release manifest"
     assert writes[-1] == len(names) - 1, (
@@ -73,15 +70,13 @@ def test_the_manifest_is_the_last_thing_the_converge_writes(playbook):
 
 @pytest.mark.parametrize("playbook", CONVERGE_PLAYBOOKS, ids=lambda p: p.name)
 def test_both_converge_paths_include_the_same_file(playbook):
-    """The gap this closes. These tasks lived in converge.yml, so an on-host
-    converge left every field describing the last converge an OPERATOR ran --
-    including `actions`, which is what the panel checks before deciding a host
-    needs a converge. The banner then survived the converge that cleared it."""
-    play = yaml.safe_load(playbook.read_text())[0]
-    includes = [t for t in play["post_tasks"]
-                if "ansible.builtin.include_tasks" in t]
-    files = [t["ansible.builtin.include_tasks"].get("file") for t in includes]
-    assert f"tasks/{SHARED.name}" in files, (
+    """An on-host converge that skipped it would leave every field describing
+    the last converge an OPERATOR ran -- including `actions`, which the panel
+    checks before deciding a host needs a converge."""
+    files = [str(t["ansible.builtin.include_tasks"].get("file"))
+             for t in converge_post_tasks(playbook)
+             if "ansible.builtin.include_tasks" in t]
+    assert SHARED.name in {f.rsplit("/", 1)[-1] for f in files}, (
         f"{playbook.name} does not include tasks/{SHARED.name}; it is either "
         "not stamping the manifest or keeping a second copy of these tasks")
 
@@ -91,10 +86,9 @@ def test_each_path_names_itself_in_the_manifest(playbook):
     """A host converges from a controller and from its own panel image, and the
     two runs are applied from different trees. Recording which path wrote the
     manifest is what lets a reader tell which tree the host last received."""
-    play = yaml.safe_load(playbook.read_text())[0]
-    include = next(t for t in play["post_tasks"]
-                   if t.get("ansible.builtin.include_tasks", {}).get("file")
-                   == f"tasks/{SHARED.name}")
+    include = next(t for t in converge_post_tasks(playbook)
+                   if str(t.get("ansible.builtin.include_tasks", {}).get("file"))
+                   .rsplit("/", 1)[-1] == SHARED.name)
     named = include.get("vars", {}).get("catena_converge_path")
     assert named, f"{playbook.name} does not name itself as the converge path"
     assert named == playbook.stem, (
@@ -153,7 +147,7 @@ def test_the_payload_id_is_read_from_the_marker_not_guessed(post_tasks, write_ta
     assert slurp.get("failed_when") is False
     # The register name is read off the slurp rather than restated here, so a
     # rename either moves both halves or fails -- instead of passing against a
-    # variable nothing sets any more.
+    # variable nothing sets.
     registered = slurp.get("register")
     assert registered, "the marker slurp registers nothing, so nothing reads it"
     assert registered in write_task["ansible.builtin.copy"]["content"]
@@ -261,14 +255,9 @@ def test_an_unknown_version_never_overwrites_a_known_one():
 
 
 def test_the_converge_carries_the_payloads_half_forward(post_tasks, write_task):
-    """Two writers own disjoint halves. The converge owns everything about the
-    converge; the payload owns the actions ITS dispatch drop-in adds.
-
-    `copy` writes full content, so the payload's half has to be read back and
-    carried, exactly as the engine marker is. Without this, every converge would
-    erase the record of actions the host does in fact accept, and the panel would
-    raise a converge-required banner for them -- a banner that lies, on the one
-    surface whose whole job is to be believed."""
+    """The converge reads the previous manifest back and carries the payload's
+    half into the one it writes (playbooks/tasks/record_release_manifest.yml
+    says why)."""
     names = [t.get("name", "") for t in post_tasks]
     assert any(n.startswith("Release: read the payload") for n in names), (
         "nothing reads the previous manifest, so the converge clobbers the "

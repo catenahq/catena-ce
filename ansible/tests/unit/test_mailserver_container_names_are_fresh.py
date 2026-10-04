@@ -1,31 +1,11 @@
 """A swarm task name is true for an instant, so it is resolved where it is used.
 
-THE DEFECT, three times over. The mailserver chain resolved the dms container
-in one task and used that name in later ones. docker-mailserver restarts its
-way out of the very state the chain repairs -- it polls 120s for a mailbox and
-shuts down without one -- and every restart mints a new swarm task id. So a
-name captured a few tasks earlier is routinely dead by the time it is used:
-
-    Error response from daemon: No such container:
-        catena-mailserver_dms.1.rg3u7p8hjh2vom6052uoz4322
-
-That failed the whole converge on bench run 2026-08-25T18-01-29-b726, seconds
-after the same converge had successfully created the mailbox that lets dms
-boot. The work was done and then thrown away by the next task.
-
-The rule this pins: any `docker exec` / `docker cp` against a mailserver
-container resolves the name INSIDE its own command.
-
-The cert deploy hook is the same rule one level down. It resolved the container
-correctly -- and then ran five docker commands against that one answer, across
-the window where dms is cycling by design. Under `set -e` the first exec to
-land on a stopped container took the whole converge with it:
-
-    Error response from daemon: container 48f7969363cc is not running
-
-Run 2026-08-26T03-27-25-c458, first tokenful converge. So the lookup and the
-commands that use it have to be one retried unit, not a lookup followed by a
-sequence that assumes the container outlives it.
+docker-mailserver restarts its way out of the very state the mailserver chain
+repairs, and every restart mints a new swarm task id, so a name captured a few
+tasks earlier is routinely dead by the time it is used. Any `docker exec` /
+`docker cp` against a mailserver container resolves the name INSIDE its own
+command, and a script that runs several commands against one container makes
+the lookup and the commands one retried unit.
 
 `| length` gates on an already-resolved name are fine: they ask whether the
 stack is deployed, which does not go stale the same way -- a stack present at
@@ -122,9 +102,7 @@ _DMS_CONSUMERS = ("mailserver_cert.yml", "mailserver_accounts.yml",
 def test_every_dms_consumer_uses_the_shared_locate() -> None:
     """A one-shot `docker ps` cannot tell an absent mailserver from one that is
     between restarts, and dms is between restarts by design for as long as this
-    chain has not repaired it. mailserver_filtering and mailserver_dns each
-    sampled once and skipped their whole body on an empty answer -- rspamd
-    filtering and mail DNS silently not applied, on a green converge."""
+    chain has not repaired it."""
     offenders = []
     for name in _DMS_CONSUMERS:
         text = (TASKS / name).read_text()
@@ -134,11 +112,8 @@ def test_every_dms_consumer_uses_the_shared_locate() -> None:
 
 
 def test_the_deployed_but_absent_verdict_lives_in_the_locate() -> None:
-    """One host state, one verdict. Split across the callers it becomes two --
-    accounts failing loud, oidc printing a debug line and skipping -- and the
-    silent one leaves SSO wiring never written on a converge that reports
-    success. Keeping the fail in the shared step is what stops a sixth consumer
-    inventing a third answer."""
+    """One host state, one verdict, in the shared step: a consumer with its own
+    answer can skip silently on a converge that reports success."""
     locate = (TASKS / "_mailserver_dms_locate.yml").read_text()
     assert "ansible.builtin.fail" in locate, (
         "the locate no longer fails on a deployed stack with no container"
@@ -148,17 +123,14 @@ def test_the_deployed_but_absent_verdict_lives_in_the_locate() -> None:
     for name in _DMS_CONSUMERS:
         text = (TASKS / name).read_text()
         assert "ansible.builtin.fail" not in text, (
-            f"{name} carries its own verdict for a state the locate decides. "
-            "Two consumers with two answers is what this consolidated."
+            f"{name} carries its own verdict for a state the locate decides."
         )
 
 
 def test_filtering_does_not_name_the_container_in_a_docker_call() -> None:
     """These are `command: argv:` tasks with loops and sha comparisons, so the
-    inline prelude the other files use has nowhere to live. They went through
-    one resolved name for all eight calls instead, which is the staleness the
-    prelude exists to prevent. /usr/local/bin/catena-dms-exec does the lookup
-    per invocation."""
+    inline prelude the other files use has nowhere to live.
+    /usr/local/bin/catena-dms-exec does the lookup per invocation."""
     text = (TASKS / "mailserver_filtering.yml").read_text()
     assert "catena-dms-exec" in text, (
         "filtering no longer routes its docker calls through the helper"
@@ -215,13 +187,11 @@ def test_the_cert_hook_bounds_its_wait_and_fails_loudly() -> None:
     )
 
 
-# The Webmail-link hook is the same rule a third time, on the Nextcloud side.
-# It resolved the app container once and then issued fourteen `docker exec`
-# calls against that one answer. A converge that updates the nextcloud stack
-# replaces the task underneath, and `docker exec` on a killed container exits
-# 137 -- which under `set -e` took the whole converge with it on run
-# 2026-08-27T03-01-27-cee0, first tokenful converge.
+# The Webmail-link hook is the same rule on the Nextcloud side: a converge that
+# updates the nextcloud stack replaces the task underneath it, and `docker
+# exec` on a killed container exits 137.
 WEBMAIL_HOOK = ANSIBLE / "scripts" / "wire-nextcloud-webmail-link.sh"
+NC_LOOKUP = ANSIBLE / "scripts" / "nextcloud-container.sh"
 
 
 def test_the_webmail_hook_resolves_the_container_inside_every_exec() -> None:
@@ -270,7 +240,8 @@ def test_the_webmail_hook_separates_not_deployed_from_could_not_look() -> None:
     """An empty `docker ps` means Nextcloud is not deployed, which is a
     legitimate skip. A `docker ps` that FAILED is not that answer, and folding
     the two together is how a probe reports success for never having looked."""
-    text = WEBMAIL_HOOK.read_text()
-    assert "docker ps failed while resolving" in text, (
+    assert "catena-nextcloud-container" in WEBMAIL_HOOK.read_text()
+    lookup = NC_LOOKUP.read_text()
+    assert "docker ps failed while resolving" in lookup and "exit 2" in lookup, (
         "a failed docker ps is indistinguishable from an absent stack"
     )

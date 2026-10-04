@@ -1,23 +1,14 @@
 """What each section asks, and what it proves before the install starts.
 
-THE INSTALLER ASKS ONLY FOR WHAT REACHES AND INSTALLS THE SERVER: its address,
-the key that opens it, and the administrator's email. The domain, the private
-network and the backups are entered in the panel once the server runs, so no
-section here asks for them.
-
-A SECTION WITH A CHECK PROVES SOMETHING REAL, and Install runs every check
-first. An installer that collects every answer and discovers at the end that
-the first one was wrong has spent a client's whole sitting to tell them
-something it knew at the start.
-
-AND IT NEVER REPORTS SUCCESS FOR A HOST THAT DOES NOT WORK. A step passes only
-when the thing it is about has been observed working, and a step that cannot
-observe says so rather than assuming.
-
 The FIELDS are the registry's; only the PROBES, and the one field the install
-contract takes beside the registry (the provider's password), are here. That
-split is what keeps the launcher free of knob knowledge: adding a question is a
-registry edit, and adding a proof is a function here.
+contract takes beside the registry (the provider's password), are here. Adding
+a question is a registry edit, and adding a proof is a function here.
+
+Install runs every probe first. An installer that collects every answer and
+discovers at the end that the first one was wrong has spent a client's whole
+sitting to tell them something it knew at the start. And a step passes only
+when the thing it is about has been observed working: a step that cannot
+observe says so rather than assuming.
 """
 
 from __future__ import annotations
@@ -29,10 +20,10 @@ import sys
 from dataclasses import dataclass, field as _dc_field
 from pathlib import Path
 
-from . import registry
+from . import i18n, registry
 
 # The host-only UIs and the account that forwards to them. Product constants
-# (catena-ce playbooks/group_vars/all/main.yml), printed on the access page.
+# (catena-ce playbooks/group_vars/all/main.yml), printed in the access section.
 PANEL_PORT = 9010
 PORTAINER_PORT = 9000
 PANEL_USER = "panel"
@@ -65,35 +56,40 @@ class Check:
 
 @dataclass
 class Field:
-    """One question in a section, resolved from the registry."""
+    """One question in a section, resolved from the registry. `label` and
+    `help` are by language."""
 
     key: str
+    label: dict[str, str]
     secret: bool
     optional: bool
     options: list[str]
     default: str
-    doc: str
+    help: dict[str, str]
     example: str = ""
     suggestions: list[str] = _dc_field(default_factory=list)
 
 
 @dataclass
 class Step:
+    """One section of the page; `title`, `doc` and `note` are by language."""
+
     name: str
-    title: str
-    doc: str
-    validates: str
+    title: dict[str, str]
+    doc: dict[str, str]
+    note: dict[str, str]
     fields: list[Field]
 
 
 def _field(doc: dict, entry: dict) -> Field:
     return Field(
         key=entry["key"],
+        label=entry["label"],
         secret=registry.is_secret(doc, entry["key"]),
         optional=not registry.is_required(entry),
         options=registry.options_for(entry),
         default=registry.default_for(entry),
-        doc=str(entry.get("doc") or ""),
+        help=entry["help"],
         example=registry.example_for(entry),
         suggestions=registry.suggestions_for(entry),
     )
@@ -101,15 +97,14 @@ def _field(doc: dict, entry: dict) -> Field:
 
 def _provider_password() -> Field:
     return Field(
-        key=PROVIDER_PASSWORD, secret=True, optional=True, options=[], default="",
-        doc=("The password the provider gave for the initial login. Needed only "
-             "when the server does not accept the key yet: the install uses it "
-             "once, to add the key, and nothing keeps it."))
+        key=PROVIDER_PASSWORD, label=i18n.every("provider_password.label"),
+        secret=True, optional=True, options=[], default="",
+        help=i18n.every("provider_password.help"))
 
 
 def build(doc: dict) -> list[Step]:
-    """The whole wizard, from the registry, with the provider's password in
-    the section that reaches the server."""
+    """The whole page, from the registry, with the provider's password in the
+    section that reaches the server."""
     out = []
     for step in registry.steps(doc):
         fields = [_field(doc, entry)
@@ -117,14 +112,16 @@ def build(doc: dict) -> list[Step]:
         if step["name"] == "target":
             fields.append(_provider_password())
         out.append(Step(name=step["name"], title=step["title"], doc=step["doc"],
-                        validates=str(step.get("validates") or ""), fields=fields))
+                        note=step.get("note") or {}, fields=fields))
     return out
 
 
-def missing_required(step: Step, values: dict[str, str]) -> list[Check]:
+def missing_required(step: Step, values: dict[str, str],
+                     lang: str = i18n.DEFAULT) -> list[Check]:
     """A blocking line for each required field left empty. Shown before the
     step's own probes, which have nothing to observe without it."""
-    return [Check(f"{f.key} is required", False, "fill it in")
+    return [Check(i18n.text(lang, "check.required", label=f.label[lang]), False,
+                  i18n.text(lang, "check.fill_in"))
             for f in step.fields
             if not f.optional and not (values.get(f.key) or "").strip()]
 
@@ -174,33 +171,33 @@ def _password_login(host: str, port: int, user: str, password: str) -> tuple[boo
     return out.returncode == 0, (said[-1] if said else "")[-200:]
 
 
-def check_target(answers: dict[str, str], secrets: dict[str, str]) -> list[Check]:
+def check_target(answers: dict[str, str], secrets: dict[str, str],
+                 lang: str = i18n.DEFAULT) -> list[Check]:
     """An SSH server answers, and the install can log in.
 
     Either the key already opens the server -- the provider installed it when
-    the server was ordered, or a previous run did, in which case root is
-    refused by now and the ops account takes it -- or the provider's password
+    the server was ordered, or a previous install did, in which case root is
+    refused by then and the ops account takes it -- or the provider's password
     opens the initial login and the install adds the key with it.
     """
+    def t(key: str, **values: object) -> str:
+        return i18n.text(lang, key, **values)
+
     host = (answers.get("HOST_PUBLIC_IP") or "").strip()
     port_raw = (answers.get("HOST_SSH_PORT") or "22").strip() or "22"
     if not host or not port_raw.isdigit():
-        return [] if not host else [Check("the SSH port", False,
-                                          f"{port_raw!r} is not a port number")]
+        return [] if not host else [Check(t("check.port"), False,
+                                          t("check.port_invalid", port=repr(port_raw)))]
     port = int(port_raw)
     banner = _ssh_banner(host, port)
-    checks = [Check(f"an SSH server answers at {host}:{port}",
-                    banner.startswith("SSH-"),
-                    banner or "nothing accepted a connection. A server still "
-                    "being delivered is the ordinary reason, and this section is "
-                    "where a run waits for it")]
+    checks = [Check(t("check.ssh_answers", host=host, port=port),
+                    banner.startswith("SSH-"), banner or t("check.ssh_silent"))]
     raw = (answers.get("SSH_PRIVATE_KEY") or "").strip()
     key = os.path.expanduser(raw) if raw else ""
     have_key = bool(key) and Path(key).is_file() and Path(key + ".pub").is_file()
-    checks.append(Check("the keypair is on this machine", have_key,
-                        "" if have_key else f"{raw or '(no path)'} or its .pub is "
-                        "missing; generate one with ssh-keygen -t ed25519 -f "
-                        "~/.ssh/catena_ed25519"))
+    checks.append(Check(t("check.keypair"), have_key,
+                        "" if have_key else
+                        t("check.keypair_missing", path=raw or t("check.no_path"))))
     if not (checks[0].ok and have_key):
         return checks
     initial = (answers.get("HOST_INITIAL_USER") or "root").strip() or "root"
@@ -208,87 +205,53 @@ def check_target(answers: dict[str, str], secrets: dict[str, str]) -> list[Check
     for user in dict.fromkeys((initial, (answers.get("OPS_USER") or "ops").strip())):
         ok, why = _ssh_login(host, port, user, key)
         if ok:
-            checks.append(Check(f"the key already opens {user}@{host}", True,
-                                "no password is needed"))
+            checks.append(Check(t("check.key_opens", login=f"{user}@{host}"), True,
+                                t("check.no_password_needed")))
             return checks
-        tried.append(f"{user}: {why or 'refused'}")
+        tried.append(f"{user}: {why or t('check.refused')}")
     password = secrets.get(PROVIDER_PASSWORD) or ""
     if not password:
-        checks.append(Check(
-            "the server does not accept this key yet", False,
-            "; ".join(tried) + f". Enter the provider's password for {initial}, "
-            "and the install adds the key with it, or give the public key to "
-            "the provider and check again"))
+        checks.append(Check(t("check.key_refused"), False,
+                            t("check.key_refused_detail", tried="; ".join(tried),
+                              user=initial)))
         return checks
     ok, why = _password_login(host, port, initial, password)
-    checks.append(Check(f"the provider's password opens {initial}@{host}", ok,
-                        "the install adds the key with it" if ok
-                        else why or "the password was refused"))
+    checks.append(Check(t("check.password_opens", login=f"{initial}@{host}"), ok,
+                        t("check.password_adds_key") if ok
+                        else why or t("check.password_refused")))
     return checks
-
-
-def check_keyset(answers: dict[str, str]) -> list[Check]:
-    """The acknowledgement, and it is the one check that cannot be waived.
-
-    `catena-cli install` ends by showing two passwords once: the first-login
-    password and the console break-glass password, with the journal
-    verification key. Nothing off the server holds a copy. Without an explicit
-    acknowledgement here the launcher ships installs nobody can recover.
-    """
-    acked = (answers.get("_keyset_acknowledged") or "").strip() == "yes"
-    return [Check("the recovery passwords are saved", acked,
-                  "the installer shows them once and nothing else holds a "
-                  "copy, so this cannot be skipped")]
 
 
 # The probe for each step that has one, by name.
 PROBES = {
     "target": check_target,
-    "keyset": lambda a, s: check_keyset(a),
 }
 
 
-def validate(step: str, answers: dict[str, str], secrets: dict[str, str]) -> list[Check]:
+def validate(step: str, answers: dict[str, str], secrets: dict[str, str],
+             lang: str = i18n.DEFAULT) -> list[Check]:
     probe = PROBES.get(step)
     if probe is None:
         return []
-    return probe(answers, secrets)
+    return probe(answers, secrets, lang)
 
 
 def blocked(checks: list[Check]) -> bool:
     return any(check.blocks for check in checks)
 
 
-# --- the access page --------------------------------------------------------
+# --- the way in -------------------------------------------------------------
 
 
-@dataclass
-class WayIn:
-    """The path to the panel: the command to type, what to open, how to log in."""
-
-    command: str
-    urls: list[str]
-    login: str
-
-
-def way_in(answers: dict[str, str]) -> WayIn:
-    """How the panel is reached once the install ends.
-
-    The panel and Portainer answer the server's loopback only, and a forward as
-    the panel account -- which can do nothing but forward -- lands there. The
-    domain and the private network, entered in the panel afterwards, add their
-    own ways in; this one stays.
-    """
+def forward_command(answers: dict[str, str]) -> str:
+    """The SSH command that reaches the panel and Portainer once the install
+    ends: both answer the server's loopback only, and the panel account can do
+    nothing but forward."""
     host = (answers.get("HOST_PUBLIC_IP") or "").strip() or "<server-address>"
     port = (answers.get("HOST_SSH_PORT") or "22").strip() or "22"
     key = (answers.get("SSH_PRIVATE_KEY") or "").strip()
-    email = (answers.get("ADMIN_EMAIL") or "").strip() or "the admin email"
     opts = f" -i {key}" if key else ""
     opts += f" -p {port}" if port != "22" else ""
-    return WayIn(
-        command=(f"ssh -N -L {PANEL_PORT}:127.0.0.1:{PANEL_PORT} "
-                 f"-L {PORTAINER_PORT}:127.0.0.1:{PORTAINER_PORT}{opts} "
-                 f"{PANEL_USER}@{host}"),
-        urls=[f"http://localhost:{PANEL_PORT}", f"http://localhost:{PORTAINER_PORT}"],
-        login=(f"Panel: {email} and the admin password the install shows once. "
-               "Portainer: admin and the same password."))
+    return (f"ssh -N -L {PANEL_PORT}:127.0.0.1:{PANEL_PORT} "
+            f"-L {PORTAINER_PORT}:127.0.0.1:{PORTAINER_PORT}{opts} "
+            f"{PANEL_USER}@{host}")

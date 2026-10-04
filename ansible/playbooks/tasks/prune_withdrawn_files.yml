@@ -1,18 +1,15 @@
 ---
 # Remove the files a PREVIOUS converge installed and this one does not ship.
 #
-# The converge is copy-only, so a unit or script withdrawn from a later
-# release is simply not copied and the old one keeps running -- a timer
-# nobody ships any more, firing at a binary nobody builds any more.
-# reconcile/roles/backup still carries a hand-written `state: absent` for
-# catena-acquire-lock.sh, which is this problem solved once, by hand, for the
-# one instance somebody noticed.
+# Copying alone never removes anything: a unit or script a release withdraws is
+# not copied, and the installed one keeps running -- a timer nobody ships,
+# firing at a binary nobody builds.
 #
 # filter_plugins/converge_manifest.py holds the three rules and the reasoning:
-# delete only what is not declared anymore (never merely "not installed here",
-# which is a feature switched off), delete only what is still byte-for-byte
-# what this converge's predecessor wrote, and never a path the panel payload
-# claims now.
+# delete only what the previous converge declared and this one does not (never
+# merely "not installed here", which is a feature switched off), delete only
+# what is still byte-for-byte what the previous converge wrote, and never a
+# path the panel payload claims.
 #
 # SCOPE: the prefixes where a withdrawn file keeps EXECUTING. Units, host
 # scripts, and the helper modules the reconciler imports by bare name. A
@@ -42,11 +39,10 @@
       {{ (_prune_previous_raw.content | b64decode | trim)
          if (_prune_previous_raw.content is defined) else '' }}
   ansible.builtin.set_fact:
-    # Guarded rather than trusted, for the reason the release manifest gives:
-    # this file is not load-bearing -- a host without one converges fine -- so
-    # a corrupt one must not be the thing that fails a converge. An unreadable
-    # manifest prunes nothing and says so, which is the same answer as an
-    # absent one and a different answer from "pruned nothing".
+    # Guarded rather than trusted, for the reason record_release_manifest.yml
+    # gives. An unreadable manifest prunes nothing and says so, which is the
+    # same answer as an absent one and a different answer from "pruned
+    # nothing".
     _prune_previous: >-
       {{ (_raw | from_json)
          if (_raw.startswith('{') and _raw.endswith('}'))

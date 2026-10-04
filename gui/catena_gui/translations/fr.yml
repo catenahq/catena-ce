@@ -1,0 +1,119 @@
+# The installer page's own words in French, key for key with en.yml.
+
+page.title: "{title} -- Installateur Catena"
+page.not_found: "Introuvable"
+
+nav.inventory: "Inventaire"
+nav.install: "Installation"
+nav.language: "Langue"
+
+inventory.title: "Inventaire"
+inventory.intro: >-
+  Chaque serveur est défini par un "inventaire" : un dossier qui contient son
+  identité. Le système d'inventaire de Catena n'enregistre que des
+  informations non secrètes. Les secrets, comme les mots de passe et les jetons
+  d'API, doivent être conservés dans un gestionnaire de mots de passe.
+inventory.choose: >-
+  Choisir un inventaire existant pour installer ou converger / réparer, ou en
+  créer un pour une nouvelle installation.
+inventory.none: "Aucun inventaire pour l'instant."
+inventory.open_now: "(ouvert)"
+inventory.new_name: "Nom du nouvel inventaire"
+inventory.name_tip: >-
+  Lettres minuscules, chiffres, tirets et traits de soulignement, en commençant
+  par une lettre ou un chiffre.
+inventory.name_tip_about: "À propos du nom de l'inventaire"
+inventory.create: "Créer"
+inventory.problem.invalid: >-
+  {name} : utiliser des lettres minuscules, des chiffres, des tirets et des
+  traits de soulignement, en commençant par une lettre ou un chiffre
+inventory.problem.exists: "{name} : un inventaire porte déjà ce nom; l'ouvrir plutôt"
+inventory.problem.unknown: "il n'y a pas d'inventaire {name}"
+
+field.optional: "(facultatif)"
+field.about: "À propos de {label}"
+field.not_saved: "Non enregistré : à saisir de nouveau à chaque ouverture de l'installateur."
+field.none: "(aucun)"
+
+install.title: "Installation : {name}"
+install.saved_to: "Les réglages sont enregistrés dans {path}, sans les secrets ni les mots de passe."
+
+process.title: "Déroulement de l'installation"
+process.intro: >-
+  L'installation dure plusieurs minutes et sa sortie s'affiche ci-dessous.
+  Plusieurs secrets s'afficheront dans la section suivante dès que le serveur
+  les aura générés, après quelques minutes. En cas d'erreur pendant
+  l'installation, créer un ticket à {issues} et y copier les erreurs.
+process.button: "Vérifier la configuration et lancer l'installation"
+process.installing: >-
+  Installation en cours. Fermer cet onglet ne l'arrête pas; fermer la fenêtre
+  de la console, oui.
+process.done: "Terminé."
+process.failed: "L'installation s'est arrêtée. La sortie indique où."
+process.empty: "La sortie de l'installation s'affiche ici."
+process.reopened: >-
+  (cet installateur a été rouvert après l'installation : sa sortie est allée
+  dans la fenêtre de console où elle s'exécutait, et n'a pas été conservée)
+
+access.title: "Accès au serveur Catena"
+access.save: >-
+  Copier ces clés dans votre gestionnaire de mots de passe et vous en servir
+  pour accéder à votre nouvelle installation.
+access.forward: >-
+  Exécuter la commande suivante dans votre console ou terminal pour établir
+  une connexion avec votre nouveau serveur Catena :
+access.panel: >-
+  Le panneau d'administration Catena est accessible dans votre navigateur à
+  {url}. Se connecter avec le courriel et le mot de passe administrateur.
+access.portainer: >-
+  Le panneau Portainer (gestion des applications) est accessible dans votre
+  navigateur à {url}. Se connecter avec l'utilisateur 'admin' et le mot de
+  passe administrateur.
+access.settings: >-
+  L'onglet Settings du panneau d'administration configure le domaine et
+  l'accès DNS (Cloudflare), le tunnel d'administration (Tailnet), les courriels
+  sortants, les sauvegardes, et plus encore.
+
+keyset.admin_password: "Mot de passe administrateur"
+keyset.console_recovery_password: "Mot de passe de l'utilisateur 'ops'"
+keyset.console_recovery_password.about: >-
+  Pour la console web de l'hébergeur ou un clavier physique seulement : SSH
+  accepte les clés, jamais ce mot de passe.
+keyset.journal_verification_key: "Clé de vérification du journal"
+keyset.journal_verification_key.about: >-
+  Prouve que le journal des actions administratives du serveur n'a pas été
+  modifié. Le serveur n'en garde aucune copie.
+keyset.pending: "Affiché ici pendant l'installation."
+keyset.not_again: "Affiché lors de la première installation seulement."
+
+provider_password.label: "Mot de passe de l'utilisateur initial"
+provider_password.help: >-
+  Le mot de passe fourni par l'hébergeur pour la connexion initiale.
+  Nécessaire seulement si le serveur n'accepte pas encore la clé SSH :
+  l'installation s'en sert une fois, pour ajouter la clé, et ne le conserve
+  pas.
+
+check.required: "{label} est requis"
+check.fill_in: "à remplir"
+check.port: "le port SSH"
+check.port_invalid: "{port} n'est pas un numéro de port"
+check.ssh_answers: "un serveur SSH répond à {host}:{port}"
+check.ssh_silent: >-
+  aucune connexion acceptée. Un serveur encore en cours de livraison en est la
+  cause habituelle, et cette section est l'endroit où l'installation l'attend
+check.keypair: "la paire de clés est sur cette machine"
+check.keypair_missing: >-
+  {path} ou son .pub est absent; en générer une avec ssh-keygen -t ed25519 -f
+  ~/.ssh/catena_ed25519
+check.no_path: "(aucun chemin)"
+check.key_opens: "la clé ouvre déjà {login}"
+check.no_password_needed: "aucun mot de passe n'est nécessaire"
+check.refused: "refusé"
+check.key_refused: "le serveur n'accepte pas encore cette clé"
+check.key_refused_detail: >-
+  {tried}. Entrer le mot de passe de l'hébergeur pour {user}, et l'installation
+  y ajoute la clé, ou fournir la clé publique à l'hébergeur et vérifier de
+  nouveau
+check.password_opens: "le mot de passe de l'hébergeur ouvre {login}"
+check.password_adds_key: "l'installation ajoute la clé avec celui-ci"
+check.password_refused: "le mot de passe a été refusé"

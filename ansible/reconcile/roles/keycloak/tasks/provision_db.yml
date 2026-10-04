@@ -44,11 +44,8 @@
 #     "/var/run/postgresql/.s.PGSQL.5432" failed:
 #     FATAL:  the database system is starting up
 #
-# fi_a2_oidc_secret_rotation's converge has died exactly there. Nothing but
-# elapsed time hid it: a rewind that spends its minutes failing to reach a
-# stale address hands postgres all the startup it needs, and a rewind that
-# resolves the address correctly starts converging as soon as SSH answers.
-# Timing is not a dependency, so the readiness probe is.
+# A converge that starts as soon as SSH answers reaches that window. Timing is
+# not a dependency, so the readiness probe is.
 #
 # pg_isready checks server acceptance only -- no auth, no role, no database --
 # so it needs none of the facts the tasks after it derive, and it is the same
@@ -57,13 +54,11 @@
 # `docker exec` that can race the same window.
 #
 # -U is NOT about auth (pg_isready exits 0 whenever the server responds at
-# all, error included -- which is why the omission was invisible). It is about
-# what postgres LOGS. `docker exec` runs as root inside the container, so
-# without -U the startup packet carries `root` and postgres writes
-# `FATAL: role "root" does not exist` on every attempt -- up to 30 of them via
-# the retry below, on a host slow enough to need them. Found by the bench's
-# stage-3f control-plane log gate on run 2026-08-06T20-24-17-5ccd; the noise
-# matters because a REAL auth failure is indistinguishable inside it.
+# all, error included). It is about what postgres LOGS. `docker exec` runs as
+# root inside the container, so without -U the startup packet carries `root`
+# and postgres writes `FATAL: role "root" does not exist` on every attempt --
+# up to 30 of them via the retry below. A REAL auth failure would be
+# indistinguishable inside that noise.
 #
 # The literal default is deliberate: this task runs BEFORE the role derives
 # POSTGRES_USER from the container env (see the note above), so the derived
@@ -71,10 +66,8 @@
 # scope here would couple the two roles. Both sibling call sites
 # (reconcile/roles/postgres tasks/main.yml + tasks/validate.yml) already pass -U.
 - name: "Keycloak DB: wait for postgres to accept connections"
-  # Re-resolved per attempt: a swarm task id changes on every reschedule, and
-  # this loop exists to span exactly that window -- postgres restarting under
-  # WAL recovery is the very thing being waited on, so the name captured above
-  # is at its most likely to be dead while this runs.
+  # Re-resolved per attempt (playbooks/filter_plugins/swarm_naming.py):
+  # postgres restarting under WAL recovery is the very thing being waited on.
   ansible.builtin.shell: |
     set -o pipefail
     ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '^catena-postgres\..*' | head -n1)

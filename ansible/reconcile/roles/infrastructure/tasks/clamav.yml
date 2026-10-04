@@ -36,27 +36,21 @@
   # service, it stops the mailserver and Nextcloud templates from deploying
   # at all.
   #
-  # The deadlock that kept this a bridge is gone with them. An attachable
-  # overlay is materialized on a node only once a swarm task there uses it,
-  # and a STANDALONE container asking for one that is not materialized gets
-  # "network catena-clamav not found" and stays Created (bench 050b). Both
-  # consumers were standalone containers, and the only swarm task that would
-  # have materialized the network was clamd, which does not deploy until a
-  # consumer is running. Both consumers are swarm services now, so the first
-  # of them to start materializes the network itself.
+  # An attachable overlay is materialized on a node only once a swarm task
+  # there uses it. Both consumers are swarm services, so the first of them to
+  # start materializes the network itself.
   ansible.builtin.command:
     argv: [docker, network, inspect, "{{ clamav_network }}", "--format", "{{ '{{' }}.Scope{{ '}}' }}"]
   register: _clamav_net_scope
   changed_when: false
   failed_when: false
 
-- name: "ClamAV: replace a local-scope {{ clamav_network }} left by an earlier install"
-  # Reconciled rather than reported: a host that predates the swarm move
-  # carries a bridge under this name, and every subsequent template deploy
-  # would fail on the scope error above with nothing on the host explaining
-  # why. Endpoints are disconnected first because `network rm` refuses while
-  # any remain; the containers that lose it are the consumers, which are
-  # redeployed as swarm stacks.
+- name: "ClamAV: replace a local-scope {{ clamav_network }}"
+  # Reconciled rather than reported: with a bridge under this name every
+  # template deploy fails on the scope error above, with nothing on the host
+  # explaining why. Endpoints are disconnected first because `network rm`
+  # refuses while any remain; the containers that lose it are the consumers,
+  # which are redeployed as swarm stacks.
   when:
     - _clamav_net_scope.rc == 0
     - (_clamav_net_scope.stdout | default('') | trim) != 'swarm'
@@ -96,12 +90,11 @@
 - name: "ClamAV: detect a running consumer (dms or Nextcloud app)"
   # Emits each matching consumer container name (dms and/or a Nextcloud
   # app container); empty when neither is running. PRESENCE -- not the
-  # specific name -- is the deploy gate below, so we list all matches
-  # rather than taking the first. Deliberately NO `| head -n1`: piping a
-  # grouped command into head closes the pipe after one line, the
-  # upstream `docker ps` then takes SIGPIPE (rc 141), and `set -o
-  # pipefail` would promote that into a task failure even though
-  # detection succeeded. Two plain `docker ps` calls avoid the pipe.
+  # specific name -- is the deploy gate below, so every match is listed
+  # rather than the first: piping a grouped command into `head -n1` closes
+  # the pipe after one line, the upstream `docker ps` then takes SIGPIPE
+  # (rc 141), and `set -o pipefail` would promote that into a task failure
+  # even though detection succeeded.
   ansible.builtin.shell: |
     docker ps --filter 'label=vps.app={{ clamav_consumer_mail_app }}' \
               --filter 'label=vps.component=dms' --format '{{ "{{" }}.Names{{ "}}" }}'
@@ -154,10 +147,9 @@
       until: _clamav_container.stdout | length > 0
 
     - name: "ClamAV: wait for clamd to answer PING (signature DB loaded)"
-      # Re-resolved per attempt: a swarm task id changes on every reschedule,
-      # and this loop exists to span exactly that window. Reusing the name
-      # captured above makes every attempt fail with "No such container"
-      # regardless of whether clamd is ready.
+      # Re-resolved per attempt (playbooks/filter_plugins/swarm_naming.py):
+      # the name captured above fails every attempt with "No such container"
+      # once clamd is rescheduled, whether or not it is ready.
       ansible.builtin.shell: |
         set -o pipefail
         ct=$(docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ clamav_compose_name | swarm_container_regex("clamav") }}' | head -n1)
@@ -187,9 +179,8 @@
     #
     # against a working scanner.
     #
-    # Consumers are re-resolved PER ATTEMPT, for the reason the clamd PING
-    # gives: a swarm task id changes on every reschedule, and this loop spans
-    # exactly the window in which that happens. A name captured once answers
+    # Consumers are re-resolved PER ATTEMPT, as for the clamd PING. A name
+    # captured once answers
     #
     #     Error response from daemon: No such container:
     #     catena-mailserver_dms.1.eht590lgrnajk7kngnmcnnsqo

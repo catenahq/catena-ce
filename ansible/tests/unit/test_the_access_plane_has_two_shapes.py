@@ -4,7 +4,8 @@ panel's Lockdown, after proof.
 THE INVARIANT, stated once so it is not filed later as a coverage gap:
 
     no tailnet + 22 open     every install ends here
-    tailnet + 22 open        the host joined the tailnet entered in the panel
+    tailnet + 22 open        the host joined the tailnet entered in the panel,
+                             or the panel opened 22 again after a Lockdown
     tailnet + 22 closed      the panel's Lockdown joined, proved, and closed
     no tailnet + 22 closed   that Lockdown, after the provider went back to
                              none; applying the chosen access opens 22
@@ -38,6 +39,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from ansible_tree import task_index as _index
+
 ANSIBLE = Path(__file__).resolve().parents[2]
 COMMON = ANSIBLE / "bootstrap" / "roles" / "common" / "tasks"
 LOCKDOWN_TASKS = COMMON / "ufw_lockdown.yml"
@@ -65,14 +68,6 @@ def _flatten(node) -> list[dict]:
             if key in node:
                 out += _flatten(node[key])
     return out
-
-
-def _index(tasks: list[dict], needle: str) -> int:
-    for i, task in enumerate(tasks):
-        if needle.lower() in str(task.get("name", "")).lower():
-            return i
-    raise AssertionError(
-        f"no task matching {needle!r}; the ordering it anchors cannot be checked")
 
 
 def _conditions(task: dict) -> str:
@@ -215,7 +210,7 @@ def test_the_lockdown_opens_the_only_way_in_rather_than_closing_it():
     not an absence: a lockdown that silently did nothing on this method would
     be indistinguishable from one that ran and failed."""
     tasks = _flatten(_load(LOCKDOWN_TASKS))
-    block = tasks[_index(tasks, "open public 22 on a host with no alternative")]
+    block = tasks[_index(tasks, "open public 22")]
     assert "catena_access_method != 'tailnet'" in _conditions(block)
     assert "catena_lockdown_close_public_ssh" not in _conditions(block)
     said = tasks[_index(tasks, "public 22 is open with no alternative path")]
@@ -237,7 +232,7 @@ def test_a_host_with_no_tailnet_gets_its_public_ssh_back():
     widens the declaration to `any`, or the reconciler closes the port again on
     its next timer fire."""
     tasks = _flatten(_load(LOCKDOWN_TASKS))
-    block = tasks[_index(tasks, "open public 22 on a host with no alternative")]
+    block = tasks[_index(tasks, "open public 22")]
     inner = block.get("block") or []
     allow = inner[_index(inner, "Allow public SSH")]
     argv = allow.get("ansible.builtin.command", {}).get("argv", [])
@@ -252,6 +247,21 @@ def test_a_host_with_no_tailnet_gets_its_public_ssh_back():
     assert reconcile.get("ansible.builtin.systemd_service", {}).get("name") == (
         "catena-public-ports.service")
     assert _index(inner, "Allow public SSH") < _index(inner, "declare port 22 open")
+
+
+def test_the_panel_can_open_22_again_on_a_host_that_keeps_its_tailnet():
+    """Unticking the close in the panel opens 22 with the tailnet kept: the
+    same open block, entered on the panel's request, which lockdown.yml reads
+    from the environment and defaults to false. A run asked to close and open
+    at once refuses."""
+    tasks = _flatten(_load(LOCKDOWN_TASKS))
+    block = tasks[_index(tasks, "open public 22")]
+    assert "catena_lockdown_open_public_ssh" in _conditions(block)
+    play = (_load(LOCKDOWN_PLAY) or [])[0]
+    flag = str((play.get("vars") or {}).get("catena_lockdown_open_public_ssh", ""))
+    assert "CATENA_LOCKDOWN_OPEN_PUBLIC_SSH" in flag and "default('false'" in flag, flag
+    names = [t.get("name", "") for t in play.get("tasks") or []]
+    assert "A run closes public SSH or opens it, never both" in names, names
 
 
 # --- shape two: tailnet, 22 open after the install --------------------------

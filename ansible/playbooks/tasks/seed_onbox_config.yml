@@ -18,18 +18,12 @@
 # `env` entry) are seeded from the inventory `.env`, fill-only, so a converge
 # never overwrites what the client later set in catena-admin. Every other store
 # key has no `.env` line; catena_cli warns about one it finds.
-#
-# The script module ships onbox_config.py alone, and it reads the knob registry
-# from a file. Bootstrap runs before the payload installs one, so the registry
-# from this same checkout is staged beside the adopt maps and named through
-# CATENA_KNOBS on every call.
-- name: "onbox: stage the knob registry for the store helper"
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../helpers/knobs.json"
-    dest: /root/.catena-knobs.json
-    owner: root
-    group: root
-    mode: "0644"
+- name: "onbox: stage the knob registry"
+  ansible.builtin.include_tasks:
+    file: stage_knob_registry.yml
+    apply:
+      tags: [always, onbox]
+  tags: [always, onbox]
 
 - name: "onbox: read the store keys the .env seeds"
   ansible.builtin.script:
