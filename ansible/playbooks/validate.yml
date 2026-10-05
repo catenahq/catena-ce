@@ -20,7 +20,7 @@
   hosts: "{{ stage_hosts | default('vps') }}"
   become: true
   gather_facts: true
-  tags: [validate_role, goss, vantage1]
+  tags: [validate_role, vantage1]
   vars:
     # Source of truth for which roles have on-host validation tasks.
     # Adding a role here without a companion roles/<role>/tasks/
