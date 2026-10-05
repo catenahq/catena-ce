@@ -70,7 +70,7 @@ mints nothing, and refuses any value the dashboard owns.
 
 | Invariant | Enforced by |
 | --- | --- |
-| Installing, converging and uninstalling go through the bundled CLI | `bench:ce_install_suite`, `bench:ce_converge`, `bench:ce_uninstall` |
+| Installing, converging and uninstalling go through the bundled CLI | `bench:ce_install_suite`, `bench:install_rerun`, `bench:ce_uninstall` |
 | A verb that runs one playbook is named after it | `audit:check-grid` |
 | The installer takes only what reaches and installs a server, and refuses a value the dashboard owns | `workflow:ci.yml#installer`, `bench:ce_install_suite` |
 
@@ -95,7 +95,7 @@ declared, not decided at the moment of extraction.
 
 | Invariant | Enforced by |
 | --- | --- |
-| Re-running a converge repairs a drifted server; it never duplicates or breaks a healthy one | `bench:ce_converge`, `bench:converge_suite#stage-7c-rotated-secret-arrives`, `bench:converge_suite#stage-7b-bump-survives` |
+| Re-running a converge repairs a drifted server; it never duplicates or breaks a healthy one | `bench:install_rerun`, `bench:converge_suite#stage-7c-rotated-secret-arrives`, `bench:converge_suite#stage-7b-bump-survives` |
 | A host converges itself from the image with no controller inventory | `bench:payload_action_dispatches_without_converge` |
 | Validation checks both directions: services answer, forbidden exposure does not | `bench:ce_validate` |
 | Uninstall hands the OS update lane back to Debian | `bench:ce_uninstall` |
