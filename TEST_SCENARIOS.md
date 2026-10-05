@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 158 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 159 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -119,6 +119,7 @@ The 158 scenarios the maintainers' test bench carries, and the behaviour each on
 | `install_without_a_domain` | A server with no domain converges green and says what it is waiting for. |
 | `keycloak_admin_email_loss_recovery` | An administrator locked out of the identity provider mail channel recovers access by minting a fresh named administrator against the running server. |
 | `keycloak_signing_keys_rotation_round_trip` | A single sign-on signing key is rotated with an overlap window where both keys verify, then retired without breaking any session. |
+| `launcher_install` | The graphical installer, run with no UI, installs a server the way the command-line installer does, over a private address and over the public one. |
 | `license_domain_mismatch` | A correctly signed licence issued for another server unlocks nothing, says so by name, and takes away nothing the host already had. |
 | `malformed_catalog_rejection` | A malformed application catalogue is refused, and the host keeps using the last one it read correctly. |
 | `marketplace_catalog_resolved` | The application catalogue a client browses is the one this host resolved, with every published placeholder filled in. |
