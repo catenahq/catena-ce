@@ -1,5 +1,5 @@
 ---
-# Validation tasks for reconcile/roles/infrastructure. Replaces tests/goss/infrastructure.yaml.
+# Validation tasks for reconcile/roles/infrastructure.
 
 # set_fact here because main.yml's fact is not in scope during a standalone
 # validate run.

@@ -1,18 +1,16 @@
 ---
-# Deploy one catena-DECLARED compose stack as SWARM services. No Portainer
-# in the path.
+# Deploy one catena-DECLARED compose stack as SWARM services, with no
+# Portainer in the path.
 #
-# WHY. Every app in this file is something catena declares -- the monitoring
-# plane (gatus, healthchecks, beszel), the SSO plane (keycloak,
-# oauth2-proxy), the shared clamd. They were deployed through the Portainer
-# stack API, which made Portainer a dependency of the things that report on
-# Portainer: a control plane that would not start took the monitors down with
-# it, at exactly the morning somebody needed them to find out why. Portainer's
-# DB stays the record of CLIENT choices -- the one state that cannot be
-# recomputed -- and nothing else.
+# WHY. Every app deployed through this file is something catena declares --
+# the monitoring plane (gatus, healthchecks, beszel), the SSO plane (keycloak,
+# oauth2-proxy), the shared clamd. Deploying them around Portainer keeps the
+# things that report on Portainer independent of it: a control plane that
+# will not start leaves the monitors up, at exactly the moment somebody needs
+# them to find out why. Portainer's DB is the record of CLIENT choices -- the
+# one state that cannot be recomputed -- and nothing else.
 #
-# Inputs (caller sets via include_tasks vars) -- unchanged names, so the
-# nine call sites keep their shape:
+# Inputs (caller sets via include_tasks vars):
 #
 #   svc_name            -- stack name (also the compose project label and the
 #                          prefix of every service/container it creates)
@@ -24,15 +22,13 @@
 #   svc_readiness_url / svc_readiness_ok_codes / svc_readiness_validate_certs
 #   svc_readiness_skip_reason
 #
-# There is no `svc_env`. Values reach these services from the on-box store
-# through the compose template, which is the single read path: nothing here
-# is edited in a stack editor, so there is no operator-typed value to
-# preserve across a redeploy.
+# Values reach these services from the on-box store through the compose
+# template, the single read path: nothing here is edited in a stack editor,
+# so no hand-typed value has to survive a redeploy.
 #
 # `docker stack deploy --detach=false` is synchronous: it returns only once
-# every service in the file has converged (or failed), which is what the
-# Portainer create/update call gave us and what the readiness probe below
-# still does not replace -- converged means the tasks are RUNNING, not that
+# every service in the file has converged (or failed). The readiness probe
+# below is still needed -- converged means the tasks are RUNNING, not that
 # the app is serving healthy HTTP through Traefik.
 
 - name: "Swarm: stack file dir ({{ swarm_stack_dir }})"

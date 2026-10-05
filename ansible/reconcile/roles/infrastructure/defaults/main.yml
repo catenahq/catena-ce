@@ -1,13 +1,13 @@
 ---
 # reconcile/roles/infrastructure manages the shared infra stacks (Gatus,
-# Healthchecks, Beszel, gatus-sync, dashboard-sync, clamav), deployed
-# onto the host's swarm.
+# Healthchecks, Beszel, clamav) on the host's swarm, and the per-host wiring
+# of the gatus-sync and dashboard-sync lanes.
 #
-# Subdomains provisioned end-to-end (DNS -> Tunnel -> Traefik ->
-# container), each behind its own Keycloak-backed oauth2-proxy:
-#   portainer.<zone> -> Portainer    (reconcile/roles/portainer)
-#   monitor.<zone>   -> Gatus        (this role, as a swarm stack)
-#   dash.<zone>      -> catena-admin (reconcile/roles/catena-admin)
+# This role's public hostnames, each served through the tunnel and Traefik
+# behind its own Keycloak-backed oauth2-proxy:
+#   monitor.<zone>   -> Gatus
+#   heartbeat.<zone> -> Healthchecks
+#   hub.<zone>       -> Beszel
 
 
 # Executing-prefix paths this role writes, for
@@ -162,7 +162,7 @@ ntfy_topic: "{{ cfg_ntfy_topic | default('') }}"
 # Threshold alerts leave the hub via Shoutrrr (generic webhook) to the
 # beszel-hc-shim sidecar, which maps triggered/resolved to Healthchecks
 # /fail + success pings so Beszel alerts ride the same notification plane
-# as Gatus (clients keep self-service channels). See notifications.md.
+# as Gatus (clients keep self-service channels).
 #
 # Always deployed: Beszel is part of the base plane. Pinned tags
 # (Renovate-managed); the agent reads docker.sock, so it has the docker
@@ -232,10 +232,10 @@ version_check_output_file: /var/lib/catena/version-check.json
 #
 # The script and its modules ship in the catena-admin PAYLOAD -- what a label
 # MEANS is a product decision, so it travels with the image rather than waiting
-# for a converge on every host. reconcile/roles/payload installs them five roles before
-# reconcile/roles/infrastructure runs, so the paths below exist by the time anything here
-# schedules them. What this role still owns is per-host: the env file's
-# secrets, and the interval.
+# for a converge on every host. reconcile/roles/payload installs them earlier in
+# the converge, so the paths below exist by the time anything here schedules
+# them. What this role owns is per-host: the env file's secrets, and enabling
+# the timer.
 #
 # In the catena-* namespace like every other payload command
 # (catena-admin payload/lanes/lanes_manifest_test.go enforces it), which also
@@ -298,8 +298,8 @@ clamav_watch_schedule: "*:0/5"
 
 # --- Mailserver TLS cert (mail.<zone>) --------------------------------
 # Self-hosted mailserver runs SSL_TYPE=manual; we issue the cert here via
-# Let's Encrypt DNS-01 (cloudflared owns :80, so HTTP-01 is out -- same
-# rationale as reconcile/roles/coturn) and inject it into the dms container's
+# Let's Encrypt DNS-01 (no web port is open on the host, so HTTP-01 is out --
+# same rationale as reconcile/roles/coturn) and inject it into the dms container's
 # mounted custom-certs dir through a certbot deploy hook. certbot.timer
 # renews; the hook re-injects + reloads Postfix/Dovecot.
 mailserver_hostname: "mail.{{ cloudflare_zone }}"
@@ -308,9 +308,9 @@ mailserver_cert_live_dir: "/etc/letsencrypt/live/{{ mailserver_hostname }}"
 # for one file (identical content -- the same Cloudflare API token).
 mailserver_cloudflare_creds_path: "/etc/letsencrypt/cloudflare-mail.ini"
 mailserver_certbot_email: "{{ admin_email | default('hostmaster@' ~ cloudflare_zone) }}"
-# Staging CA for the bench only (production LE rate-limits re-issuance of
-# the same identifier; the bench redeploys mail.<zone> every run). Same
-# knob shape as coturn. Production inventories MUST leave this false.
+# Staging CA, development only (the MAILSERVER_CERTBOT_STAGING store key,
+# false on every client install): production LE rate-limits re-issuance of
+# the same identifier. Same knob shape as coturn.
 mailserver_certbot_use_staging: "{{ cfg_mailserver_certbot_staging | default('false') | bool }}"
 mailserver_certbot_staging_server: "https://acme-staging-v02.api.letsencrypt.org/directory"
 
@@ -322,15 +322,15 @@ mailserver_acme_server: >-
            if mailserver_certbot_use_staging | bool else '') }}
 
 # --- Mailserver DNS (MTA-STS / TLS-RPT + the mail A record) -----------
-# ops automates ONLY the safe, mail-specific records via the Cloudflare
+# The converge writes ONLY the safe, mail-specific records via the Cloudflare
 # API: the gray-cloud A record for mail.<zone> (the mail plane cannot
 # ride the CF tunnel) and the MTA-STS + TLS-RPT TXT records. MX, SPF,
-# DKIM, DMARC, and rDNS stay OPERATOR-MANUAL (documented in the runbook):
+# DKIM, DMARC, and rDNS stay manual:
 #   - MX is a deliberate cutover (auto-creating it would hijack a
 #     domain's existing inbound mail) -- never automated.
 #   - SPF include + DKIM selector are relay-specific (the relay signs;
 #     the mailserver does NOT sign locally -- no `setup config dkim`).
-#   - DMARC + rDNS are operator policy / provider-side.
+#   - DMARC + rDNS are the domain owner's policy / provider-side.
 #
 # MTA-STS policy id (RFC 8461): must change when the policy changes so
 # caching MTAs re-fetch. Derived from the policy-defining value

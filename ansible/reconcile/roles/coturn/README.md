@@ -1,42 +1,52 @@
 # reconcile/roles/coturn
 
-Shared TURN/STUN server. Used by both chat-video stacks:
+Shared TURN/STUN server for the chat-video apps deployed from the catalog:
 
-- **Nextcloud Talk + HPB** -- Talk reaches `turn.<base>:5349` for
-  restrictive-network media relay. Configured by
-  `vps-scripts/nextcloud-talk-hpb-wire.sh` via `occ talk:turn:add`.
-- **Rocket.Chat's bundled Jitsi** -- jitsi-videobridge is configured
-  with `JVB_TURN_HOST=turn.<base>` / `JVB_TURN_PORT=5349` /
-  `JVB_TURN_SECRET={{ turn_static_auth_secret }}` for the same
-  relay path.
+- **Nextcloud Talk + HPB** -- Talk reaches `turn.<zone>:5349` for
+  restrictive-network media relay. The panel's "Wire Nextcloud Talk + HPB"
+  action configures it with `occ talk:turn:add`
+  (`scripts/nextcloud-talk-hpb-wire.sh`, installed as
+  `/usr/local/bin/catena-wire-nextcloud-talk-hpb`).
+- **The Jitsi bridges of Rocket.Chat and Element** -- each template
+  configures jitsi-videobridge with `JVB_TURN_HOST=turn.<zone>`,
+  `JVB_TURN_PORT=5349` and the shared `turn_static_auth_secret`.
+- **Element's Synapse** -- hands its clients the same relay, from
+  `TURN_HOSTNAME` and `TURN_STATIC_AUTH_SECRET` in its environment.
 
-One coturn deployment serves both. Auth is `static-auth-secret`
-based -- each stack mints its own ephemeral HMAC-SHA1 credentials
-per call. Coturn does not maintain a per-user database.
+One coturn deployment serves them all. Auth is `static-auth-secret`
+based: each app mints its own ephemeral HMAC-SHA1 credentials per call,
+and coturn keeps no per-user database.
 
 ## What this role does
 
-1. Issues + renews a TLS cert for `turn.<base>` via Let's Encrypt
-   DNS-01 (Cloudflare API). HTTP-01 is unavailable because tcp/80 is
-   owned by cloudflared. Renewal handled by certbot's stock systemd
-   timer; a deploy hook SIGHUPs the running coturn container so
-   cert hot-reloads land without dropping calls.
-2. Renders `turnserver.conf` from the role's Jinja template,
+1. Runs when a consumer (a running Talk HPB or Jitsi bridge container) is
+   up or coturn is already deployed, on a host that has a domain. A
+   consumer that goes away leaves coturn running and maintained.
+2. Declares its ports to the public-port registry (table below).
+3. Points the gray-cloud `turn.<zone>` A record at the host's public IP
+   through the Cloudflare API.
+4. Issues and renews a TLS cert for `turn.<zone>` via Let's Encrypt
+   DNS-01 (Cloudflare API). HTTP-01 is unavailable because no web port is
+   open on the host: web traffic arrives through the Cloudflare tunnel.
+   certbot's stock systemd timer renews it, and a deploy hook SIGHUPs the
+   running coturn container so a renewed cert loads without dropping calls.
+   With no Cloudflare token in the store, the A record and the cert wait
+   and coturn serves STUN only.
+5. Renders `turnserver.conf` from the role's Jinja template,
    parameterized per host (public IP, static-auth secret, hostname,
    relay port range).
-3. Deploys coturn as a Docker Swarm service in `mode=global` with
-   `--network=host` so the container sees the VPS public IP directly
-   (required for ICE-candidate advertisement). Mirrors the
-   cloudflared swarm-service pattern.
+6. Creates coturn as a global swarm service on the host network, so the
+   container sees the public IP directly (required for ICE-candidate
+   advertisement). The tier-1 host engine carries the service spec
+   (catena-admin `payload/engines/tier1/catalog.go`, read with
+   `catena-tier1 spec coturn`) and reconciles it.
 
-## Architecture rule revision
+## Why a direct public path
 
-This role is the FIRST deliberate hole in the pre-2026-05 "all public
-traffic via Cloudflare Tunnel" rule. Cloudflare Tunnel is TCP/HTTP
-only; the chat-video media plane is fundamentally UDP. The rule has
-been narrowed to "all TCP/HTTP public traffic via Cloudflare Tunnel;
-UDP media plane direct on VPS public IP via shared coturn at
-`turn.<base>` plus per-stack media ports".
+The Cloudflare tunnel carries TCP/HTTP only, and the chat-video media
+plane is UDP. All web traffic enters through the tunnel; the UDP media
+plane is reached directly on the public IP, through coturn at
+`turn.<zone>` and the per-app bridge ports below.
 
 ## UDP exposure profile
 
@@ -45,23 +55,24 @@ UDP media plane direct on VPS public IP via shared coturn at
 | 3478 | UDP | coturn | STUN + plain TURN |
 | 5349 | TCP+UDP | coturn | TURN/TLS (restrictive-network fallback) |
 | 50000-50100 | UDP | coturn | Coturn relay range (ephemeral) |
-| 49160-49200 | UDP | NC Talk Janus | Talk media (when NC HPB block live) |
-| 10000 | UDP | RC Jitsi JVB | Jitsi media (when RC deployed) |
-| 10010 | UDP | Element Jitsi JVB | Jitsi media (when Element deployed) |
+| 10000 | UDP | Rocket.Chat Jitsi JVB | Jitsi media (when Rocket.Chat is deployed) |
+| 10010 | UDP | Element Jitsi JVB | Jitsi media (when Element is deployed) |
 
-The last three are swarm `mode: host` publishes, which dockerd DNATs past
-ufw's INPUT chain: they are open because Docker published them and they close
-when the service stops. Their `vps.expose.udp` labels declare them to the
-public-port registry so they appear in the effective set, not to open them.
+coturn's ports are a registry fragment this role writes, which the
+public-port reconciler opens in ufw. The last two are swarm `mode: host`
+publishes, which dockerd DNATs past ufw's INPUT chain: they are open because
+Docker published them and they close when the service stops. Their
+`vps.expose.udp` labels declare them to the public-port registry so they
+appear in the effective set.
 
 ## DR / portability
 
-- Cert: regenerated automatically via certbot on the new host (state
-  in `/etc/letsencrypt/`; restic-included by default).
+- Cert: `/etc/letsencrypt/` rides the backup with the rest of `/etc`; a
+  host without it issues a new one on its next converge.
 - Static auth secret: minted on-box into `/etc/catena/config.json`
   (`turn_static_auth_secret`), same DR path as every other shared
-  secret -- `/etc` rides the restic snapshot.
-- Compose / swarm spec: re-rendered on converge from this role.
+  secret.
+- Swarm service: reconciled on every converge from the tier-1 spec.
 
 ## Hardening posture
 
@@ -76,13 +87,14 @@ hardening guide and the EnableSecurity/coturn-secure-config
 |---------|------------------|
 | `denied-peer-ip` for every IPv4 + IPv6 special-purpose range | SSRF / pivot from an authenticated TURN client into RFC1918, loopback, cloud metadata, link-local. Without this, any chat app holding the shared secret can ask coturn to relay UDP to `127.0.0.1:5432`. |
 | `denied-peer-ip=::ffff:0.0.0.0-::ffff:255.255.255.255` | CVE-2026-27624 defense in depth -- IPv4-mapped IPv6 bypass of the IPv4 denies. The pinned image carries the upstream fix; the guard protects against a downgrade to one without it. |
-| `no-loopback-peers` + `no-multicast-peers` | Belt-and-braces redundant with the above. coturn evaluates them first. |
+| `no-multicast-peers`, and loopback peers refused by default | Belt-and-braces redundant with the above. coturn evaluates them first. |
 | `use-auth-secret` + `static-auth-secret` (>= 32 chars) | Brute-force resistance. HMAC-SHA1 over a 32+ char secret is computationally infeasible. |
 | `user-quota=12` / `total-quota=1200` | Caps the relay allocations a single (leaked) credential or the whole server can hold. |
 | `max-bps=3000000` | Caps bandwidth per session at ~24 Mbps. Bounds bandwidth exfil via a leaked credential. |
 | `stale-nonce=600` | 10-minute replay window on captured credentials. |
 | `cipher-list=` AEAD GCM only | Refuses CBC ciphers on TURN/TLS; closes BEAST / Lucky13 / padding-oracle class without disabling TLS 1.2. TLS 1.3 negotiates first when both peers support it. |
-| `no-cli` | Removes the telnet management interface attack surface. |
+| `dtls` | Binds the UDP half of the TLS port, which the public-port fragment declares. |
+| No `--cli` | The telnet management interface is opt-in and stays off. |
 | `simple-log` | ANSI-free log stream; clean parsing in journald / operator tools. |
 
 **Deliberate omissions:**
@@ -95,42 +107,33 @@ hardening guide and the EnableSecurity/coturn-secure-config
   (see fail2ban/fail2ban#2802) and the marginal value over the
   quota + secret-strength + stale-nonce controls is low: HMAC-SHA1
   brute-force is computationally infeasible and credential-leak
-  attacks produce legitimate-looking source IPs. See the
-  `Explicit non-features` block in
-  [ops/internal_docs/tools/data-security-overview.md](../../../../../ops/internal_docs/tools/data-security-overview.md).
+  attacks produce legitimate-looking source IPs.
 - **No allow-list (`allowed-peer-ip`) mode.** Catena's TURN serves
   general browser-to-browser calls; allow-list would break the use
   case. Deny-list of every special-purpose IANA range is the correct
   posture.
 
-**Image-update SLA:** the coturn image pin lives in the tier-1 host
+**Image updates:** the coturn image pin lives in the tier-1 host
 engine's built-in catalog (catena-admin
-`payload/engines/tier1/catalog.go`), not in this role. It is bumped
-within 7 days of upstream release, sooner on a CVE. That move also gave
-it a Renovate tracker and a Trivy scan for the first time -- while the
-pin lived here it had neither, so coturn was the one tier-1 image
-nothing was watching. CVE feed:
+`payload/engines/tier1/catalog.go`), where Renovate and Trivy track it
+with the other tier-1 images. CVE feed:
 [opencve.io/cve/?vendor=coturn_project](https://app.opencve.io/cve/?vendor=coturn_project)
 and the upstream GitHub Security Advisories for
 [coturn/coturn](https://github.com/coturn/coturn/security/advisories).
-Every bump reruns the bench scenarios that exercise the chat-video
-path through coturn before the image pin lands on `main`.
 
-## Adding a third chat-video stack (Matrix / Synapse / Element)
+## Element (Synapse)
 
 The shared-secret auth model (`use-auth-secret` +
 `static-auth-secret`) is the same RFC 7635 HMAC-SHA1 REST credential
-scheme used by Synapse, the server behind Element. **No coturn role
-changes are required** to add a third chat-video stack -- only a
-Synapse compose entry (in `catenahq/catena-templates`) that wires
-the existing `turn_static_auth_secret` through to
-`homeserver.yaml`:
+scheme Synapse, the server behind Element, uses. The Element template in
+`catenahq/catena-templates` wires `turn_static_auth_secret` into
+`homeserver.yaml`, and coturn needs nothing per app:
 
 ```yaml
 turn_uris:
-  - "turn:turn.<base>:3478?transport=udp"
-  - "turn:turn.<base>:3478?transport=tcp"
-  - "turns:turn.<base>:5349?transport=tcp"
+  - "turn:turn.<zone>:3478?transport=udp"
+  - "turn:turn.<zone>:3478?transport=tcp"
+  - "turns:turn.<zone>:5349?transport=tcp"
 turn_shared_secret: "<turn_static_auth_secret>"
 turn_user_lifetime: 86400000
 turn_allow_guests: true
@@ -138,25 +141,21 @@ turn_allow_guests: true
 
 Synapse mints per-call usernames as `<unix_ts>:<matrix_user_id>` and
 passwords as `base64(HMAC-SHA1(static_auth_secret, username))`, which
-is the same derivation NC Talk and Jitsi/JVB use. The single
-`static-auth-secret` in coturn validates all three.
+is the same derivation Nextcloud Talk and Jitsi/JVB use. The single
+`static-auth-secret` in coturn validates all of them.
 
-**Caveat:** Jitsi/JVB only supports the `auth-secret` mechanism (not
-`lt-cred-mech`). If a future change adds long-term-credential users to
-coturn, do not switch the daemon away from `use-auth-secret` -- run
-both mechanisms or keep `use-auth-secret` exclusively.
-
-The Synapse template work itself is tracked in
-[BACKLOG_TECHNICAL.md](../../../../../ops/BACKLOG_TECHNICAL.md).
+**Caveat:** Jitsi/JVB supports the `auth-secret` mechanism only, and
+`lt-cred-mech` users would need both mechanisms enabled: coturn keeps
+`use-auth-secret` either way.
 
 ## Runbook -- diagnosing a failed Talk / Jitsi call
 
 1. `docker service ls --filter name=coturn` -- replicas 1/1?
 2. `ss -uln | grep -E ':(3478|5349)\b'` -- listening?
 3. `ufw status verbose | grep -E '(3478|5349|50000)'` -- ufw permitting?
-4. `dig +short turn.<base>` -- A record returning the VPS public IP?
+4. `dig +short turn.<zone>` -- A record returning the host's public IP?
    (must NOT be proxied through Cloudflare -- gray-cloud only)
-5. `openssl s_client -connect turn.<base>:5349` -- TLS handshake completing?
+5. `openssl s_client -connect turn.<zone>:5349` -- TLS handshake completing?
 6. From a client behind a restrictive firewall, capture
    chrome://webrtc-internals during a call: ICE candidates of type
    "relay" must be present.

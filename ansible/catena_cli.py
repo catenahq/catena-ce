@@ -417,7 +417,7 @@ def _run_deploy_chain(
         and every leg carries it already.
 
     The Portainer API key that the auth stack (Keycloak, oauth2-proxy) is
-    gated on is minted in-band by roles/portainer during the converge (it
+    gated on is minted in-band by reconcile/roles/portainer during the converge (it
     mints from the initial admin, sets the key as a fact and writes it to the
     on-box store, and self-heals a missing/rejected key on every converge),
     so a single converge pass deploys everything."""

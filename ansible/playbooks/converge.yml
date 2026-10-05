@@ -1,21 +1,17 @@
 ---
-# Main converge: bring a bootstrapped host to the desired state and keep it
-# there. Safe to re-run. Runs over the host's administrative address: the SSH
-# address the install recorded, or the one `catena-cli install --address`
-# names for one run (the tailnet address once the panel's Lockdown has closed
-# public SSH).
+# The full converge: bring a bootstrapped host to the desired state, every role
+# in dependency order. Safe to re-run. `catena-cli install` runs it after
+# bootstrap.yml and show-keyset.yml, then validate.yml; run again, the install
+# re-applies it to an installed server, the bootstrap roles the host's own
+# converge (reconcile.yml) leaves out included. `--tags` scopes it to some
+# roles, each tagged with its own name.
 #
-# This file is a single atomic unit (one converge), with no cross-playbook
-# imports. Composition (bootstrap + converge + validate) lives in the
-# installer/CLI. Direct invocation runs the converge alone.
-#
-# Usage (cwd = ansible/):
-#   ansible-playbook -i inventory/<name> playbooks/converge.yml --limit host1
+# It reaches the host at the address the install dials: `--address` for one run
+# (the tailnet address once the panel's Lockdown has closed public SSH), else
+# the SSH address bootstrap.yml recorded.
 
 - name: Converge VPS to desired state
-  # `stage_hosts` lets a wrapper target a specific host/group via
-  # import_playbook + vars. Direct invocation with `--limit` still uses
-  # the `vps:` group default.
+  # `stage_hosts` narrows the target; the default is the `vps:` group.
   hosts: "{{ stage_hosts | default('vps') }}"
   become: true
   gather_facts: true
@@ -28,22 +24,21 @@
     converge_disk_preflight_paths: ["/", "/srv/catena"]
     converge_disk_preflight_crit_pct: 90
 
-  # ─── Fail-fast external-service reachability ───────────────────────────
+  # --- Fail-fast external-service reachability -----------------------------
   # Probe every configured external backend the converge depends on BEFORE
   # any heavy role runs, so a dead / unreachable / misconfigured endpoint
-  # fails the install in ~10s with a clear message -- not 10-30 min in when
-  # the backup role finally writes (a restic-repo-unreachable converge once
-  # took 29 min to surface). Probes run ON the VPS (where the backup / mail
-  # traffic actually originates), so they catch VM-side network blocks a
-  # controller-side check would miss. Values come from the inventory `.env`
-  # (dotenv), not role defaults (out of scope in pre_tasks). Bypass for
-  # offline dev with -e skip_external_preflight=true.
+  # fails the converge in ~10s with a clear message rather than 10-30 min in,
+  # when the backup role first writes. Probes run ON the host (where the
+  # backup / mail traffic originates), so they catch host-side network blocks
+  # a controller-side check would miss. Values come from the store's cfg_*
+  # facts, published by the loader below. skip_external_preflight=true
+  # bypasses them.
   pre_tasks:
     # Load the on-box config store (/etc/catena/config.json). Runs FIRST so
-    # downstream roles read the on-box secret facts. It is the source of
-    # truth: it adopts the seed's plaintext externals, MINTS every internal
-    # service secret on-box, and set_facts them. See
-    # tasks/load_onbox_config.yml.
+    # every role below reads the store's facts. tasks/load_onbox_config.yml
+    # adopts a secret the install passes in (an admin password install.yaml
+    # pins), MINTS every missing internal service secret on the host, and
+    # publishes the store as facts.
     - name: "Load on-box config store"
       # apply: propagate [always] to every task INSIDE the include. Without
       # it, include_tasks fires the include (it is `always`) but the inner
@@ -172,17 +167,12 @@
           tags: [stamp_version]
       tags: [stamp_version]
 
-  # Tags allow iterating on a single role:
-  #   ansible-playbook -i inventory/<name> playbooks/converge.yml --limit host1 --tags storage
-  # Preflight runs as its own ansible-playbook invocation (the installer
-  # runs it first); tag filters here never skip it.
-  # Each role's tag matches its name.
+  # Each role's tag matches its name. The preflights above carry `always`, so
+  # a tag filter never skips them.
   #
   # Joining the tailnet and closing public 22 are playbooks/lockdown.yml, which
-  # a Settings save of the tailnet and a whole-server restore run to join and
-  # the panel's Lockdown runs to close: a converge is something a host runs on
-  # itself, and the step that can make it unreachable is a decision taken once
-  # rather than re-taken every run.
+  # the panel runs on the host: the step that can make a host unreachable is a
+  # decision taken once rather than re-taken every converge.
   roles:
     - { role: common, tags: [common] }
     # The declarative public-port registry. It sits right after common and
@@ -202,10 +192,10 @@
     # Host engine payload (catena-cloudflared-sync, catena-recovery,
     # catena-schedule, catena-daily, the lanes + units), extracted from the
     # public catena-admin image. Needs docker and nothing else, and every role
-    # from here down may assume /usr/local/bin/catena-* exists. cloudflare_tunnel
-    # five roles below fixes the deadline: an engine that lands any later leaves
-    # a first converge with no tunnel, and oauth2_proxy then waits on an edge
-    # nobody has brought up. See reconcile/roles/payload/README.md.
+    # from here down may assume /usr/local/bin/catena-* exists. cloudflare_tunnel,
+    # later in this list, fixes the deadline: an engine that lands any later
+    # leaves a first converge with no tunnel, and oauth2_proxy then waits on an
+    # edge nobody has brought up. See reconcile/roles/payload/README.md.
     - { role: payload, tags: [payload] } # host engine binaries + units
     # The OS update configuration, the host packages and journal, and the
     # reboot-required probe (its script and timer ship in the payload above).
@@ -224,20 +214,16 @@
     # hosting the Keycloak DB. Runs after traefik (needs catena-network) and
     # BEFORE keycloak (which provisions its DB inside it).
     - { role: postgres, tags: [postgres] } # infra Postgres (Keycloak DB)
-    # Portainer CE -- the container control plane (Docker + Swarm + later K8s).
-    # The CE + EE API seams + catena-admin drive it via its stack API. Runs
-    # after postgres (both are swarm services on catena-network).
+    # Portainer CE -- the container control plane, whose stack API the client
+    # apps deploy through. Runs after postgres (both are swarm services on
+    # catena-network).
     - { role: portainer, tags: [portainer] } # container control plane
     # cloudflared swarm service + CF tunnel + wildcard DNS. Runs BEFORE
-    # keycloak + oauth2_proxy so the public auth.<zone> URL is reachable
-    # by the time oauth2_proxy waits for Keycloak's OIDC discovery doc.
-    # Without this ordering, a fresh-target converge would fail in a
-    # single-pass converge.yml (CF 530 from oauth2_proxy's wait task).
-    # Idempotent: subsequent converges find the tunnel + DNS + service
-    # already in the desired state and no-op.
-    # No access-mode gate. The role self-defers when the store holds no
-    # Cloudflare token, or its engine is not on the host yet, so one install
-    # shape covers both the tailnet-only host and the tunnelled one.
+    # keycloak + oauth2_proxy so the public auth.<zone> URL answers by the
+    # time oauth2_proxy waits for Keycloak's OIDC discovery doc; in the other
+    # order a first converge fails on a Cloudflare 530 in that wait.
+    # With no Cloudflare token in the store the engine defers the tunnel, so
+    # the same role list serves a host with no domain yet.
     - { role: cloudflare_tunnel, tags: [cloudflare_tunnel, cloudflare, edge] } # CF tunnel + DNS + cloudflared swarm service
     # Keycloak MUST come before oauth2_proxy so its realm exists before
     # oauth2_proxy registers its OIDC client via keycloak-config-cli. Both
@@ -257,7 +243,7 @@
     # tool that can repair a Portainer that will not start must not be deployed
     # by it.
     - { role: catena-admin, tags: [catena_admin] }
-    - { role: coturn, tags: [coturn] } # shared TURN/STUN for NC Talk HPB + RC Jitsi (UDP media plane, direct on VPS public IP)
+    - { role: coturn, tags: [coturn] } # shared TURN/STUN for Nextcloud Talk HPB + the Jitsi bridges (UDP media plane, direct on the public IP)
     - { role: backup, tags: [backup] } # backup configuration + the first snapshot
 
   post_tasks:
@@ -288,7 +274,3 @@
       vars:
         catena_converge_path: converge
       tags: [public_ports, bootstrap_drift, prune, release_manifest]
-
-# Post-converge validation runs as its own ansible-playbook invocation
-# (playbooks/validate.yml), composed by the installer/CLI after this
-# converge. A failed validate still fails the overall run.

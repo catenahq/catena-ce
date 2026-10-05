@@ -22,8 +22,6 @@
 # the consumer is first deployed -- the same converge that wires OIDC,
 # aliases, etc. -- matching the established "deploy app, then converge
 # catches up" rhythm.
-#
-# Gated by the caller (main.yml) on portainer_api_key.
 
 - name: "ClamAV: what scope the {{ clamav_network }} network has, if it exists"
   # An ATTACHABLE OVERLAY, and it has to be: `docker stack deploy` refuses a

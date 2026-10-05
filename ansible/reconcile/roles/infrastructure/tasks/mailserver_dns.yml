@@ -1,9 +1,9 @@
 ---
-# Mailserver DNS -- the safe, mail-specific records ops can own via the
-# Cloudflare API. Clones the reconcile/roles/coturn dns.yml upsert idiom
-# (look up -> create-if-absent -> update-if-drift).
+# Mailserver DNS -- the safe, mail-specific records the converge writes via
+# the Cloudflare API, with the same upsert idiom as reconcile/roles/coturn
+# dns.yml (look up -> create-if-absent -> update-if-drift).
 #
-# ops automates:
+# Written here:
 #   - mail.<zone>  A   (gray-cloud) -> VPS public IP. The mail plane
 #                      (25/465/587/993) cannot ride the CF tunnel, so the
 #                      MX/mail FQDN must resolve straight to the VPS.
@@ -13,7 +13,7 @@
 #                      (which resolves via the existing wildcard CNAME).
 #   - _smtp._tls.<zone>   TXT -> TLS-RPT (RFC 8460) reporting address.
 #
-# Deliberately NOT automated (operator-manual, see the runbook):
+# Left to the domain's owner, by hand:
 #   - MX     -- a cutover decision; auto-creating it would hijack a
 #               domain's existing inbound mail.
 #   - SPF    -- the relay include is relay-specific.
@@ -55,14 +55,11 @@
   delegate_to: localhost
   become: false
   block:
-    # cloudflare_zone_id is normally set by the cloudflare_tunnel role
-    # earlier in a full converge. But this task also runs under
-    # `--tags infrastructure` (stage-3b mailserver wiring, and any
-    # operator iterating on just this role), where cloudflare_tunnel is
-    # skipped and the fact is absent. Resolve it here when missing so the
-    # task is self-sufficient rather than silently depending on another
-    # role's run order.
-    - name: "Mailserver DNS: resolve cloudflare_zone_id (when not set by cloudflare_tunnel)"
+    # cloudflare_zone_id is resolved by whichever Ansible-side Cloudflare
+    # caller needs it first in the run (this file, or
+    # reconcile/roles/coturn/tasks/dns.yml) and reused after, so a
+    # `--tags infrastructure` run resolves it here.
+    - name: "Mailserver DNS: resolve cloudflare_zone_id (when not resolved yet)"
       when: cloudflare_zone_id is not defined
       block:
         - name: "Mailserver DNS: look up zone_id for {{ cloudflare_zone }}"
@@ -90,7 +87,7 @@
           ansible.builtin.set_fact:
             cloudflare_zone_id: "{{ _ms_dns_zones.json.result[0].id }}"
 
-    # ── mail.<zone> A (gray-cloud) ──────────────────────────────────
+    # --- mail.<zone> A (gray-cloud) ----------------------------------
     - name: "Mailserver DNS: look up A record for {{ mailserver_hostname }}"
       ansible.builtin.uri:
         url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records?type=A&name={{ mailserver_hostname }}"
@@ -146,7 +143,7 @@
           _ms_dns_a.json.result[0].content != public_ip
           or _ms_dns_a.json.result[0].proxied | default(false)
 
-    # ── _mta-sts.<zone> TXT (policy id) ─────────────────────────────
+    # --- _mta-sts.<zone> TXT (policy id) -----------------------------
     - name: "Mailserver DNS: look up _mta-sts TXT"
       ansible.builtin.uri:
         url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records?type=TXT&name=_mta-sts.{{ cloudflare_zone }}"
@@ -177,7 +174,7 @@
         (_ms_dns_stsid.json.result | length) == 0
         or _ms_dns_stsid.json.result[0].content != ('v=STSv1; id=' ~ mailserver_mta_sts_policy_id ~ ';')
 
-    # ── _smtp._tls.<zone> TXT (TLS-RPT) ─────────────────────────────
+    # --- _smtp._tls.<zone> TXT (TLS-RPT) -----------------------------
     - name: "Mailserver DNS: look up _smtp._tls TXT"
       ansible.builtin.uri:
         url: "{{ cloudflare_api_base }}/zones/{{ cloudflare_zone_id }}/dns_records?type=TXT&name=_smtp._tls.{{ cloudflare_zone }}"

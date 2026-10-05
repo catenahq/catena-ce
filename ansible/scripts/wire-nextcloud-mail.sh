@@ -3,12 +3,9 @@
 # Nextcloud Mail app inside a deployed Nextcloud container. Backs the
 # "Wire Nextcloud Mail" catena-admin action.
 #
-# Why: the Email Archive feature (catena-email-archive sidecar) reads
-# per-user IMAP/CalDAV/CardDAV credentials from Nextcloud Mail's
-# oc_mail_accounts table. The Mail app has to be enabled before any
-# user can configure an account; this script makes it part of the
-# standard wiring sweep so the operator does not need a separate occ
-# run after deploying Nextcloud from the app catalog.
+# The Mail app has to be enabled before any user can configure an account;
+# this script makes it part of the standard wiring so no separate occ run
+# is needed after deploying Nextcloud from the app catalog.
 #
 # Idempotent: probes `occ app:list` for the mail row and only installs
 # when missing on disk; `occ app:enable` is itself idempotent.
@@ -29,11 +26,7 @@ occ app:install mail >/dev/null 2>&1 || true
 occ app:enable mail
 
 echo
-echo "✓ Nextcloud Mail app installed and enabled."
+echo "+ Nextcloud Mail app installed and enabled."
 echo
 echo "Users can now configure their IMAP/SMTP accounts at:"
 echo "  Nextcloud -> top-right menu -> 'Mail'"
-echo
-echo "Once at least one user has configured an account, the"
-echo "Email Archive sync will pick up the credentials from"
-echo "oc_mail_accounts and start mirroring into Nextcloud Files."

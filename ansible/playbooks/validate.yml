@@ -1,26 +1,22 @@
 ---
 # Validation orchestrator: check a converged host from three vantage points,
 # so a service that only answers on the box is not mistaken for a working one.
-#   1. On-host  -- per-role Ansible validate tasks (roles/<role>/tasks/validate.yml), executed on the target
+#
+#   1. On-host  -- each role's own tasks/validate.yml, executed on the target
 #   2. Access   -- SSH from the controller, the two UIs on the host's loopback,
 #                  the public hostnames once a domain is set
 #   3. External -- from the controller, hitting public IP / CF hostnames
 #
-# The installer's last leg. With no domain, tailnet or backup in the store yet,
-# the checks that need one skip and say so.
+# The installer's last leg. On the host, catena-converge runs vantage 1 after
+# every converge that applies reconcile.yml. With no domain, tailnet or backup
+# in the store yet, the checks that need one skip and say so.
 
 - name: "Vantage 1 -- on-host checks via per-role validate.yml"
-  # Each role under test ships its own roles/<role>/tasks/validate.yml.
-  # Invoked via include_role + tasks_from so each role gets first-class
-  # Ansible diagnostics (named asserts, structured fail_msg) on its own
-  # fixtures. Replaces the previous Goss (.yaml DSL) approach which
-  # accumulated tooling bugs and runtime-template collisions; goss was
-  # 19 months stale at migration time, and its YAML files went through
-  # goss's own Go-template engine before YAML parse, so docker
-  # --format, bash ${#var}, and even literal {{ ... }} in comments all
-  # tripped it. First-party Ansible primitives (stat, slurp,
-  # package_facts, service_facts, command, assert) cover every check
-  # goss did, with no new runtime dependency.
+  # Each role under test ships its own tasks/validate.yml, invoked via
+  # include_role + tasks_from so each role gets first-class Ansible
+  # diagnostics (named asserts, structured fail_msg) on its own fixtures,
+  # from first-party Ansible primitives (stat, slurp, package_facts,
+  # service_facts, command, assert) with no extra runtime dependency.
   hosts: "{{ stage_hosts | default('vps') }}"
   become: true
   gather_facts: true
@@ -47,9 +43,8 @@
       - keycloak
       - oauth2_proxy
       - coturn
-    # `cloudflared` intentionally absent -- it's not a standalone role;
-    # CF Tunnel lives inside reconcile/roles/infrastructure and is covered by
-    # reconcile/roles/infrastructure/tasks/validate.yml's cloudflared-swarm check.
+    # reconcile/roles/infrastructure/tasks/validate.yml carries the cloudflared
+    # swarm check for the tunnel reconcile/roles/cloudflare_tunnel brings up.
 
   pre_tasks:
     # Load the on-box config store so the validate checks that read its
@@ -85,8 +80,7 @@
 # requires email server" error which we catch as a fast-fail.
 #
 # Atomicity: gated on /health/ready -- the canonical "DB pool is up,
-# migrations done, admin REST is accepting tokens" signal. Per project
-# CLAUDE.md atomicity rule.
+# migrations done, admin REST is accepting tokens" signal.
 #
 # Skip when the host has no SMTP configured at all (SMTP_PROVIDER unset): the
 # contract is "if SMTP is supposed to work, prove it works", not "demand
@@ -408,40 +402,27 @@
     # Hits oauth2-proxy's /oauth2/start endpoint on each gated host;
     # helpers/public_https.py follows no redirect, so the FIRST redirect's
     # Location is what comes back.
-    # _gated_hosts is filtered to ones whose hostname var is actually
-    # defined in the inventory (skips silently on partial deploys).
+    # _gated_hosts keeps only the hostnames that are set.
     #
     # Coverage:
-    #   - Static infrastructure apps (gatus, catena-admin at dash.<zone>,
-    #     healthchecks, recovery) are always probed. The dash.<zone> entry
-    #     reaches catena-admin via catena_admin_hostname.
-    #   - Operators can add ad-hoc gated hostnames via the
-    #     `validate_extra_gated_hosts` inventory variable.
-    #   - Dynamic client-app gated hosts (deployed via the Portainer
-    #     marketplace) get their Traefik routes + oauth2-proxy gating from
-    #     dashboard-sync (vps.route.host + vps.auth.* labels). Their auth
-    #     contract is verified by verify_gated_services.yml; there is no
-    #     enumeration API call here (the old project.all/compose.one are
-    #     gone -- Portainer stacks are discovered by dashboard-sync, not
-    #     re-walked in validate).
+    #   - The platform's gated apps (gatus, catena-admin at dash.<zone>,
+    #     healthchecks, portainer) are always probed.
+    #   - `validate_extra_gated_hosts` adds ad-hoc gated hostnames.
+    #   - Client apps deployed from the catalog get their Traefik routes +
+    #     oauth2-proxy gating from dashboard-sync (vps.route.host +
+    #     vps.auth.* labels). Their auth contract is checked on the host by
+    #     verify_gated_intent.py (reconcile/roles/infrastructure
+    #     verify_gated_services.yml), from the same labels dashboard-sync
+    #     reads.
     #
-    # Native-OIDC hosts (vps.auth.mode=public + vps.auth.oidc=true)
-    # are EXCLUDED here. Native-OIDC apps run their own OAuth dance
-    # against Keycloak directly with no oauth2-proxy in the chain, so
-    # /oauth2/start does NOT exist at those hosts -- a probe there
-    # 200's against the app's own UI for that path. Their auth
-    # contract is verified separately:
-    #   - verify_gated_services.yml hits the root URL and accepts
-    #     200 (app's own SPA shell) or 302 (oauth2-proxy redirect).
-    # Native-OIDC apps (e.g. Nextcloud, Element) are excluded from the
-    # /oauth2/start probe set; the comment shape is retained for future
-    # client-deployed native-OIDC apps.
+    # Native-OIDC hosts (vps.auth.mode=public + vps.auth.oidc=true) are not
+    # in this set: those apps run their own OAuth dance against Keycloak
+    # with no oauth2-proxy in the chain, so /oauth2/start does not exist at
+    # their hosts and a probe there 200s against the app's own UI.
     - name: "Build gated-host probe set"
       ansible.builtin.set_fact:
-        # Keycloak's own host (auth.<zone>) is the IdP, not an oauth2-
-        # proxy-gated client; the keycloak compose carries no
-        # `vps.auth.mode` label so the rejectattr above doesn't catch
-        # it. Drop it here unconditionally.
+        # Keycloak's own host (auth.<zone>) is the IdP, not an
+        # oauth2-proxy-gated client, so it is dropped unconditionally.
         _gated_hosts: >-
           {{
             (
@@ -580,15 +561,15 @@
             | unique
             | list
           }}
-        # Allowlist = always-present infra ports + the registry's bound TCP
-        # ports (Portainer 9000, coturn 5349, mailserver 25/465/587/993, ...).
-        #   22  - SSH (public until the panel's Lockdown narrows it)
-        #   80  - Traefik HTTP (CF Tunnel only; UFW blocks public)
-        #   443 - Traefik HTTPS (CF Tunnel only; UFW blocks public)
-        # The rest come from /etc/catena/public-ports.summary.json
-        # (all_tcp_bound). Fallback to the historical static set when the
-        # summary is absent (e.g. a partial converge before the reconciler
-        # ran), so this check never silently passes on an empty allowlist.
+        # Allowlist = 22 (SSH, public until the panel's Lockdown narrows it),
+        # 80 and 443, plus the registry's bound TCP ports (Portainer 9000,
+        # coturn 5349, mailserver 25/465/587/993, ...) from
+        # /etc/catena/public-ports.summary.json (all_tcp_bound). No catena
+        # service binds 80 or 443 on the host: web traffic enters through the
+        # Cloudflare tunnel, and catena-traefik publishes no port. A static
+        # fallback applies when the summary is absent (e.g. a partial converge
+        # before the reconciler ran), so this check never silently passes on
+        # an empty allowlist.
         _r4_allowed_ports: >-
           {{
             ([22, 80, 443] +
@@ -623,11 +604,9 @@
         success_msg: "Host port set OK ({{ _r4_public_ports | join(', ') }} - all in allowlist)"
 
     # Every list above describes what the registry DECLARES. This is the one
-    # field that says whether the host is in that state. The reconciler used
-    # to return early when the DOCKER-USER chain was absent, record the whole
-    # plan as applied and exit 0 -- so a host publishing every restricted port
-    # produced artifacts identical to a correctly guarded one, and this
-    # validation read them and passed.
+    # field that says whether the host is in that state: a reconciler that
+    # could not install its DOCKER-USER rules leaves the same declared lists
+    # as a correctly guarded host, and only rules_unapplied tells them apart.
     - name: "Assert the port reconciler applied every rule it planned"
       ansible.builtin.assert:
         that:

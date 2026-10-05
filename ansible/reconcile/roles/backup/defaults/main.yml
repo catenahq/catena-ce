@@ -381,7 +381,7 @@ backup_exclude_patterns:
   # tests/unit/test_backup_ssh_host_key_exclusion.py.
   - "/etc/ssh/ssh_host_*"
   # restic's own home + cache, created by catena-backup.service's
-  # ExecStartPre under /var/lib/catena (now a backup path). The cache is a
+  # ExecStartPre under /var/lib/catena (itself a backup path). The cache is a
   # local index of the repo we are writing INTO: backing it up is circular,
   # it churns on every run, and restic rebuilds it on demand.
   - "/var/lib/catena/restic-cache"
@@ -420,9 +420,8 @@ backup_restic_env:
 # several of them.
 #
 # catena-backup-run is named like every other host command: catena-prefixed,
-# no language suffix. Nothing in backup.env names it (that file is written
-# only-if-absent, so a path recorded in it could never be corrected); the
-# payload unit catena-backup.service does.
+# no language suffix. Nothing in backup.env names it; the payload unit
+# catena-backup.service does.
 backup_wrapper_script: /usr/local/bin/catena-backup-run
 backup_coverage_script: /usr/local/bin/catena-backup-coverage
 # Single canonical entrypoint for running restic with backup.env loaded
@@ -466,8 +465,9 @@ backup_disk_preflight_script: /usr/local/bin/catena-disk-preflight
 # a small stack; the derived value takes over from there.
 backup_preflight_min_bytes: 5368709120 # 5 GiB
 backup_env_file: /etc/catena/backup.env
-# The cold-tier half, kept separate because backup.env is only-if-absent and
-# the WORM coordinates have to be able to change on an existing host.
+# The offsite-copy lane's dead-man endpoints, kept separate because backup.env
+# is rewritten only once the host's backup is configured, and these apply on
+# every converge either way.
 offsite_env_file: /etc/catena/offsite.env
 backup_password_file: /etc/catena/restic.pass
 backup_systemd_unit_name: catena-backup

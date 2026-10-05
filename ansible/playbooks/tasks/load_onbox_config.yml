@@ -2,19 +2,20 @@
 # On-box config store loader. THE secret source of truth.
 #
 # The store is a plaintext 0600 file at /etc/catena/config.json, which rides
-# the restic backup (/etc is in reconcile/roles/backup backup_paths). On every converge
-# it ADOPTS any declared secret in scope (fill-only) -- on a fresh install that
-# is the install-critical vendor creds the CLI threads in as `-e @file`; on a
-# fresh recover it is the DR keyset re-entered at the prompt; on a day-2
-# converge nothing is in scope and the store is already the truth. It MINTS
-# every missing INTERNAL service secret AND the user-held admin/restic DR
-# keyset on-box (reconcile-not-overwrite, via helpers/onbox_config.py) so no
-# secret is minted on the laptop, then set_facts each one from the store so
-# all downstream roles read the on-box source of truth.
+# the restic backup (/etc is in reconcile/roles/backup backup_paths). On every
+# run it ADOPTS any declared secret in scope (fill-only) -- on an install that
+# is the admin password an install.yaml pins, which the CLI threads in as
+# `-e @file`; on any other run nothing is in scope and the store is already the
+# truth. It MINTS every missing INTERNAL service secret and the user-held admin
+# and console passwords on-box (reconcile-not-overwrite, via
+# helpers/onbox_config.py) so no secret is minted on a controller, then
+# set_facts each one from the store so all downstream roles read the on-box
+# source of truth. The restic password is generated in the panel instead.
 #
-# Included UNCONDITIONALLY from converge.yml + validate.yml pre_tasks (runs
-# before any role). A rebuild needs only the {restic endpoint, S3 creds,
-# restic password} keyset: the store returns with the data, internals and all.
+# Included UNCONDITIONALLY from the pre_tasks of converge.yml, reconcile.yml,
+# validate.yml, lockdown.yml and rotate-tailscale.yml (runs before any role). A
+# rebuild needs only the {restic endpoint, S3 creds, restic password} keyset:
+# the store returns with the data, internals and all.
 
 - name: "onbox: stage the knob registry"
   ansible.builtin.include_tasks:
@@ -107,12 +108,12 @@
     label: "{{ item.key }}"
   no_log: true
 
-# ─── non-secret config: seed once from .env, then read only the store ───────
+# --- non-secret config: seed once from .env, then read only the store --------
 #
-# Its own file because bootstrap.yml runs THAT and nothing else: it needs the
-# config half (bootstrap/roles/tailscale picks its control plane from cfg_tailnet_provider)
-# and must not run the rest of this loader, which mints the DR keyset and calls
-# the container registry on a machine with no Docker.
+# Its own file because bootstrap.yml and show-keyset.yml run THAT and nothing
+# else: they need the config half and must not run the rest of this loader,
+# which mints the internal secrets and calls the container registry, on a
+# machine with no Docker yet.
 - name: "onbox: seed and publish the store-owned config"
   ansible.builtin.include_tasks:
     file: seed_onbox_config.yml
@@ -120,7 +121,7 @@
       tags: [always, onbox]
   tags: [always, onbox]
 
-# ─── image pins: what the on-host update lane last applied ─────────────────
+# --- image pins: what the on-host update lane last applied -------------------
 #
 # The converge owns TOPOLOGY -- which services exist and how they wire. The
 # on-host lane owns IMAGE VERSIONS, and it bumps them between converges. A
@@ -146,7 +147,7 @@
   ansible.builtin.set_fact:
     catena_image_pins: "{{ _onbox_image_pins.stdout | from_json }}"
 
-# ─── which catena-admin release this converge installs ─────────────────────
+# --- which catena-admin release this converge installs -----------------------
 #
 # ASKED, not remembered. The registry writes the version and its digest in one
 # answer, so the two cannot disagree. That is the whole requirement, because

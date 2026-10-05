@@ -345,7 +345,7 @@ def test_a_tree_installed_from_other_pins_is_rebuilt(cli, monkeypatch, tmp_path)
     monkeypatch.delenv("ANSIBLE_COLLECTIONS_PATH", raising=False)
     monkeypatch.setattr(cli, "ANSIBLE_DIR", tmp_path)
     (tmp_path / "requirements.yml").write_text("collections: []\n")
-    stale = tmp_path / cli.COLLECTIONS_DIR / "ansible_collections" / "community" / "sops"
+    stale = tmp_path / cli.COLLECTIONS_DIR / "ansible_collections" / "community" / "unpinned"
     stale.mkdir(parents=True)
     calls: list[list[str]] = []
     monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))

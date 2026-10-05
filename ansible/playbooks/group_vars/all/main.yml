@@ -247,9 +247,9 @@ catena_vendor_manifest_path: "{{ playbook_dir }}/../../VENDOR.json"
 # --- What this converge installed, so the next one can withdraw it ---
 # /var/lib rather than /etc, for the reason the payload's own manifest gives:
 # it describes what is on this host right now, it is rewritten every converge,
-# and /etc rides the backup set -- a restored manifest would describe the
-# machine the snapshot came from and hand the delete leg a list of paths this
-# host never had.
+# and a restore puts /etc back but leaves /var/lib/catena out -- a restored
+# manifest would describe the machine the snapshot came from and hand the
+# delete leg a list of paths this host never had.
 catena_converge_manifest_path: /var/lib/catena/converge-manifest.json
 
 # What the panel payload installed (catena-admin
@@ -259,15 +259,14 @@ catena_converge_manifest_path: /var/lib/catena/converge-manifest.json
 catena_payload_manifest_path: /var/lib/catena/payload-manifest.json
 
 # What this converge delivered, written at the very end of converge.yml and
-# reconcile.yml so it describes a converge that finished. The panel reads it to
-# tell "this feature is off" from "this feature's plumbing never reached this
-# host": every button dispatches a FIXED action name through the SSH forced
-# command, and that table is rendered by the converge, so a panel newer than
-# the host's converge shows a button for an action the host will refuse.
+# reconcile.yml so it describes a converge that finished. The payload
+# installer and the panel's self-update write their own keys into the same
+# file, and the panel renders the actions the payload declares there
+# (tasks/record_release_manifest.yml says who owns which keys).
 #
 # It lives under /var/lib/catena: it is rebuildable state, that directory is
-# already bind-mounted read-only into the panel, and it stays out of restic
-# snapshots because a restored host's converge state is its own.
+# already bind-mounted read-only into the panel, and a restore leaves it out of
+# what it puts back, because a restored host's converge state is its own.
 catena_release_manifest_path: "/var/lib/catena/release.json"
 
 # --- What the bootstrap-owned files looked like last time a converge ran ---

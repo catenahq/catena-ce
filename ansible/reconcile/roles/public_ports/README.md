@@ -11,15 +11,11 @@ rules. That script carries the full rationale.
 
 ## Why it is its own role
 
-It was task file inside `bootstrap/roles/common`, which is bootstrap-side -- so the
-boundary declared it reconcile-side and nothing could act on that, because
-`common/tasks/main.yml` imported it unconditionally.
-
-The distinction is real. The firewall's default-deny policy is bootstrap's: get
-it wrong and there is no way back in. What this installs is a reconciler that
-opens what the deployed applications declare, which is version-shaped work a
-host can redo for itself whenever the product ships a better version of the
-script.
+The firewall's default-deny policy is bootstrap's (`bootstrap/roles/common`):
+get it wrong and there is no way back in. What this installs is a reconciler
+that opens what the deployed applications declare, which is version-shaped work
+a host can redo for itself whenever the product ships a better version of the
+script, so it sits on the reconcile side of the boundary.
 
 ## Where its variables live
 
@@ -33,7 +29,7 @@ here, because only this role's own timer template reads it.
 
 ## Ordering
 
-It runs early, before the roles that drop fragments, which is where it sat when
-it was part of `common`. Nothing it does needs Docker: it creates the
-`docker.service.d` drop-in directory itself, and systemd reads drop-ins only
-once `docker.service` exists.
+It runs early, right after `bootstrap/roles/common`, before the roles that drop
+fragments. Nothing it does needs Docker: it creates the `docker.service.d`
+drop-in directory itself, and systemd reads drop-ins only once
+`docker.service` exists.

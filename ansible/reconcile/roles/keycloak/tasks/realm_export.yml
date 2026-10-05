@@ -5,8 +5,8 @@
 # in catena-postgres so they recover with the rest of the DB. But
 # realm-level UI customizations (logos, themes) and any operator-edited
 # client redirect_uris that are not re-applied via blueprint are
-# DB-only state with no easy diff surface. A nightly JSON export gives
-# the operator:
+# DB-only state with no easy diff surface. A JSON export on every converge
+# gives:
 #
 #   1. A versioned baseline for catching unexpected drift between
 #      converges ("did someone add a new client behind my back?").
@@ -15,16 +15,15 @@
 #      kc.sh import.
 #
 # Output: {{ storage_mount_point }}/backup-staging/keycloak/<realm>.json
-# Restic picks it up via the existing backup_paths_include set.
+# Restic picks it up with the rest of the backup paths.
 #
 # Atomicity: gated on /health/ready (the canonical "admin REST is
-# live" signal). Per project CLAUDE.md.
+# live" signal).
 #
-# Caller: reconcile/roles/keycloak/tasks/main.yml, at the end of every converge.yml
-# run, so each converge dumps the realm to backup-staging where the
-# single backup picks it up. (Community runs this at converge time only;
-# the nightly drift-export timer is part of the Business managed lane,
-# not CE -- CE's only timer is the single daily backup.)
+# Caller: reconcile/roles/keycloak/tasks/main.yml, on every converge, from
+# either converge path, so each converge dumps the realm to backup-staging
+# where the next backup picks it up. The export runs at converge time only;
+# no timer runs it in any edition.
 
 - name: "Keycloak realm export: ensure backup-staging/keycloak dir"
   ansible.builtin.file:
@@ -102,7 +101,7 @@
 
 - name: "Keycloak realm export: warn on kcadm login failure (drift-catch is non-critical)"
   # Drift-catch artifact is non-critical: the realm config is rebuilt
-  # from yaml on every converge, and the nightly timer re-attempts the
+  # from yaml on every converge, and the next converge re-attempts the
   # export. A login failure here is reported and survived, because failing a
   # whole converge over an audit-only artifact is out of proportion to it.
   # Surface the rc + container + Keycloak's stderr so the operator can
@@ -138,7 +137,7 @@
   changed_when: false
   # Drift-catch artifact is non-critical (see warn task above for the
   # full rationale): the realm config is rebuilt from yaml on every
-  # converge, and the nightly timer re-attempts the export. A 404
+  # converge, and the next converge re-attempts the export. A 404
   # (realm not yet loaded by this Keycloak instance -- e.g. after a
   # restore where realm_bootstrap was deliberately skipped and the
   # fresh container hasn't picked up the replayed DB rows yet) should
@@ -178,7 +177,7 @@
   # rotation timers, internal IDs) even when nothing in the realm has
   # actually changed. We record current state, not config drift, so
   # the change should not show up in PLAY RECAP (it would otherwise
-  # trip the bench's stage-2.5 idempotency assertion every converge).
+  # fail a changed=0 idempotency check on every converge).
   changed_when: false
 
 - name: "Keycloak realm export: also dump every realm client (drift catch)"
@@ -219,11 +218,5 @@
       Wrote realm export to:
         {{ storage_mount_point }}/backup-staging/keycloak/{{ keycloak_realm }}.json
         {{ storage_mount_point }}/backup-staging/keycloak/{{ keycloak_realm }}.clients.json
-      The single backup will pick these up on the next snapshot.
+      The next backup picks these up.
   when: _kc_export_dump is succeeded
-
-# There is no scheduled drift-export anywhere. A nightly timer would be a
-# SCHEDULED task and so part of the Business managed lane, not CE; the Business
-# payload does not ship one either. Every edition exports at converge time only
-# (above). A self-hoster who wants nightly drift-catch wires their own timer
-# around the same kcadm dump.

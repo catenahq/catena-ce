@@ -46,9 +46,9 @@
         # is younger than this. An optimisation, not a correctness
         # crutch: it saves a round-trip to every mirror on a converge
         # that just ran. Idempotency is changed_when's job below, not
-        # this window's: one hour covers fresh_install's stage-2.5 rerun
-        # ~5-10 min later, but the DAG-scheduled ce_converge lands HOURS
-        # after the install it re-converges, so any window short enough
+        # this window's: one hour covers a rerun minutes after the install,
+        # but the bench's install_rerun lands HOURS after the install it
+        # re-applies, so any window short enough
         # to be an optimisation is too short to carry the claim.
         cache_valid_time: 3600
         # Belt-and-braces: the 05-lock-timeout conf above tells apt

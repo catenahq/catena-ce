@@ -32,34 +32,11 @@ though the SSO session is shared.
 
 - Client secret minting is gated on existence in Keycloak.
 - Traefik route files are rendered atomically per app.
-- Portainer redeploy fires only when the rendered config differs
-  from the running.
+- The swarm stack deploy reports a change only when the rendered stack
+  file differs.
 
 ## Related
 
-- Caller: `playbooks/converge.yml` (after `keycloak`).
+- Callers: `playbooks/converge.yml` and `playbooks/reconcile.yml` (after
+  `keycloak`).
 - Operator-facing: `ops/internal_docs/tools/keycloak-and-oauth2-proxy-gotchas.md`.
-
-## Planned (deferred): public-with-gated-path Traefik shape
-
-Easy!Appointments configures OIDC through config-file edits rather than
-env vars, so it would sit outside the label-driven wiring flow (see
-`ops/internal_docs/adr/0007-easy-appointments-as-the-scheduler.md`).
-Its template has since landed with `sso_mode: none` instead -- the
-upstream app has no native OIDC, and the customer-facing booking page is
-public by design, so the gap only affects staff sign-in and was left as
-local accounts rather than built out. The pattern below therefore still
-has no consumer:
-
-- `templates/app-public-with-gated-path.yml.j2` -- two Traefik routers
-  on the same host, priority-100 anonymous straight to the app +
-  priority-200 through the app's oauth2-proxy for `gated_path_prefix`
-  (e.g. `/index.php/backend`).
-
-The seeding flow that picks which template to render per-app reads
-the catalog's `sso_mode`. The new mode value would be `pre-wired-split`.
-When a consumer surfaces, document the pattern up here in the role
-README.
-
-Why this is recorded but not built: building the routing pattern with
-no consumer means an untested code path.

@@ -5,15 +5,18 @@
 
 # Playbooks
 
-The five flows a Catena server passes through, plus the day-two
-operations. Each file here is a single atomic unit with no
-cross-playbook imports: composition lives in the installer
-(`../catena_cli.py`), which runs them in order.
+The playbooks a Catena server is installed and maintained with.
+`catena-cli install` (`../catena_cli.py`) runs `bootstrap.yml`,
+`show-keyset.yml`, `converge.yml` and `validate.yml` in that order, and
+`catena-cli uninstall` runs `uninstall.yml`. On the server, the
+catena-admin engines run `reconcile.yml` for the host's own converges,
+and `lockdown.yml`, `rotate-tailscale.yml` and `rotate-tunnel.yml` for
+the panel's actions. Each file here is a single atomic unit with no
+cross-playbook imports.
 
-`ansible-playbook` is not a supported entry point -- the installer
-resolves the inventory, threads the vendor credentials and orders the
-flows. The usage line in each header is for maintainers reproducing one
-stage in isolation.
+`ansible-playbook` is not a supported entry point -- the installer and
+the host engines resolve the inventory, thread the credentials and order
+the runs.
 
 Subdirectories: `filter_plugins/` and `lookup_plugins/` hold the Python
 that Ansible loads by convention from beside the playbooks (non-trivial
@@ -22,12 +25,12 @@ transforms live in Python with a unit test rather than in Jinja);
 
 | File | What it does |
 | --- | --- |
-| `bootstrap.yml` | Initial bring-up of a fresh VPS (any provider). |
-| `converge.yml` | Main converge: bring a bootstrapped host to the desired state and keep it there. |
+| `bootstrap.yml` | First contact with a fresh server, and the first leg of `catena-cli install`. |
+| `converge.yml` | The full converge: bring a bootstrapped host to the desired state, every role in dependency order. |
 | `lockdown.yml` | Join the tailnet, and -- only when the panel's Lockdown asks -- close public port 22 behind it. |
-| `reconcile.yml` | The half of a converge that does not need an operator. |
+| `reconcile.yml` | The half of a converge a host runs against itself, from the tree inside the panel image. |
 | `rotate-tailscale.yml` | Re-authenticate this node to the tailnet (force re-auth). |
 | `rotate-tunnel.yml` | Regenerate this host's Cloudflare tunnel without a full site converge. |
 | `show-keyset.yml` | Mint the passwords the install shows (admin + console) when the store has none, and hand them to the installer ONCE with the journal verification key and the first-login URLs. |
 | `uninstall.yml` | Hand control of this host back to the operating system. |
-| `validate.yml` | Validation orchestrator: check a converged host from three vantage points, so a service that only answers on the box is not mistaken for a working one. 1. |
+| `validate.yml` | Validation orchestrator: check a converged host from three vantage points, so a service that only answers on the box is not mistaken for a working one. |

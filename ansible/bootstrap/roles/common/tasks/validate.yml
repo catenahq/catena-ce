@@ -1,5 +1,5 @@
 ---
-# Validation tasks for bootstrap/roles/common. Replaces tests/goss/common.yaml.
+# Validation tasks for bootstrap/roles/common.
 # Invoked by playbooks/validate.yml via `include_role: tasks_from: validate`.
 #
 # Conventions:
@@ -92,8 +92,8 @@
 # playbooks/tasks/stamp_version.yml writes it before the first role, so it is
 # there after a converge that failed at role 9.
 #
-# The action list is what the panel reads to decide whether to offer a
-# button at all, so an empty one is a panel that greys every feature.
+# The action list is every name the converge's dispatch table carries, so an
+# empty one is a converge that recorded no table at all.
 - name: "validate/common: release manifest written by the converge"
   ansible.builtin.slurp:
     src: "{{ catena_release_manifest_path }}"
@@ -122,9 +122,7 @@
       just ran. /etc/catena/version.txt says {{ _stamped }}; the manifest says
       {{ _manifest }}. version.txt is stamped before the first role and the
       manifest by the LAST task, so a disagreement means the converge did not reach the
-      end. The panel reads the manifest to tell a feature that is off from one
-      whose plumbing never reached this host, so a stale or empty one greys
-      features that work, or offers buttons the host will refuse.
+      end, and an empty action list means it recorded no dispatch table.
   vars:
     _manifest: "{{ _release_manifest.content | b64decode | from_json }}"
     _stamped: "{{ (_release_version_stamp.content | b64decode).splitlines()[0] | trim }}"

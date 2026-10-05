@@ -1,62 +1,44 @@
 ---
-# Initial bring-up of a fresh VPS (any provider).
-#
-# No manual pre-step required. The playbook prompts for the provider's initial
-# root password, installs your SSH key via pexpect (helpers/install_key.py),
-# then hardens the box. On re-runs (key already installed), leave the password
-# blank to skip Phase 0.5 and proceed directly to the Phase 1 idempotency check.
+# First contact with a fresh server, and the first leg of `catena-cli install`.
+# It trusts the host key, installs the operator's SSH key with the provider's
+# initial login when the key does not open the host yet, hardens the box, and
+# seeds the on-box config store and the ansible-core the host reconciles itself
+# with. Run again on an installed host, Phases 0 to 1 find their work done and
+# skip it.
 #
 # Plays in order:
 #
-#   Phase 0   -- TOFU: keyscan host into known_hosts, first contact only
-#   Phase 0.5 -- install your key via the provider password (skipped if blank)
-#   Phase 1   -- baseline + harden (initial_user + become): common role
+#   Phase 0   -- TOFU: keyscan the host into known_hosts, first contact only
+#   Phase 0.5 -- install the operator key with the provider password
+#   Phase 1   -- baseline + harden as the initial user: bootstrap/roles/common
 #   Phase 2   -- seed the on-box store + the host's ansible runtime (ops + key)
 #
-# The whole install runs over the SSH address this playbook reached the host on:
-# the bootstrap entry's (HOST_SSH_ADDRESS, else the public IP), or the one
-# `catena-cli install --address` gives for one run. The steady-state host entry
-# (under the `vps:` inventory group) gets that address from the post_tasks
-# below. Run converge.yml next (it targets the `vps:` group), then
-# playbooks/lockdown.yml, which joins the tailnet on that method; public 22
-# stays open until the panel's Lockdown closes it through
-# bootstrap/roles/common/tasks/ufw_lockdown.yml.
-#
-# Moving to a different server (hardware upgrade, provider migration):
-#   1. Update ansible_host in inventory/<env>/hosts.yml for the *-bootstrap
-#      entry to the new VPS's public IP.
-#   2. Run this playbook as normal -- the password prompt accepts the new
-#      provider's initial root password. A new server at an address this
-#      machine already trusts presents another host key: `catena-cli install
-#      --reinstalled` forgets the old one, as does `ssh-keygen -R <address>`.
-#   After the install, restore or migrate the data from the panel.
-#
-# Usage (cwd = ansible/):
-#   ansible-playbook -i inventory/<name> playbooks/bootstrap.yml
-#   ansible-playbook -i inventory/<name> playbooks/bootstrap.yml --limit host1-bootstrap
-
-# ssh-keyscan the host first, TOFU style, and only when known_hosts holds no
-# key for it. A rerun against an installed host keeps the key it trusted, and
-# ssh refuses a server that presents another one: re-trusting whatever answers
-# on every run would accept an impostor at the same address. `catena-cli
-# install` settles a changed key before this runs (helpers/host_key.py).
-#
-# IMPORTANT: tasks use `delegate_to: localhost` rather than play-level
-# `connection: local`. Play-level `connection: local` triggers Python
-# interpreter discovery for host1-bootstrap *against the controller*, caches
-# the controller's venv python as the host's interpreter, and breaks Phase 1
-# when it reconnects via SSH.
+# The install reaches the host at one SSH address for every leg: the one
+# `catena-cli install --address` gives for one run, else HOST_SSH_ADDRESS, else
+# HOST_PUBLIC_IP. Phase 2 hands it to the steady-state host entry, under the
+# `vps:` group the later legs target. Public port 22 stays open until the
+# panel's Lockdown closes it.
 - name: "Phase 0 -- TOFU: add bootstrap host SSH key to ~/.ssh/known_hosts"
   hosts: "{{ stage_hosts | default('bootstrap') }}"
   gather_facts: false
   become: false
 
+  # ssh-keyscan the host first, TOFU style, and only when known_hosts holds no
+  # key for it. A rerun against an installed host keeps the key it trusted, and
+  # ssh refuses a server that presents another one: re-trusting whatever
+  # answers on every run would accept an impostor at the same address.
+  # `catena-cli install` settles a changed key before this runs
+  # (helpers/host_key.py).
+  #
+  # The tasks use `delegate_to: localhost` rather than play-level
+  # `connection: local`. Play-level `connection: local` triggers Python
+  # interpreter discovery for the bootstrap host against the controller, caches
+  # the controller's venv python as the host's interpreter, and breaks Phase 1
+  # when it reconnects over SSH.
   tasks:
-    # Create-only: never chmod an EXISTING controller ~/.ssh. Forcing
-    # 0700 here reset a deliberately group-traversable ~/.ssh (a
-    # dispatch runner reading the operator pubkey through a bind-mount
-    # relies on g+rx) every time a recover/bootstrap ran on that
-    # controller, breaking every later dispatch with EACCES.
+    # Create-only: an existing controller ~/.ssh keeps its mode. A controller
+    # may make it group-traversable on purpose (a runner reading the operator
+    # pubkey through a bind mount needs g+rx), which a forced 0700 would break.
     - name: Stat controller ~/.ssh
       ansible.builtin.stat:
         path: "{{ lookup('env', 'HOME') }}/.ssh"
@@ -92,7 +74,7 @@
       delegate_to: localhost
       # A freshly booted (or snapshot-restored) host may not have sshd
       # accepting connections yet when this first runs -- ssh-keyscan then
-      # exits rc=1 with empty output and the converge dies before Phase 1.
+      # exits rc=1 with empty output and the install dies before Phase 1.
       # Retry until it captures at least one host key, so the keyscan waits
       # for sshd instead of racing it.
       retries: 20
@@ -206,13 +188,9 @@
 
           This is the normal state of a FRESH VPS. The key install needs the
           password the provider issued for {{ bootstrap_initial_user }}:
-
-            - via the installer: `catena-cli install` asks for it when the key
-              does not open the server; an install.yaml gives it as
-              `host_initial_password: <password>`.
-
-            - running this playbook directly: answer the password prompt
-              instead of leaving it blank.
+          `catena-cli install` asks for it when the key does not open the
+          server, and an install.yaml gives it as
+          `host_initial_password: <password>`.
 
           If the host was rebuilt on a recycled IP, also check that
           HOST_PUBLIC_IP in {{ inventory_dir }}/.env still names it.
@@ -248,15 +226,14 @@
     # because we are root. When initial_user is a non-root cloud user (debian,
     # ubuntu, ...), become: true lets the common role run as root via NOPASSWD
     # sudo that cloud-init configured. Either way, root SSH is never opened
-    # on the host -- no PermitRootLogin hacks required.
+    # on the host.
     ansible_user: "{{ bootstrap_initial_user }}"
-    # Defensive: make sure interpreter discovery happens against the REMOTE,
-    # not against any cached value from a prior play. Important after Phase 0
-    # which ran with delegate_to: localhost.
+    # Interpreter discovery runs against the REMOTE rather than a value cached
+    # by Phase 0, whose tasks ran with delegate_to: localhost.
     ansible_python_interpreter: auto_silent
   become: "{{ bootstrap_initial_user != 'root' }}"
   pre_tasks:
-    # ── Root-provider idempotency check ──────────────────────────────────────
+    # --- Root-provider idempotency check -------------------------------------
     # When initial_user == root: after Phase 1 the common role disables root
     # login. A failed root-SSH probe means Phase 1 already ran -- skip.
     - name: "Phase 1 idempotency (root path) -- can root still SSH in?"
@@ -295,28 +272,16 @@
       ansible.builtin.meta: end_play
       when: bootstrap_initial_user == 'root' and (root_probe.rc | default(0)) != 0
 
-    # ── Non-root provider idempotency check ──────────────────────────────────
-    # Probe OPS, not the provider account.
+    # --- Non-root provider idempotency check ---------------------------------
+    # Probe OPS, not the provider account. Phase 1's sshd hardening removes the
+    # provider account from AllowUsers, so a probe dialled as that account
+    # fails from the moment Phase 1 succeeds, and a play that carried on would
+    # fail at its fact gathering with `Permission denied (publickey)`.
     #
-    # The probe cannot run THROUGH the initial user on a non-root image.
-    # Phase 1's own sshd hardening removes the provider account from
-    # AllowUsers, so any `id <ops_user>` dialled as that account fails from the
-    # moment Phase 1 succeeds -- success and "not done" become the same answer.
-    # A play that carried on from there fails connecting as a user Phase 1
-    # locked out, and the error points at the fact-gathering task rather than
-    # at the cause:
-    #
-    #   debian@<ip>: Permission denied (publickey).
-    #   Origin: playbooks/bootstrap.yml:245  Gather facts now that we know ...
-    #
-    # That costs re-runnability outright on OVH Debian / Ubuntu cloud images,
-    # leaving bootstrap re-runnable only on root-login providers.
-    #
-    # The root path above already probes the account whose access Phase 1
-    # REMOVES and reads failure as "already ran". The non-root path has to probe
-    # the account Phase 1 CREATES and read success the same way. Probing ops
-    # also proves the thing Phase 2 needs next -- that ops accepts the operator
-    # key -- rather than merely that the account exists.
+    # The root path above probes the account whose access Phase 1 REMOVES and
+    # reads failure as "already ran". This path probes the account Phase 1
+    # CREATES and reads success the same way. Probing ops also proves what
+    # Phase 2 needs next: that ops accepts the operator key.
     # helpers/install_key.py::_key_already_works checks both accounts for the
     # same reason.
     - name: "Phase 1 idempotency (non-root path) -- can ops SSH in?"
@@ -431,22 +396,21 @@
           order:
 
             - the key was never installed because no provider password was
-              supplied. Usual cause on a FRESH VPS. Add
+              supplied. Usual cause on a FRESH VPS. Answer the provider
+              password `catena-cli install` asks for, or add
               `host_initial_password: <password>` to install.yaml -- the CLI
               passes that variable through BLANK when it is omitted, and an
               extra-var outranks the prompt, so omitting it does not fall back
               to asking.
 
-            - the host is not reachable at this address. HOST_PUBLIC_IP in
-              {{ inventory_dir }}/.env is {{ ansible_host }}; confirm the
-              rebuilt VPS still has it.
+            - the host is not reachable at this address. The install dials
+              {{ ansible_host }} (--address, else HOST_SSH_ADDRESS, else
+              HOST_PUBLIC_IP in {{ inventory_dir }}/.env); confirm the rebuilt
+              VPS still has it.
 
             - Phase 1 already ran and the panel's Lockdown closed public 22,
-              so {{ ops_user }} is only reachable over the tailnet. Note that
-              {{ inventory_dir }}/.bootstrap-output.yml is NOT invalidated by a
-              rebuild, so a tailnet IP recorded there may belong to the previous
-              machine. Try:
-              ssh -i {{ ansible_ssh_private_key_file }} {{ ops_user }}@<tailnet-ip>
+              so {{ ops_user }} is only reachable over the tailnet. Run the
+              install again with `--address <tailnet-ip>`.
 
             - the operator key is not the one installed on this host. Recover at
               the provider console: {{ bootstrap_initial_user }} still logs in
@@ -476,23 +440,18 @@
     ansible_python_interpreter: auto_silent
   become: true # ops uses NOPASSWD sudo (set up in Phase 1)
   pre_tasks:
-    # THE STORE IS BORN HERE, not at the first converge.
-    #
-    # Every later leg reads the access method and the tailnet provider, control
-    # URL and Headscale user from store-projected facts with no inventory
-    # fallback. Run with no store, all of them are empty and the provider
-    # inference answers `tailscale` unconditionally -- so a Headscale install
-    # took the Tailscale fork and died at an OAuth exchange against credentials
-    # its operator does not have, naming a vendor they never chose.
+    # THE STORE IS CREATED HERE, before any later leg reads it. Those legs read
+    # their settings from store-projected cfg_* facts with no inventory
+    # fallback, so against a host with no store every one of them is blank.
     #
     # Only the CONFIG half seeds here. The rest of load_onbox_config.yml MINTS
-    # the internal secrets and the user-held admin/restic DR keyset, and asks the
-    # container registry which catena-admin release to install -- all of it a
-    # converge's work, on a machine that does not have Docker yet.
+    # the internal secrets and the user-held passwords, and asks the container
+    # registry which catena-admin release to install: a converge's work, on a
+    # machine that has no Docker yet.
     #
     # Phase 1 has already run the common role, so python3 and ops exist; the
     # store's parent directory does not have to (onbox_config.dump() creates it).
-    - name: "0b: seed the on-box config store before anything reads it"
+    - name: "Seed the on-box config store before anything reads it"
       ansible.builtin.include_tasks:
         file: tasks/seed_onbox_config.yml
   roles:
@@ -502,18 +461,15 @@
     - role: ansible_runtime
 
   post_tasks:
-    # ─── Capture the install address ─────────────────────────────────────
-    # Every leg until the lockdown reaches the host at the public IPv4 this
-    # playbook reached it on, on every access method. The lockdown leg is the
-    # one that joins the tailnet and moves the host's administrative address
-    # onto it, and it emits that address the same way this one does.
-    #
-    # We do NOT mutate inventory/<env>/hosts.yml here. Instead:
-    #   1. add_host overrides ansible_host on the steady-state hostname for
-    #      downstream plays in the SAME ansible-playbook invocation;
+    # --- Record the install address -----------------------------------------
+    # The later legs of the install reach the host at the address this
+    # playbook reached it on. This playbook leaves hosts.yml as it is:
+    #   1. add_host sets ansible_host on the steady-state hostname for the
+    #      plays that follow in this ansible-playbook run;
     #   2. helpers/bootstrap_output.py merges the value into
     #      <inventory_dir>/.bootstrap-output.yml (gitignored), which catena_cli
-    #      folds into hosts.yml before the next leg.
+    #      folds into hosts.yml before the next leg, unless --address names
+    #      the address for the run.
     - name: "Compute steady-state hostname (drop -bootstrap suffix)"
       ansible.builtin.set_fact:
         _steady_state_host: "{{ inventory_hostname | regex_replace('-bootstrap$', '') }}"
@@ -541,26 +497,14 @@
       become: false
       changed_when: true
 
-    - name: Bootstrap complete -- next steps
+    - name: Bootstrap complete
       ansible.builtin.debug:
         msg: |
           Bootstrap complete for {{ inventory_hostname }}.
 
-          Install address: {{ _steady_state_ip }} (the public IPv4; the
-            lockdown leg joins the tailnet when the access method is tailnet)
+          Install address: {{ _steady_state_ip }}
           Steady-state host: {{ _steady_state_host }}
 
-          The value is live in this run's in-memory inventory (add_host),
-          so downstream plays in this invocation target the correct IP.
-
-          To persist across invocations, copy from
-          {{ inventory_dir }}/.bootstrap-output.yml into your inventory's
-          hosts.yml.
-
-          Next (cwd = ansible/):
-            ansible-playbook playbooks/converge.yml --limit {{ _steady_state_host }}
-            ansible-playbook playbooks/lockdown.yml --limit {{ _steady_state_host }}
-
-          lockdown.yml joins the tailnet on a host whose access method is the
-          tailnet, and leaves public port 22 open: the panel's Lockdown closes
-          it, after proving the tailnet path.
+          The rest of the install reaches the host at this address. Public
+          port 22 stays open: the panel's Lockdown closes it, after proving
+          the tailnet path.

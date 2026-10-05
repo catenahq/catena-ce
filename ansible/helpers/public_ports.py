@@ -9,7 +9,8 @@ inventory doc, so none of them can drift from the others.
 
 Two feeders, one merged effective set:
 
-  - Infra roles declare a `public_ports` list var (coturn, the Portainer UI).
+  - Infra roles drop a JSON fragment of entries into the registry directory
+    (coturn, the Portainer UI, the monitoring plane's loopback ports, SSH).
 
     `bind` says which chain can actually enforce the entry, and the two are
     NOT interchangeable. True host networking (`--network host`) puts the
@@ -68,16 +69,15 @@ VALID_PROTOS = ("tcp", "udp")
 # on every other interface -- and makes it enforced and auditable rather
 # than a property of a compose string.
 # `private` means "never public, and it does not matter which private path
-# carries it". The Portainer and catena-admin UI ports mean exactly that. Two
-# different things shared the word `tailnet` before it existed: those ports, and
-# the migration lane, which binds this host's tailnet address and refuses to
-# start without one. The lane still declares `tailnet` because it means it.
+# carries it": the lockdown narrows administrative SSH to it. The migration
+# lane declares `tailnet` instead, because it binds this host's tailnet address
+# and refuses to start without one.
 #
-# The defect that separates them is honesty rather than enforcement. `tailnet`
-# emits the RFC1918 rules plus one `tailscale0` interface rule; on a host with no
-# such interface iptables accepts that rule and it never matches, so the port
-# stays correctly private -- but render_doc wrote "tailscale0 + RFC1918 only" into
-# the client-facing /etc/catena/public-ports.md for a host on no tailnet.
+# What separates them is honesty rather than enforcement. `tailnet` emits the
+# RFC1918 rules plus one `tailscale0` interface rule; on a host with no such
+# interface iptables accepts that rule and it never matches, so the port stays
+# correctly private, yet "tailscale0 + RFC1918 only" in the client-facing
+# /etc/catena/public-ports.md would name a path the host does not have.
 #
 # `private` is RESOLVED to `tailnet` or `rfc1918` by resolve_scopes(), and every
 # consumer works on resolved entries.

@@ -3,19 +3,18 @@
 # none, and hand them to the installer ONCE with the journal verification key
 # and the first-login URLs.
 #
-# `catena-cli install` runs it right after bootstrap, before the converge, so
-# the block is on screen while the long part of the install runs; the installer
-# prints it then and again when the install ends. The passwords are minted
-# ON-BOX (helpers/onbox_config.py USER_HELD_SECRETS), and the block and its
-# values reach the controller only as a transient 0600 JSON file the installer
-# reads and deletes. The backup encryption password is not among them: the
-# client generates it in the panel, beside the repository it encrypts.
+# `catena-cli install` runs it right after bootstrap.yml, before the converge,
+# so the block is on screen while the long part of the install runs; the
+# installer prints it then and again when the install ends, and a rerun of the
+# install shows the passwords again. The passwords are minted ON-BOX
+# (helpers/onbox_config.py USER_HELD_SECRETS), and the block and its values
+# reach the controller only as a transient 0600 JSON file in the `keyset_out`
+# directory the installer passes, reads and deletes. The backup encryption
+# password is generated in the panel instead, beside the repository it
+# encrypts.
 #
 # Everything the user must write down is in the FINAL task, as one block. The
 # mint, the reads and the FSS delete run ahead of it.
-#
-# Usage (driven by `catena-cli install`; cwd = ansible/):
-#   ansible-playbook -i inventory/<name> playbooks/show-keyset.yml -e keyset_out=<dir>
 
 - name: Surface the DR keyset once
   hosts: "{{ stage_hosts | default('vps') }}"

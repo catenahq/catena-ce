@@ -1,5 +1,5 @@
 ---
-# Validation tasks for reconcile/roles/backup. Replaces tests/goss/backup.yaml.
+# Validation tasks for reconcile/roles/backup.
 #
 # The backup units ship in the payload with their timers off, and
 # `catena-schedule apply` enables a timer only on a licensed host with a

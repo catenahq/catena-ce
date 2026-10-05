@@ -1,8 +1,9 @@
 # {{ ansible_managed }}
 # coturn config -- catena shared TURN/STUN server.
 #
-# Used by Nextcloud Talk + HPB and Rocket.Chat's bundled Jitsi for
-# restrictive-network media relay. Authentication is shared-secret
+# Used by Nextcloud Talk + HPB, the Jitsi bridges of Rocket.Chat and
+# Element, and Element's Synapse for restrictive-network media relay.
+# Authentication is shared-secret
 # based: the apps mint short-lived (HMAC-SHA1) credentials from
 # `static-auth-secret` for each call. No per-user database.
 
@@ -18,8 +19,8 @@ external-ip={{ public_ip }}
 listening-ip=0.0.0.0
 relay-ip=0.0.0.0
 
-# Relay port range. Every port in this window must be ufw-permitted
-# (UDP). See bootstrap/roles/common/tasks/ufw_lockdown.yml.
+# Relay port range. The public-port fragment in
+# reconcile/roles/coturn/tasks/deploy.yml opens every port in it (UDP).
 min-port={{ coturn_min_relay_port }}
 max-port={{ coturn_max_relay_port }}
 
@@ -106,12 +107,10 @@ no-multicast-peers
 # via --cli, so there is no directive to write here.
 
 # Logs go to stderr -> docker logs -> journald. simple-log drops
-# ANSI colour codes so journalctl + fail2ban regexes parse the
-# stream cleanly. (Note: do NOT add the `fingerprint` directive --
-# it is default-on in coturn 4.7.0+ and the explicit directive on
-# older configs was sometimes accompanied by a misleading "drop
-# fingerprint" comment. The directive ENABLES the RFC 5389
-# FINGERPRINT attribute for protocol-level packet validation.)
+# ANSI colour codes so the stream parses cleanly. The `fingerprint`
+# directive, which ENABLES the RFC 5389 FINGERPRINT attribute for
+# protocol-level packet validation, is default-on in coturn 4.7.0+ and
+# stays implicit.
 verbose
 simple-log
 no-stdout-log

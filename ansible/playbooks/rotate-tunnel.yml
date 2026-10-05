@@ -2,8 +2,9 @@
 # Regenerate this host's Cloudflare tunnel without a full site converge.
 # Maintenance action (Community).
 #
-# Run on the host by the panel's tunnel regenerate action
-# (catena-tunnel-regenerate).
+# Run on the host when the panel's Settings > Domain > Apply puts a saved
+# domain and Cloudflare token into effect: the catena-domain-apply action runs
+# it, then reconcile.yml. The catena-tunnel-regenerate action runs it alone.
 #
 # Takes no secret. The role authenticates as the cloudflare_api_token in the
 # host's own store, because the engine that mints the replacement tunnel reads

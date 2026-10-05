@@ -259,12 +259,6 @@ secrets:
   - key: catena_license
     panel: {group: license, section: secrets, kind: secret, optional: true}
 
-  # The optional client portal's billing keys. Never minted; billing routes
-  # degrade gracefully while they are blank.
-  - key: portal_stripe_secret_key
-
-  - key: portal_stripe_webhook_secret
-
 # --- non-secret configuration ------------------------------------------------
 config:
   # ---- the target's identity (hosts.yml, neither store nor .env) ----

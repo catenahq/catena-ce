@@ -1,9 +1,7 @@
 ---
-# Shared TURN/STUN server. Deployed as a direct swarm service (not a
-# managed compose app) because coturn needs host networking for
-# ICE-candidate advertisement and is not an operator-managed app. Mirrors
-# the cloudflared swarm-service pattern in
-# reconcile/roles/cloudflare_tunnel/tasks/main.yml.
+# Shared TURN/STUN server. Created as a direct swarm service from the tier-1
+# engine's spec, rather than as a client app, because coturn needs host
+# networking for ICE-candidate advertisement and belongs to the platform.
 #
 # Reached only through main.yml, which gates this whole file on a running
 # TURN consumer (Nextcloud Talk HPB, or a Rocket.Chat / Element JVB). Every
@@ -31,12 +29,12 @@
       candidates; without it every relayed call fails. Set public_ip on
       the host in inventory/<name>/hosts.yml.
 
-# ── Step 1: declare public ports (registry) ───────────────────────────
+# --- Step 1: declare public ports (registry) ---------------------------------
 # UDP media plane lives on the public IP -- coturn does not ride the
-# cloudflared TCP tunnel. Instead of hand-writing ufw rules here, declare
-# the ports as a registry fragment; the public-port reconciler (installed
-# by bootstrap/roles/common) applies the ufw rules and records them in the effective
-# set read by validation. host-bound (swarm --network=host), scope=any.
+# cloudflared TCP tunnel. The ports are a registry fragment; the public-port
+# reconciler (installed by reconcile/roles/public_ports) applies the ufw rules
+# and records them in the effective set read by validation. host-bound
+# (swarm --network=host), scope=any.
 - name: "coturn: ensure public-port fragment dir exists"
   ansible.builtin.file:
     path: "{{ public_ports_fragment_dir }}"
@@ -101,20 +99,20 @@
       saved and the next converge runs. coturn deploys STUN-only (no public TLS) for now.
   when: not _coturn_cf_token_present
 
-# ── Step 2: DNS A record (gray-cloud) ─────────────────────────────────
+# --- Step 2: DNS A record (gray-cloud) ---------------------------------------
 - name: "coturn: ensure turn.<zone> A record points at VPS public IP"
   ansible.builtin.import_tasks: dns.yml
   when: _coturn_cf_token_present
   tags: [coturn_dns, edge]
 
-# ── Step 3: cert via DNS-01 (Cloudflare) ─────────────────────────────
+# --- Step 3: cert via DNS-01 (Cloudflare) ------------------------------------
 # cert.yml itself gates the token-dependent tasks on _coturn_cf_token_present;
 # the certbot install + scaffolding + timer run unconditionally.
 - name: "coturn: ensure cert path exists"
   ansible.builtin.import_tasks: cert.yml
   tags: [coturn_cert]
 
-# ── Step 4: render turnserver.conf ──────────────────────────────────
+# --- Step 4: render turnserver.conf ------------------------------------------
 - name: "coturn: ensure config dir exists"
   ansible.builtin.file:
     path: "{{ coturn_host_config_dir }}"
@@ -136,19 +134,20 @@
   # surfacing in that output.
   no_log: true
 
-# ── Step 5: deploy coturn as a swarm service ────────────────────────
+# --- Step 5: deploy coturn as a swarm service --------------------------------
 # One dict, two consumers: the catena-tier1 host engine creates and reconciles
 # the service from it, and tier1_stack_render puts it in the rendered companion
 # file that `docker stack config` type-checks. The reasoning for each field --
 # host networking, the root user, the node-local bind sources, the placement
-# constraint -- lives beside the declarations in defaults.
+# constraint -- lives beside the declarations in the engine's catalog
+# (catena-admin payload/engines/tier1/catalog.go).
 #
 # A COMPANION, not the control plane. coturn is directly created for the same
 # reasons traefik and postgres are (host networking and global mode do not
 # survive a stack deploy), but it is presence-gated on a Talk or Jitsi
-# consumer: it appears the converge after one is deployed and leaves with it.
-# Rendering it into tier1.yml made the control-plane file change on a converge
-# where the control plane had not, so it renders into companions.yml instead.
+# consumer: it appears the converge after one is deployed. It renders into
+# companions.yml rather than tier1.yml, so the control-plane file changes only
+# when the control plane does.
 #
 # No `detach`: the create blocks until the global task is dispatched, which is
 # the only readiness signal this role has (there is no probe after it).
@@ -157,8 +156,8 @@
 # node, so there is nothing to publish; the public-port registry fragment
 # above is what opens the firewall for it.
 
-# ASKED FOR, not assembled here -- same move reconcile/roles/postgres, reconcile/roles/traefik and
-# reconcile/roles/portainer made. The engine owns what the service IS; this role keeps
+# ASKED FOR, not assembled here, as reconcile/roles/postgres, reconcile/roles/traefik
+# and reconcile/roles/portainer do. The engine owns what the service IS; this role keeps
 # what it alone knows: WHETHER it belongs on this host (the consumer gate above)
 # and the rendered turnserver.conf the spec only points at.
 #
@@ -209,8 +208,8 @@
   when: _coturn_service.rc == 0
 
 - name: "coturn: reconcile container user to root (existing service)"
-  # Existing services created before the root-user fix landed get rolled so
-  # the TLS listener actually binds.
+  # A service running as any other user is rolled so the TLS listener can
+  # read the certificate and bind.
   ansible.builtin.command:
     argv:
       - docker
@@ -225,8 +224,7 @@
 
 # The image pin is reconciled by the engine dispatched above (the spec carries
 # `image`, and the engine's drift comparison strips the resolved digest before
-# comparing). It also reconciles the placement constraint, which the
-# hand-rolled image-only drift check never did.
+# comparing), and so is the placement constraint.
 
 - name: "coturn: roll the task on config change (the listener set can differ)"
   # A rendered-config change can move the listener set: `dtls` binds the UDP

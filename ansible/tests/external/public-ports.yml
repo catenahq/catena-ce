@@ -1,13 +1,14 @@
 ---
-# External probe: the VPS's public IP MUST show zero unexpected listening ports.
-# Everything reaches the outside world via cloudflared egress; nothing should
-# be publicly bindable.
+# External probe: the host's public IP MUST show zero unexpected listening
+# ports. Web traffic leaves through cloudflared egress, so the only open TCP
+# ports are the ones the public-port registry declares.
 #
-# Runs from the operator's laptop via delegate_to: localhost, using a pure-Python
-# scanner shipped in this repo -- no system nmap required.
+# Runs from the installer's machine via delegate_to: localhost, using a
+# pure-Python scanner shipped in this repo -- no system nmap required.
 #
-# expected_public_ports: normally empty. If a client genuinely needs a public
-# port (rare -- CF Tunnel should cover it), declare it in group_vars.
+# expected_public_ports is set by playbooks/validate.yml from the registry's
+# public_open_tcp (public SSH, coturn's tcp/5349, the mail server's ports when
+# deployed).
 
 - name: Find the port scanner
   ansible.builtin.set_fact:

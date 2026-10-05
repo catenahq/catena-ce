@@ -103,9 +103,8 @@
     msg: >-
       Timed out (300s) waiting for a running container matching
       '{{ beszel_hub_compose_name | swarm_container_regex("app") }}'.
-      Check the Portainer stack status for {{ beszel_hub_compose_name }}
-      at http://localhost:{{ portainer_ui_port | default(9000) }} through
-      `ssh -N -L {{ portainer_ui_port | default(9000) }}:127.0.0.1:{{ portainer_ui_port | default(9000) }} {{ catena_panel_user | default('panel') }}@<host>`.
+      Check the swarm stack on the host:
+      `docker stack ps {{ beszel_hub_compose_name }} --no-trunc`.
   when: (_beszel_hub_container.stdout | default('') | trim) | length == 0
 
 # Read the hub-generated private key out of the container and derive the
@@ -139,8 +138,8 @@
     - _beszel_pubkey.rc == 0
     - (_beszel_pubkey.stdout | trim) is match('^ssh-ed25519 ')
   # No no_log: the private key never reaches stdout (ssh-keygen -y prints
-  # only the public half, and the temp file dies with the shell). Hiding it
-  # cost a full 120s retry loop that reported nothing but "censored".
+  # only the public half, and the temp file dies with the shell). Hidden, a
+  # failed 120s retry loop would report nothing but "censored".
 
 - name: "Beszel: pin derived hub public key as a fact"
   ansible.builtin.set_fact:
@@ -292,12 +291,11 @@
     - "'no-systems' not in _beszel_alert_seed.stdout"
   no_log: true
 
-# ─── Beszel -> Healthchecks alert shim ───────────────────────────────────
+# --- Beszel -> Healthchecks alert shim --------------------------------------
 # Bridges Beszel's static-URL Shoutrrr webhook to the Gatus-style
-# Healthchecks /fail + success pings. The operator points a Beszel
-# webhook notification at
-# generic+http://{{ beszel_hc_shim_network_alias }}:{{ beszel_hc_shim_internal_port }}/notify
-# and sets per-system thresholds in the hub UI (notifications.md).
+# Healthchecks /fail + success pings. The seed above points the hub's
+# notifications at it (_beszel_alert_webhook) and creates the default alert
+# rules; per-system thresholds are set in the hub UI.
 - name: "Beszel: ensure shim host dir exists"
   ansible.builtin.file:
     path: "{{ beszel_hc_shim_host_dir }}"
@@ -324,4 +322,4 @@
     svc_domain_port: "{{ beszel_hc_shim_internal_port }}"
     svc_readiness_skip_reason: >-
       Internal webhook receiver on catena-network; no public surface.
-      Exercised by a Beszel alert firing (see notifications.md).
+      Exercised by a Beszel alert firing.

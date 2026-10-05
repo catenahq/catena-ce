@@ -23,8 +23,7 @@ Then it:
     human inventory to /etc/catena/public-ports.md, both read by validation.
 
 Fired on every docker.service start (Docker recreates DOCKER-USER empty on
-boot) via a drop-in, plus a periodic timer. Generalizes the older
-port-3000-only firewall guard it replaced. Runs as root.
+boot) via a drop-in, plus a periodic timer. Runs as root.
 
 Stdlib-only. Imports public_ports + labels_schema, installed flat alongside
 this script (sys.path is pinned to the script dir below).

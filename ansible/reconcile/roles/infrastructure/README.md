@@ -1,45 +1,63 @@
 # infrastructure
 
-Deploys everything that's NOT the auth pair (Keycloak +
-oauth2_proxy), the data plane (Portainer + storage + backup), or
-the operator panel (`reconcile/roles/catena-admin`):
+The monitoring plane every host runs, the shared services the catalog apps
+lean on, and the wiring that finishes those apps once a client deploys them.
+`tasks/main.yml` is the map, in run order.
 
-- **Cloudflare Tunnel** -- the cloudflared swarm service that gives
-  every public app a hostname under the operator's CF zone without
-  any host port bindings.
-- **Gatus** -- endpoint monitoring (internal alias + public 302-as-up
-  per app; auto-generated config via `catena-gatus-sync`). Surfaced to
-  the operator inside catena-admin's System tab.
-- **Healthchecks** -- self-hosted dead-man-switch service. The backup
-  timer, the reboot-required probe, gatus and the rest ping it; missed
-  pings alert via ntfy. Surfaced to the operator inside catena-admin's
-  System tab.
-- **Sync timers** -- `catena-dashboard-sync.timer` and `gatus-sync.timer`.
-  The scripts and their units ship in the catena-admin payload
-  (`catena-dashboard-sync`, `catena-gatus-sync`, and `catena-version-check`,
-  the auto-detecting Versions report gatus-sync.service runs first); this
-  role renders their env files and enables the timers.
+## Shared services (swarm stacks)
 
-## Auxiliary task files
+Deployed with `tasks/swarm_stack.yml` (`docker stack deploy`), with no
+Portainer in the path, so a Portainer that will not start leaves them running:
 
-- `_seed_bind_mount_file.yml` -- helper for templates that ship a
-  config file via bind-mount.
+- **Gatus** (`monitor.<zone>`) -- endpoint monitoring. `00-base.yaml` is
+  rendered here; `catena-gatus-sync` writes `50-catena-apps.yaml` from the
+  running containers' labels.
+- **Healthchecks** (`heartbeat.<zone>`) -- the dead-man-switch plane the
+  backup, the reboot-required probe, the ClamAV watch, the mail canary and
+  Beszel's alerts ping. Missed pings alert through the channels set in
+  catena-admin.
+- **Beszel** (`hub.<zone>`) -- hub and host agent for resource history and
+  threshold alerts, with a small shim that forwards those alerts to
+  Healthchecks.
+- **Shared ClamAV** -- one clamd on the `catena-clamav` overlay for the mail
+  server and Nextcloud, deployed once either runs, with its watchdog timer.
 
-Catena's own webapps (website + portal) are no longer deployed
-by this role. They ship a compose per app that the operator deploys
-as a Portainer stack. The
-Keycloak realm client for the portal still lives in Ansible and
-is provisioned by `reconcile/roles/keycloak/tasks/_portal_realm.yml`.
+Gatus and Healthchecks sit behind their own oauth2-proxy, rendered by
+`reconcile/roles/oauth2_proxy` before this role runs. Beszel's hub is gated
+the way client apps are: dashboard-sync renders its route from its
+`vps.auth.*` labels.
+
+## Catalog app wiring
+
+Gated on the Portainer API key (`reconcile/roles/portainer` mints it):
+
+- The Keycloak clients for Nextcloud and Element, and the host scripts behind
+  the panel's "Initial apps setup" actions (`/usr/local/bin/catena-wire-*`),
+  which finish Nextcloud (OIDC, Talk + HPB, office editors, antivirus, Mail)
+  and Rocket.Chat's Jitsi inside the running containers.
+- The mail server chain when its template is deployed: the DNS-01 certificate,
+  the postmaster mailbox, Roundcube and Dovecot OIDC, rspamd filtering, the
+  mail DNS records and the mail canary timer. It waits for a Cloudflare token.
+- WordPress plugin curation once the site is installed.
+- A health gate on Portainer's local environment (`tasks/portainer_endpoint.yml`).
+- The public-URL probe of the gated services, and the intent-driven check that
+  every gated client app denies an anonymous request.
+
+## Sync lanes
+
+`catena-dashboard-sync` (client-app routes and SSO) and `catena-gatus-sync`
+ship in the catena-admin payload with their units. This role renders their env
+files and enables their timers.
 
 ## Inputs
 
-- `cloudflare_api_token`, `cloudflare_*_id`, `cloudflare_zone`
-- the `healthchecks_*` secrets (secret key, superuser password, ping key,
-  read-only and read-write API keys)
-- `infrastructure_apps_enabled` -- toggle list per first-class app.
+All from the on-box store: `cloudflare_api_token` and the zone, the
+`healthchecks_*` and `beszel_*` secrets, `portainer_api_key`, and the SMTP and
+alert-channel settings.
 
 ## Idempotency
 
-- Every Portainer stack deploy goes through the API and is gated
-  on a shape comparison; idempotent across re-runs.
+- `docker stack deploy` sends the same spec every converge and swarm restarts
+  nothing when it is unchanged; the stack file write carries the changed
+  signal.
 - The sync lanes' env files are templated with stable content.

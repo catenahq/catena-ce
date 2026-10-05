@@ -38,8 +38,8 @@
       tags: [prune]
   tags: [prune]
 
-# Record what this converge delivered, last: the panel reads this manifest to
-# tell "this feature is off" from "this host's converge predates it".
+# Record what this converge delivered, last, so the manifest describes a
+# converge that finished (record_release_manifest.yml says what it holds).
 - name: "Release: record what this converge delivered"
   ansible.builtin.include_tasks:
     file: record_release_manifest.yml

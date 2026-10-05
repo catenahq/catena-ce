@@ -1,13 +1,15 @@
 # reconcile/roles/portainer
 
-Portainer CE -- the container control plane. Spans Docker + Swarm + (later)
-Kubernetes;
-provides the compose/stack + env + logs + lifecycle API. Routing stays with
-`catena-traefik` (Portainer does no reverse proxy).
+Portainer CE -- the container control plane. Provides the compose/stack +
+env + logs + lifecycle API the client apps are deployed through. Routing
+stays with `catena-traefik` (Portainer does no reverse proxy).
 
 This role deploys `catena-portainer` (swarm service on catena-network, docker
 socket, `/data` BoltDB volume, admin via `--admin-password-file`, UI on this
-host's loopback only, reached through the `panel` account's SSH forward). See
+host's loopback only, reached through the `panel` account's SSH forward or,
+once a domain is set, SSO-gated through the tunnel). It mints the
+`portainer_api_key` the converge drives Portainer with, provisions the local
+Docker environment, and points App Templates at this host's catalog. See
 `defaults/main.yml` + `tasks/main.yml`.
 
 ## Verified Portainer API endpoint map

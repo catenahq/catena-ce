@@ -1,7 +1,9 @@
 ---
-# Regenerate the Cloudflare tunnel for this host. Two scenarios: rotation of
-# the tunnel credential when compromise is suspected, and recovery from a
-# tunnel someone deleted out of band in the Cloudflare dashboard.
+# Regenerate the Cloudflare tunnel for this host. The panel's Settings >
+# Domain > Apply runs it (playbooks/rotate-tunnel.yml) to put a newly saved
+# domain or token into effect, which also covers rotating a tunnel credential
+# suspected of compromise and recovering a tunnel someone deleted out of band
+# in the Cloudflare dashboard.
 #
 # WHAT IS ROTATED is the tunnel's own credential -- the TUNNEL_TOKEN carried in
 # the cloudflared swarm service spec. The Cloudflare API token is what
@@ -28,8 +30,8 @@
 #      tunnel, re-points the wildcard CNAME and rolls cloudflared onto the new
 #      TUNNEL_TOKEN.
 #
-# Single-button for the client: the rotation reaches live state without a
-# converge.
+# The rotation reaches live state on its own; the Apply runs a converge after
+# it so every route follows the new domain.
 
 # There is nothing to rotate until the client has provisioned a tunnel by
 # saving a Cloudflare token in catena-admin > Settings (the token lands in the

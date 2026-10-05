@@ -62,7 +62,7 @@ ui:
 
 alerting:
   # Gatus pipes every alert to Healthchecks instead of ntfy directly.
-  # Rationale (decided 2026-04-19):
+  # Rationale:
   #   - Clients need to own their notification channels (email, Slack,
   #     Discord, ...). Gatus's alerting providers are config-as-code --
   #     no UI to add channels. Healthchecks has a full per-user

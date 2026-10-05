@@ -1,8 +1,10 @@
 # cloudflare_tunnel_regenerate
 
-Mints this host a new Cloudflare tunnel, replacing the one it has. Two
-occasions: rotation when the tunnel credential is suspected compromised, and
-recovery after the tunnel was deleted out of band in the Cloudflare dashboard.
+Mints this host a new Cloudflare tunnel, replacing the one it has. The panel's
+Settings > Domain > Apply runs it (`playbooks/rotate-tunnel.yml`, then a
+converge) to put a saved domain and token into effect, which also covers
+rotating a tunnel credential suspected compromised and recovering a tunnel
+deleted out of band in the Cloudflare dashboard.
 
 ## Two secrets, and which one this rotates
 
@@ -18,8 +20,8 @@ recovery after the tunnel was deleted out of band in the Cloudflare dashboard.
 `cloudflare_tunnel` converges the tunnel on every pass: find-or-create, DNS,
 ingress, service, chain probe. Deleting is the one thing it must never do on
 its own, because a converge able to delete the tunnel would drop the public
-edge every run. The delete is an intent somebody declares by running the
-playbook, which is why it lives here and is reachable from nowhere else.
+edge every run. The delete is an intent the client declares with the panel's
+Apply, which is why it lives here and is reachable from nowhere else.
 
 ## Inputs
 

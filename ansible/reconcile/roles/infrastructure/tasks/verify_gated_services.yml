@@ -10,7 +10,7 @@
 # 30x covers every gated reverse-proxy instance redirecting to
 # Keycloak.
 #
-# Why end-of-role: per-service probes inside each portainer_stack include
+# Why end-of-role: per-service probes inside each swarm_stack include
 # can race the SSO stack's own readiness. Deferring to one aggregate
 # pass at end of role gives the auth layer the full wall-clock of the
 # other infra deploys to settle.
@@ -127,7 +127,7 @@
             python3 {{ playbook_dir }}/../helpers/public_https.py --url https://{{ infrastructure_gatus_hostname }}/
   when: _infra_gated_failures | length > 0
 
-# ── dynamic client-app auth-gate probe (intent-driven) ────────────────────
+# --- dynamic client-app auth-gate probe (intent-driven) ----------------------
 # The static list above only covers the fixed infra hostnames. Client-app
 # gating is verified by verify_gated_intent.py ON THE HOST: it derives the
 # expected route set from the SAME Portainer stack labels the route writer

@@ -3,8 +3,8 @@
 # THE RULE, in two questions asked in order.
 #
 #   1. If this is wrong, is anything left that can fix it? If no, it is
-#      BOOTSTRAP: an operator runs it, over SSH, from outside. That set is
-#      small and it is meant to stay small.
+#      BOOTSTRAP: `catena-cli install` applies it, over SSH, from outside.
+#      That set is small and it is meant to stay small.
 #
 #   2. Otherwise, is the correct value a function of the product VERSION or of
 #      THIS HOST? Version-shaped things travel in the image; host-shaped things
@@ -16,11 +16,11 @@
 # probe and nothing about the host, so it is reconcile-side.
 #
 # This file is the declaration. tests/unit/test_converge_boundary.py is the
-# enforcement, and playbooks/reconcile.yml is the half that will eventually run
-# on the host with no inventory at all.
+# enforcement, and playbooks/reconcile.yml is the half the host runs against
+# itself, with no controller inventory.
 
-# Roles an operator must run. Each carries the reason it is here, because
-# "bootstrap" with no reason is how a set like this grows.
+# Roles only `catena-cli install` applies. Each carries the reason it is here,
+# because "bootstrap" with no reason is how a set like this grows.
 bootstrap_roles:
   - name: common
     why: >-
@@ -102,8 +102,8 @@ own_playbook_roles:
       Deletes this host's Cloudflare tunnel before handing off to
       cloudflare_tunnel to mint a new one. A converge able to do that would
       drop the public edge on every run. The delete is an intent a client
-      declares with the panel's tunnel regenerate, which runs
-      playbooks/rotate-tunnel.yml.
+      declares with the panel's Settings > Domain > Apply, which runs
+      playbooks/rotate-tunnel.yml before its converge.
 
 # NOTHING STRADDLES: straddling_roles is empty.
 #

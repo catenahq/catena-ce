@@ -1,12 +1,10 @@
 """Scheduling, retention, and every host config file have exactly one owner.
 
-Every defect in this family is a second source of truth:
+Every defect in this family is a second source of truth, for example:
 
-  - retention templated into backup.env AND read from flat config.BACKUP_KEEP_*
-    keys at runtime -- and backup.env is written only-if-absent, so on a host
-    that already has it one copy is live and the other is dead;
-  - the tier filter written twice, in this repo and in ops, with the ops test
-    suite importing the ops copy that no playbook runs;
+  - retention templated into backup.env AND read from the store at runtime:
+    backup.env is rewritten only once the host's backup is configured, so one
+    copy goes stale while the other is live;
   - timer enable owned by both this role and `catena-schedule apply`, which
     disagree the moment somebody turns a lane off in the panel and the next
     converge turns it back on.
@@ -48,17 +46,18 @@ def _code(path: Path) -> str:
     )
 
 
-# ─── retention has one writer and one reader ───────────────────────────
+# --- retention has one writer and one reader --------------------------------
 
 
 def test_retention_is_not_templated_into_backup_env():
-    # backup.env is written only-if-absent to protect a rotated credential,
-    # so anything mutable in it is unreachable on every existing host.
+    # Retention's one writer is catena-schedule, into backup-retention.env.
+    # A copy in backup.env would be a second writer, and one that stops
+    # moving on a host whose backup is not configured yet.
     body = _code(BACKUP_ENV)
     for key in KEEP_KEYS:
         assert key not in body, (
-            f"{key} is templated into backup.env, which is written "
-            "only-if-absent -- the value would never reach an existing host"
+            f"{key} is templated into backup.env; retention's one writer is "
+            "catena-schedule, into backup-retention.env"
         )
 
 
@@ -97,7 +96,7 @@ def test_no_retention_key_is_seeded_into_the_store():
 # file keeps the WRITER half, which is what this repo owns.
 
 
-# ─── the timer has one owner ───────────────────────────────────────────
+# --- the timer has one owner -------------------------------------------------
 
 
 def test_the_backup_role_installs_the_timer_and_enables_nothing():
@@ -130,7 +129,7 @@ def test_the_converge_applies_the_stored_schedule():
     assert "stat.exists" in gate
 
 
-# ─── the daily chain can start at all ──────────────────────────────────
+# --- the daily chain can start at all ----------------------------------------
 
 
 def test_the_daily_env_file_is_rendered_every_converge():
@@ -165,7 +164,7 @@ def test_the_daily_env_does_not_carry_a_schedule():
     assert "DAILY_TIMER_ONCALENDAR" not in body
 
 
-# ─── the other lanes can start at all ──────────────────────────────────
+# --- the other lanes can start at all ----------------------------------------
 #
 # daily.env is not the only one. catena-stack-update-managed.service declares
 # its EnvironmentFile with no leading dash too, and the container engine's
@@ -205,11 +204,10 @@ def test_the_secret_bearing_lane_config_is_not_world_readable():
 
 
 def test_the_offsite_env_is_rendered_every_converge_not_only_if_absent():
-    # backup.env next door is only-if-absent so a converge never clobbers a
-    # rotated credential. The lane's dead-man endpoints have to be able to
-    # change -- an operator pointing them off-host on an existing host would
-    # otherwise write into a file nothing rewrites, the same trap as retention
-    # in backup.env.
+    # backup.env next door is rewritten only once the host's backup is
+    # configured. The lane's dead-man endpoints have to follow every converge,
+    # configured or not, or pointing them off-host on such a host would write
+    # into a file nothing rewrites.
     tasks = yaml.safe_load(BACKUP_INSTALL.read_text())
     renders = [
         t for t in tasks

@@ -4,7 +4,7 @@
 reschedule, image update, restore) starts from the image defaults: antivirus
 off, stock thresholds. docker-mailserver copies only rspamd/override.d from
 the mail-config volume at start, never local.d, and a converge that finds the
-drift reloads rspamd, the one change ce_converge's settle stage does not allow.
+drift reloads rspamd, the one change install_rerun's settle stage does not allow.
 docker-mailserver runs /tmp/docker-mailserver/user-patches.sh once per new
 container, after its rspamd setup and before rspamd starts, which is where the
 drop-ins are re-applied and where rspamd waits for clamd's name to resolve.
