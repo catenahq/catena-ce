@@ -380,11 +380,18 @@
       when: not (_v2_edge_up | bool)
 
     - name: "Probe Keycloak (auth.<zone>) login page via CF"
-      ansible.builtin.uri:
-        url: "https://{{ keycloak_hostname | default('auth.' ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default('vps') }}/account"
-        status_code: [200, 302]
-        timeout: 15
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/../helpers/public_https.py"
+          - --url
+          - "https://{{ keycloak_hostname | default('auth.' ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default('vps') }}/account"
+          - --timeout
+          - "15"
       delegate_to: localhost
+      register: _v2_keycloak_probe
+      changed_when: false
+      failed_when: (_v2_keycloak_probe.stdout | from_json).status not in [200, 302]
       # Gated on the edge: while the tunnel is deferred auth.<zone> is not
       # reachable via CF.
       when: _v2_edge_up | bool
@@ -399,7 +406,8 @@
     #   - state param missing: oauth2-proxy CSRF-defense failure
     #   - redirect_uri param missing: callback would 4xx
     # Hits oauth2-proxy's /oauth2/start endpoint on each gated host;
-    # follow_redirects: none so we capture the FIRST redirect's Location.
+    # helpers/public_https.py follows no redirect, so the FIRST redirect's
+    # Location is what comes back.
     # _gated_hosts is filtered to ones whose hostname var is actually
     # defined in the inventory (skips silently on partial deploys).
     #
@@ -457,35 +465,40 @@
       when: _v2_edge_up | bool
 
     - name: "Probe /oauth2/start on each gated host (Location -> Keycloak)"
-      ansible.builtin.uri:
-        url: "https://{{ item }}/oauth2/start?rd=https%3A%2F%2F{{ item }}%2F"
-        method: GET
-        status_code: [302]
-        follow_redirects: none
-        timeout: 15
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/../helpers/public_https.py"
+          - --url
+          - "https://{{ item }}/oauth2/start?rd=https%3A%2F%2F{{ item }}%2F"
+          - --timeout
+          - "15"
       delegate_to: localhost
       become: false
       register: _r3_probes
+      changed_when: false
+      failed_when: (_r3_probes.stdout | from_json).status != 302
       loop: "{{ _gated_hosts | default([]) }}"
       loop_control:
         label: "{{ item }}"
       when: _gated_hosts | default([]) | length > 0
 
     - name: "Assert each probe redirects to Keycloak login with state + redirect_uri"
+      vars:
+        _location: "{{ (_probe.stdout | from_json).location }}"
       ansible.builtin.assert:
         that:
-          - _probe.location is defined
-          - _probe.location is string
-          - _probe.location.startswith(_r3_keycloak_login_prefix)
-          - "'state=' in _probe.location"
-          - "'redirect_uri=' in _probe.location"
-          - "'client_id=oauth2-proxy' in _probe.location"
-          - "'response_type=code' in _probe.location"
+          - _location | length > 0
+          - _location.startswith(_r3_keycloak_login_prefix)
+          - "'state=' in _location"
+          - "'redirect_uri=' in _location"
+          - "'client_id=oauth2-proxy' in _location"
+          - "'response_type=code' in _location"
         fail_msg: |
           Gated host {{ _probe.item }} did NOT redirect /oauth2/start to
           the Keycloak login URL with the expected query params.
 
-          Got Location: {{ _probe.location | default('<missing>') }}
+          Got Location: {{ _location if _location else '<missing>' }}
           Expected prefix: {{ _r3_keycloak_login_prefix }}
           Required params: state, redirect_uri, client_id=oauth2-proxy,
                            response_type=code

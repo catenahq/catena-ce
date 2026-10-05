@@ -65,19 +65,29 @@
     # race. Gate the rest of the validate block on the issuer URL actually
     # answering 200 first -- once Keycloak is reachable, docker's restart
     # loop self-heals every stuck per-app container deterministically.
+    #
+    # Through helpers/public_https.py, which resolves the public name with
+    # public resolvers: this machine's own resolver may be a LAN filter that
+    # blocks the domain while the edge serves it to everyone else.
     - name: "validate/oauth2-proxy: wait until Keycloak issuer is reachable (gate for per-app probes)"
-      ansible.builtin.uri:
-        url: "https://{{ keycloak_hostname | default('auth.' ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default('vps') }}/.well-known/openid-configuration"
-        method: GET
-        status_code: [200]
-        timeout: 10
-        return_content: true
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/../helpers/public_https.py"
+          - --url
+          - "https://{{ keycloak_hostname | default('auth.' ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default('vps') }}/.well-known/openid-configuration"
       delegate_to: localhost
       become: false
       register: _oauth2_issuer_probe
+      changed_when: false
       retries: 60
       delay: 5
-      until: _oauth2_issuer_probe.status == 200
+      until: (_oauth2_issuer_probe.stdout | from_json).status == 200
+
+    - name: "validate/oauth2-proxy: read the jwks_uri the issuer published"
+      ansible.builtin.set_fact:
+        _oauth2_jwks_uri: >-
+          {{ ((_oauth2_issuer_probe.stdout | from_json).body | from_json).get('jwks_uri', '') }}
 
     # oauth2-proxy's startup OIDC dance fetches BOTH the discovery
     # document AND the jwks_uri it references; the discovery doc can
@@ -90,18 +100,20 @@
     # jwks_uri directly so we don't proceed until Keycloak's realm
     # signing keys are queryable.
     - name: "validate/oauth2-proxy: wait until Keycloak JWKS is reachable"
-      ansible.builtin.uri:
-        url: "{{ (_oauth2_issuer_probe.json | default({})).get('jwks_uri', '') }}"
-        method: GET
-        status_code: [200]
-        timeout: 10
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/../helpers/public_https.py"
+          - --url
+          - "{{ _oauth2_jwks_uri }}"
       delegate_to: localhost
       become: false
       register: _oauth2_jwks_probe
+      changed_when: false
       retries: 60
       delay: 5
-      until: _oauth2_jwks_probe.status == 200
-      when: (_oauth2_issuer_probe.json | default({})).get('jwks_uri', '') | length > 0
+      until: (_oauth2_jwks_probe.stdout | from_json).status == 200
+      when: _oauth2_jwks_uri | length > 0
 
     # Targeted kick for oauth2-proxy containers stuck in docker's
     # restart-backoff window. Post-restore converge.yml redeploys every
