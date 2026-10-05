@@ -1,46 +1,34 @@
-"""Bootstrap/reconcile self-hosted Healthchecks: seed the operator
-superuser, the catena project, API keys, the ntfy notification
-channel, and the daily backup check. Idempotent -- re-running
-reconciles drift without wiping operator-added checks."""
+"""Seed and reconcile self-hosted Healthchecks: the operator superuser, the
+project and its API keys, the ntfy notification channel, and the two backup
+checks. Re-running reconciles drift and leaves client-added checks and
+channels alone."""
 # Managed by Ansible (reconcile/roles/infrastructure). Do not edit by hand.
 #
-# Bootstrap/reconcile seed for self-hosted Healthchecks. Runs inside
-# the Healthchecks container via `docker exec -i ... python manage.py
-# shell <`. Idempotent: every run uses update_or_create + .add() on
-# M2M bindings, so re-running only reconciles drift (no wipe of client
-# additions).
-#
-# Per-host values arrive via `docker exec -e KEY=VALUE` flags rendered
-# in reconcile/roles/infrastructure/tasks/healthchecks.yml. The script reads them
-# from os.environ; missing vars surface as KeyError so a wiring break
-# fails loud rather than silently seeding empty strings.
+# Runs inside the Healthchecks container via `docker exec -i ... python
+# manage.py shell <`. Per-host values arrive as `docker exec -e KEY=VALUE`
+# flags rendered in reconcile/roles/infrastructure/tasks/healthchecks.yml; a
+# missing one raises KeyError, so a wiring break fails loud.
 #
 # Seeds:
-#   0. Creates the operator superuser + default Project if missing. The
-#      upstream image's entrypoint runs migrations only - it does NOT
-#      honour SUPERUSER_EMAIL/SUPERUSER_PASSWORD, so a fresh container
-#      starts with an empty auth_user table. Without this bootstrap the
-#      oauth2-proxy hop (X-Forwarded-Email header) has no
-#      User row to map onto and the UI 403s for every request.
-#   1. Project.api_key_readonly + ping_key + name (pinned to the on-box store).
-#   2. Removes Healthchecks's tutorial check + default email channel if
-#      present (neither is wanted here).
-#   3. ntfy Channel for the operator's topic (update-in-place) -- ONLY when
-#      both NTFY_SERVER and NTFY_TOPIC are set. Both blank is a supported
-#      end state; see the block itself for why the old ntfy.sh default was
-#      worse than no channel.
-#   4. "Daily backup ping" check (dead-man, 1d timeout + 2h grace).
-#   5. Binds the ntfy channel, if there is one, to the backup check via
-#      .add() (not .set()), so client-added channels survive converges.
+#   0. The operator superuser and Project, when missing. The upstream
+#      entrypoint runs migrations only and ignores
+#      SUPERUSER_EMAIL/SUPERUSER_PASSWORD, so a fresh container has an empty
+#      auth_user table, and the oauth2-proxy hop (X-Forwarded-Email) needs a
+#      User row to map onto.
+#   1. Project.api_key_readonly, ping_key and name, pinned to the on-box store.
+#   2. Catena's ntfy Channel, when NTFY_SERVER and NTFY_TOPIC are both set.
+#      It carries a fixed `code`, so a converge updates or removes that one
+#      row and never a channel the client added.
+#   3. The two backup checks, bound to Catena's channel with .add(), which
+#      keeps the client's own bindings.
 #
-# Gatus per-endpoint checks (gatus-<slug>) are NOT seeded here: Gatus
-# creates them on first failure via `?create=1`, and Healthchecks's
-# `Check.assign_all_channels()` auto-attaches every project channel to
-# the new check - so the operator's ntfy channel (seeded below) lands
-# on every auto-created gatus-* check with zero extra wiring.
+# Gatus creates its per-endpoint checks (gatus-<slug>) on first failure via
+# `?create=1`, and Healthchecks's `Check.assign_all_channels()` attaches every
+# project channel to the new check, Catena's ntfy channel included.
 
 import json
 import os
+import uuid
 from datetime import timedelta
 from django.contrib.auth import get_user_model
 from hc.accounts.models import Profile, Project
@@ -54,6 +42,7 @@ _hc_api_key_readwrite = os.environ.get("CATENA_HC_API_KEY_READWRITE", "")
 _hc_ping_key = os.environ["CATENA_HC_PING_KEY"]
 _hc_ntfy_topic = os.environ["CATENA_NTFY_TOPIC"]
 _hc_ntfy_server = os.environ["CATENA_NTFY_SERVER"]
+_NTFY_CHANNEL_CODE = uuid.uuid5(uuid.NAMESPACE_URL, "catena:healthchecks-seed:ntfy")
 
 User = get_user_model()
 
@@ -100,10 +89,9 @@ if _profile.theme is None:
     _profile.theme = "system"
     _profile.save(update_fields=["theme"])
 
-# Ensure the operator has a Project to own the seeded checks/channels.
-# Project.objects.create() does NOT trigger the signup-flow helpers
-# (tutorial check + default email channel), so we don't need to delete
-# them below - but the deletes stay as defensive no-ops.
+# The operator's Project owns the seeded checks and channel.
+# Project.objects.create() skips the signup flow's tutorial check and email
+# channel.
 if not Project.objects.filter(owner=operator).exists():
     Project.objects.create(owner=operator, name=_hc_inventory_hostname)
 
@@ -125,14 +113,6 @@ if not project.name:
     project.name = _hc_inventory_hostname
 project.save(update_fields=_save_fields)
 
-# Defensive clean-up: Healthchecks's signup flow creates a "My first
-# check" tutorial + a default email Channel. Our bootstrap above uses
-# create_superuser (no signup flow), so nothing lands here on fresh
-# installs - but if an operator ever re-creates the project manually
-# through the UI, these deletes reconcile it back. Idempotent.
-Check.objects.filter(project=project, name="My first check").delete()
-Channel.objects.filter(project=project, kind="email").delete()
-
 # The ntfy channel is OPTIONAL, and both halves are required to make one.
 # Neither NTFY_SERVER nor NTFY_TOPIC defaults to a value: a default of
 # https://ntfy.sh would be public and unauthenticated, where the topic is
@@ -144,9 +124,10 @@ Channel.objects.filter(project=project, kind="email").delete()
 #
 # Both blank is a supported end state, not a half-finished install: the checks
 # still record every ping and the client attaches their own channel through
-# the Healthchecks integrations UI. The delete keeps that reconcilable in both
-# directions -- clearing the values on a converge removes a channel an earlier
-# converge seeded, rather than leaving a stale one nobody can see is dead.
+# the Healthchecks integrations UI. Clearing the values on a converge removes
+# the channel an earlier converge seeded, rather than leaving a stale one
+# nobody can see is dead. Both writes select on the fixed code, so the
+# client's own ntfy channels stay as they are.
 if _hc_ntfy_topic and _hc_ntfy_server:
     ntfy_value = json.dumps({
         "topic": _hc_ntfy_topic,
@@ -156,15 +137,18 @@ if _hc_ntfy_topic and _hc_ntfy_server:
     })
     channel, _ = Channel.objects.update_or_create(
         project=project,
-        kind="ntfy",
+        code=_NTFY_CHANNEL_CODE,
         defaults={
+            "kind": "ntfy",
             "value": ntfy_value,
             "name": "ntfy ({})".format(_hc_inventory_hostname),
         },
     )
 else:
     channel = None
-    removed, _ = Channel.objects.filter(project=project, kind="ntfy").delete()
+    removed, _ = Channel.objects.filter(
+        project=project, code=_NTFY_CHANNEL_CODE,
+    ).delete()
     print(
         "healthchecks-seed: no notification channel configured "
         "(NTFY_SERVER and NTFY_TOPIC must both be set); checks will record "
@@ -172,19 +156,17 @@ else:
         .format(removed)
     )
 
-# R24: two backup checks, not one.
+# Two backup checks:
 #
-#   - succeeded: pinged ONLY on a clean run-end. grace=26h means a single
-#     missed nightly run goes "late" but stays UP; a SECOND consecutive
-#     miss (50h since last success) trips DOWN. This is the "alarm on
-#     N=2 consecutive misses" semantic - soft S3/restic transients no
-#     longer page on first failure.
+#   - succeeded: pinged only on a clean run end. grace=26h: one missed
+#     nightly run goes "late" but stays UP, and a second consecutive miss
+#     (50h since the last success) trips DOWN, so a soft S3/restic transient
+#     does not page.
 #
-#   - attempted: pinged on every run start AND on /fail for hard
-#     structural failures (pg_dumpall abort, restic config error). Tight
-#     grace=2h - operator pages immediately if the host stops attempting
-#     backups at all (timer dead, host down) or the wrapper hits an
-#     unrecoverable error.
+#   - attempted: pinged on every run start, and on /fail for hard
+#     structural failures (pg_dumpall abort, restic config error). grace=2h
+#     pages as soon as the host stops attempting backups (timer dead, host
+#     down) or the wrapper hits an unrecoverable error.
 backup_succeeded_check, _ = Check.objects.update_or_create(
     project=project,
     slug="catena-backup-succeeded",
@@ -222,13 +204,8 @@ backup_attempted_check, _ = Check.objects.update_or_create(
 if channel is not None:
     backup_attempted_check.channel_set.add(channel)
 
-# Community edition seeds NO catena-daily umbrella checks: the nightly
-# orchestrator chain (cold mirror, verify-cold, managed updates, CVE
-# residual, container update) is a Business-edition lane and does not
-# run here. The backup checks above stay -- they monitor the manual
-# run-backup.sh (or a user's own backup cron); a never-pinged check is
-# inert in Healthchecks, so they raise no false alarm until the first
-# real ping starts the dead-man clock.
+# A check nobody has pinged stays inert in Healthchecks: its dead-man clock
+# starts at the first ping from run-backup.sh.
 print(
     "OK channel={} succeeded={} attempted={}".format(
         channel.code if channel is not None else "none",
