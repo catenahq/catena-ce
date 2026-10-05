@@ -173,38 +173,78 @@
   ansible.builtin.script:
     cmd: >-
       {{ playbook_dir }}/../helpers/catena_admin_release.py
-      --repository {{ catena_admin_repository
-                      | default('ghcr.io/catenahq/catena-admin', true) | quote }}
+      --repository {{ catena_admin_repository | quote }}
     executable: python3
   register: _catena_admin_release
   changed_when: false
   failed_when: false
   when: lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
 
-# Fails HERE rather than deep in reconcile/roles/payload, and says which of the two
-# reasons it is. A converge cannot proceed without this: the panel image is
-# also where the host engines come from, and every role after bootstrap/roles/docker
-# depends on those. Nothing downstream has a usable fallback either: a
-# hardcoded version is the one thing this resolution exists to avoid, so
-# failing here is the honest outcome.
+# When the registry does not answer, the converge keeps the panel where it is:
+# the catena-admin version this host recorded (a rollback or a managed bump),
+# else the image its catena-admin service runs. Keeping the running image is
+# the one answer that needs no registry, and the engines follow the service's
+# image anyway (reconcile/roles/payload). Most hosts record no catena-admin
+# version, so the running service is the usual fallback.
+- name: "onbox: read the image the catena-admin service runs"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - inspect
+      - "{{ catena_admin_service_name }}"
+      - "--format={{ '{{ .Spec.TaskTemplate.ContainerSpec.Image }}' }}"
+  register: _catena_admin_running
+  changed_when: false
+  # No service yet is an answer: the fail below names it.
+  failed_when: false
+  when:
+    - lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
+    - (_catena_admin_release.rc | default(1)) != 0
+
+- name: "onbox: keep the catena-admin image this host already runs"
+  ansible.builtin.set_fact:
+    catena_admin_fallback_image: "{{ _pinned if _pinned else _running }}"
+    _catena_admin_fallback_from: >-
+      {{ 'the version this host recorded' if _pinned
+         else 'the image its ' ~ catena_admin_service_name ~ ' service runs' }}
+  vars:
+    _pinned: >-
+      {{ catena_image_pins | default({})
+         | catena_image_pinned(catena_admin_repository) }}
+    _running: >-
+      {{ (_catena_admin_running.stdout | default('') | trim)
+         if (_catena_admin_running.rc | default(1)) == 0 else '' }}
+  when:
+    - lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
+    - (_catena_admin_release.rc | default(1)) != 0
+
+# Fails HERE rather than deep in reconcile/roles/payload. The panel image is
+# also where the host engines come from, and every role after
+# bootstrap/roles/docker depends on those; a hardcoded version is the one thing
+# this resolution exists to avoid.
 - name: "onbox: the catena-admin release could not be resolved"
   ansible.builtin.fail:
     msg: >-
       Could not resolve which catena-admin image to install:
       {{ (_catena_admin_release.stderr | default('') | trim)
          | default('no output', true) }}
-      This converge needs the registry to answer, because the panel image is
+      This host records no catena-admin version and runs no
+      {{ catena_admin_service_name }} service to keep, and the panel image is
       also where the host engines are extracted from. Pin an image explicitly
       with CATENA_ADMIN_IMAGE=ghcr.io/catenahq/catena-admin:vX.Y.Z to converge
       without asking the registry.
   when:
     - lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
     - (_catena_admin_release.rc | default(1)) != 0
+    - (catena_admin_fallback_image | default('')) | length == 0
 
 - name: "onbox: publish the resolved catena-admin release"
   ansible.builtin.set_fact:
     catena_admin_release: "{{ _catena_admin_release.stdout | from_json }}"
-  when: lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
+  when:
+    - lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
+    - (_catena_admin_release.rc | default(1)) == 0
 
 - name: "onbox: catena-admin release"
   ansible.builtin.debug:
@@ -213,3 +253,11 @@
       ({{ catena_admin_release.digest }}), resolved from
       {{ catena_admin_release.repository }}.
   when: catena_admin_release is defined
+
+- name: "onbox: catena-admin kept without the registry"
+  ansible.builtin.debug:
+    msg: >-
+      The registry did not answer, so this converge keeps catena-admin at
+      {{ catena_admin_fallback_image }}, {{ _catena_admin_fallback_from }}.
+      Its payload digest goes unchecked on this converge.
+  when: catena_admin_fallback_image is defined

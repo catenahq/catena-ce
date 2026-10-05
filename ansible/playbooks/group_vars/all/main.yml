@@ -458,9 +458,12 @@ swarm_stack_dir: /etc/catena/stacks
 #      included.
 #   3. The newest published release, asked of the registry once per converge by
 #      playbooks/tasks/load_onbox_config.yml (catena_admin_release).
+#   4. When the registry does not answer, the image this host already runs
+#      (catena_admin_fallback_image, set by the same loader), so the panel stays
+#      where it is.
 #
 # The empty minimum on the pin filter is what lets (2) beat (3); a pin must name
-# this repository and a real version, and the result carries its digest, so the
+# this repository and a real version, and the release carries its digest, so the
 # pull is byte-addressed (playbooks/filter_plugins/image_pin.py). An inline
 # conditional rather than ternary: ternary evaluates both branches, and the pin
 # filter refuses the empty reference an override leaves behind.
@@ -469,8 +472,12 @@ catena_admin_image_override: >-
 catena_admin_image: >-
   {{ catena_admin_image_override
      if (catena_admin_image_override | default('', true) | length > 0)
-     else ((catena_admin_release.ref | default(''))
+     else ((catena_admin_release.ref
+            | default(catena_admin_fallback_image | default('')))
            | catena_image_pin(catena_image_pins | default({}), '')) }}
+# The registry repository catena-admin is published to: the one the loader asks
+# for the newest release, and the one a recorded catena-admin pin must name.
+catena_admin_repository: ghcr.io/catenahq/catena-admin
 
 # --- Hostname ---------------------------------------------------------
 # The admin panel is served at dash.<zone>. The subdomain is a product

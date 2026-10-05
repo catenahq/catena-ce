@@ -408,7 +408,8 @@ ROLE_MINTED_SECRETS: dict[str, str] = {
 # SETTINGS keys live in the on-box store and are changed in catena-admin. A
 # few of them (ENV_SEEDED_CONFIG) are needed by the first converge, before the
 # panel exists: the `.env` is their first-install SEED, adopted fill-only and
-# never read again. The rest have no `.env` line at all.
+# never read again, except the few it keeps editing (ENV_RESEEDED_CONFIG). The
+# rest have no `.env` line at all.
 #
 # Value is the Ansible variable the loader publishes the stored value as: the
 # registry's `var`.
@@ -427,6 +428,14 @@ SETTINGS_CONFIG: dict[str, str] = {
 ENV_SEEDED_CONFIG: frozenset[str] = frozenset(
     entry["key"] for entry in _KNOBS["config"]
     if entry["residence"] == "store" and "env" in entry
+)
+
+# The seeded keys the `.env` keeps editing: every converge run from the
+# inventory writes their non-blank `.env` value over the stored one. Each has
+# no panel field, so the `.env` is the one place a change to it is made.
+ENV_RESEEDED_CONFIG: frozenset[str] = frozenset(
+    entry["key"] for entry in _KNOBS["config"]
+    if entry["key"] in ENV_SEEDED_CONFIG and entry["env"].get("reseed")
 )
 
 # Read from the inventory `.env` at converge time, by design: the installer
@@ -901,8 +910,8 @@ def main(argv: list[str] | None = None) -> int:
                          "no stdin passthrough)")
     ap.add_argument("--emit",
                     choices=["secrets", "all", "none", "secret-names",
-                             "env-seed-names", "config-vars",
-                             "image-pins"],
+                             "env-seed-names", "env-reseed-names",
+                             "config-vars", "image-pins"],
                     default="secrets",
                     help="what to print as JSON on stdout (default: secrets, "
                          "for an Ansible set_fact of the store's keys). "
@@ -911,7 +920,9 @@ def main(argv: list[str] | None = None) -> int:
                          "to know which in-scope variables to capture. "
                          "env-seed-names prints the store keys the inventory "
                          ".env seeds, also without touching the store, so the "
-                         "loader knows which .env values to read. config-vars prints "
+                         "loader knows which .env values to read; "
+                         "env-reseed-names prints the subset it writes on every "
+                         "converge, with --overwrite. config-vars prints "
                          "the store's config projected onto Ansible variable "
                          "names, for a set_fact that outranks the role "
                          "defaults. image-pins prints what the on-host update "
@@ -936,6 +947,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.emit == "env-seed-names":
         print(json.dumps(sorted(ENV_SEEDED_CONFIG)))
+        return 0
+    if args.emit == "env-reseed-names":
+        print(json.dumps(sorted(ENV_RESEEDED_CONFIG)))
         return 0
 
     # A pure READ of somebody else's key. The managed-update lane writes

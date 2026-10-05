@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 import jinja2
+import pytest
 import yaml
 
 from ansible_tree import ROLE_ROOTS as _ROLE_ROOTS, role_dir as _role_dir
@@ -52,9 +53,8 @@ def _image_defaults() -> dict[str, tuple[str, str]]:
                        for p in root.glob("*/defaults/main.yml")) + [SHARED_VARS]:
         data = yaml.safe_load(path.read_text()) or {}
         for key, value in data.items():
-            # _image_floor is still scanned even though none is left: a
-            # reintroduced floor has to earn an exemption rather than inherit
-            # one by not matching the glob.
+            # A *_image_floor is scanned too: a floor has to earn an
+            # exemption rather than inherit one by not matching the glob.
             if _IMAGE_VAR.match(str(key)) or str(key).endswith(
                     ("_image_floor", "_image_override")):
                 out[str(key)] = (path.parents[1].name, str(value))
@@ -97,12 +97,11 @@ def test_the_exemptions_are_real_variables():
 
 
 def test_no_role_carries_a_hand_maintained_catena_admin_version():
-    """A version and its digest kept as two literals drift apart -- v0.5.1
-    published as sha256:205a5a70... while the recorded digest said
-    sha256:09e03d74... -- and reconcile/roles/payload correctly refuses to
-    extract, so a correct host holding a correctly published image cannot
-    complete a fresh install. Both halves come from one registry answer; a
-    literal in a default is that defect being rebuilt."""
+    """A version and its digest kept as two literals drift apart, and
+    reconcile/roles/payload correctly refuses to extract, so a correct host
+    holding a correctly published image cannot complete a fresh install. Both
+    halves come from one registry answer; a literal in a default rebuilds that
+    defect."""
     for var, (role, value) in _image_defaults().items():
         if "catena-admin" not in str(value):
             continue
@@ -191,24 +190,32 @@ def test_the_resolved_digest_survives_the_swarm_pinned_ref():
     )
 
 
-def _render_image(release=None, override="", pins=None):
+def _filters():
+    sys.path.insert(0, str(ANSIBLE / "playbooks" / "filter_plugins"))
+    import image_pin  # noqa: PLC0415
+
+    return image_pin
+
+
+def _render_image(release=None, override="", pins=None, fallback=None):
     """Render catena_admin_image itself.
 
     The substring tests above cannot tell a correct expression from one that
     renders an empty string, and empty is the dangerous direction: every role
     downstream would pull "" or, worse, the filter would raise mid-converge.
     """
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "playbooks"
-                           / "filter_plugins"))
-    from image_pin import catena_image_pin  # noqa: PLC0415
-
     shared = yaml.safe_load(SHARED_VARS.read_text())
-    env = jinja2.Environment()
-    env.filters["catena_image_pin"] = catena_image_pin
+    # Ansible's undefined chains (`undefined.ref | default(...)`), so the
+    # stand-in does too.
+    undefined = jinja2.ChainableUndefined
+    env = jinja2.Environment(undefined=undefined)
+    env.filters["catena_image_pin"] = _filters().catena_image_pin
     env.filters["ternary"] = lambda c, a, b: a if c else b
     return env.from_string(str(shared["catena_admin_image"])).render(
         catena_admin_image_override=override,
-        catena_admin_release=(jinja2.Undefined() if release is None else release),
+        catena_admin_release=(undefined() if release is None else release),
+        catena_admin_fallback_image=(
+            undefined() if fallback is None else fallback),
         catena_image_pins=pins if pins is not None else {},
     ).strip()
 
@@ -279,6 +286,74 @@ def test_a_corrupt_pin_does_not_choose_the_panel_image():
             release=rel,
             pins={"ghcr.io/catenahq/catena-admin": bad},
         ) == rel["ref"], bad
+
+
+_LOADER = ANSIBLE / "playbooks" / "tasks" / "load_onbox_config.yml"
+_REPO = yaml.safe_load(SHARED_VARS.read_text())["catena_admin_repository"]
+
+
+def _loader_task(name: str) -> dict:
+    return next(t for t in yaml.safe_load(_LOADER.read_text())
+                if t.get("name") == name)
+
+
+def _render_fallback(pins, running_rc=1, running=""):
+    """Render the loader's fallback fact under a fake context: what a converge
+    the registry did not answer keeps."""
+    task = _loader_task("onbox: keep the catena-admin image this host already runs")
+    env = jinja2.Environment()
+    env.filters["catena_image_pinned"] = _filters().catena_image_pinned
+    ctx = {"catena_image_pins": pins, "catena_admin_repository": _REPO,
+           "catena_admin_service_name": "catena-admin",
+           "_catena_admin_running": {"rc": running_rc, "stdout": running}}
+    for var, expr in task["vars"].items():
+        ctx[var] = env.from_string(str(expr)).render(**ctx).strip()
+    fact = task["ansible.builtin.set_fact"]["catena_admin_fallback_image"]
+    return env.from_string(str(fact)).render(**ctx).strip()
+
+
+def test_without_the_registry_the_recorded_version_is_kept():
+    """A rollback or a managed bump recorded on the host is what the client
+    chose; the running service may still be rolling to it."""
+    pin = f"{_REPO}:v0.6.1"
+    fallback = _render_fallback({_REPO: pin}, 0, f"{_REPO}:v0.6.2@sha256:{'ab' * 32}")
+    assert fallback == pin
+    assert _render_image(fallback=fallback, pins={_REPO: pin}) == pin
+
+
+def test_without_the_registry_or_a_pin_the_running_image_is_kept():
+    """Most hosts record no catena-admin version: only rollbacks and managed
+    bumps write one. The service's own image is then the answer that moves
+    nothing."""
+    running = f"{_REPO}:v0.6.2@sha256:{'ab' * 32}"
+    fallback = _render_fallback({}, 0, running)
+    assert fallback == running
+    assert _render_image(fallback=fallback) == running
+
+
+def test_a_corrupt_pin_falls_through_to_the_running_image():
+    running = f"{_REPO}:v0.6.2@sha256:{'ab' * 32}"
+    for bad in ("ghcr.io/someone-else/panel:v9.9.9", f"{_REPO}:latest"):
+        assert _render_fallback({_REPO: bad}, 0, running) == running, bad
+
+
+def test_without_the_registry_a_pin_or_a_service_the_converge_fails():
+    """Nothing to keep. The loader fails with the registry's own error rather
+    than letting the image render empty, which the pin filter would refuse
+    later and less clearly."""
+    assert _render_fallback({}, 1, "") == ""
+    fail = _loader_task("onbox: the catena-admin release could not be resolved")
+    assert any("catena_admin_fallback_image" in str(c) for c in fail["when"])
+    with pytest.raises(ValueError):
+        _render_image(fallback="")
+
+
+def test_the_release_is_published_only_when_the_registry_answered():
+    """A failed resolve leaves no JSON to parse, and a release published from
+    one would shadow the fallback in catena_admin_image."""
+    publish = _loader_task("onbox: publish the resolved catena-admin release")
+    assert any("== 0" in str(c) and "_catena_admin_release.rc" in str(c)
+               for c in publish["when"])
 
 
 def test_the_engines_and_the_shell_come_from_one_image():

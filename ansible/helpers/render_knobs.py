@@ -147,6 +147,9 @@ def _check_env(key: str, env: dict, sections: set[str]) -> None:
         _require(not default,
                  f"{key}: a knob with a default needs no example; the default "
                  "already illustrates it")
+    reseed = env.get("reseed")
+    if reseed is not None:
+        _require(reseed is True, f"{key}: env reseed is `true` or absent")
 
 
 def load(source: Path = SOURCE) -> dict:
@@ -278,6 +281,9 @@ def load(source: Path = SOURCE) -> dict:
                      f"{key}: only a stored value is projected onto an Ansible fact")
         if "env" in entry:
             _check_env(key, entry["env"], set(section_names))
+            _require(not entry["env"].get("reseed") or residence == "store",
+                     f"{key}: reseed writes the .env value into the store, and "
+                     f"a {residence} value is not stored")
         if entry.get("panel"):
             _require(residence == "store",
                      f"{key}: the panel writes the store, so only a stored value "

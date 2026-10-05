@@ -289,6 +289,25 @@ def test_the_installers_required_fields_are_the_ones_it_cannot_install_without(
                         "SSH_PRIVATE_KEY", "ADMIN_EMAIL"}
 
 
+def test_reseed_is_true_or_absent_and_only_on_a_stored_knob(tmp_path):
+    """reseed writes the `.env` value into the store on every converge, so it
+    means something only on a stored knob, and only as `true`."""
+    doc = render_knobs.load()
+    _entry(doc, "CATENA_ACME_HOST_IP")["env"]["reseed"] = "yes"
+    _refused(tmp_path, doc, "reseed is `true` or absent")
+
+    doc = render_knobs.load()
+    _entry(doc, "OPS_USER")["env"]["reseed"] = True
+    _refused(tmp_path, doc, "is not stored")
+
+
+def test_the_reseeded_keys_are_the_ones_onbox_config_writes_over(registry):
+    reseeded = {k["key"] for k in registry["config"]
+                if (k.get("env") or {}).get("reseed")}
+    assert reseeded
+    assert reseeded == set(onbox_config.ENV_RESEEDED_CONFIG)
+
+
 def test_a_default_that_needs_quoting_is_refused():
     with pytest.raises(render_knobs.KnobError, match="unquoted"):
         render_knobs._check_env(

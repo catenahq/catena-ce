@@ -23,10 +23,12 @@
 # runs helpers/catena_admin_release.py on the host once per converge, which
 # asks GHCR for the highest published `vX.Y.Z` tag and its digest. That is the
 # INTENT: catena-ce installs the newest published release, so a converge from a
-# controller picks up a release without anyone editing a pin here. There is
-# deliberately no floor and no second version input. A host converging itself
-# (catena-admin catena-converge) sets CATENA_ADMIN_IMAGE to the image it is
-# running and stays on it; the panel's self-update moves it.
+# controller picks up a release without anyone editing a pin here. The registry
+# is the one version input. A host converging itself (catena-admin
+# catena-converge) sets CATENA_ADMIN_IMAGE to the image it is running and stays
+# on it; the panel's self-update moves it. When the registry does not answer,
+# the loader keeps the image the host already runs
+# (playbooks/group_vars/all/main.yml).
 #
 # The version TAG, not `:latest`. publish-image.yml moves `:latest` with
 # `docker buildx imagetools create`, which builds a new index -- so `:latest`
@@ -39,11 +41,11 @@
 # local/catena-admin:bench on the VPS so the extract runs against the working
 # tree rather than the last published release.
 #
-# THIS IS THE FALLBACK, not the usual answer. tasks/main.yml replaces it with
-# the image the catena-admin swarm service is actually running whenever that
-# service exists, because "which image do the engines come from" and "which
-# image does the shell come from" must not be two separate questions. This
-# value answers only the bootstrap case -- no service yet, so nothing to follow.
+# tasks/main.yml replaces this value with the image the catena-admin swarm
+# service runs whenever that service exists, because "which image do the
+# engines come from" and "which image does the shell come from" must be one
+# question. This value answers the bootstrap case alone: no service yet, so
+# nothing to follow.
 catena_payload_image: >-
   {{ lookup('env', 'CATENA_PAYLOAD_IMAGE') | default(catena_admin_image, true) }}
 
@@ -63,23 +65,21 @@ catena_payload_image: >-
 # writer, deliberately: a gate whose expected value has a different writer than
 # the thing it checks fails closed on correct hosts.
 #
-# WHAT THIS NOW PROVES, precisely: that the image about to be extracted is the
-# one this converge resolved, not that the registry is honest. Both halves come
-# from the same source, so this is a same-converge consistency check -- it
-# catches a tag moved mid-converge and a mismatched override, and it does not
-# catch a compromised registry. Provenance is `cosign verify` against the
-# keyless signature publish-image.yml records; that needs cosign on the host and
-# is not wired up.
+# WHAT THIS PROVES, precisely: that the image about to be extracted is the one
+# this converge resolved. Both halves come from the same registry answer, so
+# this is a same-converge consistency check: it catches a tag moved
+# mid-converge and a mismatched override, and a compromised registry passes it.
 #
 # It applies only when the image being extracted IS the resolved one. Anything
 # else has a digest nobody here knows: the bench builds its own image on the
-# VPS, and the on-host update lane may have pinned a version this converge did
-# not resolve. Asserting the resolved digest against one of those would fail
-# closed on a correct host, which is worse than saying out loud that it went
-# unchecked.
+# VPS, the on-host update lane may have pinned a version this converge did not
+# resolve, and a converge the registry did not answer keeps the running image
+# (catena_admin_fallback_image) with no resolved release at all. Asserting the
+# resolved digest against one of those would fail closed on a correct host,
+# which is worse than saying out loud that it went unchecked.
 #
-# CATENA_PAYLOAD_IMAGE_DIGEST still wins, and a deliberately wrong value is how
-# the fail-closed leg gets exercised.
+# CATENA_PAYLOAD_IMAGE_DIGEST wins over all of it, and a deliberately wrong
+# value is how the fail-closed leg gets exercised.
 #
 # The comparison strips a trailing @sha256:, because both sides can carry one:
 # swarm resolves the tag at create/update time and stores `repo:tag@sha256:...`

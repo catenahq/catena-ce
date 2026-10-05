@@ -22,7 +22,7 @@ sys.path.insert(
     0, str(Path(__file__).resolve().parents[2] / "playbooks" / "filter_plugins")
 )
 
-from image_pin import catena_image_pin  # noqa: E402
+from image_pin import catena_image_pin, catena_image_pinned  # noqa: E402
 
 
 TRAEFIK_FLOOR = "traefik:v3.7.10"
@@ -159,7 +159,7 @@ def test_a_rollback_survives_the_next_converge():
     assert catena_image_pin(NEWEST, {PANEL: ROLLED_BACK}, "") == ROLLED_BACK
 
 
-def test_the_same_call_with_the_default_minimum_is_the_old_behaviour():
+def test_the_same_call_with_the_default_minimum_is_max_floor_pin():
     """The one line that separates the two callers, shown as one line.
 
     Every shipped-version caller omits the minimum and gets max(floor, pin);
@@ -182,3 +182,19 @@ def test_no_minimum_does_not_mean_no_rules():
 
 def test_a_fresh_host_with_no_pin_gets_the_newest_release():
     assert catena_image_pin(NEWEST, {}, "") == NEWEST
+
+
+# --- the pin alone: what a converge the registry did not answer keeps ---------
+
+def test_the_recorded_pin_is_read_by_repository():
+    assert catena_image_pinned({PANEL: ROLLED_BACK}, PANEL) == ROLLED_BACK
+
+
+def test_an_unusable_pin_reads_as_none():
+    """The same rules as the comparison: the pin names its own repository and
+    a full semver tag, or the host has no recorded version to keep."""
+    for pins in ({}, None, [], {PANEL: ""},
+                 {PANEL: "ghcr.io/someone-else/panel:v9.9.9"},
+                 {PANEL: PANEL + ":latest"},
+                 {"ghcr.io/other/app": "ghcr.io/other/app:v1.0.0"}):
+        assert catena_image_pinned(pins, PANEL) == "", pins

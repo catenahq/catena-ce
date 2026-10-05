@@ -8,9 +8,9 @@ Usage in group_vars / playbooks:
 
 Search order:
   1. <inventory_dir>/.env       -- per-inventory config (the canonical location)
-  2. cwd/.env                   -- legacy fallback for single-inventory usage
-  3. playbook_dir/../.env       -- legacy fallback
-  4. playbook_dir/.env          -- legacy fallback
+  2. cwd/.env                   -- a single-inventory checkout
+  3. playbook_dir/../.env       -- the same, beside playbooks/
+  4. playbook_dir/.env          -- the same, inside playbooks/
 
 Missing keys raise AnsibleError unless `default` is passed -- fail-fast by design;
 silent defaults hide misconfiguration.
