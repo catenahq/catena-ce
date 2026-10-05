@@ -18,7 +18,6 @@ The 158 scenarios the maintainers' test bench carries, and the behaviour each on
 | `ce_admin_actions` | Pressing a maintenance button in the Community administration panel dispatches the action and streams its result back. |
 | `ce_admin_smoke` | A Community host carries the host-side state its administration panel needs, and the panel answers. |
 | `ce_backup_deferred` | A host with no scheduled backup can still take one on demand, because whether a host backs up is answered by its storage credentials rather than by a switch. |
-| `ce_converge` | Applying the Community installer a second time to an already converged host changes nothing. |
 | `ce_install_headscale` | A host joins a self-hosted private network control server instead of the hosted one, and reaches the rest of the network through it. |
 | `ce_install_suite` | A Community install, configured in its panel, brings up the full application suite rather than the base host alone. |
 | `ce_restore` | A Community host restores from its encrypted backup and comes back with the content the snapshot held. |
@@ -116,6 +115,7 @@ The 158 scenarios the maintainers' test bench carries, and the behaviour each on
 | `infra_stack_update_rollback` | A bad version bump of an infrastructure service deployed through the application control plane is detected and rolled back automatically. |
 | `infra_subdomain_change` | A shared service moves to a new address when its name is changed, and every route to it moves with it. |
 | `inplace_restore_suite` | A restore on a running server brings the data back without taking the dashboard down, can put back one application while leaving the others alone, can be started from the dashboard, and refuses a backup from a newer installer, or from an older one unless the upgrade is asked for, before it changes anything. |
+| `install_rerun` | Applying the Community installer a second time to an already converged host changes nothing. |
 | `install_without_a_domain` | A server with no domain converges green and says what it is waiting for. |
 | `keycloak_admin_email_loss_recovery` | An administrator locked out of the identity provider mail channel recovers access by minting a fresh named administrator against the running server. |
 | `keycloak_signing_keys_rotation_round_trip` | A single sign-on signing key is rotated with an overlap window where both keys verify, then retired without breaking any session. |
