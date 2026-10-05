@@ -30,7 +30,7 @@ transforms live in Python with a unit test rather than in Jinja);
 | `lockdown.yml` | Join the tailnet, and -- only when the panel's Lockdown asks -- close public port 22 behind it. |
 | `reconcile.yml` | The half of a converge a host runs against itself, from the tree inside the panel image. |
 | `rotate-tailscale.yml` | Re-authenticate this node to the tailnet (force re-auth). |
-| `rotate-tunnel.yml` | Regenerate this host's Cloudflare tunnel without a full site converge. |
+| `rotate-tunnel.yml` | Regenerate this host's Cloudflare tunnel. |
 | `show-keyset.yml` | Mint the passwords the install shows (admin + console) when the store has none, and hand them to the installer ONCE with the journal verification key and the first-login URLs. |
 | `uninstall.yml` | Hand control of this host back to the operating system. |
 | `validate.yml` | Validation orchestrator: check a converged host from three vantage points, so a service that only answers on the box is not mistaken for a working one. |
