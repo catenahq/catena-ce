@@ -185,6 +185,30 @@ def test_launcher_fields_need_a_step_and_a_sound_shape(tmp_path):
     _refused(tmp_path, doc, "needs a label")
 
 
+def test_a_launcher_choice_labels_public_and_private_in_both_languages(tmp_path):
+    """The radio in front of a field: two options, both labelled for the page
+    in each language, on a field the launcher asks for, and never `required`
+    outright, since only the `private` option makes it so."""
+    doc = render_knobs.load()
+    assert set(_entry(doc, "HOST_SSH_ADDRESS")["gui_choice"]) == {"public", "private"}
+
+    doc = render_knobs.load()
+    del _entry(doc, "HOST_SSH_ADDRESS")["gui_choice"]["private"]
+    _refused(tmp_path, doc, "gui_choice labels exactly")
+
+    doc = render_knobs.load()
+    del _entry(doc, "HOST_SSH_ADDRESS")["gui_choice"]["public"]["fr"]
+    _refused(tmp_path, doc, "no fr text")
+
+    doc = render_knobs.load()
+    _entry(doc, "HOST_SSH_ADDRESS")["required"] = True
+    _refused(tmp_path, doc, "cannot be required outright")
+
+    doc = render_knobs.load()
+    _entry(doc, "OPS_USER")["gui_choice"] = _entry(doc, "HOST_SSH_ADDRESS")["gui_choice"]
+    _refused(tmp_path, doc, "has no step")
+
+
 def test_every_installer_section_asks_for_something(tmp_path):
     """A section with no field is a heading nobody fills in."""
     doc = render_knobs.load()

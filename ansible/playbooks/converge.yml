@@ -1,8 +1,9 @@
 ---
 # Main converge: bring a bootstrapped host to the desired state and keep it
-# there. Safe to re-run. Runs over the host's administrative address: the public
-# SSH address the install recorded, or the one `catena-cli converge --address`
-# names (the tailnet address once the panel's Lockdown has closed public SSH).
+# there. Safe to re-run. Runs over the host's administrative address: the SSH
+# address the install recorded, or the one `catena-cli install --address`
+# names for one run (the tailnet address once the panel's Lockdown has closed
+# public SSH).
 #
 # This file is a single atomic unit (one converge), with no cross-playbook
 # imports. Composition (bootstrap + converge + validate) lives in the

@@ -36,7 +36,10 @@ LANGS = ("en", "fr")
 
 KNOB_FIELDS = frozenset({"key", "residence", "var", "env", "panel", "step",
                          "label", "help", "depends", "required",
-                         "gui_suggestions_from"})
+                         "gui_suggestions_from", "gui_choice"})
+# The two options of the launcher's choice in front of a field: `public` leaves
+# it empty, `private` asks for it.
+GUI_CHOICES = ("public", "private")
 GUI_STEP_FIELDS = frozenset({"name", "title", "doc", "note"})
 
 # The rendered template's comment width, and the characters a `.env` value
@@ -230,11 +233,20 @@ def load(source: Path = SOURCE) -> dict:
             _require("help" not in entry,
                      f"{key}: help is read by the launcher and the .env, and this "
                      "knob is in neither")
-        for field in ("required", "gui_suggestions_from", "label"):
+        for field in ("required", "gui_suggestions_from", "label", "gui_choice"):
             if field in entry:
                 _require("step" in entry,
                          f"{key}: {field} is read by the launcher, and this knob "
                          "has no step")
+        if "gui_choice" in entry:
+            choice = entry["gui_choice"]
+            _require(isinstance(choice, dict) and sorted(choice) == sorted(GUI_CHOICES),
+                     f"{key}: gui_choice labels exactly {GUI_CHOICES}")
+            for option in GUI_CHOICES:
+                _check_text(f"{key} gui_choice", option, choice[option], LANGS)
+            _require(not entry.get("required"),
+                     f"{key}: a field behind a gui_choice is required only when "
+                     "`private` is chosen, so it cannot be required outright")
         if "required" in entry:
             _require(isinstance(entry["required"], bool),
                      f"{key}: required is not a boolean")

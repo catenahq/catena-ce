@@ -280,6 +280,38 @@ config:
     residence: host
     env: {section: host, default: "", example: "203.0.113.10"}
 
+  # Written into hosts.yml as the bootstrap entry's ansible_host: the address
+  # every install leg dials. Empty means HOST_PUBLIC_IP, which stays the
+  # host's public address either way (coturn, the external checks). The
+  # launcher asks for it behind its public/private choice, labelled by
+  # gui_choice; `catena-cli install --address` overrides it for one run.
+  - key: HOST_SSH_ADDRESS
+    step: target
+    label:
+      en: Host private SSH address
+      fr: Adresse SSH privée du serveur
+    help:
+      en: >-
+        The address the installer reaches the server at over SSH when port 22
+        is not reachable on its public IP, such as its tailnet address. Leave
+        empty to install over the public IP.
+      fr: >-
+        L'adresse par laquelle l'installateur joint le serveur en SSH quand le
+        port 22 n'est pas joignable sur son adresse IP publique, par exemple
+        son adresse sur le réseau privé (tailnet). Laisser vide pour installer
+        par l'adresse IP publique.
+    gui_choice:
+      public:
+        en: Install over the public IP
+        fr: Installer par l'adresse IP publique
+      private:
+        en: Install over a private IP (when port 22 is not reachable from the public IP)
+        fr: >-
+          Installer par une adresse IP privée (quand le port 22 n'est pas
+          joignable depuis l'adresse IP publique)
+    residence: host
+    env: {section: host, default: ""}
+
   # Written into hosts.yml as ansible_port: the port the controller connects
   # on. The firewall rules name 22 literally, so this moves what the controller
   # dials and not what the host opens.

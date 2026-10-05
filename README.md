@@ -82,11 +82,11 @@ Alternatives to Tailscale include Headscale and Netbird. Cloudflare alternatives
 
 Day 2 operations run from the Catena-Admin panel on the server: settings, backups, the tunnel, the private network, the lockdown, updates and restores. A rollback restores an earlier snapshot on the same server, and a lost server is recovered by installing Catena on a new one and restoring from the old server's backup repository.
 
-Besides `init` and `install`, the `catena-cli` CLI has two verbs. Run them from the repository root, verb first:
+Besides `init`, the `catena-cli` CLI has two verbs. Run them from the repository root, verb first:
 
 ```sh
-uv run catena-cli converge  --inventory prod  # re-apply the configuration from this machine
+uv run catena-cli install   --inventory prod  # install, or re-apply the configuration from this machine
 uv run catena-cli uninstall --inventory prod  # hand unattended-upgrades back to the OS
 ```
 
-`converge` applies what only this machine can (the operator-run roles), and is the way in should the panel be unavailable, which could happen if the disk is full. Once the panel's `Lockdown` has closed public SSH, add `--address <tailnet-ip>`. Running `catena-cli install` again shows the passwords again. Running `catena-cli` with no arguments prompts for the inventory and the operation.
+`install` run again on an installed server asks nothing, re-applies everything, the operator-run roles the panel cannot apply included, validates the server, and shows the passwords again. It is the way in should the panel be unavailable, which could happen if the disk is full. Once the panel's `Lockdown` has closed public SSH, add `--address <tailnet-ip>` for that run, or set `HOST_SSH_ADDRESS` in the inventory's `.env` to keep using it; `--tags` limits the converge to some roles. Running `catena-cli` with no arguments prompts for the inventory and the operation.

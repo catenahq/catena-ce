@@ -33,8 +33,8 @@ server: its address, the key that opens it, and the administrator's email. The
 domain, the private network and the backups are entered in the panel's Settings
 once the server runs, and the installer has no field for any of them.
 
-Not a replacement for the CLI either. `converge` is an operator verb that
-should not need a browser. Recovering a server is this
+Not a replacement for the CLI either. `install --address` and `--tags` are
+operator options that should not need a browser. Recovering a server is this
 install followed by a restore from the panel, so it needs nothing else here.
 
 ## It holds no knob knowledge
@@ -51,9 +51,13 @@ in `catena_gui/steps.py`, registered in its `PROBES` under the section it
 checks. The one button verifies every section and starts the install only when
 none of them blocks, with what the checks found under it.
 
-The server's check is the one that matters: an SSH server has to answer, and
-the install has to be able to log in. Either the key already opens the initial
-login -- most providers install it when the server is ordered, and the key
+The server's check is the one that matters: an SSH server has to answer, with
+the host key this machine trusts for it, and the install has to be able to log
+in. A server presenting another key gets no login and no password: its check
+carries a box to tick when the server was reinstalled, and the install then
+runs with `--reinstalled` (the run with no UI takes `--reinstalled` too).
+Either the key already opens the initial login -- most providers install it
+when the server is ordered, and the key
 field suggests the pairs already in `~/.ssh` -- or the provider's password
 does, and the install uses it once to add the key. The password is the one
 field the section has beside the registry's: the install contract's

@@ -71,7 +71,8 @@ def transient_install_yaml(body: str) -> Iterator[Path]:
 
 
 def install_command(ansible_dir: Path, install_yaml_path: Path,
-                    inventory: str, *, keyset_json: bool = False) -> list[str]:
+                    inventory: str, *, keyset_json: bool = False,
+                    reinstalled: bool = False) -> list[str]:
     """The argv the launcher runs: the installer CLI, by the script name its own
     pyproject gives it, in its own project.
 
@@ -82,7 +83,8 @@ def install_command(ansible_dir: Path, install_yaml_path: Path,
     The inventory name rides as an explicit flag rather than being left to the
     file, so the directory the run writes into is the one the launcher named.
     `keyset_json` has the CLI print the passwords as values the page shows one
-    by one.
+    by one. `reinstalled` has it trust the new host key of a server the client
+    says was reinstalled.
     """
     return [
         "uv", "run", "--project", str(ansible_dir),
@@ -91,4 +93,5 @@ def install_command(ansible_dir: Path, install_yaml_path: Path,
         "-i", str(install_yaml_path),
         "--no-confirm",
         *(["--keyset-json"] if keyset_json else []),
+        *(["--reinstalled"] if reinstalled else []),
     ]

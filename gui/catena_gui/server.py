@@ -71,6 +71,9 @@ p.doc { color: var(--muted); white-space: pre-wrap; }
            border: 1px solid var(--line); border-radius: 4px;
            box-shadow: 0 4px 16px rgba(0,0,0,.2); }
 .tip:hover .tt, .tip:focus .tt { display: block; }
+.field.choice label.opt { display: block; }
+.field.choice label.opt input { width: auto; margin: 0 .4rem 0 0; }
+.field.choice:has(input[value="public"]:checked) .addr { display: none; }
 input, select { width: 100%; padding: .45rem .5rem; margin-top: .3rem;
                 border: 1px solid var(--line); border-radius: 4px;
                 background: var(--bg); color: var(--fg); font: inherit; }
@@ -84,6 +87,7 @@ ul.inv button { display: block; width: 100%; text-align: left; }
 code { font-family: ui-monospace, monospace; font-size: .9rem; }
 ul.checks { list-style: none; padding: 0; margin: .75rem 0 0; }
 ul.checks li { padding: .2rem 0; }
+ul.checks label input { width: auto; margin: 0 .4rem 0 0; }
 .bad { color: var(--bad); } .warn { color: var(--warn); } .ok { color: var(--ok); }
 pre { white-space: pre-wrap; border: 1px solid var(--line); border-radius: 4px;
       padding: .75rem; overflow-x: auto; }
@@ -200,6 +204,20 @@ def _field_html(field: steps_mod.Field, value: str, lang: str) -> str:
     if field.secret:
         notes.append(i18n.text(lang, "field.not_saved"))
     tip = _tip("\n\n".join(notes), i18n.text(lang, "field.about", label=label))
+    if field.choice:
+        # The choice in front of the field: `public` hides it (and the save
+        # empties it), `private` shows it and requires it. A value already
+        # saved means `private` was chosen.
+        via = html.escape(steps_mod.via_name(field.key))
+        chosen = "private" if value else "public"
+        radios = "".join(
+            f'<label class=opt><input type=radio name="{via}" value="{option}"'
+            f'{" checked" if option == chosen else ""}> '
+            f"{html.escape(field.choice[option][lang])}</label>"
+            for option in steps_mod.CHOICES)
+        return (f'<div class="field choice" data-key="{key}">{radios}'
+                f'<div class=addr><div class=head><label for="{fid}">'
+                f"{html.escape(label)}</label>{tip}</div>{control}</div></div>")
     optional = f' <span class=d>{_h(lang, "field.optional")}</span>' if field.optional else ""
     return (f'<div class=field data-key="{key}">'
             f'<div class=head><label for="{fid}">{html.escape(label)}</label>'
@@ -234,7 +252,9 @@ def _inventory_html(lang: str, names: list[str], current: str,
         "</div></form>")
 
 
-def _checks_html(checks: list[steps_mod.Check]) -> str:
+def _checks_html(checks: list[steps_mod.Check], lang: str) -> str:
+    """What the verification found, each check with the box that settles it
+    when it has one."""
     if not checks:
         return ""
     rows = []
@@ -243,6 +263,10 @@ def _checks_html(checks: list[steps_mod.Check]) -> str:
         mark = "&#10003;" if check.ok else ("&#10007;" if check.blocking else "!")
         detail = f": {html.escape(check.detail)}" if check.detail else ""
         rows.append(f'<li class={cls}>{mark} {html.escape(check.label)}{detail}</li>')
+        if check.confirm:
+            name = html.escape(check.confirm)
+            rows.append(f'<li><label><input type=checkbox name="{name}" value=yes> '
+                        f"{_h(lang, f'confirm.{check.confirm}')}</label></li>")
     return f'<ul class=checks>{"".join(rows)}</ul>'
 
 
@@ -283,7 +307,7 @@ def _process_html(current: run_mod.Run, checks: list[steps_mod.Check],
         f"<p class=doc>{_h(lang, 'process.intro', issues=issues)}</p>"
         "<div class=act><button type=submit name=install value=yes>"
         f"{_h(lang, 'process.button')}</button></div>"
-        f"{_checks_html(checks)}"
+        f"{_checks_html(checks, lang)}"
         f'{f"<p class=doc>{status}</p>" if status else ""}'
         f'<pre id=log class=log data-state="{html.escape(current.state)}">'
         f"{lines}</pre></section>")
@@ -325,9 +349,11 @@ def _access_html(current: run_mod.Run, values: dict[str, str], lang: str) -> str
         f"<p>{_h(lang, 'access.settings')}</p></section>")
 
 
-def start_install(current: run_mod.Run, ansible_dir: Path) -> threading.Thread:
+def start_install(current: run_mod.Run, ansible_dir: Path,
+                  reinstalled: bool = False) -> threading.Thread:
     """Run `catena-cli install` in the background, streaming what it prints to
-    the console window and to the run's in-memory tail.
+    the console window and to the run's in-memory tail. `reinstalled` is the
+    client's word that the server was reinstalled (steps.REINSTALLED).
 
     IN A THREAD, because the install takes tens of minutes and the browser
     cannot hold a request open for it -- and because the console process owns
@@ -356,7 +382,7 @@ def start_install(current: run_mod.Run, ansible_dir: Path) -> threading.Thread:
         rc = 1
         with render.transient_install_yaml(body_yaml) as target:
             argv = render.install_command(ansible_dir, target, current.inventory,
-                                          keyset_json=True)
+                                          keyset_json=True, reinstalled=reinstalled)
             proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL,
                                     stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, text=True,
@@ -525,20 +551,30 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self._redirect("/#install")
             return
         form = self._form()
+        private: set[str] = set()
         for step in self.all_steps:
             for field in step.fields:
-                if field.key in form:
-                    self.run.answer(field.key, form[field.key][0], secret=field.secret)
+                if field.key not in form:
+                    continue
+                value = form[field.key][0]
+                if field.choice:
+                    via = (form.get(steps_mod.via_name(field.key)) or ["public"])[0]
+                    if via == "private":
+                        private.add(field.key)
+                    else:
+                        value = ""
+                self.run.answer(field.key, value, secret=field.secret)
         values = self._shown_values()
+        reinstalled = (form.get(steps_mod.REINSTALLED) or [""])[0] == "yes"
         checks: list[steps_mod.Check] = []
         for step in self.all_steps:
-            missing = steps_mod.missing_required(step, values, lang)
+            missing = steps_mod.missing_required(step, values, lang, frozenset(private))
             checks += missing or steps_mod.validate(
-                step.name, self.run.answers, self.run.secrets, lang)
+                step.name, self.run.answers, self.run.secrets, lang, reinstalled)
         _Handler.last_checks = checks
         self.run.save()
         if not steps_mod.blocked(checks):
-            start_install(self.run, self.ansible_dir)
+            start_install(self.run, self.ansible_dir, reinstalled)
         self._redirect("/#install")
 
     def _shown_values(self) -> dict[str, str]:

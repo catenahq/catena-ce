@@ -1,7 +1,7 @@
 """A second converge after a reboot must change nothing.
 
 Both defects here reported `changed` on a converge that had nothing to do,
-which is worse than noise: `catena-cli converge` is the operation a self-hoster
+which is worse than noise: rerunning `catena-cli install` is the operation a self-hoster
 re-runs after an edit, and a converge that always reports work done is one
 nobody can read for the work it actually did.
 

@@ -10,12 +10,16 @@ Subcommands:
              explained, to fill in before `install`
   install    seed config (reuses seed.py), then run bootstrap, show the
              passwords the server minted, run converge -> validate, and
-             show the passwords again. Run again, it shows them again.
-  converge   re-run converge.yml: it applies the operator-run roles the
-             panel's own converge cannot, and is the way in when the panel
-             is down. --address reaches the host somewhere other than
-             hosts.yml's address: its tailnet address once the panel's
-             Lockdown has closed public SSH.
+             show the passwords again. Run again on an installed server, it
+             asks nothing and re-applies the whole configuration, the
+             operator-run roles the panel's own converge cannot run
+             included: the way in when the panel is down. --address reaches
+             the server at another address for that run (its tailnet address
+             once the panel's Lockdown has closed public SSH); --tags scopes
+             the converge leg. Every run ends with the validation. A server
+             that presents another host key than the one this machine
+             trusts stops the run, unless --reinstalled (or yes when asked)
+             says it was reinstalled.
   uninstall  hand control back to the OS: unmask + re-enable Debian's
              apt-daily-upgrade.timer (the unattended-upgrades handback)
              and print teardown guidance
@@ -68,9 +72,9 @@ def _collections_dir() -> str:
 
 COLLECTIONS_DIR = _collections_dir()
 
-# The ordered converge chain a fresh install runs, each leg its own
-# ansible-playbook invocation. Every leg reaches the host over the public SSH
-# address the install started on.
+# The ordered chain every install runs, each leg its own ansible-playbook
+# invocation. Every leg reaches the host at its SSH address: --address for
+# this run, else HOST_SSH_ADDRESS, else HOST_PUBLIC_IP.
 INSTALL_CHAIN = ("bootstrap", "converge", "validate")
 
 # Stages that emit the host's administrative address into
@@ -147,15 +151,6 @@ def _add_inventory_args(parser: argparse.ArgumentParser, *, required: bool) -> N
                             "(alternative to --inventory)")
 
 
-def _tags_extra(args: argparse.Namespace) -> list[str] | None:
-    """Turn a `--tags a,b` CLI value into the ansible-playbook passthrough,
-    or None when unset. Lets `converge` run a tag-scoped subset (e.g.
-    `catena-cli converge --tags keycloak,oauth2_proxy` to re-apply only the
-    auth roles after rotating a secret). Pure -- unit-testable."""
-    tags = (getattr(args, "tags", "") or "").strip()
-    return ["--tags", tags] if tags else None
-
-
 def _address(value: str) -> str:
     """An IP address or host name, as argparse's type for --address."""
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.:-]*", value):
@@ -163,20 +158,46 @@ def _address(value: str) -> str:
     return value
 
 
-def _converge_extra(args: argparse.Namespace) -> list[str] | None:
-    """The converge's passthrough: its tags, and the address to reach the host
-    at when --address names one. hosts.yml keeps the address the install
-    recorded; this one is for this run only."""
-    extra = list(_tags_extra(args) or [])
-    if getattr(args, "address", None):
-        extra += ["-e", f"ansible_host={args.address}"]
-    return extra or None
+def _ssh_address(env: dict[str, str], address: str | None = None) -> str:
+    """Where the install dials the server: --address for this run, else
+    HOST_SSH_ADDRESS, else the public IP. Pure -- unit-testable."""
+    return (address or (env.get("HOST_SSH_ADDRESS") or "").strip()
+            or (env.get("HOST_PUBLIC_IP") or "").strip())
 
 
-def _key_already_opens(env: dict[str, str], initial_user: str) -> str:
+def _stage_extra(stage: str, args: argparse.Namespace) -> list[str]:
+    """One leg's passthrough: the address to reach the host at when --address
+    names one, on every leg, and the `--tags a,b` scope on the converge leg
+    alone, where it re-applies only the roles a change touched (e.g.
+    `--tags keycloak,oauth2_proxy` after rotating a secret). Bootstrap and the
+    validation always run whole. Pure -- unit-testable."""
+    extra: list[str] = []
+    address = getattr(args, "address", None)
+    if address:
+        extra += ["-e", f"ansible_host={address}"]
+    tags = (getattr(args, "tags", "") or "").strip()
+    if tags and stage == "converge":
+        extra += ["--tags", tags]
+    return extra
+
+
+def _vps_hosts(inv_dir: Path) -> list[str]:
+    """The hosts hosts.yml puts in the `vps` group."""
+    import yaml
+
+    hosts_yml = inv_dir / "hosts.yml"
+    if not hosts_yml.is_file():
+        return []
+    data = yaml.safe_load(hosts_yml.read_text()) or {}
+    vps = (((data.get("all") or {}).get("children") or {}).get("vps") or {})
+    return list((vps.get("hosts") or {}).keys())
+
+
+def _key_already_opens(env: dict[str, str], initial_user: str,
+                       address: str | None = None) -> str:
     """The account the operator key already logs in to -- the provider's
     initial login, or ops on a server a previous run hardened -- or ""."""
-    host = (env.get("HOST_PUBLIC_IP") or "").strip()
+    host = _ssh_address(env, address)
     if not host:
         return ""
     from helpers import install_key
@@ -189,7 +210,8 @@ def _key_already_opens(env: dict[str, str], initial_user: str) -> str:
     return ""
 
 
-def _prompt_provider_password(inv_dir: Path, initial_user: str) -> str:
+def _prompt_provider_password(inv_dir: Path, initial_user: str,
+                              address: str | None = None) -> str:
     """Ask for the VPS provider's password for the initial login, up front --
     only when the key does not open the server already.
 
@@ -206,9 +228,9 @@ def _prompt_provider_password(inv_dir: Path, initial_user: str) -> str:
         import seed
 
         env = seed.read_existing_env(env_path)
-    target = (env.get("HOST_PUBLIC_IP") or "").strip()
+    target = _ssh_address(env, address)
     where = f"{initial_user}@{target}" if target else (initial_user or "the initial user")
-    opened = _key_already_opens(env, initial_user)
+    opened = _key_already_opens(env, initial_user, address)
     if opened:
         print(_c("1;32", f"\n+ the SSH key already opens {opened}@{target}: no "
                  "provider password needed"), file=sys.stderr)
@@ -221,8 +243,47 @@ def _prompt_provider_password(inv_dir: Path, initial_user: str) -> str:
     return getpass.getpass("Provider password (blank to skip): ")
 
 
+def _settle_host_key(inv_dir: Path, args: argparse.Namespace) -> None:
+    """Stop before anything reaches a server that presents another host key
+    than the one this machine trusts for it, unless the operator confirms a
+    reinstall (`--reinstalled`, or yes when asked): then forget the old key,
+    and bootstrap trusts the new one."""
+    env_path = inv_dir / ".env"
+    env: dict[str, str] = {}
+    if env_path.is_file():
+        import seed
+
+        env = seed.read_existing_env(env_path)
+    host = _ssh_address(env, args.address)
+    if not host:
+        return
+    from helpers import host_key
+
+    port = int((env.get("HOST_SSH_PORT") or "22").strip() or "22")
+    trusted, offered = host_key.changed(host, port)
+    if not trusted:
+        return
+    name = host_key.known_name(host, port)
+    if not args.reinstalled:
+        print(_c("1;33", f"\n! {name} presents another host key than the one "
+                 "this machine trusts for it"), file=sys.stderr)
+        print("  trusted: " + ", ".join(trusted) + "\n  offered: " + ", ".join(offered)
+              + "\nA reinstalled server presents a new key. If this one was not "
+              "reinstalled,\nanother machine may be answering at this address.",
+              file=sys.stderr)
+        if args.no_confirm or not sys.stdin.isatty():
+            die(f"stopped before reaching {name}. Run again with --reinstalled "
+                "if the server was reinstalled.")
+        if input("Was the server reinstalled? [y/N]: ").strip().lower() not in ("y", "yes"):
+            die(f"stopped before reaching {name}.")
+    host_key.forget(host, port)
+    print(_c("1;32", f"+ forgot the old host key of {name}; bootstrap trusts the "
+             "new one"), file=sys.stderr)
+
+
 def _bootstrap_extra_vars(
     inv_dir: Path, input_path: str | None, *, prompt_password: bool = False,
+    address: str | None = None,
 ) -> tuple[list[str], Path | None]:
     """bootstrap.yml collects bootstrap_initial_user + bootstrap_root_password
     via a play-scoped vars_prompt, which outranks any inventory hostvar --
@@ -262,7 +323,7 @@ def _bootstrap_extra_vars(
         # that declined to prompt (--no-confirm, no TTY) means "do not ask",
         # not "ask later".
         overrides["bootstrap_root_password"] = (
-            _prompt_provider_password(inv_dir, initial_user)
+            _prompt_provider_password(inv_dir, initial_user, address)
             if prompt_password and sys.stdin.isatty() else ""
         )
 
@@ -339,9 +400,11 @@ def _run_deploy_chain(
     *,
     bootstrap_extra: list[str] | None,
     global_extra: list[str] | None = None,
+    args: argparse.Namespace | None = None,
 ) -> None:
     """Run an ordered deploy chain stage by stage, threading the bootstrap
-    creds onto the bootstrap stage and `global_extra` onto EVERY stage.
+    creds onto the bootstrap stage, `global_extra` onto EVERY stage, and each
+    stage's own `_stage_extra` (the --address and --tags of `args`).
     `global_extra` is the transient secret-adopt file (`-e @file`) that
     carries an admin password override, when install.yaml pins one, into each
     play so the on-box loader adopts it. Plus the
@@ -350,7 +413,8 @@ def _run_deploy_chain(
       - after `bootstrap`: fold the install address it emitted into
         .bootstrap-output.yml back into hosts.yml, so the later stages (each a
         separate ansible invocation) reach the host instead of the 0.0.0.0
-        placeholder.
+        placeholder. Not with --address: that address is for this run only,
+        and every leg carries it already.
 
     The Portainer API key that the auth stack (Keycloak, oauth2-proxy) is
     gated on is minted in-band by roles/portainer during the converge (it
@@ -362,8 +426,10 @@ def _run_deploy_chain(
         extra = list(bootstrap_extra or []) if stage == "bootstrap" else []
         if global_extra:
             extra = extra + global_extra
+        if args is not None:
+            extra = extra + _stage_extra(stage, args)
         _run(playbook_cmd(inv_dir, stage, extra or None))
-        if stage in _ADDRESS_STAGES:
+        if stage in _ADDRESS_STAGES and not getattr(args, "address", None):
             from helpers import bootstrap_output
             applied = bootstrap_output.apply_to_inventory(inv_dir)
             for line in applied:
@@ -474,22 +540,32 @@ def cmd_install(args: argparse.Namespace) -> int:
     adopt_extra = ["-e", f"@{secrets_tmp}"]
     bootstrap_vars_tmp = None
     try:
+        # One address for every leg needs one host to give it to.
+        if args.address and len(_vps_hosts(inv_dir)) > 1:
+            die(f"--address names one server, and {inv_dir / 'hosts.yml'} lists "
+                f"{len(_vps_hosts(inv_dir))} in its vps group. Run the install "
+                "from an inventory that holds that server alone.")
+        # Before the key probe and the provider password, both of which go to
+        # whatever answers at the address.
+        _settle_host_key(inv_dir, args)
         # The last question of the run. Everything the deploy chain needs is
         # answered before the first playbook starts, so nothing stops to ask
         # once it is under way.
         bootstrap_extra, bootstrap_vars_tmp = _bootstrap_extra_vars(
-            inv_dir, args.input, prompt_password=not args.no_confirm)
+            inv_dir, args.input, prompt_password=not args.no_confirm,
+            address=args.address)
 
         ensure_collections()
 
         banner("Step 2/2 -- deploy (" + " -> ".join(INSTALL_CHAIN) + ")")
         # The passwords come right after bootstrap, the first leg: the server
         # holds its store by then, and the converge after it is the long part.
-        _run_deploy_chain(inv_dir, INSTALL_CHAIN[:1],
-                          bootstrap_extra=bootstrap_extra, global_extra=adopt_extra)
-        keysets = _show_dr_keyset(inv_dir, adopt_extra, as_json=args.keyset_json)
-        _run_deploy_chain(inv_dir, INSTALL_CHAIN[1:],
-                          bootstrap_extra=bootstrap_extra, global_extra=adopt_extra)
+        _run_deploy_chain(inv_dir, INSTALL_CHAIN[:1], bootstrap_extra=bootstrap_extra,
+                          global_extra=adopt_extra, args=args)
+        keysets = _show_dr_keyset(inv_dir, adopt_extra + _stage_extra("show-keyset", args),
+                                  as_json=args.keyset_json)
+        _run_deploy_chain(inv_dir, INSTALL_CHAIN[1:], bootstrap_extra=bootstrap_extra,
+                          global_extra=adopt_extra, args=args)
         if keysets:
             banner("Your passwords, as shown after bootstrap")
             _print_keyset(keysets, args.keyset_json)
@@ -498,19 +574,6 @@ def cmd_install(args: argparse.Namespace) -> int:
             bootstrap_vars_tmp.unlink(missing_ok=True)
         secrets_tmp.unlink(missing_ok=True)
     banner("Install complete.")
-    return 0
-
-
-def cmd_converge(args: argparse.Namespace) -> int:
-    _preflight_checks()
-    inv_dir = resolve_inventory(args)
-    _require_inventory(inv_dir)
-    if (inv_dir / ".env").is_file():
-        import seed
-
-        seed.warn_server_held_lines(inv_dir / ".env")
-    ensure_collections()
-    _run(playbook_cmd(inv_dir, "converge", _converge_extra(args)))
     return 0
 
 
@@ -529,8 +592,7 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
 # an inventory name".
 MENU_COMMANDS = (
     ("init", "Create an inventory to fill in"),
-    ("install", "Set up a new host (seed + deploy)"),
-    ("converge", "Re-apply the configuration from this machine"),
+    ("install", "Set up a host, or re-apply its configuration"),
     ("uninstall", "Hand unattended-upgrades back to the OS"),
 )
 KNOWN_COMMANDS = tuple(name for name, _ in MENU_COMMANDS)
@@ -597,18 +659,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_install.add_argument("--keyset-json", action="store_true",
                            help="print the passwords as one JSON object per "
                                 "host, for the graphical installer")
+    p_install.add_argument("--address", type=_address,
+                           help="reach the host at this address for this run, "
+                                "such as its tailnet address once the panel's "
+                                "Lockdown has closed public SSH")
+    p_install.add_argument("--tags", default="",
+                           help="comma-separated ansible tags that scope the "
+                                "converge leg (e.g. keycloak,oauth2_proxy)")
+    p_install.add_argument("--reinstalled", action="store_true",
+                           help="the server was reinstalled: trust the new "
+                                "host key it presents")
     p_install.set_defaults(func=cmd_install)
-
-    p_conv = sub.add_parser("converge", help="re-run converge.yml")
-    _add_inventory_args(p_conv, required=True)
-    p_conv.add_argument("--tags", default="",
-                        help="comma-separated ansible tags to scope the "
-                             "converge (e.g. keycloak,oauth2_proxy)")
-    p_conv.add_argument("--address", type=_address,
-                        help="reach the host at this address for this run, "
-                             "such as its tailnet address once the panel's "
-                             "Lockdown has closed public SSH")
-    p_conv.set_defaults(func=cmd_converge)
 
     p_uni = sub.add_parser(
         "uninstall",

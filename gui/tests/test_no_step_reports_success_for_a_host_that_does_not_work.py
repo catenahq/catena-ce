@@ -10,7 +10,18 @@ Run: uv run pytest tests/test_no_step_reports_success_for_a_host_that_does_not_w
 """
 from __future__ import annotations
 
+import pytest
+
 from catena_gui import registry, steps as steps_mod
+
+HOST_KEY = registry.ansible_module("helpers.host_key")
+
+
+@pytest.fixture(autouse=True)
+def _trusted_key(monkeypatch):
+    """The server presents the key this machine trusts, unless a test says
+    otherwise."""
+    monkeypatch.setattr(HOST_KEY, "changed", lambda host, port: ([], []))
 
 
 def _blocking(checks):
@@ -115,6 +126,34 @@ def test_the_provider_password_is_tried_not_taken_on_trust(monkeypatch, tmp_path
     assert blocked and "refused" in blocked[0].detail
 
 
+def _new_key(monkeypatch):
+    monkeypatch.setattr(HOST_KEY, "changed", lambda host, port: (
+        ["ssh-ed25519 SHA256:old"], ["ssh-ed25519 SHA256:new"]))
+
+
+def test_a_changed_host_key_stops_the_probe_before_any_login(monkeypatch, tmp_path):
+    """Another machine may be answering at the address: it gets neither a login
+    nor the provider's password, and the client is asked whether the server was
+    reinstalled."""
+    answers = {**_keypair(tmp_path), "HOST_INITIAL_USER": "debian"}
+    tried, _ = _server(monkeypatch)
+    _new_key(monkeypatch)
+    blocked = _blocking(steps_mod.check_target(answers, {steps_mod.PROVIDER_PASSWORD: "pw"}))
+    assert len(blocked) == 1 and blocked[0].confirm == steps_mod.REINSTALLED
+    assert "SHA256:old" in blocked[0].detail and "SHA256:new" in blocked[0].detail
+    assert tried == []
+
+
+def test_a_reinstalled_server_is_probed_with_its_new_key(monkeypatch, tmp_path):
+    answers = {**_keypair(tmp_path), "HOST_INITIAL_USER": "debian"}
+    tried, _ = _server(monkeypatch, key_opens={"debian"})
+    _new_key(monkeypatch)
+    checks = steps_mod.check_target(answers, {}, reinstalled=True)
+    assert not _blocking(checks)
+    assert any("new host key" in c.label for c in checks)
+    assert tried == ["debian"]
+
+
 def test_a_required_field_left_empty_blocks_before_any_probe():
     """Named by its label, the name the client sees on the page."""
     doc = registry.load()
@@ -161,7 +200,7 @@ def test_the_run_with_no_ui_checks_every_section(monkeypatch, tmp_path):
 
     doc = registry.load()
     run = run_mod.load(tmp_path / "clientco", run_mod.secret_keys_from(doc))
-    monkeypatch.setitem(steps_mod.PROBES, "target", lambda a, s, lang: [])
+    monkeypatch.setitem(steps_mod.PROBES, "target", lambda *a: [])
     assert main_mod.walk(run, doc) == 2
     run.answer("HOST_PUBLIC_IP", "203.0.113.10", secret=False)
     run.answer("ADMIN_EMAIL", "admin@client.test", secret=False)

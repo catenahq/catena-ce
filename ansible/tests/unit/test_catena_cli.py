@@ -112,58 +112,153 @@ def test_playbook_cmd_extra_args(cli):
     assert cmd[-2:] == ["--limit", "prod1-bootstrap"]
 
 
-def test_converge_accepts_tags_passthrough(cli):
-    """`catena-cli converge --tags a,b` scopes the converge to those roles
-    (e.g. re-apply only keycloak,oauth2_proxy after rotating a secret)."""
-    ns = cli.build_parser().parse_args(
-        ["converge", "--inventory", "test", "--tags", "keycloak,oauth2_proxy"]
-    )
-    assert cli._tags_extra(ns) == ["--tags", "keycloak,oauth2_proxy"]
-    cmd = cli.playbook_cmd(ns.inventory, "converge", cli._tags_extra(ns))
-    assert cmd[-2:] == ["--tags", "keycloak,oauth2_proxy"]
-    assert cmd[-3].endswith("playbooks/converge.yml")
+def _install_args(cli, *extra):
+    return cli.build_parser().parse_args(["install", "--inventory", "test", *extra])
 
 
-def test_tags_extra_is_none_when_unset(cli):
-    """No --tags -> no passthrough (a full converge)."""
-    conv = cli.build_parser().parse_args(["converge", "--inventory", "test"])
-    assert cli._tags_extra(conv) is None
-    assert cli._converge_extra(conv) is None
+def test_tags_scope_the_converge_leg_only(cli):
+    """`catena-cli install --tags a,b` scopes the converge to those roles (e.g.
+    re-apply only keycloak,oauth2_proxy after rotating a secret); bootstrap and
+    the validation always run whole."""
+    ns = _install_args(cli, "--tags", "keycloak,oauth2_proxy")
+    assert cli._stage_extra("converge", ns) == ["--tags", "keycloak,oauth2_proxy"]
+    assert cli._stage_extra("bootstrap", ns) == []
+    assert cli._stage_extra("validate", ns) == []
 
 
-def _converge_calls(cli, monkeypatch, argv):
+def test_no_option_adds_nothing_to_any_leg(cli):
+    ns = _install_args(cli)
+    for stage in (*cli.INSTALL_CHAIN, "show-keyset"):
+        assert cli._stage_extra(stage, ns) == [], stage
+
+
+def test_an_address_reaches_every_leg_for_this_run_only(cli, monkeypatch, tmp_path):
+    """Once the panel's Lockdown has closed public SSH, the host answers on its
+    tailnet address. Every leg dials it, and the inventory keeps the address
+    it had: folding the run's address into hosts.yml would make it permanent."""
+    from helpers import bootstrap_output
+
     calls: list[list[str]] = []
     monkeypatch.setattr(cli, "_run", lambda cmd: calls.append(cmd))
-    monkeypatch.setattr(cli, "_preflight_checks", lambda: None)
-    monkeypatch.setattr(cli, "_require_inventory", lambda inv: None)
-    monkeypatch.setattr(cli, "ensure_collections", lambda: None)
-    ns = cli.build_parser().parse_args(argv)
-    assert ns.func(ns) == 0
-    return calls
-
-
-def test_converge_reaches_the_address_it_is_given(cli, monkeypatch):
-    """Once the panel's Lockdown has closed public SSH, the host answers on its
-    tailnet address; the run takes it for this invocation only."""
-    calls = _converge_calls(cli, monkeypatch, [
-        "converge", "--inventory", "test", "--address", "100.64.0.7",
-        "--tags", "keycloak"])
-    cmd = calls[0]
-    assert _stage_of(cmd) == "converge"
-    assert cmd[cmd.index("-e") + 1] == "ansible_host=100.64.0.7"
-    assert cmd[cmd.index("--tags") + 1] == "keycloak"
-
-
-def test_converge_without_an_address_uses_the_inventorys(cli, monkeypatch):
-    calls = _converge_calls(cli, monkeypatch, ["converge", "--inventory", "test"])
-    assert "-e" not in calls[0]
+    monkeypatch.setattr(bootstrap_output, "apply_to_inventory",
+                        lambda p: pytest.fail("a one-run address was kept"))
+    ns = _install_args(cli, "--address", "100.64.0.7", "--tags", "keycloak")
+    cli._run_deploy_chain(tmp_path, cli.INSTALL_CHAIN, bootstrap_extra=None, args=ns)
+    assert [_stage_of(c) for c in calls] == list(cli.INSTALL_CHAIN)
+    for c in calls:
+        assert c[c.index("-e") + 1] == "ansible_host=100.64.0.7", _stage_of(c)
+    assert calls[1][calls[1].index("--tags") + 1] == "keycloak"
+    assert "--tags" not in calls[0] and "--tags" not in calls[2]
+    assert cli._stage_extra("show-keyset", ns) == ["-e", "ansible_host=100.64.0.7"]
 
 
 @pytest.mark.parametrize("bad", ["", "1.2.3.4; rm -rf /", "-e", "a b"])
 def test_an_address_that_is_not_one_is_refused(cli, bad):
     with pytest.raises(SystemExit):
-        cli.build_parser().parse_args(
-            ["converge", "--inventory", "test", "--address", bad])
+        _install_args(cli, "--address", bad)
+
+
+def test_the_ssh_address_is_the_run_s_then_the_env_s_then_the_public_ip(cli):
+    env = {"HOST_PUBLIC_IP": "203.0.113.10"}
+    assert cli._ssh_address(env) == "203.0.113.10"
+    env["HOST_SSH_ADDRESS"] = "100.64.0.5"
+    assert cli._ssh_address(env) == "100.64.0.5"
+    assert cli._ssh_address(env, "100.64.0.7") == "100.64.0.7"
+
+
+def test_the_key_probe_dials_the_ssh_address(cli, monkeypatch):
+    from helpers import install_key
+
+    dialled: list[str] = []
+    monkeypatch.setattr(install_key, "_key_already_works",
+                        lambda host, user, key, port=22: dialled.append(host) or True)
+    env = {"HOST_PUBLIC_IP": "203.0.113.10", "HOST_SSH_ADDRESS": "100.64.0.5"}
+    assert cli._key_already_opens(env, "debian") == "debian"
+    assert cli._key_already_opens(env, "debian", "100.64.0.7") == "debian"
+    assert dialled == ["100.64.0.5", "100.64.0.7"]
+
+
+def test_an_address_is_refused_for_an_inventory_of_several_servers(cli, tmp_path, monkeypatch):
+    """One address for every leg needs one server to give it to."""
+    inv_dir = tmp_path / "inv"
+    inv_dir.mkdir()
+    (inv_dir / "hosts.yml").write_text(
+        "all:\n  children:\n    vps:\n      hosts:\n"
+        "        a: {ansible_host: 0.0.0.0}\n        b: {ansible_host: 0.0.0.0}\n")
+    monkeypatch.setattr(cli, "_preflight_checks", lambda *a, **k: None)
+    monkeypatch.setattr(cli, "inventory_path", lambda name: inv_dir)
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=0))
+    monkeypatch.setattr(cli, "_run_deploy_chain",
+                        lambda *a, **k: pytest.fail("deployed with an ambiguous address"))
+    with pytest.raises(SystemExit):
+        cli.cmd_install(_install_args(cli, "--address", "100.64.0.7"))
+    assert cli._vps_hosts(inv_dir) == ["a", "b"]
+
+
+def _changed_key(cli, monkeypatch, tmp_path, *flags, tty=False, answer=""):
+    """Settle a server at 203.0.113.10 that presents another host key; returns
+    what was forgotten."""
+    from helpers import host_key
+
+    (tmp_path / ".env").write_text("HOST_PUBLIC_IP=203.0.113.10\n")
+    forgotten: list[tuple] = []
+    monkeypatch.setattr(host_key, "changed", lambda host, port: (
+        ["ssh-ed25519 SHA256:old"], ["ssh-ed25519 SHA256:new"]))
+    monkeypatch.setattr(host_key, "forget", lambda host, port: forgotten.append((host, port)))
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: tty)
+    monkeypatch.setattr("builtins.input", lambda prompt: answer)
+    cli._settle_host_key(tmp_path, _install_args(cli, *flags))
+    return forgotten
+
+
+def test_a_changed_host_key_stops_an_unattended_run(cli, monkeypatch, tmp_path, capsys):
+    """Nobody can say the server was reinstalled, so nothing reaches it."""
+    with pytest.raises(SystemExit):
+        _changed_key(cli, monkeypatch, tmp_path, "--no-confirm")
+    err = capsys.readouterr().err
+    assert "SHA256:old" in err and "SHA256:new" in err and "--reinstalled" in err
+
+
+def test_reinstalled_forgets_the_old_key(cli, monkeypatch, tmp_path):
+    assert _changed_key(cli, monkeypatch, tmp_path, "--no-confirm",
+                        "--reinstalled") == [("203.0.113.10", 22)]
+
+
+def test_a_changed_host_key_is_asked_about(cli, monkeypatch, tmp_path):
+    assert _changed_key(cli, monkeypatch, tmp_path, tty=True,
+                        answer="y") == [("203.0.113.10", 22)]
+    with pytest.raises(SystemExit):
+        _changed_key(cli, monkeypatch, tmp_path, tty=True, answer="")
+
+
+def test_the_trusted_key_settles_nothing(cli, monkeypatch, tmp_path):
+    from helpers import host_key
+
+    (tmp_path / ".env").write_text("HOST_PUBLIC_IP=203.0.113.10\nHOST_SSH_PORT=2222\n")
+    asked: list[tuple] = []
+    monkeypatch.setattr(host_key, "changed",
+                        lambda host, port: asked.append((host, port)) or ([], []))
+    monkeypatch.setattr(host_key, "forget", lambda *a: pytest.fail("forgot a key"))
+    cli._settle_host_key(tmp_path, _install_args(cli, "--address", "100.64.0.7"))
+    assert asked == [("100.64.0.7", 2222)]
+
+
+def test_the_host_key_is_settled_before_the_password_is_asked(cli, tmp_path, monkeypatch):
+    """The key probe and the provider password go to whatever answers."""
+    order = []
+    inv_dir = tmp_path / "inv"
+    inv_dir.mkdir()
+    monkeypatch.setattr(cli, "_preflight_checks", lambda *a, **k: None)
+    monkeypatch.setattr(cli, "inventory_path", lambda name: inv_dir)
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=0))
+    monkeypatch.setattr(cli, "_settle_host_key", lambda inv, args: order.append("host key"))
+    monkeypatch.setattr(cli, "_bootstrap_extra_vars",
+                        lambda *a, **k: order.append("password") or ([], None))
+    monkeypatch.setattr(cli, "ensure_collections", lambda: order.append("collections"))
+    monkeypatch.setattr(cli, "_run_deploy_chain", lambda *a, **k: None)
+    monkeypatch.setattr(cli, "_show_dr_keyset", lambda inv, extra, as_json: [])
+    assert cli.cmd_install(_install_args(cli)) == 0
+    assert order == ["host key", "password", "collections"]
 
 
 def test_check_prereqs_reports_missing(cli, monkeypatch):
@@ -395,7 +490,7 @@ def test_install_password_prompt_precedes_the_deploy_chain(cli, tmp_path, monkey
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
     monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=0))
 
-    def fake_bootstrap_extra(inv, input_path, *, prompt_password=False):
+    def fake_bootstrap_extra(inv, input_path, *, prompt_password=False, address=None):
         order.append(("prompt", prompt_password))
         return [], None
 
@@ -489,10 +584,11 @@ def test_show_dr_keyset_failing_does_not_stop_the_install(cli, tmp_path, monkeyp
     assert cli.KEYSET_BEGIN not in err and "could not show the passwords" in err
 
 
-def test_the_verbs_are_init_install_converge_and_uninstall(cli):
-    """The CLI writes an inventory and reaches the server over SSH. Backups,
-    the tunnel, the tailnet and the passwords are the panel's, on the host."""
-    assert cli.KNOWN_COMMANDS == ("init", "install", "converge", "uninstall")
+def test_the_verbs_are_init_install_and_uninstall(cli):
+    """The CLI writes an inventory and reaches the server over SSH, and
+    `install` is the one verb that (re)applies it. Backups, the tunnel, the
+    tailnet and the passwords are the panel's, on the host."""
+    assert cli.KNOWN_COMMANDS == ("init", "install", "uninstall")
 
 
 # ---- init: a new inventory to fill in ----
@@ -533,7 +629,7 @@ def test_init_takes_a_path_outside_the_checkout(cli, monkeypatch, tmp_path, caps
 
 
 @pytest.mark.parametrize("verb", ["backup", "validate", "rotate-tunnel",
-                                  "rotate-tailscale", "show-keyset"])
+                                  "rotate-tailscale", "show-keyset", "converge"])
 def test_the_panels_operations_are_not_cli_verbs(cli, verb):
     with pytest.raises(SystemExit):
         cli.build_parser().parse_args([verb, "--inventory", "prod"])
@@ -544,7 +640,7 @@ def test_the_panels_operations_are_not_cli_verbs(cli, verb):
 # external automation).
 
 def test_resolve_inventory_name_resolves_under_checkout(cli):
-    ns = cli.build_parser().parse_args(["converge", "--inventory", "prod"])
+    ns = cli.build_parser().parse_args(["uninstall", "--inventory", "prod"])
     inv = cli.resolve_inventory(ns)
     assert inv == cli.inventory_path("prod")
     assert str(inv).endswith("inventory/prod")
@@ -552,7 +648,7 @@ def test_resolve_inventory_name_resolves_under_checkout(cli):
 
 def test_resolve_inventory_path_is_used_verbatim(cli, tmp_path):
     ext = tmp_path / "ops" / "inventory" / "clientA"
-    ns = cli.build_parser().parse_args(["converge", "--inventory-path", str(ext)])
+    ns = cli.build_parser().parse_args(["uninstall", "--inventory-path", str(ext)])
     assert cli.resolve_inventory(ns) == ext
 
 
@@ -578,7 +674,7 @@ def test_inventory_path_threads_to_ansible_playbook_i_flag(cli, monkeypatch, tmp
     monkeypatch.setattr(cli, "ensure_collections", lambda: None)
     monkeypatch.setattr(bootstrap_output, "apply_to_inventory", lambda p: [])
 
-    ns = cli.build_parser().parse_args(["converge", "--inventory-path", str(ext)])
+    ns = cli.build_parser().parse_args(["uninstall", "--inventory-path", str(ext)])
     assert ns.func(ns) == 0
     pb_calls = [c for c in calls if c and c[0] == "ansible-playbook"]
     assert pb_calls
@@ -589,13 +685,13 @@ def test_inventory_path_threads_to_ansible_playbook_i_flag(cli, monkeypatch, tmp
 def test_inventory_and_path_are_mutually_exclusive(cli):
     with pytest.raises(SystemExit):
         cli.build_parser().parse_args(
-            ["converge", "--inventory", "prod", "--inventory-path", "/tmp/x"]
+            ["uninstall", "--inventory", "prod", "--inventory-path", "/tmp/x"]
         )
 
 
 def test_inventory_required_for_non_install_commands(cli):
     with pytest.raises(SystemExit):
-        cli.build_parser().parse_args(["converge"])
+        cli.build_parser().parse_args(["uninstall"])
 
 
 def test_install_accepts_inventory_path_and_skips_the_name(cli):
@@ -634,13 +730,13 @@ def test_interactive_menu_prompts_inventory_before_command(cli, monkeypatch):
 
 
 def test_interactive_menu_other_command(cli, monkeypatch):
-    answers = iter(["dev", "3"])  # inventory, then 3 == converge
+    answers = iter(["dev", "1"])  # inventory, then 1 == init
     monkeypatch.setattr("builtins.input", lambda *a: next(answers))
-    assert cli.interactive_menu() == ["converge", "--inventory", "dev"]
+    assert cli.interactive_menu() == ["init", "--inventory", "dev"]
 
 
 def test_interactive_menu_inventory_defaults_to_prod(cli, monkeypatch):
-    answers = iter(["", "4"])  # blank inventory -> prod, then 4 == uninstall
+    answers = iter(["", "3"])  # blank inventory -> prod, then 3 == uninstall
     monkeypatch.setattr("builtins.input", lambda *a: next(answers))
     assert cli.interactive_menu() == ["uninstall", "--inventory", "prod"]
 
@@ -673,10 +769,10 @@ def test_leading_inventory_name_is_refused(cli, capsys):
     """An inventory in the verb's position dies with the right shape rather
     than an argparse choice error naming every subcommand."""
     with pytest.raises(SystemExit):
-        cli._reject_bare_inventory(["prod", "converge"])
+        cli._reject_bare_inventory(["prod", "install"])
     err = capsys.readouterr().err
     assert "--inventory prod" in err
-    assert "converge" in err
+    assert "install" in err
 
 
 def test_lone_inventory_name_is_refused(cli, capsys):
@@ -692,10 +788,10 @@ def test_main_runs_menu_when_no_args_and_tty(cli, monkeypatch):
     seen = {}
     monkeypatch.setattr(cli.os, "chdir", lambda p: None)
     monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True)
-    monkeypatch.setattr(cli, "interactive_menu", lambda: ["converge", "--inventory", "dev"])
-    monkeypatch.setattr(cli, "cmd_converge", lambda ns: (seen.update(ns=ns), 0)[1])
+    monkeypatch.setattr(cli, "interactive_menu", lambda: ["uninstall", "--inventory", "dev"])
+    monkeypatch.setattr(cli, "cmd_uninstall", lambda ns: (seen.update(ns=ns), 0)[1])
     assert cli.main([]) == 0
-    assert seen["ns"].func is cli.cmd_converge
+    assert seen["ns"].func is cli.cmd_uninstall
     assert seen["ns"].inventory == "dev"
 
 
@@ -713,9 +809,9 @@ def test_main_dispatches_verb_first_shape(cli, monkeypatch):
     right subcommand with the right inventory."""
     seen = {}
     monkeypatch.setattr(cli.os, "chdir", lambda p: None)
-    monkeypatch.setattr(cli, "cmd_converge", lambda ns: (seen.update(ns=ns), 0)[1])
-    assert cli.main(["converge", "--inventory", "dev"]) == 0
-    assert seen["ns"].func is cli.cmd_converge
+    monkeypatch.setattr(cli, "cmd_uninstall", lambda ns: (seen.update(ns=ns), 0)[1])
+    assert cli.main(["uninstall", "--inventory", "dev"]) == 0
+    assert seen["ns"].func is cli.cmd_uninstall
     assert seen["ns"].inventory == "dev"
 
 
@@ -733,4 +829,4 @@ def test_main_refuses_inventory_first_shape(cli, monkeypatch):
     """An inventory-first shape is an error, not a silent reinterpretation."""
     monkeypatch.setattr(cli.os, "chdir", lambda p: None)
     with pytest.raises(SystemExit):
-        cli.main(["dev", "converge"])
+        cli.main(["dev", "install"])

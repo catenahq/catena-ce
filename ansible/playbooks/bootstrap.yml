@@ -8,13 +8,14 @@
 #
 # Plays in order:
 #
-#   Phase 0   -- TOFU: keyscan host into known_hosts
+#   Phase 0   -- TOFU: keyscan host into known_hosts, first contact only
 #   Phase 0.5 -- install your key via the provider password (skipped if blank)
 #   Phase 1   -- baseline + harden (initial_user + become): common role
 #   Phase 2   -- seed the on-box store + the host's ansible runtime (ops + key)
 #
-# The whole install runs over the public SSH address this playbook reached the
-# host on, whatever access method the client chose: the steady-state host entry
+# The whole install runs over the SSH address this playbook reached the host on:
+# the bootstrap entry's (HOST_SSH_ADDRESS, else the public IP), or the one
+# `catena-cli install --address` gives for one run. The steady-state host entry
 # (under the `vps:` inventory group) gets that address from the post_tasks
 # below. Run converge.yml next (it targets the `vps:` group), then
 # playbooks/lockdown.yml, which joins the tailnet on that method; public 22
@@ -25,16 +26,20 @@
 #   1. Update ansible_host in inventory/<env>/hosts.yml for the *-bootstrap
 #      entry to the new VPS's public IP.
 #   2. Run this playbook as normal -- the password prompt accepts the new
-#      provider's initial root password.
+#      provider's initial root password. A new server at an address this
+#      machine already trusts presents another host key: `catena-cli install
+#      --reinstalled` forgets the old one, as does `ssh-keygen -R <address>`.
 #   After the install, restore or migrate the data from the panel.
 #
 # Usage (cwd = ansible/):
 #   ansible-playbook -i inventory/<name> playbooks/bootstrap.yml
 #   ansible-playbook -i inventory/<name> playbooks/bootstrap.yml --limit host1-bootstrap
 
-# ssh-keyscan the host first, TOFU style. Any stale entry for the same IP
-# (from a previous re-provisioning) is cleared first so the new host's key
-# replaces it cleanly.
+# ssh-keyscan the host first, TOFU style, and only when known_hosts holds no
+# key for it. A rerun against an installed host keeps the key it trusted, and
+# ssh refuses a server that presents another one: re-trusting whatever answers
+# on every run would accept an impostor at the same address. `catena-cli
+# install` settles a changed key before this runs (helpers/host_key.py).
 #
 # IMPORTANT: tasks use `delegate_to: localhost` rather than play-level
 # `connection: local`. Play-level `connection: local` triggers Python
@@ -66,11 +71,11 @@
       when: not _controller_ssh_dir.stat.exists
       delegate_to: localhost
 
-    - name: Remove any stale known_hosts entry for this host
+    - name: Is a key for this host already trusted?
       ansible.builtin.command:
-        cmd: "ssh-keygen -R {{ ansible_host }}"
-      register: _keygen_r
-      changed_when: _keygen_r.rc == 0
+        argv: [ssh-keygen, -F, "{{ ansible_host }}"]
+      register: _known_host
+      changed_when: false
       failed_when: false
       delegate_to: localhost
 
@@ -95,6 +100,7 @@
       until:
         - _keyscan.rc == 0
         - (_keyscan.stdout | trim | length) > 0
+      when: _known_host.rc != 0
 
     - name: Add host keys to ~/.ssh/known_hosts (atomic, deduped)
       ansible.builtin.known_hosts:
@@ -103,10 +109,11 @@
         key: "{{ item }}"
         hash_host: true
         state: present
-      loop: "{{ _keyscan.stdout_lines }}"
+      loop: "{{ _keyscan.stdout_lines | default([]) }}"
       loop_control:
         label: "{{ (item.split() | length > 1) | ternary(item.split()[1] + ' key', 'skipped') }}"
       when:
+        - _known_host.rc != 0
         - item | length > 0
         - not item.startswith('#')
       delegate_to: localhost
@@ -364,15 +371,12 @@
     # A single sample cannot carry that, and neither can a probe that hides
     # why it failed. Both halves are load-bearing here.
     #
-    # StrictHostKeyChecking, explicitly: helpers/install_key.py runs
-    # `ssh-keygen -R` on this address and then does all of its own SSH with
-    # UserKnownHostsFile=/dev/null, so the TOFU entry Phase 0 wrote seconds
-    # earlier is GONE by the time this runs and nothing has put it back. A
-    # probe left on the default `ask` then fails with "Host key verification
-    # failed" against a host that is answering normally -- rc=255, no auth
-    # attempted. accept-new is the posture ansible.cfg already uses for the
-    # connections this probe is predicting, so the probe and the connection
-    # agree; a CHANGED key is still refused.
+    # StrictHostKeyChecking, explicitly: accept-new is the posture ansible.cfg
+    # uses for the connections this probe is predicting, so the probe and the
+    # connection agree. A probe left on the default `ask` fails with "Host key
+    # verification failed" wherever known_hosts holds no entry for the name it
+    # dials -- rc=255, no auth attempted -- against a host that is answering
+    # normally. A CHANGED key is still refused.
     #
     # And the reason SSH gives goes into the failure, rather than to
     # /dev/null. Discarded, it leaves a failure here reading exactly like a

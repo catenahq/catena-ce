@@ -273,6 +273,27 @@ def test_emit_hosts_yml_does_not_overwrite_existing(seed, tmp_path):
     assert target.read_text() == "# hand-edited, e.g. a second host\n"
 
 
+def test_the_skeleton_bootstraps_over_the_ssh_address(seed):
+    """HOST_SSH_ADDRESS when set, else the public IP; public_ip stays the
+    public IP for what needs the routable address."""
+    skel = seed.HOSTS_YML_SKEL.read_text()
+    assert seed._BOOTSTRAP_HOST_NEW in skel
+    assert "public_ip: \"{{ lookup('dotenv', 'HOST_PUBLIC_IP') }}\"" in skel
+
+
+def test_an_older_hosts_yml_learns_the_ssh_address_and_keeps_the_rest(seed, tmp_path):
+    target = tmp_path / "hosts.yml"
+    older = (seed.HOSTS_YML_SKEL.read_text()
+             .replace(seed._BOOTSTRAP_HOST_NEW, seed._BOOTSTRAP_HOST_OLD)
+             + "# a hand edit\n")
+    target.write_text(older)
+    seed.emit_hosts_yml(target)
+    text = target.read_text()
+    assert seed._BOOTSTRAP_HOST_NEW in text
+    assert seed._BOOTSTRAP_HOST_OLD not in text
+    assert text.endswith("# a hand edit\n")
+
+
 # --- emit_hosts_yml_entry (the -i install.yaml generate path) ---------------
 def test_emit_hosts_yml_entry_creates_both_groups(seed, tmp_path):
     target = tmp_path / "hosts.yml"
@@ -290,6 +311,15 @@ def test_emit_hosts_yml_entry_creates_both_groups(seed, tmp_path):
     assert vps["prod1"]["ansible_host"] == "0.0.0.0"  # bootstrap.yml rewrites this
     assert vps["prod1"]["ansible_user"] == "ops"
     assert vps["prod1"]["public_ip"] == "203.0.113.10"
+
+
+def test_emit_hosts_yml_entry_bootstraps_over_the_ssh_address(seed, tmp_path):
+    target = tmp_path / "hosts.yml"
+    seed.emit_hosts_yml_entry(target, "prod1", {
+        "HOST_PUBLIC_IP": "203.0.113.10", "HOST_SSH_ADDRESS": "100.64.0.5"})
+    data = yaml.safe_load(target.read_text())["all"]["children"]
+    assert data["bootstrap"]["hosts"]["prod1-bootstrap"]["ansible_host"] == "100.64.0.5"
+    assert data["vps"]["hosts"]["prod1"]["public_ip"] == "203.0.113.10"
 
 
 def test_emit_hosts_yml_entry_merges_into_existing(seed, tmp_path):
@@ -445,6 +475,22 @@ def test_ipv4_endpoint_shows_the_bootstrap_target(seed):
     }) == "debian@203.0.113.10:2222"
     # Blank must read as missing, not as a plausible address.
     assert "NOT SET" in seed._ipv4_endpoint({"HOST_PUBLIC_IP": ""})
+    # A private SSH address is what bootstrap dials.
+    assert seed._ipv4_endpoint({
+        "HOST_PUBLIC_IP": "203.0.113.10", "HOST_SSH_ADDRESS": "100.64.0.5",
+    }) == "root@100.64.0.5:22"
+
+
+def test_a_rerun_asks_nothing_even_on_a_terminal(seed, monkeypatch):
+    """An installed inventory's answers are its files. A key a newer template
+    added takes its default rather than stopping the rerun to ask."""
+    fake = io.StringIO("")
+    fake.isatty = lambda: True
+    monkeypatch.setattr("sys.stdin", fake)
+    monkeypatch.setattr("builtins.input", lambda *a: pytest.fail("asked a question"))
+    values = seed._collect_env_values([("HOST_SSH_PORT", "22"), ("HOST_SSH_ADDRESS", "")],
+                                      {}, ask=False)
+    assert values == {"HOST_SSH_PORT": "22", "HOST_SSH_ADDRESS": ""}
 
 
 # --- illustrative values are not answers -------------------------------------

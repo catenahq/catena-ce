@@ -117,3 +117,15 @@ check.key_refused_detail: >-
 check.password_opens: "le mot de passe de l'hébergeur ouvre {login}"
 check.password_adds_key: "l'installation ajoute la clé avec celui-ci"
 check.password_refused: "le mot de passe a été refusé"
+check.host_key: "{host} présente la clé d'hôte que cette machine connaît pour lui"
+check.host_key_changed: >-
+  il en présente une autre ({offered} ; connue : {trusted}). Un serveur
+  réinstallé en présente une nouvelle : cocher la case ci-dessous si c'est le
+  cas. Sinon, une autre machine répond peut-être à cette adresse, et
+  l'installation ne lui envoie rien
+check.host_key_new: "{host} présente une nouvelle clé d'hôte"
+check.host_key_trusted: >-
+  le serveur a été réinstallé : l'installation oublie l'ancienne clé et fait
+  confiance à celle-ci
+
+confirm.reinstalled: "Ce serveur a été réinstallé : faire confiance à sa nouvelle clé d'hôte"

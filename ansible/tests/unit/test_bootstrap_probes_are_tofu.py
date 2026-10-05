@@ -1,25 +1,13 @@
 """Every bootstrap SSH probe carries the same host-key posture as the
 connections it is predicting.
 
-THE DEFECT. bootstrap.yml decides what state a host is in by SSHing to it four
-times and reading the exit code. Three of those probes ran on ssh's default
-`StrictHostKeyChecking=ask`, which under `BatchMode=yes` cannot ask and simply
-fails.
-
-That is only survivable while known_hosts holds an entry for the address, and
-by the time these run it does not:
-
-    Phase 0     ssh-keyscan -> known_hosts    (entry written)
-    Phase 0.5   helpers/install_key.py        (`ssh-keygen -R` DELETES it, and
-                                               both of its own SSH calls use
-                                               UserKnownHostsFile=/dev/null, so
-                                               nothing writes it back)
-    Phase 1     probe, probe, probe           (no entry -> rc=255)
-
-rc=255 with no auth attempted is indistinguishable from "this account cannot
-log in" to a caller that only reads the exit code. Two of the three probes read
-failure as information and reach a wrong conclusion quietly; the third ABORTS
-the install, and did, on a host that answered `true` in 0.1s.
+bootstrap.yml decides what state a host is in by SSHing to it four times and
+reading the exit code. On ssh's default `StrictHostKeyChecking=ask`, a probe
+under `BatchMode=yes` cannot ask and fails wherever known_hosts holds no entry
+for the name it dials, and rc=255 with no auth attempted is indistinguishable
+from "this account cannot log in" to a caller that only reads the exit code.
+Two of the probes read failure as information and would reach a wrong
+conclusion quietly; the third ABORTS the install.
 
 The posture asserted here is the one ansible.cfg already uses for the real
 connections (`StrictHostKeyChecking=accept-new`), so a probe and the connection
