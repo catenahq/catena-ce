@@ -148,8 +148,8 @@ Order is the converge order, which is dependency order.
 
 | Role | Contract |
 | --- | --- |
-| `public_ports` | The declarative public-port registry and its applier |
 | `payload` | Installs the host engine binaries, the lane scripts and their units, restic and rclone, by extracting them from the running dashboard image. Deploys no container |
+| `public_ports` | The declarative public-port registry's host side: the fragment directory, the docker drop-in that reapplies the rules on every docker start, and the reconciler's timer. The reconciler and its timer ship in the payload, and a payload without them fails the converge |
 | `host_maintenance` | The OS update configuration: unattended-upgrades and its origins (Debian security, stable updates and point releases, and the private-network client's own repository), the restart policy for services left on replaced libraries, and apt's settings. Also the baseline packages, the journal's storage, the host resolving its own name, the host mail transfer agent kept off port 25, the time zone and locale set in the dashboard, and the reboot-required probe's configuration. The probe and its hourly timer ship in the payload |
 | `swarm` | The swarm's own settings (task history, the data-node label), which a restore does not bring back, and the self-heal that restarts containers which lost the race to the overlay at daemon start |
 | `traefik` | The reverse proxy and the `catena-network` overlay |
@@ -240,9 +240,10 @@ tag-filtered run reads the same values as a full one.
 
 A port is declared before it opens: infrastructure roles drop a JSON fragment
 into `/etc/catena/public-ports.d/`, application templates carry
-`vps.expose.*` compose labels. `catena-public-ports.py` merges both into ufw
-and DOCKER-USER rules, and validation and the external scan check against the
-merged set.
+`vps.expose.*` compose labels. The reconciler the payload ships,
+`catena-public-ports`, merges both into ufw and DOCKER-USER rules with the
+label vocabulary of the dashboard image the host runs, and validation and the
+external scan check against the merged set.
 
 ufw is default-deny. No web port is bound on the host: web traffic enters
 through the Cloudflare tunnel. The ports bound on the public IP are the TURN
@@ -269,6 +270,7 @@ forward-only SSH account (`panel`) to the host's loopback.
 | --- | --- |
 | No web port is open on the server itself; an external scan proves it | `bench:security_scan`, `bench:fi_v2_external_scan_blocked`, `threat:CV1` |
 | Every open port is declared before it is opened | `bench:security_scan`, `bench:ce_validate` |
+| A port declaration is read with the label vocabulary of the dashboard image the host runs, so an image update changes it with no converge | `bench:labels_vocabulary_from_image` |
 | SSH is key-only with no root login; public 22 closes only behind a proven private network, reopens while that network is down, and opens again when no private network is applied | `bench:security_scan`, `bench:fi_n8_ufw_concurrent_ssh`, `bench:ce_install_suite`, `threat:CV6` |
 | A server installs with no tunnel credential and brings its public edge up later without a reinstall | `bench:ce_install_suite` |
 | A credential entered in the dashboard is checked on the host before it is stored, and a refused one is never stored | `bench:ce_install_suite`, `bench:fi_s4_tailscale_oauth_revoked` |
@@ -306,9 +308,9 @@ different one, and only a finished run clears the record.
 
 ### The timers -- `public_ports`, `infrastructure`, `host_maintenance`
 
-Scheduled work is default-deny. This repository ships three local-maintenance
-timers (the public-port reconcile, the antivirus watch, the mail canary) and
-enables three the payload ships (the dashboard and Gatus syncs, the hourly
+Scheduled work is default-deny. This repository ships two local-maintenance
+timers (the antivirus watch, the mail canary) and enables four the payload
+ships (the public-port reconcile, the dashboard and Gatus syncs, the hourly
 reboot-required probe). None spends object storage.
 
 Every lane (backup, the bit-rot check, the offsite copy, the daily update
