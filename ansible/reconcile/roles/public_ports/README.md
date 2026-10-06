@@ -1,35 +1,30 @@
 # reconcile/roles/public_ports
 
-The declarative public-port registry: the single applier for every port this
-server exposes outside the Cloudflare tunnel.
+Wires the declarative public-port registry into the host. The registry is the
+single applier for every port this server exposes outside the Cloudflare
+tunnel.
 
-Infra roles (coturn, portainer, infrastructure) drop a JSON fragment into
-`public_ports_fragment_dir` declaring their ports; app templates declare theirs
-through `vps.expose.*` compose labels, harvested live.
-`scripts/catena-public-ports.py` merges both and applies ufw and DOCKER-USER
-rules. That script carries the full rationale.
+Infra roles (coturn, portainer, infrastructure, catena-admin) drop a JSON
+fragment into `public_ports_fragment_dir` declaring their ports; app templates
+declare theirs through `vps.expose.*` compose labels, harvested live. The
+reconciler that merges both and applies ufw and DOCKER-USER rules ships in the
+catena-admin payload (`payload/lanes/catena-public-ports.py`, its modules in
+`payload/lib`, its units in `payload/lanes/systemd`).
 
-## Why it is its own role
-
-The firewall's default-deny policy is bootstrap's (`bootstrap/roles/common`):
-get it wrong and there is no way back in. What this installs is a reconciler
-that opens what the deployed applications declare, which is version-shaped work
-a host can redo for itself whenever the product ships a better version of the
-script, so it sits on the reconcile side of the boundary.
+This role owns what belongs to the host: the fragment directory, the
+`docker.service` drop-in that re-applies the rules on every docker start
+(Docker recreates DOCKER-USER empty), and enabling the timer. It fails the
+converge when the payload it follows has no reconciler, because that host
+would publish its restricted ports unguarded.
 
 ## Where its variables live
 
-`public_ports_lib_dir` and `public_ports_fragment_dir` are in
-`playbooks/group_vars/all/main.yml`, not here. Six roles read the fragment dir,
-and a role default is only reliably in scope once that role has run -- a
-constant six roles share belongs to the product rather than to one of them.
-
-The cadence (`public_ports_timer_on_boot`, `public_ports_timer_interval`) is
-here, because only this role's own timer template reads it.
+`public_ports_fragment_dir` is in `playbooks/group_vars/all/main.yml`, not
+here. Six roles write into it, and a role default is only reliably in scope
+once that role has run -- a constant six roles share belongs to the product
+rather than to one of them.
 
 ## Ordering
 
-It runs early, right after `bootstrap/roles/common`, before the roles that drop
-fragments. Nothing it does needs Docker: it creates the `docker.service.d`
-drop-in directory itself, and systemd reads drop-ins only once
-`docker.service` exists.
+It runs right after `reconcile/roles/payload`, which installs the reconciler
+and its units, and before every role that drops a fragment.

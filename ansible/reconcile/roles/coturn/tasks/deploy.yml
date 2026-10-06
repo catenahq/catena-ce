@@ -32,7 +32,7 @@
 # --- Step 1: declare public ports (registry) ---------------------------------
 # UDP media plane lives on the public IP -- coturn does not ride the
 # cloudflared TCP tunnel. The ports are a registry fragment; the public-port
-# reconciler (installed by reconcile/roles/public_ports) applies the ufw rules
+# reconciler (the catena-admin payload's catena-public-ports) applies the ufw rules
 # and records them in the effective set read by validation. host-bound
 # (swarm --network=host), scope=any.
 - name: "coturn: ensure public-port fragment dir exists"
@@ -77,7 +77,9 @@
     name: catena-public-ports.service
     state: started
   changed_when: false
-  when: _coturn_ports_fragment.changed
+  when:
+    - _coturn_ports_fragment.changed
+    - catena_public_ports_installed | default(true) | bool
 
 # Tunnel-deferred gate: coturn's DNS registration and the DNS-01 cert
 # issuance both call the Cloudflare API with cloudflare_api_token. On a

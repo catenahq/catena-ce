@@ -44,7 +44,8 @@
 # host bind. scope=loopback denies it everywhere but lo -- the only readers
 # are beszel-seed on the host and the host-network agent below.
 #
-# bind=docker: a swarm host-mode publish is DNAT'd (helpers/public_ports.py).
+# bind=docker: a swarm host-mode publish is DNAT'd (catena-admin
+# payload/lib/public_ports.py).
 - name: "Beszel: declare the hub loopback port (registry fragment, loopback-only)"
   ansible.builtin.copy:
     dest: "{{ public_ports_fragment_dir }}/beszel.json"
@@ -66,7 +67,9 @@
     name: catena-public-ports.service
     state: started
   changed_when: false
-  when: _beszel_ports_fragment.changed
+  when:
+    - _beszel_ports_fragment.changed
+    - catena_public_ports_installed | default(true) | bool
 
 - name: "Beszel: deploy hub as a swarm stack"
   ansible.builtin.include_tasks: swarm_stack.yml

@@ -74,11 +74,13 @@ catena_access_method: >-
 # once it has proven the alternative path.
 catena_ssh_fragment_name: ssh.json
 
-# The ufw comment on every port-22 rule. scripts/catena-public-ports.py writes
-# the same rules for the ssh fragment as `<UFW_COMMENT_PREFIX>:<owner>`, and ufw
-# rewrites a rule whose comment differs, so any other comment here would have
-# the reconciler and the converge rewrite each other's rule on every run.
-# tests/unit/test_ssh_ufw_rules_share_one_comment.py holds the two together.
+# The ufw comment on every port-22 rule. The reconciler (catena-admin
+# payload/lanes/catena-public-ports.py) writes the same rules for the ssh
+# fragment as `<UFW_COMMENT_PREFIX>:<owner>`, and ufw rewrites a rule whose
+# comment differs, so any other comment here would have the reconciler and the
+# converge rewrite each other's rule on every run. ops
+# automation/test_bench/tests/test_ssh_rule_comment_matches_the_reconciler.py
+# holds the two together.
 catena_ssh_ufw_comment: "catena-ports:ssh"
 
 # --- Tailscale ---
@@ -220,16 +222,13 @@ portainer_admin_subdomain: "{{ cfg_portainer_admin_subdomain | default('portaine
 portainer_admin_hostname: "{{ portainer_admin_subdomain }}.{{ cloudflare_zone }}"
 
 # --- Declarative public-port registry ---
-# The two paths the registry is built from. Here rather than in
-# reconcile/roles/public_ports because SIX roles read the fragment dir -- coturn,
-# portainer, infrastructure's three lanes and catena-admin's host setup all drop
-# a <owner>.json into it -- and a role default is only reliably in scope once
-# that role has run. A constant six roles share is the product's, not one
-# role's.
-#
-# The reconciler imports public_ports and labels_schema by bare name from its
-# own directory, so all three install side by side in the lib dir.
-public_ports_lib_dir: /usr/local/lib/catena
+# The directory the registry is built from. Here rather than in
+# reconcile/roles/public_ports because SIX roles write the fragment dir --
+# coturn, portainer, infrastructure's three lanes and catena-admin's host setup
+# all drop a <owner>.json into it -- and a role default is only reliably in
+# scope once that role has run. A constant six roles share is the product's,
+# not one role's. The reconciler that reads it ships in the catena-admin
+# payload.
 public_ports_fragment_dir: /etc/catena/public-ports.d
 
 # --- Provenance of the tree this converge is running ---

@@ -55,7 +55,9 @@
     name: catena-public-ports.service
     state: started
   changed_when: false
-  when: _healthchecks_ports_fragment.changed
+  when:
+    - _healthchecks_ports_fragment.changed
+    - catena_public_ports_installed | default(true) | bool
 
 - name: "Healthchecks: deploy as a swarm stack"
   ansible.builtin.include_tasks: swarm_stack.yml

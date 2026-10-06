@@ -44,7 +44,8 @@ SWARM COMPOSE TRAPS, EVERY ONE VERIFIED AGAINST `docker stack config`
     Additional property host_ip is not allowed". A swarm PortConfig has no
     host-IP field, so a loopback bind cannot be expressed. Ports are
     emitted in LONG syntax with mode: host and no host_ip; the firewall,
-    not the bind address, is what scopes them (see helpers/public_ports.py).
+    not the bind address, is what scopes them (see catena-admin
+    payload/lib/public_ports.py).
   - `group_add` is REJECTED the same way -- "services.x Additional property
     group_add is not allowed", under both the versioned and the version-less
     loader. A supplementary GID is expressible in `docker service create

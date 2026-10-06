@@ -125,7 +125,9 @@
     name: catena-public-ports.service
     state: started
   changed_when: false
-  when: _pt_ports_fragment.changed
+  when:
+    - _pt_ports_fragment.changed
+    - catena_public_ports_installed | default(true) | bool
 
 # --- readiness ---------------------------------------------------------------
 # Portainer serves its SPA on the UI port once the BoltDB store is initialised.

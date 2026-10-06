@@ -175,11 +175,6 @@
   # decision taken once rather than re-taken every converge.
   roles:
     - { role: common, tags: [common] }
-    # The declarative public-port registry. It sits right after common and
-    # before every role that drops a fragment into it. Needs no Docker -- it
-    # creates the docker.service.d drop-in dir itself, and systemd reads
-    # drop-ins only once docker.service exists.
-    - { role: public_ports, tags: [public_ports] }
     # Anti-container-escape kernel hardening. MUST run after common (needs
     # python3-apt) and BEFORE docker (so /etc/sysctl.d/ files are in place
     # before dockerd's first start; otherwise dockerd's runtime /proc/sys
@@ -197,6 +192,10 @@
     # leaves a first converge with no tunnel, and oauth2_proxy then waits on an
     # edge nobody has brought up. See reconcile/roles/payload/README.md.
     - { role: payload, tags: [payload] } # host engine binaries + units
+    # The declarative public-port registry: the fragment dir, the docker.service
+    # drop-in and the timer of the reconciler the payload above just installed.
+    # Before every role that drops a fragment into it.
+    - { role: public_ports, tags: [public_ports] }
     # The OS update configuration, the host packages and journal, and the
     # reboot-required probe (its script and timer ship in the payload above).
     # Early, so the mail-agent mask lands before any later role's apt install

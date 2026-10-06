@@ -31,7 +31,7 @@ generated from the leading comment of each role's `tasks/main.yml`.
 | `payload` | Extract the host engine payload from the catena-admin image and install it. |
 | `portainer` | Deploy Portainer CE as the container control plane. |
 | `postgres` | Deploy the catena-owned Postgres swarm service. |
-| `public_ports` | Install the declarative public-port reconciler. |
+| `public_ports` | Wire the declarative public-port reconciler into this host. |
 | `swarm` | Configure the swarm bootstrap/roles/docker created: the task-history bound, the data-node label, and the self-heal for containers the overlay race strands. |
 | `tier1_stack` | Render the accumulated specs into compose files and prove they load. |
 | `traefik` | reconcile/roles/traefik -- deploy + own the catena-traefik reverse proxy. |

@@ -523,7 +523,8 @@
       become: true
 
     # The host-port allowlist is DERIVED from the public-port registry
-    # (helpers/public_ports.py), not hand-maintained. The reconciler writes
+    # (catena-admin payload/lib/public_ports.py), not hand-maintained. The
+    # reconciler writes
     # /etc/catena/public-ports.summary.json with precomputed integer port
     # lists; we add the always-present infra ports (22 SSH, 80/443 Traefik
     # via CF Tunnel) that are not registry-managed.

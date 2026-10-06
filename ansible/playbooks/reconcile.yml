@@ -75,10 +75,10 @@
       tags: [stamp_version]
 
   roles:
-    # First of the reconcile roles, as in converge.yml: every role below drops
-    # a fragment into the registry this installs.
-    - { role: public_ports, tags: [public_ports] }
     - { role: payload, tags: [payload] }
+    # Right after the payload that installs the reconciler, as in converge.yml:
+    # every role below drops a fragment into the registry it wires up.
+    - { role: public_ports, tags: [public_ports] }
     - { role: host_maintenance, tags: [host_maintenance] }
     - { role: swarm, tags: [swarm] }
     - { role: traefik, tags: [traefik] }

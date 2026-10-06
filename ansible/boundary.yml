@@ -66,8 +66,8 @@ bootstrap_roles:
 # Roles the host can run against itself, once their inputs come from the store.
 # Order is converge.yml's order, which is a dependency order, not a preference.
 reconcile_roles:
-  - public_ports
   - payload
+  - public_ports
   - host_maintenance
   - swarm
   - traefik
@@ -107,9 +107,10 @@ own_playbook_roles:
 
 # NOTHING STRADDLES: straddling_roles is empty.
 #
-# The public-port reconciler lives in reconcile/roles/public_ports and the SSH
-# trust path lives in bootstrap/roles/catena_admin_host. Both are real roles on
-# one side of the line, which is what a straddle is supposed to become.
+# The public-port registry's host wiring lives in reconcile/roles/public_ports
+# and the SSH trust path lives in bootstrap/roles/catena_admin_host. Both are
+# real roles on one side of the line, which is what a straddle is supposed to
+# become.
 #
 # The mechanism exists for a role that has to straddle. A role listed here
 # declares, per file, which of its task files belong to the other side, and
