@@ -259,8 +259,12 @@ backup_product_paths:
 # relative to the wrapper's working directory, which is not a place a client
 # can reason about, and a path that silently backed up the wrong tree is worse
 # than one that is ignored.
+#
+# regex_replace, because Ansible keeps the backslash of a '\n' literal inside
+# {{ }}: replace would look for a backslash and an n, and the regex reads it
+# as a newline.
 backup_extra_paths: >-
-  {{ (cfg_backup_extra_paths | default('')) | replace('\n', ',')
+  {{ (cfg_backup_extra_paths | default('')) | regex_replace('\n', ',')
      | split(',') | map('trim') | select('match', '^/') | list }}
 
 # restic --exclude patterns (fnmatch-style, applied to absolute paths).
