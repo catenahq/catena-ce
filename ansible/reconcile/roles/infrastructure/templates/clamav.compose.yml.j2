@@ -60,6 +60,8 @@ services:
       start_period: 300s
     labels:
       - "vps.auto-update=patch"
+      # What scripts/run-clamav-watch.sh finds clamd by.
+      - "vps.component=clamav"
     networks:
       {{ clamav_network }}:
         aliases:

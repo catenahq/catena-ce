@@ -4,10 +4,11 @@
 # unreachable/errors; rather than deliver the message unscanned
 # (fail-open) we SOFT REJECT it -- a 4xx temp-defer, so the sending MTA
 # retries and the message is scanned once clamd is back. No mail is lost
-# and nothing is delivered unscanned. Pairs with the Step-7 clamav:3310
-# probe (which pages the operator) so an AV outage is both contained and
-# visible. Dropped into the dms container's rspamd/local.d/ by
-# reconcile/roles/infrastructure mailserver_filtering.yml.
+# and nothing is delivered unscanned. Pairs with the clamd watch
+# (catena-ce/ansible/scripts/run-clamav-watch.sh, which pages through
+# Healthchecks) so an AV outage is both contained and visible. Dropped into
+# the dms container's rspamd/local.d/ by
+# catena-ce/ansible/reconcile/roles/infrastructure/tasks/mailserver_filtering.yml.
 rules {
   CLAM_FAIL_SOFT_REJECT {
     action = "soft reject";
