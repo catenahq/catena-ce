@@ -266,6 +266,8 @@
     fail_msg: >-
       Host clock is not NTP-synchronized. TLS, OIDC, and Tailscale
       auth all break under skew >5 min. timedatectl reported:
-      {{ _clock_status.stdout | replace('\n', ' | ') }}.
-      Fix: `systemctl enable --now systemd-timesyncd` (or chronyd)
-      and re-run.
+      {{ _clock_status.stdout_lines | join(' | ') }}.
+      NTP=no: `systemctl enable --now systemd-timesyncd` (or chronyd).
+      NTP=yes: the time service runs but has no upstream sample;
+      `timedatectl timesync-status` (or `chronyc sources`) names the
+      server it tries, which must answer on 123/udp. Then re-run.
