@@ -162,6 +162,7 @@ reconcile_owned_paths:
   - /etc/apt/apt.conf.d/51catena-origins
   - /etc/needrestart/conf.d/
   - /etc/systemd/journald.conf.d/
+  - /etc/systemd/timesyncd.conf.d/
   - daily.env
   - stack-update.env
   - managed-services.json

@@ -1,22 +1,31 @@
-"""R17: clock-skew validation in validate.
+"""Clock-skew validation in validate, and the NTP servers that keep it passing.
 
 TLS, OIDC tokens, Tailscale auth, and restic snapshot signatures all
 fail under clock skew >5 min. The failure modes are downstream and
 look like other bugs (cert error, auth refused, "snapshot is from
 the future"), so the validation surface needs to assert the root
-cause directly: bootstrap/roles/common/tasks/validate.yml's Vantage 1a
+cause directly: bootstrap/roles/common/tasks/validate.yml's Vantage 1
 probe, run on every validate / converge.
 
 The probe uses `timedatectl show --property=...` (not `status`) for
 locale-stable output; NTPSynchronized=yes is the canonical "sync has
 happened" flag set by systemd-timesyncd or chrony.
+
+reconcile/roles/host_maintenance lists the Debian pool in timesyncd's
+NTP=, because timesyncd reads its FallbackNTP pool only when no other
+server is known: a dead server announced by DHCP would otherwise be the
+only one it ever tries.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
 REPO = Path(__file__).resolve().parents[3]
 _VALIDATE = REPO / "ansible" / "bootstrap" / "roles" / "common" / "tasks" / "validate.yml"
+_HOST_MAINTENANCE = REPO / "ansible" / "reconcile" / "roles" / "host_maintenance"
+_TIMESYNCD_DROPIN = "/etc/systemd/timesyncd.conf.d/10-catena.conf"
 
 
 def test_common_validate_asserts_ntp_sync():
@@ -46,3 +55,42 @@ def test_clock_checks_use_timedatectl_show_not_status():
                 "use `timedatectl show --property=NTPSynchronized` "
                 "for locale-stable output"
             )
+
+
+def test_the_clock_probe_polls_until_synchronized():
+    """A converge that changed the NTP servers restarted timesyncd just
+    before validate runs; one sample would read that restart as a host
+    that cannot sync."""
+    tasks = yaml.safe_load(_VALIDATE.read_text())
+    probe = next(t for t in tasks if t["name"] == "validate/common: clock sync status")
+    assert probe["until"] == "'NTPSynchronized=yes' in _clock_status.stdout"
+    assert probe["retries"] * probe["delay"] >= 60
+
+
+def test_host_maintenance_lists_the_debian_pool_in_ntp():
+    """FallbackNTP is ignored while DHCP announces a server, so the pool
+    must be in NTP= for timesyncd to move on from a dead one."""
+    tasks = yaml.safe_load((_HOST_MAINTENANCE / "tasks" / "main.yml").read_text())
+    dropin = next(
+        t for t in tasks
+        if t.get("ansible.builtin.copy", {}).get("dest") == _TIMESYNCD_DROPIN
+    )
+    content = dropin["ansible.builtin.copy"]["content"]
+    assert "[Time]" in content
+    ntp = [line for line in content.splitlines() if line.startswith("NTP=")]
+    assert ntp == [
+        "NTP=0.debian.pool.ntp.org 1.debian.pool.ntp.org "
+        "2.debian.pool.ntp.org 3.debian.pool.ntp.org"
+    ]
+    assert dropin["notify"] == "restart timesyncd"
+
+
+def test_the_timesyncd_handler_restarts_it():
+    """timesyncd's unit has no reload, so the new list takes effect only
+    on a restart."""
+    handlers = yaml.safe_load((_HOST_MAINTENANCE / "handlers" / "main.yml").read_text())
+    handler = next(h for h in handlers if h.get("listen") == "restart timesyncd")
+    assert handler["ansible.builtin.systemd_service"] == {
+        "name": "systemd-timesyncd",
+        "state": "restarted",
+    }

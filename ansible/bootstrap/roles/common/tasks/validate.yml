@@ -246,6 +246,9 @@
 # locale changes, unlike the human-readable `timedatectl status`.
 # NTPSynchronized=yes is set when systemd-timesyncd or chrony has
 # accepted at least one upstream sample.
+#
+# Polled to a deadline: a converge that changed the NTP servers restarted
+# timesyncd moments ago, and a dead server it tries first costs 10s.
 - name: "validate/common: clock sync status"
   ansible.builtin.command:
     argv:
@@ -257,6 +260,9 @@
   register: _clock_status
   changed_when: false
   failed_when: false
+  until: "'NTPSynchronized=yes' in _clock_status.stdout"
+  retries: 12
+  delay: 10
 
 - name: "validate/common: NTP enabled + clock synchronized"
   ansible.builtin.assert:
@@ -264,10 +270,10 @@
       - "'NTP=yes' in _clock_status.stdout"
       - "'NTPSynchronized=yes' in _clock_status.stdout"
     fail_msg: >-
-      Host clock is not NTP-synchronized. TLS, OIDC, and Tailscale
-      auth all break under skew >5 min. timedatectl reported:
+      Host clock is not NTP-synchronized after 2 minutes. TLS, OIDC, and
+      Tailscale auth all break under skew >5 min. timedatectl reported:
       {{ _clock_status.stdout_lines | join(' | ') }}.
       NTP=no: `systemctl enable --now systemd-timesyncd` (or chronyd).
-      NTP=yes: the time service runs but has no upstream sample;
-      `timedatectl timesync-status` (or `chronyc sources`) names the
-      server it tries, which must answer on 123/udp. Then re-run.
+      NTP=yes: no server the time service tries answers, the Debian pool
+      included; `timedatectl timesync-status` (or `chronyc sources`) names
+      the one it is on, and outgoing 123/udp must reach it. Then re-run.

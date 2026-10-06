@@ -2,11 +2,11 @@
 # The host's own upkeep, applied on every converge from either path: apt's
 # settings, the host resolving its own name, the baseline packages, Debian's
 # unattended-upgrades and its origins, needrestart's restart policy, the
-# journal's storage, the host mail agent kept off port 25, the time zone and
-# locale set in catena-admin > Settings, and the reboot-required probe. The
-# probe's script (catena-reboot-check) and catena-reboot-check.service/.timer
-# ship in the catena-admin payload, installed by reconcile/roles/payload
-# earlier in the play.
+# journal's storage, the NTP servers, the host mail agent kept off port 25, the
+# time zone and locale set in catena-admin > Settings, and the reboot-required
+# probe. The probe's script (catena-reboot-check) and
+# catena-reboot-check.service/.timer ship in the catena-admin payload,
+# installed by reconcile/roles/payload earlier in the play.
 
 # Shared with bootstrap/roles/common, which applies both before anything else
 # on a fresh host.
@@ -162,6 +162,32 @@
     group: root
     mode: "0644"
   notify: restart journald
+
+# ─── NTP servers ────────────────────────────────────────────────────────
+# timesyncd reads Debian's FallbackNTP pool only when no other server is known,
+# so on a network whose DHCP announces a dead NTP server the clock never syncs,
+# and TLS, OIDC and Tailscale auth break under the skew. Listed in NTP=, the
+# pool is a server timesyncd moves on to when the announced one does not answer,
+# and the announced one stays in line for a network that blocks the pool.
+- name: "Host: timesyncd drop-in directory"
+  ansible.builtin.file:
+    path: /etc/systemd/timesyncd.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "Host: timesyncd always has the Debian pool to try"
+  ansible.builtin.copy:
+    dest: /etc/systemd/timesyncd.conf.d/10-catena.conf
+    content: |
+      # Managed by catena host_maintenance.
+      [Time]
+      NTP=0.debian.pool.ntp.org 1.debian.pool.ntp.org 2.debian.pool.ntp.org 3.debian.pool.ntp.org
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart timesyncd
 
 # ─── Keep host port 25 free for the mail server (MX) ──────────────────────
 # Debian's default-mta (exim4-daemon-light) binds 127.0.0.1:25 and [::1]:25 the
