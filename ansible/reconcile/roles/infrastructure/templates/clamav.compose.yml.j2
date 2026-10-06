@@ -37,6 +37,14 @@ services:
       CLAMD_STARTUP_TIMEOUT: "1800"
       # freshclam refresh cadence (checks per day).
       FRESHCLAM_CHECKS: "24"
+      # The image's entrypoint writes each CLAMD_CONF_<option> into
+      # clamd.conf at container start. A changed value changes the service
+      # spec, so `docker stack deploy` replaces the task with one that reads it.
+      CLAMD_CONF_StreamMaxLength: "{{ clamav_stream_max_length }}"
+      # Blocking below clamav_blocking_reload_below_mb (defaults/main.yml). A
+      # blocking reload holds PING for its pause, far inside the healthcheck's
+      # retries x interval.
+      CLAMD_CONF_ConcurrentDatabaseReload: "{{ 'no' if (ansible_facts['memtotal_mb'] | int) < (clamav_blocking_reload_below_mb | int) else 'yes' }}"
     volumes:
       # Persist the signature DB across restarts.
       - clamav-db:/var/lib/clamav

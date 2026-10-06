@@ -5,16 +5,18 @@
 # after deploying Nextcloud; every occ config:set is an upsert, so it is
 # idempotent and safe to re-click after a redeploy.
 #
-# The shared clamd is deployed by reconcile/roles/infrastructure clamav.yml and
-# reachable as clamav:3310 on the catena-clamav network, which the
-# Nextcloud app + cron services join (see nextcloud-s3.compose.yml).
+# The shared clamd is deployed by
+# catena-ce/ansible/reconcile/roles/infrastructure/tasks/clamav.yml and
+# reachable as clamav:3310 on the catena-clamav network, which the Nextcloud
+# app + cron services join (catena-templates
+# blueprints/nextcloud-s3-oidc/docker-compose.yml).
 #
-# Failure-mode note: files_antivirus fails OPEN -- if clamd is
-# unreachable it accepts files unscanned and logs an error. There is no
-# clean fail-closed mode (and forcing one floods the log), so we do not
-# attempt it. clamd reachability is alerted by the Gatus probe on
-# clamav:3310; the fail-loud path is on the mail side (rspamd
-# force_actions soft-reject on CLAM_VIRUS_FAIL).
+# Failure-mode note: with av_block_unreachable on, an upload files_antivirus
+# gets no verdict for is refused ("No connection to anti virus. Upload cannot
+# be completed.") and never stored unscanned. A daemon-mode scan waits for
+# clamd's answer up to PHP's socket timeout, so an upload made during the
+# pause of a blocking signature reload waits for its scan. A down clamd pages
+# through the catena-clamav-watch timer.
 
 set -euo pipefail
 
@@ -45,10 +47,8 @@ STREAM_MAX="${CATENA_CLAMAV_STREAM_MAX:-104857600}"
 #      client has already shipped every byte.
 #
 # Tradeoff, stated plainly: files ABOVE this size are not scanned on
-# upload. That matches the app's existing fail-open posture (see the
-# header note) rather than adding a new hole, but it is a real gap --
-# the compensating controls are the mail-side rspamd fail-loud path and
-# clamd reachability alerting via Gatus.
+# upload. That is a real gap; the compensating control is the mail-side
+# rspamd fail-loud path.
 MAX_SCAN="${CATENA_CLAMAV_MAX_FILE_SIZE:-104857600}"
 # only_log keeps the file but records the detection; delete removes it.
 INFECTED_ACTION="${CATENA_CLAMAV_INFECTED_ACTION:-only_log}"
@@ -67,6 +67,7 @@ occ config:app:set files_antivirus av_port --value "$CLAMAV_PORT"
 occ config:app:set files_antivirus av_stream_max_length --value "$STREAM_MAX"
 occ config:app:set files_antivirus av_max_file_size --value "$MAX_SCAN"
 occ config:app:set files_antivirus av_infected_action --value "$INFECTED_ACTION"
+occ config:app:set files_antivirus av_block_unreachable --type boolean --value true
 
 echo
 echo "Nextcloud files_antivirus wired to the shared clamd."
