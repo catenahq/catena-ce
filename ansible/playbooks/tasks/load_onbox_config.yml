@@ -246,13 +246,35 @@
     - lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
     - (_catena_admin_release.rc | default(1)) == 0
 
+# Named after what this converge deploys, catena_admin_image, which is the
+# newest release only when this host records no catena-admin version of its own
+# (playbooks/group_vars/all/main.yml gives the precedence).
 - name: "onbox: catena-admin release"
   ansible.builtin.debug:
     msg: >-
       Installing catena-admin {{ catena_admin_release.version }}
       ({{ catena_admin_release.digest }}), resolved from
       {{ catena_admin_release.repository }}.
-  when: catena_admin_release is defined
+  when:
+    - catena_admin_release is defined
+    - _deployed == _newest
+  vars:
+    _deployed: "{{ catena_admin_image | regex_replace('@sha256:[0-9a-f]{64}$', '') }}"
+    _newest: "{{ catena_admin_release.ref | regex_replace('@sha256:[0-9a-f]{64}$', '') }}"
+
+- name: "onbox: catena-admin kept at the version this host recorded"
+  ansible.builtin.debug:
+    msg: >-
+      Keeping catena-admin at {{ catena_admin_image }}, the version this host
+      recorded, which a converge does not move. The newest release is
+      {{ catena_admin_release.version }}: catena-admin > Settings > Control
+      panel version moves the panel and its engines to it.
+  when:
+    - catena_admin_release is defined
+    - _deployed != _newest
+  vars:
+    _deployed: "{{ catena_admin_image | regex_replace('@sha256:[0-9a-f]{64}$', '') }}"
+    _newest: "{{ catena_admin_release.ref | regex_replace('@sha256:[0-9a-f]{64}$', '') }}"
 
 - name: "onbox: catena-admin kept without the registry"
   ansible.builtin.debug:
