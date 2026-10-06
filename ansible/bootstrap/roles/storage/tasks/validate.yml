@@ -1,5 +1,5 @@
 ---
-# Validation tasks for bootstrap/roles/storage. Replaces tests/goss/storage.yaml.
+# Validation tasks for bootstrap/roles/storage.
 - name: "validate/storage: data subdirs exist with correct owner/group/mode"
   ansible.builtin.include_role:
     name: common

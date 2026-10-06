@@ -57,7 +57,7 @@ def test_the_operator_is_told_rather_than_left_guessing():
     t = _by_name("Verify gated services: the CONTROLLER could not reach these")
     msg = str(t["ansible.builtin.debug"]["msg"])
     assert "not the" in msg and "gate" in msg
-    assert "curl -4" in msg, "the message should say how to check by hand"
+    assert "public_https.py" in msg, "the message should say how to check by hand"
     assert str(t["when"]) == "_infra_gated_unreachable | length > 0"
 
 

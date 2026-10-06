@@ -2,19 +2,20 @@
 # On-box config store loader. THE secret source of truth.
 #
 # The store is a plaintext 0600 file at /etc/catena/config.json, which rides
-# the restic backup (/etc is in reconcile/roles/backup backup_paths). On every converge
-# it ADOPTS any declared secret in scope (fill-only) -- on a fresh install that
-# is the install-critical vendor creds the CLI threads in as `-e @file`; on a
-# fresh recover it is the DR keyset re-entered at the prompt; on a day-2
-# converge nothing is in scope and the store is already the truth. It MINTS
-# every missing INTERNAL service secret AND the user-held admin/restic DR
-# keyset on-box (reconcile-not-overwrite, via helpers/onbox_config.py) so no
-# secret is minted on the laptop, then set_facts each one from the store so
-# all downstream roles read the on-box source of truth.
+# the restic backup (/etc is in reconcile/roles/backup backup_paths). On every
+# run it ADOPTS any declared secret in scope (fill-only) -- on an install that
+# is the admin password an install.yaml pins, which the CLI threads in as
+# `-e @file`; on any other run nothing is in scope and the store is already the
+# truth. It MINTS every missing INTERNAL service secret and the user-held admin
+# and console passwords on-box (reconcile-not-overwrite, via
+# helpers/onbox_config.py) so no secret is minted on a controller, then
+# set_facts each one from the store so all downstream roles read the on-box
+# source of truth. The restic password is generated in the panel instead.
 #
-# Included UNCONDITIONALLY from converge.yml + validate.yml pre_tasks (runs
-# before any role). A rebuild needs only the {restic endpoint, S3 creds,
-# restic password} keyset: the store returns with the data, internals and all.
+# Included UNCONDITIONALLY from the pre_tasks of converge.yml, reconcile.yml,
+# validate.yml, lockdown.yml and rotate-tailscale.yml (runs before any role). A
+# rebuild needs only the {restic endpoint, S3 creds, restic password} keyset:
+# the store returns with the data, internals and all.
 
 - name: "onbox: stage the knob registry"
   ansible.builtin.include_tasks:
@@ -107,12 +108,12 @@
     label: "{{ item.key }}"
   no_log: true
 
-# ─── non-secret config: seed once from .env, then read only the store ───────
+# --- non-secret config: seed once from .env, then read only the store --------
 #
-# Its own file because bootstrap.yml runs THAT and nothing else: it needs the
-# config half (bootstrap/roles/tailscale picks its control plane from cfg_tailnet_provider)
-# and must not run the rest of this loader, which mints the DR keyset and calls
-# the container registry on a machine with no Docker.
+# Its own file because bootstrap.yml and show-keyset.yml run THAT and nothing
+# else: they need the config half and must not run the rest of this loader,
+# which mints the internal secrets and calls the container registry, on a
+# machine with no Docker yet.
 - name: "onbox: seed and publish the store-owned config"
   ansible.builtin.include_tasks:
     file: seed_onbox_config.yml
@@ -120,7 +121,7 @@
       tags: [always, onbox]
   tags: [always, onbox]
 
-# ─── image pins: what the on-host update lane last applied ─────────────────
+# --- image pins: what the on-host update lane last applied -------------------
 #
 # The converge owns TOPOLOGY -- which services exist and how they wire. The
 # on-host lane owns IMAGE VERSIONS, and it bumps them between converges. A
@@ -146,7 +147,7 @@
   ansible.builtin.set_fact:
     catena_image_pins: "{{ _onbox_image_pins.stdout | from_json }}"
 
-# ─── which catena-admin release this converge installs ─────────────────────
+# --- which catena-admin release this converge installs -----------------------
 #
 # ASKED, not remembered. The registry writes the version and its digest in one
 # answer, so the two cannot disagree. That is the whole requirement, because
@@ -172,38 +173,78 @@
   ansible.builtin.script:
     cmd: >-
       {{ playbook_dir }}/../helpers/catena_admin_release.py
-      --repository {{ catena_admin_repository
-                      | default('ghcr.io/catenahq/catena-admin', true) | quote }}
+      --repository {{ catena_admin_repository | quote }}
     executable: python3
   register: _catena_admin_release
   changed_when: false
   failed_when: false
   when: lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
 
-# Fails HERE rather than deep in reconcile/roles/payload, and says which of the two
-# reasons it is. A converge cannot proceed without this: the panel image is
-# also where the host engines come from, and every role after bootstrap/roles/docker
-# depends on those. Nothing downstream has a usable fallback either: a
-# hardcoded version is the one thing this resolution exists to avoid, so
-# failing here is the honest outcome.
+# When the registry does not answer, the converge keeps the panel where it is:
+# the catena-admin version this host recorded (a rollback or a managed bump),
+# else the image its catena-admin service runs. Keeping the running image is
+# the one answer that needs no registry, and the engines follow the service's
+# image anyway (reconcile/roles/payload). Most hosts record no catena-admin
+# version, so the running service is the usual fallback.
+- name: "onbox: read the image the catena-admin service runs"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - inspect
+      - "{{ catena_admin_service_name }}"
+      - "--format={{ '{{ .Spec.TaskTemplate.ContainerSpec.Image }}' }}"
+  register: _catena_admin_running
+  changed_when: false
+  # No service yet is an answer: the fail below names it.
+  failed_when: false
+  when:
+    - lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
+    - (_catena_admin_release.rc | default(1)) != 0
+
+- name: "onbox: keep the catena-admin image this host already runs"
+  ansible.builtin.set_fact:
+    catena_admin_fallback_image: "{{ _pinned if _pinned else _running }}"
+    _catena_admin_fallback_from: >-
+      {{ 'the version this host recorded' if _pinned
+         else 'the image its ' ~ catena_admin_service_name ~ ' service runs' }}
+  vars:
+    _pinned: >-
+      {{ catena_image_pins | default({})
+         | catena_image_pinned(catena_admin_repository) }}
+    _running: >-
+      {{ (_catena_admin_running.stdout | default('') | trim)
+         if (_catena_admin_running.rc | default(1)) == 0 else '' }}
+  when:
+    - lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
+    - (_catena_admin_release.rc | default(1)) != 0
+
+# Fails HERE rather than deep in reconcile/roles/payload. The panel image is
+# also where the host engines come from, and every role after
+# bootstrap/roles/docker depends on those; a hardcoded version is the one thing
+# this resolution exists to avoid.
 - name: "onbox: the catena-admin release could not be resolved"
   ansible.builtin.fail:
     msg: >-
       Could not resolve which catena-admin image to install:
       {{ (_catena_admin_release.stderr | default('') | trim)
          | default('no output', true) }}
-      This converge needs the registry to answer, because the panel image is
+      This host records no catena-admin version and runs no
+      {{ catena_admin_service_name }} service to keep, and the panel image is
       also where the host engines are extracted from. Pin an image explicitly
       with CATENA_ADMIN_IMAGE=ghcr.io/catenahq/catena-admin:vX.Y.Z to converge
       without asking the registry.
   when:
     - lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
     - (_catena_admin_release.rc | default(1)) != 0
+    - (catena_admin_fallback_image | default('')) | length == 0
 
 - name: "onbox: publish the resolved catena-admin release"
   ansible.builtin.set_fact:
     catena_admin_release: "{{ _catena_admin_release.stdout | from_json }}"
-  when: lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
+  when:
+    - lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
+    - (_catena_admin_release.rc | default(1)) == 0
 
 - name: "onbox: catena-admin release"
   ansible.builtin.debug:
@@ -212,3 +253,11 @@
       ({{ catena_admin_release.digest }}), resolved from
       {{ catena_admin_release.repository }}.
   when: catena_admin_release is defined
+
+- name: "onbox: catena-admin kept without the registry"
+  ansible.builtin.debug:
+    msg: >-
+      The registry did not answer, so this converge keeps catena-admin at
+      {{ catena_admin_fallback_image }}, {{ _catena_admin_fallback_from }}.
+      Its payload digest goes unchecked on this converge.
+  when: catena_admin_fallback_image is defined

@@ -72,9 +72,11 @@ def test_the_command_is_the_cli_the_bench_already_drives(tmp_path: Path):
     assert "--no-confirm" in argv
     assert argv[argv.index("--inventory") + 1] == "clientco"
     assert argv[argv.index("-i") + 1] == str(tmp_path / "install.yaml")
-    assert "--keyset-json" not in argv
+    assert "--keyset-json" not in argv and "--reinstalled" not in argv
     assert "--keyset-json" in render.install_command(
         tmp_path / "ansible", tmp_path / "install.yaml", "clientco", keyset_json=True)
+    assert "--reinstalled" in render.install_command(
+        tmp_path / "ansible", tmp_path / "install.yaml", "clientco", reinstalled=True)
 
 
 def test_the_credentials_file_lives_outside_the_inventory_and_is_removed():

@@ -64,8 +64,7 @@ the same `install`.
 | Command | Playbook | What it does |
 | --- | --- | --- |
 | `init` | none | Create `inventory/<name>/.env`, every key at its default and explained, to fill in |
-| `install` | chain | Seed the configuration, run bootstrap, show the passwords (`show-keyset.yml`), run converge and validate, then show the passwords again |
-| `converge` | `converge.yml` | Re-apply from this machine; `--address` reaches the host at its tailnet address once the panel's Lockdown has closed public SSH |
+| `install` | chain | Seed the configuration, run bootstrap, show the passwords (`show-keyset.yml`), run converge and validate, then show the passwords again. Run again, it re-applies the configuration from this machine; `--address` reaches the host at another address for that run (its tailnet address once the panel's Lockdown has closed public SSH), `--tags` scopes the converge leg, `--reinstalled` trusts the new host key of a reinstalled server |
 | `uninstall` | `uninstall.yml` | Unmask the native apt timers on a host an older release masked |
 
 One shape: `uv run catena-cli <verb> --inventory <name>`. A verb that runs a
@@ -85,6 +84,17 @@ inventory from an answers file instead (the bench / power-user path),
 unattended; an answers file naming a value the server holds (the domain, the
 tailnet, backups, a vendor credential) is refused. The CLI then asks for the
 provider's password only when the SSH key does not open the server already.
+On an inventory already installed (its `hosts.yml` exists) seed asks nothing:
+a key a newer template added takes its default.
+
+Every leg dials the server's SSH address: `--address` for one run, else
+`HOST_SSH_ADDRESS` from the `.env`, else `HOST_PUBLIC_IP`, which stays the
+server's public address either way. Bootstrap trusts a host key only on first
+contact. A server that presents another key than the one this machine trusts
+for its address stops `install` before anything reaches it: a reinstalled
+server does, and so does another machine answering at that address. Asked, the
+operator says which; `--reinstalled` answers for an unattended run. Bootstrap
+then replaces the old key with the new one.
 
 ## Secrets
 

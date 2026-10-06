@@ -46,8 +46,8 @@ actions:
     timeout: 30
     # catena-restic-env loads backup.env with set -a then execs
     # the command. Single source of truth for sourcing the env from
-    # outside the systemd-launched backup scripts; see
-    # scripts/restic-env.sh and tests/unit/test_restic_env_pattern.py.
+    # outside the systemd-launched backup scripts; see catena-admin
+    # payload/lanes/catena-restic-env.sh and its restic_env_pattern_test.go.
     shell: "catena-restic-env restic snapshots --latest 10"
 
   - name: backup-coverage-check
@@ -104,11 +104,12 @@ actions:
 
   # ─── Initial apps setup ──────────────────────────────────────────────
   # One-shot wiring buttons that finish provisioning a Portainer-deployed
-  # template the first time it comes up. Per project policy, converge
-  # runs only at initial install or full VPS repair -- these are the
-  # on-demand path operators take after `Deploy` in the Portainer UI.
-  # All buttons in this section are idempotent: re-running after a secret
-  # rotation, image bump, or redeploy converges to the same state.
+  # template the first time it comes up. A deploy is not followed by a
+  # converge (that runs at install, from the panel, or on the scheduled
+  # converge lane), so these are the on-demand path after `Deploy` in the
+  # Portainer UI. All buttons in this section are idempotent: re-running
+  # after a secret rotation, image bump, or redeploy converges to the same
+  # state.
 
   - name: wire-nextcloud-oidc
     title: "Wire Nextcloud OIDC"

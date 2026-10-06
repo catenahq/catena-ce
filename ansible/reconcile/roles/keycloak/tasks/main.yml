@@ -69,19 +69,18 @@
   tags: [keycloak_db]
 
 
-# The compose-deploy + realm-bootstrap + post-deploy probe all hit the
-# Portainer stack API. portainer_api_key is minted by reconcile/roles/portainer
-# earlier in the SAME site converge (it runs before keycloak in converge.yml and
-# set_facts the freshly-minted key into play scope), so this block converges
-# in a single pass -- no two-pass pass-1/pass-2 dance. Mirror the gate
-# reconcile/roles/infrastructure uses; the key is present here on a fresh install
-# because portainer already ran.
+# Gated on the Portainer API key, the gate reconcile/roles/infrastructure uses
+# for the client-app wiring. portainer_api_key is minted by
+# reconcile/roles/portainer earlier in the SAME converge (it runs before
+# keycloak and set_facts the freshly-minted key into play scope), so this
+# block converges in a single pass. The deploy itself is a swarm stack
+# (reconcile/roles/infrastructure/tasks/swarm_stack.yml).
 - name: "Keycloak: Portainer-API-gated steps (compose, validate, realm)"
   when:
     - portainer_api_key is defined
     - portainer_api_key | length > 10
   block:
-    - name: "Keycloak: deploy compose via the Portainer stack API"
+    - name: "Keycloak: deploy compose as a swarm stack"
       ansible.builtin.include_tasks:
         file: deploy.yml
         apply:
@@ -113,10 +112,9 @@
           tags: [keycloak_realm, keycloak_group_migration]
       tags: [keycloak_realm, keycloak_group_migration]
 
-    # R22: dump the live realm + clients to backup-staging (so restic
-    # picks them up) AND install the nightly drift-export timer.
-    # Idempotent. Captures any operator UI edits that happened since
-    # the previous converge, then keeps running between converges.
+    # Dump the live realm + clients to backup-staging so restic picks them
+    # up. Idempotent. Captures any UI edits made since the previous
+    # converge.
     - name: "Keycloak: realm export"
       ansible.builtin.include_tasks:
         file: realm_export.yml
@@ -131,4 +129,4 @@
       is not yet present. It is normally minted by reconcile/roles/portainer earlier in
       this same converge; if you see this, portainer did not run or failed to
       mint the key. Check the portainer role, then re-run.
-  when: portainer_api_key is not defined or (portainer_api_key | length) < 10
+  when: portainer_api_key is not defined or (portainer_api_key | length) <= 10

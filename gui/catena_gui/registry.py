@@ -85,6 +85,14 @@ def is_required(entry: dict) -> bool:
     return bool(entry.get("required"))
 
 
+def choice_for(entry: dict) -> dict:
+    """The labels of the choice the launcher puts in front of a field, by
+    option (`public`, `private`) and language, from the registry's
+    `gui_choice`, or empty. `public` leaves the field empty; `private` asks
+    for it."""
+    return dict(entry.get("gui_choice") or {})
+
+
 def options_for(entry: dict) -> list[str]:
     """The values a field is limited to, from its `env.options`, or an empty
     list for free text."""

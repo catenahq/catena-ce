@@ -77,6 +77,33 @@
   ansible.builtin.set_fact:
     ts_backend_state: "{{ _ts_status_parsed.BackendState | default('NotRunning') }}"
 
+# A Running node whose control server is not the one the stored provider
+# names is re-authenticated: Settings moved it between Tailscale and Headscale,
+# or between Headscale servers. The node's prefs name its control server
+# (ControlURL); a node in any other state authenticates below anyway.
+- name: Query the control server the node is joined to
+  ansible.builtin.command: tailscale debug prefs
+  register: ts_prefs_raw
+  changed_when: false
+  when: ts_backend_state == 'Running'
+
+- name: Read the node's control server
+  ansible.builtin.set_fact:
+    _ts_control_url: "{{ (ts_prefs_raw.stdout | from_json).ControlURL | default('') }}"
+  when: ts_backend_state == 'Running'
+
+# The comparison `tailscale up` makes before it refuses to change the control
+# server of a Running node without --force-reauth: the URL as stored, with
+# Tailscale's own names counted as one. Both joins below pass --force-reauth
+# on that move.
+- name: Determine whether the stored provider names another control server
+  ansible.builtin.set_fact:
+    ts_control_moved: >-
+      {{ ts_backend_state == 'Running'
+         and ((_ts_control_url != tailnet_control_url)
+              if tailnet_provider == 'headscale'
+              else (_ts_control_url not in tailscale_saas_control_urls)) }}
+
 # ─── join the tailnet (the play's driver mints, the VPS runs `up`) ───────
 # Fork on tailnet_provider: Tailscale SaaS (OAuth mint) OR self-hosted
 # Headscale (pre-auth key + --login-server). Both converge on `tailscale up`.
@@ -84,7 +111,7 @@
 # The fork reads the DECLARED provider (the store's TAILNET_PROVIDER) rather
 # than re-deriving it from whether a control URL is filled in.
 - name: Authenticate the node
-  when: ts_backend_state != 'Running' or tailscale_force_reauth | bool
+  when: ts_backend_state != 'Running' or tailscale_force_reauth | bool or ts_control_moved | bool
   block:
     - name: "Headscale: require a control server address"
       ansible.builtin.assert:
@@ -146,6 +173,7 @@
           - "--advertise-tags={{ tailscale_tags | join(',') }}"
           - "--hostname={{ tailscale_hostname }}"
           - "--accept-dns={{ 'true' if tailscale_accept_dns | bool else 'false' }}"
+          - "--force-reauth={{ 'true' if ts_control_moved | bool else 'false' }}"
           - "--reset"
       no_log: true # minted key is in argv; keep it out of logs
       changed_when: true
@@ -153,8 +181,37 @@
 
     # ── Fork B: self-hosted Headscale ──
     # Headscale has no OAuth API: mint a per-converge tagged pre-auth key via
-    # its API (no long-lived key on the VPS), falling back to a static key the
-    # operator supplied.
+    # its API (no long-lived key on the VPS), falling back to a static key
+    # entered in Settings. The API names the user of a key by numeric id, so
+    # the stored user name is first resolved against the users it lists.
+    - name: "Headscale: list the users the API key can see"
+      ansible.builtin.uri:
+        url: "{{ tailnet_control_url }}/api/v1/user"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ headscale_api_key }}"
+        status_code: 200
+        return_content: true
+      register: hs_users
+      delegate_to: localhost
+      become: false
+      no_log: true
+      when:
+        - tailnet_provider == 'headscale'
+        - (headscale_api_key | default('') | length) > 0
+
+    - name: "Headscale: require the user the key is minted for"
+      ansible.builtin.assert:
+        that:
+          - (hs_users.json.users | default([]) | selectattr('name', 'equalto', tailnet_headscale_user) | list | length) == 1
+        fail_msg: >-
+          The Headscale server has no user named {{ tailnet_headscale_user }}.
+          Create it on the server, or enter the right one in catena-admin >
+          Settings > Admin access tunnel (Headscale user).
+      when:
+        - tailnet_provider == 'headscale'
+        - (headscale_api_key | default('') | length) > 0
+
     - name: "Headscale: mint a single-use tagged pre-auth key"
       ansible.builtin.uri:
         url: "{{ tailnet_control_url }}/api/v1/preauthkey"
@@ -163,7 +220,7 @@
           Authorization: "Bearer {{ headscale_api_key }}"
         body_format: json
         body:
-          user: "{{ tailnet_headscale_user }}"
+          user: "{{ (hs_users.json.users | selectattr('name', 'equalto', tailnet_headscale_user) | first).id }}"
           reusable: false
           ephemeral: "{{ tailscale_ephemeral | bool }}"
           aclTags: "{{ tailscale_tags }}"
@@ -198,6 +255,9 @@
           Minting also needs the Headscale user.
       when: tailnet_provider == 'headscale'
 
+    # No --advertise-tags: the node takes its tags from the pre-auth key, and
+    # Headscale refuses a node that joins with a pre-auth key and advertises
+    # tags of its own.
     - name: "Headscale: tailscale up via --login-server"
       ansible.builtin.command:
         argv:
@@ -205,9 +265,9 @@
           - up
           - "--login-server={{ tailnet_control_url }}"
           - "--authkey={{ _hs_authkey }}"
-          - "--advertise-tags={{ tailscale_tags | join(',') }}"
           - "--hostname={{ tailscale_hostname }}"
           - "--accept-dns={{ 'true' if tailscale_accept_dns | bool else 'false' }}"
+          - "--force-reauth={{ 'true' if ts_control_moved | bool else 'false' }}"
           - "--reset"
       no_log: true # pre-auth key is in argv; keep it out of logs
       changed_when: true

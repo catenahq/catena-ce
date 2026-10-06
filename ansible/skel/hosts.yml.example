@@ -8,8 +8,10 @@
 #              the ops account. ansible_host starts as a placeholder;
 #              catena-cli overwrites it with the address bootstrap.yml
 #              installed on (helpers/bootstrap_output.py).
-#   bootstrap: the provider's initial login at the public IP, used ONLY by
-#              playbooks/bootstrap.yml to bring up a fresh VPS.
+#   bootstrap: the provider's initial login, used ONLY by
+#              playbooks/bootstrap.yml to bring up a fresh VPS, at the
+#              address the installer reaches the server on: HOST_SSH_ADDRESS
+#              when set (a private address), else the public IP.
 
 all:
   children:
@@ -27,7 +29,7 @@ all:
     bootstrap:
       hosts:
         host1-bootstrap:
-          ansible_host: "{{ lookup('dotenv', 'HOST_PUBLIC_IP') }}"
+          ansible_host: "{{ lookup('dotenv', 'HOST_SSH_ADDRESS', default='') or lookup('dotenv', 'HOST_PUBLIC_IP') }}"
           ansible_port: "{{ lookup('dotenv', 'HOST_SSH_PORT', default='22') }}"
           # bootstrap.yml forces this user via play vars regardless of what
           # the provider exposes as ansible_user -- set here too since a

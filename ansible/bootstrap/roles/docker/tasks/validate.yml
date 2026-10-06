@@ -1,5 +1,5 @@
 ---
-# Validation tasks for bootstrap/roles/docker. Replaces tests/goss/docker.yaml.
+# Validation tasks for bootstrap/roles/docker.
 - name: "validate/docker: package_facts"
   ansible.builtin.package_facts:
     manager: apt

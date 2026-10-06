@@ -55,7 +55,9 @@
     name: catena-public-ports.service
     state: started
   changed_when: false
-  when: _healthchecks_ports_fragment.changed
+  when:
+    - _healthchecks_ports_fragment.changed
+    - catena_public_ports_installed | default(true) | bool
 
 - name: "Healthchecks: deploy as a swarm stack"
   ansible.builtin.include_tasks: swarm_stack.yml
@@ -66,18 +68,17 @@
     svc_domain_service: "app"
     svc_domain_port: "{{ healthchecks_internal_port }}"
     # Readiness verified by the aggregate post-role probe in main.yml.
-    # The in-container Django ORM probe below remains in place -- it's
-    # needed BEFORE the seed shell runs, and it's independent of Traefik
-    # and the auth proxy.
+    # The in-container Django ORM probe below gates the seed shell, and
+    # is independent of Traefik and the auth proxy.
     svc_readiness_skip_reason: >-
       Verified by the aggregate post-role probe in main.yml.
 
 # ─── Bootstrap channel + check via Django shell ──────────────────────
-# Seeds: (a) an ntfy Channel wired to the operator's topic, (b) the
-# "catena-backup-succeeded" + "catena-backup-attempted" Checks, (c) binds
-# the channel to both. Idempotent -- re-running on an existing
-# install just reconciles. Runs on the Portainer-assigned container
-# name; retries while the container + Django + migrations come up.
+# scripts/healthchecks-seed.py seeds Catena's ntfy Channel when one is
+# configured and the "catena-backup-succeeded" + "catena-backup-attempted"
+# Checks, and binds the channel to both. Re-running reconciles and leaves
+# client-added channels alone. Retries while the swarm task, Django and
+# migrations come up.
 #
 # Budget: 60 × 5s = 300s (5 min). Covers cold image pulls without
 # a mirror plus swarm placement + container start. Diagnostic dump

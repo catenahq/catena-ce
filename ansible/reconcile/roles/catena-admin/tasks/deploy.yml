@@ -116,8 +116,9 @@
         # The domain this server serves, compared against the domain a
         # licence token names so one key cannot unlock two servers.
         CLOUDFLARE_PRIMARY_ZONE: "{{ cloudflare_zone | default('') }}"
-        # The PORT is a host fact -- portainer_ui_port is .env-overridable --
-        # so this one stays even though the service name and the /api suffix
+        # The port is portainer_ui_port, the product's value in
+        # playbooks/group_vars/all/main.yml, passed so the panel and the
+        # converge read the same number; the service name and the /api suffix
         # are the image's.
         PORTAINER_API_BASE: >-
           http://{{ portainer_service_name }}:{{ portainer_ui_port }}/api

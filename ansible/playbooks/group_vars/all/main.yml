@@ -74,11 +74,13 @@ catena_access_method: >-
 # once it has proven the alternative path.
 catena_ssh_fragment_name: ssh.json
 
-# The ufw comment on every port-22 rule. scripts/catena-public-ports.py writes
-# the same rules for the ssh fragment as `<UFW_COMMENT_PREFIX>:<owner>`, and ufw
-# rewrites a rule whose comment differs, so any other comment here would have
-# the reconciler and the converge rewrite each other's rule on every run.
-# tests/unit/test_ssh_ufw_rules_share_one_comment.py holds the two together.
+# The ufw comment on every port-22 rule. The reconciler (catena-admin
+# payload/lanes/catena-public-ports.py) writes the same rules for the ssh
+# fragment as `<UFW_COMMENT_PREFIX>:<owner>`, and ufw rewrites a rule whose
+# comment differs, so any other comment here would have the reconciler and the
+# converge rewrite each other's rule on every run. ops
+# automation/test_bench/tests/test_ssh_rule_comment_matches_the_reconciler.py
+# holds the two together.
 catena_ssh_ufw_comment: "catena-ports:ssh"
 
 # --- Tailscale ---
@@ -220,16 +222,13 @@ portainer_admin_subdomain: "{{ cfg_portainer_admin_subdomain | default('portaine
 portainer_admin_hostname: "{{ portainer_admin_subdomain }}.{{ cloudflare_zone }}"
 
 # --- Declarative public-port registry ---
-# The two paths the registry is built from. Here rather than in
-# reconcile/roles/public_ports because SIX roles read the fragment dir -- coturn,
-# portainer, infrastructure's three lanes and catena-admin's host setup all drop
-# a <owner>.json into it -- and a role default is only reliably in scope once
-# that role has run. A constant six roles share is the product's, not one
-# role's.
-#
-# The reconciler imports public_ports and labels_schema by bare name from its
-# own directory, so all three install side by side in the lib dir.
-public_ports_lib_dir: /usr/local/lib/catena
+# The directory the registry is built from. Here rather than in
+# reconcile/roles/public_ports because SIX roles write the fragment dir --
+# coturn, portainer, infrastructure's three lanes and catena-admin's host setup
+# all drop a <owner>.json into it -- and a role default is only reliably in
+# scope once that role has run. A constant six roles share is the product's,
+# not one role's. The reconciler that reads it ships in the catena-admin
+# payload.
 public_ports_fragment_dir: /etc/catena/public-ports.d
 
 # --- Provenance of the tree this converge is running ---
@@ -247,9 +246,9 @@ catena_vendor_manifest_path: "{{ playbook_dir }}/../../VENDOR.json"
 # --- What this converge installed, so the next one can withdraw it ---
 # /var/lib rather than /etc, for the reason the payload's own manifest gives:
 # it describes what is on this host right now, it is rewritten every converge,
-# and /etc rides the backup set -- a restored manifest would describe the
-# machine the snapshot came from and hand the delete leg a list of paths this
-# host never had.
+# and a restore puts /etc back but leaves /var/lib/catena out -- a restored
+# manifest would describe the machine the snapshot came from and hand the
+# delete leg a list of paths this host never had.
 catena_converge_manifest_path: /var/lib/catena/converge-manifest.json
 
 # What the panel payload installed (catena-admin
@@ -259,15 +258,14 @@ catena_converge_manifest_path: /var/lib/catena/converge-manifest.json
 catena_payload_manifest_path: /var/lib/catena/payload-manifest.json
 
 # What this converge delivered, written at the very end of converge.yml and
-# reconcile.yml so it describes a converge that finished. The panel reads it to
-# tell "this feature is off" from "this feature's plumbing never reached this
-# host": every button dispatches a FIXED action name through the SSH forced
-# command, and that table is rendered by the converge, so a panel newer than
-# the host's converge shows a button for an action the host will refuse.
+# reconcile.yml so it describes a converge that finished. The payload
+# installer and the panel's self-update write their own keys into the same
+# file, and the panel renders the actions the payload declares there
+# (tasks/record_release_manifest.yml says who owns which keys).
 #
 # It lives under /var/lib/catena: it is rebuildable state, that directory is
-# already bind-mounted read-only into the panel, and it stays out of restic
-# snapshots because a restored host's converge state is its own.
+# already bind-mounted read-only into the panel, and a restore leaves it out of
+# what it puts back, because a restored host's converge state is its own.
 catena_release_manifest_path: "/var/lib/catena/release.json"
 
 # --- What the bootstrap-owned files looked like last time a converge ran ---
@@ -459,9 +457,12 @@ swarm_stack_dir: /etc/catena/stacks
 #      included.
 #   3. The newest published release, asked of the registry once per converge by
 #      playbooks/tasks/load_onbox_config.yml (catena_admin_release).
+#   4. When the registry does not answer, the image this host already runs
+#      (catena_admin_fallback_image, set by the same loader), so the panel stays
+#      where it is.
 #
 # The empty minimum on the pin filter is what lets (2) beat (3); a pin must name
-# this repository and a real version, and the result carries its digest, so the
+# this repository and a real version, and the release carries its digest, so the
 # pull is byte-addressed (playbooks/filter_plugins/image_pin.py). An inline
 # conditional rather than ternary: ternary evaluates both branches, and the pin
 # filter refuses the empty reference an override leaves behind.
@@ -470,8 +471,12 @@ catena_admin_image_override: >-
 catena_admin_image: >-
   {{ catena_admin_image_override
      if (catena_admin_image_override | default('', true) | length > 0)
-     else ((catena_admin_release.ref | default(''))
+     else ((catena_admin_release.ref
+            | default(catena_admin_fallback_image | default('')))
            | catena_image_pin(catena_image_pins | default({}), '')) }}
+# The registry repository catena-admin is published to: the one the loader asks
+# for the newest release, and the one a recorded catena-admin pin must name.
+catena_admin_repository: ghcr.io/catenahq/catena-admin
 
 # --- Hostname ---------------------------------------------------------
 # The admin panel is served at dash.<zone>. The subdomain is a product

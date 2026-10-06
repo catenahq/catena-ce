@@ -79,7 +79,9 @@
     name: catena-public-ports.service
     state: started
   changed_when: false
-  when: _gatus_ports_fragment.changed
+  when:
+    - _gatus_ports_fragment.changed
+    - catena_public_ports_installed | default(true) | bool
 
 - name: "Gatus: deploy as a swarm stack"
   ansible.builtin.include_tasks: swarm_stack.yml
@@ -95,24 +97,24 @@
     svc_readiness_skip_reason: >-
       Verified by the aggregate post-role probe in main.yml.
 
-# When 00-base.yaml changes, restart the Gatus container so the new
-# endpoints / alert config take effect (Gatus loads config only at
-# startup). 50-catena-apps.yaml restart-triggering is owned by gatus-sync
-# itself. Find the container by matching the Portainer-assigned name pattern.
-- name: "Gatus: find running container (for base-config reload)"
-  ansible.builtin.shell: |
-    set -o pipefail
-    docker ps --format '{{ "{{" }}.Names{{ "}}" }}' | grep -E '{{ gatus_compose_name | swarm_container_regex("app") }}' || true
-  args:
-    executable: /bin/bash
-  register: _gatus_container_name
-  changed_when: false
+# When 00-base.yaml changes, restart Gatus so the new endpoints / alert
+# config take effect (Gatus loads config only at startup).
+# 50-catena-apps.yaml restart-triggering is owned by gatus-sync itself.
+#
+# Swarm owns the task, so the restart goes through the service: its
+# stop-first update stops the old task before the new one binds the
+# host-mode port, where a `docker restart` of the task container races the
+# replacement swarm starts ("Bind for 0.0.0.0:18080 failed: port is already
+# allocated"). The update waits for the service to converge, including an
+# update the stack deploy above left in flight.
+- name: "Gatus: restart the service so base config reloads"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - service
+      - update
+      - --force
+      - --quiet
+      - "{{ gatus_compose_name }}_app"
   when: _gatus_base_cfg.changed
-
-- name: "Gatus: restart container so base config reloads"
-  ansible.builtin.command: "docker restart {{ _gatus_container_name.stdout }}"
-  when:
-    - _gatus_base_cfg.changed
-    - _gatus_container_name.stdout is defined
-    - _gatus_container_name.stdout | length > 0
   changed_when: true

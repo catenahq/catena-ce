@@ -144,13 +144,66 @@ def test_a_field_is_named_by_its_label_and_explains_itself_in_a_tooltip(client):
     the page."""
     request, _ = client
     request("POST", "/inventory", {"create": "newco"})
-    field = next(f for s in STEPS for f in s.fields if f.optional)
+    field = next(f for s in STEPS for f in s.fields if f.optional and not f.choice)
     page = request("GET", "/")[2]
     head = re.search(rf'<div class=field data-key="{field.key}"[^>]*>'
                      r"<div class=head>(.*?)</div>", page, re.S).group(1)
     assert f">{escape(field.label['en'])}</label>" in head
     assert "(optional)" in head
     assert f"(?)<span class=tt role=tooltip>{escape(field.help['en'])}" in head
+
+
+def _choice_field():
+    return next(f for s in STEPS for f in s.fields if f.choice)
+
+
+def test_a_choice_shows_both_options_from_the_registry(client):
+    """The radio in front of the private address: public chosen until an
+    address is saved, labelled by the registry, and the field hidden while
+    public is chosen."""
+    request, _ = client
+    request("POST", "/inventory", {"create": "newco"})
+    field = _choice_field()
+    via = steps_mod.via_name(field.key)
+    page = request("GET", "/")[2]
+    block = re.search(rf'<div class="field choice" data-key="{field.key}">(.*?)'
+                      r"</div></div>", page, re.S).group(1)
+    assert f'name="{via}" value="public" checked>' in block
+    assert f'name="{via}" value="private">' in block
+    assert escape(field.choice["public"]["en"]) in block
+    assert escape(field.choice["private"]["en"]) in block
+    assert '.field.choice:has(input[value="public"]:checked) .addr' in page
+
+
+def test_public_empties_the_address_and_private_requires_it(client, started):
+    request, root = client
+    request("POST", "/inventory", {"create": "newco"})
+    field = _choice_field()
+    via = steps_mod.via_name(field.key)
+
+    def saved():
+        return run_mod.seed().read_existing_env(root / "newco" / ".env")[field.key]
+
+    request("POST", "/", {**_REQUIRED, field.key: "100.64.0.5", via: "public", **_INSTALL})
+    assert saved() == "" and len(started) == 1
+
+    request("POST", "/", {**_REQUIRED, field.key: "", via: "private", **_INSTALL})
+    assert len(started) == 1
+    install = _section(request("GET", "/")[2], "install")
+    assert f"{escape(field.label['en'])} is required" in install
+
+    request("POST", "/", {**_REQUIRED, field.key: "100.64.0.5", via: "private", **_INSTALL})
+    assert saved() == "100.64.0.5" and len(started) == 2
+    assert f'name="{via}" value="private" checked>' in request("GET", "/")[2]
+
+
+def test_the_probe_and_the_forward_dial_the_private_address():
+    """The address the install dials is the one checked and the one the panel
+    is reached through."""
+    answers = {"HOST_PUBLIC_IP": "203.0.113.10", "HOST_SSH_ADDRESS": "100.64.0.5"}
+    assert steps_mod.ssh_address(answers) == "100.64.0.5"
+    assert steps_mod.forward_command(answers).endswith("panel@100.64.0.5")
+    assert steps_mod.ssh_address({"HOST_PUBLIC_IP": "203.0.113.10"}) == "203.0.113.10"
 
 
 def test_the_switcher_shows_every_page_in_french(client):
@@ -202,7 +255,7 @@ def test_the_form_is_saved_even_when_verification_fails(client, started, monkeyp
     inventory shows them again."""
     request, root = client
     request("POST", "/inventory", {"create": "newco"})
-    monkeypatch.setattr(steps_mod, "validate", lambda step, a, s, lang: [
+    monkeypatch.setattr(steps_mod, "validate", lambda *a: [
         steps_mod.Check("reachable", False)])
     request("POST", "/", {**_REQUIRED, **_INSTALL})
     assert started == []
@@ -220,7 +273,7 @@ def test_one_button_verifies_every_section_and_shows_why_it_stopped(
     request("POST", "/inventory", {"create": "newco"})
     seen = []
 
-    def validate(step, answers, secrets, lang):
+    def validate(step, answers, secrets, lang, reinstalled):
         seen.append(step)
         return [steps_mod.Check(f"probe of {step}", step != "target")]
 
@@ -240,6 +293,34 @@ def test_the_install_starts_when_every_section_passes(client, started):
     status, where, _ = request("POST", "/", {**_REQUIRED, **_INSTALL})
     assert (status, where) == (303, "/#install")
     assert len(started) == 1
+
+
+def test_a_changed_host_key_asks_whether_the_server_was_reinstalled(
+        client, started, monkeypatch):
+    """The box comes with the check it settles, and ticked it reaches both the
+    probe and the install."""
+    request, _ = client
+    request("POST", "/inventory", {"create": "newco"})
+    probed = []
+
+    def validate(step, answers, secrets, lang, reinstalled):
+        probed.append(reinstalled)
+        if step != "target" or reinstalled:
+            return []
+        return [steps_mod.Check("another host key", False,
+                                confirm=steps_mod.REINSTALLED)]
+
+    monkeypatch.setattr(steps_mod, "validate", validate)
+    request("POST", "/", {**_REQUIRED, **_INSTALL})
+    assert started == []
+    install = _section(request("GET", "/")[2], "install")
+    assert f'<input type=checkbox name="{steps_mod.REINSTALLED}" value=yes>' in install
+    assert escape(i18n.text("en", "confirm.reinstalled")) in install
+
+    probed.clear()
+    request("POST", "/", {**_REQUIRED, **_INSTALL, steps_mod.REINSTALLED: "yes"})
+    assert set(probed) == {True}
+    assert len(started) == 1 and started[0][2] is True
 
 
 def test_a_required_field_left_empty_stops_the_install(client, started):
@@ -345,7 +426,7 @@ def test_the_gui_asks_the_cli_for_the_values(tmp_path, monkeypatch):
     monkeypatch.setattr(server.render, "install_command", command)
     current = run_mod.load(tmp_path / "clientco", run_mod.secret_keys_from(DOC))
     server.start_install(current, tmp_path).join(timeout=30)
-    assert seen == {"keyset_json": True}
+    assert seen == {"keyset_json": True, "reinstalled": False}
 
 
 def test_the_install_reads_no_input(tmp_path, monkeypatch):

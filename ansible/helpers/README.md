@@ -9,16 +9,12 @@ Python shared by more than one caller. Most of it runs on the controller
 (the machine driving the install), imported by the installer and the
 roles in `../bootstrap/roles/` and `../reconcile/roles/`.
 
-Three are also on the server, because the host-side reconcilers need the
-same code the controller used to plan the work: `onbox_config.py`
-(installed as `/usr/local/bin/catena-onbox-config`, the only sanctioned
-writer of the on-box config store), plus `labels_schema.py` and
-`public_ports.py`, which ship flat beside the scripts in `../scripts/`
-that import them by bare name.
-
-The catena-admin payload installs `onbox_config.py` and
+One is also on the server: `onbox_config.py`, the only sanctioned writer
+of the on-box config store. The catena-admin payload installs it as
+`/usr/local/bin/catena-onbox-config`, with
 `../scripts/catena-restic-key.py`: the panel image's dispatch drop-in
-runs them, and an image ships every command it authorises.
+runs them, and an image ships every command it authorises. It also puts
+`public_https.py` in its lib, where the gated-route verifier imports it.
 
 Unit tests for these live in `../tests/unit/`.
 
@@ -27,10 +23,9 @@ Unit tests for these live in `../tests/unit/`.
 | `bootstrap_output.py` | Merge a key/value into <inventory_dir>/.bootstrap-output.yml. |
 | `bootstrap_portainer_admin.py` | Leaf utility: mint a Portainer X-API-Key from the initial admin. |
 | `catena_admin_release.py` | Ask the registry which catena-admin release to install, and for its digest. |
-| `host_paths.py` | Every path this host's Catena owns, grouped by whether a restore brings it back. |
+| `host_key.py` | Tell whether a server still presents the host key this machine trusts for it. |
 | `install_key.py` | Automate the pre-bootstrap manual-SSH step across providers. |
-| `labels_schema.py` | Compose-label parsing + image-tag classification for the vps.* vocabulary. |
 | `onbox_config.py` | On-box config store for Catena (0b client-owned config). |
-| `public_ports.py` | Declarative public-port registry: single source of truth for every direct public port the VPS exposes outside the Cloudflare Tunnel. |
+| `public_https.py` | GET https://<name>/... the way the internet reaches this server: <name> is resolved by public resolvers rather than by the machine making the request. |
 | `render_knobs.py` | Load and validate helpers/knobs.yml, the knob registry, and render an inventory `.env` from it. |
 | `tailnet_reachability.py` | Ask the tailnet whether this host is reachable on it, before public 22 closes. |

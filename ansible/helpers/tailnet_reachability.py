@@ -11,7 +11,15 @@ answered by something other than the host's own view of itself:
      that refuses incoming connections, is reachable by nobody.
   2. With TAILNET_REQUIRE_PEER=1 (what reachable.yml sets): an online peer that
      carries none of this host's tags answers a TSMP ping through the tunnel.
-  3. With TAILNET_REQUIRE_PEER=1: this host's own firewall lets SSH in over
+  3. With TAILNET_REQUIRE_PEER=1: the tailnet policy lets one of those peers
+     open TCP 22 to one of this host's tailnet addresses. tailscaled answers
+     the ping in 2 before its packet filter runs, and the control server
+     reports the node online whatever its policy, so neither sees a policy
+     that keeps SSH out. policy_reasons reads the filter rules the control
+     server sent this host (`tailscale debug netmap`, PacketFilterRules) and
+     matches them as tailscale's wgengine/filter does, a node-capability
+     source matching nobody; a filter it cannot read or parse is a refusal.
+  4. With TAILNET_REQUIRE_PEER=1: this host's own firewall lets SSH in over
      tailscale0. The ping in 2 is answered inside tailscaled and never crosses
      that interface, so it cannot see a rule that drops the traffic there.
      firewall_reasons walks a new TCP connection to port 22, arriving on
@@ -145,26 +153,26 @@ def headscale_control(status: dict, env: dict, http: Http) -> list[str] | None:
     return []
 
 
-def eligible_peers(status: dict, own_tags: set[str]) -> list[tuple[str, str]]:
-    """(name, address) of every online peer carrying none of this host's
-    tags: a device an administrator could be on, not another server like
-    this one."""
+def eligible_peers(status: dict, own_tags: set[str]) -> list[tuple[str, list[str]]]:
+    """(name, tailnet addresses, IPv4 first) of every online peer that has an
+    IPv4 address and carries none of this host's tags: a device an
+    administrator could be on, not another server like this one."""
     out = []
     for peer in (status.get("Peer") or {}).values():
         if not peer.get("Online"):
             continue
         if own_tags & set(peer.get("Tags") or []):
             continue
-        addrs = [a for a in peer.get("TailscaleIPs") or [] if "." in a]
-        if addrs:
-            out.append((peer.get("HostName") or addrs[0], addrs[0]))
+        addrs = sorted(peer.get("TailscaleIPs") or [], key=lambda a: ":" in a)
+        if addrs and "." in addrs[0]:
+            out.append((peer.get("HostName") or addrs[0], addrs))
     return out
 
 
-def ping_a_peer(peers: list[tuple[str, str]], run: Run) -> str:
+def ping_a_peer(peers: list[tuple[str, list[str]]], run: Run) -> str:
     """The name of the first peer that answers a TSMP ping, or ""."""
-    for name, addr in peers[:MAX_PEERS]:
-        r = run(["tailscale", "ping", "--tsmp", "--c", "3", "--timeout", "5s", addr])
+    for name, addrs in peers[:MAX_PEERS]:
+        r = run(["tailscale", "ping", "--tsmp", "--c", "3", "--timeout", "5s", addrs[0]])
         if r.returncode == 0:
             return name
     return ""
@@ -341,6 +349,98 @@ def firewall_reasons(status: dict, run: Run) -> list[str]:
     return reasons
 
 
+TCP = 6
+# tailcfg.FilterRule.IPProto numbers, named in a refusal.
+_PROTO_NAMES = {1: "icmp", 6: "tcp", 17: "udp", 58: "icmpv6", 132: "sctp"}
+
+
+def _holds(spec: str, addr) -> bool:
+    """Whether a filter rule's address form holds `addr`: "*", a CIDR, a range
+    "first-last" or one address (tailcfg.FilterRule.SrcIPs). A "cap:" source
+    names a node capability, which this check does not resolve, so it holds
+    nothing; neither does a form tailscaled rejects."""
+    if spec == "*":
+        return True
+    if spec.startswith("cap:"):
+        return False
+    try:
+        if "/" in spec:
+            return addr in ipaddress.ip_network(spec)
+        if spec.count("-") == 1:
+            lo, hi = (ipaddress.ip_address(a) for a in spec.split("-"))
+            return lo.version == hi.version == addr.version and lo <= addr <= hi
+        return ipaddress.ip_address(spec) == addr
+    except ValueError:
+        return False
+
+
+def _allows_ssh(rule: dict, src, dst) -> bool:
+    """Whether one tailcfg.FilterRule lets `src` open TCP 22 to `dst`. An
+    empty IPProto is TCP, UDP and ICMP. A capability grant carries no
+    DstPorts, so it lets no connection in."""
+    protos = rule.get("IPProto") or []
+    if protos and TCP not in protos:
+        return False
+    if not any(_holds(s, src) for s in rule.get("SrcIPs") or []):
+        return False
+    return any(_holds(d["IP"], dst)
+               and d["Ports"]["First"] <= SSH_PORT <= d["Ports"]["Last"]
+               for d in rule.get("DstPorts") or [])
+
+
+def _brief(items: list[str], most: int = 3) -> str:
+    more = len(items) - most
+    return ", ".join(items[:most]) + (f" and {more} more" if more > 0 else "")
+
+
+def _port_range(pr: dict) -> str:
+    first, last = pr["First"], pr["Last"]
+    if (first, last) == (0, 65535):
+        return "*"
+    return str(first) if first == last else f"{first}-{last}"
+
+
+def _describe(rule: dict) -> str:
+    srcs = _brief(rule.get("SrcIPs") or []) or "no source"
+    if not rule.get("DstPorts"):
+        return f"[capability grants only, from {srcs}]"
+    protos = "/".join(_PROTO_NAMES.get(p, str(p))
+                      for p in rule.get("IPProto") or []) or "tcp/udp/icmp"
+    dsts = _brief([f"{d['IP']}:{_port_range(d['Ports'])}" for d in rule["DstPorts"]])
+    return f"[{protos} from {srcs} to {dsts}]"
+
+
+def policy_reasons(status: dict, peers: list[tuple[str, list[str]]],
+                   own_tags: set[str], run: Run) -> list[str]:
+    """Reasons the packet filter this host received from its control server
+    keeps every peer in `peers` from opening TCP 22 to it, [] when one of them
+    can. A connection stays in one address family, so each peer address is
+    paired with this host's addresses of the same family."""
+    own = [ipaddress.ip_address(a)
+           for a in (status.get("Self") or {}).get("TailscaleIPs") or []]
+    pairs = [(src, dst) for _, addrs in peers
+             for src in map(ipaddress.ip_address, addrs)
+             for dst in own if src.version == dst.version]
+    r = run(["tailscale", "debug", "netmap"])
+    if r.returncode != 0:
+        return [f"could not read the tailnet policy this server received "
+                f"(`tailscale debug netmap` exited {r.returncode}: "
+                f"{(r.stderr or '').strip()[-300:]})"]
+    try:
+        rules = json.loads(r.stdout)["PacketFilterRules"] or []
+        if any(_allows_ssh(rule, src, dst) for rule in rules for src, dst in pairs):
+            return []
+        allows = [_describe(rule) for rule in rules]
+    except (ValueError, KeyError, TypeError, AttributeError) as e:
+        return [f"could not parse the tailnet policy this server received "
+                f"from `tailscale debug netmap` ({type(e).__name__}: {e})"]
+    tags = f" ({', '.join(sorted(own_tags))})" if own_tags else ""
+    return [f"the tailnet policy lets none of "
+            f"{', '.join(n for n, _ in peers[:MAX_PEERS])} open SSH (TCP port "
+            f"22) to this server{tags}: it lets in "
+            f"{_brief(allows, 5) or 'nothing'}"]
+
+
 def check(env: dict, run: Run = _run, http: Http = _http,
           sleep: Callable[[float], None] = time.sleep) -> dict:
     provider = (env.get("TAILNET_PROVIDER") or "tailscale").strip().lower()
@@ -396,9 +496,10 @@ def check(env: dict, run: Run = _run, http: Http = _http,
         if not reasons:
             break
 
-    # Once, after the tailnet answered: a firewall rule is not something a
-    # wait clears.
+    # Once, after the tailnet answered: a policy or a firewall rule is not
+    # something a wait clears.
     if require_peer and not reasons:
+        reasons += policy_reasons(status, peers, own_tags, run)
         reasons += firewall_reasons(status, run)
 
     ok = not reasons

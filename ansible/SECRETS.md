@@ -157,9 +157,16 @@ change afterwards.
 panel could not change it).
 
 **Store, seeded from the `.env`:** `ADMIN_EMAIL`, `APT_PROXY_URL`,
-`DOCKER_REGISTRY_MIRROR_URL` and the development-only ACME and staging keys.
-The first converge needs them before the panel exists, so the `.env` seeds
-them fill-only on that converge and is never read for them again.
+`DOCKER_REGISTRY_MIRROR_URL` and the reseeded keys below. The first converge
+needs them before the panel exists, so the `.env` seeds them fill-only on that
+converge.
+
+**Store, reseeded from the `.env`:** the development-only ACME and staging
+keys (`COTURN_CERTBOT_STAGING`, `MAILSERVER_CERTBOT_STAGING`,
+`CATENA_ACME_*`). No panel field shows them, so the `.env` stays their editor:
+every converge run from the inventory writes their non-blank `.env` values
+over the store's (`env.reseed` in the registry). A blank value keeps the
+stored one, and a host converging itself has no `.env` to read.
 
 **Store, catena-admin Settings only:** the domain (`CLOUDFLARE_ZONE`), the
 subdomains, the tailnet (`TAILNET_PROVIDER`, `TAILNET_CONTROL_URL`,
@@ -172,8 +179,8 @@ The owners are DECLARED, in `helpers/knobs.yml` (a knob has an `env` entry, a
 `panel` entry, or neither, never both), and projected by
 `helpers/onbox_config.py`: `BOOTSTRAP_CONFIG` is the `.env`-owned set,
 `SETTINGS_CONFIG` maps each store-owned key to the Ansible variable the
-converge publishes it as, and `ENV_SEEDED_CONFIG` is the store keys the `.env`
-seeds.
+converge publishes it as, `ENV_SEEDED_CONFIG` is the store keys the `.env`
+seeds, and `ENV_RESEEDED_CONFIG` the subset it reseeds.
 
 The published facts are prefixed `cfg_` rather than named after the consuming
 variable. `reconcile/roles/keycloak` derives `smtp_host` from the Resend/Brevo autofill,

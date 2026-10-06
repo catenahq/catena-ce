@@ -4,13 +4,11 @@ re-derives that decision for itself.
 Which control plane a host joins is one rule in defaults/main.yml --
 ``tailnet_provider`` -- that every task guards on, rather than eight separate
 tasks each inferring it from whether ``tailnet_control_url`` happens to be
-non-empty. This file exists because the role has no other coverage at all: the
-bench's
-``ce_install_headscale`` scenario drives ``tailscale up --login-server``
-directly (a hand-written copy of what the role emits, validating the JOIN
-CONTRACT against a real Headscale), so it would stay green through any change
-to the fork itself. The Tailscale side is exercised by every ce_install run;
-the Headscale side of the ROLE is exercised by nothing.
+non-empty. A Running node on another control server than that value names is
+re-authenticated onto it. The bench drives each fork through the panel
+(``ce_install_suite`` the Tailscale one, ``ce_install_headscale`` the Headscale
+one, against a real Headscale); these checks hold the fork's shape without a
+bench run.
 
 What a wrong fork costs is the reason this is a test and not a comment: the
 node joins the wrong control plane, or joins none, and administrative access to
@@ -118,6 +116,103 @@ def test_headscale_requires_an_address_before_it_is_used():
     )
     mint = next(i for i, n in enumerate(names) if "mint a single-use tagged" in n)
     assert guard < mint, "the address assert runs after the API call that needs it"
+
+
+def _task(fragment: str) -> dict:
+    return next(t for t in _auth_block_tasks() if fragment in t.get("name", ""))
+
+
+def test_the_headscale_key_is_minted_for_the_users_numeric_id():
+    """Headscale's pre-auth key API takes the user as a numeric id; a name in
+    that field is a request it cannot parse, so the join never gets a key. The
+    id is the one the server lists for the stored name, read before the mint."""
+    names = [t.get("name", "") for t in _auth_block_tasks()]
+    lookup = _task("list the users the API key can see")
+    assert lookup["ansible.builtin.uri"]["url"].endswith("/api/v1/user")
+    assert lookup["register"] == "hs_users"
+    mint = _task("mint a single-use tagged")
+    user = mint["ansible.builtin.uri"]["body"]["user"]
+    assert "hs_users.json.users" in user and user.rstrip(" }").endswith(".id"), user
+    assert names.index(lookup["name"]) < names.index(mint["name"])
+    assert names.index(_task("require the user the key is minted for")["name"]) \
+        < names.index(mint["name"])
+
+
+def test_only_the_tailscale_join_advertises_tags():
+    """A Headscale node takes its tags from the pre-auth key, and Headscale
+    refuses a node that joins with a pre-auth key and advertises tags."""
+    saas = _task("tailscale up with minted key (SaaS)")["ansible.builtin.command"]["argv"]
+    hs = _task("Headscale: tailscale up via --login-server")["ansible.builtin.command"]["argv"]
+    assert any(a.startswith("--advertise-tags=") for a in saas)
+    assert not any(a.startswith("--advertise-tags") for a in hs), hs
+    assert "aclTags" in _task("mint a single-use tagged")["ansible.builtin.uri"]["body"]
+
+
+# --- a provider switch re-authenticates -------------------------------------
+def _role_tasks() -> list[dict]:
+    return yaml.safe_load(TASKS.read_text())
+
+
+def _role_task(name: str) -> dict:
+    return next(t for t in _role_tasks() if t.get("name") == name)
+
+
+_MOVED = "Determine whether the stored provider names another control server"
+
+
+def test_a_running_node_on_another_control_server_is_re_authenticated():
+    """Settings moves a joined host between Tailscale and Headscale, or between
+    Headscale servers. A Running node is otherwise left alone, so without this
+    it stays on the old control server and the join reports success. The
+    node's prefs name its control server; it is read before the block."""
+    names = [t.get("name") for t in _role_tasks()]
+    query = _role_task("Query the control server the node is joined to")
+    assert query["ansible.builtin.command"] == "tailscale debug prefs"
+    assert query["when"] == "ts_backend_state == 'Running'"
+    assert "ControlURL" in _role_task("Read the node's control server")[
+        "ansible.builtin.set_fact"]["_ts_control_url"]
+    assert names.index(query["name"]) < names.index(_MOVED) < names.index(_AUTH_BLOCK)
+    assert "ts_control_moved" in " ".join(_when_clauses(_role_task(_AUTH_BLOCK)))
+
+
+def test_both_joins_force_the_reauth_on_a_move():
+    """`tailscale up` refuses to change the control server of a Running node
+    without --force-reauth (tailscale cmd/tailscale/cli/up.go updatePrefs)."""
+    want = "--force-reauth={{ 'true' if ts_control_moved | bool else 'false' }}"
+    for name in ("tailscale up with minted key (SaaS)",
+                 "Headscale: tailscale up via --login-server"):
+        assert want in _task(name)["ansible.builtin.command"]["argv"], name
+
+
+@pytest.mark.parametrize("state, provider, current, moved", [
+    ("Running", "headscale", "https://hs.example.net", False),
+    ("Running", "headscale", "https://hs-old.example.net", True),
+    ("Running", "headscale", "https://controlplane.tailscale.com", True),
+    ("Running", "tailscale", "https://controlplane.tailscale.com", False),
+    # A name the client counts as Tailscale's own server.
+    ("Running", "tailscale", "https://login.tailscale.com", False),
+    ("Running", "tailscale", "https://hs.example.net", True),
+    # Any other state authenticates anyway, and its prefs are never read.
+    ("NeedsLogin", "headscale", None, False),
+])
+def test_the_move_resolves(state, provider, current, moved):
+    """Strictly undefined, as Ansible templates it: a node not Running has no
+    control server read, and the expression must not reach for one."""
+    from jinja2 import Environment, StrictUndefined
+
+    expr = _role_task(_MOVED)["ansible.builtin.set_fact"]["ts_control_moved"]
+    context = {"ts_backend_state": state, "tailnet_provider": provider,
+               "tailnet_control_url": "https://hs.example.net",
+               "tailscale_saas_control_urls": _defaults()["tailscale_saas_control_urls"]}
+    if current is not None:
+        context["_ts_control_url"] = current
+    got = Environment(undefined=StrictUndefined).from_string(expr).render(**context).strip()
+    assert got == str(moved), f"{state} {provider} on {current} resolved to {got}"
+
+
+def test_the_saas_control_server_is_the_clients_default():
+    """`tailscale up` with no --login-server stores ipn.DefaultControlURL."""
+    assert _defaults()["tailscale_saas_control_urls"][0] == "https://controlplane.tailscale.com"
 
 
 # --- the provider is the store's --------------------------------------------

@@ -3,7 +3,7 @@
 #
 # The SCRIPT and its modules ship in the catena-admin payload
 # (payload/lanes/catena-dashboard-sync.py plus payload/lib/), which
-# reconcile/roles/payload extracts five roles before this one runs.
+# reconcile/roles/payload extracts earlier in the converge.
 #
 # Why the image owns them: what this reconciler does is read every Portainer
 # stack's `vps.*` labels and decide what the route and the oauth2-proxy for

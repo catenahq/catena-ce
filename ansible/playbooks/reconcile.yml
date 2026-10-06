@@ -1,28 +1,20 @@
 ---
-# The half of a converge that does not need an operator.
+# The half of a converge a host runs against itself, from the tree inside the
+# panel image. On the host, catena-admin's catena-converge copies that tree out
+# of the image the panel is running, writes a one-host inventory naming the box
+# by its own hostname, applies this playbook, then runs validate.yml's on-host
+# checks.
 #
-# Same roles as converge.yml, in the same order, minus the five an operator has to
-# run and minus the post-install steps that only make sense on a fresh box. What
-# is left is the work a host can do to itself: render config from the image,
-# reconcile swarm services, install units, apply the schedule.
+# Same roles as converge.yml, in the same order, minus the bootstrap roles,
+# which only `catena-cli install` applies, and minus the converge's preflights
+# and its tier1_stack render. What is left is the work a host can do to itself:
+# render config from the image, reconcile swarm services, install units, apply
+# the schedule. boundary.yml declares which roles belong here, and
+# tests/unit/test_converge_boundary.py holds the two files to each other.
 #
-# THIS IS WHAT A HOST RUNS AGAINST ITSELF. catena-admin's catena-converge copies
-# the tree out of the panel image it is running, writes a one-host inventory
-# naming the box by its own hostname, and runs THIS file. Which roles belong
-# here is boundary.yml, and tests/unit/test_converge_boundary.py holds the two
-# files to each other, so the set is a declaration rather than a decision taken
-# at the moment of extraction.
-#
-# It takes nothing from an operator's inventory -- the count reached zero and
-# the ratchet refuses to let it grow again -- but zero is a floor, not a
-# verdict. The ratchet counts variables a role names directly, and most of the
-# eighteen had defaults, so a value that stopped arriving reconfigures quietly
-# rather than failing. Whether this produces the same host as converge.yml is a
-# bench install, not a unit test.
-#
-# An operator can also run it directly, against a converged host, to exercise
-# the subset:
-#   ansible-playbook -i inventory/<name> playbooks/reconcile.yml
+# Every value comes from the on-box store or the image, none from a controller
+# inventory. That test holds at zero the inventory variables a reconcile role
+# names directly; a value reached through a derived name escapes its count.
 - name: Reconcile a VPS from its on-box configuration
   hosts: "{{ stage_hosts | default('vps') }}"
   become: true
@@ -54,8 +46,8 @@
         fail_msg: >-
           This reconcile needs ansible-core {{ catena_reconcile_min_ansible }}
           or newer and is running {{ ansible_version.full }}. The runtime at
-          /opt/catena/ansible is what bootstrap installed; re-run bootstrap, or
-          converge from an operator controller, to move it. Refusing here rather
+          /opt/catena/ansible is what bootstrap installed; run `catena-cli
+          install` again from a controller, which re-runs bootstrap, to move it. Refusing here rather
           than failing partway through a converge on a host nobody is watching.
       run_once: true
       tags: [always]
@@ -83,10 +75,10 @@
       tags: [stamp_version]
 
   roles:
-    # First, as in converge.yml: every role below drops a fragment into the
-    # registry this installs.
-    - { role: public_ports, tags: [public_ports] }
     - { role: payload, tags: [payload] }
+    # Right after the payload that installs the reconciler, as in converge.yml:
+    # every role below drops a fragment into the registry it wires up.
+    - { role: public_ports, tags: [public_ports] }
     - { role: host_maintenance, tags: [host_maintenance] }
     - { role: swarm, tags: [swarm] }
     - { role: traefik, tags: [traefik] }

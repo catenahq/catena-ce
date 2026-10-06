@@ -10,12 +10,14 @@
 # firewall's default-deny policy is bootstrap's; this only opens what is
 # declared. Not a change of its own: a converge that alters what is declared
 # reports it on the fragment it writes, and a start joins a run the timer
-# already has in flight.
+# already has in flight. Skipped only where reconcile/roles/public_ports found
+# the payload staged out of band and the reconciler not yet on the host.
 - name: "Public ports: reconcile firewall from registry"
   ansible.builtin.systemd_service:
     name: catena-public-ports.service
     state: started
   changed_when: false
+  when: catena_public_ports_installed | default(true) | bool
   tags: [public_ports]
 
 # Report -- never repair -- changes to the files boundary.yml puts on the
@@ -38,8 +40,8 @@
       tags: [prune]
   tags: [prune]
 
-# Record what this converge delivered, last: the panel reads this manifest to
-# tell "this feature is off" from "this host's converge predates it".
+# Record what this converge delivered, last, so the manifest describes a
+# converge that finished (record_release_manifest.yml says what it holds).
 - name: "Release: record what this converge delivered"
   ansible.builtin.include_tasks:
     file: record_release_manifest.yml

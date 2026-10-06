@@ -283,10 +283,10 @@ catena_admin_ee_reserved_actions:
   #
   # The dispatcher offers any name this table does not carry to
   # {{ catena_admin_actions_overlay_dir }} before refusing it, and the payload
-  # installer records the names it added in release.json's payload_actions so
-  # the panel does not raise a converge-required banner for them.
+  # installer records the names it added, with their forms, in release.json's
+  # payload_actions, from which the panel renders their buttons.
 
-# --- 0b on-box config store (settings API) ----------------------------
+# --- on-box config store (settings API) --------------------------------
 # Neither the store's path nor its writer is a variable this role renders. The
 # settings action and the zone save ship in the panel image, and the image
 # installs the writer (helpers/onbox_config.py) as one of its own payload

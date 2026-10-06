@@ -1,10 +1,8 @@
 """The release manifest the converge writes at the end of converge.yml.
 
-It is the panel's only way to tell "this feature is off" from "this feature's
-plumbing never reached this host". Every button dispatches a FIXED action name
-through the SSH forced command, and that table is rendered by the converge, so
-a panel newer than the host's converge shows a working-looking button for an
-action the host's table does not carry.
+It is the on-host record of what the last converge to finish delivered, and
+it carries the payload installer's action declarations, which the panel
+renders.
 
 Three properties are worth pinning:
 
@@ -71,8 +69,7 @@ def test_the_manifest_is_the_last_thing_the_converge_writes(playbook):
 @pytest.mark.parametrize("playbook", CONVERGE_PLAYBOOKS, ids=lambda p: p.name)
 def test_both_converge_paths_include_the_same_file(playbook):
     """An on-host converge that skipped it would leave every field describing
-    the last converge an OPERATOR ran -- including `actions`, which the panel
-    checks before deciding a host needs a converge."""
+    the last converge an OPERATOR ran."""
     files = [str(t["ansible.builtin.include_tasks"].get("file"))
              for t in converge_post_tasks(playbook)
              if "ansible.builtin.include_tasks" in t]
@@ -100,7 +97,7 @@ def test_the_write_does_not_report_a_change_every_converge(write_task):
     """`converged_at` moves on every run, so `copy` would report changed every
     time. A converge that always reports a change is one nobody can read for
     real drift -- and it fails the whole-site idempotency rehearsal
-    (ce_converge), which is what catches it. /etc/catena/version.txt carries the
+    (install_rerun), which is what catches it. /etc/catena/version.txt carries the
     same suppression for the same reason."""
     assert write_task.get("changed_when") is False, (
         "the manifest write reports changed on every converge"
@@ -154,12 +151,11 @@ def test_the_payload_id_is_read_from_the_marker_not_guessed(post_tasks, write_ta
 
 
 def test_the_manifest_path_is_under_var_lib_not_etc():
-    """Three reasons, and the third is the one that bites: the panel mounts
-    /var/lib/catena read-only already and mounts /etc/catena file by file, so
-    an /etc path would need a new mount of a file that does not exist on a first
-    converge -- which docker creates as a DIRECTORY. It is also rebuildable
-    state rather than configuration, and it must not ride a restic snapshot: a
-    restored host's converge state is its own, not the source's."""
+    """The panel mounts /var/lib/catena read-only and /etc/catena file by file,
+    and docker creates a missing file bind source as a DIRECTORY. It is also
+    rebuildable state rather than configuration, and a restore leaves
+    /var/lib/catena out of what it puts back, so a restored host keeps the
+    record of its own converge."""
     shared = yaml.safe_load(GROUP_VARS.read_text())
     path = shared["catena_release_manifest_path"]
     assert path == "/var/lib/catena/release.json", path

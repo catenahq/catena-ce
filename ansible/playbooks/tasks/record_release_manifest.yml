@@ -4,29 +4,25 @@
 # LAST on purpose, and the difference from /etc/catena/version.txt is the
 # whole point of having both. version.txt is stamped before the first role, so
 # it says "a converge started here" -- which is what a client reading it out of
-# a snapshot wants. This manifest says "a converge
-# finished here, and here is what it left behind", so a converge that died at
-# role 9 leaves the previous manifest standing rather than claiming plumbing it
-# never delivered.
+# a snapshot wants. This manifest says "a converge finished here, and here is
+# what it left behind", so a converge that died at role 9 leaves the previous
+# manifest standing rather than claiming plumbing it never delivered.
 #
-# The action list is the field that earns the file. Every panel button
-# dispatches a FIXED action name through the SSH forced command, and the table
-# is rendered by reconcile/roles/catena-admin from the same merged list. A panel
-# newer than the host's converge would otherwise show a working button for an
-# action the host's table does not carry, and the user would meet a refusal at
-# the far end where the honest answer is "this host needs a converge".
+# `actions` is every name the dispatch table carries, read from the same merged
+# list catena-ce/ansible/reconcile/roles/catena-admin renders that table from.
+# `payload_actions` belongs to the catena-admin payload installer, and the panel
+# renders the host actions it declares.
 #
-# SHARED BY BOTH CONVERGE PATHS. converge.yml and playbooks/reconcile.yml both
-# include this file, and each passes `catena_converge_path` naming itself, so
-# the manifest always describes the converge that ran last, on either path --
-# including the action list the panel reads before raising a converge-required
-# banner.
+# SHARED BY BOTH CONVERGE PATHS. converge_tail.yml includes this file, and
+# converge.yml and reconcile.yml both run that tail, each naming itself in
+# `catena_converge_path`, so the manifest describes the converge that ran last
+# on either path.
 #
-# THE VERSION is `catena_version`, which tasks/stamp_version.yml resolved and
-# stamped into /etc/catena/version.txt at the start of this same converge, on
-# either path. bootstrap/roles/common/tasks/validate.yml holds the two equal:
-# written at opposite ends of one converge, a disagreement means it did not
-# reach the end.
+# THE VERSION is `catena_version`, which stamp_version.yml resolved and stamped
+# into /etc/catena/version.txt at the start of this same converge, on either
+# path. catena-ce/ansible/bootstrap/roles/common/tasks/validate.yml holds the
+# two equal: written at opposite ends of one converge, a disagreement means it
+# did not reach the end.
 
 - name: "Release: read the marker for the installed host engines"
   ansible.builtin.slurp:
@@ -34,11 +30,12 @@
   register: _release_payload_marker
   failed_when: false
 
-# Two writers own disjoint halves of this file. The converge owns everything
-# about the converge; the payload owns the actions ITS dispatch drop-in adds.
+# The payload installer owns `payload_actions`, the actions ITS dispatch
+# drop-ins add; the converge owns the rest of what it writes below.
 # `copy` writes full content, so the payload's half has to be read back and
 # carried, exactly as the marker slurp above is. Without this, every converge
-# would erase the record of actions the host does in fact accept.
+# would erase the payload's declarations, and the panel would drop those
+# actions until the next payload install.
 - name: "Release: read the payload's half of the manifest"
   ansible.builtin.slurp:
     src: "{{ catena_release_manifest_path }}"
@@ -82,6 +79,6 @@
   # `converged_at` moves on every converge, so `copy` would report this changed
   # every time -- and a converge that always reports a change is one nobody can
   # read for real drift. Same reasoning, and the same answer, as the
-  # version.txt stamp in tasks/stamp_version.yml: a fresh timestamp is the POINT
+  # version.txt stamp in stamp_version.yml: a fresh timestamp is the POINT
   # of the file, not a drift signal.
   changed_when: false

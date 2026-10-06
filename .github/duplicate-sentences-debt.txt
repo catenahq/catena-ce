@@ -16,5 +16,3 @@ Set the repo + S3 keys in catena-admin > Settings > Backup; catena-backup-run se
 The API token needs Zone:DNS:Edit scope on this zone.
 The converge mints it on the box; a missing one means the on-box store at /etc/catena/config.json was not loaded or was truncated.
 The engine ships in the catena-admin host payload and reconcile/roles/payload installs it right after bootstrap/roles/docker
-changes are clobbered on the next `catena-cli converge` run.
-cloudflare_zone_id is normally set by the cloudflare_tunnel role earlier in a full converge.

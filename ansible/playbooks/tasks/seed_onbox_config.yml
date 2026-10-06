@@ -11,13 +11,15 @@
 # facts with no inventory fallback -- the panel's on-host lockdown has no
 # inventory at all.
 #
-# The full loader includes this file, so there is one copy of these four tasks.
+# The full loader includes this file, so there is one copy of these tasks.
 #
 # Post-install config has ONE live reader: the store. The few store keys the
 # first converge needs before the panel exists (the registry gives them an
 # `env` entry) are seeded from the inventory `.env`, fill-only, so a converge
-# never overwrites what the client later set in catena-admin. Every other store
-# key has no `.env` line; catena_cli warns about one it finds.
+# never overwrites what the client later set in catena-admin. The ones the
+# registry marks `env.reseed` have no panel field, so the `.env` stays their
+# editor and a second call writes them over the store. Every other store key
+# has no `.env` line; catena_cli warns about one it finds.
 - name: "onbox: stage the knob registry"
   ansible.builtin.include_tasks:
     file: stage_knob_registry.yml
@@ -55,6 +57,33 @@
   environment:
     CATENA_KNOBS: /root/.catena-knobs.json
   register: _onbox_cfg_seeded
+  changed_when: false
+
+- name: "onbox: read the store keys the .env reseeds"
+  ansible.builtin.script:
+    cmd: "{{ playbook_dir }}/../helpers/onbox_config.py --emit env-reseed-names"
+    executable: python3
+  environment:
+    CATENA_KNOBS: /root/.catena-knobs.json
+  register: _onbox_cfg_reseed_known
+  changed_when: false
+
+# Non-blank values only, as above: a key the `.env` leaves blank keeps what the
+# store holds. A host converging itself has no `.env`, so this writes nothing
+# there.
+- name: "onbox: reseed the store's .env-edited config (every converge)"
+  ansible.builtin.script:
+    cmd: >-
+      {{ playbook_dir }}/../helpers/onbox_config.py
+      --path {{ catena_onbox_config_path | default('/etc/catena/config.json') }}
+      --no-mint --emit none --overwrite
+      {% for k in (_onbox_cfg_reseed_known.stdout | from_json) %}
+      {% set v = lookup('dotenv', k, default='') %}
+      {% if v | string | length > 0 %}--set-config {{ (k ~ '=' ~ v) | quote }} {% endif %}
+      {% endfor %}
+    executable: python3
+  environment:
+    CATENA_KNOBS: /root/.catena-knobs.json
   changed_when: false
 
 - name: "onbox: publish the store's config as facts (outranks role defaults)"

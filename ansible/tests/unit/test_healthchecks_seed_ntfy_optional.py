@@ -1,6 +1,7 @@
 """healthchecks-seed.py seeds an ntfy channel only when both NTFY_SERVER and
-NTFY_TOPIC are set, says so when it seeds none, and sets a fresh profile's
-theme once (scripts/healthchecks-seed.py says why).
+NTFY_TOPIC are set, says so when it seeds none, never touches a channel the
+client added, and sets a fresh profile's theme once
+(scripts/healthchecks-seed.py says why).
 
 The real seed script runs here against a stand-in for the Django models it
 touches, so the branches are exercised rather than pattern-matched.
@@ -233,7 +234,38 @@ def test_clearing_the_config_removes_a_previously_seeded_channel(
     assert "Removed 1 stale ntfy channel(s)" in capsys.readouterr().out
 
 
-# ─── theme default ─────────────────────────────────────────────────────────
+@pytest.mark.parametrize(
+    ("server", "topic"), [("https://ntfy.internal", "s3cret"), ("", "")],
+)
+def test_a_converge_leaves_client_added_channels_alone(
+    monkeypatch, capsys, server, topic,
+):
+    """Only the channel the seed created is updated or removed: a client's
+    email channel and their own ntfy channel survive either way."""
+    managers = _install_fake_django(monkeypatch)
+    for key, value in BASE_ENV.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("CATENA_NTFY_SERVER", server)
+    monkeypatch.setenv("CATENA_NTFY_TOPIC", topic)
+    operator = managers["user"].create(username=BASE_ENV["CATENA_ADMIN_EMAIL"],
+                                       email=BASE_ENV["CATENA_ADMIN_EMAIL"])
+    project = managers["project"].create(owner=operator, name="vps-1")
+    email = managers["channel"].create(project=project, kind="email",
+                                       value="me@example.com")
+    own_ntfy = managers["channel"].create(project=project, kind="ntfy",
+                                          value='{"topic": "mine"}')
+
+    for _ in range(2):
+        exec(compile(SEED.read_text(), str(SEED), "exec"), {"__name__": "__seed__"})
+
+    rows = managers["channel"].rows
+    assert email in rows and email.value == "me@example.com"
+    assert own_ntfy in rows and own_ntfy.value == '{"topic": "mine"}'
+    seeded = [r for r in rows if r not in (email, own_ntfy)]
+    assert len(seeded) == (1 if server else 0)
+
+
+# --- theme default ---
 
 def test_the_theme_default_is_set_once_and_never_argued_with():
     """The seed sets "system" only on a profile whose theme is still NULL, and

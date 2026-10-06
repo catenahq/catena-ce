@@ -10,8 +10,9 @@
 #   2. add the new rules, which allow a subset of what is already allowed;
 #   3. PROVE the new path works: bootstrap/roles/tailscale/tasks/reachable.yml,
 #      which playbooks/lockdown.yml runs before this file when it closes. The
-#      control server sees the host connected and accepting, and a peer
-#      answers through the tunnel;
+#      control server sees the host connected and accepting, a peer answers
+#      through the tunnel, the tailnet policy lets such a peer open SSH, and
+#      the host's firewall lets SSH in on tailscale0;
 #   4. only then remove the public rule, and narrow the registry declaration;
 #   5. assert the firewall ended up where step 4 put it.
 #

@@ -1,53 +1,33 @@
-"""Ansible filter: resolve a service's image against the on-host pin.
+"""Ansible filters: resolve a service's image against the on-host pin.
 
-THE INVERSION THIS EXISTS FOR. Two systems change the images on a host: the
-on-host update lane, frequently and one service at a time, and the converge,
-rarely and all at once. They did not agree on anything. The lane bumped
-catena-traefik; the next converge asked the catalog for traefik's image, got the
-shipped floor, and emitted `--image` to put it back. Every managed bump was
-reverted by the next converge, and nothing reported it -- the service came back
-green on an older image.
+Two writers move the images on a host: the on-host update lane, often and one
+service at a time, and the converge, rarely and all at once. The lane records
+what it applied in `image_pins` in /etc/catena/config.json, and a role reads
+that answer through catena_image_pin, so a converge keeps every managed bump
+rather than putting the shipped version back.
 
-So the converge stops asserting a version and starts asking for one. The lane
-records what it successfully applied in `image_pins` in /etc/catena/config.json;
-this filter is how a role reads that answer.
+The first argument is what to run when the host has no usable pin; `minimum`
+is the oldest version a pin may name. For everything the converge SHIPS a
+version for, one literal answers both and the result is max(floor, pin):
+pin-always would let a stale pin beat a catena-ce release that raised a floor
+for a security fix, and floor-always would revert every managed bump.
 
-TWO DIFFERENT QUESTIONS, WHICH THIS USED TO CONFLATE. The first argument was
-called the floor and did two jobs at once: what to run when the host has no
-opinion, and the oldest version a pin may name. For everything the converge
-SHIPS a version for, one literal answers both and the resolution is max(floor,
-pin):
+The panel passes an empty minimum. Its first argument is the newest published
+release, re-resolved on every converge, so as a floor it would leave the pin
+unable to win and undo a deliberate rollback on the next converge. With no
+minimum the host's recorded choice stands.
 
-  - pin-always would mean a catena-ce release that raises a floor for a security
-    fix loses to a stale pin, silently.
-  - floor-always is the revert this whole thing exists to stop.
+A pin is usable only when it names the repository it is keyed by and a full
+semver tag (catena_image_pinned): a value that disagrees with its own key is a
+corrupt store, and a store that could name an arbitrary string could choose
+what this host runs. The minimum wins ties and wins whenever the two cannot be
+compared, so an unclear comparison never downgrades. Only a full semver tag
+is comparable. catena-postgres's two-part `postgres:<major>.<minor>` is
+incomparable on purpose: a pin that appeared to beat it could be a major
+upgrade nobody asked for.
 
-For the PANEL it is wrong, and wrong in a way that made the pin inert. Its
-first argument is `catena_admin_release.ref` -- resolved from the registry on
-every converge as the NEWEST published release. max(newest, pin) is newest, so
-the pin could never win, and a client who deliberately rolled the panel back to
-the version that worked had that rollback undone by the next converge, silently,
-which is the same defect as the traefik one in the other direction. A rollback
-that does not survive is not a rollback.
-
-So the two jobs are separate arguments. `minimum` defaults to `default_ref`,
-which keeps every shipped-version caller unchanged; the panel passes an
-empty one, meaning "this host's recorded choice stands". The pin still has to
-name the same repository and still has to be a comparable version -- a corrupt
-store does not get to choose an image.
-
-The minimum wins ties and wins whenever the two cannot be compared, because
-"unclear" and "downgrade" must not be the same answer. A partial tag like
-`postgres:18` is deliberately incomparable: it names a major, has no patch to
-move within, and a pin that appeared to beat it would be a major upgrade nobody
-asked for.
-
-A pin for a DIFFERENT repository than the floor is ignored rather than applied.
-The pins are keyed by repository so no mapping table is needed, and a value that
-disagrees with its own key is a corrupt store, not an instruction.
-
-This is the ONLY implementation of the comparison. The Go side writes pins and
-never resolves them, so there is no second rule to keep in step.
+The Go side writes pins and never resolves them, so this is the one
+implementation of the comparison.
 
 End-to-end coverage:
     catena-ce ansible/tests/unit/test_image_pin.py
@@ -98,62 +78,56 @@ def _order(tag):
             0 if suffix else 1, suffix or "")
 
 
+def catena_image_pinned(pins, repository):
+    """The pin recorded for `repository`, or "" when there is no usable one.
+
+    pins is the {repository: image_ref} map read from the on-box store. A
+    usable pin names `repository` itself and a full semver tag."""
+    if not isinstance(pins, dict):
+        return ""
+    pin_ref = pins.get(repository)
+    if not isinstance(pin_ref, str) or not pin_ref.strip():
+        return ""
+    pin_repo, pin_tag = _split_ref(pin_ref)
+    if pin_repo != repository or _order(pin_tag) is None:
+        return ""
+    return pin_ref
+
+
 def catena_image_pin(default_ref, pins, minimum=None):
     """Return the image this host should run.
 
     default_ref is what to run when the host has no usable pin. pins is the
-    {repository: image_ref} map read from the on-box store.
+    {repository: image_ref} map read from the on-box store. minimum is the
+    oldest version a pin may name: it defaults to default_ref, and "" declares
+    none, so a usable pin always wins.
 
-    minimum is the oldest version a pin may name, and it DEFAULTS TO
-    default_ref -- which is the right answer wherever the converge ships the
-    version, and makes this max(floor, pin) exactly as before. Pass "" where
-    default_ref is not a floor at all: the panel's is the newest published
-    release, so using it as one leaves the pin unable to ever win and a
-    deliberate rollback undone by the next converge.
-
-    Returns default_ref whenever there is no pin for its repository, the pin
-    names another repository, the pin is not a comparable version, or the pin is
-    older than the minimum."""
+    Returns default_ref whenever there is no usable pin for its repository, the
+    minimum is not a comparable version, or the pin is not newer than it."""
     if not isinstance(default_ref, str) or not default_ref.strip():
         raise ValueError(
             "catena_image_pin needs the image the converge would otherwise "
             f"pin, got {default_ref!r}"
         )
-    if not isinstance(pins, dict) or not pins:
-        return default_ref
-
     repo, _ = _split_ref(default_ref)
-    pin_ref = pins.get(repo)
-    if not isinstance(pin_ref, str) or not pin_ref.strip():
-        return default_ref
-
-    pin_repo, pin_tag = _split_ref(pin_ref)
-    if pin_repo != repo:
-        # Keyed by repository, so a value naming another one is a corrupt
-        # store. Ignoring it keeps the converge deterministic; applying it
-        # would swap a service's software for something else entirely.
-        return default_ref
-
-    pin_order = _order(pin_tag)
-    if pin_order is None:
-        # Checked even with no minimum. A store that can name an arbitrary
-        # string is a store that can choose what this host runs; requiring a
-        # version keeps a corrupt one from doing it.
+    pin_ref = catena_image_pinned(pins, repo)
+    if not pin_ref:
         return default_ref
 
     floor_ref = default_ref if minimum is None else minimum
     if not isinstance(floor_ref, str) or not floor_ref.strip():
-        # No floor declared: this host's recorded choice stands, which is what
-        # makes a rollback a rollback.
         return pin_ref
 
-    _, floor_tag = _split_ref(floor_ref)
-    floor_order = _order(floor_tag)
+    floor_order = _order(_split_ref(floor_ref)[1])
     if floor_order is None:
         return default_ref
+    pin_order = _order(_split_ref(pin_ref)[1])
     return pin_ref if pin_order > floor_order else default_ref
 
 
 class FilterModule:
     def filters(self):
-        return {"catena_image_pin": catena_image_pin}
+        return {
+            "catena_image_pin": catena_image_pin,
+            "catena_image_pinned": catena_image_pinned,
+        }

@@ -38,7 +38,8 @@
 #                             nowhere else. A knob with an `env` home instead
 #                             is one the first converge needs before the panel
 #                             exists: the `.env` seeds it once and is never
-#                             read for it again.
+#                             read for it again, unless it declares
+#                             `env.reseed`.
 #               controller -- the inventory `.env`. The installer needs it
 #                             before there is a box to ask.
 #               host       -- the target's identity. Written into hosts.yml by
@@ -59,7 +60,10 @@
 #               `.env`. An EMPTY default is also what marks a key optional to
 #               seed's structural checks, unless the key has an `example`: a
 #               value with no sensible default that is still needed, shown as a
-#               placeholder and never filled in.
+#               placeholder and never filled in. `reseed: true` on a stored
+#               knob makes every converge run from the inventory write a
+#               non-blank `.env` value over the stored one: for a key with no
+#               panel field, whose one editor the `.env` stays.
 #   panel       how catena-admin renders it. Absent means the settings page
 #               does not show it; the page's own labels and help are its
 #               translations, keyed by the knob. `default` is the value a field
@@ -83,6 +87,9 @@
 #               parses a bare `on` as the boolean true.
 #   required    true when the graphical installer refuses to install without a
 #               value. Everything else is labelled optional there.
+#   gui_choice  {public, private}, each {en, fr}: the two options of a radio
+#               the graphical installer shows in front of the field. `public`
+#               leaves the field empty, `private` asks for it.
 #   gui_suggestions_from
 #               a named source of values the graphical installer suggests
 #               beside a free-text field (`ssh_keys`: the keypairs in the
@@ -259,12 +266,6 @@ secrets:
   - key: catena_license
     panel: {group: license, section: secrets, kind: secret, optional: true}
 
-  # The optional client portal's billing keys. Never minted; billing routes
-  # degrade gracefully while they are blank.
-  - key: portal_stripe_secret_key
-
-  - key: portal_stripe_webhook_secret
-
 # --- non-secret configuration ------------------------------------------------
 config:
   # ---- the target's identity (hosts.yml, neither store nor .env) ----
@@ -279,6 +280,38 @@ config:
     required: true
     residence: host
     env: {section: host, default: "", example: "203.0.113.10"}
+
+  # Written into hosts.yml as the bootstrap entry's ansible_host: the address
+  # every install leg dials. Empty means HOST_PUBLIC_IP, which stays the
+  # host's public address either way (coturn, the external checks). The
+  # launcher asks for it behind its public/private choice, labelled by
+  # gui_choice; `catena-cli install --address` overrides it for one run.
+  - key: HOST_SSH_ADDRESS
+    step: target
+    label:
+      en: Host private SSH address
+      fr: Adresse SSH privée du serveur
+    help:
+      en: >-
+        The address the installer reaches the server at over SSH when port 22
+        is not reachable on its public IP, such as its tailnet address. Leave
+        empty to install over the public IP.
+      fr: >-
+        L'adresse par laquelle l'installateur joint le serveur en SSH quand le
+        port 22 n'est pas joignable sur son adresse IP publique, par exemple
+        son adresse sur le réseau privé (tailnet). Laisser vide pour installer
+        par l'adresse IP publique.
+    gui_choice:
+      public:
+        en: Install over the public IP
+        fr: Installer par l'adresse IP publique
+      private:
+        en: Install over a private IP (when port 22 is not reachable from the public IP)
+        fr: >-
+          Installer par une adresse IP privée (quand le port 22 n'est pas
+          joignable depuis l'adresse IP publique)
+    residence: host
+    env: {section: host, default: ""}
 
   # Written into hosts.yml as ansible_port: the port the controller connects
   # on. The firewall rules name 22 literally, so this moves what the controller
@@ -519,7 +552,8 @@ config:
     depends: {choice: TAILNET_PROVIDER, values: [headscale]}
 
   # The Headscale user the minted pre-auth keys belong to; Headscale keys are
-  # per-user, and the advertised tag must be in THAT user's tagOwners.
+  # per-user. The joined node takes its tags from the key; the join advertises
+  # none.
   - key: HEADSCALE_USER
     residence: store
     var: cfg_headscale_user
@@ -680,7 +714,10 @@ config:
   #
   # Store keys rather than `.env` ones because the roles that read them are
   # reconcile-side: a host that converges itself cannot ask an operator's
-  # laptop which CA to trust. Empty and false on every client install.
+  # laptop which CA to trust. Empty and false on every client install. No panel
+  # field shows them, so the `.env` stays their one editor and every converge
+  # from the inventory reseeds them: a bench host follows its Pebble when the
+  # address moves.
 
   # Staging has no rate limit, and coturn only validates presence and expiry.
   - key: COTURN_CERTBOT_STAGING
@@ -688,7 +725,7 @@ config:
     var: cfg_coturn_certbot_staging
     help:
       en: Issue the TURN server's certificate from Let's Encrypt's staging CA.
-    env: {section: development, default: "false"}
+    env: {section: development, default: "false", reseed: true}
 
   - key: MAILSERVER_CERTBOT_STAGING
     residence: store
@@ -697,14 +734,14 @@ config:
       en: >-
         Issue the self-hosted mailserver's mail.<zone> certificate from Let's
         Encrypt's staging CA.
-    env: {section: development, default: "false"}
+    env: {section: development, default: "false", reseed: true}
 
   - key: CATENA_ACME_DIRECTORY_URL
     residence: store
     var: cfg_acme_directory_url
     help:
       en: A local ACME server's directory URL. Blank issues from Let's Encrypt.
-    env: {section: development, default: ""}
+    env: {section: development, default: "", reseed: true}
 
   # Mapped to the hostname `pebble` in /etc/hosts: Pebble's endpoint-cert SAN.
   - key: CATENA_ACME_HOST_IP
@@ -712,7 +749,7 @@ config:
     var: cfg_acme_host_ip
     help:
       en: The local ACME server's address on the network the server reaches.
-    env: {section: development, default: ""}
+    env: {section: development, default: "", reseed: true}
 
   # Base64 because a raw multi-line PEM cannot live in a `.env`.
   - key: CATENA_ACME_CA_BUNDLE_PEM_B64
@@ -720,4 +757,4 @@ config:
     var: cfg_acme_ca_bundle_b64
     help:
       en: The local ACME server's CA bundle, base64-encoded.
-    env: {section: development, default: ""}
+    env: {section: development, default: "", reseed: true}

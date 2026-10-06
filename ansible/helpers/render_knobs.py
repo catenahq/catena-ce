@@ -36,7 +36,10 @@ LANGS = ("en", "fr")
 
 KNOB_FIELDS = frozenset({"key", "residence", "var", "env", "panel", "step",
                          "label", "help", "depends", "required",
-                         "gui_suggestions_from"})
+                         "gui_suggestions_from", "gui_choice"})
+# The two options of the launcher's choice in front of a field: `public` leaves
+# it empty, `private` asks for it.
+GUI_CHOICES = ("public", "private")
 GUI_STEP_FIELDS = frozenset({"name", "title", "doc", "note"})
 
 # The rendered template's comment width, and the characters a `.env` value
@@ -144,6 +147,9 @@ def _check_env(key: str, env: dict, sections: set[str]) -> None:
         _require(not default,
                  f"{key}: a knob with a default needs no example; the default "
                  "already illustrates it")
+    reseed = env.get("reseed")
+    if reseed is not None:
+        _require(reseed is True, f"{key}: env reseed is `true` or absent")
 
 
 def load(source: Path = SOURCE) -> dict:
@@ -230,11 +236,20 @@ def load(source: Path = SOURCE) -> dict:
             _require("help" not in entry,
                      f"{key}: help is read by the launcher and the .env, and this "
                      "knob is in neither")
-        for field in ("required", "gui_suggestions_from", "label"):
+        for field in ("required", "gui_suggestions_from", "label", "gui_choice"):
             if field in entry:
                 _require("step" in entry,
                          f"{key}: {field} is read by the launcher, and this knob "
                          "has no step")
+        if "gui_choice" in entry:
+            choice = entry["gui_choice"]
+            _require(isinstance(choice, dict) and sorted(choice) == sorted(GUI_CHOICES),
+                     f"{key}: gui_choice labels exactly {GUI_CHOICES}")
+            for option in GUI_CHOICES:
+                _check_text(f"{key} gui_choice", option, choice[option], LANGS)
+            _require(not entry.get("required"),
+                     f"{key}: a field behind a gui_choice is required only when "
+                     "`private` is chosen, so it cannot be required outright")
         if "required" in entry:
             _require(isinstance(entry["required"], bool),
                      f"{key}: required is not a boolean")
@@ -266,6 +281,9 @@ def load(source: Path = SOURCE) -> dict:
                      f"{key}: only a stored value is projected onto an Ansible fact")
         if "env" in entry:
             _check_env(key, entry["env"], set(section_names))
+            _require(not entry["env"].get("reseed") or residence == "store",
+                     f"{key}: reseed writes the .env value into the store, and "
+                     f"a {residence} value is not stored")
         if entry.get("panel"):
             _require(residence == "store",
                      f"{key}: the panel writes the store, so only a stored value "

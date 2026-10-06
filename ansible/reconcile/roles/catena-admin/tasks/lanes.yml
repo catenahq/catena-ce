@@ -75,4 +75,6 @@
     name: catena-public-ports.service
     state: started
   changed_when: false
-  when: _catena_admin_ports_fragment.changed
+  when:
+    - _catena_admin_ports_fragment.changed
+    - catena_public_ports_installed | default(true) | bool

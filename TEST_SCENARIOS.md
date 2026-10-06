@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 159 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 161 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -18,8 +18,7 @@ The 159 scenarios the maintainers' test bench carries, and the behaviour each on
 | `ce_admin_actions` | Pressing a maintenance button in the Community administration panel dispatches the action and streams its result back. |
 | `ce_admin_smoke` | A Community host carries the host-side state its administration panel needs, and the panel answers. |
 | `ce_backup_deferred` | A host with no scheduled backup can still take one on demand, because whether a host backs up is answered by its storage credentials rather than by a switch. |
-| `ce_converge` | Applying the Community installer a second time to an already converged host changes nothing. |
-| `ce_install_headscale` | A host joins a self-hosted private network control server instead of the hosted one, and reaches the rest of the network through it. |
+| `ce_install_headscale` | A host whose panel is given a self-hosted private network control server joins that server instead of the hosted one. |
 | `ce_install_suite` | A Community install, configured in its panel, brings up the full application suite rather than the base host alone. |
 | `ce_restore` | A Community host restores from its encrypted backup and comes back with the content the snapshot held. |
 | `ce_uninstall` | Uninstalling hands the host back to the operating system, including the package-update timers the install had taken over. |
@@ -44,8 +43,6 @@ The 159 scenarios the maintainers' test bench carries, and the behaviour each on
 | `daily_state_corrupt_fallback` | A corrupted daily maintenance state file fails the chain with a readable diagnostic, and the reset command returns the host to the start of the chain. |
 | `daily_umbrella_healthchecks` | The daily maintenance chain signals an external monitor when it starts and again when it succeeds. |
 | `debian_major_upgrade_restore` | A snapshot taken on one major operating-system release restores onto a host running the next one. |
-| `decommission` | Decommissioning tears a host down cleanly, releasing every external resource it held. |
-| `decommission_recovery` | A decommissioned host is rebuilt from the archival snapshot its decommission left behind. |
 | `dev_to_prod_cutover_round_trip` | A staging deployment is promoted to its production hostname on the same machine, with every application reconciled to the new address. |
 | `docker_engine_upgrade_round_trip` | The container engine moves to the version the panel image pins, and goes back to the one it ran when the new one does not come up. |
 | `dr_suite` | A lost server is rebuilt on a new machine from one backup, with every service, the stored mail and the synced files back at the state that backup captured, including a file deleted after the backup. |
@@ -100,7 +97,6 @@ The 159 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_s7_smtp_creds_invalid` | Invalid outbound mail credentials surface as an authentication failure from a live probe at the moment they are saved. |
 | `fi_s8_s3_hot_revoked` | A revoked object-store key aborts the backup converge cleanly rather than failing halfway through. |
 | `fi_s9_resend_rate_limit` | A rate-limited transactional mail provider degrades the maintainers test bench cleanup gracefully rather than aborting it. |
-| `fi_t1_incus_daemon_hang` | A hung virtualisation daemon is bounded by a timeout so the maintainers test bench cannot wedge indefinitely. |
 | `fi_t3_start_sweep_failure` | A failure during the maintainers test bench start-up sweep is reported with enough context to act on rather than swallowed. |
 | `fi_t4_resend_quota_zero` | An exhausted mail-provider quota makes the maintainers test bench refuse to start rather than run scenarios that cannot assert delivery. |
 | `fi_u1_compose_lint_reject` | The template linter accepts every shipped application template and rejects a malformed one. |
@@ -109,7 +105,7 @@ The 159 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_u5_persistent_quarantine` | A version that regressed stays quarantined across update cycles and is recorded once. |
 | `fi_u6_full_rollback_state` | A rolled-back version bump is recorded in the host managed-version state, so the rollback is a fact rather than an absence. |
 | `fi_v2_external_scan_blocked` | An external exposure scan blocked by the provider is downgraded to an inconclusive result rather than reported as a failure. |
-| `fi_v3_tailscale_acl_misconfig` | A misconfigured private network access policy is detected up front, from both the controller and the host side. |
+| `fi_v3_tailscale_acl_misconfig` | A private network access policy that blocks SSH to the server stops the lockdown before public SSH closes. |
 | `healthchecks_self_host_loss` | Losing the self-hosted monitoring instance stops its own pings without blocking the backup chain, and the external watchdog keeps the outage visible. |
 | `host_reboot_recovery` | A host that is restarted comes back serving every declared service without anyone touching it. |
 | `identity_group_gates_access` | Groups created in the administration panel are honoured by the access gate, and a destructive membership change cannot be applied without showing what it will affect. |
@@ -117,10 +113,15 @@ The 159 scenarios the maintainers' test bench carries, and the behaviour each on
 | `infra_stack_update_rollback` | A bad version bump of an infrastructure service deployed through the application control plane is detected and rolled back automatically. |
 | `infra_subdomain_change` | A shared service moves to a new address when its name is changed, and every route to it moves with it. |
 | `inplace_restore_suite` | A restore on a running server brings the data back without taking the dashboard down, can put back one application while leaving the others alone, can be started from the dashboard, and refuses a backup from a newer installer, or from an older one unless the upgrade is asked for, before it changes anything. |
+| `install_rerun` | Applying the Community installer a second time to an already converged host changes nothing. |
 | `install_without_a_domain` | A server with no domain converges green and says what it is waiting for. |
 | `keycloak_admin_email_loss_recovery` | An administrator locked out of the identity provider mail channel recovers access by minting a fresh named administrator against the running server. |
 | `keycloak_signing_keys_rotation_round_trip` | A single sign-on signing key is rotated with an overlap window where both keys verify, then retired without breaking any session. |
+| `labels_vocabulary_from_image` | The port a template's labels declare is read with the label vocabulary the server's panel image ships, so an image update changes what a label means with no converge. |
+| `launcher_install` | The graphical installer, run with no UI, installs a server the way the command-line installer does, over a private address and over the public one. |
 | `license_domain_mismatch` | A correctly signed licence issued for another server unlocks nothing, says so by name, and takes away nothing the host already had. |
+| `mailbox_sync_ownership` | A mailbox made by hand survives the mailbox reconciler, and a mailbox the reconciler made is closed when its owner leaves the staff group. |
+| `mailserver_after_domain` | A mail server deployed from the catalogue on a server that already has its domain is wired with nothing pressed: the server starts the converge that wires it, once. |
 | `malformed_catalog_rejection` | A malformed application catalogue is refused, and the host keeps using the last one it read correctly. |
 | `marketplace_catalog_resolved` | The application catalogue a client browses is the one this host resolved, with every published placeholder filled in. |
 | `migrate` | A host is replaced end to end by another machine, with the source quiesced and the destination serving what it served. |
@@ -131,6 +132,7 @@ The 159 scenarios the maintainers' test bench carries, and the behaviour each on
 | `nextcloud_versions_retention_applied` | The file-version retention configured for the file-sync application reaches the running container instead of stopping at the catalogue. |
 | `oauth2_proxy_cookie_rotation_round_trip` | Rotating the session-cookie secret invalidates existing sessions cleanly while a fresh sign-in keeps working. |
 | `offsite_copy_unreachable_target` | One offsite destination being unreachable costs exactly that copy, visibly, and leaves the others alone. |
+| `panel_release_moves_pins` | A new administration panel release moves the reverse proxy and the uptime monitor to the versions it ships, on a Community server, through the panel's update button alone. |
 | `panel_renames_itself` | The dashboard renames itself from its own Settings page, and it says where it is going before it goes. |
 | `payload_action_dispatches_without_converge` | An administrative action can arrive with a new image and dispatch immediately, without waiting for a converge to render it. |
 | `payload_prune_respects_ce` | Installing the licensed payload deletes what it withdraws and leaves everything owned by the public installer in place. |

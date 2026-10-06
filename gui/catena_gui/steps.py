@@ -33,6 +33,10 @@ PANEL_USER = "panel"
 # it, and the launcher does not either.
 PROVIDER_PASSWORD = "host_initial_password"
 
+# The box a client ticks when the server presents a new host key because it
+# was reinstalled; the install then runs with `--reinstalled`.
+REINSTALLED = "reinstalled"
+
 
 @dataclass
 class Check:
@@ -48,6 +52,9 @@ class Check:
     ok: bool
     detail: str = ""
     blocking: bool = True
+    # The form name of the box that settles a check only the client can
+    # answer, shown beside it and labelled by `confirm.<name>`; empty for none.
+    confirm: str = ""
 
     @property
     def blocks(self) -> bool:
@@ -68,6 +75,18 @@ class Field:
     help: dict[str, str]
     example: str = ""
     suggestions: list[str] = _dc_field(default_factory=list)
+    # The choice in front of the field, by option then language; empty for a
+    # plain field. See via_name.
+    choice: dict[str, dict[str, str]] = _dc_field(default_factory=dict)
+
+
+# The two options of a field's choice, as the registry declares them.
+CHOICES = registry.ansible_module("helpers.render_knobs").GUI_CHOICES
+
+
+def via_name(key: str) -> str:
+    """The form name of the choice in front of field `key`."""
+    return f"{key}__via"
 
 
 @dataclass
@@ -92,6 +111,7 @@ def _field(doc: dict, entry: dict) -> Field:
         help=entry["help"],
         example=registry.example_for(entry),
         suggestions=registry.suggestions_for(entry),
+        choice=registry.choice_for(entry),
     )
 
 
@@ -117,13 +137,16 @@ def build(doc: dict) -> list[Step]:
 
 
 def missing_required(step: Step, values: dict[str, str],
-                     lang: str = i18n.DEFAULT) -> list[Check]:
-    """A blocking line for each required field left empty. Shown before the
-    step's own probes, which have nothing to observe without it."""
+                     lang: str = i18n.DEFAULT,
+                     private: frozenset[str] = frozenset()) -> list[Check]:
+    """A blocking line for each required field left empty, and for each field
+    in `private`: one whose choice is set to `private`. Shown before the step's
+    own probes, which have nothing to observe without it."""
     return [Check(i18n.text(lang, "check.required", label=f.label[lang]), False,
                   i18n.text(lang, "check.fill_in"))
             for f in step.fields
-            if not f.optional and not (values.get(f.key) or "").strip()]
+            if (not f.optional or f.key in private)
+            and not (values.get(f.key) or "").strip()]
 
 
 # --- the probes --------------------------------------------------------------
@@ -171,9 +194,22 @@ def _password_login(host: str, port: int, user: str, password: str) -> tuple[boo
     return out.returncode == 0, (said[-1] if said else "")[-200:]
 
 
+def ssh_address(answers: dict[str, str]) -> str:
+    """Where the install dials the server: its private SSH address when the
+    form gives one, else its public IP."""
+    return ((answers.get("HOST_SSH_ADDRESS") or "").strip()
+            or (answers.get("HOST_PUBLIC_IP") or "").strip())
+
+
 def check_target(answers: dict[str, str], secrets: dict[str, str],
-                 lang: str = i18n.DEFAULT) -> list[Check]:
-    """An SSH server answers, and the install can log in.
+                 lang: str = i18n.DEFAULT, reinstalled: bool = False) -> list[Check]:
+    """An SSH server answers, presents the host key this machine trusts for it,
+    and lets the install log in, at the address the install dials
+    (ssh_address).
+
+    A server that presents another key gets nothing more from this probe,
+    neither a login nor the provider's password, until the client confirms a
+    reinstall (`reinstalled`).
 
     Either the key already opens the server -- the provider installed it when
     the server was ordered, or a previous install did, in which case root is
@@ -183,7 +219,7 @@ def check_target(answers: dict[str, str], secrets: dict[str, str],
     def t(key: str, **values: object) -> str:
         return i18n.text(lang, key, **values)
 
-    host = (answers.get("HOST_PUBLIC_IP") or "").strip()
+    host = ssh_address(answers)
     port_raw = (answers.get("HOST_SSH_PORT") or "22").strip() or "22"
     if not host or not port_raw.isdigit():
         return [] if not host else [Check(t("check.port"), False,
@@ -192,6 +228,17 @@ def check_target(answers: dict[str, str], secrets: dict[str, str],
     banner = _ssh_banner(host, port)
     checks = [Check(t("check.ssh_answers", host=host, port=port),
                     banner.startswith("SSH-"), banner or t("check.ssh_silent"))]
+    if checks[0].ok:
+        trusted, offered = registry.ansible_module("helpers.host_key").changed(host, port)
+        if trusted and not reinstalled:
+            checks.append(Check(t("check.host_key", host=host), False,
+                                t("check.host_key_changed", trusted=", ".join(trusted),
+                                  offered=", ".join(offered)),
+                                confirm=REINSTALLED))
+            return checks
+        if trusted:
+            checks.append(Check(t("check.host_key_new", host=host), True,
+                                t("check.host_key_trusted")))
     raw = (answers.get("SSH_PRIVATE_KEY") or "").strip()
     key = os.path.expanduser(raw) if raw else ""
     have_key = bool(key) and Path(key).is_file() and Path(key + ".pub").is_file()
@@ -229,11 +276,11 @@ PROBES = {
 
 
 def validate(step: str, answers: dict[str, str], secrets: dict[str, str],
-             lang: str = i18n.DEFAULT) -> list[Check]:
+             lang: str = i18n.DEFAULT, reinstalled: bool = False) -> list[Check]:
     probe = PROBES.get(step)
     if probe is None:
         return []
-    return probe(answers, secrets, lang)
+    return probe(answers, secrets, lang, reinstalled)
 
 
 def blocked(checks: list[Check]) -> bool:
@@ -247,7 +294,7 @@ def forward_command(answers: dict[str, str]) -> str:
     """The SSH command that reaches the panel and Portainer once the install
     ends: both answer the server's loopback only, and the panel account can do
     nothing but forward."""
-    host = (answers.get("HOST_PUBLIC_IP") or "").strip() or "<server-address>"
+    host = ssh_address(answers) or "<server-address>"
     port = (answers.get("HOST_SSH_PORT") or "22").strip() or "22"
     key = (answers.get("SSH_PRIVATE_KEY") or "").strip()
     opts = f" -i {key}" if key else ""

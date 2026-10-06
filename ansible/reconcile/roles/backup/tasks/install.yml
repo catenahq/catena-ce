@@ -154,26 +154,21 @@
 # Written when absent, and RECONCILED against the store on every converge once
 # the host is backup-configured.
 #
-# Only-if-absent alone left this file permanently blank on the ordinary
-# deferred-backup install: it is written during the first converge, when the
-# repo and S3 keys are not set yet, and the client then enters them in
-# Settings -- which writes the STORE and never re-renders this. Every lane
-# script survives that because catena-restic-env resolves the store, but the
-# file itself stays empty, and this file is what the client-facing exit story
-# tells somebody to source:
+# The repo and S3 keys usually arrive after the first converge, entered in
+# Settings, which writes the STORE. Every lane script resolves the store
+# through catena-restic-env, but this file is what the client-facing exit
+# story tells somebody to source:
 #
 #     set -a; . /etc/catena/backup.env; set +a; restic snapshots
 #
-# A blank RESTIC_REPOSITORY there means the documented way to read your own
-# backups without any catena tooling does not work, on a host whose panel says
-# backup is configured and whose backups are in fact running. That is the one
-# promise this product cannot get wrong, so the converge now makes the file
-# true rather than leaving it as first written.
+# A blank RESTIC_REPOSITORY there would break the documented way to read your
+# own backups without any catena tooling, on a host whose backups are running,
+# so the converge keeps the file true to the store.
 #
 # Gated on _backup_configured, so a not-yet-configured host keeps its blank
 # file rather than having it rewritten with the same blanks, and the reconcile
-# only ever writes a COMPLETE set. The store is the source of truth (0b);
-# rotation writes there, and this follows it.
+# only ever writes a COMPLETE set. The store is the source of truth; rotation
+# writes there, and this follows it.
 - name: "Backup: write backup env file (absent, or reconcile against the store)"
   ansible.builtin.template:
     src: backup.env.j2
@@ -204,7 +199,7 @@
     group: root
     mode: "0600"
 
-# ─── the backup lane ships in the image payload ─────────────────────────
+# --- the backup lane ships in the image payload ------------------------------
 # The wrapper, coverage, snapshot-list/export, the restic helpers, the disk
 # preflight, restic and rclone, and the four units (catena-backup.service and
 # .timer, catena-restic-check-subset.service and .timer) come from the

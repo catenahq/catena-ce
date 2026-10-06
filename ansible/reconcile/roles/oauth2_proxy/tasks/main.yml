@@ -70,12 +70,12 @@
   when: not (catena_public_surface_deferred | default(false) | bool)
 
 # Realm-config render + middleware render + compose deploy + validate
-# all assume Keycloak is up (so keycloak-config-cli can reach it) AND
-# the Portainer stack API is reachable (so the compose deploy works).
-# portainer_api_key is minted by reconcile/roles/portainer earlier in the SAME
-# converge, and reconcile/roles/keycloak (also portainer-gated) has already brought
-# Keycloak up by the time this role runs, so this body converges in a single
-# pass -- mirrors reconcile/roles/keycloak's gate.
+# all assume Keycloak is up (so keycloak-config-cli can reach it). Gated on
+# the Portainer API key like reconcile/roles/keycloak: portainer_api_key is
+# minted by reconcile/roles/portainer earlier in the SAME converge, and
+# reconcile/roles/keycloak has already brought Keycloak up by the time this
+# role runs, so this body converges in a single pass. The deploy itself is a
+# swarm stack (reconcile/roles/infrastructure/tasks/swarm_stack.yml).
 - name: "oauth2-proxy: Portainer-API-gated body (realm + middleware + compose + validate)"
   when:
     - not (catena_public_surface_deferred | default(false) | bool)
@@ -191,4 +191,4 @@
       portainer did not run or failed to mint the key.
   when:
     - not (catena_public_surface_deferred | default(false) | bool)
-    - portainer_api_key is not defined or (portainer_api_key | length) < 10
+    - portainer_api_key is not defined or (portainer_api_key | length) <= 10

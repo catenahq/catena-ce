@@ -420,15 +420,15 @@ def prompt(label: str, default: str = "", *, secret: bool = False,
 
 def fill(provided: dict, key: str, default: str, label: str | None = None,
          *, secret: bool = False, allow_empty: bool = False,
-         options: list[str] | None = None) -> str:
+         options: list[str] | None = None, ask: bool = True) -> str:
     """Return the value for `key`, either from `provided` (install.yaml) or
     interactively.
 
     A constrained field (bool default or explicit `options`) rejects an
     invalid provided value with a warning and falls through to the prompt.
-    When stdin is not a TTY (install.yaml-driven, CI), fall back to
-    `default` for any key the caller did not supply; required fields with
-    no default die with a clear message."""
+    When stdin is not a TTY (install.yaml-driven, CI), or the caller passes
+    `ask=False`, fall back to `default` for any key the caller did not
+    supply; required fields with no default die with a clear message."""
     eff = _effective_options(default, options)
     if key in provided:
         raw = provided[key]
@@ -443,7 +443,7 @@ def fill(provided: dict, key: str, default: str, label: str | None = None,
                 return s
         elif allow_empty and not s:
             return ""
-    if not sys.stdin.isatty():
+    if not ask or not sys.stdin.isatty():
         # An ILLUSTRATIVE default is not an answer, and there is nobody to ask.
         # Returning it here is how a non-interactive seed that simply omitted
         # the key produced a host that believed it served example.com: no
@@ -551,8 +551,22 @@ def emit_env(template_text: str, values: dict[str, str], target: Path, *,
     target.write_text("\n".join(out) + "\n")
 
 
+# The bootstrap entry's address as an inventory scaffolded before
+# HOST_SSH_ADDRESS existed wrote it, and as the skeleton writes it now.
+_BOOTSTRAP_HOST_OLD = """ansible_host: "{{ lookup('dotenv', 'HOST_PUBLIC_IP') }}\""""
+_BOOTSTRAP_HOST_NEW = ("""ansible_host: "{{ lookup('dotenv', 'HOST_SSH_ADDRESS', default='') """
+                       """or lookup('dotenv', 'HOST_PUBLIC_IP') }}\"""")
+
+
 def emit_hosts_yml(target: Path) -> None:
+    """Scaffold hosts.yml from the skeleton, or bring an existing one's
+    bootstrap address up to HOST_SSH_ADDRESS. Nothing else in an existing file
+    is touched: it may carry hand edits."""
     if target.exists():
+        text = target.read_text()
+        if _BOOTSTRAP_HOST_OLD in text:
+            target.write_text(text.replace(_BOOTSTRAP_HOST_OLD, _BOOTSTRAP_HOST_NEW))
+            ok(f"{target}: the bootstrap entry now reads HOST_SSH_ADDRESS")
         return
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(HOSTS_YML_SKEL, target)
@@ -582,7 +596,7 @@ def emit_hosts_yml_entry(
     # vars_prompt in bootstrap.yml): vars_prompt outranks it and silently
     # takes its own default ("root") under --no-confirm's no TTY.
     bootstrap_hosts[f"{host_name}-bootstrap"] = {
-        "ansible_host": public_ip,
+        "ansible_host": env_values.get("HOST_SSH_ADDRESS") or public_ip,
         "ansible_port": ssh_port,
         "bootstrap_initial_user": env_values.get("HOST_INITIAL_USER") or "root",
     }
@@ -661,11 +675,14 @@ def write_secrets_out(path: Path, secrets: dict[str, str]) -> None:
 def _collect_env_values(
     env_keys: list[tuple[str, str]],
     env_provided: dict,
+    *,
+    ask: bool = True,
 ) -> dict[str, str]:
     """Walk the .env template keys, prompting for each. A key with an empty
-    template default takes a blank as an answer rather than asking again."""
+    template default takes a blank as an answer rather than asking again.
+    With `ask=False` a key the `.env` lacks takes its default unasked."""
     banner("Configuration (.env)")
-    if sys.stdin.isatty():
+    if ask and sys.stdin.isatty():
         print("(press Enter to accept the template default)\n", file=sys.stderr)
     env_values: dict[str, str] = {}
     for key, default in env_keys:
@@ -674,16 +691,19 @@ def _collect_env_values(
             env_provided, key, default, key,
             allow_empty=allow_empty,
             options=ENV_OPTIONS.get(key),
+            ask=ask,
         )
     return env_values
 
 
 def _ipv4_endpoint(values: dict[str, str]) -> str:
-    """The bootstrap target as one line: the provider IPv4 that the first SSH
-    lands on, with the port and login that go with it. Echoed back so a stale
-    HOST_PUBLIC_IP -- the template's own example address, or a box this
-    inventory pointed at earlier -- is caught before bootstrap touches it."""
-    ip = (values.get("HOST_PUBLIC_IP") or "").strip() or "HOST_PUBLIC_IP NOT SET"
+    """The bootstrap target as one line: the address the first SSH lands on
+    (HOST_SSH_ADDRESS, else the provider IPv4), with the port and login that
+    go with it. Echoed back so a stale HOST_PUBLIC_IP -- the template's own
+    example address, or a box this inventory pointed at earlier -- is caught
+    before bootstrap touches it."""
+    ip = ((values.get("HOST_SSH_ADDRESS") or "").strip()
+          or (values.get("HOST_PUBLIC_IP") or "").strip() or "HOST_PUBLIC_IP NOT SET")
     port = (values.get("HOST_SSH_PORT") or "").strip() or "22"
     user = (values.get("HOST_INITIAL_USER") or "").strip() or "root"
     return f"{user}@{ip}:{port}"
@@ -797,11 +817,14 @@ def main(argv: list[str] | None = None) -> int:
         ok(f"loaded {env_path} -- {len(env_provided)} config value(s)")
     if (inv_dir / ".env").is_file():
         warn_server_held_lines(inv_dir / ".env")
+    # A rerun against an inventory already installed asks nothing: its answers
+    # are the files, and a key a newer template added takes its default.
+    rerun = (inv_dir / "hosts.yml").is_file()
     # Echoed before any prompting, so the box about to be bootstrapped is
     # visible while there is still nothing to undo. Repeated in the summary
     # above the proceed prompt.
     print(f"  IPv4 endpoint: {_ipv4_endpoint(env_provided)}", file=sys.stderr)
-    env_values = _collect_env_values(env_keys, env_provided)
+    env_values = _collect_env_values(env_keys, env_provided, ask=not rerun)
 
     # host.initial_password is a genuine secret (the VPS provider's initial
     # root password) that never belongs in .env. host.name only matters on
@@ -829,7 +852,7 @@ def main(argv: list[str] | None = None) -> int:
         die(f"{problems} problem(s) -- fix and re-run.")
 
     _print_summary(inventory=inventory, env_values=env_values)
-    if not args.no_confirm:
+    if not args.no_confirm and not rerun:
         answer = input("Proceed with seed (write inventory files)? [y/N]: ").strip().lower()
         if answer not in ("y", "yes"):
             die("Aborted.", code=130)

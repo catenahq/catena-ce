@@ -5,22 +5,21 @@
 # API find-or-create, DNS CNAME, ingress PUT, service deploy + token/network
 # reconcile, edge->tunnel->Traefik chain probe) lives in the Go engine
 # catena-cloudflared-sync. That binary ships in the catena-admin host payload
-# and is installed to /usr/local/bin by reconcile/roles/payload, four roles ahead of
-# this one (it is NOT license-gated -- the Cloudflare tunnel is a Community
-# feature). See catena-admin payload/cmd/catena-cloudflared-sync/SYNC.md for
-# the contract.
+# and is installed to /usr/local/bin by reconcile/roles/payload, earlier in the
+# converge. The Cloudflare tunnel is a Community feature and runs on every
+# host. See catena-admin payload/cmd/catena-cloudflared-sync/SYNC.md for the
+# contract.
 #
 # This role does ONE thing: dispatch the engine's `sync` on the host and
-# print what it says. Idempotent -- a re-converge after the panel saved a token,
-# or a bench that adopted one, finds everything already correct and no-ops.
+# print what it says. Idempotent -- a re-converge after the panel saved a token
+# finds everything already correct and no-ops.
 #
 # The engine decides whether there is anything to do. With no token in the store
 # it prints its skip line and exits 0, and the tunnel is DEFERRED: the client
 # enters the token in catena-admin > Settings, which validates it
 # (cloudflared-check) and fires cloudflared-sync in the background. A
-# present-but-INVALID token fails the converge here (the engine exits nonzero),
-# preserving the fail-fast abort intent (fi_n4/fi_s5) rather than
-# half-configuring a broken edge.
+# present-but-INVALID token fails the converge here (the engine exits nonzero)
+# rather than half-configuring a broken edge.
 #
 # The single-domain cap is enforced by the engine, which reads the licence out
 # of the on-box store and decides for itself. This role passes no licence flag,
@@ -36,28 +35,27 @@
 # is what reconcile/roles/keycloak reads to route one auth.<zone> per attached domain, so
 # the routing cannot advertise a domain the edge is not serving.
 
-# The token gate lives in the ENGINE, not here. It reads
-# /etc/catena/config.json itself and no-ops exit 0 with
-# "cloudflared-sync: skipped (no token)" when the store holds none
-# (SYNC.md, above). Asking the engine is asking the thing
-# that will act on the answer. A gate on the Ansible side is a second
-# implementation of "is there a token", and it can only read a fact
-# load_onbox_config.yml publishes -- so any play that skips the loader sees no
-# token on a host that has one.
+# The token gate lives in the ENGINE. It reads /etc/catena/config.json itself
+# and no-ops exit 0 with "cloudflared-sync: skipped (no token)" when the store
+# holds none (SYNC.md, above). Asking the engine is asking the thing that will
+# act on the answer. A gate on the Ansible side would be a second
+# implementation of "is there a token", and it could only read a fact
+# load_onbox_config.yml publishes -- so any play that skips the loader would
+# see no token on a host that has one.
 #
-# reconcile/roles/payload installs the engine right after bootstrap/roles/docker, four roles ahead
-# of this one, so on a converge that owns the payload the binary is there. It
-# has to be: keycloak and oauth2_proxy run next and their validation probes
-# reach https://auth.<zone>/ through the edge, which only answers once this
-# role has brought it up. So a missing engine is a hard stop here,
-# with the reason attached: deferring reports success and spends the failure two
+# reconcile/roles/payload installs the engine right after bootstrap/roles/docker,
+# earlier in the converge, so on a converge that owns the payload the binary is
+# there. It has to be: keycloak and oauth2_proxy run next and their validation
+# probes reach https://auth.<zone>/ through the edge, which only answers once
+# this role has brought it up. So a missing engine is a hard stop here, with
+# the reason attached: deferring reports success and spends the failure two
 # roles later, against an edge nobody has configured.
 #
-# A host whose engines were staged OUT OF BAND (the bench does this from the
-# image it builds on the VPS) is the one case where "not there yet" is
-# legitimate: reconcile/roles/payload publishes catena_payload_engines_expected=false and
-# the tunnel defers to the next converge, exactly as before. This is ORTHOGONAL
-# to the invalid-token abort below -- a missing engine is not a bad token.
+# A host whose engines are staged OUT OF BAND (CATENA_PAYLOAD_INSTALL=false) is
+# the one case where "not there yet" is legitimate: reconcile/roles/payload
+# publishes catena_payload_engines_expected=false and the tunnel defers to the
+# next converge. This is ORTHOGONAL to the invalid-token abort below -- a
+# missing engine is not a bad token.
 - name: "CF: is the tunnel engine expected on this host"
   ansible.builtin.include_role:
     name: common
@@ -99,7 +97,7 @@
 # drives docker + the https chain probe locally). The token is NOT passed here
 # -- the engine reads it from /etc/catena/config.json. fail-fast: a
 # present-but-invalid token (or any failed converge step) exits nonzero and
-# ABORTS the converge (fi_n4/fi_s5).
+# ABORTS the converge.
 #
 # Runs unconditionally. With no token the engine prints its skip line and exits
 # 0, so the deferral happens inside the thing being deferred -- and the
@@ -129,9 +127,9 @@
     CLOUDFLARE_PRIMARY_ZONE: "{{ cloudflare_zone }}"
   register: _cf_sync
   # The engine is internally idempotent (it owns the cloudflared re-encoded-
-  # token no-op that fi_c6 guarded, plus the network/self-heal reconciles), and
-  # emits no ansible-parsable changed signal, so report unchanged: a re-converge
-  # must not trip the bench changed=0 idempotency gate on this single command.
+  # token no-op, plus the network/self-heal reconciles), and emits no
+  # ansible-parsable changed signal, so report unchanged: a re-converge must
+  # not fail a changed=0 idempotency check on this single command.
   changed_when: false
   when: _cf_sync_present | default(false)
 

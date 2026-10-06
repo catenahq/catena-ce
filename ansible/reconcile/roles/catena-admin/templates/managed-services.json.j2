@@ -24,11 +24,12 @@
   client-walk skip set from that key, so a stack Portainer can see is not also
   bumped as if a client had chosen it.
 
-  DELIBERATELY ABSENT, each for a reason rather than an oversight:
+  The services this manifest leaves out, each with its reason:
 
-    catena-postgres   A database version move is a migration, not a bump: it
-                      needs pg_upgrade and a dump the restore path can replay.
-                      Its pin is a MAJOR (postgres:18) for the same reason.
+    catena-postgres   A database version move is a migration: it needs
+                      pg_upgrade and a dump the restore path can replay. Its
+                      minor releases ship with a catena-admin release (the
+                      tier-1 catalog's PostgresImage).
     cloudflared       Reconciled by catena-cloudflared-sync, and its bump stays
                       manual by design: a broken image kills the public path AND
                       the route to catena-admin, so there is no surface left to

@@ -2,9 +2,8 @@
 # Nextcloud first-party app provisioning -- post-deploy wiring scripts, one
 # per Nextcloud app catena treats as a first-party feature:
 #
-#   /usr/local/bin/catena-wire-nextcloud-mail  -- enables `mail` so
-#       per-user IMAP/CalDAV/CardDAV credentials flow into
-#       oc_mail_accounts, which the Email Archive sidecar consumes.
+#   /usr/local/bin/catena-wire-nextcloud-mail  -- installs and enables the
+#       Mail app, in which users configure their own mail accounts.
 #   /usr/local/bin/catena-wire-nextcloud-webmail-link -- below.
 #
 # The Mail app is server-local Nextcloud state; no Keycloak realm client is

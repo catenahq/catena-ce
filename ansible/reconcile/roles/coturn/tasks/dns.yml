@@ -1,25 +1,23 @@
 ---
 # Render the gray-cloud (proxied: false) A record `turn.<zone>` ->
-# VPS public IP. Required because cloudflared cannot carry UDP, so
-# coturn lives directly on the VPS public IP -- the TURN hostname
-# must resolve there, NOT to Cloudflare's edge.
+# the host's public IP. Required because cloudflared cannot carry UDP, so
+# coturn lives directly on the public IP -- the TURN hostname must resolve
+# there, NOT to Cloudflare's edge.
 #
-# Mirrors reconcile/roles/cloudflare_tunnel/tasks/main.yml's wildcard CNAME
-# pattern (look up + create-if-absent + update-if-drift) but for an
-# A record with proxied=false.
+# Same upsert idiom as reconcile/roles/infrastructure/tasks/mailserver_dns.yml
+# (look up + create-if-absent + update-if-drift), for an A record with
+# proxied=false.
 #
-# This record is NOT removed when a client changes their domain. The tunnel
-# engine retires the old domain's wildcard, which is what stops every name
-# under it resolving; turn.<old-zone> is left pointing at this host's public
-# IP until an operator deletes it.
+# This record stays when a client changes their domain. The tunnel engine
+# retires the old domain's wildcard, which is what stops every name under it
+# resolving; turn.<old-zone> keeps pointing at this host's public IP until
+# someone deletes it.
 
-# cloudflare_zone_id is normally set by the cloudflare_tunnel role
-# earlier in a full converge. Under a targeted converge (the cert-renewal
-# re-converge, or an operator iterating on just coturn) the tunnel role
-# is skipped and the fact is absent. Resolve it here when missing so this
-# role is self-sufficient rather than silently depending on another
-# role's run order. Mirrors reconcile/roles/infrastructure/tasks/mailserver-dns.yml.
-- name: "coturn DNS: resolve cloudflare_zone_id (when not set by cloudflare_tunnel)"
+# cloudflare_zone_id is resolved by whichever Ansible-side Cloudflare caller
+# needs it first in the run (this file, or mailserver_dns.yml, which runs
+# earlier in a full converge) and reused after. A `--tags coturn` run resolves
+# it here.
+- name: "coturn DNS: resolve cloudflare_zone_id (when not resolved yet)"
   when: cloudflare_zone_id is not defined
   delegate_to: localhost
   become: false

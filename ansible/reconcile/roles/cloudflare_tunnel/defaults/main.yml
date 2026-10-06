@@ -36,7 +36,7 @@ cloudflared_sync_bin: "/usr/local/bin/catena-cloudflared-sync"
 # host reads. Bumps stay manual and the managed-update engine rolls back on
 # health regression.
 
-# `cloudflare_api_base` lives in group_vars/all/main.yml so playbooks
-# that hit the Cloudflare API without importing this role (e.g.
-# decommission.yml's tunnel-delete leg) can resolve it from the same
-# source.
+# `cloudflare_api_base` lives in playbooks/group_vars/all/main.yml: the
+# roles that call the Cloudflare API from Ansible
+# (reconcile/roles/cloudflare_tunnel_regenerate, the coturn and mail DNS
+# records) resolve it from the same source.

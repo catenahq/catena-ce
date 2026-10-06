@@ -5,22 +5,21 @@
 #
 #   1. CONVERGE (this file). Render realm-nextcloud.yaml + re-run
 #      keycloak-config-cli on change so the Keycloak side has a
-#      `nextcloud` client registered the moment the operator clicks
-#      Deploy in Portainer. Mirrors the oauth2_proxy pattern.
+#      `nextcloud` client registered the moment a client deploys
+#      Nextcloud. Mirrors the oauth2_proxy pattern.
 #
 #   2. POST-DEPLOY (catena-admin action "Wire Nextcloud OIDC"). The
 #      actual `occ user_oidc:provider` call inside the running Nextcloud
-#      container, run on demand by the operator after a Portainer
-#      deploy. Backed by /usr/local/bin/catena-wire-nextcloud-oidc
-#      (installed below from scripts/wire-nextcloud-oidc.sh).
+#      container, run on demand after the deploy. Backed by
+#      /usr/local/bin/catena-wire-nextcloud-oidc (installed below from
+#      scripts/wire-nextcloud-oidc.sh).
 #
-# Why split: per project policy, converge runs only at initial install
-# or full VPS repair -- NOT after every catalog template deploy.
-# Wiring an app's OIDC the first time it's deployed cannot depend on
-# the operator running a subsequent converge against an already-
-# running production VPS. The catena-admin action is the on-demand path;
-# the converge path stays focused on Keycloak-side state (which is
-# legitimately initial-setup territory).
+# Why split: a catalog deploy is not followed by a converge. A converge runs
+# at install, from the panel, or on the scheduled converge lane a licensed
+# host can turn on, so wiring an app's OIDC the first time it is deployed
+# cannot wait for one. The catena-admin action is the on-demand path; the
+# converge keeps the Keycloak-side state, which it can set up before the app
+# exists.
 #
 # Idempotency: the realm import is unconditional + idempotent. The
 # host script is upsert-safe (user_oidc:provider create-or-update by

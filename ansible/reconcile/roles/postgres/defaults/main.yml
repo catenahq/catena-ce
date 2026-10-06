@@ -8,7 +8,8 @@
 
 catena_postgres_service_name: catena-postgres
 
-# The image major is pinned in the host engine's catalog. Per-app template DBs
+# The image is pinned to a minor release of its major in the host engine's
+# catalog (catena-admin payload/engines/tier1/catalog.go). Per-app template DBs
 # track the central postgres_default_image in catena-templates (catalog.json);
 # this infra Postgres (Keycloak's DB) is pinned independently since it follows
 # Keycloak's support matrix -- which is why the engine names it rather than

@@ -50,7 +50,7 @@ def _report(checks: list[steps_mod.Check]) -> None:
         print(f"  {mark} {check.label}{suffix}", file=sys.stderr)
 
 
-def walk(run: run_mod.Run, doc: dict) -> int:
+def walk(run: run_mod.Run, doc: dict, reinstalled: bool = False) -> int:
     """Validate every step in order. Returns the number of blocking failures.
 
     IN ORDER, and it does not stop at the first. A client fixing one wrong
@@ -64,13 +64,14 @@ def walk(run: run_mod.Run, doc: dict) -> int:
     for step in built:
         print(f"\n== {step.title[i18n.DEFAULT]}", file=sys.stderr)
         missing = steps_mod.missing_required(step, values)
-        checks = missing or steps_mod.validate(step.name, run.answers, run.secrets)
+        checks = missing or steps_mod.validate(step.name, run.answers, run.secrets,
+                                               reinstalled=reinstalled)
         _report(checks)
         problems += sum(1 for check in checks if check.blocks)
     return problems
 
 
-def install(run: run_mod.Run, ansible_dir: Path) -> int:
+def install(run: run_mod.Run, ansible_dir: Path, reinstalled: bool = False) -> int:
     """Write the contract, run it, and record where it got to.
 
     No stdin, as on the page: the answers are the whole input, and a question
@@ -81,7 +82,8 @@ def install(run: run_mod.Run, ansible_dir: Path) -> int:
     body = render.install_yaml(inventory=run.inventory, answers=run.answers,
                                secrets=run.secrets)
     with render.transient_install_yaml(body) as target:
-        argv = render.install_command(ansible_dir, target, run.inventory)
+        argv = render.install_command(ansible_dir, target, run.inventory,
+                                      reinstalled=reinstalled)
         print(f"\n== install: {' '.join(argv)}", file=sys.stderr)
         rc = subprocess.run(argv, stdin=subprocess.DEVNULL, check=False).returncode
     run.state = run_mod.STATE_DONE if rc == 0 else run_mod.STATE_FAILED
@@ -115,6 +117,9 @@ def main(argv: list[str] | None = None) -> int:
                          "whole non-interactive path.")
     ap.add_argument("--validate-only", action="store_true",
                     help="run every step's checks and stop, installing nothing")
+    ap.add_argument("--reinstalled", action="store_true",
+                    help="with --answers: the server was reinstalled, so trust "
+                         "the new host key it presents")
     ap.add_argument("--port", type=int, default=8765,
                     help="loopback port for the browser UI")
     args = ap.parse_args(argv)
@@ -145,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--inventory is required for a run with no UI: it "
                          "names the directory the install writes into")
 
-    problems = walk(current, doc)
+    problems = walk(current, doc, args.reinstalled)
     if problems:
         print(f"\ncatena-gui: {problems} blocking problem(s); nothing was "
               "installed.", file=sys.stderr)
@@ -153,7 +158,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.validate_only:
         print("\ncatena-gui: every step checks out.", file=sys.stderr)
         return 0
-    return install(current, registry.ANSIBLE_DIR)
+    return install(current, registry.ANSIBLE_DIR, args.reinstalled)
 
 
 if __name__ == "__main__":

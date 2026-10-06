@@ -1,20 +1,18 @@
 ---
 # Nextcloud Talk + HPB post-deploy wiring.
 #
-# Just installs the post-deploy wire script. No ufw rules needed:
-# aio-talk's Janus uses TURN-only for media (TURN_DOMAIN points at
-# the standalone coturn at turn.<base>:5349, ports already opened by
-# reconcile/roles/coturn). The signaling HTTP endpoint rides Cloudflare Tunnel +
-# Traefik via the catalog's extra_domains entry, so no host-side port
-# exposure either.
+# Installs the post-deploy wire script and opens no port: aio-talk's Janus
+# uses TURN-only for media (TURN_DOMAIN points at the standalone coturn at
+# turn.<zone>:5349, whose ports reconcile/roles/coturn declares), and the
+# HPB's signaling endpoint is HTTP, which needs no host port either.
 #
 # POST-DEPLOY (catena-admin action "Wire Nextcloud Talk + HPB"): runs the
 # `occ talk:turn:add` / `occ talk:stun:add` / `occ talk:signaling:add`
 # calls inside the running Nextcloud container, on demand after a
 # Portainer deploy. Backed by /usr/local/bin/catena-wire-nextcloud-talk-hpb
-# (installed below from vps-scripts/nextcloud-talk-hpb-wire.sh).
-# Idempotent and auto-detecting -- if talk-hpb is commented out the
-# script logs a friendly skip message and exits 0.
+# (installed below from scripts/nextcloud-talk-hpb-wire.sh).
+# Idempotent and auto-detecting: when the HPB signaling service does not
+# answer, the script logs a skip message and exits 0.
 
 - name: "Nextcloud Talk HPB: install host script"
   ansible.builtin.copy:

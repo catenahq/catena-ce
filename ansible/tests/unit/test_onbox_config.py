@@ -777,6 +777,38 @@ def test_cli_emits_the_env_seeded_names_without_touching_the_store(oc, tmp_path,
     assert not {"BACKUP_RESTIC_REPO", "CLOUDFLARE_ZONE", "PORTAINER_SUBDOMAIN"} & set(names)
 
 
+def test_cli_emits_the_env_reseeded_names_without_touching_the_store(oc, tmp_path, capsys):
+    """The development ACME and staging keys, which the `.env` keeps editing.
+    ADMIN_EMAIL is seeded and never reseeded: the panel owns it afterwards."""
+    p = tmp_path / "config.json"
+    rc = oc.main(["--path", str(p), "--emit", "env-reseed-names"])
+    assert rc == 0
+    assert not p.exists(), "a pure query must not create the store"
+    names = json.loads(capsys.readouterr().out)
+    assert names == sorted(oc.ENV_RESEEDED_CONFIG)
+    assert set(names) == {
+        "COTURN_CERTBOT_STAGING", "MAILSERVER_CERTBOT_STAGING",
+        "CATENA_ACME_DIRECTORY_URL", "CATENA_ACME_HOST_IP",
+        "CATENA_ACME_CA_BUNDLE_PEM_B64",
+    }
+    assert set(names) <= oc.ENV_SEEDED_CONFIG
+
+
+def test_a_reseed_replaces_the_stored_value_and_a_blank_keeps_it(oc, tmp_path):
+    """The loader's second seed call: --overwrite with the `.env`'s non-blank
+    values. A moved Pebble address lands; a key the `.env` left blank is not
+    passed at all, so the stored value stays."""
+    p = tmp_path / "config.json"
+    oc.dump({"secrets": {}, "config": {"CATENA_ACME_HOST_IP": "10.0.0.1",
+                                       "CATENA_ACME_DIRECTORY_URL": "https://pebble/dir"}}, p)
+    rc = oc.main(["--path", str(p), "--no-mint", "--emit", "none", "--overwrite",
+                  "--set-config", "CATENA_ACME_HOST_IP=10.0.0.2"])
+    assert rc == 0
+    config = oc.load(p)["config"]
+    assert config["CATENA_ACME_HOST_IP"] == "10.0.0.2"
+    assert config["CATENA_ACME_DIRECTORY_URL"] == "https://pebble/dir"
+
+
 def test_cli_emits_config_vars(oc, tmp_path, capsys):
     p = tmp_path / "config.json"
     oc.dump({"secrets": {}, "config": {"SMTP_HOST": "mail.example"}}, p)

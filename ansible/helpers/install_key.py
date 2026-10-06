@@ -508,22 +508,6 @@ def main() -> int:
     if "\n" in pubkey_line:
         pubkey_line = pubkey_line.splitlines()[0]
 
-    # Scrub any stale known_hosts entry for this IP. Reinstall-with-same-IP
-    # is a common case (operator wipes + reinstalls a VPS to re-test the
-    # installer); without this, SSH aborts with "REMOTE HOST IDENTIFICATION
-    # HAS CHANGED" before auth even starts, and the script sees an immediate
-    # EOF with no usable error. StrictHostKeyChecking=accept-new accepts
-    # NEW hosts silently but still rejects CHANGED hosts -- so we have to
-    # actively clear the stale entry first. Idempotent: if there's no
-    # entry, ssh-keygen -R is a no-op.
-    known_hosts = Path("~/.ssh/known_hosts").expanduser()
-    if known_hosts.is_file():
-        subprocess.run(
-            ["ssh-keygen", "-f", str(known_hosts), "-R", args.host],
-            capture_output=True,
-            text=True,
-        )
-
     # Shortcut: if key auth already works for the initial user or the ops
     # user (created by bootstrap Phase 1), there's nothing to do.
     privkey_expanded = os.path.expanduser(privkey_arg)

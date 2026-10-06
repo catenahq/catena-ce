@@ -28,8 +28,8 @@ services:
           # and freshclam would spend the download again.
           - node.labels.catena.role==data
     environment:
-      # Run both clamd and freshclam inside the container (image default;
-      # set explicitly so a Portainer UI edit is visible + reviewable).
+      # Run both clamd and freshclam inside the container (the image default,
+      # set explicitly so the stack file states it).
       CLAMAV_NO_CLAMD: "false"
       CLAMAV_NO_FRESHCLAMD: "false"
       # First start blocks until freshclam has pulled the DB; give it
@@ -41,8 +41,8 @@ services:
       # Persist the signature DB across restarts.
       - clamav-db:/var/lib/clamav
     # The official image ships clamdcheck.sh (PING/PONG against the local
-    # clamd socket). Surface it as the healthcheck so swarm and the Step-7
-    # monitor see a real ready signal, not just "process up". start_period
+    # clamd socket). Surface it as the healthcheck so swarm sees a real
+    # ready signal, not just "process up". start_period
     # covers the first freshclam download.
     healthcheck:
       test: ["CMD-SHELL", "clamdcheck.sh || exit 1"]
