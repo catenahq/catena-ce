@@ -16,8 +16,11 @@ Request (JSON on stdin), each value the one the save would leave in the store:
 Tailscale: the OAuth client exchanges for a token, mints a 60-second
 single-use key under the tags (the join mints its key the same way), and reads
 the device list (the Lockdown asks it whether this server is connected before
-it closes public SSH). Headscale: the server answers, and an API key lists its
-users, the one named included; a pre-auth key alone is only proven by the join.
+it closes public SSH). Headscale: the server reports a version no older than
+HEADSCALE_MIN_VERSION on its unauthenticated GET /version, and an API key lists
+its users, the one named included; a pre-auth key alone is only proven by the
+join. A server whose version cannot be read is refused like an older one: the
+join depends on the API and tag behaviour of that minimum.
 
 Prints {"valid": bool, "reason": str} and exits 0 when valid, 1 otherwise.
 Nothing it prints carries a credential. stdlib only.
@@ -26,6 +29,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -33,6 +37,12 @@ import urllib.request
 from typing import Callable
 
 TAILSCALE_API = "https://api.tailscale.com/api/v2"
+
+# The oldest Headscale line the join works against: its pre-auth key API takes
+# the user's numeric id, and a node joining with a tagged key takes the key's
+# tags and refuses advertised ones (bootstrap/roles/tailscale).
+HEADSCALE_MIN_VERSION = (0, 29)
+_VERSION = re.compile(r"v?(\d+)\.(\d+)\.(\d+)")
 
 Http = Callable[..., tuple[int, object]]
 
@@ -100,24 +110,44 @@ def check_tailscale(req: dict, http: Http = _http) -> str:
     return ""
 
 
+def headscale_version_reason(url: str, http: Http = _http) -> str:
+    """Why the Headscale server at `url` is too old for the join, or ""."""
+    minimum = ".".join(str(n) for n in HEADSCALE_MIN_VERSION)
+    code, body = http("GET", f"{url}/version")
+    if code == 0:
+        return f"the Headscale server at {url} does not answer"
+    version = str(body.get("version") or "") if isinstance(body, dict) else ""
+    if code != 200 or not version:
+        return (f"the Headscale server at {url} does not report its version "
+                f"(GET /version answered HTTP {code}); Headscale {minimum} or "
+                f"later is required")
+    m = _VERSION.match(version)
+    if not m:
+        return (f"the Headscale server at {url} reports version {version!r}, "
+                f"which is not a release number; Headscale {minimum} or later "
+                f"is required")
+    if (int(m.group(1)), int(m.group(2))) < HEADSCALE_MIN_VERSION:
+        return (f"the Headscale server at {url} runs {version}; Headscale "
+                f"{minimum} or later is required")
+    return ""
+
+
 def check_headscale(req: dict, http: Http = _http) -> str:
     """The reason the settings would fail the join, or ""."""
     url = str(req.get("TAILNET_CONTROL_URL") or "").strip().rstrip("/")
     if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
-        return "the Headscale server address must start with https://"
+        return "the Headscale server address must start with http:// or https://"
     api_key = str(req.get("headscale_api_key") or "").strip()
     preauth = str(req.get("headscale_preauth_key") or "").strip()
     if not (api_key or preauth):
         return "a Headscale API key or pre-authentication key is required"
-    if not api_key:
-        code, _ = http("GET", f"{url}/health")
-        if code == 0:
-            return f"the Headscale server at {url} does not answer"
-        return ""
     user = str(req.get("HEADSCALE_USER") or "").strip()
-    if not user:
+    if api_key and not user:
         return ("the Headscale user is required: the server's key is minted "
                 "for that user")
+    reason = headscale_version_reason(url, http)
+    if reason or not api_key:
+        return reason
     code, body = http("GET", f"{url}/api/v1/user",
                       headers={"Authorization": f"Bearer {api_key}"})
     if code == 0:

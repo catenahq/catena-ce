@@ -21,9 +21,10 @@ A pin is usable only when it names the repository it is keyed by and a full
 semver tag (catena_image_pinned): a value that disagrees with its own key is a
 corrupt store, and a store that could name an arbitrary string could choose
 what this host runs. The minimum wins ties and wins whenever the two cannot be
-compared, so an unclear comparison never downgrades. A partial tag like
-`postgres:18` is incomparable on purpose: it names a major, and a pin that
-appeared to beat it would be a major upgrade nobody asked for.
+compared, so an unclear comparison never downgrades. Only a full semver tag
+is comparable. catena-postgres's two-part `postgres:<major>.<minor>` is
+incomparable on purpose: a pin that appeared to beat it could be a major
+upgrade nobody asked for.
 
 The Go side writes pins and never resolves them, so this is the one
 implementation of the comparison.

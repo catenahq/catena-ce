@@ -552,7 +552,8 @@ config:
     depends: {choice: TAILNET_PROVIDER, values: [headscale]}
 
   # The Headscale user the minted pre-auth keys belong to; Headscale keys are
-  # per-user, and the advertised tag must be in THAT user's tagOwners.
+  # per-user. The joined node takes its tags from the key; the join advertises
+  # none.
   - key: HEADSCALE_USER
     residence: store
     var: cfg_headscale_user

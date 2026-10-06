@@ -93,8 +93,8 @@ server's public address either way. Bootstrap trusts a host key only on first
 contact. A server that presents another key than the one this machine trusts
 for its address stops `install` before anything reaches it: a reinstalled
 server does, and so does another machine answering at that address. Asked, the
-operator says which; `--reinstalled` answers for an unattended run. The old key
-is then forgotten and bootstrap trusts the new one.
+operator says which; `--reinstalled` answers for an unattended run. Bootstrap
+then replaces the old key with the new one.
 
 ## Secrets
 

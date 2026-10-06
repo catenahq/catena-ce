@@ -14,6 +14,13 @@ tailscale_ephemeral: false
 tailscale_api_base: "https://api.tailscale.com/api/v2"
 tailscale_auth_key_ttl_seconds: 600 # 10 minutes -- plenty for one `tailscale up`
 
+# Tailscale's own control server, under the names the client counts as one
+# (ipn.IsLoginServerSynonym). The first is ipn.DefaultControlURL, which a
+# `tailscale up` with no --login-server stores as the node's ControlURL.
+tailscale_saas_control_urls:
+  - https://controlplane.tailscale.com
+  - https://login.tailscale.com
+
 # --- Control server: Tailscale SaaS (default) or self-hosted Headscale ---
 # tailnet_provider is the whole routing decision. `tailscale` mints a tagged
 # auth key per join from the OAuth client above; `headscale` joins a
@@ -25,9 +32,8 @@ tailscale_auth_key_ttl_seconds: 600 # 10 minutes -- plenty for one `tailscale up
 # always stored -- helpers/onbox_config.py settles it on every load -- and this
 # role only runs when it names one (catena_access_method == 'tailnet').
 #
-# tailnet_headscale_user names the Headscale user the minted key belongs to
-# (Headscale pre-auth keys are per-user). tag:vps must be in that user's ACL
-# tagOwners for --advertise-tags to succeed.
+# tailnet_headscale_user names the Headscale user the minted key is created
+# for. The node that joins with the key is owned by the key's tags.
 tailnet_control_url: "{{ cfg_tailnet_control_url | default('') }}"
 tailnet_headscale_user: "{{ cfg_headscale_user | default('') }}"
 tailnet_provider: "{{ cfg_tailnet_provider | default('none', true) | trim | lower }}"

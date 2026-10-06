@@ -4,9 +4,10 @@ On the host itself -- the panel's lockdown -- a TCP probe of the tailnet
 address dials the host's own address and passes whatever the tailnet thinks.
 So the host asks the control server (connected, not refusing incoming) and,
 there, an online peer that is not another server like it (a TSMP ping through
-the tunnel). The ping is answered inside tailscaled, so the host also walks
-its own firewall for SSH arriving on tailscale0. These tests pin each refusal
-and what it tells the client.
+the tunnel). The ping is answered inside tailscaled before its packet filter
+runs, so the host also reads the filter its control server sent it for a rule
+that lets such a peer open SSH, and walks its own firewall for SSH arriving on
+tailscale0. These tests pin each refusal and what it tells the client.
 
 Run: uv run pytest tests/unit/test_tailnet_reachability.py
 """
@@ -16,6 +17,8 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 ANSIBLE_DIR = Path(__file__).resolve().parents[2]
 if str(ANSIBLE_DIR) not in sys.path:
@@ -70,11 +73,25 @@ def _peer(name, *, online=True, tags=None, ip="100.64.0.9"):
             "TailscaleIPs": [ip, "fd7a::9"]}
 
 
+# tailcfg.FilterAllowAll: what a control server with no policy sends.
+ALLOW_ALL = [{"SrcIPs": ["*"],
+              "DstPorts": [{"IP": "*", "Ports": {"First": 0, "Last": 65535}}]}]
+
+
+def _rule(src, dst, first=22, last=None, protos=None):
+    rule = {"SrcIPs": [src],
+            "DstPorts": [{"IP": dst, "Ports": {"First": first,
+                                               "Last": first if last is None else last}}]}
+    if protos is not None:
+        rule["IPProto"] = protos
+    return rule
+
+
 class _World:
     """A host's `tailscale` CLI and the control server's API, faked."""
 
     def __init__(self, status, *, device=None, device_code=200, nodes=None,
-                 answering=(), rulesets=None):
+                 answering=(), rulesets=None, rules=ALLOW_ALL, netmap=None):
         self.status = status
         self.device = device if device is not None else {
             "connectedToControl": True, "blocksIncomingConnections": False}
@@ -83,6 +100,8 @@ class _World:
         self.answering = set(answering)
         self.rulesets = rulesets if rulesets is not None else {
             "iptables-save": _ruleset(), "ip6tables-save": _ruleset()}
+        # `tailscale debug netmap` as (rc, stdout); the default carries `rules`.
+        self.netmap = netmap or (0, json.dumps({"PacketFilterRules": rules}))
         self.argvs: list[list[str]] = []
         self.urls: list[str] = []
 
@@ -93,6 +112,9 @@ class _World:
         if argv[:2] == ["tailscale", "ping"]:
             rc = 0 if argv[-1] in self.answering else 1
             return subprocess.CompletedProcess(argv, rc, "", "no reply")
+        if argv == ["tailscale", "debug", "netmap"]:
+            rc, out = self.netmap
+            return subprocess.CompletedProcess(argv, rc, out, "" if rc == 0 else "no netmap")
         if argv[0] in self.rulesets:
             return subprocess.CompletedProcess(argv, 0, self.rulesets[argv[0]], "")
         if argv[0].endswith("tables-save"):
@@ -225,6 +247,77 @@ def test_a_transient_miss_is_waited_out() -> None:
     assert verdict["ok"] and calls["n"] == 3
 
 
+# --- the tailnet policy -----------------------------------------------------
+
+def _under_policy(**world):
+    peers = [_peer("laptop", ip="100.64.0.7"),
+             _peer("other-server", tags=["tag:vps"], ip="100.64.0.50")]
+    w = _World(_status(peers=peers), answering={"100.64.0.7"}, **world)
+    return _check(w, TAILNET_REQUIRE_PEER="1"), w
+
+
+def test_an_allow_all_policy_passes() -> None:
+    verdict, world = _under_policy()
+    assert verdict["ok"], verdict
+    assert ["tailscale", "debug", "netmap"] in world.argvs
+
+
+def test_a_policy_keeping_ssh_from_the_server_is_refused_and_named() -> None:
+    """The ping still answers and the control server still sees the node
+    online: only the filter says SSH would not get in."""
+    verdict, _ = _under_policy(rules=[_rule("100.64.0.7", "100.64.0.2", 443)])
+    assert not verdict["ok"]
+    assert "lets none of laptop open SSH (TCP port 22) to this server (tag:vps)" \
+        in verdict["summary"]
+    assert "[tcp/udp/icmp from 100.64.0.7 to 100.64.0.2:443]" in verdict["summary"]
+
+
+@pytest.mark.parametrize("rules, words", [
+    # Only the other server, which carries this host's tag, may open 22.
+    ([_rule("100.64.0.50", "100.64.0.2")], "from 100.64.0.50 to 100.64.0.2:22"),
+    ([_rule("*", "100.64.0.99")], "to 100.64.0.99:22"),
+    ([_rule("*", "*", protos=[17])], "[udp from * to *:22]"),
+    ([{"SrcIPs": ["*"], "CapGrant": [{"Dsts": ["100.64.0.2/32"],
+                                       "CapMap": {"tailscale.com/cap/drive": None}}]}],
+     "[capability grants only, from *]"),
+    ([_rule("cap:tailscale.com/cap/admin", "*")], "from cap:tailscale.com/cap/admin"),
+    ([], "it lets in nothing"),
+], ids=["source-no-eligible-peer-holds", "another-destination", "udp-only",
+        "capability-grant-only", "capability-source", "empty"])
+def test_a_policy_that_lets_no_eligible_peer_open_ssh_is_refused(rules, words) -> None:
+    verdict, _ = _under_policy(rules=rules)
+    assert not verdict["ok"], verdict
+    assert "lets none of laptop open SSH" in verdict["summary"]
+    assert words in verdict["summary"]
+
+
+@pytest.mark.parametrize("rule", [
+    _rule("100.64.0.7", "100.64.0.2", 20, 30),
+    _rule("100.64.0.0/10", "100.64.0.2/32"),
+    _rule("100.64.0.1-100.64.0.9", "100.64.0.2"),
+    _rule("*", "*", protos=[6]),
+    _rule("fd7a::9", "fd7a:115c:a1e0::2"),
+], ids=["port-range", "cidr", "address-range", "tcp-listed", "ipv6"])
+def test_a_rule_that_lets_an_eligible_peer_open_ssh_passes(rule) -> None:
+    deny = _rule("*", "*", 443)
+    verdict, _ = _under_policy(rules=[deny, rule])
+    assert verdict["ok"], verdict
+
+
+@pytest.mark.parametrize("netmap, words", [
+    ((1, ""), "could not read the tailnet policy"),
+    ((0, "not json"), "could not parse the tailnet policy"),
+    ((0, "null"), "could not parse the tailnet policy"),
+    ((0, json.dumps({"Peers": []})), "could not parse the tailnet policy"),
+    ((0, json.dumps({"PacketFilterRules": [{"SrcIPs": ["*"], "DstPorts": [{"IP": "*"}]}]})),
+     "could not parse the tailnet policy"),
+], ids=["exit", "not-json", "no-netmap", "no-rules-field", "no-ports"])
+def test_a_filter_that_cannot_be_read_is_refused(netmap, words) -> None:
+    verdict, _ = _under_policy(netmap=netmap)
+    assert not verdict["ok"], verdict
+    assert words in verdict["summary"]
+
+
 # --- the host's own firewall ------------------------------------------------
 
 def _on_host(rulesets):
@@ -303,10 +396,11 @@ def test_a_firewall_that_cannot_be_read_is_refused() -> None:
     assert "could not read this server's firewall (iptables-save" in verdict["summary"]
 
 
-def test_the_firewall_is_read_only_on_the_host_and_after_the_tailnet() -> None:
+def test_the_policy_and_firewall_are_read_only_on_the_host_and_after_the_tailnet() -> None:
     from_installer = _World(_status())
     assert _check(from_installer)["ok"]
     refused = _World(_status(), device={"connectedToControl": False})
     _check(refused, TAILNET_REQUIRE_PEER="1")
     for world in (from_installer, refused):
         assert not any(a[0].endswith("tables-save") for a in world.argvs)
+        assert ["tailscale", "debug", "netmap"] not in world.argvs

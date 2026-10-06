@@ -6,7 +6,7 @@
 # Dovecot could not be started"), and (2) with SSL_TYPE=manual it then
 # requires the cert at SSL_CERT_PATH. Mailboxes are otherwise provisioned
 # from Keycloak membership by the dashboard-sync reconciler
-# (vps-scripts/mailbox_sync.py) on a 5-minute timer, which loses the 120s
+# (catena-admin payload/lib/mailbox_sync.py) on a 5-minute timer, which loses the 120s
 # race on first deploy and provisions nothing when no member has a mailbox
 # yet (the bench, and any fresh install) -- so DMS crash-loops forever.
 # RFC 2142 also requires postmaster@ to be deliverable.

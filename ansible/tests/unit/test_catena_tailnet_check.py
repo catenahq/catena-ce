@@ -98,35 +98,77 @@ HEADSCALE = {
     "headscale_api_key": "hskey",
 }
 
+# GET /version as Headscale answers it, with no credential.
+HS_VERSION = {("GET", "/version"): (200, {"version": "v0.29.4", "commit": "c"})}
+
 
 def test_a_headscale_api_key_must_list_the_named_user(tc):
-    listing = {("GET", "/api/v1/user"): (200, {"users": [{"name": "servers"}]})}
+    listing = {**HS_VERSION,
+               ("GET", "/api/v1/user"): (200, {"users": [{"name": "servers"}]})}
     assert tc.check(HEADSCALE, _Http(listing))["valid"]
-    other = {("GET", "/api/v1/user"): (200, {"users": [{"name": "people"}]})}
+    other = {**HS_VERSION,
+             ("GET", "/api/v1/user"): (200, {"users": [{"name": "people"}]})}
     verdict = tc.check(HEADSCALE, _Http(other))
     assert not verdict["valid"] and "no user named servers" in verdict["reason"]
 
 
 def test_a_refused_headscale_api_key_is_reported(tc):
-    verdict = tc.check(HEADSCALE, _Http({("GET", "/api/v1/user"): (401, None)}))
+    verdict = tc.check(HEADSCALE, _Http({**HS_VERSION,
+                                         ("GET", "/api/v1/user"): (401, None)}))
     assert not verdict["valid"] and "refused the API key" in verdict["reason"]
 
 
 def test_a_headscale_preauth_key_alone_needs_the_server_to_answer(tc):
     req = {**HEADSCALE, "headscale_api_key": "", "headscale_preauth_key": "pk"}
-    assert tc.check(req, _Http({("GET", "/health"): (200, None)}))["valid"]
-    verdict = tc.check(req, _Http({("GET", "/health"): (0, None)}))
+    assert tc.check(req, _Http(HS_VERSION))["valid"]
+    verdict = tc.check(req, _Http({("GET", "/version"): (0, None)}))
     assert not verdict["valid"] and "does not answer" in verdict["reason"]
 
 
+@pytest.mark.parametrize("version", ["v0.29.0", "0.29.4", "v0.29.0-beta.4", "v0.30.1", "v1.0.0"])
+def test_a_headscale_at_or_above_the_minimum_passes(tc, version):
+    req = {**HEADSCALE, "headscale_api_key": "", "headscale_preauth_key": "pk"}
+    answers = {("GET", "/version"): (200, {"version": version})}
+    assert tc.check(req, _Http(answers)) == {"valid": True, "reason": ""}
+
+
+@pytest.mark.parametrize("answer, words", [
+    ((200, {"version": "v0.28.0"}), "runs v0.28.0; Headscale 0.29 or later is required"),
+    ((200, {"version": "0.26.1"}), "runs 0.26.1"),
+    # Headscale serves /version from 0.27 on; a server without it is older.
+    ((404, None), "does not report its version (GET /version answered HTTP 404)"),
+    ((200, {"version": "dev"}), "reports version 'dev', which is not a release number"),
+    ((200, None), "does not report its version"),
+])
+def test_a_headscale_below_the_minimum_or_unreadable_is_refused(tc, answer, words):
+    http = _Http({("GET", "/version"): answer,
+                  ("GET", "/api/v1/user"): (200, {"users": [{"name": "servers"}]})})
+    verdict = tc.check(HEADSCALE, http)
+    assert not verdict["valid"] and words in verdict["reason"]
+    assert "0.29 or later is required" in verdict["reason"]
+    # Refused on the version alone: the API key is never sent.
+    assert [c[1] for c in http.calls] == ["https://hs.example.net/version"]
+    assert http.calls[0][2] == {}
+
+
+@pytest.mark.parametrize("url", ["http://10.0.0.250:8080", "https://hs.example.net"])
+def test_both_schemes_are_accepted(tc, url):
+    req = {**HEADSCALE, "TAILNET_CONTROL_URL": url,
+           "headscale_api_key": "", "headscale_preauth_key": "pk"}
+    assert tc.check(req, _Http(HS_VERSION))["valid"]
+
+
 @pytest.mark.parametrize("change, words", [
-    ({"TAILNET_CONTROL_URL": "hs.example.net"}, "must start with https://"),
+    ({"TAILNET_CONTROL_URL": "hs.example.net"}, "must start with http:// or https://"),
+    ({"TAILNET_CONTROL_URL": "ftp://hs.example.net"}, "must start with http:// or https://"),
     ({"headscale_api_key": ""}, "API key or pre-authentication key is required"),
     ({"HEADSCALE_USER": ""}, "user is required"),
 ])
 def test_incomplete_headscale_settings_are_refused(tc, change, words):
-    verdict = tc.check({**HEADSCALE, **change}, _Http({}))
+    http = _Http(HS_VERSION)
+    verdict = tc.check({**HEADSCALE, **change}, http)
     assert not verdict["valid"] and words in verdict["reason"]
+    assert http.calls == []
 
 
 def test_an_unknown_provider_is_refused(tc):

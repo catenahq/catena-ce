@@ -12,7 +12,7 @@ edits) and join the host to the tailnet its stored credentials belong to.
 | Value | Control server | Credential minted by |
 |---|---|---|
 | `tailscale` | Tailscale SaaS | `POST /api/v2/tailnet/-/keys` with a bearer token exchanged from the OAuth client |
-| `headscale` | self-hosted, at `tailnet_control_url` | `POST {control_url}/api/v1/preauthkey` with `headscale_api_key`, falling back to the static `headscale_preauth_key` |
+| `headscale` | self-hosted, at `tailnet_control_url` | `POST {control_url}/api/v1/preauthkey` with `headscale_api_key`, for the numeric id `GET {control_url}/api/v1/user` lists for `tailnet_headscale_user`, falling back to the static `headscale_preauth_key` |
 
 The value is store-owned (catena-admin > Settings): `none`, `tailscale` or
 `headscale`. `playbooks/lockdown.yml` runs the role only on a host whose value
@@ -30,6 +30,14 @@ itself leaks, rotation is the runbook: there are no auth keys to revoke.
 The Headscale fork accepts a static `headscale_preauth_key` when no API key
 is stored. That one IS long-lived, which is why the API key is preferred.
 
+On Headscale the node takes its tags from the pre-auth key, and its
+`tailscale up` advertises none: Headscale refuses a node that joins with a
+pre-auth key and advertises tags. A static key therefore has to be created with
+the tags in `tailscale_tags`. The oldest Headscale the fork supports is the
+`HEADSCALE_MIN_VERSION` that
+[../../../scripts/catena-tailnet-check.py](../../../scripts/catena-tailnet-check.py)
+declares, which refuses an older server when the settings are saved.
+
 ## Reachability before the lockdown
 
 [tasks/reachable.yml](tasks/reachable.yml), which `playbooks/lockdown.yml`
@@ -44,6 +52,10 @@ run on the host):
   needs `headscale_api_key`);
 - an online peer carrying none of `tailscale_tags` answering a TSMP ping
   through the tunnel;
+- the tailnet policy letting one of those peers open TCP 22 to the host: the
+  packet filter its control server sent it, read from `tailscale debug
+  netmap`. tailscaled answers the ping before that filter runs, and the
+  control server reports the node online whatever its policy;
 - the host's own firewall letting SSH in on `tailscale0`: a new TCP
   connection to port 22, addressed to the host's tailnet address, walked
   through its iptables and ip6tables rulesets in kernel order. The ping above
@@ -60,9 +72,10 @@ Settings.
 
 - Tailscale SaaS: `tailscale_oauth_client_id`,
   `tailscale_oauth_client_secret`.
-- Headscale: `tailnet_control_url`, `tailnet_headscale_user` (pre-auth keys
-  are per-user), `headscale_api_key` or `headscale_preauth_key`.
-- `tailscale_tags` -- both the minted key's tag list and `--advertise-tags`.
+- Headscale: `tailnet_control_url`, `tailnet_headscale_user` (the user a
+  minted key is created for), `headscale_api_key` or `headscale_preauth_key`.
+- `tailscale_tags` -- the minted key's tag list, and `--advertise-tags` on the
+  Tailscale fork.
   Declared in
   [../../../playbooks/group_vars/all/main.yml](../../../playbooks/group_vars/all/main.yml),
   which reads the store's `TAILSCALE_TAGS` with NO default: a missing value
@@ -86,7 +99,11 @@ Settings.
 
 `tailscale status --json` is read before anything is minted. A node already
 in `Running` state is a no-op -- no key minted, no API call -- unless
-`tailscale_force_reauth` is set.
+`tailscale_force_reauth` is set, or the node is on another control server than
+the stored provider names: its `tailscale debug prefs` `ControlURL` against
+`tailnet_control_url` on Headscale, or against `tailscale_saas_control_urls` on
+Tailscale. That join passes `--force-reauth`, without which `tailscale up`
+refuses to move a running node to another control server.
 
 ## Related
 
