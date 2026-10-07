@@ -268,9 +268,10 @@ catena_admin_ee_reserved_actions:
   # installed correctly. Everything else follows the ordinary rule -- whoever
   # ships a command authorises it.
   #
-  # So the thirteen paid names (four daily, audit and backup-verify, eight
-  # migration-lane, and cloudflare-zones-save) are authorised by the payload's
-  # own dispatch drop-in, catena-admin payload/actions.d/10-paid.sh, next to
+  # So the nine paid names (the daily chain's two, audit-export,
+  # verify-backup, the migration source side's four, and cloudflare-zones-save)
+  # are authorised by the payload's own dispatch drop-in,
+  # catena-admin payload/actions.d/10-paid.sh, next to
   # the binaries they run. An entry here for any of them would be an
   # authorization record for a name and a path this converge neither chooses nor
   # can verify, and it would put a whole converge between a panel that gains an
@@ -303,8 +304,8 @@ catena_admin_ee_reserved_actions:
 # The Community action names -- the settings store, scheduling, offsite
 # copies, the backup password, the panel self-update, the backup endpoint
 # check, the state register, quiesce, the journal seal check, the licence
-# check and refresh, and the whole restore family -- are authorised by the
-# payload's own dispatch drop-in,
+# check and refresh, the whole restore family, and the receiving side of a
+# migration -- are authorised by the payload's own dispatch drop-in,
 # catena-admin payload/actions.d/20-catena.sh, on the same rule as the paid
 # names above: whoever ships a command authorises it. An entry here instead
 # would make a one-line change to any of them need an operator with a laptop and

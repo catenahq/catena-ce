@@ -9,8 +9,9 @@ of those has a way of going quietly wrong:
      without one, so the declaration is defence in depth -- but it is
      ALSO what puts the port in the effective set validation reads. An
      undeclared listener reads as an unexpected open port.
-  2. The eight action names are authorised by the payload's own drop-in
-     (catena-admin payload/actions.d/10-paid.sh), not by either of
+  2. The eight action names are authorised by the payload's own drop-ins
+     (the source side's four in catena-admin payload/actions.d/10-paid.sh,
+     the receiving side's four in 20-catena.sh), not by either of
      this repo's dispatch lists. Every command behind them is a binary
      the payload installs at a path the payload chose, so an entry here
      would authorise a name this repo neither owns nor can verify. What
