@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 165 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 166 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -89,7 +89,7 @@ The 165 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_n7_restic_repo_unreachable` | An unreachable backup repository stops the backup before it prunes anything. |
 | `fi_n8_ufw_concurrent_ssh` | An administrative session survives the host firewall lockdown being applied underneath it. |
 | `fi_n9_public_ip_change` | A change to the host public address is re-rendered into the media relay configuration by the next converge. |
-| `fi_o2_operator_ctrl_c` | A converge interrupted partway through leaves nothing broken, and re- running it completes the work. |
+| `fi_o2_operator_ctrl_c` | An install interrupted partway through leaves nothing broken, and re- running it completes the work. |
 | `fi_o4_hosts_yml_malformed` | A malformed inventory file fails with a readable parse error naming the offending line. |
 | `fi_o5_deadman_off_by_default` | The external dead-man watchdog installs nothing at all when no endpoint is configured. |
 | `fi_s2_input_truncated` | A truncated installation input file is rejected before anything is provisioned. |
@@ -119,7 +119,7 @@ The 165 scenarios the maintainers' test bench carries, and the behaviour each on
 | `keycloak_admin_email_loss_recovery` | An administrator locked out of the identity provider mail channel recovers access by minting a fresh named administrator against the running server. |
 | `keycloak_signing_keys_rotation_round_trip` | A single sign-on signing key is rotated with an overlap window where both keys verify, then retired without breaking any session. |
 | `labels_vocabulary_from_image` | The port a template's labels declare is read with the label vocabulary the server's panel image ships, so an image update changes what a label means with no converge. |
-| `launcher_install` | The graphical installer, run with no UI, installs a server the way the command-line installer does, over a private address and over the public one. |
+| `launcher_install` | The installer installs a server over a private address and over the public one, adding its key with the provider's password, and leaves an inventory that holds no credential. |
 | `license_seat` | A key is active on one server at a time: a copy of a licensed server and a second server are both refused the key's seat, and once the seat is freed the second server takes it and the first locks at its next check -- while the first keeps everything but its paid panels. |
 | `mailbox_sync_ownership` | A mailbox made by hand survives the mailbox reconciler, and a mailbox the reconciler made is closed when its owner leaves the staff group. |
 | `mailserver_after_domain` | A mail server deployed from the catalogue on a server that already has its domain is wired with nothing pressed: the server starts the converge that wires it, once. |
@@ -167,6 +167,7 @@ The 165 scenarios the maintainers' test bench carries, and the behaviour each on
 | `swarm_overlay_selfheal` | Applications rejoin their private overlay network by themselves after the container daemon restarts. |
 | `tailscale_oauth_rotation_round_trip` | The private network credential is rotated on the planned cycle and every host stays reachable across the change. |
 | `unlicensed_schedules_nothing` | A host with no licence schedules no unattended work of any kind. |
+| `update_from_previous_release` | A server installed with the previous release moves to this one through the panel's update and through a reinstall, and ends on one version with nothing missing. |
 | `user_recovery_2fa_reset` | A user who lost their second-factor device is reset and made to enrol a new one at next sign-in. |
 | `user_recovery_kcadm_temp_password` | A user who lost their password is issued a temporary one they must change at next sign-in. |
 | `verify_hot_bootprobe_weekly` | The weekly deep backup verification boots what it restored and records the outcome in its report. |
