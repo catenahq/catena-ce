@@ -20,7 +20,7 @@ Catena installs a curated list of open-source services and software to a compute
 
 #### Install
 - `uv` on your local machine, Windows, macOS or Linux: `curl -LsSf https://astral.sh/uv/install.sh | sh`, or on Windows `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
-- A fresh VPS or server running the current Debian stable release, its public address and its initial login (`root`, `debian`...)
+- A fresh VPS or server with at least 8 GB of memory, running the current Debian stable release, its public address and its initial login (`root`, `debian`...). A smaller server is not supported
 - An SSH key pair on your local machine, or let the installer create one. Most providers install the public key given when the server is ordered; otherwise the installer installs it once with the provider's password for the initial login
 - The email address of the administrator, which is the panel's login
 

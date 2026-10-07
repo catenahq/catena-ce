@@ -285,13 +285,14 @@ clamav_consumer_files_app: "catena-nextcloud"
 # default; raise per-host if uploads are larger.
 clamav_stream_max_length: "104857600"
 # clamd reloads its signature database after each freshclam update that
-# changes it. A host with less memory than this (MemTotal, in MB) reloads
+# changes it. A machine with less memory than this (MemTotal, in MB) reloads
 # blocking: clamd frees the old database, then loads the new one while scans
 # wait, for the few seconds the load takes. At or above it the reload is
 # concurrent: scans carry on while the new database loads beside the old,
 # which holds both, about 1 GB more, for the length of the load. 7168 sits
-# below the about 7,800 MB an 8 GiB machine reports and above a 6 GiB one,
-# so 8 GB hosts keep the concurrent reload. Compared with the gathered
+# below the about 7,800 MB an 8 GiB machine reports, so every supported server
+# (8 GB or more) reloads concurrently, and only a machine below that floor,
+# such as a small test VM, reloads blocking. Compared with the gathered
 # memtotal_mb on every converge, so a resized host follows its new size.
 clamav_blocking_reload_below_mb: 7168
 
