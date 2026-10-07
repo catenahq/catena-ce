@@ -56,9 +56,11 @@ files and enables their timers.
 
 ## Inputs
 
-All from the on-box store: `cloudflare_api_token` and the zone, the
+From the on-box store: `cloudflare_api_token` and the zone, the
 `healthchecks_*` and `beszel_*` secrets, `portainer_api_key`, and the SMTP and
-alert-channel settings.
+alert-channel settings. dashboard-sync's env file also names the domains the
+host serves, read from the tunnel engine's projection by
+`playbooks/tasks/served_zones.yml`.
 
 ## Idempotency
 

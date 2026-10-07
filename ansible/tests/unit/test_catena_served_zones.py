@@ -1,11 +1,12 @@
 """The served-domain projection reader.
 
-reconcile/roles/keycloak routes one auth.<zone> host rule per attached domain, and gets
-the list from the projection the Cloudflare tunnel engine writes after a
-successful converge. The safety property under test is one-directional: every
-reason the file cannot be trusted must produce an EMPTY list, so the routing
-falls back to the primary domain rather than advertising a hostname the edge
-does not serve.
+reconcile/roles/keycloak routes one auth.<zone> host rule per attached domain,
+and reconcile/roles/infrastructure islands dashboard-sync's per-app proxies on
+each; both get the list from the projection the Cloudflare tunnel engine writes
+after a successful converge. The safety property under test is
+one-directional: every reason the file cannot be trusted must produce an EMPTY
+list, so both fall back to the primary domain rather than advertising a
+hostname the edge does not serve.
 
 Run: uv run pytest tests/unit/test_catena_served_zones.py
 """

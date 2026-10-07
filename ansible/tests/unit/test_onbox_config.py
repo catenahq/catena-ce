@@ -1,4 +1,4 @@
-"""Unit tests for helpers/onbox_config.py -- the 0b on-box config store.
+"""Unit tests for helpers/onbox_config.py -- the on-box config store.
 
 Covers: load/dump round-trip + 0600 mode, reconcile-not-overwrite minting,
 minted-value format contracts (mirrors seed.py), external-vs-internal secret

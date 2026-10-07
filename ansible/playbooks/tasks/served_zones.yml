@@ -1,0 +1,35 @@
+---
+# The domains this host serves after its primary, as catena_secondary_zones,
+# for the two renders that give each attached domain its own sign-on island:
+# reconcile/roles/keycloak routes an auth.<zone> host per domain, and
+# reconcile/roles/infrastructure hands dashboard-sync the domains its per-app
+# oauth2-proxies are islanded on.
+#
+# Read from the projection the Cloudflare tunnel engine writes after a
+# SUCCESSFUL converge (reconcile/roles/cloudflare_tunnel runs before both
+# roles), so a domain the edge is not serving gets no route and no island. A
+# host whose subscription lapsed publishes its primary alone, and both renders
+# follow without this repo knowing anything about licences.
+#
+# Every failure collapses to the same safe answer, no secondary domains: a
+# missing file (a single-domain host, or a converge that has not reached the
+# tunnel yet), a malformed one, an unknown schema, or a stamp older than the
+# staleness bound (playbooks/filter_plugins/catena_served_zones.py).
+#
+# Each consumer imports this right before it renders, so a converge scoped with
+# --tags to either role still reads the projection.
+- name: "Served domains: read the zone projection"
+  ansible.builtin.slurp:
+    src: "{{ catena_zone_projection_path }}"
+  register: _served_zones_raw
+  become: true
+  failed_when: false
+
+- name: "Served domains: resolve the secondary domains"
+  ansible.builtin.set_fact:
+    catena_secondary_zones: >-
+      {{ (_served_zones_raw.content | default('') | b64decode)
+         | catena_served_zones(
+             schema=catena_zone_projection_schema,
+             now=ansible_date_time.iso8601 | default(''),
+             max_age_hours=catena_zone_projection_max_age_hours) }}

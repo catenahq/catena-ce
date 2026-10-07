@@ -31,9 +31,11 @@
 # fail-closed).
 #
 # The engine also writes /var/lib/catena/cloudflare-zones.json after a
-# successful converge: the list of domains this host actually serves. That file
-# is what reconcile/roles/keycloak reads to route one auth.<zone> per attached domain, so
-# the routing cannot advertise a domain the edge is not serving.
+# successful converge: the list of domains this host actually serves.
+# playbooks/tasks/served_zones.yml reads it for reconcile/roles/keycloak (one
+# auth.<zone> route per attached domain) and reconcile/roles/infrastructure
+# (dashboard-sync's per-domain sign-on islands), so neither can advertise a
+# domain the edge is not serving.
 
 # The token gate lives in the ENGINE. It reads /etc/catena/config.json itself
 # and no-ops exit 0 with "cloudflared-sync: skipped (no token)" when the store

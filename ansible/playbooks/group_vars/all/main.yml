@@ -112,8 +112,18 @@ catena_public_surface_deferred: >-
 # cloudflare_zone above is the primary domain every <sub>.<zone> hostname
 # interpolates, and the only one a Community host serves. Additional domains
 # are attached in the catena-admin Domains panel and live in the on-box store;
-# the host engine assembles the full list from there and caps it on the
-# subscription, so there is no zone list to set here.
+# the host engine assembles the full list from there, caps it on the
+# subscription, and after a successful converge publishes the domains it
+# brought up to the projection below. playbooks/tasks/served_zones.yml reads it
+# for reconcile/roles/keycloak and reconcile/roles/infrastructure.
+catena_zone_projection_path: /var/lib/catena/cloudflare-zones.json
+# The shape version the engine stamps (catena-admin
+# payload/engines/cloudflared ProjectionSchema). A mismatch is refused rather
+# than mis-parsed.
+catena_zone_projection_schema: 1
+# How old a projection may be and still be acted on
+# (playbooks/filter_plugins/catena_served_zones.py says why).
+catena_zone_projection_max_age_hours: 48
 # Each host owns its own tunnel, and NAMES IT ITSELF: the engine composes
 # <prefix> + the box's hostname, which bootstrap/roles/common set to inventory_hostname.
 # The prefix is a store key (CLOUDFLARED_TUNNEL_NAME_PREFIX) the engine reads

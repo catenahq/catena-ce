@@ -14,31 +14,10 @@
 # gate readiness; the post-deploy probe in tasks/validate.yml handles
 # the cross-check once Traefik picks up the new compose.
 
-# Multi-domain: which domains this host serves. Read from the projection the
-# tunnel engine writes after a SUCCESSFUL converge (reconcile/roles/cloudflare_tunnel runs
-# before this role), rather than from a fact computed here -- so an
-# auth.<zone> route can never be written for a domain the edge is not serving.
-#
-# Every failure mode collapses to the same safe answer, primary-only: a missing
-# file (single-domain host, or a converge that has not reached the tunnel yet), a
-# malformed one, an unknown schema, or a stamp older than the staleness bound. A
-# host whose subscription lapsed publishes only its primary domain, so the routes
-# follow the entitlement without this repo knowing anything about licences.
-- name: "Keycloak: read the served-domain projection"
-  ansible.builtin.slurp:
-    src: "{{ keycloak_zone_projection_path }}"
-  register: _kc_zones_raw
-  become: true
-  failed_when: false
-
-- name: "Keycloak: resolve the secondary auth domains"
-  ansible.builtin.set_fact:
-    _kc_secondary_zones: >-
-      {{ (_kc_zones_raw.content | default('') | b64decode)
-         | catena_served_zones(
-             schema=keycloak_zone_projection_schema,
-             now=ansible_date_time.iso8601 | default(''),
-             max_age_hours=keycloak_zone_projection_max_age_hours) }}
+# Multi-domain: the domains this host serves after its primary,
+# catena_secondary_zones, which the compose and the route below both read.
+- name: "Keycloak: the served domains"
+  ansible.builtin.import_tasks: "{{ playbook_dir }}/tasks/served_zones.yml"
 
 - name: "Keycloak: deploy as a swarm stack"
   ansible.builtin.include_tasks: ../../infrastructure/tasks/swarm_stack.yml
@@ -46,11 +25,11 @@
     svc_name: "{{ keycloak_compose_name }}"
     svc_compose_content: "{{ lookup('template', 'keycloak.compose.yml.j2') }}"
     svc_domain_host: "{{ keycloak_hostname }}"
-    # Multi-domain (EE, keycloak.compose.yml.j2): route every secondary zone's
-    # auth host to Keycloak too (the primary is svc_domain_host above). Empty
-    # on single-domain -> the route rule stays a single Host() (byte-identical).
+    # Multi-domain: route every served secondary domain's auth host to Keycloak
+    # too (the primary is svc_domain_host above). Empty on a single-domain
+    # host, whose route rule is a single Host().
     svc_domain_extra_hosts: >-
-      {{ _kc_secondary_zones
+      {{ catena_secondary_zones
          | map('regex_replace', '^', keycloak_subdomain ~ '.')
          | list }}
     svc_domain_service: "{{ keycloak_server_service }}"

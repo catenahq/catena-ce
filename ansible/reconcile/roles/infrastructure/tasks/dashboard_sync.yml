@@ -15,12 +15,17 @@
 # This file holds everything whose correct value changes when the HOST
 # changes:
 #   - the env file, which carries the Portainer API key, the oauth2-proxy
-#     client secret and the per-zone cookie secrets;
+#     client secret, the domains this host serves and their cookie secrets;
 #   - enabling and starting the timer, which is the converge installing
 #     capability.
 #
 # That is the same split reconcile/roles/payload's README states: the converge installs
 # capability, the image owns content.
+
+# The served secondary domains, catena_secondary_zones, which the env file
+# names.
+- name: "dashboard-sync: the served domains"
+  ansible.builtin.import_tasks: "{{ playbook_dir }}/tasks/served_zones.yml"
 
 - name: "dashboard-sync: env file ({{ dashboard_sync_env_path }})"
   ansible.builtin.template:
