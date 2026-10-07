@@ -161,6 +161,8 @@ and whether a server presenting a new host key was reinstalled;
 `--no-confirm` asks nothing and stops instead. `--image` installs from any
 catena-admin image reference, and `--ca-file` / `--insecure-http` reach a
 private registry: the test bench serves the image it built that way.
+`uninstall` takes the same three, and otherwise runs the uninstall of the
+release the server records.
 
 Exit statuses: 0 installed; 1 the install failed; 3 it finished and a check
 failed; 4 the server refused the second leg's session.

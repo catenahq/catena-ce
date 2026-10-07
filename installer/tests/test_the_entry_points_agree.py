@@ -62,6 +62,20 @@ def test_no_arguments_opens_the_page_and_a_verb_runs_in_the_console():
         assert parser.parse_args([verb, "--inventory", "c"]).func is func
 
 
+def test_the_uninstall_fetches_the_image_it_is_given(monkeypatch, tmp_path):
+    """A server whose release came from a private registry, as the test
+    bench's does, is uninstalled with that release's own code."""
+    seen = {}
+    monkeypatch.setattr(main_mod.install, "uninstall",
+                        lambda inv, opts, line: seen.update(opts=opts) or 0)
+    args = main_mod.build_parser().parse_args(
+        ["uninstall", "--inventory-path", str(tmp_path), "--image", "reg:5000/x@sha256:"
+         + "a" * 64, "--ca-file", "/ca.crt"])
+    assert args.func(args) == 0
+    assert (seen["opts"].image, seen["opts"].ca_file) == (
+        "reg:5000/x@sha256:" + "a" * 64, "/ca.crt")
+
+
 def test_a_release_and_an_image_are_one_choice():
     with pytest.raises(SystemExit):
         main_mod.build_parser().parse_args(

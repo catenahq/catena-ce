@@ -54,6 +54,15 @@ def _address(value: str) -> str:
     return value
 
 
+def _add_registry(parser: argparse.ArgumentParser) -> None:
+    """Where the release a leg fetches comes from, when it is not a published
+    one: an image reference, and how to reach its registry."""
+    parser.add_argument("--ca-file", default="",
+                        help="a CA to trust for the image's registry")
+    parser.add_argument("--insecure-http", action="store_true",
+                        help="reach the image's registry over plain http")
+
+
 def _add_target(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--address", type=_address,
                         help="reach the server at this address for this run, "
@@ -173,7 +182,9 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 
 def cmd_uninstall(args: argparse.Namespace) -> int:
-    opts = install.Options(address=args.address or "", reinstalled=args.reinstalled)
+    opts = install.Options(image=args.image, ca_file=args.ca_file,
+                           insecure_http=args.insecure_http,
+                           address=args.address or "", reinstalled=args.reinstalled)
     return install.uninstall(_inventory_dir(args), opts, _print)
 
 
@@ -199,10 +210,7 @@ def build_parser() -> argparse.ArgumentParser:
                        help="move the server to this release (vX.Y.Z)")
     which.add_argument("--image", default="",
                        help="install from this catena-admin image reference")
-    p.add_argument("--ca-file", default="",
-                   help="a CA to trust for the image's registry")
-    p.add_argument("--insecure-http", action="store_true",
-                   help="reach the image's registry over plain http")
+    _add_registry(p)
     p.add_argument("--tags", default="",
                    help="scope the converge to these roles (comma-separated)")
     p.add_argument("--keyset-json", action="store_true",
@@ -224,6 +232,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("uninstall", help="hand the server's OS updates back to Debian")
     _add_inventory(p, required=True)
+    p.add_argument("--image", default="",
+                   help="run the uninstall of this catena-admin image reference "
+                        "rather than the release the server records")
+    _add_registry(p)
     _add_target(p)
     p.set_defaults(func=cmd_uninstall)
     return ap
