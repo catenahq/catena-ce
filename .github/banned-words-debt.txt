@@ -3,4 +3,3 @@
 # so draining a file means deleting its entry in the same commit.
 
 README.md -- trust-model comparison: names the alternatives Catena did not adopt, which is the point of the sentence
-ansible/tests/external/scan_ports.py -- uses asyncio.Semaphore, the stdlib primitive, not the retired CI tool
