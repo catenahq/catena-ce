@@ -3,10 +3,11 @@
 # settings, the host resolving its own name, the baseline packages, Debian's
 # unattended-upgrades and its origins, needrestart's restart policy, the
 # journal's storage, the NTP servers, the host mail agent kept off port 25, the
-# time zone and locale set in catena-admin > Settings, and the reboot-required
-# probe. The probe's script (catena-reboot-check) and
-# catena-reboot-check.service/.timer ship in the catena-admin payload,
-# installed by reconcile/roles/payload earlier in the play.
+# time zone and locale set in catena-admin > Settings, the reboot-required
+# probe and the licence check. The probe's script (catena-reboot-check), the
+# licence check's binary (catena-license) and both pairs of units ship in the
+# catena-admin payload, installed by reconcile/roles/payload earlier in the
+# play.
 
 # Shared with bootstrap/roles/common, which applies both before anything else
 # on a fresh host.
@@ -319,6 +320,51 @@
 - name: "Reboot check: enable + start timer"
   ansible.builtin.systemd_service:
     name: "{{ reboot_check_systemd_unit_name }}.timer"
+    enabled: true
+    state: started
+    daemon_reload: true
+  when:
+    - not ansible_check_mode
+    - catena_payload_missing | length == 0
+
+# The licence check: `catena-license refresh`, hourly, the one call this host
+# makes to Polar about its licence key. Its binary and both units ship in the
+# catena-admin payload. Its own include, because the predicate's facts are
+# overwritten by the next one and read right after.
+- name: "Licence check: is the payload-shipped timer expected on this host"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: _payload_expected
+  vars:
+    _payload_paths:
+      - "/etc/systemd/system/{{ license_refresh_systemd_unit_name }}.timer"
+
+- name: "Licence check: the timer is missing from a converge that installs it"
+  ansible.builtin.fail:
+    msg: >-
+      /etc/systemd/system/{{ license_refresh_systemd_unit_name }}.timer is
+      absent although reconcile/roles/payload ran in this converge, so this
+      host would never check its licence key with Polar. Check the "Payload:"
+      tasks above for why the extract did not land.
+  when:
+    - catena_payload_missing | length > 0
+    - catena_payload_expected | bool
+
+- name: "Licence check: timer staged out of band and not present yet"
+  ansible.builtin.debug:
+    msg: >-
+      The licence-check timer is not on the host and this converge does not
+      install the payload (CATENA_PAYLOAD_INSTALL=false). The next converge
+      once the payload is installed enables it.
+  when:
+    - catena_payload_missing | length > 0
+    - not (catena_payload_expected | bool)
+
+# Enabled on every host, whatever its edition: the check is how a key gets
+# its first answer, and with no key in the store it asks nothing.
+- name: "Licence check: enable + start timer"
+  ansible.builtin.systemd_service:
+    name: "{{ license_refresh_systemd_unit_name }}.timer"
     enabled: true
     state: started
     daemon_reload: true

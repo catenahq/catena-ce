@@ -5,8 +5,8 @@ change here reaches a host that converges itself: apt's settings, the host
 resolving its own name, the baseline packages, Debian's unattended-upgrades
 and its origins, needrestart's restart policy, the journal's storage, the NTP
 servers, the host mail agent kept off port 25, the settings the client changes
-in catena-admin > Settings, and whether this host needs a reboot. It runs right
-after `payload`.
+in catena-admin > Settings, whether this host needs a reboot, and the hourly
+licence check. It runs right after `payload`.
 
 ## Packages, updates, journal, clock, mail agent
 
@@ -79,3 +79,17 @@ among them) wait for the same restart the kernel does.
 
 Reboot. The probe has no path that boots the host, and adding one would move a
 decision about downtime from a person to a timer.
+
+## The licence check
+
+`catena-license-refresh.timer` runs `catena-license refresh` every hour, at a
+fixed offset into the hour for each host: the one call the host makes to Polar
+about the licence key in its store, recorded where the panel and the engines
+read it. With no key it asks nothing. The binary and both units ship in the
+catena-admin payload; this role enables the timer on every host, whatever its
+edition.
+
+A converge that installs the payload fails when the timer is not on the host
+afterwards; a converge on a host whose payload is staged out of band
+(`CATENA_PAYLOAD_INSTALL=false`) says so and leaves the timer to the first
+converge after the payload lands.

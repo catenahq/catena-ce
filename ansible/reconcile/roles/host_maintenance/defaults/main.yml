@@ -1,9 +1,9 @@
 ---
 # The host's own upkeep: its packages, Debian's unattended-upgrades, the
 # journal, the NTP servers, the settings the client changes in catena-admin,
-# and telling somebody the host needs a reboot. The package list is shared
-# with bootstrap/roles/common, so it lives in playbooks/group_vars/all/main.yml
-# (catena_baseline_packages).
+# telling somebody the host needs a reboot, and the hourly licence check. The
+# package list is shared with bootstrap/roles/common, so it lives in
+# playbooks/group_vars/all/main.yml (catena_baseline_packages).
 #
 # Nothing in this role reboots the host. The reboot-required probe is the half
 # that makes "patched but not in effect yet" visible instead of silent.
@@ -21,7 +21,10 @@ reboot_check_systemd_unit_name: catena-reboot-check
 # matching the clamd watch and the mail canary.
 reboot_check_slug: catena-reboot-required
 
+# The licence check's units, shipped in the catena-admin payload.
+license_refresh_systemd_unit_name: catena-license-refresh
+
 # Executing-prefix paths this role writes, for
-# playbooks/tasks/prune_withdrawn_files.yml. Empty: the probe and its units
-# ship in the catena-admin payload.
+# playbooks/tasks/prune_withdrawn_files.yml. Empty: the probe, the licence
+# check and their units ship in the catena-admin payload.
 host_maintenance_managed_paths: []

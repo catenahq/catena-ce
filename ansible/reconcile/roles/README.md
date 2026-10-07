@@ -24,7 +24,7 @@ generated from the leading comment of each role's `tasks/main.yml`.
 | `cloudflare_tunnel` | Cloudflare tunnel converge -- unconditional dispatch to the host engine. |
 | `cloudflare_tunnel_regenerate` | Regenerate the Cloudflare tunnel for this host. |
 | `coturn` | Shared TURN/STUN server -- consumer-gated orchestrator. |
-| `host_maintenance` | The host's own upkeep, applied on every converge from either path: apt's settings, the host resolving its own name, the baseline packages, Debian's unattended-upgrades and its origins, needrestart's restart policy, the journal's storage, the host mail agent kept off port 25, the time zone and locale set in catena-admin > Settings, and the reboot-required probe. |
+| `host_maintenance` | The host's own upkeep, applied on every converge from either path: apt's settings, the host resolving its own name, the baseline packages, Debian's unattended-upgrades and its origins, needrestart's restart policy, the journal's storage, the NTP servers, the host mail agent kept off port 25, the time zone and locale set in catena-admin > Settings, the reboot-required probe and the licence check. |
 | `infrastructure` | The monitoring plane every host runs, and the wiring for the client apps deployed from the catalog. |
 | `keycloak` | Orchestrator for reconcile/roles/keycloak. |
 | `oauth2_proxy` | Orchestrator for reconcile/roles/oauth2_proxy. |
