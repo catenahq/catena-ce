@@ -1,0 +1,66 @@
+name: Publish installer
+
+# Publishes catena-installer to PyPI on a release tag, versioned from the tag
+# (v1.2.3 -> 1.2.3); the checkout's pyproject carries 0.0.0. PyPI trusted
+# publishing: this workflow's OIDC identity is the credential, nothing is
+# stored. Clients run the result as `uvx catena-installer`.
+#
+# ONE-TIME operator setup: register catenahq/catena-ce, this workflow and the
+# environment `pypi` as a trusted publisher of catena-installer on PyPI.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Build + publish catena-installer (PyPI)
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+          # The guard below reads main from this clone.
+          fetch-depth: 0
+
+      - name: Release tags must be on main
+        # Releases are tagged on main (ops create-catena-release.sh); a v* tag
+        # anywhere else publishes nothing.
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if ! git merge-base --is-ancestor "$SHA" origin/main; then
+            echo "::error::commit $SHA is not on origin/main; catena-installer publishes only from main."
+            exit 1
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          # A release build restores nothing another run could have written.
+          enable-cache: false
+
+      - name: Installer tests
+        run: uv run pytest -q
+
+      - name: Version from the tag
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: uv version --frozen "${REF_NAME#v}"
+
+      # The wheel alone: it carries the tree files it needs
+      # (pyproject.toml force-include), a source archive would carry the repo.
+      - name: Build
+        run: uv build --wheel
+
+      - name: Publish
+        run: uv publish --trusted-publishing always
