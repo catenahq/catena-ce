@@ -5,11 +5,11 @@
 
 # Test scenarios
 
-The 162 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 165 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
-| `activate_ee` | A Community host becomes a licensed Pro host when a valid offline licence token is installed, and unlocks nothing without one. |
+| `activate_ee` | A Community host becomes a licensed host when a key Polar grants is saved in its Settings, and unlocks nothing for a key Polar refuses. |
 | `admin_action_unknown_rejected` | The administrative action dispatcher refuses a request for an action it does not carry, exits non-zero, and names nothing it might have run. |
 | `audit_chain_tamper_evident` | An exported administrative audit trail verifies away from the host it came from, and stops verifying as soon as any row is altered. |
 | `backup_rollback` | A file changed after a backup is returned to its snapshot content by a rollback, and the applications come back with it. |
@@ -51,10 +51,10 @@ The 162 scenarios the maintainers' test bench carries, and the behaviour each on
 | `ee_audit_ship` | Administrative audit events shipped from a host arrive intact at the central collector. |
 | `ee_ce_regression` | Community actions keep working on a host that has been licensed for Pro. |
 | `ee_daily_cycle` | The daily maintenance engine drives a full chain on a licensed host, stage by stage, to completion. |
-| `ee_entitlement_partial` | A licence naming some panels unlocks exactly those, and the actions behind the panels it leaves out are absent rather than merely hidden. |
+| `ee_entitlement_partial` | A Catena Pro key unlocks the Pro panels and nothing of Business, and the actions behind the Business panels are absent rather than merely hidden. |
 | `ee_identity_probe` | The identity posture probe reports how single sign-on is configured on a host and changes verdict when that configuration changes. |
-| `ee_lapse` | A host whose licence lapses freezes its licensed features while everything Community keeps working. |
-| `ee_multidomain` | A second, unrelated domain is attached to a licensed host and both domains are served through the one tunnel. |
+| `ee_lapse` | A host whose key Polar stops granting locks its licensed features once, tells its admin once, and keeps everything Community working. |
+| `ee_multidomain` | A second, unrelated domain is attached to a licensed host, both domains are served through the one tunnel, and a gated app on each domain sends its visitors to its own domain's sign-on, with cookies scoped to that domain. |
 | `ee_named_buttons` | Each licensed maintenance button dispatches its own distinct action rather than sharing one. |
 | `erpnext_failed_migrate_rolls_back` | When an ERPNext update's database migration fails, the previous version and its database are put back and the site keeps serving. |
 | `erpnext_update_migrates` | An ERPNext update moves every ERPNext service to the new version in one step and migrates the database, and the site comes back serving. |
@@ -120,7 +120,7 @@ The 162 scenarios the maintainers' test bench carries, and the behaviour each on
 | `keycloak_signing_keys_rotation_round_trip` | A single sign-on signing key is rotated with an overlap window where both keys verify, then retired without breaking any session. |
 | `labels_vocabulary_from_image` | The port a template's labels declare is read with the label vocabulary the server's panel image ships, so an image update changes what a label means with no converge. |
 | `launcher_install` | The graphical installer, run with no UI, installs a server the way the command-line installer does, over a private address and over the public one. |
-| `license_domain_mismatch` | A correctly signed licence issued for another server unlocks nothing, says so by name, and takes away nothing the host already had. |
+| `license_seat` | A key is active on one server at a time: a copy of a licensed server and a second server are both refused the key's seat, and once the seat is freed the second server takes it and the first locks at its next check -- while the first keeps everything but its paid panels. |
 | `mailbox_sync_ownership` | A mailbox made by hand survives the mailbox reconciler, and a mailbox the reconciler made is closed when its owner leaves the staff group. |
 | `mailserver_after_domain` | A mail server deployed from the catalogue on a server that already has its domain is wired with nothing pressed: the server starts the converge that wires it, once. |
 | `malformed_catalog_rejection` | A malformed application catalogue is refused, and the host keeps using the last one it read correctly. |
@@ -139,6 +139,9 @@ The 162 scenarios the maintainers' test bench carries, and the behaviour each on
 | `payload_prune_respects_ce` | Installing the licensed payload deletes what it withdraws and leaves everything owned by the public installer in place. |
 | `pg_major_version_cross_restore` | A snapshot captured on one major database version replays cleanly onto a host running a newer one. |
 | `pitr_fuse_round_trip` | A single application is recovered to a point in time by browsing the backup repository as a file system. |
+| `polar_api_version_current` | The Polar API version the licence check pins still answers in Polar's sandbox, and a newer version Polar publishes is reported as a warning to move the pin before the pinned one is removed. |
+| `polar_sandbox_smoke` | Polar's sandbox grants a licence key to one server's hardware, confirms it there, and refuses the same key to a second server while the first holds its only seat. |
+| `polar_unreachable_grace` | A licensed host keeps its edition while Polar cannot be reached for up to 48 hours, locks past that and tells its admin once, and unlocks as soon as Polar answers again. |
 | `post_compromise_rebuild` | A server rebuilt after a compromise comes back on a new object-store key pair, with the pair its backups were taken under revoked, and stays off the public edge until its Cloudflare token is replaced. |
 | `primary_domain_change_round_trip` | A server is moved to a different domain, and the domain it left stops answering. |
 | `quiesce_resume_round_trip` | A host is frozen in both available degrees and resumed exactly as it was found. |
