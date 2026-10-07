@@ -22,15 +22,35 @@ not implement.
 - **Secrets.** The repository contains none. What a deployment needs is
   documented in [ansible/SECRETS.md](ansible/SECRETS.md).
 
-## Community vs Catena Pro
+## Licensing
 
-Catena-CE is complete and functional on its own. Every host keeps its
-operating system current through Debian's unattended-upgrades and notifies when a reboot is pending. Every other update is a button.
-Catena Pro adds automation on top of the same host-native operations:
-scheduled backups at any frequency, managed updates with rollback, including
-the container engine and the restart a kernel update needs, daily maintenance,
-offsite immutable secondary backups, attestation, central audit shipping, multiple
-sign-on domains, and server-to-server migration.
+Catena-CE is complete and functional on its own. Catena Pro and Catena
+Business are licences that unlock features of the dashboard and payload every
+host already runs; the website's
+[edition comparison](https://catena.run/en/#pricing) lists which.
+
+A paid edition is a subscription key bought through Polar and saved in the
+dashboard. The host asks Polar about the key every hour, and only when it
+holds one. A key is active on one server at a time, bound to that server's
+hardware, so a copy of the server is refused while the original holds the
+key. While Polar cannot be reached, the edition holds for 48 hours after its
+last confirmation; a cancelled, revoked or freed key locks at once. The host
+tells its admin of a lock once, in the maintenance log and by email through
+the configured relay. A lock takes away the paid features only: applications,
+their data, backups, restores and updates by hand keep running.
+
+A move to another server needs a paid edition on the server being moved, and
+none on the receiving one. Once the move is validated, the old server frees
+the key and closes its migration window, and the receiving server takes the
+key over and converges itself.
+
+| Invariant | Enforced by |
+| --- | --- |
+| No key, an unconfirmed key or a refused one leaves the host on Community, and nothing fails closed | `bench:ee_ce_regression`, `bench:ee_lapse`, `threat:LE3` |
+| A paid edition holds 48 hours while Polar is unreachable, locks at once on a refusal, and tells the admin once | `bench:polar_unreachable_grace`, `bench:ee_lapse`, `threat:LE3` |
+| A lock takes away paid features only: applications, restores and Community actions keep running | `bench:license_seat`, `threat:LE3` |
+| A subscription key is active on one server at a time | `bench:license_seat`, `bench:polar_sandbox_smoke`, `threat:LE7` |
+| A move hands the key on only once the move is validated | `bench:wizard_migrate_round_trip`, `bench:migrate_lane_auth_denied`, `threat:LE12` |
 
 ## How this repository is layered
 
@@ -275,7 +295,7 @@ forward-only SSH account (`panel`) to the host's loopback.
 | A server installs with no tunnel credential and brings its public edge up later without a reinstall | `bench:ce_install_suite` |
 | A credential entered in the dashboard is checked on the host before it is stored, and a refused one is never stored | `bench:ce_install_suite`, `bench:fi_s4_tailscale_oauth_revoked` |
 | The tunnel can be replaced on a live host from the dashboard, without a reinstall | `bench:cf_tunnel_regenerate_round_trip` |
-| Each domain token grants exactly one domain; Community caps at one | `bench:fi_n10_multidomain_cap` |
+| A domain token may reach several domains; only the ones chosen in the dashboard are attached, and Community attaches one | `bench:fi_n10_multidomain_cap` |
 | The private-network control server is pluggable | `bench:ce_install_headscale` |
 
 ### The restic repository -- `backup`
@@ -309,9 +329,9 @@ different one, and only a finished run clears the record.
 ### The timers -- `public_ports`, `infrastructure`, `host_maintenance`
 
 Scheduled work is default-deny. This repository ships two local-maintenance
-timers (the antivirus watch, the mail canary) and enables four the payload
+timers (the antivirus watch, the mail canary) and enables five the payload
 ships (the public-port reconcile, the dashboard and Gatus syncs, the hourly
-reboot-required probe). None spends object storage.
+reboot-required probe, the hourly licence check). None spends object storage.
 
 Every lane (backup, the bit-rot check, the offsite copy, the daily update
 chain, dashboard updates, the scheduled converge) ships in the payload with its
@@ -442,4 +462,5 @@ None.
 
 ## Installation
 
-See [README.md](README.md).
+A server needs at least 8 GB of memory; a smaller one is not supported. See
+[README.md](README.md).
