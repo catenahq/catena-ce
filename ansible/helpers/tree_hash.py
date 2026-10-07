@@ -13,8 +13,8 @@ their bytes on disk. The hash is the sha256 of one line per file, sorted by
 path: `<path>\\0<sha256 of its content>\\n`, the path relative to the tree root.
 
 A tree with no git checkout is one staged out of an image (catena-admin
-catena-converge, or the install run on the server): it carries the image's
-VENDOR.json beside ansible/, and its hash is the one recorded there.
+catena-converge): it carries the image's VENDOR.json beside ansible/, and its
+hash is the one recorded there.
 
 Usage:
   tree_hash.py <tree root>            {"tree_sha256": ..., "describe": ...}
