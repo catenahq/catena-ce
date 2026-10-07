@@ -1,19 +1,19 @@
 """The reconcile tree reads no variable that only a bootstrap role defines, and
-none that only the operator's inventory supplies.
+none that only the install's inventory supplies.
 
 A host converges itself with playbooks/reconcile.yml alone (catena-admin
 catena-converge), which runs no bootstrap role, so a bootstrap default is
-undefined there. From a laptop, converge.yml runs both halves in one play and
+undefined there. The install runs converge.yml, both halves in one play, and
 the same read resolves, which is how a gap here stays invisible until a host
 converges on its own and stops at the first task that reads it.
 
 A value both halves need belongs in playbooks/group_vars/all/main.yml.
 
 The inventory is the same trap with a quieter failure. The host's own converge
-has no hosts.yml and no .env, so a value read from either resolves to something
-else there, and the two paths render different files for one machine: each
-converge then undoes the other's, and the panel rolls on the first converge
-after a switch of path.
+has no installer `.env` and not the install's host vars, so a value read from
+either resolves to something else there, and the two paths render different
+files for one machine: each converge then undoes the other's, and the panel
+rolls on the first converge after a switch of path.
 
 The scan is textual: names inside {{ }} / {% %} and in when/until/that
 expressions, against top-level keys of defaults, vars and group_vars and the
@@ -130,12 +130,11 @@ _RECORDED_ON_THE_HOST = {
 
 
 def _operator_supplied() -> set[str]:
-    """Every host var the inventory skeleton sets, and every shared value
-    group_vars reads from the inventory's .env."""
-    skel = yaml.safe_load((ANSIBLE / "skel" / "hosts.yml.example").read_text())
-    names: set[str] = set()
-    for host in skel["all"]["children"]["vps"]["hosts"].values():
-        names |= set(host)
+    """Every host var the install's run inventory sets (install-host.sh writes
+    it), and every shared value group_vars reads from the installer's .env."""
+    script = (ANSIBLE / "install-host.sh").read_text()
+    inventory = re.search(r'hosts\.yml" <<YAML\n(.*?)\nYAML\n', script, re.S).group(1)
+    names = set(re.findall(r"^ {6}([a-z_]+):", inventory, re.M))
     shared = yaml.safe_load(_GROUP_VARS.read_text())
     names |= {k for k, v in shared.items() if "lookup('dotenv'" in str(v)}
     return names
@@ -162,7 +161,7 @@ def test_the_reconcile_reads_nothing_only_the_operator_supplies():
 def test_the_operator_supplied_scan_sees_the_inventory():
     """A scan that found no operator-only names would pass anything."""
     names = _operator_supplied()
-    for name in ("ansible_host", "public_ip", "ops_user"):
+    for name in ("ansible_python_interpreter", "public_ip", "ops_user"):
         assert name in names, f"the scan no longer sees {name} as operator-supplied"
 
 

@@ -259,93 +259,40 @@ def test_read_existing_env_parses_a_hand_filled_file(seed, tmp_path):
 
 # --- emit_hosts_yml ---------------------------------------------------------
 def test_emit_hosts_yml_copies_the_skeleton(seed, tmp_path):
-    """hosts.yml is static -- every field reads from .env at ansible runtime
-    via the dotenv lookup, so seed just copies the skeleton once."""
+    """The skeleton names the server; the installer reads the rest from the
+    `.env`, so seed just copies it once."""
     target = tmp_path / "hosts.yml"
     seed.emit_hosts_yml(target)
     assert target.read_text() == seed.HOSTS_YML_SKEL.read_text()
+    hosts = yaml.safe_load(target.read_text())["all"]["children"]["vps"]["hosts"]
+    assert list(hosts) == ["host1"]
 
 
 def test_emit_hosts_yml_does_not_overwrite_existing(seed, tmp_path):
     target = tmp_path / "hosts.yml"
-    target.write_text("# hand-edited, e.g. a second host\n")
+    target.write_text("# hand-edited\n")
     seed.emit_hosts_yml(target)
-    assert target.read_text() == "# hand-edited, e.g. a second host\n"
+    assert target.read_text() == "# hand-edited\n"
 
 
-def test_the_skeleton_bootstraps_over_the_ssh_address(seed):
-    """HOST_SSH_ADDRESS when set, else the public IP; public_ip stays the
-    public IP for what needs the routable address."""
-    skel = seed.HOSTS_YML_SKEL.read_text()
-    assert seed._BOOTSTRAP_HOST_NEW in skel
-    assert "public_ip: \"{{ lookup('dotenv', 'HOST_PUBLIC_IP') }}\"" in skel
-
-
-def test_an_older_hosts_yml_learns_the_ssh_address_and_keeps_the_rest(seed, tmp_path):
+# --- emit_hosts_yml_entry (the -i path) -------------------------------------
+def test_emit_hosts_yml_entry_names_the_server(seed, tmp_path):
     target = tmp_path / "hosts.yml"
-    older = (seed.HOSTS_YML_SKEL.read_text()
-             .replace(seed._BOOTSTRAP_HOST_NEW, seed._BOOTSTRAP_HOST_OLD)
-             + "# a hand edit\n")
-    target.write_text(older)
-    seed.emit_hosts_yml(target)
-    text = target.read_text()
-    assert seed._BOOTSTRAP_HOST_NEW in text
-    assert seed._BOOTSTRAP_HOST_OLD not in text
-    assert text.endswith("# a hand edit\n")
-
-
-# --- emit_hosts_yml_entry (the -i install.yaml generate path) ---------------
-def test_emit_hosts_yml_entry_creates_both_groups(seed, tmp_path):
-    target = tmp_path / "hosts.yml"
-    seed.emit_hosts_yml_entry(target, "prod1", {
-        "HOST_PUBLIC_IP": "203.0.113.10",
-        "HOST_INITIAL_USER": "debian",
-        "HOST_SSH_PORT": "22",
-        "OPS_USER": "ops",
-    })
+    seed.emit_hosts_yml_entry(target, "prod1")
     data = yaml.safe_load(target.read_text())
-    vps = data["all"]["children"]["vps"]["hosts"]
-    boot = data["all"]["children"]["bootstrap"]["hosts"]
-    assert boot["prod1-bootstrap"]["ansible_host"] == "203.0.113.10"
-    assert boot["prod1-bootstrap"]["bootstrap_initial_user"] == "debian"
-    assert vps["prod1"]["ansible_host"] == "0.0.0.0"  # bootstrap.yml rewrites this
-    assert vps["prod1"]["ansible_user"] == "ops"
-    assert vps["prod1"]["public_ip"] == "203.0.113.10"
+    assert data["all"]["children"]["vps"]["hosts"] == {"prod1": {}}
 
 
-def test_emit_hosts_yml_entry_bootstraps_over_the_ssh_address(seed, tmp_path):
+def test_emit_hosts_yml_entry_keeps_what_the_server_carries(seed, tmp_path):
+    """An address written under the server (the bench repoints a copy that
+    way) stays; a server named differently goes, since an inventory installs
+    one server."""
     target = tmp_path / "hosts.yml"
-    seed.emit_hosts_yml_entry(target, "prod1", {
-        "HOST_PUBLIC_IP": "203.0.113.10", "HOST_SSH_ADDRESS": "100.64.0.5"})
-    data = yaml.safe_load(target.read_text())["all"]["children"]
-    assert data["bootstrap"]["hosts"]["prod1-bootstrap"]["ansible_host"] == "100.64.0.5"
-    assert data["vps"]["hosts"]["prod1"]["public_ip"] == "203.0.113.10"
-
-
-def test_emit_hosts_yml_entry_merges_into_existing(seed, tmp_path):
-    """The bench adds a distinctly-named host per run/slot to the same
-    inventory -- an existing entry must survive, not just the new one."""
-    target = tmp_path / "hosts.yml"
-    target.write_text(yaml.safe_dump({
-        "all": {"children": {
-            "vps": {"hosts": {"old1": {"ansible_host": "100.9.9.9",
-                                       "ansible_user": "ops",
-                                       "ansible_port": 22}}},
-            "bootstrap": {"hosts": {}},
-        }}
-    }))
-    seed.emit_hosts_yml_entry(target, "prod1", {"HOST_PUBLIC_IP": "203.0.113.10"})
-    vps = yaml.safe_load(target.read_text())["all"]["children"]["vps"]["hosts"]
-    assert "old1" in vps and "prod1" in vps
-
-
-def test_emit_hosts_yml_entry_defaults_when_env_values_sparse(seed, tmp_path):
-    target = tmp_path / "hosts.yml"
-    seed.emit_hosts_yml_entry(target, "prod1", {})
-    data = yaml.safe_load(target.read_text())
-    boot = data["all"]["children"]["bootstrap"]["hosts"]["prod1-bootstrap"]
-    assert boot["bootstrap_initial_user"] == "root"
-    assert boot["ansible_port"] == "22"
+    target.write_text(yaml.safe_dump({"all": {"children": {"vps": {"hosts": {
+        "prod1": {"ansible_host": "10.0.0.7"}, "old1": {}}}}}}))
+    seed.emit_hosts_yml_entry(target, "prod1")
+    hosts = yaml.safe_load(target.read_text())["all"]["children"]["vps"]["hosts"]
+    assert hosts == {"prod1": {"ansible_host": "10.0.0.7"}}
 
 
 # --- write_secrets_out (transient adopt map) --------------------------------

@@ -77,7 +77,7 @@ def test_readme_rendered_into_etc_catena():
 
 def test_readme_does_not_depend_on_our_own_tooling():
     """A rebuild guide that needs our CLI is not an exit."""
-    forbidden = ("catena-cli", "catena recover", "catena rollback",
+    forbidden = ("catena-installer", "catena recover", "catena rollback",
                  "catena restore", "ansible")
     for lang in _LANGS:
         body = (_TEMPLATES / f"RECOVERY-README.{lang}.md.j2").read_text().lower()

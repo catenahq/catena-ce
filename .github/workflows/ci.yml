@@ -1,7 +1,7 @@
 name: CI
 
-# Python installer (ansible/) unit tests. This repo carries no Go. Python
-# tooling comes from uv.
+# The Ansible tree's unit tests and syntax check, and the installer's
+# (installer/). This repo carries no Go. Python tooling comes from uv.
 
 on:
   # Every pushed branch. Renovate and engine-bump branches always carry a pull
@@ -14,8 +14,8 @@ permissions:
   contents: read
 
 jobs:
-  installer:
-    name: Installer (Python) tests
+  tree:
+    name: Ansible tree unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -23,20 +23,19 @@ jobs:
           persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-      # The installer tests import only seed.py + helpers (no ansible-core), so
-      # run them in a lightweight ephemeral env instead of syncing the project
-      # (which would pull ansible-core for nothing here).
+      # The tree's tests read the tree and run its helpers with no
+      # ansible-core, so they run in a lightweight ephemeral env instead of
+      # syncing the project (which would pull ansible-core for nothing here).
       - name: Unit tests
         working-directory: ansible
         run: uv run --no-project --with pytest --with pyyaml python -m pytest tests/unit -q
 
-  entry-points:
-    # The two entry points a client runs, `catena-cli` and `catena-gui`, from
-    # the root project and from their own. The launcher's tests include the
-    # gate that holds the declarations, the code they point at, the launcher's
-    # call into the CLI and the documented commands to one another; the locks
-    # are held to their pyprojects here, since resolving needs the index.
-    name: Entry points and the graphical installer
+  installer:
+    # `catena-installer`, the root project: its tests include the gate that
+    # holds the declaration, the code it points at and the documented
+    # commands to one another, and what a wheel carries. The locks are held
+    # to their pyprojects here, since resolving needs the index.
+    name: Installer
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -49,27 +48,24 @@ jobs:
           set -eu
           uv lock --check
           uv lock --check --project ansible
-          uv lock --check --project gui
-      - name: Both entry points run from the root
-        run: |
-          set -eu
-          uv run catena-cli --help
-          uv run catena-gui --help
-      - name: Graphical installer tests
-        working-directory: gui
+      - name: The entry point runs
+        run: uv run catena-installer --help
+      - name: Installer tests
         run: uv run pytest -q
+      - name: A wheel builds
+        run: uv build --wheel
 
   syntax:
     # Every playbook parses, roles and all. The unit job above deliberately
     # runs without ansible-core, so nothing until now READ the tree Ansible
     # actually executes: a bad task keyword, a malformed block, a module name
-    # no installed collection provides -- all of it reached a converge before
+    # ansible-core does not provide -- all of it reached a converge before
     # anything noticed, and a converge is a client's server.
     #
     # --syntax-check loads the whole play including every role it includes, so
-    # this covers roles/ without naming them. It resolves module FQCNs, which
-    # is why it needs the pinned collections: without them every
-    # community.general task reads as a conflicting action statement.
+    # this covers roles/ without naming them. With no collection installed, a
+    # module from one reads as a conflicting action statement: the tree runs
+    # on ansible-core alone, on the server.
     #
     # -i localhost, because syntax-check parses rather than connects; the
     # inventory only has to exist.
@@ -81,9 +77,6 @@ jobs:
           persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-      - name: Vendor the pinned collections
-        working-directory: ansible
-        run: uv run ansible-galaxy collection install -r requirements.yml -p .collections
       - name: Syntax-check every playbook
         working-directory: ansible
         run: |

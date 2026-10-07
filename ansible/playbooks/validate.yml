@@ -1,15 +1,17 @@
 ---
-# Validation orchestrator: check a converged host from three vantage points,
-# so a service that only answers on the box is not mistaken for a working one.
+# Validation orchestrator: the checks a server runs on itself, so a service
+# that only answers on the box is not mistaken for a working one.
 #
-#   1. On-host  -- each role's own tasks/validate.yml, executed on the target
-#   2. Access   -- SSH from the controller, the two UIs on the host's loopback,
-#                  the public hostnames once a domain is set
-#   3. External -- from the controller, hitting public IP / CF hostnames
+#   1. On-host  -- each role's own tasks/validate.yml, and the test email
+#   2. Access   -- the two UIs on the host's loopback, the public hostnames
+#                  once a domain is set, the host's published ports
 #
-# The installer's last leg. On the host, catena-converge runs vantage 1 after
-# every converge that applies reconcile.yml. With no domain, tailnet or backup
-# in the store yet, the checks that need one skip and say so.
+# The install's last step: ansible/install-host.sh runs both, and the
+# installer then checks the server from the client's machine (the public
+# port scan, the container network unreachable from outside). catena-converge
+# runs vantage 1 after every converge that applies reconcile.yml. With no
+# domain, tailnet or backup in the store yet, the checks that need one skip and
+# say so.
 
 - name: "Vantage 1 -- on-host checks via per-role validate.yml"
   # Each role under test ships its own tasks/validate.yml, invoked via
@@ -305,19 +307,12 @@
         - _smtp_enabled | bool
         - _kc_send_verify is succeeded
 
-- name: "Vantage 2 -- access checks from operator"
+- name: "Vantage 2 -- access checks on the host"
   hosts: "{{ stage_hosts | default('vps') }}"
   gather_facts: false
   become: false
   tags: [tailnet, vantage2]
   tasks:
-    - name: Probe SSH where the controller reaches the host
-      ansible.builtin.wait_for:
-        host: "{{ ansible_host }}"
-        port: 22
-        timeout: 10
-      delegate_to: localhost
-
     # The two UIs answer this host's loopback only, and an administrator reaches
     # them through an SSH local forward that lands there. So the probe runs ON
     # the host, against 127.0.0.1 -- the address the forward delivers to.
@@ -382,7 +377,6 @@
           - "https://{{ keycloak_hostname | default('auth.' ~ cloudflare_zone) }}/realms/{{ keycloak_realm | default('vps') }}/account"
           - --timeout
           - "15"
-      delegate_to: localhost
       register: _v2_keycloak_probe
       changed_when: false
       failed_when: (_v2_keycloak_probe.stdout | from_json).status not in [200, 302]
@@ -454,8 +448,6 @@
           - "https://{{ item }}/oauth2/start?rd=https%3A%2F%2F{{ item }}%2F"
           - --timeout
           - "15"
-      delegate_to: localhost
-      become: false
       register: _r3_probes
       changed_when: false
       failed_when: (_r3_probes.stdout | from_json).status != 302
@@ -630,188 +622,3 @@
           Docker is not managing iptables on this host.
         success_msg: "Port reconciler applied its full rule plan"
       when: _pp_summary_stat.stat.exists | default(false)
-
-    # Direct-container-IP probe from a tailnet vantage.
-    # Asserts the catena-network bridge stays host-internal: container
-    # IPs (172.x.y.z by default) must NOT be reachable from the
-    # operator's controller. The host-port allowlist above catches the
-    # `ports: "8080:80"` shape; this catches the orthogonal case where
-    # someone adds a route or iptables exception that exposes the bridge
-    # itself. A successful TCP connect from controller -> container IP
-    # would mean the network isolation is broken (Traefik bypass: clients
-    # could hit the gated app's container directly).
-    - name: "tailnet: list container IPs on catena-network"
-      ansible.builtin.command:
-        argv:
-          - docker
-          - network
-          - inspect
-          - "{{ catena_network_name | default('catena-network') }}"
-          - --format
-          - '{% raw %}{{range $k, $v := .Containers}}{{$v.IPv4Address}}{{"\n"}}{{end}}{% endraw %}'
-      register: _r4_ct_ips_raw
-      changed_when: false
-      become: true
-      failed_when: false
-
-    - name: "tailnet: parse container IPv4 list (strip CIDR suffix)"
-      ansible.builtin.set_fact:
-        _container_ips: >-
-          {{
-            (_r4_ct_ips_raw.stdout_lines | default([]))
-            | map('regex_replace', '/[0-9]+$', '')
-            | reject('equalto', '')
-            | unique
-            | list
-          }}
-
-    - name: "tailnet: probe each container IP from controller (must NOT connect)"
-      # state=stopped semantics: the task succeeds when the port is NOT
-      # listening within the timeout. A successful TCP connect = failure.
-      ansible.builtin.wait_for:
-        host: "{{ item }}"
-        port: 80
-        timeout: 3
-        state: stopped
-      delegate_to: localhost
-      become: false
-      loop: "{{ _container_ips | default([]) }}"
-      loop_control:
-        label: "{{ item }}"
-      when: (_container_ips | default([])) | length > 0
-
-    - name: "tailnet: container-IP isolation OK"
-      ansible.builtin.debug:
-        msg: |
-          {{ (_container_ips | default([])) | length }} container IP(s)
-          on catena-network: none reachable from controller (good).
-      when: (_container_ips | default([])) | length > 0
-
-- name: "Vantage 3 -- external checks"
-  hosts: "{{ stage_hosts | default('vps') }}"
-  gather_facts: false
-  become: false
-  tags: [external, vantage3]
-  # The public-port invariant must run on every
-  # deployed host as a post-converge gate, not just on the dev1 test
-  # bench. Catches drift introduced by per-client compose
-  # customization (e.g. someone adding `ports: ["8080:80"]` to a
-  # one-off compose). The inventory's `public_ip` is the source of
-  # truth (set by `seed.py` at install time); when it is missing we
-  # try a host-egress fallback so a forgotten seed answer doesn't
-  # silently disable the external scan, then loud-skip with
-  # remediation if both fail.
-
-  vars:
-    _public_ip_inventory: "{{ hostvars[inventory_hostname].public_ip | default('') }}"
-    # Public TCP ports we deliberately permit -- DERIVED from the
-    # public-port registry (public_open_tcp in the reconciler summary), not
-    # hand-maintained. coturn's TLS-TURN binds tcp/5349; the mailserver
-    # template adds 25/465/587/993 when deployed. The UDP profile
-    # (3478/udp, 5349/udp, 50000-50100/udp, ...) is not enumerated here
-    # because the external scanner is TCP-only. Fallback to [5349] when the
-    # summary is absent (partial converge before the reconciler ran).
-    expected_public_ports: >-
-      {{
-        (_pp3_summary_raw.content | b64decode | from_json).public_open_tcp
-        if (_pp3_summary_stat.stat.exists | default(false))
-        else [5349]
-      }}
-
-  tasks:
-    - name: "stat public-port registry summary (external vantage)"
-      ansible.builtin.stat:
-        path: /etc/catena/public-ports.summary.json
-      register: _pp3_summary_stat
-      become: true
-
-    - name: "read public-port registry summary (external vantage)"
-      ansible.builtin.slurp:
-        src: /etc/catena/public-ports.summary.json
-      register: _pp3_summary_raw
-      become: true
-      when: _pp3_summary_stat.stat.exists | default(false)
-
-    - name: "Derive public_ip from host egress when inventory is silent"
-      # `ip route get 1.1.1.1` returns the source IPv4 the host reaches
-      # 1.1.1.1 from; on a routable VPS (no carrier-grade NAT) that's the
-      # public IP. Falls back gracefully on hosts behind 1:1 NAT (rare
-      # in the supported provider set: OVH, Hetzner, DO, Linode, Vultr,
-      # AWS Lightsail) -- the egress src is then a private IP and the
-      # downstream skip task handles it.
-      ansible.builtin.command:
-        argv:
-          - sh
-          - -c
-          - "ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \\([0-9.]*\\).*/\\1/p' | head -n1"
-      register: _r2_egress_src
-      changed_when: false
-      become: true
-      failed_when: false
-      when: _public_ip_inventory | length == 0
-
-    - name: "Bind effective public_ip (reject RFC1918 / CGNAT / tailnet)"
-      # The egress fallback returns the routing src for 1.1.1.1, which on a
-      # bench / NATed VM is a private RFC1918 address (10/8, 172.16/12,
-      # 192.168/16) or CGNAT (100.64/10, also Tailscale's space). Scanning
-      # those from the controller succeeds even when the real public ports
-      # are correctly closed (the controller is on the same LAN), producing
-      # a false-positive SECURITY REGRESSION for ports that are actually
-      # tailnet- or LAN-only. The same false-positive applies when the
-      # INVENTORY supplies a private address (e.g. the bench seeds
-      # public_ip with the Incus bridge IP so coturn can advertise an
-      # ICE-candidate address that resolves on the same L2 segment). Apply
-      # the private-IP filter to BOTH sources so a bench-scoped public_ip
-      # falls through to the loud-skip path. Use an explicit
-      # string-yielding expression: a `>-` folded scalar whose Jinja body
-      # emits nothing parses as null (None) downstream and crashes
-      # `public_ip | length`.
-      ansible.builtin.set_fact:
-        public_ip: "{{ _r2_resolved_public_ip }}"
-      vars:
-        _r2_egress_stdout: "{{ _r2_egress_src.stdout | default('') | trim }}"
-        # Match RFC1918 (10/8, 192.168/16, 172.16/12), CGNAT (100.64/10),
-        # loopback (127/8), link-local (169.254/16), and 0/8.
-        _r2_private_re: >-
-          ^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.|127\.|169\.254\.|0\.)
-        _r2_egress_is_private: "{{ _r2_egress_stdout is match(_r2_private_re) }}"
-        _r2_egress_routable: "{{ (_r2_egress_stdout | length > 0) and (not _r2_egress_is_private) }}"
-        _r2_inventory_is_private: "{{ (_public_ip_inventory | length > 0) and (_public_ip_inventory is match(_r2_private_re)) }}"
-        _r2_inventory_routable: "{{ (_public_ip_inventory | length > 0) and (not _r2_inventory_is_private) }}"
-        _r2_resolved_public_ip: "{{ _public_ip_inventory if _r2_inventory_routable else (_r2_egress_stdout if _r2_egress_routable else '') }}"
-
-    - name: "Warn when public_ip is unknown (loud skip, not silent)"
-      ansible.builtin.debug:
-        msg: |
-          Vantage 3 external probe SKIPPED on {{ inventory_hostname }} --
-          no globally-routable public_ip was available. Either:
-            - public_ip unset in inventory AND host-egress detection
-              returned no IPv4 / a non-routable address, OR
-            - public_ip in inventory is RFC1918 / CGNAT / loopback
-              (e.g. an Incus bridge IP for the bench, where coturn
-              needs the bridge address as its ICE candidate but no
-              real WAN exists to scan).
-
-          Without a routable IP, drift in publicly bound ports goes
-          undetected post-converge.
-
-          Inventory public_ip:  {{ _public_ip_inventory | default('<unset>') }}
-          Egress src observed:  {{ _r2_egress_src.stdout | default('<none>') | trim }}
-
-          To re-enable on this host, set `public_ip` in your inventory's
-          group_vars/all/hosts.yml (or re-run the installer and answer the
-          "Public IPv4 (from provider)" prompt).
-      when: (public_ip | default('', true)) | length == 0
-
-    - name: Skip external checks if public_ip is unknown
-      ansible.builtin.meta: end_host
-      when: (public_ip | default('', true)) | length == 0
-
-    # Paths are relative to playbook_dir (ansible/playbooks/); the external
-    # test tasks live at ansible/tests/external/, so reach them via ../tests.
-    - name: Verify public IP has no unexpected open ports
-      ansible.builtin.include_tasks: ../tests/external/public-ports.yml
-
-    - name: Verify Cloudflare Tunnel hostnames serve 200, direct-IP is refused
-      ansible.builtin.include_tasks: ../tests/external/cloudflare-tunnel.yml
-      when: cloudflared_ingress_rules | default([]) | length > 0

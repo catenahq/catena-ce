@@ -146,14 +146,23 @@
     group: "{{ catena_admin_container_gid }}"
     mode: "0700"
 
+# Generated once and never replaced: `creates` skips ssh-keygen whenever the
+# private key exists.
 - name: "SSH dir: generate ed25519 keypair if missing"
-  community.crypto.openssh_keypair:
-    path: "{{ catena_admin_host_ssh_dir }}/id_ed25519"
-    type: ed25519
+  ansible.builtin.command:
+    argv: [ssh-keygen, -q, -t, ed25519, -N, "", -C, "",
+           -f, "{{ catena_admin_host_ssh_dir }}/id_ed25519"]
+    creates: "{{ catena_admin_host_ssh_dir }}/id_ed25519"
+
+- name: "SSH dir: keypair owned by the container user"
+  ansible.builtin.file:
+    path: "{{ item }}"
     owner: "{{ catena_admin_container_uid }}"
     group: "{{ catena_admin_container_gid }}"
     mode: "0600"
-    regenerate: never
+  loop:
+    - "{{ catena_admin_host_ssh_dir }}/id_ed25519"
+    - "{{ catena_admin_host_ssh_dir }}/id_ed25519.pub"
 
 - name: "SSH dir: read public key"
   ansible.builtin.slurp:

@@ -19,7 +19,7 @@
 # never overwrites what the client later set in catena-admin. The ones the
 # registry marks `env.reseed` have no panel field, so the `.env` stays their
 # editor and a second call writes them over the store. Every other store key
-# has no `.env` line; catena_cli warns about one it finds.
+# has no `.env` line; the installer warns about one it finds.
 - name: "onbox: stage the knob registry"
   ansible.builtin.include_tasks:
     file: stage_knob_registry.yml
@@ -36,7 +36,8 @@
   register: _onbox_cfg_known
   changed_when: false
 
-# Each declared key is read out of the inventory .env on the CONTROLLER and
+# Each declared key is read out of the `.env` the installer sent with this
+# run (beside the run's inventory, where the dotenv lookup finds it) and
 # passed as --set-config. A blank never seeds: apply_inputs skips empty values
 # the same way it skips a blank secret, so an unset key leaves the store alone
 # rather than writing "" over a value the client set.

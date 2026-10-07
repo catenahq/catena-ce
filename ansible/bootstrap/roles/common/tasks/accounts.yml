@@ -1,0 +1,109 @@
+---
+# The ops account and the panel's forward-only account, each with the
+# installer's public key, and ops' passwordless sudo. playbooks/accounts.yml
+# runs this file alone, as the first leg of an install, through the
+# provider's login; main.yml includes it on every later run.
+
+# ─── ops user + SSH key ──────────────────────────────────────────────────
+- name: Create ops user
+  ansible.builtin.user:
+    name: "{{ ops_user }}"
+    shell: /bin/bash
+    create_home: true
+    groups: sudo
+    append: true
+    state: present
+    # Debian's useradd writes `!` in /etc/shadow for a password-less
+    # user, which OpenSSH 9.8+ (Debian 13) treats as "account locked"
+    # and refuses pubkey auth for (`User ops not allowed because
+    # account is locked`). OpenSSH 9.2 (Debian 12) did not do this
+    # check, which is why the issue never surfaced on older hosts.
+    # `*` means "no usable password" but NOT locked -- pubkey auth
+    # is permitted, password auth is permanently impossible (no hash
+    # could ever match). update_password: on_create keeps this a
+    # one-shot fix so rerunning the role on an already-created ops
+    # doesn't churn /etc/shadow.
+    password: "*"
+    update_password: on_create
+  register: _ops_account
+
+- name: Assert at least one ops SSH public key is configured
+  ansible.builtin.assert:
+    that:
+      - ops_ssh_public_keys | length > 0
+    fail_msg: >-
+      ops_ssh_public_keys is empty: no installer key reached this run
+      (ansible/install-host.sh passes it). Without one the ops user would have
+      no way to log in after password auth is disabled.
+
+# One authorized_keys line per key, matched on the key blob: lines a client
+# added by hand stay, and a line holding the same key is replaced, so a changed
+# option or comment updates it in place. The panel account's keys below follow
+# the same rule. Home directory and primary group are the ones the user task
+# reports for the account.
+- name: "ops: ~/.ssh directory"
+  ansible.builtin.file:
+    path: "{{ _ops_account.home }}/.ssh"
+    state: directory
+    owner: "{{ ops_user }}"
+    group: "{{ _ops_account.group }}"
+    mode: "0700"
+
+- name: Install SSH authorized keys for ops
+  ansible.builtin.lineinfile:
+    path: "{{ _ops_account.home }}/.ssh/authorized_keys"
+    regexp: '(^|\s){{ item.split()[1] | regex_escape }}(\s|$)'
+    line: "{{ item }}"
+    create: true
+    owner: "{{ ops_user }}"
+    group: "{{ _ops_account.group }}"
+    mode: "0600"
+  loop: "{{ ops_ssh_public_keys }}"
+
+# ─── panel account: SSH local forwards to the two host-only UIs ─────────
+# The panel (9010) and Portainer (9000) answer this host's loopback only. An
+# administrator reaches them through `ssh -N -L 9010:127.0.0.1:9010
+# panel@<host>`, and doing that as ops would mean holding a sudo shell open to
+# look at a web page. This account can do nothing else: no shell, no password,
+# and a key restricted to forwarding to exactly those two ports. Same keys as
+# ops -- the ones the installer was given.
+- name: Create the panel forwarding account
+  ansible.builtin.user:
+    name: "{{ catena_panel_user }}"
+    shell: /usr/sbin/nologin
+    create_home: true
+    # `*`, not the useradd default `!`, for the reason the ops account gives:
+    # OpenSSH 9.8+ refuses pubkey auth to a locked account.
+    password: "*"
+    update_password: on_create
+    state: present
+  register: _panel_account
+
+- name: "panel: ~/.ssh directory"
+  ansible.builtin.file:
+    path: "{{ _panel_account.home }}/.ssh"
+    state: directory
+    owner: "{{ catena_panel_user }}"
+    group: "{{ _panel_account.group }}"
+    mode: "0700"
+
+- name: Install the panel account's forward-only keys
+  ansible.builtin.lineinfile:
+    path: "{{ _panel_account.home }}/.ssh/authorized_keys"
+    regexp: '(^|\s){{ item.split()[1] | regex_escape }}(\s|$)'
+    line: >-
+      restrict,port-forwarding,permitopen="127.0.0.1:{{ catena_admin_ui_port }}",permitopen="127.0.0.1:{{ portainer_ui_port }}" {{ item }}
+    create: true
+    owner: "{{ catena_panel_user }}"
+    group: "{{ _panel_account.group }}"
+    mode: "0600"
+  loop: "{{ ops_ssh_public_keys }}"
+
+- name: Grant ops passwordless sudo
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/010-ops
+    content: "{{ ops_user }} ALL=(ALL) NOPASSWD: ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"

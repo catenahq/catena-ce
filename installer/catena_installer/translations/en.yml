@@ -1,0 +1,133 @@
+# The installer page's own words in English. Keys match fr.yml one for one;
+# `{name}` is a placeholder the page fills in.
+
+page.title: "{title} -- Catena installer"
+page.not_found: "Not found"
+
+nav.inventory: "Inventory"
+nav.install: "Installation"
+nav.language: "Language"
+
+inventory.title: "Inventory"
+inventory.intro: >-
+  Each server is defined by an "inventory": a folder that holds its identity.
+  Catena's inventory system saves non-secret information only. Secrets, such
+  as passwords and API tokens, must be saved to a password manager.
+inventory.choose: >-
+  Choose an existing inventory to install or converge / repair, or create one
+  for a new installation.
+inventory.none: "No inventory yet."
+inventory.open_now: "(open now)"
+inventory.new_name: "New inventory name"
+inventory.name_tip: >-
+  Lower-case letters, digits, dashes and underscores, starting with a letter or
+  digit.
+inventory.name_tip_about: "About the inventory name"
+inventory.create: "Create"
+inventory.problem.invalid: >-
+  {name}: use lower-case letters, digits, dashes and underscores, starting
+  with a letter or digit
+inventory.problem.exists: "{name}: an inventory with that name already exists; open it instead"
+inventory.problem.unknown: "there is no inventory {name}"
+
+field.optional: "(optional)"
+field.about: "About {label}"
+field.not_saved: "Not saved: entered again each time the installer is opened."
+field.none: "(none)"
+
+install.title: "Install: {name}"
+install.saved_to: "Settings are saved to {path}, excluding secrets and passwords."
+
+process.title: "Installation process"
+process.intro: >-
+  The installation will run for several minutes and its output will be shown
+  below. Several secrets will be displayed in the next section as soon as the
+  server has generated them, a few minutes in. In case of error during
+  installation, please create an issue at {issues} and copy the errors there.
+process.button: "Verify configuration and start installation"
+process.installing: "Installing. Closing this tab does not stop it; closing the console window does."
+process.done: "Finished."
+process.failed: "The installation stopped. The output says where."
+process.empty: "The installation output appears here."
+process.reopened: >-
+  (this installer was opened again after the install ran: its output went to
+  the console window it ran in, and was not kept)
+
+access.title: "Catena server access"
+access.save: >-
+  Copy these keys to your password manager and use them to access your new
+  installation.
+access.forward: >-
+  From another machine with the same SSH key, this command opens the same
+  connection:
+access.forward_open: >-
+  This installer keeps the connection to the server open while its window is
+  open. Closing the window closes it; `catena-installer connect` opens it again.
+access.connect: "Connect to the panel"
+access.connect_about: >-
+  Opens a connection to the server's panel and Portainer through the
+  forward-only 'panel' account, with the inventory's SSH key.
+access.panel: >-
+  You can reach the Catena administration panel in your browser at {url}. Log
+  in using the admin email and password.
+access.portainer: >-
+  You can reach the Portainer (applications management) panel in your browser
+  at {url}. Log in using user 'admin' and the admin password.
+access.settings: >-
+  Visit the Settings tab in the admin panel to configure Domain and DNS access
+  (Cloudflare), Administrator tunnel (Tailnet), outgoing emails, backups, and
+  more.
+
+keyset.admin_password: "Admin password"
+keyset.console_recovery_password: "'ops' user password"
+keyset.console_recovery_password.about: >-
+  For the provider's web console or a physical keyboard only: SSH accepts
+  keys, never this password.
+keyset.journal_verification_key: "Journal verification key"
+keyset.journal_verification_key.about: >-
+  Proves the server's own log of administrative actions was not altered. The
+  server keeps no copy.
+keyset.pending: "Shown here during the installation."
+keyset.not_again: "Shown at the first installation only."
+
+provider_password.label: "Host initial user's password"
+provider_password.help: >-
+  The password the provider gave for the initial login. Needed only when the
+  server does not accept the SSH key yet: the install uses it once, to add the
+  key, and nothing keeps it.
+
+check.required: "{label} is required"
+check.fill_in: "fill it in"
+check.port: "the SSH port"
+check.port_invalid: "{port} is not a port number"
+check.ssh_answers: "an SSH server answers at {host}:{port}"
+check.ssh_silent: >-
+  nothing accepted a connection. A server still being delivered is the
+  ordinary reason, and this section is where a run waits for it
+check.keypair: "the keypair is on this machine"
+check.keypair_missing: >-
+  {path} or its .pub is missing. Tick the box below to create the pair there,
+  or name a pair this machine has
+check.no_path: "(no path)"
+check.key_opens: "the key already opens {login}"
+check.no_password_needed: "no password is needed"
+check.refused: "refused"
+check.key_refused: "the server does not accept this key yet"
+check.key_refused_detail: >-
+  {tried}. Enter the provider's password for {user}, and the install adds the
+  key with it, or give the public key to the provider and check again
+check.password_opens: "the provider's password opens {login}"
+check.password_adds_key: "the install adds the key with it"
+check.password_refused: "the password was refused"
+check.host_key: "{host} presents the host key this machine trusts for it"
+check.host_key_changed: >-
+  it presents another one ({offered}; trusted: {trusted}). A reinstalled server
+  does: tick the box below if this one was. If it was not, another machine may
+  be answering at this address, and the install sends it nothing
+check.host_key_new: "{host} presents a new host key"
+check.host_key_trusted: >-
+  the server was reinstalled: the install forgets the old key and trusts this
+  one
+
+confirm.reinstalled: "This server was reinstalled: trust its new host key"
+confirm.create_key: "Create this SSH key pair now"

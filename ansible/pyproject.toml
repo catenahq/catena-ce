@@ -1,35 +1,19 @@
 [project]
-name = "catena-ce-installer"
+name = "catena-ce-ansible"
 version = "0.1.0"
-description = "Community Catena installer / CLI (seed + ansible wrapper)"
+description = "The catena-ce Ansible tree's test environment"
 requires-python = ">=3.12"
 dependencies = [
     "pyyaml>=6",
-    # Pin to the bench-validated ansible-core line. The floor is above the
-    # 2.19 series (which needed systemd/ufw workarounds), the ceiling below
-    # the next unvalidated minor; requires-python>=3.12 keeps a single
-    # resolution (2.21.x) rather than splitting py3.11 onto 2.19. uv
-    # provisions a 3.12+ interpreter, so older-distro controllers are not
-    # blocked.
+    # The range bootstrap/roles/ansible_runtime installs on the server, so the
+    # tests and syntax checks read the tree with the ansible-core it runs on.
+    # tests/unit/test_ansible_runtime_pin.py holds the two together.
     "ansible-core>=2.20,<2.22",
-    # bootstrap Phase 0.5 runs helpers/install_key.py to install the operator
-    # key over the provider password; pexpect drives that SSH session.
-    "pexpect>=4.9",
 ]
 
-[project.scripts]
-# `uv run catena-cli <verb> --inventory <name>`, from the repository root or
-# from ansible/. catena_cli IS the implementation, not a shim in front of one,
-# so the console script, the module the audit anchors on and the file to read
-# are the same file. gui/tests/test_the_entry_points_agree.py holds this name to
-# the root pyproject, the launcher and the docs.
-catena-cli = "catena_cli:_entry"
-
-[build-system]
-# Required so uv builds + installs this project into the env, which is what
-# creates the `catena-cli` console script above.
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
+[tool.uv]
+# Nothing here is built or installed: the tree runs in place, on the server.
+package = false
 
 [dependency-groups]
 dev = [
@@ -38,9 +22,3 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"]
-
-[tool.setuptools]
-# catena_cli is the only importable module (the CLI itself). The rest
-# of the tree (seed.py, helpers/, playbooks/, roles/) is run in place, not
-# packaged.
-py-modules = ["catena_cli"]

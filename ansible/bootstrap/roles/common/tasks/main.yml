@@ -1,6 +1,7 @@
 ---
-# Baseline host setup. Runs over the initial connection (root+password during
-# bootstrap; ops+key on all subsequent runs). Idempotent.
+# Baseline host setup and the sshd hardening, run on the server by the
+# install's second leg (playbooks/bootstrap.yml) and by every converge.yml.
+# Idempotent.
 
 - name: Wait for cloud-init to finish (if present)
   ansible.builtin.command: cloud-init status --wait
@@ -160,81 +161,9 @@
     cache_valid_time: 3600
     lock_timeout: 300
 
-# ─── ops user + SSH key ──────────────────────────────────────────────────
-- name: Create ops user
-  ansible.builtin.user:
-    name: "{{ ops_user }}"
-    shell: /bin/bash
-    create_home: true
-    groups: sudo
-    append: true
-    state: present
-    # Debian's useradd writes `!` in /etc/shadow for a password-less
-    # user, which OpenSSH 9.8+ (Debian 13) treats as "account locked"
-    # and refuses pubkey auth for (`User ops not allowed because
-    # account is locked`). OpenSSH 9.2 (Debian 12) did not do this
-    # check, which is why the issue never surfaced on older hosts.
-    # `*` means "no usable password" but NOT locked -- pubkey auth
-    # is permitted, password auth is permanently impossible (no hash
-    # could ever match). update_password: on_create keeps this a
-    # one-shot fix so rerunning the role on an already-created ops
-    # doesn't churn /etc/shadow.
-    password: "*"
-    update_password: on_create
-
-- name: Assert at least one ops SSH public key is configured
-  ansible.builtin.assert:
-    that:
-      - ops_ssh_public_keys | length > 0
-    fail_msg: >-
-      ops_ssh_public_keys is empty. Populate it in group_vars/all.yml before
-      running bootstrap -- otherwise the ops user would have no way to log in
-      after password auth is disabled.
-
-- name: Install SSH authorized keys for ops
-  ansible.posix.authorized_key:
-    user: "{{ ops_user }}"
-    key: "{{ item }}"
-    state: present
-    exclusive: false
-  loop: "{{ ops_ssh_public_keys }}"
-
-# ─── panel account: SSH local forwards to the two host-only UIs ─────────
-# The panel (9010) and Portainer (9000) answer this host's loopback only. An
-# administrator reaches them through `ssh -N -L 9010:127.0.0.1:9010
-# panel@<host>`, and doing that as ops would mean holding a sudo shell open to
-# look at a web page. This account can do nothing else: no shell, no password,
-# and a key restricted to forwarding to exactly those two ports. Same keys as
-# ops -- the ones the installer was given.
-- name: Create the panel forwarding account
-  ansible.builtin.user:
-    name: "{{ catena_panel_user }}"
-    shell: /usr/sbin/nologin
-    create_home: true
-    # `*`, not the useradd default `!`, for the reason the ops account gives:
-    # OpenSSH 9.8+ refuses pubkey auth to a locked account.
-    password: "*"
-    update_password: on_create
-    state: present
-
-- name: Install the panel account's forward-only keys
-  ansible.posix.authorized_key:
-    user: "{{ catena_panel_user }}"
-    key: "{{ item }}"
-    key_options: >-
-      restrict,port-forwarding,permitopen="127.0.0.1:{{ catena_admin_ui_port }}",permitopen="127.0.0.1:{{ portainer_ui_port }}"
-    state: present
-    exclusive: false
-  loop: "{{ ops_ssh_public_keys }}"
-
-- name: Grant ops passwordless sudo
-  ansible.builtin.copy:
-    dest: /etc/sudoers.d/010-ops
-    content: "{{ ops_user }} ALL=(ALL) NOPASSWD: ALL\n"
-    owner: root
-    group: root
-    mode: "0440"
-    validate: "visudo -cf %s"
+# ─── the ops and panel accounts ───────────────────────────────────────────
+- name: "common: the ops and panel accounts, with the installer's key"
+  ansible.builtin.import_tasks: accounts.yml
 
 # ─── console break-glass password ────────────────────────────────────────
 # ops carries password `*` (no usable password) by default, so once SSH is
@@ -272,103 +201,40 @@
 
 # ─── prove the replacement path BEFORE closing every other one ───────────
 # ORDERING. This role performs the second of the two irreversible access
-# handoffs in the product, and until now only the first one had a gate.
+# handoffs in the product, and both carry a gate:
 #
 #   ufw_lockdown.yml:  add tailnet rule -> VERIFY -> remove public 22
-#   here:              install ops key   ->    ?   -> deny everything else
+#   here:              install ops key   -> VERIFY -> deny everything else
 #
-# What sat in that gap was `ops_ssh_public_keys | length > 0`, an assert on a
-# CONTROLLER-SIDE STRING. It proves a variable is not empty. It does not prove
-# the key it holds is the one the operator's private key matches, that sshd
-# accepts it for ops, or that ops is not locked in /etc/shadow (Debian's `!`,
-# which OpenSSH 9.8+ refuses pubkey auth for -- see the ops user task above).
-# The template below then turns off password auth, root login, and every
-# account except ops in a single write.
+# The template below turns off password auth, root login, and every account
+# except ops in a single write. A non-empty key list proves nothing about
+# whether sshd accepts that key for ops, or whether ops is locked in
+# /etc/shadow (Debian's `!`, which OpenSSH 9.8+ refuses pubkey auth for -- see
+# the ops user task in accounts.yml).
 #
-# So prove it over the network, as ops, from the controller. Every fallback is
-# still live at this point: password auth is on, the provider account still
-# passes AllowUsers, public 22 is still open. A failure here stops the converge
-# with the operator still able to get back in, which is the entire property.
+# The proof is the install's: ansible/install-host.sh runs this role only in a
+# session that logged in as ops with the installer's key, checked against
+# sshd's own record of that session (helpers/session_proof.py), and passes
+# catena_install_key_proven. Every fallback is still live at that point:
+# password auth is on, the provider account still passes AllowUsers, public 22
+# is still open.
 #
 # Bypass with -e skip_ssh_lockout_gate=true (same shape as
-# skip_disk_preflight / skip_external_preflight). Doing so restores the old
-# behaviour: hardening on an unproven key.
-- name: "sshd: can the controller read the operator private key?"
-  ansible.builtin.stat:
-    path: "{{ ansible_ssh_private_key_file }}"
-  register: _ops_privkey
-  changed_when: false
-  delegate_to: localhost
-  become: false
-  when: not (skip_ssh_lockout_gate | default(false) | bool)
-
-- name: "sshd: prove ops key auth works before hardening removes every other path"
-  ansible.builtin.command:
-    argv:
-      - ssh
-      - -o
-      - BatchMode=yes
-      - -o
-      - ConnectTimeout=10
-      - -o
-      - IdentitiesOnly=yes
-      - -o
-      - PreferredAuthentications=publickey
-      - -o
-      - StrictHostKeyChecking=accept-new
-      - -i
-      - "{{ ansible_ssh_private_key_file }}"
-      - -p
-      - "{{ ansible_port | default(22) }}"
-      - "{{ ops_user }}@{{ ansible_host }}"
-      - "true"
-  register: _ops_key_proof
-  changed_when: false
-  failed_when: false
-  delegate_to: localhost
-  become: false
-  when:
-    - not (skip_ssh_lockout_gate | default(false) | bool)
-    - _ops_privkey.stat.exists | default(false)
-
-- name: "sshd: refuse to harden -- ops cannot log in with the operator key"
+# skip_disk_preflight / skip_external_preflight): hardening on an unproven key.
+- name: "sshd: refuse to harden -- no session proved that ops opens with its key"
   ansible.builtin.fail:
     msg: |
-      {{ ops_user }}@{{ ansible_host }} did not accept
-      {{ ansible_ssh_private_key_file }} (ssh rc={{ _ops_key_proof.rc }}).
+      Refusing to apply the sshd hardening: nothing proved that {{ ops_user }}
+      logs in with the installer's key. The next task disables password auth
+      and root login and restricts AllowUsers to
+      {{ ssh_allowed_users | join(', ') }}, which without that proof can leave
+      this host with no working way in. Nothing has been closed yet.
 
-      Refusing to apply the sshd hardening, because the next task disables
-      password auth and root login and restricts AllowUsers to
-      {{ ssh_allowed_users | join(', ') }}. Applying it now would leave this
-      host with no working way in.
-
-      Nothing has been closed yet -- the provider account and password auth
-      still work. Check, in order:
-
-        1. /home/{{ ops_user }}/.ssh/authorized_keys against
-           {{ ansible_ssh_private_key_file }}.pub
-        2. `passwd -S {{ ops_user }}` -- an L (locked) account is refused
-           pubkey auth by OpenSSH 9.8+ even with a correct key
-        3. ssh's own reason: {{ _ops_key_proof.stderr | default('') | trim }}
+      Run the install with the installer, which logs in as {{ ops_user }}
+      with its key before this leg and proves it on the server.
   when:
     - not (skip_ssh_lockout_gate | default(false) | bool)
-    - _ops_privkey.stat.exists | default(false)
-    - (_ops_key_proof.rc | default(1)) != 0
-
-# The controller not holding the key is a different thing from the key not
-# working, and it must not read as a pass. It happens for real (a dispatch
-# runner in a container, an agent-mediated identity), so it does not fail the
-# converge -- it says out loud that the hardening below went in UNPROVEN.
-- name: "sshd: hardening WITHOUT proof -- controller cannot read the key"
-  ansible.builtin.debug:
-    msg: >-
-      {{ ansible_ssh_private_key_file }} is not readable here, so ops key auth
-      could not be proved before hardening. This is unchecked, not verified.
-      If {{ ops_user }} does not accept a key, this host has no way in after
-      the next task.
-  when:
-    - not (skip_ssh_lockout_gate | default(false) | bool)
-    - not (_ops_privkey.stat.exists | default(false))
+    - not (catena_install_key_proven | default(false) | bool)
 
 # ─── sshd hardening ──────────────────────────────────────────────────────
 # After this runs, root+password login stops working. The ops user with key
@@ -529,15 +395,28 @@
 # swaps this rule for "allow 22 on tailscale0 only" and closes public 22 -- but
 # only after it has PROVEN the tailnet path. On a `public_ssh` host it stays,
 # because there is no other path to prove.
+#
+# The ufw CLI, in the argv style ufw_lockdown.yml uses. `ufw default`
+# reports a change whether or not it made one, so the defaults and the
+# switch-on run only when `ufw status verbose` shows them missing. An inactive
+# ufw prints its status line alone, so a first run sets all three.
+- name: "ufw: read the current state"
+  ansible.builtin.command:
+    argv: [ufw, status, verbose]
+  register: _ufw_state
+  changed_when: false
+
 - name: Set ufw default deny incoming
-  community.general.ufw:
-    default: deny
-    direction: incoming
+  ansible.builtin.command:
+    argv: [ufw, default, deny, incoming]
+  changed_when: true
+  when: "'deny (incoming)' not in _ufw_state.stdout"
 
 - name: Set ufw default allow outgoing
-  community.general.ufw:
-    default: allow
-    direction: outgoing
+  ansible.builtin.command:
+    argv: [ufw, default, allow, outgoing]
+  changed_when: true
+  when: "'allow (outgoing)' not in _ufw_state.stdout"
 
 # Detect whether tailscale0 is up. On first boot it is not, and the public SSH
 # rule is the only way in. On a tailnet host where it is up, the rule the
@@ -550,19 +429,26 @@
   changed_when: false
   failed_when: false
 
+# ufw skips a rule it already has ("Skipping adding existing rule"). A rule it
+# adds while inactive prints "Rules updated" rather than "Rule added".
 - name: Allow public SSH (bootstrap, and permanently on a host with no tailnet)
-  community.general.ufw:
-    rule: allow
-    port: "22"
-    proto: tcp
-    comment: "{{ catena_ssh_ufw_comment }}"
+  ansible.builtin.command:
+    argv: [ufw, allow, from, any, to, any, port, "22", proto, tcp,
+           comment, "{{ catena_ssh_ufw_comment }}"]
+  register: _ufw_public_ssh
+  changed_when: >-
+    'Rule added' in _ufw_public_ssh.stdout
+    or 'Rule updated' in _ufw_public_ssh.stdout
+    or 'Rules updated' in _ufw_public_ssh.stdout
   when: >-
     _ufw_tailscale_iface.rc != 0
     or catena_access_method != 'tailnet'
 
 - name: Enable ufw
-  community.general.ufw:
-    state: enabled
+  ansible.builtin.command:
+    argv: [ufw, --force, enable]
+  changed_when: true
+  when: "'Status: active' not in _ufw_state.stdout"
 
 # ─── port 22 in the public-port registry ─────────────────────────────────
 # Without a declaration, a host that keeps 22 open FAILS validation: the

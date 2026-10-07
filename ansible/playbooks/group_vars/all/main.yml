@@ -29,19 +29,10 @@ catena_host_facts_path: /etc/ansible/facts.d/catena.fact
 
 # --- Identity ---
 ops_user: "{{ lookup('dotenv', 'OPS_USER', default='ops') }}"
-# The controller's key for reaching the host over SSH. A host converging itself
-# (catena-converge, local connection) has no .env and no use for one.
-# The HOST's own connection, read through hostvars: a task delegated to
-# localhost (bootstrap.yml's key install and key checks) templates
-# ansible_connection as localhost's `local`, which would blank the key the
-# task hands to ssh.
-ansible_ssh_private_key_file: >-
-  {{ lookup('dotenv', 'SSH_PRIVATE_KEY')
-     if (hostvars[inventory_hostname].ansible_connection | default('ssh')) != 'local'
-     else '' }}
-# The public half sits beside the private key, as ssh-keygen writes it.
-ops_ssh_public_keys:
-  - "{{ lookup('file', lookup('dotenv', 'SSH_PRIVATE_KEY') ~ '.pub') }}"
+# The installer's public key, which ops and the panel account accept. The
+# installer sends it with each leg and ansible/install-host.sh passes it as an
+# extra var; bootstrap/roles/common refuses to run with none.
+ops_ssh_public_keys: []
 # The forward-only account an administrator opens the panel and Portainer
 # through (`ssh -N -L 9010:127.0.0.1:9010 panel@<host>`). A product constant:
 # the installer's access page and the keyset banner print it.

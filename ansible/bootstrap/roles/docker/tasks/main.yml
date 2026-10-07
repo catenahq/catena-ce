@@ -207,7 +207,7 @@
 # leaning on the nudge to clean up afterwards. Idempotent: a no-op when
 # daemon.json was unchanged (no handler was notified).
 - name: "docker: flush pending daemon restart before the app layer deploys"
-  meta: flush_handlers
+  ansible.builtin.meta: flush_handlers
 
 # Atomicity: prove the daemon actually serves API requests before any
 # downstream role (swarm services, infra compose, backup's `docker

@@ -1,32 +1,29 @@
 #!/usr/bin/env python3
-"""Seed inventory/<name>/ for Community Catena.
+"""Seed an inventory for Community Catena: the one reader and writer of its
+`.env` and `hosts.yml`, which the installer (catena-ce installer/) runs on the
+client's machine.
 
-With `-i install.yaml` (bench / power user), generates a fresh inventory:
+With `-i <file>` (the bench / an operator), generates a fresh inventory:
 reads host, env and secrets values from the file, prompts for anything missing.
 
-Without one, inventory/<name>/.env must already exist -- written by
-`catena-cli init` or the graphical installer, and filled in -- and seed reads
-it directly instead of prompting field by field.
-hosts.yml auto-scaffolds from skel/ regardless of which path ran; an
-existing file's values always win (reconcile-not-overwrite):
-  - inventory/<name>/.env                            (non-secret config)
-  - inventory/<name>/hosts.yml                        (bootstrap + vps entries)
-
-The group_vars structure (playbooks/group_vars/all/main.yml) is shared: it
-is pure `lookup('dotenv', ...)` boilerplate, identical for every inventory,
-so it is not written per-inventory here -- only the .env VALUES it reads
-differ between inventories.
+Without one, the inventory's .env must already exist -- written by
+`catena-installer init` or the installer page, and filled in -- and seed
+reads it directly instead of prompting field by field. hosts.yml
+auto-scaffolds from skel/ regardless of which path ran; an existing file's
+values always win (reconcile-not-overwrite):
+  - <inventory>/.env        (non-secret config)
+  - <inventory>/hosts.yml   (the server's name)
 
 The inventory holds non-secret files only, and no vendor credential is
-collected at all. An install.yaml that names a value the server holds is
+collected at all. An input file that names a value the server holds is
 refused, with the panel named, rather than having the value dropped in
 silence.
 
-The one secret an install.yaml may carry is an admin password override, which
+The one secret an input file may carry is an admin password override, which
 the first converge creates the panel and Portainer admins with. seed writes it
-to the TRANSIENT 0600 file given by `--secrets-out`; the installer
-(`catena-cli`) threads that file onto the converge as `-e @file`, so the on-box
-loader ADOPTS it into /etc/catena/config.json, and deletes it.
+to the TRANSIENT 0600 file given by `--secrets-out`; the installer sends it to
+the server for the run as `-e @file`, so the on-box loader ADOPTS it into
+/etc/catena/config.json, and deletes it.
 
 Everything else is minted ON-BOX by the converge loader
 (helpers/onbox_config.py): the internal service secrets, plus the user-held
@@ -36,8 +33,8 @@ Nothing else. No ansible-playbook calls, no SSH; seed exits cleanly once files
 are written.
 
 Usage:
-    python seed.py [-i install.yaml] [--inventory NAME] --secrets-out PATH
-                   [--no-confirm]
+    python seed.py [-i <file>] [--inventory NAME | --inventory-path DIR]
+                   --secrets-out PATH [--no-confirm]
 """
 from __future__ import annotations
 
@@ -496,7 +493,7 @@ def env_template() -> str:
 
 def write_env(inv_dir: Path, answers: dict[str, str]) -> Path:
     """Write inv_dir/.env, 0600: every key at its default unless answered.
-    `catena-cli init` and the graphical installer both write through this."""
+    `catena-installer init` and the installer page both write through this."""
     target = inv_dir / ".env"
     emit_env(env_template(), {**dict(ENV_KEYS), **answers}, target,
              keep_existing=False)
@@ -508,9 +505,9 @@ def emit_env(template_text: str, values: dict[str, str], target: Path, *,
              keep_existing: bool = True) -> None:
     """Write an inventory `.env` from the template, the explanation beside each
     value. With `keep_existing` a value already in the file wins over the
-    input, so a re-run of `catena-cli install` never rewrites what a client
-    edited by hand. The graphical installer passes False: what it saves IS the
-    client's edit.
+    input, so a re-run of `catena-installer install` never rewrites what a
+    client edited by hand. The installer page passes False: what it saves IS
+    the client's edit.
 
     A key already in the file that the template does not carry is kept, after
     the template's keys, in either mode: the template decides the layout, not
@@ -551,65 +548,24 @@ def emit_env(template_text: str, values: dict[str, str], target: Path, *,
     target.write_text("\n".join(out) + "\n")
 
 
-# The bootstrap entry's address as an inventory scaffolded before
-# HOST_SSH_ADDRESS existed wrote it, and as the skeleton writes it now.
-_BOOTSTRAP_HOST_OLD = """ansible_host: "{{ lookup('dotenv', 'HOST_PUBLIC_IP') }}\""""
-_BOOTSTRAP_HOST_NEW = ("""ansible_host: "{{ lookup('dotenv', 'HOST_SSH_ADDRESS', default='') """
-                       """or lookup('dotenv', 'HOST_PUBLIC_IP') }}\"""")
-
-
 def emit_hosts_yml(target: Path) -> None:
-    """Scaffold hosts.yml from the skeleton, or bring an existing one's
-    bootstrap address up to HOST_SSH_ADDRESS. Nothing else in an existing file
-    is touched: it may carry hand edits."""
+    """Scaffold hosts.yml from the skeleton. An existing file is left as it
+    is: it may carry hand edits."""
     if target.exists():
-        text = target.read_text()
-        if _BOOTSTRAP_HOST_OLD in text:
-            target.write_text(text.replace(_BOOTSTRAP_HOST_OLD, _BOOTSTRAP_HOST_NEW))
-            ok(f"{target}: the bootstrap entry now reads HOST_SSH_ADDRESS")
         return
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(HOSTS_YML_SKEL, target)
 
 
-def emit_hosts_yml_entry(
-    target: Path, host_name: str, env_values: dict[str, str],
-) -> None:
-    """-i install.yaml path only: writes a LITERAL (non-templated) entry for
-    host_name, merging alongside any other hosts already in the file -- an
-    install.yaml-driven caller (the test bench) can add a second host to
-    the same inventory across separate seed.py runs. public_ip/initial_user/
-    ssh_port/ops_user come from the already-collected env_values (the same
-    HOST_PUBLIC_IP / HOST_INITIAL_USER / HOST_SSH_PORT / OPS_USER keys
-    hosts.yml.example reads via dotenv for the read-existing-inventory
-    path), so both paths agree on where these values live."""
-    if target.exists():
-        data = yaml.safe_load(target.read_text()) or {}
-    else:
-        data = {}
-    children = data.setdefault("all", {}).setdefault("children", {})
-    vps_hosts = children.setdefault("vps", {}).setdefault("hosts", {})
-    bootstrap_hosts = children.setdefault("bootstrap", {}).setdefault("hosts", {})
-    public_ip = env_values.get("HOST_PUBLIC_IP", "")
-    ssh_port = env_values.get("HOST_SSH_PORT") or "22"
-    # bootstrap_initial_user must be an inventory var (not only the Phase 0.5
-    # vars_prompt in bootstrap.yml): vars_prompt outranks it and silently
-    # takes its own default ("root") under --no-confirm's no TTY.
-    bootstrap_hosts[f"{host_name}-bootstrap"] = {
-        "ansible_host": env_values.get("HOST_SSH_ADDRESS") or public_ip,
-        "ansible_port": ssh_port,
-        "bootstrap_initial_user": env_values.get("HOST_INITIAL_USER") or "root",
-    }
-    vps_host_vars: dict = {
-        # Placeholder; bootstrap.yml emits the install address and
-        # catena_cli applies it.
-        "ansible_host": "0.0.0.0",
-        "ansible_user": env_values.get("OPS_USER") or "ops",
-        "ansible_port": ssh_port,
-    }
-    if public_ip:
-        vps_host_vars["public_ip"] = public_ip
-    vps_hosts[host_name] = vps_host_vars
+def emit_hosts_yml_entry(target: Path, host_name: str) -> None:
+    """-i path only: name the server host_name, the first host of the vps
+    group, which becomes its hostname. A host already in the file keeps what
+    it carries; one named differently is replaced, since an inventory installs
+    one server."""
+    data = (yaml.safe_load(target.read_text()) or {}) if target.exists() else {}
+    vps = data.setdefault("all", {}).setdefault("children", {}).setdefault("vps", {})
+    hosts = vps.get("hosts") or {}
+    vps["hosts"] = {host_name: hosts.get(host_name) or {}}
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(yaml.safe_dump(data, default_flow_style=False, sort_keys=False))
 
@@ -734,8 +690,8 @@ def _write_inventory_files(
     # else is minted on-box.
     hosts_target = inv_dir / "hosts.yml"
     if host_name is not None:
-        # -i install.yaml: a caller-chosen host name, merged into the file.
-        emit_hosts_yml_entry(hosts_target, host_name, env_values)
+        # -i: the server's name, as the input file gives it.
+        emit_hosts_yml_entry(hosts_target, host_name)
     else:
         emit_hosts_yml(hosts_target)
     ok(f"wrote {hosts_target}")
@@ -810,8 +766,8 @@ def main(argv: list[str] | None = None) -> int:
         env_path = inv_dir / ".env"
         if not env_path.is_file():
             die(
-                f"{env_path} not found. `catena-cli init` writes it with every "
-                "default: fill it in, then re-run."
+                f"{env_path} not found. `catena-installer init` writes it with "
+                "every default: fill it in, then re-run."
             )
         env_provided = read_existing_env(env_path)
         ok(f"loaded {env_path} -- {len(env_provided)} config value(s)")
@@ -827,12 +783,9 @@ def main(argv: list[str] | None = None) -> int:
     env_values = _collect_env_values(env_keys, env_provided, ask=not rerun)
 
     # host.initial_password is a genuine secret (the VPS provider's initial
-    # root password) that never belongs in .env. host.name only matters on
-    # the -i path: the hosts.yml entry seed writes for install.yaml-driven
-    # generation (the bench adds a distinctly-named host per run/slot to the
-    # same inventory). Public IP and initial SSH user are HOST_PUBLIC_IP /
-    # HOST_INITIAL_USER in .env either way, read straight into hosts.yml by
-    # the dotenv lookup on the read-existing-inventory path.
+    # root password) that never belongs in .env; the installer reads it from
+    # the input file itself. host.name only matters on the -i path: the
+    # server's name in hosts.yml, which becomes its hostname.
     host_data = inp.get("host", {})
     host_name = (host_data.get("name") or f"{inventory}1") if args.input else None
 

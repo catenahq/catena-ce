@@ -11,12 +11,12 @@ Derived from:
 - `helpers/onbox_config.py` for the three categories no client supplies:
   `INTERNAL_SECRETS` + `USER_HELD_SECRETS` minted on-box, and
   `ROLE_MINTED_SECRETS` minted by the service and captured by its role.
-- `seed.py`, which collects no secret: an install.yaml may pin the admin
-  password, written to the transient `--secrets-out` adopt file and nowhere
-  else, and names no other.
+- `seed.py`, which collects no secret: an install's input file may pin the
+  admin password, written to the transient `--secrets-out` adopt file and
+  nowhere else, and names no other.
 - `reconcile/roles/backup/defaults/main.yml` (`backup_paths`).
 
-**Nothing secret is persisted on the controller** -- `catena-cli install`
+**Nothing secret is persisted on the client's machine** -- the installer
 writes no secret file into the inventory.
 
 ## North star
@@ -70,7 +70,7 @@ ride the backup, because it is what unlocks the backup.
 `onbox_config.py`. They are generated **on-box** and **shown once** so the
 client keeps a copy in their password manager, and they are NOT settable
 through the settings config-write API (a restic re-key is a deliberate action).
-`catena-cli install` mints the admin and console passwords right after
+The install mints the admin and console passwords on the server right after
 bootstrap and shows them then (`playbooks/show-keyset.yml`), and again when the
 install ends; a converge mints either one it finds absent.
 The restic password is `MINTED_ON_REQUEST`: the client generates it in the
@@ -153,7 +153,7 @@ change afterwards.
 
 **Inventory `.env` (the installer's):** `HOST_PUBLIC_IP`, `HOST_INITIAL_USER`,
 `HOST_SSH_PORT`, `SSH_PRIVATE_KEY` (its `.pub` beside it), `OPS_USER`,
-`STORAGE_BULK_*` (the bulk mount is applied by an operator-run role, so the
+`STORAGE_BULK_*` (the bulk mount is applied by an install-only role, so the
 panel could not change it).
 
 **Store, seeded from the `.env`:** `ADMIN_EMAIL`, `APT_PROXY_URL`,
@@ -166,14 +166,15 @@ keys (`COTURN_CERTBOT_STAGING`, `MAILSERVER_CERTBOT_STAGING`,
 `CATENA_ACME_*`). No panel field shows them, so the `.env` stays their editor:
 every converge run from the inventory writes their non-blank `.env` values
 over the store's (`env.reseed` in the registry). A blank value keeps the
-stored one, and a host converging itself has no `.env` to read.
+stored one, and a host converging itself has no `.env` to read: the
+installer sends the `.env` with an install, for that run only.
 
 **Store, catena-admin Settings only:** the domain (`CLOUDFLARE_ZONE`), the
 subdomains, the tailnet (`TAILNET_PROVIDER`, `TAILNET_CONTROL_URL`,
 `HEADSCALE_USER`, `TAILSCALE_TAGS`), backups (`BACKUP_*`), mail (`SMTP_*`),
 notifications (`NTFY_*`), `IDENTITY_ENFORCE_MFA`, and the server's time zone
 and locale (`COMMON_TIMEZONE`, `COMMON_LOCALE`). They have no `.env`
-line; `catena-cli` names a filled one it finds, because nothing reads it.
+line; the installer names a filled one it finds, because nothing reads it.
 
 The owners are DECLARED, in `helpers/knobs.yml` (a knob has an `env` entry, a
 `panel` entry, or neither, never both), and projected by
@@ -194,8 +195,8 @@ already holds `backup.env` (S3 creds) + `restic.pass` (restic password),
 both written reconcile-not-overwrite by `reconcile/roles/backup`. That is the model
 for every category-2 secret and category-4 value: a single on-box config
 source-of-truth under `/etc/catena/`, written once, reconciled on converge,
-carried in every snapshot. The controller-side inventory is non-secret only
-(`.env`, `hosts.yml`); nothing writes a secrets file there.
+carried in every snapshot. The inventory on the client's machine is
+non-secret only (`.env`, `hosts.yml`); nothing writes a secrets file there.
 
 The swarm-secret path (catena-postgres, portainer admin) is NOT backed up
 (`/var/lib/docker/swarm` is excluded); those replay correctly because the

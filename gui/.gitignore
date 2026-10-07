@@ -1,8 +1,0 @@
-# uv-managed venv, pytest cache and the editable-build metadata from the
-# `catena-gui` console-script package. Same set the installer's tree ignores,
-# and here for the same reason: they are this machine's, not the product's.
-.venv/
-.pytest_cache/
-*.egg-info/
-__pycache__/
-*.pyc

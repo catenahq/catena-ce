@@ -6,13 +6,13 @@
 # checks.
 #
 # Same roles as converge.yml, in the same order, minus the bootstrap roles,
-# which only `catena-cli install` applies, and minus the converge's preflights
+# which only the install applies, and minus the converge's preflights
 # and its tier1_stack render. What is left is the work a host can do to itself:
 # render config from the image, reconcile swarm services, install units, apply
 # the schedule. boundary.yml declares which roles belong here, and
 # tests/unit/test_converge_boundary.py holds the two files to each other.
 #
-# Every value comes from the on-box store or the image, none from a controller
+# Every value comes from the on-box store or the image, none from an installer's
 # inventory. That test holds at zero the inventory variables a reconcile role
 # names directly; a value reached through a derived name escapes its count.
 - name: Reconcile a VPS from its on-box configuration
@@ -46,8 +46,8 @@
         fail_msg: >-
           This reconcile needs ansible-core {{ catena_reconcile_min_ansible }}
           or newer and is running {{ ansible_version.full }}. The runtime at
-          /opt/catena/ansible is what bootstrap installed; run `catena-cli
-          install` again from a controller, which re-runs bootstrap, to move it. Refusing here rather
+          /opt/catena/ansible is what the install put there; run the install
+          again (`catena-installer install`), which moves it. Refusing here rather
           than failing partway through a converge on a host nobody is watching.
       run_once: true
       tags: [always]

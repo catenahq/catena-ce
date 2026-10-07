@@ -11,10 +11,8 @@
 # registrations stay in place. Those are the client's to tear down
 # deliberately; the printed guidance at the end lists them.
 #
-# Usage (via the installer):
-#   uv run catena-cli uninstall --inventory <name>
-# Or directly:
-#   ansible-playbook -i inventory/<name> playbooks/uninstall.yml
+# `catena-installer uninstall --inventory <name>` runs it on the server
+# (ansible/install-host.sh --leg uninstall).
 - name: "Uninstall -- hand unattended-upgrades back to Debian"
   hosts: "{{ stage_hosts | default('vps') }}"
   become: true

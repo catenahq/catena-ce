@@ -17,8 +17,9 @@ coverage.*
 __pycache__/
 *.pyc
 
-# The root project's environment: `uv run catena-cli` / `uv run catena-gui`
-# from here install both projects into it.
+# The root project's environment, where `uv run catena-installer` installs
+# the installer, and its build output.
 .venv/
+/dist/
 .pytest_cache/
 *.egg-info/

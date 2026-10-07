@@ -1,27 +1,42 @@
 [project]
-name = "catena-ce"
-version = "0.1.0"
-description = "Catena Community: the installer's entry points, run from the repository root"
+name = "catena-installer"
+version = "0.0.0"
+description = "Install a Catena server from this machine, and reach its panel"
+readme = "installer/README.md"
 requires-python = ">=3.12"
-# The two entry points a fresh clone runs, each implemented by its own project:
-#
-#   uv run catena-gui           the graphical installer          (gui/)
-#   uv run catena-cli <verb>    the command-line installer       (ansible/)
-#
-# Each project keeps its own pyproject and lock, because ansible/ ships into
-# the panel image and gui/ must not. This one only depends on both, so their
-# console scripts land in one environment. gui/tests/test_the_entry_points_agree.py
-# holds the names here, in the two projects, in the launcher and in the docs to
-# one another.
+license = { file = "LICENSE" }
+# paramiko is pure Python, so the installer needs no SSH client and runs alike
+# on Windows, macOS and Linux; PyYAML reads the knob registry and the input
+# file. Everything else is stdlib, the browser page included.
 dependencies = [
-    "catena-ce-installer",
-    "catena-gui",
+    "paramiko>=3.4",
+    "pyyaml>=6",
 ]
 
-[tool.uv]
-# Nothing here is built or installed except the two projects it depends on.
-package = false
+[project.scripts]
+# `uvx catena-installer` from PyPI, `uv run catena-installer` in a checkout.
+catena-installer = "catena_installer.__main__:main"
 
-[tool.uv.sources]
-catena-ce-installer = { path = "ansible", editable = true }
-catena-gui = { path = "gui", editable = true }
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["installer/catena_installer"]
+
+# The tree files the installer uses on the client's machine and sends to a
+# server before the release is there (catena_installer/tree.py says which).
+# In a checkout it reads them from ansible/; a wheel carries copies.
+[tool.hatch.build.targets.wheel.force-include]
+"ansible/seed.py" = "catena_installer/tree/seed.py"
+"ansible/helpers" = "catena_installer/tree/helpers"
+"ansible/skel" = "catena_installer/tree/skel"
+"ansible/playbooks/filter_plugins/image_pin.py" = "catena_installer/tree/playbooks/filter_plugins/image_pin.py"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["installer/tests"]

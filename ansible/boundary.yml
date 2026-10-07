@@ -3,7 +3,8 @@
 # THE RULE, in two questions asked in order.
 #
 #   1. If this is wrong, is anything left that can fix it? If no, it is
-#      BOOTSTRAP: `catena-cli install` applies it, over SSH, from outside.
+#      BOOTSTRAP: only the install applies it, run by a person through the
+#      installer (ansible/install-host.sh), never by the host on a timer.
 #      That set is small and it is meant to stay small.
 #
 #   2. Otherwise, is the correct value a function of the product VERSION or of
@@ -19,8 +20,8 @@
 # enforcement, and playbooks/reconcile.yml is the half the host runs against
 # itself, with no controller inventory.
 
-# Roles only `catena-cli install` applies. Each carries the reason it is here,
-# because "bootstrap" with no reason is how a set like this grows.
+# Roles only the install applies. Each carries the reason it is here, because
+# "bootstrap" with no reason is how a set like this grows.
 bootstrap_roles:
   - name: common
     why: >-

@@ -14,11 +14,13 @@ it. English or French.
 
 ## Scope
 
-This repository ships the Catena Community base: the installer/CLI
-(`ansible/catena_cli.py`, `ansible/seed.py`), the Ansible roles + playbooks,
-the host-side scripts under `ansible/scripts/`, and the admin panel's
-deployment surface (`ansible/reconcile/roles/catena-admin`, including the
-compose file). There is no Go in this tree.
+This repository ships the Catena Community base: the installer
+(`installer/`, published to PyPI as `catena-installer`, and
+`ansible/seed.py`), the install that runs on the server
+(`ansible/install-host.sh`, `ansible/helpers/fetch_release.py`), the Ansible
+roles + playbooks, the host-side scripts under `ansible/scripts/`, and the
+admin panel's deployment surface (`ansible/reconcile/roles/catena-admin`,
+including the compose file). There is no Go in this tree.
 
 The admin panel binary is not built from this tree. It ships as a public
 container image, `ghcr.io/catenahq/catena-admin`, pullable anonymously,

@@ -3,15 +3,15 @@
 # none, and hand them to the installer ONCE with the journal verification key
 # and the first-login URLs.
 #
-# `catena-cli install` runs it right after bootstrap.yml, before the converge,
-# so the block is on screen while the long part of the install runs; the
-# installer prints it then and again when the install ends, and a rerun of the
+# ansible/install-host.sh runs it right after bootstrap.yml, before the
+# converge, so the block is on screen while the long part of the install runs;
+# it prints the block then and again when the install ends, and a rerun of the
 # install shows the passwords again. The passwords are minted ON-BOX
 # (helpers/onbox_config.py USER_HELD_SECRETS), and the block and its values
-# reach the controller only as a transient 0600 JSON file in the `keyset_out`
-# directory the installer passes, reads and deletes. The backup encryption
-# password is generated in the panel instead, beside the repository it
-# encrypts.
+# leave this play only as a transient 0600 JSON file in the 0700 `keyset_out`
+# directory install-host.sh passes, prints between its markers and deletes.
+# The backup encryption password is generated in the panel instead, beside the
+# repository it encrypts.
 #
 # Everything the user must write down is in the FINAL task, as one block. The
 # mint, the reads and the FSS delete run ahead of it.
@@ -43,8 +43,8 @@
 
     # The knob registry onbox_config.py reads was staged by the pre_tasks.
     # Only the passwords shown here are minted; the internal secrets stay the
-    # converge loader's. An admin password the install pins (install.yaml,
-    # threaded in as `-e @file`) is adopted first, fill-only like the loader's
+    # converge loader's. An admin password the install pins (its input file,
+    # passed in as `-e @file`) is adopted first, fill-only like the loader's
     # adopt, so the pin is the password shown and the one the converge creates
     # the admins with. It reaches the helper through a 0600 file, off the
     # host's command line.
@@ -92,7 +92,7 @@
 
     # ONE task, and the LAST one. Everything the user has to write down is in
     # this single block on purpose: the installer prints it as one piece, and
-    # these values are shown once. One JSON file per host in the installer's
+    # these values are shown once. One JSON file per host in install-host.sh's
     # 0700 directory, carrying the block and the three values it shows, which
     # the graphical installer displays on their own; no_log because the
     # installer is what shows them. The URLs live here rather than in the
@@ -106,9 +106,9 @@
               'admin_password': _secrets.admin_password,
               'console_recovery_password': _secrets.console_recovery_password,
               'journal_verification_key': _fss} | to_json }}
+        owner: root
+        group: root
         mode: "0600"
-      delegate_to: localhost
-      become: false
       no_log: true
       vars:
         _secrets: "{{ (_dr_store.stdout | from_json).secrets }}"
@@ -166,7 +166,10 @@
           The localhost addresses work whenever SSH does, through a forward
           as the `{{ catena_panel_user }}` account, which can only forward:
 
-            ssh -N -L {{ _admin_port }}:127.0.0.1:{{ _admin_port }} -L {{ portainer_ui_port }}:127.0.0.1:{{ portainer_ui_port }} {{ catena_panel_user }}@{{ ansible_host }}
+            ssh -N -L {{ _admin_port }}:127.0.0.1:{{ _admin_port }} -L {{ portainer_ui_port }}:127.0.0.1:{{ portainer_ui_port }} {{ catena_panel_user }}@{{ catena_ssh_address | default(ansible_host) }}
+
+          The installer opens the same forward when it ends, and again with
+          `catena-installer connect`.
 
           Enter the domain, backups and the private network in the panel's
           Settings.

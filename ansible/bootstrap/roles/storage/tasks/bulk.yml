@@ -76,16 +76,38 @@
         _netdev,nofail,soft,timeo=50,retrans=2
       {%- endif -%}
 
-# Atomicity: ansible.posix.mount with `state: mounted` is the atomic
-# "ensure both mount + fstab" operation -- the module handles the
-# fstab write via temp-file + rename internally and only reports
-# changed when the combined state converged. No separate fstab task
-# needed; don't split this into mount + lineinfile (the split creates
-# a crash window between step 1 and step 2).
-- name: Mount bulk share (and persist in fstab)
-  ansible.posix.mount:
-    path: "{{ storage_bulk_mount_point }}"
-    src: "{{ storage_bulk_remote }}"
-    fstype: "{{ storage_bulk_type }}"
-    opts: "{{ _storage_bulk_effective_opts }}"
-    state: mounted
+# fstab first, then the mount. A run that stops between the two leaves an
+# entry the next boot mounts, and the default options' nofail,_netdev keep a
+# share that is unreachable then from holding the boot. The entry is matched
+# on its mount point, so changed options or a changed remote replace it; a
+# mounted share whose entry changed is unmounted and mounted again so the new
+# entry is the one in effect.
+- name: Persist bulk share in fstab
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: '^[^#\s]\S*\s+{{ storage_bulk_mount_point | regex_escape }}\s'
+    line: >-
+      {{ storage_bulk_remote }} {{ storage_bulk_mount_point }}
+      {{ storage_bulk_type }} {{ _storage_bulk_effective_opts }} 0 0
+  register: _storage_bulk_fstab
+
+- name: Is the bulk share mounted?
+  ansible.builtin.command:
+    argv: [findmnt, --mountpoint, "{{ storage_bulk_mount_point }}"]
+  register: _storage_bulk_findmnt
+  changed_when: false
+  failed_when: _storage_bulk_findmnt.rc not in [0, 1]
+
+- name: Unmount bulk share so its changed fstab entry applies
+  ansible.builtin.command:
+    argv: [umount, "{{ storage_bulk_mount_point }}"]
+  changed_when: true
+  when:
+    - _storage_bulk_findmnt.rc == 0
+    - _storage_bulk_fstab is changed
+
+- name: Mount bulk share
+  ansible.builtin.command:
+    argv: [mount, "{{ storage_bulk_mount_point }}"]
+  changed_when: true
+  when: _storage_bulk_findmnt.rc != 0 or _storage_bulk_fstab is changed

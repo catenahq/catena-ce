@@ -5,12 +5,14 @@
 
 # Helpers
 
-Python shared by more than one caller. Most of it runs on the controller
-(the machine driving the install), imported by the installer and the
-roles in `../bootstrap/roles/` and `../reconcile/roles/`.
+Python shared by more than one caller: the roles in
+`../bootstrap/roles/` and `../reconcile/roles/`, the install on the
+server (`../install-host.sh`), and the installer on the client's machine
+(catena-ce `installer/`), which carries `fetch_release.py` and what it
+imports to the server before the release is there.
 
-One is also on the server: `onbox_config.py`, the only sanctioned writer
-of the on-box config store. The catena-admin payload installs it as
+`onbox_config.py` is the only sanctioned writer of the on-box config
+store. The catena-admin payload installs it as
 `/usr/local/bin/catena-onbox-config`, with
 `../scripts/catena-restic-key.py`: the panel image's dispatch drop-in
 runs them, and an image ships every command it authorises. It also puts
@@ -20,13 +22,12 @@ Unit tests for these live in `../tests/unit/`.
 
 | File | What it does |
 | --- | --- |
-| `bootstrap_output.py` | Merge a key/value into <inventory_dir>/.bootstrap-output.yml. |
 | `bootstrap_portainer_admin.py` | Leaf utility: mint a Portainer X-API-Key from the initial admin. |
 | `catena_admin_release.py` | Ask the registry which catena-admin release to install, and for its digest. |
-| `host_key.py` | Tell whether a server still presents the host key this machine trusts for it. |
-| `install_key.py` | Automate the pre-bootstrap manual-SSH step across providers. |
+| `fetch_release.py` | Pull a catena-admin release image from its registry and unpack the catena-ce tree and the payload out of it. |
 | `onbox_config.py` | On-box config store for Catena (0b client-owned config). |
 | `public_https.py` | GET https://<name>/... the way the internet reaches this server: <name> is resolved by public resolvers rather than by the machine making the request. |
 | `render_knobs.py` | Load and validate helpers/knobs.yml, the knob registry, and render an inventory `.env` from it. |
+| `session_proof.py` | Prove that the SSH session running this command logged in as the ops account with a key that account accepts. |
 | `tailnet_reachability.py` | Ask the tailnet whether this host is reachable on it, before public 22 closes. |
 | `tree_hash.py` | Name a catena-ce tree by the hash of what a catena-admin image ships of it. |

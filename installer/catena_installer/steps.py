@@ -1,0 +1,285 @@
+"""What each section asks, and what it proves before the install starts.
+
+The FIELDS are the registry's; only the PROBES, and the one field the install
+takes beside the registry (the provider's password), are here. Adding a
+question is a registry edit, and adding a proof is a function here.
+
+Install runs every probe first. An installer that collects every answer and
+discovers at the end that the first one was wrong has spent a client's whole
+sitting to tell them something it knew at the start. And a step passes only
+when the thing it is about has been observed working: a step that cannot
+observe says so rather than assuming.
+"""
+
+from __future__ import annotations
+
+import os
+import socket
+from dataclasses import dataclass, field as _dc_field
+from pathlib import Path
+
+from . import i18n, install, registry, remote, tree
+
+# The name the provider's password goes by beside the registry's fields. Not a
+# knob: nothing on the server keeps it, and the installer does not either.
+PROVIDER_PASSWORD = "host_initial_password"
+
+# The boxes a client ticks to settle a check only they can answer: the server
+# was reinstalled (trust its new host key), and create the key pair the form
+# names.
+REINSTALLED = "reinstalled"
+CREATE_KEY = "create_key"
+
+
+@dataclass
+class Check:
+    """One thing a step proved, or could not.
+
+    `blocking` separates "this is wrong" from "this could not be established
+    from here". An absence of evidence is not evidence of a fault, and a step
+    that treated the two alike would either refuse valid installs or pass
+    broken ones -- there is no setting of one flag that avoids both.
+    """
+
+    label: str
+    ok: bool
+    detail: str = ""
+    blocking: bool = True
+    # The form name of the box that settles a check only the client can
+    # answer, shown beside it and labelled by `confirm.<name>`; empty for none.
+    confirm: str = ""
+
+    @property
+    def blocks(self) -> bool:
+        return not self.ok and self.blocking
+
+
+@dataclass
+class Field:
+    """One question in a section, resolved from the registry. `label` and
+    `help` are by language."""
+
+    key: str
+    label: dict[str, str]
+    secret: bool
+    optional: bool
+    options: list[str]
+    default: str
+    help: dict[str, str]
+    example: str = ""
+    suggestions: list[str] = _dc_field(default_factory=list)
+    # The choice in front of the field, by option then language; empty for a
+    # plain field. See via_name.
+    choice: dict[str, dict[str, str]] = _dc_field(default_factory=dict)
+
+
+# The two options of a field's choice, as the registry declares them.
+CHOICES = tree.module("helpers.render_knobs").GUI_CHOICES
+
+
+def via_name(key: str) -> str:
+    """The form name of the choice in front of field `key`."""
+    return f"{key}__via"
+
+
+@dataclass
+class Step:
+    """One section of the page; `title`, `doc` and `note` are by language."""
+
+    name: str
+    title: dict[str, str]
+    doc: dict[str, str]
+    note: dict[str, str]
+    fields: list[Field]
+
+
+def _field(doc: dict, entry: dict) -> Field:
+    return Field(
+        key=entry["key"],
+        label=entry["label"],
+        secret=registry.is_secret(doc, entry["key"]),
+        optional=not registry.is_required(entry),
+        options=registry.options_for(entry),
+        default=registry.default_for(entry),
+        help=entry["help"],
+        example=registry.example_for(entry),
+        suggestions=registry.suggestions_for(entry),
+        choice=registry.choice_for(entry),
+    )
+
+
+def _provider_password() -> Field:
+    return Field(
+        key=PROVIDER_PASSWORD, label=i18n.every("provider_password.label"),
+        secret=True, optional=True, options=[], default="",
+        help=i18n.every("provider_password.help"))
+
+
+def build(doc: dict) -> list[Step]:
+    """The whole page, from the registry, with the provider's password in the
+    section that reaches the server."""
+    out = []
+    for step in registry.steps(doc):
+        fields = [_field(doc, entry)
+                  for entry in registry.step_fields(doc, step["name"])]
+        if step["name"] == "target":
+            fields.append(_provider_password())
+        out.append(Step(name=step["name"], title=step["title"], doc=step["doc"],
+                        note=step.get("note") or {}, fields=fields))
+    return out
+
+
+def missing_required(step: Step, values: dict[str, str],
+                     lang: str = i18n.DEFAULT,
+                     private: frozenset[str] = frozenset()) -> list[Check]:
+    """A blocking line for each required field left empty, and for each field
+    in `private`: one whose choice is set to `private`. Shown before the step's
+    own probes, which have nothing to observe without it."""
+    return [Check(i18n.text(lang, "check.required", label=f.label[lang]), False,
+                  i18n.text(lang, "check.fill_in"))
+            for f in step.fields
+            if (not f.optional or f.key in private)
+            and not (values.get(f.key) or "").strip()]
+
+
+# --- the probes --------------------------------------------------------------
+
+
+def _ssh_banner(host: str, port: int, timeout: float = 6.0) -> str:
+    """The first line the port sends, or "" when nothing answered. An SSH
+    server speaks first, with `SSH-2.0-...`; anything else on the port is not
+    one."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as sock:
+            sock.settimeout(timeout)
+            return sock.recv(256).decode("ascii", "replace").strip()
+    except OSError:
+        return ""
+
+
+def _key_login(host: str, port: int, user: str, key: Path,
+               reinstalled: bool) -> tuple[bool, str]:
+    """Whether `user` logs in with `key`. The host key is not recorded: this
+    is a probe, and a probe leaves nothing behind."""
+    try:
+        remote.connect_key(host, port, user, key, reinstalled=reinstalled,
+                           record=False).close()
+    except remote.RemoteError as exc:
+        return False, str(exc)
+    return True, ""
+
+
+def ssh_address(answers: dict[str, str]) -> str:
+    """Where the install dials the server: its private SSH address when the
+    form gives one, else its public IP."""
+    return ((answers.get("HOST_SSH_ADDRESS") or "").strip()
+            or (answers.get("HOST_PUBLIC_IP") or "").strip())
+
+
+def key_path(answers: dict[str, str]) -> Path | None:
+    raw = (answers.get("SSH_PRIVATE_KEY") or "").strip()
+    return Path(os.path.expanduser(raw)) if raw else None
+
+
+def check_target(answers: dict[str, str], secrets: dict[str, str],
+                 lang: str = i18n.DEFAULT, reinstalled: bool = False) -> list[Check]:
+    """An SSH server answers, presents the host key this machine trusts for it,
+    and lets the install log in, at the address the install dials
+    (ssh_address).
+
+    A server that presents another key gets nothing more from this probe,
+    neither a login nor the provider's password, until the client confirms a
+    reinstall (`reinstalled`).
+
+    Either the key already opens the server -- the provider installed it when
+    the server was ordered, or a previous install did, in which case root is
+    refused by then and the ops account takes it -- or the provider's password
+    opens the initial login and the install adds the key with it.
+    """
+    def t(key: str, **values: object) -> str:
+        return i18n.text(lang, key, **values)
+
+    host = ssh_address(answers)
+    port_raw = (answers.get("HOST_SSH_PORT") or "22").strip() or "22"
+    if not host or not port_raw.isdigit():
+        return [] if not host else [Check(t("check.port"), False,
+                                          t("check.port_invalid", port=repr(port_raw)))]
+    port = int(port_raw)
+    banner = _ssh_banner(host, port)
+    checks = [Check(t("check.ssh_answers", host=host, port=port),
+                    banner.startswith("SSH-"), banner or t("check.ssh_silent"))]
+    if checks[0].ok:
+        trusted, offered = remote.changed(host, port)
+        if trusted and not reinstalled:
+            checks.append(Check(t("check.host_key", host=host), False,
+                                t("check.host_key_changed", trusted=", ".join(trusted),
+                                  offered=offered),
+                                confirm=REINSTALLED))
+            return checks
+        if trusted:
+            checks.append(Check(t("check.host_key_new", host=host), True,
+                                t("check.host_key_trusted")))
+    key = key_path(answers)
+    have_key = key is not None and key.is_file() and Path(f"{key}.pub").is_file()
+    checks.append(Check(t("check.keypair"), have_key,
+                        "" if have_key else
+                        t("check.keypair_missing", path=str(key) if key else t("check.no_path")),
+                        confirm="" if have_key or key is None else CREATE_KEY))
+    if not (checks[0].ok and have_key):
+        return checks
+    initial = (answers.get("HOST_INITIAL_USER") or "root").strip() or "root"
+    tried = []
+    for user in dict.fromkeys((initial, (answers.get("OPS_USER") or "ops").strip())):
+        ok, why = _key_login(host, port, user, key, reinstalled)
+        if ok:
+            checks.append(Check(t("check.key_opens", login=f"{user}@{host}"), True,
+                                t("check.no_password_needed")))
+            return checks
+        tried.append(f"{user}: {why or t('check.refused')}")
+    password = secrets.get(PROVIDER_PASSWORD) or ""
+    if not password:
+        checks.append(Check(t("check.key_refused"), False,
+                            t("check.key_refused_detail", tried="; ".join(tried),
+                              user=initial)))
+        return checks
+    ok, why = remote.check_password(host, port, initial, password,
+                                    reinstalled=reinstalled)
+    checks.append(Check(t("check.password_opens", login=f"{initial}@{host}"), ok,
+                        t("check.password_adds_key") if ok
+                        else why or t("check.password_refused")))
+    return checks
+
+
+# The probe for each step that has one, by name.
+PROBES = {
+    "target": check_target,
+}
+
+
+def validate(step: str, answers: dict[str, str], secrets: dict[str, str],
+             lang: str = i18n.DEFAULT, reinstalled: bool = False) -> list[Check]:
+    probe = PROBES.get(step)
+    if probe is None:
+        return []
+    return probe(answers, secrets, lang, reinstalled)
+
+
+def blocked(checks: list[Check]) -> bool:
+    return any(check.blocks for check in checks)
+
+
+# --- the way in -------------------------------------------------------------
+
+
+def forward_command(answers: dict[str, str]) -> str:
+    """The SSH command that opens the same forward as the installer, for a
+    machine without it: the panel and Portainer answer the server's loopback
+    only, and the panel account can do nothing but forward."""
+    host = ssh_address(answers) or "<server-address>"
+    port = (answers.get("HOST_SSH_PORT") or "22").strip() or "22"
+    key = (answers.get("SSH_PRIVATE_KEY") or "").strip()
+    opts = f" -i {key}" if key else ""
+    opts += f" -p {port}" if port != "22" else ""
+    return (f"ssh -N -L {install.PANEL_PORT}:127.0.0.1:{install.PANEL_PORT} "
+            f"-L {install.PORTAINER_PORT}:127.0.0.1:{install.PORTAINER_PORT}{opts} "
+            f"{install.PANEL_USER}@{host}")

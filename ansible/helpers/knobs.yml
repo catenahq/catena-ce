@@ -8,7 +8,8 @@
 #   seed.py                   what the installer asks for, and the inventory
 #                             `.env` it writes (render_knobs.render_env)
 #   catena-admin settings     which fields the panel renders
-#   gui/                      which fields each installer step shows
+#   catena-ce installer/      which fields each section of the installer page
+#                             shows
 #
 # An inventory `.env` is rendered from this file: `env_header` is its preamble,
 # `env_sections` the ordered headings it groups keys under, and each knob's
@@ -100,19 +101,19 @@ version: 1
 env_header: |-
   catena: client-editable, non-secret configuration of one server.
 
-  Written by `catena-cli init` or the graphical installer, every key at its
-  default. Edit the values here; `catena-cli install` reads them. One
-  inventory directory per server, so several coexist in one checkout.
+  Written by `catena-installer init` or the installer page, every key at its
+  default. Edit the values here; `catena-installer install` reads them. One
+  inventory directory per server, so several coexist.
 
   No secret belongs in here, or anywhere else in an inventory. Every secret
   lives on the server at /etc/catena/config.json, minted there or entered in
   catena-admin > Settings. See catena-ce/ansible/SECRETS.md.
 
-# The graphical installer's sections, in order, all on one page. Each knob that
+# The installer page's sections, in order, all on one page. Each knob that
 # names one appears in it; a knob that names none is never asked for. `doc` is
 # shown above the section's fields and `note`, when present, below them. A
-# section with a probe in gui/catena_gui/steps.py is verified before the
-# install starts.
+# section with a probe in installer/catena_installer/steps.py is verified
+# before the install starts.
 gui_steps:
   - name: target
     title:
@@ -282,11 +283,11 @@ config:
     residence: host
     env: {section: host, default: "", example: "203.0.113.10"}
 
-  # Written into hosts.yml as the bootstrap entry's ansible_host: the address
-  # every install leg dials. Empty means HOST_PUBLIC_IP, which stays the
-  # host's public address either way (coturn, the external checks). The
-  # launcher asks for it behind its public/private choice, labelled by
-  # gui_choice; `catena-cli install --address` overrides it for one run.
+  # The address every leg of the install dials. Empty means HOST_PUBLIC_IP,
+  # which stays the host's public address either way (coturn, the external
+  # checks). The installer page asks for it behind its public/private choice,
+  # labelled by gui_choice; `catena-installer install --address` overrides it
+  # for one run.
   - key: HOST_SSH_ADDRESS
     step: target
     label:
@@ -314,9 +315,8 @@ config:
     residence: host
     env: {section: host, default: ""}
 
-  # Written into hosts.yml as ansible_port: the port the controller connects
-  # on. The firewall rules name 22 literally, so this moves what the controller
-  # dials and not what the host opens.
+  # The port the installer connects on. The firewall rules name 22 literally,
+  # so this moves what the installer dials and not what the host opens.
   - key: HOST_SSH_PORT
     step: target
     label:
@@ -368,11 +368,11 @@ config:
     var: cfg_admin_email
     env: {section: admin, default: "", example: "you@example.com"}
 
-  # ---- controller-resident ----
+  # ---- resident on the installer's machine ----
   #
-  # A dedicated pair per project makes revocation one file delete. catena-cli
-  # install offers to generate a missing pair; the graphical installer suggests
-  # the pairs already in ~/.ssh.
+  # A dedicated pair per project makes revocation one file delete. The
+  # installer offers to create a missing pair, and its page suggests the pairs
+  # already in ~/.ssh.
   - key: SSH_PRIVATE_KEY
     step: configuration
     label:

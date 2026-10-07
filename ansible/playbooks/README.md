@@ -5,17 +5,18 @@
 
 # Playbooks
 
-The playbooks a Catena server is installed and maintained with.
-`catena-cli install` (`../catena_cli.py`) runs `bootstrap.yml`,
+The playbooks a Catena server is installed and maintained with, all run
+on the server itself. The install (`../install-host.sh`) runs
+`accounts.yml` on its first leg, then `bootstrap.yml`,
 `show-keyset.yml`, `converge.yml` and `validate.yml` in that order, and
-`catena-cli uninstall` runs `uninstall.yml`. On the server, the
-catena-admin engines run `reconcile.yml` for the host's own converges,
-and `lockdown.yml`, `rotate-tailscale.yml` and `rotate-tunnel.yml` for
-the panel's actions. Each file here is a single atomic unit with no
+`uninstall.yml` for `catena-installer uninstall`. The catena-admin
+engines run `reconcile.yml` for the host's own converges, and
+`lockdown.yml`, `rotate-tailscale.yml` and `rotate-tunnel.yml` for the
+panel's actions. Each file here is a single atomic unit with no
 cross-playbook imports.
 
-`ansible-playbook` is not a supported entry point -- the installer and
-the host engines resolve the inventory, thread the credentials and order
+`ansible-playbook` is not a supported entry point -- install-host.sh and
+the host engines write the inventory, thread the credentials and order
 the runs.
 
 Subdirectories: `filter_plugins/` and `lookup_plugins/` hold the Python
@@ -25,7 +26,8 @@ transforms live in Python with a unit test rather than in Jinja);
 
 | File | What it does |
 | --- | --- |
-| `bootstrap.yml` | First contact with a fresh server, and the first leg of `catena-cli install`. |
+| `accounts.yml` | The first leg of an install, run on the server by install-host.sh through the provider's login: the ops account and the panel's forward-only account, each with the installer's public key, and ops' passwordless sudo. |
+| `bootstrap.yml` | The first playbook of an install's second leg, run on the server by ansible/install-host.sh in a session that logged in as ops with the installer's key: the baseline and the sshd hardening (bootstrap/roles/common), then the on-box config store seeded from the installer's .env and the ansible-core the host reconciles itself with. show-keyset.yml and converge.yml follow it. |
 | `converge.yml` | The full converge: bring a bootstrapped host to the desired state, every role in dependency order. |
 | `lockdown.yml` | Join the tailnet, and -- only when the panel's Lockdown asks -- close public port 22 behind it. |
 | `reconcile.yml` | The half of a converge a host runs against itself, from the tree inside the panel image. |
@@ -33,4 +35,4 @@ transforms live in Python with a unit test rather than in Jinja);
 | `rotate-tunnel.yml` | Regenerate this host's Cloudflare tunnel. |
 | `show-keyset.yml` | Mint the passwords the install shows (admin + console) when the store has none, and hand them to the installer ONCE with the journal verification key and the first-login URLs. |
 | `uninstall.yml` | Hand control of this host back to the operating system. |
-| `validate.yml` | Validation orchestrator: check a converged host from three vantage points, so a service that only answers on the box is not mistaken for a working one. |
+| `validate.yml` | Validation orchestrator: the checks a server runs on itself, so a service that only answers on the box is not mistaken for a working one. |

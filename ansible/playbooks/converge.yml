@@ -1,14 +1,10 @@
 ---
 # The full converge: bring a bootstrapped host to the desired state, every role
-# in dependency order. Safe to re-run. `catena-cli install` runs it after
-# bootstrap.yml and show-keyset.yml, then validate.yml; run again, the install
-# re-applies it to an installed server, the bootstrap roles the host's own
-# converge (reconcile.yml) leaves out included. `--tags` scopes it to some
-# roles, each tagged with its own name.
-#
-# It reaches the host at the address the install dials: `--address` for one run
-# (the tailnet address once the panel's Lockdown has closed public SSH), else
-# the SSH address bootstrap.yml recorded.
+# in dependency order. Safe to re-run. ansible/install-host.sh runs it on the
+# server after bootstrap.yml and show-keyset.yml, then validate.yml; run again,
+# the install re-applies it to an installed server, the bootstrap roles the
+# host's own converge (reconcile.yml) leaves out included. `--tags` scopes it
+# to some roles, each tagged with its own name.
 
 - name: Converge VPS to desired state
   # `stage_hosts` narrows the target; the default is the `vps:` group.
@@ -28,17 +24,17 @@
   # Probe every configured external backend the converge depends on BEFORE
   # any heavy role runs, so a dead / unreachable / misconfigured endpoint
   # fails the converge in ~10s with a clear message rather than 10-30 min in,
-  # when the backup role first writes. Probes run ON the host (where the
-  # backup / mail traffic originates), so they catch host-side network blocks
-  # a controller-side check would miss. Values come from the store's cfg_*
+  # when the backup role first writes. Probes run ON the host, where the
+  # backup / mail traffic originates, so they catch host-side network blocks.
+  # Values come from the store's cfg_*
   # facts, published by the loader below. skip_external_preflight=true
   # bypasses them.
   pre_tasks:
     # Load the on-box config store (/etc/catena/config.json). Runs FIRST so
     # every role below reads the store's facts. tasks/load_onbox_config.yml
-    # adopts a secret the install passes in (an admin password install.yaml
-    # pins), MINTS every missing internal service secret on the host, and
-    # publishes the store as facts.
+    # adopts a secret the install passes in (an admin password the install's
+    # input file pins), MINTS every missing internal service secret on the
+    # host, and publishes the store as facts.
     - name: "Load on-box config store"
       # apply: propagate [always] to every task INSIDE the include. Without
       # it, include_tasks fires the include (it is `always`) but the inner

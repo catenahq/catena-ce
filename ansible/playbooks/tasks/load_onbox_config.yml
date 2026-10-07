@@ -4,13 +4,13 @@
 # The store is a plaintext 0600 file at /etc/catena/config.json, which rides
 # the restic backup (/etc is in reconcile/roles/backup backup_paths). On every
 # run it ADOPTS any declared secret in scope (fill-only) -- on an install that
-# is the admin password an install.yaml pins, which the CLI threads in as
-# `-e @file`; on any other run nothing is in scope and the store is already the
-# truth. It MINTS every missing INTERNAL service secret and the user-held admin
-# and console passwords on-box (reconcile-not-overwrite, via
-# helpers/onbox_config.py) so no secret is minted on a controller, then
-# set_facts each one from the store so all downstream roles read the on-box
-# source of truth. The restic password is generated in the panel instead.
+# is the admin password the install's input file pins, which install-host.sh
+# passes as `-e @file`; on any other run nothing is in scope and the store is
+# already the truth. It MINTS every missing INTERNAL service secret and the
+# user-held admin and console passwords on-box (reconcile-not-overwrite, via
+# helpers/onbox_config.py), then set_facts each one from the store so all
+# downstream roles read the on-box source of truth. The restic password is
+# generated in the panel instead.
 #
 # Included UNCONDITIONALLY from the pre_tasks of converge.yml, reconcile.yml,
 # validate.yml, lockdown.yml and rotate-tailscale.yml (runs before any role). A

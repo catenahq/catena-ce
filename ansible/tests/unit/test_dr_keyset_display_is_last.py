@@ -52,14 +52,18 @@ def test_there_is_exactly_one_handoff_task():
     assert len(_handoff_tasks()) == 1
 
 
-def test_the_handoff_reaches_the_controller_and_no_log():
-    """It writes the installer's transient file on the controller, which the
-    installer prints and deletes; the play's own output never carries it."""
+def test_the_handoff_is_a_root_only_file_and_no_log():
+    """It writes a transient file in install-host.sh's 0700 directory, which
+    install-host.sh prints between its markers and deletes; the play's own
+    output never carries it."""
     task = _handoff_tasks()[0]
-    assert task["delegate_to"] == "localhost"
-    assert task["become"] is False
-    assert task["ansible.builtin.copy"]["mode"] == "0600"
+    assert "delegate_to" not in task
+    copy = task["ansible.builtin.copy"]
+    assert (copy["owner"], copy["group"], copy["mode"]) == ("root", "root", "0600")
     assert task["no_log"] is True
+    script = (ANSIBLE_DIR / "install-host.sh").read_text()
+    assert 'mkdir -m 0700 "$keyset_dir"' in script
+    assert '-e "keyset_out=$keyset_dir"' in script
 
 
 def test_the_handoff_carries_the_block_and_each_value():

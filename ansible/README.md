@@ -1,35 +1,62 @@
 # catena-ce ansible (Community base)
 
-The deployment automation for a Catena Community host, plus the
-installer that drives it. For the install walkthrough itself see
-[../README.md](../README.md); this page describes what the pieces are.
+The automation that installs and maintains a Catena Community host. It runs
+on the server itself, from the copy inside a catena-admin release image: the
+server installs itself from the release it runs, and converges itself with
+the same tree. For the install walkthrough see [../README.md](../README.md);
+the installer that starts it from a client's machine is in
+[../installer/](../installer/). This page describes what the pieces are.
 
 ## The flows
 
 ```
-install:  bootstrap  ->  converge  ->  validate
-panel:    lockdown, restore
+install:  accounts  ->  bootstrap  ->  show-keyset  ->  converge  ->  validate
+host:     reconcile (catena-converge), lockdown, restore
 ```
 
-The install reaches the host over its public SSH address and configures
-nothing beyond reaching and installing it; public port 22 stays open after
-the install.
+[install-host.sh](install-host.sh) runs the install on the server, as root,
+with a one-host local inventory it writes for the run. The installer's
+starter fetches the release image's tree and payload by digest
+(`helpers/fetch_release.py`) and hands over to it, in two legs, each through
+its own SSH session:
 
-- **bootstrap** -- first-contact hardening of a fresh VPS (user, SSH,
-  ufw) and the on-box config store.
-- **converge** -- the converge: networking (Cloudflare Tunnel / coturn),
-  Docker, Portainer, sign-on (Keycloak + oauth2-proxy), the restic backup,
-  the catena-admin shell. Whatever the store does not configure yet (a
-  domain, backups) is skipped and says so.
-- **validate** -- on-host, tailnet and external checks.
+- **accounts** (`playbooks/accounts.yml`) -- through the provider's login:
+  the `ops` and `panel` accounts with the installer's public key, and ops'
+  sudo. Nothing is closed.
+- **system** -- through a fresh login as `ops` with that key, which
+  `helpers/session_proof.py` proves from sshd's own record before anything
+  runs:
+  - **bootstrap** -- the baseline and the sshd hardening, the on-box config
+    store seeded from the installer's `.env`, and the ansible-core the host
+    reconciles itself with;
+  - **show-keyset** -- the passwords the server minted, printed between the
+    KEYSET markers, and again when the install ends;
+  - **converge** -- networking (Cloudflare Tunnel / coturn), Docker,
+    Portainer, sign-on (Keycloak + oauth2-proxy), the restic backup, the
+    catena-admin shell. Whatever the store does not configure yet (a domain,
+    backups) is skipped and says so. `--tags` scopes it;
+  - the version the host now runs, recorded for a later install and the
+    panel's update (`catena-stack-update-managed pin`);
+  - **validate** -- the on-host checks (vantages 1 and 2). The installer then
+    checks the server from the client's machine.
+
+The public port 22 stays open after the install.
+
+- **reconcile** -- what the host's own converge runs, from the tree in the
+  image the panel runs (catena-admin `catena-converge`).
 - **lockdown** -- run by the panel's Lockdown on the host: joins the tailnet,
   proves the path, and closes public port 22; the port reconciler reopens it
   while the tailnet is down.
 - **restore** -- whole-host disaster recovery, from the panel.
 
-Each is one playbook and one atomic unit, with no cross-playbook
-imports. Composition lives in the installer, which is why
-`ansible-playbook` is not a supported entry point.
+Each is one playbook and one atomic unit, with no cross-playbook imports.
+Composition lives in install-host.sh and in catena-converge, which is why
+`ansible-playbook` is not a supported entry point. The tree needs
+ansible-core alone: no Galaxy collection.
+
+The roles running a converge and the engines it installs come from one
+release: `reconcile/roles/payload` refuses engines from an image built from
+another catena-ce tree (`helpers/tree_hash.py`).
 
 ## Scheduled work is default-deny
 
@@ -51,56 +78,20 @@ on every host, but the license check gates their features at runtime, so
 they stay dormant on a Community host. On a Business host `catena-schedule`
 turns on the lanes set on the panel's Schedules page.
 
-## Installer (`catena-cli`)
+## The inventory
 
-The bundled CLI reaches the server over SSH. Prerequisite: `uv` on PATH
-(ansible-core comes from `uv`). Nothing else -- there is no encryption
-tool to install and no key to have in scope. Run it from the repository
-root, whose project depends on this one, or from this `ansible/`
-directory, where its own `pyproject.toml` lives. The graphical installer
-(`uv run catena-gui`, in `../gui/`) writes the same inventory and runs
-the same `install`.
-
-| Command | Playbook | What it does |
-| --- | --- | --- |
-| `init` | none | Create `inventory/<name>/.env`, every key at its default and explained, to fill in |
-| `install` | chain | Seed the configuration, run bootstrap, show the passwords (`show-keyset.yml`), run converge and validate, then show the passwords again. Run again, it re-applies the configuration from this machine; `--address` reaches the host at another address for that run (its tailnet address once the panel's Lockdown has closed public SSH), `--tags` scopes the converge leg, `--reinstalled` trusts the new host key of a reinstalled server |
-| `uninstall` | `uninstall.yml` | Unmask the native apt timers on a host an older release masked |
-
-One shape: `uv run catena-cli <verb> --inventory <name>`. A verb that runs a
-single playbook carries that playbook's name; `install` chains several, so
-there is no one playbook to name it after. Backups, the tunnel, the tailnet,
-the lockdown and restores run from the panel, on the installed host. With no
-arguments the CLI opens an interactive menu and prompts for both; `catena-cli
---install` is an alias for `catena-cli install`. A leading inventory name is
-refused with the correct shape rather than an argparse choice error.
-
-`install` first runs `seed.py`: with no `-i`, `.env` must already exist
-(written by `init` or the graphical installer, and filled in), and seed
-reads its config from there instead of prompting field by field. `hosts.yml`
-auto-scaffolds from `skel/` on that same first run; nothing else to copy or
-edit. `-i install.yaml --no-confirm` generates a fresh
-inventory from an answers file instead (the bench / power-user path),
-unattended; an answers file naming a value the server holds (the domain, the
-tailnet, backups, a vendor credential) is refused. The CLI then asks for the
-provider's password only when the SSH key does not open the server already.
-On an inventory already installed (its `hosts.yml` exists) seed asks nothing:
-a key a newer template added takes its default.
-
-Every leg dials the server's SSH address: `--address` for one run, else
-`HOST_SSH_ADDRESS` from the `.env`, else `HOST_PUBLIC_IP`, which stays the
-server's public address either way. Bootstrap trusts a host key only on first
-contact. A server that presents another key than the one this machine trusts
-for its address stops `install` before anything reaches it: a reinstalled
-server does, and so does another machine answering at that address. Asked, the
-operator says which; `--reinstalled` answers for an unattended run. Bootstrap
-then replaces the old key with the new one.
+An inventory lives on the client's machine and holds non-secret files only:
+its `.env` (the server's address, its SSH port and initial login, the key
+file, the admin email, the site settings) and `hosts.yml` (the server's
+name). `seed.py` is their one reader and writer, for the installer page and
+the console alike, and `skel/` is the `hosts.yml` it scaffolds. The installer
+sends the `.env` with each leg, and install-host.sh puts it beside the run's
+inventory, where the `dotenv` lookup reads it (`playbooks/lookup_plugins/`).
 
 ## Secrets
 
-**No secret ever persists on the controller.** Not encrypted, not
-plaintext: `catena-cli install` writes only non-secret files into the
-inventory.
+**No secret ever persists on the client's machine.** Not encrypted, not
+plaintext: the installer writes only non-secret files into the inventory.
 
 - The install takes no vendor credential. The tailnet credential, the
   Cloudflare API token, the restic repo URL and the S3 keys are entered
@@ -111,8 +102,8 @@ inventory.
   passwords **once**, right after bootstrap, and repeats them when the
   install ends (`playbooks/show-keyset.yml`); the restic password is generated in
   catena-admin > Settings > Backup and shown there once
-  (`scripts/catena-restic-key.py`). An install.yaml may pin the admin
-  password; it reaches the converge through a **transient 0600 file**
+  (`scripts/catena-restic-key.py`). An install's input file may pin the admin
+  password; it reaches the server through a **transient 0600 file**
   (`-e @file`) that is deleted afterwards.
 
 The on-box config store (`/etc/catena/config.json`, 0600 root) is the
@@ -125,12 +116,12 @@ keyset. Full classification: [SECRETS.md](SECRETS.md).
 | Directory | What is in it |
 | --- | --- |
 | [playbooks/](playbooks/) | The flows plus the day-two operations, and the filter plugins Ansible loads from beside them |
-| [bootstrap/roles/](bootstrap/roles/) | Operator-run roles, from outside the server |
+| [bootstrap/roles/](bootstrap/roles/) | Roles only the install applies |
 | [reconcile/roles/](reconcile/roles/) | Roles a server runs against itself |
-| [helpers/](helpers/) | Python shared by the installer, the roles, and three host-side reconcilers |
+| [helpers/](helpers/) | Python shared by the installer, the install on the server, the roles, and the host-side reconcilers |
 | [scripts/](scripts/) | Executables installed on the server and run there |
-| [inventory/](inventory/) | Per-deployment configuration, untracked |
-| [tests/](tests/) | Unit tests, plus the external probes `validate.yml` runs |
+| [inventory/](inventory/) | Inventories in a checkout, untracked |
+| [tests/](tests/) | Unit tests |
 
 Each has its own `README.md`. The `helpers/`, `scripts/`, `playbooks/`,
 `bootstrap/roles/` and `reconcile/roles/` indexes are generated from the

@@ -42,9 +42,6 @@ def _port22_rule_comments() -> dict[str, object]:
     found: dict[str, object] = {}
     for path in (COMMON / "main.yml", COMMON / "ufw_lockdown.yml"):
         for task in _flatten(yaml.safe_load(path.read_text(encoding="utf-8"))):
-            ufw = task.get("community.general.ufw") or {}
-            if str(ufw.get("port")) == "22" and ufw.get("rule") == "allow":
-                found[task["name"]] = ufw.get("comment")
             cmd = task.get("ansible.builtin.command")
             argv = (cmd.get("argv") or []) if isinstance(cmd, dict) else []
             if argv[:2] == ["ufw", "allow"] and "22" in argv:
