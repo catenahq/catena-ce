@@ -21,11 +21,10 @@ Portainer in the path, so a Portainer that will not start leaves them running:
   Healthchecks.
 - **Shared ClamAV** -- one clamd on the `catena-clamav` overlay for the mail
   server and Nextcloud, deployed once either runs, with its watchdog timer.
-  A supported server (8 GB or more) reloads clamd's signatures with scans
-  running. A machine below that floor, such as a small test VM, has less
-  memory than `clamav_blocking_reload_below_mb`: clamd reloads with scans
-  paused for the seconds the load takes, rather than holding a second copy of
-  the database. Mail that arrives in the pause is deferred and retried by its
+  A server with 8 GB or more reloads clamd's signatures with scans running.
+  A smaller one has less memory than `clamav_blocking_reload_below_mb`: clamd
+  reloads with scans paused for the seconds the load takes, rather than
+  holding a second copy of the database. Mail that arrives in the pause is deferred and retried by its
   sender; a Nextcloud upload waits for its scan, and one that gets no answer
   is refused.
 

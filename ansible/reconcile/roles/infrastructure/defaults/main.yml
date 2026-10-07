@@ -290,9 +290,9 @@ clamav_stream_max_length: "104857600"
 # wait, for the few seconds the load takes. At or above it the reload is
 # concurrent: scans carry on while the new database loads beside the old,
 # which holds both, about 1 GB more, for the length of the load. 7168 sits
-# below the about 7,800 MB an 8 GiB machine reports, so every supported server
-# (8 GB or more) reloads concurrently, and only a machine below that floor,
-# such as a small test VM, reloads blocking. Compared with the gathered
+# below the about 7,800 MB an 8 GiB machine reports, so a server with 8 GB or
+# more reloads concurrently, and a smaller one reloads blocking. Compared with
+# the gathered
 # memtotal_mb on every converge, so a resized host follows its new size.
 clamav_blocking_reload_below_mb: 7168
 
