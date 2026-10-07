@@ -106,6 +106,13 @@ catena_payload_dir: "/var/lib/catena/ee-payload"
 # hooks/, install-ee-payload.sh). Set by the catena-admin image build.
 catena_payload_image_path: "/usr/local/share/catena-ee"
 
+# The catena-ce tree this converge runs (a checkout, or the tree staged out of
+# an image), and where an image carries the record of the tree it was built
+# with. tasks/main.yml refuses engines from an image whose record names
+# another tree (helpers/tree_hash.py).
+catena_payload_tree_root: "{{ playbook_dir }}/../.."
+catena_payload_tree_record: "/usr/local/share/catena-ce/VENDOR.json"
+
 # Records the image ID the installed engines came from. A converge whose image
 # resolves to the same ID reinstalls nothing; a new image reinstalls every
 # engine. Keyed on the ID rather than mere existence so an image upgrade is

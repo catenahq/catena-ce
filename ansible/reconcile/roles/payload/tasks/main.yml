@@ -180,27 +180,7 @@
           unchecked, not verified.
       when: catena_payload_image_digest | length == 0
 
-    - name: "Payload: read the installed-image marker"
-      ansible.builtin.slurp:
-        src: "{{ catena_payload_marker }}"
-      register: _payload_marker
-      failed_when: false
-
-    - name: "Payload: decide whether the installed engines are current"
-      ansible.builtin.set_fact:
-        _payload_current: >-
-          {{ (_payload_marker.content | default('') | b64decode | trim)
-             == (_payload_image_id.stdout | trim) }}
-
-    - name: "Payload: engines already installed from this image"
-      ansible.builtin.debug:
-        msg: >-
-          /usr/local/bin already carries the engines from
-          {{ _payload_image_id.stdout | trim }} -- nothing to install.
-      when: _payload_current | bool
-
-    - name: "Payload: copy the payload tree out of the image"
-      when: not (_payload_current | bool)
+    - name: "Payload: read the image, then remove what was created to read it"
       block:
         - name: "Payload: create a throwaway container to copy out of"
           ansible.builtin.command:
@@ -209,7 +189,75 @@
               - create
               - "{{ catena_payload_image }}"
           register: _payload_cid
-          changed_when: true
+          changed_when: false
+
+        # ─── the tree and the engines are one version ──────────────────────
+        # The roles running now and the engines about to be installed must come
+        # from one catena-ce tree. A file one version's converge installs and
+        # the other version's payload claims, or the reverse, is otherwise left
+        # with no owner, and the next converge fails on its absence. Checked on
+        # every converge, before anything is copied out or run.
+        - name: "Payload: a file to read the image's tree record into"
+          ansible.builtin.tempfile:
+            state: file
+          register: _payload_record_file
+          changed_when: false
+
+        - name: "Payload: copy out the record of the tree the image was built with"
+          ansible.builtin.command:
+            argv:
+              - docker
+              - cp
+              - "{{ _payload_cid.stdout | trim }}:{{ catena_payload_tree_record }}"
+              - "{{ _payload_record_file.path }}"
+          changed_when: false
+
+        - name: "Payload: read the image's tree record"
+          ansible.builtin.slurp:
+            src: "{{ _payload_record_file.path }}"
+          register: _payload_record_raw
+
+        # A lookup, so it runs where ansible-playbook and the tree it runs are.
+        - name: "Payload: name the tree this converge runs, and the image's"
+          ansible.builtin.set_fact:
+            _payload_tree: >-
+              {{ lookup('pipe', ansible_playbook_python | quote ~ ' '
+                 ~ (catena_payload_tree_root ~ '/ansible/helpers/tree_hash.py') | quote ~ ' '
+                 ~ catena_payload_tree_root | quote) | from_json }}
+            _payload_record: "{{ _payload_record_raw.content | b64decode | from_json }}"
+
+        - name: "Payload: the tree and the image are not one version -- refusing to install"
+          ansible.builtin.fail:
+            msg: >-
+              This converge runs catena-ce
+              {{ _payload_tree.describe | default('(unknown)', true) }},
+              and {{ catena_payload_image }} was built with catena-ce
+              {{ _payload_record.describe | default('(unknown)', true) }}.
+              Their contents differ, so its engines would run under another
+              version's configuration. Nothing was installed. Converge with the
+              tree that image carries, or build an image from this tree.
+          when: >-
+            (_payload_record.tree_sha256 | default('', true) | length == 0)
+            or (_payload_record.tree_sha256 != _payload_tree.tree_sha256)
+
+        - name: "Payload: read the installed-image marker"
+          ansible.builtin.slurp:
+            src: "{{ catena_payload_marker }}"
+          register: _payload_marker
+          failed_when: false
+
+        - name: "Payload: decide whether the installed engines are current"
+          ansible.builtin.set_fact:
+            _payload_current: >-
+              {{ (_payload_marker.content | default('') | b64decode | trim)
+                 == (_payload_image_id.stdout | trim) }}
+
+        - name: "Payload: engines already installed from this image"
+          ansible.builtin.debug:
+            msg: >-
+              /usr/local/bin already carries the engines from
+              {{ _payload_image_id.stdout | trim }} -- nothing to install.
+          when: _payload_current | bool
 
         - name: "Payload: docker cp the payload tree onto the host"
           ansible.builtin.command:
@@ -219,6 +267,7 @@
               - "{{ _payload_cid.stdout | trim }}:{{ catena_payload_image_path }}/."
               - "{{ catena_payload_dir }}/"
           changed_when: true
+          when: not (_payload_current | bool)
 
       always:
         # The container is created, never started; it still holds a writable
@@ -234,6 +283,13 @@
           changed_when: false
           failed_when: false
           when: _payload_cid.stdout | default('') | length > 0
+
+        - name: "Payload: remove the copied tree record"
+          ansible.builtin.file:
+            path: "{{ _payload_record_file.path }}"
+            state: absent
+          changed_when: false
+          when: _payload_record_file.path is defined
 
     - name: "Payload: restore the extraction directory's ownership"
       ansible.builtin.file:

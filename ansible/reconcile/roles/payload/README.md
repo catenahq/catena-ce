@@ -32,13 +32,18 @@ exists.
 2. Pulls that image, unless it is addressed by digest and already on the host:
    the image the panel runs always is, so the host's own converge does not
    depend on the registry answering.
-3. Resolves the image ID and compares it with `/etc/catena/.payload-image`.
+3. Refuses, before anything is copied out or run, an image built from another
+   catena-ce tree than the one running this converge: it compares the hash the
+   image records in `/usr/local/share/catena-ce/VENDOR.json` with this tree's,
+   both named by `helpers/tree_hash.py`. Engines under another version's roles
+   leave a file one version hands to the other with no owner.
+4. Resolves the image ID and compares it with `/etc/catena/.payload-image`.
    Equal means the installed engines already came from this image and the role
    stops there -- so a re-converge changes nothing.
-4. Otherwise: `docker create` a throwaway container, `docker cp` the payload
-   tree out of it, remove it, restore the directory's ownership, and run the
-   image's own `install-ee-payload.sh`.
-5. Writes the image ID into the marker.
+5. Otherwise: `docker cp` the payload tree out of a throwaway container,
+   remove it, restore the directory's ownership, and run the image's own
+   `install-ee-payload.sh`.
+6. Writes the image ID into the marker.
 
 Step 1 is the reason the two halves cannot drift apart. The engines and the
 shell come out of one image because there is one place the version is decided:
@@ -90,6 +95,8 @@ instead of the working tree, which is the one thing a bench must never do.
 | `catena_payload_dir` | `/var/lib/catena/ee-payload` | extraction target (shared with the container's sync) |
 | `catena_payload_image_path` | `/usr/local/share/catena-ee` | payload tree inside the image |
 | `catena_payload_marker` | `/etc/catena/.payload-image` | image ID the installed engines came from |
+| `catena_payload_tree_root` | `{{ playbook_dir }}/../..` | the catena-ce tree this converge runs |
+| `catena_payload_tree_record` | `/usr/local/share/catena-ce/VENDOR.json` | where the image records the tree it was built with |
 | `catena_payload_pull` | `CATENA_PAYLOAD_PULL`, `true` | pull before extracting |
 | `catena_payload_install` | `CATENA_PAYLOAD_INSTALL`, `true` | run the install at all |
 | `catena_payload_image_digest` | `CATENA_PAYLOAD_IMAGE_DIGEST`, else `catena_admin_release.digest` | digest the image must resolve to before anything is extracted |

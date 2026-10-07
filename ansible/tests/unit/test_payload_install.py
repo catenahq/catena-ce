@@ -294,6 +294,55 @@ def test_digest_mismatch_fails_before_anything_is_extracted_or_run() -> None:
         )
 
 
+# --- pairing gate -----------------------------------------------------------
+# The roles running a converge and the engines it installs must come from one
+# catena-ce tree, or a file one version hands to the other is left with no
+# owner, and the next converge fails on its absence.
+
+
+def test_a_tree_the_image_was_not_built_with_is_refused_before_anything_is_installed() -> None:
+    flat = _flatten(_tasks())
+    refuse = _index_of(flat, "not one version -- refusing")
+    assert _index_of(flat, "create a throwaway container") < refuse
+    for later in ("docker cp the payload tree",
+                  "install the engines onto the host",
+                  "record the image the engines came from"):
+        assert refuse < _index_of(flat, later), f"{later!r} runs before the refusal"
+
+
+def test_the_pairing_gate_runs_on_every_converge_not_only_on_an_extract() -> None:
+    """A re-converge whose engines are current still runs this tree's roles
+    over them, so it is checked whether or not anything is copied out."""
+    flat = _flatten(_tasks())
+    for needle in ("copy out the record of the tree",
+                   "name the tree this converge runs",
+                   "not one version -- refusing"):
+        conds = " ".join(str(c) for c in _as_list(flat[_index_of(flat, needle)].get("when")))
+        assert "_payload_current" not in conds, needle
+    assert _index_of(flat, "not one version -- refusing") < _index_of(
+        flat, "decide whether the installed engines are current")
+
+
+def test_both_sides_are_named_by_the_one_helper_and_an_unrecorded_image_is_refused() -> None:
+    flat = _flatten(_tasks())
+    name = flat[_index_of(flat, "name the tree this converge runs")]
+    assert "helpers/tree_hash.py" in name["ansible.builtin.set_fact"]["_payload_tree"]
+    refuse = flat[_index_of(flat, "not one version -- refusing")]
+    cond = " ".join(str(c) for c in _as_list(refuse.get("when")))
+    assert "_payload_record.tree_sha256 | default('', true) | length == 0" in cond
+    assert "_payload_record.tree_sha256 != _payload_tree.tree_sha256" in cond
+    assert _defaults()["catena_payload_tree_record"] == "/usr/local/share/catena-ce/VENDOR.json"
+
+
+def test_the_copied_record_is_removed_even_on_failure() -> None:
+    for task in _flatten(_tasks()):
+        if "always" in task:
+            names = [t.get("name", "") for t in task["always"]]
+            if any("remove the copied tree record" in n for n in names):
+                return
+    raise AssertionError("the tree record copy is not removed in an `always` block")
+
+
 def test_digest_gate_is_conditional_on_a_pin_being_set() -> None:
     flat = _flatten(_tasks())
     fail_task = flat[_index_of(flat, "not the pinned one")]

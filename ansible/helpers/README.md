@@ -29,3 +29,4 @@ Unit tests for these live in `../tests/unit/`.
 | `public_https.py` | GET https://<name>/... the way the internet reaches this server: <name> is resolved by public resolvers rather than by the machine making the request. |
 | `render_knobs.py` | Load and validate helpers/knobs.yml, the knob registry, and render an inventory `.env` from it. |
 | `tailnet_reachability.py` | Ask the tailnet whether this host is reachable on it, before public 22 closes. |
+| `tree_hash.py` | Name a catena-ce tree by the hash of what a catena-admin image ships of it. |
