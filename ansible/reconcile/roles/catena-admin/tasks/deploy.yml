@@ -174,6 +174,10 @@
         # which is why this is passed rather than defaulted in the image.
         BESZEL_API_BASE: >-
           http://{{ beszel_hub_network_alias }}:{{ beszel_hub_internal_port }}
+        # The app catalog the marketplace reads. Blank, as on every client
+        # host, reads the published one; a development host names its own
+        # (helpers/knobs.yml CATENAHQ_TEMPLATES_BASE).
+        CATENAHQ_TEMPLATES_BASE: "{{ cfg_catenahq_templates_base | default('') }}"
   when: catena_admin_deploy_from_converge | bool
 
 - name: "Catena-admin: check the swarm service exists"

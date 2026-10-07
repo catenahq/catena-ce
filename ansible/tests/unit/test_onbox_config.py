@@ -778,8 +778,9 @@ def test_cli_emits_the_env_seeded_names_without_touching_the_store(oc, tmp_path,
 
 
 def test_cli_emits_the_env_reseeded_names_without_touching_the_store(oc, tmp_path, capsys):
-    """The development ACME and staging keys, which the `.env` keeps editing.
-    ADMIN_EMAIL is seeded and never reseeded: the panel owns it afterwards."""
+    """The development keys (ACME, staging, the app catalog), which the
+    `.env` keeps editing. ADMIN_EMAIL is seeded and never reseeded: the panel
+    owns it afterwards."""
     p = tmp_path / "config.json"
     rc = oc.main(["--path", str(p), "--emit", "env-reseed-names"])
     assert rc == 0
@@ -789,7 +790,7 @@ def test_cli_emits_the_env_reseeded_names_without_touching_the_store(oc, tmp_pat
     assert set(names) == {
         "COTURN_CERTBOT_STAGING", "MAILSERVER_CERTBOT_STAGING",
         "CATENA_ACME_DIRECTORY_URL", "CATENA_ACME_HOST_IP",
-        "CATENA_ACME_CA_BUNDLE_PEM_B64",
+        "CATENA_ACME_CA_BUNDLE_PEM_B64", "CATENAHQ_TEMPLATES_BASE",
     }
     assert set(names) <= oc.ENV_SEEDED_CONFIG
 

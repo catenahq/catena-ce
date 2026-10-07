@@ -759,3 +759,16 @@ config:
     help:
       en: The local ACME server's CA bundle, base64-encoded.
     env: {section: development, default: "", reseed: true}
+
+  # ---- app catalog, development only ----
+  #
+  # The panel's marketplace reads the catalog at this base (http(s):// or
+  # file://) instead of the published one, as the test bench does with the
+  # catalog of the run it tests. A store key for the reason the certificate
+  # keys above are: the host's own converge renders the panel's environment.
+  - key: CATENAHQ_TEMPLATES_BASE
+    residence: store
+    var: cfg_catenahq_templates_base
+    help:
+      en: An app catalog's base URL. Blank reads the published catalog.
+    env: {section: development, default: "", reseed: true}
