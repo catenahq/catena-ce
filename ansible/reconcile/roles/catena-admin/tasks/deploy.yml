@@ -13,8 +13,8 @@
 # needs Portainer to be up, or an API key to exist.
 #
 # The argv is rendered by filter_plugins/catena_admin_service.py, which the
-# TEST BENCH imports too: the bench deploys this same container with an
-# image it built on the VPS, and the parts that must not drift between the
+# TEST BENCH imports too: the bench recreates this same container on a host a
+# scenario left without it, and the parts that must not drift between the
 # two are the eight mounts and six container labels nobody re-reads.
 #
 # Credentials arrive as SWARM SECRETS, not --env: `docker service create`

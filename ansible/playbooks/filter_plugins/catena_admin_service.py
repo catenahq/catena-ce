@@ -14,10 +14,10 @@ Three filters over one spec dict:
     catena_admin_secret_drift(inspect, ss)  -> --secret-add / --secret-rm flags
 
 WHY A SHARED RENDERER. Two consumers deploy this container and must agree
-on its shape: the converge (reconcile/roles/catena-admin/tasks/deploy.yml) with the
-published GHCR image, and the test bench (ops
-automation/test_bench/orchestrator/catena_admin_deploy.py) with an image it
-built on the VPS. Both create the service directly against the local swarm,
+on its shape: the converge (reconcile/roles/catena-admin/tasks/deploy.yml), and
+the test bench (ops automation/test_bench/orchestrator/catena_admin_deploy.py),
+which recreates the panel from its run's image on a host a scenario left
+without it. Both create the service directly against the local swarm,
 with no stack API between them to hold a shared compose file, so the only thing
 that can keep their argv identical is a renderer they both call. What MUST NOT
 drift is exactly what nobody reads: eight mounts and six labels. So the mounts,
@@ -42,7 +42,8 @@ name. A fixed name would make rotation a silent no-op.
 
 End-to-end coverage:
     catena-ce ansible/tests/unit/test_catena_admin_service.py
-    bench     ce_install_suite (stage-2.6 deploys through the same argv)
+    bench     every install (the converge's deploy), and the bench's recreate
+              of a missing panel through the same argv
 """
 
 from __future__ import annotations

@@ -19,15 +19,13 @@
 # while running the shell from another is how a host ends up with an engine
 # and a panel that disagree about the config schema.
 #
-# `catena_admin_image` is not a literal anybody maintains. The config loader
-# runs helpers/catena_admin_release.py on the host once per converge, which
-# asks GHCR for the highest published `vX.Y.Z` tag and its digest. That is the
-# INTENT: catena-ce installs the newest published release, so a converge from a
-# controller picks up a release without anyone editing a pin here. The registry
-# is the one version input. A host converging itself (catena-admin
-# catena-converge) sets CATENA_ADMIN_IMAGE to the image it is running and stays
-# on it; the panel's self-update moves it. When the registry does not answer,
-# the loader keeps the image the host already runs
+# `catena_admin_image` is not a literal anybody maintains. The install
+# (install-host.sh) and a host converging itself (catena-admin catena-converge)
+# set CATENA_ADMIN_IMAGE to the image whose tree runs, so the tree, the engines
+# and the shell are one image; the panel's self-update moves it. A converge
+# given none asks the registry once (helpers/catena_admin_release.py, run by
+# the config loader) for the highest published `vX.Y.Z` tag and its digest,
+# and keeps the image the host already runs when the registry does not answer
 # (playbooks/group_vars/all/main.yml).
 #
 # The version TAG, not `:latest`. publish-image.yml moves `:latest` with
@@ -36,10 +34,8 @@
 # tag's digest is the one that gets scanned, signed and written to
 # image-digest.txt.
 #
-# CATENA_PAYLOAD_IMAGE pins one and suppresses the registry call. That is the
-# change-control path, and what the bench sets: it builds
-# local/catena-admin:bench on the VPS so the extract runs against the working
-# tree rather than the last published release.
+# CATENA_PAYLOAD_IMAGE pins one and suppresses the registry call: the install
+# sets it to the image it installs.
 #
 # tasks/main.yml replaces this value with the image the catena-admin swarm
 # service runs whenever that service exists, because "which image do the
@@ -71,9 +67,9 @@ catena_payload_image: >-
 # mid-converge and a mismatched override, and a compromised registry passes it.
 #
 # It applies only when the image being extracted IS the resolved one. Anything
-# else has a digest nobody here knows: the bench builds its own image on the
-# VPS, the on-host update lane may have pinned a version this converge did not
-# resolve, and a converge the registry did not answer keeps the running image
+# else has a digest nobody here knows: an image from another registry (the
+# test bench's) or a version the on-host update lane pinned and this converge
+# did not resolve, and a converge the registry did not answer keeps the running image
 # (catena_admin_fallback_image) with no resolved release at all. Asserting the
 # resolved digest against one of those would fail closed on a correct host,
 # which is worse than saying out loud that it went unchecked.
@@ -122,15 +118,12 @@ catena_payload_tree_record: "/usr/local/share/catena-ce/VENDOR.json"
 catena_payload_marker: "/etc/catena/.payload-image"
 
 # Pull the image before extracting, unless a digest-pinned reference is already
-# on the host (tasks/main.yml). Production pulls the published GHCR tag.
-# The test bench builds local/catena-admin:bench ON the VPS and has no
-# published tag to pull -- and must never exercise the last published image in
-# place of the working tree -- so it sets CATENA_PAYLOAD_PULL=false.
+# on the host (tasks/main.yml). CATENA_PAYLOAD_PULL=false extracts from an
+# image already on the host.
 catena_payload_pull: >-
   {{ lookup('env', 'CATENA_PAYLOAD_PULL', default='true') | bool }}
 
-# Install the payload FROM the converge at all. The bench stages the payload
-# out of band (first-time-only, from the image it just built on the VPS) and
-# sets CATENA_PAYLOAD_INSTALL=false. Production leaves it true.
+# Install the payload FROM the converge at all, as every converge does;
+# CATENA_PAYLOAD_INSTALL=false leaves the engines on the host as they are.
 catena_payload_install: >-
   {{ lookup('env', 'CATENA_PAYLOAD_INSTALL', default='true') | bool }}

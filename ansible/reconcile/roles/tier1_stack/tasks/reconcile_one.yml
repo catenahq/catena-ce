@@ -37,9 +37,6 @@
 # that is merely unreachable from outside. There is no equivalent here: without
 # the engine there is no traefik, no postgres and no portainer, so a converge
 # that carried on would report success over a host with no control plane at all.
-#
-# On a host whose engines are staged out of band (the bench) that staging has to
-# happen before the first converge, not after it.
 - name: "tier1: the reconcile engine is missing"
   ansible.builtin.fail:
     msg: >-

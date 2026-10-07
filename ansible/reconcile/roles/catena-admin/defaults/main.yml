@@ -11,8 +11,7 @@
 # a client VPS). Published by the private catena-admin repo's publish-image.yml
 # on a v* tag from main; the IMAGE is public (anonymous pull, no registry
 # credential) while the Business feature set inside it is gated at runtime by
-# the licence check. The bench does not use it (it builds
-# local/catena-admin:bench on the VPS and passes that tag).
+# the licence check.
 #
 # catena_admin_image lives in playbooks/group_vars/all/main.yml: reconcile/roles/payload extracts the
 # host engines from the same image at role 5.5, long before this role's defaults
@@ -24,11 +23,8 @@
 # One value drives both halves: the engines and the shell come from one image.
 catena_admin_image_digest: "{{ catena_payload_image_digest | default('') }}"
 
-# Deploy the catena-admin container FROM the converge (deploy.yml). Production
-# pulls the published GHCR image at converge time. The test bench builds its
-# working-tree image on the VPS and deploys it out of band, so it sets
-# CATENA_ADMIN_DEPLOY_FROM_CONVERGE=false to skip the converge deploy.
-# Production leaves it true.
+# Deploy the catena-admin container FROM the converge (deploy.yml), as every
+# converge does; CATENA_ADMIN_DEPLOY_FROM_CONVERGE=false skips it.
 catena_admin_deploy_from_converge: >-
   {{ lookup('env', 'CATENA_ADMIN_DEPLOY_FROM_CONVERGE', default='true') | bool }}
 

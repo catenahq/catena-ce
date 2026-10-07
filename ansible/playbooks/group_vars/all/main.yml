@@ -450,10 +450,10 @@ swarm_stack_dir: /etc/catena/stacks
 # licence check.
 #
 # Precedence:
-#   1. CATENA_ADMIN_IMAGE, if set -- change control, ahead of any pin. The bench
-#      converges against an image it built this way, and catena-admin
-#      catena-converge sets it to the image the panel is running, so a host
-#      converging itself stays on the image its reconcile tree came from.
+#   1. CATENA_ADMIN_IMAGE, if set -- change control, ahead of any pin. The
+#      install (install-host.sh) sets it to the image it installs, and
+#      catena-admin catena-converge to the image the panel is running, so a
+#      host stays on the image its reconcile tree came from.
 #   2. The version this host recorded in /etc/catena/config.json, rollback
 #      included.
 #   3. The newest published release, asked of the registry once per converge by

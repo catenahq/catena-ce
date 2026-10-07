@@ -78,14 +78,6 @@ The marker holds an image ID, not a timestamp or a bare "installed" flag:
   reinstall would replace it with an unstamped build and the scenario would
   then pass or fail for a reason unrelated to what it asserts.
 
-## Bench
-
-The bench builds `local/catena-admin:bench` ON the VPS, after the converge,
-and stages the payload out of band from that image. It therefore sets
-`CATENA_PAYLOAD_INSTALL=false` (and `CATENA_PAYLOAD_PULL=false`): pulling the
-published GHCR tag on a bench VM would exercise the last published image
-instead of the working tree, which is the one thing a bench must never do.
-
 ## Variables
 
 | Variable | Default | Purpose |
@@ -115,6 +107,6 @@ compromised registry. Provenance is `cosign verify` against the keyless
 signature `publish-image.yml` records, which needs cosign on the host and is
 not wired up.
 
-An image this converge did not resolve (the bench's own build, a lane pin)
+An image this converge did not resolve (one from another registry, a lane pin)
 extracts with the digest empty, and the role says out loud that it went
 unchecked rather than failing closed on a correct host.

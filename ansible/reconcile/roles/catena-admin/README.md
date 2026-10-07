@@ -72,8 +72,8 @@ TIER-1 SWARM SERVICE, with the argv rendered by
   create` has no `--env-file`, so an `--env` value sits in the host
   process table where any local user can read it. No Traefik route is
   written here (oauth2-proxy owns the gated `dash.<zone>` route). The
-  test bench renders its argv from the same filter plugin and differs in
-  one value: it builds the image locally instead of pulling from GHCR.
+  test bench renders its argv from the same filter plugin when it recreates
+  a panel a scenario removed.
 
 ## What this role does NOT do
 

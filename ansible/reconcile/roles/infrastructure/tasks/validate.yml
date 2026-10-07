@@ -35,11 +35,10 @@
 # The fixtures here do not all arrive at the same time. The nextcloud OIDC
 # wirer, the export dir and Traefik's dynamic dir are written by THIS role;
 # catena-dashboard-sync and gatus-sync are lane scripts in the catena-admin
-# image payload. On a host that stages its payload out of band
-# (CATENA_PAYLOAD_INSTALL=false -- the bench builds the image on the VPS with
-# the docker this converge installs, so it cannot stage it any earlier) the
-# reconciler lands AFTER a converge, and a validate in between would be
-# asserting on a host that is legitimately mid-assembly.
+# image payload. On a host whose converge does not install the payload
+# (CATENA_PAYLOAD_INSTALL=false) the reconciler lands when something else
+# installs it, and a validate before then would be asserting on a host that is
+# legitimately mid-assembly.
 #
 # bootstrap/roles/common/tasks/_payload_expected.yml makes the decision. It prefers
 # reconcile/roles/payload's fact and falls back to the env var, which is what a standalone

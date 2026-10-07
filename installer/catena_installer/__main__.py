@@ -55,8 +55,8 @@ def _address(value: str) -> str:
 
 
 def _add_registry(parser: argparse.ArgumentParser) -> None:
-    """Where the release a leg fetches comes from, when it is not a published
-    one: an image reference, and how to reach its registry."""
+    """How a leg reaches the registry of the image it fetches: a CA to trust,
+    or plain http."""
     parser.add_argument("--ca-file", default="",
                         help="a CA to trust for the image's registry")
     parser.add_argument("--insecure-http", action="store_true",

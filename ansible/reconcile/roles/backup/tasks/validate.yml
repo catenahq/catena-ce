@@ -8,10 +8,10 @@
 #
 # The fixtures split in two, because they do not all arrive at the same time.
 # The configuration is written by THIS role; the scripts and the units ship in
-# the catena-admin image payload, and on a host that stages its payload out of
-# band (CATENA_PAYLOAD_INSTALL=false -- the bench builds the image on the VPS
-# and installs it at a later stage) they land AFTER a converge, so a validate
-# in between would be asserting on a host that is legitimately mid-assembly.
+# the catena-admin image payload, and on a host whose converge does not install
+# the payload (CATENA_PAYLOAD_INSTALL=false) they land when something else
+# installs it, so a validate before then would be asserting on a host that is
+# legitimately mid-assembly.
 - name: "validate/backup: role-owned fixtures exist + correct mode"
   ansible.builtin.include_role:
     name: common
