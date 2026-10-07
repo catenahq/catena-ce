@@ -107,9 +107,9 @@ catena_payload_dir: "/var/lib/catena/ee-payload"
 catena_payload_image_path: "/usr/local/share/catena-ee"
 
 # The catena-ce tree this converge runs (a checkout, or the tree staged out of
-# an image), and where an image carries the record of the tree it was built
-# with. tasks/main.yml refuses engines from an image whose record names
-# another tree (helpers/tree_hash.py).
+# an image), and where an image records the tree its build vendored.
+# tasks/main.yml refuses engines from an image whose record names another
+# tree (helpers/tree_hash.py).
 catena_payload_tree_root: "{{ playbook_dir }}/../.."
 catena_payload_tree_record: "/usr/local/share/catena-ce/VENDOR.json"
 

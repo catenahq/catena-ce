@@ -40,24 +40,32 @@ def _private(address: str) -> bool:
             or ip.is_unspecified or (ip.version == 4 and ip in cgnat))
 
 
-async def _probe(host: str, port: int, gate: asyncio.Semaphore, timeout: float) -> int | None:
-    async with gate:
-        try:
-            _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout)
-        except (asyncio.TimeoutError, OSError):
-            return None
-        writer.close()
-        try:
-            await writer.wait_closed()
-        except OSError:
-            pass
-        return port
+async def _answers(host: str, port: int, timeout: float) -> bool:
+    try:
+        _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout)
+    except (asyncio.TimeoutError, OSError):
+        return False
+    writer.close()
+    try:
+        await writer.wait_closed()
+    except OSError:
+        pass
+    return True
 
 
 async def _scan(host: str, ports: range, concurrency: int, timeout: float) -> list[int]:
-    gate = asyncio.Semaphore(concurrency)
-    found = await asyncio.gather(*(_probe(host, p, gate, timeout) for p in ports))
-    return sorted(p for p in found if p is not None)
+    # `concurrency` workers draw from one iterator, so that many probes are in
+    # flight at a time.
+    pending = iter(ports)
+    found: list[int] = []
+
+    async def worker() -> None:
+        for port in pending:
+            if await _answers(host, port, timeout):
+                found.append(port)
+
+    await asyncio.gather(*(worker() for _ in range(concurrency)))
+    return sorted(found)
 
 
 def scan(host: str, ports: range = range(1, 65536), *, concurrency: int = 500,

@@ -14,8 +14,12 @@ permissions:
   contents: read
 
 jobs:
-  tree:
-    name: Ansible tree unit tests
+  installer:
+    # The Ansible tree's unit tests and those of `catena-installer`, the root
+    # project, whose tests include the gate that holds the declaration, the
+    # code it points at and the documented commands to one another, and what
+    # a wheel carries.
+    name: Installer and tree unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -26,16 +30,17 @@ jobs:
       # The tree's tests read the tree and run its helpers with no
       # ansible-core, so they run in a lightweight ephemeral env instead of
       # syncing the project (which would pull ansible-core for nothing here).
-      - name: Unit tests
+      - name: Ansible tree unit tests
         working-directory: ansible
         run: uv run --no-project --with pytest --with pyyaml python -m pytest tests/unit -q
+      - name: Installer tests
+        run: uv run pytest -q
 
-  installer:
-    # `catena-installer`, the root project: its tests include the gate that
-    # holds the declaration, the code it points at and the documented
-    # commands to one another, and what a wheel carries. The locks are held
-    # to their pyprojects here, since resolving needs the index.
-    name: Installer
+  entry-points:
+    # `catena-installer`, the one entry point a client runs, from the root
+    # project and as the wheel uvx installs. The locks are held to their
+    # pyprojects here, since resolving needs the index.
+    name: Entry point and wheel
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -50,8 +55,6 @@ jobs:
           uv lock --check --project ansible
       - name: The entry point runs
         run: uv run catena-installer --help
-      - name: Installer tests
-        run: uv run pytest -q
       - name: A wheel builds
         run: uv build --wheel
 

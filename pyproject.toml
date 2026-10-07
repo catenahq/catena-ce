@@ -14,7 +14,6 @@ dependencies = [
 ]
 
 [project.scripts]
-# `uvx catena-installer` from PyPI, `uv run catena-installer` in a checkout.
 catena-installer = "catena_installer.__main__:main"
 
 [build-system]

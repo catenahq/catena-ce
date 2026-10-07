@@ -108,7 +108,7 @@ _CHUNK = 1 << 20
 
 
 class FetchError(RuntimeError):
-    """Anything that leaves --dest without the image it was asked for."""
+    """Anything that leaves --dest without the requested image."""
 
 
 def _say(message: str) -> None:
