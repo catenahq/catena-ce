@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 161 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 162 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -24,6 +24,7 @@ The 161 scenarios the maintainers' test bench carries, and the behaviour each on
 | `ce_uninstall` | Uninstalling hands the host back to the operating system, including the package-update timers the install had taken over. |
 | `ce_validate` | A converged Community host validates itself end to end using only the shipped installer. |
 | `cf_tunnel_regenerate_round_trip` | Rotating the public tunnel mints a new one, repoints the public name at it, revokes the old one, and rolls the connector onto the new credential. |
+| `clamd_reload_on_a_small_host` | On a small server, a signature reload of the shared antivirus scanner keeps memory flat, and mail that arrives during the reload is still delivered. |
 | `cloudflare_api_rotation_round_trip` | The edge-provider API credential is rotated on the planned cycle and the host keeps serving across the change. |
 | `concurrent_backup_lock_contention` | Two maintenance jobs contending for the host lock run one after the other instead of at the same time. |
 | `container_delete_recreated` | A container deleted out from under the orchestrator, and a whole service deleted with it, are scheduled again and come back serving. |
