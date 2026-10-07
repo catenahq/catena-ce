@@ -260,9 +260,10 @@ secrets:
   - key: storage_bulk_password
     panel: {group: share, section: secrets, kind: secret, optional: true}
 
-  # A signed claim rather than a shared secret: this repo neither mints nor
-  # verifies it, it only stores it. Optional -- Community is the default and an
-  # empty field must stay empty rather than reading as "not set yet".
+  # The Polar subscription key the client saves in Settings: this repo only
+  # stores it, and the host checks it with Polar (catena-admin catena-license).
+  # Optional -- Community is the default and an empty field must stay empty
+  # rather than reading as "not set yet".
   - key: catena_license
     panel: {group: license, section: secrets, kind: secret, optional: true}
 
