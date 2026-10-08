@@ -34,7 +34,7 @@ The 167 scenarios the maintainers' test bench carries, and the behaviour each on
 | `daily_chain_container_rollback` | A failed container update inside the daily maintenance chain rolls that service back and lets the chain continue. |
 | `daily_chain_full_pass` | The daily maintenance chain runs every stage end to end on a real host and reports itself idle when it finishes. |
 | `daily_chain_preflight_aborts_low_disk` | The daily maintenance chain refuses to start when free disk at the staging area is below the configured floor. |
-| `daily_chain_quiesce_invoked` | The daily maintenance chain quiesces applications before taking a backup and always releases them afterwards, including when the backup aborts the chain. |
+| `daily_chain_quiesce_invoked` | The nightly maintenance puts each application that asks for it into its backup mode before the backup and back out after it, also when the backup fails, and leaves a removed application alone. |
 | `daily_chain_reboot_round_trip` | The nightly maintenance restarts a host whose installed updates wait for a restart, and checks that everything running before it came back. |
 | `daily_chain_resumes_after_reboot` | A daily maintenance chain cut short by a reboot resumes when the host comes back, on a licensed host whose daily schedule is on. |
 | `daily_chain_updates_without_backup` | Container updates still run on a server with no backup configured, behind the same health gate, and the maintenance log says no backup stands behind them. |
