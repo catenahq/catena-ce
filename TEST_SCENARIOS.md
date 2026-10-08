@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 166 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 167 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -24,7 +24,7 @@ The 166 scenarios the maintainers' test bench carries, and the behaviour each on
 | `ce_uninstall` | Uninstalling hands the host back to the operating system, including the package-update timers the install had taken over. |
 | `ce_validate` | A converged Community host validates itself end to end using only the shipped installer. |
 | `cf_tunnel_regenerate_round_trip` | Rotating the public tunnel mints a new one, repoints the public name at it, revokes the old one, and rolls the connector onto the new credential. |
-| `clamd_reload_on_a_small_host` | On a machine below the 8 GB a supported server has, a signature reload of the shared antivirus scanner keeps memory flat, and mail that arrives during the reload is still delivered. |
+| `clamd_reload_on_a_small_host` | On a server with less than 8 GB of memory, a signature reload of the shared antivirus scanner keeps memory flat, and mail that arrives during the reload is still delivered. |
 | `cloudflare_api_rotation_round_trip` | The edge-provider API credential is rotated on the planned cycle and the host keeps serving across the change. |
 | `concurrent_backup_lock_contention` | Two maintenance jobs contending for the host lock run one after the other instead of at the same time. |
 | `container_delete_recreated` | A container deleted out from under the orchestrator, and a whole service deleted with it, are scheduled again and come back serving. |
@@ -130,6 +130,7 @@ The 166 scenarios the maintainers' test bench carries, and the behaviour each on
 | `migrate_preseed_no_split_brain` | The bulk pre-copy leg of a migration starts nothing on the destination, so two hosts can never serve at once. |
 | `mirror_skips_on_bad_verify_hot` | The offsite copy refuses to run when the backup it would copy failed verification. |
 | `mixed_template_negative_restore` | A restore whose verification fails names the application that failed, rather than reporting a generic error or a silent partial success. |
+| `nextcloud_update_migrates` | A Nextcloud patch update runs the migration steps once the upgraded application answers, and the new version stays in place. |
 | `nextcloud_versions_retention_applied` | The file-version retention configured for the file-sync application reaches the running container instead of stopping at the catalogue. |
 | `oauth2_proxy_cookie_rotation_round_trip` | Rotating the session-cookie secret invalidates existing sessions cleanly while a fresh sign-in keeps working. |
 | `offsite_copy_unreachable_target` | One offsite destination being unreachable costs exactly that copy, visibly, and leaves the others alone. |
