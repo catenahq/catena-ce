@@ -80,8 +80,6 @@ TIER-1 SWARM SERVICE, with the argv rendered by
 - It does **not** create a Keycloak realm client. The admin sits
   behind the shared `oauth2-proxy` realm client and the staff/admin
   oauth2-proxy slug.
-- It carries **no** audit.db quiesce hooks. The audit module is a
-  license-gated Business capability; Community ships no audit log.
 
 ## Community vs Business actions
 
