@@ -26,13 +26,13 @@ declarations the roles write into `/etc/catena/public-ports.d/`.
 | `beszel-hc-shim.py` | Beszel -> Healthchecks alert shim. |
 | `beszel-seed.py` | Seed Beszel's hub configuration (idempotent): universal token, OIDC login, alert delivery and rules, outgoing mail. |
 | `catena-admin-runner.sh` | catena-admin action dispatcher -- the ONLY thing the catena-admin runner user's ssh key is allowed to run (enforced by authorized_keys' command= stanza). |
+| `catena-container.sh` | /usr/local/bin/catena-container [--required] <app> <service> -- print the name of the running container of one service of a deployed application. |
 | `catena-dms-exec.sh` | Run one docker command against the mailserver's dms container, resolving the container name INSIDE this invocation. |
 | `catena-network-nudge.sh` | Recover containers stranded by the catena-network overlay race after a docker.service start (boot, daemon restart, snapshot restore). |
 | `catena-restic-key.py` | catena-restic-key -- generate, validate or rotate the restic repository password. |
 | `catena-tailnet-check.py` | catena-tailnet-check -- check tailnet credentials before the panel stores them. |
 | `healthchecks-seed.py` | Seed and reconcile self-hosted Healthchecks: the operator superuser, the project and its API keys, the notification channels (the admin's email and ntfy), and the two backup checks. |
 | `mailserver-cert-reload.sh` | Inject the renewed mail TLS cert into the dms container and reload Postfix + Dovecot so it takes effect without dropping established connections. |
-| `nextcloud-container.sh` | /usr/local/bin/catena-nextcloud-container -- print the name of the running Nextcloud app container, for the catena-wire-nextcloud-* scripts. |
 | `nextcloud-talk-hpb-wire.sh` | /usr/local/bin/catena-wire-nextcloud-talk-hpb -- post-deploy wiring for Nextcloud Talk's High-Performance Backend (HPB). |
 | `rocketchat-jitsi-wire.sh` | /usr/local/bin/catena-wire-rocketchat-jitsi -- post-deploy wiring for Rocket.Chat's bundled on-server Jitsi. |
 | `run-clamav-watch.sh` | Page when the shared clamd is down, but only while something depends on it -- the mail server's dms container or Nextcloud. |

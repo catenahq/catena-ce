@@ -8,6 +8,14 @@
 
 coturn_compose_name: "coturn"
 
+# The TURN consumers, by swarm service name (<app>_<compose service>): the
+# consumer gate in tasks/main.yml deploys coturn while a container of any of
+# them runs.
+coturn_consumer_services:
+  - catena-nextcloud_talk-hpb
+  - catena-rocketchat_jvb
+  - catena-element_jvb
+
 # The image pin lives in the host engine's built-in catalog (catena-admin
 # payload/engines/tier1/catalog.go), where Renovate tracks it alongside the
 # other tier-1 images. One catalog is what keeps every tier-1 image watched for

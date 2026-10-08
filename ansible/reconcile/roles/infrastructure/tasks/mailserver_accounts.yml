@@ -42,8 +42,7 @@
 - name: "Mailserver accounts: ensure postmaster mailbox exists (unblocks DMS boot)"
   ansible.builtin.shell: |
     set -o pipefail
-    ct=$(docker ps --filter label=vps.component=dms \
-      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1)
+    ct=$(/usr/local/bin/catena-container catena-mailserver dms)
     [ -n "$ct" ] || { echo "no dms container right now" >&2; exit 1; }
     docker exec "$ct" setup email add \
       {{ ("postmaster@" ~ cloudflare_zone) | quote }} {{ _ms_postmaster_pw | quote }}
@@ -83,8 +82,7 @@
   # still means one more restart between these two tasks.
   ansible.builtin.shell: |
     set -o pipefail
-    ct=$(docker ps --filter label=vps.component=dms \
-      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1)
+    ct=$(/usr/local/bin/catena-container catena-mailserver dms)
     [ -n "$ct" ] || { echo "no dms container right now" >&2; exit 1; }
     docker exec "$ct" setup alias add \
       {{ ("abuse@" ~ cloudflare_zone) | quote }} \

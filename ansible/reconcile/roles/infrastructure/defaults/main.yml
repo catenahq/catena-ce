@@ -5,9 +5,9 @@
 #
 # This role's public hostnames, each served through the tunnel and Traefik
 # behind its own Keycloak-backed oauth2-proxy:
-#   monitor.<zone>   -> Gatus
-#   heartbeat.<zone> -> Healthchecks
-#   hub.<zone>       -> Beszel
+#   gatus.<zone>        -> Gatus
+#   healthchecks.<zone> -> Healthchecks
+#   beszel.<zone>       -> Beszel
 
 
 # Executing-prefix paths this role writes, for
@@ -28,8 +28,8 @@ infrastructure_managed_paths:
   - "/etc/systemd/system/{{ clamav_watch_systemd_unit_name }}.timer"
   - "/etc/systemd/system/{{ mail_canary_systemd_unit_name }}.service"
   - "/etc/systemd/system/{{ mail_canary_systemd_unit_name }}.timer"
+  - /usr/local/bin/catena-container
   - /usr/local/bin/catena-dms-exec
-  - /usr/local/bin/catena-nextcloud-container
   - /usr/local/bin/catena-wire-nextcloud-antivirus
   - /usr/local/bin/catena-wire-nextcloud-mail
   - /usr/local/bin/catena-wire-nextcloud-webmail-link
@@ -164,12 +164,12 @@ infrastructure_smtp: >-
 # The hub and the agent, each a swarm stack:
 #
 #   beszel-hub   -- web UI + SQLite history store. Public surface at
-#                   hub.<zone> (beszel_hostname, playbooks/group_vars/all),
+#                   beszel.<zone> (beszel_hostname, playbooks/group_vars/all),
 #                   behind its own admin-only oauth2-proxy: the `beszel`
 #                   entry of reconcile/roles/oauth2_proxy oauth2_proxy_apps.
 #   beszel-agent -- collects per-container + per-host CPU/memory/network/
 #                   disk/temperature/load over docker.sock. No public
-#                   surface; reaches the hub on the catena-network alias.
+#                   surface; reaches the hub on its host loopback publish.
 #
 # Threshold alerts leave the hub via Shoutrrr (generic webhook) to the
 # beszel-hc-shim sidecar, which maps triggered/resolved to Healthchecks
@@ -283,10 +283,9 @@ clamav_image: >-
      | catena_image_pin(catena_image_pins | default({})) }}
 clamav_compose_name: "clamav"
 clamav_network: "catena-clamav"
-# The two catalog applications that scan through the shared clamd, named by
-# their vps.app label rather than by container name: clamd is deployed only
-# when one of them is running, and a container name depends on both docker's
-# scheme and whatever a client typed into Portainer's deploy form.
+# The two catalog applications that scan through the shared clamd, by their
+# app name, the stack name swarm labels their services with: clamd is deployed
+# only when one of them is running (catena-container <app> dms|app).
 clamav_consumer_mail_app: "catena-mailserver"
 clamav_consumer_files_app: "catena-nextcloud"
 # clamd StreamMaxLength -- the largest object clamd will scan in one

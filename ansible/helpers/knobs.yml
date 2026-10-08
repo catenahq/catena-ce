@@ -497,19 +497,19 @@ config:
     residence: store
     var: cfg_gatus_subdomain
     panel: {group: subdomains, section: config, kind: text, optional: true,
-            default: monitor}
+            default: gatus}
 
   - key: HEALTHCHECKS_SUBDOMAIN
     residence: store
     var: cfg_healthchecks_subdomain
     panel: {group: subdomains, section: config, kind: text, optional: true,
-            default: heartbeat}
+            default: healthchecks}
 
   - key: BESZEL_SUBDOMAIN
     residence: store
     var: cfg_beszel_subdomain
     panel: {group: subdomains, section: config, kind: text, optional: true,
-            default: hub}
+            default: beszel}
 
   # Prefixes the name of the tunnel a host creates. Blank leaves each host
   # owning one tunnel named after its inventory hostname; a prefix of "corp-"

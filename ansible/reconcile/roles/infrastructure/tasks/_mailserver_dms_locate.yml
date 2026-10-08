@@ -2,10 +2,10 @@
 # Resolve the dms container ONCE, for every step of the mailserver chain.
 #
 # WHY THIS IS SHARED. mailserver_cert.yml, mailserver_accounts.yml and
-# mailserver_oidc.yml all need the same answer, and a `docker ps --filter
-# label=vps.component=dms` per caller is three copies of one lookup, each
-# sampled at a different second of the converge -- against the one container on
-# the host that is deliberately not up yet.
+# mailserver_oidc.yml all need the same answer, and a `catena-container
+# catena-mailserver dms` per caller is three copies of one lookup, each sampled
+# at a different second of the converge -- against the one container on the
+# host that is deliberately not up yet.
 #
 # THE DEADLOCK. docker-mailserver polls 120s for at least one mailbox and shuts
 # down without one. Until the chain gives it a cert and postmaster@ it cycles
@@ -44,12 +44,8 @@
   changed_when: false
 
 - name: "Mailserver: wait for a running dms container"
-  ansible.builtin.shell: |
-    set -o pipefail
-    docker ps --filter label=vps.component=dms \
-      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1
-  args:
-    executable: /bin/bash
+  ansible.builtin.command:
+    argv: [/usr/local/bin/catena-container, catena-mailserver, dms]
   register: _ms_locate_ct
   changed_when: false
   # 18 x 10s spans several full cycles of a 120s account-wait plus restart, so

@@ -1,17 +1,14 @@
 """A service's own address, on a host that has no domain yet.
 
 Every public hostname is `<sub>.{{ cloudflare_zone }}`, so with no domain
-entered the zone is empty and the name renders `heartbeat.` -- a trailing dot
+entered the zone is empty and the name renders `<sub>.` -- a trailing dot
 with nothing after it. A malformed address, and an app that validates its own
 hostname refuses to start on it.
 
-Healthchecks proved it. `SITE_ROOT=https://heartbeat.` normalises to host
-"heartbeat" while `ALLOWED_HOSTS` carried "heartbeat.", so Django raised
-hc.api.E002, the migrate step exited 1, the FATAL hook stopped the container
-on 137 and the whole converge returned rc=2. A server could not finish
-installing before its domain was known, which is the exact order SPEC
-guarantees. Run eecd's `install_without_a_domain` failed at
-stage-1-converge-with-no-domain on it.
+Healthchecks is one. `SITE_ROOT=https://<sub>.` normalises to host "<sub>",
+which `ALLOWED_HOSTS`' "<sub>." does not match, so Django raises hc.api.E002,
+the migrate step exits 1 and the converge cannot finish. A server finishes
+installing before its domain is known, which is the order SPEC guarantees.
 
 The gate is the CLASS, not the two instances: a compose template that puts a
 `*_hostname` into an environment value has to branch on
@@ -76,8 +73,8 @@ def test_every_service_that_names_itself_defers_when_there_is_no_domain() -> Non
 
 
 def test_healthchecks_is_reachable_by_its_alias_when_the_domain_is_deferred() -> None:
-    """The instance that cost a converge, pinned so the branch cannot be
-    dropped while the class gate above still passes on the file's other half."""
+    """Healthchecks, pinned so the branch cannot be dropped while the class
+    gate above still passes on the file's other half."""
     text = (
         ROLES_DIR / "infrastructure" / "templates" / "healthchecks.compose.yml.j2"
     ).read_text(encoding="utf-8")
@@ -95,8 +92,8 @@ def test_healthchecks_is_reachable_by_its_alias_when_the_domain_is_deferred() ->
         re.S,
     ):
         assert "healthchecks_hostname" not in chunk, (
-            "the deferred branch still addresses healthchecks at "
-            "`heartbeat.<empty zone>`, which is what Django rejected"
+            "the deferred branch addresses healthchecks at "
+            "`<sub>.` with an empty zone, which Django rejects"
         )
         assert "healthchecks_network_alias" in chunk, (
             "the deferred branch does not fall back to the network alias every "

@@ -30,7 +30,7 @@ fi
 # commands that use it rather than in front of them.
 #
 # Not deployed is a legitimate skip here, so the lookup is not --required.
-ct=$(/usr/local/bin/catena-nextcloud-container)
+ct=$(/usr/local/bin/catena-container catena-nextcloud app)
 
 if [ -z "$ct" ]; then
     echo "Nextcloud is not running on this host; skipping webmail link."
@@ -43,7 +43,7 @@ echo "Found Nextcloud container: $ct"
 # up right now, which the retry loops read as "the task is mid-roll, wait".
 occ() {
     local now
-    now=$(/usr/local/bin/catena-nextcloud-container) || return 2
+    now=$(/usr/local/bin/catena-container catena-nextcloud app) || return 2
     [ -n "$now" ] || return 125
     docker exec --user 33 "$now" php /var/www/html/occ "$@"
 }

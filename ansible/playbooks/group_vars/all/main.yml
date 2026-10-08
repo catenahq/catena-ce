@@ -89,7 +89,7 @@ cloudflare_api_base: "https://api.cloudflare.com/client/v4"
 # Store-owned, entered in the panel's Settings with the Cloudflare token. Empty
 # until then: every server is installed without a domain.
 cloudflare_zone: "{{ cfg_cloudflare_zone | default('', true) }}"
-# An empty zone builds every hostname as `dash.`, `auth.`, `monitor.` -- names
+# An empty zone builds every hostname as `dash.`, `auth.`, `gatus.` -- names
 # that resolve nowhere and certificates no authority will issue. So nothing
 # public is published until there is a domain to publish it under, and this is
 # what every role that would publish a name gates on.
@@ -145,7 +145,7 @@ acme_system_ca_bundle: "/etc/ssl/certs/ca-certificates.crt"
 # works across them via a session cookie scoped to .<zone>.
 # Store keys, set in catena-admin > Settings; the literal is the name a host
 # with nothing stored uses.
-infrastructure_gatus_subdomain: "{{ cfg_gatus_subdomain | default('monitor', true) }}"
+infrastructure_gatus_subdomain: "{{ cfg_gatus_subdomain | default('gatus', true) }}"
 infrastructure_gatus_hostname: "{{ infrastructure_gatus_subdomain }}.{{ cloudflare_zone }}"
 # catena-admin is served at dash.<zone>, and `catena_admin_hostname` below
 # is the one place that is said. A second name rendering dash.<zone> from its
@@ -153,10 +153,10 @@ infrastructure_gatus_hostname: "{{ infrastructure_gatus_subdomain }}.{{ cloudfla
 # panel for oauth2-proxy and the trust path while the DR keyset banner and the
 # gated-host probe set kept printing the old name.
 
-healthchecks_subdomain: "{{ cfg_healthchecks_subdomain | default('heartbeat', true) }}"
+healthchecks_subdomain: "{{ cfg_healthchecks_subdomain | default('healthchecks', true) }}"
 healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
 
-beszel_subdomain: "{{ cfg_beszel_subdomain | default('hub', true) }}"
+beszel_subdomain: "{{ cfg_beszel_subdomain | default('beszel', true) }}"
 beszel_hostname: "{{ beszel_subdomain }}.{{ cloudflare_zone }}"
 
 # The SSO host (auth.<zone>) is the only subdomain with no oauth2-proxy in
@@ -403,7 +403,7 @@ storage_bulk_mount_point: "{{ lookup('dotenv', 'STORAGE_BULK_MOUNT_POINT', defau
 #
 # A role default is only dependable once that role has run, so a value two roles
 # on either side of the boundary share is the product's rather than one role's.
-# Same call as the public-port paths above and the subdomains in phase 3. It is
+# Same call as the public-port paths and the subdomains above. It is
 # also what lets a host converge itself: playbooks/reconcile.yml runs no
 # bootstrap role, so a bootstrap default is undefined there.
 
@@ -483,9 +483,9 @@ catena_admin_image: >-
 catena_admin_repository: ghcr.io/catenahq/catena-admin
 
 # --- Hostname ---------------------------------------------------------
-# The admin panel is served at dash.<zone>. The subdomain is a product
-# constant, like the hostname scheme above: every inventory in this repo and
-# on every host uses it, and nothing looks up an override.
+# The admin panel is served at dash.<zone>. A store key
+# (CATENA_ADMIN_SUBDOMAIN), set in catena-admin > Settings like the subdomains
+# above; the literal is the name a host with nothing stored uses.
 catena_admin_subdomain: "{{ cfg_catena_admin_subdomain | default('dash', true) }}"
 catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
 catena_admin_ui_port: "9010"

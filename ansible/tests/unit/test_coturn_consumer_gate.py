@@ -52,14 +52,24 @@ def test_the_deploy_probe_ignores_restarting_containers():
     """A container that cannot start is not a TURN consumer, and gating on one
     deploys a relay nothing can use."""
     body = _probe("main.yml", _DEPLOY_PROBE)
-    for service in ("talk-hpb", "jvb"):
-        line = next(
-            ln for ln in body.splitlines() if f"vps.component={service}" in ln
-        )
+    lines = [ln for ln in body.splitlines() if "docker ps" in ln]
+    assert lines, "main.yml no longer probes for a running consumer"
+    for line in lines:
+        assert "label=com.docker.swarm.service.name=" in line, line
         assert "--filter status=running" in line, (
-            f"main.yml {service} probe counts restarting containers; a "
-            "crash-looping consumer is not a consumer"
+            "main.yml probe counts restarting containers; a crash-looping "
+            "consumer is not a consumer"
         )
+
+
+def test_the_consumers_are_the_catalog_services_that_need_turn():
+    """One swarm service name per consumer: a filter on a bare compose key
+    would also match any client app that happens to use the same key."""
+    defaults = yaml.safe_load(
+        (COTURN.parent / "defaults" / "main.yml").read_text(encoding="utf-8"))
+    assert defaults["coturn_consumer_services"] == [
+        "catena-nextcloud_talk-hpb", "catena-rocketchat_jvb", "catena-element_jvb"]
+    assert "coturn_consumer_services" in _probe("main.yml", _DEPLOY_PROBE)
 
 
 def test_validate_does_not_probe_for_a_consumer_at_all():
@@ -70,7 +80,7 @@ def test_validate_does_not_probe_for_a_consumer_at_all():
     validate not to ask.
     """
     src = (COTURN / "validate.yml").read_text(encoding="utf-8")
-    assert "vps.component=talk-hpb" not in src and "vps.component=jvb" not in src, (
+    assert "coturn_consumer_services" not in src and "talk-hpb" not in src, (
         "validate.yml probes for a TURN consumer again. Whether one is running "
         "is main.yml's question; asking it at the end of the same converge "
         "makes a DR restore that deploys its consumer mid-converge fail on a "

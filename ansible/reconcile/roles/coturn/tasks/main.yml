@@ -2,11 +2,11 @@
 # Shared TURN/STUN server -- consumer-gated orchestrator.
 #
 # coturn is a COMPANION to the real-time apps, not base-plane
-# infrastructure. Its only consumers are:
+# infrastructure. Its only consumers (coturn_consumer_services) are:
 #
-#   - Nextcloud Talk HPB   (compose service `talk-hpb`)
-#   - Rocket.Chat Jitsi    (compose service `jvb`)
-#   - Element Jitsi        (compose service `jvb`)
+#   - Nextcloud Talk HPB   (catena-nextcloud_talk-hpb)
+#   - Rocket.Chat Jitsi    (catena-rocketchat_jvb)
+#   - Element Jitsi        (catena-element_jvb)
 #
 # Deployed only while a consumer runs: on a tenant with none of them it would
 # be a dead relay behind four open public port entries (3478/udp,
@@ -36,8 +36,9 @@
   # relay nothing can use, and lets the probe answer differently at two
   # points of one converge.
   ansible.builtin.shell: |
-    docker ps --filter 'label=vps.component=talk-hpb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
-    docker ps --filter 'label=vps.component=jvb' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
+    {% for service in coturn_consumer_services %}
+    docker ps --filter 'label=com.docker.swarm.service.name={{ service }}' --filter status=running --format '{{ "{{" }}.Names{{ "}}" }}'
+    {% endfor %}
   args:
     executable: /bin/bash
   register: _coturn_consumer

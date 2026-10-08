@@ -20,7 +20,7 @@
 
 set -euo pipefail
 
-ct=$(/usr/local/bin/catena-nextcloud-container --required)
+ct=$(/usr/local/bin/catena-container --required catena-nextcloud app)
 echo "Found Nextcloud container: $ct"
 
 # Shared-clamd coordinates. Overridable via env for non-default setups;

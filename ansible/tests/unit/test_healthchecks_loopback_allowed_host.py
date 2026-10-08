@@ -33,7 +33,7 @@ LOOPBACK_CONSUMERS = [
 def _allowed_host_variants() -> list[list[str]]:
     """Every ALLOWED_HOSTS the template can render, one per branch.
 
-    There are two: a host with no domain yet cannot be given `heartbeat.` as
+    There are two: a host with no domain yet cannot be given `healthchecks.` as
     an allowed host, because Django compares the literal Host header and the
     trailing dot never matches anything -- see
     test_no_service_is_addressed_at_a_dangling_hostname.

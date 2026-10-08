@@ -79,8 +79,7 @@ live_hash=$(sha256sum "$LIVE/fullchain.pem" 2>/dev/null | { read -r h _; echo "$
 # Retrying the exec alone would not fix it: the replacement container carries a
 # different name, so the lookup has to happen again inside every attempt.
 inject_once() {
-    ct=$(docker ps --filter 'label=vps.component=dms' \
-        --format '{{.Names}}' | head -n1)
+    ct=$(/usr/local/bin/catena-container catena-mailserver dms) || return 1
     [ -n "$ct" ] || return 1
 
     cur_hash=$(docker exec "$ct" sha256sum "$DEST/fullchain.pem" 2>/dev/null \

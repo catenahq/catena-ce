@@ -31,7 +31,7 @@ oauth2_proxy_internal_port: 4180 # default oauth2-proxy listen port
 
 # --- Cookie name ---
 # Single shared cookie across every per-app instance so SSO carries
-# from monitor.<zone> to dash.<zone> to apps.<zone>. Per-app
+# from gatus.<zone> to dash.<zone> to apps.<zone>. Per-app
 # `allowed_groups` filtering enforces ACL on top of the shared session.
 oauth2_proxy_cookie_name: "_oauth2_proxy"
 
@@ -122,10 +122,9 @@ oauth2_proxy_apps:
   - slug: "gatus"
     host_var: "infrastructure_gatus_hostname"
     upstream_alias: "gatus"
-    # Gatus binds 8080 internally regardless of the public hostname --
-    # the OLD auto-route label `loadbalancer.server.port=8080`
-    # masked this. Port 80 inside the gatus container has nothing
-    # listening so the proxy gets `connection refused` and emits 502.
+    # Gatus binds 8080 internally regardless of the public hostname.
+    # Port 80 inside the gatus container has nothing listening, so a
+    # proxy pointed there gets `connection refused` and emits 502.
     upstream_port: 8080
     allowed_groups: ["staff", "admin"]
   - slug: "healthchecks"

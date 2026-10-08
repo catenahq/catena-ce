@@ -47,14 +47,14 @@
 # silently skips. `apply: tags:` pushes the tag down to every task
 # inside the included file, so `--tags gatus` / `--tags healthchecks` /
 # etc. run the whole file.
-- name: Gatus (monitor.<zone>)
+- name: Gatus (gatus.<zone>)
   ansible.builtin.include_tasks:
     file: gatus.yml
     apply:
       tags: [gatus]
   tags: [gatus]
 
-- name: Healthchecks (heartbeat.<zone>) -- cron/dead-man monitoring
+- name: Healthchecks (healthchecks.<zone>) -- cron/dead-man monitoring
   ansible.builtin.include_tasks:
     file: healthchecks.yml
     apply:
@@ -64,7 +64,7 @@
 # Beszel -- hub + agent resource monitor (CPU/memory/network/disk +
 # temperature/load history with built-in threshold alerting). The
 # agent collects per-container + per-host metrics over docker.sock;
-# the hub stores history and serves hub.<zone> (admin-gated via
+# the hub stores history and serves beszel.<zone> (admin-gated via
 # oauth2-proxy). A small shim forwards Beszel threshold alerts into
 # the Healthchecks plane. Part of the base plane: this task is
 # unconditional.
@@ -74,6 +74,18 @@
     apply:
       tags: [beszel]
   tags: [beszel]
+
+# The container lookup every script and task below finds an application's
+# containers with (catena-container <app> <service>), so it lands before the
+# first of them: clamav.yml's consumer probe and the scripts it installs.
+- name: "Install the container lookup the scripts and tasks share"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/catena-container.sh"
+    dest: /usr/local/bin/catena-container
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [always]
 
 # Shared ClamAV (clamd). Creates the catena-clamav overlay the mailserver and
 # Nextcloud templates declare external, so it exists before a client deploys
@@ -104,19 +116,6 @@
         apply:
           tags: [always]
       tags: [always]
-
-    # The Nextcloud container lookup every catena-wire-nextcloud-* script
-    # calls, mailserver_oidc.yml's webmail link included, so it lands before
-    # the first of them.
-    - name: "Nextcloud: install the container lookup the wire scripts share"
-      ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../scripts/nextcloud-container.sh"
-        dest: /usr/local/bin/catena-nextcloud-container
-        owner: root
-        group: root
-        mode: "0755"
-      tags: [nextcloud_oidc, nextcloud_talk_hpb, nextcloud_office,
-             nextcloud_antivirus, nextcloud_apps, mailserver_oidc]
 
     # Nextcloud native OIDC. Registers the `nextcloud` Keycloak client, so
     # the discovery URL works the moment a client deploys Nextcloud, and
@@ -370,7 +369,7 @@
     # catch: the domain is its own field, so a host can hold a token while its
     # zone is still empty.
     #
-    # The probe would then GET https://monitor./ three times over, twelve
+    # The probe would then GET https://gatus./ three times over, twelve
     # retries apiece, and call the result a service verdict.
     - name: "Verify gated services: no domain yet -- skipping public-URL probe"
       ansible.builtin.debug:

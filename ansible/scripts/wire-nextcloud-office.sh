@@ -38,7 +38,7 @@ esac
 
 NC_ROOT=/var/www/html
 
-ct=$(/usr/local/bin/catena-nextcloud-container --required)
+ct=$(/usr/local/bin/catena-container --required catena-nextcloud app)
 echo "Found Nextcloud container: $ct"
 
 get_env() {
@@ -159,10 +159,7 @@ esac
 
 # --- 3. OnlyOffice: read JWT_SECRET from the running documentserver -----
 if [ "$EDITOR" = onlyoffice ]; then
-    ds=$(docker ps \
-        --filter 'label=vps.app=catena-onlyoffice' \
-        --filter 'label=vps.component=documentserver' \
-        --format '{{.Names}}' | head -n1)
+    ds=$(/usr/local/bin/catena-container catena-onlyoffice documentserver)
 
     if [ -z "$ds" ]; then
         echo "error: documentserver container not found despite the healthcheck probe passing." >&2

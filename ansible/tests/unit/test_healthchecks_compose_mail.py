@@ -45,7 +45,7 @@ def _environment(provider: str) -> dict:
         healthchecks_network_alias="healthchecks",
         healthchecks_internal_port=8000,
         healthchecks_host_localhost_port=18000,
-        healthchecks_hostname="heartbeat.acme.test",
+        healthchecks_hostname="healthchecks.acme.test",
         cloudflare_zone="acme.test",
         healthchecks_secret_key="sk",
         healthchecks_superuser_password="su",

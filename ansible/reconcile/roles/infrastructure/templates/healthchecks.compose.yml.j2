@@ -24,12 +24,11 @@ services:
     environment:
       # A host with no domain yet has no public name to be reached at, and
       # `<sub>.` with the zone empty is not a degraded name -- it is one Django
-      # rejects. SITE_ROOT https://heartbeat. normalises to host "heartbeat"
-      # while ALLOWED_HOSTS carried "heartbeat.", so every request raised
-      # hc.api.E002, the migrate step exited 1, the FATAL hook stopped the
-      # container on 137 and the converge returned rc=2: healthchecks could not
-      # start at all before a domain was entered. Deferred, it addresses itself
-      # by the network alias every on-box consumer already dials.
+      # rejects. SITE_ROOT https://<sub>. normalises to host "<sub>", which
+      # ALLOWED_HOSTS' "<sub>." does not match, and Healthchecks refuses to
+      # start (hc.api.E002) when SITE_ROOT's host is not an allowed one.
+      # Deferred, it addresses itself by the network alias every on-box
+      # consumer already dials.
 {% if catena_public_surface_deferred | default(false) | bool %}
       SITE_ROOT: "http://{{ healthchecks_network_alias }}:{{ healthchecks_internal_port }}"
       SITE_NAME: "heartbeats"

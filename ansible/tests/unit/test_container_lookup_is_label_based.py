@@ -1,4 +1,5 @@
-"""No converge task may find a container by a compose label or by its name.
+"""Container lookups use the swarm service-name label, never a compose label,
+a vps.* label or a name.
 
 Every application on a catena host is a swarm service. `docker stack deploy`
 puts `com.docker.stack.namespace` and `com.docker.swarm.service.name` on a
@@ -16,9 +17,12 @@ deployed":
 None of that fails a converge. It reports success for a host with half its
 wiring missing, which is why this is a gate rather than a convention.
 
-Container NAMES are out too: a name carries whatever stack name a client
-typed into Portainer's deploy form. The catalog labels every service with
-`vps.app` and `vps.component`, and those are what a lookup asks for.
+Container NAMES are out too: a name carries a swarm task id, and its stack
+half is whatever a client typed into Portainer's deploy form. What swarm puts
+on every task is `com.docker.swarm.service.name=<app>_<service>`, the
+application's stack name and the compose service key, and that is what a
+lookup asks for, through scripts/catena-container.sh. A `vps.app` or
+`vps.component` label is something a compose file may or may not carry.
 
 Run: uv run pytest tests/unit/test_container_lookup_is_label_based.py
 """
@@ -60,7 +64,25 @@ def test_no_task_filters_on_a_compose_label():
         "a swarm task carries no com.docker.compose.* label, so these filters "
         "match nothing and the caller reads it as 'not deployed':\n  "
         + "\n  ".join(offenders)
-        + "\nUse label=vps.app=<app> / label=vps.component=<service>."
+        + "\nUse catena-container <app> <service>."
+    )
+
+
+# clamd's own label: catena-ce writes it into the clamav compose it deploys.
+_VPS_FILTER = re.compile(r"label=vps\.(app|component)=(?!clamav\b)")
+
+
+def test_no_lookup_filters_on_a_vps_label():
+    offenders = []
+    for path in _sources():
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for match in _VPS_FILTER.finditer(text):
+            line = text[:match.start()].count("\n") + 1
+            offenders.append(f"{path.relative_to(ANSIBLE)}:{line}")
+    assert not offenders, (
+        "these find an application's container by a vps.* label, which its "
+        "compose file may not carry:\n  " + "\n  ".join(offenders)
+        + "\nUse catena-container <app> <service>."
     )
 
 
@@ -138,8 +160,7 @@ def test_no_task_greps_for_the_random_half_of_a_stack_name():
         "these match the generated half of a container name, which is the "
         "stack name a client typed plus a swarm task id:\n  "
         + "\n  ".join(offenders)
-        + "\nUse docker ps --filter label=vps.app=<app> "
-          "--filter label=vps.component=<service>."
+        + "\nUse catena-container <app> <service>."
     )
 
 

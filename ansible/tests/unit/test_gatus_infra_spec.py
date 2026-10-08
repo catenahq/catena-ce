@@ -30,10 +30,10 @@ def _spec() -> list[dict]:
     keycloak_vars = _vars("keycloak", "vars", "main.yml")
     context = {
         "cloudflare_zone": ZONE,
-        "infrastructure_gatus_hostname": f"monitor.{ZONE}",
+        "infrastructure_gatus_hostname": f"gatus.{ZONE}",
         "catena_admin_hostname": f"dash.{ZONE}",
         "portainer_admin_hostname": f"portainer.{ZONE}",
-        "healthchecks_hostname": f"heartbeat.{ZONE}",
+        "healthchecks_hostname": f"healthchecks.{ZONE}",
         "keycloak_server_alias": keycloak_vars["keycloak_server_alias"],
         "keycloak_management_port": keycloak["keycloak_management_port"],
         "keycloak_health_path": keycloak["keycloak_health_path"],

@@ -34,8 +34,7 @@ set +a
 
 log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 
-ct=$(docker ps --filter 'label=vps.component=dms' \
-    --format '{{.Names}}' 2>/dev/null | head -n1)
+ct=$(/usr/local/bin/catena-container catena-mailserver dms 2>/dev/null || true)
 if [ -z "$ct" ]; then
     log "mailserver not deployed (no dms container); canary is a no-op"
     exit 0

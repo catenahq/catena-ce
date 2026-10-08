@@ -55,7 +55,7 @@ alerting:
   #     no UI to add channels. Healthchecks has a full per-user
   #     integration UI, gated by oauth2-proxy + Keycloak SSO. One
   #     notification plane wins: clients add integrations in
-  #     heartbeat.<zone>, Gatus just pushes state transitions.
+  #     healthchecks.<zone>, Gatus just pushes state transitions.
   #   - The operator's default ntfy channel is auto-provisioned in
   #     Healthchecks (see reconcile/roles/infrastructure/tasks/healthchecks.yml
   #     Django seed), so the existing operator-ntfy flow keeps working

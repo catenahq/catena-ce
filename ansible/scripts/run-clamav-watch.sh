@@ -57,9 +57,8 @@ running() {
     docker ps "$@" --format '{{.Names}}' 2>/dev/null | head -n1
 }
 
-dms_up=$(running --filter 'label=vps.component=dms')
-nc_up=$(running --filter 'label=vps.app=catena-nextcloud' \
-                --filter 'label=vps.component=app')
+dms_up=$(/usr/local/bin/catena-container catena-mailserver dms 2>/dev/null || true)
+nc_up=$(/usr/local/bin/catena-container catena-nextcloud app 2>/dev/null || true)
 
 if [ -z "$dms_up" ] && [ -z "$nc_up" ]; then
     log "no clamd consumer up (no dms, no nextcloud); reporting OK (no page)"

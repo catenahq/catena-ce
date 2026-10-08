@@ -14,17 +14,7 @@
 
 set -euo pipefail
 
-ct=$(docker ps \
-    --filter 'label=vps.app=catena-rocketchat' \
-    --filter 'label=vps.component=rocketchat' \
-    --format '{{.Names}}' | head -n1)
-
-if [ -z "$ct" ]; then
-    echo "Rocket.Chat is not running on this host."
-    echo
-    echo "Deploy first: Portainer > App Templates > rocketchat > Deploy."
-    exit 1
-fi
+ct=$(/usr/local/bin/catena-container --required catena-rocketchat rocketchat)
 
 echo "Found Rocket.Chat container: $ct"
 

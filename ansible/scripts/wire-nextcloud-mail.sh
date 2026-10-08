@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-ct=$(/usr/local/bin/catena-nextcloud-container --required)
+ct=$(/usr/local/bin/catena-container --required catena-nextcloud app)
 echo "Found Nextcloud container: $ct"
 
 occ() { docker exec --user 33 "$ct" php /var/www/html/occ "$@"; }

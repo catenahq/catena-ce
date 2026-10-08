@@ -85,7 +85,7 @@ def test_no_docker_command_uses_a_previously_resolved_container_name() -> None:
 def test_the_locator_itself_still_resolves_from_docker_ps() -> None:
     """The shared locate step is where a `docker ps` belongs."""
     text = (TASKS / "_mailserver_dms_locate.yml").read_text()
-    assert "label=vps.component=dms" in text
+    assert "[/usr/local/bin/catena-container, catena-mailserver, dms]" in text
     assert "docker" in text and "service" in text and "ls" in text, (
         "deployment is decided by the swarm SERVICE, which does not blink "
         "between container restarts"
@@ -160,7 +160,7 @@ def test_the_cert_hook_reresolves_inside_the_unit_it_retries() -> None:
     produced the name, so a retry gets a NEW name rather than re-running
     against the same dead one."""
     body = _inject_body()
-    assert "label=vps.component=dms" in body, (
+    assert "catena-container catena-mailserver dms" in body, (
         "the retried unit does not look the container up; it is reusing a name "
         "resolved outside the loop"
     )
@@ -191,7 +191,7 @@ def test_the_cert_hook_bounds_its_wait_and_fails_loudly() -> None:
 # updates the nextcloud stack replaces the task underneath it, and `docker
 # exec` on a killed container exits 137.
 WEBMAIL_HOOK = ANSIBLE / "scripts" / "wire-nextcloud-webmail-link.sh"
-NC_LOOKUP = ANSIBLE / "scripts" / "nextcloud-container.sh"
+LOOKUP = ANSIBLE / "scripts" / "catena-container.sh"
 
 
 def test_the_webmail_hook_resolves_the_container_inside_every_exec() -> None:
@@ -240,8 +240,8 @@ def test_the_webmail_hook_separates_not_deployed_from_could_not_look() -> None:
     """An empty `docker ps` means Nextcloud is not deployed, which is a
     legitimate skip. A `docker ps` that FAILED is not that answer, and folding
     the two together is how a probe reports success for never having looked."""
-    assert "catena-nextcloud-container" in WEBMAIL_HOOK.read_text()
-    lookup = NC_LOOKUP.read_text()
+    assert "catena-container catena-nextcloud app" in WEBMAIL_HOOK.read_text()
+    lookup = LOOKUP.read_text()
     assert "docker ps failed while resolving" in lookup and "exit 2" in lookup, (
         "a failed docker ps is indistinguishable from an absent stack"
     )

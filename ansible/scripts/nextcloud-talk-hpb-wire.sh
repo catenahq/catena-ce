@@ -19,7 +19,7 @@
 
 set -euo pipefail
 
-ct=$(/usr/local/bin/catena-nextcloud-container --required)
+ct=$(/usr/local/bin/catena-container --required catena-nextcloud app)
 echo "Found Nextcloud container: $ct"
 
 # Read env from inside the container so secrets do not travel the
@@ -56,8 +56,8 @@ if ! docker exec "$ct" /bin/sh -c \
     echo "P2P mode; small calls work, large calls degrade)."
     echo
     echo "If talk-hpb IS uncommented, diagnose with:"
-    echo "  docker ps --filter label=vps.component=talk-hpb"
-    echo "  docker logs --tail 50 \$(docker ps -q --filter label=vps.component=talk-hpb)"
+    echo "  docker service ps --no-trunc catena-nextcloud_talk-hpb"
+    echo "  docker logs --tail 50 \$(catena-container catena-nextcloud talk-hpb)"
     exit 0
 fi
 

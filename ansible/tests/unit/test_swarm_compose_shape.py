@@ -119,16 +119,17 @@ def test_clamav_is_a_swarm_stack_on_an_overlay():
     )
 
 
-def test_the_clamav_consumers_are_matched_by_label():
+def test_the_clamav_consumers_are_matched_by_their_swarm_service():
     """clamd deploys only when a consumer is running, and the probe that
-    decides reads vps.app / vps.component. A container NAME depends on
-    docker's scheme and on whatever a client typed into Portainer, so a probe
-    that matched one would quietly stop finding either consumer and clamd
-    would never deploy again -- with the mail path silently unscanned."""
+    decides asks catena-container for <app> dms and <app> app, the swarm
+    service names. A container NAME carries a swarm task id, so a probe that
+    matched one would quietly stop finding either consumer and clamd would
+    never deploy again -- with the mail path silently unscanned."""
     tasks = (ANSIBLE / "reconcile/roles/infrastructure/tasks/clamav.yml").read_text(
         encoding="utf-8")
-    assert "label=vps.app=" in tasks
-    assert "label=vps.component=dms" in tasks
+    assert "/usr/local/bin/catena-container {{ clamav_consumer_mail_app | quote }} dms" in tasks
+    assert "/usr/local/bin/catena-container {{ clamav_consumer_files_app | quote }} app" in tasks
+    assert "label=vps." not in tasks
     assert "com.docker.compose" not in tasks
     assert "--filter 'name=" not in tasks
 

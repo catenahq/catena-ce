@@ -9,14 +9,14 @@ lean on, and the wiring that finishes those apps once a client deploys them.
 Deployed with `tasks/swarm_stack.yml` (`docker stack deploy`), with no
 Portainer in the path, so a Portainer that will not start leaves them running:
 
-- **Gatus** (`monitor.<zone>`) -- endpoint monitoring. `00-base.yaml` is
+- **Gatus** (`gatus.<zone>`) -- endpoint monitoring. `00-base.yaml` is
   rendered here; `catena-gatus-sync` writes `50-catena-apps.yaml` from the
   running containers' labels.
-- **Healthchecks** (`heartbeat.<zone>`) -- the dead-man-switch plane the
+- **Healthchecks** (`healthchecks.<zone>`) -- the dead-man-switch plane the
   backup, the reboot-required probe, the ClamAV watch, the mail canary and
   Beszel's alerts ping. Missed pings alert the admin's email, through the
   outgoing mail set in catena-admin, and the ntfy channel set there.
-- **Beszel** (`hub.<zone>`) -- hub and host agent for resource history and
+- **Beszel** (`beszel.<zone>`) -- hub and host agent for resource history and
   threshold alerts, with a small shim that forwards those alerts to
   Healthchecks.
 - **Shared ClamAV** -- one clamd on the `catena-clamav` overlay for the mail

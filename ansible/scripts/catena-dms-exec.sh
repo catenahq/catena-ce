@@ -40,9 +40,7 @@ usage() {
 }
 
 resolve() {
-  docker ps --filter label=vps.app=catena-mailserver \
-    --filter label=vps.component=dms \
-    --format '{{.Names}}' 2>/dev/null | head -n1
+  /usr/local/bin/catena-container catena-mailserver dms 2>/dev/null
 }
 
 [ "$#" -ge 2 ] || usage

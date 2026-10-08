@@ -86,18 +86,12 @@
     - "'already exists' not in (_clamav_net_create.stderr | default(''))"
 
 - name: "ClamAV: detect a running consumer (dms or Nextcloud app)"
-  # Emits each matching consumer container name (dms and/or a Nextcloud
-  # app container); empty when neither is running. PRESENCE -- not the
-  # specific name -- is the deploy gate below, so every match is listed
-  # rather than the first: piping a grouped command into `head -n1` closes
-  # the pipe after one line, the upstream `docker ps` then takes SIGPIPE
-  # (rc 141), and `set -o pipefail` would promote that into a task failure
-  # even though detection succeeded.
+  # Emits the running dms and Nextcloud app containers, one line each; blank
+  # when neither is running. PRESENCE -- not the specific name -- is the
+  # deploy gate below.
   ansible.builtin.shell: |
-    docker ps --filter 'label=vps.app={{ clamav_consumer_mail_app }}' \
-              --filter 'label=vps.component=dms' --format '{{ "{{" }}.Names{{ "}}" }}'
-    docker ps --filter 'label=vps.app={{ clamav_consumer_files_app }}' \
-              --filter 'label=vps.component=app' --format '{{ "{{" }}.Names{{ "}}" }}'
+    /usr/local/bin/catena-container {{ clamav_consumer_mail_app | quote }} dms
+    /usr/local/bin/catena-container {{ clamav_consumer_files_app | quote }} app
   args:
     executable: /bin/bash
   register: _clamav_consumer
@@ -185,10 +179,6 @@
     #
     # as soon as the dms task is replaced -- a verdict about a container id
     # rather than about whether clamav resolves.
-    #
-    # No `set -o pipefail`: `docker ps | head -n1` closes the pipe and the
-    # upstream takes SIGPIPE, which pipefail would promote into a failure of
-    # a probe that worked.
     - name: "ClamAV: wait until each consumer resolves clamav on {{ clamav_network }}"
       ansible.builtin.shell: |
         fail=0
@@ -196,10 +186,8 @@
         for sel in "{{ clamav_consumer_mail_app }}|dms" \
                    "{{ clamav_consumer_files_app }}|app"; do
           app=${sel%|*}
-          comp=${sel#*|}
-          ct=$(docker ps --filter "label=vps.app=$app" \
-                         --filter "label=vps.component=$comp" \
-                         --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1)
+          service=${sel#*|}
+          ct=$(/usr/local/bin/catena-container "$app" "$service")
           [ -n "$ct" ] || continue
           found=1
           docker exec "$ct" getent hosts clamav >/dev/null 2>&1 || {

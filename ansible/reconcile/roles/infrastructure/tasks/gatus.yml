@@ -1,5 +1,5 @@
 ---
-# Deploy Gatus as a swarm stack -> monitor.<zone>.
+# Deploy Gatus as a swarm stack -> gatus.<zone>.
 #
 # Config layout on the host:
 #   {{ gatus_host_config_dir }}/00-base.yaml          (Ansible-managed)
@@ -46,7 +46,7 @@
   register: _gatus_infra_spec
 
 # The public route for this app is gatus-oauth2-proxy.yml, rendered by
-# reconcile/roles/oauth2_proxy: it points Host(monitor.<zone>) at the gatus
+# reconcile/roles/oauth2_proxy: it points Host(gatus.<zone>) at the gatus
 # oauth2-proxy instance, which proxies here after auth.
 
 # The publish is host-mode (swarm cannot bind 127.0.0.1), so the port is a

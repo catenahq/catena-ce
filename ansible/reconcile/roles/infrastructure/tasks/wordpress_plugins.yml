@@ -48,28 +48,18 @@
 
 # ── Step 1: detect running wp container ─────────────────────────
 #
-# BY LABEL, like every other container lookup in this tree. This matched on the
-# container NAME shape (`wordpress-[0-9a-z]{6,}-wp-`), which is the stack name
-# Portainer generated plus a swarm task id. A client who deploys the template
-# under a name of their own choosing produces no match, this whole block skips,
-# and the converge is green with no plugin curation and no option seeding --
-# the same silent no-op that test_container_lookup_is_label_based exists to
-# stop. The catalog labels the service `vps.app=catena-wordpress` +
-# `vps.component=wp`, which no client can change.
+# By the swarm service name, like every other container lookup in this tree:
+# catena-container resolves catena-wordpress_wp, the catalog's app name and the
+# compose service key. A container NAME carries a swarm task id, so a pattern
+# on it matches nothing on the next deploy, this whole block skips, and the
+# converge is green with no plugin curation and no option seeding -- the silent
+# no-op test_container_lookup_is_label_based exists to stop.
 #
-# ONE SITE, still. head -n1 keeps the single-site behaviour this file was
-# written for; the per-site marker below is keyed correctly for more but
-# nothing here iterates. A host running two WordPress stacks wires whichever
-# container docker lists first. Booked rather than fixed here: making this a
-# loop is a rewrite of every step below, not a lookup change.
+# ONE SITE: the stack named catena-wordpress, first container. The per-site
+# marker below is keyed for more, but nothing here iterates.
 - name: "WordPress plugins: find running wp container"
-  ansible.builtin.shell: |
-    set -o pipefail
-    docker ps --filter label=vps.app=catena-wordpress \
-      --filter label=vps.component=wp \
-      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1
-  args:
-    executable: /bin/bash
+  ansible.builtin.command:
+    argv: [/usr/local/bin/catena-container, catena-wordpress, wp]
   register: _wp_ct
   changed_when: false
 
@@ -117,9 +107,7 @@
       # --allow-root.
       ansible.builtin.shell: |
         set -o pipefail
-        ct=$(docker ps --filter label=vps.app=catena-wordpress \
-          --filter label=vps.component=wp \
-          --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1)
+        ct=$(/usr/local/bin/catena-container catena-wordpress wp)
         [ -n "$ct" ] || { echo "no running wordpress container right now" >&2; exit 1; }
         docker exec --user 82 "$ct" wp core is-installed
       args:

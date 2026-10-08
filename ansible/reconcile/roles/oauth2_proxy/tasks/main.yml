@@ -17,7 +17,7 @@
 # EVERY output of this role is named after the domain: the Host() each route
 # matches, the issuer and login URL it redirects to, the cookie domain it sets
 # and the callback list it registers with Keycloak. With no domain those render
-# as bare trailing dots -- monitor., auth. -- which resolve nowhere, so the role
+# as bare trailing dots -- gatus., auth. -- which resolve nowhere, so the role
 # would publish a gate in front of nothing and then probe it.
 #
 # Deferred rather than allowed to fail: the preflight below asserts the zone, so

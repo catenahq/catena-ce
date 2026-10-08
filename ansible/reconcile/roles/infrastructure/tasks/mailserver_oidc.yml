@@ -22,12 +22,8 @@
 
 
 - name: "Mailserver OIDC: locate roundcube container"
-  ansible.builtin.shell: |
-    set -o pipefail
-    docker ps --filter label=vps.component=roundcube \
-      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1
-  args:
-    executable: /bin/bash
+  ansible.builtin.command:
+    argv: [/usr/local/bin/catena-container, catena-mailserver, roundcube]
   register: _roundcube_ct
   changed_when: false
 
@@ -114,8 +110,7 @@
   # the next attempt gets the next container.
   ansible.builtin.shell: |
     set -o pipefail
-    ct=$(docker ps --filter label=vps.component=dms \
-      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1)
+    ct=$(/usr/local/bin/catena-container catena-mailserver dms)
     if [ -z "$ct" ]; then
       echo "no dms container right now" >&2
       exit 1
@@ -150,8 +145,7 @@
   # than the whole task.
   ansible.builtin.shell: |
     set -o pipefail
-    ct=$(docker ps --filter label=vps.component=dms \
-      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1)
+    ct=$(/usr/local/bin/catena-container catena-mailserver dms)
     [ -n "$ct" ] || { echo "no dms container right now" >&2; exit 1; }
     docker exec "$ct" supervisorctl status dovecot
   args:
@@ -171,8 +165,7 @@
   # tasks -- rc stays the verdict once the exec lands.
   ansible.builtin.shell: |
     set -o pipefail
-    ct=$(docker ps --filter label=vps.component=dms \
-      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1)
+    ct=$(/usr/local/bin/catena-container catena-mailserver dms)
     [ -n "$ct" ] || { echo "no dms container right now" >&2; exit 1; }
     docker exec "$ct" doveadm reload
   args:
@@ -199,8 +192,7 @@
   ansible.builtin.shell: |
     set -eu
     set -o pipefail
-    ct=$(docker ps --filter label=vps.component=dms \
-      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1)
+    ct=$(/usr/local/bin/catena-container catena-mailserver dms)
     [ -n "$ct" ] || { echo "no dms container after the reload" >&2; exit 1; }
     docker exec "$ct" supervisorctl status dovecot | grep -q RUNNING
     docker exec "$ct" doveconf -n >/dev/null
@@ -231,8 +223,7 @@
   # The cost of re-resolving is one `docker ps`.
   ansible.builtin.shell: |
     set -o pipefail
-    ct=$(docker ps --filter label=vps.component=roundcube \
-      --format '{{ "{{" }}.Names{{ "}}" }}' | head -n1)
+    ct=$(/usr/local/bin/catena-container catena-mailserver roundcube)
     if [ -z "$ct" ]; then
       echo "no roundcube container right now" >&2
       exit 1
