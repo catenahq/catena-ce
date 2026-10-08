@@ -28,7 +28,7 @@ with a **plain, reproducible build**: the image can be inventoried
 against its published CycloneDX SBOM and scanned with any tooling.
 Reports against the panel go to the same address, and the fastest report
 is a scanner finding against the published digest -- see
-[verify what you run](https://docs.catena.run/en/trust/verify-what-you-run/).
+[verifying the panel image](https://docs.catena.run/en/configuration/vulnerabilities/#verifying-the-panel-image).
 
 Reports against the hosted services (catena.run, docs.catena.run) are
 welcome at the same address.
