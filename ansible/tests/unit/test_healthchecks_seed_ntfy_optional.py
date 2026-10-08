@@ -189,7 +189,7 @@ def _run_seed(monkeypatch, capsys, *, server: str, topic: str):
     return managers, capsys.readouterr().out
 
 
-def test_a_configured_ntfy_still_seeds_and_binds_a_channel(monkeypatch, capsys):
+def test_a_configured_ntfy_seeds_a_channel(monkeypatch, capsys):
     managers, out = _run_seed(
         monkeypatch, capsys, server="https://ntfy.internal", topic="s3cret",
     )
@@ -197,18 +197,13 @@ def test_a_configured_ntfy_still_seeds_and_binds_a_channel(monkeypatch, capsys):
     assert len(channels) == 1
     assert "s3cret" in channels[0].value
     assert "https://ntfy.internal" in channels[0].value
-    # Both backup lanes route to it.
-    bound = [
-        c for c in managers["check"].rows if channels[0] in c.channel_set.added
-    ]
-    assert len(bound) == 2, "both backup checks must bind the channel"
     assert "channel=none" not in out
 
 
 def test_a_new_ntfy_channel_reaches_checks_that_already_exist(monkeypatch, capsys):
     """Set after the checks exist, the channel attaches to every check in the
-    project, not only the backup pair: a gatus-* check made before the Alerts
-    save pages through it too."""
+    project: a gatus-* check made before the Alerts save pages through it
+    too."""
     managers = _install_fake_django(monkeypatch)
     for key, value in BASE_ENV.items():
         monkeypatch.setenv(key, value)
@@ -229,11 +224,13 @@ def test_a_new_ntfy_channel_reaches_checks_that_already_exist(monkeypatch, capsy
 def test_a_detached_ntfy_channel_stays_detached(monkeypatch, capsys):
     """A client who removes Catena's channel from a check keeps that choice:
     the channel is attached when it is created and never again."""
-    managers, _ = _run_seed(
-        monkeypatch, capsys, server="https://ntfy.internal", topic="s3cret",
-    )
+    managers, _ = _run_seed(monkeypatch, capsys, server="", topic="")
+    check = managers["check"].create(
+        project=managers["project"].rows[0], slug="catena-backup-attempted")
+    monkeypatch.setenv("CATENA_NTFY_SERVER", "https://ntfy.internal")
+    monkeypatch.setenv("CATENA_NTFY_TOPIC", "s3cret")
+    exec(compile(SEED.read_text(), str(SEED), "exec"), {"__name__": "__seed__"})
     ntfy = managers["channel"].rows[0]
-    check = managers["check"].rows[0]
     check.channel_set.remove(ntfy)
     exec(compile(SEED.read_text(), str(SEED), "exec"), {"__name__": "__seed__"})
     assert ntfy not in check.channel_set.added
@@ -259,13 +256,14 @@ def test_an_incomplete_ntfy_config_seeds_no_channel(
     assert "channel=none" in out
 
 
-def test_the_checks_are_still_seeded_without_a_channel(monkeypatch, capsys):
-    """No delivery is not no monitoring. The dead-man checks still exist, so
-    the state is recorded and a channel added later starts working at once."""
-    managers, _ = _run_seed(monkeypatch, capsys, server="", topic="")
-    slugs = {getattr(c, "slug", "") for c in managers["check"].rows}
-    assert "catena-backup-succeeded" in slugs
-    assert "catena-backup-attempted" in slugs
+def test_the_seed_creates_no_check(monkeypatch, capsys):
+    """The scheduled lanes' checks belong to catena-admin's catena-schedule,
+    which keeps them on the lanes' schedule; a check the seed made would be a
+    second owner holding another one."""
+    managers, _ = _run_seed(
+        monkeypatch, capsys, server="https://ntfy.internal", topic="s3cret",
+    )
+    assert managers["check"].rows == []
 
 
 def test_clearing_the_config_removes_a_previously_seeded_channel(

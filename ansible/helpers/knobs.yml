@@ -581,40 +581,6 @@ config:
     var: cfg_backup_extra_paths
     panel: {group: backup, section: config, kind: text, optional: true}
 
-  # Dead-man endpoints. The first pair overrides the locally provisioned pings;
-  # the second is off-host only and has no default, which is the one case a
-  # whole-host outage can still be reported.
-  - key: BACKUP_HEALTHCHECK_URL
-    residence: store
-    var: cfg_backup_healthcheck_url
-    panel: {group: alerts, section: config, kind: text, optional: true}
-
-  - key: BACKUP_HEALTHCHECK_ATTEMPTED_URL
-    residence: store
-    var: cfg_backup_healthcheck_attempted_url
-    panel: {group: alerts, section: config, kind: text, optional: true}
-
-  - key: BACKUP_HEALTHCHECK_URL_CLIENT
-    residence: store
-    var: cfg_backup_healthcheck_url_client
-    panel: {group: alerts, section: config, kind: text, optional: true}
-
-  - key: BACKUP_HEALTHCHECK_URL_OPERATOR
-    residence: store
-    var: cfg_backup_healthcheck_url_operator
-    panel: {group: alerts, section: config, kind: text, optional: true}
-
-  # The offsite-copy lane's dead-man endpoints. WHICH buckets it copies is not
-  # a knob: that is the store's offsite_copies list, read straight off disk so
-  # adding a copy takes effect with no converge in between.
-  - key: OFFSITE_HEALTHCHECK_URL
-    residence: store
-    var: cfg_offsite_healthcheck_url
-
-  - key: OFFSITE_HEALTHCHECK_ATTEMPTED_URL
-    residence: store
-    var: cfg_offsite_healthcheck_attempted_url
-
   # ---- outbound mail ----
   #
   # One choice, one address, one credential. The provider routes it and the
@@ -671,6 +637,13 @@ config:
   - key: NTFY_TOPIC
     residence: store
     var: cfg_ntfy_topic
+    panel: {group: alerts, section: config, kind: text, optional: true}
+
+  # The check at an outside monitoring service the heartbeat lane calls, the
+  # one signal that leaves the host: it reports a host that is gone. No `var`:
+  # catena-admin's catena-heartbeat reads it off the store on every run.
+  - key: OFFSITE_HEARTBEAT_URL
+    residence: store
     panel: {group: alerts, section: config, kind: text, optional: true}
 
   # ---- who may sign in ----

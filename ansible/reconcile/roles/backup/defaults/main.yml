@@ -56,7 +56,7 @@ backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
 #
 # Fail-soft contract: if nothing is declared OR a destination's creds are
 # missing OR a destination bucket is unreachable, the lane logs the reason,
-# records a skip on the healthcheck below, and exits 0. Daily backups never
+# records it on the attempted check below, and exits 0. Daily backups never
 # read any of it and stay unaffected -- a misconfigured copy cannot brick
 # the primary chain.
 #
@@ -66,77 +66,50 @@ backup_restic_repo: "{{ cfg_backup_restic_repo | default('') }}"
 # it is about.
 offsite_healthcheck_url: >-
   {{
-    cfg_offsite_healthcheck_url | default('')
-    or (healthchecks_ping_base
-        ~ '/ping/' ~ (healthchecks_ping_key | default(''))
-        ~ '/catena-offsite-copy-succeeded?create=1'
-        if healthchecks_ping_key is defined else '')
+    healthchecks_ping_base
+    ~ '/ping/' ~ (healthchecks_ping_key | default(''))
+    ~ '/catena-offsite-copy-succeeded?create=1'
+    if healthchecks_ping_key is defined else ''
   }}
 offsite_healthcheck_attempted_url: >-
   {{
-    cfg_offsite_healthcheck_attempted_url | default('')
-    or (healthchecks_ping_base
-        ~ '/ping/' ~ (healthchecks_ping_key | default(''))
-        ~ '/catena-offsite-copy-attempted?create=1'
-        if healthchecks_ping_key is defined else '')
+    healthchecks_ping_base
+    ~ '/ping/' ~ (healthchecks_ping_key | default(''))
+    ~ '/catena-offsite-copy-attempted?create=1'
+    if healthchecks_ping_key is defined else ''
   }}
-# Two healthchecks per backup, not one. Restic / S3 are flaky
-# enough that a single nightly failure should not page; two consecutive
-# failures should. Splitting the ping into "attempted" (every run start,
-# /fail on hard error) + "succeeded" (only on clean exit) lets the
-# operator side configure the alarm threshold via Healthchecks' grace
-# window -- succeeded gets a 2x-schedule grace, so one failure goes
-# "late" and a second consecutive one trips DOWN.
+# Two healthchecks per backup, not one. Restic / S3 are flaky enough that a
+# single nightly failure should not page; two consecutive failures should.
 #
-# - succeeded: pinged at end-of-run on success. Operator configures
-#   grace ≥ 2x backup_schedule for "alarm on N=2 consecutive misses".
+# - succeeded: pinged at end-of-run on success.
 # - attempted: pinged on /start always, /fail on hard error (pg_dumpall
-#   abort, etc.). Catches "host went away" and operator-actionable
-#   structural failures immediately.
+#   abort, etc.). Catches "host went away" and structural failures
+#   immediately.
 #
-# Both auto-provision on first ping (?create=1) using the same
-# healthchecks_ping_key, against healthchecks_ping_base -- the loopback
-# publish, not the public hostname. These run from a systemd unit ON the box
-# reaching a container ON the box; routing that through Cloudflare made the
-# backup dead-man die with the edge it reports on. .env can override either
-# with an off-host URL (healthchecks.io etc.) for survivability past full VPS
-# loss, which is the one case loopback cannot cover.
+# catena-schedule (catena-admin payload/engines/schedule) keeps both checks on
+# the schedule of the lanes that run the backup, and gives the succeeded one
+# one schedule gap more grace, so a single miss alerts nobody and a second one
+# does. ?create=1 provisions a check its first ping finds missing.
+#
+# Both ping healthchecks_ping_base -- the loopback publish, not the public
+# hostname. These run from a systemd unit ON the box reaching a container ON
+# the box; routing that through Cloudflare made the backup dead-man die with
+# the edge it reports on. A host that is gone is reported by the heartbeat
+# lane's off-site call instead.
 backup_healthcheck_url: >-
   {{
-    cfg_backup_healthcheck_url | default('')
-    or (healthchecks_ping_base
-        ~ '/ping/' ~ (healthchecks_ping_key | default(''))
-        ~ '/catena-backup-succeeded?create=1'
-        if healthchecks_ping_key is defined else '')
+    healthchecks_ping_base
+    ~ '/ping/' ~ (healthchecks_ping_key | default(''))
+    ~ '/catena-backup-succeeded?create=1'
+    if healthchecks_ping_key is defined else ''
   }}
 backup_healthcheck_attempted_url: >-
   {{
-    cfg_backup_healthcheck_attempted_url | default('')
-    or (healthchecks_ping_base
-        ~ '/ping/' ~ (healthchecks_ping_key | default(''))
-        ~ '/catena-backup-attempted?create=1'
-        if healthchecks_ping_key is defined else '')
+    healthchecks_ping_base
+    ~ '/ping/' ~ (healthchecks_ping_key | default(''))
+    ~ '/catena-backup-attempted?create=1'
+    if healthchecks_ping_key is defined else ''
   }}
-
-# External dead-man pings, client and operator.
-#
-# The two URLs above auto-provision against the LOCAL Healthchecks
-# instance -- fine for day-to-day visibility, useless if the whole VPS
-# dies (the host that should be alerting is the host that's down). R13
-# closes that gap with up to two parallel external pings, both pinged
-# in addition to the local URLs at end-of-run on success.
-#
-# - URL_CLIENT  -- endpoint the CLIENT controls (their own healthchecks.io
-#                 project, their Slack via Zapier, etc.). Optional.
-# - URL_OPERATOR -- endpoint the OPERATOR controls (the operator's
-#                  off-host Healthchecks for fleet-wide visibility).
-#                  Optional.
-#
-# Either, both, or neither set is valid. If BOTH are empty, the backup
-# install task prints an ORANGE non-fatal warning ("no external dead-man
-# set; whole-host outage will be silent"). Never blocks the converge.
-backup_healthcheck_url_client: "{{ cfg_backup_healthcheck_url_client | default('') }}"
-backup_healthcheck_url_operator: "{{ cfg_backup_healthcheck_url_operator | default('') }}"
 
 # Retention is not set by this repo at all.
 #
@@ -498,7 +471,7 @@ backup_export_dir: "{{ catena_export_dir }}"
 backup_export_script: /usr/local/bin/catena-snapshot-export
 backup_export_keep_last: 1 # rotation: keep only the newest N exports
 
-# F6: snapshot-list helper. Renders ${backup_export_dir}/index.html with
+# Snapshot-list helper. Renders ${backup_export_dir}/index.html with
 # a curated table of current restic snapshots + pre-exported tarballs.
 # Called by catena-backup-run after forget+prune so the listing tracks the
 # live repo state. It travels WITH the directory: the panel's Recovery tab

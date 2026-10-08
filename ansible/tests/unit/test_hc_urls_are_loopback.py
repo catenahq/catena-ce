@@ -6,9 +6,8 @@ out to Cloudflare's edge and back in through the tunnel, so the backup
 dead-man depended on the very thing it exists to report on: a tunnel or DNS
 failure silenced the alarm instead of tripping it.
 
-The two external URLs are the exception and stay external: they are the
-box-death half of the two-monitor model, and a loopback ping cannot detect a
-host that is gone.
+A host that is gone is reported by the heartbeat lane's call to the off-site
+address the client saves in Settings, not by any of these.
 
 Run: uv run pytest tests/unit/test_hc_urls_are_loopback.py
 """
@@ -25,19 +24,14 @@ EXAMPLE_INVENTORY = (
     ANSIBLE / "playbooks" / "group_vars" / "all" / "main.yml"
 )
 
-# Pinged by a unit running on the host.
-HOST_SIDE = [
-    "backup_healthcheck_url",
-    "backup_healthcheck_attempted_url",
-    "offsite_healthcheck_url",
-    "offsite_healthcheck_attempted_url",
-]
-
-# Deliberately off-host: these detect the host being gone.
-EXTERNAL = [
-    "backup_healthcheck_url_client",
-    "backup_healthcheck_url_operator",
-]
+# Pinged by a unit running on the host, each at the check catena-admin's
+# catena-schedule keeps on the lanes' schedule (payload/engines/schedule).
+HOST_SIDE = {
+    "backup_healthcheck_url": "catena-backup-succeeded",
+    "backup_healthcheck_attempted_url": "catena-backup-attempted",
+    "offsite_healthcheck_url": "catena-offsite-copy-succeeded",
+    "offsite_healthcheck_attempted_url": "catena-offsite-copy-attempted",
+}
 
 
 def _defaults(path: Path) -> dict:
@@ -53,7 +47,7 @@ def test_the_ping_base_is_the_loopback_publish():
 
 def test_every_host_side_ping_builds_from_the_ping_base():
     backup = _defaults(BACKUP_DEFAULTS)
-    for key in HOST_SIDE:
+    for key, slug in HOST_SIDE.items():
         value = backup[key]
         assert "healthchecks_ping_base" in value, (
             f"{key} does not build from healthchecks_ping_base: {value}"
@@ -62,45 +56,25 @@ def test_every_host_side_ping_builds_from_the_ping_base():
             f"{key} still routes a host-local ping through the public "
             f"hostname: {value}"
         )
+        assert f"/{slug}?create=1" in value, f"{key} does not ping {slug}: {value}"
 
 
-def test_every_host_side_ping_keeps_its_override():
-    """Loopback is the DEFAULT, not a lock-in: an operator pointing a lane at
-    an off-host endpoint must still win.
-
-    The override lives in the on-box store, which the `.env` seeds once on the
-    first converge, so what has to be present is the projected `cfg_` fact
-    ahead of the computed loopback URL."""
+def test_no_host_side_ping_reads_an_override():
+    """The checks these ping are the ones catena-schedule keeps on the lanes'
+    schedule. A stored URL pointing one elsewhere would leave catena-schedule
+    managing a check nothing pings."""
     backup = _defaults(BACKUP_DEFAULTS)
     for key in HOST_SIDE:
         value = backup[key]
-        assert f"cfg_{key} | default('')" in value, key
-        # And it has to come FIRST, or the computed URL would win.
-        assert value.index(f"cfg_{key}") < value.index("healthchecks_ping_base"), (
-            f"{key}: the override must be evaluated before the computed URL"
-        )
+        assert "cfg_" not in value, f"{key} reads a stored override: {value}"
         assert "lookup('dotenv'" not in value, (
-            f"{key} still reads .env directly; post-install config has one "
-            "reader, the store"
+            f"{key} reads .env directly: {value}"
         )
-
-
-def test_the_external_dead_mans_are_not_rewritten():
-    backup = _defaults(BACKUP_DEFAULTS)
-    for key in EXTERNAL:
-        value = backup[key]
-        assert "healthchecks_ping_base" not in value, (
-            f"{key} is the whole-host-outage lane; a loopback ping cannot "
-            "detect a host that is gone"
-        )
-        assert "127.0.0.1" not in value, key
 
 
 def test_no_inventory_reintroduces_a_hostname_ping():
     """An inventory group_vars entry outranks the role default, so a copy
-    there silently reverts this. The shipped example carried exactly such a
-    copy, still building the single-lane slug the succeeded/attempted split
-    replaced."""
+    there silently reverts this."""
     inventory = _defaults(EXAMPLE_INVENTORY)
     for key in HOST_SIDE:
         assert key not in inventory, (

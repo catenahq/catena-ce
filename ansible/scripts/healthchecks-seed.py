@@ -1,6 +1,6 @@
 """Seed and reconcile self-hosted Healthchecks: the operator superuser, the
-project and its API keys, the notification channels (the admin's email and
-ntfy), and the two backup checks. Re-running reconciles drift and leaves
+project and its API keys, and the notification channels (the admin's email and
+ntfy). It creates no check. Re-running reconciles drift and leaves
 client-added checks and channels alone."""
 # Managed by Ansible (reconcile/roles/infrastructure). Do not edit by hand.
 #
@@ -22,20 +22,19 @@ client-added checks and channels alone."""
 #      one row and never a channel the client added. A channel is attached to
 #      every check when it is created, and never again, so a client who
 #      detaches it from a check keeps that choice.
-#   3. The two backup checks. A newly created one gets every project channel,
-#      as Healthchecks gives any new check.
 #
-# Gatus creates its per-endpoint checks (gatus-<slug>) on first failure via
-# `?create=1`, and Healthchecks's `Check.assign_all_channels()` attaches every
-# project channel to the new check, Catena's channels included.
+# The checks come from elsewhere, each with every project channel attached:
+# catena-admin's catena-schedule creates the scheduled lanes' checks through
+# the API (`channels: "*"`), and keeps them on the lanes' schedule; Gatus, the
+# Beszel shim and the host watchdogs create theirs on a first `?create=1` ping,
+# which runs Healthchecks's `Check.assign_all_channels()`.
 
 import json
 import os
 import uuid
-from datetime import timedelta
 from django.contrib.auth import get_user_model
 from hc.accounts.models import Profile, Project
-from hc.api.models import Channel, Check
+from hc.api.models import Channel
 
 _hc_email = os.environ["CATENA_ADMIN_EMAIL"]
 _hc_pw = os.environ["CATENA_HC_SUPERUSER_PASSWORD"]
@@ -105,10 +104,10 @@ if not project:
     raise SystemExit("Healthchecks project bootstrap failed unexpectedly")
 
 project.api_key_readonly = _hc_api_key_readonly
-# RW key powers /usr/local/bin/gatus-sync's orphan-pause pass: GET
-# /api/v3/checks/ needs readonly, POST /api/v3/checks/<uuid>/pause/ needs
-# the full api_key. Empty value (migrate-path) leaves the existing
-# project.api_key in place - HC keeps any prior value.
+# The RW key is what catena-gatus-sync's orphan-pause pass and catena-schedule's
+# check sync write with: GET /api/v3/checks/ needs readonly, a create, update,
+# pause or resume needs the full api_key. Empty value (migrate-path) leaves the
+# existing project.api_key in place - HC keeps any prior value.
 _save_fields = ["api_key_readonly", "ping_key", "name"]
 if _hc_api_key_readwrite:
     project.api_key = _hc_api_key_readwrite
@@ -193,61 +192,9 @@ else:
         "stale ntfy channel(s).".format(removed)
     )
 
-# Two backup checks:
-#
-#   - succeeded: pinged only on a clean run end. grace=26h: one missed
-#     nightly run goes "late" but stays UP, and a second consecutive miss
-#     (50h since the last success) trips DOWN, so a soft S3/restic transient
-#     does not page.
-#
-#   - attempted: pinged on every run start, and on /fail for hard
-#     structural failures (pg_dumpall abort, restic config error). grace=2h
-#     pages as soon as the host stops attempting backups (timer dead, host
-#     down) or the wrapper hits an unrecoverable error.
-backup_succeeded_check, created = Check.objects.update_or_create(
-    project=project,
-    slug="catena-backup-succeeded",
-    defaults={
-        "name": "Backup succeeded (sliding-window)",
-        "desc": (
-            "Pinged only when run-backup.sh completes cleanly. Grace=26h "
-            "buffers a single transient failure: one miss = LATE, two "
-            "consecutive misses = DOWN."
-        ),
-        "kind": "simple",
-        "timeout": timedelta(days=1),
-        "grace": timedelta(hours=26),
-    },
-)
-if created:
-    backup_succeeded_check.assign_all_channels()
-
-backup_attempted_check, created = Check.objects.update_or_create(
-    project=project,
-    slug="catena-backup-attempted",
-    defaults={
-        "name": "Backup attempted (immediate)",
-        "desc": (
-            "Pinged on every run start; /fail on hard structural failures "
-            "(pg_dumpall abort, restic config error). Tight grace=2h - "
-            "alerts immediately if the timer stops firing or the wrapper "
-            "hits an unrecoverable error."
-        ),
-        "kind": "simple",
-        "timeout": timedelta(days=1),
-        "grace": timedelta(hours=2),
-    },
-)
-if created:
-    backup_attempted_check.assign_all_channels()
-
-# A check nobody has pinged stays inert in Healthchecks: its dead-man clock
-# starts at the first ping from run-backup.sh.
 print(
-    "OK channel={} email={} succeeded={} attempted={}".format(
+    "OK channel={} email={}".format(
         channel.code if channel is not None else "none",
         email_channel.code if email_channel is not None else "none",
-        backup_succeeded_check.code,
-        backup_attempted_check.code,
     )
 )

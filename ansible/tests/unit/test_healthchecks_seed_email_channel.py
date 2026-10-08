@@ -46,8 +46,6 @@ def test_mail_on_seeds_a_verified_channel_to_the_admin(monkeypatch, capsys):
     assert channel.email_verified is True, (
         "Healthchecks sends nothing to an unverified email channel")
     assert f"email={channel.code}" in capsys.readouterr().out
-    bound = [c for c in managers["check"].rows if channel in c.channel_set.added]
-    assert len(bound) == 2, "the backup checks do not reach the admin"
 
 
 def test_the_channel_reaches_checks_that_already_exist(monkeypatch, capsys):
@@ -69,6 +67,10 @@ def test_an_update_keeps_the_bindings_and_never_reattaches(monkeypatch, capsys):
     """A stale address is rewritten in place, and a check the client detached
     the channel from stays detached."""
     managers = standins._install_fake_django(monkeypatch)
+    _seed(monkeypatch, mail=False)
+    project = managers["project"].rows[0]
+    for slug in ("catena-backup-attempted", "catena-backup-succeeded"):
+        managers["check"].create(project=project, slug=slug)
     _seed(monkeypatch, mail=True)
     [channel] = _email_channels(managers)
     detached, kept = managers["check"].rows

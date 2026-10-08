@@ -50,38 +50,6 @@
     state: absent
     purge: true
 
-# Warn loudly + non-fatally when no external dead-man is set.
-# ANSI escape codes are rejected by PyYAML / Ansible's YAML parser as
-# non-printable; we use a plain-text visual block instead. The
-# leading WARNING line + horizontal rule make this stand out against
-# the one-line-per-task converge output without needing a callback
-# plugin or runtime escape construction.
-- name: "R13: warn if no external dead-man is configured"
-  ansible.builtin.debug:
-    msg: |
-      ============================================================
-      WARNING: no external dead-man configured for backups
-      ============================================================
-
-      Backup pings reach only the local Healthchecks instance on
-      this VPS. If the whole host goes down, no one will know -
-      the host that should alert is the host that is down.
-
-      Set ONE OR BOTH of these on the Settings page of the admin
-      panel, then converge again:
-
-          BACKUP_HEALTHCHECK_URL_OPERATOR
-          BACKUP_HEALTHCHECK_URL_CLIENT
-
-      Each takes a ping URL from an off-box monitor (a free
-      healthchecks.io check is enough). Either is fine; both is best.
-      Continuing without external dead-man.
-      ============================================================
-  when:
-    - (backup_healthcheck_url_client | length) == 0
-    - (backup_healthcheck_url_operator | length) == 0
-  run_once: true
-
 - name: Ensure /etc/catena exists (root-only)
   ansible.builtin.file:
     path: /etc/catena
@@ -92,10 +60,9 @@
 
 # NOTE: backup_stats_file (dir + seed + stray-dir repair) is handled
 # by reconcile/roles/infrastructure/tasks/dashboard_sync.yml -- the same role
-# that bind-mounts this path into catena-admin via /etc/catena/stats.
-# Seeding it here (backup runs AFTER infrastructure in converge.yml) raced
-# Docker auto-creating a directory when the compose started; see
-# session 31 handoff.
+# that bind-mounts this path into catena-admin via /etc/catena/stats. Seeding
+# it here, after infrastructure, would race Docker auto-creating a directory
+# when the compose starts.
 - name: "Ensure backup stats dir exists ({{ backup_stats_dir }})"
   ansible.builtin.file:
     path: "{{ backup_stats_dir }}"
@@ -182,8 +149,7 @@
 
 # The offsite-copy lane's dead-man endpoints, written on EVERY converge,
 # including on a host whose backup is not configured yet, where backup.env
-# above is left as first written. An operator pointing the lane at an
-# off-host heartbeat takes effect on the next converge either way.
+# above is left as first written.
 #
 # WHICH buckets get copied is the `offsite_copies` list in
 # /etc/catena/config.json, which catena-admin writes and the lane reads
@@ -257,14 +223,13 @@
   ansible.builtin.set_fact:
     _backup_wrapper_present: "{{ catena_payload_missing | length == 0 }}"
 
-- name: Remove legacy acquire-lock helper (R21 mutex is flock now)
+- name: Remove the catena-acquire-lock.sh helper
   # Every unit sharing /run/catena.lock takes it via
   # `flock -w <t> /run/catena.lock <cmd>` (held for the command's
-  # lifetime, kernel-released on exit or crash). The old
-  # catena-acquire-lock.sh used file EXISTENCE as the lock with a
-  # pid-content staleness check; against the empty lock file flock
-  # leaves behind it found no pid to stale-check and spun to its full
-  # timeout. Remove it from converged hosts so nothing regresses to it.
+  # lifetime, kernel-released on exit or crash). catena-acquire-lock.sh
+  # treats the file's EXISTENCE as the lock, and against the empty lock file
+  # flock leaves it finds no pid to stale-check and spins to its full timeout,
+  # so a copy on a host is removed before anything reaches for it.
   ansible.builtin.file:
     path: /usr/local/bin/catena-acquire-lock.sh
     state: absent
@@ -335,10 +300,9 @@
 #
 # The consequence is deliberate and it is the point: a fresh host schedules
 # NOTHING. Scheduled work spends disk and object-store quota nobody has
-# confirmed the client has. Nothing runs, so nothing pings, so no Healthchecks
-# check is provisioned and none can go late -- the operator sees an unscheduled
-# host in the panel rather than being paged about a host nobody asked to back
-# anything up yet.
+# confirmed the client has. catena-schedule keeps the Healthchecks checks of a
+# lane that is off paused, so none can go late: the panel shows an unscheduled
+# host rather than an alert about a host nobody asked to back anything up yet.
 
 # ─── initial snapshot ────────────────────────────────────────────────────
 # Take one snapshot inline so the repo has data before the first scheduled
@@ -351,11 +315,8 @@
 # us mis-classify the repo as empty and trigger a redundant first-
 # backup attempt that would itself fail on the same lock.
 - name: Check whether any snapshots exist
-  # `--latest 1` (not `--last 1`): restic 0.18 removed the legacy
-  # `--last` flag, which silently made the command exit non-zero on
-  # every run. That broke the idempotency gate below (the inline first-
-  # backup fired on every converge instead of only the first), tripping
-  # stage-2.5 of the bench. Every other caller in the repo uses `--latest`.
+  # `--latest 1`: restic has no `--last` flag, and a probe that exits non-zero
+  # on every run would queue the first backup below on every converge.
   ansible.builtin.shell:
     cmd: restic snapshots --no-lock --latest 1 --json | grep -q '"time"'
   environment: "{{ backup_restic_env }}"

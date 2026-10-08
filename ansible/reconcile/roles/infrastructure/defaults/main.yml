@@ -133,10 +133,9 @@ healthchecks_host_localhost_port: 18000
 # of tripping it.
 #
 # Container-to-container pings do NOT use this -- Gatus and the Beszel shim
-# post to the network alias, which is already local. The .env overrides
-# (BACKUP_HEALTHCHECK_URL_CLIENT / _OPERATOR) stay deliberately external:
-# they are the box-death half of the two-monitor model, and a loopback ping
-# cannot detect a host that is gone.
+# post to the network alias, which is already local. The one call that leaves
+# the host is the heartbeat lane's, to the OFFSITE_HEARTBEAT_URL the client
+# saves in Settings: a loopback ping cannot detect a host that is gone.
 healthchecks_ping_base: "http://127.0.0.1:{{ healthchecks_host_localhost_port }}"
 
 
@@ -212,8 +211,8 @@ beszel_oidc_display_name: "Catena"
 # Tiny stdlib-Python sidecar on catena-network. Receives Beszel's
 # Shoutrrr generic-webhook POST, derives a beszel-<slug> check name, and
 # forwards triggered -> /fail, resolved -> success against the
-# Healthchecks loopback alias. All project channels auto-attach via the
-# existing assign_all_channels() seed (zero per-check wiring).
+# Healthchecks loopback alias. Healthchecks attaches every project channel to
+# a check its `?create=1` ping creates (zero per-check wiring).
 beszel_hc_shim_compose_name: "beszel-hc-shim"
 beszel_hc_shim_network_alias: "beszel-hc-shim"
 beszel_hc_shim_internal_port: 8099
@@ -223,6 +222,17 @@ beszel_hc_shim_image: >-
      | catena_image_pin(catena_image_pins | default({})) }}
 # Host dir the shim script is dropped into + bind-mounted read-only.
 beszel_hc_shim_host_dir: "/etc/catena/beszel-hc-shim"
+
+# --- Off-site heartbeat ---------------------------------------------------
+# catena-admin's catena-heartbeat lane (payload/lanes) probes Gatus,
+# Healthchecks and the Beszel hub on their loopback publishes above, then
+# calls the off-site address saved in Settings, which it reads off the store.
+# This file carries the rest. The Schedules page's `heartbeat` lane turns it
+# on.
+heartbeat_env_file: /etc/catena/heartbeat.env
+# The lane's own check on this host's Healthchecks, which catena-schedule keeps
+# on the lane's schedule.
+heartbeat_check_slug: catena-heartbeat
 
 # version-check (the current-vs-latest Versions report, a catena-admin
 # payload script) runs on every edition: a self-hosted Community deployment

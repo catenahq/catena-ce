@@ -13,9 +13,12 @@ Portainer in the path, so a Portainer that will not start leaves them running:
   rendered here; `catena-gatus-sync` writes `50-catena-apps.yaml` from the
   running containers' labels.
 - **Healthchecks** (`healthchecks.<zone>`) -- the dead-man-switch plane the
-  backup, the reboot-required probe, the ClamAV watch, the mail canary and
-  Beszel's alerts ping. Missed pings alert the admin's email, through the
-  outgoing mail set in catena-admin, and the ntfy channel set there.
+  backup, the nightly chain, the offsite copy, the off-site heartbeat, the
+  reboot-required probe, the ClamAV watch, the mail canary and Beszel's alerts
+  ping. Missed pings alert the admin's email, through the outgoing mail set in
+  catena-admin, and the ntfy channel set there. This role seeds the channels;
+  catena-admin's catena-schedule keeps the scheduled lanes' checks on their
+  schedule.
 - **Beszel** (`beszel.<zone>`) -- hub and host agent for resource history and
   threshold alerts, with a small shim that forwards those alerts to
   Healthchecks.
@@ -52,6 +55,12 @@ Gated on the Portainer API key (`reconcile/roles/portainer` mints it):
 `catena-dashboard-sync` (client-app routes and SSO) and `catena-gatus-sync`
 ship in the catena-admin payload with their units. This role renders their env
 files and enables their timers.
+
+The off-site heartbeat (`catena-heartbeat`, catena-admin payload) probes Gatus,
+Healthchecks and the Beszel hub on their loopback publishes and calls the
+outside monitoring address saved in Settings > Alerts. This role renders its
+`/etc/catena/heartbeat.env`; catena-schedule enables its timer while the
+Schedules page's `heartbeat` lane is on.
 
 ## Inputs
 

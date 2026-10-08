@@ -5,7 +5,7 @@
 # 1. The tunnel-deferred gate: the steps that need the public edge wait for a
 #    converge that has it.
 # 2. Gatus, Healthchecks, Beszel and the shared ClamAV, as swarm stacks
-#    (swarm_stack.yml).
+#    (swarm_stack.yml), and the off-site heartbeat's env file.
 # 3. With the Portainer API key, which reconcile/roles/portainer mints or
 #    heals earlier in the converge: a Portainer health gate
 #    (portainer_endpoint.yml), the Keycloak clients and wiring scripts for
@@ -74,6 +74,20 @@
     apply:
       tags: [beszel]
   tags: [beszel]
+
+# The off-site heartbeat's env file: the three monitors' loopback ports and
+# the lane's own check. Its script and units ship in the catena-admin payload,
+# and catena-schedule enables its timer while the `heartbeat` lane is on.
+# 0600: it carries the Healthchecks ping key.
+- name: "Off-site heartbeat: env file"
+  ansible.builtin.template:
+    src: heartbeat.env.j2
+    dest: "{{ heartbeat_env_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  tags: [healthchecks]
 
 # The container lookup every script and task below finds an application's
 # containers with (catena-container <app> <service>), so it lands before the
