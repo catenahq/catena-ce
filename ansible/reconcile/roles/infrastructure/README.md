@@ -14,8 +14,8 @@ Portainer in the path, so a Portainer that will not start leaves them running:
   running containers' labels.
 - **Healthchecks** (`heartbeat.<zone>`) -- the dead-man-switch plane the
   backup, the reboot-required probe, the ClamAV watch, the mail canary and
-  Beszel's alerts ping. Missed pings alert through the channels set in
-  catena-admin.
+  Beszel's alerts ping. Missed pings alert the admin's email, through the
+  outgoing mail set in catena-admin, and the ntfy channel set there.
 - **Beszel** (`hub.<zone>`) -- hub and host agent for resource history and
   threshold alerts, with a small shim that forwards those alerts to
   Healthchecks.
@@ -28,10 +28,8 @@ Portainer in the path, so a Portainer that will not start leaves them running:
   sender; a Nextcloud upload waits for its scan, and one that gets no answer
   is refused.
 
-Gatus and Healthchecks sit behind their own oauth2-proxy, rendered by
-`reconcile/roles/oauth2_proxy` before this role runs. Beszel's hub is gated
-the way client apps are: dashboard-sync renders its route from its
-`vps.auth.*` labels.
+Gatus, Healthchecks and Beszel's hub sit behind their own oauth2-proxy,
+rendered by `reconcile/roles/oauth2_proxy` before this role runs.
 
 ## Catalog app wiring
 

@@ -54,7 +54,7 @@ services:
       SECRET_KEY: "{{ healthchecks_secret_key }}"
       DEBUG: "False"
       # Closed registration -- oauth2-proxy + Keycloak gate the UI, and our seed
-      # task (healthchecks-seed.py.j2, step 0) creates the operator
+      # task (scripts/healthchecks-seed.py, step 0) creates the operator
       # superuser + default Project on first converge. SUPERUSER_EMAIL
       # and SUPERUSER_PASSWORD below are INERT to this image's
       # entrypoint (upstream runs migrations only, no auto-bootstrap);
@@ -73,12 +73,24 @@ services:
       PING_KEY: "{{ healthchecks_ping_key }}"
       DB: "sqlite"
       DB_NAME: "/data/hc.sqlite"
-      # Alerts route out via ntfy (seeded automatically by the bootstrap
-      # task in healthchecks.yml). No SMTP needed.
+      # Mail goes out through the outgoing mail chosen in Settings > Mail
+      # (infrastructure_smtp), to the admin email channel healthchecks-seed.py
+      # keeps. Always STARTTLS on the port given, as every sender on the host.
+      # Mail turned off leaves EMAIL_HOST empty, which gives Healthchecks no
+      # mailer, and the seed removes the email channel. The password is JSON-
+      # quoted and its `$` doubled, so `docker stack deploy` interpolates
+      # nothing out of it.
+{% if infrastructure_smtp.enabled | bool %}
+      EMAIL_HOST: "{{ infrastructure_smtp.host }}"
+      EMAIL_PORT: "{{ infrastructure_smtp.port }}"
+      EMAIL_HOST_USER: "{{ infrastructure_smtp.user }}"
+      EMAIL_HOST_PASSWORD: {{ smtp_password | default('') | replace('$', '$$') | to_json }}
+      EMAIL_USE_TLS: "True"
+      EMAIL_USE_SSL: "False"
+{% else %}
       EMAIL_HOST: ""
-      # localhost rather than `heartbeat@` with the zone empty: alerts route
-      # over ntfy, so this address is never dialled, but it still has to parse.
-      DEFAULT_FROM_EMAIL: "heartbeat@{{ cloudflare_zone | default('', true) | trim or 'localhost' }}"
+{% endif %}
+      DEFAULT_FROM_EMAIL: "{{ infrastructure_smtp.sender }}"
       # ─── SSO passthrough via oauth2-proxy reverse-proxy ────────────
       # The per-app oauth2-proxy container in front of healthchecks
       # injects X-Forwarded-Email on every authenticated request

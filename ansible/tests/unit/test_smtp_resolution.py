@@ -13,9 +13,9 @@ winning when two are filled, carries three defects in one shape:
   - switching provider without first CLEARING the old address keeps sending
     through the old one, silently, for as long as the stale value sits there;
   - the ladder is written out once per consumer -- keycloak defaults,
-    wordpress_plugins.yml, Beszel -- each free to drift, and a host whose
-    password resets and whose contact form go through different relays, from
-    the same stored config, reports nothing.
+    wordpress_plugins.yml, Beszel, Healthchecks -- each free to drift, and a
+    host whose password resets and whose contact form go through different
+    relays, from the same stored config, reports nothing.
 
 Run: uv run pytest tests/unit/test_smtp_resolution.py
 """
@@ -31,6 +31,9 @@ PLUGIN = ANSIBLE / "playbooks" / "filter_plugins" / "smtp_resolve.py"
 KEYCLOAK_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "keycloak" / "defaults" / "main.yml"
 WORDPRESS = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "tasks" / "wordpress_plugins.yml"
 BESZEL = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "tasks" / "beszel.yml"
+INFRA_DEFAULTS = ANSIBLE / "reconcile" / "roles" / "infrastructure" / "defaults" / "main.yml"
+HEALTHCHECKS_COMPOSE = (ANSIBLE / "reconcile" / "roles" / "infrastructure" / "templates"
+                        / "healthchecks.compose.yml.j2")
 ONBOX_CONFIG = ANSIBLE / "helpers" / "onbox_config.py"
 
 
@@ -108,22 +111,38 @@ def test_switching_provider_cannot_leave_the_old_one_in_use():
     assert got["port"] == 587
 
 
-# ─── one resolution, three consumers ───────────────────────────────────────
+# ─── one resolution, every consumer ────────────────────────────────────────
 
 
-@pytest.mark.parametrize("path", [KEYCLOAK_DEFAULTS, WORDPRESS, BESZEL])
+def _code(path: Path) -> str:
+    return "\n".join(
+        ln for ln in path.read_text().splitlines() if not ln.lstrip().startswith("#"))
+
+
+@pytest.mark.parametrize("path", [KEYCLOAK_DEFAULTS, WORDPRESS, INFRA_DEFAULTS])
 def test_every_consumer_calls_the_filter_rather_than_rewriting_it(path):
     """A hand-written copy of the ladder is free to drift, and the symptom is
     a host that sends password-reset mail through one relay and a contact
     form through another, from the same stored config, with nothing
     reporting it."""
-    body = path.read_text()
-    assert "catena_smtp_resolve" in body, (
+    assert "catena_smtp_resolve" in path.read_text(), (
         f"{path.name} does not use the shared resolution")
     # The giveaway of a hand-rolled copy: naming a provider's hostname.
     for literal in ("smtp.resend.com", "smtp-relay.brevo.com"):
-        code = "\n".join(
-            ln for ln in body.splitlines() if not ln.lstrip().startswith("#"))
+        assert literal not in _code(path), (
+            f"{path.name} hardcodes {literal}; that belongs to the filter")
+
+
+@pytest.mark.parametrize("path", [BESZEL, HEALTHCHECKS_COMPOSE])
+def test_beszel_and_healthchecks_read_the_infrastructure_resolution(path):
+    """Beszel's mail and Healthchecks's alert mail take the infrastructure
+    role's one resolution rather than a copy each."""
+    code = _code(path)
+    assert "infrastructure_smtp." in code, (
+        f"{path.name} does not read infrastructure_smtp")
+    assert "catena_smtp_resolve" not in code, (
+        f"{path.name} resolves the mail choice a second time")
+    for literal in ("smtp.resend.com", "smtp-relay.brevo.com"):
         assert literal not in code, (
             f"{path.name} hardcodes {literal}; that belongs to the filter")
 
@@ -149,7 +168,8 @@ def test_implicit_tls_is_not_offered_and_not_stored():
 def test_no_consumer_still_reads_a_retired_key(gone):
     """A reader of a key nothing writes resolves it to empty and takes its
     branch of the ladder with it."""
-    for path in (KEYCLOAK_DEFAULTS, WORDPRESS, BESZEL, ONBOX_CONFIG):
+    for path in (KEYCLOAK_DEFAULTS, WORDPRESS, BESZEL, INFRA_DEFAULTS,
+                 HEALTHCHECKS_COMPOSE, ONBOX_CONFIG):
         body = "\n".join(
             line for line in path.read_text().splitlines()
             if not line.lstrip().startswith("#")

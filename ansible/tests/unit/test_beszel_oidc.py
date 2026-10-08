@@ -278,7 +278,8 @@ def test_an_operator_added_webhook_is_not_dropped():
     import unittest.mock as _mock
     with _mock.patch.object(seed, "_req", fake_req):
         state = seed.configure_alert_delivery(
-            "http://h", "tok", "user1", "generic+http://shim:8080/notify")
+            "http://h", "tok", "user1", "generic+http://shim:8080/notify",
+            "admin@example.test")
     hooks = calls["body"]["settings"]["webhooks"]
     assert "ntfy://example.test/mine" in hooks, "a hand-added webhook was dropped"
     assert "generic+http://shim:8080/notify" in hooks
@@ -293,13 +294,61 @@ def test_an_already_present_webhook_is_not_rewritten():
     def fake_req(method, url, *, token=None, body=None):
         assert method == "GET", f"wrote on a no-op: {method} {url}"
         return {"items": [{"id": "us1", "settings": {
-            "webhooks": ["generic+http://shim:8080/notify"]}}]}
+            "webhooks": ["generic+http://shim:8080/notify"],
+            "emails": ["ops@example.test"]}}]}
 
     import unittest.mock as _mock
     with _mock.patch.object(seed, "_req", fake_req):
         assert seed.configure_alert_delivery(
             "http://h", "tok", "user1",
-            "generic+http://shim:8080/notify") == "ok-exists"
+            "generic+http://shim:8080/notify", "admin@example.test") == "ok-exists"
+
+
+def test_the_admin_gets_no_beszel_alert_mail():
+    """The admin's alerts reach them through Healthchecks; Beszel mailing the
+    same address would send two emails for one alert. Other addresses stay."""
+    calls = []
+
+    def fake_req(method, url, *, token=None, body=None):
+        if method == "GET":
+            return {"items": [{"id": "us1", "settings": {
+                "webhooks": ["generic+http://shim:8080/notify"],
+                "emails": ["Admin@Example.test", "ops@example.test"]}}]}
+        calls.append((method, body))
+        return {}
+
+    import unittest.mock as _mock
+    with _mock.patch.object(seed, "_req", fake_req):
+        state = seed.configure_alert_delivery(
+            "http://h", "tok", "user1", "generic+http://shim:8080/notify",
+            "admin@example.test")
+    assert state == "updated"
+    [(method, body)] = calls
+    assert method == "PATCH"
+    assert body["settings"]["emails"] == ["ops@example.test"]
+    assert body["settings"]["webhooks"] == ["generic+http://shim:8080/notify"]
+
+
+def test_a_new_settings_record_is_written_again_after_beszel_creates_it():
+    """Beszel's create hook puts the account's own address into `emails`
+    whatever the POST carried, so the record is patched right after."""
+    calls = []
+
+    def fake_req(method, url, *, token=None, body=None):
+        if method == "GET":
+            return {"items": []}
+        calls.append((method, url, body))
+        return {"id": "us9"} if method == "POST" else {}
+
+    import unittest.mock as _mock
+    with _mock.patch.object(seed, "_req", fake_req):
+        state = seed.configure_alert_delivery(
+            "http://h", "tok", "user1", "generic+http://shim:8080/notify",
+            "admin@example.test")
+    assert state == "configured"
+    assert [c[0] for c in calls] == ["POST", "PATCH"]
+    assert calls[1][1].endswith("/user_settings/records/us9")
+    assert calls[1][2]["settings"]["emails"] == []
 
 
 def test_the_default_rules_use_names_the_collection_accepts():

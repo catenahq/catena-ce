@@ -82,28 +82,47 @@
       "[BODY].count_high <= {{ container_cve_high_threshold | default(10) }}"
     ]
   },
+{# The tunnel, through a name under the domain's wildcard that nothing routes:
+   the Cloudflare edge hands it to this host's connector, which passes it to
+   Traefik, and Traefik answers 404 for a host it has no route for. A connector
+   that is down gets 530 from the edge, and one whose ingress does not serve
+   the domain answers the tunnel's catch-all 418
+   (catena-admin/payload/engines/cloudflared/api.go catchAllService), so only
+   a working tunnel reaches 404. The tunnel engine's own chain probe makes the
+   same request. #}
   {
     "label": "cloudflared",
-    "url": "http://catena-traefik:80/",
+    "url": "https://cf-chain-probe.{{ cloudflare_zone }}/",
     "group": "Infrastructure",
-    "accepted": [200, 404],
+    "accepted": [404],
     "ignore_redirect": false,
     "interval": "120s",
     "alert_slug": "cloudflared",
     "version_key": "Cloudflared"
-  }{% if beszel_enabled | default(false) %},
-{# Beszel hub liveness. Only emitted when BESZEL_ENABLED=true so hosts
-   without the monitor don't probe a non-existent hub.<zone> and page.
-   302 because it sits behind the admin oauth2-proxy chain. #}
+  },
+{# Keycloak's readiness on its management port, over catena-network: the
+   same check its container healthcheck runs. #}
   {
-    "label": "{{ beszel_hostname }}",
-    "url": "https://{{ beszel_hostname }}",
+    "label": "Keycloak",
+    "url": "http://{{ keycloak_server_alias }}:{{ keycloak_management_port }}{{ keycloak_health_path }}",
     "group": "Infrastructure",
-    "accepted": [302],
-    "ignore_redirect": true,
-    "interval": "120s",
-    "alert_slug": "{{ beszel_hostname | lower | replace('.', '-') }}",
+    "accepted": [200],
+    "ignore_redirect": false,
+    "interval": "60s",
+    "alert_slug": "keycloak",
+    "version_key": "Keycloak"
+  },
+{# Beszel's hub, by its catena-network alias. Its public host sits behind
+   oauth2-proxy and answers 302 whatever the hub's state, so the hub itself
+   is asked: /api/health answers 200 while it serves. #}
+  {
+    "label": "Beszel hub",
+    "url": "http://{{ beszel_hub_network_alias }}:{{ beszel_hub_internal_port }}/api/health",
+    "group": "Infrastructure",
+    "accepted": [200],
+    "ignore_redirect": false,
+    "interval": "60s",
+    "alert_slug": "beszel-hub",
     "version_key": "Beszel"
-  }{% endif %}
-
+  }
 ]

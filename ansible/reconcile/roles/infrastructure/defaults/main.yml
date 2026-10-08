@@ -147,14 +147,26 @@ healthchecks_ping_base: "http://127.0.0.1:{{ healthchecks_host_localhost_port }}
 ntfy_server: "{{ cfg_ntfy_server | default('') }}"
 ntfy_topic: "{{ cfg_ntfy_topic | default('') }}"
 
+# Outgoing mail, from the one choice in Settings > Mail, resolved by the
+# filter reconcile/roles/keycloak uses too (playbooks/filter_plugins/
+# smtp_resolve.py): {enabled, host, port, user, sender}. Healthchecks sends
+# its alerts through it, to the admin email channel healthchecks-seed.py
+# keeps, and Beszel its own mail. The credential is smtp_password.
+infrastructure_smtp: >-
+  {{ cfg_smtp_provider | default('') | catena_smtp_resolve(
+       host=cfg_smtp_host | default(''),
+       port=cfg_smtp_port | default(''),
+       user=cfg_smtp_user | default(''),
+       sender=cfg_smtp_sender | default(''),
+       fallback_sender=admin_email) }}
+
 # --- Beszel (hub + agent resource monitor) ------------------------------
-# Two managed compose stacks:
+# The hub and the agent, each a swarm stack:
 #
 #   beszel-hub   -- web UI + SQLite history store. Public surface at
-#                   hub.<zone>, admin-gated by oauth2-proxy (vps.auth.mode=
-#                   admin-only). dashboard-sync synthesises the Traefik
-#                   route + Keycloak redirect URI from the compose labels,
-#                   so beszel.yml MUST run before dashboard_sync.yml.
+#                   hub.<zone> (beszel_hostname, playbooks/group_vars/all),
+#                   behind its own admin-only oauth2-proxy: the `beszel`
+#                   entry of reconcile/roles/oauth2_proxy oauth2_proxy_apps.
 #   beszel-agent -- collects per-container + per-host CPU/memory/network/
 #                   disk/temperature/load over docker.sock. No public
 #                   surface; reaches the hub on the catena-network alias.
@@ -190,13 +202,11 @@ beszel_agent_compose_name: "beszel-agent"
 # network_mode: host (canonical upstream shape for host + docker metrics)
 # so it reaches the hub at 127.0.0.1:{{ beszel_hub_host_localhost_port }}.
 beszel_agent_port: 45876
-beszel_subdomain: "{{ cfg_beszel_subdomain | default('hub', true) }}"
 
 # Label on the hub's OIDC sign-in button. Client-facing copy, so it names the
 # product rather than the software behind it -- "Keycloak" is a word the client
 # has no reason to know.
 beszel_oidc_display_name: "Catena"
-beszel_hostname: "{{ beszel_subdomain }}.{{ cloudflare_zone }}"
 
 # --- Beszel -> Healthchecks alert shim ----------------------------------
 # Tiny stdlib-Python sidecar on catena-network. Receives Beszel's

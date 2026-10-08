@@ -15,7 +15,8 @@ The split is what this pins:
   brute-force protected.
 
   SEEDED ONCE -- preferences about how this client runs their own tenant,
-  marker-gated exactly like the smtpServer block.
+  rendered only into the realm seed (realm_seed), which realm_bootstrap.yml
+  imports while a bootstrap marker is missing.
 
 A key moving between the two groups should be a decision someone made, not a
 line that drifted, so it fails here.
@@ -67,7 +68,7 @@ SEEDED_ONCE = (
 # would leave a realm without the tier model the access matrix reads.
 STRUCTURE = ("groups", "clientScopes", "defaultDefaultClientScopes")
 
-_GUARD_OPEN = re.compile(r"\{%\s*if\s+settings_render\s*\|\s*default\(true\)\s*%\}")
+_GUARD_OPEN = re.compile(r"\{%\s*if\s+realm_seed\s*\|\s*bool\s*%\}")
 _GUARD_CLOSE = re.compile(r"\{%\s*endif\s*%\}")
 
 
@@ -135,9 +136,9 @@ def test_the_marker_is_probed_and_written():
     body = _BOOTSTRAP.read_text()
     marker = "/var/lib/catena/keycloak-realm-settings-bootstrapped"
     assert body.count(marker) >= 2, (
-        "the settings marker needs both touchpoints: probed before the render "
-        "and written after a successful first import"
+        "the settings marker needs both touchpoints: probed before the seed "
+        "and written after a successful seed import"
     )
-    assert "settings_render" in body, (
-        "realm_bootstrap.yml must pass settings_render into the template"
+    assert "realm_seed: true" in body, (
+        "realm_bootstrap.yml must render the seed with realm_seed true"
     )

@@ -5,37 +5,43 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
 ## Steps
 
 1. Create the `keycloak` role + database in `catena-postgres`
-   (auxiliary task file: `provision_db.yml`).
-2. Deploy the Keycloak compose project via the Portainer API.
-3. Bootstrap the `catena` realm:
-   - Phase Two extensions (theme, password policy, account console
-     v3, recovery codes).
-   - Group seeding -- four-tier model: `admin`, `staff`, `client`,
-     `visitor` (departments are subgroups of `/staff`). A one-time
-     `migrate_groups.yml` moves members off the legacy
-     `administrators`/`client-staff` groups on pre-rename tenants.
-   - OIDC clients used by oauth2_proxy and direct-OIDC apps
-     (Nextcloud, Rocket.Chat) -- created if missing, patched on
-     drift.
-4. Wait for `/health/ready` before returning so downstream roles
-   (oauth2_proxy) don't race against startup.
+   (`provision_db.yml`).
+2. Deploy the Keycloak compose as a swarm stack (`deploy.yml`) and wait
+   for `/health/ready` (`validate.yml`), so the realm import and the
+   downstream roles (oauth2_proxy) do not race its startup.
+3. Bootstrap the `vps` realm (`realm_bootstrap.yml`) with
+   keycloak-config-cli:
+   - `realm-vps.yaml.j2` plus the service-account clients render into
+     `/etc/catena/keycloak/realms` (parent dir 0700) and import on every
+     converge: the four-tier groups (`admin`, `staff`, `client`,
+     `visitor`), the security posture, MFA enforcement and the realm's
+     mail settings, all from the on-box store.
+   - The realm admin's password and the realm's tunable settings are a
+     seed: rendered into `/etc/catena/keycloak/seed`, imported once while
+     a bootstrap marker under `/var/lib/catena` is missing, then deleted.
+   - Other roles render their own OIDC client next to the realm file
+     and include `realm_bootstrap.yml` again.
+4. Move members off the legacy `administrators`/`client-staff` groups,
+   once (`migrate_groups.yml`).
+5. Export the live realm to backup-staging on every converge
+   (`realm_export.yml`).
 
 ## Inputs
 
-- `keycloak_admin_password` (KC_BOOTSTRAP_ADMIN_PASSWORD)
-- `keycloak_db_password` -- written into the catena-postgres
-  user.
-- `keycloak_realm_name` -- defaults to `catena`.
-- `keycloak_oidc_clients` -- list of {client_id, redirect_uris,
-  groups_claim} to seed.
+- `admin_email`, `admin_password` -- the master-realm bootstrap admin
+  and the seed of the realm's copy of that account.
+- `keycloak_db_password` -- written into the catena-postgres user.
+- `cfg_smtp_provider`, `cfg_smtp_host`, `cfg_smtp_port`, `cfg_smtp_user`,
+  `cfg_smtp_sender` and `smtp_password` -- Settings > Mail, resolved by the
+  `catena_smtp_resolve` filter (`defaults/main.yml`).
+- `cfg_identity_enforce_mfa` -- Settings > Sign-in requirements.
 
 ## Idempotency
 
 - DB provision uses CREATE-IF-NOT-EXISTS; password rotation via
   ALTER ROLE.
-- Realm + clients managed by `keycloak-config-cli` against a JSON
-  bundle -- drift-tolerant, no destructive change without explicit
-  `keycloak_config_destroy=true`.
+- The realm import is a merge with `IMPORT_MANAGED_*=NO_DELETE`: it
+  creates and updates what the files declare and deletes nothing.
 
 ## Related
 

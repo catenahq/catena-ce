@@ -4,10 +4,10 @@
 # realm reconciles delta only (groups/users/clients/protocolMappers
 # merged by identifier). Safe to re-apply on every converge.
 #
-# Per-app OIDC clients are added to this realm AFTER bootstrap by
-# dashboard-sync (plan step 5) hitting Keycloak Admin REST. Static
-# clients owned by infrastructure (oauth2-proxy in plan step 4)
-# extend this file as additional `clients:` entries.
+# Rendered twice by realm_bootstrap.yml: with realm_seed false into the
+# persistent realm dir, imported on every converge, and with realm_seed
+# true into a seed file imported once and then deleted. The OIDC clients
+# live in their own realm-*.yaml.j2 files beside this one.
 
 realm: {{ keycloak_realm }}
 enabled: true
@@ -55,22 +55,15 @@ requiredActions:
     defaultAction: {{ keycloak_enforce_mfa | bool | lower }}
     priority: 10
 
-{% if settings_render | default(true) %}
-# ─── FIRST IMPORT ONLY: this client's own preferences ────────────────────
+{% if realm_seed | bool %}
+# ─── SEED ONLY: this client's own preferences ────────────────────────────
 #
-# Marker-gated exactly like the smtpServer block below
-# (/var/lib/catena/keycloak-realm-settings-bootstrapped, see
-# realm_bootstrap.yml). These are seeded once and then owned by whoever
-# administers the realm: keycloak-config-cli's MERGE semantics leave out what
-# the file does not declare, so a later converge stops asserting them and an
-# edit made in the Keycloak admin UI survives.
-#
-# Rendering them every converge is what this replaces. An admin who turned
-# "Verify email" off, widened the lockout window for a shared-terminal
-# scenario, added a second default group or switched the realm to French found
-# it silently undone the next time anyone converged.
-#
-# rm the marker to re-seed these from the template.
+# Rendered only into the seed file realm_bootstrap.yml imports once, while a
+# bootstrap marker is missing. These are then owned by whoever administers the
+# realm: keycloak-config-cli's MERGE semantics leave out what the file does not
+# declare, so the persistent file never asserts them and an edit made in the
+# Keycloak admin UI ("Verify email" off, a wider lockout window, French as the
+# default locale) survives every converge.
 
 # Login flow. resetPasswordAllowed=true: standard "forgot password" flow
 # available on the login page.
@@ -102,9 +95,8 @@ groups:
     path: /admin
   - name: staff
     path: /staff
-    # Departments are subgroups of staff. Operators create real ones
-    # via the Keycloak admin UI; keycloak-config-cli MERGE preserves
-    # any pre-existing subgroups (never set keycloak_config_destroy).
+    # Departments are subgroups of staff, created in the Keycloak admin
+    # UI or the People panel; the NO_DELETE import keeps them.
     # Examples (commented -- add your own or uncomment):
     # subGroups:
     #   - name: sales
@@ -123,10 +115,10 @@ groups:
   - name: visitor
     path: /visitor
 
-{% if settings_render | default(true) %}
-# First import only, with the rest of the tunables above: which group a new
-# account lands in is this client's policy, and an admin who adds a second
-# default group means it.
+{% if realm_seed | bool %}
+# Seed only, with the rest of the tunables above: which group a new account
+# lands in is this client's policy, and an admin who adds a second default
+# group means it.
 defaultGroups:
   # New / self-service accounts land in `client` (lowest authenticated
   # tier). `staff` and `admin` are explicit-only promotions by an
@@ -170,16 +162,15 @@ defaultDefaultClientScopes:
 # membership reaches every app from day one -- no need to also list
 # staff/client.
 #
-# KC_BOOTSTRAP_ADMIN_* on the server container creates the operator's
+# KC_BOOTSTRAP_ADMIN_* on the server container creates the admin's
 # account in the MASTER realm and NOWHERE ELSE. Keycloak users are
-# per-realm, so this entry is a SECOND account that happens to share
-# the email -- and it used to be imported with no credentials block at
-# all. The same email and password opened the master realm and was
-# refused here, with nothing on the login page to say why.
+# per-realm, so this entry is a SECOND account that shares the email.
+# Without a password of its own, the same email and password open the
+# master realm and are refused here, with nothing on the login page to
+# say why.
 #
-# Seeded from the same on-box admin_password so there is one password
-# to know, and only on the FIRST import (admin_render_password, gated
-# on a marker like the SMTP block below): rendering it every converge
+# Its password comes from the same on-box admin_password, so there is one
+# password to know, and only in the seed: asserting it on every converge
 # would reset the password back to the store's value each time and
 # silently undo a change made in the Account Console.
 users:
@@ -187,7 +178,7 @@ users:
     email: "{{ admin_email }}"
     enabled: true
     emailVerified: true
-{% if admin_render_password | default(true) %}
+{% if realm_seed | bool %}
     credentials:
       - type: password
         value: "{{ admin_password }}"
@@ -198,18 +189,17 @@ users:
     realmRoles:
       - default-roles-{{ keycloak_realm }}
 
-{% if smtp_enabled and (smtp_render_password | default(true)) %}
-# Realm-level SMTP config. Auto-resolved from .env via the role's
-# autofill (Resend / Brevo / raw SMTP_HOST). Drives password reset,
-# invitations, MFA enrollment, and the verify-email send used by
+# Realm-level SMTP config, from the outgoing mail chosen in the panel's
+# Settings > Mail (resolved in ../defaults/main.yml). Drives password
+# reset, invitations, MFA enrolment, and the verify-email send used by
 # validate.yml's Vantage 1b smoke test.
 #
-# Rendered ONLY on the FIRST realm import (gated by the
-# /var/lib/catena/keycloak-realm-smtp-bootstrapped marker, see
-# realm_bootstrap.yml). Subsequent imports omit this block; under
-# keycloak-config-cli's MERGE semantics the realm's existing
-# smtpServer config (which the client may have edited via Keycloak
-# admin UI / Portainer env) is preserved untouched.
+# Asserted on EVERY converge, like the MFA action above: Settings > Mail
+# is where this is decided, so a saved change (a rotated key, another
+# provider) reaches the realm on the converge the save starts, and a change
+# made in the Keycloak admin UI's Email tab is reverted by the next one.
+# Mail turned off renders an empty map, which clears the realm's settings.
+{% if smtp_enabled | bool %}
 smtpServer:
   host: "{{ smtp_host }}"
   port: "{{ smtp_port }}"
@@ -217,10 +207,12 @@ smtpServer:
   fromDisplayName: "{{ keycloak_realm_display_name }}"
   auth: "true"
   user: "{{ smtp_user }}"
-  password: "{{ smtp_password }}"
+  password: {{ smtp_password | default('') | to_json }}
   starttls: "{{ smtp_use_starttls | string | lower }}"
   ssl: "false"
   envelopeFrom: "{{ smtp_from }}"
+{% else %}
+smtpServer: {}
 {% endif %}
 
 # Phase Two extension features that ship enabled in this realm:
@@ -230,9 +222,9 @@ smtpServer:
 #   creates an organization, no extra resource cost).
 # - Events with webhook delivery (audit log surfaced to a sink the
 #   operator picks; we don't wire one by default).
-{% if settings_render | default(true) %}
-# First import only, with the rest of the tunables. A realm switched to French,
-# or given a third locale, is a choice about who uses it.
+{% if realm_seed | bool %}
+# Seed only, with the rest of the tunables. A realm switched to French, or
+# given a third locale, is a choice about who uses it.
 attributes:
   # Surface the realm as multi-language ready -- Phase Two themes
   # use this. EN + FR matches the project's bilingual stance.

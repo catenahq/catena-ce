@@ -1,7 +1,7 @@
 """Seed and reconcile self-hosted Healthchecks: the operator superuser, the
-project and its API keys, the ntfy notification channel, and the two backup
-checks. Re-running reconciles drift and leaves client-added checks and
-channels alone."""
+project and its API keys, the notification channels (the admin's email and
+ntfy), and the two backup checks. Re-running reconciles drift and leaves
+client-added checks and channels alone."""
 # Managed by Ansible (reconcile/roles/infrastructure). Do not edit by hand.
 #
 # Runs inside the Healthchecks container via `docker exec -i ... python
@@ -16,15 +16,18 @@ channels alone."""
 #      auth_user table, and the oauth2-proxy hop (X-Forwarded-Email) needs a
 #      User row to map onto.
 #   1. Project.api_key_readonly, ping_key and name, pinned to the on-box store.
-#   2. Catena's ntfy Channel, when NTFY_SERVER and NTFY_TOPIC are both set.
-#      It carries a fixed `code`, so a converge updates or removes that one
-#      row and never a channel the client added.
-#   3. The two backup checks, bound to Catena's channel with .add(), which
-#      keeps the client's own bindings.
+#   2. Catena's two channels, through _ensure_channel: the admin's email while
+#      outgoing mail is on, ntfy while NTFY_SERVER and NTFY_TOPIC are both
+#      set. Each carries a fixed `code`, so a converge updates or removes that
+#      one row and never a channel the client added. A channel is attached to
+#      every check when it is created, and never again, so a client who
+#      detaches it from a check keeps that choice.
+#   3. The two backup checks. A newly created one gets every project channel,
+#      as Healthchecks gives any new check.
 #
 # Gatus creates its per-endpoint checks (gatus-<slug>) on first failure via
 # `?create=1`, and Healthchecks's `Check.assign_all_channels()` attaches every
-# project channel to the new check, Catena's ntfy channel included.
+# project channel to the new check, Catena's channels included.
 
 import json
 import os
@@ -42,7 +45,9 @@ _hc_api_key_readwrite = os.environ.get("CATENA_HC_API_KEY_READWRITE", "")
 _hc_ping_key = os.environ["CATENA_HC_PING_KEY"]
 _hc_ntfy_topic = os.environ["CATENA_NTFY_TOPIC"]
 _hc_ntfy_server = os.environ["CATENA_NTFY_SERVER"]
+_hc_mail_enabled = os.environ["CATENA_MAIL_ENABLED"] == "true"
 _NTFY_CHANNEL_CODE = uuid.uuid5(uuid.NAMESPACE_URL, "catena:healthchecks-seed:ntfy")
+_EMAIL_CHANNEL_CODE = uuid.uuid5(uuid.NAMESPACE_URL, "catena:healthchecks-seed:admin-email")
 
 User = get_user_model()
 
@@ -89,7 +94,7 @@ if _profile.theme is None:
     _profile.theme = "system"
     _profile.save(update_fields=["theme"])
 
-# The operator's Project owns the seeded checks and channel.
+# The operator's Project owns the seeded checks and channels.
 # Project.objects.create() skips the signup flow's tutorial check and email
 # channel.
 if not Project.objects.filter(owner=operator).exists():
@@ -113,47 +118,79 @@ if not project.name:
     project.name = _hc_inventory_hostname
 project.save(update_fields=_save_fields)
 
+
+def _ensure_channel(code, kind, value, name):
+    """Keep the one channel this seed owns under `code` in the project:
+    created with `value` and attached to every check, updated in place, or
+    deleted when `value` is None. Returns (channel or None, rows deleted).
+
+    Selecting on the fixed code leaves every channel a client added alone, and
+    an update leaves the channel's check bindings as they are. An email channel
+    is marked verified: Healthchecks sends to an unverified one nothing at all,
+    and the admin's address is the install's own."""
+    if value is None:
+        removed, _ = Channel.objects.filter(project=project, code=code).delete()
+        return None, removed
+    channel, created = Channel.objects.update_or_create(
+        project=project,
+        code=code,
+        defaults={
+            "kind": kind,
+            "value": value,
+            "name": name,
+            "email_verified": kind == "email",
+        },
+    )
+    if created:
+        channel.assign_all_checks()
+    return channel, 0
+
+
+# The admin's email is the default alert channel, through the outgoing mail
+# chosen in Settings > Mail (healthchecks.compose.yml.j2's EMAIL_* settings).
+# Notified on down and on up. With mail turned off nothing could send it, so
+# the channel is removed, and alerts reach only ntfy and the channels a client
+# added in the Healthchecks integrations UI.
+email_channel, _ = _ensure_channel(
+    _EMAIL_CHANNEL_CODE,
+    "email",
+    json.dumps({"value": _hc_email, "up": True, "down": True})
+    if _hc_mail_enabled else None,
+    "Admin email ({})".format(_hc_inventory_hostname),
+)
+
 # The ntfy channel is OPTIONAL, and both halves are required to make one.
 # Neither NTFY_SERVER nor NTFY_TOPIC defaults to a value: a default of
 # https://ntfy.sh would be public and unauthenticated, where the topic is
 # the only access control, so a host nobody configured would push its
-# alerts to a server the operator does not run -- the wrong thing to do by
+# alerts to a server nobody here runs -- the wrong thing to do by
 # default. Requiring both also avoids a channel with an empty topic when
 # only the server is set: a route that resolves and delivers nowhere, yet
 # reads in the UI as configured.
 #
 # Both blank is a supported end state, not a half-finished install: the checks
-# still record every ping and the client attaches their own channel through
-# the Healthchecks integrations UI. Clearing the values on a converge removes
-# the channel an earlier converge seeded, rather than leaving a stale one
-# nobody can see is dead. Both writes select on the fixed code, so the
-# client's own ntfy channels stay as they are.
+# still record every ping and reach the admin's email, and the client attaches
+# their own channel through the Healthchecks integrations UI. Clearing the
+# values on a converge removes the channel an earlier converge seeded, rather
+# than leaving a stale one nobody can see is dead.
 if _hc_ntfy_topic and _hc_ntfy_server:
-    ntfy_value = json.dumps({
-        "topic": _hc_ntfy_topic,
-        "url": _hc_ntfy_server,
-        "priority": 3,
-        "priority_up": 3,
-    })
-    channel, _ = Channel.objects.update_or_create(
-        project=project,
-        code=_NTFY_CHANNEL_CODE,
-        defaults={
-            "kind": "ntfy",
-            "value": ntfy_value,
-            "name": "ntfy ({})".format(_hc_inventory_hostname),
-        },
+    channel, _ = _ensure_channel(
+        _NTFY_CHANNEL_CODE,
+        "ntfy",
+        json.dumps({
+            "topic": _hc_ntfy_topic,
+            "url": _hc_ntfy_server,
+            "priority": 3,
+            "priority_up": 3,
+        }),
+        "ntfy ({})".format(_hc_inventory_hostname),
     )
 else:
-    channel = None
-    removed, _ = Channel.objects.filter(
-        project=project, code=_NTFY_CHANNEL_CODE,
-    ).delete()
+    channel, removed = _ensure_channel(_NTFY_CHANNEL_CODE, "ntfy", None, "")
     print(
-        "healthchecks-seed: no notification channel configured "
-        "(NTFY_SERVER and NTFY_TOPIC must both be set); checks will record "
-        "pings but nothing will be pushed. Removed {} stale ntfy channel(s)."
-        .format(removed)
+        "healthchecks-seed: no ntfy channel configured (NTFY_SERVER and "
+        "NTFY_TOPIC must both be set); nothing is pushed to ntfy. Removed {} "
+        "stale ntfy channel(s).".format(removed)
     )
 
 # Two backup checks:
@@ -167,7 +204,7 @@ else:
 #     structural failures (pg_dumpall abort, restic config error). grace=2h
 #     pages as soon as the host stops attempting backups (timer dead, host
 #     down) or the wrapper hits an unrecoverable error.
-backup_succeeded_check, _ = Check.objects.update_or_create(
+backup_succeeded_check, created = Check.objects.update_or_create(
     project=project,
     slug="catena-backup-succeeded",
     defaults={
@@ -182,10 +219,10 @@ backup_succeeded_check, _ = Check.objects.update_or_create(
         "grace": timedelta(hours=26),
     },
 )
-if channel is not None:
-    backup_succeeded_check.channel_set.add(channel)
+if created:
+    backup_succeeded_check.assign_all_channels()
 
-backup_attempted_check, _ = Check.objects.update_or_create(
+backup_attempted_check, created = Check.objects.update_or_create(
     project=project,
     slug="catena-backup-attempted",
     defaults={
@@ -201,14 +238,15 @@ backup_attempted_check, _ = Check.objects.update_or_create(
         "grace": timedelta(hours=2),
     },
 )
-if channel is not None:
-    backup_attempted_check.channel_set.add(channel)
+if created:
+    backup_attempted_check.assign_all_channels()
 
 # A check nobody has pinged stays inert in Healthchecks: its dead-man clock
 # starts at the first ping from run-backup.sh.
 print(
-    "OK channel={} succeeded={} attempted={}".format(
+    "OK channel={} email={} succeeded={} attempted={}".format(
         channel.code if channel is not None else "none",
+        email_channel.code if email_channel is not None else "none",
         backup_succeeded_check.code,
         backup_attempted_check.code,
     )

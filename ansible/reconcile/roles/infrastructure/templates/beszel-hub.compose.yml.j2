@@ -1,11 +1,12 @@
 ---
 # {{ ansible_managed }}
 # Beszel hub -- web UI + SQLite history store for the resource monitor.
-# Public surface at {{ beszel_hostname }}, admin-gated by oauth2-proxy
-# (vps.auth.mode=admin-only; dashboard-sync synthesises the Traefik route
-# + Keycloak redirect URI from the labels below). Also published on the
-# host loopback so beszel-seed.py and the network_mode:host agent can
-# reach the PocketBase API + WebSocket without leaving the box.
+# Public surface at {{ beszel_hostname }}, behind its own admin-only
+# oauth2-proxy: the `beszel` entry of reconcile/roles/oauth2_proxy
+# oauth2_proxy_apps, which writes the route and the Keycloak redirect URI.
+# Also published on the host loopback so beszel-seed.py and the
+# network_mode:host agent can reach the PocketBase API + WebSocket without
+# leaving the box.
 #
 # USER_EMAIL/USER_PASSWORD bootstrap the hub on first boot: Beszel's
 # initial-settings migration creates a PocketBase superuser AND a regular
@@ -42,11 +43,11 @@ services:
       # remove.
       #
       # The blast radius is bounded by the proxy, not by this flag: the hub is
-      # published on the host loopback only, and its public surface carries
-      # vps.auth.mode=admin-only / vps.auth.groups=admin, so reaching the
-      # login form at all requires having authenticated to Keycloak AND being
-      # in the admin group. Auto-creating a monitoring account for someone who
-      # has already cleared that grants nothing new.
+      # published on the host loopback only, and its public host is routed
+      # through the admin-only oauth2-proxy (reconcile/roles/oauth2_proxy), so
+      # reaching the login form at all requires having authenticated to
+      # Keycloak AND being in the admin group. Auto-creating a monitoring
+      # account for someone who has already cleared that grants nothing new.
       USER_CREATION: "true"
       # DISABLE_PASSWORD_AUTH is deliberately NOT set. See
       # scripts/beszel-seed.py: Beszel is base-plane infrastructure, and a
@@ -73,9 +74,9 @@ services:
     labels:
       # FALSE on purpose -- see the note in gatus.compose.yml.j2.
       - traefik.enable=false
-      # Admin-only auth posture (vps.auth.* convention). dashboard-sync
-      # renders the Traefik route to this app's oauth2-proxy instance and
-      # unions the /oauth2/callback redirect URI into the shared Keycloak client.
+      # The posture its oauth2-proxy enforces, in the vps.auth.* vocabulary
+      # client apps use. The gate itself is the `beszel` entry of
+      # reconcile/roles/oauth2_proxy oauth2_proxy_apps.
       - vps.auth.mode=admin-only
       - vps.auth.groups=admin
 

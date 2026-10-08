@@ -7,8 +7,9 @@
 # Auto-provision: healthchecks_ping_key is a random value minted
 # at install time. The backup script pings
 # http://healthchecks:8000/ping/<ping_key>/<slug> and Healthchecks
-# creates the check on first ping. Zero manual UI step for the baseline
-# backup heartbeat; operator only has to log in once to wire up ntfy.
+# creates the check on first ping. Alerts reach the admin email through the
+# outgoing mail chosen in Settings > Mail, and ntfy when the Alerts section
+# sets it; both channels are seeded below, with no manual UI step.
 
 # Preflight -- fail loudly if the on-box store is missing any of the keys
 # the compose + seed tasks need. They are all internal-minted, so a gap
@@ -73,12 +74,12 @@
     svc_readiness_skip_reason: >-
       Verified by the aggregate post-role probe in main.yml.
 
-# ─── Bootstrap channel + check via Django shell ──────────────────────
-# scripts/healthchecks-seed.py seeds Catena's ntfy Channel when one is
-# configured and the "catena-backup-succeeded" + "catena-backup-attempted"
-# Checks, and binds the channel to both. Re-running reconciles and leaves
-# client-added channels alone. Retries while the swarm task, Django and
-# migrations come up.
+# ─── Bootstrap channels + checks via Django shell ────────────────────
+# scripts/healthchecks-seed.py seeds Catena's channels -- the admin email
+# while outgoing mail is on, ntfy while both ntfy values are set -- and the
+# "catena-backup-succeeded" + "catena-backup-attempted" Checks. Re-running
+# reconciles and leaves client-added channels alone. Retries while the swarm
+# task, Django and migrations come up.
 #
 # Budget: 60 × 5s = 300s (5 min). Covers cold image pulls without
 # a mirror plus swarm placement + container start. Diagnostic dump
@@ -168,7 +169,7 @@
           status in the Portainer UI.
   when: (_healthchecks_container_name.stdout | default('') | trim) | length == 0
 
-# The Django seed lives at vps-scripts/healthchecks-seed.py -- plain
+# The Django seed lives at scripts/healthchecks-seed.py -- plain
 # Python, no Jinja markers. Per-host values arrive via `docker exec -e
 # KEY=VALUE` flags constructed from Ansible vars; the script reads them
 # from os.environ and KeyErrors loudly on any wiring break.
@@ -218,6 +219,7 @@
       -e CATENA_HC_PING_KEY={{ healthchecks_ping_key | quote }} \
       -e CATENA_NTFY_TOPIC={{ ntfy_topic | quote }} \
       -e CATENA_NTFY_SERVER={{ ntfy_server | quote }} \
+      -e CATENA_MAIL_ENABLED={{ infrastructure_smtp.enabled | bool | lower }} \
       "$ct" python manage.py shell < /root/catena-healthchecks-seed.py
   args:
     executable: /bin/bash
@@ -228,17 +230,20 @@
   until: _healthchecks_seed.rc == 0
   no_log: true
 
-# Say it out loud on the converge. The seed script prints the same thing, but
-# that task runs no_log (it carries the superuser password), so the operator
-# would never see it. A host whose alerts go nowhere must not be a host that
-# looks exactly like a healthy one -- checks still record every ping, but
-# nothing is pushed anywhere until a channel exists.
+# Say it out loud on the converge. The seed script prints the ntfy half of
+# it, but that task runs no_log (it carries the superuser password), so nobody
+# would see it. A host whose alerts go nowhere must not be a host that looks exactly
+# like a healthy one -- checks still record every ping, but nothing is sent
+# anywhere until a channel exists.
 - name: "Healthchecks: warn when no notification channel is configured"
   ansible.builtin.debug:
     msg: >-
-      No alert delivery configured on this host: NTFY_SERVER and NTFY_TOPIC
-      must BOTH be set for the converge to seed a channel. Healthchecks will
-      record pings and mark checks down, but nothing will be pushed. Point
-      them at your own ntfy, or have the client attach a channel through the
+      No alert delivery configured on this host: outgoing mail is off and
+      NTFY_SERVER and NTFY_TOPIC are not both set, so the converge seeds no
+      channel. Healthchecks will record pings and mark checks down, but
+      nothing will be sent. Choose a mail service in Settings > Mail, set
+      both ntfy values in Settings > Alerts, or attach a channel through the
       Healthchecks integrations UI.
-  when: not (ntfy_server | default('') | trim) or not (ntfy_topic | default('') | trim)
+  when:
+    - not (infrastructure_smtp.enabled | bool)
+    - not (ntfy_server | default('') | trim) or not (ntfy_topic | default('') | trim)

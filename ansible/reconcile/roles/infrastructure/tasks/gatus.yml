@@ -1,9 +1,10 @@
 ---
-# Deploy Gatus as a Portainer compose stack -> monitor.<zone>.
+# Deploy Gatus as a swarm stack -> monitor.<zone>.
 #
 # Config layout on the host:
 #   {{ gatus_host_config_dir }}/00-base.yaml          (Ansible-managed)
-#   {{ gatus_host_config_dir }}/50-catena-apps.yaml  (gatus-sync, per-timer)
+#   {{ gatus_host_config_dir }}/40-infra.yaml         (catena-gatus-sync, from the infra spec below)
+#   {{ gatus_host_config_dir }}/50-catena-apps.yaml  (catena-gatus-sync, per-timer)
 #   {{ gatus_host_config_dir }}/99-<anything>.yaml    (operator-added, untouched)
 #
 # Everything in /config is bind-mounted read-only into the container. Gatus
@@ -18,7 +19,7 @@
     group: root
     mode: "0755"
 
-- name: "Gatus: render 00-base.yaml (alerting + UI; no endpoints -- see 40-infra.yaml)"
+- name: "Gatus: render 00-base.yaml (alerting, UI and the self-check endpoint)"
   ansible.builtin.template:
     src: gatus-base.yaml.j2
     dest: "{{ gatus_host_config_dir }}/00-base.yaml"

@@ -1,0 +1,186 @@
+---
+# One keycloak-config-cli import of every realm YAML in one host dir, for
+# realm_bootstrap.yml. Parameters:
+#
+#   kc_import_dir       host dir mounted at /config (read-only)
+#   kc_import_rendered  reports the import as changed (a file it reads was
+#                       rendered with new content)
+#
+# keycloak-config-cli runs as a one-shot Docker container against the
+# bind-mounted dir. We use `docker run --rm` directly rather than a swarm
+# stack because:
+#   1. It must run to completion + exit, not stay alive (a stack deploy
+#      expects long-running services).
+#   2. We need stdout/stderr inline in the Ansible run for diagnostics.
+#   3. The image is internal to the converge (not part of the
+#      customer-facing suite).
+#
+# Network: catena-network so we can reach keycloak-server:8080 by
+# alias. Pull policy is the default (use cached image if present;
+# fall back to registry pull on first run).
+
+- name: "Keycloak realm: keycloak-config-cli import-update-merge ({{ kc_import_dir }})"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - run
+      - --rm
+      - --network
+      - catena-network
+      - -e
+      - "KEYCLOAK_URL=http://{{ keycloak_server_alias }}:{{ keycloak_internal_port }}"
+      - -e
+      - "KEYCLOAK_USER={{ admin_email }}"
+      # KEYCLOAK_PASSWORD is forwarded from the task environment (set
+      # below) rather than spelled out as `KEY=value` on the argv. Argv
+      # is visible in `docker ps`, the host process tree, AND any Ansible
+      # log sink that captures the command line. Forwarding from env
+      # keeps the cleartext out of all three surfaces.
+      - -e
+      - KEYCLOAK_PASSWORD
+      - -e
+      - "KEYCLOAK_AVAILABILITYCHECK_ENABLED=true"
+      # Short per-attempt wait: kc-config-cli resolves keycloak-server via
+      # the JVM, which negative-DNS-caches a first-lookup miss for the life
+      # of the container -- so a long in-container wait never recovers if
+      # the catena-network alias is not yet registered at startup (the
+      # network-attachment race after an anchor-rewind reboot / redeploy).
+      # We instead retry the WHOLE run at the Ansible level below: each
+      # retry is a fresh container with a fresh resolver, so the lookup
+      # succeeds once the alias is up. Keep this short so a doomed attempt
+      # fails fast into the next retry.
+      - -e
+      - "KEYCLOAK_AVAILABILITYCHECK_TIMEOUT=25s"
+      - -e
+      - "IMPORT_FILES_LOCATIONS=/config/*.yaml"
+      - -e
+      - "IMPORT_VAR_SUBSTITUTION_ENABLED=false"
+      # Off: import.cache.enabled skips a realm whose stored import checksum
+      # equals the file's, which would keep an edit made in the realm's own
+      # admin UI (its Email tab included) over a file that did not change.
+      # Every import applies its files whole.
+      - -e
+      - "IMPORT_CACHE_ENABLED=false"
+      # NO_DELETE for managed entities -- per-client YAMLs (nextcloud,
+      # oauth2-proxy, roundcube, etc.) each contain only THEIR one
+      # client. With the default FULL behavior, each import
+      # silently DELETES every other client because they're not in
+      # the file's `clients:` array. Result: only the last-imported
+      # client survives and the rest are gone -- the apps that depend
+      # on them then fail with "Client not found" at the OIDC auth
+      # endpoint.
+      #
+      # NO_DELETE flips merge semantics from "the file is the
+      # complete state" to "the file is a delta to apply". Since our
+      # per-client files are in fact deltas (one client each), this
+      # is the correct mode. The base realm (vps.yaml) does not
+      # declare any clients, so it is unaffected.
+      #
+      # Same reasoning applies to groups / users / etc. -- per-app
+      # files only declare their own group memberships and we want
+      # them merged, not used as a complete-state replacement.
+      #
+      # COMPLETENESS IS THE WHOLE PROPERTY, AND IT IS NOT SELF-CHECKING.
+      # keycloak-config-cli defaults most managed-entity types it supports to
+      # FULL, so a type this list does not name is a type whose entities get
+      # DELETED when a per-app YAML does not declare them. The list below is
+      # what is set for the keycloak-config-cli release that
+      # keycloak_config_cli_image_tag pins (../defaults/main.yml). It has NOT
+      # been diffed against that release's own `import.managed.*` property
+      # list, and until it has, "no client data is deleted here" rests on the
+      # list happening to be complete rather than on anything checking.
+      #
+      # When bumping the image tag: diff this block against the new release's
+      # documented `import.managed.*` properties and add any type that
+      # appeared. A missing one fails silently and looks like drift.
+      - -e
+      - "IMPORT_MANAGED_CLIENT=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_GROUP=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_REQUIRED_ACTION=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_CLIENT_SCOPE=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_SCOPE_MAPPING=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_COMPONENT=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_SUB_COMPONENT=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_AUTHENTICATION_FLOW=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_IDENTITY_PROVIDER=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_IDENTITY_PROVIDER_MAPPER=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_ROLE=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_CLIENT_AUTHORIZATION_RESOURCES=NO_DELETE"
+      - -v
+      - "{{ kc_import_dir }}:/config:ro"
+      - "{{ keycloak_config_cli_image }}"
+  environment:
+    KEYCLOAK_PASSWORD: "{{ admin_password }}"
+  register: _keycloak_realm_import
+  # Tool reports its own changed/no-op state on stdout. Treat as
+  # `changed_when` true if a file it imports was re-rendered OR the
+  # tool reports it created/updated entities. False positives here
+  # are cheap (idempotent re-import).
+  changed_when:
+    - _keycloak_realm_import.rc == 0
+    - >-
+      kc_import_rendered | bool
+      or 'Updated realm' in (_keycloak_realm_import.stdout | default(''))
+      or 'Created realm' in (_keycloak_realm_import.stdout | default(''))
+  # `failed_when: false` so the play doesn't abort BEFORE we get a
+  # chance to surface stdout/stderr through the debug + fail pair
+  # below. no_log: true on THIS task suppresses Ansible's default
+  # task-result log (which echoes the `environment:` block and would
+  # leak admin_password); the registered variable still carries
+  # the stdout/stderr that the debug task explicitly emits next.
+  failed_when: false
+  # Retry the whole run on any failure: each attempt is a FRESH container
+  # with a fresh DNS resolver, so a keycloak-server lookup that missed on
+  # the first attempt (alias not yet registered after a rewind-reboot /
+  # redeploy, then JVM-negative-cached for that container's life) resolves
+  # on a later attempt once the alias is up -- and a transient catena-
+  # network attach error is ridden out too. `until` retries while rc != 0;
+  # on final exhaustion failed_when=false keeps the play alive so the debug
+  # + abort pair below still surface the real error. The import is
+  # idempotent (import-update-merge, NO_DELETE), so re-running is safe.
+  # A single attempt can die with `UnknownHostException: keycloak-server`
+  # for the full availability wait.
+  retries: 6
+  delay: 8
+  until: _keycloak_realm_import.rc == 0
+  no_log: true
+
+# Surface stdout + stderr from the kc-config-cli run. Restricted to
+# the two fields that are SAFE to log -- the env block (which holds
+# admin_password) lives on the task definition above, not in
+# _keycloak_realm_import.* fields. Without this, no_log: true on the
+# parent task blackholes the actual error message, across the dozens of
+# realm YAMLs that just rendered.
+- name: "Keycloak realm: surface kc-config-cli output on import failure"
+  ansible.builtin.debug:
+    msg:
+      - "kc-config-cli rc={{ _keycloak_realm_import.rc | default('?') }}"
+      - "stdout (last 60 lines):"
+      - "{{ (_keycloak_realm_import.stdout_lines | default([]))[-60:] }}"
+      - "stderr (last 60 lines):"
+      - "{{ (_keycloak_realm_import.stderr_lines | default([]))[-60:] }}"
+  when: (_keycloak_realm_import.rc | default(0)) != 0
+
+- name: "Keycloak realm: abort the play when kc-config-cli import failed"
+  ansible.builtin.fail:
+    msg: >-
+      keycloak-config-cli import-update-merge failed with
+      rc={{ _keycloak_realm_import.rc | default('?') }}. See the
+      preceding debug task for stdout/stderr; common causes are an
+      invalid YAML in {{ kc_import_dir }}/*.yaml, a missing
+      store-derived value (e.g. dashboard_sync_client_secret)
+      that left a Jinja placeholder un-substituted, or a Keycloak
+      Phase Two version drift that the import schema does not yet
+      handle.
+  when: (_keycloak_realm_import.rc | default(0)) != 0

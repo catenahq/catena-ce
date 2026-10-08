@@ -118,6 +118,7 @@ def _sync_env(zone: str, secondaries: list[str], secrets: dict | None = None) ->
         "gatus_compose_name": "gatus",
         "healthchecks_compose_name": "healthchecks",
         "keycloak_compose_name": "keycloak",
+        "beszel_hub_compose_name": "beszel-hub",
         "cloudflare_zone": zone,
         "keycloak_subdomain": "auth",
         "keycloak_realm": "vps",

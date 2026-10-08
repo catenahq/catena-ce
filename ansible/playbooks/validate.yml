@@ -396,7 +396,7 @@
     #
     # Coverage:
     #   - The platform's gated apps (gatus, catena-admin at dash.<zone>,
-    #     healthchecks, portainer) are always probed.
+    #     healthchecks, portainer, beszel) are always probed.
     #   - `validate_extra_gated_hosts` adds ad-hoc gated hostnames.
     #   - Client apps deployed from the catalog get their Traefik routes +
     #     oauth2-proxy gating from dashboard-sync (vps.route.host +
@@ -421,6 +421,7 @@
                 catena_admin_hostname | default(''),
                 healthchecks_hostname | default(''),
                 portainer_admin_hostname | default(''),
+                beszel_hostname | default(''),
               ]
               + (validate_extra_gated_hosts | default([]))
             )

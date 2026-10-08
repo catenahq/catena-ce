@@ -1,7 +1,7 @@
 """healthchecks-seed.py seeds an ntfy channel only when both NTFY_SERVER and
-NTFY_TOPIC are set, says so when it seeds none, never touches a channel the
-client added, and sets a fresh profile's theme once
-(scripts/healthchecks-seed.py says why).
+NTFY_TOPIC are set, says so when it seeds none, attaches it to every check
+when it creates it, never touches a channel the client added, and sets a
+fresh profile's theme once (scripts/healthchecks-seed.py says why).
 
 The real seed script runs here against a stand-in for the Django models it
 touches, so the branches are exercised rather than pattern-matched.
@@ -27,14 +27,19 @@ BASE_ENV = {
     "CATENA_HC_API_KEY_READONLY": "ro-key",
     "CATENA_HC_API_KEY_READWRITE": "rw-key",
     "CATENA_HC_PING_KEY": "ping-key",
+    "CATENA_MAIL_ENABLED": "false",
 }
 
 
 class _Row:
     """One stand-in model instance. Attribute bag with the few behaviours the
-    seed script uses."""
+    seed script uses. `managers` is set per test, so a channel can attach
+    itself to the project's checks and a check to the project's channels, as
+    Healthchecks's Channel.assign_all_checks() and Check.assign_all_channels()
+    do."""
 
     _next_code = 0
+    managers: dict = {}
 
     def __init__(self, **fields):
         type(self)._next_code += 1
@@ -50,13 +55,28 @@ class _Row:
     def save(self, **_kwargs):
         pass
 
+    def assign_all_checks(self):
+        for check in self.managers["check"].rows:
+            if check.project is self.project:
+                check.channel_set.add(self)
+
+    def assign_all_channels(self):
+        self.channel_set.added = [
+            c for c in self.managers["channel"].rows if c.project is self.project]
+
 
 class _ChannelSet:
+    """A check's channel bindings (Healthchecks's Check.channel_set)."""
+
     def __init__(self):
         self.added = []
 
     def add(self, obj):
-        self.added.append(obj)
+        if obj not in self.added:
+            self.added.append(obj)
+
+    def remove(self, obj):
+        self.added.remove(obj)
 
 
 class _QuerySet:
@@ -130,6 +150,7 @@ def _install_fake_django(monkeypatch) -> dict[str, _Manager]:
     a test can inspect what the script did."""
     managers = {name: _Manager() for name in ("user", "project", "channel", "check")}
     managers["profile"] = _ProfileManager()
+    monkeypatch.setattr(_Row, "managers", managers)
 
     def _model(manager):
         return type("Model", (), {"objects": manager})
@@ -184,6 +205,40 @@ def test_a_configured_ntfy_still_seeds_and_binds_a_channel(monkeypatch, capsys):
     assert "channel=none" not in out
 
 
+def test_a_new_ntfy_channel_reaches_checks_that_already_exist(monkeypatch, capsys):
+    """Set after the checks exist, the channel attaches to every check in the
+    project, not only the backup pair: a gatus-* check made before the Alerts
+    save pages through it too."""
+    managers = _install_fake_django(monkeypatch)
+    for key, value in BASE_ENV.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("CATENA_NTFY_SERVER", "")
+    monkeypatch.setenv("CATENA_NTFY_TOPIC", "")
+    exec(compile(SEED.read_text(), str(SEED), "exec"), {"__name__": "__seed__"})
+    project = managers["project"].rows[0]
+    gatus = managers["check"].create(project=project, slug="gatus-auth")
+
+    monkeypatch.setenv("CATENA_NTFY_SERVER", "https://ntfy.internal")
+    monkeypatch.setenv("CATENA_NTFY_TOPIC", "s3cret")
+    exec(compile(SEED.read_text(), str(SEED), "exec"), {"__name__": "__seed__"})
+    ntfy = managers["channel"].rows[0]
+    assert all(ntfy in c.channel_set.added for c in managers["check"].rows)
+    assert ntfy in gatus.channel_set.added
+
+
+def test_a_detached_ntfy_channel_stays_detached(monkeypatch, capsys):
+    """A client who removes Catena's channel from a check keeps that choice:
+    the channel is attached when it is created and never again."""
+    managers, _ = _run_seed(
+        monkeypatch, capsys, server="https://ntfy.internal", topic="s3cret",
+    )
+    ntfy = managers["channel"].rows[0]
+    check = managers["check"].rows[0]
+    check.channel_set.remove(ntfy)
+    exec(compile(SEED.read_text(), str(SEED), "exec"), {"__name__": "__seed__"})
+    assert ntfy not in check.channel_set.added
+
+
 @pytest.mark.parametrize(
     ("server", "topic"),
     [
@@ -200,7 +255,7 @@ def test_an_incomplete_ntfy_config_seeds_no_channel(
         "a half-configured ntfy must not produce a channel: it reads as "
         "configured in the UI and delivers nothing"
     )
-    assert "no notification channel configured" in out
+    assert "no ntfy channel configured" in out
     assert "channel=none" in out
 
 

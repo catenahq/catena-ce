@@ -156,6 +156,9 @@ infrastructure_gatus_hostname: "{{ infrastructure_gatus_subdomain }}.{{ cloudfla
 healthchecks_subdomain: "{{ cfg_healthchecks_subdomain | default('heartbeat', true) }}"
 healthchecks_hostname: "{{ healthchecks_subdomain }}.{{ cloudflare_zone }}"
 
+beszel_subdomain: "{{ cfg_beszel_subdomain | default('hub', true) }}"
+beszel_hostname: "{{ beszel_subdomain }}.{{ cloudflare_zone }}"
+
 # The SSO host (auth.<zone>) is the only subdomain with no oauth2-proxy in
 # front of it (it IS the auth layer). keycloak_hostname / keycloak_subdomain are
 # defined in reconcile/roles/keycloak/defaults, from the store's

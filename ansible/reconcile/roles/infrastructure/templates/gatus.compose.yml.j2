@@ -51,14 +51,14 @@ services:
     # fails with "executable not found" and the container gets marked
     # unhealthy regardless of whether Gatus itself is serving.
     # Gatus self-probes /health via its own endpoint
-    # config (see gatus-base.yaml.j2 "Gatus (self-check)"), which is the
+    # config (see gatus-base.yaml.j2 "Gatus self-check"), which is the
     # authoritative signal -- a second Docker-level check added nothing
     # except a failure mode.
     labels:
       # FALSE on purpose, here and in every infra compose. The service IS
-      # served, but its route is synthesised by dashboard-sync from the
-      # vps.auth.* labels below into Traefik's FILE provider, with the real
-      # hostname, and nothing reads traefik.enable. `true` would buy no routing
+      # served, but its route is a Traefik FILE-provider route with the real
+      # hostname (its oauth2-proxy's, written by reconcile/roles/oauth2_proxy),
+      # and nothing reads traefik.enable. `true` would buy no routing
       # and cost a bogus one: the docker provider would see an enabled container
       # with no rule, apply Traefik's built-in `Host(<container name>)` default,
       # and produce a DOTLESS router like `gatus-app-1-<taskid>`. Every
@@ -66,8 +66,9 @@ services:
       # so Traefik would then ask a public CA for a certificate for a name that
       # cannot have one, on every converge.
       - traefik.enable=false
-      # Auth posture (vps.auth.* convention). Pinned to oauth2_proxy_staff_apps
-      # in defaults/main.yml by the unit test test_infra_compose_auth_labels.
+      # The posture its oauth2-proxy enforces, in the vps.auth.* vocabulary
+      # client apps use. The gate itself is the `gatus` entry of
+      # reconcile/roles/oauth2_proxy oauth2_proxy_apps.
       - vps.auth.mode=private
       - vps.auth.groups=staff
 

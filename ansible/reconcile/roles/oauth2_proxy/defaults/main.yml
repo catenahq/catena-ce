@@ -164,6 +164,17 @@ oauth2_proxy_apps:
     upstream_alias: "catena-portainer"
     upstream_port: 9000
     allowed_groups: ["admin"]
+  # Beszel's hub, admin-only. The hub's own login sits behind this gate, and
+  # its Keycloak sign-in creates a hub account for any realm user who reaches
+  # it (USER_CREATION in reconcile/roles/infrastructure/templates/
+  # beszel-hub.compose.yml.j2), so the group filter here is what limits who
+  # gets one. upstream_alias is the hub's catena-network alias
+  # (beszel_hub_network_alias), 8090 its internal port.
+  - slug: "beszel"
+    host_var: "beszel_hostname"
+    upstream_alias: "beszel-hub"
+    upstream_port: 8090
+    allowed_groups: ["admin"]
 
 # Native-OIDC apps (vps.auth.mode=public + vps.auth.oidc=true), routed by
 # templates/app-public-oidc.yml.j2. These apps register their own Keycloak

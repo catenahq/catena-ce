@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Seed Beszel's hub configuration: universal token + OIDC login (idempotent).
+"""Seed Beszel's hub configuration (idempotent): universal token, OIDC login,
+alert delivery and rules, outgoing mail.
 
 Run on the host against the hub's loopback publish. Authenticates to
 PocketBase as the superuser bootstrapped from USER_EMAIL/USER_PASSWORD, then
-reconciles two things:
+reconciles five things, the first two being:
 
 1. The single `universal_tokens` row (unique index on `user`). With a
    permanent universal token present, a Beszel agent that connects with
@@ -24,6 +25,10 @@ reconciles two things:
    depends on it, since it authenticates against `_superusers`, a different
    collection from the `users` one OIDC governs.
 
+Then the alert delivery (the Healthchecks shim's webhook, and no Beszel mail
+to the admin), the default alert rules and the hub's outgoing mail, each
+explained at its function below.
+
 Config via env (mirrors the healthchecks-seed.py contract; KeyErrors loudly on
 any wiring break):
 
@@ -37,8 +42,10 @@ any wiring break):
     BESZEL_OIDC_TOKEN_URL      .../protocol/openid-connect/token
     BESZEL_OIDC_USERINFO_URL   .../protocol/openid-connect/userinfo
     BESZEL_OIDC_DISPLAY_NAME   label on the hub's sign-in button
+    BESZEL_ALERT_WEBHOOK       the shim's Shoutrrr URL
+    BESZEL_SMTP_*              outgoing mail (optional; blank host = none)
 
-Exit 0 on success, printing one line carrying both outcomes so the caller's
+Exit 0 on success, printing one line carrying every outcome so the caller's
 changed_when can read it. Any failure exits non-zero with a stderr message so
 the calling Ansible task's retry loop can wait out hub start-up.
 """
@@ -169,11 +176,12 @@ def main() -> int:
     # deployed, thresholds unset, nothing saying so -- and a monitor that is
     # watching and cannot tell anybody is the failure mode monitoring exists to
     # avoid.
-    delivery_state = configure_alert_delivery(base, su_token, user_id, webhook)
+    delivery_state = configure_alert_delivery(base, su_token, user_id, webhook, email)
     rules_state = configure_alert_rules(base, su_token, user_id)
 
-    # 6. Outgoing mail, so an alert can reach a person who is not watching a
-    # dashboard. Beszel is PocketBase, so this is the app's own mail settings.
+    # 6. Outgoing mail. Beszel is PocketBase, so this is the app's own mail
+    # settings: alert mail to an address a client adds in the hub, and the
+    # hub's own account mail.
     smtp_state = configure_smtp(base, su_token, smtp)
 
     # One line carrying all four, because the caller's changed_when reads
@@ -227,8 +235,14 @@ _DEFAULT_RULES = (
 
 
 def configure_alert_delivery(base: str, su_token: str, user_id: str,
-                             webhook: str) -> str:
-    """Point the user's notifications at the Healthchecks shim.
+                             webhook: str, admin_email: str) -> str:
+    """Point the user's notifications at the Healthchecks shim, and keep the
+    admin's address off Beszel's own alert mail.
+
+    A Beszel alert reaches Healthchecks through the shim, and Healthchecks
+    mails the admin (healthchecks-seed.py's email channel). Mailed by Beszel
+    as well, the admin would get two emails for one alert. Every other
+    address a client adds in the hub keeps Beszel's mail.
 
     Returns one of: ok-exists / configured / updated.
     """
@@ -243,15 +257,17 @@ def configure_alert_delivery(base: str, su_token: str, user_id: str,
     if rows:
         current = dict(rows[0].get("settings") or {})
     hooks = list(current.get("webhooks") or [])
-    if webhook in hooks:
+    emails = list(current.get("emails") or [])
+    kept = [e for e in emails if e.strip().lower() != admin_email.strip().lower()]
+    if webhook in hooks and kept == emails:
         return "ok-exists"
 
     # APPEND, never replace. A client who added their own ntfy or Slack URL in
     # the hub UI keeps it -- the same rule the OIDC provider merge follows, and
     # for the same reason: this converge owns one entry, not the list.
     merged = dict(current)
-    merged["webhooks"] = hooks + [webhook]
-    merged.setdefault("emails", list(current.get("emails") or []))
+    merged["webhooks"] = hooks if webhook in hooks else hooks + [webhook]
+    merged["emails"] = kept
 
     if rows:
         _req(
@@ -261,11 +277,20 @@ def configure_alert_delivery(base: str, su_token: str, user_id: str,
             body={"settings": merged},
         )
         return "updated"
-    _req(
+    created = _req(
         "POST",
         f"{base}/api/collections/user_settings/records",
         token=su_token,
         body={"user": user_id, "settings": merged},
+    )
+    # Beszel's create hook replaces `emails` with the account's own address
+    # (internal/users/users.go InitializeUserSettings, beszel v0.20.0), so the
+    # new record is written again, which no hook rewrites.
+    _req(
+        "PATCH",
+        f"{base}/api/collections/user_settings/records/{created['id']}",
+        token=su_token,
+        body={"settings": merged},
     )
     return "configured"
 
@@ -322,10 +347,9 @@ def configure_alert_rules(base: str, su_token: str, user_id: str) -> str:
 
 
 # ─── outgoing mail ─────────────────────────────────────────────────────────
-# Beszel's own alert channel is the Shoutrrr webhook and nothing else, so
-# unconfigured it reaches a person only while somebody is watching Healthchecks
-# or ntfy. Giving it the host's own mail settings means a threshold breach can
-# send an email like every other service on the box.
+# The host's own mail settings, so the hub can send its account mail and the
+# alert mail to any address a client adds in the hub. The admin's alerts go
+# through Healthchecks instead (configure_alert_delivery).
 #
 # Verified against pocketbase v0.36.8 (which beszel 0.18.7 vendors) rather than
 # assumed -- core.SMTPConfig tags enabled / port / host / username / password /

@@ -75,9 +75,13 @@ keycloak_config_cli_image: >-
   {{ ('adorsys/keycloak-config-cli:' ~ keycloak_config_cli_image_tag)
      | catena_image_pin(catena_image_pins | default({})) }}
 
-# Host-side dir that holds rendered realm YAML files. Bind-mounted into
-# the keycloak-config-cli container at /config (RO).
-keycloak_realm_host_dir: "/etc/catena/keycloak/realms"
+# Host-side dirs of the rendered realm YAML files, under a 0700 parent
+# (tasks/realm_bootstrap.yml). Each import bind-mounts one of them into the
+# keycloak-config-cli container at /config (RO): the realm dir on every
+# converge, the seed dir while the realm is bootstrapped.
+keycloak_config_dir: "/etc/catena/keycloak"
+keycloak_realm_host_dir: "{{ keycloak_config_dir }}/realms"
+keycloak_realm_seed_dir: "{{ keycloak_config_dir }}/seed"
 
 # Realm name owning all per-VPS clients + groups + users. Single-realm
 # per VPS today; Phase Two Organizations (multi-tenancy inside one
@@ -115,11 +119,12 @@ keycloak_realm_export_oncalendar: "*-*-* 03:30:00"
 # that silently goes nowhere is harder to notice than a realm with no mail
 # configured, which says so on its own login page.
 
-# The ladder itself lives in playbooks/filter_plugins/smtp_resolve.py, and all
-# three consumers call it -- here, wordpress_plugins.yml and beszel.yml -- so a
-# host's password-reset mail and its contact form resolve to the same relay
-# from the same stored config. test_smtp_resolution.py holds each consumer to
-# the filter.
+# The ladder itself lives in playbooks/filter_plugins/smtp_resolve.py, and
+# every consumer calls it -- here, wordpress_plugins.yml and the infrastructure
+# role's infrastructure_smtp (Beszel, Healthchecks) -- so a host's
+# password-reset mail, its alerts and its contact form resolve to the same
+# relay from the same stored config. test_smtp_resolution.py holds each
+# consumer to the filter.
 _smtp: >-
   {{ cfg_smtp_provider | default('') | catena_smtp_resolve(
        host=cfg_smtp_host | default(''),

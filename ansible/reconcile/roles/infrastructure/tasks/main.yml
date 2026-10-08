@@ -340,7 +340,7 @@
     # wall-clock of the other infra deploys to finish settling before
     # we test. Fails fast with diagnostic output if any gated app's
     # public URL doesn't respond with 200/302/etc. On a healthy run it adds
-    # three probes of about a second each.
+    # four probes of about a second each.
     # Gated on the edge too: while the tunnel is deferred none of these public
     # *.<zone> URLs serve, and the converge that brings the edge up runs this
     # probe.
