@@ -13,43 +13,15 @@
 # itself from the panel image converges with that image's tree and stamps that
 # tree's version.
 #
-# One format from two sources, `git describe --always --dirty --tags`:
-#   a converge from a controller    the controller's catena-ce checkout
-#   a converge the host runs itself VENDOR.json, which the image's vendor step
-#                                   writes from the checkout it vendored
-#
-# Neither resolving writes nothing. A true stamp from an earlier converge is the
-# only record of which version produced this host's data, and replacing it with
-# a placeholder would leave the restore check nothing to order.
+# The version is the `git describe --always --dirty --tags` the image's vendor
+# step recorded in VENDOR.json, beside the tree it vendored. A tree without the
+# record resolves nothing, and nothing is written: a true stamp from an earlier
+# converge is the only record of which version produced this host's data, and
+# replacing it with a placeholder would leave the restore check nothing to
+# order.
 
-# Delegated to localhost so it reads the CONTROLLER's git state. On the on-host
-# path localhost is the host itself and the staged tree is not a checkout, so
-# this answers nothing and VENDOR.json does. run_once because the value is the
-# same for every host in a run; the facts below land on each host.
-- name: "Version: describe the controller's catena-ce checkout"
-  ansible.builtin.command:
-    cmd: git describe --always --dirty --tags
-    chdir: "{{ playbook_dir }}/../.."
-  register: _catena_git_describe
-  changed_when: false
-  failed_when: false
-  delegate_to: localhost
-  run_once: true
-  become: false
-
-- name: "Version: the checkout's commit date"
-  ansible.builtin.command:
-    cmd: git log -1 --format=%cI
-    chdir: "{{ playbook_dir }}/../.."
-  register: _catena_git_date
-  changed_when: false
-  failed_when: false
-  delegate_to: localhost
-  run_once: true
-  become: false
-
-# Absent on a controller and machine-written on a host, so "not there" and
-# "not JSON" are both ordinary answers rather than failures.
+# Machine-written, so "not there" and "not JSON" are both ordinary answers
+# rather than failures.
 - name: "Version: read the image's vendor record"
   ansible.builtin.slurp:
     src: "{{ catena_vendor_manifest_path }}"
@@ -66,14 +38,8 @@
          if (_vendor_raw.startswith('{') and _vendor_raw.endswith('}'))
          else {} }}
   ansible.builtin.set_fact:
-    catena_version: >-
-      {{ (_catena_git_describe.stdout | default('') | trim)
-         if (_catena_git_describe.rc | default(1)) == 0
-         else (_vendor.describe | default('', true)) }}
-    catena_version_date: >-
-      {{ (_catena_git_date.stdout | default('') | trim)
-         if (_catena_git_describe.rc | default(1)) == 0
-         else (_vendor.committed_at | default('', true)) }}
+    catena_version: "{{ _vendor.describe | default('', true) }}"
+    catena_version_date: "{{ _vendor.committed_at | default('', true) }}"
 
 - name: "Version: stamp /etc/catena/version.txt"
   ansible.builtin.copy:

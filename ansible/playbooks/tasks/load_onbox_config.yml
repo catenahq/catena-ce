@@ -112,8 +112,7 @@
 #
 # Its own file because bootstrap.yml and show-keyset.yml run THAT and nothing
 # else: they need the config half and must not run the rest of this loader,
-# which mints the internal secrets and calls the container registry, on a
-# machine with no Docker yet.
+# which mints the internal secrets.
 - name: "onbox: seed and publish the store-owned config"
   ansible.builtin.include_tasks:
     file: seed_onbox_config.yml
@@ -147,139 +146,21 @@
   ansible.builtin.set_fact:
     catena_image_pins: "{{ _onbox_image_pins.stdout | from_json }}"
 
-# --- which catena-admin release this converge installs -----------------------
+# --- the catena-admin image this converge runs ------------------------------
 #
-# ASKED, not remembered. The registry writes the version and its digest in one
-# answer, so the two cannot disagree. That is the whole requirement, because
-# reconcile/roles/payload refuses an image whose digest is not the recorded one:
-#
-#   ...:v0.5.1 resolved to sha256:205a5a70... but this deployment pins
-#   sha256:09e03d74... Refusing to extract or root-execute the payload.
-#
-# Any arrangement whose two halves can move separately -- a version literal and
-# a digest literal in bootstrap/roles/common/defaults, bumped by hand on each
-# catena-admin release -- turns that correct refusal into a failed fresh install
-# on a correct host holding a correct image. helpers/catena_admin_release.py
-# states why it resolves the highest vX.Y.Z tag rather than :latest.
-#
-# It runs ON the host, like every other step in this loader: the machine that
-# resolves the tag is then the machine that pulls it, so the answer is one the
-# host can actually act on.
-#
-# Skipped entirely when CATENA_ADMIN_IMAGE names one. That is the change-control
-# escape hatch -- a client who wants to decide when their panel version moves
-# sets it, and this makes no network call at all.
-- name: "onbox: resolve the catena-admin release to install"
-  ansible.builtin.script:
-    cmd: >-
-      {{ playbook_dir }}/../helpers/catena_admin_release.py
-      --repository {{ catena_admin_repository | quote }}
-    executable: python3
-  register: _catena_admin_release
-  changed_when: false
-  failed_when: false
-  when: lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
-
-# When the registry does not answer, the converge keeps the panel where it is:
-# the catena-admin version this host recorded (a rollback or a managed bump),
-# else the image its catena-admin service runs. Keeping the running image is
-# the one answer that needs no registry, and the engines follow the service's
-# image anyway (reconcile/roles/payload). Most hosts record no catena-admin
-# version, so the running service is the usual fallback.
-- name: "onbox: read the image the catena-admin service runs"
-  ansible.builtin.command:
-    argv:
-      - docker
-      - service
-      - inspect
-      - "{{ catena_admin_service_name }}"
-      - "--format={{ '{{ .Spec.TaskTemplate.ContainerSpec.Image }}' }}"
-  register: _catena_admin_running
-  changed_when: false
-  # No service yet is an answer: the fail below names it.
-  failed_when: false
-  when:
-    - lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
-    - (_catena_admin_release.rc | default(1)) != 0
-
-- name: "onbox: keep the catena-admin image this host already runs"
-  ansible.builtin.set_fact:
-    catena_admin_fallback_image: "{{ _pinned if _pinned else _running }}"
-    _catena_admin_fallback_from: >-
-      {{ 'the version this host recorded' if _pinned
-         else 'the image its ' ~ catena_admin_service_name ~ ' service runs' }}
-  vars:
-    _pinned: >-
-      {{ catena_image_pins | default({})
-         | catena_image_pinned(catena_admin_repository) }}
-    _running: >-
-      {{ (_catena_admin_running.stdout | default('') | trim)
-         if (_catena_admin_running.rc | default(1)) == 0 else '' }}
-  when:
-    - lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
-    - (_catena_admin_release.rc | default(1)) != 0
-
-# Fails HERE rather than deep in reconcile/roles/payload. The panel image is
-# also where the host engines come from, and every role after
-# bootstrap/roles/docker depends on those; a hardcoded version is the one thing
-# this resolution exists to avoid.
-- name: "onbox: the catena-admin release could not be resolved"
-  ansible.builtin.fail:
-    msg: >-
-      Could not resolve which catena-admin image to install:
-      {{ (_catena_admin_release.stderr | default('') | trim)
-         | default('no output', true) }}
-      This host records no catena-admin version and runs no
-      {{ catena_admin_service_name }} service to keep, and the panel image is
-      also where the host engines are extracted from. Pin an image explicitly
-      with CATENA_ADMIN_IMAGE=ghcr.io/catenahq/catena-admin:vX.Y.Z to converge
-      without asking the registry.
-  when:
-    - lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
-    - (_catena_admin_release.rc | default(1)) != 0
-    - (catena_admin_fallback_image | default('')) | length == 0
-
-- name: "onbox: publish the resolved catena-admin release"
-  ansible.builtin.set_fact:
-    catena_admin_release: "{{ _catena_admin_release.stdout | from_json }}"
-  when:
-    - lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) | length == 0
-    - (_catena_admin_release.rc | default(1)) == 0
-
-# Named after what this converge deploys, catena_admin_image, which is the
-# newest release only when this host records no catena-admin version of its own
-# (playbooks/group_vars/all/main.yml gives the precedence).
-- name: "onbox: catena-admin release"
-  ansible.builtin.debug:
-    msg: >-
-      Installing catena-admin {{ catena_admin_release.version }}
-      ({{ catena_admin_release.digest }}), resolved from
-      {{ catena_admin_release.repository }}.
-  when:
-    - catena_admin_release is defined
-    - _deployed == _newest
-  vars:
-    _deployed: "{{ catena_admin_image | regex_replace('@sha256:[0-9a-f]{64}$', '') }}"
-    _newest: "{{ catena_admin_release.ref | regex_replace('@sha256:[0-9a-f]{64}$', '') }}"
-
-- name: "onbox: catena-admin kept at the version this host recorded"
-  ansible.builtin.debug:
-    msg: >-
-      Keeping catena-admin at {{ catena_admin_image }}, the version this host
-      recorded, which a converge does not move. The newest release is
-      {{ catena_admin_release.version }}: catena-admin > Settings > Control
-      panel version moves the panel and its engines to it.
-  when:
-    - catena_admin_release is defined
-    - _deployed != _newest
-  vars:
-    _deployed: "{{ catena_admin_image | regex_replace('@sha256:[0-9a-f]{64}$', '') }}"
-    _newest: "{{ catena_admin_release.ref | regex_replace('@sha256:[0-9a-f]{64}$', '') }}"
-
-- name: "onbox: catena-admin kept without the registry"
-  ansible.builtin.debug:
-    msg: >-
-      The registry did not answer, so this converge keeps catena-admin at
-      {{ catena_admin_fallback_image }}, {{ _catena_admin_fallback_from }}.
-      Its payload digest goes unchecked on this converge.
-  when: catena_admin_fallback_image is defined
+# Named by whoever starts the converge: install-host.sh names the release it
+# installs, and catena-admin's catena-converge the image the panel runs. Either
+# way it is the image the running tree came from, so the tree, the engines and
+# the panel are one release (catena_admin_image,
+# catena-ce/ansible/playbooks/group_vars/all/main.yml). Checked before any
+# role, which would otherwise pull or deploy an empty reference.
+- name: "onbox: the converge names the catena-admin image it runs"
+  ansible.builtin.assert:
+    that:
+      - catena_admin_image | length > 0
+    fail_msg: >-
+      CATENA_ADMIN_IMAGE is not set, so this converge does not know which
+      catena-admin image it runs. A converge is started by install-host.sh,
+      which sets it to the release it installs, or by catena-converge, which
+      sets it to the image the panel runs.
+    quiet: true

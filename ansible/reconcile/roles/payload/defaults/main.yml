@@ -19,29 +19,19 @@
 # while running the shell from another is how a host ends up with an engine
 # and a panel that disagree about the config schema.
 #
-# `catena_admin_image` is not a literal anybody maintains. The install
-# (install-host.sh) and a host converging itself (catena-admin catena-converge)
-# set CATENA_ADMIN_IMAGE to the image whose tree runs, so the tree, the engines
-# and the shell are one image; the panel's self-update moves it. A converge
-# given none asks the registry once (helpers/catena_admin_release.py, run by
-# the config loader) for the highest published `vX.Y.Z` tag and its digest,
-# and keeps the image the host already runs when the registry does not answer
-# (playbooks/group_vars/all/main.yml).
+# `catena_admin_image` is CATENA_ADMIN_IMAGE, the image the running tree came
+# from: install-host.sh sets it to the release it installs, and catena-admin's
+# catena-converge to the image the panel runs, so the tree, the engines and the
+# shell are one image; the panel's self-update moves it.
 #
-# The version TAG, not `:latest`. publish-image.yml moves `:latest` with
-# `docker buildx imagetools create`, which builds a new index -- so `:latest`
-# and the release it points at have different digests, and only the version
-# tag's digest is the one that gets scanned, signed and written to
-# image-digest.txt.
-#
-# CATENA_PAYLOAD_IMAGE pins one and suppresses the registry call: the install
+# CATENA_PAYLOAD_IMAGE names the image to extract from outright: the install
 # sets it to the image it installs.
 #
 # tasks/main.yml replaces this value with the image the catena-admin swarm
-# service runs whenever that service exists, because "which image do the
-# engines come from" and "which image does the shell come from" must be one
-# question. This value answers the bootstrap case alone: no service yet, so
-# nothing to follow.
+# service runs whenever that service exists and CATENA_PAYLOAD_IMAGE is unset,
+# because "which image do the engines come from" and "which image does the
+# shell come from" must be one question. This value answers the bootstrap case
+# alone: no service yet, so nothing to follow.
 catena_payload_image: >-
   {{ lookup('env', 'CATENA_PAYLOAD_IMAGE') | default(catena_admin_image, true) }}
 
@@ -52,45 +42,29 @@ catena_payload_image: >-
 # offline, needs nothing installed on the host, and does not depend on the
 # registry being honest at extract time.
 #
+# The digest catena_admin_image carries: the release that delivered the running
+# tree. An install's image is `repo:tag@sha256:...` as
+# catena-ce/ansible/helpers/fetch_release.py resolved and verified it, and a
+# host's own converge names the panel service's image as swarm records it,
+# digest included.
+#
+# WHAT THIS PROVES, precisely: that the image the engines come from is, byte
+# for byte, the image the running tree came from. Whoever named that digest is
+# trusted: the registry, when an install is given only a tag, so a compromised
+# registry passes it. Provenance is `cosign verify` against the keyless
+# signature catena-admin's publish workflow records, which needs cosign on the
+# host.
+#
 # Empty is NOT "verified", it is "unchecked", and the role says so out loud on
-# every converge. A silent skip here would read exactly like a passing
-# verification, which is the failure mode this whole gate exists to avoid.
-#
-# The digest comes from the SAME registry answer that chose the version --
-# catena_admin_release, resolved once per converge by the config loader. One
-# writer, deliberately: a gate whose expected value has a different writer than
-# the thing it checks fails closed on correct hosts.
-#
-# WHAT THIS PROVES, precisely: that the image about to be extracted is the one
-# this converge resolved. Both halves come from the same registry answer, so
-# this is a same-converge consistency check: it catches a tag moved
-# mid-converge and a mismatched override, and a compromised registry passes it.
-#
-# It applies only when the image being extracted IS the resolved one. Anything
-# else has a digest nobody here knows: an image from another registry (the
-# test bench's) or a version the on-host update lane pinned and this converge
-# did not resolve, and a converge the registry did not answer keeps the running image
-# (catena_admin_fallback_image) with no resolved release at all. Asserting the
-# resolved digest against one of those would fail closed on a correct host,
-# which is worse than saying out loud that it went unchecked.
+# every converge: an image named by tag alone carries no digest. A silent skip
+# here would read exactly like a passing verification, which is the failure
+# mode this whole gate exists to avoid.
 #
 # CATENA_PAYLOAD_IMAGE_DIGEST wins over all of it, and a deliberately wrong
 # value is how the fail-closed leg gets exercised.
-#
-# The comparison strips a trailing @sha256:, because both sides can carry one:
-# swarm resolves the tag at create/update time and stores `repo:tag@sha256:...`
-# in the spec, and the resolved ref is digest-pinned on purpose. Comparing whole
-# strings would never match, so every converged host would silently drop to
-# "unchecked" -- a passing-looking skip, which is the exact failure this gate
-# exists to avoid.
 catena_payload_image_digest: >-
   {{ lookup('env', 'CATENA_PAYLOAD_IMAGE_DIGEST', default='')
-     | default((catena_admin_release | default({})).get('digest', '')
-               if (catena_payload_image
-                   | regex_replace('@sha256:[0-9a-f]{64}$', ''))
-                  == ((catena_admin_release | default({})).get('ref', '')
-                      | regex_replace('@sha256:[0-9a-f]{64}$', ''))
-               else '', true) }}
+     | default(catena_admin_image.partition('@')[2], true) }}
 
 # Where the image's payload tree is unpacked on the host. The catena-admin
 # container also mirrors its embedded payload here at startup, so both writers

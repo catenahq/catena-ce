@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import jinja2
 import yaml
 
 ANSIBLE = Path(__file__).resolve().parents[2]
@@ -97,13 +98,10 @@ def test_image_defaults_to_the_catena_admin_image():
 
 
 def test_the_engines_follow_the_running_shell():
-    """One version input per host, not two.
-
-    reconcile/roles/catena-admin resolves max(floor, pin) and reconciles the
-    service to it at role 13. Resolving that expression here as well would be a
-    second reader of one value, four roles earlier -- and the two can disagree,
-    which puts new engines under the shell the host already had. Following the
-    service spec deletes the second input instead of adding a check against it.
+    """One version input per host: the service spec, which
+    reconcile/roles/catena-admin reconciles to catena_admin_image later in the
+    converge. Following it leaves the engines no second answer to disagree
+    with the shell the host runs.
     """
     flat = _flatten(_tasks())
     inspect = flat[_index_of(flat, "what image is the catena-admin service")]
@@ -129,9 +127,9 @@ def test_following_the_shell_happens_before_the_image_is_resolved():
 
 
 def test_an_explicit_image_override_still_wins():
-    """The bench points CATENA_PAYLOAD_IMAGE at the tag it built ON the VPS. A
-    service-derived value that overrode it would send the bench back to the
-    last published image, which is the one thing a bench must never exercise.
+    """install-host.sh points CATENA_PAYLOAD_IMAGE at the release it installs.
+    A service-derived value that overrode it would install the engines of the
+    release being replaced under the new release's tree.
     """
     flat = _flatten(_tasks())
     follow = flat[_index_of(flat, "the engines follow the shell")]
@@ -361,9 +359,46 @@ def test_an_unpinned_image_says_so_out_loud() -> None:
     assert "WITHOUT a digest check" in notice["ansible.builtin.debug"]["msg"]
 
 
-def test_digest_is_env_overridable_and_defaults_to_empty() -> None:
-    """Empty by default: no image is published yet, and a default that
-    pretended otherwise would fail every converge."""
+def _render_digest(admin_image: str, env_digest: str = "") -> str:
+    """catena_payload_image_digest rendered under a fake context. A substring
+    check cannot tell a pin from one that never matches, and "never matches"
+    reads as an unchecked extract, which looks exactly like a passing one."""
     raw = _defaults()["catena_payload_image_digest"]
-    assert "CATENA_PAYLOAD_IMAGE_DIGEST" in raw
-    assert "default=''" in raw
+    asked = []
+
+    def lookup(kind, name, default=""):
+        asked.append((kind, name))
+        return env_digest or default
+
+    out = jinja2.Environment().from_string(raw).render(
+        lookup=lookup, catena_admin_image=admin_image).strip()
+    assert asked == [("env", "CATENA_PAYLOAD_IMAGE_DIGEST")], asked
+    return out
+
+
+def test_every_install_and_host_converge_arms_the_digest_gate() -> None:
+    """The pin is the digest of the image the converge was started with:
+    the release install-host.sh fetched, `repo:tag@sha256:...`, or the image
+    the panel service runs, which swarm records with its digest."""
+    digest = "sha256:" + "ab" * 32
+    for image in (f"ghcr.io/catenahq/catena-admin:v0.6.2@{digest}",
+                  f"10.0.0.1:5001/catena-admin:bench-3@{digest}",
+                  f"ghcr.io/catenahq/catena-admin@{digest}"):
+        assert _render_digest(image) == digest, image
+
+
+def test_an_image_named_by_tag_alone_is_extracted_unchecked() -> None:
+    """No digest to hold it to; the role says so out loud rather than failing
+    closed on a host whose image was named without one."""
+    assert _render_digest("ghcr.io/catenahq/catena-admin:v0.6.2") == ""
+    assert _render_digest("") == ""
+
+
+def test_an_explicit_digest_wins() -> None:
+    """CATENA_PAYLOAD_IMAGE_DIGEST is how the fail-closed leg is exercised: a
+    deliberately wrong value must replace the image's own digest."""
+    wrong = "sha256:" + "0" * 64
+    image = "ghcr.io/catenahq/catena-admin:v0.6.2@sha256:" + "ab" * 32
+    assert _render_digest(image, env_digest=wrong) == wrong
+    assert _render_digest("ghcr.io/catenahq/catena-admin:v0.6.2",
+                          env_digest=wrong) == wrong

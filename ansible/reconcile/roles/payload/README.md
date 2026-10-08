@@ -32,26 +32,26 @@ exists.
 2. Pulls that image, unless it is addressed by digest and already on the host:
    the image the panel runs always is, so the host's own converge does not
    depend on the registry answering.
-3. Refuses, before anything is copied out or run, an image built from another
+3. Refuses, before anything is copied out or run, an image whose repo digests
+   do not include `catena_payload_image_digest` (see below).
+4. Refuses, before anything is copied out or run, an image built from another
    catena-ce tree than the one running this converge: it compares the hash the
    image records in `/usr/local/share/catena-ce/VENDOR.json` with this tree's,
    both named by `helpers/tree_hash.py`. Engines under another version's roles
    leave a file one version hands to the other with no owner.
-4. Resolves the image ID and compares it with `/etc/catena/.payload-image`.
+5. Resolves the image ID and compares it with `/etc/catena/.payload-image`.
    Equal means the installed engines already came from this image and the role
    stops there -- so a re-converge changes nothing.
-5. Otherwise: `docker cp` the payload tree out of a throwaway container,
+6. Otherwise: `docker cp` the payload tree out of a throwaway container,
    remove it, restore the directory's ownership, and run the image's own
    `install-ee-payload.sh`.
-6. Writes the image ID into the marker.
+7. Writes the image ID into the marker.
 
 Step 1 is the reason the two halves cannot drift apart. The engines and the
 shell come out of one image because there is one place the version is decided:
-the service spec. `reconcile/roles/catena-admin` resolves `max(floor, pin)` and
-reconciles the service to it, image included, several roles after this one.
-Resolving the same expression here would be a second reader of one value, and a
-pin written between the two would give the host engines from one image under a
-shell from another; following the spec leaves one input.
+the service spec. `reconcile/roles/catena-admin` reconciles the service to
+`catena_admin_image`, the image the converge was started with, several roles
+after this one; following the spec leaves one input.
 
 `install-ee-payload.sh` installs binaries, python lib modules, dispatch
 drop-ins and systemd units, and does NOT enable any unit. Enabling is the
@@ -83,7 +83,7 @@ The marker holds an image ID, not a timestamp or a bare "installed" flag:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `catena_payload_image` | `{{ catena_admin_image }}` | fallback image, used only when no `catena-admin` service exists to follow |
-| `catena_admin_service_name` | `catena-admin` (bootstrap/roles/common) | the service whose image the engines follow |
+| `catena_admin_service_name` | `catena-admin` (catena-ce/ansible/playbooks/group_vars/all/main.yml) | the service whose image the engines follow |
 | `catena_payload_dir` | `/var/lib/catena/ee-payload` | extraction target (shared with the container's sync) |
 | `catena_payload_image_path` | `/usr/local/share/catena-ee` | payload tree inside the image |
 | `catena_payload_marker` | `/etc/catena/.payload-image` | image ID the installed engines came from |
@@ -91,22 +91,23 @@ The marker holds an image ID, not a timestamp or a bare "installed" flag:
 | `catena_payload_tree_record` | `/usr/local/share/catena-ce/VENDOR.json` | where the image records the tree it was built with |
 | `catena_payload_pull` | `CATENA_PAYLOAD_PULL`, `true` | pull before extracting |
 | `catena_payload_install` | `CATENA_PAYLOAD_INSTALL`, `true` | run the install at all |
-| `catena_payload_image_digest` | `CATENA_PAYLOAD_IMAGE_DIGEST`, else `catena_admin_release.digest` | digest the image must resolve to before anything is extracted |
+| `catena_payload_image_digest` | `CATENA_PAYLOAD_IMAGE_DIGEST`, else the digest `catena_admin_image` carries | digest the image must resolve to before anything is extracted |
 
 ## Which digest this asserts
 
-`catena_admin_release` is resolved from the registry once per converge by
-`playbooks/tasks/load_onbox_config.yml`, version and digest together, so the
-two cannot disagree: a version recorded beside another version's digest would
-fail this gate on a correct host holding a correctly published image.
+The digest of the release that delivered the tree running this converge, read
+off `catena_admin_image` (`CATENA_ADMIN_IMAGE`). An install names its release
+as `repo:tag@sha256:...`, the reference
+`catena-ce/ansible/helpers/fetch_release.py` resolved
+and verified every byte of; a host's own converge names the image the panel
+service runs, as swarm records it, digest included.
 
-The check is therefore a same-converge consistency check -- the image about to
-be extracted is the one this converge resolved -- not provenance. It catches a
-tag moved mid-converge and a mismatched override; it does not catch a
-compromised registry. Provenance is `cosign verify` against the keyless
-signature `publish-image.yml` records, which needs cosign on the host and is
-not wired up.
+The check proves that the engines come from the very bytes the running tree
+came from. It does not prove provenance: whoever named the digest is trusted,
+and when an install is given only a tag that is the registry, so a compromised
+registry passes it. Provenance is `cosign verify` against the keyless
+signature catena-admin's publish workflow records, which needs cosign on the
+host.
 
-An image this converge did not resolve (one from another registry, a lane pin)
-extracts with the digest empty, and the role says out loud that it went
-unchecked rather than failing closed on a correct host.
+An image named by tag alone carries no digest: the role extracts it and says
+out loud that it went unchecked.

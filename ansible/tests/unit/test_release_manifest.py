@@ -10,8 +10,7 @@ Three properties are worth pinning:
     manifest standing instead of claiming plumbing it never delivered;
   - the action list comes from the same merged fact the dispatch table renders
     from, not a hand-kept copy that drifts;
-  - the image field goes through the pin filter, or the manifest reports the
-    catalog floor on a host the update lane moved.
+  - the image field records the image the converge ran.
 """
 from __future__ import annotations
 
@@ -80,9 +79,10 @@ def test_both_converge_paths_include_the_same_file(playbook):
 
 @pytest.mark.parametrize("playbook", CONVERGE_PLAYBOOKS, ids=lambda p: p.name)
 def test_each_path_names_itself_in_the_manifest(playbook):
-    """A host converges from a controller and from its own panel image, and the
-    two runs are applied from different trees. Recording which path wrote the
-    manifest is what lets a reader tell which tree the host last received."""
+    """A host is converged by its install (converge.yml, the bootstrap roles
+    included) and by itself (reconcile.yml). Recording which path wrote the
+    manifest is what lets a reader tell which of the two the host last
+    received."""
     include = next(t for t in converge_post_tasks(playbook)
                    if str(t.get("ansible.builtin.include_tasks", {}).get("file"))
                    .rsplit("/", 1)[-1] == SHARED.name)
@@ -119,10 +119,10 @@ def test_the_action_list_comes_from_the_dispatch_fact(write_task):
     assert "default([])" in content, content
 
 
-def test_the_recorded_image_is_the_pin_resolved_one(write_task):
-    """catena_admin_image already resolves max(floor, pin). Recording the floor
-    instead would report the shipped version on a host the on-host update lane
-    moved -- which is the same class of defect as the converge asserting it."""
+def test_the_recorded_image_is_the_one_the_converge_ran(write_task):
+    """catena_admin_image is the image the converge was started with, the one
+    the panel and the engines run. Recording anything else would report a
+    version the host does not run."""
     content = write_task["ansible.builtin.copy"]["content"]
     assert "catena_admin_image" in content
     assert "catena_admin_image_floor" not in content, (
@@ -164,8 +164,8 @@ def test_the_manifest_path_is_under_var_lib_not_etc():
 def test_validate_holds_the_manifest_equal_to_the_stamp_on_both_paths():
     """The two are written from one fact at opposite ends of the same converge,
     on either path, so equality is what says the converge reached the end.
-    Comparing against the controller's git describe would not work: validate.yml
-    is its own playbook run and never sets that fact."""
+    validate.yml is its own playbook run and sets no version fact, so the
+    host's two records are what it compares."""
     body = VALIDATE.read_text()
     assert "catena_release_manifest_path" in body
     assert "_manifest.catena_ce_version == _stamped" in body
@@ -204,11 +204,11 @@ def test_version_txt_has_one_writer():
 
 
 def test_both_version_fields_read_the_fact_this_run_actually_sets():
-    """The describe is `delegate_to: localhost`, which reads the controller's git
-    state but does NOT pin the fact on localhost. The hostvars['localhost'] form
-    resolves to nothing, and a stamp built from it is the literal "unknown" on
-    every host -- which two stamps compare Same by raw equality, so the restore
-    gate would pass for the wrong reason."""
+    """catena_version is set on the host the converge runs against. A
+    hostvars['localhost'] form resolves to nothing there, and a stamp built
+    from it is the literal "unknown" on every host -- which two stamps compare
+    Same by raw equality, so the restore gate would pass for the wrong
+    reason."""
     stamp = STAMP.read_text()
     shared = SHARED.read_text()
     for name, body in ((STAMP.name, stamp), (SHARED.name, shared)):
@@ -220,16 +220,19 @@ def test_both_version_fields_read_the_fact_this_run_actually_sets():
     assert "catena_version | default('', true)" in shared
 
 
-def test_the_on_host_version_is_the_images_describe():
-    """An on-host converge has no git checkout. The tree it runs came out of the
-    panel image, and catena-admin's vendor step records that tree's describe in
-    VENDOR.json. The describe, not the commit: versionstamp cannot order a bare
-    commit, so a stamp carrying one would make every restore check refuse."""
+def test_the_version_is_the_images_describe():
+    """Every converge runs a tree that came out of a release image, and
+    catena-admin's vendor step records that tree's describe in VENDOR.json. The
+    describe, not the commit: versionstamp cannot order a bare commit, so a
+    stamp carrying one would make every restore check refuse. Nothing asks git
+    or the machine that started the run: the record travels with the tree."""
     stamp = STAMP.read_text()
     assert "catena_vendor_manifest_path" in stamp
     assert "_vendor.describe" in stamp
     assert "_vendor.commit |" not in stamp
-    assert "describe --always --dirty --tags" in stamp
+    for task in yaml.safe_load(stamp):
+        assert "delegate_to" not in task, task.get("name")
+        assert "ansible.builtin.command" not in task, task.get("name")
 
 
 def test_an_unknown_version_never_overwrites_a_known_one():

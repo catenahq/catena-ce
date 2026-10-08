@@ -117,7 +117,7 @@ def test_a_digest_pinned_service_on_its_own_pin_reports_no_drift():
     """The shape every release host is in, and the easiest one for a test suite
     to miss.
 
-    catena_admin_image carries its digest -- catena_admin_release.ref is
+    catena_admin_image carries its digest -- CATENA_ADMIN_IMAGE names
     `<repo>:<tag>@sha256:...` -- so a comparison that strips the digest from the
     live side alone puts `<repo>:<tag>` against `<repo>:<tag>@sha256:...`, which
     never matches: every converge emits --image against its own pin. Docker
@@ -125,9 +125,6 @@ def test_a_digest_pinned_service_on_its_own_pin_reports_no_drift():
     harmed; the cost is the ability to read "did this converge move my panel"
     out of the output, which matters most when a converge runs unattended on a
     timer.
-
-    The tests passed because they all used a digest-less desired image, which is
-    the one shape no release host is in.
     """
     pinned = "ghcr.io/catenahq/catena-admin:v0.6.2@sha256:" + "b" * 64
     assert swarm_service_drift(_inspect(image=pinned), {"image": pinned}) == []

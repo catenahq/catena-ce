@@ -5,11 +5,9 @@ survive the next converge, and a floor raised by a catena-ce release must beat a
 stale pin. Every other case resolves to the default, because "unclear" and
 "downgrade" must not be the same answer.
 
-The second half of the file is the panel's case, where the first argument is not
-a floor at all -- it is the newest published release, resolved on every converge
--- so the caller declares no minimum and the host's recorded choice stands.
-Without that, max(newest, pin) is newest and a rollback chosen in the panel is
-undone by the next converge.
+The last part reads the catena-admin pin alone, the way
+catena-ce/ansible/helpers/fetch_release.py does when an install names no
+release.
 """
 from __future__ import annotations
 
@@ -140,51 +138,11 @@ def test_an_empty_default_is_a_caller_bug_not_a_default():
             catena_image_pin(bad, {"traefik": "traefik:v3.7.12"})
 
 
-# --- the panel: no minimum, because its default is the newest release --------
+# --- the pin alone: the version an install re-applies -------------------------
 
 PANEL = "ghcr.io/catenahq/catena-admin"
-NEWEST = PANEL + ":v0.6.2@sha256:" + "b" * 64
 ROLLED_BACK = PANEL + ":v0.6.1@sha256:" + "a" * 64
 
-
-def test_a_rollback_survives_the_next_converge():
-    """The case this argument exists for.
-
-    The panel's own update lane records what it applied, rollbacks included. The
-    first argument here is the newest PUBLISHED release, re-resolved from the
-    registry on every converge, so max(default, pin) is always the default: a
-    client who rolls back to the version that works would be moved forward
-    again by the next converge, silently, onto the build they just rejected.
-    """
-    assert catena_image_pin(NEWEST, {PANEL: ROLLED_BACK}, "") == ROLLED_BACK
-
-
-def test_the_same_call_with_the_default_minimum_is_max_floor_pin():
-    """The one line that separates the two callers, shown as one line.
-
-    Every shipped-version caller omits the minimum and gets max(floor, pin);
-    this is that result."""
-    assert catena_image_pin(NEWEST, {PANEL: ROLLED_BACK}) == NEWEST
-
-
-def test_a_forward_pin_still_wins_with_no_minimum():
-    ahead = PANEL + ":v0.7.0@sha256:" + "c" * 64
-    assert catena_image_pin(NEWEST, {PANEL: ahead}, "") == ahead
-
-
-def test_no_minimum_does_not_mean_no_rules():
-    """A store that can name an arbitrary string is a store that can choose what
-    this host runs."""
-    for bad in ("ghcr.io/someone-else/panel:v9.9.9", PANEL + ":latest",
-                PANEL + ":main", "", "   "):
-        assert catena_image_pin(NEWEST, {PANEL: bad}, "") == NEWEST
-
-
-def test_a_fresh_host_with_no_pin_gets_the_newest_release():
-    assert catena_image_pin(NEWEST, {}, "") == NEWEST
-
-
-# --- the pin alone: what a converge the registry did not answer keeps ---------
 
 def test_the_recorded_pin_is_read_by_repository():
     assert catena_image_pinned({PANEL: ROLLED_BACK}, PANEL) == ROLLED_BACK

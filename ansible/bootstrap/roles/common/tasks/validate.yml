@@ -106,10 +106,9 @@
 
 # Both converge paths write the two from one fact at opposite ends of the same
 # converge, so equality is the assertion: a manifest naming an older version is
-# one the last converge never got far enough to rewrite. Comparing against the
-# controller's git describe would not work here -- validate.yml is its own
-# playbook run and never sets that fact -- and comparing on-host is the better
-# check anyway, because it is the host's own two records agreeing.
+# one the last converge never got far enough to rewrite. validate.yml is its
+# own playbook run and sets no version fact, so the host's own two records are
+# what it compares.
 - name: "validate/common: the manifest describes THIS converge"
   ansible.builtin.assert:
     that:

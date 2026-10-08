@@ -18,10 +18,9 @@
 # answer differently.
 #
 # reconcile/roles/catena-admin reconciles the service to catena_admin_image
-# (the override, the pin or the resolved release) at role 13. Resolving the
-# same expression here would be a second reader of one value, evaluated earlier
-# in the same converge: a pin written between the two, or a registry that
-# answered differently, gives a host new engines under the shell it already had.
+# later in this converge. On a host's own converge that is the image the
+# service already runs, so following the service and following
+# catena_admin_image name the same image.
 #
 # The spec's image carries the digest swarm resolved at create/update time, so
 # following it is byte-exact rather than tag-exact.
@@ -174,9 +173,10 @@
     - name: "Payload: image digest is NOT pinned"
       ansible.builtin.debug:
         msg: >-
-          catena_payload_image_digest is empty: {{ catena_payload_image }} is
-          being extracted and root-executed WITHOUT a digest check. Set it (or
-          CATENA_PAYLOAD_IMAGE_DIGEST) to the published image's digest. This is
+          {{ catena_admin_image }} names no digest, so
+          {{ catena_payload_image }} is being extracted and root-executed
+          WITHOUT a digest check. Name the image by digest
+          (repo:tag@sha256:...) or set CATENA_PAYLOAD_IMAGE_DIGEST. This is
           unchecked, not verified.
       when: catena_payload_image_digest | length == 0
 

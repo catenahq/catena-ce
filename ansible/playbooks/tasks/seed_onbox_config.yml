@@ -4,9 +4,9 @@
 #
 # Split out of tasks/load_onbox_config.yml so bootstrap.yml can run THIS and
 # nothing else. The rest of that loader belongs to a converge: it mints the
-# internal service secrets and the user-held admin/restic DR keyset, and it asks
-# the container registry which catena-admin release to install -- on a machine
-# that has no Docker yet. Bootstrap needs neither, and needs the config half
+# internal service secrets and the user-held admin and console passwords, and it
+# requires the catena-admin image the converge runs. Bootstrap needs neither,
+# and needs the config half
 # because every later leg reads the tailnet provider and its tags from cfg_*
 # facts with no inventory fallback -- the panel's on-host lockdown has no
 # inventory at all.

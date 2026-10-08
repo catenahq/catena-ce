@@ -133,11 +133,11 @@ def test_bootstrap_seeds_the_store_and_runs_nothing_else():
     """Bootstrap gets the seed half ONLY.
 
     The rest of load_onbox_config.yml mints the internal service secrets and the
-    user-held DR keyset, and asks the container registry which catena-admin
-    release to install. Bootstrap runs before Docker exists and before the
+    user-held admin and console passwords, and requires the catena-admin image
+    a converge runs. Bootstrap runs before Docker exists and before the
     operator has been handed anything, so pulling in the whole loader -- the
     obvious move, since it is one file -- would mint a keyset nobody is there to
-    receive and make a network call for an answer nothing can act on.
+    receive.
     """
     # Comments stripped: the play explains why it does NOT run the full loader,
     # and a gate that reads prose would fail on its own explanation.
@@ -152,9 +152,8 @@ def test_bootstrap_seeds_the_store_and_runs_nothing_else():
         "Tailscale fork"
     )
     assert "load_onbox_config" not in text, (
-        "bootstrap.yml includes the full loader. That mints the DR keyset and "
-        "resolves the catena-admin release from the registry, on a machine with "
-        "no Docker and no operator waiting on a keyset. Include "
+        "bootstrap.yml includes the full loader. That mints the keyset on a "
+        "machine with no Docker and no operator waiting on it. Include "
         "tasks/seed_onbox_config.yml instead"
     )
 
@@ -175,7 +174,7 @@ def test_the_seed_is_the_loaders_own_config_block():
     for marker in ("env-seed-names", "--set-config", "config-vars",
                    "_onbox_cfg_emit"):
         assert marker in seed, f"the seed no longer {marker!r}s"
-    for forbidden in ("--emit secrets", "catena_admin_release.py", "image-pins"):
+    for forbidden in ("--emit secrets", "catena_admin_image", "image-pins"):
         assert forbidden not in seed, (
             f"{forbidden!r} moved into the seed, which bootstrap runs on a "
             "machine with no Docker and no operator waiting on a keyset"

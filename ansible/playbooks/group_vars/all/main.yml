@@ -238,9 +238,9 @@ public_ports_fragment_dir: /etc/catena/public-ports.d
 # --- Provenance of the tree this converge is running ---
 # Written by catena-admin scripts/vendor-catena-ce.sh and shipped beside the
 # ansible/ directory inside the panel image, so it sits one level above
-# playbook_dir's parent on the on-host path and does not exist at all on a
-# controller. tasks/stamp_version.yml reads its describe to answer "which
-# catena-ce does this host apply" on a converge the host runs itself.
+# playbook_dir's parent in the tree an install or a host's own converge runs.
+# catena-ce/ansible/playbooks/tasks/stamp_version.yml reads its describe to
+# answer "which catena-ce does this host apply".
 #
 # A variable rather than the literal expression at the point of use, because
 # playbook_dir is a magic variable nothing can override -- so a path written
@@ -446,41 +446,15 @@ swarm_stack_dir: /etc/catena/stacks
 # one declaration: a host whose engines and panel come from different images
 # disagrees with itself about the config schema.
 #
-# The BOOTSTRAP input: it decides the image a first converge creates the service
-# from; afterwards reconcile/roles/payload follows the service's own image, so a
-# host has one version input at a time and the update lane moves both halves.
-# PUBLIC, pulled anonymously: the Business set is gated at runtime by the
-# licence check.
-#
-# Precedence:
-#   1. CATENA_ADMIN_IMAGE, if set -- change control, ahead of any pin. The
-#      install (install-host.sh) sets it to the image it installs, and
-#      catena-admin catena-converge to the image the panel is running, so a
-#      host stays on the image its reconcile tree came from.
-#   2. The version this host recorded in /etc/catena/config.json, rollback
-#      included.
-#   3. The newest published release, asked of the registry once per converge by
-#      playbooks/tasks/load_onbox_config.yml (catena_admin_release).
-#   4. When the registry does not answer, the image this host already runs
-#      (catena_admin_fallback_image, set by the same loader), so the panel stays
-#      where it is.
-#
-# The empty minimum on the pin filter is what lets (2) beat (3); a pin must name
-# this repository and a real version, and the release carries its digest, so the
-# pull is byte-addressed (playbooks/filter_plugins/image_pin.py). An inline
-# conditional rather than ternary: ternary evaluates both branches, and the pin
-# filter refuses the empty reference an override leaves behind.
-catena_admin_image_override: >-
-  {{ lookup('env', 'CATENA_ADMIN_IMAGE') | default('', true) }}
-catena_admin_image: >-
-  {{ catena_admin_image_override
-     if (catena_admin_image_override | default('', true) | length > 0)
-     else ((catena_admin_release.ref
-            | default(catena_admin_fallback_image | default('')))
-           | catena_image_pin(catena_image_pins | default({}), '')) }}
-# The registry repository catena-admin is published to: the one the loader asks
-# for the newest release, and the one a recorded catena-admin pin must name.
-catena_admin_repository: ghcr.io/catenahq/catena-admin
+# CATENA_ADMIN_IMAGE, verbatim: the image the tree running this converge came
+# from. install-host.sh sets it to the release it installs and catena-admin's
+# catena-converge to the image the panel runs, so the tree, the engines and the
+# shell are one release, and the panel's self-update moves all three.
+# catena-ce/ansible/playbooks/tasks/load_onbox_config.yml stops a converge that
+# names none. Which release an install fetches is
+# catena-ce/ansible/helpers/fetch_release.py's choice. PUBLIC, pulled
+# anonymously: the Business set is gated at runtime by the licence check.
+catena_admin_image: "{{ lookup('env', 'CATENA_ADMIN_IMAGE') }}"
 
 # --- Hostname ---------------------------------------------------------
 # The admin panel is served at dash.<zone>. A store key

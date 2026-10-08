@@ -13,15 +13,11 @@
 # credential) while the Business feature set inside it is gated at runtime by
 # the licence check.
 #
-# catena_admin_image lives in playbooks/group_vars/all/main.yml: reconcile/roles/payload extracts the
-# host engines from the same image at role 5.5, long before this role's defaults
-# are in scope, and the two must agree. Which release it names, and that
-# release's digest, are resolved from the registry once per converge by
-# playbooks/tasks/load_onbox_config.yml. See the block there.
-
-# The digest reconcile/roles/payload refuses to extract anything from unless it matches.
-# One value drives both halves: the engines and the shell come from one image.
-catena_admin_image_digest: "{{ catena_payload_image_digest | default('') }}"
+# catena_admin_image lives in catena-ce/ansible/playbooks/group_vars/all/main.yml:
+# reconcile/roles/payload extracts the host engines from the same image long
+# before this role's defaults are in scope, and the two must agree. It is
+# CATENA_ADMIN_IMAGE, the image the converge was started with. See the block
+# there.
 
 # Deploy the catena-admin container FROM the converge (deploy.yml), as every
 # converge does; CATENA_ADMIN_DEPLOY_FROM_CONVERGE=false skips it.
