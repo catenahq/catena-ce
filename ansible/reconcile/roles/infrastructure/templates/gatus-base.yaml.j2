@@ -48,17 +48,11 @@ ui:
   header: "{{ cloudflare_zone }}"
   default-sort-by: group
   # Dashboard subheading explains the `<version>` (angle-bracket)
-  # convention used on service cards for images that aren't on the
-  # weekly auto-update safety net. Gatus renders it as plain text
-  # (no markdown / HTML -- see web/app/src/views/Home.vue), so the
-  # docs URL is shown verbatim; the "Docs" button below is the
-  # clickable entry point. Single-line quoted scalar on purpose:
+  # convention catena-gatus-sync uses on service cards for images the
+  # automatic updates do not manage. Single-line quoted scalar on purpose:
   # YAML folded-block (`>-`) + Jinja whitespace stripping fuses the
   # next top-level key into the subheading text.
-  dashboard-subheading: "Services with their version shown in ⟨ ⟩ are not auto-updated. See the docs to learn more at catena.run/docs. Click on any service for more details."
-  buttons:
-    - name: "Docs"
-      link: "https://catena.run/docs"
+  dashboard-subheading: "Services with their version shown in < > are not updated automatically. Click on any service for more details."
 
 alerting:
   # Gatus pipes every alert to Healthchecks instead of ntfy directly.
