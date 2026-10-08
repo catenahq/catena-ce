@@ -19,10 +19,11 @@ docker_log_max_files: 5
 docker_live_restore: false
 
 # Docker Swarm advertise address: the address the installer reaches the host
-# at, recorded in the swarm raft at init. This role inits a single-node swarm
-# that the reverse-proxy + control-plane roles deploy their services onto, and
-# reconcile/roles/swarm configures.
-docker_swarm_advertise_addr: "{{ ansible_host }}"
+# at (public_ip, the installer's HOST_PUBLIC_IP), recorded in the swarm raft at
+# init. This role inits a single-node swarm that the reverse-proxy +
+# control-plane roles deploy their services onto, and reconcile/roles/swarm
+# configures.
+docker_swarm_advertise_addr: "{{ public_ip }}"
 
 # Seconds a single systemctl call against docker.service may take before the
 # converge gives up on it.
