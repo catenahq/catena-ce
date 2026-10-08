@@ -229,12 +229,33 @@ def test_dashboard_sync_reaches_keycloak_through_the_panel_on_loopback(case):
     token the managed env uses, on every host whatever domains it serves."""
     zone, registered, _, _ = CASES[case]
     rendered = _sync_env(zone, _secondaries(registered))
-    base = "http://127.0.0.1:9010/keycloak/market-token"
+    base = "http://127.0.0.1:9010/keycloak"
     assert _env_value(rendered, "KEYCLOAK_TOKEN_URL") == (
         f"{base}/realms/vps/protocol/openid-connect/token")
     assert _env_value(rendered, "KEYCLOAK_CLIENTS_API") == f"{base}/admin/realms/vps/clients"
-    assert _env_value(rendered, "CATENA_MANAGED_ENV_URL").startswith(
-        "http://127.0.0.1:9010/marketplace/market-token/")
+    assert _env_value(rendered, "CATENA_MANAGED_ENV_URL") == (
+        "http://127.0.0.1:9010/marketplace/managed-env.json")
+    assert _env_value(rendered, "CATENA_MARKETPLACE_TOKEN") == "market-token"
+
+
+def test_the_marketplace_token_is_in_no_url():
+    """dashboard-sync prints a failed call's URL to its journal, which the
+    converge log and the panel's Sync all output copy. The token rides its own
+    line, which the lane sends as a request header (catena-admin
+    payload/lib/portainer_api.py panel_headers)."""
+    rendered = _sync_env(PRIMARY, [])
+    carrying = [ln.split("=", 1)[0] for ln in rendered.splitlines()
+                if "market-token" in ln and not ln.startswith("#")]
+    assert carrying == ["CATENA_MARKETPLACE_TOKEN"]
+
+
+def test_no_marketplace_token_means_no_managed_env_url():
+    """A host whose converge has not minted the token yet has nothing the
+    panel would answer, so the lane reconciles nothing rather than failing on
+    every run."""
+    rendered = _sync_env(PRIMARY, [], {"catena_marketplace_token": ""})
+    assert _env_value(rendered, "CATENA_MANAGED_ENV_URL") == ""
+    assert _env_value(rendered, "CATENA_MARKETPLACE_TOKEN") == ""
 
 
 @pytest.mark.parametrize("path, render", [

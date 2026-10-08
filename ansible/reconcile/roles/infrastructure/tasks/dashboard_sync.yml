@@ -14,8 +14,9 @@
 #
 # This file holds everything whose correct value changes when the HOST
 # changes:
-#   - the env file, which carries the Portainer API key, the oauth2-proxy
-#     client secret, the domains this host serves and their cookie secrets;
+#   - the env file, which carries the Portainer API key, the marketplace token,
+#     the oauth2-proxy client secret, the domains this host serves and their
+#     cookie secrets;
 #   - enabling and starting the timer, which is the converge installing
 #     capability.
 #

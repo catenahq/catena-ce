@@ -77,7 +77,7 @@ def test_the_managed_env_url_is_one_the_host_can_resolve():
     text = (_ANSIBLE / _ONBOX_ENV_TEMPLATES[0]).read_text()
     line = next(l for l in text.splitlines()
                 if l.startswith("CATENA_MANAGED_ENV_URL="))
-    assert "http://127.0.0.1:{{ catena_admin_ui_port }}/marketplace/" in line, line
+    assert "http://127.0.0.1:{{ catena_admin_ui_port }}/marketplace/managed-env.json" in line, line
     assert "catena_admin_service_name" not in line, line
 
 
