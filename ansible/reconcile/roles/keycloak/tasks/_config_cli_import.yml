@@ -80,19 +80,15 @@
       # files only declare their own group memberships and we want
       # them merged, not used as a complete-state replacement.
       #
-      # COMPLETENESS IS THE WHOLE PROPERTY, AND IT IS NOT SELF-CHECKING.
-      # keycloak-config-cli defaults most managed-entity types it supports to
-      # FULL, so a type this list does not name is a type whose entities get
-      # DELETED when a per-app YAML does not declare them. The list below is
-      # what is set for the keycloak-config-cli release that
-      # keycloak_config_cli_image_tag pins (../defaults/main.yml). It has NOT
-      # been diffed against that release's own `import.managed.*` property
-      # list, and until it has, "no client data is deleted here" rests on the
-      # list happening to be complete rather than on anything checking.
-      #
-      # When bumping the image tag: diff this block against the new release's
-      # documented `import.managed.*` properties and add any type that
-      # appeared. A missing one fails silently and looks like drift.
+      # COMPLETENESS IS THE WHOLE PROPERTY. keycloak-config-cli defaults most
+      # managed-entity types to FULL, so a type this list does not name is a
+      # type whose entities get DELETED when a per-app YAML does not declare
+      # them. The list names every `import.managed.*` property of the release
+      # keycloak_config_cli_image_tag pins (../defaults/main.yml; the
+      # release's src/main/resources/application.properties).
+      # tests/unit/test_config_cli_import_keeps_everything.py holds that
+      # release's property list and fails when the tag moves, so a bump
+      # diffs this block against the new release's properties.
       - -e
       - "IMPORT_MANAGED_CLIENT=NO_DELETE"
       - -e
@@ -117,6 +113,16 @@
       - "IMPORT_MANAGED_ROLE=NO_DELETE"
       - -e
       - "IMPORT_MANAGED_CLIENT_AUTHORIZATION_RESOURCES=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_CLIENT_AUTHORIZATION_POLICIES=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_CLIENT_AUTHORIZATION_SCOPES=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_CLIENT_SCOPE_MAPPING=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_MESSAGE_BUNDLES=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_WORKFLOW=NO_DELETE"
       - -v
       - "{{ kc_import_dir }}:/config:ro"
       - "{{ keycloak_config_cli_image }}"
