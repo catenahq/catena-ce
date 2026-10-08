@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 170 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 171 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -58,6 +58,7 @@ The 170 scenarios the maintainers' test bench carries, and the behaviour each on
 | `ee_named_buttons` | Each licensed maintenance button dispatches its own distinct action rather than sharing one. |
 | `erpnext_failed_migrate_rolls_back` | When an ERPNext update's database migration fails, the previous version and its database are put back and the site keeps serving. |
 | `erpnext_update_migrates` | An ERPNext update moves every ERPNext service to the new version in one step and migrates the database, and the site comes back serving. |
+| `external_heartbeat_round_trip` | The off-site heartbeat calls the outside monitoring service while the server's monitors answer, names a monitor that stops answering, and stops calling once it is turned off. |
 | `fi_a2_oidc_secret_rotation` | Rotating the single sign-on client secret propagates to both the identity provider and the proxy in one converge. |
 | `fi_a3_keycloak_unreachable` | An unreachable identity provider is reported as a failed readiness gate rather than passing silently. |
 | `fi_a5_wrong_group_assignment` | A user outside the administrator group is refused at the authenticating proxy, before any request reaches the application behind it. |
@@ -91,7 +92,7 @@ The 170 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_n9_public_ip_change` | A change to the host public address is re-rendered into the media relay configuration by the next converge. |
 | `fi_o2_operator_ctrl_c` | An install interrupted partway through leaves nothing broken, and re- running it completes the work. |
 | `fi_o4_hosts_yml_malformed` | A malformed inventory file fails with a readable parse error naming the offending line. |
-| `fi_o5_deadman_off_by_default` | The external dead-man watchdog installs nothing at all when no endpoint is configured. |
+| `fi_o5_deadman_off_by_default` | The off-site heartbeat ships on every server and calls nothing until it is turned on. |
 | `fi_s2_input_truncated` | A truncated installation input file is rejected before anything is provisioned. |
 | `fi_s3_placeholder_inert` | An unreplaced placeholder left in a lower-precedence configuration file has no effect on a converged host. |
 | `fi_s4_tailscale_oauth_revoked` | A revoked private network credential entered in the panel is refused by the check its save runs on the host, and never stored. |
