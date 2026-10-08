@@ -365,7 +365,12 @@
   no_log: true
   when: _backup_configured | bool
 
-- name: "Run first backup inline (sync) so verify-backup finds a snapshot"
+# Queued, not waited for: the backup unit takes /run/catena.lock (flock in its
+# ExecStart), the lock catena-converge holds while it runs this play from the
+# panel, so waiting here would hold both until the backup's flock timeout. The
+# queued run starts once the converge releases the lock, and reports like any
+# backup run (its Healthchecks pings, the Backups page).
+- name: "Run first backup inline: queue it for when this converge releases the lock"  # noqa: command-instead-of-module
   when:
     - _backup_configured | bool
     - not ansible_check_mode
@@ -373,72 +378,13 @@
     - _restic_has_snapshot.rc | default(1) != 0
     # No wrapper, no snapshot. On a host whose payload arrives after this role
     # (CATENA_PAYLOAD_INSTALL=false) the unit would exec a path that does not
-    # exist yet and fail the converge. The next converge, or the first scheduled
-    # run once a lane is enabled, takes it.
+    # exist yet. The next converge, or the first scheduled run once a lane is
+    # enabled, takes it.
     - _backup_wrapper_present | default(false)
-  block:
-    # ansible.builtin.systemd_service has no `state: started --wait`
-    # equivalent; we need the synchronous block so verify-backup finds
-    # a snapshot as soon as the next task runs. `--wait` blocks until
-    # the oneshot unit's main process exits.
-    - name: "Start first backup (systemctl start --wait)"  # noqa: command-instead-of-module
-      ansible.builtin.command:
-        argv:
-          - systemctl
-          - start
-          - "--wait"
-          - "{{ backup_systemd_unit_name }}.service"
-  # On failure, dump the unit status + last journal entries so the
-  # operator doesn't have to shell in (and, on the test bench, the
-  # VM is torn down before they can anyway). The `systemctl start
-  # --wait` failure surfaces only "control process exited with error
-  # code" without the root cause -- restic network error, S3 auth
-  # failure, pg_dumpall failure, missing path, etc. `rescue:` runs
-  # on block failure, re-raises via ansible.builtin.fail so the task
-  # is still marked failed after the diag.
-  rescue:
-    - name: "diag -- systemctl status of the backup unit"
-      ansible.builtin.command:
-        argv:
-          - systemctl
-          - status
-          - "--no-pager"
-          - "--lines=80"
-          - "{{ backup_systemd_unit_name }}.service"
-      register: _backup_diag_status
-      changed_when: false
-      failed_when: false
-
-    - name: "diag -- last 120 journalctl lines for the backup unit"
-      ansible.builtin.command:
-        argv:
-          - journalctl
-          - "-u"
-          - "{{ backup_systemd_unit_name }}.service"
-          - "--no-pager"
-          - "--lines=120"
-      register: _backup_diag_journal
-      changed_when: false
-      failed_when: false
-
-    - name: "diag -- surface collected backup-unit state"
-      ansible.builtin.debug:
-        msg: |
-          ---- systemctl status {{ backup_systemd_unit_name }}.service ----
-          {{ _backup_diag_status.stdout | default('(empty)') }}
-          {{ _backup_diag_status.stderr | default('') }}
-
-          ---- journalctl -u {{ backup_systemd_unit_name }}.service (last 120 lines) ----
-          {{ _backup_diag_journal.stdout | default('(empty)') }}
-
-    - name: "Re-raise: first backup failed"
-      ansible.builtin.fail:
-        msg: |
-          First inline backup (systemctl start --wait
-          {{ backup_systemd_unit_name }}.service) exited non-zero.
-          Diagnostic output dumped above. Common causes:
-            - restic can't reach the S3 endpoint (DNS, ufw, creds).
-            - pg_dumpall failed (postgres down, auth mismatch).
-            - /srv/catena/backup-staging/pg is not writable.
-            - restic repo init race (another host reaching the
-              same bucket concurrently).
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - start
+      - "--no-block"
+      - "{{ backup_systemd_unit_name }}.service"
+  changed_when: true

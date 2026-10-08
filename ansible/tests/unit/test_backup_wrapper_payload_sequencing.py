@@ -82,8 +82,8 @@ def test_the_two_branches_are_mutually_exclusive():
 
 
 def test_the_inline_first_snapshot_needs_the_wrapper():
-    """It runs `systemctl start --wait catena-backup.service`, so a missing
-    wrapper fails the converge at the unit rather than at the guard above."""
+    """It starts catena-backup.service, so a missing wrapper would start a unit
+    whose ExecStart does not exist."""
     task = _find("Run first backup inline")
     cond = _when(task)
     assert "_backup_wrapper_present" in cond, (
@@ -91,6 +91,14 @@ def test_the_inline_first_snapshot_needs_the_wrapper():
         "payload lands after this role it starts a unit whose ExecStart does "
         "not exist"
     )
+
+
+def test_the_first_backup_is_queued_not_waited_for():
+    """The backup unit takes /run/catena.lock, which catena-converge holds while
+    it runs this play: waiting for the unit inside the converge deadlocks both
+    until the backup's flock timeout."""
+    argv = _find("Run first backup inline")["ansible.builtin.command"]["argv"]
+    assert "--no-block" in argv and "--wait" not in argv, argv
 
 
 def test_validate_does_not_assert_payload_scripts_on_a_role_owned_fixture_list():
