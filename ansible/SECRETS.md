@@ -53,6 +53,7 @@ ride the backup, because it is what unlocks the backup.
 | `headscale_api_key` | ^, on the self-hosted backend | settings page | no |
 | `headscale_preauth_key` | ^, static fallback | settings page | no |
 | `cloudflare_api_token` | Tunnel + DNS | settings page | no |
+| `cloudflare_api_tokens` | ^, one token per additional domain (zone -> token map) | domains page | no |
 | `BACKUP_RESTIC_REPO` (config) | restic repo URL | settings page | **yes** |
 | `backup_s3_access_key` | reach the restic bucket | settings page | **yes** |
 | `backup_s3_secret_key` | ^ | settings page | **yes** |
@@ -60,10 +61,11 @@ ride the backup, because it is what unlocks the backup.
 | `admin_password` | first login (Portainer + Keycloak + Beszel + this panel) | on-box mint, **shown once** | no |
 | `console_recovery_password` | break-glass login for `ops` at the provider KVM / serial console | on-box mint, **shown once** | **yes** |
 | `smtp_password` | outbound mail (opt) | settings page | no |
-| `mailserver_relay_password` | smarthost (opt) | settings page | no |
-| `mailserver_spamhaus_dqs_key` | RBL (opt) | settings page | no |
+| `mailserver_relay_password` | mail server app's smarthost (opt) | store only, no panel field | no |
+| `mailserver_spamhaus_dqs_key` | mail server app's RBL (opt) | store only, no panel field | no |
 | `storage_bulk_username` | CIFS bulk mount (opt; NFS needs neither) | settings page | no |
 | `storage_bulk_password` | ^ | settings page | no |
+| `catena_license` | Polar subscription key (opt; empty is Community) | settings page | no |
 
 `backup_restic_password`, `admin_password` and
 `console_recovery_password` are special: `USER_HELD_SECRETS` in
@@ -99,10 +101,16 @@ converge loader (`playbooks/tasks/load_onbox_config.yml` ->
 then set_facts them for the roles. `seed.py` mints none of these.
 
 - `catena_postgres_password`
+- `turn_static_auth_secret`
+- `catena_admin_session_key`
+- `catena_marketplace_token`
 - `keycloak_db_password`
 - `oauth2_proxy_cookie_secret`
+- `oauth2_proxy_cookie_secret_<zone>`, one per domain in `CLOUDFLARE_ZONES`
 - `oauth2_proxy_client_secret`
 - `dashboard_sync_client_secret`
+- `catena_admin_panel_client_secret`
+- `catena_identity_probe_client_secret`
 - `nextcloud_oidc_client_secret`
 - `element_oidc_client_secret`
 - `mailserver_oidc_client_secret`
@@ -112,18 +120,9 @@ then set_facts them for the roles. `seed.py` mints none of these.
 - `healthchecks_ping_key`
 - `healthchecks_api_key_readonly`
 - `healthchecks_api_key_readwrite`
-- `turn_static_auth_secret`
-- `nextcloud_talk_signaling_secret`
-- `nextcloud_talk_internal_secret`
-- `jitsi_prosody_password`
-- `jitsi_jicofo_auth_password`
-- `jitsi_jicofo_component_secret`
-- `jitsi_jvb_auth_password`
-- `element_jitsi_jicofo_auth_password`
-- `element_jitsi_jicofo_component_secret`
-- `element_jitsi_jvb_auth_password`
-- `element_jigasi_xmpp_password`
 - `beszel_universal_token`
+- `beszel_oidc_client_secret`
+- `zap_api_key`
 
 ### 3. Service-minted, role-captured (`ROLE_MINTED_SECRETS`)
 
@@ -188,6 +187,20 @@ variable. `reconcile/roles/keycloak` derives `smtp_host` from the Resend/Brevo a
 so a fact named `smtp_host` would have replaced the derivation with the raw
 value -- silently, since a fact outranks a role default.
 
+## Credentials in their own store blocks
+
+Two more blocks of the store hold credentials, each with one writer, and ride
+the backup with the rest of the file:
+
+- `client_app_secrets`: the catalog apps' per-deploy credentials (database
+  and admin passwords, session keys, the Talk and Jitsi secrets), keyed
+  `<template-id>/<ENV_KEY>`. The panel's catalog render asks for each by
+  length and character set; `onbox_config.py` `ensure_app_secrets` mints it
+  once and returns the stored value after that. The converge reads none of
+  them.
+- `offsite_copies`: the source and target keys of each offsite copy, written
+  by catena-admin (`payload/engines/offsite`).
+
 ## On-box persistence target
 
 `/etc/catena/` already rides the backup (`backup_paths` includes `/etc`) and
@@ -212,6 +225,7 @@ matching credential at converge.
   moving that boundary, so no encryption tool and no client-held key are in
   play at all.
 - **Single config file format.** RESOLVED: JSON at `/etc/catena/config.json`
-  (0600 root), with two sections (`secrets` + `config`). Both the
-  settings-write API and the converge read/write it atomically
-  (temp-file + `os.replace`) via `helpers/onbox_config.py`.
+  (0600 root). `helpers/onbox_config.py` owns three sections (`secrets`,
+  `config`, `client_app_secrets`) and keeps the blocks other writers own.
+  Both the settings-write API and the converge read/write it atomically
+  (temp-file + `os.replace`) through it.

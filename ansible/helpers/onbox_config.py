@@ -305,19 +305,6 @@ INTERNAL_SECRETS: dict[str, Callable[[], str]] = {
     "healthchecks_ping_key": mint_url_safe,
     "healthchecks_api_key_readonly": mint_hc_api_key,
     "healthchecks_api_key_readwrite": mint_hc_api_key,
-    # Nextcloud Talk + HPB bearer secrets.
-    "nextcloud_talk_signaling_secret": mint_strong_password,
-    "nextcloud_talk_internal_secret": mint_strong_password,
-    # Rocket.Chat-bundled Jitsi component secrets.
-    "jitsi_prosody_password": mint_strong_password,
-    "jitsi_jicofo_auth_password": mint_strong_password,
-    "jitsi_jicofo_component_secret": mint_strong_password,
-    "jitsi_jvb_auth_password": mint_strong_password,
-    # Element-bundled Jitsi + jigasi secrets.
-    "element_jitsi_jicofo_auth_password": mint_strong_password,
-    "element_jitsi_jicofo_component_secret": mint_strong_password,
-    "element_jitsi_jvb_auth_password": mint_strong_password,
-    "element_jigasi_xmpp_password": mint_strong_password,
     # Beszel resource-monitor token. Beszel is always deployed, so this is
     # always in use. The hub LOGIN is deliberately NOT minted here: it is the
     # shared admin_password (USER_HELD, surfaced once at install). A login
