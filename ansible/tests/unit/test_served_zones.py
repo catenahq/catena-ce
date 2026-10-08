@@ -6,7 +6,8 @@ renders read that one value: reconcile/roles/keycloak's compose and auth route,
 and reconcile/roles/infrastructure's dashboard-sync env, whose CLOUDFLARE_ZONES
 and per-domain cookie secrets catena-admin payload/lib/clients_provisioner.py
 islands each gated app's oauth2-proxy on. Each consumer imports the reader
-right before it renders.
+right before it renders. Whatever the domains, the same env sends
+dashboard-sync's Keycloak calls to catena-admin on the host's loopback.
 
 The renders go through ansible-core's own templating, with the reader's
 set_fact expression evaluated as written, so a test here fails the way a
@@ -131,6 +132,7 @@ def _sync_env(zone: str, secondaries: list[str], secrets: dict | None = None) ->
         "oauth2_proxy_client_secret": "client-secret",
         "oauth2_proxy_cookie_secret": "primary-cookie-secret",
         "catena_admin_ui_port": "9010",
+        "catena_marketplace_token": "market-token",
         "catena_secondary_zones": secondaries,
         **(secrets or {}),
     })
@@ -217,6 +219,22 @@ def test_only_a_secondary_domain_gets_a_cookie_secret_of_its_own():
     assert json.loads(_env_value(two, "OAUTH2_PROXY_ZONE_COOKIE_SECRETS")) == {SECOND: "s2"}
     one = _sync_env(PRIMARY, _secondaries(_projection(PRIMARY)), secrets)
     assert json.loads(_env_value(one, "OAUTH2_PROXY_ZONE_COOKIE_SECRETS")) == {}
+
+
+@pytest.mark.parametrize("case", CASES, ids=list(CASES))
+def test_dashboard_sync_reaches_keycloak_through_the_panel_on_loopback(case):
+    """dashboard-sync runs on the host, where keycloak-server does not resolve,
+    and the public auth host is a round trip through Cloudflare and the tunnel.
+    catena-admin forwards the calls on its published loopback port, behind the
+    token the managed env uses, on every host whatever domains it serves."""
+    zone, registered, _, _ = CASES[case]
+    rendered = _sync_env(zone, _secondaries(registered))
+    base = "http://127.0.0.1:9010/keycloak/market-token"
+    assert _env_value(rendered, "KEYCLOAK_TOKEN_URL") == (
+        f"{base}/realms/vps/protocol/openid-connect/token")
+    assert _env_value(rendered, "KEYCLOAK_CLIENTS_API") == f"{base}/admin/realms/vps/clients"
+    assert _env_value(rendered, "CATENA_MANAGED_ENV_URL").startswith(
+        "http://127.0.0.1:9010/marketplace/market-token/")
 
 
 @pytest.mark.parametrize("path, render", [
