@@ -5,7 +5,7 @@
 
 # Test scenarios
 
-The 172 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
+The 171 scenarios the maintainers' test bench carries, and the behaviour each one is written to prove against a real virtual machine. Names are stable: a SPEC.md invariant citing `bench:<name>` refers to the row of the same name below.
 
 | Scenario | What it proves |
 | --- | --- |
@@ -66,8 +66,7 @@ The 172 scenarios the maintainers' test bench carries, and the behaviour each on
 | `fi_b2_pg_dump_failed` | A failed database dump aborts the backup before any archive is written, so no partial snapshot is ever created. |
 | `fi_b3_snapshot_id_mismatch` | A restore asking for a snapshot that does not exist is refused with an error naming what was asked for. |
 | `fi_b4_locked_pack_rotation` | Backup data held under an object-lock retention policy survives an attempt to prune it away. |
-| `fi_b6_healthchecks_down` | An unreachable monitoring endpoint makes the fallback alert channel fire instead of the failure going unnoticed. |
-| `fi_b7_ntfy_delivery_fails` | A failed alert delivery leaves a record on the host and does not block the work that raised it. |
+| `fi_b6_healthchecks_down` | An unreachable monitoring endpoint is reported instead of the failure going unnoticed. |
 | `fi_c1_docker_daemon_hang` | A frozen container daemon makes the converge fail within a bounded time rather than hanging indefinitely. |
 | `fi_c3_portainer_crash_mid_deploy` | A crash of the deployment control plane during a deploy is covered by the orchestrator restarting it, and the deployment completes. |
 | `fi_c4_registry_pull_timeout` | Heavy packet loss on the host outbound network makes the converge fail fast at its first external step. |

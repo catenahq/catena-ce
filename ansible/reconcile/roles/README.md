@@ -32,6 +32,6 @@ generated from the leading comment of each role's `tasks/main.yml`.
 | `portainer` | Deploy Portainer CE as the container control plane. |
 | `postgres` | Deploy the catena-owned Postgres swarm service. |
 | `public_ports` | Wire the declarative public-port reconciler into this host. |
-| `swarm` | Configure the swarm bootstrap/roles/docker created: the task-history bound, the data-node label, Healthchecks' private overlay, and the self-heal for containers the overlay race strands. |
+| `swarm` | Configure the swarm bootstrap/roles/docker created: the task-history bound, the data-node label, the private overlays, and the self-heal for containers the overlay race strands. |
 | `tier1_stack` | Render the accumulated specs into compose files and prove they load. |
 | `traefik` | reconcile/roles/traefik -- deploy + own the catena-traefik reverse proxy. |
