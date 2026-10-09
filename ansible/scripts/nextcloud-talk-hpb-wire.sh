@@ -6,16 +6,17 @@
 # every `occ talk:*:add` is an upsert keyed on the URL/host. Re-clicking
 # the button after a config change picks up the new values.
 #
-# Auto-detect: the HPB block in nextcloud-s3.compose.yml may be
-# commented out (operator opted to disable HPB). Probe whether the
-# `signaling` service is reachable on catena-network; if not, log
-# and exit 0 -- this script is safe to wire into a single catena-admin
-# action that fires unconditionally.
+# Auto-detect: the talk-hpb service in the Nextcloud template
+# (catena-templates blueprints/nextcloud-s3-oidc/docker-compose.yml) may be
+# commented out to disable HPB. Probe whether the `signaling` service is
+# reachable on catena-network; if not, log and exit 0 -- this script is safe
+# to wire into a single catena-admin action that fires unconditionally.
 #
-# Defaults:
-#   turn.<base>:5349  TURN/TLS (TCP+UDP) -- shared coturn
-#   stun.<base>:3478  STUN (UDP)         -- shared coturn (alias of TURN host)
-#   signaling.<base>  WSS signaling endpoint -- this template's signaling svc
+# Every host it registers is read from the Nextcloud container's environment,
+# which the template fills from the same stack variables talk-hpb reads:
+#   TURN_HOSTNAME:5349   TURN/TLS (TCP+UDP) -- shared coturn (talk-hpb TURN_DOMAIN)
+#   TURN_HOSTNAME:3478   STUN (UDP)         -- the same coturn
+#   SIGNALING_HOSTNAME   WSS signaling endpoint -- talk-hpb (its TALK_HOST)
 
 set -euo pipefail
 
@@ -28,30 +29,22 @@ get_env() {
     docker exec "$ct" /bin/sh -c "printenv \"$1\"" 2>/dev/null || true
 }
 
-NC_HOSTNAME=$(get_env NEXTCLOUD_HOSTNAME)
+SIGNALING_HOSTNAME=$(get_env SIGNALING_HOSTNAME)
 SIGNALING_SECRET=$(get_env SIGNALING_SECRET)
+TURN_HOSTNAME=$(get_env TURN_HOSTNAME)
 TURN_SECRET=$(get_env TURN_STATIC_AUTH_SECRET)
-
-# Derive the base zone from the Nextcloud hostname (drop the leading
-# nextcloud.). Falls back to the full hostname if no leading label.
-TURN_HOST=$(echo "$NC_HOSTNAME" | sed -e 's/^nextcloud\.//')
-if [ -z "$TURN_HOST" ] || [ "$TURN_HOST" = "$NC_HOSTNAME" ]; then
-    TURN_HOST="$NC_HOSTNAME"
-fi
-TURN_HOSTNAME="turn.$TURN_HOST"
 STUN_HOSTNAME="$TURN_HOSTNAME" # coturn STUN + TURN share the host
-SIGNALING_HOSTNAME="signaling.$NC_HOSTNAME"
 
 # Auto-detect: is the signaling service alive on catena-network? The
 # Nextcloud container is on catena-network so a short curl from inside
 # it is the cheapest probe. aio-talk's signaling layer listens on
 # port 8081 inside the container; the catena-network alias `signaling`
-# points at the talk-hpb service (set in nextcloud-s3.compose.yml).
+# points at the talk-hpb service (set in the Nextcloud template).
 if ! docker exec "$ct" /bin/sh -c \
         "curl -fsS --max-time 3 http://signaling:8081/api/v1/welcome >/dev/null 2>&1"; then
     echo
     echo "HPB signaling service not reachable from Nextcloud."
-    echo "If the talk-hpb service in nextcloud-s3.compose.yml is commented"
+    echo "If the talk-hpb service in the Nextcloud template is commented"
     echo "out this is expected -- skipping wiring (Talk runs in built-in"
     echo "P2P mode; small calls work, large calls degrade)."
     echo
@@ -71,7 +64,7 @@ fi
 # fail with nothing pointing at TURN, which is the worst shape available.
 #
 # Fatal here, unlike rocketchat-jitsi-wire.sh: aio-talk's Janus is configured
-# TURN-ONLY (see the talk-hpb block in nextcloud-s3.compose.yml), so without
+# TURN-ONLY (see the talk-hpb service in the Nextcloud template), so without
 # coturn there is no media path at all, not just a degraded one.
 if [ -z "$(docker service ls --filter name=coturn --format '{{.Name}}')" ]; then
     echo "The call relay this server uses is not running yet, so Talk" >&2
@@ -84,15 +77,16 @@ if [ -z "$(docker service ls --filter name=coturn --format '{{.Name}}')" ]; then
 fi
 
 missing=()
-[ -z "$NC_HOSTNAME" ]       && missing+=("NEXTCLOUD_HOSTNAME")
-[ -z "$SIGNALING_SECRET" ]  && missing+=("SIGNALING_SECRET")
-[ -z "$TURN_SECRET" ]       && missing+=("TURN_STATIC_AUTH_SECRET")
+[ -z "$SIGNALING_HOSTNAME" ] && missing+=("SIGNALING_HOSTNAME")
+[ -z "$SIGNALING_SECRET" ]   && missing+=("SIGNALING_SECRET")
+[ -z "$TURN_HOSTNAME" ]      && missing+=("TURN_HOSTNAME")
+[ -z "$TURN_SECRET" ]        && missing+=("TURN_STATIC_AUTH_SECRET")
 
 if [ "${#missing[@]}" -gt 0 ]; then
     echo "error: missing required env on $ct:" >&2
     for m in "${missing[@]}"; do echo "  - $m" >&2; done
     echo >&2
-    echo "Open Portainer > App Templates > nextcloud-s3 > Edit > Environment" >&2
+    echo "Open Portainer > App Templates > Nextcloud > Edit > Environment" >&2
     echo "and confirm the HPB env vars are set, then redeploy." >&2
     exit 2
 fi

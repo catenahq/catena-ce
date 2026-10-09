@@ -28,7 +28,7 @@ ADMIN_USER=$(get_env ADMIN_USERNAME)
 ADMIN_PASS=$(get_env ADMIN_PASS)
 
 # Derive the base zone from the RC hostname (drop the leading
-# rocketchat.). Same shape as nextcloud-talk-hpb-wire.sh.
+# rocketchat.).
 RC_HOSTNAME_BASE=$(echo "$RC_HOSTNAME" | sed -e 's/^rocketchat\.//')
 if [ -z "$RC_HOSTNAME_BASE" ] || [ "$RC_HOSTNAME_BASE" = "$RC_HOSTNAME" ]; then
     RC_HOSTNAME_BASE="$RC_HOSTNAME"
