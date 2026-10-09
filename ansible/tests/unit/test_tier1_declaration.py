@@ -16,7 +16,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import jinja2
+import pytest
 import yaml
+
+from ansible_tree import CONVERGE_TAIL, PLAYBOOKS, post_tasks
 
 ANSIBLE = Path(__file__).resolve().parents[2]
 ROLE = ANSIBLE / "reconcile" / "roles" / "tier1_stack"
@@ -155,12 +159,84 @@ def test_the_control_plane_write_keeps_its_completeness_guard():
     assert "difference(_tier1_present) | length == 0" in cond
 
 
-def test_the_companion_file_is_removed_when_nothing_contributed():
+def _runs(fragment: str, contributed: list[str], running: list[str] | None) -> bool:
+    """Whether the companion task named like `fragment` runs, its `when` list
+    evaluated in order as Ansible does. `running` is None when the service
+    probe was skipped, which leaves its registered result without stdout_lines."""
+    env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+    env.filters["intersect"] = lambda a, b: [x for x in a if x in b]
+    facts = {
+        "_tier1_companions": contributed,
+        "_tier1_services": ({"skipped": True} if running is None
+                            else {"stdout_lines": running}),
+        "tier1_companion_services": _defaults()["tier1_companion_services"],
+    }
+    when = _task(TASKS, fragment)["when"]
+    return all(env.compile_expression(cond)(**facts)
+               for cond in (when if isinstance(when, list) else [when]))
+
+
+def test_the_service_probe_runs_only_when_nothing_contributed():
+    probe = _task(TASKS, "which swarm services run on this host")
+    assert probe["ansible.builtin.command"]["argv"][:3] == ["docker", "service", "ls"]
+    assert _runs("which swarm services run on this host", [], None)
+    assert not _runs("which swarm services run on this host", ["coturn"], None)
+
+
+def test_a_contributed_companion_is_written():
+    assert _runs("write and validate the companion file", ["coturn"], None)
+    assert not _runs("kept the last companion render", ["coturn"], None)
+    assert not _runs("no companions on this host", ["coturn"], None)
+
+
+def test_the_companion_file_is_removed_when_nothing_contributed_or_runs():
     """Left behind, it describes services this host does not run -- and the whole
     point of rendering is that the file matches reality."""
     task = _task(TASKS, "no companions on this host")
     assert task["ansible.builtin.file"]["state"] == "absent"
-    assert "_tier1_companions | length == 0" in str(task["when"])
+    assert _runs("no companions on this host", [], ["catena-traefik"])
+    assert not _runs("kept the last companion render", [], ["catena-traefik"])
+
+
+def test_a_running_companion_that_did_not_contribute_keeps_its_render():
+    """coturn keeps running when its role is skipped by --tags or held back on a
+    host with no domain. Deleting the file then would leave a running service
+    with no render; the last render still describes it."""
+    running = ["catena-traefik", "coturn"]
+    assert not _runs("no companions on this host", [], running)
+    assert _runs("kept the last companion render", [], running)
+    assert not _runs("write and validate the companion file", [], running)
+
+
+def test_the_companion_roster_is_the_service_coturn_creates():
+    coturn = yaml.safe_load(
+        (ANSIBLE / "reconcile" / "roles" / "coturn" / "defaults" / "main.yml").read_text())
+    assert _defaults()["tier1_companion_services"] == [coturn["coturn_compose_name"]]
+
+
+@pytest.mark.parametrize("playbook", ["converge.yml", "reconcile.yml"])
+def test_both_converge_paths_render_the_oracle(playbook: str):
+    """The install runs converge.yml once; every later converge, an update's
+    included, is the host's own reconcile.yml. A render on only the first
+    leaves both files as the install wrote them: no coturn after a Talk
+    deploy, and control-plane images an update has since moved."""
+    tasks = post_tasks(PLAYBOOKS / playbook)
+    names = [t.get("name", "") for t in tasks]
+    render = [i for i, t in enumerate(tasks)
+              if (t.get("ansible.builtin.include_role") or {}).get("name") == "tier1_stack"]
+    assert len(render) == 1, f"{playbook} renders the tier-1 oracle {len(render)} times"
+    manifest = next(i for i, n in enumerate(names) if n.startswith("Release: record"))
+    assert render[0] < manifest, f"{playbook} renders after recording the release"
+
+
+@pytest.mark.parametrize("playbook", ["converge.yml", "reconcile.yml"])
+def test_a_tier1_stack_tag_reaches_the_render(playbook: str):
+    """The tail is a dynamic include: its own tags decide whether it fires at
+    all, before the render's tag is looked at."""
+    play = yaml.safe_load((PLAYBOOKS / playbook).read_text())[0]
+    tail = next(t for t in play["post_tasks"]
+                if (t.get("ansible.builtin.include_tasks") or {}).get("file") == CONVERGE_TAIL)
+    assert "tier1_stack" in tail["tags"]
 
 
 def test_coturn_contributes_to_the_companion_roster_not_the_control_plane():

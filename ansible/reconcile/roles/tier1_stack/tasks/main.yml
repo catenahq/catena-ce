@@ -118,16 +118,25 @@
           {{ tier1_stack_path }} validates: {{ _tier1_present | join(', ') }}
 
 # ── app companions ───────────────────────────────────────────────────────
-# No completeness roster: there is nothing to be incomplete about. A companion
-# is present exactly when its consumer is, so the accumulator holding fewer
-# than last converge is the answer, not a partial one. The file is REMOVED when
-# none contributed, rather than left behind describing services this host no
-# longer runs.
+# No completeness roster: a host with no TURN consumer runs no companion, so an
+# empty accumulator is an ordinary answer. The host decides the file. Written
+# when any companion contributed. With none, REMOVED when no companion runs
+# here, rather than left behind describing services the host does not run,
+# and KEPT when one still runs without contributing (its role skipped by
+# --tags, or held back on a host with no domain), so it keeps describing that
+# service from the spec its last render applied.
 
 - name: "tier1_stack: which companions contributed a spec"
   ansible.builtin.set_fact:
     _tier1_companions: >-
       {{ catena_companion_specs | default([]) | map(attribute='name') | list }}
+
+- name: "tier1_stack: which swarm services run on this host"
+  ansible.builtin.command:
+    argv: [docker, service, ls, --format, '{{ "{{" }}.Name{{ "}}" }}']
+  register: _tier1_services
+  changed_when: false
+  when: _tier1_companions | length == 0
 
 - name: "tier1_stack: write and validate the companion file"
   when: _tier1_companions | length > 0
@@ -161,8 +170,21 @@
           {{ tier1_companions_path }} validates:
           {{ _tier1_companions | join(', ') }}
 
+- name: "tier1_stack: kept the last companion render -- a companion runs but none contributed"
+  ansible.builtin.debug:
+    msg: >-
+      {{ tier1_companion_services | intersect(_tier1_services.stdout_lines) | join(', ') }}
+      runs on this host and contributed no spec this converge, so
+      {{ tier1_companions_path }} keeps the render of the last converge that
+      applied it.
+  when:
+    - _tier1_companions | length == 0
+    - tier1_companion_services | intersect(_tier1_services.stdout_lines) | length > 0
+
 - name: "tier1_stack: no companions on this host"
   ansible.builtin.file:
     path: "{{ tier1_companions_path }}"
     state: absent
-  when: _tier1_companions | length == 0
+  when:
+    - _tier1_companions | length == 0
+    - tier1_companion_services | intersect(_tier1_services.stdout_lines) | length == 0

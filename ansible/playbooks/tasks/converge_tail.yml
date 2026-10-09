@@ -3,6 +3,22 @@
 # both include it, naming themselves in `catena_converge_path`. Each task keeps
 # its own tag, so a --tags run still selects one of them.
 
+# Render the control plane and the app companions as compose files and prove
+# they load. Applies nothing: the services were already created and reconciled
+# by the catena-tier1 engine, role by role, as each contributed its spec. This
+# is the oracle -- `docker stack config` type-checking the same dicts against
+# the docker actually installed. Here, after the roles, so it renders the specs
+# every one of them contributed, on whichever path converged the host.
+#
+# `apply:` carries the tag inward: without it, `--tags tier1_stack` fires the
+# include and then filters out every task inside it.
+- name: "Tier 1: render + validate the swarm-service oracle files"
+  ansible.builtin.include_role:
+    name: tier1_stack
+    apply:
+      tags: [tier1_stack]
+  tags: [tier1_stack]
+
 # Reconcile the declarative public-port registry, after every role has dropped
 # its /etc/catena/public-ports.d/ fragment and deployed its containers
 # (vps.expose.* labels), so the merged effective set is complete. Applies ufw +

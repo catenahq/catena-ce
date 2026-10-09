@@ -242,30 +242,12 @@
     - { role: backup, tags: [backup] } # backup configuration + the first snapshot
 
   post_tasks:
-    # Render the control plane and the app companions as compose files and
-    # prove they load. Applies nothing: the services were already created and
-    # reconciled by the catena-tier1 engine, role by role, as each contributed
-    # its spec. This is the oracle -- `docker stack config` type-checking the
-    # same dicts against the docker actually installed.
-    #
-    # In post_tasks rather than the roles list, so it renders the specs every
-    # role above contributed.
-    #
-    # `apply:` carries the tag inward for the same reason the includes above
-    # do: without it, `--tags tier1_stack` fires the include and then filters
-    # out every task inside it.
-    - name: "Tier 1: render + validate the swarm-service oracle files"
-      ansible.builtin.include_role:
-        name: tier1_stack
-        apply:
-          tags: [tier1_stack]
-      tags: [tier1_stack]
-
-    # Ports, drift report, prune and release manifest: the tail both converge
-    # playbooks share (its header says how its tags work).
-    - name: "Converge tail: ports, drift, prune, release"
+    # The tier-1 oracle render, ports, drift report, prune and release
+    # manifest: the tail both converge playbooks share (its header says how its
+    # tags work).
+    - name: "Converge tail: tier-1 render, ports, drift, prune, release"
       ansible.builtin.include_tasks:
         file: tasks/converge_tail.yml
       vars:
         catena_converge_path: converge
-      tags: [public_ports, bootstrap_drift, prune, release_manifest]
+      tags: [tier1_stack, public_ports, bootstrap_drift, prune, release_manifest]

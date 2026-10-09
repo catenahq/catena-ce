@@ -2,8 +2,8 @@
 
 The swarm services Catena creates directly: the control plane (traefik,
 postgres, portainer) and coturn, the one app companion.
-The service roles include two shared task files from here, and the install's
-converge ends on this role's own render.
+The service roles include two shared task files from here, and every converge
+ends on this role's own render.
 
 - `tasks/spec_one.yml` asks the `catena-tier1` host engine for one service's
   built-in spec (`catena-tier1 spec <name>`), then lifts its image to the pin
@@ -20,9 +20,10 @@ converge ends on this role's own render.
 
 - Defaults: `tier1_engine_bin` (`/usr/local/bin/catena-tier1`),
   `tier1_stack_dir` (`/etc/catena/stacks`), `tier1_stack_path` and
-  `tier1_companions_path` (the two rendered files), and
+  `tier1_companions_path` (the two rendered files),
   `tier1_stack_required`, the three control-plane services `tier1.yml` waits
-  for.
+  for, and `tier1_companion_services`, the companions (coturn) whose presence
+  keeps `companions.yml`.
 - Include vars: `tier1_spec_name` plus an optional `tier1_spec_args` argv for
   `spec_one.yml`, which answers in `tier1_builtin_spec`; `tier1_spec` for
   `reconcile_one.yml`.
@@ -41,13 +42,14 @@ converge ends on this role's own render.
 - `main.yml` creates `/etc/catena/stacks` (0750 root) and writes `tier1.yml`
   (0640 root) once traefik, postgres and portainer have all contributed. A
   tag-scoped converge that ran fewer of them names the missing ones and keeps
-  the previous file. `companions.yml` is written when coturn contributed and
-  deleted when nothing did.
-- `main.yml` runs from the post_tasks of `catena-ce/ansible/playbooks/converge.yml`
-  only. The converge a host runs on itself
-  (`catena-ce/ansible/playbooks/reconcile.yml`) reaches the two shared task
-  files through the service roles, and leaves both rendered files as the last
-  install wrote them.
+  the previous file. `companions.yml` is written when coturn contributed,
+  deleted when nothing did and coturn does not run, and kept when coturn runs
+  without contributing.
+- `main.yml` runs at the end of every converge, from
+  `catena-ce/ansible/playbooks/tasks/converge_tail.yml`, which both
+  `converge.yml` (the install) and `reconcile.yml` (the converge a host runs on
+  itself) include. Both reach the two shared task files through the service
+  roles.
 
 ## Related
 

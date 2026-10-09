@@ -13,6 +13,12 @@ tier1_stack_path: "{{ tier1_stack_dir }}/tier1.yml"
 # service on a converge where the control plane did not change.
 tier1_companions_path: "{{ tier1_stack_dir }}/companions.yml"
 
+# The companion services, by swarm service name. companions.yml is removed only
+# when none of them runs on the host: a companion that runs without
+# contributing a spec keeps the last render.
+tier1_companion_services:
+  - coturn
+
 # The host engine that creates and reconciles these services
 # (catena-admin payload/engines/tier1). Installed to /usr/local/bin by
 # reconcile/roles/payload, which runs right after bootstrap/roles/docker -- ahead of every role

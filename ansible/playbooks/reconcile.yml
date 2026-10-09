@@ -6,11 +6,12 @@
 # checks.
 #
 # Same roles as converge.yml, in the same order, minus the bootstrap roles,
-# which only the install applies, and minus the converge's preflights
-# and its tier1_stack render. What is left is the work a host can do to itself:
-# render config from the image, reconcile swarm services, install units, apply
-# the schedule. boundary.yml declares which roles belong here, and
-# tests/unit/test_converge_boundary.py holds the two files to each other.
+# which only the install applies, and minus the converge's preflights. What is
+# left is the work a host can do to itself: render config from the image,
+# reconcile swarm services, install units, apply the schedule. Both end on the
+# same tail, the tier-1 oracle render included. boundary.yml declares which
+# roles belong here, and tests/unit/test_converge_boundary.py holds the two
+# files to each other.
 #
 # Every value comes from the on-box store or the image, none from an installer's
 # inventory. That test holds at zero the inventory variables a reconcile role
@@ -100,9 +101,9 @@
 
   post_tasks:
     # The tail converge.yml ends on too.
-    - name: "Converge tail: ports, drift, prune, release"
+    - name: "Converge tail: tier-1 render, ports, drift, prune, release"
       ansible.builtin.include_tasks:
         file: tasks/converge_tail.yml
       vars:
         catena_converge_path: reconcile
-      tags: [public_ports, bootstrap_drift, prune, release_manifest]
+      tags: [tier1_stack, public_ports, bootstrap_drift, prune, release_manifest]
