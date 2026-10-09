@@ -382,11 +382,11 @@
         - catena_public_surface_deferred | default(false) | bool
       tags: [verify_gated, edge]
 
-# gatus-sync reads CLIENT-app monitoring from `docker ps` labels
-# (vps.route.host + com.docker.stack.namespace), no control-plane API -- so
-# its wiring runs on any converge, OUTSIDE the Portainer-key-gated block above
-# (a partial --tags infrastructure run before reconcile/roles/portainer ran
-# still installs it). Its script and units ship in the catena-admin payload.
+# gatus-sync reads the client apps from the app intent dashboard-sync writes,
+# no control-plane API -- so its wiring runs on any converge, OUTSIDE the
+# Portainer-key-gated block above (a partial --tags infrastructure run before
+# reconcile/roles/portainer ran still installs it). Its script and units ship
+# in the catena-admin payload.
 - name: gatus-sync env file + timer
   ansible.builtin.include_tasks:
     file: gatus_sync.yml

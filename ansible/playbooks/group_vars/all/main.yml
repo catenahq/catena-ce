@@ -487,8 +487,9 @@ catena_admin_image: "{{ lookup('env', 'CATENA_ADMIN_IMAGE') }}"
 catena_admin_subdomain: "{{ cfg_catena_admin_subdomain | default('dash', true) }}"
 catena_admin_hostname: "{{ catena_admin_subdomain }}.{{ cloudflare_zone }}"
 catena_admin_ui_port: "9010"
-# Host dir where catena-backup-run + catena-gatus-sync write their summary JSON
-# files (backup-stats.json, gatus-summary.json, healthchecks-summary.json).
+# Host dir where the payload lanes write the JSON reports the panel reads
+# (backup-stats.json from catena-backup-run, gatus-summary.json from
+# catena-gatus-sync, the rest named in catena-admin shell/stats).
 # Bind-mounted read-only into the admin container; the admin's stats
 # reader picks up the files unchanged. Matches reconcile/roles/backup defaults'
 # backup_stats_dir; do not move without updating that role.

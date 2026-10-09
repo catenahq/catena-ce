@@ -45,12 +45,6 @@ infrastructure_managed_paths:
 # itself. The HPB stack reuses the shared coturn UDP profile already
 # opened by reconcile/roles/coturn (3478, 5349, 50000-50100).
 
-# --- Cloudflare tunnel ---------------------------------------------------
-# Tunnel-specific vars (cloudflared_tunnel_name, cloudflared_image,
-# cloudflared_ingress_service) live in reconcile/roles/cloudflare_tunnel/defaults
-# and are visible here at converge time: both roles run in the same play, and
-# defaults from each are merged into the play's var scope.
-
 # --- Swarm stack-deploy helper --------------------------------------------
 # Poll window for stack-deploy completion. Keycloak with the phasetwo
 # distribution re-runs its `start` build step on every container boot
@@ -87,7 +81,7 @@ gatus_host_config_dir: "/etc/catena/gatus"
 # endpoint per infra service, NAME augmented with current/latest version
 # from version-check.json). Rendered at converge time with hostnames /
 # aliases substituted; gatus-sync re-evaluates the version annotation
-# every 5 min so version bumps surface on the dashboard cards.
+# on every run so version bumps surface on the dashboard cards.
 gatus_infra_spec_path: "/etc/catena/gatus-infra-spec.json"
 # Host-side loopback port gatus-sync reads to reach /api/v1/endpoints/statuses.
 # gatus-sync runs as a systemd service on the host, outside catena-network,
@@ -95,14 +89,16 @@ gatus_infra_spec_path: "/etc/catena/gatus-infra-spec.json"
 # (loopback is never publicly reachable).
 gatus_host_localhost_port: 18080
 
-# gatus-sync (systemd timer + Actions tab button) regenerates
-# 50-catena-apps.yaml from `docker ps` labels. The script and its units ship in
-# the catena-admin payload; this role renders the env file and wires the timer.
+# gatus-sync (its timer, dashboard-sync and the converge start it) regenerates
+# 50-catena-apps.yaml from the app intent dashboard-sync writes, and
+# 40-infra.yaml from the spec above. The script and its units ship in the
+# catena-admin payload; this role renders the env file and wires the timer.
 gatus_sync_script_path: "/usr/local/bin/catena-gatus-sync"
 gatus_sync_env_path: "/etc/catena/gatus-sync.env"
 
-# gatus-sync also writes a small summary here on every run.
-# catena-admin reads it via the backup_stats_dir read-only bind-mount.
+# gatus-sync also writes its count of Gatus's endpoints up and down here on
+# every run. The panel's System tab reads it through the read-only bind-mount
+# of this directory (catena_admin_stats_dir).
 gatus_summary_dir: "{{ backup_stats_dir | default('/var/lib/catena') }}"
 gatus_summary_file: "{{ gatus_summary_dir }}/gatus-summary.json"
 
@@ -128,9 +124,6 @@ healthchecks_swarm_secrets:
   - base: healthchecks_email_password
     target: EMAIL_HOST_PASSWORD
     value: "{{ (smtp_password | default('')) if (infrastructure_smtp.enabled | bool) else '' }}"
-# Where gatus-sync writes the Healthchecks summary JSON. catena-admin
-# reads it via the backup_stats_dir read-only bind-mount.
-healthchecks_summary_file: "{{ backup_stats_dir | default('/var/lib/catena') }}/healthchecks-summary.json"
 # Host-side loopback port gatus-sync reads to reach /api/v3/checks/.
 # Gatus-sync runs as a systemd service on the host, outside catena-
 # network, so it can't resolve the container alias. 127.0.0.1:18000 is
@@ -251,7 +244,7 @@ heartbeat_check_slug: catena-heartbeat
 # maintain), on its own timer (catena-version-check.timer); gatus-sync reads
 # the latest report. When the Business managed-update engine is ALSO licensed
 # it writes its updater-state files, which version-check merges into the
-# report's summary card (absent on CE).
+# report (absent on CE).
 version_check_script_path: /usr/local/bin/catena-version-check
 version_check_overrides_file: /etc/catena/version-check-overrides.json
 version_check_output_file: /var/lib/catena/version-check.json

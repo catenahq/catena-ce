@@ -3,8 +3,7 @@
 
    version_key is the catena-version-check row whose version the endpoint name
    carries: the last path segment of the image the service runs
-   (quay.io/phasetwo/phasetwo-keycloak -> phasetwo-keycloak). null when no
-   running image backs the entry.
+   (quay.io/phasetwo/phasetwo-keycloak -> phasetwo-keycloak).
 
    An entry that reaches its service through the public edge, at a name under
    the domain, is written only while the edge serves the domain: a Cloudflare
@@ -75,35 +74,6 @@
     "alert_slug": "{{ healthchecks_hostname | lower | replace('.', '-') }}",
     "version_key": "healthchecks"
   },
-{% endif %}
-  {
-    "label": "Restic backup",
-    "url": "http://homepage-stats/backup-stats.json",
-    "group": "Infrastructure",
-    "accepted": [200],
-    "ignore_redirect": false,
-    "interval": "300s",
-    "alert_slug": "restic-backup",
-    "version_key": null,
-    "extra_conditions": [
-      "[BODY].status == ok"
-    ]
-  },
-  {
-    "label": "Container CVE inventory",
-    "url": "http://homepage-stats/container-cve-findings.json",
-    "group": "Infrastructure",
-    "accepted": [200],
-    "ignore_redirect": false,
-    "interval": "3600s",
-    "alert_slug": "container-cve-inventory",
-    "version_key": null,
-    "extra_conditions": [
-      "[BODY].count_critical == 0",
-      "[BODY].count_high <= {{ container_cve_high_threshold | default(10) }}"
-    ]
-  },
-{% if _through_the_edge %}
 {# The tunnel, through a name under the domain's wildcard that nothing routes:
    the Cloudflare edge hands it to this host's connector, which passes it to
    Traefik, and Traefik answers 404 for a host it has no route for. A connector
