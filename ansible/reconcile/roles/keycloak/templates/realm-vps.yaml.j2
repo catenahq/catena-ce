@@ -90,21 +90,20 @@ failureFactor: 30
 #   staff    the SMB's employees; departments are subgroups of /staff
 #   client   the SMB's external users (lowest authenticated tier)
 #   visitor  anonymous; see the note on the group below
-# /admin and /staff carry the tier roles the sign-in flows at the end of this
-# file check, and exactly those: a realm role added to either group by hand is
-# removed by the next converge. A department inherits /staff's.
+# /admin and /staff hold the tier roles the sign-in flows at the end of this
+# file check, catena-tier-admin and catena-tier-staff. realm_bootstrap.yml
+# creates them and grants each to its group after the import, adding only, so
+# a role mapped to either group by hand and a role added to a tier role stay;
+# this file declares neither the roles nor the groups' role mappings, which the
+# import would make exact. A department inherits /staff's.
 groups:
   - name: admin
     path: /admin
-    realmRoles:
-      - catena-tier-admin
   - name: staff
     path: /staff
-    realmRoles:
-      - catena-tier-staff
     # Departments are subgroups of staff, created in the Keycloak admin
-    # UI or the People panel; the NO_DELETE import keeps them.
-    # Examples (commented -- add your own or uncomment):
+    # UI or the People panel; the NO_DELETE import keeps them. Examples
+    # only: a department declared here would come back after every deletion.
     # subGroups:
     #   - name: sales
     #     path: /staff/sales
@@ -121,13 +120,6 @@ groups:
   # complete and discoverable in the admin panel.
   - name: visitor
     path: /visitor
-
-roles:
-  realm:
-    - name: catena-tier-admin
-      description: "Signs in to applications limited to administrators. Held through /admin."
-    - name: catena-tier-staff
-      description: "Signs in to applications open to staff. Held through /staff and its departments."
 
 {% if realm_seed | bool %}
 # Seed only, with the rest of the tunables above: which group a new account
@@ -179,7 +171,9 @@ defaultDefaultClientScopes:
 # Bootstrap admin user. `admin` is appended to every gated app's
 # allow-list by the auth engine (superuser), so a single `/admin`
 # membership reaches every app from day one -- no need to also list
-# staff/client.
+# staff/client. The import puts back /admin and the default roles and keeps
+# every other group and realm role given to this account by hand
+# (IMPORT_USERS_MERGE_* in ../tasks/_config_cli_import.yml).
 #
 # KC_BOOTSTRAP_ADMIN_* on the server container creates the admin's
 # account in the MASTER realm and NOWHERE ELSE. Keycloak users are

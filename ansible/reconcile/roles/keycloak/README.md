@@ -24,13 +24,15 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
    - `realm-vps.yaml.j2` plus the service-account clients render into
      `/etc/catena/keycloak/realms` (parent dir 0700) and import on every
      converge: the four-tier groups (`admin`, `staff`, `client`,
-     `visitor`) with their tier roles, the default client scopes, the
+     `visitor`), the default client scopes, the
      two sign-in flows applications are bound to by tier, the security
      posture, MFA enforcement and the realm's mail settings, all from the
      on-box store.
-   - After the import it reads the two sign-in flows' ids
-     (`keycloak_signin_flows`), which dashboard-sync's env file carries,
-     and fails the converge when either is missing.
+   - After the import it creates the tier roles the two flows check
+     (`catena-tier-admin`, `catena-tier-staff`) and grants each to its group
+     (`/admin`, `/staff`) with kcadm, adding only. It then reads the two
+     sign-in flows' ids (`keycloak_signin_flows`), which dashboard-sync's env
+     file carries, and fails the converge when either is missing.
    - The realm admin's password and the realm's tunable settings are a
      seed: rendered into `/etc/catena/keycloak/seed`, imported once while
      a bootstrap marker under `/var/lib/catena` is missing, then deleted.
@@ -55,8 +57,25 @@ Provision Keycloak as the stack's IdP (Phase Two distribution).
 
 - DB provision uses CREATE-IF-NOT-EXISTS; password rotation via
   ALTER ROLE.
-- The realm import is a merge with `IMPORT_MANAGED_*=NO_DELETE`: it
-  creates and updates what the files declare and deletes nothing.
+- The realm import (`tasks/_config_cli_import.yml`) creates and updates what
+  the files declare and deletes nothing (`IMPORT_MANAGED_*=NO_DELETE`); a
+  declared user keeps the groups and realm roles given to it by hand
+  (`IMPORT_USERS_MERGE_*`). Inside a declared object it is exact, so the files
+  declare only what Catena owns, and the next converge reverts a hand edit
+  there:
+  - the two sign-in flows and their step settings, which decide who may sign
+    in to an application limited to staff or administrators;
+  - the `groups` client scope's mapper and the realm's default client scopes:
+    the claims every application receives;
+  - the settings each client file declares for its own client;
+  - the MFA required action, the mail settings and the security posture,
+    which the panel's Settings own;
+  - each service account's client roles, which hold it to least privilege;
+  - the realm admin's account: enabled, email verified, and its roles on
+    application clients, which keycloak-config-cli has no setting to merge.
+- Everything else survives a converge: hand-made roles, groups, departments,
+  clients, flows and their settings, roles mapped to `/admin` or `/staff` or
+  added to a tier role, and the realm admin's other groups and realm roles.
 
 ## Related
 

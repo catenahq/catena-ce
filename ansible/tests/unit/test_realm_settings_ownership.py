@@ -63,10 +63,11 @@ SEEDED_ONCE = (
     "defaultLocale",
 )
 
-# The structure the product depends on. NO_DELETE already protects anything an
-# admin adds beside these, so asserting them costs nothing and dropping one
-# would leave a realm without the tier model the access matrix reads.
-STRUCTURE = ("groups", "roles", "clientScopes", "defaultDefaultClientScopes",
+# The structure the product depends on. NO_DELETE keeps any group, scope or flow
+# an admin adds beside these, and dropping one would leave a realm without the
+# tier model the access matrix reads. The tier roles are the converge's kcadm
+# step (realm_bootstrap.yml), which only adds.
+STRUCTURE = ("groups", "clientScopes", "defaultDefaultClientScopes",
              "authenticationFlows", "authenticatorConfig")
 
 _GUARD_OPEN = re.compile(r"\{%\s*if\s+realm_seed\s*\|\s*bool\s*%\}")

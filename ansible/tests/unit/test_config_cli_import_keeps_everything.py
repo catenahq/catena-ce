@@ -1,12 +1,21 @@
 """The realm import deletes nothing: every managed-entity type of the pinned
-keycloak-config-cli release is set to NO_DELETE.
+keycloak-config-cli release is set to NO_DELETE, and a declared user keeps the
+groups and realm roles given to it by hand.
 
 keycloak-config-cli defaults most `import.managed.*` types to FULL, which
 deletes every entity of that type a file does not declare, and each per-app
-realm file declares only its own. MANAGED is the property list of the release
-keycloak_config_cli_image_tag pins (its src/main/resources/application.properties);
-a tag bump fails test_the_list_is_the_pinned_releases until MANAGED is read
+realm file declares only its own. MANAGED is the field list of the release
+keycloak_config_cli_image_tag pins (ImportConfigProperties.ImportManagedProperties
+in src/main/java/de/adorsys/keycloak/config/properties/ImportConfigProperties.java;
+its application.properties leaves out sub-group and organization). sub-group
+FULL deletes every department under /staff whenever the import updates /staff.
+A tag bump fails test_the_list_is_the_pinned_releases until MANAGED is read
 again from the new release.
+
+Without import.users.merge-groups and merge-roles the import removes every
+group and realm role a declared user holds beyond its file's list
+(UserImportService handleGroups and handleRealmRoles), so the realm admin would
+lose each department or role given to it by hand on every converge.
 
 Run: uv run pytest tests/unit/test_config_cli_import_keeps_everything.py
 """
@@ -23,11 +32,11 @@ DEFAULTS = ROLE / "defaults" / "main.yml"
 
 RELEASE = "6.5.1"
 MANAGED = (
-    "authentication-flow", "group", "required-action", "client-scope",
-    "scope-mapping", "client-scope-mapping", "component", "sub-component",
+    "required-action", "group", "sub-group", "client-scope", "scope-mapping",
+    "client-scope-mapping", "component", "sub-component", "authentication-flow",
     "identity-provider", "identity-provider-mapper", "role", "client",
     "client-authorization-resources", "client-authorization-policies",
-    "client-authorization-scopes", "message-bundles", "workflow",
+    "client-authorization-scopes", "message-bundles", "organization", "workflow",
 )
 
 
@@ -54,3 +63,11 @@ def test_no_managed_type_is_set_otherwise():
     managed = [a for a in _argv() if a.startswith("IMPORT_MANAGED_")]
     assert all(a.endswith("=NO_DELETE") for a in managed), managed
     assert len(managed) == len(MANAGED)
+
+
+def test_a_declared_user_keeps_its_hand_given_groups_and_realm_roles():
+    argv = _argv()
+    assert "IMPORT_USERS_MERGE_GROUPS=true" in argv
+    assert "IMPORT_USERS_MERGE_ROLES=true" in argv
+    assert [a for a in argv if a.startswith("IMPORT_USERS_")] == [
+        "IMPORT_USERS_MERGE_GROUPS=true", "IMPORT_USERS_MERGE_ROLES=true"]

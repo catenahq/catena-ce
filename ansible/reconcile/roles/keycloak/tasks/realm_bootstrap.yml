@@ -539,6 +539,42 @@
           - /tmp/master-profile-restored.json
       changed_when: true
 
+# The tier roles the sign-in flows of realm-vps.yaml.j2 check, each held
+# through its group. keycloak-config-cli makes a declared role's composites and
+# a declared group's role mappings exact, so the realm file declares neither and
+# this task only adds: a missing tier role is created, a group without its tier
+# role gets it back, and a role an admin maps to /admin or /staff, or adds to a
+# tier role, stays. Runs on the kcadm session the login above opened.
+- name: "Keycloak realm: each tier group holds its tier role"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kc() { docker exec {{ _keycloak_realm_server_ct.stdout | quote }} /opt/keycloak/bin/kcadm.sh "$@"; }
+    realm={{ keycloak_realm | quote }}
+    role={{ item.role | quote }}
+    group={{ ('/' ~ item.group) | quote }}
+    if ! kc get "roles/$role" -r "$realm" >/dev/null 2>&1; then
+      kc create roles -r "$realm" -s "name=$role" -s {{ ('description=' ~ item.description) | quote }}
+      echo "created: $role"
+    fi
+    held=$(kc get-roles -r "$realm" --gpath "$group" --fields name --format csv --noquotes)
+    if ! grep -qxF "$role" <<<"$held"; then
+      kc add-roles -r "$realm" --gpath "$group" --rolename "$role"
+      echo "granted: $role to $group"
+    fi
+  args:
+    executable: /bin/bash
+  loop:
+    - group: admin
+      role: catena-tier-admin
+      description: "Signs in to applications limited to administrators. Held through /admin."
+    - group: staff
+      role: catena-tier-staff
+      description: "Signs in to applications open to staff. Held through /staff and its departments."
+  loop_control:
+    label: "/{{ item.group }}: {{ item.role }}"
+  register: _keycloak_tier_role
+  changed_when: "'created:' in _keycloak_tier_role.stdout or 'granted:' in _keycloak_tier_role.stdout"
+
 # The ids of the two sign-in flows realm-vps.yaml.j2 declares, for
 # dashboard-sync (reconcile/roles/infrastructure/templates/dashboard-sync.env.j2):
 # a client's flow binding takes an id, and the sync's service account manages

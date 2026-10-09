@@ -147,14 +147,13 @@ def test_every_sub_flow_is_declared_once():
     assert sorted(referenced) == sorted(a for a in aliases if a not in ADMITTED)
 
 
-def test_the_tier_roles_come_from_the_admin_and_staff_groups():
+def test_the_realm_file_leaves_the_tier_roles_to_the_converge():
+    """keycloak-config-cli makes a declared role's composites and a declared
+    group's role mappings exact, so the file declares neither; the converge
+    creates the tier roles and grants them (test_realm_tier_roles.py)."""
     realm = _realm()
-    roles = {r["name"] for r in realm["roles"]["realm"]}
-    assert roles == {"catena-tier-admin", "catena-tier-staff"}
-    groups = {g["name"]: g.get("realmRoles") for g in realm["groups"]}
-    assert groups["admin"] == ["catena-tier-admin"]
-    assert groups["staff"] == ["catena-tier-staff"]
-    assert groups["client"] is None and groups["visitor"] is None
+    assert "roles" not in realm
+    assert all("realmRoles" not in g and "clientRoles" not in g for g in realm["groups"])
 
 
 def test_new_clients_get_keycloaks_basic_and_acr_scopes():

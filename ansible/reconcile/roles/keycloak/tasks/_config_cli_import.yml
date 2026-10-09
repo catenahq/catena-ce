@@ -86,16 +86,28 @@
       # COMPLETENESS IS THE WHOLE PROPERTY. keycloak-config-cli defaults most
       # managed-entity types to FULL, so a type this list does not name is a
       # type whose entities get DELETED when a per-app YAML does not declare
-      # them. The list names every `import.managed.*` property of the release
-      # keycloak_config_cli_image_tag pins (../defaults/main.yml; the
-      # release's src/main/resources/application.properties).
+      # them. sub-group FULL deletes every department under /staff whenever
+      # the import updates /staff. The list names every field of
+      # ImportManagedProperties in the release keycloak_config_cli_image_tag
+      # pins (../defaults/main.yml; the release's
+      # src/main/java/de/adorsys/keycloak/config/properties/ImportConfigProperties.java,
+      # whose application.properties leaves out sub-group and organization).
       # tests/unit/test_config_cli_import_keeps_everything.py holds that
-      # release's property list and fails when the tag moves, so a bump
-      # diffs this block against the new release's properties.
+      # release's list and fails when the tag moves, so a bump diffs this
+      # block against the new release's properties.
+      #
+      # NO_DELETE stops deletions only. Inside an object a file declares, the
+      # import is exact: a declared role's composites, a declared group's role
+      # mappings, a declared user's client roles, a declared flow's steps, a
+      # declared client scope's mappers and the realm's default client scopes;
+      # and it deletes every authenticator config no flow step uses. So the
+      # realm files declare only what Catena owns outright (../README.md).
       - -e
       - "IMPORT_MANAGED_CLIENT=NO_DELETE"
       - -e
       - "IMPORT_MANAGED_GROUP=NO_DELETE"
+      - -e
+      - "IMPORT_MANAGED_SUB_GROUP=NO_DELETE"
       - -e
       - "IMPORT_MANAGED_REQUIRED_ACTION=NO_DELETE"
       - -e
@@ -125,7 +137,17 @@
       - -e
       - "IMPORT_MANAGED_MESSAGE_BUNDLES=NO_DELETE"
       - -e
+      - "IMPORT_MANAGED_ORGANIZATION=NO_DELETE"
+      - -e
       - "IMPORT_MANAGED_WORKFLOW=NO_DELETE"
+      # A declared user (the realm admin, the service accounts) keeps the
+      # groups and realm roles given to it by hand: the import adds the ones
+      # its file names and removes none. Its client roles stay exact, which is
+      # what holds each service account to its realm-management roles.
+      - -e
+      - "IMPORT_USERS_MERGE_GROUPS=true"
+      - -e
+      - "IMPORT_USERS_MERGE_ROLES=true"
       - -v
       - "{{ kc_import_dir }}:/config:ro"
       - "{{ keycloak_config_cli_image }}"
